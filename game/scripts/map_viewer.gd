@@ -34,6 +34,7 @@ var style_materials: Dictionary = {}
 var capture_frame := 0
 var capture_samples_ms: Array[float] = []
 var photo_pilot: Dictionary
+var mall_exterior_study: Dictionary
 var photo_overlay_texture: Texture2D
 var greenbelt_center := Vector2.ZERO
 var greenbelt_radius := 0.0
@@ -45,8 +46,9 @@ func _ready() -> void:
 	manifest = JSON.parse_string(FileAccess.get_file_as_string(MAP_PATH + "manifest.json"))
 	features = JSON.parse_string(FileAccess.get_file_as_string(MAP_PATH + "features.json"))
 	photo_pilot = JSON.parse_string(FileAccess.get_file_as_string(MAP_PATH + "photo_pilot.json"))
+	mall_exterior_study = JSON.parse_string(FileAccess.get_file_as_string(MAP_PATH + "mall_exterior_study.json"))
 	var style_catalog: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(STYLE_PATH))
-	if manifest.is_empty() or features.is_empty() or photo_pilot.is_empty() or style_catalog.is_empty():
+	if manifest.is_empty() or features.is_empty() or photo_pilot.is_empty() or mall_exterior_study.is_empty() or style_catalog.is_empty():
 		push_error("Map package is missing or invalid")
 		get_tree().quit(1)
 		return
@@ -135,7 +137,7 @@ func _setup_scene() -> void:
 	credit.offset_right = 900
 	credit.offset_top = -46
 	credit.offset_bottom = -10
-	credit.text = "Terrain: USGS 3DEP  •  Features: © OpenStreetMap contributors (ODbL)  •  Trees illustrative\nPhoto cues: Julia Duffy (public domain), Larry D. Moore (CC BY 4.0); full credits in game/CREDITS.md"
+	credit.text = "Terrain: USGS 3DEP  •  Features: © OpenStreetMap contributors (ODbL)  •  Trees illustrative\nPhoto cues: Julia Duffy (public domain), Larry D. Moore (CC BY 4.0); mall facade/signs study the 2020 photo"
 	credit.add_theme_font_size_override("font_size", 13)
 	credit.add_theme_color_override("font_color", Color(0.98, 0.96, 0.88))
 	credit.add_theme_color_override("font_shadow_color", Color(0.06, 0.11, 0.09))
@@ -407,6 +409,7 @@ func _build_mapped_features() -> void:
 	_build_landmark_buildings(landmarks, "Other mapped landmarks", "building")
 	_build_landmark_buildings(mall_landmarks, "Barton Creek Square outline", "mall")
 	_build_mall_glazing(mall_landmarks)
+	_build_mall_exterior_study()
 
 
 func _build_landmark_buildings(items: Array, name: String, role: String) -> void:
@@ -523,6 +526,110 @@ func _build_mall_glazing(items: Array) -> void:
 	add_child(instance)
 
 
+func _build_mall_exterior_study() -> void:
+	# These independent components can be revised without changing the mapped footprint.
+	# Their placement and heights are visual interpretation of the credited 2020 photo.
+	for volume in mall_exterior_study["volumes"]:
+		var a := Vector2(float(volume["front_a"][0]), float(volume["front_a"][1]))
+		var b := Vector2(float(volume["front_b"][0]), float(volume["front_b"][1]))
+		var edge := b - a
+		var length := edge.length()
+		var direction := edge / length
+		var outward := Vector2(-direction.y, direction.x)
+		if outward.x > 0.0:
+			outward = -outward
+		var depth := float(volume["depth_m"])
+		var yaw_rad := -atan2(direction.y, direction.x)
+		var front_mid := (a + b) * 0.5
+		var body_center := front_mid - outward * (depth * 0.5 - 0.1)
+		var ground_a := _height_at(a.x, a.y)
+		var ground_b := _height_at(b.x, b.y)
+		var base_y := minf(ground_a, ground_b) - 2.0
+		var roof_y := (ground_a + ground_b) * 0.5 + float(volume["height_m"])
+		var body_height := roof_y - base_y
+		var stem := "Illustrative mall %s" % volume["id"]
+		_add_mall_box(stem + " mass", Vector3(body_center.x, base_y + body_height * 0.5, body_center.y), Vector3(length, body_height, depth), yaw_rad, volume["body_role"])
+		_add_mall_box(stem + " parapet", Vector3(body_center.x, roof_y, body_center.y), Vector3(length + 0.8, 0.9, depth + 0.8), yaw_rad, "mall_trim")
+
+		var entrance := a.lerp(b, float(volume["entrance_fraction"]))
+		var entry_ground := _height_at(entrance.x, entrance.y)
+		var entry_height := float(volume["entrance_height_m"])
+		var entry_width := float(volume["entrance_width_m"])
+		var front := entrance + outward * 0.28
+		_add_mall_box(stem + " glazed entrance", Vector3(front.x, entry_ground + entry_height * 0.5, front.y), Vector3(entry_width, entry_height, 0.3), yaw_rad, "glass")
+		var frame_front := entrance + outward * 0.53
+		for side in [-1.0, 1.0]:
+			var post: Vector2 = frame_front + direction * (float(side) * (entry_width * 0.5 + 0.6))
+			_add_mall_box(stem + " entry pier", Vector3(post.x, entry_ground + entry_height * 0.5, post.y), Vector3(1.2, entry_height + 0.6, 0.75), yaw_rad, "mall_trim")
+		_add_mall_box(stem + " entry lintel", Vector3(frame_front.x, entry_ground + entry_height + 0.25, frame_front.y), Vector3(entry_width + 2.5, 0.7, 0.85), yaw_rad, "mall_trim")
+		for section in range(1, 4):
+			var mullion := front + direction * ((float(section) / 4.0 - 0.5) * entry_width) + outward * 0.18
+			_add_mall_box(stem + " glass mullion", Vector3(mullion.x, entry_ground + entry_height * 0.5, mullion.y), Vector3(0.18, entry_height, 0.2), yaw_rad, "mall_trim")
+		var sign_position := entrance + outward * 0.9
+		var sign := Label3D.new()
+		sign.name = stem + " historical sign"
+		sign.text = volume["sign"]
+		sign.font_size = 128
+		sign.pixel_size = 0.03
+		sign.billboard = BaseMaterial3D.BILLBOARD_DISABLED
+		sign.double_sided = true
+		sign.modulate = _rgb(volume["sign_color"])
+		sign.position = Vector3(sign_position.x, roof_y - 2.35, sign_position.y)
+		sign.rotation.y = yaw_rad if Vector2(-direction.y, direction.x).dot(outward) > 0.0 else yaw_rad + PI
+		add_child(sign)
+	_build_mall_parking_study()
+
+
+func _build_mall_parking_study() -> void:
+	var trunk_mesh := CylinderMesh.new()
+	trunk_mesh.top_radius = 0.11
+	trunk_mesh.bottom_radius = 0.22
+	trunk_mesh.height = 1.0
+	trunk_mesh.radial_segments = 5
+	var canopy_mesh := SphereMesh.new()
+	canopy_mesh.radius = 1.0
+	canopy_mesh.height = 2.0
+	canopy_mesh.radial_segments = 6
+	canopy_mesh.rings = 3
+	var pole_mesh := CylinderMesh.new()
+	pole_mesh.top_radius = 0.08
+	pole_mesh.bottom_radius = 0.16
+	pole_mesh.height = 1.0
+	pole_mesh.radial_segments = 5
+	var trunks := []
+	var canopies := []
+	var poles := []
+	for tree in mall_exterior_study["parking_trees"]:
+		var x := float(tree[0])
+		var z := float(tree[1])
+		var height := float(tree[2])
+		var ground := _height_at(x, z)
+		var trunk_height := height * 0.46
+		trunks.append(Transform3D(Basis.IDENTITY.scaled(Vector3(1.0, trunk_height, 1.0)), Vector3(x, ground + trunk_height * 0.5, z)))
+		canopies.append(Transform3D(Basis.IDENTITY.scaled(Vector3(height * 0.23, height * 0.29, height * 0.23)), Vector3(x, ground + height * 0.72, z)))
+	for pole in mall_exterior_study["light_poles"]:
+		var x := float(pole[0])
+		var z := float(pole[1])
+		var ground := _height_at(x, z)
+		poles.append(Transform3D(Basis.IDENTITY.scaled(Vector3(1.0, 11.0, 1.0)), Vector3(x, ground + 5.5, z)))
+		_add_mall_box("Illustrative parking light", Vector3(x + 0.65, ground + 11.0, z), Vector3(1.3, 0.32, 0.45), 0.0, "mall_trim")
+	_multimesh_instances("Illustrative mall parking tree trunks", trunk_mesh, _style_material("trunk"), trunks)
+	_multimesh_instances("Illustrative mall parking tree canopies", canopy_mesh, _style_material("canopy"), canopies)
+	_multimesh_instances("Illustrative mall parking light poles", pole_mesh, _style_material("mall_trim"), poles)
+
+
+func _add_mall_box(name: String, center: Vector3, size: Vector3, yaw_rad: float, role: String) -> void:
+	var box := BoxMesh.new()
+	box.size = size
+	var instance := MeshInstance3D.new()
+	instance.name = name
+	instance.mesh = box
+	instance.material_override = _style_material(role)
+	instance.position = center
+	instance.rotation.y = yaw_rad
+	add_child(instance)
+
+
 func _build_water_areas() -> void:
 	var vertices := PackedVector3Array()
 	var normals := PackedVector3Array()
@@ -633,6 +740,7 @@ func _build_parking_markings() -> void:
 
 
 func _jump_to_view(view: String) -> void:
+	camera.fov = 75.0
 	match view:
 		"pin":
 			camera.position = Vector3(0.0, _height_at(0, 350) + 55.0, 350.0)
@@ -648,9 +756,11 @@ func _jump_to_view(view: String) -> void:
 			yaw = camera.rotation.y
 			pitch = camera.rotation.x
 		"mall":
-			camera.position = Vector3(10.0, _height_at(10, -760) + 13.0, -760.0)
-			yaw = -1.55
-			pitch = -0.08
+			camera.position = Vector3(65.0, _height_at(65, -820) + 8.0, -820.0)
+			camera.fov = 58.0
+			camera.look_at(Vector3(175.0, _height_at(175, -815) + 7.0, -815.0), Vector3.UP)
+			yaw = camera.rotation.y
+			pitch = camera.rotation.x
 		_:
 			return
 	camera.rotation = Vector3(pitch, yaw, 0.0)
