@@ -5,22 +5,29 @@ extends Node3D
 const MAP_PATH := "res://maps/barton_creek/"
 const STYLE_PATH := "res://styles/greenbelt_styles.json"
 const MAX_SEGMENT_M := 18.0
+const MAP_RUNTIME_SCRIPT := preload("res://scripts/map_runtime.gd")
+const WORKSHOP_RUNTIME_SCRIPT := preload("res://scripts/workshop_runtime.gd")
+const PLAYER_TEST_SCENE := preload("res://scenes/player_test.tscn")
+const TERRAIN_COLLISION_SCRIPT := preload("res://scripts/terrain_collision_streamer.gd")
 
 var manifest: Dictionary
 var features: Dictionary
-var height_bytes: PackedByteArray
+var map_runtime
+var workshop_runtime
 var grid_side: int
 var map_side_m: int
 var sample_spacing_m: int
 var tile_side_m: int
-var height_offset_m: float
-var height_scale_m: float
 var height_origin_m: float
 var height_min_m: float
 var height_max_m: float
 var tiles: Dictionary = {}
 var pending_lod: Array[Vector2i] = []
 var camera: Camera3D
+var player_body
+var walk_camera: Camera3D
+var terrain_colliders
+var walking := false
 var sunlight: DirectionalLight3D
 var world_settings: Environment
 var status_label: Label
@@ -43,8 +50,13 @@ var mall_radius := 0.0
 
 
 func _ready() -> void:
-	manifest = JSON.parse_string(FileAccess.get_file_as_string(MAP_PATH + "manifest.json"))
-	features = JSON.parse_string(FileAccess.get_file_as_string(MAP_PATH + "features.json"))
+	map_runtime = MAP_RUNTIME_SCRIPT.new()
+	if not map_runtime.load_package(MAP_PATH, "barton_creek_v0"):
+		push_error("Map package failed validation: " + map_runtime.last_error)
+		get_tree().quit(1)
+		return
+	manifest = map_runtime.manifest
+	features = map_runtime.features
 	photo_pilot = JSON.parse_string(FileAccess.get_file_as_string(MAP_PATH + "photo_pilot.json"))
 	mall_exterior_study = JSON.parse_string(FileAccess.get_file_as_string(MAP_PATH + "mall_exterior_study.json"))
 	var style_catalog: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(STYLE_PATH))
@@ -67,20 +79,13 @@ func _ready() -> void:
 	greenbelt_radius = float(photo_pilot["greenbelt_pilot"]["radius_m"])
 	mall_center = Vector2(float(photo_pilot["mall_pilot"]["center_x_m"]), float(photo_pilot["mall_pilot"]["center_z_m"]))
 	mall_radius = float(photo_pilot["mall_pilot"]["radius_m"])
-	height_bytes = FileAccess.get_file_as_bytes(MAP_PATH + "heights.r16")
 	grid_side = int(manifest["grid_side"])
 	map_side_m = int(manifest["side_m"])
 	sample_spacing_m = int(manifest["sample_spacing_m"])
 	tile_side_m = int(manifest["tile_side_m"])
-	height_offset_m = float(manifest["height_offset_m"])
-	height_scale_m = float(manifest["height_scale_m"])
 	height_origin_m = float(manifest["height_origin_m"])
 	height_min_m = float(manifest["height_min_m"])
 	height_max_m = float(manifest["height_max_m"])
-	if height_bytes.size() != grid_side * grid_side * 2:
-		push_error("Height grid size does not match manifest")
-		get_tree().quit(1)
-		return
 	_setup_scene()
 	_setup_materials()
 	_apply_style()
@@ -90,6 +95,9 @@ func _ready() -> void:
 	_build_parking_markings()
 	_build_trees()
 	_build_photo_rocks()
+	workshop_runtime = WORKSHOP_RUNTIME_SCRIPT.new()
+	workshop_runtime.configure(self)
+	add_child(workshop_runtime)
 	_refresh_lod_targets()
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 	print("Barton Creek map loaded: ", manifest["feature_counts"])
@@ -103,6 +111,16 @@ func _setup_scene() -> void:
 	camera.position = Vector3(0.0, 115.0, 350.0)
 	camera.rotation = Vector3(pitch, yaw, 0.0)
 	add_child(camera)
+	player_body = PLAYER_TEST_SCENE.instantiate()
+	add_child(player_body)
+	player_body.configure(Callable(map_runtime, "surface_height_at"), float(map_side_m))
+	walk_camera = player_body.get_node("TestCamera")
+	walk_camera.current = false
+	terrain_colliders = TERRAIN_COLLISION_SCRIPT.new()
+	terrain_colliders.name = "ActiveTerrainColliders"
+	add_child(terrain_colliders)
+	terrain_colliders.configure(map_runtime, map_side_m, sample_spacing_m)
+	player_body.recovered.connect(terrain_colliders.update_center)
 
 	sunlight = DirectionalLight3D.new()
 	sunlight.name = "Sun"
@@ -186,23 +204,14 @@ func _apply_style() -> void:
 
 
 func _height_at_grid(row: int, column: int) -> float:
-	row = clampi(row, 0, grid_side - 1)
-	column = clampi(column, 0, grid_side - 1)
-	var index: int = (row * grid_side + column) * 2
-	return height_offset_m + float(height_bytes.decode_u16(index)) * height_scale_m - height_origin_m
+	return map_runtime.height_at_grid(row, column)
 
 
 func _height_at(x: float, z: float) -> float:
+	# Viewer cameras may fly outside the map. The runtime's public query returns NAN
+	# there; clamp only this presentation adapter to preserve its old horizon behavior.
 	var half: float = map_side_m * 0.5
-	var column: float = clampf((x + half) / sample_spacing_m, 0.0, grid_side - 1.0)
-	var row: float = clampf((z + half) / sample_spacing_m, 0.0, grid_side - 1.0)
-	var x0 := int(floor(column))
-	var y0 := int(floor(row))
-	var fx := column - x0
-	var fy := row - y0
-	var upper := lerpf(_height_at_grid(y0, x0), _height_at_grid(y0, x0 + 1), fx)
-	var lower := lerpf(_height_at_grid(y0 + 1, x0), _height_at_grid(y0 + 1, x0 + 1), fx)
-	return lerpf(upper, lower, fy)
+	return map_runtime.height_at(clampf(x, -half, half), clampf(z, -half, half))
 
 
 func _tile_center(row: int, column: int) -> Vector2:
@@ -243,31 +252,114 @@ func _make_tile_mesh(tile_row: int, tile_column: int, step_m: int) -> ArrayMesh:
 	var colors := PackedColorArray()
 	var uvs := PackedVector2Array()
 	var indices := PackedInt32Array()
+	var coarse_vertex_count := (samples + 1) * (samples + 1)
+	vertices.resize(coarse_vertex_count)
+	normals.resize(coarse_vertex_count)
+	colors.resize(coarse_vertex_count)
+	uvs.resize(coarse_vertex_count)
+	# The fine tile reuses each source sample for height and four slope taps.
+	# Cache one-sample halo once rather than decoding the same grid point in
+	# five GDScript calls per vertex. Coarser tiles keep their tiny direct path.
+	var cached_heights := PackedFloat32Array()
+	var cache_side := samples + 3
+	if step_m == sample_spacing_m:
+		cached_heights.resize(cache_side * cache_side)
+		for cache_row in range(cache_side):
+			for cache_column in range(cache_side):
+				cached_heights[cache_row * cache_side + cache_column] = _height_at_grid(origin_row + cache_row - 1, origin_col + cache_column - 1)
+	var interior_cells := samples * samples if step_m == sample_spacing_m else maxi(0, samples - 2) * maxi(0, samples - 2)
+	indices.resize(interior_cells * 6)
+	var index_cursor := 0
 	for row in range(samples + 1):
 		for column in range(samples + 1):
 			var grid_row := origin_row + row * stride
 			var grid_column := origin_col + column * stride
 			var x: float = -half + grid_column * sample_spacing_m
 			var z: float = -half + grid_row * sample_spacing_m
-			var y := _height_at_grid(grid_row, grid_column)
-			var dx := (_height_at_grid(grid_row, grid_column + 1) - _height_at_grid(grid_row, grid_column - 1)) / float(sample_spacing_m * 2)
-			var dz := (_height_at_grid(grid_row + 1, grid_column) - _height_at_grid(grid_row - 1, grid_column)) / float(sample_spacing_m * 2)
+			var y: float
+			var dx: float
+			var dz: float
+			if not cached_heights.is_empty():
+				var cache_index := (row + 1) * cache_side + column + 1
+				y = cached_heights[cache_index]
+				dx = (cached_heights[cache_index + 1] - cached_heights[cache_index - 1]) / float(sample_spacing_m * 2)
+				dz = (cached_heights[cache_index + cache_side] - cached_heights[cache_index - cache_side]) / float(sample_spacing_m * 2)
+			else:
+				y = _height_at_grid(grid_row, grid_column)
+				dx = (_height_at_grid(grid_row, grid_column + 1) - _height_at_grid(grid_row, grid_column - 1)) / float(sample_spacing_m * 2)
+				dz = (_height_at_grid(grid_row + 1, grid_column) - _height_at_grid(grid_row - 1, grid_column)) / float(sample_spacing_m * 2)
 			var slope := sqrt(dx * dx + dz * dz)
 			var absolute_m := y + height_origin_m
 			var relief: float = clampf((absolute_m - height_min_m) / maxf(1.0, height_max_m - height_min_m), 0.0, 1.0)
 			var steepness := clampf((slope - 0.55) / 1.5, 0.0, 0.8)
-			vertices.push_back(Vector3(x, y, z))
-			normals.push_back(Vector3(-dx, 1.0, -dz).normalized())
+			var vertex_index := row * (samples + 1) + column
+			vertices[vertex_index] = Vector3(x, y, z)
+			normals[vertex_index] = Vector3(-dx, 1.0, -dz).normalized()
 			# Store source-derived measures; the style recipe chooses their colors.
-			colors.push_back(Color(relief, steepness, 0.0, 1.0))
-			uvs.push_back(Vector2((x + half) / map_side_m, (z + half) / map_side_m))
+			colors[vertex_index] = Color(relief, steepness, 0.0, 1.0)
+			uvs[vertex_index] = Vector2((x + half) / map_side_m, (z + half) / map_side_m)
 	for row in range(samples):
 		for column in range(samples):
+			if step_m > sample_spacing_m and (row == 0 or column == 0 or row == samples - 1 or column == samples - 1):
+				continue # A narrow stitched ring replaces the coarse outer cells below.
 			var a := row * (samples + 1) + column
 			var b := a + 1
 			var c := a + samples + 1
 			var d := c + 1
-			indices.append_array(PackedInt32Array([a, c, b, b, c, d]))
+			indices[index_cursor] = a
+			indices[index_cursor + 1] = c
+			indices[index_cursor + 2] = b
+			indices[index_cursor + 3] = b
+			indices[index_cursor + 4] = c
+			indices[index_cursor + 5] = d
+			index_cursor += 6
+	if step_m > sample_spacing_m:
+		# Every tile exposes the same 2 m source-height samples on its perimeter.
+		# Only its outermost coarse-cell ring is refined; the interior keeps its LOD.
+		for cell_row in range(samples):
+			for cell_column in range(samples):
+				if cell_row != 0 and cell_column != 0 and cell_row != samples - 1 and cell_column != samples - 1:
+					continue
+				var x0: float = -half + tile_column * tile_side_m + cell_column * step_m
+				var z0: float = -half + tile_row * tile_side_m + cell_row * step_m
+				var x1 := x0 + step_m
+				var z1 := z0 + step_m
+				# Walk the rectangle counterclockwise as seen from above. Subdivide
+				# only sides touching the tile perimeter; inner edges remain coarse.
+				var corners := PackedVector2Array([
+					Vector2(x0, z0), Vector2(x0, z1),
+					Vector2(x1, z1), Vector2(x1, z0),
+				])
+				var subdivisions := PackedInt32Array([
+					stride if cell_column == 0 else 1,
+					stride if cell_row == samples - 1 else 1,
+					stride if cell_column == samples - 1 else 1,
+					stride if cell_row == 0 else 1,
+				])
+				var perimeter := PackedVector2Array()
+				for side in range(4):
+					for section in range(subdivisions[side]):
+						perimeter.push_back(corners[side].lerp(corners[(side + 1) % 4], float(section) / subdivisions[side]))
+				var vertex_start := vertices.size()
+				perimeter.push_back(Vector2((x0 + x1) * 0.5, (z0 + z1) * 0.5))
+				for location in perimeter:
+					var grid_column := int(round((location.x + half) / sample_spacing_m))
+					var grid_row := int(round((location.y + half) / sample_spacing_m))
+					var y := _height_at_grid(grid_row, grid_column)
+					var dx := (_height_at_grid(grid_row, grid_column + 1) - _height_at_grid(grid_row, grid_column - 1)) / float(sample_spacing_m * 2)
+					var dz := (_height_at_grid(grid_row + 1, grid_column) - _height_at_grid(grid_row - 1, grid_column)) / float(sample_spacing_m * 2)
+					var slope := sqrt(dx * dx + dz * dz)
+					var absolute_m := y + height_origin_m
+					var relief: float = clampf((absolute_m - height_min_m) / maxf(1.0, height_max_m - height_min_m), 0.0, 1.0)
+					var steepness := clampf((slope - 0.55) / 1.5, 0.0, 0.8)
+					vertices.push_back(Vector3(location.x, y, location.y))
+					normals.push_back(Vector3(-dx, 1.0, -dz).normalized())
+					colors.push_back(Color(relief, steepness, 0.0, 1.0))
+					uvs.push_back(Vector2((location.x + half) / map_side_m, (location.y + half) / map_side_m))
+				var center_index := vertices.size() - 1
+				var edge_count := perimeter.size() - 1
+				for edge in range(edge_count):
+					indices.append_array(PackedInt32Array([center_index, vertex_start + edge, vertex_start + (edge + 1) % edge_count]))
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = vertices
@@ -768,16 +860,48 @@ func _jump_to_view(view: String) -> void:
 		_refresh_lod_targets()
 
 
+func _set_walking_mode(enable: bool) -> void:
+	if walking == enable:
+		return
+	if enable:
+		if not player_body.spawn_at(camera.position.x, camera.position.z, yaw, false):
+			return
+		terrain_colliders.activate(player_body.global_position)
+		player_body.activate()
+		walk_camera.rotation.x = pitch
+		camera.current = false
+		walk_camera.current = true
+		walking = true
+	else:
+		player_body.suspend()
+		camera.position = walk_camera.global_position
+		yaw = player_body.rotation.y
+		pitch = walk_camera.rotation.x
+		camera.rotation = Vector3(pitch, yaw, 0.0)
+		walk_camera.current = false
+		camera.current = true
+		terrain_colliders.deactivate()
+		walking = false
+
+
 func _input(event: InputEvent) -> void:
-	if event is InputEventKey and event.pressed:
+	if event is InputEventKey and event.pressed and not event.echo:
 		match event.keycode:
 			KEY_ESCAPE:
 				Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
+			KEY_TAB:
+				_set_walking_mode(not walking)
+			KEY_R:
+				if walking:
+					player_body.recover()
 			KEY_1:
+				_set_walking_mode(false)
 				_jump_to_view("pin")
 			KEY_2:
+				_set_walking_mode(false)
 				_jump_to_view("greenbelt")
 			KEY_3:
+				_set_walking_mode(false)
 				_jump_to_view("mall")
 			KEY_4, KEY_5, KEY_6:
 				style_index = int(event.keycode) - KEY_4
@@ -785,32 +909,41 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 	if event is InputEventMouseMotion and Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
-		yaw -= event.relative.x * 0.0025
-		pitch = clampf(pitch - event.relative.y * 0.0025, -1.55, 1.35)
-		camera.rotation = Vector3(pitch, yaw, 0)
+		if walking:
+			player_body.rotation.y -= event.relative.x * 0.0025
+			walk_camera.rotation.x = clampf(walk_camera.rotation.x - event.relative.y * 0.0025, -1.45, 1.2)
+		else:
+			yaw -= event.relative.x * 0.0025
+			pitch = clampf(pitch - event.relative.y * 0.0025, -1.55, 1.35)
+			camera.rotation = Vector3(pitch, yaw, 0)
 
 
 func _process(delta: float) -> void:
 	if camera == null:
 		return
-	var direction := Vector3.ZERO
-	if Input.is_key_pressed(KEY_W):
-		direction -= camera.global_basis.z
-	if Input.is_key_pressed(KEY_S):
-		direction += camera.global_basis.z
-	if Input.is_key_pressed(KEY_D):
-		direction += camera.global_basis.x
-	if Input.is_key_pressed(KEY_A):
-		direction -= camera.global_basis.x
-	if Input.is_key_pressed(KEY_SPACE):
-		direction.y += 1.0
-	if Input.is_key_pressed(KEY_CTRL):
-		direction.y -= 1.0
-	var speed := 90.0 if Input.is_key_pressed(KEY_SHIFT) else 35.0
-	if direction.length_squared() > 0:
-		camera.position += direction.normalized() * speed * delta
+	if walking:
+		terrain_colliders.update_center(player_body.global_position)
+		camera.position = walk_camera.global_position # Preserve visual LOD's camera anchor.
+	else:
+		var direction := Vector3.ZERO
+		if Input.is_key_pressed(KEY_W):
+			direction -= camera.global_basis.z
+		if Input.is_key_pressed(KEY_S):
+			direction += camera.global_basis.z
+		if Input.is_key_pressed(KEY_D):
+			direction += camera.global_basis.x
+		if Input.is_key_pressed(KEY_A):
+			direction -= camera.global_basis.x
+		if Input.is_key_pressed(KEY_SPACE):
+			direction.y += 1.0
+		if Input.is_key_pressed(KEY_CTRL):
+			direction.y -= 1.0
+		var speed := 90.0 if Input.is_key_pressed(KEY_SHIFT) else 35.0
+		if direction.length_squared() > 0:
+			camera.position += direction.normalized() * speed * delta
 	var ground := _height_at(camera.position.x, camera.position.z)
-	camera.position.y = maxf(camera.position.y, ground + 2.0)
+	if not walking:
+		camera.position.y = maxf(camera.position.y, ground + 2.0)
 	lod_timer += delta
 	if lod_timer >= 0.75:
 		lod_timer = 0.0
@@ -822,7 +955,8 @@ func _process(delta: float) -> void:
 			var instance: MeshInstance3D = tiles[key]["instance"]
 			instance.mesh = _make_tile_mesh(key.y, key.x, desired)
 			tiles[key]["step"] = desired
-	status_label.text = "BARTON CREEK  •  30.250924, -97.810494  •  %s\nWASD move  •  mouse look  •  Space/Ctrl up/down  •  Shift faster  •  1 pin / 2 greenbelt / 3 mall  •  4/5/6 styles  •  Esc release\nLocal X %.0f m  Z %.0f m  •  ground %.0f m above map origin  •  LOD queue %d" % [styles[style_index]["name"], camera.position.x, camera.position.z, ground, pending_lod.size()]
+	var controls := "WASD walk  •  Space jump / hold to glide  •  Shift run  •  R recover  •  Tab fly" if walking else "WASD fly  •  Space/Ctrl up/down  •  Shift faster  •  Tab walk"
+	status_label.text = "BARTON CREEK  •  30.250924, -97.810494  •  %s\n%s  •  1 pin / 2 greenbelt / 3 mall  •  4/5/6 styles  •  Esc release\nLocal X %.0f m  Z %.0f m  •  ground %.0f m above map origin  •  LOD queue %d" % [styles[style_index]["name"], controls, camera.position.x, camera.position.z, ground, pending_lod.size()]
 	var capture_path := OS.get_environment("ENFRACTAL_CAPTURE")
 	if not capture_path.is_empty():
 		capture_frame += 1

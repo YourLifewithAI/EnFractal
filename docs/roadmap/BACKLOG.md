@@ -1,6 +1,6 @@
 # Enfractal execution backlog and agent assignments
 
-Planning baseline, 30 September 2026, updated for the founder's [world and creation vision](../WORLD-VISION.md) on 1 October. The [Barton Creek first-map prototype](../../maps/barton_creek/README.md) began E04/E05; the acceptance gates in this backlog remain open. The [roadmap](ROADMAP.md) defines scope, budget, provisional architecture and phase gates. Detailed research task IDs are supporting checklists; these E identifiers provide one coordinated dependency order. In particular, there is one creation compiler, one authority loop and one portal transaction design. [Structured-world requirements](research/11-structured-world-and-style-system.md) apply to the relevant packets below.
+Planning baseline, 30 September 2026, updated for the founder's [world and creation vision](../WORLD-VISION.md) on 1 October. The [Barton Creek map and local workshop](../../maps/barton_creek/README.md) now exercise parts of E01–E05 and E07 through a local playable fixture; the shared-world and performance acceptance gates in this backlog remain open. The [roadmap](ROADMAP.md) defines scope, budget, provisional architecture and phase gates. Detailed research task IDs are supporting checklists; these E identifiers provide one coordinated dependency order. In particular, there is one creation compiler, one authority loop and one portal transaction design. [Structured-world requirements](research/11-structured-world-and-style-system.md) apply to the relevant packets below.
 
 ## Working rules
 

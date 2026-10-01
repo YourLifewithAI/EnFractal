@@ -1,8 +1,8 @@
-; EnFractal Barton Creek map viewer. This is a map/streaming prototype, not the full game.
+; EnFractal Barton Creek local workshop. First playable engine slice, not the shared game.
 config_version=5
 
 [application]
-config/name="EnFractal — Barton Creek map prototype"
+config/name="EnFractal — Barton Creek local workshop"
 run/main_scene="res://scenes/main.tscn"
 config/features=PackedStringArray("4.0", "GL Compatibility")
 
