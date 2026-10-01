@@ -21,6 +21,7 @@ The initial recommendation is **Godot + C#, simple stylized 3D, an authoritative
 | [Business and reinvestment](research/07-business-costs-and-reinvestment.md) | Budget, free/paid services, price tests, unit economics and revenue use |
 | [Product and release](research/08-product-community-and-release.md) | Gameplay, research, onboarding, accessibility, moderation, QA and distribution |
 | [Maxar imagery assessment](research/09-maxar-open-data-assessment.md) | What the QGIS plugin provides, imagery rights, resolution, coverage and high resolution alternatives |
+| [QGIS MCP assessment](research/10-qgis-mcp-assessment.md) | Agent-assisted GIS authoring, candidate repositories, experiment and boundary from player MCP |
 
 The coordinating choices in this document take precedence if a research example offers alternatives. The detailed workstreams retain their reasoning and direct primary-source links. All capacities, timings, quotas and prices proposed for Enfractal are unmeasured targets or hypotheses unless explicitly described as observed hardware or a vendor quote.
 
@@ -101,6 +102,8 @@ Keep reusable blueprints in local coordinates. Placement commands carry global w
 Use immutable versioned geography with sparse per-world edits. Natural Earth is suitable for the coarse overview; investigate a licensed Copernicus GLO-30 regional subset for elevation and optional WorldCover classification for broad biomes. Defer satellite imagery and imported city/building databases. Preprocess data during development, then distribute a bounded game package instead of depending on live map APIs during play. Dataset obligations and runtime-service terms are different. [Dataset selection and source links](research/01-global-map.md).
 
 The Maxar Open Data QGIS plugin is valuable for inspecting selected disaster imagery at roughly 30–50 cm image resolution, but its imagery is CC BY-NC 4.0 and event-limited; the MIT plugin license does not license those images for a paid game. It supplies images, not terrain heights. If the first playable region is in the United States, assess public-domain NAIP imagery and unrestricted USGS 3DEP elevation at the exact location as a potentially stronger high resolution route. Keep the decision conditional on rights, contiguous coverage and client measurements. [Maxar and alternative source assessment](research/09-maxar-open-data-assessment.md).
+
+QGIS MCP could let coding agents inspect and prepare licensed map layers inside QGIS during development. Test it on a small window after selecting a region; preserve a reproducible GDAL/PROJ build recipe and measure memory on the founder's machine. It is not a map source, a game renderer or the restricted MCP exposed to players. [QGIS MCP assessment](research/10-qgis-mcp-assessment.md).
 
 The initial delivery hierarchy is a geographic quadtree with a separate local tangent-frame gameplay mesh. A cube-sphere remains an alternative if seamless polar traversal becomes a near-term requirement. Keep coordinates globally meaningful from day one, but do not build all high-detail tiles upfront. A 30 m source interpolated onto smaller triangles is still not measured centimeter terrain. Mark generated details as fantasy interpretation.
 

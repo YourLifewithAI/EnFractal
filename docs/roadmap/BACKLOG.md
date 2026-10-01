@@ -21,6 +21,8 @@ Use proposed file ownership, not files already created: `contracts/`, `world-dat
 
 E02 and E04 can proceed together after E01. E03 consumes the minimum frozen fixture contract, not finished art or every future schema. No hosted service is necessary yet. If the platform, license or debugging gate fails, record the blocker and choose a narrower alternative before E05–E14.
 
+Optional map-authoring experiment within E04: after region/source selection, compare a small licensed fixture prepared through [QGIS MCP](research/10-qgis-mcp-assessment.md) with the reproducible GDAL/PROJ recipe. Record source rights, output agreement and peak memory. E04 and E05 must still be achievable without QGIS MCP; it does not become a player runtime or a hosted service.
+
 ## Region and movement
 
 | ID | Assignment | Depends on | Concrete output | Acceptance and reviewer |

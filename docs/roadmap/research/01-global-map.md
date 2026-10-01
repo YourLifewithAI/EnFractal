@@ -33,6 +33,8 @@ Download approved regional source products during packaging, not each time a pla
 
 Proposed pipeline: extract a buffered region; reject invalid values; normalize datum and units; inspect water and steep terrain; create coarse-to-fine levels; apply versioned artistic rules; produce render and collision derivatives; emit checksums and provenance. Use GDAL/PROJ tooling offline, with small Python orchestration if useful. The shipped C# game should consume prepared binary payloads rather than embedding a desktop GIS stack. Keep source rasters in Cloud Optimized GeoTIFF for reproducible processing and regional reads; this is an authoring/archive format, not a requirement that the game decode TIFF. GDAL supports tiled COG creation with overviews. [GDAL COG driver](https://gdal.org/en/stable/drivers/raster/cog.html)
 
+An optional [QGIS MCP evaluation](10-qgis-mcp-assessment.md) can let an agent inspect source metadata and run a small processing fixture inside QGIS. Its output still needs source-rights review, exact parameters and a reproducible package recipe. Do not ship QGIS or a GIS MCP server with the client, and do not make this experiment a dependency for E05.
+
 Choose the initial region for variation and gameplay: accessible slopes, a ridge for gliding, water, protected arrival space and building ground. Avoid requiring a photorealistic city to establish recognition. Artificially safe starting terrain is an authored overlay with provenance, so nobody mistakes it for source elevation.
 
 ## Coordinates and planetary tiling
