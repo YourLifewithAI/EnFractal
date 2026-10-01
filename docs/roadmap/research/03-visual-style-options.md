@@ -1,12 +1,12 @@
 # Visual direction, asset pipeline, and art decision plan
 
-Planning only; prepared September 30, 2026. No artwork, engine scene, benchmark, purchase, or game implementation has been produced. Performance figures below are proposed acceptance targets, not observed results. This workstream assumes one developer with coding agents, a Windows native first release, an 8 GiB integrated-graphics baseline, and an additional test on the observed RTX 2070 Super laptop with 8 GiB VRAM confirmed by the coordinating agent through `nvidia-smi`.
+**Dated option survey, prepared September 30, 2026.** Its original style recommendation below is superseded by the founder's [grounded painterly 3D world vision](../../WORLD-VISION.md), confirmed October 1. The [Barton Creek Greenbelt study](../../greenbelt-style-study.md) has since produced three material/lighting captures, but no finished environment art or low-hardware benchmark. Performance figures below remain proposed acceptance targets, not observed minimum-device results. This workstream assumes one developer with coding agents, a Windows native first release, an 8 GiB integrated-graphics baseline, and an additional test on the observed RTX 2070 Super laptop with 8 GiB VRAM confirmed by the coordinating agent through `nvidia-smi`.
 
 ## Recommendation and decision to make
 
-Prototype **an illustrated Earth with faceted landscapes and softly shaded creature avatars**. Give coastlines, elevation, rivers, and biome boundaries geographic credibility while allowing inhabitants and inventions to be fantastical. Use broad silhouettes, quiet terrain colors, and a small set of purposeful effect colors. The identity should come from shapes and composition rather than expensive lighting.
+Original survey recommendation: prototype **an illustrated Earth with faceted landscapes and softly shaded creature avatars**. That was a useful low-cost comparator, not the current end-product goal. The chosen direction keeps the lessons about coherent silhouettes and bounded lighting but calls for natural proportions, softly sculpted forms, painterly materials and local identity at walking height. Give elevation, rivers, streets, buildings and biome boundaries geographic credibility while allowing inhabitants and inventions to be fantastical.
 
-Shortlist three treatments of the same assets: **A, faceted atlas**, the cheapest authoring baseline; **B, soft toon**, the strongest creature expression; **C, painterly atlas**, a texture treatment on A/B if it adds sufficient charm. The recommended eventual hybrid is A's terrain, B's inhabitants, and restrained C accents. Choose only after a common playable scene makes visual appeal, readability, and performance comparable. Do not implement twelve complete art pipelines.
+The original shortlist was **A, faceted atlas**; **B, soft toon**; and **C, painterly atlas**. The first Greenbelt comparison explored material palettes, not finished versions of those three pipelines. Future tests should evaluate how to achieve the confirmed grounded painterly direction on the same authored, editable scene and measured devices. Do not implement twelve complete art pipelines.
 
 Art style does **not** require a particular gameplay language. Meshes and textures are data; scripting governs asset construction, animation, and presentation; shaders govern appearance. Godot documents toon, unshaded, vertex-lighting, and custom spatial shading paths. Unity exposes HLSL/ShaderLab and graphical shader workflows. An attractive style can be implemented in either engine; it cannot by itself settle the engine decision. [Godot spatial shaders](https://docs.godotengine.org/en/stable/tutorials/shaders/shader_reference/spatial_shader.html), [Unity shader authoring](https://docs.unity3d.com/Manual/shader-writing.html).
 
@@ -62,7 +62,7 @@ Implementation paths used below:
 
 ## Shared identity and creative freedom
 
-Define a one-page style contract: six terrain color families, twelve creature accents, three material families, minimum feature thickness, consistent eye/face readability, and recognizable symbols for force, protection, ownership, and portal state. Palette choices remain user-configurable within those families. Shapes, motion, labels, and sound must reinforce important meanings; color alone is insufficient.
+Define a one-page style contract with material roles, region-specific palettes, minimum feature thickness, consistent eye/face readability, and recognizable symbols for force, protection, ownership, and portal state. A desert, rainforest, industrial district and coastal village need different local colors, vegetation and architecture under a common visual grammar. Modern buildings retain their type; warmth does not require a miniature or medieval treatment. Palette choices remain user-configurable within the supported families. Shapes, motion, labels, and sound must reinforce important meanings; color alone is insufficient.
 
 Appearance and capability have different contracts. Wings may be decorative; flight is a runtime capability. A huge visual aura must not imply a wider authoritative force radius. A harmless outline cannot conceal a damaging effect. Terrain detail settings cannot remove the visual indication of protected ground, portal boundaries, or nearby relevant creatures. Players may disable flashing, camera shake, bloom, motion blur, and decorative particles without losing gameplay information.
 
@@ -95,7 +95,7 @@ Start with a dozen reusable landscape pieces, three creature bodies with interch
 
 ## Benchmark scene, agent tasks, and acceptance
 
-Build this scene only after implementation is authorized: one georeferenced coastal valley with forest, water, rocks, a small workshop, protected garden, portal, four nearby animated creatures, twelve distant proxies, and a modular wind contraption. Add a stress variant with dense vegetation and overlapping effects. Use the same camera route, geography, mesh counts, animations, and lighting across shortlisted styles.
+The Barton Creek package is now the reference geography. Its existing fixed Greenbelt camera and three palette captures are a start, but the actual benchmark still needs a walking-height scene with authored forest, water, rocks, a small workshop, protected garden, portal, four nearby animated creatures, twelve distant proxies, and a modular wind contraption. Add a stress variant with dense vegetation and overlapping effects. Use the same camera route, geography, mesh counts, animations, and lighting across compared treatments. The selected grounded painterly direction is the target; alternatives are diagnostic fallbacks and cost comparisons.
 
 | Agent-sized task | Dependencies | Reviewable output / completion check |
 |---|---|---|

@@ -1,6 +1,6 @@
 # Enfractal MVP planning brief
 
-This directory contains engineering planning documents only. The user explicitly requested a comprehensive plan, not implementation. No game code, deployments, accounts, purchases, or infrastructure should be created in this phase.
+**Historical brief from the planning-only phase, 30 September 2026.** This records the original scope for the roadmap research. It is not the current repository status: the [Barton Creek prototype](../../maps/barton_creek/README.md) and [style study](../greenbelt-style-study.md) now contain implementation, and the founder has confirmed the [world and creation vision](../WORLD-VISION.md). No deployment, account, purchase or hosted infrastructure is implied by that later prototype work.
 
 ## Source conversations
 
@@ -16,7 +16,7 @@ Creator freedom, open/copyable code, model neutrality, low hardware demand, cros
 
 ## Observed hardware
 
-Read-only Windows hardware query: Intel Core i7-10875H, 8 physical/16 logical cores; 31.79 GiB system memory; NVIDIA RTX 2070 Super plus Intel UHD graphics. NVIDIA's utility confirmed 8192 MiB dedicated GPU memory; the initial CIM VRAM value is not used. This is the observed planning machine, not confirmation of which machine the user means; also plan an 8 GiB integrated-graphics baseline. No performance benchmarks have been run. Windows native client is a provisional MVP assumption.
+Read-only Windows hardware query: Intel Core i7-10875H, 8 physical/16 logical cores; 31.79 GiB system memory; NVIDIA RTX 2070 Super plus Intel UHD graphics. NVIDIA's utility confirmed 8192 MiB dedicated GPU memory; the initial CIM VRAM value is not used. This is the observed planning machine, not confirmation of which machine the user means; also plan an 8 GiB integrated-graphics baseline. No target-device performance benchmark had been run at this planning stage. Windows native client is a provisional MVP assumption.
 
 ## Confirmed founder constraints
 

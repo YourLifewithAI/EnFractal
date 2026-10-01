@@ -1,22 +1,26 @@
 # Enfractal MVP roadmap
 
-**Planning draft v0.1 — 30 September 2026.** This plan turns the two supplied conversations into a staged project for one founder working with coding agents. It covers the map, rendering, art, engine/language, physics, AI/MCP, persistent Home Earth, invited sandbox worlds, subscriptions, and the product, security and operational work needed around them. The plan's budgets and performance gates remain proposals, not tested benchmarks or launch commitments.
+**Planning draft v0.2 — 1 October 2026; original baseline 30 September.** This plan turns the original conversations and subsequent direction into a staged project for one founder working with coding agents. It covers the map, rendering, art, engine/language, physics, AI/MCP, persistent Home Earth, invited sandbox worlds, subscriptions, and the product, security and operational work needed around them. The plan's budgets and performance gates remain proposals, not tested minimum-device benchmarks or launch commitments.
 
 **Implementation update — 1 October 2026:** The [Barton Creek first-map prototype](../../maps/barton_creek/README.md) now builds and displays an offline geographic package around the founder's chosen coordinate. It starts E04/E05 but does not complete the runtime, collision, persistence or low-hardware performance gates below.
 
 The first [photo-informed rendering pilot](../../maps/barton_creek/photo_pilot/README.md) adds a rights-documented Greenbelt material study and simplified mall-west treatment. This is a small visual pass; broad photo coverage, surveyed landmark reconstruction and target-device performance validation remain open.
 
+**Product direction update — 1 October 2026:** The founder selected [grounded painterly 3D](../WORLD-VISION.md) as the long-term look and feel: recognizable, natural-scale places with warm, coherent materials and lighting, plus a structured world that remains editable and stylistically consistent after player changes. The [Greenbelt style study](../greenbelt-style-study.md) is an early material comparison, not a final art treatment. This direction supersedes the faceted-atlas recommendation in the dated option survey; the engine, exact shaders, asset recipes and performance budget still require measured implementation work.
+
 The recommended first product is a small, geographically grounded shared region where players explore as creatures, invent through a bounded vocabulary, save work, invite friends to a free private version with different gravity, and return safely. Use this to validate the experience before expanding Earth's playable coverage. The long-term destination remains one shared Earth with persistent places and portals to independently configurable Earths.
 
-The initial recommendation is **Godot + C#, simple stylized 3D, an authoritative headless server, geographic data streamed in bounded tiles, and an optional model-neutral creation assistant**. Confirm that choice with a capped experiment. The operating plan reserves at most **$95/month**, below the user's $100 ceiling. Revenue stays in the project, after operating obligations and a reserve, to fund further development.
+The initial technical recommendation is **Godot + C#, grounded painterly 3D within measured graphics budgets, an authoritative headless server, geographic data streamed in bounded tiles, and an optional model-neutral creation assistant**. Confirm the engine/language choice with a capped experiment. The operating plan reserves at most **$95/month**, below the user's $100 ceiling. Revenue stays in the project, after operating obligations and a reserve, to fund further development.
 
 ## Read this plan in layers
 
 | Document | What it answers |
 |---|---|
 | This roadmap | What to build, in what order, why, and when to stop or expand |
+| [World and creation vision](../WORLD-VISION.md) | Confirmed end-product appearance, place identity and coherent, editable construction behavior |
 | [Execution backlog](BACKLOG.md) | Bounded agent assignments, dependencies, ownership and evidence |
 | [Global map](research/01-global-map.md) | Earth datasets, licensing, coordinates, tile hierarchy, editable geography |
+| [Structured world and style system](research/11-structured-world-and-style-system.md) | Semantic parts, adaptive joins, versioned style recipes, edit validation and acceptance fixtures |
 | [Performance and stack](research/02-performance-and-stack.md) | Seven stack alternatives, low hardware budgets, measurements and language tradeoffs |
 | [Twelve visual styles](research/03-visual-style-options.md) | Art options, advantages, drawbacks, hardware load, flexibility and implementation languages |
 | [Physics and creation runtime](research/04-physics-and-creation-runtime.md) | Existing engines, primitives, authoritative effects, constraints and invariants |
@@ -27,7 +31,7 @@ The initial recommendation is **Godot + C#, simple stylized 3D, an authoritative
 | [Maxar imagery assessment](research/09-maxar-open-data-assessment.md) | What the QGIS plugin provides, imagery rights, resolution, coverage and high resolution alternatives |
 | [QGIS MCP assessment](research/10-qgis-mcp-assessment.md) | Agent-assisted GIS authoring, candidate repositories, experiment and boundary from player MCP |
 
-The coordinating choices in this document take precedence if a research example offers alternatives. The detailed workstreams retain their reasoning and direct primary-source links. All capacities, timings, quotas and prices proposed for Enfractal are unmeasured targets or hypotheses unless explicitly described as observed hardware or a vendor quote.
+The confirmed product direction in the world and creation vision governs art and construction goals; this roadmap governs MVP scope and staged delivery. Dated research examples remain alternatives, not competing goals. The detailed workstreams retain their reasoning and direct primary-source links. All capacities, timings, quotas and prices proposed for Enfractal are unmeasured targets or hypotheses unless explicitly described as observed hardware or a vendor quote.
 
 ## Confirmed requirements and working assumptions
 
@@ -35,7 +39,7 @@ The source conversations establish a playable Home Earth, a common enforceable r
 
 The user subsequently confirmed **planning only**, **one founder plus coding agents**, **early hosting and AI under $100/month**, and **paying-player revenue reinvested into development**. Those instructions govern the proposed scope. The attached conversations are product evidence, not independently verified competitor research; their old citation placeholders are replaced by primary sources in the workstream documents.
 
-Working assumptions to revisit before implementation: native Windows first; Linux headless hosting; an invited adult research cohort; a third-person creature experience with adjustable camera; a curated coastal/hilly region; and modest avatar sizes before ant-to-continent scales. No specific real location, final visual style, audience policy, code license or engine version has been selected by the user.
+Working assumptions to revisit before implementation: native Windows first; Linux headless hosting; an invited adult research cohort; a third-person creature experience with adjustable camera; and modest avatar sizes before ant-to-continent scales. **Barton Creek at 30.250924, -97.810494 is the selected first map prototype**, and grounded painterly 3D is the selected long-term art direction. The exact MVP playable boundary, final style recipe, audience policy, code license and production engine version remain open.
 
 Observed planning machine: i7-10875H, 8 physical/16 logical cores, approximately 32 GB RAM, RTX 2070 Super with 8192 MiB dedicated VRAM, and Intel UHD graphics. That inspection does not measure game performance or confirm which GPU a future build will use. Also target an actual 8 GiB integrated-graphics device. Testing with reduced RAM on the current machine cannot certify another device's GPU or memory bandwidth.
 
@@ -53,6 +57,7 @@ The signature demonstration is a small storm dragon composed from ordinary capab
 - Walk, jump, glide, safe recovery, readable forces, a small modular creature kit and a protected common space.
 - Server-authoritative multiplayer, initially two players and later a measured cap up to eight people across Home plus one active sandbox.
 - A manual template/parameter editor, supported component composition, preview, saved designs and shared consequences.
+- One contained, structurally editable place-making fixture: an approved path/platform or small shelter edit whose join detail updates coherently, survives save/reload and remains revisable. This proves the visual system applies after change without promising arbitrary neighborhood remodeling.
 - One optional AI creation path and a small MCP surface using the same authoritative commands as the manual editor.
 - Durable shared edits, permissions, safe save/reconnect, backups and a tested recovery procedure.
 - One free saved sandbox per invited account, up to four simultaneous occupants including its owner, controlled invitations, different gravity, and dependable Return Home.
@@ -91,6 +96,7 @@ These are logical modules. Initially they live on one machine as a small number 
 | Boundary | Owner | Contract to freeze first |
 |---|---|---|
 | Geographic location | Map team | Double-precision Earth coordinates, units/datum, `WorldId`, `FrameId`, pinned base hash |
+| Structured place | Map + creation + art | Stable semantic feature IDs, evidence/confidence, relationships, editable source and generator revisions |
 | Terrain activation | Map + physics | Tile version, collision revision, visual revision and activation tick |
 | Creation meaning | Physics/runtime | One capability registry, `CreationManifest`, compiled artifact and instance state |
 | Placement and effects | Authority/runtime | Authenticated principal, target world/frame, permission revision, work reservation and action ID |
@@ -114,6 +120,16 @@ The initial delivery hierarchy is a geographic quadtree with a separate local ta
 Handle vertical datum conversion, invalid source cells, tile seams, coast/water behavior, coordinate axes and coordinate-to-height round trips explicitly. Render LOD never changes authoritative collision. Preserve old base versions referenced by sleeping worlds and backups. Updating the source DEM cannot automatically move people's houses. Sandbox forks initially share the baseline geography and permitted templates, not unauthorized copies of Home Earth creations.
 
 Milestones: one provenance-complete regional package; consistent render/collision seams; streamed neighboring patches; sparse edit save/reload; source-version migration fixture; a second geographically separated region; only then broader globe traversal. Initial packaging goal is below 250 MiB for the starting region, subject to measurement; reserve approximately 512 MiB of the application's 2 GiB disk cache for map work initially.
+
+## Structured world and visual coherence
+
+The [confirmed vision](../WORLD-VISION.md) requires three separable layers: evidence-backed geographic foundation, meaningful editable world parts, and a regional visual interpretation. A photograph or fused scan may be an input or a displayed asset; it is not automatically an editable building. Important structures need stable identities and parts such as walls, roof, openings and paths, with relationships and permitted operations. Store uncertainty and source/interpretation/player-change labels at useful object or feature granularity, not only at package level. [Detailed system direction](research/11-structured-world-and-style-system.md).
+
+Player intent should invoke approved operations and deterministic detail generators. A path joining a terrace, opening in a wall, or watercourse meeting a bank should receive coherent transition details while the underlying parts remain individually editable. Keep generator version, seed, parameters, manual exceptions and rendered derivatives distinct. An edit that changes a join must invalidate and rebuild the affected visuals and collision at a controlled revision boundary; saved source objects remain the durable truth. Broad remodeling of existing cities, arbitrary excavation and automatic conversion of all scanned objects are long-term goals, not initial MVP capabilities.
+
+The same creation compiler and authority validate manual and AI-assisted edits. Alongside physics and permission rules, a visual contract bounds material families, geometry, textures, effects, fallback detail and scene-wide cost. A machine can enforce hard limits and preserve provenance; it cannot certify that a café looks inviting or suits its neighborhood. Founder review and later player research evaluate those qualities. New component/generator families enter through reviewed extensions, not player-supplied executable shaders or scripts.
+
+The first construction proof stays in a contained authorized plot: place or revise a small structure/path, regenerate one meaningful join, preview its look and cost, publish one durable change, reload it, and edit it again. Check the result at walking height and on the low graphics profile. A later end-to-end reference scenario may turn an authorized parking-lot parcel into terraces, a café, greenhouse and short stream while retaining neighboring buildings; that larger transformation should not be silently counted as an MVP acceptance gate.
 
 ## Rendering and language decisions
 
@@ -139,9 +155,9 @@ Use bounded disk/decode/GPU caches, hierarchical detail, culling, instancing, co
 
 Vendors may label RAM in GB while operating-system tools report GiB. Measure the purchased configuration's actual usable memory and preserve reserve; the table is a proposed 8 GB-class allocation, not a promise that every quote provides exactly 8 GiB. If the host cannot pass, lower work/admission ceilings before increasing spend.
 
-## Twelve graphical directions
+## Art direction and earlier graphical options
 
-These ratings are qualitative engineering judgments, not benchmarks. No style requires one gameplay language. The listed paths identify practical options and relevant shader work; the full study separately rates VRAM, fill rate, CPU and authoring effort.
+The **selected goal is grounded painterly 3D** as defined in the [world and creation vision](../WORLD-VISION.md): natural proportions, softly sculpted but recognizable forms, controlled material variation, gentle lighting, local biome and architectural identity, and a welcoming walking-height view. The table below is the earlier option survey. Its ratings are qualitative engineering judgments, not benchmarks, and no style requires one gameplay language. The listed paths remain useful for implementation tradeoffs rather than a vote to replace the confirmed direction.
 
 | Style | Hardware strain | Strength and flexibility | Main drawback | Practical coding/shader path |
 |---|---|---|---|---|
@@ -158,7 +174,7 @@ These ratings are qualitative engineering judgments, not benchmarks. No style re
 | Restrained realistic PBR | High | Recognizable places and broad visual range | Textures, foliage, lighting and art consistency | C# in Godot/Unity or C++ Unreal + standard PBR |
 | Procedural implicit creatures | High shader cost unless baked | Compact descriptions and unusual blended shapes | Collision/animation/LOD separate; screen coverage expensive | Godot shader/HLSL with C# orchestration; bake meshes where possible |
 
-Shortlist faceted Earth plus soft toon creatures, with optional painted accents. Compare three treatments on the same small scene before locking a style. Keep the 12 options as a decision menu, not twelve production pipelines. Initial assets: roughly a dozen landscape pieces, three modular creature bodies, eight invention components, one portal and three biome palettes. Raw images and rendered mockups have not been created in this planning phase. [Full options and pros/cons](research/03-visual-style-options.md).
+The [Greenbelt style study](../greenbelt-style-study.md) has compared three small material/lighting treatments on the same source-derived map. None yet achieves the finished grounded painterly direction: the trees, rocks and building proxies remain illustrative, and the scene lacks semantic editing and adaptive construction joins. Next, author one convincing walking-height reference scene with regional materials and natural-scale silhouettes, then test a small editable structure and its regenerated details. Keep the twelve options as historical tradeoff research, not twelve production pipelines. [Full options and pros/cons](research/03-visual-style-options.md).
 
 ## Physics and creation language
 

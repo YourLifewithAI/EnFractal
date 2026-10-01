@@ -1,6 +1,10 @@
 # EnFractal
 A limitless shared world
 
+## The world we are building
+
+The [world and creation vision](docs/WORLD-VISION.md) is the project's stated long-term direction: a geographically grounded, cozy 3D Earth with natural proportions, softly sculpted forms, painterly materials and gentle lighting. Players should be able to explore recognizable places at walking height and change them through structured, persistent parts. A shared construction and visual system should make new player and AI-assisted work belong in its local environment without erasing regional character. The MVP proves this in a bounded area and creation vocabulary before broader Earth coverage or more ambitious transformations.
+
 ## MVP planning
 
 The [MVP roadmap](docs/roadmap/ROADMAP.md) describes the proposed shared Earth, sandbox worlds, creation system, technical architecture, validation gates, and operating budget. The [execution backlog](docs/roadmap/BACKLOG.md) breaks the work into agent-sized tasks. Detailed research is linked from the roadmap.
