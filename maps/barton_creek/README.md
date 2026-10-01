@@ -12,6 +12,8 @@ The [photo-informed pilot](photo_pilot/README.md) adds small rendering studies a
 
 ![Photo-informed mall west side](../../docs/images/barton-photo-mall.png)
 
+The [Greenbelt visual style study](../../docs/greenbelt-style-study.md) compares three editable material and lighting recipes on the same photo-guided area.
+
 ## What was built
 
 The offline Python map builder fetches a bounded USGS 3DEP bare-earth elevation image and a four-part OpenStreetMap snapshot. It checks source coverage, CRS, bounds, raster validity and hashes; transforms selected OSM ways into local metric coordinates; and emits a versioned package. The output has a 2 m elevation sample grid, a top-down preview, mapped line/polygon features and deterministic representative trees. A second offline stage reads [two rights-checked photo references](photo_pilot/README.md), validates their hashes, samples local color ranges and emits compact material masks and visual cues. The Godot 4.7 viewer builds 512 m terrain tiles from the shared grid and changes mesh density by camera distance. Roads, trails, creeks, water areas and simple building/tree geometry provide an initial 3D read of the area. The viewer uses the Compatibility renderer and requires no map API or AI call while running.
@@ -20,7 +22,7 @@ The generated files are checked into the repo under [`game/maps/barton_creek`](.
 
 ## Open the map
 
-Godot 4.7.2 is already on the development laptop. Run [`run-map.ps1`](../../run-map.ps1) from the repository in PowerShell to open the map; it finds the existing copy in Downloads. If Godot is elsewhere, set `ENFRACTAL_GODOT` to its executable path, or open [`game/project.godot`](../../game/project.godot) directly in Godot. On another computer, use the official [Godot 4.7.2 standard build](https://godotengine.org/download/archive/4.7.2-stable/) for Windows. Keyboard: **W/A/S/D** move, mouse looks around, **Space/Ctrl** move vertically, **Shift** moves faster, **1** returns to the pin, **2** jumps to the Greenbelt pilot, **3** jumps to the mall pilot, and **Esc** releases the mouse. This is a free-fly inspection camera, not yet player movement or world physics.
+Godot 4.7.2 is already on the development laptop. Run [`run-map.ps1`](../../run-map.ps1) from the repository in PowerShell to open the map; it finds the existing copy in Downloads. For the fixed Greenbelt style viewpoint, run [`run-style-study.ps1`](../../run-style-study.ps1). If Godot is elsewhere, set `ENFRACTAL_GODOT` to its executable path, or open [`game/project.godot`](../../game/project.godot) directly in Godot. On another computer, use the official [Godot 4.7.2 standard build](https://godotengine.org/download/archive/4.7.2-stable/) for Windows. Keyboard: **W/A/S/D** move, mouse looks around, **Space/Ctrl** move vertically, **Shift** moves faster, **1** returns to the pin, **2** jumps to the Greenbelt pilot, **3** jumps to the mall pilot, **4/5/6** select the atlas/storybook/natural styles, and **Esc** releases the mouse. This is a free-fly inspection camera, not yet player movement or world physics.
 
 To verify or rebuild the already archived package with Python 3.12:
 

@@ -3,6 +3,7 @@ extends Node3D
 ## from one shared height grid, so every terrain LOD uses matching edge heights.
 
 const MAP_PATH := "res://maps/barton_creek/"
+const STYLE_PATH := "res://styles/greenbelt_styles.json"
 const MAX_SEGMENT_M := 18.0
 
 var manifest: Dictionary
@@ -20,12 +21,18 @@ var height_max_m: float
 var tiles: Dictionary = {}
 var pending_lod: Array[Vector2i] = []
 var camera: Camera3D
+var sunlight: DirectionalLight3D
+var world_settings: Environment
 var status_label: Label
 var yaw := 0.0
 var pitch := -0.5
 var lod_timer := 0.0
 var terrain_material: ShaderMaterial
+var styles: Array
+var style_index := 2 # Preserve the existing photo-guided viewer look by default.
+var style_materials: Dictionary = {}
 var capture_frame := 0
+var capture_samples_ms: Array[float] = []
 var photo_pilot: Dictionary
 var photo_overlay_texture: Texture2D
 var greenbelt_center := Vector2.ZERO
@@ -38,10 +45,21 @@ func _ready() -> void:
 	manifest = JSON.parse_string(FileAccess.get_file_as_string(MAP_PATH + "manifest.json"))
 	features = JSON.parse_string(FileAccess.get_file_as_string(MAP_PATH + "features.json"))
 	photo_pilot = JSON.parse_string(FileAccess.get_file_as_string(MAP_PATH + "photo_pilot.json"))
-	if manifest.is_empty() or features.is_empty() or photo_pilot.is_empty():
+	var style_catalog: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(STYLE_PATH))
+	if manifest.is_empty() or features.is_empty() or photo_pilot.is_empty() or style_catalog.is_empty():
 		push_error("Map package is missing or invalid")
 		get_tree().quit(1)
 		return
+	styles = style_catalog.get("styles", [])
+	if styles.size() != 3:
+		push_error("Greenbelt style study must define three styles")
+		get_tree().quit(1)
+		return
+	var requested_style := OS.get_environment("ENFRACTAL_STYLE")
+	for i in range(styles.size()):
+		if styles[i]["id"] == requested_style:
+			style_index = i
+			break
 	photo_overlay_texture = load(MAP_PATH + "photo_overlay.png")
 	greenbelt_center = Vector2(float(photo_pilot["greenbelt_pilot"]["center_x_m"]), float(photo_pilot["greenbelt_pilot"]["center_z_m"]))
 	greenbelt_radius = float(photo_pilot["greenbelt_pilot"]["radius_m"])
@@ -63,6 +81,7 @@ func _ready() -> void:
 		return
 	_setup_scene()
 	_setup_materials()
+	_apply_style()
 	_jump_to_view(OS.get_environment("ENFRACTAL_VIEW"))
 	_build_initial_tiles()
 	_build_mapped_features()
@@ -83,20 +102,20 @@ func _setup_scene() -> void:
 	camera.rotation = Vector3(pitch, yaw, 0.0)
 	add_child(camera)
 
-	var sunlight := DirectionalLight3D.new()
+	sunlight = DirectionalLight3D.new()
 	sunlight.name = "Sun"
 	sunlight.rotation = Vector3(-0.75, -0.65, 0.0)
 	sunlight.light_energy = 1.1
 	add_child(sunlight)
 
 	var environment := WorldEnvironment.new()
-	var settings := Environment.new()
-	settings.background_mode = Environment.BG_COLOR
-	settings.background_color = Color(0.62, 0.76, 0.82)
-	settings.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	settings.ambient_light_color = Color(0.78, 0.82, 0.78)
-	settings.ambient_light_energy = 0.8
-	environment.environment = settings
+	world_settings = Environment.new()
+	world_settings.background_mode = Environment.BG_COLOR
+	world_settings.background_color = Color(0.62, 0.76, 0.82)
+	world_settings.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	world_settings.ambient_light_color = Color(0.78, 0.82, 0.78)
+	world_settings.ambient_light_energy = 0.8
+	environment.environment = world_settings
 	add_child(environment)
 
 	var canvas := CanvasLayer.new()
@@ -127,15 +146,41 @@ func _setup_materials() -> void:
 	terrain_material = ShaderMaterial.new()
 	terrain_material.shader = load("res://shaders/photo_terrain.gdshader")
 	terrain_material.set_shader_parameter("photo_overlay", photo_overlay_texture)
-	terrain_material.set_shader_parameter("limestone_color", _photo_rgb("limestone"))
-	terrain_material.set_shader_parameter("trail_soil_color", _photo_rgb("trail_soil"))
-	terrain_material.set_shader_parameter("pavement_color", _photo_rgb("pavement"))
 	terrain_material.set_shader_parameter("map_side_m", float(map_side_m))
 
 
-func _photo_rgb(name: String) -> Color:
-	var rgb: Array = photo_pilot["display_rgb"][name]
+func _rgb(rgb: Array) -> Color:
 	return Color8(int(rgb[0]), int(rgb[1]), int(rgb[2]))
+
+
+func _style_material(role: String) -> StandardMaterial3D:
+	if style_materials.has(role):
+		return style_materials[role]
+	var material := _plain_material(_rgb(styles[style_index]["objects"][role]))
+	style_materials[role] = material
+	return material
+
+
+func _apply_style() -> void:
+	var style: Dictionary = styles[style_index]
+	var terrain: Dictionary = style["terrain"]
+	var photo: Dictionary = style["photo"]
+	terrain_material.set_shader_parameter("low_color", _rgb(terrain["low"]))
+	terrain_material.set_shader_parameter("high_color", _rgb(terrain["high"]))
+	terrain_material.set_shader_parameter("steep_color", _rgb(terrain["steep"]))
+	terrain_material.set_shader_parameter("color_bands", float(terrain["bands"]))
+	terrain_material.set_shader_parameter("mottle_strength", float(terrain["mottle"]))
+	terrain_material.set_shader_parameter("photo_strength", float(terrain["photo_strength"]))
+	terrain_material.set_shader_parameter("limestone_color", _rgb(photo["limestone"]))
+	terrain_material.set_shader_parameter("trail_soil_color", _rgb(photo["trail_soil"]))
+	terrain_material.set_shader_parameter("pavement_color", _rgb(photo["pavement"]))
+	for role in style_materials:
+		var material: StandardMaterial3D = style_materials[role]
+		material.albedo_color = _rgb(style["objects"][role])
+	world_settings.background_color = _rgb(style["sky"])
+	world_settings.ambient_light_color = _rgb(style["ambient"])
+	sunlight.light_energy = float(style["sun_energy"])
+	print("Greenbelt style: ", style["id"], " — ", style["name"])
 
 
 func _height_at_grid(row: int, column: int) -> float:
@@ -208,12 +253,11 @@ func _make_tile_mesh(tile_row: int, tile_column: int, step_m: int) -> ArrayMesh:
 			var slope := sqrt(dx * dx + dz * dz)
 			var absolute_m := y + height_origin_m
 			var relief: float = clampf((absolute_m - height_min_m) / maxf(1.0, height_max_m - height_min_m), 0.0, 1.0)
-			var color := Color(0.23, 0.42, 0.25).lerp(Color(0.62, 0.55, 0.35), relief)
-			if slope > 0.55:
-				color = color.lerp(Color(0.67, 0.62, 0.48), clampf((slope - 0.55) / 1.5, 0.0, 0.8))
+			var steepness := clampf((slope - 0.55) / 1.5, 0.0, 0.8)
 			vertices.push_back(Vector3(x, y, z))
 			normals.push_back(Vector3(-dx, 1.0, -dz).normalized())
-			colors.push_back(color)
+			# Store source-derived measures; the style recipe chooses their colors.
+			colors.push_back(Color(relief, steepness, 0.0, 1.0))
 			uvs.push_back(Vector2((x + half) / map_side_m, (z + half) / map_side_m))
 	for row in range(samples):
 		for column in range(samples):
@@ -268,7 +312,7 @@ func _multimesh_instances(name: String, mesh: Mesh, material: Material, transfor
 	add_child(instance)
 
 
-func _build_draped_lines(name: String, items: Array, width_m: float, color: Color, y_offset: float) -> void:
+func _build_draped_lines(name: String, items: Array, width_m: float, role: String, y_offset: float) -> void:
 	var vertices := PackedVector3Array()
 	var normals := PackedVector3Array()
 	var indices := PackedInt32Array()
@@ -311,7 +355,7 @@ func _build_draped_lines(name: String, items: Array, width_m: float, color: Colo
 	arrays[Mesh.ARRAY_INDEX] = indices
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-	var material := _plain_material(color)
+	var material := _style_material(role)
 	material.cull_mode = BaseMaterial3D.CULL_DISABLED
 	var instance := MeshInstance3D.new()
 	instance.name = name
@@ -338,10 +382,10 @@ func _build_mapped_features() -> void:
 			highways.append(road)
 		else:
 			streets.append(road)
-	_build_draped_lines("Highways", highways, 13.0, Color(0.72, 0.68, 0.58), 0.4)
-	_build_draped_lines("Streets", streets, 5.0, Color(0.61, 0.60, 0.53), 0.25)
-	_build_draped_lines("Trails", features["trails"], 1.7, Color(0.67, 0.46, 0.27), 0.22)
-	_build_draped_lines("Creeks", features["waterways"], 3.5, Color(0.18, 0.47, 0.57), 0.28)
+	_build_draped_lines("Highways", highways, 13.0, "highway", 0.4)
+	_build_draped_lines("Streets", streets, 5.0, "street", 0.25)
+	_build_draped_lines("Trails", features["trails"], 1.7, "trail", 0.22)
+	_build_draped_lines("Creeks", features["waterways"], 3.5, "creek", 0.28)
 	_build_water_areas()
 	var buildings := []
 	var landmarks := []
@@ -359,13 +403,13 @@ func _build_mapped_features() -> void:
 		var z: float = float(proxy["z"])
 		var basis := Basis(Vector3.UP, float(proxy["yaw_rad"])).scaled(Vector3(float(proxy["width_m"]), height, float(proxy["length_m"])))
 		buildings.append(Transform3D(basis, Vector3(x, _height_at(x,z) + height * 0.5, z)))
-	_multimesh_instances("Building proxies", cube, _plain_material(Color(0.66, 0.62, 0.53)), buildings)
-	_build_landmark_buildings(landmarks, "Other mapped landmarks", Color(0.69, 0.64, 0.55))
-	_build_landmark_buildings(mall_landmarks, "Barton Creek Square outline", _photo_rgb("mall_stone"))
+	_multimesh_instances("Building proxies", cube, _style_material("building"), buildings)
+	_build_landmark_buildings(landmarks, "Other mapped landmarks", "building")
+	_build_landmark_buildings(mall_landmarks, "Barton Creek Square outline", "mall")
 	_build_mall_glazing(mall_landmarks)
 
 
-func _build_landmark_buildings(items: Array, name: String, color: Color) -> void:
+func _build_landmark_buildings(items: Array, name: String, role: String) -> void:
 	var vertices := PackedVector3Array()
 	var normals := PackedVector3Array()
 	var indices := PackedInt32Array()
@@ -413,7 +457,7 @@ func _build_landmark_buildings(items: Array, name: String, color: Color) -> void
 	arrays[Mesh.ARRAY_INDEX] = indices
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-	var material := _plain_material(color)
+	var material := _style_material(role)
 	material.cull_mode = BaseMaterial3D.CULL_DISABLED
 	var instance := MeshInstance3D.new()
 	instance.name = name
@@ -468,7 +512,7 @@ func _build_mall_glazing(items: Array) -> void:
 	arrays[Mesh.ARRAY_INDEX] = indices
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-	var material := _plain_material(_photo_rgb("mall_glass"))
+	var material := _style_material("glass")
 	material.metallic = 0.15
 	material.roughness = 0.35
 	material.cull_mode = BaseMaterial3D.CULL_DISABLED
@@ -513,7 +557,7 @@ func _build_water_areas() -> void:
 	arrays[Mesh.ARRAY_INDEX] = indices
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-	var material := _plain_material(Color(0.16, 0.43, 0.52))
+	var material := _style_material("water")
 	material.cull_mode = BaseMaterial3D.CULL_DISABLED
 	var instance := MeshInstance3D.new()
 	instance.name = "Mapped water areas"
@@ -548,9 +592,9 @@ func _build_trees() -> void:
 			pilot_canopies.append(canopy)
 		else:
 			canopies.append(canopy)
-	_multimesh_instances("Tree trunks", trunk_mesh, _plain_material(Color(0.29, 0.23, 0.17)), trunks)
-	_multimesh_instances("Illustrative canopies", canopy_mesh, _plain_material(Color(0.18, 0.35, 0.22)), canopies)
-	_multimesh_instances("Photo-informed pilot canopies", canopy_mesh, _plain_material(_photo_rgb("foliage")), pilot_canopies)
+	_multimesh_instances("Tree trunks", trunk_mesh, _style_material("trunk"), trunks)
+	_multimesh_instances("Illustrative canopies", canopy_mesh, _style_material("canopy"), canopies)
+	_multimesh_instances("Photo-informed pilot canopies", canopy_mesh, _style_material("pilot_canopy"), pilot_canopies)
 
 
 func _build_photo_rocks() -> void:
@@ -576,7 +620,7 @@ func _build_photo_rocks() -> void:
 			shelf_stones.append(placement)
 		else:
 			bank_stones.append(placement)
-	var rock_material := _plain_material(_photo_rgb("limestone").darkened(0.23))
+	var rock_material := _style_material("rock")
 	_multimesh_instances("Illustrative Greenbelt bank stones", rock_mesh, rock_material, bank_stones)
 	_multimesh_instances("Illustrative Greenbelt limestone shelf", shelf_mesh, rock_material, shelf_stones)
 
@@ -585,7 +629,7 @@ func _build_parking_markings() -> void:
 	var items := []
 	for marking in photo_pilot["parking_markings"]:
 		items.append({"points": [[marking[0], marking[1]], [marking[2], marking[3]]], "tags": {}})
-	_build_draped_lines("Schematic mall parking markings", items, 0.13, Color(0.80, 0.78, 0.72), 0.46)
+	_build_draped_lines("Schematic mall parking markings", items, 0.13, "parking", 0.46)
 
 
 func _jump_to_view(view: String) -> void:
@@ -598,6 +642,11 @@ func _jump_to_view(view: String) -> void:
 			camera.position = Vector3(-130.0, _height_at(-130, 280) + 48.0, 280.0)
 			yaw = 0.52
 			pitch = -0.42
+		"greenbelt_study":
+			camera.position = Vector3(-155.0, _height_at(-155, 225) + 20.0, 225.0)
+			camera.look_at(Vector3(-250.0, _height_at(-250, 105) + 4.0, 105.0), Vector3.UP)
+			yaw = camera.rotation.y
+			pitch = camera.rotation.x
 		"mall":
 			camera.position = Vector3(10.0, _height_at(10, -760) + 13.0, -760.0)
 			yaw = -1.55
@@ -620,6 +669,9 @@ func _input(event: InputEvent) -> void:
 				_jump_to_view("greenbelt")
 			KEY_3:
 				_jump_to_view("mall")
+			KEY_4, KEY_5, KEY_6:
+				style_index = int(event.keycode) - KEY_4
+				_apply_style()
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 	if event is InputEventMouseMotion and Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
@@ -660,13 +712,33 @@ func _process(delta: float) -> void:
 			var instance: MeshInstance3D = tiles[key]["instance"]
 			instance.mesh = _make_tile_mesh(key.y, key.x, desired)
 			tiles[key]["step"] = desired
-	status_label.text = "BARTON CREEK  •  30.250924, -97.810494\nWASD move  •  mouse look  •  Space/Ctrl up/down  •  Shift faster  •  1 pin / 2 greenbelt / 3 mall  •  Esc release\nLocal X %.0f m  Z %.0f m  •  ground %.0f m above map origin  •  LOD queue %d" % [camera.position.x, camera.position.z, ground, pending_lod.size()]
+	status_label.text = "BARTON CREEK  •  30.250924, -97.810494  •  %s\nWASD move  •  mouse look  •  Space/Ctrl up/down  •  Shift faster  •  1 pin / 2 greenbelt / 3 mall  •  4/5/6 styles  •  Esc release\nLocal X %.0f m  Z %.0f m  •  ground %.0f m above map origin  •  LOD queue %d" % [styles[style_index]["name"], camera.position.x, camera.position.z, ground, pending_lod.size()]
 	var capture_path := OS.get_environment("ENFRACTAL_CAPTURE")
 	if not capture_path.is_empty():
 		capture_frame += 1
-		if capture_frame == 119:
-			print("Frame rate before capture: ", Engine.get_frames_per_second(), " fps; remaining LOD tiles: ", pending_lod.size())
-		if capture_frame == 120:
+		if capture_frame >= 80 and pending_lod.is_empty():
+			capture_samples_ms.append(delta * 1000.0)
+		if capture_frame == 180:
+			capture_samples_ms.sort()
+			var sample_count := capture_samples_ms.size()
+			var median_ms := capture_samples_ms[sample_count / 2] if sample_count > 0 else 0.0
+			var p95_ms := capture_samples_ms[mini(sample_count - 1, int(ceil(sample_count * 0.95)) - 1)] if sample_count > 0 else 0.0
+			var metrics := {
+				"style": styles[style_index]["id"],
+				"view": OS.get_environment("ENFRACTAL_VIEW"),
+				"sample_count": sample_count,
+				"median_frame_ms": snappedf(median_ms, 0.01),
+				"p95_frame_ms": snappedf(p95_ms, 0.01),
+				"remaining_lod_tiles": pending_lod.size(),
+				"viewport_px": [get_viewport().get_visible_rect().size.x, get_viewport().get_visible_rect().size.y],
+				"note": "Diagnostic capture in a hidden window; not a low-hardware benchmark."
+			}
+			print("Capture metrics: ", JSON.stringify(metrics))
+			var metrics_path := OS.get_environment("ENFRACTAL_METRICS")
+			if not metrics_path.is_empty():
+				var file := FileAccess.open(metrics_path, FileAccess.WRITE)
+				if file != null:
+					file.store_string(JSON.stringify(metrics, "  ") + "\n")
 			var result := get_viewport().get_texture().get_image().save_png(capture_path)
 			print("Map screenshot saved: ", capture_path, " (", result, ")")
 			get_tree().quit(0 if result == OK else 2)
