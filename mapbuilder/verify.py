@@ -8,12 +8,14 @@ from pathlib import Path
 
 import numpy as np
 import rasterio
+from PIL import Image
 
 from .fetch import sha256
 from .geo import MapConfig
+from .photo import read_evidence
 
 
-def verify_package(config: MapConfig, source_dir: Path, package_dir: Path) -> dict:
+def verify_package(config: MapConfig, source_dir: Path, package_dir: Path, photo_evidence_dir: Path) -> dict:
     manifest = json.loads((package_dir / "manifest.json").read_text(encoding="utf-8"))
     sources = json.loads((source_dir / "sources.json").read_text(encoding="utf-8"))
     if manifest["map_id"] != config.map_id or sources["map_id"] != config.map_id:
@@ -25,7 +27,7 @@ def verify_package(config: MapConfig, source_dir: Path, package_dir: Path) -> di
         if sha256(data) != record["sha256_uncompressed"]:
             raise AssertionError(f"Source OSM hash mismatch: {record['file']}")
     checked = {}
-    for name, hash_key in (("heights.r16", "heights_sha256"), ("features.json", "features_sha256"), ("preview.png", "preview_sha256")):
+    for name, hash_key in (("heights.r16", "heights_sha256"), ("features.json", "features_sha256"), ("preview.png", "preview_sha256"), ("photo_pilot.json", "photo_pilot_sha256"), ("photo_overlay.png", "photo_overlay_sha256")):
         data = (package_dir / name).read_bytes()
         if sha256(data) != manifest[hash_key]:
             raise AssertionError(f"Package hash mismatch: {name}")
@@ -57,6 +59,18 @@ def verify_package(config: MapConfig, source_dir: Path, package_dir: Path) -> di
         raise AssertionError("Barton Creek waterway missing")
     if len(features["trees"]) != config.vegetation_target:
         raise AssertionError("Vegetation count mismatch")
+    read_evidence(photo_evidence_dir)
+    pilot = json.loads((package_dir / "photo_pilot.json").read_text(encoding="utf-8"))
+    if pilot["evidence_sha256"] != sha256((photo_evidence_dir / "evidence.json").read_bytes()):
+        raise AssertionError("Photo evidence hash mismatch")
+    if pilot["overlay_sha256"] != manifest["photo_overlay_sha256"] or len(pilot["rock_instances"]) < 30 or len(pilot["parking_markings"]) < 50:
+        raise AssertionError("Photo pilot output invalid")
+    with Image.open(package_dir / "photo_overlay.png") as overlay_image:
+        if overlay_image.mode != "RGB" or overlay_image.size != (1024, 1024):
+            raise AssertionError("Photo overlay dimensions invalid")
+        overlay = np.asarray(overlay_image)
+        if not all(np.count_nonzero(overlay[:, :, channel]) > 100 for channel in range(3)):
+            raise AssertionError("A photo overlay channel is empty")
     half = config.side_m / 2
     for kind in ("buildings", "trees"):
         for item in features[kind]:
@@ -70,4 +84,5 @@ def verify_package(config: MapConfig, source_dir: Path, package_dir: Path) -> di
         "source_elevation_range_m": [sources["dem"]["minimum_m"], sources["dem"]["maximum_m"]],
         "feature_counts": manifest["feature_counts"],
         "center_height_m": round(float(center), 3),
+        "photo_pilot_rocks": len(pilot["rock_instances"]),
     }

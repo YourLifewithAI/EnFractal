@@ -23,16 +23,19 @@ def main() -> None:
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     parser.add_argument("--sources", type=Path, default=DEFAULT_SOURCES)
     parser.add_argument("--package", type=Path, default=DEFAULT_PACKAGE)
+    parser.add_argument("--photo-evidence", type=Path, default=None,
+                        help="curated photo evidence directory (defaults beside --sources)")
     args = parser.parse_args()
     config = MapConfig.load(args.config)
+    photo_evidence = args.photo_evidence or args.sources.parent / "photo_pilot"
     if args.action == "fetch":
         if args.sources.exists() and any(args.sources.iterdir()):
             parser.error("Source directory is not empty. Use a new --sources path to preserve the existing snapshot.")
         result = fetch_all(config, args.sources)
     elif args.action == "build":
-        result = build_map(config, args.sources, args.package)
+        result = build_map(config, args.sources, args.package, photo_evidence)
     else:
-        result = verify_package(config, args.sources, args.package)
+        result = verify_package(config, args.sources, args.package, photo_evidence)
     print(json.dumps(result, indent=2, sort_keys=True))
 
 

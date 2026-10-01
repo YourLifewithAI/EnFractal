@@ -1,0 +1,47 @@
+{
+  "format": "enfractal-photo-evidence-v0",
+  "notes": "Curated visual evidence for an illustrative material pass. Camera locations do not locate individual objects. No photograph is projected into the game.",
+  "greenbelt_pilot": {"center_x_m": -280, "center_z_m": 70, "radius_m": 260},
+  "mall_pilot": {"center_lat": 30.25781, "center_lon": -97.81005, "radius_m": 330},
+  "photos": [
+    {
+      "id": "greenbelt_limestone_2007",
+      "file": "sources/greenbelt_reference_960.jpg",
+      "sha256": "8b7af4d0109ae33d07762d21d5b9684b479e1ea8eb51a6e094bbb567130db214",
+      "source_page": "https://commons.wikimedia.org/wiki/File:BartonCreekGreenbelt.jpg",
+      "thumbnail_url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/0/0a/BartonCreekGreenbelt.jpg/960px-BartonCreekGreenbelt.jpg",
+      "author": "Julia Duffy (JTduffy)",
+      "license": "Public domain; author-dedicated",
+      "license_url": "https://commons.wikimedia.org/wiki/File:BartonCreekGreenbelt.jpg#Licensing",
+      "captured": "2007-06-10",
+      "location_quality": "Barton Creek Greenbelt, exact camera position unavailable",
+      "use": "Regional limestone, creek-water and foliage color reference only; no object placement",
+      "sample_rectangles_px": {
+        "limestone": [640, 535, 900, 700],
+        "foliage": [550, 10, 900, 180],
+        "creek_water": [120, 460, 400, 620]
+      }
+    },
+    {
+      "id": "mall_west_2020",
+      "file": "sources/mall_west_960.jpg",
+      "sha256": "7b20347ba78bee6f30c7ea3f7554fec3fcefd678523c24836dc24b9aff8b1846",
+      "source_page": "https://commons.wikimedia.org/wiki/File:Barton_Creek_Square_Mall_Austin_Texas_2020.jpg",
+      "thumbnail_url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/0/0f/Barton_Creek_Square_Mall_Austin_Texas_2020.jpg/960px-Barton_Creek_Square_Mall_Austin_Texas_2020.jpg",
+      "author": "Larry D. Moore",
+      "license": "CC BY 4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "captured": "2020-09-07",
+      "camera_lat": 30.25781,
+      "camera_lon": -97.81005,
+      "camera_heading_deg": 90,
+      "location_quality": "Geotagged camera on west side; not a surveyed facade outline",
+      "use": "West-facade stone/glazing and nearby paved-surface color reference; simplified procedural representation",
+      "sample_rectangles_px": {
+        "stone": [250, 245, 465, 290],
+        "glass": [141, 266, 201, 297],
+        "pavement": [380, 375, 800, 515]
+      }
+    }
+  ]
+}

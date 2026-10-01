@@ -20,7 +20,7 @@
     "waterways": 50
   },
   "features_file": "features.json",
-  "features_sha256": "1640a85bbf70c6030a97222d7ccf7bd8eef307b084619382507adbbd107e41db",
+  "features_sha256": "7809e3bdcee384c652cc15345d3b62a4b5b6ecc3f783da2a5143ecda1f6b2e6b",
   "format": "enfractal-map-v0",
   "grid_side": 2049,
   "height_encoding": "uint16 little-endian row-major, north row first; metres = offset + sample * scale",
@@ -35,15 +35,22 @@
     "Elevation comes from a dynamic 3DEP mosaic sampled at 2 m; exact native source tile and vertical datum not identified.",
     "Relative local Y is suitable for prototype rendering, not yet for global geodetic interchange.",
     "Road centerlines do not model lane widths, bridge decks, tunnels or collision-grade pavement.",
-    "No commercial satellite imagery is packaged."
+    "No commercial satellite imagery is packaged.",
+    "Photo pilot material colors and rock/facade/parking details are illustrative, not a surveyed reconstruction."
   ],
   "map_id": "barton_creek_v0",
+  "photo_overlay_file": "photo_overlay.png",
+  "photo_overlay_sha256": "36060e6fe2a711c135c12442002764442438e135e0812ff3ae52445a21f6fe76",
+  "photo_pilot_file": "photo_pilot.json",
+  "photo_pilot_sha256": "ecd3effca010c5dfc54a5ed1b99e8acbe34ee4fde1d3e68b273e68bbb0ec9a18",
   "preview_file": "preview.png",
   "preview_sha256": "a3c8d7932f97c553d63fdfe7a4c8ff4a103eee53372fa42aecb8ed0915660551",
   "rights": [
     "Terrain: USGS 3DEP; public-domain USGS data, cite source.",
     "Mapped features: \u00a9 OpenStreetMap contributors; ODbL 1.0. Feature database is distributed separately under ODbL.",
-    "Representative trees and untagged building heights are generated, not surveyed."
+    "Representative trees and untagged building heights are generated, not surveyed.",
+    "Photo pilot references: Julia Duffy (public domain) and Larry D. Moore (CC BY 4.0); see game/CREDITS.md.",
+    "Photo pilot parking markings derive from OSM aisle centerlines and remain attributed to OSM contributors."
   ],
   "sample_spacing_m": 2,
   "side_m": 4096,

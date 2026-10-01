@@ -1,0 +1,11 @@
+# Photo-informed rendering pilot
+
+This bounded pass improves two parts of the existing Barton Creek map: the mapped creek/trail near local **X -280 m, Z 70 m**, and the west side of Barton Creek Square Mall. It is a color and visual-pattern study, **not** a photo-textured replica or a claim of surveyed rock and stall positions.
+
+[`evidence.json`](evidence.json) records the curated photograph, author, license, camera location quality, exact thumbnail checksum, sampled rectangles and intended role. The archived thumbnail copies in [`sources`](sources) make the pass reproducible without a live photo service. [Full in-game credits](../../../game/CREDITS.md) remain alongside the project.
+
+The offline `mapbuilder build` action reads those local references, validates hashes and licenses, samples RGB color ranges and combines them with USGS height slope and OSM creek, trail, parking and aisle geometry. It emits [`photo_pilot.json`](../../../game/maps/barton_creek/photo_pilot.json) with color and illustrative object cues and [`photo_overlay.png`](../../../game/maps/barton_creek/photo_overlay.png) with three sparse masks: limestone bank, trail shoulder and paved mall parking. Only the compact derived files are loaded by Godot. The game renders the overlay per pixel so parking edges remain aligned even as terrain mesh detail changes.
+
+The Greenbelt source image identifies the general park but has no exact camera location. Its palette can describe local materials; it cannot locate an individual outcrop. The mall photograph provides a camera geotag and eastward view of the west exterior, but it does not provide measured wall heights or every entrance position. The shelf, bank stones, façade glazing rhythm and parking paint are therefore labeled illustrative in the map package. Water level is deliberately unchanged because the 2007 Greenbelt image shows a rainy-season scene.
+
+This is intentionally small for the one-developer, under-$100/month alpha. Expanding it should start with a photo inventory and license filter for this exact 4.096 km map, then controlled overlapping captures at individual landmarks where genuine reconstruction is worthwhile. The current screenshots establish appearance; a moving-camera test on the lowest target hardware is still required before committing to denser detail.

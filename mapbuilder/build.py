@@ -14,6 +14,7 @@ from PIL import Image, ImageDraw, ImageFilter
 from .fetch import sha256
 from .geo import MapConfig
 from .osm import build_features, write_features
+from .photo import build_photo_pilot
 
 
 def vertex_grid_from_dem(dem: np.ndarray) -> np.ndarray:
@@ -163,7 +164,7 @@ def write_preview(config: MapConfig, grid: np.ndarray, features: dict, target: P
     image.save(target, optimize=True)
 
 
-def build_map(config: MapConfig, source_dir: Path, package_dir: Path) -> dict:
+def build_map(config: MapConfig, source_dir: Path, package_dir: Path, photo_evidence_dir: Path) -> dict:
     sources = json.loads((source_dir / "sources.json").read_text(encoding="utf-8"))
     dem_file = source_dir / "usgs_3dep_2m.tif"
     if sha256(dem_file.read_bytes()) != sources["dem"]["sha256"]:
@@ -195,6 +196,9 @@ def build_map(config: MapConfig, source_dir: Path, package_dir: Path) -> dict:
     write_features(features, features_file)
     preview_file = package_dir / "preview.png"
     write_preview(config, grid, features, preview_file)
+    photo_pilot = build_photo_pilot(config, grid, features, photo_evidence_dir, package_dir)
+    photo_file = package_dir / "photo_pilot.json"
+    photo_overlay_file = package_dir / photo_pilot["overlay_file"]
 
     center_height = sample_height(grid, config, 0, 0)
     manifest = {
@@ -223,18 +227,25 @@ def build_map(config: MapConfig, source_dir: Path, package_dir: Path) -> dict:
         "features_sha256": sha256(features_file.read_bytes()),
         "preview_file": preview_file.name,
         "preview_sha256": sha256(preview_file.read_bytes()),
+        "photo_pilot_file": photo_file.name,
+        "photo_pilot_sha256": sha256(photo_file.read_bytes()),
+        "photo_overlay_file": photo_overlay_file.name,
+        "photo_overlay_sha256": sha256(photo_overlay_file.read_bytes()),
         "feature_counts": features["metadata"]["counts"],
         "source_manifest": (source_dir / "sources.json").as_posix(),
         "rights": [
             "Terrain: USGS 3DEP; public-domain USGS data, cite source.",
             "Mapped features: © OpenStreetMap contributors; ODbL 1.0. Feature database is distributed separately under ODbL.",
             "Representative trees and untagged building heights are generated, not surveyed.",
+            "Photo pilot references: Julia Duffy (public domain) and Larry D. Moore (CC BY 4.0); see game/CREDITS.md.",
+            "Photo pilot parking markings derive from OSM aisle centerlines and remain attributed to OSM contributors.",
         ],
         "limitations": [
             "Elevation comes from a dynamic 3DEP mosaic sampled at 2 m; exact native source tile and vertical datum not identified.",
             "Relative local Y is suitable for prototype rendering, not yet for global geodetic interchange.",
             "Road centerlines do not model lane widths, bridge decks, tunnels or collision-grade pavement.",
             "No commercial satellite imagery is packaged.",
+            "Photo pilot material colors and rock/facade/parking details are illustrative, not a surveyed reconstruction.",
         ],
     }
     (package_dir / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")

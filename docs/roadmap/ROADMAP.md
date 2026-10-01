@@ -4,6 +4,8 @@
 
 **Implementation update — 1 October 2026:** The [Barton Creek first-map prototype](../../maps/barton_creek/README.md) now builds and displays an offline geographic package around the founder's chosen coordinate. It starts E04/E05 but does not complete the runtime, collision, persistence or low-hardware performance gates below.
 
+The first [photo-informed rendering pilot](../../maps/barton_creek/photo_pilot/README.md) adds a rights-documented Greenbelt material study and simplified mall-west treatment. This is a small visual pass; broad photo coverage, surveyed landmark reconstruction and target-device performance validation remain open.
+
 The recommended first product is a small, geographically grounded shared region where players explore as creatures, invent through a bounded vocabulary, save work, invite friends to a free private version with different gravity, and return safely. Use this to validate the experience before expanding Earth's playable coverage. The long-term destination remains one shared Earth with persistent places and portals to independently configurable Earths.
 
 The initial recommendation is **Godot + C#, simple stylized 3D, an authoritative headless server, geographic data streamed in bounded tiles, and an optional model-neutral creation assistant**. Confirm that choice with a capped experiment. The operating plan reserves at most **$95/month**, below the user's $100 ceiling. Revenue stays in the project, after operating obligations and a reserve, to fund further development.

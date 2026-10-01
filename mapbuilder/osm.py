@@ -25,7 +25,7 @@ DEVELOPED_TAGS = {
 }
 KEPT_TAGS = {
     "name", "highway", "building", "building:levels", "height", "bridge", "tunnel",
-    "layer", "surface", "waterway", "natural", "water", "landuse", "leisure", "oneway", "amenity",
+    "layer", "surface", "service", "waterway", "natural", "water", "landuse", "leisure", "oneway", "amenity",
 }
 
 

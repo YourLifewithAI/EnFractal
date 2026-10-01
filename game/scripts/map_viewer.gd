@@ -24,17 +24,29 @@ var status_label: Label
 var yaw := 0.0
 var pitch := -0.5
 var lod_timer := 0.0
-var terrain_material: StandardMaterial3D
+var terrain_material: ShaderMaterial
 var capture_frame := 0
+var photo_pilot: Dictionary
+var photo_overlay_texture: Texture2D
+var greenbelt_center := Vector2.ZERO
+var greenbelt_radius := 0.0
+var mall_center := Vector2.ZERO
+var mall_radius := 0.0
 
 
 func _ready() -> void:
 	manifest = JSON.parse_string(FileAccess.get_file_as_string(MAP_PATH + "manifest.json"))
 	features = JSON.parse_string(FileAccess.get_file_as_string(MAP_PATH + "features.json"))
-	if manifest.is_empty() or features.is_empty():
+	photo_pilot = JSON.parse_string(FileAccess.get_file_as_string(MAP_PATH + "photo_pilot.json"))
+	if manifest.is_empty() or features.is_empty() or photo_pilot.is_empty():
 		push_error("Map package is missing or invalid")
 		get_tree().quit(1)
 		return
+	photo_overlay_texture = load(MAP_PATH + "photo_overlay.png")
+	greenbelt_center = Vector2(float(photo_pilot["greenbelt_pilot"]["center_x_m"]), float(photo_pilot["greenbelt_pilot"]["center_z_m"]))
+	greenbelt_radius = float(photo_pilot["greenbelt_pilot"]["radius_m"])
+	mall_center = Vector2(float(photo_pilot["mall_pilot"]["center_x_m"]), float(photo_pilot["mall_pilot"]["center_z_m"]))
+	mall_radius = float(photo_pilot["mall_pilot"]["radius_m"])
 	height_bytes = FileAccess.get_file_as_bytes(MAP_PATH + "heights.r16")
 	grid_side = int(manifest["grid_side"])
 	map_side_m = int(manifest["side_m"])
@@ -51,9 +63,12 @@ func _ready() -> void:
 		return
 	_setup_scene()
 	_setup_materials()
+	_jump_to_view(OS.get_environment("ENFRACTAL_VIEW"))
 	_build_initial_tiles()
 	_build_mapped_features()
+	_build_parking_markings()
 	_build_trees()
+	_build_photo_rocks()
 	_refresh_lod_targets()
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 	print("Barton Creek map loaded: ", manifest["feature_counts"])
@@ -99,9 +114,9 @@ func _setup_scene() -> void:
 	credit.anchor_bottom = 1.0
 	credit.offset_left = 18
 	credit.offset_right = 900
-	credit.offset_top = -29
+	credit.offset_top = -46
 	credit.offset_bottom = -10
-	credit.text = "Terrain: USGS 3DEP  •  Features: © OpenStreetMap contributors (ODbL)  •  Trees illustrative"
+	credit.text = "Terrain: USGS 3DEP  •  Features: © OpenStreetMap contributors (ODbL)  •  Trees illustrative\nPhoto cues: Julia Duffy (public domain), Larry D. Moore (CC BY 4.0); full credits in game/CREDITS.md"
 	credit.add_theme_font_size_override("font_size", 13)
 	credit.add_theme_color_override("font_color", Color(0.98, 0.96, 0.88))
 	credit.add_theme_color_override("font_shadow_color", Color(0.06, 0.11, 0.09))
@@ -109,10 +124,18 @@ func _setup_scene() -> void:
 
 
 func _setup_materials() -> void:
-	terrain_material = StandardMaterial3D.new()
-	terrain_material.vertex_color_use_as_albedo = true
-	terrain_material.roughness = 1.0
-	terrain_material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	terrain_material = ShaderMaterial.new()
+	terrain_material.shader = load("res://shaders/photo_terrain.gdshader")
+	terrain_material.set_shader_parameter("photo_overlay", photo_overlay_texture)
+	terrain_material.set_shader_parameter("limestone_color", _photo_rgb("limestone"))
+	terrain_material.set_shader_parameter("trail_soil_color", _photo_rgb("trail_soil"))
+	terrain_material.set_shader_parameter("pavement_color", _photo_rgb("pavement"))
+	terrain_material.set_shader_parameter("map_side_m", float(map_side_m))
+
+
+func _photo_rgb(name: String) -> Color:
+	var rgb: Array = photo_pilot["display_rgb"][name]
+	return Color8(int(rgb[0]), int(rgb[1]), int(rgb[2]))
 
 
 func _height_at_grid(row: int, column: int) -> float:
@@ -171,6 +194,7 @@ func _make_tile_mesh(tile_row: int, tile_column: int, step_m: int) -> ArrayMesh:
 	var vertices := PackedVector3Array()
 	var normals := PackedVector3Array()
 	var colors := PackedColorArray()
+	var uvs := PackedVector2Array()
 	var indices := PackedInt32Array()
 	for row in range(samples + 1):
 		for column in range(samples + 1):
@@ -190,6 +214,7 @@ func _make_tile_mesh(tile_row: int, tile_column: int, step_m: int) -> ArrayMesh:
 			vertices.push_back(Vector3(x, y, z))
 			normals.push_back(Vector3(-dx, 1.0, -dz).normalized())
 			colors.push_back(color)
+			uvs.push_back(Vector2((x + half) / map_side_m, (z + half) / map_side_m))
 	for row in range(samples):
 		for column in range(samples):
 			var a := row * (samples + 1) + column
@@ -202,6 +227,7 @@ func _make_tile_mesh(tile_row: int, tile_column: int, step_m: int) -> ArrayMesh:
 	arrays[Mesh.ARRAY_VERTEX] = vertices
 	arrays[Mesh.ARRAY_NORMAL] = normals
 	arrays[Mesh.ARRAY_COLOR] = colors
+	arrays[Mesh.ARRAY_TEX_UV] = uvs
 	arrays[Mesh.ARRAY_INDEX] = indices
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
@@ -300,6 +326,14 @@ func _build_mapped_features() -> void:
 	var highways := []
 	var streets := []
 	for road in features["roads"]:
+		if road["tags"].get("service", "") == "parking_aisle":
+			var in_mall_pilot := false
+			for point in road["points"]:
+				if Vector2(float(point[0]), float(point[1])).distance_squared_to(mall_center) < mall_radius * mall_radius:
+					in_mall_pilot = true
+					break
+			if in_mall_pilot:
+				continue # The mapped pavement area already covers these aisles.
 		if road["tags"].get("highway", "") in ["motorway", "trunk", "primary", "secondary", "motorway_link", "trunk_link", "primary_link", "secondary_link"]:
 			highways.append(road)
 		else:
@@ -311,10 +345,14 @@ func _build_mapped_features() -> void:
 	_build_water_areas()
 	var buildings := []
 	var landmarks := []
+	var mall_landmarks := []
 	for building in features["buildings"]:
 		var proxy: Dictionary = building["proxy"]
 		if not building["name"].is_empty() and float(proxy["width_m"]) * float(proxy["length_m"]) >= 4000.0:
-			landmarks.append(building)
+			if building["name"] == "Barton Creek Square Mall":
+				mall_landmarks.append(building)
+			else:
+				landmarks.append(building)
 			continue
 		var height: float = float(building["height_m"])
 		var x: float = float(proxy["x"])
@@ -322,10 +360,12 @@ func _build_mapped_features() -> void:
 		var basis := Basis(Vector3.UP, float(proxy["yaw_rad"])).scaled(Vector3(float(proxy["width_m"]), height, float(proxy["length_m"])))
 		buildings.append(Transform3D(basis, Vector3(x, _height_at(x,z) + height * 0.5, z)))
 	_multimesh_instances("Building proxies", cube, _plain_material(Color(0.66, 0.62, 0.53)), buildings)
-	_build_landmark_buildings(landmarks)
+	_build_landmark_buildings(landmarks, "Other mapped landmarks", Color(0.69, 0.64, 0.55))
+	_build_landmark_buildings(mall_landmarks, "Barton Creek Square outline", _photo_rgb("mall_stone"))
+	_build_mall_glazing(mall_landmarks)
 
 
-func _build_landmark_buildings(items: Array) -> void:
+func _build_landmark_buildings(items: Array, name: String, color: Color) -> void:
 	var vertices := PackedVector3Array()
 	var normals := PackedVector3Array()
 	var indices := PackedInt32Array()
@@ -373,10 +413,67 @@ func _build_landmark_buildings(items: Array) -> void:
 	arrays[Mesh.ARRAY_INDEX] = indices
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-	var material := _plain_material(Color(0.69, 0.64, 0.55))
+	var material := _plain_material(color)
 	material.cull_mode = BaseMaterial3D.CULL_DISABLED
 	var instance := MeshInstance3D.new()
-	instance.name = "Mapped landmark building footprints"
+	instance.name = name
+	instance.mesh = mesh
+	instance.material_override = material
+	add_child(instance)
+
+
+func _build_mall_glazing(items: Array) -> void:
+	var vertices := PackedVector3Array()
+	var normals := PackedVector3Array()
+	var indices := PackedInt32Array()
+	for building in items:
+		var ring := PackedVector2Array()
+		for point in building["footprint"]:
+			ring.push_back(Vector2(float(point[0]), float(point[1])))
+		if ring.size() > 2 and ring[0].distance_to(ring[ring.size()-1]) < 0.01:
+			ring.remove_at(ring.size()-1)
+		var center_x := float(building["proxy"]["x"])
+		var west_limit := center_x - float(building["proxy"]["width_m"]) * 0.18
+		var roof_height := float(building["height_m"])
+		for i in range(ring.size()):
+			var a := ring[i]
+			var b := ring[(i+1) % ring.size()]
+			var edge := b - a
+			var length := edge.length()
+			if length < 12.0 or (a.x + b.x) * 0.5 > west_limit:
+				continue
+			var outward := Vector2(-1.0, 0.0)
+			var direction := edge / length
+			var sections := int(floor(length / 10.0))
+			for section in range(sections):
+				var start := a + direction * (section * 10.0 + 1.4) + outward * 0.25
+				var end := a + direction * (section * 10.0 + 8.6) + outward * 0.25
+				var bottom_a := _height_at(start.x, start.y) + 1.1
+				var bottom_b := _height_at(end.x, end.y) + 1.1
+				var top_a := _height_at(start.x, start.y) + minf(roof_height * 0.72, 4.8)
+				var top_b := _height_at(end.x, end.y) + minf(roof_height * 0.72, 4.8)
+				var base := vertices.size()
+				vertices.append_array(PackedVector3Array([
+					Vector3(start.x, bottom_a, start.y), Vector3(end.x, bottom_b, end.y),
+					Vector3(start.x, top_a, start.y), Vector3(end.x, top_b, end.y),
+				]))
+				normals.append_array(PackedVector3Array([Vector3.LEFT, Vector3.LEFT, Vector3.LEFT, Vector3.LEFT]))
+				indices.append_array(PackedInt32Array([base, base+2, base+1, base+1, base+2, base+3]))
+	if vertices.is_empty():
+		return
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = vertices
+	arrays[Mesh.ARRAY_NORMAL] = normals
+	arrays[Mesh.ARRAY_INDEX] = indices
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	var material := _plain_material(_photo_rgb("mall_glass"))
+	material.metallic = 0.15
+	material.roughness = 0.35
+	material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var instance := MeshInstance3D.new()
+	instance.name = "Illustrative west mall glazing"
 	instance.mesh = mesh
 	instance.material_override = material
 	add_child(instance)
@@ -438,6 +535,7 @@ func _build_trees() -> void:
 	canopy_mesh.rings = 3
 	var trunks := []
 	var canopies := []
+	var pilot_canopies := []
 	for tree in features["trees"]:
 		var x: float = float(tree["x"])
 		var z: float = float(tree["z"])
@@ -445,14 +543,83 @@ func _build_trees() -> void:
 		var height: float = float(tree["height_m"])
 		var trunk_height := height * 0.48
 		trunks.append(Transform3D(Basis.IDENTITY.scaled(Vector3(1.0, trunk_height, 1.0)), Vector3(x, base_y + trunk_height * 0.5, z)))
-		canopies.append(Transform3D(Basis.IDENTITY.scaled(Vector3(height * 0.21, height * 0.30, height * 0.21)), Vector3(x, base_y + height * 0.73, z)))
+		var canopy := Transform3D(Basis.IDENTITY.scaled(Vector3(height * 0.21, height * 0.30, height * 0.21)), Vector3(x, base_y + height * 0.73, z))
+		if Vector2(x,z).distance_squared_to(greenbelt_center) < greenbelt_radius * greenbelt_radius:
+			pilot_canopies.append(canopy)
+		else:
+			canopies.append(canopy)
 	_multimesh_instances("Tree trunks", trunk_mesh, _plain_material(Color(0.29, 0.23, 0.17)), trunks)
 	_multimesh_instances("Illustrative canopies", canopy_mesh, _plain_material(Color(0.18, 0.35, 0.22)), canopies)
+	_multimesh_instances("Photo-informed pilot canopies", canopy_mesh, _plain_material(_photo_rgb("foliage")), pilot_canopies)
+
+
+func _build_photo_rocks() -> void:
+	var rock_mesh := SphereMesh.new()
+	rock_mesh.radius = 0.5
+	rock_mesh.height = 1.0
+	rock_mesh.radial_segments = 7
+	rock_mesh.rings = 4
+	var shelf_mesh := CylinderMesh.new()
+	shelf_mesh.top_radius = 0.50
+	shelf_mesh.bottom_radius = 0.62
+	shelf_mesh.height = 1.0
+	shelf_mesh.radial_segments = 7
+	var bank_stones := []
+	var shelf_stones := []
+	for rock in photo_pilot["rock_instances"]:
+		var x := float(rock["x"])
+		var z := float(rock["z"])
+		var height := float(rock["height_m"])
+		var basis := Basis(Vector3.UP, float(rock["yaw_rad"])).scaled(Vector3(float(rock["length_m"]), height, float(rock["width_m"])))
+		var placement := Transform3D(basis, Vector3(x, _height_at(x,z) + height * 0.2, z))
+		if rock["kind"] == "illustrative_shelf":
+			shelf_stones.append(placement)
+		else:
+			bank_stones.append(placement)
+	var rock_material := _plain_material(_photo_rgb("limestone").darkened(0.23))
+	_multimesh_instances("Illustrative Greenbelt bank stones", rock_mesh, rock_material, bank_stones)
+	_multimesh_instances("Illustrative Greenbelt limestone shelf", shelf_mesh, rock_material, shelf_stones)
+
+
+func _build_parking_markings() -> void:
+	var items := []
+	for marking in photo_pilot["parking_markings"]:
+		items.append({"points": [[marking[0], marking[1]], [marking[2], marking[3]]], "tags": {}})
+	_build_draped_lines("Schematic mall parking markings", items, 0.13, Color(0.80, 0.78, 0.72), 0.46)
+
+
+func _jump_to_view(view: String) -> void:
+	match view:
+		"pin":
+			camera.position = Vector3(0.0, _height_at(0, 350) + 55.0, 350.0)
+			yaw = 0.0
+			pitch = -0.5
+		"greenbelt":
+			camera.position = Vector3(-130.0, _height_at(-130, 280) + 48.0, 280.0)
+			yaw = 0.52
+			pitch = -0.42
+		"mall":
+			camera.position = Vector3(10.0, _height_at(10, -760) + 13.0, -760.0)
+			yaw = -1.55
+			pitch = -0.08
+		_:
+			return
+	camera.rotation = Vector3(pitch, yaw, 0.0)
+	if not tiles.is_empty():
+		_refresh_lod_targets()
 
 
 func _input(event: InputEvent) -> void:
-	if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
-		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
+	if event is InputEventKey and event.pressed:
+		match event.keycode:
+			KEY_ESCAPE:
+				Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
+			KEY_1:
+				_jump_to_view("pin")
+			KEY_2:
+				_jump_to_view("greenbelt")
+			KEY_3:
+				_jump_to_view("mall")
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 	if event is InputEventMouseMotion and Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
@@ -493,7 +660,7 @@ func _process(delta: float) -> void:
 			var instance: MeshInstance3D = tiles[key]["instance"]
 			instance.mesh = _make_tile_mesh(key.y, key.x, desired)
 			tiles[key]["step"] = desired
-	status_label.text = "BARTON CREEK  •  30.250924, -97.810494\nWASD move  •  mouse look  •  Space/Ctrl up/down  •  Shift faster  •  Esc release mouse\nLocal X %.0f m  Z %.0f m  •  ground %.0f m above map origin  •  LOD queue %d" % [camera.position.x, camera.position.z, ground, pending_lod.size()]
+	status_label.text = "BARTON CREEK  •  30.250924, -97.810494\nWASD move  •  mouse look  •  Space/Ctrl up/down  •  Shift faster  •  1 pin / 2 greenbelt / 3 mall  •  Esc release\nLocal X %.0f m  Z %.0f m  •  ground %.0f m above map origin  •  LOD queue %d" % [camera.position.x, camera.position.z, ground, pending_lod.size()]
 	var capture_path := OS.get_environment("ENFRACTAL_CAPTURE")
 	if not capture_path.is_empty():
 		capture_frame += 1

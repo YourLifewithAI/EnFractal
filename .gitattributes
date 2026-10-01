@@ -1,4 +1,5 @@
 *.gz binary
 *.png binary
+*.jpg binary
 *.r16 binary
 *.tif binary
