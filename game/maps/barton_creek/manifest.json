@@ -1,0 +1,52 @@
+{
+  "axes": "+X east, +Z south, +Y up; local origin at founder coordinate",
+  "center_lat": 30.250924,
+  "center_lon": -97.810494,
+  "center_projected_m": [
+    614439.459,
+    3347188.813
+  ],
+  "crs": "EPSG:32614",
+  "description": "Austin area centered on the founder's coordinate. Terrain and mapped features are source-derived; vegetation and building heights are illustrative.",
+  "display_name": "Barton Creek Greenbelt prototype",
+  "feature_counts": {
+    "buildings": 2886,
+    "developed_areas": 103,
+    "roads": 1478,
+    "trails": 891,
+    "trees": 5000,
+    "vegetation_areas": 40,
+    "water_areas": 49,
+    "waterways": 50
+  },
+  "features_file": "features.json",
+  "features_sha256": "1640a85bbf70c6030a97222d7ccf7bd8eef307b084619382507adbbd107e41db",
+  "format": "enfractal-map-v0",
+  "grid_side": 2049,
+  "height_encoding": "uint16 little-endian row-major, north row first; metres = offset + sample * scale",
+  "height_max_m": 238.1784,
+  "height_min_m": 140.27,
+  "height_offset_m": 140.27,
+  "height_origin_m": 203.7862,
+  "height_scale_m": 0.01,
+  "heights_file": "heights.r16",
+  "heights_sha256": "a15d168d5d84061e05b609b875ea82e306a539b3ad96c881528f96d06abe55d7",
+  "limitations": [
+    "Elevation comes from a dynamic 3DEP mosaic sampled at 2 m; exact native source tile and vertical datum not identified.",
+    "Relative local Y is suitable for prototype rendering, not yet for global geodetic interchange.",
+    "Road centerlines do not model lane widths, bridge decks, tunnels or collision-grade pavement.",
+    "No commercial satellite imagery is packaged."
+  ],
+  "map_id": "barton_creek_v0",
+  "preview_file": "preview.png",
+  "preview_sha256": "a3c8d7932f97c553d63fdfe7a4c8ff4a103eee53372fa42aecb8ed0915660551",
+  "rights": [
+    "Terrain: USGS 3DEP; public-domain USGS data, cite source.",
+    "Mapped features: \u00a9 OpenStreetMap contributors; ODbL 1.0. Feature database is distributed separately under ODbL.",
+    "Representative trees and untagged building heights are generated, not surveyed."
+  ],
+  "sample_spacing_m": 2,
+  "side_m": 4096,
+  "source_manifest": "maps/barton_creek/sources/sources.json",
+  "tile_side_m": 512
+}

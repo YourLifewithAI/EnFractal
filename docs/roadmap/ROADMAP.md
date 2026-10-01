@@ -1,6 +1,8 @@
 # Enfractal MVP roadmap
 
-**Planning draft v0.1 — 30 September 2026.** This plan turns the two supplied conversations into a staged project for one founder working with coding agents. It covers the map, rendering, art, engine/language, physics, AI/MCP, persistent Home Earth, invited sandbox worlds, subscriptions, and the product, security and operational work needed around them. Nothing here represents an implemented game, a tested benchmark, a purchased service or a launch commitment.
+**Planning draft v0.1 — 30 September 2026.** This plan turns the two supplied conversations into a staged project for one founder working with coding agents. It covers the map, rendering, art, engine/language, physics, AI/MCP, persistent Home Earth, invited sandbox worlds, subscriptions, and the product, security and operational work needed around them. The plan's budgets and performance gates remain proposals, not tested benchmarks or launch commitments.
+
+**Implementation update — 1 October 2026:** The [Barton Creek first-map prototype](../../maps/barton_creek/README.md) now builds and displays an offline geographic package around the founder's chosen coordinate. It starts E04/E05 but does not complete the runtime, collision, persistence or low-hardware performance gates below.
 
 The recommended first product is a small, geographically grounded shared region where players explore as creatures, invent through a bounded vocabulary, save work, invite friends to a free private version with different gravity, and return safely. Use this to validate the experience before expanding Earth's playable coverage. The long-term destination remains one shared Earth with persistent places and portals to independently configurable Earths.
 

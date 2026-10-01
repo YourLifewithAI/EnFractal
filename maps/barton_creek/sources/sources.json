@@ -1,0 +1,61 @@
+{
+  "center": {
+    "lat": 30.250924,
+    "lon": -97.810494
+  },
+  "dem": {
+    "bytes": 16780384,
+    "maximum_m": 238.2520294189453,
+    "minimum_m": 140.27000427246094,
+    "retrieved_at_utc": "2026-10-01T17:59:48.353057+00:00",
+    "service_coverage_may_mix_source_resolutions": true,
+    "sha256": "8e948366efbc3aabda26669a417e045fff9fcf530d6ad53a2d40b447ef101dfb",
+    "source_index": "https://index.nationalmap.gov/arcgis/rest/services/3DEPElevationIndex/MapServer/1/query",
+    "source_sample_spacing_m": 2,
+    "source_service": "USGS 3DEP bare-earth dynamic image service",
+    "url": "https://elevation.nationalmap.gov/arcgis/rest/services/3DEPElevation/ImageServer/exportImage?bbox=612391.459%2C3345140.813%2C616487.459%2C3349236.813&bboxSR=32614&imageSR=32614&size=2048%2C2048&format=tiff&pixelType=F32&interpolation=RSP_BilinearInterpolation&f=image",
+    "valid_fraction": 1.0,
+    "vertical_datum": "not established by image-service response; use relative local heights only"
+  },
+  "map_id": "barton_creek_v0",
+  "notes": [
+    "No Maxar or other noncommercial imagery is included.",
+    "OSM snapshot is a separate ODbL-derived database; retain attribution and share-alike terms.",
+    "The service response does not establish the source vertical datum, so game Y is local relative height only."
+  ],
+  "osm": [
+    {
+      "bytes_uncompressed": 4654121,
+      "file": "osm_00.osm.gz",
+      "license": "OpenStreetMap contributors, Open Database License 1.0",
+      "retrieved_at_utc": "2026-10-01T17:59:49.989290+00:00",
+      "sha256_uncompressed": "47d0b49a62e0068e4b771b073bf8ba8bddc58be8b1e4625f57eb8d19be3590d7",
+      "url": "https://api.openstreetmap.org/api/0.6/map?bbox=-97.83199612%2C30.23244627%2C-97.81049400%2C30.25111556"
+    },
+    {
+      "bytes_uncompressed": 3287256,
+      "file": "osm_01.osm.gz",
+      "license": "OpenStreetMap contributors, Open Database License 1.0",
+      "retrieved_at_utc": "2026-10-01T17:59:51.857124+00:00",
+      "sha256_uncompressed": "8ba7369eb6ba06e36b35049ffbf7380c97978057c91265d802f97ce0134f34f3",
+      "url": "https://api.openstreetmap.org/api/0.6/map?bbox=-97.81071653%2C30.23225140%2C-97.78921064%2C30.25092400"
+    },
+    {
+      "bytes_uncompressed": 2825775,
+      "file": "osm_10.osm.gz",
+      "license": "OpenStreetMap contributors, Open Database License 1.0",
+      "retrieved_at_utc": "2026-10-01T17:59:53.454931+00:00",
+      "sha256_uncompressed": "36d2cee7ff35b2c27a19236ab5668ba95b0722ab514ae7e1f41052438f0a9be9",
+      "url": "https://api.openstreetmap.org/api/0.6/map?bbox=-97.83177757%2C30.25092400%2C-97.81027126%2C30.26959337"
+    },
+    {
+      "bytes_uncompressed": 6338736,
+      "file": "osm_11.osm.gz",
+      "license": "OpenStreetMap contributors, Open Database License 1.0",
+      "retrieved_at_utc": "2026-10-01T17:59:55.768892+00:00",
+      "sha256_uncompressed": "e87d3998a37fdfdee84ecfa9c46a6941fea318179c88f583729e1d383cc7547c",
+      "url": "https://api.openstreetmap.org/api/0.6/map?bbox=-97.81049400%2C30.25072898%2C-97.78898392%2C30.26940167"
+    }
+  ],
+  "projected_crs": "EPSG:32614"
+}

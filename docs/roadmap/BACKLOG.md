@@ -1,6 +1,6 @@
 # Enfractal execution backlog and agent assignments
 
-Planning only, 30 September 2026. Every item below is future work, not a report that code exists. The [roadmap](ROADMAP.md) defines scope, budget, provisional architecture and phase gates. Detailed research task IDs are supporting checklists; these E identifiers provide one coordinated dependency order. In particular, there is one creation compiler, one authority loop and one portal transaction design.
+Planning baseline, 30 September 2026. The [Barton Creek first-map prototype](../../maps/barton_creek/README.md) began E04/E05 on 1 October 2026; the acceptance gates in this backlog remain open. The [roadmap](ROADMAP.md) defines scope, budget, provisional architecture and phase gates. Detailed research task IDs are supporting checklists; these E identifiers provide one coordinated dependency order. In particular, there is one creation compiler, one authority loop and one portal transaction design.
 
 ## Working rules
 
