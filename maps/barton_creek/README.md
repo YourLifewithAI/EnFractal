@@ -14,7 +14,7 @@ The generated files are checked into the repo under [`game/maps/barton_creek`](.
 
 ## Open the map
 
-On the current development computer, the downloaded Godot 4.7.2 executable is available to [`run-map.ps1`](../../run-map.ps1). Run `./run-map.ps1` from the repository in PowerShell to open the map. On another computer, install the official [Godot 4.7.2 standard build](https://godotengine.org/download/archive/4.7.2-stable/) for Windows, then open [`game/project.godot`](../../game/project.godot) and run the scene. Keyboard: **W/A/S/D** move, mouse looks around, **Space/Ctrl** move vertically, **Shift** moves faster, and **Esc** releases the mouse. This is a free-fly inspection camera, not yet player movement or world physics.
+Godot 4.7.2 is already on the development laptop. Run [`run-map.ps1`](../../run-map.ps1) from the repository in PowerShell to open the map; it finds the existing copy in Downloads. If Godot is elsewhere, set `ENFRACTAL_GODOT` to its executable path, or open [`game/project.godot`](../../game/project.godot) directly in Godot. On another computer, use the official [Godot 4.7.2 standard build](https://godotengine.org/download/archive/4.7.2-stable/) for Windows. Keyboard: **W/A/S/D** move, mouse looks around, **Space/Ctrl** move vertically, **Shift** moves faster, and **Esc** releases the mouse. This is a free-fly inspection camera, not yet player movement or world physics.
 
 To verify or rebuild the already archived package with Python 3.12:
 
