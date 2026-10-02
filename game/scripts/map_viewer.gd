@@ -5,7 +5,9 @@ extends Node3D
 const MAP_PATH := "res://maps/barton_creek/"
 const STYLE_PATH := "res://styles/greenbelt_styles.json"
 const MAX_SEGMENT_M := 18.0
+const MAX_PENDING_LOD_TILES := 64
 const MAP_RUNTIME_SCRIPT := preload("res://scripts/map_runtime.gd")
+const TERRAIN_MESH_JOB_SCRIPT := preload("res://scripts/terrain_mesh_job.gd")
 const WORKSHOP_RUNTIME_SCRIPT := preload("res://scripts/workshop_runtime.gd")
 const PLAYER_TEST_SCENE := preload("res://scenes/player_test.tscn")
 const TERRAIN_COLLISION_SCRIPT := preload("res://scripts/terrain_collision_streamer.gd")
@@ -23,6 +25,13 @@ var height_min_m: float
 var height_max_m: float
 var tiles: Dictionary = {}
 var pending_lod: Array[Vector2i] = []
+var lod_job
+var lod_task_id := -1
+var lod_job_key := Vector2i(-1, -1)
+var lod_job_step := 0
+var lod_discarded := 0
+var lod_last_build_ms := 0.0
+var lod_last_commit_ms := 0.0
 var camera: Camera3D
 var player_body
 var walk_camera: Camera3D
@@ -242,131 +251,18 @@ func _build_initial_tiles() -> void:
 
 
 func _make_tile_mesh(tile_row: int, tile_column: int, step_m: int) -> ArrayMesh:
-	var samples := tile_side_m / step_m
-	var origin_col := tile_column * tile_side_m / sample_spacing_m
-	var origin_row := tile_row * tile_side_m / sample_spacing_m
-	var stride := step_m / sample_spacing_m
-	var half: float = map_side_m * 0.5
-	var vertices := PackedVector3Array()
-	var normals := PackedVector3Array()
-	var colors := PackedColorArray()
-	var uvs := PackedVector2Array()
-	var indices := PackedInt32Array()
-	var coarse_vertex_count := (samples + 1) * (samples + 1)
-	vertices.resize(coarse_vertex_count)
-	normals.resize(coarse_vertex_count)
-	colors.resize(coarse_vertex_count)
-	uvs.resize(coarse_vertex_count)
-	# The fine tile reuses each source sample for height and four slope taps.
-	# Cache one-sample halo once rather than decoding the same grid point in
-	# five GDScript calls per vertex. Coarser tiles keep their tiny direct path.
-	var cached_heights := PackedFloat32Array()
-	var cache_side := samples + 3
-	if step_m == sample_spacing_m:
-		cached_heights.resize(cache_side * cache_side)
-		for cache_row in range(cache_side):
-			for cache_column in range(cache_side):
-				cached_heights[cache_row * cache_side + cache_column] = _height_at_grid(origin_row + cache_row - 1, origin_col + cache_column - 1)
-	var interior_cells := samples * samples if step_m == sample_spacing_m else maxi(0, samples - 2) * maxi(0, samples - 2)
-	indices.resize(interior_cells * 6)
-	var index_cursor := 0
-	for row in range(samples + 1):
-		for column in range(samples + 1):
-			var grid_row := origin_row + row * stride
-			var grid_column := origin_col + column * stride
-			var x: float = -half + grid_column * sample_spacing_m
-			var z: float = -half + grid_row * sample_spacing_m
-			var y: float
-			var dx: float
-			var dz: float
-			if not cached_heights.is_empty():
-				var cache_index := (row + 1) * cache_side + column + 1
-				y = cached_heights[cache_index]
-				dx = (cached_heights[cache_index + 1] - cached_heights[cache_index - 1]) / float(sample_spacing_m * 2)
-				dz = (cached_heights[cache_index + cache_side] - cached_heights[cache_index - cache_side]) / float(sample_spacing_m * 2)
-			else:
-				y = _height_at_grid(grid_row, grid_column)
-				dx = (_height_at_grid(grid_row, grid_column + 1) - _height_at_grid(grid_row, grid_column - 1)) / float(sample_spacing_m * 2)
-				dz = (_height_at_grid(grid_row + 1, grid_column) - _height_at_grid(grid_row - 1, grid_column)) / float(sample_spacing_m * 2)
-			var slope := sqrt(dx * dx + dz * dz)
-			var absolute_m := y + height_origin_m
-			var relief: float = clampf((absolute_m - height_min_m) / maxf(1.0, height_max_m - height_min_m), 0.0, 1.0)
-			var steepness := clampf((slope - 0.55) / 1.5, 0.0, 0.8)
-			var vertex_index := row * (samples + 1) + column
-			vertices[vertex_index] = Vector3(x, y, z)
-			normals[vertex_index] = Vector3(-dx, 1.0, -dz).normalized()
-			# Store source-derived measures; the style recipe chooses their colors.
-			colors[vertex_index] = Color(relief, steepness, 0.0, 1.0)
-			uvs[vertex_index] = Vector2((x + half) / map_side_m, (z + half) / map_side_m)
-	for row in range(samples):
-		for column in range(samples):
-			if step_m > sample_spacing_m and (row == 0 or column == 0 or row == samples - 1 or column == samples - 1):
-				continue # A narrow stitched ring replaces the coarse outer cells below.
-			var a := row * (samples + 1) + column
-			var b := a + 1
-			var c := a + samples + 1
-			var d := c + 1
-			indices[index_cursor] = a
-			indices[index_cursor + 1] = c
-			indices[index_cursor + 2] = b
-			indices[index_cursor + 3] = b
-			indices[index_cursor + 4] = c
-			indices[index_cursor + 5] = d
-			index_cursor += 6
-	if step_m > sample_spacing_m:
-		# Every tile exposes the same 2 m source-height samples on its perimeter.
-		# Only its outermost coarse-cell ring is refined; the interior keeps its LOD.
-		for cell_row in range(samples):
-			for cell_column in range(samples):
-				if cell_row != 0 and cell_column != 0 and cell_row != samples - 1 and cell_column != samples - 1:
-					continue
-				var x0: float = -half + tile_column * tile_side_m + cell_column * step_m
-				var z0: float = -half + tile_row * tile_side_m + cell_row * step_m
-				var x1 := x0 + step_m
-				var z1 := z0 + step_m
-				# Walk the rectangle counterclockwise as seen from above. Subdivide
-				# only sides touching the tile perimeter; inner edges remain coarse.
-				var corners := PackedVector2Array([
-					Vector2(x0, z0), Vector2(x0, z1),
-					Vector2(x1, z1), Vector2(x1, z0),
-				])
-				var subdivisions := PackedInt32Array([
-					stride if cell_column == 0 else 1,
-					stride if cell_row == samples - 1 else 1,
-					stride if cell_column == samples - 1 else 1,
-					stride if cell_row == 0 else 1,
-				])
-				var perimeter := PackedVector2Array()
-				for side in range(4):
-					for section in range(subdivisions[side]):
-						perimeter.push_back(corners[side].lerp(corners[(side + 1) % 4], float(section) / subdivisions[side]))
-				var vertex_start := vertices.size()
-				perimeter.push_back(Vector2((x0 + x1) * 0.5, (z0 + z1) * 0.5))
-				for location in perimeter:
-					var grid_column := int(round((location.x + half) / sample_spacing_m))
-					var grid_row := int(round((location.y + half) / sample_spacing_m))
-					var y := _height_at_grid(grid_row, grid_column)
-					var dx := (_height_at_grid(grid_row, grid_column + 1) - _height_at_grid(grid_row, grid_column - 1)) / float(sample_spacing_m * 2)
-					var dz := (_height_at_grid(grid_row + 1, grid_column) - _height_at_grid(grid_row - 1, grid_column)) / float(sample_spacing_m * 2)
-					var slope := sqrt(dx * dx + dz * dz)
-					var absolute_m := y + height_origin_m
-					var relief: float = clampf((absolute_m - height_min_m) / maxf(1.0, height_max_m - height_min_m), 0.0, 1.0)
-					var steepness := clampf((slope - 0.55) / 1.5, 0.0, 0.8)
-					vertices.push_back(Vector3(location.x, y, location.y))
-					normals.push_back(Vector3(-dx, 1.0, -dz).normalized())
-					colors.push_back(Color(relief, steepness, 0.0, 1.0))
-					uvs.push_back(Vector2((location.x + half) / map_side_m, (location.y + half) / map_side_m))
-				var center_index := vertices.size() - 1
-				var edge_count := perimeter.size() - 1
-				for edge in range(edge_count):
-					indices.append_array(PackedInt32Array([center_index, vertex_start + edge, vertex_start + (edge + 1) % edge_count]))
-	var arrays := []
-	arrays.resize(Mesh.ARRAY_MAX)
-	arrays[Mesh.ARRAY_VERTEX] = vertices
-	arrays[Mesh.ARRAY_NORMAL] = normals
-	arrays[Mesh.ARRAY_COLOR] = colors
-	arrays[Mesh.ARRAY_TEX_UV] = uvs
-	arrays[Mesh.ARRAY_INDEX] = indices
+	var job = _new_terrain_job()
+	job.run(tile_row, tile_column, step_m)
+	return _mesh_from_arrays(job.arrays)
+
+
+func _new_terrain_job():
+	var job = TERRAIN_MESH_JOB_SCRIPT.new()
+	job.configure(map_runtime, map_side_m, sample_spacing_m, tile_side_m, height_origin_m, height_min_m, height_max_m)
+	return job
+
+
+func _mesh_from_arrays(arrays: Array) -> ArrayMesh:
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 	return mesh
@@ -381,6 +277,59 @@ func _refresh_lod_targets() -> void:
 	pending_lod.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
 		return _tile_center(a.y, a.x).distance_to(Vector2(camera.position.x, camera.position.z)) < _tile_center(b.y, b.x).distance_to(Vector2(camera.position.x, camera.position.z))
 	)
+	if pending_lod.size() > MAX_PENDING_LOD_TILES:
+		pending_lod.resize(MAX_PENDING_LOD_TILES)
+
+
+func _service_lod_job() -> void:
+	if lod_task_id < 0 or not WorkerThreadPool.is_task_completed(lod_task_id):
+		return
+	# The completion check makes this wait nonblocking during normal frames.
+	var outcome := WorkerThreadPool.wait_for_task_completion(lod_task_id)
+	lod_task_id = -1
+	var finished_job = lod_job
+	lod_job = null
+	if outcome != OK:
+		push_error("Terrain worker task could not be joined")
+		return
+	lod_last_build_ms = float(finished_job.build_us) / 1000.0
+	# Large jumps can change the desired LOD while this worker is building.
+	# Leave the existing mesh in place and discard that now-stale result.
+	if not tiles.has(lod_job_key) or _target_step(lod_job_key.y, lod_job_key.x) != lod_job_step or int(tiles[lod_job_key]["step"]) == lod_job_step:
+		lod_discarded += 1
+		return
+	var started := Time.get_ticks_usec()
+	var instance: MeshInstance3D = tiles[lod_job_key]["instance"]
+	instance.mesh = _mesh_from_arrays(finished_job.arrays)
+	tiles[lod_job_key]["step"] = lod_job_step
+	lod_last_commit_ms = float(Time.get_ticks_usec() - started) / 1000.0
+
+
+func _start_next_lod_job() -> void:
+	if lod_task_id >= 0:
+		return
+	while not pending_lod.is_empty():
+		var key: Vector2i = pending_lod.pop_front()
+		if not tiles.has(key):
+			continue
+		var desired := _target_step(key.y, key.x)
+		if desired == int(tiles[key]["step"]):
+			continue
+		lod_job = _new_terrain_job()
+		lod_job_key = key
+		lod_job_step = desired
+		lod_task_id = WorkerThreadPool.add_task(Callable(lod_job, "run").bind(key.y, key.x, desired), false, "Enfractal terrain tile")
+		if lod_task_id < 0:
+			lod_job = null
+			push_error("Terrain worker task could not be started")
+		return
+
+
+func _exit_tree() -> void:
+	if lod_task_id >= 0:
+		WorkerThreadPool.wait_for_task_completion(lod_task_id)
+		lod_task_id = -1
+		lod_job = null
 
 
 func _plain_material(color: Color) -> StandardMaterial3D:
@@ -948,19 +897,15 @@ func _process(delta: float) -> void:
 	if lod_timer >= 0.75:
 		lod_timer = 0.0
 		_refresh_lod_targets()
-	if not pending_lod.is_empty():
-		var key: Vector2i = pending_lod.pop_front()
-		var desired := _target_step(key.y, key.x)
-		if desired != int(tiles[key]["step"]):
-			var instance: MeshInstance3D = tiles[key]["instance"]
-			instance.mesh = _make_tile_mesh(key.y, key.x, desired)
-			tiles[key]["step"] = desired
+	_service_lod_job()
+	_start_next_lod_job()
+	var outstanding_lod := pending_lod.size() + (1 if lod_task_id >= 0 else 0)
 	var controls := "WASD walk  •  Space jump / hold to glide  •  Shift run  •  R recover  •  Tab fly" if walking else "WASD fly  •  Space/Ctrl up/down  •  Shift faster  •  Tab walk"
-	status_label.text = "BARTON CREEK  •  30.250924, -97.810494  •  %s\n%s  •  1 pin / 2 greenbelt / 3 mall  •  4/5/6 styles  •  Esc release\nLocal X %.0f m  Z %.0f m  •  ground %.0f m above map origin  •  LOD queue %d" % [styles[style_index]["name"], controls, camera.position.x, camera.position.z, ground, pending_lod.size()]
+	status_label.text = "BARTON CREEK  •  30.250924, -97.810494  •  %s\n%s  •  1 pin / 2 greenbelt / 3 mall  •  4/5/6 styles  •  Esc release\nLocal X %.0f m  Z %.0f m  •  ground %.0f m above map origin  •  LOD queue %d" % [styles[style_index]["name"], controls, camera.position.x, camera.position.z, ground, outstanding_lod]
 	var capture_path := OS.get_environment("ENFRACTAL_CAPTURE")
 	if not capture_path.is_empty():
 		capture_frame += 1
-		if capture_frame >= 80 and pending_lod.is_empty():
+		if capture_frame >= 80 and outstanding_lod == 0:
 			capture_samples_ms.append(delta * 1000.0)
 		if capture_frame == 180:
 			capture_samples_ms.sort()
@@ -973,7 +918,10 @@ func _process(delta: float) -> void:
 				"sample_count": sample_count,
 				"median_frame_ms": snappedf(median_ms, 0.01),
 				"p95_frame_ms": snappedf(p95_ms, 0.01),
-				"remaining_lod_tiles": pending_lod.size(),
+				"remaining_lod_tiles": outstanding_lod,
+				"last_lod_build_ms": snappedf(lod_last_build_ms, 0.01),
+				"last_lod_commit_ms": snappedf(lod_last_commit_ms, 0.01),
+				"discarded_lod_jobs": lod_discarded,
 				"viewport_px": [get_viewport().get_visible_rect().size.x, get_viewport().get_visible_rect().size.y],
 				"note": "Diagnostic capture in a hidden window; not a low-hardware benchmark."
 			}

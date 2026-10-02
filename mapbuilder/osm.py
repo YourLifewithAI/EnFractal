@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import gzip
+import hashlib
 import json
 import math
 import xml.etree.ElementTree as ET
@@ -91,6 +92,43 @@ def _height_m(tags: dict) -> float:
     return 7.0
 
 
+def _height_with_evidence(tags: dict) -> tuple[float, bool, dict]:
+    """Distinguish a mapped height tag from an inferred storey/default height."""
+    raw_height = tags.get("height", "").strip()
+    try:
+        meters = float(raw_height.lower().removesuffix("m").strip())
+        if 2 <= meters <= 150:
+            return meters, False, {
+                "basis": "osm_height_tag", "source_tag": "height", "raw_value": raw_height,
+                "qualification": "OSM contributor report; not independently surveyed",
+            }
+    except ValueError:
+        pass
+    raw_levels = tags.get("building:levels", "").strip()
+    try:
+        levels = float(raw_levels)
+        if 1 <= levels <= 50:
+            return round(levels * 3.2, 1), True, {
+                "basis": "inferred_from_osm_levels", "source_tag": "building:levels",
+                "raw_value": raw_levels, "meters_per_level": 3.2,
+            }
+    except ValueError:
+        pass
+    return _height_m(tags), True, {
+        "basis": "illustrative_default", "source_tag": "building",
+        "raw_value": tags.get("building", ""),
+    }
+
+
+def _snapshot_sha256(source_dir: Path) -> str:
+    """Digest exact archived OSM gzip bytes and their sorted file names."""
+    files = sorted(source_dir.glob("osm_*.osm.gz"))
+    if not files:
+        raise FileNotFoundError("No OSM snapshot files; run fetch first")
+    records = [(path.name, hashlib.sha256(path.read_bytes()).hexdigest()) for path in files]
+    return hashlib.sha256(json.dumps(records, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
 def _building_proxy(polygon: Polygon) -> dict:
     rectangle = polygon.minimum_rotated_rectangle
     corners = list(rectangle.exterior.coords)[:4]
@@ -110,7 +148,15 @@ def _building_proxy(polygon: Polygon) -> dict:
     }
 
 
-def build_features(config: MapConfig, source_dir: Path) -> dict:
+def build_features(config: MapConfig, source_dir: Path, *, provenance_version: str = "v1") -> dict:
+    if provenance_version not in ("legacy-v0", "v1"):
+        raise ValueError("Unsupported OSM feature provenance version")
+    if config.map_id == "barton_creek_v0" and provenance_version != "legacy-v0":
+        raise ValueError("Barton Creek v0 requires its frozen legacy feature provenance")
+    if provenance_version == "legacy-v0" and config.map_id != "barton_creek_v0":
+        raise ValueError("Legacy feature provenance is reserved for Barton Creek v0")
+    corrected_provenance = provenance_version == "v1"
+    snapshot_hash = _snapshot_sha256(source_dir) if corrected_provenance else ""
     nodes, ways = parse_snapshot(source_dir)
     half = config.side_m / 2
     bounds = box(-half, -half, half, half)
@@ -124,6 +170,11 @@ def build_features(config: MapConfig, source_dir: Path) -> dict:
             continue
         points = [config.to_local(*nodes[ref]) for ref in refs]
         base = {"osm_id": osm_id, "name": tags.get("name", ""), "tags": tags}
+        if corrected_provenance:
+            base.update({"osm_type": "way", "source_snapshot_sha256": snapshot_hash})
+
+        def feature_id(kind: str, part_index: int) -> str:
+            return f"{config.map_id}:osm:way:{osm_id}:{kind}:{part_index}"
 
         if "highway" in tags or "waterway" in tags:
             line = LineString(points)
@@ -132,10 +183,13 @@ def build_features(config: MapConfig, source_dir: Path) -> dict:
             line = line.intersection(bounds)
             target = "waterways" if "waterway" in tags else ("trails" if tags["highway"] in TRAIL_CLASSES else "roads")
             tolerance = 1.0 if target == "trails" else 2.0
-            for part in _parts(line, "LineString"):
+            for part_index, part in enumerate(_parts(line, "LineString")):
                 part = part.simplify(tolerance, preserve_topology=True)
                 if part.length >= 2:
-                    features[target].append({**base, "points": _coords(part, "line")})
+                    record = {**base, "points": _coords(part, "line")}
+                    if corrected_provenance:
+                        record["feature_id"] = feature_id(target, part_index)
+                    features[target].append(record)
 
         if refs[0] != refs[-1] or len(refs) < 4:
             continue
@@ -146,27 +200,50 @@ def build_features(config: MapConfig, source_dir: Path) -> dict:
             continue
         polygon = polygon.intersection(bounds)
         if tags.get("building", "no") != "no":
-            for part in _parts(polygon, "Polygon"):
+            for part_index, part in enumerate(_parts(polygon, "Polygon")):
                 if part.area >= 8:
-                    features["buildings"].append({
+                    record = {
                         **base,
                         "footprint": _coords(part.simplify(0.5, preserve_topology=True), "polygon"),
                         "proxy": _building_proxy(part),
                         "height_m": _height_m(tags),
                         "height_is_estimate": not ("height" in tags or "building:levels" in tags),
-                    })
+                    }
+                    if corrected_provenance:
+                        height_m, is_estimate, evidence = _height_with_evidence(tags)
+                        record.update({
+                            "feature_id": feature_id("buildings", part_index),
+                            "height_m": height_m,
+                            "height_is_estimate": is_estimate,
+                            "height_evidence": evidence,
+                            "footprint_evidence": {
+                                "basis": "osm_way_geometry", "source_element_type": "way",
+                                "processing": "projected, clipped to region, simplified",
+                                "qualification": "Mapped outline; not a surveyed building model",
+                            },
+                        })
+                    features["buildings"].append(record)
         if tags.get("natural") == "water" or "water" in tags:
-            for part in _parts(polygon, "Polygon"):
+            for part_index, part in enumerate(_parts(polygon, "Polygon")):
                 if part.area >= 10:
-                    features["water_areas"].append({**base, "outline": _coords(part.simplify(1.0, preserve_topology=True), "polygon")})
+                    record = {**base, "outline": _coords(part.simplify(1.0, preserve_topology=True), "polygon")}
+                    if corrected_provenance:
+                        record["feature_id"] = feature_id("water_areas", part_index)
+                    features["water_areas"].append(record)
         if any((key, value) in VEGETATION_TAGS for key, value in tags.items()):
-            for part in _parts(polygon, "Polygon"):
+            for part_index, part in enumerate(_parts(polygon, "Polygon")):
                 if part.area >= 50:
-                    features["vegetation_areas"].append({**base, "outline": _coords(part.simplify(2.0, preserve_topology=True), "polygon")})
+                    record = {**base, "outline": _coords(part.simplify(2.0, preserve_topology=True), "polygon")}
+                    if corrected_provenance:
+                        record["feature_id"] = feature_id("vegetation_areas", part_index)
+                    features["vegetation_areas"].append(record)
         if any((key, value) in DEVELOPED_TAGS for key, value in tags.items()):
-            for part in _parts(polygon, "Polygon"):
+            for part_index, part in enumerate(_parts(polygon, "Polygon")):
                 if part.area >= 50:
-                    features["developed_areas"].append({**base, "outline": _coords(part.simplify(2.0, preserve_topology=True), "polygon")})
+                    record = {**base, "outline": _coords(part.simplify(2.0, preserve_topology=True), "polygon")}
+                    if corrected_provenance:
+                        record["feature_id"] = feature_id("developed_areas", part_index)
+                    features["developed_areas"].append(record)
 
     features["metadata"] = {
         "source": "OpenStreetMap contributor snapshot",
@@ -182,6 +259,16 @@ def build_features(config: MapConfig, source_dir: Path) -> dict:
             "Road and trail lines are centerlines, not measured widths or overpass elevations.",
         ],
     }
+    if corrected_provenance:
+        features["metadata"].update({
+            "source_snapshot_sha256": snapshot_hash,
+            "feature_id_scheme": "map_id:osm:way:osm_id:feature_kind:clipped_part_index",
+            "projected_coordinate_units": "local EPSG projected-grid metre offsets; +X easting, +Z decreasing northing; not true ENU",
+            "provenance_schema": "enfractal-osm-feature-v1",
+        })
+        features["metadata"]["limitations"].append(
+            "A building:levels tag yields an inferred height using 3.2 m per level, not a measured height."
+        )
     return features
 
 

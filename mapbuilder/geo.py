@@ -60,11 +60,13 @@ class MapConfig:
         return self.side_m // self.sample_spacing_m + 1
 
     def to_local(self, lon: float, lat: float) -> tuple[float, float]:
+        """Return projected-grid metre offsets, not a true tangent ENU frame."""
         east, north = self.to_projected.transform(lon, lat)
         center_east, center_north = self.center_xy
         return east - center_east, center_north - north
 
     def local_to_geographic(self, x: float, z: float) -> tuple[float, float]:
+        """Invert projected-grid offsets (+X easting, +Z decreasing northing)."""
         center_east, center_north = self.center_xy
         return self.to_geographic.transform(center_east + x, center_north - z)
 

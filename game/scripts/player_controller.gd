@@ -9,14 +9,13 @@ const RUN_SPEED_MPS := 8.0
 const GROUND_ACCEL_MPS2 := 26.0
 const AIR_ACCEL_MPS2 := 9.0
 const JUMP_SPEED_MPS := 7.0
-const GRAVITY_MPS2 := 22.0
-const GLIDE_GRAVITY_MPS2 := 4.0
 const GLIDE_TERMINAL_SPEED_MPS := 7.0
 const FALL_TERMINAL_SPEED_MPS := 40.0
 const BODY_HALF_HEIGHT_M := 0.85
 const MAP_EDGE_MARGIN_M := 1.0
 const MAX_SPAWN_SEARCH_M := 16
 const STABLE_FOOTPRINT_DELTA_M := 0.4
+const PHYSICS_PROFILE_SCRIPT := preload("res://scripts/world_physics_profile.gd")
 
 var terrain_height: Callable
 var map_half_side_m := 0.0
@@ -26,6 +25,7 @@ var has_grounded_checkpoint := false
 var recover_attempts := 0
 var active := false
 var jump_requested := false
+var world_physics: Dictionary = PHYSICS_PROFILE_SCRIPT.DEFAULT.duplicate(true)
 
 
 func _ready() -> void:
@@ -38,6 +38,15 @@ func _ready() -> void:
 func configure(height_query: Callable, map_side_m: float) -> void:
 	terrain_height = height_query
 	map_half_side_m = map_side_m * 0.5
+
+
+func set_world_physics(profile: Dictionary) -> bool:
+	# This is a trusted local fixture seam. Future servers must authorize the
+	# source world and activate the revision with its collision/world transition.
+	if not PHYSICS_PROFILE_SCRIPT.validate(profile) or int(profile["revision"]) <= int(world_physics["revision"]):
+		return false
+	world_physics = profile.duplicate(true)
+	return true
 
 
 func spawn_at(x: float, z: float, heading_rad: float, activate_now: bool = true) -> bool:
@@ -144,6 +153,9 @@ func _physics_process(delta: float) -> void:
 	input_direction = input_direction.normalized()
 	var speed := RUN_SPEED_MPS if Input.is_key_pressed(KEY_SHIFT) else WALK_SPEED_MPS
 	var desired := input_direction * speed
+	if not is_on_floor():
+		desired += Vector3(float(world_physics["wind_x_mps"]), 0.0, float(world_physics["wind_z_mps"]))
+		desired = desired.limit_length(RUN_SPEED_MPS + PHYSICS_PROFILE_SCRIPT.MAX_WIND_MPS)
 	var acceleration := GROUND_ACCEL_MPS2 if is_on_floor() else AIR_ACCEL_MPS2
 	velocity.x = move_toward(velocity.x, desired.x, acceleration * delta)
 	velocity.z = move_toward(velocity.z, desired.z, acceleration * delta)
@@ -155,7 +167,7 @@ func _physics_process(delta: float) -> void:
 			velocity.y = -0.5
 	else:
 		var gliding := Input.is_key_pressed(KEY_SPACE) and velocity.y < 0.0
-		var gravity := GLIDE_GRAVITY_MPS2 if gliding else GRAVITY_MPS2
+		var gravity := float(world_physics["glide_gravity_mps2"]) if gliding else float(world_physics["gravity_mps2"])
 		var terminal_speed := GLIDE_TERMINAL_SPEED_MPS if gliding else FALL_TERMINAL_SPEED_MPS
 		velocity.y = maxf(velocity.y - gravity * delta, -terminal_speed)
 

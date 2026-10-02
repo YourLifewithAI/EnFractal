@@ -9,12 +9,12 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-import numpy as np
 import rasterio
 import requests
 from rasterio.io import MemoryFile
 
 from .geo import MapConfig
+from .terrain import read_complete_dem
 
 
 USGS_EXPORT = "https://elevation.nationalmap.gov/arcgis/rest/services/3DEPElevation/ImageServer/exportImage"
@@ -80,21 +80,13 @@ def fetch_dem(config: MapConfig, target: Path, session: requests.Session) -> dic
     if not response.content.startswith((b"II*\x00", b"MM\x00*")):
         raise RuntimeError(f"USGS did not return a TIFF: {response.text[:400]}")
     with MemoryFile(response.content) as memory_file, memory_file.open() as dataset:
-        if dataset.count != 1 or dataset.width != side or dataset.height != side:
-            raise RuntimeError("Unexpected USGS raster dimensions or bands")
-        if dataset.crs is None or dataset.crs.to_epsg() != config.crs_epsg:
-            raise RuntimeError(f"Unexpected DEM CRS: {dataset.crs}")
-        if max(abs(a-b) for a,b in zip(dataset.bounds, (west, south, east, north))) > 0.01:
-            raise RuntimeError(f"Unexpected DEM bounds: {dataset.bounds}")
-        band = dataset.read(1, masked=True)
-        valid = np.isfinite(np.ma.filled(band, np.nan))
-        coverage = float(valid.mean())
-        if coverage < 0.999:
-            raise RuntimeError(f"DEM has excessive gaps: {coverage:.2%} valid")
-        minimum = float(np.min(band))
-        maximum = float(np.max(band))
-        if not (-500 <= minimum <= maximum <= 9000):
-            raise RuntimeError(f"Implausible elevation range: {minimum}, {maximum}")
+        try:
+            band = read_complete_dem(dataset, config)
+        except ValueError as error:
+            raise RuntimeError(f"USGS DEM cannot become playable terrain: {error}") from error
+        coverage = 1.0
+        minimum = float(band.min())
+        maximum = float(band.max())
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(response.content)
     return {

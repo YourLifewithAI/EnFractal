@@ -63,7 +63,8 @@ func _run() -> void:
 	state = restored
 	var plot: Dictionary = authority["plot"]
 	var stored: Dictionary = state.get_entity(entity_id)
-	_expect(CreationOps.validate_stored_entity(stored, state, plot, Callable(self, "_flat_height")).get("ok") == true, "valid saved platform is safe to render")
+	var stored_check: Dictionary = CreationOps.validate_stored_entity(stored, state, plot, Callable(self, "_flat_height"))
+	_expect(stored_check.get("ok") == true, "valid saved platform is safe to render: " + str(stored_check))
 	var broken: Dictionary = stored.duplicate(true)
 	broken.erase("transform")
 	_expect(CreationOps.validate_stored_entity(broken, state, plot, Callable(self, "_flat_height")).get("ok") == false, "missing transform rejected before rendering")

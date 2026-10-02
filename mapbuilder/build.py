@@ -15,6 +15,8 @@ from .fetch import sha256
 from .geo import MapConfig
 from .osm import build_features, write_features
 from .photo import build_photo_pilot
+from .terrain import read_complete_dem
+from .tiles import GEOGRAPHIC_TILE_SCHEME, LOCAL_TILE_SCHEME
 
 
 def vertex_grid_from_dem(dem: np.ndarray) -> np.ndarray:
@@ -32,6 +34,16 @@ def vertex_grid_from_dem(dem: np.ndarray) -> np.ndarray:
     mix = (positions - lower).astype(np.float32)
     along_x = dem[:, lower] * (1 - mix)[None, :] + dem[:, upper] * mix[None, :]
     return (along_x[lower, :] * (1 - mix)[:, None] + along_x[upper, :] * mix[:, None]).astype(np.float32)
+
+
+def encode_height_grid(grid: np.ndarray) -> tuple[bytes, float, float]:
+    """Encode source vertices without assuming elevations are positive."""
+    if grid.ndim != 2 or not np.isfinite(grid).all():
+        raise ValueError("Height grid contains invalid samples")
+    offset = math.floor(float(grid.min()) * 100) / 100
+    scale = max(0.01, (float(grid.max()) - offset) / 65535)
+    quantized = np.rint((grid - offset) / scale).astype("<u2")
+    return quantized.tobytes(order="C"), offset, scale
 
 
 def sample_height(grid: np.ndarray, config: MapConfig, x: float, z: float) -> float:
@@ -166,6 +178,8 @@ def write_preview(config: MapConfig, grid: np.ndarray, features: dict, target: P
 
 def build_map(config: MapConfig, source_dir: Path, package_dir: Path, photo_evidence_dir: Path) -> dict:
     sources = json.loads((source_dir / "sources.json").read_text(encoding="utf-8"))
+    if sources.get("map_id") != config.map_id:
+        raise RuntimeError("Source manifest map ID differs from package configuration")
     dem_file = source_dir / "usgs_3dep_2m.tif"
     if sha256(dem_file.read_bytes()) != sources["dem"]["sha256"]:
         raise RuntimeError("Archived DEM differs from source manifest")
@@ -175,23 +189,23 @@ def build_map(config: MapConfig, source_dir: Path, package_dir: Path, photo_evid
         if sha256(contents) != osm["sha256_uncompressed"]:
             raise RuntimeError(f"Archived OSM snapshot differs: {osm['file']}")
     with rasterio.open(dem_file) as dataset:
-        dem = dataset.read(1).astype(np.float32)
-        if dataset.crs.to_epsg() != config.crs_epsg or dataset.width != config.grid_side - 1:
-            raise RuntimeError("DEM no longer matches map configuration")
-        if np.any(~np.isfinite(dem)):
-            raise RuntimeError("Invalid DEM samples")
+        try:
+            dem = read_complete_dem(dataset, config)
+        except ValueError as error:
+            raise RuntimeError(f"Archived DEM cannot become playable terrain: {error}") from error
     grid = vertex_grid_from_dem(dem)
-    features = build_features(config, source_dir)
+    # The released v0 package is pinned by local workshop saves. Preserve its
+    # exact feature bytes; corrected property provenance starts with new maps.
+    legacy_barton = config.map_id == "barton_creek_v0"
+    features = build_features(config, source_dir, provenance_version="legacy-v0" if legacy_barton else "v1")
     features["trees"] = generate_vegetation(config, grid, features)
     features["metadata"]["counts"]["trees"] = len(features["trees"])
     features["metadata"]["vegetation_source"] = "Procedural illustration constrained by mapped features and slope"
 
     package_dir.mkdir(parents=True, exist_ok=True)
-    offset = math.floor(float(grid.min()) * 100) / 100
-    scale = max(0.01, (float(grid.max()) - offset) / 65535)
-    quantized = np.rint((grid - offset) / scale).astype("<u2")
+    encoded_heights, offset, scale = encode_height_grid(grid)
     height_file = package_dir / "heights.r16"
-    height_file.write_bytes(quantized.tobytes(order="C"))
+    height_file.write_bytes(encoded_heights)
     features_file = package_dir / "features.json"
     write_features(features, features_file)
     preview_file = package_dir / "preview.png"
@@ -248,5 +262,12 @@ def build_map(config: MapConfig, source_dir: Path, package_dir: Path, photo_evid
             "Photo pilot material colors and rock/facade/parking details are illustrative, not a surveyed reconstruction.",
         ],
     }
+    if not legacy_barton:
+        manifest["tile_addressing"] = {
+            "local": LOCAL_TILE_SCHEME,
+            "geographic": GEOGRAPHIC_TILE_SCHEME,
+            "local_outer_edge": "positive x/z outer edge belongs to final tile",
+            "geographic_dateline": "+180 and -180 name the same meridian",
+        }
     (package_dir / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return manifest

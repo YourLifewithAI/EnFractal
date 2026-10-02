@@ -1,0 +1,25 @@
+{
+  "format": "enfractal-art-reference-v1",
+  "source_style": "res://styles/greenbelt_styles.json#natural",
+  "source_map": "barton_creek_v0",
+  "center_local_m": [-280, 70],
+  "extent_m": 192,
+  "intent": "Human-scale Barton Creek trail and creek study with limestone, live-oak-like canopy, a modern trail lookout, and restrained color. The lookout, shrubs, rocks, creek width, and tree crowns are authored interpretations, not surveyed features.",
+  "roles": ["terrain", "trail", "creek", "water", "rock", "trunk", "canopy", "building", "glass"],
+  "profiles": {
+    "standard": {"terrain_spacing_m": 2, "tree_lobes_max": 3, "authored_trees": 45, "shrubs": 85, "rocks": 28, "limestone_ledges": 14, "grass_tufts": 280, "sun_shadows": true},
+    "low": {"terrain_spacing_m": 4, "tree_lobes_max": 1, "authored_trees": 45, "shrubs": 35, "rocks": 10, "limestone_ledges": 6, "grass_tufts": 80, "sun_shadows": false}
+  },
+  "budget": {
+    "terrain_triangles_standard_max": 20000,
+    "terrain_triangles_low_max": 5000,
+    "distant_terrain_triangles_max": 2000,
+    "triangle_upper_bound_standard_max": 75000,
+    "triangle_upper_bound_low_max": 32000,
+    "shared_materials_max": 14,
+    "light_count_max": 1,
+    "texture_pixels": 0,
+    "transparency": false,
+    "runtime_shaders": false
+  }
+}

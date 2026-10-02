@@ -1,0 +1,7 @@
+# Path-to-platform relationship fixture
+
+`PathPlatformJoin.generate()` is a small E08A **pure-domain fixture** for the first structured scene. It takes a semantic path and platform in the same world/frame and returns a stable `path_connects_to` relationship. The relationship records both part IDs, an edge attachment, editable start/end/width parameters, material and collision roles, provenance and generator version. Repeating the input returns the same recipe; moving the path endpoint changes the join geometry while retaining its relationship ID and leaving the platform source object untouched.
+
+The first generator supports a straight, short connection to one clear platform edge. It rejects corners, a run outside 0.75–3 m, a rise over 0.75 m, slope above 0.5, non-finite parameters and cross-frame inputs. The [smoke fixture](../../../game/tests/path_platform_join_smoke.gd) checks repeatability, stable identity, local regeneration and those rejection cases.
+
+The [local structured workshop](structured-workshop.md) now uses this recipe for a placed, editable path and walkable join. The workshop stores version-pinned source parts in `WorldState` and derives the relationship again after reload. This pure generator still does not authorize a hosted parcel, persist a relation record, or stage synchronized collision/visual revisions. A walking-height post-edit art review remains necessary before the full E08A phase 1 gate can pass. The recipe stays semantic so later visual and collision compilers can derive low and high detail from the same saved intent.

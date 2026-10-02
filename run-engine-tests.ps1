@@ -1,4 +1,12 @@
 $ErrorActionPreference = 'Stop'
+if ($PSVersionTable.PSVersion.Major -lt 7) {
+    $modernShell = Get-Command pwsh -CommandType Application -ErrorAction SilentlyContinue
+    if (-not $modernShell) {
+        throw 'PowerShell 7 or newer is required for reliable Godot process exit-code reporting.'
+    }
+    & $modernShell.Source -NoProfile -File $PSCommandPath
+    exit $LASTEXITCODE
+}
 
 $projectPath = Join-Path $PSScriptRoot 'game'
 $installedGodot = Join-Path $env:USERPROFILE 'Downloads\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe'
@@ -20,10 +28,15 @@ if ($env:ENFRACTAL_GODOT -and (Test-Path -LiteralPath $env:ENFRACTAL_GODOT -Path
 $tests = @(
     'map_runtime_smoke.gd',
     'terrain_seam_smoke.gd',
+    'visual_streaming_smoke.gd',
     'test_world_state.gd',
     'test_creation_ops.gd',
     'movement_physics_smoke.gd',
-    'workshop_integration.gd'
+    'world_physics_smoke.gd',
+    'path_platform_join_smoke.gd',
+    'workshop_integration.gd',
+    'workshop_path_integration.gd',
+    'art_reference_smoke.gd'
 )
 foreach ($test in $tests) {
     $name = [System.IO.Path]::GetFileNameWithoutExtension($test)
@@ -34,12 +47,14 @@ foreach ($test in $tests) {
         Stop-Process -Id $process.Id -Force
         throw "$test timed out after 30 seconds."
     }
+    $process.Refresh()
+    $exitCode = $process.ExitCode
     $stdout = Get-Content -LiteralPath $stdoutPath -Raw
     $stderr = Get-Content -LiteralPath $stderrPath -Raw
-    if ($process.ExitCode -ne 0 -or -not [string]::IsNullOrWhiteSpace($stderr)) {
+    if ($null -eq $exitCode -or $exitCode -ne 0 -or -not [string]::IsNullOrWhiteSpace($stderr)) {
         Write-Output $stdout
         Write-Output $stderr
-        throw "$test failed with exit code $($process.ExitCode)."
+        throw "$test failed with exit code $exitCode."
     }
     Write-Output ($stdout.Trim().Split("`n") | Select-Object -Last 1)
 }

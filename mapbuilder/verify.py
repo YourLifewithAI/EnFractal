@@ -10,9 +10,39 @@ import numpy as np
 import rasterio
 from PIL import Image
 
+from .build import vertex_grid_from_dem
+from .contract import verify_spatial_manifest
 from .fetch import sha256
 from .geo import MapConfig
 from .photo import read_evidence
+from .terrain import read_complete_dem
+from .tiles import GEOGRAPHIC_TILE_SCHEME, LOCAL_TILE_SCHEME
+
+
+def verify_height_payload(config: MapConfig, manifest: dict, package_dir: Path, dem: np.ndarray) -> float:
+    """Check every decoded height against the pinned source-derived vertex grid."""
+    payload = (package_dir / manifest["heights_file"]).read_bytes()
+    if sha256(payload) != manifest["heights_sha256"]:
+        raise AssertionError("Height payload hash mismatch")
+    heights = np.frombuffer(payload, dtype="<u2")
+    if heights.size != config.grid_side ** 2:
+        raise AssertionError("Height grid length mismatch")
+    scale = manifest["height_scale_m"]
+    offset = manifest["height_offset_m"]
+    if not np.isfinite([scale, offset]).all() or scale <= 0:
+        raise AssertionError("Height decoder invalid")
+    decoded = (offset + heights.astype(np.float64) * scale).reshape(config.grid_side, config.grid_side)
+    source_grid = vertex_grid_from_dem(dem)
+    if float(np.max(np.abs(decoded - source_grid))) > scale * 0.5 + 0.001:
+        raise AssertionError("Height payload differs from source-derived terrain")
+    if abs(float(decoded.min()) - manifest["height_min_m"]) > 0.03:
+        raise AssertionError("Height minimum mismatch")
+    if abs(float(decoded.max()) - manifest["height_max_m"]) > 0.03:
+        raise AssertionError("Height maximum mismatch")
+    center = float(decoded[config.grid_side // 2, config.grid_side // 2])
+    if abs(center - manifest["height_origin_m"]) > 0.03:
+        raise AssertionError("Center height is inconsistent")
+    return center
 
 
 def verify_package(config: MapConfig, source_dir: Path, package_dir: Path, photo_evidence_dir: Path) -> dict:
@@ -20,6 +50,10 @@ def verify_package(config: MapConfig, source_dir: Path, package_dir: Path, photo
     sources = json.loads((source_dir / "sources.json").read_text(encoding="utf-8"))
     if manifest["map_id"] != config.map_id or sources["map_id"] != config.map_id:
         raise AssertionError("Map ID differs across config, sources and package")
+    try:
+        verify_spatial_manifest(config, manifest)
+    except ValueError as error:
+        raise AssertionError(str(error)) from error
     if sha256((source_dir / "usgs_3dep_2m.tif").read_bytes()) != sources["dem"]["sha256"]:
         raise AssertionError("Source DEM hash mismatch")
     for record in sources["osm"]:
@@ -33,22 +67,18 @@ def verify_package(config: MapConfig, source_dir: Path, package_dir: Path, photo
             raise AssertionError(f"Package hash mismatch: {name}")
         checked[name] = len(data)
     with rasterio.open(source_dir / "usgs_3dep_2m.tif") as raster:
-        expected_bounds = config.bounds_xy
-        if raster.crs.to_epsg() != config.crs_epsg or raster.width != config.grid_side - 1 or raster.height != config.grid_side - 1:
-            raise AssertionError("Source projection or bounds invalid")
-        if max(abs(actual - expected) for actual, expected in zip(raster.bounds, expected_bounds)) > 0.01:
-            raise AssertionError("Source extent differs from requested region")
-    heights = np.fromfile(package_dir / "heights.r16", dtype="<u2")
-    if heights.size != config.grid_side ** 2:
-        raise AssertionError("Height grid length mismatch")
-    decoded = manifest["height_offset_m"] + heights.astype(np.float32) * manifest["height_scale_m"]
-    if not np.isfinite(decoded).all() or abs(float(decoded.min()) - manifest["height_min_m"]) > 0.03:
-        raise AssertionError("Height decode failed")
-    if abs(float(decoded.max()) - manifest["height_max_m"]) > 0.03:
-        raise AssertionError("Height maximum mismatch")
-    center = decoded.reshape(config.grid_side, config.grid_side)[config.grid_side//2, config.grid_side//2]
-    if abs(float(center) - manifest["height_origin_m"]) > 0.03:
-        raise AssertionError("Center height is inconsistent")
+        try:
+            dem = read_complete_dem(raster, config)
+        except ValueError as error:
+            raise AssertionError(f"Source DEM cannot become playable terrain: {error}") from error
+    addressing = manifest.get("tile_addressing")
+    if addressing is not None and (
+        not isinstance(addressing, dict)
+        or addressing.get("local") != LOCAL_TILE_SCHEME
+        or addressing.get("geographic") != GEOGRAPHIC_TILE_SCHEME
+    ):
+        raise AssertionError("Tile addressing contract invalid")
+    center = verify_height_payload(config, manifest, package_dir, dem)
     features = json.loads((package_dir / "features.json").read_text(encoding="utf-8"))
     for kind, count in manifest["feature_counts"].items():
         if len(features[kind]) != count:
