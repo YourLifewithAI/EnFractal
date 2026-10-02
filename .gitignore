@@ -8,3 +8,8 @@ __pycache__/
 !game/assets/art/barton/trees/*.glb.import
 .cache/
 *.tmp
+
+# Native editor/IDE outputs
+.vs/
+*.csproj.user
+*.sln.DotSettings.user

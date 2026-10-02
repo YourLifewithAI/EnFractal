@@ -1,5 +1,7 @@
 # Persistent Earth and invited sandbox worlds
 
+> **Current direction — 2 October 2026:** The [revised roadmap](../ROADMAP.md) and [backlog](../BACKLOG.md) govern scope and order: single-player embodied AI first, multiplayer last. Reuse the implemented local saves, world separation, fenced travel and recovery. Hosted workers, multiplayer invitations, queues, remote accounts and federation are deferred; they must not block the companion experience. The dated research below is retained for context.
+
 Planning proposal, 30 September 2026. This document designs the persistence and portal workstreams. No backend, database, world, account or portal has been implemented. Numbers are initial test targets, not measured capacity. The coordinating [roadmap](../ROADMAP.md) resolves cross-document choices.
 
 ## Product promises and release boundaries

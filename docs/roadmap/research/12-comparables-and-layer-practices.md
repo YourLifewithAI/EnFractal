@@ -1,5 +1,7 @@
 # Comparable projects and layer practices for EnFractal
 
+> **Current direction — 2 October 2026:** The [revised roadmap](../ROADMAP.md) and [backlog](../BACKLOG.md) govern scope and order: single-player embodied AI first, multiplayer last. Use the evidence relevant to the active single-player packet. Do not run ongoing multiplayer research or implementation merely because this earlier matrix includes shared-world layers. The dated research below is retained for context.
+
 **Research snapshot: 1 October 2026. Status: evidence and experiments, not an architecture decision or a passed roadmap gate.** This complements the [MVP roadmap](../ROADMAP.md), [execution backlog](../BACKLOG.md), [world vision](../../WORLD-VISION.md), and [proposed phase 0 contract](../../engine/phase0/contract-v0.1.md). Sources below are primary: project/operator documentation, standards, and source repositories. EnFractal's proposed applications are inferences from those mechanisms, not claims that the other projects use EnFractal's design. Recheck versioned software documentation and service terms before implementation.
 
 The useful comparison is not “which game looks most like EnFractal?” No existing reference here combines a geographic shared Earth, painterly semantic construction, permissioned inventions, invited physics variants, and a player AI assistant. Each row instead names a proven mechanism at one layer, its boundary, and a small test suitable for one founder with coding agents and an initial **under-$100/month hosting-plus-AI ceiling**.

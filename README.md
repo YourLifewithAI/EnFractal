@@ -1,13 +1,19 @@
 # EnFractal
-A limitless shared world
+A world of magic, shaped by you and your AI
 
 ## The world we are building
 
-The [world and creation vision](docs/WORLD-VISION.md) is the project's stated long-term direction: a geographically grounded, cozy 3D Earth with natural proportions, softly sculpted forms, painterly materials and gentle lighting. Players should be able to explore recognizable places at walking height and change them through structured, persistent parts. A shared construction and visual system should make new player and AI-assisted work belong in its local environment without erasing regional character. The MVP proves this in a bounded area and creation vocabulary before broader Earth coverage or more ambitious transformations.
+The [world and creation vision](docs/WORLD-VISION.md) centers a personalized player avatar and a separate, customizable avatar for the player's own AI. **The AI is the magic of the game:** spoken or typed wishes can become castles, rideable dragons, storms, floods and transformed landscapes through a common ruleset. The world begins in recognizable real geography, rendered as grounded painterly 3D; new forms remain editable and visually coherent. Saved-and-protected creations must survive direct and indirect effects.
+
+**Current priority: single-player first, multiplayer last.** Prove the companion, expressive magic, art, controls, persistence and accessibility before investing in shared-world networking. The intended connection is a dedicated game-only profile for the player's own AI. Manual controls remain available for precision, accessibility and recovery. These are product goals; the current build remains a local engineering prototype without the embodied AI or the full magic vocabulary.
+
+The active first destination is the **Pfluger Pedestrian Bridge / Lady Bird Lake district in Austin**, bounded by 6th Street, Barton Springs Road, Congress Avenue and MoPac. The initial player height is **30 cm (0.30 m)** in real-scale geography. The goal is reusable public-data reconstruction of recognizable places; Barton Creek remains a preserved prototype with further location-specific work on hold. The new district and small-player controller are planned, not implemented. [District and scale plan](docs/roadmap/research/15-pfluger-district-and-small-avatar.md).
 
 ## MVP planning
 
-The [MVP roadmap](docs/roadmap/ROADMAP.md) describes the proposed shared Earth, sandbox worlds, creation system, technical architecture, validation gates, and operating budget. The [execution backlog](docs/roadmap/BACKLOG.md) breaks the work into agent-sized tasks. The [comparable-projects research](docs/roadmap/research/12-comparables-and-layer-practices.md) tests lessons from existing projects against each MVP layer; detailed workstream research is linked from the roadmap.
+The [revised roadmap](docs/roadmap/ROADMAP.md) defines single-player phases S0–S6, followed by the deferred multiplayer stage M7. The [execution backlog](docs/roadmap/BACKLOG.md) provides active SP packets and preserves the mapping to earlier E identifiers. **Native Godot .NET with C# is the accepted software baseline.** New gameplay uses C# while working GDScript systems migrate incrementally under regression tests. Python remains the offline geodata/save-service tooling. Browser delivery and other engine experiments are deferred. See the [accepted decision](docs/engine/decisions/0001-native-godot-csharp.md); the [platform study](docs/roadmap/research/14-single-player-platform-and-engine.md) is retained as background. The [comparable-projects research](docs/roadmap/research/12-comparables-and-layer-practices.md) remains useful background.
+
+The checkpoint phase numbers below refer to the original roadmap and record what was built. They do not dictate the new execution order or establish completion of the single-player companion experience.
 
 The [first phases 0–1 checkpoint](docs/engine/checkpoints/phase0-1.md) records what has been built, independent 1–10 ratings, and the remaining gates. Its first-pass median is 4.90/10, below the 8.5 target; the current local build is an engineering fixture rather than an accepted MVP milestone.
 
@@ -15,9 +21,11 @@ The [follow-up build evidence](docs/engine/checkpoints/followup-0-2.md) covers b
 
 ## First playable engine slice
 
+The [S0 native foundation](docs/engine/checkpoints/s0-native-foundation.md) locks Godot .NET/C#, adds a repeatable build/test/export path and preserves the existing workshop. Start with [native build instructions](docs/NATIVE-BUILD.md). S1–S6 gameplay and acceptance work remains in progress.
+
 The [Phase 4 local save and travel checkpoint](docs/engine/checkpoints/save-and-travel.md) adds PostgreSQL-backed saves, separate Home/sandbox inventions, quarter-gravity visits, invitations for a local test identity, safe Return Home, and tested backup/recovery. Launch [`run-save-travel.ps1`](run-save-travel.ps1); **T** opens travel and **B** opens creation. Fresh checkouts first run `python services/save_travel/setup.py`. Remote friends and off-host recovery remain open gates.
 
-The [manual invention checkpoint](docs/engine/checkpoints/manual-invention.md) implements the **main roadmap's Phase 3 local creation loop**: edit parts and behavior graphs, test privately, place or equip an invention, use it, reopen/revise it and reload the saved world. Launch [`run-invention-workshop.ps1`](run-invention-workshop.ps1). **B** builds; **F/V** use/revise nearby ground inventions; **E/Q** use/revise the worn design; **C** allows or stops effects; **H** changes camera. Five starter designs share one compiler, permission service and capability interpreter. Remote multiplayer and the visual-quality gate remain open.
+The [manual invention checkpoint](docs/engine/checkpoints/manual-invention.md) implements the **original roadmap's Phase 3 local creation loop**: edit parts and behavior graphs, test privately, place or equip an invention, use it, reopen/revise it and reload the saved world. Launch [`run-invention-workshop.ps1`](run-invention-workshop.ps1). **B** builds; **F/V** use/revise nearby ground inventions; **E/Q** use/revise the worn design; **C** allows or stops effects; **H** changes camera. Five starter designs share one compiler, permission service and capability interpreter. Remote multiplayer and the visual-quality gate remain open.
 
 The [ART-0–3 implementation checkpoint](docs/engine/checkpoints/art0-3.md) adds corrected terrain lighting, original editable oak/juniper assets, painted materials, and a composed playable workshop. Launch it with [`run-painterly-patch.ps1`](run-painterly-patch.ps1). All 15 engine checks pass; independent art reviewers score the current standard views **6/10**, so the **8.5 visual gate remains open**. The report includes actual Godot views, a walk-through, low-profile evidence and the remaining visual work.
 
