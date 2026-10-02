@@ -42,7 +42,13 @@ $tests = @(
     'workshop_path_integration.gd',
     'art_reference_smoke.gd',
     'workshop_art_smoke.gd',
-    'painterly_geometry_smoke.gd'
+    'painterly_geometry_smoke.gd',
+    'creation_compiler_smoke.gd',
+    'creation_authority_smoke.gd',
+    'creation_visuals_smoke.gd',
+    'invention_runtime_smoke.gd',
+    'invention_editor_smoke.gd',
+    'manual_invention_integration.gd'
 )
 foreach ($test in $tests) {
     $name = [System.IO.Path]::GetFileNameWithoutExtension($test)

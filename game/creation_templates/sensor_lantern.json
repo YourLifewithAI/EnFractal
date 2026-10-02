@@ -1,0 +1,13 @@
+{
+  "schema": "enfractal.creation", "version": 1, "name": "Sensor lantern", "seed": 43, "mount": "ground",
+  "parts": [
+    {"id":"foot","shape":"cylinder","position_m":[0,0.1,0],"rotation_deg":[0,0,0],"size_m":[0.7,0.2,0.7],"material":"stone"},
+    {"id":"pole","shape":"cylinder","position_m":[0,1,0],"rotation_deg":[0,0,0],"size_m":[0.15,1.8,0.15],"material":"wood"},
+    {"id":"lamp","shape":"sphere","position_m":[0,2.1,0],"rotation_deg":[0,0,0],"size_m":[0.6,0.6,0.6],"material":"copper"}
+  ],
+  "nodes": [
+    {"id":"near","op":"proximity","part_id":"lamp","params":{"radius_m":5,"interval_s":1}},
+    {"id":"signal","op":"light","part_id":"lamp","params":{"intensity":1.6,"duration_s":1.2}}
+  ],
+  "edges": [{"from":"near","to":"signal"}]
+}

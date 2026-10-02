@@ -1,0 +1,15 @@
+{
+  "schema": "enfractal.creation", "version": 1, "name": "Updraft totem", "seed": 29, "mount": "ground",
+  "parts": [
+    {"id":"base","shape":"cylinder","position_m":[0,0.15,0],"rotation_deg":[0,0,0],"size_m":[1.8,0.3,1.8],"material":"stone"},
+    {"id":"column","shape":"cylinder","position_m":[0,1,0],"rotation_deg":[0,0,0],"size_m":[0.35,1.4,0.35],"material":"wood"},
+    {"id":"fan","shape":"rotor","position_m":[0,1.8,0],"rotation_deg":[0,0,0],"size_m":[1.4,0.15,1.4],"material":"copper"}
+  ],
+  "nodes": [
+    {"id":"use","op":"interact","part_id":"base","params":{}},
+    {"id":"turn","op":"spin","part_id":"fan","params":{"speed_rpm":75,"duration_s":2}},
+    {"id":"lift","op":"wind","part_id":"fan","params":{"direction":[0,1,0],"acceleration_mps2":4,"radius_m":3,"duration_s":2}},
+    {"id":"signal","op":"light","part_id":"column","params":{"intensity":0.8,"duration_s":2}}
+  ],
+  "edges": [{"from":"use","to":"turn"},{"from":"turn","to":"lift"},{"from":"lift","to":"signal"}]
+}

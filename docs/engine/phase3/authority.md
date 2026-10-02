@@ -1,0 +1,60 @@
+# Local manual-creation authority
+
+`game/scripts/creation_authority.gd` is the host-owned command boundary for the manual invention editor. It is a separate `RefCounted` service, preserving the older path/platform fixture. The trusted local adapter supplies the *in-process identity argument*; no request can set its principal, owner, height, instance identity, artifact, permission grants or resource reservation. This is a local authority boundary, **not remote account authentication or completed network multiplayer**.
+
+## Integration
+
+1. `configure(map_manifest, terrain_height_callable, "user://worlds/barton_inventions.json")` pins the canonical map manifest, checks the terrain callback and returns `{ok, load_required}`. An existing file blocks all mutations until it has loaded successfully.
+2. `load_saved()` returns `{ok:true, loaded:false}` for a clean first session. Existing sources are recompiled and placement, ownership, quotas and receipt structures validated. A failed load locks further operations without overwriting the file. Restore a valid file and call `load_saved()` again to recover.
+3. `snapshot(principal)` returns independent copies: `instances` is a dictionary keyed by instance ID, with normalized source and fresh compiled artifacts. It includes `revision`, `permission_revision`, `principal_role`, `roles`, `consent`, capacity use and limits. Unknown principals receive a structured error. Both admitted synthetic fixture identities can read this public workshop and its fixture role/consent state.
+4. `submit(principal, request)` accepts `place`, `revise`, `remove` and transient `activate`. Follow the exact fields in [the shared contract](manual-invention-contract.md). Every request has a unique action ID and the revisions from the current snapshot. GDScript code should construct string keys with dictionary literals or `request["instance_id"] = id`; adding new fields through dot assignment produces `StringName` keys, which the strict JSON boundary rejects.
+5. Poll `is_ready()` and the public `revision` and `permission_revision` properties; copy a fresh snapshot after an acknowledged change. The runtime caches unchanged sources rather than deep-copying them every physics tick. Unavailable authority invalidates the cache, colliders and effects. Errors always provide `{ok:false, code, path, message}` and do not consume the action ID.
+
+Before enabling placement confirmation, call `preflight(principal, source, x_m, z_m, yaw_deg, instance_id = "")`. It returns the compiled `artifact`, host-derived `position_m`, and current world/permission revisions, or the same readable failures as placement. It uses the **same candidate preparation path as `submit`** for ownership, compilation, rotated geometry/field bounds, terrain, live avatar clearance and aggregate capacity. It never reserves an ID or capacity, writes a file, creates a receipt, or changes revisions, caller source or `last_error`. A successful preflight describes the current state only: confirmation still recompiles and rechecks all constraints, so a newly occupied footprint or revoked editor role is rejected. It does not promise that a later filesystem write will succeed.
+
+The playable host also binds `occupancy_query: Callable` after configuration. Before a ground placement/revision persists, this callback receives `(compiled_artifact, host_position: Vector3, yaw_deg: float, replaced_instance_id: String)` and must return `{ok:true}` or a structured `{ok:false, code, path, message}`. This checks live player/mannequin clearance at the authority boundary, preventing a placed collider from trapping an avatar. Avatar-mounted designs have no solid collider and skip this check. Unbound callbacks are permitted for isolated authority fixtures; the playable runtime must bind it. Invalid callback results fail closed, and a clearance rejection does not consume the request's action ID or publish a revision.
+
+The runtime also binds `activation_query(principal, instance)` for explicit Use commands. The host checks that a ground device is within 9 m of that actor, or that an equipped design belongs to that wearer. A client cannot bypass those checks by skipping the nearest-device UI. Automatic timers and sensors still use their declared activation semantics.
+
+The root runtime calls `consume_runtime_budget(instance_id, principal, field_count, node_evaluations, monotonic_seconds)` before evaluating a graph. `submit(... activate ...)` authorizes the request but does **not** double-charge this budget. It returns a transient receipt with `replayed:true` on an identical session retry; the runtime must not execute a replayed activation again. Timers use the owner as principal; proximity uses the admitted consenting detected actor and charges both actor and owner. Effects recheck `can_affect(owner, target, current_position)` every tick. Active field lifetime, a maximum of 16 simultaneous fields, and cleanup on removal/revision/revocation remain the runtime's responsibilities; admission counters do not substitute for these checks.
+
+## Permission and placement rules
+
+- The fixed local plot owner is `local_player`. The synthetic `guest_player` begins as a visitor. Only the owner may grant editor access. An editor can place and revise their own source; they cannot revise or remove another creator's invention. The owner can remove another creator's invention for moderation, but cannot silently rewrite its source or transfer ownership.
+- Role revocation preserves source and reservations but makes the creator's existing instances inactive immediately. Public invention activation requires the activating player's consent and a still-authorized creator. Friendly effects require the creator's current build role, an admitted consenting recipient, and an authorized recipient position. **Both players start with consent disabled, and all consent resets to false when loading a saved session**. Explicitly enabling it is a new permission change.
+- Role and consent changes persist before publication, advancing both world and permission revisions. Failed writes publish neither the ACL nor the object candidate. No-op settings leave revisions unchanged. Loading increments the in-memory permission revision because consent has reset.
+- Full assemblies fit inside X `−60…60`, Z `290…410`. The protected public garden X `−15…15`, Z `380…410` is immutable and effect-free, including its boundary. The compiler's rotated local bounds are rotated again by placement yaw; this conservative world footprint must fit. Wind and proximity radii around their attached part positions are checked as complete enclosing rectangles, so a safe origin cannot hide a field crossing a boundary.
+- Heights come from terrain samples at the footprint corners and origin. The host anchors the design at the highest sample; invalid terrain and height differences over 3 m fail placement. This conservative support rule can leave parts above lower ground. It does not sculpt the source terrain or provide foundation construction. Avatar designs still undergo placement admission; the live moving avatar and affected recipients require runtime boundary checks.
+- Each creator can equip at most one avatar design. They can revise/remove that instance before equipping a replacement. The service does not silently pick among multiple competing gliders.
+
+## Capacity and execution bounds
+
+| Resource | Per creator | Whole local workshop |
+|---|---:|---:|
+| Instances | 8 | 16 |
+| Parts | 96 | 192 |
+| Behavior nodes | 64 | 128 |
+| Wires | 128 | 256 |
+| Wind capabilities | 16 | 32 |
+| Light capabilities | 16 | 32 |
+| Rotor capabilities | 16 | 32 |
+
+Replacement validates the candidate collection **after subtracting the replaced instance**, and removal releases its reservation. All costs come from recompiling source. Limits are deliberately conservative local prototype policy; they are not measured target-laptop performance guarantees.
+
+The shared rolling one-second execution window admits at most 5 evaluations per instance, 10 per actor and 20 globally, with corresponding node-work ceilings of 80/160/320. Field admissions are capped at 8 per actor and 16 globally. A guest using someone else's invention charges both the guest and the creator so visitors cannot multiply the creator's budget. Host monotonic time must not move backward. Expiry never grants catch-up executions.
+
+## Receipts and local persistence
+
+Successful mutations reserve `(trusted principal, action_id)` with a canonical command fingerprint and receipt. An identical committed retry returns its original receipt **before current ACL and revision checks**, including after revocation or reload. A changed payload with the same ID fails; another principal cannot retrieve that receipt. Thus a lost response cannot create a duplicate or leave the client unsure whether an already committed action happened. This does not authorize new actions after revocation.
+
+Saves contain a pinned base hash, schema/compiler/style versions, normalized editable source, host identity and placement, ACL and receipt ledger. Compiled artifacts and client-supplied costs are never accepted from disk. Every load recompiles and checks source, full footprint/fields, terrain anchor and aggregate reservations. Invalid or incompatible saves remain untouched. Local filesystem edits are not a supported authentication mechanism; this format has no cryptographic account identity or tamper-proof signature.
+
+The candidate is written to a sibling `.pending` file, flushed and closed, then renamed over the committed file. In-memory state changes only after replacement succeeds. A failed replacement leaves the previous committed file intact. This is useful local atomic replacement, not certification of hosted crash durability across storage devices or operating-system failure. Orphan `.pending` files are ignored on load.
+
+Bounds: 64 KiB commands, 4 MiB saves, 2,048 committed receipts per saved world and 2,048 transient activation receipts per local session. Exhausted ledgers return a readable error instead of evicting receipts and admitting ambiguous retries. A future longer-running service needs reviewed checkpoint/receipt retention policy; this packet intentionally does not invent one.
+
+## Verification
+
+`game/tests/creation_authority_smoke.gd` passes **167 checks** on Godot 4.7.2, covering valid commit, host-derived fields, forged requests, guest ownership boundaries, protected geometry/field reach, rotor sweeps, unavailable/uneven terrain, stale permissions, explicit consent, role and consent revocation, aggregate quota/replacement/removal, one equipped avatar, shared runtime quotas, principal-bound retries, source reconstruction, corrupt/incompatible/forged saves, occupancy rejection and failed persistence rollback. Read-only preflight cases verify the shared validators, no caller/state/receipt/ID/file mutation, and commit rejection after clearance or permissions change. The test uses isolated files under `user://tests/` and leaves the production workshop save alone. Runtime motion, field cleanup and the visible editor loop need their own integration evidence.
+
+The companion `game/tests/invention_runtime_smoke.gd` passes **67 checks** with the real command service, capability runtime and `CharacterBody3D` player on a real `StaticBody3D` floor. Only the viewer shell and flat map sampler are fixtures. It verifies collider clearance for the player/nonconsenting mannequin, actual wind-driven movement, force expiration, revocation without residual momentum, source revision and freed old scenes, reload consent, removal, guest role revocation, timer cadence, actual equipped-glider descent, downward-wind/glide revocation without phantom lift, force revocation on a physical 10° slope without residual drift, body-width protection at the garden boundary, protected-checkpoint recovery, and runtime cleanup after a corrupt load. This headless evidence is distinct from visual editor usability, the source-data terrain integration suite and target-laptop performance.

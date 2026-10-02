@@ -8,6 +8,8 @@ The [painterly pipeline diagnosis](research/13-painterly-pipeline-diagnosis.md) 
 
 ## Working rules
 
+**E11–E14 implementation update, 2 October:** The [manual invention checkpoint](../engine/checkpoints/manual-invention.md) implements the bounded local compiler/editor/permissions/creative loop, including five shared-capability designs and actual map/editor tests. This advances the main roadmap's Phase 3; it does not declare preceding remote-play gates or the separate art gate complete. The existing path/platform join remains a separate preserved fixture pending convergence into the general editor.
+
 Start with two independent builders and one reviewer when there is enough work that can proceed without shared-file edits. Use at most three active implementation packets until the founder can review them comfortably. Research/fixture preparation may use more parallel agents. The founder reserves integration and actual playtesting time; no agent may lower an acceptance criterion merely to mark its own task complete.
 
 Each packet produces one reviewable change, instructions to reproduce it, evidence from relevant checks, limitations, and a handoff note. Keep implementation packets around 1–3 working days; split an item below into smaller changes if it exceeds that. Estimates in the roadmap apply to phases, not an assertion that every table row fits one agent turn.

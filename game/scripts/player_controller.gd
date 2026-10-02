@@ -26,6 +26,35 @@ var recover_attempts := 0
 var active := false
 var jump_requested := false
 var world_physics: Dictionary = PHYSICS_PROFILE_SCRIPT.DEFAULT.duplicate(true)
+var editor_input_blocked := false
+var creation_acceleration := Vector3.ZERO
+var creation_velocity := Vector3.ZERO
+var creation_applied := Vector3.ZERO
+var creation_glide_limit := 0.0
+var creation_position_guard := Callable()
+var spawn_clearance := Callable()
+
+
+func clear_creation_motion() -> void:
+	velocity -= creation_applied
+	creation_applied = Vector3.ZERO
+	creation_velocity = Vector3.ZERO
+	creation_acceleration = Vector3.ZERO
+	creation_glide_limit = 0.0
+	creation_position_guard = Callable()
+
+
+func set_creation_effects(acceleration: Vector3, glide_limit: float, position_guard: Callable) -> void:
+	if not position_guard.is_valid() or not acceleration.is_finite():
+		clear_creation_motion()
+		return
+	if acceleration.is_zero_approx():
+		velocity -= creation_applied
+		creation_applied = Vector3.ZERO
+		creation_velocity = Vector3.ZERO
+	creation_acceleration = acceleration.limit_length(4.0)
+	creation_glide_limit = clampf(glide_limit, 0.0, 7.0)
+	creation_position_guard = position_guard
 
 
 func _ready() -> void:
@@ -50,6 +79,7 @@ func set_world_physics(profile: Dictionary) -> bool:
 
 
 func spawn_at(x: float, z: float, heading_rad: float, activate_now: bool = true) -> bool:
+	clear_creation_motion()
 	if not terrain_height.is_valid():
 		return false
 	x = clampf(x, -map_half_side_m + MAP_EDGE_MARGIN_M, map_half_side_m - MAP_EDGE_MARGIN_M)
@@ -101,12 +131,15 @@ func _find_stable_spawn(request_x: float, request_z: float) -> Vector3:
 						stable = false
 						break
 				if stable:
-					return Vector3(x, ground + BODY_HALF_HEIGHT_M + 0.12, z)
+					var candidate := Vector3(x, ground + BODY_HALF_HEIGHT_M + 0.12, z)
+					if (not creation_position_guard.is_valid() or bool(creation_position_guard.call(candidate))) and (not spawn_clearance.is_valid() or bool(spawn_clearance.call(candidate))):
+						return candidate
 	return Vector3(NAN, NAN, NAN)
 
 
 func suspend() -> void:
 	active = false
+	clear_creation_motion()
 	velocity = Vector3.ZERO
 	jump_requested = false
 	set_physics_process(false)
@@ -115,8 +148,23 @@ func suspend() -> void:
 func recover() -> void:
 	if not active:
 		return
+	if creation_position_guard.is_valid():
+		# Creation-induced recovery cannot reuse a checkpoint in protected space.
+		var checkpoint_clear := not spawn_clearance.is_valid() or bool(spawn_clearance.call(last_safe_position))
+		var candidate := last_safe_position if has_grounded_checkpoint and checkpoint_clear and bool(creation_position_guard.call(last_safe_position)) else _find_stable_spawn(global_position.x, global_position.z)
+		if candidate.is_finite() and bool(creation_position_guard.call(candidate)):
+			global_position = candidate
+		clear_creation_motion()
+		velocity = Vector3.ZERO
+		jump_requested = false
+		recovered.emit(global_position)
+		return
 	if has_grounded_checkpoint:
-		global_position = last_safe_position
+		var checkpoint := last_safe_position
+		if spawn_clearance.is_valid() and not bool(spawn_clearance.call(checkpoint)):
+			checkpoint = _find_stable_spawn(checkpoint.x, checkpoint.z)
+		if checkpoint.is_finite():
+			global_position = checkpoint
 	else:
 		recover_attempts += 1
 		if recover_attempts == 1:
@@ -133,21 +181,25 @@ func recover() -> void:
 
 
 func _input(event: InputEvent) -> void:
-	if active and event is InputEventKey and event.keycode == KEY_SPACE and event.pressed and not event.echo:
+	if active and not editor_input_blocked and event is InputEventKey and event.keycode == KEY_SPACE and event.pressed and not event.echo:
 		jump_requested = true
 
 
 func _physics_process(delta: float) -> void:
 	if not active or not terrain_height.is_valid():
 		return
+	velocity -= creation_applied
+	creation_applied = Vector3.ZERO
+	if editor_input_blocked:
+		jump_requested = false
 	var input_direction := Vector3.ZERO
-	if Input.is_key_pressed(KEY_W):
+	if not editor_input_blocked and Input.is_key_pressed(KEY_W):
 		input_direction -= global_basis.z
-	if Input.is_key_pressed(KEY_S):
+	if not editor_input_blocked and Input.is_key_pressed(KEY_S):
 		input_direction += global_basis.z
-	if Input.is_key_pressed(KEY_D):
+	if not editor_input_blocked and Input.is_key_pressed(KEY_D):
 		input_direction += global_basis.x
-	if Input.is_key_pressed(KEY_A):
+	if not editor_input_blocked and Input.is_key_pressed(KEY_A):
 		input_direction -= global_basis.x
 	input_direction.y = 0.0
 	input_direction = input_direction.normalized()
@@ -166,12 +218,38 @@ func _physics_process(delta: float) -> void:
 		else:
 			velocity.y = -0.5
 	else:
-		var gliding := Input.is_key_pressed(KEY_SPACE) and velocity.y < 0.0
+		var gliding := not editor_input_blocked and Input.is_key_pressed(KEY_SPACE) and velocity.y < 0.0
 		var gravity := float(world_physics["glide_gravity_mps2"]) if gliding else float(world_physics["gravity_mps2"])
 		var terminal_speed := GLIDE_TERMINAL_SPEED_MPS if gliding else FALL_TERMINAL_SPEED_MPS
 		velocity.y = maxf(velocity.y - gravity * delta, -terminal_speed)
-
+	# Friendly lift is an explicit game capability: upward acceleration includes
+	# weight support. It is not claimed as aerodynamic fluid simulation.
+	if creation_acceleration.y > 0.0:
+		velocity.y = maxf(velocity.y, 0.0)
+	if creation_glide_limit > 0.0:
+		velocity.y = maxf(velocity.y, -creation_glide_limit)
+	var base_velocity := velocity
+	creation_velocity = (creation_velocity + creation_acceleration * delta).limit_length(8.0)
+	velocity += creation_velocity
+	if creation_glide_limit > 0.0:
+		velocity.y = maxf(velocity.y, -creation_glide_limit)
+	# Track only the contribution actually applied after the descent limit.
+	creation_applied = velocity - base_velocity
+	var before_move := global_position
 	move_and_slide()
+	# Project the external contribution along contacts just as move_and_slide
+	# projects total motion. Clearing one changed axis can leave force on slopes.
+	for index in range(get_slide_collision_count()):
+		var normal := get_slide_collision(index).get_normal()
+		if creation_applied.dot(normal) < 0.0:
+			creation_applied = creation_applied.slide(normal)
+		if creation_velocity.dot(normal) < 0.0:
+			creation_velocity = creation_velocity.slide(normal)
+	if creation_position_guard.is_valid() and not bool(creation_position_guard.call(global_position)):
+		global_position = before_move
+		velocity = Vector3.ZERO
+		creation_applied = Vector3.ZERO
+		creation_velocity = Vector3.ZERO
 	jump_requested = false
 	var edge := map_half_side_m - MAP_EDGE_MARGIN_M
 	if absf(global_position.x) > edge or absf(global_position.z) > edge:

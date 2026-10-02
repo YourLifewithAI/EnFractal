@@ -15,6 +15,8 @@ The [follow-up build evidence](docs/engine/checkpoints/followup-0-2.md) covers b
 
 ## First playable engine slice
 
+The [manual invention checkpoint](docs/engine/checkpoints/manual-invention.md) implements the **main roadmap's Phase 3 local creation loop**: edit parts and behavior graphs, test privately, place or equip an invention, use it, reopen/revise it and reload the saved world. Launch [`run-invention-workshop.ps1`](run-invention-workshop.ps1). **B** builds; **F/V** use/revise nearby ground inventions; **E/Q** use/revise the worn design; **C** allows or stops effects; **H** changes camera. Five starter designs share one compiler, permission service and capability interpreter. Remote multiplayer and the visual-quality gate remain open.
+
 The [ART-0–3 implementation checkpoint](docs/engine/checkpoints/art0-3.md) adds corrected terrain lighting, original editable oak/juniper assets, painted materials, and a composed playable workshop. Launch it with [`run-painterly-patch.ps1`](run-painterly-patch.ps1). All 15 engine checks pass; independent art reviewers score the current standard views **6/10**, so the **8.5 visual gate remains open**. The report includes actual Godot views, a walk-through, low-profile evidence and the remaining visual work.
 
 ![Current painterly workshop implementation; visual gate remains open](docs/images/art3-standard-arrival.png)

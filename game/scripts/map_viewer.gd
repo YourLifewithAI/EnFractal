@@ -11,6 +11,7 @@ const DEFAULT_RESIDENT_TILE_BUDGET_BYTES := 64 * 1024 * 1024
 const MAP_RUNTIME_SCRIPT := preload("res://scripts/map_runtime.gd")
 const TERRAIN_MESH_JOB_SCRIPT := preload("res://scripts/terrain_mesh_job.gd")
 const WORKSHOP_RUNTIME_SCRIPT := preload("res://scripts/workshop_runtime.gd")
+const INVENTION_RUNTIME_SCRIPT := preload("res://scripts/invention_runtime.gd")
 const PLAYER_TEST_SCENE := preload("res://scenes/player_test.tscn")
 const TERRAIN_COLLISION_SCRIPT := preload("res://scripts/terrain_collision_streamer.gd")
 const PAINTERLY_GROUND_KIT := preload("res://scripts/painterly_ground_kit.gd")
@@ -21,6 +22,7 @@ var manifest: Dictionary
 var features: Dictionary
 var map_runtime
 var workshop_runtime
+var invention_runtime
 var grid_side: int
 var map_side_m: int
 var sample_spacing_m: int
@@ -136,6 +138,18 @@ func _ready() -> void:
 	workshop_runtime = WORKSHOP_RUNTIME_SCRIPT.new()
 	workshop_runtime.configure(self)
 	add_child(workshop_runtime)
+	if OS.get_environment("ENFRACTAL_MANUAL_INVENTION") == "1":
+		workshop_runtime.set_process(false)
+		workshop_runtime.set_process_unhandled_key_input(false)
+		workshop_runtime.hint.hide()
+		status_label.hide()
+		walk_camera.position.y = 0.82
+		invention_runtime = INVENTION_RUNTIME_SCRIPT.new()
+		invention_runtime.configure(self)
+		var override_save := OS.get_environment("ENFRACTAL_INVENTION_SAVE")
+		if override_save.begins_with("user://tests/"):
+			invention_runtime.save_path = override_save
+		add_child(invention_runtime)
 	_refresh_lod_targets()
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 	if OS.get_environment("ENFRACTAL_START_WALK") == "1":
@@ -1107,6 +1121,8 @@ func _jump_to_view(view: String) -> void:
 func _set_walking_mode(enable: bool) -> void:
 	if walking == enable:
 		return
+	if not enable and invention_runtime != null and invention_runtime.third_person:
+		invention_runtime.set_third_person(false)
 	if enable:
 		if not player_body.spawn_at(camera.position.x, camera.position.z, yaw, false):
 			return
@@ -1141,6 +1157,11 @@ func _start_workshop_walk() -> void:
 
 
 func _input(event: InputEvent) -> void:
+	if invention_runtime != null and invention_runtime.editor_open:
+		if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
+			invention_runtime.editor.close_editor()
+			get_viewport().set_input_as_handled()
+		return
 	if startup_cover != null and startup_cover.visible:
 		# Workshop actions use _unhandled_key_input. Consume loading-time
 		# events here without disabling its collision-bearing child nodes.
@@ -1172,7 +1193,10 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion and Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
 		if walking:
 			player_body.rotation.y -= event.relative.x * 0.0025
-			walk_camera.rotation.x = clampf(walk_camera.rotation.x - event.relative.y * 0.0025, -1.45, 1.2)
+			if invention_runtime != null and invention_runtime.third_person:
+				invention_runtime.camera_boom.rotation.x = clampf(invention_runtime.camera_boom.rotation.x - event.relative.y * 0.0025, -1.2, 0.6)
+			else:
+				walk_camera.rotation.x = clampf(walk_camera.rotation.x - event.relative.y * 0.0025, -1.45, 1.2)
 		else:
 			yaw -= event.relative.x * 0.0025
 			pitch = clampf(pitch - event.relative.y * 0.0025, -1.55, 1.35)
@@ -1185,7 +1209,7 @@ func _process(delta: float) -> void:
 	if walking:
 		terrain_colliders.update_center(player_body.global_position)
 		camera.position = walk_camera.global_position # Preserve visual LOD's camera anchor.
-	elif startup_cover == null or not startup_cover.visible:
+	elif (startup_cover == null or not startup_cover.visible) and (invention_runtime == null or not invention_runtime.editor_open):
 		var direction := Vector3.ZERO
 		if Input.is_key_pressed(KEY_W):
 			direction -= camera.global_basis.z

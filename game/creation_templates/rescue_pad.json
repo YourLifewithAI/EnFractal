@@ -1,0 +1,13 @@
+{
+  "schema": "enfractal.creation", "version": 1, "name": "Rescue pad", "seed": 37, "mount": "ground",
+  "parts": [
+    {"id":"pad","shape":"cylinder","position_m":[0,0.12,0],"rotation_deg":[0,0,0],"size_m":[2.4,0.24,2.4],"material":"stone"},
+    {"id":"beacon","shape":"sphere","position_m":[0,0.4,0],"rotation_deg":[0,0,0],"size_m":[0.3,0.3,0.3],"material":"copper"}
+  ],
+  "nodes": [
+    {"id":"near","op":"proximity","part_id":"pad","params":{"radius_m":2.8,"interval_s":0.75}},
+    {"id":"cushion","op":"wind","part_id":"pad","params":{"direction":[0,1,0],"acceleration_mps2":4,"radius_m":2.8,"duration_s":0.75}},
+    {"id":"signal","op":"light","part_id":"beacon","params":{"intensity":1.2,"duration_s":0.75}}
+  ],
+  "edges": [{"from":"near","to":"cushion"},{"from":"near","to":"signal"}]
+}

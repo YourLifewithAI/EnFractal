@@ -12,7 +12,7 @@ From the repository root, run:
 .\run-painterly-patch.ps1
 ```
 
-The launcher prepares missing or changed art imports and opens the actual map/workshop at walking height. Use **WASD** and the mouse to walk/look; **P** places a platform, **J** adds its path, **K** changes the endpoint, **E** resizes the selected platform, and **O** reloads the saved workshop. **Tab** switches walking/flying. Existing local saves remain in use during normal play; the evidence scripts use isolated test saves.
+The launcher prepares missing or changed art imports and opens the actual map/workshop at walking height. Use **WASD** and the mouse to walk/look; **P** places a platform, **J** adds its path, **K** changes the endpoint, **E** resizes the selected platform, and **O** removes the selection. **F5** saves and **F9** reloads the saved workshop. **Tab** switches walking/flying. Existing local saves remain in use during normal play; the evidence scripts use isolated test saves.
 
 The low profile can be selected before launching:
 
