@@ -1,0 +1,45 @@
+{
+	"adapter": "NVIDIA GeForce RTX 2070 Super",
+	"engine": "4.7.2-stable (official)",
+	"eye_height_m": 1.67,
+	"outside_patch_contact": {
+		"art_radius_m": 35.0,
+		"rendered_pixels_changed_by_contact_mask": 30660,
+		"valid_edit_xz": [
+			48.0,
+			350.0
+		]
+	},
+	"profile": "standard",
+	"renderer": "gl_compatibility",
+	"saved_revision": 3,
+	"scene_stats": {
+		"asset_tree_triangles": 96390,
+		"bank_grass_cards": 144,
+		"bank_pebbles": 24,
+		"groundcover_cards": 3264,
+		"groundcover_clusters": 16,
+		"limestone_stones": 12,
+		"seasonal_rill_is_mapped_creek": false,
+		"seasonal_rill_points": 7,
+		"source_terrain_modified": false,
+		"tree_centers": 9,
+		"triangle_upper_bound": 106446
+	},
+	"scope": "ART3 capture, not a target-device performance benchmark. Rain-garden swale and vegetation are illustrative.",
+	"source_height_sha256": "a15d168d5d84061e05b609b875ea82e306a539b3ad96c881528f96d06abe55d7",
+	"source_map": "barton_creek_v0",
+	"stable_join": "join:f7d0030e8b98e4cb55dc",
+	"surround_tree_count": 30,
+	"texture_memory_bytes": 53145996,
+	"walk": {
+		"final_position": [
+			-3.99999713897705,
+			7.48725366592407,
+			348.694030761719
+		],
+		"frames": 210,
+		"grounded_frames": 210,
+		"note": "Frames encoded at 30 fps; screenshot readback affects runtime and is not an FPS measurement."
+	}
+}

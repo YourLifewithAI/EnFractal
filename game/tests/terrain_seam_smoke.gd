@@ -73,7 +73,9 @@ func _triangles_face_up(mesh: ArrayMesh) -> bool:
 		var a := vertices[indices[triangle]]
 		var b := vertices[indices[triangle + 1]]
 		var c := vertices[indices[triangle + 2]]
-		if (b - a).cross(c - a).y <= 0.0:
+		# Godot fronts are clockwise: an upward-facing surface has a downward
+		# mathematical cross product. The previous check enforced the defect.
+		if (b - a).cross(c - a).y >= 0.0:
 			return false
 	return true
 

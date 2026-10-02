@@ -2,6 +2,8 @@
 
 This research audit found a real lighting defect as well as missing artwork. It does **not** certify the current scene, complete the art milestone, or demonstrate the intended painterly style. Production rendering code was not changed. See the [pipeline diagnosis](../../roadmap/research/13-painterly-pipeline-diagnosis.md) for the broader art workflow.
 
+**Historical baseline:** the counts and captures below describe the pre-repair research baseline. The subsequent [ART-0 repair and calibration](art0-renderer-calibration.md) corrects those orientations and records fresh evidence. Re-running the probe on the repaired source therefore produces different counts. These original images remain unchanged.
+
 ## Confirmed rendered defect
 
 The art-reference terrain is wound opposite its supplied upward normals. Godot uses clockwise front faces. In the installed Godot **4.7.2.stable.official.ed1daf0bf** Compatibility renderer, `cull_disabled` enables a side check that flips the interpolated normal on backfaces. Consequently, these visible terrain surfaces receive lighting as if their normals point downward.
@@ -73,7 +75,7 @@ godot --headless --path game --script ../tools/diagnostics/painterly_render_audi
 
 The script path above is relative to the project directory; an absolute script path is also accepted. The default output directory is the repository's ignored `.cache/painterly-render-audit`. To select another directory, add `-- --output-dir=<directory>`; relative output paths resolve against the repository. Counts are written to `counts.json` and printed. The script fixes the known scene to its standard profile/default camera for reproducibility.
 
-Omit `--headless` to render `before.png` and `terrain-winding-reversed.png`. Reversal happens only to fresh meshes in that diagnostic process; no resource or production scene is saved. It exits after capture. These output files are diagnostic artifacts and do not replace the committed workshop screenshots.
+Omit `--headless` to render `current.png` and `terrain-winding-reversed.png`. Reversal happens only to fresh meshes in that diagnostic process; no resource or production scene is saved. On the ART-0 repaired source, reversing the now-correct terrain intentionally breaks its orientation; with backface culling it disappears. This differs from the historical A/B above, which used the original double-sided material. The probe exits after capture. Its output files do not replace committed workshop screenshots.
 
 For the Windows GUI executable, use `Start-Process -WindowStyle Hidden -Wait` and redirect logs, or use the console executable. The audit's verified invocation used absolute paths:
 

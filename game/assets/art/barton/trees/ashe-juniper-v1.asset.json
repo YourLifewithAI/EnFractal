@@ -1,0 +1,57 @@
+{
+  "schema": "enfractal.art.asset.v1",
+  "id": "barton_ashe_juniper_v1",
+  "species": "juniper",
+  "interpretation": "Original illustrative tree; no surveyed individual claim.",
+  "builder": "tools/art/build_barton_trees.py",
+  "builder_sha256": "c6b21d1a188ce9f6f45af1ce1cb3b5223230e62dcb5297a4ff57443a2fd6f32e",
+  "seed": 3010250924,
+  "blender_version": "4.5.14 LTS",
+  "source": "assets/art_sources/barton/trees/ashe-juniper-v1.blend",
+  "export": "game/assets/art/barton/trees/ashe-juniper-v1.glb",
+  "leaf_texture": "game/assets/art/barton/textures/juniper-spray-v1.png",
+  "leaf_texture_sha256": "37a4d39c9bb94407e92a6cc6cc9dc41f8941efd691482a5d1b00014ee4900653",
+  "bounds_blender_z_up_m": {
+    "minimum": [
+      -2.186591625213623,
+      -1.7089548110961914,
+      -0.04742605984210968
+    ],
+    "maximum": [
+      2.187563180923462,
+      1.9866551160812378,
+      6.851650714874268
+    ],
+    "dimensions": [
+      4.374154806137085,
+      3.695609927177429,
+      6.899076774716377
+    ]
+  },
+  "triangles": {
+    "Trunk": 2954,
+    "Leaves": 3936
+  },
+  "total_triangles": 6890,
+  "leaf_card_count": 492,
+  "branch_curve_count": 11,
+  "canopy_guide_count": 18,
+  "closed_canopy_shells_exported": 0,
+  "normal_method": "Analytic ellipsoidal canopy-proxy normals with restrained upward blend; fixed 3D cards.",
+  "vertex_channels": {
+    "R": "Authored radial canopy interior occlusion 0.65\u20131.0; not ray-traced AO",
+    "G": "Height-based wind weight",
+    "B": "Stable per-card variation",
+    "A": "1"
+  },
+  "foliage_material": "Foliage juniper",
+  "foliage_alpha_mode": "MASK",
+  "alpha_cutoff": 0.42,
+  "rights": "Tree geometry and builder originally authored for EnFractal. Texture provenance maintained separately by root agent.",
+  "limitations": [
+    "Asset proof; no accepted visual quality score",
+    "No collision mesh included; root gameplay system supplies simplified collision",
+    "No automatic LODs yet",
+    "Source includes editable curves/empty guides; rerun builder to regenerate meshes after editing script recipe"
+  ]
+}

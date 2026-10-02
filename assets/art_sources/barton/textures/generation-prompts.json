@@ -1,0 +1,41 @@
+{
+  "format": "enfractal-art-textures-v1",
+  "notes": "Original generated bitmap sources are the checked-in PNGs. Exact prompts retained; re-generation is not bitwise deterministic. Runtime asset hashes/versions should pin these originals.",
+  "entries": [
+    {
+      "file": "game/assets/art/barton/textures/oak-leaf-cluster-v1.png",
+      "tool": "built-in image_gen",
+      "prompt": "Use case: stylized-concept. Asset type: production texture for alpha-cutout foliage cards in a grounded painterly 3D game. Create ONE isolated Texas live-oak leafy twig cluster, actual transparent RGBA background. Orthographic front view, entirely flat painted albedo, no perspective, no floor, no cast shadow, no ambient backdrop, no labels. Composition a broad irregular horizontal oval cluster centered, filling 85% of square canvas with transparent perimeter and many small transparent sky holes between leaves. About 35 small oval evergreen leaves along five branching slender twigs. Leaves form overlapping groups with a coherent irregular brush-shaped silhouette, not a solid green cloud. Hand-painted gouache / impressionistic oil-like brush marks with simple distinct broad warm sage and spring green leaf planes, muted blue-green darker undersides and a few yellow-green highlights. Moderate tonal variation, no black outlines, no stark white speculars, no photoreal microtexture. Branches tiny warm brown, mostly obscured. All leaves remain connected into one believable branchlet, feathered asymmetric outside edges. Detail readable when mapped onto a 0.6 meter foliage cluster. Original artwork, no imitation of any game's asset. Output a square texture around 1024 pixels with genuine transparency.",
+      "source": "Original generated artwork for EnFractal; no reference pixels copied.",
+      "role": "oak"
+    },
+    {
+      "file": "game/assets/art/barton/textures/juniper-spray-v1.png",
+      "tool": "built-in image_gen",
+      "prompt": "Use case: stylized-concept. Asset type: alpha-cutout foliage card texture for original painterly Ashe juniper tree in a 3D game. One isolated branch spray of juniper evergreen foliage on actual transparent RGBA background, square1024. Orthographic flat hand-painted albedo, delicate fernlike branching sprays with tiny close scale-leaves, not broad oak leaves. Several upward fanning feathery slender evergreen tips from one thin brown twig. Asymmetric elongated fan silhouette filling80% of square, many transparent gaps. Muted sage/blue-green interiors, olive spring-green upper planes, restrained pale golden tips, broad purposeful gouache marks, soft stylized shape details. No backdrop, no cast shadows, no pot, no trunk, no pinecones, no snow, no letters or borders. Fully visible isolated sprig with margin; game foliage material with modest color variation not photoreal microdetail.",
+      "source": "Original generated artwork for EnFractal; no reference pixels copied.",
+      "role": "juniper"
+    },
+    {
+      "file": "game/assets/art/barton/textures/ground-paint-v1.png",
+      "tool": "built-in image_gen",
+      "prompt": "Use case: stylized-concept. Asset type: seamless repeating game terrain albedo texture. Original hand-painted gouache ground surface, orthographic flat view, square1024. Soft broad interlocking brush patches of dusty warm khaki, tawny earth, sage-gray and light straw, occasional tiny irregular pale stones half embedded. Most detail is medium broad directional brushwork, quiet lower contrast areas between marks. No strong directional lighting, no shadows, no plants standing up, no horizon, no perspective, no text, no grid. Painterly natural Texas trail soil material, tactile fine paper/paint character but not gritty photographic noise. Visually seamless edge-to-edge tiling with no central focal object. Opaque RGB.",
+      "source": "Original generated artwork for EnFractal; no reference pixels copied.",
+      "role": "ground"
+    },
+    {
+      "file": "game/assets/art/barton/textures/bark-paint-v1.png",
+      "tool": "built-in image_gen",
+      "prompt": "Use case: stylized-concept. Asset type: seamless game tree bark albedo texture. Original hand-painted painterly oak bark, orthographic flat rectangular surface, square1024. Broad vertical flowing broken bark ridges in warm gray brown taupe, muted silver beige lit planes and shallow cooler gray-brown crevices. Subtle brush strokes, gently sculpted tactile forms. Medium low contrast, no black fissures, no white spots, no overly deep cracks. Vertical grain must curve slightly and split naturally. No tree silhouette, no branches or leaves, no moss clusters, no perspective, no baked directional sunlight, no labels, no border. Seamless repeating texture edge-to-edge, refined cozy impressionistic 3D game material rather than photoreal bark.",
+      "source": "Original generated artwork for EnFractal; no reference pixels copied.",
+      "role": "bark"
+    },
+    {
+      "file": "game/assets/art/barton/textures/limestone-paint-v1.png",
+      "tool": "built-in image_gen",
+      "prompt": "Use case: stylized-concept. Asset type: original seamless repeating limestone albedo material for a grounded painterly 3D Texas creek scene. Square1024 orthographic flat close view of pale warm cream limestone, broad horizontal sedimentary ribbons with softly chipped planar edges, faint warm gray seams, subtle peach/tan mineral patches and occasional cooler lavender-gray shallow shadow colors. Hand-painted gouache brush strokes, elegant simplified masses, subdued low contrast. Texture covers entire image, tileable seamlessly all edges. No deep black cracks, no individual floating boulder, no architecture, no plants, no horizon, no directional cast shadows, no text. Paint broad marks with restrained finer strokes, not photographic gritty noise. Opaque RGB.",
+      "source": "Original generated artwork for EnFractal; no reference pixels copied.",
+      "role": "limestone"
+    }
+  ]
+}

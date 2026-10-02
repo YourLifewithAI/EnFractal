@@ -74,11 +74,12 @@ func _probe() -> void:
 	print("MSAA project=", results["project_msaa_3d"], "; viewport=", root.msaa_3d)
 	print("Diagnostic counts: ", output_directory.path_join("counts.json"))
 	if DisplayServer.get_name() != "headless":
-		if not await _capture("before.png"):
+		if not await _capture("current.png"):
 			quit(1)
 			return
 		# Only these two known indexed terrain meshes are copied and reversed in
-		# memory. Keep camera, normals, material colors, lighting and scene fixed.
+		# memory. After ART-0 this intentionally breaks their correct orientation;
+		# with backface culling they disappear. Historical audit images predate it.
 		for node_name in ["USGSHeightPatch", "CoarseUSGSBackdrop"]:
 			var node = scene.find_child(node_name, true, false)
 			if not node is MeshInstance3D or not node.mesh is ArrayMesh:

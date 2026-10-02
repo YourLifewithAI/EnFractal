@@ -1,0 +1,57 @@
+{
+  "schema": "enfractal.art.asset.v1",
+  "id": "barton_live_oak_v1",
+  "species": "oak",
+  "interpretation": "Original illustrative tree; no surveyed individual claim.",
+  "builder": "tools/art/build_barton_trees.py",
+  "builder_sha256": "c6b21d1a188ce9f6f45af1ce1cb3b5223230e62dcb5297a4ff57443a2fd6f32e",
+  "seed": 3010250924,
+  "blender_version": "4.5.14 LTS",
+  "source": "assets/art_sources/barton/trees/live-oak-v1.blend",
+  "export": "game/assets/art/barton/trees/live-oak-v1.glb",
+  "leaf_texture": "game/assets/art/barton/textures/oak-leaf-cluster-v1.png",
+  "leaf_texture_sha256": "4cd951ee8591730ac811b293296404dbe53e4037bdae2d1f9190370f372fb0ef",
+  "bounds_blender_z_up_m": {
+    "minimum": [
+      -5.175253868103027,
+      -4.537167549133301,
+      -0.0875309631228447
+    ],
+    "maximum": [
+      5.286609649658203,
+      4.653658390045166,
+      6.669281005859375
+    ],
+    "dimensions": [
+      10.46186351776123,
+      9.190825939178467,
+      6.75681196898222
+    ]
+  },
+  "triangles": {
+    "Trunk": 8148,
+    "Leaves": 4472
+  },
+  "total_triangles": 12620,
+  "leaf_card_count": 559,
+  "branch_curve_count": 32,
+  "canopy_guide_count": 46,
+  "closed_canopy_shells_exported": 0,
+  "normal_method": "Analytic ellipsoidal canopy-proxy normals with restrained upward blend; fixed 3D cards.",
+  "vertex_channels": {
+    "R": "Authored radial canopy interior occlusion 0.65\u20131.0; not ray-traced AO",
+    "G": "Height-based wind weight",
+    "B": "Stable per-card variation",
+    "A": "1"
+  },
+  "foliage_material": "Foliage oak",
+  "foliage_alpha_mode": "MASK",
+  "alpha_cutoff": 0.42,
+  "rights": "Tree geometry and builder originally authored for EnFractal. Texture provenance maintained separately by root agent.",
+  "limitations": [
+    "Asset proof; no accepted visual quality score",
+    "No collision mesh included; root gameplay system supplies simplified collision",
+    "No automatic LODs yet",
+    "Source includes editable curves/empty guides; rerun builder to regenerate meshes after editing script recipe"
+  ]
+}

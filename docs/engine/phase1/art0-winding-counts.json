@@ -1,0 +1,131 @@
+{
+	"display_server": "headless",
+	"engine": "4.7.2-stable (official)",
+	"observations": {
+		"art_reference/CanopySilhouette0": {
+			"near_zero_dot": 0,
+			"supplied_normals_agree_with_front": 144,
+			"supplied_normals_oppose_front": 0
+		},
+		"art_reference/CanopySilhouette1": {
+			"near_zero_dot": 0,
+			"supplied_normals_agree_with_front": 144,
+			"supplied_normals_oppose_front": 0
+		},
+		"art_reference/CanopySilhouette2": {
+			"near_zero_dot": 0,
+			"supplied_normals_agree_with_front": 144,
+			"supplied_normals_oppose_front": 0
+		},
+		"art_reference/CoarseUSGSBackdrop": {
+			"near_zero_dot": 0,
+			"supplied_normals_agree_with_front": 1760,
+			"supplied_normals_oppose_front": 0
+		},
+		"art_reference/CreekBank": {
+			"near_zero_dot": 0,
+			"supplied_normals_agree_with_front": 412,
+			"supplied_normals_oppose_front": 0
+		},
+		"art_reference/CreekWater": {
+			"near_zero_dot": 0,
+			"supplied_normals_agree_with_front": 206,
+			"supplied_normals_oppose_front": 0
+		},
+		"art_reference/IllustrativeCreekRiffles": {
+			"near_zero_dot": 0,
+			"supplied_normals_agree_with_front": 110,
+			"supplied_normals_oppose_front": 0
+		},
+		"art_reference/IllustrativeGrassTufts": {
+			"near_zero_dot": 0,
+			"supplied_normals_agree_with_front": 5,
+			"supplied_normals_oppose_front": 0
+		},
+		"art_reference/IllustrativeLimestoneOutcrops": {
+			"near_zero_dot": 0,
+			"supplied_normals_agree_with_front": 40,
+			"supplied_normals_oppose_front": 0
+		},
+		"art_reference/IllustrativeLookoutTrailJoin": {
+			"near_zero_dot": 0,
+			"supplied_normals_agree_with_front": 8,
+			"supplied_normals_oppose_front": 0
+		},
+		"art_reference/LeafClusters0": {
+			"near_zero_dot": 0,
+			"supplied_normals_agree_with_front": 8,
+			"supplied_normals_oppose_front": 0
+		},
+		"art_reference/LeafClusters1": {
+			"near_zero_dot": 0,
+			"supplied_normals_agree_with_front": 8,
+			"supplied_normals_oppose_front": 0
+		},
+		"art_reference/LeafClusters2": {
+			"near_zero_dot": 0,
+			"supplied_normals_agree_with_front": 8,
+			"supplied_normals_oppose_front": 0
+		},
+		"art_reference/LimestoneLedgeCaps": {
+			"near_zero_dot": 0,
+			"supplied_normals_agree_with_front": 40,
+			"supplied_normals_oppose_front": 0
+		},
+		"art_reference/LimestoneLedgeShade": {
+			"near_zero_dot": 0,
+			"supplied_normals_agree_with_front": 40,
+			"supplied_normals_oppose_front": 0
+		},
+		"art_reference/MappedTrailSoil": {
+			"near_zero_dot": 0,
+			"supplied_normals_agree_with_front": 560,
+			"supplied_normals_oppose_front": 0
+		},
+		"art_reference/RepresentativeAndAuthoredTrunks": {
+			"near_zero_dot": 0,
+			"supplied_normals_agree_with_front": 64,
+			"supplied_normals_oppose_front": 0
+		},
+		"art_reference/USGSHeightPatch": {
+			"near_zero_dot": 0,
+			"supplied_normals_agree_with_front": 18432,
+			"supplied_normals_oppose_front": 0
+		},
+		"map_tile_8_8_spacing_16m": {
+			"near_zero_dot": 0,
+			"supplied_normals_agree_with_front": 3192,
+			"supplied_normals_oppose_front": 0
+		},
+		"map_tile_8_8_spacing_2m": {
+			"near_zero_dot": 0,
+			"supplied_normals_agree_with_front": 131072,
+			"supplied_normals_oppose_front": 0
+		},
+		"stock_box_control": {
+			"near_zero_dot": 0,
+			"supplied_normals_agree_with_front": 12,
+			"supplied_normals_oppose_front": 0
+		},
+		"workshop_juniper": {
+			"near_zero_dot": 0,
+			"supplied_normals_agree_with_front": 128,
+			"supplied_normals_oppose_front": 0
+		},
+		"workshop_oak": {
+			"near_zero_dot": 0,
+			"supplied_normals_agree_with_front": 144,
+			"supplied_normals_oppose_front": 0
+		},
+		"workshop_rock": {
+			"near_zero_dot": 0,
+			"supplied_normals_agree_with_front": 61,
+			"supplied_normals_oppose_front": 2
+		}
+	},
+	"profile": "standard",
+	"project_msaa_3d": 0,
+	"renderer": "gl_compatibility",
+	"scope": "Known Barton art-reference scene, workshop mesh generators, and map tile (8,8); not a general mesh validator or visual acceptance test.",
+	"viewport_msaa_3d": 0
+}

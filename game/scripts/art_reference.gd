@@ -111,6 +111,8 @@ func _make_materials() -> void:
 	materials["canopy"] = _material(Color.WHITE, 1.0, true)
 	materials["shrub"] = _material(colors["canopy"].lightened(0.12), 1.0)
 	materials["grass"] = _material(Color.WHITE, 1.0, true)
+	# Grass blades are sheets; closed forms and terrain use their front faces.
+	materials["grass"].cull_mode = BaseMaterial3D.CULL_DISABLED
 	materials["wood"] = _material(colors["trunk"].lightened(0.16), 1.0)
 	materials["metal"] = _material(colors["glass"].darkened(0.10), 0.55)
 	materials["sign"] = _material(colors["building"].lightened(0.35), 0.95)
@@ -121,7 +123,7 @@ func _material(tint: Color, roughness: float, vertex_color := false) -> Standard
 	material.albedo_color = tint
 	material.roughness = roughness
 	material.vertex_color_use_as_albedo = vertex_color
-	material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	material.cull_mode = BaseMaterial3D.CULL_BACK
 	return material
 
 
@@ -130,8 +132,10 @@ func _make_atmosphere() -> void:
 	sunlight.name = "WarmAfternoonSun"
 	sunlight.rotation = Vector3(-0.75, -0.74, 0.0)
 	sunlight.light_color = Color(1.0, 0.91, 0.77)
-	sunlight.light_energy = 0.91
-	sunlight.light_angular_distance = 0.12
+	# Direct light now reaches correctly oriented terrain; avoid the previous
+	# overbright balance. Directional PCSS is unavailable in Compatibility.
+	sunlight.light_energy = 0.55
+	sunlight.light_angular_distance = 0.0
 	sunlight.directional_shadow_max_distance = 130.0
 	add_child(sunlight)
 	var world := WorldEnvironment.new()
@@ -148,7 +152,7 @@ func _make_atmosphere() -> void:
 	environment.sky = sky
 	environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	environment.ambient_light_color = Color(0.69, 0.76, 0.79)
-	environment.ambient_light_energy = 0.72
+	environment.ambient_light_energy = 0.35
 	environment.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	world.environment = environment
 	add_child(world)
@@ -202,7 +206,7 @@ func _make_terrain() -> void:
 			var b := a + 1
 			var c := a + cells + 1
 			var d := c + 1
-			indices.append_array(PackedInt32Array([a, c, b, b, c, d]))
+			indices.append_array(PackedInt32Array([a, b, c, b, d, c]))
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = vertices
@@ -252,7 +256,7 @@ func _make_distant_terrain() -> void:
 			var b := a + 1
 			var c := a + cells + 1
 			var d := c + 1
-			indices.append_array(PackedInt32Array([a, c, b, b, c, d]))
+			indices.append_array(PackedInt32Array([a, b, c, b, d, c]))
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = vertices
@@ -308,7 +312,7 @@ func _make_water_riffles(bounds: Rect2) -> void:
 				for point in corners:
 					vertices.append(Vector3(point.x, map_runtime.surface_height_at(point.x, point.y) + 0.22, point.y))
 					normals.append(Vector3.UP)
-				indices.append_array(PackedInt32Array([base, base + 2, base + 1, base + 1, base + 2, base + 3]))
+				indices.append_array(PackedInt32Array([base, base + 1, base + 2, base + 1, base + 3, base + 2]))
 	_add_ribbon_mesh("IllustrativeCreekRiffles", {"vertices": vertices, "normals": normals, "indices": indices}, "water_highlight", "authored shallow-water highlights on mapped Barton Creek centerline")
 
 
@@ -350,9 +354,9 @@ func _ribbon_arrays(kind: String, bounds: Rect2, width: float, height_offset: fl
 						var wet_joint: Color = colors["rock"].darkened(0.27)
 						vertex_colors.append(wet_joint if (vertices.size() - base - 1) % 3 == 1 else bank_edge)
 				if color_role == "":
-					indices.append_array(PackedInt32Array([base, base + 2, base + 1, base + 1, base + 2, base + 3]))
+					indices.append_array(PackedInt32Array([base, base + 1, base + 2, base + 1, base + 3, base + 2]))
 				else:
-					indices.append_array(PackedInt32Array([base, base + 3, base + 1, base + 1, base + 3, base + 4, base + 1, base + 4, base + 2, base + 2, base + 4, base + 5]))
+					indices.append_array(PackedInt32Array([base, base + 1, base + 3, base + 1, base + 4, base + 3, base + 1, base + 2, base + 4, base + 2, base + 5, base + 4]))
 				if kind == "trails":
 					stats["trail_segments"] += 1
 				else:
@@ -397,7 +401,7 @@ func _make_lookout_connector() -> void:
 		for point in [start - lateral, start + lateral, end - lateral, end + lateral]:
 			vertices.append(Vector3(point.x, map_runtime.surface_height_at(point.x, point.y) + 0.18, point.y))
 			normals.append(Vector3.UP)
-		indices.append_array(PackedInt32Array([base, base + 2, base + 1, base + 1, base + 2, base + 3]))
+		indices.append_array(PackedInt32Array([base, base + 1, base + 2, base + 1, base + 3, base + 2]))
 	_add_ribbon_mesh("IllustrativeLookoutTrailJoin", {"vertices": vertices, "normals": normals, "indices": indices}, "trail", "authored connector from modern lookout to OSM trail")
 
 
@@ -488,7 +492,8 @@ func _rock_mesh() -> ArrayMesh:
 	for ring in range(2):
 		for k in range(8):
 			var a := ring * 9 + k
-			indices.append_array(PackedInt32Array([a, a + 9, a + 1, a + 1, a + 9, a + 10]))
+			# Reverse only the side walls. The top fan already faces upward.
+			indices.append_array(PackedInt32Array([a, a + 1, a + 9, a + 1, a + 10, a + 9]))
 	vertices.append(Vector3(0, 1.04, 0))
 	normals.append(Vector3.UP)
 	vertex_colors.append(colors["rock"].lightened(0.34))
@@ -645,7 +650,7 @@ func _trunk_mesh() -> ArrayMesh:
 			var b := a + 1
 			var c := a + columns + 1
 			var d := c + 1
-			indices.append_array(PackedInt32Array([a, c, b, b, c, d]))
+			indices.append_array(PackedInt32Array([a, b, c, b, d, c]))
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = vertices

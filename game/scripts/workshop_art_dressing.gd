@@ -287,7 +287,8 @@ func _rock_mesh() -> ArrayMesh:
 	for ring in range(3):
 		for side in range(sides):
 			var a := ring * (sides + 1) + side
-			indices.append_array(PackedInt32Array([a, a + sides + 1, a + 1, a + 1, a + sides + 1, a + sides + 2]))
+			# Side walls face outward; leave the already-upward cap unchanged.
+			indices.append_array(PackedInt32Array([a, a + 1, a + sides + 1, a + 1, a + sides + 2, a + sides + 1]))
 	vertices.append(Vector3(0.0, 1.03, 0.0))
 	normals.append(Vector3.UP)
 	colors.append(Color(1.02, 0.99, 0.90))

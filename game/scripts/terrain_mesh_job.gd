@@ -110,11 +110,11 @@ func _build_arrays(tile_row: int, tile_column: int, step_m: int) -> Array:
 			var c := a + samples + 1
 			var d := c + 1
 			indices[index_cursor] = a
-			indices[index_cursor + 1] = c
-			indices[index_cursor + 2] = b
+			indices[index_cursor + 1] = b
+			indices[index_cursor + 2] = c
 			indices[index_cursor + 3] = b
-			indices[index_cursor + 4] = c
-			indices[index_cursor + 5] = d
+			indices[index_cursor + 4] = d
+			indices[index_cursor + 5] = c
 			index_cursor += 6
 	if step_m > sample_spacing_m:
 		# Every tile exposes the same 2 m source-height samples on its perimeter.
@@ -127,7 +127,8 @@ func _build_arrays(tile_row: int, tile_column: int, step_m: int) -> Array:
 				var z0: float = -half + tile_row * tile_side_m + cell_row * step_m
 				var x1 := x0 + step_m
 				var z1 := z0 + step_m
-				# Walk the rectangle counterclockwise as seen from above. Subdivide
+				# The perimeter is counterclockwise as seen from above; reverse each
+				# fan triangle below for Godot's clockwise front faces. Subdivide
 				# only sides touching the tile perimeter; inner edges remain coarse.
 				var corners := PackedVector2Array([
 					Vector2(x0, z0), Vector2(x0, z1),
@@ -162,7 +163,7 @@ func _build_arrays(tile_row: int, tile_column: int, step_m: int) -> Array:
 				var center_index := vertices.size() - 1
 				var edge_count := perimeter.size() - 1
 				for edge in range(edge_count):
-					indices.append_array(PackedInt32Array([center_index, vertex_start + edge, vertex_start + (edge + 1) % edge_count]))
+					indices.append_array(PackedInt32Array([center_index, vertex_start + (edge + 1) % edge_count, vertex_start + edge]))
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = vertices

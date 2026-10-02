@@ -1,5 +1,5 @@
 shader_type spatial;
-render_mode cull_disabled, specular_disabled;
+render_mode cull_back, specular_disabled;
 
 uniform sampler2D photo_overlay : filter_linear, repeat_disable;
 uniform vec3 limestone_color : source_color;

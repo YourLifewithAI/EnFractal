@@ -13,6 +13,9 @@ const TERRAIN_MESH_JOB_SCRIPT := preload("res://scripts/terrain_mesh_job.gd")
 const WORKSHOP_RUNTIME_SCRIPT := preload("res://scripts/workshop_runtime.gd")
 const PLAYER_TEST_SCENE := preload("res://scenes/player_test.tscn")
 const TERRAIN_COLLISION_SCRIPT := preload("res://scripts/terrain_collision_streamer.gd")
+const PAINTERLY_GROUND_KIT := preload("res://scripts/painterly_ground_kit.gd")
+const PAINTERLY_ASSETS := preload("res://scripts/painterly_assets.gd")
+const PAINTERLY_PATCH_CENTER := Vector2(0.0, 350.0)
 
 var manifest: Dictionary
 var features: Dictionary
@@ -68,6 +71,7 @@ var yaw := 0.0
 var pitch := -0.5
 var lod_timer := 0.0
 var terrain_material: ShaderMaterial
+var painterly_ground_enabled := false
 var styles: Array
 var style_index := 2 # Preserve the existing photo-guided viewer look by default.
 var style_materials: Dictionary = {}
@@ -122,6 +126,7 @@ func _ready() -> void:
 	_setup_scene()
 	_setup_materials()
 	_apply_style()
+	_enable_painterly_ground()
 	_jump_to_view(OS.get_environment("ENFRACTAL_VIEW"))
 	_build_initial_tiles()
 	_build_mapped_features()
@@ -133,6 +138,8 @@ func _ready() -> void:
 	add_child(workshop_runtime)
 	_refresh_lod_targets()
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+	if OS.get_environment("ENFRACTAL_START_WALK") == "1":
+		call_deferred("_start_workshop_walk")
 	print("Barton Creek map loaded: ", manifest["feature_counts"])
 
 
@@ -217,6 +224,47 @@ func _setup_materials() -> void:
 	terrain_material.set_shader_parameter("map_side_m", float(map_side_m))
 
 
+func _enable_painterly_ground() -> void:
+	var source_material := terrain_material
+	var painted: ShaderMaterial = PAINTERLY_GROUND_KIT.make_terrain_material()
+	PAINTERLY_GROUND_KIT.copy_terrain_source_parameters(painted, source_material)
+	painted.set_shader_parameter("patch_center", PAINTERLY_PATCH_CENTER)
+	painted.set_shader_parameter("patch_radius", 35.0)
+	painted.set_shader_parameter("patch_blend_m", 10.0)
+	terrain_material = painted
+	painterly_ground_enabled = true
+	for tile in tiles.values():
+		var instance: MeshInstance3D = tile["instance"]
+		instance.material_override = terrain_material
+	_apply_painterly_light()
+
+
+func _apply_painterly_light() -> void:
+	var low_profile := OS.get_environment("ENFRACTAL_ART_PROFILE") == "low"
+	get_viewport().msaa_3d = Viewport.MSAA_2X if low_profile else Viewport.MSAA_4X
+	sunlight.light_color = Color(1.0, 0.92, 0.81)
+	sunlight.light_energy = 0.55
+	sunlight.shadow_enabled = true
+	sunlight.shadow_opacity = 0.78
+	sunlight.directional_shadow_max_distance = 34.0 if low_profile else 52.0
+	world_settings.ambient_light_color = Color(0.69, 0.77, 0.86)
+	world_settings.ambient_light_energy = 0.48
+	world_settings.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	if world_settings.sky == null:
+		var sky_paint := ShaderMaterial.new()
+		sky_paint.shader = load("res://shaders/painterly_sky.gdshader")
+		world_settings.sky = Sky.new()
+		world_settings.sky.sky_material = sky_paint
+	world_settings.background_mode = Environment.BG_SKY
+	# Ordinary distance fog works in Compatibility; no volumetric effect.
+	# The first 30 m stays clear while distant source terrain recedes.
+	world_settings.fog_enabled = true
+	world_settings.fog_light_color = Color(0.65, 0.73, 0.73)
+	world_settings.fog_light_energy = 0.8
+	world_settings.fog_density = 0.0013
+	world_settings.fog_sky_affect = 0.0
+
+
 func _rgb(rgb: Array) -> Color:
 	return Color8(int(rgb[0]), int(rgb[1]), int(rgb[2]))
 
@@ -248,6 +296,8 @@ func _apply_style() -> void:
 	world_settings.background_color = _rgb(style["sky"])
 	world_settings.ambient_light_color = _rgb(style["ambient"])
 	sunlight.light_energy = float(style["sun_energy"])
+	if painterly_ground_enabled:
+		_apply_painterly_light()
 	print("Greenbelt style: ", style["id"], " — ", style["name"])
 
 
@@ -954,11 +1004,29 @@ func _build_trees() -> void:
 	var trunks := []
 	var canopies := []
 	var pilot_canopies := []
+	var authored_surround_count := 0
 	for tree in features["trees"]:
 		var x: float = float(tree["x"])
 		var z: float = float(tree["z"])
+		# The v0 points are representative illustrations. Inside the authored
+		# proof patch, the versioned oak/juniper composition supplies that layer.
+		if painterly_ground_enabled and Vector2(x, z).distance_to(PAINTERLY_PATCH_CENTER) < 31.0:
+			continue
 		var base_y := _height_at(x,z)
 		var height: float = float(tree["height_m"])
+		# Replace only the bounded pilot surroundings. These source points are
+		# already labeled representative vegetation, never surveyed tree IDs.
+		if painterly_ground_enabled and Vector2(x, z).distance_to(PAINTERLY_PATCH_CENTER) < 145.0 and authored_surround_count < 36:
+			var species := "juniper" if authored_surround_count % 4 == 1 else "oak"
+			var original_tree := PAINTERLY_ASSETS.make_tree(species, false)
+			original_tree.name = "IllustrativeSurroundTree_%d" % authored_surround_count
+			original_tree.position = Vector3(x, base_y - 0.07, z)
+			original_tree.rotation.y = fposmod(x * 0.73 + z * 0.41, TAU)
+			original_tree.scale = Vector3.ONE * clampf(height / 7.5, 0.68, 1.3)
+			original_tree.set_meta("collision_scope", "visual surround; only the central study has trunk contacts")
+			add_child(original_tree)
+			authored_surround_count += 1
+			continue
 		var trunk_height := height * 0.48
 		trunks.append(Transform3D(Basis.IDENTITY.scaled(Vector3(1.0, trunk_height, 1.0)), Vector3(x, base_y + trunk_height * 0.5, z)))
 		var canopy := Transform3D(Basis.IDENTITY.scaled(Vector3(height * 0.21, height * 0.30, height * 0.21)), Vector3(x, base_y + height * 0.73, z))
@@ -969,6 +1037,7 @@ func _build_trees() -> void:
 	_multimesh_instances("Tree trunks", trunk_mesh, _style_material("trunk"), trunks)
 	_multimesh_instances("Illustrative canopies", canopy_mesh, _style_material("canopy"), canopies)
 	_multimesh_instances("Photo-informed pilot canopies", canopy_mesh, _style_material("pilot_canopy"), pilot_canopies)
+	set_meta("authored_surround_tree_count", authored_surround_count)
 
 
 func _build_photo_rocks() -> void:
@@ -1057,6 +1126,18 @@ func _set_walking_mode(enable: bool) -> void:
 		camera.current = true
 		terrain_colliders.deactivate()
 		walking = false
+
+
+func _start_workshop_walk() -> void:
+	# A direct walking-height entry into the authored edit plot. The geographic
+	# terrain and saved structured workshop still initialize through _ready().
+	var eye := Vector2(-5.0, 337.0)
+	var focus := Vector2(0.0, 350.0)
+	camera.position = Vector3(eye.x, _height_at(eye.x, eye.y) + 1.67, eye.y)
+	camera.look_at(Vector3(focus.x, _height_at(focus.x, focus.y) + 1.67, focus.y))
+	yaw = camera.rotation.y
+	pitch = camera.rotation.x
+	_set_walking_mode(true)
 
 
 func _input(event: InputEvent) -> void:

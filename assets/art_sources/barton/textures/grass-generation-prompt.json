@@ -1,0 +1,7 @@
+{
+  "file": "game/assets/art/barton/textures/grass-tuft-v1.png",
+  "tool": "built-in image_gen",
+  "prompt": "Use case: stylized-concept. Asset type: groundcover foliage card for grounded painterly 3D game, one original isolated tuft of native Texas bunchgrass on actual transparent RGBA background. Square1024 orthographic front view, fully visible delicate fan of about18 slender long arcing grass blades from compact earthy base, shorter leafy blades at outside edges, uneven height and airy gaps. Muted fresh sage-green and yellow-green, cool tealgreen interior shadow planes, a few warm straw blades. Painterly gouache, broad clean color planes with subtle brushstrokes, no tiny noise, medium contrast no black. Shape graceful and natural, not angular spikes. Base centered near bottom with fully transparent margin; height fills75% of canvas width fills65%. No soil rectangle, no backdrop, no cast shadow, no horizon, no border or labels. This will be mapped onto a 35cm tall grass cluster in 3D, not used as a standalone illustration.",
+  "source": "Original generated artwork for EnFractal; no reference pixels copied.",
+  "role": "grass"
+}

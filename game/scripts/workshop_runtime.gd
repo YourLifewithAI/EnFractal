@@ -5,7 +5,8 @@ extends Node3D
 const WORLD_STATE_SCRIPT := preload("res://scripts/world_state.gd")
 const CREATION_OPS_SCRIPT := preload("res://scripts/creation_ops.gd")
 const PATH_PLATFORM_JOIN_SCRIPT := preload("res://scripts/path_platform_join.gd")
-const ART_DRESSING_SCRIPT := preload("res://scripts/workshop_art_dressing.gd")
+const ART_DRESSING_SCRIPT := preload("res://scripts/painterly_workshop.gd")
+const GROUND_KIT_SCRIPT := preload("res://scripts/painterly_ground_kit.gd")
 const SAVE_PATH := "user://worlds/barton_local_workshop.json"
 const WORLD_ID := "local_barton_workshop"
 const FRAME_ID := "barton_creek_v0_local"
@@ -23,6 +24,7 @@ var join_nodes: Dictionary = {}
 var join_relations: Dictionary = {}
 var visual_fingerprints: Dictionary = {}
 var art_dressing: Node3D
+var _painted_stone: Material
 var hint: Label
 var message := ""
 
@@ -364,6 +366,42 @@ func _render_entities() -> void:
 			join_nodes[id] = join_body
 			visual_fingerprints[id] = fingerprint
 	join_relations = next_relations
+	_refresh_terrain_edit_masks()
+
+
+func _refresh_terrain_edit_masks() -> void:
+	# These are visual contact masks on the same geographic frame as the map;
+	# authority and collision remain in the structured source parts above.
+	if viewer.terrain_material == null:
+		return
+	var path_a := Vector4.ZERO
+	var path_b := Vector4.ZERO
+	var path_width := 0.0
+	var platform_mask := Vector3.ZERO
+	var entities: Dictionary = state.get_entities()
+	var ids: Array = entities.keys()
+	ids.sort()
+	for id in ids:
+		var entity: Dictionary = entities[id]
+		if entity.get("kind") == "stone_platform":
+			var transform: Dictionary = entity["transform"]
+			var params: Dictionary = entity["params"]
+			var radius := Vector2(float(params["width_m"]), float(params["depth_m"])).length() * 0.5 + 0.38
+			platform_mask = Vector3(float(transform["x_m"]), float(transform["z_m"]), radius)
+		elif entity.get("kind") == "stone_path":
+			var points: Array = entity["points"]
+			path_a = Vector4(float(points[0]["x_m"]), float(points[0]["z_m"]), float(points[1]["x_m"]), float(points[1]["z_m"]))
+			path_width = float(entity["width_m"]) + 0.94
+	for relation in join_relations.values():
+		var params: Dictionary = relation["params"]
+		var start: Dictionary = params["start"]
+		var end: Dictionary = params["end"]
+		path_b = Vector4(float(start["x_m"]), float(start["z_m"]), float(end["x_m"]), float(end["z_m"]))
+		break
+	viewer.terrain_material.set_shader_parameter("edit_path_a", path_a)
+	viewer.terrain_material.set_shader_parameter("edit_path_b", path_b)
+	viewer.terrain_material.set_shader_parameter("edit_path_width", path_width)
+	viewer.terrain_material.set_shader_parameter("edit_platform", platform_mask)
 
 
 func _remove_visual(node: Node3D) -> void:
@@ -389,7 +427,7 @@ func _build_platform_body(entity: Dictionary) -> StaticBody3D:
 	body.add_child(collider)
 	var mesh := MeshInstance3D.new()
 	mesh.mesh = _stone_slab_mesh(size)
-	mesh.material_override = viewer._style_material(str(entity["material_role"]))
+	mesh.material_override = _stone_material()
 	body.add_child(mesh)
 	_attach_platform_soil_apron(body, size)
 	_attach_stone_seams(body, size.z, size.x, size.y)
@@ -438,7 +476,7 @@ func _build_walkable_segment(id: String, from_point: Vector3, to_point: Vector3,
 	body.add_child(collider)
 	var mesh := MeshInstance3D.new()
 	mesh.mesh = _stone_slab_mesh(size)
-	mesh.material_override = viewer._style_material("rock")
+	mesh.material_override = _stone_material()
 	body.add_child(mesh)
 	return body
 
@@ -477,6 +515,7 @@ func _attach_soil_apron(body: StaticBody3D, from_point: Vector3, to_point: Vecto
 	shoulder.name = "IllustrativeSoilShoulder"
 	shoulder.mesh = mesh
 	shoulder.material_override = viewer._style_material("trail")
+	shoulder.visible = false # The source terrain shader paints the contact.
 	shoulder.set_meta("provenance", "terrain-following visual soil around a player-authored path")
 	body.add_child(shoulder)
 
@@ -512,6 +551,7 @@ func _attach_platform_soil_apron(body: StaticBody3D, size: Vector3) -> void:
 	contact.name = "IllustrativeSoilShoulder"
 	contact.mesh = mesh
 	contact.material_override = viewer._style_material("trail")
+	contact.visible = false # Preserve the semantic child; hide the old overlay.
 	contact.set_meta("provenance", "terrain-following visual soil contact around a player-authored platform")
 	body.add_child(contact)
 
@@ -532,8 +572,15 @@ func _attach_stone_seams(body: StaticBody3D, length_m: float, width_m: float, th
 	instance.name = "StoneCourseJoints"
 	instance.multimesh = seams
 	instance.material_override = viewer._style_material("trail")
+	instance.visible = false # Painted stone material now supplies surface strata.
 	instance.set_meta("provenance", "illustrative repeating stone joints on an authored or derived stone part")
 	body.add_child(instance)
+
+
+func _stone_material() -> Material:
+	if _painted_stone == null:
+		_painted_stone = GROUND_KIT_SCRIPT.make_surface_material("limestone")
+	return _painted_stone
 
 
 func _stone_slab_mesh(size: Vector3) -> ArrayMesh:

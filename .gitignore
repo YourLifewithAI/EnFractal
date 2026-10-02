@@ -4,5 +4,7 @@ __pycache__/
 *.py[cod]
 .godot/
 *.import
+!game/assets/art/barton/textures/*.png.import
+!game/assets/art/barton/trees/*.glb.import
 .cache/
 *.tmp

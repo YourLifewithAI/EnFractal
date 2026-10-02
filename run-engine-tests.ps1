@@ -25,6 +25,8 @@ if ($env:ENFRACTAL_GODOT -and (Test-Path -LiteralPath $env:ENFRACTAL_GODOT -Path
     $enginePath = $engine.Source
 }
 
+& (Join-Path $PSScriptRoot 'tools\ensure-godot-art-imports.ps1') -EnginePath $enginePath -ProjectPath $projectPath
+
 $tests = @(
     'map_runtime_smoke.gd',
     'terrain_seam_smoke.gd',
@@ -39,7 +41,8 @@ $tests = @(
     'workshop_integration.gd',
     'workshop_path_integration.gd',
     'art_reference_smoke.gd',
-    'workshop_art_smoke.gd'
+    'workshop_art_smoke.gd',
+    'painterly_geometry_smoke.gd'
 )
 foreach ($test in $tests) {
     $name = [System.IO.Path]::GetFileNameWithoutExtension($test)

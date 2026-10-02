@@ -4,7 +4,7 @@ Planning baseline, 30 September 2026, updated for the founder's [world and creat
 
 The [latest bounded review](../engine/checkpoints/reference-guided-2026-10-02.md) records the founder's impressionistic 3D references, independent art scores, and a three-process Windows authority fixture. It leaves the same phase gates open.
 
-The subsequent [painterly pipeline diagnosis](research/13-painterly-pipeline-diagnosis.md) finds that repeated primitive-geometry passes are not fulfilling the art brief, and confirms a face-orientation lighting defect. E04/E08 now prioritize ART-0–5 from that report: repair/calibrate rendering, prove one original live oak and painted material set, integrate a roughly 30 m playable patch, measure the low profile, and only then expand procedural variations. Do not treat the current zero-texture/no-cutout fixture budget as a product requirement. The [diagnostic audit](../engine/phase1/painterly-render-audit.md) is evidence of an open defect, not a production fix or a passed art gate.
+The [painterly pipeline diagnosis](research/13-painterly-pipeline-diagnosis.md) redirects E04/E08 to ART-0–5. The subsequent [ART-0–3 implementation checkpoint](../engine/checkpoints/art0-3.md) repairs the orientation defect and delivers original editable tree assets, painted materials and a playable patch. All 15 engine checks pass. Two independent final art reviews score standard 6/10 and one scores low 5.8/10; the unchanged 8.5 visual gate remains open. Finish the habitat/bank/material relationships before wider expansion. ART-4 device measurement and ART-5 reusable generation acceptance remain pending. The old zero-texture/no-cutout fixture budget is not a product requirement.
 
 ## Working rules
 

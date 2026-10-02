@@ -15,6 +15,10 @@ The [follow-up build evidence](docs/engine/checkpoints/followup-0-2.md) covers b
 
 ## First playable engine slice
 
+The [ART-0–3 implementation checkpoint](docs/engine/checkpoints/art0-3.md) adds corrected terrain lighting, original editable oak/juniper assets, painted materials, and a composed playable workshop. Launch it with [`run-painterly-patch.ps1`](run-painterly-patch.ps1). All 15 engine checks pass; independent art reviewers score the current standard views **6/10**, so the **8.5 visual gate remains open**. The report includes actual Godot views, a walk-through, low-profile evidence and the remaining visual work.
+
+![Current painterly workshop implementation; visual gate remains open](docs/images/art3-standard-arrival.png)
+
 The [Barton Creek map and local workshop](maps/barton_creek/README.md) are the first implementation, centered at **30.250924, -97.810494** near Barton Creek Square and the MoPac / Highway 360 area. A reproducible source-to-package builder provides sampled USGS terrain, mapped OSM roads, trails, creeks and building footprints, plus illustrative vegetation. A [photo-informed pilot](maps/barton_creek/photo_pilot/README.md) adds color and simplified detail at one Greenbelt segment and the mall west side.
 
 The [first base-engine slice](docs/engine/first-slice.md) adds a validated read-only map runtime, terrain collision streaming, temporary first-person walking/jump/glide/recovery, and a local semantic workshop. A [path now connects to the editable platform](docs/engine/phase1/structured-workshop.md), regenerates its walkable join when moved, and survives save/reload. Open the map with [`run-map.ps1`](run-map.ps1), press **1** then **Tab** to walk in the test workshop, and use **P/E/J/K/O** for the platform and path. Run the engine checks with [`run-engine-tests.ps1`](run-engine-tests.ps1). This is a local engineering fixture, not the shared Home Earth, multiplayer, AI creation or a portal system. The grounded painterly 3D look is the confirmed direction; the current [walking-height art reference](docs/engine/phase1/art-reference.md) remains a blockout below the final quality target.

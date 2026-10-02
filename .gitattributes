@@ -3,3 +3,8 @@
 *.jpg binary
 *.r16 binary
 *.tif binary
+*.blend binary
+*.glb binary
+*.mp4 binary
+# Preserve the byte hash stored in the Blender asset manifests on every host.
+tools/art/*.py text eol=lf
