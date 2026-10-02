@@ -1,0 +1,85 @@
+{
+  "center": {
+    "lat": 30.2655,
+    "lon": -97.757
+  },
+  "dem": {
+    "bytes": 16780384,
+    "maximum_m": 208.23324584960938,
+    "minimum_m": 5.2503886222839355,
+    "retrieved_at_utc": "2026-10-02T14:50:18.830708+00:00",
+    "service_coverage_may_mix_source_resolutions": true,
+    "sha256": "fc8ee1778fd1b984319f4aa209882031e38b4d7993b37a2bf27fd3260c1b58b1",
+    "source_index": "https://index.nationalmap.gov/arcgis/rest/services/3DEPElevationIndex/MapServer/1/query",
+    "source_sample_spacing_m": 2,
+    "source_service": "USGS 3DEP bare-earth dynamic image service",
+    "url": "https://elevation.nationalmap.gov/arcgis/rest/services/3DEPElevation/ImageServer/exportImage?bbox=617520.716%2C3346811.255%2C621616.716%2C3350907.255&bboxSR=32614&imageSR=32614&size=2048%2C2048&format=tiff&pixelType=F32&interpolation=RSP_BilinearInterpolation&f=image",
+    "valid_fraction": 1.0,
+    "vertical_datum": "not established by image-service response; use relative local heights only"
+  },
+  "map_id": "pfluger_district_v0",
+  "notes": [
+    "No Maxar or other noncommercial imagery is included.",
+    "OSM snapshot is a separate ODbL-derived database; retain attribution and share-alike terms.",
+    "The service response does not establish the source vertical datum, so game Y is local relative height only."
+  ],
+  "osm": [
+    {
+      "bytes_uncompressed": 12543599,
+      "file": "osm_00.osm.gz",
+      "license": "OpenStreetMap contributors, Open Database License 1.0",
+      "retrieved_at_utc": "2026-10-02T14:50:23.730989+00:00",
+      "sha256_uncompressed": "1c88cfb979cb72775852091a002f2f82d09a2d23a5c00ad42be64834f2328a88",
+      "url": "https://api.openstreetmap.org/api/0.6/map?bbox=-97.77851498%2C30.24702268%2C-97.75700000%2C30.26570034"
+    },
+    {
+      "bytes_uncompressed": 14630910,
+      "file": "osm_01.osm.gz",
+      "license": "OpenStreetMap contributors, Open Database License 1.0",
+      "retrieved_at_utc": "2026-10-02T14:50:30.002098+00:00",
+      "sha256_uncompressed": "18a4d2a95cd6e0925509fdbbdf3e0e93e06bf86c771361cbe04738a2f0baa535",
+      "url": "https://api.openstreetmap.org/api/0.6/map?bbox=-97.75723268%2C30.24681904%2C-97.73571392%2C30.26550000"
+    },
+    {
+      "bytes_uncompressed": 9667375,
+      "file": "osm_10.osm.gz",
+      "license": "OpenStreetMap contributors, Open Database License 1.0",
+      "retrieved_at_utc": "2026-10-02T14:50:33.741190+00:00",
+      "sha256_uncompressed": "3ac31664747b3e2ecc411a90dc166a7912f891b03ea5f69da73efbc4bc3f10be",
+      "url": "https://api.openstreetmap.org/api/0.6/map?bbox=-97.77828629%2C30.26550000%2C-97.75676711%2C30.28417775"
+    },
+    {
+      "bytes_uncompressed": 6620407,
+      "file": "osm_110.osm.gz",
+      "license": "OpenStreetMap contributors, Open Database License 1.0",
+      "retrieved_at_utc": "2026-10-02T14:50:39.967073+00:00",
+      "sha256_uncompressed": "01097e7ac1c51c4e3d73cce5d96dd3213632bba8b9dff018fd6b88856d04415b",
+      "url": "https://api.openstreetmap.org/api/0.6/map?bbox=-97.75700000%2C30.26539853%2C-97.74623952%2C30.27473864"
+    },
+    {
+      "bytes_uncompressed": 4993936,
+      "file": "osm_111.osm.gz",
+      "license": "OpenStreetMap contributors, Open Database License 1.0",
+      "retrieved_at_utc": "2026-10-02T14:50:42.838197+00:00",
+      "sha256_uncompressed": "beb9e9987465e7c2d13aedc3ee8988c10a51470dbfb63cea2ce9d0faded9e97f",
+      "url": "https://api.openstreetmap.org/api/0.6/map?bbox=-97.74635694%2C30.26529620%2C-97.73559551%2C30.27463714"
+    },
+    {
+      "bytes_uncompressed": 3476354,
+      "file": "osm_112.osm.gz",
+      "license": "OpenStreetMap contributors, Open Database License 1.0",
+      "retrieved_at_utc": "2026-10-02T14:50:44.962353+00:00",
+      "sha256_uncompressed": "6096624386b52b611804c09958c13038e357d2f80b733b7d6028af062d69d508",
+      "url": "https://api.openstreetmap.org/api/0.6/map?bbox=-97.75688358%2C30.27463714%2C-97.74612205%2C30.28397726"
+    },
+    {
+      "bytes_uncompressed": 5023923,
+      "file": "osm_113.osm.gz",
+      "license": "OpenStreetMap contributors, Open Database License 1.0",
+      "retrieved_at_utc": "2026-10-02T14:50:47.964029+00:00",
+      "sha256_uncompressed": "42df027d1549df2a123cc8ac6947abe4e72b53b40927346f4033c336a805bff8",
+      "url": "https://api.openstreetmap.org/api/0.6/map?bbox=-97.74623952%2C30.27453477%2C-97.73547705%2C30.28387572"
+    }
+  ],
+  "projected_crs": "EPSG:32614"
+}

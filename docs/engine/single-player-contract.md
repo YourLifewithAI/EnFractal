@@ -6,7 +6,7 @@ Accepted product decisions, 2 October 2026. Implementation progress belongs in t
 
 The player enters the Pfluger Bridge landing as a 0.30 m inhabitant beside a separately named, colored and embodied companion. Initial avatars use editable original geometry; richer customization can follow without changing identity. The first camera studies are shoulder view and close inspection. Camera choice never changes body dimensions or geographic scale. Coordinates, distances and physics use meters and other metric units.
 
-The landing and a 150 m adjoining route are the first fidelity sample within the 6th Street / Barton Springs Road / Congress Avenue / MoPac district. Public source geometry establishes the place; inferred bridge elevations, surface details and vegetation must carry uncertainty. Preserve the Barton package and its saves under their original IDs.
+The landing and a 150 m adjoining route are the first fidelity sample within the 6th Street / Barton Springs Road / Congress Avenue / MoPac district. Public source geometry establishes the place; inferred bridge elevations, surface details and vegetation must carry uncertainty. Barton is retired as a destination; retain only useful systems/assets and temporary regression fixtures. Preserve personal saves and their original map IDs.
 
 1. Move, look, jump, recover, change appearance and name the companion. A brief control card explains stopping and recovery before asking the player to connect AI.
 2. Ask the companion to follow, wait, come here or look at a selected object. Its visible state distinguishes waiting for AI from moving through the world. Direct movement and Stop take priority.

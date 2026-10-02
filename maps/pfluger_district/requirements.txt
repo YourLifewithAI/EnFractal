@@ -1,0 +1,8 @@
+# Exact environment used for the initial source-package build.
+numpy==2.4.1
+Pillow==11.1.0
+pyproj==3.8.0
+rasterio==1.5.2
+requests==2.32.5
+shapely==2.1.2
+pytest==9.0.2

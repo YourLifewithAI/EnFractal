@@ -13,3 +13,6 @@ __pycache__/
 .vs/
 *.csproj.user
 *.sln.DotSettings.user
+
+# Interrupted pytest cache staging on Windows
+pytest-cache-files-*/

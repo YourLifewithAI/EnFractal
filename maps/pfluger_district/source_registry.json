@@ -1,0 +1,95 @@
+{
+  "schema": "enfractal-source-registry-v1",
+  "scope": "Pfluger/Lady Bird Lake district bounded by West 6th Street, Barton Springs Road, Congress Avenue and MoPac",
+  "status_rule": "Listed candidate metadata is not permission to redistribute source content. Verify exact layer metadata, license, upstream rights, dates and district coverage before acquisition or derivatives.",
+  "included": [
+    {
+      "id": "usgs_3dep_dynamic_2026_10_02",
+      "role": "coarse bare-earth terrain",
+      "source": "https://elevation.nationalmap.gov/arcgis/rest/services/3DEPElevation/ImageServer",
+      "rights_reference": "https://www.usgs.gov/3d-elevation-program/about-3dep-products-services",
+      "redistribution": "USGS-produced public-domain data; retain acknowledgement and provenance",
+      "snapshot": "sources/2026-10-02/sources.json",
+      "unresolved": ["Native source tile lineage and acquisition epoch", "Vertical datum", "Dynamic mosaic may mix resolutions", "Bare earth omits bridge decks and trees", "Low outlier south of district retained and reported"]
+    },
+    {
+      "id": "osm_2026_10_02",
+      "role": "road/trail/footprint/water context and boundary trace",
+      "source": "https://www.openstreetmap.org",
+      "rights_reference": "https://www.openstreetmap.org/copyright",
+      "redistribution": "ODbL 1.0; retain attribution and applicable database share-alike/access obligations",
+      "snapshot": "sources/2026-10-02/sources.json",
+      "supplement": "sources/2026-10-02/supplemental_sources.json",
+      "unresolved": ["Volunteer mapping completeness and age", "Deck elevations, path widths and physical clearances", "Relations other than Lady Bird Lake not reconstructed", "Building height tags are contributor claims; untagged/default heights are illustrative"]
+    }
+  ],
+  "candidates_not_included": [
+    {
+      "id": "austin_2021_contours",
+      "role": "compare terrain sources and identify lidar lineage",
+      "url": "https://catalog.data.gov/dataset/elevation_contours_2021",
+      "gates": ["Exact source/download and layer license", "Capture epoch, spacing and vertical datum", "District coverage"]
+    },
+    {
+      "id": "txgio_lidar",
+      "role": "classified point clouds for terrain/buildings/canopy structure",
+      "url": "https://www.tnris.org/stratmap/elevation-lidar.html",
+      "gates": ["Select actual Austin district tiles and source survey", "Point classifications/density and acquisition dates", "Product-specific rights and attribution", "Bridge/water/canopy completeness"]
+    },
+    {
+      "id": "austin_buildings",
+      "role": "compare authoritative planimetric footprints and height attributes",
+      "url": "https://maps.austintexas.gov/gis/rest/Shared/PlanimetricsSurvey_1/MapServer/0",
+      "gates": ["Layer-specific license and retrieval endpoint", "Current schema and height-field meaning", "Date/coverage; two-dimensional geometry does not provide facade or deck structure"]
+    },
+    {
+      "id": "austin_impervious",
+      "role": "paved ground and path context",
+      "url": "https://maps.austintexas.gov/gis/rest/Shared/PlanimetricsSurvey_1/MapServer/1",
+      "gates": ["Layer-specific license", "Class meanings and survey epoch", "District coverage"]
+    },
+    {
+      "id": "austin_sidewalks",
+      "role": "walking access, links and widths",
+      "url": "https://maps.austintexas.gov/arcgis/rest/services/Shared/Transportation_1/MapServer/15",
+      "gates": ["Layer-specific license", "Separate existing from planned/potential facilities", "Verify meaning and validity of Z values", "Widths, accessibility and physical continuity require evidence"]
+    },
+    {
+      "id": "austin_trails",
+      "role": "trail alignment and surface context",
+      "url": "https://maps.austintexas.gov/arcgis/rest/services/Shared/Transportation_1/MapServer/5",
+      "gates": ["Layer-specific license", "No assumption of bridge/deck elevations from 2D linework", "Dates and district coverage"]
+    },
+    {
+      "id": "austin_parks",
+      "role": "park boundaries and names",
+      "url": "https://maps.austintexas.gov/arcgis/rest/services/Shared/Infrastructure_2/MapServer/0",
+      "gates": ["Layer-specific license", "District clipping and capture/update dates", "Park boundary is not a vegetation inventory"]
+    },
+    {
+      "id": "austin_2022_tree_canopy",
+      "role": "canopy mass distribution",
+      "url": "https://catalog.data.gov/dataset/tree-canopy-2022",
+      "gates": ["Derived-product rights and upstream imagery terms", "Tree canopy polygons are not individual tree positions, species, roots or heights", "Resolution, date and coverage"]
+    },
+    {
+      "id": "austin_aerials_2023",
+      "role": "ground cover and planimetric reference, if license permits",
+      "url": "https://maps.austintexas.gov/gis/Image/AerialMosaics/Aerials2023/ImageServer",
+      "gates": ["Explicit reproduction/derivative rights and attribution", "City access does not itself authorize imagery redistribution", "Imagery does not reveal under-canopy or under-bridge surfaces"]
+    },
+    {
+      "id": "commons_pfluger_2018",
+      "role": "bridge silhouette/material reference",
+      "url": "https://commons.wikimedia.org/wiki/File:Pfluger_Pedestrian_Bridge.jpg",
+      "catalog_license_label": "CC BY-SA 4.0; recheck file page and creator before acquisition",
+      "gates": ["Pin file bytes, creator, version/date, license and modification notice", "Decide reference-only vs incorporated/derived use and meet resulting terms", "Dated photograph is not current survey evidence"]
+    },
+    {
+      "id": "trail_conservancy_pfluger_circle",
+      "role": "firsthand landmark and planting context",
+      "url": "https://thetrailconservancy.org/projects/pfluger-bridge-circle/",
+      "gates": ["Reference facts separately from copyrighted photos", "Obtain a permitted image source before any image redistribution", "Site descriptions do not specify collision geometry"]
+    }
+  ]
+}
