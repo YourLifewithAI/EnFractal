@@ -58,6 +58,8 @@ Do not have the AI agent build another compiler under E23. It consumes E11. Netw
 
 ## Persistence and portals
 
+**E15–E20 local implementation update, 2 October:** The [save and travel checkpoint](../engine/checkpoints/save-and-travel.md) records implemented PostgreSQL storage, local sandbox travel/invitations, recovery tests and isolated restoration, plus the remaining acceptance gaps per packet. Actual remote accounts, hosted simulation workers, queue/load acceptance and an off-host restore are not marked complete by this local evidence.
+
 | ID | Assignment | Depends on | Concrete output | Acceptance and reviewer |
 |---|---|---|---|---|
 | E15 | Persistence builder | E02, E09, E11 | PostgreSQL schema/migrations, durable action IDs, hash/revision-bound placement receipts, semantic object relationships, source intent/generator-style versions, blob references and motion checkpoint policy; bind E12 confirmation to durable placement | Retry/unknown commit produces one placement; crash preserves acknowledged editable parts and joins; reload can regenerate pinned derivatives without silently changing older work; storage reviewer |

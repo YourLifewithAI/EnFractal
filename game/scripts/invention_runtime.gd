@@ -33,6 +33,8 @@ var field_display: MultiMeshInstance3D
 var third_person := false
 var camera_boom: SpringArm3D
 var local_consent := false
+var travel_blocked := false
+var guest_gravity_scale := 1.0
 
 func configure(map_viewer) -> void:
 	viewer = map_viewer
@@ -235,7 +237,7 @@ func equipped_creation() -> String:
 	return ""
 
 func _unhandled_key_input(event: InputEvent) -> void:
-	if not event is InputEventKey or not event.pressed or event.echo or editor_open or not viewer.walking:
+	if not event is InputEventKey or not event.pressed or event.echo or editor_open or travel_blocked or not viewer.walking:
 		return
 	if event.keycode == KEY_B:
 		editor.open_editor()
@@ -314,6 +316,10 @@ func _fire(id: String, trigger: String, principal: String) -> Dictionary:
 	return {"ok":true}
 
 func _physics_process(delta: float) -> void:
+	if travel_blocked:
+		viewer.player_body.clear_creation_motion()
+		hud_card.visible = false
+		return
 	clock_s += delta
 	_refresh()
 	if instances.is_empty():
@@ -411,7 +417,7 @@ func _step_guest(delta: float) -> void:
 	var previous := guest.position
 	guest_velocity += effect.acceleration * delta
 	if effect.acceleration.y <= 0.0:
-		guest_velocity.y -= 9.8 * delta
+		guest_velocity.y -= 9.8 * guest_gravity_scale * delta
 	guest_velocity = guest_velocity.limit_length(8.0)
 	guest.position += guest_velocity * delta
 	if affected and not _body_allowed("local_player", "guest_player", guest.position):

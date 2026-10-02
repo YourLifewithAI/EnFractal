@@ -48,7 +48,10 @@ $tests = @(
     'creation_visuals_smoke.gd',
     'invention_runtime_smoke.gd',
     'invention_editor_smoke.gd',
-    'manual_invention_integration.gd'
+    'manual_invention_integration.gd',
+    'durable_creation_smoke.gd',
+    'travel_panel_smoke.gd',
+    'travel_adapter_faults.gd'
 )
 foreach ($test in $tests) {
     $name = [System.IO.Path]::GetFileNameWithoutExtension($test)

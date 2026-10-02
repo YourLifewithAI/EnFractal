@@ -41,7 +41,10 @@ func _ready() -> void:
 	if test_save.begins_with("user://tests/"):
 		save_path = test_save
 	state = WORLD_STATE_SCRIPT.new()
-	if FileAccess.file_exists(save_path):
+	# Save/travel worlds share only geography and authored dressing. The earlier
+	# local path fixture remains in its own save and cannot leak into a sandbox.
+	var isolated_travel := OS.get_environment("ENFRACTAL_SAVE_TRAVEL") == "1"
+	if FileAccess.file_exists(save_path) and not isolated_travel:
 		if not state.load_from_path(save_path, viewer.manifest, WORLD_ID, FRAME_ID):
 			message = "Saved workshop could not load: " + state.last_error
 			edit_enabled = false # Never overwrite a rejected or corrupt save.
@@ -52,6 +55,8 @@ func _ready() -> void:
 	else:
 		edit_enabled = state.initialize(WORLD_ID, FRAME_ID, viewer.manifest)
 		message = "Local workshop ready" if edit_enabled else "Local workshop unavailable"
+	if isolated_travel:
+		edit_enabled = false
 	if edit_enabled:
 		_restore_selection()
 		_render_entities()

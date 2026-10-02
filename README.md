@@ -15,6 +15,8 @@ The [follow-up build evidence](docs/engine/checkpoints/followup-0-2.md) covers b
 
 ## First playable engine slice
 
+The [Phase 4 local save and travel checkpoint](docs/engine/checkpoints/save-and-travel.md) adds PostgreSQL-backed saves, separate Home/sandbox inventions, quarter-gravity visits, invitations for a local test identity, safe Return Home, and tested backup/recovery. Launch [`run-save-travel.ps1`](run-save-travel.ps1); **T** opens travel and **B** opens creation. Fresh checkouts first run `python services/save_travel/setup.py`. Remote friends and off-host recovery remain open gates.
+
 The [manual invention checkpoint](docs/engine/checkpoints/manual-invention.md) implements the **main roadmap's Phase 3 local creation loop**: edit parts and behavior graphs, test privately, place or equip an invention, use it, reopen/revise it and reload the saved world. Launch [`run-invention-workshop.ps1`](run-invention-workshop.ps1). **B** builds; **F/V** use/revise nearby ground inventions; **E/Q** use/revise the worn design; **C** allows or stops effects; **H** changes camera. Five starter designs share one compiler, permission service and capability interpreter. Remote multiplayer and the visual-quality gate remain open.
 
 The [ART-0–3 implementation checkpoint](docs/engine/checkpoints/art0-3.md) adds corrected terrain lighting, original editable oak/juniper assets, painted materials, and a composed playable workshop. Launch it with [`run-painterly-patch.ps1`](run-painterly-patch.ps1). All 15 engine checks pass; independent art reviewers score the current standard views **6/10**, so the **8.5 visual gate remains open**. The report includes actual Godot views, a walk-through, low-profile evidence and the remaining visual work.

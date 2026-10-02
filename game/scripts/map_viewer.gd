@@ -12,6 +12,7 @@ const MAP_RUNTIME_SCRIPT := preload("res://scripts/map_runtime.gd")
 const TERRAIN_MESH_JOB_SCRIPT := preload("res://scripts/terrain_mesh_job.gd")
 const WORKSHOP_RUNTIME_SCRIPT := preload("res://scripts/workshop_runtime.gd")
 const INVENTION_RUNTIME_SCRIPT := preload("res://scripts/invention_runtime.gd")
+const TRAVEL_RUNTIME_SCRIPT := preload("res://scripts/travel_runtime.gd")
 const PLAYER_TEST_SCENE := preload("res://scenes/player_test.tscn")
 const TERRAIN_COLLISION_SCRIPT := preload("res://scripts/terrain_collision_streamer.gd")
 const PAINTERLY_GROUND_KIT := preload("res://scripts/painterly_ground_kit.gd")
@@ -23,6 +24,7 @@ var features: Dictionary
 var map_runtime
 var workshop_runtime
 var invention_runtime
+var travel_runtime
 var grid_side: int
 var map_side_m: int
 var sample_spacing_m: int
@@ -150,9 +152,13 @@ func _ready() -> void:
 		if override_save.begins_with("user://tests/"):
 			invention_runtime.save_path = override_save
 		add_child(invention_runtime)
+		if OS.get_environment("ENFRACTAL_SAVE_TRAVEL") == "1":
+			travel_runtime = TRAVEL_RUNTIME_SCRIPT.new()
+			travel_runtime.configure(self,invention_runtime)
+			add_child(travel_runtime)
 	_refresh_lod_targets()
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
-	if OS.get_environment("ENFRACTAL_START_WALK") == "1":
+	if OS.get_environment("ENFRACTAL_START_WALK") == "1" and travel_runtime == null:
 		call_deferred("_start_workshop_walk")
 	print("Barton Creek map loaded: ", manifest["feature_counts"])
 
@@ -1157,6 +1163,15 @@ func _start_workshop_walk() -> void:
 
 
 func _input(event: InputEvent) -> void:
+	if travel_runtime != null and travel_runtime.panel_open:
+		if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
+			travel_runtime.panel._unhandled_input(event)
+		elif event is InputEventKey and event.pressed and event.keycode == KEY_T:
+			travel_runtime.panel.close_panel()
+			get_viewport().set_input_as_handled()
+		return
+	if travel_runtime != null and travel_runtime.transitioning:
+		return
 	if invention_runtime != null and invention_runtime.editor_open:
 		if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
 			invention_runtime.editor.close_editor()
@@ -1209,7 +1224,7 @@ func _process(delta: float) -> void:
 	if walking:
 		terrain_colliders.update_center(player_body.global_position)
 		camera.position = walk_camera.global_position # Preserve visual LOD's camera anchor.
-	elif (startup_cover == null or not startup_cover.visible) and (invention_runtime == null or not invention_runtime.editor_open):
+	elif (startup_cover == null or not startup_cover.visible) and (invention_runtime == null or not invention_runtime.editor_open) and (travel_runtime == null or (not travel_runtime.panel_open and not travel_runtime.transitioning)):
 		var direction := Vector3.ZERO
 		if Input.is_key_pressed(KEY_W):
 			direction -= camera.global_basis.z

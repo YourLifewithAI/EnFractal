@@ -23,6 +23,10 @@ var last_error := ""
 # compiled artifact, host position, yaw and replaced ID before ground publication.
 var occupancy_query := Callable()
 var activation_query := Callable()
+# A trusted host adapter may replace the local file with a durable transaction.
+# The sink must acknowledge commit before returning ok; errors retain old memory.
+var persistence_sink := Callable()
+var access_guard := Callable()
 var _roles := {"local_player": "owner", "guest_player": "visitor"}
 var _consent := {"local_player": false, "guest_player": false}
 var _instances: Dictionary = {}
@@ -307,7 +311,13 @@ func load_saved() -> Dictionary:
 	file.close()
 	if parser.parse(text) != OK or not parser.data is Dictionary or not _json_safe(parser.data):
 		return _failure("save_invalid", "save", "The save contains invalid JSON; it has not been overwritten.")
-	var data: Dictionary = parser.data
+	return load_envelope(parser.data)
+
+
+func load_envelope(data: Dictionary) -> Dictionary:
+	if not _configured:
+		return _failure("configuration_invalid", "", "Configure a map before loading inventions.")
+	_load_required = true
 	var checked := _validate_saved(data)
 	if not checked.ok:
 		return checked
@@ -325,6 +335,10 @@ func load_saved() -> Dictionary:
 	_last_budget_time = -1.0
 	_load_required = false
 	return {"ok": true, "loaded": true, "revision": revision, "permission_revision": permission_revision}
+
+
+func export_envelope() -> Dictionary:
+	return _envelope(_instances, _receipts, revision, permission_revision, _roles, _consent, _next_id)
 
 
 func _commit_permissions(roles: Dictionary, consent: Dictionary) -> Dictionary:
@@ -429,17 +443,26 @@ func _validate_capacity(instances: Dictionary) -> Dictionary:
 	return {"ok": true}
 
 
-func _persist(instances: Dictionary, receipts: Dictionary, world_revision: int, permissions: int, roles: Dictionary, consent: Dictionary, next_id: int) -> Dictionary:
+func _envelope(instances: Dictionary, receipts: Dictionary, world_revision: int, permissions: int, roles: Dictionary, consent: Dictionary, next_id: int) -> Dictionary:
 	var stored_instances: Array = []
 	for instance in instances.values():
 		var stored: Dictionary = instance.duplicate(true)
 		stored.erase("artifact")
 		stored.erase("active")
 		stored_instances.append(stored)
-	var envelope := {"schema": SCHEMA, "version": VERSION, "compiler_version": 1, "style_version": STYLE_VERSION, "base_pin": _base_pin, "revision": world_revision, "permission_revision": permissions, "next_id": next_id, "roles": roles, "consent": consent, "instances": stored_instances, "receipts": receipts}
+	return {"schema": SCHEMA, "version": VERSION, "compiler_version": 1, "style_version": STYLE_VERSION, "base_pin": _base_pin, "revision": world_revision, "permission_revision": permissions, "next_id": next_id, "roles": roles.duplicate(true), "consent": consent.duplicate(true), "instances": stored_instances, "receipts": receipts.duplicate(true)}
+
+
+func _persist(instances: Dictionary, receipts: Dictionary, world_revision: int, permissions: int, roles: Dictionary, consent: Dictionary, next_id: int) -> Dictionary:
+	var envelope := _envelope(instances, receipts, world_revision, permissions, roles, consent, next_id)
 	var serialized := COMPILER.canonical_json(envelope)
 	if serialized.to_utf8_buffer().size() > MAX_SAVE_BYTES:
 		return _failure("save_size", "save", "The creation save exceeds the local size limit.")
+	if persistence_sink.is_valid():
+		var result: Variant = persistence_sink.call(envelope)
+		if not result is Dictionary or not result.get("ok", false):
+			return _failure("durable_save_pending", "save", str(result.get("message", "The durable save has not been confirmed. Reconnect before editing.")) if result is Dictionary else "The durable save has not been confirmed. Reconnect before editing.")
+		return {"ok": true}
 	var absolute := ProjectSettings.globalize_path(_save_path)
 	if DirAccess.make_dir_recursive_absolute(absolute.get_base_dir()) != OK:
 		return _failure("save_directory", "save", "The save folder could not be created.")
@@ -508,7 +531,7 @@ func _validate_saved(data: Dictionary) -> Dictionary:
 
 
 func _available() -> bool:
-	return _configured and not _load_required
+	return _configured and not _load_required and (not access_guard.is_valid() or bool(access_guard.call()))
 
 
 func _can_build(principal: String) -> bool:
