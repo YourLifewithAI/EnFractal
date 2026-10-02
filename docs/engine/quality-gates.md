@@ -23,3 +23,5 @@ Each reviewer scores the same five dimensions, then provides a weighted total. A
 | Reproducibility and maintainability | 15% | Clean build, source rights, pinned versions, documented contracts, rollback and migration path |
 
 Early phases need not implement later-phase features, but they must satisfy their own [exit evidence](../roadmap/ROADMAP.md#phases-and-exit-gates). Later phases cannot compensate for an unresolved earlier invariant by raising a subjective score.
+
+For the grounded painterly presentation gate, apply the separate [art rubric](phase1/painterly-reference-brief.md#paired-acceptance-review) against the founder's references and a playable walking-height route. Do not average an unacceptable visual result into acceptance using strong correctness or performance scores. The [pipeline diagnosis](../roadmap/research/13-painterly-pipeline-diagnosis.md) sets the next evidence sequence; research completion and a renderer diagnostic are not rendered-art acceptance.

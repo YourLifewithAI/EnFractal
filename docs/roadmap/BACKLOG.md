@@ -4,6 +4,8 @@ Planning baseline, 30 September 2026, updated for the founder's [world and creat
 
 The [latest bounded review](../engine/checkpoints/reference-guided-2026-10-02.md) records the founder's impressionistic 3D references, independent art scores, and a three-process Windows authority fixture. It leaves the same phase gates open.
 
+The subsequent [painterly pipeline diagnosis](research/13-painterly-pipeline-diagnosis.md) finds that repeated primitive-geometry passes are not fulfilling the art brief, and confirms a face-orientation lighting defect. E04/E08 now prioritize ART-0–5 from that report: repair/calibrate rendering, prove one original live oak and painted material set, integrate a roughly 30 m playable patch, measure the low profile, and only then expand procedural variations. Do not treat the current zero-texture/no-cutout fixture budget as a product requirement. The [diagnostic audit](../engine/phase1/painterly-render-audit.md) is evidence of an open defect, not a production fix or a passed art gate.
+
 ## Working rules
 
 Start with two independent builders and one reviewer when there is enough work that can proceed without shared-file edits. Use at most three active implementation packets until the founder can review them comfortably. Research/fixture preparation may use more parallel agents. The founder reserves integration and actual playtesting time; no agent may lower an acceptance criterion merely to mark its own task complete.
