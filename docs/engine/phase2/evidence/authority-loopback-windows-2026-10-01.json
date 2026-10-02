@@ -1,0 +1,212 @@
+{
+	"bind_address": "127.0.0.1",
+	"cases": [
+		{
+			"detail": "expected_not_admitted_observed_not_admitted",
+			"name": "preadmission_intent",
+			"passed": true
+		},
+		{
+			"detail": "encrypted_peer_gets_no_snapshot_before_ticket",
+			"name": "preadmission_no_world_snapshot",
+			"passed": true
+		},
+		{
+			"detail": "application_session_bound_to_client_connection",
+			"name": "alice_admitted",
+			"passed": true
+		},
+		{
+			"detail": "application_session_bound_to_client_connection",
+			"name": "bob_admitted",
+			"passed": true
+		},
+		{
+			"detail": "expected_invalid_admission_observed_invalid_admission",
+			"name": "ticket_single_use",
+			"passed": true
+		},
+		{
+			"detail": "rejected_ticket_gets_no_snapshot",
+			"name": "ticket_reuse_no_world_snapshot",
+			"passed": true
+		},
+		{
+			"detail": "expected_invalid_admission_observed_invalid_admission",
+			"name": "missing_ticket_rejected",
+			"passed": true
+		},
+		{
+			"detail": "missing_ticket_gets_no_snapshot",
+			"name": "missing_ticket_no_world_snapshot",
+			"passed": true
+		},
+		{
+			"detail": "expected_accepted_intent_observed_accepted_intent",
+			"name": "alice_valid_intent",
+			"passed": true
+		},
+		{
+			"detail": "expected_accepted_intent_observed_accepted_intent",
+			"name": "bob_valid_intent",
+			"passed": true
+		},
+		{
+			"detail": "queued_tick_0_ignored_when_tick_1_withheld",
+			"name": "stale_tick0_cannot_pass_missing_tick1",
+			"passed": true
+		},
+		{
+			"detail": "both_received_tick_1_epoch_1_rules_1_and_server_positions",
+			"name": "two_clients_same_authority_snapshot",
+			"passed": true
+		},
+		{
+			"detail": "each_client_receives_own_marker_only",
+			"name": "private_snapshot_fields_filtered",
+			"passed": true
+		},
+		{
+			"detail": "authority_integrated_intents_under_pinned_rules",
+			"name": "server_owned_wind_and_glide",
+			"passed": true
+		},
+		{
+			"detail": "expected_forbidden_authority_field_observed_forbidden_authority_field",
+			"name": "forged_position_rejected",
+			"passed": true
+		},
+		{
+			"detail": "expected_forbidden_authority_field_observed_forbidden_authority_field",
+			"name": "forged_owner_and_actor_rejected",
+			"passed": true
+		},
+		{
+			"detail": "expected_forbidden_authority_field_observed_forbidden_authority_field",
+			"name": "client_rules_rejected",
+			"passed": true
+		},
+		{
+			"detail": "expected_stale_sequence_observed_stale_sequence",
+			"name": "duplicate_sequence_rejected",
+			"passed": true
+		},
+		{
+			"detail": "expected_stale_sequence_observed_stale_sequence",
+			"name": "changed_duplicate_sequence_rejected",
+			"passed": true
+		},
+		{
+			"detail": "expected_session_connection_mismatch_observed_session_connection_mismatch",
+			"name": "copied_session_rejected",
+			"passed": true
+		},
+		{
+			"detail": "expected_target_mismatch_observed_target_mismatch",
+			"name": "wrong_world_rejected",
+			"passed": true
+		},
+		{
+			"detail": "expected_stale_epoch_observed_stale_epoch",
+			"name": "stale_epoch_rejected",
+			"passed": true
+		},
+		{
+			"detail": "expected_invalid_message_observed_invalid_message",
+			"name": "non_string_session_rejected",
+			"passed": true
+		},
+		{
+			"detail": "expected_invalid_message_observed_invalid_message",
+			"name": "non_string_world_rejected",
+			"passed": true
+		},
+		{
+			"detail": "expected_invalid_message_observed_invalid_message",
+			"name": "non_string_frame_rejected",
+			"passed": true
+		},
+		{
+			"detail": "expected_invalid_message_observed_invalid_message",
+			"name": "non_numeric_epoch_rejected",
+			"passed": true
+		},
+		{
+			"detail": "expected_invalid_message_observed_invalid_message",
+			"name": "boolean_epoch_rejected",
+			"passed": true
+		},
+		{
+			"detail": "expected_parameter_out_of_range_observed_parameter_out_of_range",
+			"name": "out_of_range_axis_rejected",
+			"passed": true
+		},
+		{
+			"detail": "expected_invalid_number_observed_invalid_number",
+			"name": "non_numeric_axis_rejected",
+			"passed": true
+		},
+		{
+			"detail": "expected_forbidden_authority_field_observed_forbidden_authority_field",
+			"name": "client_time_rejected",
+			"passed": true
+		},
+		{
+			"detail": "expected_unsupported_operation_observed_unsupported_operation",
+			"name": "unknown_operation_rejected",
+			"passed": true
+		},
+		{
+			"detail": "byte_limit_before_decode",
+			"name": "oversized_packet_rejected",
+			"passed": true
+		},
+		{
+			"detail": "expected_accepted_intent_observed_accepted_intent",
+			"name": "old_pending_intent_before_reconnect",
+			"passed": true
+		},
+		{
+			"detail": "application_session_bound_to_client_connection",
+			"name": "alice_reconnected",
+			"passed": true
+		},
+		{
+			"detail": "expected_session_replaced_observed_session_replaced",
+			"name": "old_connection_fenced",
+			"passed": true
+		},
+		{
+			"detail": "replacement_tick_2_excludes_old_queued_intent",
+			"name": "old_pending_intent_cleared",
+			"passed": true
+		},
+		{
+			"detail": "old_session_received_no_tick_2_wire_snapshot",
+			"name": "old_connection_no_snapshot",
+			"passed": true
+		},
+		{
+			"detail": "expected_accepted_intent_observed_accepted_intent",
+			"name": "new_connection_intent",
+			"passed": true
+		},
+		{
+			"detail": "new_session_intent_applied_and_delivered_at_tick_3",
+			"name": "new_connection_tick3_observed",
+			"passed": true
+		}
+	],
+	"engine": "4.7.2-stable (official)",
+	"independent_client_connections": 5,
+	"os": "Windows",
+	"passed": true,
+	"private_keys_saved": false,
+	"public_listener": false,
+	"run_id": "5b599938177e42488f0a8b0b61a2e05c",
+	"schema": "enfractal-phase2-authority-probe-v1",
+	"scope": "transient single-process ENet+DTLS authority and adversarial packets; no account service, durable receipts, remote host or loss test",
+	"separate_client_processes": false,
+	"setup_error": "",
+	"utc": "2026-10-02T02:14:23"
+}

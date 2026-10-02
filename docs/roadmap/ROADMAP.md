@@ -32,6 +32,7 @@ The initial technical recommendation is **Godot + C#, grounded painterly 3D with
 | [QGIS MCP assessment](research/10-qgis-mcp-assessment.md) | Agent-assisted GIS authoring, candidate repositories, experiment and boundary from player MCP |
 | [Comparable projects and layer practices](research/12-comparables-and-layer-practices.md) | Primary-source precedents, transfer limits and one test for each MVP layer |
 | [First implementation checkpoint](../engine/checkpoints/phase0-1.md) | Phase 0–1 evidence, independent ratings and gates still open |
+| [Follow-up build evidence](../engine/checkpoints/followup-0-2.md) | Bounded spatial pin, terrain residency, workshop art and phase 2 authority loopback; open gates |
 
 The confirmed product direction in the world and creation vision governs art and construction goals; this roadmap governs MVP scope and staged delivery. Dated research examples remain alternatives, not competing goals. The detailed workstreams retain their reasoning and direct primary-source links. All capacities, timings, quotas and prices proposed for Enfractal are unmeasured targets or hypotheses unless explicitly described as observed hardware or a vendor quote.
 

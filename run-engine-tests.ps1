@@ -29,6 +29,8 @@ $tests = @(
     'map_runtime_smoke.gd',
     'terrain_seam_smoke.gd',
     'visual_streaming_smoke.gd',
+    'terrain_residency_smoke.gd',
+    'terrain_loading_input_smoke.gd',
     'test_world_state.gd',
     'test_creation_ops.gd',
     'movement_physics_smoke.gd',
@@ -36,7 +38,8 @@ $tests = @(
     'path_platform_join_smoke.gd',
     'workshop_integration.gd',
     'workshop_path_integration.gd',
-    'art_reference_smoke.gd'
+    'art_reference_smoke.gd',
+    'workshop_art_smoke.gd'
 )
 foreach ($test in $tests) {
     $name = [System.IO.Path]::GetFileNameWithoutExtension($test)

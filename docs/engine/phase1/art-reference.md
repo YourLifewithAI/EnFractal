@@ -1,6 +1,6 @@
 # Barton Creek walking-height art reference
 
-This is an **illustrative Phase 1 art and scale fixture**, not a finished grounded painterly scene or a surveyed reconstruction. Open `res://scenes/art_reference.tscn` in the Godot project to review it at a 1.67 m eye height. The default view faces a small contemporary trail lookout; set `ENFRACTAL_ART_VIEW=creek` before launch for the creek and trail view. Set `ENFRACTAL_ART_PROFILE=low` for the lower graphics profile. The scene is separate from the current playable map and workshop.
+This is an **illustrative Phase 1 art and scale fixture**, not a finished grounded painterly scene or a surveyed reconstruction. Open `res://scenes/art_reference.tscn` in the Godot project to review it at a 1.67 m eye height. The default view faces a small contemporary trail lookout; set `ENFRACTAL_ART_VIEW=creek` before launch for the creek and trail view. Set `ENFRACTAL_ART_PROFILE=low` for the lower graphics profile. The lookout scene remains separate from the playable map; the [workshop art integration](workshop-art-integration.md) applies a bounded version of this visual language to actual path/platform edits.
 
 | View | Repeatable capture |
 |---|---|

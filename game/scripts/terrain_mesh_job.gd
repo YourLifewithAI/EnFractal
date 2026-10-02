@@ -13,6 +13,17 @@ var arrays: Array = []
 var build_us := 0
 
 
+static func packed_array_bytes(tile_arrays: Array) -> int:
+	# A reproducible vertex/index payload proxy, not a GPU allocation query.
+	# Godot may retain copies and allocate additional driver-side memory.
+	var vertices: PackedVector3Array = tile_arrays[Mesh.ARRAY_VERTEX]
+	var normals: PackedVector3Array = tile_arrays[Mesh.ARRAY_NORMAL]
+	var colors: PackedColorArray = tile_arrays[Mesh.ARRAY_COLOR]
+	var uvs: PackedVector2Array = tile_arrays[Mesh.ARRAY_TEX_UV]
+	var indices: PackedInt32Array = tile_arrays[Mesh.ARRAY_INDEX]
+	return vertices.size() * 12 + normals.size() * 12 + colors.size() * 16 + uvs.size() * 8 + indices.size() * 4
+
+
 func configure(map_source, side_m: int, spacing_m: int, tile_m: int, origin_m: float, min_m: float, max_m: float) -> void:
 	source = map_source
 	map_side_m = side_m

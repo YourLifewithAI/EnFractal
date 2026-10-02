@@ -6,6 +6,8 @@ const MAP_PATH := "res://maps/barton_creek/"
 const STYLE_PATH := "res://styles/greenbelt_styles.json"
 const MAX_SEGMENT_M := 18.0
 const MAX_PENDING_LOD_TILES := 64
+const INITIAL_COARSE_RADIUS_TILES := 1
+const DEFAULT_RESIDENT_TILE_BUDGET_BYTES := 64 * 1024 * 1024
 const MAP_RUNTIME_SCRIPT := preload("res://scripts/map_runtime.gd")
 const TERRAIN_MESH_JOB_SCRIPT := preload("res://scripts/terrain_mesh_job.gd")
 const WORKSHOP_RUNTIME_SCRIPT := preload("res://scripts/workshop_runtime.gd")
@@ -25,6 +27,26 @@ var height_min_m: float
 var height_max_m: float
 var tiles: Dictionary = {}
 var pending_lod: Array[Vector2i] = []
+var coarse_total_tiles := 0
+var coarse_ready_tiles := 0
+var coarse_initial_ms := 0.0
+var coarse_base_resident_bytes := 0
+var coarse_base_budget_floor_bytes := 0
+var _lod_resident_budget_bytes := DEFAULT_RESIDENT_TILE_BUDGET_BYTES
+var lod_resident_budget_bytes: int:
+	get:
+		return _lod_resident_budget_bytes
+	set(value):
+		_lod_resident_budget_bytes = maxi(value, coarse_base_budget_floor_bytes)
+		if value < coarse_base_budget_floor_bytes:
+			lod_budget_clamps += 1
+		_enforce_resident_budget()
+var lod_resident_bytes := 0
+var lod_peak_resident_bytes := 0
+var lod_evictions := 0
+var lod_rejected_budget := 0
+var lod_budget_clamps := 0
+var lod_residency_revision := 0
 var lod_job
 var lod_task_id := -1
 var lod_job_key := Vector2i(-1, -1)
@@ -40,6 +62,8 @@ var walking := false
 var sunlight: DirectionalLight3D
 var world_settings: Environment
 var status_label: Label
+var startup_cover: ColorRect
+var startup_label: Label
 var yaw := 0.0
 var pitch := -0.5
 var lod_timer := 0.0
@@ -169,6 +193,21 @@ func _setup_scene() -> void:
 	credit.add_theme_color_override("font_color", Color(0.98, 0.96, 0.88))
 	credit.add_theme_color_override("font_shadow_color", Color(0.06, 0.11, 0.09))
 	canvas.add_child(credit)
+	# The world becomes visible only after every coarse terrain tile exists.
+	# Phased startup therefore never exposes temporary holes in the landscape.
+	startup_cover = ColorRect.new()
+	startup_cover.name = "TerrainLoadingCover"
+	startup_cover.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	startup_cover.color = Color(0.12, 0.19, 0.18)
+	startup_cover.mouse_filter = Control.MOUSE_FILTER_STOP
+	canvas.add_child(startup_cover)
+	startup_label = Label.new()
+	startup_label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	startup_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	startup_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	startup_label.add_theme_font_size_override("font_size", 25)
+	startup_label.add_theme_color_override("font_color", Color(0.97, 0.94, 0.84))
+	startup_cover.add_child(startup_label)
 
 
 func _setup_materials() -> void:
@@ -239,15 +278,77 @@ func _target_step(row: int, column: int) -> int:
 
 
 func _build_initial_tiles() -> void:
+	var started := Time.get_ticks_usec()
 	var tile_count := map_side_m / tile_side_m
+	var half: float = map_side_m * 0.5
+	var focus_column := clampi(int(floor((camera.position.x + half) / tile_side_m)), 0, tile_count - 1)
+	var focus_row := clampi(int(floor((camera.position.z + half) / tile_side_m)), 0, tile_count - 1)
+	coarse_total_tiles = tile_count * tile_count
 	for row in range(tile_count):
 		for column in range(tile_count):
 			var instance := MeshInstance3D.new()
 			instance.name = "Terrain_%d_%d" % [row, column]
-			instance.mesh = _make_tile_mesh(row, column, 32)
 			instance.material_override = terrain_material
 			add_child(instance)
-			tiles[Vector2i(column, row)] = {"instance": instance, "step": 32}
+			var key := Vector2i(column, row)
+			tiles[key] = {"instance": instance, "step": 0, "coarse_mesh": null, "base_bytes": 0, "detail_bytes": 0}
+			# Keep the launch position walkable visually while the remaining coarse
+			# mesh arrays are prepared off-thread and committed one per frame.
+			if absi(column - focus_column) <= INITIAL_COARSE_RADIUS_TILES and absi(row - focus_row) <= INITIAL_COARSE_RADIUS_TILES:
+				var job = _new_terrain_job()
+				job.run(row, column, 32)
+				_install_base_mesh(key, _mesh_from_arrays(job.arrays), TERRAIN_MESH_JOB_SCRIPT.packed_array_bytes(job.arrays))
+	coarse_initial_ms = float(Time.get_ticks_usec() - started) / 1000.0
+
+
+func _install_base_mesh(key: Vector2i, mesh: ArrayMesh, packed_bytes: int) -> void:
+	var tile: Dictionary = tiles[key]
+	var instance: MeshInstance3D = tile["instance"]
+	instance.mesh = mesh
+	tile["coarse_mesh"] = mesh
+	tile["step"] = 32
+	tile["base_bytes"] = packed_bytes
+	tile["detail_bytes"] = 0
+	tiles[key] = tile
+	coarse_ready_tiles += 1
+	coarse_base_resident_bytes += packed_bytes
+	lod_resident_bytes += packed_bytes
+	lod_peak_resident_bytes = maxi(lod_peak_resident_bytes, lod_resident_bytes)
+	lod_residency_revision += 1
+	_raise_base_budget_floor(packed_bytes)
+	if startup_cover != null:
+		startup_label.text = "Preparing Barton Creek terrain  •  %d / %d" % [coarse_ready_tiles, coarse_total_tiles]
+		if coarse_ready_tiles == coarse_total_tiles:
+			startup_cover.visible = false
+
+
+func _account_existing_base(key: Vector2i) -> void:
+	# Headless tests and older scenes may seed a coarse tile directly.
+	var tile: Dictionary = tiles[key]
+	if tile.has("coarse_mesh"):
+		return
+	var instance: MeshInstance3D = tile["instance"]
+	var mesh: ArrayMesh = instance.mesh
+	var packed_bytes: int = TERRAIN_MESH_JOB_SCRIPT.packed_array_bytes(mesh.surface_get_arrays(0))
+	tile["coarse_mesh"] = mesh
+	tile["base_bytes"] = packed_bytes
+	tile["detail_bytes"] = 0
+	tiles[key] = tile
+	coarse_base_resident_bytes += packed_bytes
+	lod_resident_bytes += packed_bytes
+	lod_peak_resident_bytes = maxi(lod_peak_resident_bytes, lod_resident_bytes)
+	lod_residency_revision += 1
+	_raise_base_budget_floor(packed_bytes)
+
+
+func _raise_base_budget_floor(packed_bytes: int) -> void:
+	# All stitched coarse tiles in this package share a topology. Reserve the
+	# complete base set from the first tile, then never let later observations
+	# lower that floor. A future map with a larger tile can raise it safely.
+	var tile_count := maxi(coarse_total_tiles, tiles.size())
+	coarse_base_budget_floor_bytes = maxi(coarse_base_budget_floor_bytes, maxi(coarse_base_resident_bytes, tile_count * packed_bytes))
+	if _lod_resident_budget_bytes < coarse_base_budget_floor_bytes:
+		lod_resident_budget_bytes = _lod_resident_budget_bytes
 
 
 func _make_tile_mesh(tile_row: int, tile_column: int, step_m: int) -> ArrayMesh:
@@ -270,15 +371,115 @@ func _mesh_from_arrays(arrays: Array) -> ArrayMesh:
 
 func _refresh_lod_targets() -> void:
 	pending_lod.clear()
+	var missing: Array[Vector2i] = []
+	var upgrades: Array[Vector2i] = []
 	for key in tiles:
+		var step: int = int(tiles[key]["step"])
+		if step == 0:
+			# A camera refresh must not reinsert the active base job ahead of the
+			# other missing tiles; that could turn its finished slot into detail.
+			if not (lod_task_id >= 0 and key == lod_job_key and lod_job_step == 32):
+				missing.push_back(key)
+			continue
+		if coarse_ready_tiles < coarse_total_tiles:
+			continue
 		var target := _target_step(key.y, key.x)
-		if target != int(tiles[key]["step"]):
-			pending_lod.push_back(key)
-	pending_lod.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		if target > step:
+			# Demotion is a cheap mesh pointer swap. Retain the always-visible
+			# coarse mesh and release the large detail payload immediately.
+			_evict_detail_tile(key)
+			step = 32
+		if target < step and not _budget_denial_still_applies(key, target):
+			upgrades.push_back(key)
+	var by_distance := func(a: Vector2i, b: Vector2i) -> bool:
 		return _tile_center(a.y, a.x).distance_to(Vector2(camera.position.x, camera.position.z)) < _tile_center(b.y, b.x).distance_to(Vector2(camera.position.x, camera.position.z))
-	)
+	missing.sort_custom(by_distance)
+	upgrades.sort_custom(by_distance)
+	pending_lod.append_array(missing)
+	if coarse_ready_tiles == coarse_total_tiles:
+		pending_lod.append_array(upgrades)
 	if pending_lod.size() > MAX_PENDING_LOD_TILES:
 		pending_lod.resize(MAX_PENDING_LOD_TILES)
+
+
+func _budget_denial_still_applies(key: Vector2i, target: int) -> bool:
+	var tile: Dictionary = tiles[key]
+	if int(tile.get("denied_step", 0)) != target:
+		return false
+	if int(tile.get("denied_revision", -1)) != lod_residency_revision or int(tile.get("denied_budget", -1)) != lod_resident_budget_bytes:
+		return false
+	var anchor: Vector2 = tile["denied_anchor"]
+	return anchor.distance_to(Vector2(camera.position.x, camera.position.z)) < tile_side_m * 0.25
+
+
+func _evict_detail_tile(key: Vector2i) -> void:
+	var tile: Dictionary = tiles[key]
+	if int(tile["step"]) == 32 or tile.get("coarse_mesh") == null:
+		return
+	var instance: MeshInstance3D = tile["instance"]
+	instance.mesh = tile["coarse_mesh"]
+	lod_resident_bytes -= int(tile.get("detail_bytes", 0))
+	tile["detail_bytes"] = 0
+	tile["step"] = 32
+	tiles[key] = tile
+	lod_evictions += 1
+	lod_residency_revision += 1
+
+
+func _enforce_resident_budget() -> void:
+	if lod_resident_bytes <= _lod_resident_budget_bytes:
+		return
+	var candidates: Array[Vector2i] = []
+	for key in tiles:
+		if int(tiles[key]["step"]) != 0 and int(tiles[key]["step"]) != 32:
+			candidates.push_back(key)
+	if camera != null:
+		candidates.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+			return _tile_center(a.y, a.x).distance_to(Vector2(camera.position.x, camera.position.z)) > _tile_center(b.y, b.x).distance_to(Vector2(camera.position.x, camera.position.z))
+		)
+	for key in candidates:
+		if lod_resident_bytes <= _lod_resident_budget_bytes:
+			break
+		_evict_detail_tile(key)
+	# The base floor makes an over-budget state after all detail is evicted
+	# impossible for a valid package. Keep the guard visible if it regresses.
+	if lod_resident_bytes > _lod_resident_budget_bytes:
+		push_error("Terrain base meshes exceeded the declared resident budget floor")
+
+
+func _reserve_detail_bytes(key: Vector2i, packed_bytes: int, desired_step: int) -> bool:
+	var old_bytes: int = int(tiles[key].get("detail_bytes", 0))
+	var projected := lod_resident_bytes - old_bytes + packed_bytes
+	if projected <= lod_resident_budget_bytes:
+		return true
+	var target_distance := _tile_center(key.y, key.x).distance_to(Vector2(camera.position.x, camera.position.z))
+	var candidates: Array[Vector2i] = []
+	var recoverable := 0
+	for other in tiles:
+		if other == key or int(tiles[other]["step"]) == 32 or int(tiles[other]["step"]) == 0:
+			continue
+		if _tile_center(other.y, other.x).distance_to(Vector2(camera.position.x, camera.position.z)) <= target_distance:
+			continue
+		candidates.push_back(other)
+		recoverable += int(tiles[other].get("detail_bytes", 0))
+	if projected - recoverable > lod_resident_budget_bytes:
+		var tile: Dictionary = tiles[key]
+		tile["denied_step"] = desired_step
+		tile["denied_revision"] = lod_residency_revision
+		tile["denied_budget"] = lod_resident_budget_bytes
+		tile["denied_anchor"] = Vector2(camera.position.x, camera.position.z)
+		tiles[key] = tile
+		lod_rejected_budget += 1
+		return false
+	candidates.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		return _tile_center(a.y, a.x).distance_to(Vector2(camera.position.x, camera.position.z)) > _tile_center(b.y, b.x).distance_to(Vector2(camera.position.x, camera.position.z))
+	)
+	for other in candidates:
+		if projected <= lod_resident_budget_bytes:
+			break
+		projected -= int(tiles[other].get("detail_bytes", 0))
+		_evict_detail_tile(other)
+	return true
 
 
 func _service_lod_job() -> void:
@@ -293,15 +494,35 @@ func _service_lod_job() -> void:
 		push_error("Terrain worker task could not be joined")
 		return
 	lod_last_build_ms = float(finished_job.build_us) / 1000.0
+	if not tiles.has(lod_job_key):
+		lod_discarded += 1
+		return
+	var current_step: int = int(tiles[lod_job_key]["step"])
+	if current_step == 0:
+		# Base coverage is useful even when the camera moved during the build.
+		var base_started := Time.get_ticks_usec()
+		_install_base_mesh(lod_job_key, _mesh_from_arrays(finished_job.arrays), TERRAIN_MESH_JOB_SCRIPT.packed_array_bytes(finished_job.arrays))
+		lod_last_commit_ms = float(Time.get_ticks_usec() - base_started) / 1000.0
+		if coarse_ready_tiles == coarse_total_tiles:
+			_refresh_lod_targets()
+		return
 	# Large jumps can change the desired LOD while this worker is building.
 	# Leave the existing mesh in place and discard that now-stale result.
-	if not tiles.has(lod_job_key) or _target_step(lod_job_key.y, lod_job_key.x) != lod_job_step or int(tiles[lod_job_key]["step"]) == lod_job_step:
+	if _target_step(lod_job_key.y, lod_job_key.x) != lod_job_step or current_step <= lod_job_step:
 		lod_discarded += 1
+		return
+	_account_existing_base(lod_job_key)
+	var packed_bytes: int = TERRAIN_MESH_JOB_SCRIPT.packed_array_bytes(finished_job.arrays)
+	if not _reserve_detail_bytes(lod_job_key, packed_bytes, lod_job_step):
 		return
 	var started := Time.get_ticks_usec()
 	var instance: MeshInstance3D = tiles[lod_job_key]["instance"]
 	instance.mesh = _mesh_from_arrays(finished_job.arrays)
+	lod_resident_bytes += packed_bytes - int(tiles[lod_job_key].get("detail_bytes", 0))
+	lod_peak_resident_bytes = maxi(lod_peak_resident_bytes, lod_resident_bytes)
+	tiles[lod_job_key]["detail_bytes"] = packed_bytes
 	tiles[lod_job_key]["step"] = lod_job_step
+	lod_residency_revision += 1
 	lod_last_commit_ms = float(Time.get_ticks_usec() - started) / 1000.0
 
 
@@ -312,8 +533,13 @@ func _start_next_lod_job() -> void:
 		var key: Vector2i = pending_lod.pop_front()
 		if not tiles.has(key):
 			continue
-		var desired := _target_step(key.y, key.x)
-		if desired == int(tiles[key]["step"]):
+		var current_step: int = int(tiles[key]["step"])
+		if coarse_ready_tiles < coarse_total_tiles and current_step != 0:
+			continue
+		var desired := 32 if current_step == 0 else _target_step(key.y, key.x)
+		if current_step != 0 and desired >= current_step:
+			continue
+		if current_step != 0 and _budget_denial_still_applies(key, desired):
 			continue
 		lod_job = _new_terrain_job()
 		lod_job_key = key
@@ -834,6 +1060,11 @@ func _set_walking_mode(enable: bool) -> void:
 
 
 func _input(event: InputEvent) -> void:
+	if startup_cover != null and startup_cover.visible:
+		# Workshop actions use _unhandled_key_input. Consume loading-time
+		# events here without disabling its collision-bearing child nodes.
+		get_viewport().set_input_as_handled()
+		return
 	if event is InputEventKey and event.pressed and not event.echo:
 		match event.keycode:
 			KEY_ESCAPE:
@@ -873,7 +1104,7 @@ func _process(delta: float) -> void:
 	if walking:
 		terrain_colliders.update_center(player_body.global_position)
 		camera.position = walk_camera.global_position # Preserve visual LOD's camera anchor.
-	else:
+	elif startup_cover == null or not startup_cover.visible:
 		var direction := Vector3.ZERO
 		if Input.is_key_pressed(KEY_W):
 			direction -= camera.global_basis.z
@@ -901,13 +1132,13 @@ func _process(delta: float) -> void:
 	_start_next_lod_job()
 	var outstanding_lod := pending_lod.size() + (1 if lod_task_id >= 0 else 0)
 	var controls := "WASD walk  •  Space jump / hold to glide  •  Shift run  •  R recover  •  Tab fly" if walking else "WASD fly  •  Space/Ctrl up/down  •  Shift faster  •  Tab walk"
-	status_label.text = "BARTON CREEK  •  30.250924, -97.810494  •  %s\n%s  •  1 pin / 2 greenbelt / 3 mall  •  4/5/6 styles  •  Esc release\nLocal X %.0f m  Z %.0f m  •  ground %.0f m above map origin  •  LOD queue %d" % [styles[style_index]["name"], controls, camera.position.x, camera.position.z, ground, outstanding_lod]
+	status_label.text = "BARTON CREEK  •  30.250924, -97.810494  •  %s\n%s  •  1 pin / 2 greenbelt / 3 mall  •  4/5/6 styles  •  Esc release\nLocal X %.0f m  Z %.0f m  •  ground %.0f m  •  coarse %d/%d  •  LOD %d  •  tile %.1f/%.0f MiB" % [styles[style_index]["name"], controls, camera.position.x, camera.position.z, ground, coarse_ready_tiles, coarse_total_tiles, outstanding_lod, float(lod_resident_bytes) / 1048576.0, float(lod_resident_budget_bytes) / 1048576.0]
 	var capture_path := OS.get_environment("ENFRACTAL_CAPTURE")
 	if not capture_path.is_empty():
 		capture_frame += 1
-		if capture_frame >= 80 and outstanding_lod == 0:
+		if capture_frame >= 80 and outstanding_lod == 0 and coarse_ready_tiles == coarse_total_tiles:
 			capture_samples_ms.append(delta * 1000.0)
-		if capture_frame == 180:
+		if capture_frame >= 180 and coarse_ready_tiles == coarse_total_tiles and outstanding_lod == 0 and capture_samples_ms.size() >= 30:
 			capture_samples_ms.sort()
 			var sample_count := capture_samples_ms.size()
 			var median_ms := capture_samples_ms[sample_count / 2] if sample_count > 0 else 0.0
@@ -922,6 +1153,16 @@ func _process(delta: float) -> void:
 				"last_lod_build_ms": snappedf(lod_last_build_ms, 0.01),
 				"last_lod_commit_ms": snappedf(lod_last_commit_ms, 0.01),
 				"discarded_lod_jobs": lod_discarded,
+				"coarse_ready_tiles": coarse_ready_tiles,
+				"coarse_total_tiles": coarse_total_tiles,
+				"coarse_initial_ms": snappedf(coarse_initial_ms, 0.01),
+				"resident_tile_payload_bytes": lod_resident_bytes,
+				"resident_tile_payload_budget_bytes": lod_resident_budget_bytes,
+				"coarse_base_budget_floor_bytes": coarse_base_budget_floor_bytes,
+				"peak_resident_tile_payload_bytes": lod_peak_resident_bytes,
+				"tile_detail_evictions": lod_evictions,
+				"tile_detail_budget_rejections": lod_rejected_budget,
+				"resident_budget_clamps": lod_budget_clamps,
 				"viewport_px": [get_viewport().get_visible_rect().size.x, get_viewport().get_visible_rect().size.y],
 				"note": "Diagnostic capture in a hidden window; not a low-hardware benchmark."
 			}
@@ -934,3 +1175,6 @@ func _process(delta: float) -> void:
 			var result := get_viewport().get_texture().get_image().save_png(capture_path)
 			print("Map screenshot saved: ", capture_path, " (", result, ")")
 			get_tree().quit(0 if result == OK else 2)
+		elif capture_frame >= 1800:
+			push_error("Terrain did not settle for capture within 1800 frames")
+			get_tree().quit(2)

@@ -5,6 +5,7 @@ extends Node3D
 const WORLD_STATE_SCRIPT := preload("res://scripts/world_state.gd")
 const CREATION_OPS_SCRIPT := preload("res://scripts/creation_ops.gd")
 const PATH_PLATFORM_JOIN_SCRIPT := preload("res://scripts/path_platform_join.gd")
+const ART_DRESSING_SCRIPT := preload("res://scripts/workshop_art_dressing.gd")
 const SAVE_PATH := "user://worlds/barton_local_workshop.json"
 const WORLD_ID := "local_barton_workshop"
 const FRAME_ID := "barton_creek_v0_local"
@@ -21,6 +22,7 @@ var path_nodes: Dictionary = {}
 var join_nodes: Dictionary = {}
 var join_relations: Dictionary = {}
 var visual_fingerprints: Dictionary = {}
+var art_dressing: Node3D
 var hint: Label
 var message := ""
 
@@ -51,6 +53,10 @@ func _ready() -> void:
 	if edit_enabled:
 		_restore_selection()
 		_render_entities()
+	art_dressing = ART_DRESSING_SCRIPT.new()
+	art_dressing.name = "IllustrativePlotDressing"
+	art_dressing.configure(viewer)
+	add_child(art_dressing)
 	_setup_hint()
 
 
@@ -385,17 +391,30 @@ func _build_platform_body(entity: Dictionary) -> StaticBody3D:
 	mesh.mesh = _stone_slab_mesh(size)
 	mesh.material_override = viewer._style_material(str(entity["material_role"]))
 	body.add_child(mesh)
+	_attach_platform_soil_apron(body, size)
+	_attach_stone_seams(body, size.z, size.x, size.y)
 	return body
 
 
 func _build_path_body(entity: Dictionary) -> StaticBody3D:
 	var points: Array = entity["points"]
-	return _build_walkable_segment(str(entity["id"]), _point_vector(points[0]), _point_vector(points[1]), float(entity["width_m"]))
+	var from_point := _point_vector(points[0])
+	var to_point := _point_vector(points[1])
+	var body := _build_walkable_segment(str(entity["id"]), from_point, to_point, float(entity["width_m"]))
+	_attach_soil_apron(body, from_point, to_point, float(entity["width_m"]))
+	_attach_stone_seams(body, from_point.distance_to(to_point), float(entity["width_m"]), CREATION_OPS_SCRIPT.PATH_THICKNESS_M)
+	return body
 
 
 func _build_join_body(relation: Dictionary) -> StaticBody3D:
 	var params: Dictionary = relation["params"]
-	return _build_walkable_segment(str(relation["id"]), _point_vector(params["start"]), _point_vector(params["end"]), float(params["width_m"]))
+	var from_point := _point_vector(params["start"])
+	var to_point := _point_vector(params["end"])
+	var width_m := float(params["width_m"])
+	var body := _build_walkable_segment(str(relation["id"]), from_point, to_point, width_m)
+	_attach_soil_apron(body, from_point, to_point, width_m)
+	_attach_stone_seams(body, from_point.distance_to(to_point), width_m, CREATION_OPS_SCRIPT.PATH_THICKNESS_M)
+	return body
 
 
 func _point_vector(point: Dictionary) -> Vector3:
@@ -418,12 +437,103 @@ func _build_walkable_segment(id: String, from_point: Vector3, to_point: Vector3,
 	collider.shape = shape
 	body.add_child(collider)
 	var mesh := MeshInstance3D.new()
-	var box := BoxMesh.new()
-	box.size = size
-	mesh.mesh = box
+	mesh.mesh = _stone_slab_mesh(size)
 	mesh.material_override = viewer._style_material("rock")
 	body.add_child(mesh)
 	return body
+
+
+func _attach_soil_apron(body: StaticBody3D, from_point: Vector3, to_point: Vector3, width_m: float) -> void:
+	# Terrain follows the pinned height grid. The wider soil shoulder is only a
+	# visual interpretation; the source path and walkable stone collider stay exact.
+	var start := Vector2(from_point.x, from_point.z)
+	var end := Vector2(to_point.x, to_point.z)
+	var across := (end - start).normalized().orthogonal()
+	var half_width := width_m * 0.5 + 0.53
+	var vertices := PackedVector3Array()
+	var normals := PackedVector3Array()
+	var indices := PackedInt32Array()
+	var inverse := body.transform.affine_inverse()
+	for step in range(4):
+		var a := start.lerp(end, float(step) / 4.0)
+		var b := start.lerp(end, float(step + 1) / 4.0)
+		var edge_a := half_width * (0.75 + 0.25 * sin(PI * float(step + 0.5) / 5.0) + 0.04 * sin(float(step) * 2.1))
+		var edge_b := half_width * (0.75 + 0.25 * sin(PI * float(step + 1.5) / 5.0) + 0.04 * sin(float(step + 1) * 2.1))
+		var corners := [a - across * edge_a, a + across * edge_a, b - across * edge_b, b + across * edge_b]
+		var base := vertices.size()
+		for point in corners:
+			var y: float = viewer.map_runtime.surface_height_at(point.x, point.y) + 0.035
+			vertices.append(inverse * Vector3(point.x, y, point.y))
+			normals.append(Vector3.UP)
+		indices.append_array(PackedInt32Array([base, base + 2, base + 1, base + 1, base + 2, base + 3]))
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = vertices
+	arrays[Mesh.ARRAY_NORMAL] = normals
+	arrays[Mesh.ARRAY_INDEX] = indices
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	var shoulder := MeshInstance3D.new()
+	shoulder.name = "IllustrativeSoilShoulder"
+	shoulder.mesh = mesh
+	shoulder.material_override = viewer._style_material("trail")
+	shoulder.set_meta("provenance", "terrain-following visual soil around a player-authored path")
+	body.add_child(shoulder)
+
+
+func _attach_platform_soil_apron(body: StaticBody3D, size: Vector3) -> void:
+	# A narrow terrain-following contact ring lets the deck meet the same soil
+	# family as its generated path and join, without changing the slab collider.
+	var inner := _clipped_outline(size.x * 0.5 + 0.03, size.z * 0.5 + 0.03, 0.16)
+	var outer := _clipped_outline(size.x * 0.5 + 0.67, size.z * 0.5 + 0.67, 0.32)
+	var vertices := PackedVector3Array()
+	var normals := PackedVector3Array()
+	var indices := PackedInt32Array()
+	var inverse := body.transform.affine_inverse()
+	for i in range(inner.size()):
+		var next := (i + 1) % inner.size()
+		for local_point in [inner[i], outer[i], inner[next], outer[next]]:
+			var world_point: Vector3 = body.transform * Vector3(local_point.x, 0.0, local_point.y)
+			var ground_y: float = viewer.map_runtime.surface_height_at(world_point.x, world_point.z) + 0.035
+			var deck_top_y := body.position.y + size.y * 0.5
+			var y := minf(ground_y, deck_top_y - 0.06)
+			vertices.append(inverse * Vector3(world_point.x, y, world_point.z))
+			normals.append(Vector3.UP)
+		var base := i * 4
+		indices.append_array(PackedInt32Array([base, base + 2, base + 1, base + 1, base + 2, base + 3]))
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = vertices
+	arrays[Mesh.ARRAY_NORMAL] = normals
+	arrays[Mesh.ARRAY_INDEX] = indices
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	var contact := MeshInstance3D.new()
+	contact.name = "IllustrativeSoilShoulder"
+	contact.mesh = mesh
+	contact.material_override = viewer._style_material("trail")
+	contact.set_meta("provenance", "terrain-following visual soil contact around a player-authored platform")
+	body.add_child(contact)
+
+
+func _attach_stone_seams(body: StaticBody3D, length_m: float, width_m: float, thickness_m: float) -> void:
+	var seams := MultiMesh.new()
+	seams.transform_format = MultiMesh.TRANSFORM_3D
+	var line := BoxMesh.new()
+	var platform_course := thickness_m > CREATION_OPS_SCRIPT.PATH_THICKNESS_M + 0.01
+	line.size = Vector3(width_m * 0.86, 0.012, 0.055 if platform_course else 0.025)
+	seams.mesh = line
+	var count := maxi(1, int(floor(length_m / 0.82)))
+	seams.instance_count = count
+	for i in range(count):
+		var local_z := -length_m * 0.5 + length_m * float(i + 1) / float(count + 1)
+		seams.set_instance_transform(i, Transform3D(Basis.IDENTITY, Vector3(0.0, thickness_m * 0.5 + 0.014, local_z)))
+	var instance := MultiMeshInstance3D.new()
+	instance.name = "StoneCourseJoints"
+	instance.multimesh = seams
+	instance.material_override = viewer._style_material("trail")
+	instance.set_meta("provenance", "illustrative repeating stone joints on an authored or derived stone part")
+	body.add_child(instance)
 
 
 func _stone_slab_mesh(size: Vector3) -> ArrayMesh:

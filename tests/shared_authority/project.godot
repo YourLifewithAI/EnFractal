@@ -1,0 +1,9 @@
+; Isolated loopback authority experiment. No game or map imports.
+config_version=5
+
+[application]
+config/name="Enfractal Shared Authority Probe"
+config/features=PackedStringArray("4.7")
+
+[rendering]
+renderer/rendering_method="gl_compatibility"

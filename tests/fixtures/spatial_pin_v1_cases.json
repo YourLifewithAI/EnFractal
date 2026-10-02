@@ -1,0 +1,83 @@
+{
+  "base": {
+    "axis_x": "utm_grid_easting_offset_m",
+    "axis_y": "decoded_height_minus_origin_m",
+    "axis_z": "negative_utm_grid_northing_offset_m",
+    "center_lat_deg": "30.250924",
+    "center_lon_deg": "-97.810494",
+    "center_projected_easting_m": "614439.4592043258",
+    "center_projected_northing_m": "3347188.813376341",
+    "features_sha256": "7809e3bdcee384c652cc15345d3b62a4b5b6ecc3f783da2a5143ecda1f6b2e6b",
+    "frame_id": "barton_creek_v1_local",
+    "geographic_crs": "EPSG:4326",
+    "grid_side_samples": "2049",
+    "height_decoder_id": "uint16le_row_north_offset_scale_v1",
+    "height_offset_m": "140.27",
+    "height_origin_m": "203.7862",
+    "height_scale_m": "0.01",
+    "heights_sha256": "a15d168d5d84061e05b609b875ea82e306a539b3ad96c881528f96d06abe55d7",
+    "horizontal_crs": "EPSG:32614",
+    "map_format": "enfractal-map-v0",
+    "map_id": "barton_creek_v0",
+    "sample_spacing_m": "2",
+    "side_m": "4096",
+    "surface_algorithm_id": "heightfield_acb_bcd_diagonal_bc_v1",
+    "surface_outside_id": "closed_square_error_outside_v1",
+    "tile_side_m": "512",
+    "transform_pipeline_id": "epsg4326_to_epsg32614_xy_pyproj3.8.0_proj9.8.1_subtract_v1",
+    "vertical_datum_id": "unknown",
+    "vertical_scope": "local_only",
+    "vertical_transform_id": "none"
+  },
+  "cases": [
+    {"id": "barton", "changes": {}},
+    {"id": "negative_elevation", "changes": {
+      "frame_id": "negative_elevation_test_v1",
+      "height_offset_m": "-125.5",
+      "height_origin_m": "-87.25",
+      "height_scale_m": "0.125"
+    }},
+    {"id": "second_frame", "changes": {
+      "center_lat_deg": "-41.2865",
+      "center_lon_deg": "174.7767",
+      "center_projected_easting_m": "313822.942107759",
+      "center_projected_northing_m": "5427053.867868989",
+      "features_sha256": "28789286b7a01aa94b360ed6deb7ea3836ba9c0d9f55898c5a4245e05d4f9012",
+      "frame_id": "synthetic_second_frame_v1",
+      "grid_side_samples": "17",
+      "heights_sha256": "68ad6d65465529ece10ac58421817b11e8c9d9a4b2ddb5e9f5138ec0aac14123",
+      "horizontal_crs": "EPSG:32760",
+      "map_id": "synthetic_second_frame",
+      "side_m": "32",
+      "tile_side_m": "8",
+      "transform_pipeline_id": "epsg4326_to_epsg32760_xy_pyproj3.8.0_proj9.8.1_subtract_v1"
+    }, "payloads_ascii": {
+      "heights": "synthetic-second-frame-heights",
+      "features": "synthetic-second-frame-features"
+    }},
+    {"id": "altered_datum_hypothetical", "changes": {
+      "frame_id": "barton_datum_hypothetical_v1",
+      "vertical_datum_id": "navd88",
+      "vertical_scope": "source_declared",
+      "vertical_transform_id": "source_heights_unchanged_v1"
+    }},
+    {"id": "altered_diagonal_hypothetical", "changes": {
+      "surface_algorithm_id": "heightfield_abc_bdc_diagonal_ad_v1"
+    }},
+    {"id": "numeric_boundaries", "changes": {
+      "center_lat_deg": "90",
+      "center_lon_deg": "-180",
+      "center_projected_easting_m": "-1000000000",
+      "center_projected_northing_m": "1000000000",
+      "frame_id": "numeric_boundaries_v1",
+      "grid_side_samples": "65536",
+      "height_offset_m": "-0.0000000000000001",
+      "height_origin_m": "-999999999.9999999999999999",
+      "height_scale_m": "0.0000000000000001",
+      "map_id": "numeric_boundaries_fixture",
+      "sample_spacing_m": "1",
+      "side_m": "65535",
+      "tile_side_m": "65535"
+    }}
+  ]
+}

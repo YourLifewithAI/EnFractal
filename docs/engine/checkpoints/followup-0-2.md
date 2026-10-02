@@ -1,0 +1,27 @@
+# Follow-up build evidence after the first checkpoint
+
+**1 October 2026. Status: progress within phases 0–2, not acceptance of a new phase.** The [first phases 0–1 checkpoint](phase0-1.md) remains the formal three-reviewer result (first-pass median 4.90/10). This document records the next bounded packets and their targeted independent reviews without promoting them into a completed MVP gate.
+
+## What changed
+
+- A separate [spatial-pin v1 reference](../phase0/spatial-pin-v1.md) now has exact matching Python/Godot bytes and SHA-256 across six vectors. Its real Barton descriptor checks payload hashes, archived DEM, decoder/origin and manifest frame against the build configuration. Existing local saves and the v0 package are untouched. An independent reviewer rated this **8.8/10 for the bounded fixture** after reproducing 22 Python tests and the Godot comparison. Actual vertical-datum evidence, runtime adoption and migration still block full E02.
+- [Terrain streaming](../phase1/visual-streaming.md) now starts with nine nearby coarse tiles, completes all 64 before revealing the world, and budgets retained coarse/detail mesh payload under a default 64 MiB ceiling with a 5.70 MiB base floor. Distant detail can evict and reload; edit/save shortcuts are blocked during loading without disabling collision. An independent reviewer rated the initial follow-up **8.0/10 for the fixture** and identified budget, scheduling and input issues that were then fixed and checked with new tests. This is a packed-mesh payload proxy, not total or GPU memory.
+- The [actual editable workshop](../phase1/workshop-art-integration.md) now shows the same path/platform edit before, revised and reloaded from a matching 1.67 m camera in standard and low profiles. Stone courses and terrain-following soil contact derive across path, join and platform; saved source parts and walkable collision remain. The independent art reviewer rated the integration scene **5.0/10** (low about **4.5/10**) against 8.5. Its flat terrain, simplified tree forms, sparse material depth, lighting and distant water remain a clear art blocker.
+- A [phase 2 adversarial design](../phase2/shared-authority-test-design.md) and [isolated authority loopback](../phase2/shared-authority-prototype.md) test server-owned movement/wind/glide, DTLS-bound one-use sessions, two-client same-tick snapshots, forged fields, replay, reconnect and private-state filtering. The reviewer caught an old-snapshot false positive and unsafe untyped identity comparisons; both were fixed with a suppressed-delivery negative control, exact tick/position checks and malformed-wire cases. It now passes **39/39 local checks**; an independent reviewer rated this **8.0/10 for the bounded fixture**. It is one Windows process on loopback, not E09/E10 remote-client acceptance.
+
+## Integrated verification on this snapshot
+
+| Check | Result | Limit |
+|---|---|---|
+| Godot game smoke/integration suite | **14 passed** | Headless fixture; no presented frames or remote player |
+| Python map/contract suite | **37 passed**; shipped Barton package verified | Synthetic second-region and v1 pin are not adopted world migration |
+| Spatial-pin Godot/Python comparison | **6 exact byte/hash matches** | Only Barton vector validates a real package; other vectors are byte-contract cases |
+| Encrypted transport loopback | **5/5** identity/plaintext cases | No production certificate/account operation |
+| Shared-authority loopback | **39/39**, independently reproduced | Single Windows process; no network loss, host restart or durable edits |
+| Native release export/startup | Windows rendered; Linux WSL2 no-display startup passed | Basic launch checks, not release-route/host-load evidence |
+
+The source-stable hidden-window route and release exports use the same **67-file game manifest SHA-256 `6978011333c6bb142256f96ec36ce0397beb94bdaacd94526ebd6e1ac77011d1`**. On the development RTX 2070 Super, coarse coverage required another **989 ms after scene attachment** in that run. The 1.7 km route at a 60 fps cap measured callback-interval p95 **17.80 ms** outbound and **20.94 ms** on return; maxima were **32.90 ms** and **24.81 ms**. Peak mesh commit in the first pass was **14.30 ms**. This is not display-present timing or an integrated-GPU test, and both p95 values exceed the proposed 16.7 ms laptop target. The exported Windows capture and Linux no-display startup passed from matching source; the rapid route itself ran in the editor fixture, not the release binary. Detailed raw outputs are in ignored `tools/engine_probe/results/` on the development machine; [the probe instructions](../phase0/feasibility.md) reproduce them.
+
+## Remaining gates
+
+Phases 0–1 remain open: finish the production frame/vertical and migration contract, decide the C# versus GDScript production path, measure a real 8 GiB integrated-graphics device, reduce upload hitches and total memory, and raise the playable art/UX toward the 8.5 target. Phase 2 remains open: separate-process Windows/Linux remote clients, authenticated account/admission service, loss/jitter/reconnect and load measurements, authoritative Barton collision/rule integration, and agreement on actual gameplay effects. Phases 3–7 (manual invention depth, durable Home/sandbox state and portals, restricted AI/MCP, hardening and invited player validation) are planned in the [backlog](../../roadmap/BACKLOG.md), not implemented by these fixtures.

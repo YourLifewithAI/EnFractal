@@ -73,6 +73,15 @@ func _wait_for_residency(scene) -> bool:
 	return true
 
 
+func _wait_for_coarse_coverage(scene) -> bool:
+	var began_ms := Time.get_ticks_msec()
+	while scene.coarse_ready_tiles < scene.coarse_total_tiles:
+		await RenderingServer.frame_post_draw
+		if Time.get_ticks_msec() - began_ms > SETTLE_TIMEOUT_MS:
+			return false
+	return true
+
+
 func _run() -> void:
 	var path := OS.get_environment("ENFRACTAL_PROBE_ROUTE_METRICS")
 	if path.is_empty():
@@ -84,6 +93,12 @@ func _run() -> void:
 	var scene = load("res://scenes/main.tscn").instantiate()
 	root.add_child(scene)
 	var attach_ms := float(Time.get_ticks_usec() - attach_started_us) / 1000.0
+	var coarse_wait_started_us := Time.get_ticks_usec()
+	if not await _wait_for_coarse_coverage(scene):
+		push_error("Coarse terrain did not cover the route before traversal")
+		quit(1)
+		return
+	var coarse_wait_ms := float(Time.get_ticks_usec() - coarse_wait_started_us) / 1000.0
 	var cold: Dictionary = await _measure_route(scene, START, END)
 	if not await _wait_for_residency(scene):
 		push_error("Terrain LOD did not settle after first traversal")
@@ -98,10 +113,12 @@ func _run() -> void:
 		"route": "local X/Z (0,350) to (1536,-400) and back; camera 80 m above source terrain",
 		"frame_cap": 60,
 		"synchronous_scene_attach_ms": snappedf(attach_ms, 0.01),
+		"coarse_coverage_wait_ms": snappedf(coarse_wait_ms, 0.01),
+		"coarse_ready_tiles_before_traversal": scene.coarse_total_tiles,
 		"first_traversal_unrefined_lod": cold,
 		"second_traversal_after_residency": warm,
 		"final_lod_queue": scene.pending_lod.size() + (1 if scene.lod_task_id >= 0 else 0),
-		"timing_scope": "Hidden-window frame-post-draw callback intervals; no present timestamps, GPU-memory attribution, actual gameplay movement, or minimum-device certification. First pass is unrefined visual LOD, not cold disk cache."
+		"timing_scope": "Hidden-window frame-post-draw callback intervals after all coarse tiles exist; no present timestamps, GPU-memory attribution, actual gameplay movement, or minimum-device certification. First pass is unrefined visual LOD, not cold disk cache."
 	}
 	var file := FileAccess.open(path, FileAccess.WRITE)
 	if file == null:

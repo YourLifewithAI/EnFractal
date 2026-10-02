@@ -11,6 +11,8 @@ The [MVP roadmap](docs/roadmap/ROADMAP.md) describes the proposed shared Earth, 
 
 The [first phases 0–1 checkpoint](docs/engine/checkpoints/phase0-1.md) records what has been built, independent 1–10 ratings, and the remaining gates. Its first-pass median is 4.90/10, below the 8.5 target; the current local build is an engineering fixture rather than an accepted MVP milestone.
 
+The [follow-up build evidence](docs/engine/checkpoints/followup-0-2.md) covers bounded terrain residency, a cross-language spatial pin, art in the playable workshop, and a two-client authority loopback. Each has a targeted review; the phase gates remain open.
+
 ## First playable engine slice
 
 The [Barton Creek map and local workshop](maps/barton_creek/README.md) are the first implementation, centered at **30.250924, -97.810494** near Barton Creek Square and the MoPac / Highway 360 area. A reproducible source-to-package builder provides sampled USGS terrain, mapped OSM roads, trails, creeks and building footprints, plus illustrative vegetation. A [photo-informed pilot](maps/barton_creek/photo_pilot/README.md) adds color and simplified detail at one Greenbelt segment and the mall west side.
