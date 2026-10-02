@@ -1,4 +1,4 @@
-; EnFractal Barton Creek local workshop. First playable engine slice, not the shared game.
+; Native EnFractal. The historical application name preserves existing local save paths; the window title follows the active scene.
 config_version=5
 
 [application]

@@ -25,6 +25,8 @@ These are development-host correctness/export results, not a frame-rate, low-dev
 
 ## Continue with S1
 
+Subsequent founder clarification retired Barton as a destination; the [S1 checkpoint](s1-pfluger-avatar.md) supersedes the preservation-of-destination wording below while retaining useful code, assets, saves and temporary regression fixtures.
+
 Build the separate public-source Pfluger package, a tested 0.30 m controller/camera and distinct customizable companion, then integrate the bounded landing route and inspect actual rendered views. Bridge surfaces must remain independent of terrain, with inferred elevations/widths labeled until audited. Preserve all Barton content and regression fixtures.
 
 Founder art/playtest judgment and actual minimum-device tests remain open. Selecting and pairing a real dedicated game-only AI client is needed for the S2 real-AI gate; a development task or mocked response cannot substitute for it. Continue independent implementation while awaiting those inputs.

@@ -1,11 +1,13 @@
 extends Node3D
 ## Collider patches are always built from one validated MapRuntime height grid,
-## independent of visual tile LOD. Only the player's 3 x 3 neighborhood resides.
+## independent of visual tile LOD. Each active actor retains a 3 x 3 neighborhood;
+## the optional second center keeps a waiting companion supported (at most 18 patches).
 ## The source height SHA-256 is pinned for this immutable prototype; revision 0
 ## means no live terrain edits have been activated.
 
 const PATCH_SIDE_M := 64
 const ACTIVE_RADIUS := 1
+const MAX_ACTIVE_CENTERS := 2
 
 var source: MapRuntime
 var map_side_m := 0
@@ -15,6 +17,7 @@ var source_height_sha256 := ""
 var collision_revision := 0
 var active_patches: Dictionary = {}
 var center_patch := Vector2i(-1, -1)
+var center_patches: Array[Vector2i] = []
 var enabled := false
 
 
@@ -42,25 +45,42 @@ func deactivate() -> void:
 		body.queue_free()
 	active_patches.clear()
 	center_patch = Vector2i(-1, -1)
+	center_patches.clear()
 
 
 func update_center(point: Vector3) -> void:
+	# Preserve the original one-center API and its nine-patch bound.
+	update_centers([point])
+
+
+func update_centers(points: Array) -> void:
 	if not enabled:
 		return
-	var next_center := Vector2i(
-		clampi(int(floor((point.x + map_side_m * 0.5) / PATCH_SIDE_M)), 0, patch_count - 1),
-		clampi(int(floor((point.z + map_side_m * 0.5) / PATCH_SIDE_M)), 0, patch_count - 1)
-	)
-	if next_center == center_patch:
+	var next_centers: Array[Vector2i] = []
+	for index in range(mini(points.size(), MAX_ACTIVE_CENTERS)):
+		if not points[index] is Vector3:
+			continue
+		var point: Vector3 = points[index]
+		if not point.is_finite():
+			continue
+		var next_center := Vector2i(
+			clampi(int(floor((point.x + map_side_m * 0.5) / PATCH_SIDE_M)), 0, patch_count - 1),
+			clampi(int(floor((point.z + map_side_m * 0.5) / PATCH_SIDE_M)), 0, patch_count - 1)
+		)
+		if not next_centers.has(next_center):
+			next_centers.append(next_center)
+	if next_centers.is_empty() or next_centers == center_patches:
 		return
-	center_patch = next_center
+	center_patches = next_centers
+	center_patch = center_patches[0]
 	var wanted := {}
-	for row in range(maxi(0, center_patch.y - ACTIVE_RADIUS), mini(patch_count, center_patch.y + ACTIVE_RADIUS + 1)):
-		for column in range(maxi(0, center_patch.x - ACTIVE_RADIUS), mini(patch_count, center_patch.x + ACTIVE_RADIUS + 1)):
-			var key := Vector2i(column, row)
-			wanted[key] = true
-			if not active_patches.has(key):
-				active_patches[key] = _make_patch(row, column)
+	for center in center_patches:
+		for row in range(maxi(0, center.y - ACTIVE_RADIUS), mini(patch_count, center.y + ACTIVE_RADIUS + 1)):
+			for column in range(maxi(0, center.x - ACTIVE_RADIUS), mini(patch_count, center.x + ACTIVE_RADIUS + 1)):
+				var key := Vector2i(column, row)
+				wanted[key] = true
+				if not active_patches.has(key):
+					active_patches[key] = _make_patch(row, column)
 	for key in active_patches.keys():
 		if not wanted.has(key):
 			var body: StaticBody3D = active_patches[key]

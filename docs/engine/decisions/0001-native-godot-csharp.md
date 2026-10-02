@@ -6,7 +6,7 @@
 
 Build the initial single-player EnFractal experience as a **native Godot application with C# as the primary language for new application and domain code**. Begin on Windows, retaining the current Compatibility renderer until a measured art or performance requirement justifies changing it. Python remains appropriate for geodata preparation and the existing local persistence service; SQL/PostgreSQL and Godot shaders retain their current roles. Existing GDScript is supported during an incremental transition.
 
-The active location is the **Pfluger Pedestrian Bridge / Lady Bird Lake district**, bounded by 6th Street to the north, Barton Springs Road to the south, Congress Avenue to the east and MoPac to the west. Start with a bounded landing/trail/waterfront route. Preserve Barton Creek packages, fixtures and saves; further Barton-specific content development is on hold.
+The active location is the **Pfluger Pedestrian Bridge / Lady Bird Lake district**, bounded by 6th Street to the north, Barton Springs Road to the south, Congress Avenue to the east and MoPac to the west. Start with a bounded landing/trail/waterfront route. Later founder clarification retires Barton Creek as a destination and permits deleting its map data. Reuse useful systems/art, omit the destination from native builds, and retain only temporary regression dependencies while preserving personal saves.
 
 The initial player height is exactly **0.30 m (30 cm)** in real-scale geography. Authored measurements, interface measurements and tests use metric units. The companion has its own stable identity and customizable body; its default and dragon/mount dimensions are separate capability decisions, not implied by the player's height.
 

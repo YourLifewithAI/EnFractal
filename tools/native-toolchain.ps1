@@ -86,6 +86,7 @@ function Invoke-EnfractalNativeProcess {
     $start.WorkingDirectory = (Resolve-Path -LiteralPath $WorkingDirectory).Path
     $start.UseShellExecute = $false
     $start.CreateNoWindow = $true
+    $start.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
     $start.RedirectStandardOutput = $true
     $start.RedirectStandardError = $true
     foreach ($argument in $Arguments) { $start.ArgumentList.Add($argument) }
@@ -121,7 +122,9 @@ function Invoke-EnfractalNativeProcess {
         if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
             $process.Kill($true)
             $process.WaitForExit()
-            throw "Native command timed out after $TimeoutSeconds seconds: $FilePath"
+            $timedOutStdout = $stdoutRead.GetAwaiter().GetResult()
+            $timedOutStderr = $stderrRead.GetAwaiter().GetResult()
+            throw "Native command timed out after $TimeoutSeconds seconds: $FilePath`n$timedOutStdout`n$timedOutStderr"
         }
         $stdout = $stdoutRead.GetAwaiter().GetResult()
         $stderr = $stderrRead.GetAwaiter().GetResult()

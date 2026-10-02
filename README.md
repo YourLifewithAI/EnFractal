@@ -7,7 +7,7 @@ The [world and creation vision](docs/WORLD-VISION.md) centers a personalized pla
 
 **Current priority: single-player first, multiplayer last.** Prove the companion, expressive magic, art, controls, persistence and accessibility before investing in shared-world networking. The intended connection is a dedicated game-only profile for the player's own AI. Manual controls remain available for precision, accessibility and recovery. These are product goals; the current build remains a local engineering prototype without the embodied AI or the full magic vocabulary.
 
-The active first destination is the **Pfluger Pedestrian Bridge / Lady Bird Lake district in Austin**, bounded by 6th Street, Barton Springs Road, Congress Avenue and MoPac. The initial player height is **30 cm (0.30 m)** in real-scale geography. The goal is reusable public-data reconstruction of recognizable places; Barton Creek remains a preserved prototype with further location-specific work on hold. The new district and small-player controller are planned, not implemented. [District and scale plan](docs/roadmap/research/15-pfluger-district-and-small-avatar.md).
+The active first destination is the **Pfluger Pedestrian Bridge / Lady Bird Lake district in Austin**, bounded by 6th Street, Barton Springs Road, Congress Avenue and MoPac. The initial player height is **30 cm (0.30 m)** in real-scale geography. The goal is reusable public-data reconstruction of recognizable places; Barton Creek is retired as a destination. Its map data is excluded from native builds; useful code and art carry forward, with temporary legacy regression fixtures retained. A source-based Pfluger preview and the 30 cm controller are implemented; detailed fidelity and art acceptance remain open. [District and scale plan](docs/roadmap/research/15-pfluger-district-and-small-avatar.md).
 
 ## MVP planning
 
@@ -19,7 +19,19 @@ The [first phases 0–1 checkpoint](docs/engine/checkpoints/phase0-1.md) records
 
 The [follow-up build evidence](docs/engine/checkpoints/followup-0-2.md) covers bounded terrain residency, a cross-language spatial pin, art in the playable workshop, and a two-client authority loopback. Each has a targeted review; the phase gates remain open.
 
-## First playable engine slice
+## Play the active preview
+
+Run `pwsh -NoProfile -File run-pfluger.ps1` after the [native bootstrap](docs/NATIVE-BUILD.md). The Godot project and exported game now open Pfluger by default. The preview includes a 30 cm player, separate customizable companion, eye/follow/reference cameras, mapped terrain and an inferred bridge/trail structure. The companion currently uses direct controls; real Codex connection and magic are S2 work. Art and geographic fidelity are still under review.
+
+The [Pfluger source package](maps/pfluger_district/README.md) traces a 3.3517 km² district and a 150 m candidate route from archived USGS/OSM data. Source audit gaps stay visible. Avatar appearance preferences are separate from legacy saves; the preview does not yet persist world edits.
+
+WASD moves, Shift runs, Space jumps and R recovers. Click to look; Esc releases the pointer. F1/F2/F3 change cameras, C customizes both avatars, and 1–5 control the companion. Run `tools/test-pfluger.ps1` for the new controller/scene checks.
+
+The [S0 foundation](docs/engine/checkpoints/s0-native-foundation.md) records native build/export and regression evidence. The [S1 checkpoint](docs/engine/checkpoints/s1-pfluger-avatar.md) records the full-route test, actual engine views and open art/fidelity gates. The [Codex integration decision](docs/engine/decisions/0002-codex-game-profile.md) records the selected provider and the isolation proof still needed before connection.
+
+## Earlier engineering checkpoints
+
+Barton is retired from the product and excluded from native exports. Its content remains temporarily as a development regression fixture; reusable original art, terrain tools, creation rules and save/recovery code carry forward. The historical launchers below explicitly open that fixture, not the new experience.
 
 The [S0 native foundation](docs/engine/checkpoints/s0-native-foundation.md) locks Godot .NET/C#, adds a repeatable build/test/export path and preserves the existing workshop. Start with [native build instructions](docs/NATIVE-BUILD.md). S1–S6 gameplay and acceptance work remains in progress.
 

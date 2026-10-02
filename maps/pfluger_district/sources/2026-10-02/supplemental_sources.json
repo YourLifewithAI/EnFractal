@@ -1,0 +1,15 @@
+{
+  "osm": [
+    {
+      "osm_type": "relation",
+      "osm_id": 32671,
+      "file": "lady_bird_lake_relation.osm.gz",
+      "url": "https://api.openstreetmap.org/api/0.6/relation/32671/full",
+      "retrieved_at_utc": "2026-10-02T14:57:35.914486+00:00",
+      "sha256_uncompressed": "e24477abbb404f700916988c2f31b3a692d3bf2cc51cc1169a04cd3147d692c2",
+      "bytes_uncompressed": 430853,
+      "license": "Open Database License 1.0",
+      "attribution": "\u00a9 OpenStreetMap contributors"
+    }
+  ]
+}

@@ -1,5 +1,8 @@
 # Pfluger district and the 30 cm player
 
+> Later founder clarification: Barton Creek may be retired/deleted as a destination. Reuse its useful systems and art; temporary regression dependencies and personal saves should be handled explicitly.
+
+
 **Scope clarification and source review — 2 October 2026.** This updates the first-location and avatar-scale decisions in the [roadmap](../ROADMAP.md), [backlog](../BACKLOG.md) and [vision](../../WORLD-VISION.md). It is a planning/source-feasibility review: no new district has been downloaded, reconstructed or benchmarked.
 
 ## Selected scope

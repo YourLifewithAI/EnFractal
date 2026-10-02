@@ -1,4 +1,11 @@
-# EnFractal Barton Creek prototype credits
+# EnFractal data and art credits
+
+## Active Pfluger district
+
+The Pfluger preview uses archived USGS 3DEP elevation and [OpenStreetMap contributors](https://www.openstreetmap.org/copyright) data under ODbL 1.0. See [the source ledger](../maps/pfluger_district/sources/2026-10-02/sources.json), [data terms](../maps/pfluger_district/COPYING.md) and [source audit](../maps/pfluger_district/package/audit.json). The derived database, district boundary and route are separately distributed under ODbL. Bridge dimensions, building proxies, water level and seeded vegetation are labeled interpretations; no third-party Pfluger photos or Austin imagery are included. Original editable oak assets, painted textures and shaders from the earlier art pass are reused.
+
+## Retired Barton Creek study
+
 
 The playable map uses elevation from the [U.S. Geological Survey 3D Elevation Program](https://elevation.nationalmap.gov/arcgis/rest/services/3DEPElevation/ImageServer). Roads, trails, waterways, building footprints and parking polygons come from [© OpenStreetMap contributors](https://www.openstreetmap.org/copyright), under the Open Database License 1.0. The OSM-derived feature database and raw extract are distributed with the repository under the terms described in [`maps/barton_creek/sources/COPYING.md`](../maps/barton_creek/sources/COPYING.md).
 

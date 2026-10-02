@@ -19,5 +19,6 @@ $env:PATH = $env:DOTNET_ROOT + [System.IO.Path]::PathSeparator + $env:PATH
 
 & (Join-Path $PSScriptRoot 'tools\ensure-godot-art-imports.ps1') -EnginePath $enginePath -ProjectPath $projectPath
 
-& $enginePath --path $projectPath
+Write-Output 'Opening the retired Barton regression fixture. Use run-pfluger.ps1 for the active game.'
+& $enginePath --path $projectPath -- --legacy-barton
 exit $LASTEXITCODE

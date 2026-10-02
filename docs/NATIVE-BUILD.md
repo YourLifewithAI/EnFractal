@@ -16,6 +16,7 @@ Run `pwsh -NoProfile -File tools/bootstrap-native.ps1 -IncludeExportTemplates` f
 pwsh -NoProfile -File tools/build-native.ps1
 pwsh -NoProfile -File tools/test-native-interop.ps1
 pwsh -NoProfile -File run-engine-tests.ps1
+pwsh -NoProfile -File tools/test-pfluger.ps1
 pwsh -NoProfile -File tools/export-native.ps1
 ```
 
@@ -49,4 +50,10 @@ Checked on 2026-10-02: the [official Windows download page](https://godotengine.
 
 Windows x64 is the verified bootstrap target. Other native platforms need their matching Godot .NET and SDK packages plus export validation; this file does not claim they were tested. The native-only platform decision does not change source-data license or asset attribution requirements.
 
-The Windows export writes `.cache/releases/windows/EnFractal.exe` and its companion data files. Keep that directory together. The exporter executes an actual release probe of compiled C#, the 0.30 m profile and the retained GDScript compiler with valid/invalid input. It does not certify the new gameplay, art or minimum device. Builds are currently unsigned development artifacts.
+The Windows export writes `.cache/releases/windows/EnFractal.exe` and its companion data files. Keep that directory together. The exporter executes an actual release probe of compiled C#, the 0.30 m profile and the retained GDScript compiler with valid/invalid input, then loads the default Pfluger scene. Both run from an empty working directory with developer .NET variables/runtime search paths removed. The resource probe checks that Pfluger is included and the retired Barton map is excluded. This does not certify art or the minimum device. Builds are currently unsigned development artifacts.
+
+## Active small-avatar preview
+
+Run `pwsh -NoProfile -File run-pfluger.ps1`. The default Godot entry and native export open the same Pfluger scene. WASD moves, Shift runs, Space jumps, R recovers, F1/F2/F3 select eye/follow/reference views, C customizes the two avatars, and 1–5 direct the companion. The companion is currently deterministic local behavior, with no AI login or connection. Profile preferences persist independently of old world saves.
+
+`tools/test-pfluger.ps1` checks small-body movement and walks the full 150 m source route through normal controls. `tools/test-pfluger.ps1 -Capture` runs the short scene/render checks and writes actual GPU views to `docs/images/pfluger-*.png`; it does not replace the full headless traversal. Both use the helper's isolated test application data. `run-pfluger.ps1` uses normal player application data. `run-map.ps1` explicitly selects the retired Barton development fixture; that map is absent from release packages.

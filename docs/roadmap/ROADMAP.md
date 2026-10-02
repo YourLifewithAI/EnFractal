@@ -36,7 +36,7 @@ Evidence: [manual invention](../engine/checkpoints/manual-invention.md), [art](.
 
 **Scope clarification — 2 October 2026:** The active first location is the **Pfluger Pedestrian Bridge / Lady Bird Lake district in Austin**, using the founder's named boundaries: **6th Street north, Barton Springs Road south, Congress Avenue east, and MoPac west**. Preserve those boundaries as the intended district; source preparation must trace an explicit polygon and calculate its actual area instead of assuming a fixed-size square. Start detailed acceptance at the bridge, a landing and a short adjoining trail/waterfront route, then expand within the district. The rest may initially use honest coarse context.
 
-**Barton Creek is on hold as a content destination, not deleted.** Keep its immutable map package, saves, reference assets and regression fixtures. Reuse its source-to-package pipeline and runtime with a distinct district/base ID; do not relabel or overwrite the old map. Further Barton-specific dressing is not active work.
+**Barton Creek is retired as a destination.** The founder permits removing its map data; preserve useful terrain/art/creation/save mechanisms and original reusable assets. Pfluger is the default, and native builds exclude Barton map data. Keep legacy map data only as a temporary regression fixture until its dependent tests are migrated; Git history retains the old destination. Do not delete player-created saves or silently relabel their map IDs.
 
 The initial player avatar is **30 cm (0.30 m)** tall in a world retaining real geographic dimensions and meter-based coordinates. This is a small inhabitant in a full-size place, not a miniaturized map. Establish one supported small-body controller/camera profile first: body shape, eye height, clearance, stepping, slope behavior, speed, jump/glide, interaction reach, navigation and recovery all need testing. The companion remains a separate custom avatar; dragon/morph dimensions are capability decisions, not an automatic global scale multiplier.
 
@@ -138,7 +138,7 @@ The [AI/security study](research/05-ai-mcp-and-security.md) retains useful contr
 
 ## Active phases and acceptance
 
-**Implementation progress:** [S0 native foundation](../engine/checkpoints/s0-native-foundation.md) records the pinned C# build, shared compiler adapter, retained regressions and Windows export. S1 is in progress; later phase and human/device gates remain open.
+**Implementation progress:** [S0 native foundation](../engine/checkpoints/s0-native-foundation.md) is merged to main. The [S1 engineering checkpoint](../engine/checkpoints/s1-pfluger-avatar.md) adds the archived Pfluger source package, default native destination, two customizable avatars and a tested 150 m route. S1 art/fidelity/device acceptance remains open. [Codex profile research](../engine/decisions/0002-codex-game-profile.md) records the chosen first client and unresolved isolation proof. S2–S6 are not complete; multiplayer remains inactive.
 
 These are delivery gates, not equal-sized tasks or calendar promises. The old 360–705-hour shared-MVP estimate is superseded; do not reuse it as a single-player estimate. Estimate bounded packets and revise from observed work. Art/control work and companion-contract work can proceed together after the minimum platform/contract decisions.
 
