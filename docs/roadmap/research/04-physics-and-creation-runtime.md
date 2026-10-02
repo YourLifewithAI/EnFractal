@@ -1,5 +1,7 @@
 # Physics and the creation runtime
 
+> **Current direction — 2 October 2026:** The [revised roadmap](../ROADMAP.md) and [backlog](../BACKLOG.md) govern scope and order: single-player embodied AI first, multiplayer last. The earlier two-player demonstration and small wind/glide vocabulary below no longer define the first product. Bounded storms, floods, rideable companion forms and protected transformations are now active single-player capability work. The dated research below is retained for context.
+
 Planning recommendation, 2026-09-30. This is a design and validation plan, not an implemented engine or a measured capacity claim. Scope assumes one developer with coding agents, a Windows client, a small private alpha, and the project's total hosting/AI ceiling below $100 per month.
 
 ## Recommended starting point

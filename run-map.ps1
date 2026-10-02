@@ -8,22 +8,14 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
     exit $LASTEXITCODE
 }
 
-$projectPath = Join-Path $PSScriptRoot 'game'
-$installedGodot = Join-Path $env:USERPROFILE 'Downloads\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe'
-$portableGodot = Join-Path $PSScriptRoot '.cache\godot\Godot_v4.7.2-stable_win64.exe'
-if ($env:ENFRACTAL_GODOT -and (Test-Path -LiteralPath $env:ENFRACTAL_GODOT -PathType Leaf)) {
-    $enginePath = $env:ENFRACTAL_GODOT
-} elseif (Test-Path -LiteralPath $installedGodot -PathType Leaf) {
-    $enginePath = $installedGodot
-} elseif (Test-Path -LiteralPath $portableGodot -PathType Leaf) {
-    $enginePath = $portableGodot
-} else {
-    $engine = Get-Command godot,godot4 -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
-    if (-not $engine) {
-        throw 'Godot 4.7.2 was not found. Set ENFRACTAL_GODOT to the path of Godot_v4.7.2-stable_win64.exe or open game/project.godot in Godot.'
-    }
-    $enginePath = $engine.Source
-}
+# All developer launchers now use the pinned .NET engine and compiled C# entry.
+. (Join-Path $PSScriptRoot 'tools/native-toolchain.ps1')
+$nativeToolchain = Get-EnfractalNativeToolchain
+Build-EnfractalNativeProject -Toolchain $nativeToolchain
+$projectPath = $nativeToolchain.ProjectPath
+$enginePath = $nativeToolchain.EnginePath
+$env:DOTNET_ROOT = Split-Path -Parent $nativeToolchain.DotnetPath
+$env:PATH = $env:DOTNET_ROOT + [System.IO.Path]::PathSeparator + $env:PATH
 
 & (Join-Path $PSScriptRoot 'tools\ensure-godot-art-imports.ps1') -EnginePath $enginePath -ProjectPath $projectPath
 

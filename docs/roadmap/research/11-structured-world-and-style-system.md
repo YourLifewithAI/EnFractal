@@ -1,5 +1,7 @@
 # Structured world and style system
 
+> **Current direction — 2 October 2026:** The [revised roadmap](../ROADMAP.md) and [backlog](../BACKLOG.md) govern scope and order: single-player embodied AI first, multiplayer last. Retain semantic parts, provenance and coherent regeneration. Current single-player scope includes dramatic fantasy transformations and the embodied companion; earlier remote-play dependencies and tiny construction-only limits are not the current product boundary. The dated research below is retained for context.
+
 **Planning direction, 1 October 2026.** This translates the founder's [world and creation vision](../../WORLD-VISION.md) into interfaces and tests. It does not claim that the current [Barton Creek viewer](../../../maps/barton_creek/README.md) already has semantic buildings, player editing, or procedural joins. The existing map builder and [three-style material study](../../greenbelt-style-study.md) are inputs to this work.
 
 ## Required separation

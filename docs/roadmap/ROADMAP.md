@@ -1,361 +1,201 @@
-# Enfractal MVP roadmap
+# EnFractal roadmap: the player, their AI, and a world of magic
 
-**Planning draft v0.2 — 1 October 2026; original baseline 30 September.** This plan turns the original conversations and subsequent direction into a staged project for one founder working with coding agents. It covers the map, rendering, art, engine/language, physics, AI/MCP, persistent Home Earth, invited sandbox worlds, subscriptions, and the product, security and operational work needed around them. The plan's budgets and performance gates remain proposals, not tested minimum-device benchmarks or launch commitments.
+**Direction revision v0.4 — 2 October 2026.** The founder's current priority is a compelling **single-player experience with an embodied, personalized AI companion**. AI is the magic of the game: the player expresses an intention, including a loose or ambitious wish, and their companion interprets it and changes or acts in the world through a coherent baseline ruleset. Multiplayer is the final expansion stage. Do not spend implementation time or coding-agent tokens on multiplayer before the single-player acceptance gate is met and the founder explicitly starts that stage.
 
-**Implementation update — 2 October 2026:** The [Phase 4 local save and travel checkpoint](../engine/checkpoints/save-and-travel.md) extends the [manual invention system](../engine/checkpoints/manual-invention.md) with actual PostgreSQL transactions, separate Home/sandbox saves, quarter-gravity visits, local test invitations, fenced transfer recovery and a reproduced isolated backup restore. The complete Phase 4 gate remains open for remote identity/replication, hosted lifecycle/load and off-host disaster recovery. The [ART-0–3 checkpoint](../engine/checkpoints/art0-3.md) remains a separate visual workstream; neither the 8.5 art target nor the real 8 GiB integrated-graphics device is certified.
+This revision supersedes the earlier shared-world-first and optional-AI plan. On 2 October the founder selected native Godot with C#; the earlier browser/engine comparison is deferred. The [world vision](../WORLD-VISION.md) governs product/art intent; the [backlog](BACKLOG.md) defines actionable packets. Earlier checkpoints retain their original phase numbers as historical evidence. The new **S0–S6 / M7** sequence below must not be confused with those old phase numbers or ART-0–5.
 
-The first [photo-informed rendering pilot](../../maps/barton_creek/photo_pilot/README.md) adds a rights-documented Greenbelt material study and simplified mall-west treatment. This is a small visual pass; broad photo coverage, surveyed landmark reconstruction and target-device performance validation remain open.
+## The experience we are making
 
-**Product direction update — 1 October 2026:** The founder selected [grounded painterly 3D](../WORLD-VISION.md) as the long-term look and feel: recognizable, natural-scale places with warm, coherent materials and lighting, plus a structured world that remains editable and stylistically consistent after player changes. The [Greenbelt style study](../greenbelt-style-study.md) is an early material comparison, not a final art treatment. This direction supersedes the faceted-atlas recommendation in the dated option survey; the engine, exact shaders, asset recipes and performance budget still require measured implementation work.
+A person enters a recognizable, painterly place as their own personalized sprite or avatar. Their AI has a **separate custom avatar**, identity and presence beside them. The player can speak or type: “Build me a castle,” “Become a dragon I can ride,” “Make a hurricane,” “Make the river flood,” or “Turn these trees into mushrooms.” They can direct its behavior loosely, including following, exploring or going on a rampage in an editable area.
 
-The recommended first product is a small, geographically grounded shared region where players explore as creatures, invent through a bounded vocabulary, save work, invite friends to a free private version with different gravity, and return safely. Use this to validate the experience before expanding Earth's playable coverage. The long-term destination remains one shared Earth with persistent places and portals to independently configurable Earths.
+The companion should interpret context, make sensible artistic choices, show its intentions when consequences warrant review, and act through supported world systems. It can ask a focused question when intent is consequentially ambiguous. The player should not need to describe a behavior graph or choose every wall and leaf. Changing the companion's appearance does not create a new owner, erase limits or reset identity. Riding it must involve mounting, movement, collision and dismounting, rather than wearing a decorative model.
 
-The initial technical recommendation is **Godot + C#, grounded painterly 3D within measured graphics budgets, an authoritative headless server, geographic data streamed in bounded tiles, and an optional model-neutral creation assistant**. Confirm the engine/language choice with a capped experiment. The operating plan reserves at most **$95/month**, below the user's $100 ceiling. Revenue stays in the project, after operating obligations and a reserve, to fund further development.
+Creative freedom comes from composable capabilities and reusable generators with broad parameter ranges. The wishes above are acceptance scenarios, not five hard-coded menu tricks. The first implementation is bounded; the intended product is dramatically more expressive than the current workshop. Unsupported requests should explain the missing capability and offer a useful interpretation, without pretending a cosmetic effect implements the requested behavior.
 
-## Read this plan in layers
+Magic may introduce an explicit force source or transformation; ordinary game code then applies the documented movement, material and interaction rules. This does not promise universal scientific weather, fluid or structural simulation. Hardware budgets bound active work, extent and detail; they should not silently reduce all creativity to recoloring a preset.
 
-| Document | What it answers |
-|---|---|
-| This roadmap | What to build, in what order, why, and when to stop or expand |
-| [World and creation vision](../WORLD-VISION.md) | Confirmed end-product appearance, place identity and coherent, editable construction behavior |
-| [Execution backlog](BACKLOG.md) | Bounded agent assignments, dependencies, ownership and evidence |
-| [Global map](research/01-global-map.md) | Earth datasets, licensing, coordinates, tile hierarchy, editable geography |
-| [Structured world and style system](research/11-structured-world-and-style-system.md) | Semantic parts, adaptive joins, versioned style recipes, edit validation and acceptance fixtures |
-| [Performance and stack](research/02-performance-and-stack.md) | Seven stack alternatives, low hardware budgets, measurements and language tradeoffs |
-| [Twelve visual styles](research/03-visual-style-options.md) | Art options, advantages, drawbacks, hardware load, flexibility and implementation languages |
-| [Physics and creation runtime](research/04-physics-and-creation-runtime.md) | Existing engines, primitives, authoritative effects, constraints and invariants |
-| [AI and MCP](research/05-ai-mcp-and-security.md) | Tool contracts, model neutrality, security, previews and inference spending |
-| [Persistent Earth and portals](research/06-persistent-earth-and-portals.md) | State, partitions, free worlds, invitations, recovery and scale |
-| [Business and reinvestment](research/07-business-costs-and-reinvestment.md) | Budget, free/paid services, price tests, unit economics and revenue use |
-| [Product and release](research/08-product-community-and-release.md) | Gameplay, research, onboarding, accessibility, moderation, QA and distribution |
-| [Maxar imagery assessment](research/09-maxar-open-data-assessment.md) | What the QGIS plugin provides, imagery rights, resolution, coverage and high resolution alternatives |
-| [QGIS MCP assessment](research/10-qgis-mcp-assessment.md) | Agent-assisted GIS authoring, candidate repositories, experiment and boundary from player MCP |
-| [Comparable projects and layer practices](research/12-comparables-and-layer-practices.md) | Primary-source precedents, transfer limits and one test for each MVP layer |
-| [First implementation checkpoint](../engine/checkpoints/phase0-1.md) | Phase 0–1 evidence, independent ratings and gates still open |
-| [Follow-up build evidence](../engine/checkpoints/followup-0-2.md) | Bounded spatial pin, terrain residency, workshop art and phase 2 authority loopback; open gates |
+The selected direction is **players connecting their own AI through a dedicated game-only profile**. The companion is central. Direct controls, manual editing, save access and graceful behavior during an AI outage remain accessibility and resilience requirements; a manual-only demo does not pass the companion milestone. Background agents acting while the player is absent remain later work.
 
-The confirmed product direction in the world and creation vision governs art and construction goals; this roadmap governs MVP scope and staged delivery. Dated research examples remain alternatives, not competing goals. The detailed workstreams retain their reasoning and direct primary-source links. All capacities, timings, quotas and prices proposed for Enfractal are unmeasured targets or hypotheses unless explicitly described as observed hardware or a vendor quote.
+## Current evidence: preserve what is built
 
-## Confirmed requirements and working assumptions
+Review baseline: published commit `750ef88284322b6ab736ba7f4bd4f333c954cd27` (2 October), including the laptop's latest save/travel update. These are recorded checkpoint results, not tests rerun for this planning revision.
 
-The source conversations establish a playable Home Earth, a common enforceable ruleset, invention by combining supported operations, portals to personal worlds that can alter supported rules, and a model-neutral machine-readable interface. Designs may travel; permissions, currency and powers require destination validation. Technical resource limits remain outside the magic system. Copyable underlying software and compatible independently hosted destinations are strategic goals.
+| Area | Implemented evidence | Unfinished work |
+|---|---|---|
+| Geography | Reproducible 4.096 × 4.096 km Barton Creek package, USGS/OSM inputs, archived sources, hashes and seeded vegetation | Multiple regions, original elevation product/datum metadata and reliable walking surfaces for mapped structures |
+| Movement | Walk, jump/glide/recovery, terrain collision and bounded residency fixtures | Final embodiment, riding, camera and target-device acceptance |
+| Invention | One data-only compiler, parts/behavior editor, previews, five recipes, placement/equipment, use, revision and local source saves | AI companion, general storms/floods/mounts; path/platform relationships remain a separate fixture |
+| Art | Original editable oak/juniper assets, painted materials, lighting repair and playable patch | Recorded standard 6/10 and low 5.8/10 versus 8.5 target; real 8 GiB integrated-graphics performance unverified |
+| Local worlds | PostgreSQL saves, separate Home/sandbox inventions, quarter-gravity visits, local invitation fixtures, fenced travel and backup/restore | Trusted-local-host service, not an Internet API; remote accounts/workers and off-host recovery not certified |
+| Verification | Save/travel checkpoint reports **24/24 engine suites**, plus database/adapter/recovery checks | Functional evidence does not establish art, future AI-adapter security, performance or enjoyment |
+| Multiplayer | Loopback and separate-process authority experiments | Continuous remote simulation, replication and account identity incomplete and now deferred |
 
-The user subsequently confirmed **planning only**, **one founder plus coding agents**, **early hosting and AI under $100/month**, and **paying-player revenue reinvested into development**. Those instructions govern the proposed scope. The attached conversations are product evidence, not independently verified competitor research; their old citation placeholders are replaced by primary sources in the workstream documents.
+Evidence: [manual invention](../engine/checkpoints/manual-invention.md), [art](../engine/checkpoints/art0-3.md), [save and travel](../engine/checkpoints/save-and-travel.md), [map](../../maps/barton_creek/README.md). Preserve these systems and their saves. Ignored `.cache/postgresql/data` contains user work; never treat it as disposable cache. Existing local journeys may remain usable; further hosted travel, invitation and account work is outside active scope.
 
-Working assumptions to revisit before implementation: native Windows first; Linux headless hosting; an invited adult research cohort; a third-person creature experience with adjustable camera; and modest avatar sizes before ant-to-continent scales. **Barton Creek at 30.250924, -97.810494 is the selected first map prototype**, and grounded painterly 3D is the selected long-term art direction. The exact MVP playable boundary, final style recipe, audience policy, code license and production engine version remain open.
+## First location and player scale
 
-Observed planning machine: i7-10875H, 8 physical/16 logical cores, approximately 32 GB RAM, RTX 2070 Super with 8192 MiB dedicated VRAM, and Intel UHD graphics. That inspection does not measure game performance or confirm which GPU a future build will use. Also target an actual 8 GiB integrated-graphics device. Testing with reduced RAM on the current machine cannot certify another device's GPU or memory bandwidth.
+**Scope clarification — 2 October 2026:** The active first location is the **Pfluger Pedestrian Bridge / Lady Bird Lake district in Austin**, using the founder's named boundaries: **6th Street north, Barton Springs Road south, Congress Avenue east, and MoPac west**. Preserve those boundaries as the intended district; source preparation must trace an explicit polygon and calculate its actual area instead of assuming a fixed-size square. Start detailed acceptance at the bridge, a landing and a short adjoining trail/waterfront route, then expand within the district. The rest may initially use honest coarse context.
 
-## The product to prove
+**Barton Creek is on hold as a content destination, not deleted.** Keep its immutable map package, saves, reference assets and regression fixtures. Reuse its source-to-package pipeline and runtime with a distinct district/base ID; do not relabel or overwrite the old map. Further Barton-specific dressing is not active work.
 
-The central question is whether a person can make an understandable invention that another person enjoys using, in a shared place worth returning to. A planetary flyover, a text-to-mesh generator or an attractive dragon alone cannot answer it.
+The initial player avatar is **30 cm (0.30 m)** tall in a world retaining real geographic dimensions and meter-based coordinates. This is a small inhabitant in a full-size place, not a miniaturized map. Establish one supported small-body controller/camera profile first: body shape, eye height, clearance, stepping, slope behavior, speed, jump/glide, interaction reach, navigation and recovery all need testing. The companion remains a separate custom avatar; dragon/morph dimensions are capability decisions, not an automatic global scale multiplier.
 
-The first fifteen minutes should work with AI disabled. Choose a creature, walk and glide through a ridge-and-garden route, operate a simple wind device in a contained workshop, change one part or parameter, help a consenting friend, and save an exhibit at a recognizable shared address. The garden is a protected landmark, not a new farming simulator. Returning tomorrow should reveal the same saved work.
+Publicly available, reusable geodata and photographs are the primary inputs. Prioritize well-documented recognizable places rather than a uniformly detailed globe. The founder's own photographs should first serve as independent validation and later fill identified gaps; a bespoke complete photo survey must not quietly become the required input for every region. Check exact coverage, dates, rights and reconstruction fitness before equating many web photos with usable 3D evidence. A recorded landmark/date/coverage audit precedes district production.
 
-The signature demonstration is a small storm dragon composed from ordinary capabilities: approved body, glide controller, bounded gust, sensor and cosmetic effects. It lifts a consenting friend, respects protected space, survives save/reconnect, enters a quarter-gravity sandbox, and returns with valid Home Earth state. Also test a stationary updraft, rescue pad, wind-driven spinner and sensor-light device. If the vocabulary only produces cosmetic variants of one dragon, improve creative depth before adding land.
+Measure two qualities separately: geographic/landmark fidelity from ordinary reference viewpoints, and convincing painterly traversal from the 30 cm avatar. Coarse elevation is insufficient for curb/root/step-scale collisions; use evidence-backed close geometry where available and label procedural interpretation elsewhere. Keep bridges, decks, rails and underpasses as structures independent of bare-earth terrain. Claiming a small creative plot is a local single-player action; online ownership services remain deferred. [District and scale study](research/15-pfluger-district-and-small-avatar.md).
 
-### Required for a usable private MVP
+### Metric units throughout
 
-- A roughly 2 × 2 km playable real-world region, derived from a buffered approximately 8 × 8 km source extract, with a coarse globe/atlas and explicit limits on playable coverage.
-- Walk, jump, glide, safe recovery, readable forces, a small modular creature kit and a protected common space.
-- Server-authoritative multiplayer, initially two players and later a measured cap up to eight people across Home plus one active sandbox.
-- A manual template/parameter editor, supported component composition, preview, saved designs and shared consequences.
-- One contained, structurally editable place-making fixture: an approved path/platform or small shelter edit whose join detail updates coherently, survives save/reload and remains revisable. This proves the visual system applies after change without promising arbitrary neighborhood remodeling.
-- One optional AI creation path and a small MCP surface using the same authoritative commands as the manual editor.
-- Durable shared edits, permissions, safe save/reconnect, backups and a tested recovery procedure.
-- One free saved sandbox per invited account, up to four simultaneous occupants including its owner, controlled invitations, different gravity, and dependable Return Home.
-- Bounded resource use, failure messages, report/block tools, basic accessibility, versioned release packaging and operator controls.
+The initial player-height target is **0.30 m (30 cm)**. All newly authored dimensions, physics parameters, player-facing measurements, examples and acceptance criteria use metric units: centimeters/meters/kilometers for length, square meters/square kilometers for area, kilograms for mass, meters per second for speed, meters per second squared for acceleration, and newtons for force. Runtime world coordinates remain meters. Preserve source-native units and CRS metadata in provenance, convert incoming geographic data explicitly into canonical units once, and test those conversions. Historical evidence is not silently reinterpreted. This updates the planned small-avatar profile; the existing prototype controller is not resized by a documentation change.
 
-### Deliberately later
+## First playable journey
 
-Whole-Earth detailed travel; globally excavatable terrain; true ant-scale and continental avatars; generalized material destruction or fluid simulation; high-speed vehicles; voice chat; unrestricted mesh/script/shader uploads; autonomous AI residents; real-money land trading; a marketplace/cash-out system; seamless live-rendered portals; mobile/VR/browser parity; and arbitrary third-party federation.
+The first 15–20 minutes should establish the relationship and magic:
 
-These remain roadmap tracks. They are excluded from the first delivery because each introduces a distinct performance, permission, content or operating problem. Free personal Earths start as regional personal worlds using the same global address model, not complete full-detail copies of the planet.
+1. Customize a player avatar and distinct companion appearance/name. Sprite/billboard versus fully 3D bodies is an art-and-camera decision to test, not a requirement for unrestricted uploads.
+2. Explore a short Pfluger Bridge landing/trail route together from the 30 cm avatar viewpoint. The companion follows, looks/points toward referenced objects, acknowledges instructions and can be interrupted instantly.
+3. Say or type “Turn those trees into mushrooms.” Review an understandable area preview, then see a persistent, editable transformation with coherent materials, ground contact and collision.
+4. Ask for a small castle or tower with an entrance and usable route. The companion chooses parts and resolves terrain/path joins. Revise it conversationally, then **save and protect** it.
+5. Ask the companion to become a rideable dragon. Mount, steer directly or issue a scoped destination instruction, land safely and dismount. Direct-control override takes precedence.
+6. Try a bounded storm or river-rise demonstration near the protected creation. It must have a real supported gameplay consequence, respect protection, stop promptly and leave an understandable result.
+7. Save, exit and return to the same place, companion identity, editable source and protection state. Undo an eligible edit or restore a checkpoint without corrupting the world.
 
-## Architecture and ownership
+This is the integrated S5 target, not a claim about current code or one coding packet. Early studies isolate steps. Founder playtests judge wonder, responsiveness, legibility and freedom; fresh testers then complete the loop without developer coaching.
+
+## Baseline rules and protected creations
+
+**Autosave** persists current state. **Save and protect**, or marking a creation important/locked, additionally establishes a visible protection boundary. Make the distinction explicit: do not imply every autosaved object is invulnerable, or silently leave an intentionally protected creation vulnerable. Unlocking requires a direct player action outside the companion's delegated powers. Single-player uses the owner's locked castle and protected fixtures to prove the intended future other-player guarantee.
+
+Protection covers source parts, transforms, structural integrity, supporting terrain and declared access/support relationships. Prevent indirect destruction through undermining, debris, accumulated momentum, fire, changed water, generator replacement or later effect ticks. Cosmetic rain/wetness may remain visible. Explain protective barriers or deflection through the visual language. Define occupant safety and access explicitly; object immutability alone does not prevent trapping a player.
+
+| Wish | First substantive implementation | Later expansion | Required proof |
+|---|---|---|---|
+| Trees into mushrooms | Selected semantic vegetation becomes editable mushroom families with seeded variation and revised colliders | More species, density, scale and habitat rules | Exclude protected objects; preserve identity/history/source labels; undo/reload reproduces the result |
+| Build a castle | Walls, towers, openings, grounded foundations and walkable entry from reusable generators | Interiors, more architectural families and larger terrain adaptations | Preview footprint/cost; protect neighbors/supports; parts remain revisable |
+| Rideable dragon | Stable companion identity, morph/animation, mounting, rider controls, flight/glide and collision | Other bodies and abilities | No permission reset; safe landing/abort and collision work on low settings |
+| Hurricane | Bounded moving/rotating wind field affecting vegetation and opt-in debris/breakable props, plus atmosphere | Larger fields and richer weather/damage | Real forces; direct and indirect protection; prompt stop and bounded work |
+| Flood the river | Controlled water extent/height in a bounded channel, with at least one gameplay effect such as buoyancy or changed traversability | More flow, erosion and catchment behavior | Protect support/access; safe recovery; explicit persistence/expiry; no full-fluid claim |
+| Rampage | Companion acts on editable/breakable scenery in a designated area for a bounded duration | Richer behavior and interactions | Every damage/force path respects locks; stop/revoke interrupts movement and chained effects |
+
+The current compiler/workshop limits are implementation facts, not permanent limits on imagination. Larger wishes may become staged jobs or hierarchies of bounded assemblies with shared total budgets; splitting effects cannot evade limits. Geometry/collision changes activate together at controlled revisions. Rendering reductions never change protection or core physics.
+
+## Local architecture now
 
 ```mermaid
 flowchart TD
-    C[Windows game client] --> G[Authenticated game commands]
-    M[Manual creation editor] --> G
-    A[Restricted AI client] --> X[MCP adapter]
-    X --> G
-    G --> V[One creation compiler and current permissions]
-    V --> H[Home Earth authority]
-    V --> S[Sandbox or queued preview authority]
-    H --> D[PostgreSQL state and action receipts]
-    S --> D
-    D --> B[Off-host backups]
-    T[Immutable geography and approved assets] --> C
-    T --> H
-    T --> S
-    P[Portal coordinator and admission] --> H
-    P --> S
-    P --> D
+    P[Player avatar and direct controls] --> G[Typed game commands]
+    A[Player's isolated AI profile] --> M[Restricted companion adapter / MCP]
+    M --> G
+    G --> V[One compiler, protection and current permissions]
+    V --> W[Local world authority and physics]
+    W --> S[Versioned saves and recovery]
+    W --> R[Painterly scene and both avatars]
+    D[Geodata, photos and authored sources] --> E[Editable semantic world and generators]
+    E --> V
 ```
 
-These are logical modules. Initially they live on one machine as a small number of processes, not independently scaled microservices. Home and sandbox need separate world identities, physics spaces and authority; using separate headless processes is a containment option within the measured host budget. A preview queues for or reuses the sandbox slot, or runs on the developer machine. It never quietly adds an unlimited third server.
+Authority means the code owning world outcomes; single-player does not require a remote server. Keep world/object/agent identities, typed commands, source/compiled separation, rules versions and durable receipts because they help now. Preserve an adapter boundary for eventual remote commands. Do not build speculative account services, replication, distributed physics or hosting orchestration.
 
-| Boundary | Owner | Contract to freeze first |
+GDScript currently owns compilation and game rules. Python prepares maps and supports the local save/travel service; SQL/PostgreSQL persists that service's state. The trusted-host database API is **not** the companion API: never give AI its credential or raw save-envelope mutation access. All AI mutations pass the same compiler and current protection checks as direct edits. Maintain existing local-service safeguards; production multiplayer hardening is deferred.
+
+Preserve local persistence while assessing native distribution behind a storage interface. Package local storage and export/restore without exposing database administration to players. Any migration needs backup and import/export fixtures. This roadmap revision does not itself perform an engine or database migration.
+
+## Art and geographic generation
+
+Keep evidence-backed geography, structured editable objects and regional visual interpretation separate. Geography makes the initial place recognizable; fantasy transformations are deliberate player changes. A castle or mushroom grove should share the painterly language without being represented as reconstructed geographic fact.
+
+Finish a **Pfluger Bridge landing/trail and waterfront scene with its recognizable urban context, judged from the 30 cm avatar viewpoint**, as the first art and systems laboratory. Include companion presence, a transformation and a construction edit. It is a proving ground, not the limit of the game's premise. Tiny Glade offers lessons in warmth and responsive construction; the setting remains contemporary Austin at real scale, inhabited by small avatars.
+
+Prioritize relationships: **roots meeting soil, limestone meeting banks, paths meeting terrain, foliage forming deliberate masses**, water meeting banks and structures meeting ground. Compare the original place, transformation, construction and storm/flood aftermath at walking, riding and aerial heights. Judge motion, camera occlusion, light and low-detail versions, not only screenshots. Keep the existing 8.5 art aspiration, with founder/player judgment alongside agent observations.
+
+Extract reusable procedural relationships from a successful authored scene. Use licensed elevation, mapped features, permitted photos and original assets to derive semantic parts; deterministic recipes supply joins, clustering, palettes, variation and fallbacks. Curated photos can guide regional style; suitable overlapping captures may support selected landmark reconstruction. A fused scan alone is not an editable building. Record rights, dates, resolution/confidence, generator/style versions and evidence-versus-interpretation labels.
+
+Resolve the new district's source elevation datum and label inferred building/bridge geometry before making accuracy claims; retain the Barton datum limitation in its historical package record. Use bounded tiles, local frames, source/collision seams and cancellable asynchronous generation. A 2 m sample grid does not establish 2 m survey accuracy. Retain pinned base/generator versions so a map update cannot move a protected castle. No live-map dependency or planet-wide detail build during ordinary play. Add a second region after first-scene play, regeneration and device gates pass.
+
+## Accepted platform and engine decision
+
+**Locked for current development: native Godot .NET with C#.** Windows x86-64 is the first build/test target because it is the available development environment. Other native platforms need their own export and device evidence. Browser delivery, Rust/Bevy comparisons and a custom renderer are deferred; reopen only for a measured blocker or a new founder decision. The earlier 36-hour comparison is cancelled, not an S0 dependency.
+
+C# owns new gameplay/domain systems and adapters. Preserve working GDScript compiler, authority, renderer helpers and regression fixtures during an incremental migration; replace a subsystem only with equivalent rules, save compatibility and passing tests. Python remains appropriate for offline geodata and the existing local save service; shaders remain Godot shaders. A language choice does not require rewriting a working data pipeline.
+
+Use the Compatibility renderer as the initial baseline and profile the actual small-avatar scene before changing rendering paths. Pin the .NET engine, SDK and build dependencies, provide a repeatable local bootstrap/build/test path, and verify a C# contract invoked from GDScript before adding gameplay. Record this machine's results separately from the untested low-device targets. The [accepted ADR](../engine/decisions/0001-native-godot-csharp.md) owns the decision; the [platform study](research/14-single-player-platform-and-engine.md) remains background research.
+
+Native delivery permits a local MCP process and local saves without game hosting. Keep the agent bridge separate from the trusted save service. Distribution should eventually avoid requiring players to install development tools or operate PostgreSQL manually; evaluate that packaging behind an explicit storage adapter without discarding existing worlds.
+
+## The AI companion and its security boundary
+
+The companion needs stable identity distinct from the player, custom appearance, speech/text interaction, scoped observations/goals, interruptible actions and visible planning/action state. Begin with follow/stay/come/stop and one meaningful transformation, then extend the wish matrix. LLM reasoning runs at the intention/job level; ordinary game code runs movement, animation, physics and continuous effects. Preserve drafts and provide progress/cancellation during model latency.
+
+Use one data-only vocabulary: inspect permitted surroundings, discover rules/capabilities, propose/edit, validate, preview, apply an approved change, issue a bounded behavior goal and stop. MCP is one adapter with explicit world/object/job handles and compatible versions; it supplies neither physics nor additional authority. Direct controls and test fixtures use the same commands. Start with one actual selected BYO-AI client; validate two actual clients by S6 before claiming broader interoperability.
+
+A player may grant routine follow/movement and reversible experimentation within an area/time/work allowance. Show a spatial/behavior preview for large transformations and destructive effects; confirmation binds exact operation/artifact, world, targets, revision and expiry. A model-generated “approved” field is never consent. The AI cannot unlock protected work, expand its own grant or add tools. Avoid a modal dialog for every harmless component action: scoped grants, stop and undo must support fluid play.
+
+Signs, chat, object names, blueprints, image/OCR content and imported-world descriptions are untrusted observations. Keep them out of privileged instructions and automatic long-term memory. A game-only profile must restrict tools, credentials and context, not just have a separate name. No email, shell, arbitrary files/URLs, purchasing or developer credentials. A personal assistant may delegate a bounded intention, but EnFractal cannot remove powers it retains elsewhere. Test the supported isolated setup and state this limit honestly.
+
+First-integration attack cases include injected signs/blueprints, owner impersonation, canary-secret exfiltration, new-tool requests, guessed handles, altered approval targets, revocation during effects, chained effects reaching locked objects/terrain, oversized manifests, repeated preview/model calls and shutdown/reload during writes. Also call malicious commands directly: rules must hold if the model is completely persuaded. Any bridge needs audience-scoped credentials, current authorization and bounded outputs/usage. Do not expose the trusted localhost save endpoint as a shortcut.
+
+The [AI/security study](research/05-ai-mcp-and-security.md) retains useful contracts. Its earlier optional-workshop and late-avatar sequencing is superseded. Development assistants, player companions and future world operators have distinct credentials/tools. Codex Security can support code review; it does not replace game-specific protection or prompt-injection tests.
+
+## Active phases and acceptance
+
+**Implementation progress:** [S0 native foundation](../engine/checkpoints/s0-native-foundation.md) records the pinned C# build, shared compiler adapter, retained regressions and Windows export. S1 is in progress; later phase and human/device gates remain open.
+
+These are delivery gates, not equal-sized tasks or calendar promises. The old 360–705-hour shared-MVP estimate is superseded; do not reuse it as a single-player estimate. Estimate bounded packets and revise from observed work. Art/control work and companion-contract work can proceed together after the minimum platform/contract decisions.
+
+| Phase | Focus | Exit evidence |
 |---|---|---|
-| Geographic location | Map team | Double-precision Earth coordinates, units/datum, `WorldId`, `FrameId`, pinned base hash |
-| Structured place | Map + creation + art | Stable semantic feature IDs, evidence/confidence, relationships, editable source and generator revisions |
-| Terrain activation | Map + physics | Tile version, collision revision, visual revision and activation tick |
-| Creation meaning | Physics/runtime | One capability registry, `CreationManifest`, compiled artifact and instance state |
-| Placement and effects | Authority/runtime | Authenticated principal, target world/frame, permission revision, work reservation and action ID |
-| Persistence | Home services | Durable receipt semantics, expected revision, migration and recovery behavior |
-| Portal travel | Portal services | Logical-avatar uniqueness, transfer ID, capacity reservation, fencing epoch and safe-return checkpoint |
-| AI access | MCP team | Explicit world/job/artifact handles, tool schemas and stable errors; no additional authority |
-| Asset display | Art + rendering | Content hash, license/provenance, low-detail fallback and decoded/GPU cost ceilings |
+| **S0 — experience and platform decisions** | Avatar/control concept, protection semantics, accepted native Godot/C# ADR and repeatable .NET toolchain | Pinned build and headless C#/GDScript interop plus existing regression results; selected route and explicit untested devices |
+| **S1 — a place worth inhabiting** | Public-data Pfluger district sample, 30 cm player/camera, separate companion, bridge/trail/waterfront and roots/banks/paths/foliage relationships | Appealing playable route, clear scale and interactions, useful low profile, editable source assets |
+| **S2 — first embodied magic** | Restricted BYO-AI connection, text plus tested speech path, follow/stay/stop, observations and one semantic transformation | Real AI transforms selected trees into mushrooms, revises, respects a protected fixture and stops; outage/manual recovery works |
+| **S3 — expressive wishes** | Castle generation, rideable companion, bounded hurricane/flood/rampage capabilities | Every wish category has a substantive tested interpretation; novel combinations and indirect-protection tests pass; controls remain usable |
+| **S4 — persistent, revisable worlds** | Reuse saves/recovery; persist companion, transformed source and locks; integrate structure editing and chosen-platform storage | Reload/restore preserves results and protection; interrupted jobs do not corrupt state; revision/eligible undo regenerates coherent visuals/collision |
+| **S5 — integrated single-player experience** | Complete first journey, founder/fresh-player sessions, art polish, security, latency, accessibility and device tests | Players understand and enjoy acting through their companion; dramatic magic coexists with saved/locked work; gates below pass |
+| **S6 — accessible single-player release** | Native Windows package, export/backups, second-client compatibility, measured distribution/inference costs and repeated-play improvements | Reproducible supported release, clean first-run/connect flow, repeat creative use and no save/protection/security blockers |
+| **M7 — multiplayer and shared worlds (last)** | Only after S6 and founder go decision: accounts, remote authority/replication, shared persistence, consent/moderation, hosted travel and later federation | Separate network/security/recovery/population/cost gates; preserve the single-player experience |
 
-Keep reusable blueprints in local coordinates. Placement commands carry global world/frame references. Keep map tiles, network interest sets, simulation cells and land parcels distinct. There is one canonical writable Home Earth at an address; queuing an arrival must not quietly create a second divergent copy of the garden.
+Every early feature still includes local save and protection checks; S4 integrates them rather than postponing correctness. Single-player research uses separate individual sessions, not networked cohorts. Existing local world travel may support experiments; portals and multiplayer are not dependencies of S2/S3.
 
-## The map workstream
+## Single-player release gates
 
-Use immutable versioned geography with sparse per-world edits. Natural Earth is suitable for the coarse overview; investigate a licensed Copernicus GLO-30 regional subset for elevation and optional WorldCover classification for broad biomes. Defer satellite imagery and imported city/building databases. Preprocess data during development, then distribute a bounded game package instead of depending on live map APIs during play. Dataset obligations and runtime-service terms are different. [Dataset selection and source links](research/01-global-map.md).
+- **Embodiment and agency:** two distinct customizable avatars, conversational direction, clear targeting, ride/morph behavior, direct control and immediate stop. Loose requests can be revised without an internal graph format.
+- **Expressive magic:** real supported consequences for the wish matrix and at least two novel combinations beyond starter recipes. Honest capability failures; tested AI play rather than a mocked chat label.
+- **Protection and physics:** locked creations and declared support/access survive direct and indirect destructive tests. Morphs, loaded blueprints, retries and generator changes cannot bypass boundaries. Low settings preserve physics/warnings.
+- **Art and regeneration:** original and altered scenes share the painterly language; terrain/structure/water/vegetation joins remain coherent. Founder accepts walking/riding views and low settings. Retain the 8.5 aspiration without substituting agent scores for human review.
+- **Persistence:** acknowledged edits, identities, protection and source/generator/style pins survive restart. Export/restore works in a clean location; incompatible versions never silently replace work. Native storage loss and service failure have explicit recovery behavior.
+- **Access:** remappable keyboard/controller inputs where supported, scalable text, non-color cues, subtitles/text alternative to voice, reduced-motion settings and clear failures. Fresh-user connection tests on the declared native device matrix; mobile remains experimental until measured.
+- **Performance:** proposed low-device target 720p/30 fps (warm p95 ≤33.3 ms, p99 ≤50 ms), measured memory/cold-load/effect peaks on a real 8 GiB integrated-graphics device. Native laptop 1080p/60 is a separate aspiration. Set native package/startup/storage budgets from measured builds. These are targets, not certified specifications.
+- **Agent security and cost:** isolated profile, minimum observations/grants, no unrelated secrets, exact approval binding, bounded jobs/outputs/billing, injection and direct-command tests. Do not advertise untested agent hosts as protected.
+- **Enjoyment:** observe unassisted completion, requested versus achieved changes, frustrating waits, return sessions and repeat creativity. Tests and generated-object counts alone do not establish enjoyment.
 
-The Maxar Open Data QGIS plugin is valuable for inspecting selected disaster imagery at roughly 30–50 cm image resolution, but its imagery is CC BY-NC 4.0 and event-limited; the MIT plugin license does not license those images for a paid game. It supplies images, not terrain heights. If the first playable region is in the United States, assess public-domain NAIP imagery and unrestricted USGS 3DEP elevation at the exact location as a potentially stronger high resolution route. Keep the decision conditional on rights, contiguous coverage and client measurements. [Maxar and alternative source assessment](research/09-maxar-open-data-assessment.md).
+## Budget and work discipline
 
-QGIS MCP could let coding agents inspect and prepare licensed map layers inside QGIS during development. Test it on a small window after selecting a region; preserve a reproducible GDAL/PROJ build recipe and measure memory on the founder's machine. It is not a map source, a game renderer or the restricted MCP exposed to players. [QGIS MCP assessment](research/10-qgis-mcp-assessment.md).
+Retain the founder's **under-$100/month ceiling**, with a **$95 planning cap** and no automatic purchases. Existing subscriptions/equipment remain separately disclosed. Keep the earlier **$15 incremental AI** allowance (up to $10 game inference, remainder metered development) until revised; it is a ceiling, not proof that frequent speech/generation is affordable. BYO AI changes who pays for inference, not simulation limits or provider terms. A chat subscription does not automatically provide a game API allowance.
 
-The initial delivery hierarchy is a geographic quadtree with a separate local tangent-frame gameplay mesh. A cube-sphere remains an alternative if seamless polar traversal becomes a near-term requirement. Keep coordinates globally meaningful from day one, but do not build all high-detail tiles upfront. A 30 m source interpolated onto smaller triangles is still not measured centimeter terrain. Mark generated details as fantasy interpretation.
+Native single-player requires no game hosting. Measure any separately proposed AI relay costs before adopting one. The former $55 multiplayer-host allocation remains unspent, not a purchase instruction. Cloud GPU streaming, always-on autonomous agents and unbounded repair loops are not budgeted. Jobs reserve maximum supported charge/work and stop when allowance is exhausted.
 
-Handle vertical datum conversion, invalid source cells, tile seams, coast/water behavior, coordinate axes and coordinate-to-height round trips explicitly. Render LOD never changes authoritative collision. Preserve old base versions referenced by sleeping worlds and backups. Updating the source DEM cannot automatically move people's houses. Sandbox forks initially share the baseline geography and permitted templates, not unauthorized copies of Home Earth creations.
+Revenue remains reinvested after obligations and a reserve. Pricing, subscriptions, land economies and marketplaces are deferred. The [business study](research/07-business-costs-and-reinvestment.md) is historical scenario analysis, not a launch or purchase commitment.
 
-Milestones: one provenance-complete regional package; consistent render/collision seams; streamed neighboring patches; sparse edit save/reload; source-version migration fixture; a second geographically separated region; only then broader globe traversal. Initial packaging goal is below 250 MiB for the starting region, subject to measurement; reserve approximately 512 MiB of the application's 2 GiB disk cache for map work initially.
+Use at most two builders plus a reviewer on independent packets. Each names owned files, contracts, evidence, failure cases and a stop condition. Separate branches/worktrees across this machine and the home laptop; fetch/inspect published changes before integration. One owner integrates shared schemas/rules. Do not automatically continue into networking because an old E packet lists it next. Preserve saves and checkpoint evidence; refreshing a checkout does not require setup reruns or cache deletion.
 
-## Structured world and visual coherence
+## Multiplayer and larger shared worlds: the final stage
 
-The [confirmed vision](../WORLD-VISION.md) requires three separable layers: evidence-backed geographic foundation, meaningful editable world parts, and a regional visual interpretation. A photograph or fused scan may be an input or a displayed asset; it is not automatically an editable building. Important structures need stable identities and parts such as walls, roof, openings and paths, with relationships and permitted operations. Store uncertainty and source/interpretation/player-change labels at useful object or feature granularity, not only at package level. [Detailed system direction](research/11-structured-world-and-style-system.md).
+The long-term destination includes other players, protected creations, a canonical shared Earth and independently configurable worlds. Begin that work after the single-player product proves itself. Keep existing experiments as references; defer remote identity, transport/replication, prediction, hosted admission, online invitations, remote consent, moderation and federation.
 
-Player intent should invoke approved operations and deterministic detail generators. A path joining a terrace, opening in a wall, or watercourse meeting a bank should receive coherent transition details while the underlying parts remain individually editable. Keep generator version, seed, parameters, manual exceptions and rendered derivatives distinct. An edit that changes a join must invalidate and rebuild the affected visuals and collision at a controlled revision boundary; saved source objects remain the durable truth. Broad remodeling of existing cities, arbitrary excavation and automatic conversion of all scanned objects are long-term goals, not initial MVP capabilities.
+M7 revalidates every power against adversarial clients and other players' permissions. Local protection is groundwork, not network-security evidence. Add authenticated identities, filtered observations, authoritative outcomes, idempotent durable writes, independent consent, indirect-effect containment, loss/reorder tests, measured population limits, off-host recovery and affordable operation. Never expose the local save service or trust client-reported positions/outcomes as a shortcut.
 
-The same creation compiler and authority validate manual and AI-assisted edits. Alongside physics and permission rules, a visual contract bounds material families, geometry, textures, effects, fallback detail and scene-wide cost. A machine can enforce hard limits and preserve provenance; it cannot certify that a café looks inviting or suits its neighborhood. Founder review and later player research evaluate those qualities. New component/generator families enter through reviewed extensions, not player-supplied executable shaders or scripts.
+Sequence inside this final stage: two-player authority using the finished single-player loop; shared persistence/protection; moderation/recovery; invited larger sessions; same-operator world travel; then separately reviewed federation/scale. No network gate is a prerequisite for active single-player art, companion or magic packets.
 
-The first construction proof stays in a contained authorized plot: place or revise a small structure/path, regenerate one meaningful join, preview its look and cost, publish one durable change, reload it, and edit it again. Check the result at walking height and on the low graphics profile. A later end-to-end reference scenario may turn an authorized parking-lot parcel into terraces, a café, greenhouse and short stream while retaining neighboring buildings; that larger transformation should not be silently counted as an MVP acceptance gate.
+## Research and next work
 
-## Rendering and language decisions
+Execute [SP01–SP18](BACKLOG.md) in S0–S6 order, with bounded reviewable increments. Commit, push and merge validated phase work to main as requested; record open human/device acceptance gates rather than marking them passed. Attach a restricted real AI to one transformation before expanding the wish vocabulary. Reuse the latest save/travel work when integrating new state. Implementation is authorized; paid infrastructure and multiplayer remain outside current scope. Checkpoints record actual implementation and validation evidence.
 
-Godot + C# is the leading maintainability/open-code hypothesis. C# can serve client gameplay and the headless runtime; Godot's native engine handles rendering and physics. Use ordinary standard-precision builds with bounded local frames. Keep optional TypeScript confined to an MCP adapter if its maintained SDK materially helps. Do not start with a custom engine or parallel C#/Rust/C++ rule implementations.
-
-The stack study compares Godot C#, Godot GDScript, Unity C#/URP, Unreal C++/Blueprints, Rust/Bevy, TypeScript/Babylon or Three.js, and Luanti C++/Lua. C# is not claimed to be the fastest language. Development efficiency, diagnostic tools, ownership of code, platform support and measured whole-frame performance matter together. Current Godot documentation excludes C# web export; browser-first gameplay would reopen the choice. [Detailed comparison and sources](research/02-performance-and-stack.md).
-
-Cap the initial Godot feasibility spike at about 20 founder hours plus agent preparation: native/headless builds, one small terrain scene, movement/physics fixtures, measured resource use and ability to debug a simple change. Only run a further 8–12-hour Unity challenger if a specific blocker may be engine-related. Full portal recovery and multiplayer soak tests are later integrated gates, not prerequisites to completing a 20-hour spike. Stop after a candidate passes; do not build seven engines.
-
-Use bounded disk/decode/GPU caches, hierarchical detail, culling, instancing, coarse distant proxies, small shared textures and a simple light model. Cancel stale downloads/decodes when traveling. No mandatory ray tracing, volumetric clouds, dynamic global illumination or live portal rendering. Graphics settings may simplify presentation, never authority, collision or readable warnings.
-
-| Proposed acceptance target | Initial value | Evidence needed |
-|---|---|---|
-| Low device | 720p at 30 fps; warm p95 frame ≤33.3 ms and p99 ≤50 ms | Real 8 GiB iGPU device, release build, repeated routes |
-| Current laptop | 1080p at 60 fps; p95 ≤16.7 ms and p99 ≤25 ms; optional 30 fps cap | Confirm RTX selection and sustained thermal behavior |
-| Low-device memory | ≤2.5 GiB attributable CPU/shared-GPU envelope | Separate private/commit/shared-memory records without double-counting |
-| Laptop memory | ≤4 GiB private client memory and ≤2 GiB initial GPU allocation | Peak, settled and long-session measurement |
-| Server | Candidate 8 GB-class host; simulations ≤3 GiB, DB/gateway ≤1 GiB; adapt OS/cache to actual usable bytes and preserve ≥2 GiB reserve by lowering other caps | Actual usable bytes and simultaneous-world/cold-load measurements |
-| Cadence | 30 Hz authority, 15 Hz nearby snapshots | Movement/contact tests; test 60 Hz physics only if needed |
-| Server tick | p95 ≤20 ms and p99 ≤30 ms | Eight-person combined stress scene, not an empty region |
-| Network | Average ≤30 KiB/s gameplay outbound per player; p95 ≤60 KiB/s | Loss/reorder tests and measured player-hours; tiles accounted separately |
-| Stability | Two-hour client soak, later overnight server soak | No crash or unbounded growth; recovery and resource eviction evidence |
-
-Vendors may label RAM in GB while operating-system tools report GiB. Measure the purchased configuration's actual usable memory and preserve reserve; the table is a proposed 8 GB-class allocation, not a promise that every quote provides exactly 8 GiB. If the host cannot pass, lower work/admission ceilings before increasing spend.
-
-## Art direction and earlier graphical options
-
-The **selected goal is grounded painterly 3D** as defined in the [world and creation vision](../WORLD-VISION.md): natural proportions, softly sculpted but recognizable forms, controlled material variation, gentle lighting, local biome and architectural identity, and a welcoming walking-height view. The table below is the earlier option survey. Its ratings are qualitative engineering judgments, not benchmarks, and no style requires one gameplay language. The listed paths remain useful for implementation tradeoffs rather than a vote to replace the confirmed direction.
-
-| Style | Hardware strain | Strength and flexibility | Main drawback | Practical coding/shader path |
-|---|---|---|---|---|
-| Faceted illustrated Earth | Low | Easy procedural geography, modular shapes and palette reuse | Repetition or weak silhouettes can look unfinished | Godot C#/GDScript + vertex colors; Unity C# equivalent |
-| Soft toon | Low–medium | Expressive unusual creatures and readable motion | Outlines/extra passes and light-band artifacts | C#/GDScript + Godot shader; Unity C# + HLSL/graph |
-| Painted storybook | Medium textures | Warm identity on simple geometry | Painting/UV labor and inconsistent new assets | C#/GDScript with simple lit shaders and painted assets |
-| Clay miniatures | Medium | Coherent rounded, assembled creatures | Mesh/sculpt labor; realistic soft lighting costs | C#/GDScript + rough opaque materials |
-| Papercraft | Low–medium | Distinctive folded shapes and inexpensive textures | Thin surfaces fail under free aerial cameras | C#/GDScript + opaque mesh materials |
-| Block voxels | Medium CPU spikes | Intuitive building and combinatorial construction | Remeshing/storage; grid constrains organic shapes | C#/GDScript chunk meshing; native hot path only if measured |
-| Smooth voxels | High CPU/meshing | Organic excavation, caves and sculpting | Collision rebuilding and persistent volumes greatly expand scope | C# or C++/Rust meshing plus engine shaders |
-| Retro textured 3D | Low GPU | Deliberate low-resolution look with flexible objects | Tiny details/readability and optional wobble discomfort | C#/GDScript + low-resolution target/palette shader |
-| Sprites in 3D | Low–medium CPU, medium–high overdraw | Illustrated creatures and economical distant proxies | Free rotation/custom animation multiplies sprite work | C#/GDScript + billboard/atlas shader |
-| Living topographic atlas | Low–medium | Strong Earth identity and wayfinding | Contour shimmer/label clutter; less embodied feeling | C#/GDScript + contour shader and label logic |
-| Restrained realistic PBR | High | Recognizable places and broad visual range | Textures, foliage, lighting and art consistency | C# in Godot/Unity or C++ Unreal + standard PBR |
-| Procedural implicit creatures | High shader cost unless baked | Compact descriptions and unusual blended shapes | Collision/animation/LOD separate; screen coverage expensive | Godot shader/HLSL with C# orchestration; bake meshes where possible |
-
-The [Greenbelt style study](../greenbelt-style-study.md) has compared three small material/lighting treatments on the same source-derived map. None yet achieves the finished grounded painterly direction: the trees, rocks and building proxies remain illustrative, and the scene lacks semantic editing and adaptive construction joins. Next, author one convincing walking-height reference scene with regional materials and natural-scale silhouettes, then test a small editable structure and its regenerated details. Keep the twelve options as historical tradeoff research, not twelve production pipelines. [Full options and pros/cons](research/03-visual-style-options.md).
-
-## Physics and creation language
-
-If Godot is selected, use its existing Jolt integration; test specific joint/contact caveats instead of assuming every exposed setting works. Keep a Godot Physics comparison for a reproducible Jolt issue. Unity/PhysX, Rapier and Unreal/Chaos remain whole-stack alternatives, not simultaneous dependencies. [Physics comparison and primary documentation](research/04-physics-and-creation-runtime.md).
-
-The shared vocabulary starts with a capsule avatar, approved rigid shapes, fixed/hinge attachments, walking/jumping/gliding, bounded wind, limited sensors, a small material palette and cosmetic effects. Terrain mutation is a later bounded workshop operation. A graph combines these; it cannot install a new engine capability by naming it. Publish the units, supported parameters and stable error messages.
-
-Initial proposed ceilings: 16 total behavior nodes, eight dynamic bodies and eight joints per creation; five trigger activations per second; bounded fields up to eight meters, two seconds and eight permitted targets. The whole initial host shares a ceiling of 128 awake props, 32 joints and 16 fields across Home, sandbox and previews. These are profiling workloads, not guaranteed allowances for every person simultaneously. Actor/region/host quotas override per-object legality.
-
-Use one authoritative outcome and limited client prediction; do not depend on all machines producing identical rigid-body simulation. Public structures are immutable. Avatars cannot shove others by default. Friendly lift effects require consent; dynamic contraptions operate in contained opt-in workshops. General arbitrary boulders crossing property boundaries are excluded until their indirect effects can be safely enforced. Attribution alone is not protection.
-
-The creation language, compiler and runtime share one owner. The AI team is a compiler consumer, not a second compiler author. Test malformed data, cycles, causal feedback, NaN values, old commands, revoked permissions, overlapping actions and quota splitting. The immutable compiled artifact is not an eternal permission grant; each consequential effect still checks current state.
-
-Encourage surprising combinations within published rules. Provide a separate bounded test environment for reproducible exploit reports and stress experiments; do not reward crashing an occupied Home region. A discovery that yields fictional energy still remains inside its computation allowance. This distinction should appear in community rules and creator feedback.
-
-## Persistent Home Earth and portals
-
-Use one PostgreSQL database for durable metadata/receipts and immutable asset/map blobs for large content. Commit acknowledged placements, ownership changes and transfers durably; snapshot motion rather than writing every frame. Empty geography is saved, not continuously simulated. Empty sandbox workers checkpoint and stop. No offline replay of millions of physics ticks.
-
-Partition future activity by authority cells, independent of geographic delivery tiles or parcels. A crowded garden remains a hot-spot problem even if the globe is enormous. Begin with admission caps and queues. Later test two authority workers with whole-assembly handoff; no cross-worker rigid joints in the MVP. Never promise infinite players in one location.
-
-A free sandbox initially has one saved state, about 100 MiB of proposed compressed user deltas/assets, an owner plus up to three visitors, and a shared service-wide session slot. Quotas also limit decoded size, object count and simulation work. Start with a 20-account cohort, not an open registration flood. Use fair, scheduled sessions; when another owner waits, a provisional one-hour allocation ends with warning/save/return. Free saves persist while sleeping. No paid tier bypasses client or server safety limits.
-
-Portal transfer is a durable state machine: request and reserve; validate destination; checkpoint/freeze source; atomically move authority to a new epoch; materialize destination; acknowledge/recover. One logical avatar is unique across all login sessions. Unknown commit outcomes freeze and reconcile by transfer ID; timeout is never proof that it is safe to re-create the source avatar. Recheck invitations, blocks, rule hash, capacity and destination readiness at commit. A late denial triggers a new fenced return. The Home server must support all eight admitted players returning.
-
-Returning restores valid Home state. Blueprints can travel with permission and provenance, minting destination-local instances. Private powers, possessions and economic claims cannot become Home authority. Main credentials and model keys never go to a destination. Portals initially connect same-operator worlds; independent federation follows a separate compatibility/security milestone. [Detailed transfer design and failure cases](research/06-persistent-earth-and-portals.md).
-
-## MCP and AI integration
-
-Roblox supplies useful but distinct precedents: Studio MCP supports development tools, while its 4D generation describes schema-based functional generation inside experiences. Borrow the inspect, propose, test and revise loop; do not expose developer execution tools to public players. AI/MCP alone is not the proposed differentiation. [Roblox Studio MCP](https://create.roblox.com/docs/studio/mcp), [Roblox 4D generation](https://about.roblox.com/newsroom/2026/02/accelerating-creation-powered-roblox-cube-foundation-model).
-
-The proposed adapter describes world rules, lists capabilities, validates a creation, schedules preview, reads/cancels owned jobs, prepares publication, publishes an approved artifact, and exports an authorized design. No `eval`, arbitrary file reads, shell, SQL, arbitrary URL fetching or ownership-grant tool. Manual controls and AI invoke the same game API. Publication review binds the exact artifact, destination and revision.
-
-Start with local stdio for a restricted creation client; hosted MCP later uses maintained standard authorization/transport libraries and explicit compatible versions. Protocol, game schema and world-rule versions are separate. Pin a tested SDK and clients rather than copying an old tutorial. High-frequency movement uses normal game networking, not MCP. [Integration details and current specification links](research/05-ai-mcp-and-security.md).
-
-Use at most $15/month of incremental AI, with up to $10 for in-game creation and the remainder for extra development API work. Cap attempts, context/output, deadlines and worst-case billing reservation before calls. Existing subscriptions do not automatically cover game API usage. Manual building and basic play continue when AI is unavailable. Model/provider selection comes from a small fixed evaluation, not speculative benchmarks.
-
-Autonomous avatars are a later mode with a separate identity, visible badge, high-level intentions, limited area/time/action grants and a stop control. They cannot inherit the developer assistant's file/email/spending privileges. A third-party assistant may already have broad privileges, which our server cannot remove; official hosted avatar mode must use a restricted agent environment.
-
-## Parallel agents without an unmanageable project
-
-The requested teams become **12 workstreams**, staffed in bounded waves. This planning pass used five specialist agents in parallel and then independent cross-review, with the coordinating agent integrating persistence, business and the roadmap. Future implementation should generally run two or three coding agents plus one independent reviewer; the founder remains the product owner and integrator. Five agents can produce changes faster than one person can responsibly understand them.
-
-| Workstream | Builder/research responsibility | Independent review responsibility |
-|---|---|---|
-| 1 Map/data | Source pipeline, geography and provenance | Datum, seams, license and distribution checks |
-| 2 Rendering | Streaming, culling, residency and low settings | Cold/warm/thermal/memory measurements |
-| 3 Art | Style, modular assets and readable effects | Accessibility and cost at low settings |
-| 4 Stack/tooling | Engine decision, builds and dependencies | Reproduce native/headless builds and licenses |
-| 5 Physics/runtime | Movement, compiler and supported effects | Indirect permissions and generated invariant tests |
-| 6 Networking | Commands, interest management and prediction | Loss, reorder, forged inputs and bandwidth |
-| 7 Home persistence | Durable receipts, saves, parcels and recovery | Crash/migration/restore/duplicate-action tests |
-| 8 Portals/sandboxes | Invitations, lifecycle, admission and transfer | Unknown commits, stale epochs and safe-return faults |
-| 9 AI/MCP | Restricted adapter and inference workflow | Prompt injection, handle access, budgets and compatibility |
-| 10 Product/community | Loop, onboarding, moderation and cohorts | Independent playability/accessibility observations |
-| 11 Business | Service tests, accounting and later billing | Entitlement failures, actual margins and capacity promises |
-| 12 Release/operations | Packaging, telemetry, deployment and incident tools | Fresh-machine install, soak, rollback and restoration |
-
-Each assignment gets a short context bundle: requirement, contract version, files owned, accepted inputs/outputs, forbidden scope, acceptance evidence and stop condition. Use isolated worktrees once a repository exists. Never let several agents independently edit the same schema, tick loop or migrations. Shared contracts change through a short reviewed decision. One human integrates small changes and reruns the relevant checks.
-
-Before distributing code, choose a coherent open-source license and separate licenses/notices for the specification, original assets and geography. MIT or Apache-2.0 are candidates for permissive copying; the decision needs a dependency compatibility check and a founder choice about contributions. [MIT text](https://opensource.org/license/mit), [Apache-2.0 text](https://www.apache.org/licenses/LICENSE-2.0). Publish supported capability profiles and conformance fixtures without claiming a universal standard. Maintain a security-reporting contact and a policy for contract-breaking releases; forks may be compatible destinations, but do not inherit Home Earth's authority or reputation.
-
-Parallelize map preparation, art fixtures and pure-domain rules after interfaces freeze. Networking and persistence can develop against shared fixtures. Portal code depends on durable identity/presence; AI publishing depends on the actual compiler and permissions. Review agents may prepare adversarial cases before implementation, but cannot claim to have tested code that does not exist.
-
-## Phases and exit gates
-
-Founder-hour estimates below cover hands-on implementation oversight, integration, debugging and milestone checks with agents assisting. They are planning ranges, not measured velocity. Do not convert agent count directly into equivalent full-time developers. Recurring community operation later adds approximately 4–6 hours per week. Gates may overlap where dependencies allow.
-
-| Phase | Proposed founder hours | Work that can run in parallel | Exit evidence |
-|---|---:|---|---|
-| 0 Feasibility and contracts | 25–45 | Engine spike; dataset/license sample; primitive examples; player/competitor research | Native/headless viability, location/style shortlist, versioned contracts, explicit stop risks |
-| 1 Place and movement | 35–70 | Regional terrain; controller; minimal art/UI; profiling harness | Recognizable region, seams/collision, safe glide, bounded cache and useful low profile |
-| 2 Shared consequences | 50–100 | Network commands; world authority; basic identity; independent network tests | Two remote clients agree on wind/glide; forged/replayed inputs fail; measured traffic |
-| 3 Manual invention | 60–110 | Single compiler; editor; contained workshops; permissions review | Non-AI creation, combinatorial inventions, precise errors and bounded work |
-| 4 Save and travel | 60–110 | Durable state; sandbox lifecycle; invitation UI; transfer/recovery tests | Shared saves survive restart; changed-gravity visit/return; fault suite and off-host restore |
-| 5 Optional AI/MCP | 30–60 | Adapter; inference evaluation; publication UX; security review | Two clients use restricted tools; AI on/off path; bounded billing; no additional privileges |
-| 6 Integrated hardening | 60–120 | Performance/soak; accessibility; moderation; release packaging | Eight-person target or declared lower cap passes; startup/cold-world peaks; no blocker invariants |
-| 7 Private product alpha | 40–90 | Paired sessions; issue fixes; retention and cost analysis | Ten-tester pilot then 20-person activated cohort; four weeks of real opportunity to return |
-| 8 Optional paid pilot | 35–75 additional | One service package, billing tests, operating/terms review | Actual demand, reliable service, cancellation, budget and refund readiness |
-
-Phases 0–7 total **360–705 founder hours** before contingency. A 30–50% uncertainty allowance makes a planning envelope roughly **470–1,060 hours**. At 15 focused project hours weekly, that is roughly **7–16 months**, with operations or learning time potentially extending it. A first two-client technical proof can arrive much earlier than the full private MVP. These figures should be replaced after the first two work cycles; if the founder is learning the engine/networking from scratch, expect the upper range or reduce scope.
-
-Do not buy months of hosting while the prototype can run locally. Begin paid hosting when remote tests require it. Phase 8 also depends on actual cohort calendar time and any professional-review cost; it is not a guaranteed paid launch after a specified number of coding hours.
-
-```mermaid
-flowchart LR
-    G0[Contracts and feasibility] --> G1[Region and movement]
-    G0 --> R[Rules and fixtures]
-    G1 --> G2[Two player authority]
-    R --> G3[Manual invention]
-    G2 --> G3
-    G3 --> G4[Durable saves and portals]
-    G3 --> G5[Restricted AI and MCP]
-    G4 --> G5
-    G4 --> G6[Hardening and recovery]
-    G5 --> G6
-    G6 --> G7[Invited player cohorts]
-    G7 --> G8[Conditional paid pilot]
-```
-
-The critical path is supported capabilities → shared authority → durable identity/state → safe portals → integrated reliability → repeat use. World coverage, art polish and more AI features must not consume all effort while that chain remains unproven.
-
-## Acceptance that determines release
-
-| Area | Required proof before expanding access |
+| Reference | Role under this revision |
 |---|---|
-| Product | Complete solo and cooperative loop without AI; people can explain what they changed and why it worked |
-| Invention | Multiple functional combinations beyond a prescribed dragon; no special-case code for every named creature |
-| Authority | No duplicated logical avatar/possessions, permission amplification, cross-world state leakage or double-applied retried action |
-| Physics | Containment, consent revocation, safe movement and bounded causal chains; graphics cannot alter outcomes |
-| Persistence | Acknowledged durable edits survive process crash; off-host restoration works; known disaster-loss window disclosed |
-| Portal | Failure/retry at every state, concurrent reconnect, revoked invitation and unavailable destination all recover safely |
-| Low hardware | Profile targets or honestly reduced supported content/quality; real iGPU test before claiming that minimum |
-| Whole-host load | Home plus sandbox and preview scheduling fit together, including cold load and all-player return |
-| AI | No secrets/unrelated privileges; guessed job IDs fail; inference cap holds under retries; manual fallback works |
-| Transport and research data | Maintained authenticated encryption/server identity checks for both gameplay and control traffic; tester notice, minimal collection and retention/deletion choices ready before enrollment |
-| Community | Report/block/revoke/quarantine/appeal procedures, basic accessible flows and manageable founder workload |
-| Cost | Actual billed and reserved spend stays under $100; no unchecked autoscaling or indefinite model loops |
-
-Use unit tests for pure coordinate/schema/budget functions; integration tests for server authority and durable state; generated state-machine sequences for chained failures; real release builds for performance; humans for enjoyment and clarity. Independent tests derive from the contract, not a rewrite of the implementation. Passing tests is evidence of the tested cases, not a proof of unlimited safety or scale.
-
-Do not expand with unresolved duplication, corrupt saves, unsafe transfer, privilege escapes, uncontrolled billing or repeated crashes. Low generation quality can ship as an optional limited feature; low creation quality or an uninteresting Home world requires product work before monetization.
-
-## Free access paid services and reinvestment
-
-| Monthly allocation | Ceiling |
-|---|---:|
-| Candidate host | $55 |
-| Backups and object/map storage | $6 |
-| All incremental AI | $15 |
-| Domain amortization | $2 |
-| Monitoring/incidental tooling | $2 |
-| Tax/IPv4/usage uncertainty reserve | $15 |
-| **Total** | **$95** |
-
-This is a spending allocation, not a tested hosting quote. The researched CCX13 example lists 8 GB and two dedicated vCPUs, with US pricing of $50.99 before IPv4/tax; verify actual availability, included transfer and workload before purchase. A cheaper 4 GB quote does not satisfy the proposed memory envelope. [Plan specification](https://www.hetzner.com/cloud-singapore/), [current price table](https://docs.hetzner.com/general/infrastructure-and-availability/price-adjustment/).
-
-Existing subscriptions, wages and existing equipment are excluded; new metered development AI is included. If the $100 is intended to cover existing subscription bills, subtract those first. Annual domain cash expenses count in their actual month. Sleeping sandboxes reduce simulation load, not the bill for an allocated VPS. Exact accounting, fees and sensitivities appear in the [business study](research/07-business-costs-and-reinvestment.md).
-
-Offer free exploration/manual creation and bounded saved sandboxes first. Consider one $8–$12/month creator-service pilot only after repeat use, explicit interest in a specific working benefit, reliable persistence, measurable cost and tested cancellation. A proposed small-cohort gate is six of 20 activated testers returning in week four and five expressing concrete willingness to purchase; use counts and interviews, not a claim of statistically established product-market fit.
-
-Paid benefits are more saved projects, measured storage, restoration/version history or reserved session time, not exemption from shared rules. Define actual bookable hours/seats before selling reservations. Keep free access meaningful. Avoid annual/lifetime promises, land speculation and marketplace payouts at this stage.
-
-Retain all proceeds for the project. First cover payment/refund/tax obligations, committed operation and a three-month operating reserve; invest remaining funds in measured bottlenecks. Small recurring revenue can buy targeted specialist reviews, asset work or more compute, but does not yet pay a developer salary. Do not increase recurring spend against projected future subscriptions.
-
-## Risks and decision responses
-
-| Risk | Early signal | Response and owner |
-|---|---|---|
-| Planet scope consumes the project | Detailed globe demo but no shared invention | Founder keeps one region until creative loop and persistence gates pass |
-| Low hardware fails | Persistent frame/memory misses on real minimum device | Renderer reduces effects/residency and creation density; revisit style before rewriting engine |
-| Creator freedom is shallow | Players only recolor one preset | Product/runtime add one well-tested compositional primitive or challenge |
-| Unsafe indirect physics | Props or momentum bypass protected space | Physics narrows shared effects/containment; defer broad destructive interactions |
-| Host cannot support two worlds | Tick misses or cold-start memory spikes | Operations lowers combined quotas/capacity, schedules sessions, reevaluates within budget |
-| Free sandbox queue is unusable | People cannot visit within available evenings | Founder adjusts cohort/session windows before adding registrations |
-| Persistence/portal loss | Unknown commits, duplicate avatar or unrecoverable save | Stop rollout; fix fenced state machine and reproduce recovery |
-| AI costs or errors grow | Repeated repairs, large prompts, provider bills | Cap attempts, reserve charges, improve templates; manual path remains |
-| Solo review bottleneck | Large agent changes nobody understands | Smaller file-owned tasks; two builders plus reviewer; reject unexplained dependencies |
-| Moderation displaces development | Support consumes available founder hours | Smaller invited community, fewer communication/upload features, staffed windows |
-| Data/asset rights unclear | Source release cannot be redistributed or exported | Map/art replaces source and preserves provenance before content production |
-| Monetization distorts design | Selling land or concurrency ahead of value/capacity | Business waits for retained use and a costed service |
-| Proprietary ecosystem lock-in | Core rules stored only in engine scenes or provider prompts | Versioned neutral schemas, export fixtures and replaceable adapters |
-
-Before public access, schedule appropriate professional review for audience/privacy, recurring billing, content rights and moderation responsibilities. This is a named cost/work dependency, not an assertion that a generic template or adult-only label solves legal duties. Do not silently launch publicly if that dependency is unfunded.
-
-## Expansion after evidence
-
-1. **More places:** a second licensed region and reliable travel; then automated geographic packaging, broader procedural coverage and polar/seam tests. Publish separate metrics for mapped area, playable area and simultaneous users.
-2. **More invention:** add a small capability with semantic, budget, permission and migration tests. Terrain digging, vehicles and new materials are each their own project.
-3. **More scales:** introduce an explicit habitat/proxy model and authoritative cross-scale effects; test two scales before approaching ants and giant creatures.
-4. **More people:** measure 8, 16 and 32 in one area; split independent authority cells only after handoff and operating costs justify it. Persistent canonical Home state remains singular.
-5. **More personal worlds:** add saved-world capacity and active workers funded by measured demand; optional self-hosted/exported destinations after conformance tools exist.
-6. **AI inhabitants:** restricted identities, high-level intents and visible stop controls after live-world safety and cost evidence.
-7. **Federation:** allowlisted external operators first, versioned conformance tests and credential isolation; no assumption that all copied servers share Home authority.
-8. **Broader platforms/services:** browser atlas/editor, Linux/macOS clients, gamepad/mobile/VR evaluation, group hosting and optional marketplace only when justified.
-
-## First playable slice and next work session
-
-The Barton Creek local workshop is the first implementation fixture across E01–E08A subsets. It exercises package validation, terrain and collision seams, walking-height movement, and one path/platform relationship with local save/reload. Native Windows and Linux exports pass basic startup checks, but the [first checkpoint](../engine/checkpoints/phase0-1.md) does not accept phases 0–1: low-device streaming, bounded residency, an integrated painterly edited scene and the full contract still need evidence. The development machine's dedicated GPU cannot establish the proposed 8 GiB integrated-graphics minimum.
-
-The next work cycle should close those deficits and turn the [transport feasibility probe](../engine/phase2/transport-feasibility.md) into an authenticated two-client command boundary. Remote player agreement, durable hosted receipts, private-world portals and AI/MCP creation remain later gates. Update estimates from measured evidence instead of treating this local fixture as an MVP release.
+| [World vision](../WORLD-VISION.md), [backlog](BACKLOG.md) | Confirmed experience and active execution order |
+| [Platform/engine study](research/14-single-player-platform-and-engine.md) | Retained alternatives; native Godot/C# now selected |
+| [Pfluger district and small avatar](research/15-pfluger-district-and-small-avatar.md) | Active location/boundaries, public-data reconstruction, 30 cm scale and founder validation |
+| [Map](research/01-global-map.md), [imagery](research/09-maxar-open-data-assessment.md), [QGIS](research/10-qgis-mcp-assessment.md) | Geography, rights and development tooling |
+| [Earlier stack](research/02-performance-and-stack.md), [visual options](research/03-visual-style-options.md) | Alternatives; native/C# selected; faceted-atlas direction superseded |
+| [Physics](research/04-physics-and-creation-runtime.md), [AI/security](research/05-ai-mcp-and-security.md), [structured world](research/11-structured-world-and-style-system.md) | Reuse contracts; current scope/sequence overrides earlier restrictions and remote dependencies |
+| [Painterly diagnosis](research/13-painterly-pipeline-diagnosis.md), [comparables](research/12-comparables-and-layer-practices.md) | Art/generator and technical evidence |
+| [Earth/portals](research/06-persistent-earth-and-portals.md), [business](research/07-business-costs-and-reinvestment.md), [product/release](research/08-product-community-and-release.md) | Reuse local recovery/research practices; online/commercial planning deferred |

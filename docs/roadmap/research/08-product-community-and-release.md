@@ -1,5 +1,7 @@
 # Product, community, accessibility, and release plan
 
+> **Current direction — 2 October 2026:** The [revised roadmap](../ROADMAP.md) and [backlog](../BACKLOG.md) govern scope and order: single-player embodied AI first, multiplayer last. The first product is now individual play with two avatars, spoken/typed wishes and embodied AI magic. Manual controls are a fallback, not a substitute for AI acceptance. Paired multiplayer cohorts, community operations and human-to-human voice chat are deferred. The dated research below is retained for context.
+
 Planning proposal, September 30, 2026. This document adds the teams needed to turn the engineering prototype into a worthwhile small game. No competitor playtests, user interviews, deployments, or launches have been performed. Scope assumes one founder with coding agents, a total hosting/AI allowance below $100 monthly, and the limits in [persistent Earth and portals](06-persistent-earth-and-portals.md): eight simultaneous people overall, four per sandbox, and one active sandbox service-wide.
 
 ## Product hypothesis and the first fifteen minutes
