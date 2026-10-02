@@ -20,7 +20,7 @@ func _run() -> void:
 		return
 	var workshop = scene.workshop_runtime
 	var standard_stats: Dictionary = workshop.art_dressing.stats.duplicate(true)
-	if not _check(workshop.art_dressing.profile == "standard" and int(standard_stats["triangle_upper_bound"]) <= 14000, "standard dressing exceeds bounded geometry"):
+	if not _check(workshop.art_dressing.profile == "standard" and int(standard_stats["triangle_upper_bound"]) <= 14000, "standard dressing exceeds bounded geometry: " + str(standard_stats)):
 		return
 	scene._jump_to_view("pin")
 	scene._set_walking_mode(true)
@@ -47,7 +47,7 @@ func _run() -> void:
 	if not _check(low_workshop != null and low_workshop.art_dressing != null and low_workshop.art_dressing.profile == "low", "low dressing missing"):
 		return
 	var low_stats: Dictionary = low_workshop.art_dressing.stats
-	if not _check(int(low_stats["tree_centers"]) == int(standard_stats["tree_centers"]) and int(low_stats["triangle_upper_bound"]) < int(standard_stats["triangle_upper_bound"]) and int(low_stats["triangle_upper_bound"]) <= 5000, "low profile changed tree identity or failed geometry budget"):
+	if not _check(int(low_stats["tree_centers"]) == int(standard_stats["tree_centers"]) and int(low_stats["canopy_lobes"]) >= 20 and low_workshop.art_dressing.get_node_or_null("AuthoredBranches") != null and int(low_stats["triangle_upper_bound"]) < int(standard_stats["triangle_upper_bound"]) and int(low_stats["triangle_upper_bound"]) <= 6000, "low profile lost a branch silhouette or failed geometry budget: " + str(low_stats)):
 		return
 	if not _check(_same_semantics(low_workshop.state.get_snapshot(), source_snapshot), "low profile changed the saved source edit"):
 		return

@@ -66,7 +66,7 @@ func set_profile(requested: String) -> void:
 	content.set_meta("source_map", "barton_creek_v0")
 	content.set_meta("interpretation", "illustrative art reference")
 	add_child(content)
-	stats = {"terrain_triangles": 0, "distant_terrain_triangles": 0, "trail_segments": 0, "creek_segments": 0, "trees": 0, "shrubs": 0, "rocks": 0, "limestone_ledges": 0, "grass_tufts": 0}
+	stats = {"terrain_triangles": 0, "distant_terrain_triangles": 0, "trail_segments": 0, "creek_segments": 0, "trees": 0, "canopy_masses": 0, "leaf_clusters": 0, "shrubs": 0, "rocks": 0, "limestone_ledges": 0, "grass_tufts": 0}
 	_make_distant_terrain()
 	_make_terrain()
 	_make_ribbons()
@@ -101,15 +101,16 @@ func _mesh_triangles(mesh: Mesh) -> int:
 func _make_materials() -> void:
 	materials["terrain"] = _material(Color.WHITE, 1.0, true)
 	materials["trail"] = _material(colors["trail"].lightened(0.08), 1.0)
-	materials["bank"] = _material(colors["rock"].darkened(0.14), 1.0)
+	materials["bank"] = _material(Color.WHITE, 1.0, true)
 	materials["water"] = _material(colors["water"].lightened(0.17), 0.42)
-	materials["water_highlight"] = _material(colors["creek"].lightened(0.12), 0.58)
-	materials["rock"] = _material(colors["rock"].darkened(0.19), 1.0)
-	materials["rock_shade"] = _material(colors["rock"].darkened(0.13), 1.0)
+	materials["water_highlight"] = _material(colors["creek"].lightened(0.39), 0.48)
+	materials["rock"] = _material(Color(0.43, 0.40, 0.35), 1.0, true)
+	materials["rock_shade"] = _material(Color(0.38, 0.35, 0.31), 1.0, true)
+	materials["rock_deck"] = _material(colors["rock"].darkened(0.23), 1.0)
 	materials["trunk"] = _material(colors["trunk"].lightened(0.06), 1.0)
 	materials["canopy"] = _material(Color.WHITE, 1.0, true)
-	materials["shrub"] = _material(colors["canopy"].lightened(0.08), 1.0)
-	materials["grass"] = _material(Color(0.19, 0.30, 0.17), 1.0)
+	materials["shrub"] = _material(colors["canopy"].lightened(0.12), 1.0)
+	materials["grass"] = _material(Color.WHITE, 1.0, true)
 	materials["wood"] = _material(colors["trunk"].lightened(0.16), 1.0)
 	materials["metal"] = _material(colors["glass"].darkened(0.10), 0.55)
 	materials["sign"] = _material(colors["building"].lightened(0.35), 0.95)
@@ -128,18 +129,26 @@ func _make_atmosphere() -> void:
 	sunlight = DirectionalLight3D.new()
 	sunlight.name = "WarmAfternoonSun"
 	sunlight.rotation = Vector3(-0.75, -0.74, 0.0)
-	sunlight.light_color = Color(1.0, 0.90, 0.76)
-	sunlight.light_energy = 0.86
+	sunlight.light_color = Color(1.0, 0.91, 0.77)
+	sunlight.light_energy = 0.91
+	sunlight.light_angular_distance = 0.12
 	sunlight.directional_shadow_max_distance = 130.0
 	add_child(sunlight)
 	var world := WorldEnvironment.new()
 	world.name = "SoftSkyAndAmbient"
 	var environment := Environment.new()
-	environment.background_mode = Environment.BG_COLOR
-	environment.background_color = Color(0.69, 0.78, 0.78)
+	var sky := Sky.new()
+	var sky_paint := ProceduralSkyMaterial.new()
+	sky_paint.sky_top_color = Color(0.39, 0.62, 0.79)
+	sky_paint.sky_horizon_color = Color(0.78, 0.83, 0.80)
+	sky_paint.ground_horizon_color = Color(0.69, 0.72, 0.63)
+	sky_paint.ground_bottom_color = Color(0.31, 0.39, 0.34)
+	sky.sky_material = sky_paint
+	environment.background_mode = Environment.BG_SKY
+	environment.sky = sky
 	environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	environment.ambient_light_color = Color(0.73, 0.79, 0.75)
-	environment.ambient_light_energy = 0.70
+	environment.ambient_light_color = Color(0.69, 0.76, 0.79)
+	environment.ambient_light_energy = 0.72
 	environment.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	world.environment = environment
 	add_child(world)
@@ -179,11 +188,14 @@ func _make_terrain() -> void:
 			var normal: Vector3 = map_runtime.normal_at(x, z)
 			vertices.append(Vector3(x, height, z))
 			normals.append(normal)
-			var rock_weight := smoothstep(0.13, 0.43, 1.0 - normal.y)
-			var variation := sin(x * 0.19 + z * 0.13) * 0.035 + sin(x * 0.49 - z * 0.31) * 0.018
-			var grass: Color = colors["canopy"].lightened(0.31 + variation)
-			var stone: Color = colors["rock"].lightened(0.02 + variation)
-			vertex_colors.append(grass.lerp(stone, rock_weight))
+			var rock_weight := smoothstep(0.12, 0.38, 1.0 - normal.y)
+			var broad := sin(x * 0.087 + z * 0.041) * sin(z * 0.116 - x * 0.033)
+			var fine := sin(x * 0.39 - z * 0.27) * 0.026
+			var grass: Color = colors["canopy"].lightened(0.28 + broad * 0.075 + fine)
+			var soil: Color = colors["trail"].lightened(0.09 + broad * 0.045)
+			var stone: Color = colors["rock"].lightened(0.09 + fine)
+			var soil_weight := smoothstep(0.45, 0.80, broad) * 0.28
+			vertex_colors.append(grass.lerp(soil, soil_weight).lerp(stone, rock_weight))
 	for row in range(cells):
 		for column in range(cells):
 			var a := row * (cells + 1) + column
@@ -227,7 +239,9 @@ func _make_distant_terrain() -> void:
 			vertices.append(Vector3(x, height, z))
 			normals.append(normal)
 			var rock_weight := smoothstep(0.16, 0.48, 1.0 - normal.y)
-			vertex_colors.append(colors["canopy"].lightened(0.41).lerp(colors["rock"].lightened(0.20), rock_weight))
+			var haze := clampf(Vector2(x, z).distance_to(CAMERA_POINT) / 300.0, 0.0, 0.46)
+			var ground: Color = colors["canopy"].lightened(0.31).lerp(colors["rock"].lightened(0.12), rock_weight)
+			vertex_colors.append(ground.lerp(Color(0.63, 0.69, 0.61), haze))
 	for row in range(cells):
 		for column in range(cells):
 			var center_x := CENTER.x - outer_half + (column + 0.5) * step
@@ -260,7 +274,7 @@ func _make_ribbons() -> void:
 	var bounds := Rect2(CENTER - Vector2.ONE * HALF, Vector2.ONE * (HALF * 2.0))
 	var trail_arrays := _ribbon_arrays("trails", bounds, 2.5, 0.16)
 	_add_ribbon_mesh("MappedTrailSoil", trail_arrays, "trail", "OSM trail centerline; width and color illustrative")
-	var bank_arrays := _ribbon_arrays("waterways", bounds, 9.0, 0.10)
+	var bank_arrays := _ribbon_arrays("waterways", bounds, 9.0, 0.10, "bank")
 	_add_ribbon_mesh("CreekBank", bank_arrays, "bank", "OSM waterway centerline; bank width illustrative")
 	var water_arrays := _ribbon_arrays("waterways", bounds, 6.6, 0.14)
 	_add_ribbon_mesh("CreekWater", water_arrays, "water", "OSM waterway centerline; ribbon is illustrative, not a water simulation")
@@ -281,14 +295,14 @@ func _make_water_riffles(bounds: Rect2) -> void:
 				continue
 			var a := clipped[0]
 			var b := clipped[1]
-			var count := int(floor(a.distance_to(b) / 8.0))
+			var count := int(floor(a.distance_to(b) / 3.5))
 			if count < 1:
 				continue
 			var flow := (b - a).normalized()
 			var across := flow.orthogonal()
 			for stroke in range(count):
 				var center := a.lerp(b, (float(stroke) + 0.5) / count)
-				var reach := 1.0 + 0.32 * sin(float(stroke * 7 + i * 3))
+				var reach := 1.0 + 0.48 * sin(float(stroke * 7 + i * 3))
 				var corners := [center - across * reach - flow * 0.035, center + across * reach - flow * 0.035, center - across * reach + flow * 0.035, center + across * reach + flow * 0.035]
 				var base := vertices.size()
 				for point in corners:
@@ -298,9 +312,10 @@ func _make_water_riffles(bounds: Rect2) -> void:
 	_add_ribbon_mesh("IllustrativeCreekRiffles", {"vertices": vertices, "normals": normals, "indices": indices}, "water_highlight", "authored shallow-water highlights on mapped Barton Creek centerline")
 
 
-func _ribbon_arrays(kind: String, bounds: Rect2, width: float, height_offset: float) -> Dictionary:
+func _ribbon_arrays(kind: String, bounds: Rect2, width: float, height_offset: float, color_role := "") -> Dictionary:
 	var vertices := PackedVector3Array()
 	var normals := PackedVector3Array()
+	var vertex_colors := PackedColorArray()
 	var indices := PackedInt32Array()
 	for feature in map_runtime.query_features(kind, bounds):
 		var points: Array = feature.get("points", [])
@@ -320,18 +335,29 @@ func _ribbon_arrays(kind: String, bounds: Rect2, width: float, height_offset: fl
 			for j in range(steps):
 				var start := a.lerp(b, float(j) / steps)
 				var end := a.lerp(b, float(j + 1) / steps)
-				var corners := [start - lateral, start + lateral, end - lateral, end + lateral]
+				var start_width := 1.0 + 0.09 * sin(start.x * 0.13 + start.y * 0.11) if color_role != "" else 1.0
+				var end_width := 1.0 + 0.09 * sin(end.x * 0.13 + end.y * 0.11) if color_role != "" else 1.0
+				var corners := [start - lateral * start_width, start + lateral * start_width, end - lateral * end_width, end + lateral * end_width]
+				if color_role == "bank":
+					corners = [corners[0], start, corners[1], corners[2], end, corners[3]]
 				var base := vertices.size()
 				for corner in corners:
 					var y: float = map_runtime.surface_height_at(corner.x, corner.y) + height_offset
 					vertices.append(Vector3(corner.x, y, corner.y))
 					normals.append(Vector3.UP)
-				indices.append_array(PackedInt32Array([base, base + 2, base + 1, base + 1, base + 2, base + 3]))
+					if color_role == "bank":
+						var bank_edge: Color = colors["trail"].lightened(0.04)
+						var wet_joint: Color = colors["rock"].darkened(0.27)
+						vertex_colors.append(wet_joint if (vertices.size() - base - 1) % 3 == 1 else bank_edge)
+				if color_role == "":
+					indices.append_array(PackedInt32Array([base, base + 2, base + 1, base + 1, base + 2, base + 3]))
+				else:
+					indices.append_array(PackedInt32Array([base, base + 3, base + 1, base + 1, base + 3, base + 4, base + 1, base + 4, base + 2, base + 2, base + 4, base + 5]))
 				if kind == "trails":
 					stats["trail_segments"] += 1
 				else:
 					stats["creek_segments"] += 1
-	return {"vertices": vertices, "normals": normals, "indices": indices}
+	return {"vertices": vertices, "normals": normals, "vertex_colors": vertex_colors, "indices": indices}
 
 
 func _add_ribbon_mesh(name: String, parts: Dictionary, material_role: String, provenance: String) -> void:
@@ -341,6 +367,8 @@ func _add_ribbon_mesh(name: String, parts: Dictionary, material_role: String, pr
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = parts["vertices"]
 	arrays[Mesh.ARRAY_NORMAL] = parts["normals"]
+	if parts.has("vertex_colors") and not parts["vertex_colors"].is_empty():
+		arrays[Mesh.ARRAY_COLOR] = parts["vertex_colors"]
 	arrays[Mesh.ARRAY_INDEX] = parts["indices"]
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
@@ -444,27 +472,33 @@ func _make_limestone_ledges() -> void:
 func _rock_mesh() -> ArrayMesh:
 	var vertices := PackedVector3Array()
 	var normals := PackedVector3Array()
+	var vertex_colors := PackedColorArray()
 	var indices := PackedInt32Array()
 	for ring in range(3):
-		var y: float = [0.0, 0.68, 1.0][ring]
-		var radius: float = [0.8, 1.12, 0.65][ring]
+		var y: float = [0.0, 0.69, 1.0][ring]
+		var radius: float = [0.82, 1.12, 0.71][ring]
 		for k in range(9):
 			var angle := TAU * k / 8.0
-			var radial: float = radius * (1.0 + 0.07 * sin(float(k * 19 + ring * 7)))
-			vertices.append(Vector3(cos(angle) * radial, y + 0.04 * sin(float(k * 13)), sin(angle) * radial))
+			var radial: float = radius * (1.0 + 0.11 * sin(float(k * 19 + ring * 7)))
+			vertices.append(Vector3(cos(angle) * radial, y + 0.06 * sin(float(k * 13)), sin(angle) * radial))
 			normals.append(Vector3(cos(angle), 0.2, sin(angle)).normalized())
+			var joint := 0.06 if ring == 0 else (0.29 if ring == 1 else 0.18)
+			var warmth := 0.04 * sin(float(k * 11 + ring * 7))
+			vertex_colors.append(colors["rock"].lightened(joint + warmth))
 	for ring in range(2):
 		for k in range(8):
 			var a := ring * 9 + k
 			indices.append_array(PackedInt32Array([a, a + 9, a + 1, a + 1, a + 9, a + 10]))
 	vertices.append(Vector3(0, 1.04, 0))
 	normals.append(Vector3.UP)
+	vertex_colors.append(colors["rock"].lightened(0.34))
 	for k in range(8):
 		indices.append_array(PackedInt32Array([27, 18 + k, 19 + k]))
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = vertices
 	arrays[Mesh.ARRAY_NORMAL] = normals
+	arrays[Mesh.ARRAY_COLOR] = vertex_colors
 	arrays[Mesh.ARRAY_INDEX] = indices
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
@@ -532,11 +566,18 @@ func _make_trees() -> void:
 		var group: Array = canopy_groups[variant]
 		if group.is_empty():
 			continue
-		var lobes := 1 if profile == "low" or variant == 1 else (2 if variant == 0 else 3)
+		var lobes := mini(int(recipe["profiles"][profile]["tree_lobes_max"]), 1 if variant == 1 else (4 if variant == 2 else 3))
 		var crowns := MultiMesh.new()
 		crowns.transform_format = MultiMesh.TRANSFORM_3D
+		crowns.use_colors = true
 		crowns.mesh = _foliage_mesh(variant)
 		crowns.instance_count = group.size() * lobes
+		var leaf_clusters_per_mass := int(recipe["profiles"][profile]["leaf_clusters_per_mass"])
+		var leaf_clusters := MultiMesh.new()
+		leaf_clusters.transform_format = MultiMesh.TRANSFORM_3D
+		leaf_clusters.use_colors = true
+		leaf_clusters.mesh = _leaf_cluster_mesh(variant)
+		leaf_clusters.instance_count = crowns.instance_count * leaf_clusters_per_mass
 		for index in range(group.size()):
 			var tree_index: int = group[index]
 			var tree: Dictionary = trees[tree_index]
@@ -548,13 +589,30 @@ func _make_trees() -> void:
 			var radius := total_height * (0.26 if variant == 1 else (0.47 if variant == 0 else 0.42))
 			for lobe in range(lobes):
 				var angle := float(tree_index * 17 + lobe * 5) * 2.39996
-				var spread := 0.0 if lobe == 0 else radius * (0.52 if variant == 0 else 0.66)
+				var spread := 0.0 if lobe == 0 else radius * (0.78 + 0.10 * (lobe - 1))
 				var crown_y := y + trunk_height + (total_height * 0.12 if variant == 1 else radius * 0.13)
 				var center := Vector3(x + cos(angle) * spread, crown_y, z + sin(angle) * spread)
-				var size := radius * (1.0 if lobe == 0 else 0.65)
+				var size := radius * (0.75 if lobe == 0 else (0.62 - 0.05 * (lobe - 1)))
 				var vertical := total_height * 0.33 if variant == 1 else size * (0.48 if variant == 0 else 0.57)
 				crowns.set_instance_transform(index * lobes + lobe, Transform3D(Basis(Vector3.UP, angle).scaled(Vector3(size, vertical, size * 0.88)), center))
+				var tint := 0.84 + 0.15 * (0.5 + 0.5 * sin(float(tree_index * 7 + lobe * 13)))
+				crowns.set_instance_color(index * lobes + lobe, Color(tint, tint * (0.98 if variant == 1 else 1.0), tint * (1.02 if variant == 1 else 0.96)))
+				for cluster in range(leaf_clusters_per_mass):
+					var cluster_index := (index * lobes + lobe) * leaf_clusters_per_mass + cluster
+					var longitude := float(tree_index * 7 + lobe * 11 + cluster * 5) * 2.39996
+					var latitude := 0.44 + fposmod(float(tree_index * 3 + lobe * 5 + cluster * 7) * 0.39, 1.97)
+					var direction := Vector3(cos(longitude) * sin(latitude), cos(latitude), sin(longitude) * sin(latitude))
+					var crown_surface := center + Vector3(direction.x * size * 0.91, direction.y * vertical * 0.91, direction.z * size * 0.91)
+					var outward := Vector3(direction.x, direction.y * 1.4, direction.z).normalized()
+					var cluster_radius := size * (0.13 + 0.03 * sin(float(cluster * 13 + lobe * 7)))
+					var cluster_basis := Basis(Quaternion(Vector3.UP, outward)).scaled(Vector3(cluster_radius, cluster_radius * 0.78, cluster_radius * 0.85))
+					leaf_clusters.set_instance_transform(cluster_index, Transform3D(cluster_basis, crown_surface))
+					var cluster_tint := 0.80 + 0.18 * (0.5 + 0.5 * sin(float(tree_index * 13 + cluster * 17)))
+					leaf_clusters.set_instance_color(cluster_index, Color(cluster_tint, cluster_tint, cluster_tint * 0.92))
 		_add_multimesh("CanopySilhouette%d" % variant, crowns, "canopy", "source tags select oak-like or cedar-like silhouette; all crown forms and authored centers illustrative")
+		_add_multimesh("LeafClusters%d" % variant, leaf_clusters, "canopy", "reusable opaque sculpted leaf clusters; illustrative, not surveyed foliage")
+		stats["canopy_masses"] += crowns.instance_count
+		stats["leaf_clusters"] += leaf_clusters.instance_count
 	stats["trees"] = trees.size()
 
 
@@ -603,21 +661,23 @@ func _foliage_mesh(variant: int) -> ArrayMesh:
 	var normals := PackedVector3Array()
 	var vertex_colors := PackedColorArray()
 	var indices := PackedInt32Array()
-	var columns := 16
-	var rows := 8
+	# Separated faceted masses carry the silhouette. A tested flat leaf-card
+	# overlay made dark artifacts at walking height, so it is omitted here.
+	var columns := 12
+	var rows := 6
+	var base_color: Color = colors["pilot_canopy"] if variant == 1 else colors["canopy"]
 	for row in range(rows + 1):
 		var latitude := PI * float(row) / rows
 		for column in range(columns + 1):
 			var longitude := TAU * float(column) / columns
-			var irregularity := 1.0 + 0.10 * sin((3.0 + variant) * longitude + latitude * 2.0) + 0.06 * cos(7.0 * longitude - latitude * 3.0)
+			var irregularity := 1.0 + 0.14 * sin((3.0 + variant) * longitude + latitude * 2.0) + 0.09 * cos(7.0 * longitude - latitude * 3.0)
 			var taper := 0.86 - 0.18 * cos(latitude) if variant == 1 else (1.0 + 0.10 * sin(longitude * 2.0) if variant == 2 else 1.0)
 			var r := maxf(0.001, sin(latitude)) * irregularity * taper
 			var vertical := cos(latitude) * (1.0 + 0.045 * sin(longitude * 5.0))
 			var v := Vector3(cos(longitude) * r, vertical, sin(longitude) * r)
 			vertices.append(v)
 			normals.append(Vector3(v.x, v.y * 0.65, v.z).normalized())
-			var lightness := 0.07 + 0.07 * maxf(v.y, 0.0) + 0.025 * sin(longitude * 5.0 + latitude * 3.0)
-			var base_color: Color = colors["pilot_canopy"] if variant == 1 else colors["canopy"]
+			var lightness := 0.08 + 0.14 * clampf(v.y * 0.5 + 0.5, 0.0, 1.0) + 0.04 * sin(longitude * 5.0 + latitude * 3.0)
 			vertex_colors.append(base_color.lightened(lightness))
 	for row in range(rows):
 		for column in range(columns):
@@ -626,6 +686,49 @@ func _foliage_mesh(variant: int) -> ArrayMesh:
 			var c := a + columns + 1
 			var d := c + 1
 			indices.append_array(PackedInt32Array([a, c, b, b, c, d]))
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = vertices
+	arrays[Mesh.ARRAY_NORMAL] = normals
+	arrays[Mesh.ARRAY_COLOR] = vertex_colors
+	arrays[Mesh.ARRAY_INDEX] = indices
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return mesh
+
+
+func _leaf_cluster_mesh(variant: int) -> ArrayMesh:
+	# A small solid brushlike tuft: all faces have depth, so no alpha sorting,
+	# flat card intersections, or tree-sized dark decals at walking height.
+	var vertices := PackedVector3Array([
+		Vector3(0.0, 1.0, 0.0),
+		Vector3(-0.70, 0.05, -0.36),
+		Vector3(0.55, 0.05, -0.72),
+		Vector3(0.80, 0.05, 0.27),
+		Vector3(-0.42, 0.05, 0.68),
+		Vector3(0.0, -0.35, 0.0),
+	])
+	var normals := PackedVector3Array([
+		Vector3.UP,
+		Vector3(-0.8, 0.25, -0.4).normalized(),
+		Vector3(0.5, 0.25, -0.8).normalized(),
+		Vector3(0.9, 0.25, 0.3).normalized(),
+		Vector3(-0.5, 0.25, 0.7).normalized(),
+		Vector3.DOWN,
+	])
+	var tint: Color = colors["pilot_canopy"] if variant == 1 else colors["canopy"]
+	var vertex_colors := PackedColorArray([
+		tint.lightened(0.27),
+		tint.lightened(0.10),
+		tint.lightened(0.17),
+		tint.lightened(0.20),
+		tint.lightened(0.12),
+		tint.darkened(0.05),
+	])
+	var indices := PackedInt32Array([
+		0, 1, 2, 0, 2, 3, 0, 3, 4, 0, 4, 1,
+		5, 2, 1, 5, 3, 2, 5, 4, 3, 5, 1, 4,
+	])
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = vertices
@@ -646,6 +749,7 @@ func _make_shrubs() -> void:
 	mesh.rings = 4
 	var group := MultiMesh.new()
 	group.transform_format = MultiMesh.TRANSFORM_3D
+	group.use_colors = true
 	group.mesh = mesh
 	group.instance_count = count
 	var random := RandomNumberGenerator.new()
@@ -653,10 +757,12 @@ func _make_shrubs() -> void:
 	for i in range(count):
 		var x := random.randf_range(CENTER.x - HALF + 8.0, CENTER.x + HALF - 8.0)
 		var z := random.randf_range(CENTER.y - HALF + 8.0, CENTER.y + HALF - 8.0)
-		var radius := random.randf_range(0.55, 1.3)
-		var height := random.randf_range(0.35, 0.9)
+		var radius := random.randf_range(0.38, 0.86)
+		var height := random.randf_range(0.28, 0.68)
 		var y: float = map_runtime.surface_height_at(x, z)
 		group.set_instance_transform(i, Transform3D(Basis(Vector3.UP, random.randf_range(0.0, TAU)).scaled(Vector3(radius, height, radius * random.randf_range(0.7, 1.1))), Vector3(x, y + height * 0.45, z)))
+		var tint := random.randf_range(0.76, 1.0)
+		group.set_instance_color(i, Color(tint, tint * random.randf_range(0.94, 1.04), tint * random.randf_range(0.80, 1.0)))
 	_add_multimesh("IllustrativeUnderstory", group, "shrub", "seeded illustrative shrubs")
 	stats["shrubs"] = count
 
@@ -664,22 +770,27 @@ func _make_shrubs() -> void:
 func _make_grass() -> void:
 	var vertices := PackedVector3Array()
 	var normals := PackedVector3Array()
+	var vertex_colors := PackedColorArray()
 	var indices := PackedInt32Array()
-	for blade in range(3):
-		var angle := TAU * float(blade) / 3.0
+	for blade in range(5):
+		var angle := TAU * float(blade) / 5.0
 		var direction := Vector3(cos(angle), 0.0, sin(angle))
 		var side := Vector3(-direction.z, 0.0, direction.x)
 		var base := vertices.size()
-		vertices.append(-side * 0.10)
-		vertices.append(side * 0.10)
-		vertices.append(direction * 0.15 + Vector3(0.0, 1.0 - 0.10 * blade, 0.0))
+		vertices.append(-side * 0.12)
+		vertices.append(side * 0.12)
+		vertices.append(direction * 0.19 + Vector3(0.0, 0.76 + 0.06 * (blade % 3), 0.0))
 		for i in range(3):
 			normals.append(direction)
+		vertex_colors.append(Color(0.18, 0.24, 0.10))
+		vertex_colors.append(Color(0.20, 0.27, 0.11))
+		vertex_colors.append(Color(0.30 + 0.025 * (blade % 2), 0.37, 0.14))
 		indices.append_array(PackedInt32Array([base, base + 1, base + 2]))
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = vertices
 	arrays[Mesh.ARRAY_NORMAL] = normals
+	arrays[Mesh.ARRAY_COLOR] = vertex_colors
 	arrays[Mesh.ARRAY_INDEX] = indices
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
@@ -694,7 +805,7 @@ func _make_grass() -> void:
 		var focus := i < count / 2
 		var x := random.randf_range(CAMERA_POINT.x - 27.0, CAMERA_POINT.x + 37.0) if focus else random.randf_range(CENTER.x - HALF + 3.0, CENTER.x + HALF - 3.0)
 		var z := random.randf_range(CAMERA_POINT.y - 25.0, CAMERA_POINT.y + 26.0) if focus else random.randf_range(CENTER.y - HALF + 3.0, CENTER.y + HALF - 3.0)
-		var size := random.randf_range(0.16, 0.32)
+		var size := random.randf_range(0.35, 0.65)
 		group.set_instance_transform(i, Transform3D(Basis(Vector3.UP, random.randf_range(0.0, TAU)).scaled(Vector3(size, size, size)), Vector3(x, map_runtime.surface_height_at(x, z) + 0.02, z)))
 	_add_multimesh("IllustrativeGrassTufts", group, "grass", "seeded low-poly grass clusters; no alpha transparency")
 	stats["grass_tufts"] = count
@@ -720,8 +831,8 @@ func _make_lookout() -> void:
 	var width: float = LOOKOUT_SPEC["width_m"]
 	var depth: float = LOOKOUT_SPEC["depth_m"]
 	_box(assembly, "EmbeddedLimestonePlinth", Vector3(center.x, y - 0.10, center.y), Vector3(width, 0.58, depth), "rock_shade")
-	_box(assembly, "LimestoneDeck", Vector3(center.x, y + 0.28, center.y), Vector3(width, 0.20, depth), "rock")
-	_box(assembly, "TrailArrivalStep", Vector3(center.x - width * 0.5 - 0.36, y + 0.03, center.y), Vector3(0.76, 0.20, 2.14), "rock")
+	_box(assembly, "LimestoneDeck", Vector3(center.x, y + 0.28, center.y), Vector3(width, 0.20, depth), "rock_deck")
+	_box(assembly, "TrailArrivalStep", Vector3(center.x - width * 0.5 - 0.36, y + 0.03, center.y), Vector3(0.76, 0.20, 2.14), "rock_deck")
 	for column in range(2):
 		for row in range(2):
 			var x := center.x + (float(column) - 0.5) * (width - 0.28)

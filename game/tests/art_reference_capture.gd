@@ -21,5 +21,5 @@ func _capture() -> void:
 	await RenderingServer.frame_post_draw
 	var image := scene.get_viewport().get_texture().get_image()
 	var result := image.save_png(output)
-	print("Art reference capture: ", output, "; profile=", scene.profile, "; build_ms=", build_ms, "; stats=", scene.stats, "; result=", result)
+	print("Art reference capture: ", output, "; profile=", scene.profile, "; view=", OS.get_environment("ENFRACTAL_ART_VIEW"), "; build_ms=", build_ms, "; stats=", scene.stats, "; result=", result)
 	quit(0 if result == OK else 1)

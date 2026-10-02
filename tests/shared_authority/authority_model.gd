@@ -167,6 +167,13 @@ func shared_positions() -> Dictionary:
 	return result
 
 
+func is_bound_session(connection: int, session_id: String) -> bool:
+	if not _connection_to_avatar.has(connection):
+		return false
+	var record: Dictionary = _avatars[_connection_to_avatar[connection]]
+	return record["connection"] == connection and record["session_id"] == session_id
+
+
 func state_fingerprint() -> String:
 	var result := {"tick": tick_number, "positions": shared_positions(), "last_seq": {}, "pending": {}}
 	for avatar in _avatars:

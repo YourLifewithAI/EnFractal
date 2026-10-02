@@ -6,6 +6,8 @@
 
 The result should feel warm and visually coherent while remaining an original EnFractal world. Tiny Glade is a reference for warmth and for construction that responds gracefully to broad player edits. Its medieval subject matter, miniature presentation, and exact appearance are not targets. The player should be able to walk through a place at believable human-scale distances, recognize its real-world character, and change it through meaningful parts that remain editable.
 
+The founder's later impressionistic 3D examples refine this direction: layered brushlike foliage, distinct tree silhouettes, selective surface marks, warm light against cooler depth, and coherent natural/built materials. The [Barton Creek painterly reference brief](engine/phase1/painterly-reference-brief.md) translates those examples into local vegetation, limestone, modern structures, low-graphics fallbacks, and paired walking-height review criteria. It is an art target, not a claim that the current prototype meets it.
+
 ## The experience to preserve
 
 - **Grounded place:** The geography, street pattern, terrain, and important landmarks make a region recognizable. Evidence-backed features and invented detail stay distinguishable in the authoring record.

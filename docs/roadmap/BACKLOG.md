@@ -2,6 +2,8 @@
 
 Planning baseline, 30 September 2026, updated for the founder's [world and creation vision](../WORLD-VISION.md) on 1 October. The [Barton Creek map and local workshop](../../maps/barton_creek/README.md) now exercise parts of E01–E08A through a local walking, path/platform editing and save/reload fixture; the [first checkpoint](../engine/checkpoints/phase0-1.md) leaves the contract, art, low-hardware and shared-world gates open. The [roadmap](ROADMAP.md) defines scope, budget, provisional architecture and phase gates. Detailed research task IDs are supporting checklists; these E identifiers provide one coordinated dependency order. In particular, there is one creation compiler, one authority loop and one portal transaction design. [Structured-world requirements](research/11-structured-world-and-style-system.md) apply to the relevant packets below.
 
+The [latest bounded review](../engine/checkpoints/reference-guided-2026-10-02.md) records the founder's impressionistic 3D references, independent art scores, and a three-process Windows authority fixture. It leaves the same phase gates open.
+
 ## Working rules
 
 Start with two independent builders and one reviewer when there is enough work that can proceed without shared-file edits. Use at most three active implementation packets until the founder can review them comfortably. Research/fixture preparation may use more parallel agents. The founder reserves integration and actual playtesting time; no agent may lower an acceptance criterion merely to mark its own task complete.

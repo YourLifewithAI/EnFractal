@@ -19,6 +19,11 @@ func _run() -> void:
 	if scene.content.get_node_or_null("illustrative_trail_lookout_v1") == null or scene.content.get_node_or_null("IllustrativeLookoutTrailJoin") == null:
 		_fail("Authored lookout or its separate join is missing")
 		return
+	var creek_bank: MeshInstance3D = scene.content.get_node("CreekBank")
+	var bank_arrays: Array = creek_bank.mesh.surface_get_arrays(0)
+	if bank_arrays[Mesh.ARRAY_COLOR].size() != bank_arrays[Mesh.ARRAY_VERTEX].size():
+		_fail("Mapped creek bank lost its cross-stream color variation")
+		return
 	if scene.stats["terrain_triangles"] > int(scene.recipe["budget"]["terrain_triangles_standard_max"]) or scene.stats["distant_terrain_triangles"] > int(scene.recipe["budget"]["distant_terrain_triangles_max"]):
 		_fail("Standard terrain exceeds its declared geometry budget")
 		return
@@ -32,6 +37,7 @@ func _run() -> void:
 		_fail("Art camera is no longer at walking height")
 		return
 	var standard_trees: int = scene.stats["trees"]
+	var standard_leaf_clusters: int = scene.stats["leaf_clusters"]
 	var standard_grass: int = scene.stats["grass_tufts"]
 	scene.set_profile("low")
 	if scene.stats["terrain_triangles"] > int(scene.recipe["budget"]["terrain_triangles_low_max"]):
@@ -40,7 +46,7 @@ func _run() -> void:
 	if scene.stats["triangle_upper_bound"] > int(scene.recipe["budget"]["triangle_upper_bound_low_max"]):
 		_fail("Low scene exceeds its declared total geometry budget")
 		return
-	if scene.stats["trees"] != standard_trees or scene.stats["grass_tufts"] >= standard_grass or scene.sunlight.shadow_enabled:
+	if scene.stats["trees"] != standard_trees or scene.stats["leaf_clusters"] >= standard_leaf_clusters or scene.stats["grass_tufts"] >= standard_grass or scene.sunlight.shadow_enabled:
 		_fail("Low profile changed scene identity or did not reduce optional detail")
 		return
 	if scene.content.get_node_or_null("illustrative_trail_lookout_v1") == null:

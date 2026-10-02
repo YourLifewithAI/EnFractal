@@ -2,6 +2,8 @@
 
 **1 October 2026. Status: progress within phases 0–2, not acceptance of a new phase.** The [first phases 0–1 checkpoint](phase0-1.md) remains the formal three-reviewer result (first-pass median 4.90/10). This document records the next bounded packets and their targeted independent reviews without promoting them into a completed MVP gate.
 
+The later [reference-guided art and separate-process authority follow-up](reference-guided-2026-10-02.md) records the next independent reviews; it does not change this document's earlier measurements.
+
 ## What changed
 
 - A separate [spatial-pin v1 reference](../phase0/spatial-pin-v1.md) now has exact matching Python/Godot bytes and SHA-256 across six vectors. Its real Barton descriptor checks payload hashes, archived DEM, decoder/origin and manifest frame against the build configuration. Existing local saves and the v0 package are untouched. An independent reviewer rated this **8.8/10 for the bounded fixture** after reproducing 22 Python tests and the Godot comparison. Actual vertical-datum evidence, runtime adoption and migration still block full E02.

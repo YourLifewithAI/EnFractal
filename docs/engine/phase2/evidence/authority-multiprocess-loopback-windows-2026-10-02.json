@@ -1,0 +1,231 @@
+{
+  "schema": "enfractal-phase2-multiprocess-run-v1",
+  "run_id": "69dfd51a8a5b426cbf471459a9f0cbd2",
+  "utc": "2026-10-02T02:53:56.8056572Z",
+  "transport": "ENet+DTLS",
+  "separate_processes": 3,
+  "network_scope": "127.0.0.1 only",
+  "engine_sha256": "ab1824f85bfd8e0e4128182c000c4003a3e042245b2967848d089b2a04b22424",
+  "source_sha256": {
+    "run_authority_process_smoke.ps1": "3da1a097d06b0e8cb2589e41b36fc8b94b3354fbcf93578d7fac3841397c4bb2",
+    "shared_authority/project.godot": "07560dc02e8a964d3ab219ecbd9cc7d71d911f86a6a7aa4bb7d9c55696f83889",
+    "shared_authority/authority_model.gd": "f2fbb9c9f668ea20662b60e9a81d30eb417b9c0d5d9addb1700862cca7586d22",
+    "shared_authority/authority_process.gd": "c27f8eb4c5beb4b72e4ca89edf8feaf966ef1b855087865ed8bc76974038b639",
+    "shared_authority/remote_client.gd": "522c8f2c40d6c6e7f265574e518b1f32c12c2add3628469888189db0c9e287aa"
+  },
+  "report_contains_bearer_secrets": false,
+  "duration_ms": 4518,
+  "passed": true,
+  "authority": {
+    "bind_address": "127.0.0.1",
+    "cases": [
+      {
+        "name": "two_clients_admitted",
+        "passed": true
+      },
+      {
+        "name": "two_client_intents_accepted",
+        "passed": true
+      },
+      {
+        "name": "one_server_owned_tick",
+        "passed": true
+      },
+      {
+        "name": "nonadmitted_peer_excluded_at_broadcast",
+        "passed": true
+      },
+      {
+        "name": "exact_tick_one_positions",
+        "passed": true
+      },
+      {
+        "name": "adversarial_rejections_preserved_state",
+        "passed": true
+      },
+      {
+        "name": "both_clients_completed_bound_session",
+        "passed": true
+      }
+    ],
+    "connected_peers_at_tick": 3,
+    "engine": "4.7.2-stable (official)",
+    "error": "",
+    "os": "Windows",
+    "passed": true,
+    "positions": {
+      "alice": {
+        "x": 0.133333340287209,
+        "z": 0.0
+      },
+      "bob": {
+        "x": -0.100000001490116,
+        "z": 0.0
+      }
+    },
+    "private_keys_saved": false,
+    "process_id": 23484,
+    "public_listener": false,
+    "rejection_codes": {
+      "forbidden_authority_field": 3,
+      "invalid_admission": 1,
+      "not_admitted": 1,
+      "session_connection_mismatch": 1,
+      "stale_epoch": 1,
+      "stale_sequence": 1,
+      "target_mismatch": 1
+    },
+    "role": "authority",
+    "run_id": "69dfd51a8a5b426cbf471459a9f0cbd2",
+    "schema": "enfractal-phase2-multiprocess-authority-v1",
+    "snapshot_recipients": 2,
+    "tick": 1,
+    "utc": "2026-10-02T02:53:56"
+  },
+  "alice": {
+    "cases": [
+      {
+        "name": "preadmission_intent_rejected",
+        "passed": true
+      },
+      {
+        "name": "preadmission_no_snapshot",
+        "passed": true
+      },
+      {
+        "name": "valid_one_use_join",
+        "passed": true
+      },
+      {
+        "name": "valid_glide_intent",
+        "passed": true
+      },
+      {
+        "name": "received_exact_tick_one_shared_positions",
+        "passed": true
+      },
+      {
+        "name": "snapshot_exact_allowlist",
+        "passed": true
+      },
+      {
+        "name": "private_marker_filtered",
+        "passed": true
+      },
+      {
+        "name": "forged_position_rejected",
+        "passed": true
+      },
+      {
+        "name": "duplicate_sequence_rejected",
+        "passed": true
+      },
+      {
+        "name": "forged_rules_rejected",
+        "passed": true
+      },
+      {
+        "name": "bound_completion",
+        "passed": true
+      }
+    ],
+    "engine": "4.7.2-stable (official)",
+    "error": "",
+    "observed_positions": {
+      "alice": {
+        "x": 0.133333340287209,
+        "z": 0.0
+      },
+      "bob": {
+        "x": -0.100000001490116,
+        "z": 0.0
+      }
+    },
+    "observed_rules_revision": 1,
+    "observed_tick": 1,
+    "os": "Windows",
+    "passed": true,
+    "process_id": 28844,
+    "role": "alice",
+    "run_id": "69dfd51a8a5b426cbf471459a9f0cbd2",
+    "schema": "enfractal-phase2-multiprocess-client-v1",
+    "utc": "2026-10-02T02:53:55"
+  },
+  "bob": {
+    "cases": [
+      {
+        "name": "one_use_ticket_rejected_on_other_connection",
+        "passed": true
+      },
+      {
+        "name": "replay_probe_no_snapshot_before_broadcast",
+        "passed": true
+      },
+      {
+        "name": "valid_one_use_join",
+        "passed": true
+      },
+      {
+        "name": "copied_other_process_session_rejected",
+        "passed": true
+      },
+      {
+        "name": "valid_move_intent",
+        "passed": true
+      },
+      {
+        "name": "received_exact_tick_one_shared_positions",
+        "passed": true
+      },
+      {
+        "name": "snapshot_exact_allowlist",
+        "passed": true
+      },
+      {
+        "name": "private_marker_filtered",
+        "passed": true
+      },
+      {
+        "name": "replay_probe_no_snapshot_after_tick_one",
+        "passed": true
+      },
+      {
+        "name": "forged_owner_rejected",
+        "passed": true
+      },
+      {
+        "name": "wrong_world_rejected",
+        "passed": true
+      },
+      {
+        "name": "stale_epoch_rejected",
+        "passed": true
+      },
+      {
+        "name": "bound_completion",
+        "passed": true
+      }
+    ],
+    "engine": "4.7.2-stable (official)",
+    "error": "",
+    "observed_positions": {
+      "alice": {
+        "x": 0.133333340287209,
+        "z": 0.0
+      },
+      "bob": {
+        "x": -0.100000001490116,
+        "z": 0.0
+      }
+    },
+    "observed_rules_revision": 1,
+    "observed_tick": 1,
+    "os": "Windows",
+    "passed": true,
+    "process_id": 8152,
+    "role": "bob",
+    "run_id": "69dfd51a8a5b426cbf471459a9f0cbd2",
+    "schema": "enfractal-phase2-multiprocess-client-v1",
+    "utc": "2026-10-02T02:53:55"
+  }
+}
