@@ -1,0 +1,130 @@
+{
+  "label": "after",
+  "commit": "ef9f19e",
+  "note": "NVIDIA GeForce RTX 2070 SUPER; 580 of 8192 MiB in use and 20% utilisation before launch (quiet for 6 s)",
+  "captured_utc": "2026-10-06T19:15:32Z",
+  "engine": "4.7.2-stable (official)",
+  "rendering_method": "forward_plus",
+  "rendering_driver": "vulkan",
+  "adapter": "NVIDIA GeForce RTX 2070 SUPER",
+  "adapter_driver": "NVIDIA 32.0.15.9186",
+  "target": "offscreen SubViewport (window shows a scaled preview)",
+  "resolution": [
+    1920,
+    1080
+  ],
+  "vsync": "disabled",
+  "warmup_frames": 120,
+  "measured_frames": 300,
+  "style": "storybook_painterly@1",
+  "style_note": "",
+  "room_manifest_sha256": "4da506646bb0147de28b1ee75d5a903a421b71124934e241938cfa1003559d2a",
+  "cameras_file": "C:\\dev\\EnFractal-run1\\look\\tools\\look\\review_cameras.json",
+  "msaa_3d": "Disabled",
+  "screen_space_aa": "Disabled",
+  "use_taa": true,
+  "cameras": [
+    {
+      "frames": 300,
+      "frame_ms_mean": 10.665,
+      "frame_ms_p50": 10.598,
+      "frame_ms_p95": 11.529,
+      "frame_ms_p99": 12.059,
+      "frame_ms_max": 12.306,
+      "gpu_ms_mean": 8.276,
+      "gpu_ms_p95": 9.106,
+      "render_cpu_ms_mean": 0.332,
+      "draw_calls_mean": 17,
+      "primitives_mean": 194,
+      "video_mem_mib": 481.1,
+      "camera": "player_eye",
+      "file": "player_eye.png",
+      "image_size": [
+        1920,
+        1080
+      ]
+    },
+    {
+      "frames": 300,
+      "frame_ms_mean": 10.774,
+      "frame_ms_p50": 10.76,
+      "frame_ms_p95": 11.512,
+      "frame_ms_p99": 11.935,
+      "frame_ms_max": 12.134,
+      "gpu_ms_mean": 8.384,
+      "gpu_ms_p95": 8.905,
+      "render_cpu_ms_mean": 0.36,
+      "draw_calls_mean": 45,
+      "primitives_mean": 4730,
+      "video_mem_mib": 481.1,
+      "camera": "over_shoulder",
+      "file": "over_shoulder.png",
+      "image_size": [
+        1920,
+        1080
+      ]
+    },
+    {
+      "frames": 300,
+      "frame_ms_mean": 10.931,
+      "frame_ms_p50": 10.922,
+      "frame_ms_p95": 11.426,
+      "frame_ms_p99": 11.656,
+      "frame_ms_max": 12.023,
+      "gpu_ms_mean": 8.553,
+      "gpu_ms_p95": 8.983,
+      "render_cpu_ms_mean": 0.376,
+      "draw_calls_mean": 40,
+      "primitives_mean": 4670,
+      "video_mem_mib": 481.1,
+      "camera": "companion",
+      "file": "companion.png",
+      "image_size": [
+        1920,
+        1080
+      ]
+    },
+    {
+      "frames": 300,
+      "frame_ms_mean": 10.174,
+      "frame_ms_p50": 10.184,
+      "frame_ms_p95": 10.705,
+      "frame_ms_p99": 10.929,
+      "frame_ms_max": 11.12,
+      "gpu_ms_mean": 7.774,
+      "gpu_ms_p95": 8.237,
+      "render_cpu_ms_mean": 0.361,
+      "draw_calls_mean": 35,
+      "primitives_mean": 3210,
+      "video_mem_mib": 481.1,
+      "camera": "low_corner",
+      "file": "low_corner.png",
+      "image_size": [
+        1920,
+        1080
+      ]
+    },
+    {
+      "frames": 300,
+      "frame_ms_mean": 10.214,
+      "frame_ms_p50": 10.221,
+      "frame_ms_p95": 10.682,
+      "frame_ms_p99": 10.897,
+      "frame_ms_max": 11.061,
+      "gpu_ms_mean": 7.817,
+      "gpu_ms_p95": 8.217,
+      "render_cpu_ms_mean": 0.365,
+      "draw_calls_mean": 34,
+      "primitives_mean": 3198,
+      "video_mem_mib": 480.748,
+      "camera": "ceiling_corner",
+      "file": "ceiling_corner.png",
+      "image_size": [
+        1920,
+        1080
+      ]
+    }
+  ],
+  "look": "storybook_painterly@1 (draft) sha256=dc658f963ebf1672459072e22637e4f58805035e4f302051925880574c57931d; renderer=forward_plus; key=diorama elevation 38 azimuth 75 energy 2.38; hour 16.5 day 279 season autumn; VoxelGI 4.6 x 3.0 x 3.6 m at subdiv 128 baked in 162 ms; ssao=True ssil=False glow=True dof=True tilt=0.35; grain 0.05 vignette 0.15 post effect ran",
+  "gpu_during_capture": "GPU memory during capture 615-1240 MiB over 65 samples"
+}
