@@ -6,10 +6,13 @@
   Reports PASS / WARN / FAIL per check, which lanes need it (L Look, P Play, C Capture, A AI companion),
   and the exact next step. Exit code is 1 when any check fails.
 .PARAMETER PhotosPath
-  Optional folder holding a room's photos (for example the garage set). Keep photos in captures/,
-  which Git ignores, or anywhere outside the repository.
+  Optional folder holding a room's photos. By default the check looks for the garage set in the
+  Google Drive for desktop folder, My Drive\Enfractal\Photos for space generation\Garage. Photos stay
+  in Google Drive and are read in place; never copy them anywhere Git tracks.
 .EXAMPLE
-  pwsh -NoProfile -File tools/check-run1-readiness.ps1 -PhotosPath captures/garage
+  pwsh -NoProfile -File tools/check-run1-readiness.ps1
+.EXAMPLE
+  pwsh -NoProfile -File tools/check-run1-readiness.ps1 -PhotosPath "G:\My Drive\Enfractal\Photos for space generation\Garage"
 #>
 param([string]$PhotosPath)
 $ErrorActionPreference = 'Stop'
@@ -158,10 +161,37 @@ foreach ($site in @('https://github.com', 'https://api.nuget.org/v3/index.json',
     }
 }
 
-# --- photos and privacy ----------------------------------------------------------------------
+# --- Google Drive, photos and privacy ---------------------------------------------------------
+# Photos and art references stay in the founder's Google Drive. Google Drive for desktop shows
+# My Drive as a local folder: on its own drive letter when streaming (G: by default), or inside the
+# user profile when mirroring. Agents read these files in place and never write into them.
+function Find-EnfractalFolder {
+    $roots = @(Get-PSDrive -PSProvider FileSystem -ErrorAction SilentlyContinue | ForEach-Object Root)
+    if ($env:USERPROFILE) { $roots += $env:USERPROFILE }
+    foreach ($root in $roots) {
+        $candidate = Join-Path (Join-Path $root 'My Drive') 'Enfractal'
+        if (Test-Path -LiteralPath $candidate -PathType Container) { return $candidate }
+    }
+    return $null
+}
 $ignore = Get-Content -LiteralPath (Join-Path $repo '.gitignore') -Raw
-if ($ignore -match '(?m)^captures/') { Add-Result 'PASS' 'captures/ is ignored by Git' 'C' 'Photos placed in captures/ cannot be committed by accident' }
-else { Add-Result 'FAIL' 'captures/ is ignored by Git' 'C' 'Add captures/ to .gitignore before downloading any photos into the repository' }
+if ($ignore -match '(?m)^captures/') { Add-Result 'PASS' 'captures/ is ignored by Git' 'C' 'Working copies the Capture lane writes to captures/ cannot be committed by accident' }
+else { Add-Result 'FAIL' 'captures/ is ignored by Git' 'C' 'Add captures/ to .gitignore before the Capture lane writes working copies there' }
+$enfractal = Find-EnfractalFolder
+if ($enfractal) {
+    Add-Result 'PASS' 'Google Drive for desktop' 'C L' "Enfractal folder at $enfractal. Keep it available offline; agents read it in place and never write into it."
+    $art = Join-Path $enfractal 'Art inspiration'
+    if (Test-Path -LiteralPath $art -PathType Container) {
+        $references = @(Get-ChildItem -LiteralPath $art -Recurse -File | Where-Object { $_.Extension -match '^\.(png|jpe?g|webp|heic|heif)$' })
+        $status = if ($references.Count -gt 0) { 'PASS' } else { 'WARN' }
+        Add-Result $status 'Art references' 'L' "$($references.Count) images in $art. The look bible starts from them."
+    } else {
+        Add-Result 'WARN' 'Art references' 'L' "No 'Art inspiration' folder in $enfractal. The look bible starts from it."
+    }
+    if (-not $PhotosPath) { $PhotosPath = Join-Path (Join-Path $enfractal 'Photos for space generation') 'Garage' }
+} else {
+    Add-Result 'WARN' 'Google Drive for desktop' 'C L' 'No My Drive\Enfractal folder found. Install Google Drive for desktop, sign in with the account that owns Enfractal, right-click the Enfractal folder and choose Offline access, then Available offline. Then rerun this check.'
+}
 if ($PhotosPath) {
     if (Test-Path -LiteralPath $PhotosPath -PathType Container) {
         $full = (Resolve-Path -LiteralPath $PhotosPath).Path
@@ -176,7 +206,7 @@ if ($PhotosPath) {
         Add-Result 'FAIL' 'Room photos' 'C' "Folder not found: $PhotosPath"
     }
 } else {
-    Add-Result 'INFO' 'Room photos' 'C' 'Download the garage set from Google Drive (Enfractal / Photos for space generation / Garage) to captures/garage/, then rerun with -PhotosPath captures/garage'
+    Add-Result 'INFO' 'Room photos' 'C' 'Set up Google Drive for desktop as above, or rerun with -PhotosPath pointing at the garage photos.'
 }
 
 # --- report ----------------------------------------------------------------------------------
