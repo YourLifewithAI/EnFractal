@@ -19,7 +19,15 @@ project/assembly_name="EnFractal"
 3d/physics_engine="Jolt Physics"
 
 [rendering]
-renderer/rendering_method="gl_compatibility"
+renderer/rendering_method="forward_plus"
 renderer/rendering_method.mobile="gl_compatibility"
 textures/default_filters/use_nearest_mipmap_filter=false
 environment/defaults/default_clear_color=Color(0.62, 0.76, 0.82, 1)
+anti_aliasing/quality/use_taa=true
+anti_aliasing/quality/use_debanding=true
+lights_and_shadows/directional_shadow/soft_shadow_filter_quality=3
+lights_and_shadows/positional_shadow/soft_shadow_filter_quality=3
+global_illumination/voxel_gi/quality=1
+camera/depth_of_field/depth_of_field_bokeh_shape=2
+camera/depth_of_field/depth_of_field_bokeh_quality=2
+camera/depth_of_field/depth_of_field_use_jitter=true

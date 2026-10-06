@@ -1,0 +1,129 @@
+{
+  "label": "before",
+  "commit": "28fc364",
+  "note": "NVIDIA GeForce RTX 2070 SUPER; 577 of 8192 MiB in use and 21% utilisation before launch (quiet for 6 s)",
+  "captured_utc": "2026-10-06T19:14:42Z",
+  "engine": "4.7.2-stable (official)",
+  "rendering_method": "gl_compatibility",
+  "rendering_driver": "opengl3",
+  "adapter": "NVIDIA GeForce RTX 2070 SUPER",
+  "adapter_driver": "NVIDIA 32.0.15.9186",
+  "target": "offscreen SubViewport (window shows a scaled preview)",
+  "resolution": [
+    1920,
+    1080
+  ],
+  "vsync": "disabled",
+  "warmup_frames": 120,
+  "measured_frames": 300,
+  "style": "storybook_painterly@1",
+  "style_note": "",
+  "room_manifest_sha256": "4da506646bb0147de28b1ee75d5a903a421b71124934e241938cfa1003559d2a",
+  "cameras_file": "C:\\dev\\EnFractal-run1\\look\\tools\\look\\review_cameras.json",
+  "msaa_3d": "Disabled",
+  "screen_space_aa": "Disabled",
+  "use_taa": false,
+  "cameras": [
+    {
+      "frames": 300,
+      "frame_ms_mean": 1.049,
+      "frame_ms_p50": 0.958,
+      "frame_ms_p95": 1.635,
+      "frame_ms_p99": 2.039,
+      "frame_ms_max": 2.982,
+      "gpu_ms_mean": 0.439,
+      "gpu_ms_p95": 0.466,
+      "render_cpu_ms_mean": 0.424,
+      "draw_calls_mean": 49,
+      "primitives_mean": 770,
+      "video_mem_mib": 28.61,
+      "camera": "player_eye",
+      "file": "player_eye.png",
+      "image_size": [
+        1920,
+        1080
+      ]
+    },
+    {
+      "frames": 300,
+      "frame_ms_mean": 1.035,
+      "frame_ms_p50": 0.981,
+      "frame_ms_p95": 1.422,
+      "frame_ms_p99": 1.89,
+      "frame_ms_max": 2.244,
+      "gpu_ms_mean": 0.422,
+      "gpu_ms_p95": 0.43,
+      "render_cpu_ms_mean": 0.512,
+      "draw_calls_mean": 92,
+      "primitives_mean": 5066,
+      "video_mem_mib": 28.61,
+      "camera": "over_shoulder",
+      "file": "over_shoulder.png",
+      "image_size": [
+        1920,
+        1080
+      ]
+    },
+    {
+      "frames": 300,
+      "frame_ms_mean": 0.988,
+      "frame_ms_p50": 0.958,
+      "frame_ms_p95": 1.344,
+      "frame_ms_p99": 1.555,
+      "frame_ms_max": 1.876,
+      "gpu_ms_mean": 0.414,
+      "gpu_ms_p95": 0.42,
+      "render_cpu_ms_mean": 0.456,
+      "draw_calls_mean": 53,
+      "primitives_mean": 3246,
+      "video_mem_mib": 28.61,
+      "camera": "companion",
+      "file": "companion.png",
+      "image_size": [
+        1920,
+        1080
+      ]
+    },
+    {
+      "frames": 300,
+      "frame_ms_mean": 1.125,
+      "frame_ms_p50": 1.094,
+      "frame_ms_p95": 1.587,
+      "frame_ms_p99": 1.921,
+      "frame_ms_max": 2.377,
+      "gpu_ms_mean": 0.413,
+      "gpu_ms_p95": 0.419,
+      "render_cpu_ms_mean": 0.539,
+      "draw_calls_mean": 83,
+      "primitives_mean": 4946,
+      "video_mem_mib": 28.61,
+      "camera": "low_corner",
+      "file": "low_corner.png",
+      "image_size": [
+        1920,
+        1080
+      ]
+    },
+    {
+      "frames": 300,
+      "frame_ms_mean": 1.144,
+      "frame_ms_p50": 1.124,
+      "frame_ms_p95": 1.505,
+      "frame_ms_p99": 1.686,
+      "frame_ms_max": 2.103,
+      "gpu_ms_mean": 0.423,
+      "gpu_ms_p95": 0.429,
+      "render_cpu_ms_mean": 0.542,
+      "draw_calls_mean": 81,
+      "primitives_mean": 4002,
+      "video_mem_mib": 28.61,
+      "camera": "ceiling_corner",
+      "file": "ceiling_corner.png",
+      "image_size": [
+        1920,
+        1080
+      ]
+    }
+  ],
+  "gpu_during_capture": "GPU memory during capture 580-743 MiB over 8 samples"
+}
