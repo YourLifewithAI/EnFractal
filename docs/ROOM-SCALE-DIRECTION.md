@@ -71,18 +71,71 @@ Deferred until the multiplayer phase: transport, replication, accounts, hosted s
 
 The earlier choice of the Compatibility renderer served an 8 GiB integrated-graphics baseline for a 4 km outdoor world. A single bounded room is the ideal case for **Forward+ with VoxelGI** (bounded interior global illumination) and depth of field for the tilt-shift "diorama" look described in the founder's art notes. Recommendation: switch the room scene to Forward+ and profile on the development machine; keep a Compatibility fallback only if a measured device requirement appears.
 
-## Phases, restated for rooms
+## Tracks, runs and the agent team
 
-| Phase | Goal | Exit evidence |
+**Revised 6 October 2026** after reviewing the first R0–R5 draft against the actual target: a fully rendered, art-styled, sandboxable room. That draft reached "discrete objects in Godot" and "AI magic" but treated the art style as one line inside an assets phase, placed it after the capture pipeline, and skipped the basic sandbox verbs. The earlier art effort failed in exactly that shape (see the [painterly pipeline diagnosis](research/13-painterly-pipeline-diagnosis.md): a blockout was refined repeatedly instead of building an art pipeline). So the plan is now four parallel tracks that converge in integration runs, each run built by a team of parallel agents with owned files, one integrator and independent reviewers.
+
+### The four tracks
+
+**Track L — Look.** The style is developed on the placeholder room with primitive props *before* any captured asset exists. If a box room with box furniture cannot be made to read as a charming toy diorama, captured assets will not fix it.
+
+| Packet | Deliverable |
+|---|---|
+| L1 look bible | Reference frames chosen with the founder; a written rubric: palette and desaturation, warm key light against cool shadow, soft edge treatment, clutter density, tilt-shift depth of field, what "handmade" means per material role; fixed review cameras in the placeholder room |
+| L2 renderer baseline | Forward+ with VoxelGI, soft shadows, ambient occlusion, depth of field that keeps the player's reach crisp, colour grading with time-of-day and season; measured frame time on the development card |
+| L3 material system | The painterly surface/foliage/bark shaders generalized into material roles (wall, wood, fabric, metal, glass, paper, plastic) with albedo softening, stroke normals and edge wear; one preset file drives them |
+| L4 handmade geometry | Mesh treatment that softens silhouettes: bevels, slight wobble, decimation that keeps charm; applied to both proxies and generated assets |
+| L5 procedural charm | Clutter, trim, vines and moss that emerge on built or transformed surfaces; density rules by surface role |
+| L6 asset restyle | Offline per-asset texture restyle for a preset (image-to-image on the atlas with depth/normal conditioning); consistency across a whole room |
+| L7 review harness | Fixed-camera captures, side-by-side against the look bible, independent reviewer scoring; the 8.5 target applies |
+
+**Track C — Capture.** The MCP server and skill from the [pipeline design](pipeline/ROOM-CAPTURE-PIPELINE.md).
+
+| Packet | Deliverable |
+|---|---|
+| C0 pilot | Five garage objects taken by hand through generation, fit, collision, restyle and Godot import before the server exists; decides backends and settings |
+| C1 ingest | HEIC conversion, EXIF, dedupe, blur and exposure scores |
+| C2 coverage | Fast poses in batches, view graph, coverage map, specific guidance text |
+| C3 shell | Floor, walls, ceiling and openings as planes; reference splat for review |
+| C4 inventory | Detect, segment, associate across views, 3D boxes and poses, tiering, annotated top-down review |
+| C5 assets | Generation behind one interface (local, fal.ai, Modal), fit to the measured box, collision, mass, affordances, metadata |
+| C6 export | The room folder layout and Godot import |
+| C7 server and skill | FastMCP tools with job handles, the SKILL.md workflow and capture heuristics |
+
+**Track P — Play.** The kernel and the sandbox.
+
+| Packet | Deliverable |
+|---|---|
+| P1 kernel generalization | Room bounds instead of a plot rectangle, physics surface query instead of a terrain sampler, principal on every action, room manifest pin, the invention runtime rewired to the C# controller |
+| P2 body and physics | 0.10 m profile, retuned step, speeds, margins and jump feel; the jitter spike that decides whether the ×10 import scale is needed |
+| P3 sandbox verbs | Pick up, carry, drop, push, stack, climb, place on a surface with snapping, break and join, all through the command path |
+| P4 saves | File-based room saves per the [persistence notes](engine/persistence-notes.md), checkpoints and undo |
+| P5 HUD and controls | Room HUD, remappable inputs, text scaling, reduced motion |
+| P6 world as data | The scene is rebuilt from room state (shell, objects, creations, locks, avatars); no hidden scene state |
+
+**Track A — AI companion.**
+
+| Packet | Deliverable |
+|---|---|
+| A1 command surface | Model-neutral MCP tools for inspect, propose, validate, preview, commit, act, stop; the security boundary tests from the [AI and security study](research/05-ai-mcp-and-security.md) |
+| A2 embodiment | Follow, look, point, fetch and act as goals through the kernel; visible listening/planning/acting state |
+| A3 first magic | Transform an object and spawn a creature as capability manifests; previews and locks |
+| A4 scenario packs | Dragon encounter (adds health, damage and hit primitives), cozy building generators, spaceport restyle; each a composition of capabilities |
+
+### The runs
+
+Each run is built by a parallel team: one builder per packet group with owned files, one integrator who owns the contracts and merges, and two independent reviewers (one for correctness and tests, one for the look rubric). No lane marks its own gate passed; the founder's judgment is final on look and fun.
+
+| Run | Lanes in parallel | Exit evidence |
 |---|---|---|
-| **R0 — cleanup and kernel** | Remove geography, keep and generalize the creation kernel, controllers and toolchain; new 10 cm body profile; room scene contract | Build and retained tests pass without any map package; a hand-authored test room loads with both avatars |
-| **R1 — capture and reconstruct** | MCP server and skill: ingest, coverage assessment, guidance loop, room shell, object inventory | The garage photo set produces a shell, a reviewed object inventory and specific capture guidance; a second room (the friend's back yard) exercises the outdoor edge case |
-| **R2 — assets and style** | Per-object complete assets with collision and metadata; style presets; Godot export; agent-driven visual review | The garage loads in Godot as discrete objects; the player walks it at 10 cm; one style preset applied consistently; founder review |
-| **R3 — companion and first magic** | Game-only AI connection; follow/look/fetch/act; one transformation and one spawned creature through the kernel | Real AI client performs a loose wish in the garage; locks hold; stop works; manual fallback works |
-| **R4 — scenario packs** | Dragon encounter, cozy building, spaceport restyle as compositions of capabilities | Each scenario runs from a loose wish; novel combinations work; budgets hold |
-| **R5 — persistence, polish, playtests** | Saves, undo, second room, house navigation, accessibility, performance | Founder and fresh-player sessions; reproducible Windows build |
+| **Run 0 — contracts** (small, first) | Schemas for the room manifest, asset metadata, style preset and game command; the owned-file map per track | Written, reviewed, one day; unblocks everything below |
+| **Run 1 — the charming box** | L1 L2 L3 · P1 P2 · C1 C2 · A1 | The placeholder room with primitive props passes the look gate from fixed cameras; the 10 cm body feels right; the garage photo set yields a coverage report with specific guidance; the command surface passes its boundary tests with a mock client |
+| **Run 2 — five real objects** | C0 C3 C4 C5 · L4 L6 · P3 P6 · A2 | Five garage objects stand in the styled room with collision; the player picks one up and carries it; the companion fetches one; the room rebuilds from data |
+| **Run 3 — the garage** | C6 C7 · L5 L7 · P4 P5 · A3 | **The milestone:** the whole garage captured, styled, sandboxable and saved; a real AI client performs one loose wish; locks and stop hold |
+| **Run 4 — scenarios and a second room** | A4 · the back yard as an outdoor shell · look iteration | Each scenario runs from a loose wish; the outdoor edge case works; budgets hold |
+| **Run 5 — playtests and release** | Accessibility, performance, fresh-player sessions, Windows build | Founder and fresh players complete the loop without coaching |
 
-Multiplayer remains a later project with its own gates.
+The cleanup plan's "R0" work is Run 1's P lane. Multiplayer remains a later project with its own gates; the four invariants below keep these runs compatible with it.
 
 ## Founder decisions, 6 October 2026
 
