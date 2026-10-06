@@ -1,0 +1,15 @@
+{
+  "schema": "enfractal.command",
+  "version": 1,
+  "action_id": "remove-0002",
+  "room_id": "garage_example",
+  "expected_revision": 4,
+  "op": "entity.remove",
+  "args": {
+    "target": "obj:bean_bag"
+  },
+  "approval": {
+    "approval_id": "self-approved",
+    "approved": true
+  }
+}

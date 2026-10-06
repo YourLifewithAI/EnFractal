@@ -1,0 +1,65 @@
+{
+  "schema": "enfractal.asset",
+  "version": 1,
+  "asset_id": "paint_clutter",
+  "display_name": "Paint supplies",
+  "category": "paint bottles and brushes",
+  "category_group": "clutter_set",
+  "tier": "clutter_set",
+  "provenance": {
+    "kind": "captured_generated",
+    "source_photos": [
+      "photo_0012",
+      "photo_0013",
+      "photo_0031"
+    ],
+    "generator": {
+      "name": "hunyuan3d",
+      "version": "2.1",
+      "backend": "fal",
+      "seed": 7,
+      "cost_usd": 0.05
+    },
+    "license": "Example fixture CC0-1.0; real outputs carry the generator's output terms",
+    "created_utc": "2026-10-06T00:00:00Z",
+    "notes": "Illustrative example. The mesh is a placeholder box with the measured size."
+  },
+  "pivot": "bottom_center",
+  "dimensions_m": [
+    0.8,
+    0.25,
+    0.35
+  ],
+  "geometry": {
+    "kind": "mesh",
+    "mesh": "mesh.glb",
+    "triangle_count": 12
+  },
+  "collision": {
+    "kind": "convex_hull"
+  },
+  "physics": {
+    "movable": true,
+    "mass_kg": 4.0
+  },
+  "materials": [
+    {
+      "slot": "mixed",
+      "role": "plastic"
+    }
+  ],
+  "affordances": [
+    "breakable"
+  ],
+  "review": {
+    "status": "needs_capture",
+    "notes": "Only two views of the middle shelf. Ask for three more photos from the left at shelf height, about one metre away."
+  },
+  "files": [
+    {
+      "path": "mesh.glb",
+      "sha256": "c1f601d66ea20fc096459197ce0c841da26ec1800661719bfbb68fee11f08315",
+      "bytes": 1544
+    }
+  ]
+}

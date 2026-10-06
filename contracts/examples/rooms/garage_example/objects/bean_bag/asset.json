@@ -1,0 +1,71 @@
+{
+  "schema": "enfractal.asset",
+  "version": 1,
+  "asset_id": "bean_bag",
+  "display_name": "Bean bag",
+  "category": "grey bean bag",
+  "category_group": "furniture",
+  "tier": "hero",
+  "provenance": {
+    "kind": "captured_generated",
+    "source_photos": [
+      "photo_0012",
+      "photo_0013",
+      "photo_0031"
+    ],
+    "generator": {
+      "name": "hunyuan3d",
+      "version": "2.1",
+      "backend": "fal",
+      "seed": 7,
+      "cost_usd": 0.05
+    },
+    "license": "Example fixture CC0-1.0; real outputs carry the generator's output terms",
+    "created_utc": "2026-10-06T00:00:00Z",
+    "notes": "Illustrative example. The mesh is a placeholder box with the measured size."
+  },
+  "pivot": "bottom_center",
+  "dimensions_m": [
+    0.9,
+    0.55,
+    0.9
+  ],
+  "geometry": {
+    "kind": "mesh",
+    "mesh": "mesh.glb",
+    "triangle_count": 12
+  },
+  "collision": {
+    "kind": "convex_hull"
+  },
+  "physics": {
+    "movable": true,
+    "mass_kg": 3.5,
+    "friction": 1.2,
+    "bounce": 0.3
+  },
+  "materials": [
+    {
+      "slot": "fabric",
+      "role": "fabric"
+    }
+  ],
+  "affordances": [
+    "walkable_top",
+    "climbable",
+    "soft",
+    "sittable"
+  ],
+  "review": {
+    "status": "approved",
+    "reviewer": "founder",
+    "reviewed_utc": "2026-10-06T00:00:00Z"
+  },
+  "files": [
+    {
+      "path": "mesh.glb",
+      "sha256": "47f3f08d6e5a92ae19d2c58dc96dddd4a331c53230d7ab442184ef9e513826a1",
+      "bytes": 1544
+    }
+  ]
+}

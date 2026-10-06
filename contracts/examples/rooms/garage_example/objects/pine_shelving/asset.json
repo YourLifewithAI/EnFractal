@@ -1,0 +1,121 @@
+{
+  "schema": "enfractal.asset",
+  "version": 1,
+  "asset_id": "pine_shelving",
+  "display_name": "Pine shelving",
+  "category": "pine shelving unit",
+  "category_group": "storage",
+  "tier": "standard",
+  "provenance": {
+    "kind": "captured_generated",
+    "source_photos": [
+      "photo_0012",
+      "photo_0013",
+      "photo_0031"
+    ],
+    "generator": {
+      "name": "hunyuan3d",
+      "version": "2.1",
+      "backend": "fal",
+      "seed": 7,
+      "cost_usd": 0.05
+    },
+    "license": "Example fixture CC0-1.0; real outputs carry the generator's output terms",
+    "created_utc": "2026-10-06T00:00:00Z",
+    "notes": "Illustrative example. The mesh is a placeholder box with the measured size."
+  },
+  "pivot": "bottom_center",
+  "dimensions_m": [
+    0.89,
+    1.79,
+    0.5
+  ],
+  "geometry": {
+    "kind": "mesh",
+    "mesh": "mesh.glb",
+    "triangle_count": 12
+  },
+  "collision": {
+    "kind": "convex_decomposition"
+  },
+  "physics": {
+    "movable": false,
+    "mass_kg": 45.0,
+    "fixed_to": "wall"
+  },
+  "materials": [
+    {
+      "slot": "pine",
+      "role": "wood"
+    }
+  ],
+  "affordances": [
+    "walkable_top",
+    "climbable",
+    "container"
+  ],
+  "review": {
+    "status": "approved",
+    "reviewer": "founder",
+    "reviewed_utc": "2026-10-06T00:00:00Z"
+  },
+  "files": [
+    {
+      "path": "mesh.glb",
+      "sha256": "2c6cb7d7d86720bcfe2742f01041679fd2883be604efd19072066f8676d63a42",
+      "bytes": 1544
+    }
+  ],
+  "walkable_surfaces": [
+    {
+      "id": "middle_shelf",
+      "points_m": [
+        [
+          -0.42,
+          0.9,
+          0.22
+        ],
+        [
+          0.42,
+          0.9,
+          0.22
+        ],
+        [
+          0.42,
+          0.9,
+          -0.22
+        ],
+        [
+          -0.42,
+          0.9,
+          -0.22
+        ]
+      ]
+    },
+    {
+      "id": "top",
+      "points_m": [
+        [
+          -0.44,
+          1.79,
+          0.24
+        ],
+        [
+          0.44,
+          1.79,
+          0.24
+        ],
+        [
+          0.44,
+          1.79,
+          -0.24
+        ],
+        [
+          -0.44,
+          1.79,
+          -0.24
+        ]
+      ]
+    }
+  ]
+}

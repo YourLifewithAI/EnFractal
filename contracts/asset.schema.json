@@ -1,0 +1,246 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.enfractal.invalid/v1/asset.schema.json",
+  "title": "EnFractal asset metadata (asset.json)",
+  "description": "One complete, closed, collidable game object. The pivot is the bottom centre of the asset's bounds, +Y up, -Z is the object's front. Generated assets are fitted to their measured size, so dimensions_m is true size at scale 1. Every file the asset uses is listed with its hash.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "version", "asset_id", "display_name", "category", "category_group", "tier", "provenance", "pivot", "dimensions_m", "geometry", "collision", "physics", "materials", "affordances", "review", "files"],
+  "properties": {
+    "schema": { "const": "enfractal.asset" },
+    "version": { "const": 1 },
+    "asset_id": { "$ref": "common.schema.json#/$defs/token" },
+    "display_name": { "type": "string", "minLength": 1, "maxLength": 80 },
+    "category": {
+      "description": "Plain noun phrase a person would use, for example 'pine shelving unit'. Shown to the player and the companion as untrusted text.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 60
+    },
+    "category_group": { "$ref": "common.schema.json#/$defs/category_group" },
+    "tier": {
+      "description": "hero: closely inspected or interacted with; standard: ordinary object; clutter_set: several small items generated as one unit; proxy: primitive stand-in.",
+      "enum": ["hero", "standard", "clutter_set", "proxy"]
+    },
+    "provenance": { "$ref": "#/$defs/provenance" },
+    "pivot": { "const": "bottom_center" },
+    "dimensions_m": { "$ref": "common.schema.json#/$defs/vec3_positive" },
+    "geometry": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "mesh", "triangle_count"],
+          "properties": {
+            "kind": { "const": "mesh" },
+            "mesh": { "$ref": "common.schema.json#/$defs/rel_path" },
+            "triangle_count": { "type": "integer", "minimum": 1, "maximum": 2000000 },
+            "lods": {
+              "type": "array",
+              "maxItems": 4,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["mesh", "triangle_count", "max_screen_ratio"],
+                "properties": {
+                  "mesh": { "$ref": "common.schema.json#/$defs/rel_path" },
+                  "triangle_count": { "type": "integer", "minimum": 1 },
+                  "max_screen_ratio": { "$ref": "common.schema.json#/$defs/unit_interval" }
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "primitive"],
+          "properties": {
+            "kind": { "const": "primitive" },
+            "primitive": { "enum": ["box", "cylinder", "sphere", "capsule"] }
+          }
+        }
+      ]
+    },
+    "collision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "description": "primitive: same shape as a primitive geometry; box: the dimensions_m box; convex_hull / convex_decomposition: from file or computed at import; trimesh_static: only for fixed objects; none: decoration only.",
+          "enum": ["primitive", "box", "convex_hull", "convex_decomposition", "trimesh_static", "none"]
+        },
+        "file": { "$ref": "common.schema.json#/$defs/rel_path" },
+        "hull_count": { "type": "integer", "minimum": 1, "maximum": 64 }
+      }
+    },
+    "physics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["movable", "mass_kg"],
+      "properties": {
+        "movable": {
+          "description": "Whether play may move it at all. Whether a particular avatar can lift it is decided at runtime from mass and the actor's profile.",
+          "type": "boolean"
+        },
+        "mass_kg": { "type": "number", "exclusiveMinimum": 0, "maximum": 5000 },
+        "fixed_to": { "enum": ["floor", "wall", "ceiling"] },
+        "friction": { "type": "number", "minimum": 0, "maximum": 2 },
+        "bounce": { "$ref": "common.schema.json#/$defs/unit_interval" },
+        "center_of_mass_m": { "$ref": "common.schema.json#/$defs/vec3" }
+      }
+    },
+    "materials": {
+      "description": "Surface slots and what they are made of. For a mesh, slot names match the mesh's surfaces; a primitive has the single slot 'body'.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["slot", "role"],
+        "properties": {
+          "slot": { "type": "string", "pattern": "^[A-Za-z0-9_.-]{1,64}$" },
+          "role": { "$ref": "common.schema.json#/$defs/material_role" },
+          "base_color": { "$ref": "common.schema.json#/$defs/color_hex" }
+        }
+      }
+    },
+    "affordances": {
+      "type": "array",
+      "uniqueItems": true,
+      "maxItems": 13,
+      "items": { "$ref": "common.schema.json#/$defs/affordance" }
+    },
+    "parts": {
+      "description": "Articulated pieces such as doors, drawers and lids.",
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "joint", "node", "axis", "limits"],
+        "properties": {
+          "id": { "$ref": "common.schema.json#/$defs/token" },
+          "joint": { "enum": ["hinge", "slide"] },
+          "node": { "type": "string", "pattern": "^[A-Za-z0-9_.-]{1,64}$" },
+          "axis": { "$ref": "common.schema.json#/$defs/vec3" },
+          "pivot_m": { "$ref": "common.schema.json#/$defs/vec3" },
+          "limits": {
+            "description": "Degrees for a hinge, metres for a slide: [closed, fully open].",
+            "type": "array",
+            "items": { "type": "number" },
+            "minItems": 2,
+            "maxItems": 2
+          }
+        }
+      }
+    },
+    "walkable_surfaces": {
+      "description": "Optional hints: polygons in asset space where a small avatar can stand, such as shelf tops.",
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "points_m"],
+        "properties": {
+          "id": { "$ref": "common.schema.json#/$defs/token" },
+          "points_m": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 64,
+            "items": { "$ref": "common.schema.json#/$defs/vec3" }
+          }
+        }
+      }
+    },
+    "styles": {
+      "description": "Restyled variants keyed by style preset id, produced offline by the restyle stage.",
+      "type": "object",
+      "propertyNames": { "$ref": "common.schema.json#/$defs/token" },
+      "maxProperties": 16,
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["preset_version", "preset_sha256"],
+        "properties": {
+          "preset_version": { "type": "integer", "minimum": 1 },
+          "preset_sha256": { "$ref": "common.schema.json#/$defs/sha256" },
+          "mesh": { "$ref": "common.schema.json#/$defs/rel_path" },
+          "textures": {
+            "type": "array",
+            "maxItems": 16,
+            "items": { "$ref": "common.schema.json#/$defs/rel_path" }
+          }
+        }
+      }
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": { "enum": ["draft", "needs_capture", "approved", "rejected"] },
+        "reviewer": { "type": "string", "maxLength": 80 },
+        "reviewed_utc": { "$ref": "common.schema.json#/$defs/utc_timestamp" },
+        "notes": { "type": "string", "maxLength": 2000 }
+      }
+    },
+    "files": {
+      "description": "Every file this asset references, relative to the asset directory, with hashes. asset.json itself is not listed.",
+      "type": "array",
+      "maxItems": 64,
+      "items": { "$ref": "common.schema.json#/$defs/file_entry" }
+    },
+    "extensions": { "$ref": "common.schema.json#/$defs/extensions" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "geometry": { "properties": { "kind": { "const": "primitive" } } } } },
+      "then": { "properties": { "tier": { "const": "proxy" }, "collision": { "properties": { "kind": { "enum": ["primitive", "none"] } } } } }
+    },
+    {
+      "if": { "properties": { "physics": { "properties": { "movable": { "const": true } } } } },
+      "then": { "properties": { "collision": { "properties": { "kind": { "not": { "const": "trimesh_static" } } } } } }
+    }
+  ],
+  "$defs": {
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "license", "created_utc"],
+      "properties": {
+        "kind": { "$ref": "common.schema.json#/$defs/provenance_kind" },
+        "source_photos": {
+          "description": "Photo identifiers from the capture session used as input.",
+          "type": "array",
+          "maxItems": 64,
+          "items": { "type": "string", "pattern": "^[A-Za-z0-9_.-]{1,128}$" }
+        },
+        "generator": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "version", "backend"],
+          "properties": {
+            "name": { "type": "string", "maxLength": 80 },
+            "version": { "type": "string", "maxLength": 40 },
+            "backend": { "enum": ["local", "fal", "replicate", "modal", "runpod", "stability", "tripo", "meshy", "rodin", "manual", "other"] },
+            "seed": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+            "settings_sha256": { "$ref": "common.schema.json#/$defs/sha256" },
+            "cost_usd": { "type": "number", "minimum": 0, "maximum": 100 }
+          }
+        },
+        "license": {
+          "description": "License of the generated or authored asset, or of the model output terms that govern it.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "created_utc": { "$ref": "common.schema.json#/$defs/utc_timestamp" },
+        "notes": { "type": "string", "maxLength": 1000 }
+      }
+    }
+  }
+}

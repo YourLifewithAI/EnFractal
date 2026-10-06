@@ -1,0 +1,157 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.enfractal.invalid/v1/common.schema.json",
+  "title": "EnFractal shared definitions",
+  "description": "Shared building blocks for every EnFractal contract. Units are metres, kilograms, seconds and degrees. Coordinates follow Godot: +Y up, -Z forward, right-handed. The .invalid host is deliberate: these identifiers are never fetched.",
+  "$defs": {
+    "token": {
+      "description": "Lowercase identifier for rooms, assets, presets, spawns, openings, jobs and parts.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+    },
+    "action_id": {
+      "description": "Client-chosen idempotency key for one command. Same principal + same action_id + same content replays the original receipt; different content is refused.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+    },
+    "entity_id": {
+      "description": "Namespaced entity identity. shell: room shell part; obj: captured or authored object instance; creation: compiled creation instance; avatar: player or companion body; effect: running effect; edit: legacy world_state entity.",
+      "type": "string",
+      "pattern": "^(shell|obj|creation|avatar|effect|edit):[A-Za-z0-9_-]{1,64}$"
+    },
+    "principal_id": {
+      "description": "Who issued an action. Assigned by the trusted adapter, never accepted from a request body.",
+      "type": "string",
+      "pattern": "^(player|companion|guest|guest_companion|system):[a-z0-9_-]{1,32}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "utc_timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,6})?Z$"
+    },
+    "rel_path": {
+      "description": "Relative POSIX path inside the owning room or asset directory. No parent segments, backslashes, schemes or absolute paths.",
+      "type": "string",
+      "pattern": "^(?!/)(?!.*(^|/)\\.\\.(/|$))[A-Za-z0-9_][A-Za-z0-9_./-]{0,199}$"
+    },
+    "repo_path": {
+      "description": "Repository-relative POSIX path, used only for documentation and reference-image pointers.",
+      "type": "string",
+      "pattern": "^(?!/)(?!.*(^|/)\\.\\.(/|$))[A-Za-z0-9_][A-Za-z0-9_./ -]{0,199}$"
+    },
+    "color_hex": {
+      "description": "sRGB colour as #rrggbb.",
+      "type": "string",
+      "pattern": "^#[0-9a-fA-F]{6}$"
+    },
+    "unit_interval": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "vec3": {
+      "type": "array",
+      "items": { "type": "number" },
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "vec3_positive": {
+      "type": "array",
+      "items": { "type": "number", "exclusiveMinimum": 0 },
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "quat_xyzw": {
+      "description": "Rotation quaternion in Godot order (x, y, z, w). Must be unit length; validators check this.",
+      "type": "array",
+      "items": { "type": "number", "minimum": -1, "maximum": 1 },
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "transform": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["position_m", "rotation"],
+      "properties": {
+        "position_m": { "$ref": "#/$defs/vec3" },
+        "rotation": { "$ref": "#/$defs/quat_xyzw" },
+        "scale": {
+          "description": "Uniform scale. Captured assets are generated at true size, so this is 1 unless a player or magic resized the entity.",
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 100
+        }
+      }
+    },
+    "aabb": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["min_m", "max_m"],
+      "properties": {
+        "min_m": { "$ref": "#/$defs/vec3" },
+        "max_m": { "$ref": "#/$defs/vec3" }
+      }
+    },
+    "file_entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "bytes"],
+      "properties": {
+        "path": { "$ref": "#/$defs/rel_path" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "bytes": { "type": "integer", "minimum": 0, "maximum": 268435456 }
+      }
+    },
+    "material_role": {
+      "description": "What a surface is made of. The style preset maps each role to a painterly treatment; physics may map it to friction and sound.",
+      "enum": [
+        "painted_wall", "plaster", "wallpaper", "wood", "wood_painted", "fabric", "leather", "carpet",
+        "metal", "metal_painted", "glass", "mirror", "ceramic", "stone", "concrete", "brick",
+        "paper", "cardboard", "plastic", "rubber", "foliage", "bark", "soil", "grass", "water",
+        "skin", "fur", "emissive", "other"
+      ]
+    },
+    "affordance": {
+      "description": "Semantic interaction hints. Whether a given body can carry or climb something is decided at runtime from size, mass and the actor's profile.",
+      "enum": [
+        "walkable_top", "climbable", "sittable", "openable", "container", "soft", "breakable",
+        "light_source", "switchable", "screen", "readable", "rideable", "hazard"
+      ]
+    },
+    "provenance_kind": {
+      "enum": [
+        "captured_generated", "captured_scanned", "hand_authored", "procedural",
+        "ai_created", "player_created", "placeholder"
+      ]
+    },
+    "category_group": {
+      "enum": [
+        "furniture", "storage", "container", "appliance", "electronics", "lighting", "decor", "art",
+        "textile", "plant", "tool", "toy", "stationery", "kitchenware", "clutter_set", "structure",
+        "creature", "vehicle", "other"
+      ]
+    },
+    "style_pin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["preset_id", "preset_version", "preset_sha256"],
+      "properties": {
+        "preset_id": { "$ref": "#/$defs/token" },
+        "preset_version": { "type": "integer", "minimum": 1 },
+        "preset_sha256": {
+          "description": "SHA-256 of the preset file bytes (UTF-8, LF line endings).",
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "extensions": {
+      "description": "Escape hatch for experiments. Keys must start with x_ and name the owning lane, for example x_look_rimlight. The integrator promotes a key into the schema or removes it; consumers must ignore keys they do not understand.",
+      "type": "object",
+      "propertyNames": { "pattern": "^x_[a-z0-9_]{1,63}$" },
+      "maxProperties": 32
+    }
+  }
+}
