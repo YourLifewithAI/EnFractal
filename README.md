@@ -8,7 +8,7 @@ Read the [room-scale direction](docs/ROOM-SCALE-DIRECTION.md) for the concept, t
 
 ## Status
 
-The geography era is cleaned out. The repository previously built a real-place world (Barton Creek, then the Pfluger district in Austin) with a 0.30 m player; the map data, terrain runtime, district scenes, PostgreSQL save/travel service and multiplayer experiments were removed on 6 October 2026 per the [cleanup plan](docs/CLEANUP-PLAN.md). Everything removed is on the `geography-era-final` branch. The project now boots into a hand-built placeholder room (`run-room.ps1`) so the controllers have a floor while the capture pipeline is built. The kernel's room generalization and the 10 cm body retune are Run 1's Play lane in the direction document.
+The geography era is cleaned out. The repository previously built a real-place world (Barton Creek, then the Pfluger district in Austin) with a 0.30 m player; the map data, terrain runtime, district scenes, PostgreSQL save/travel service and multiplayer experiments were removed on 6 October 2026 per the [cleanup plan](docs/CLEANUP-PLAN.md). Everything removed is on the `geography-era-final` branch. Run 0 is done: the [contracts](contracts/README.md) every track builds against, the [ownership map](docs/runs/OWNERSHIP.md) and the [Run 1 brief](docs/runs/RUN-1.md). The game now loads rooms and style presets as hash-verified data; the placeholder room (`run-room.ps1`) is the first one. Agents start from [AGENTS.md](AGENTS.md).
 
 What carries forward from the earlier work:
 

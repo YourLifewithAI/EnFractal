@@ -128,7 +128,7 @@ Each run is built by a parallel team: one builder per packet group with owned fi
 
 | Run | Lanes in parallel | Exit evidence |
 |---|---|---|
-| **Run 0 — contracts** (small, first) | Schemas for the room manifest, asset metadata, style preset and game command; the owned-file map per track | Written, reviewed, one day; unblocks everything below |
+| **Run 0 — contracts** (done 6 October 2026) | Schemas for the room manifest, asset metadata, style preset, game command and room state; the owned-file map per track | [contracts/](../contracts/README.md), [ownership](runs/OWNERSHIP.md), [Run 1 brief](runs/RUN-1.md); the game loads rooms and presets through them |
 | **Run 1 — the charming box** | L1 L2 L3 · P1 P2 · C1 C2 · A1 | The placeholder room with primitive props passes the look gate from fixed cameras; the 10 cm body feels right; the garage photo set yields a coverage report with specific guidance; the command surface passes its boundary tests with a mock client |
 | **Run 2 — five real objects** | C0 C3 C4 C5 · L4 L6 · P3 P6 · A2 | Five garage objects stand in the styled room with collision; the player picks one up and carries it; the companion fetches one; the room rebuilds from data |
 | **Run 3 — the garage** | C6 C7 · L5 L7 · P4 P5 · A3 | **The milestone:** the whole garage captured, styled, sandboxable and saved; a real AI client performs one loose wish; locks and stop hold |
