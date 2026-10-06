@@ -62,6 +62,13 @@ uv run --project companion --locked python -m unittest discover -s companion/tes
 Expected: `Ran 141 tests ... OK` in about 20 seconds. The contract tests still pass unchanged
 (`python -m unittest discover -s contracts/tests` with the contract validator's environment).
 
+Proposed changes to files this lane does not own are kept as patches, applied from the stored blob so
+line-ending conversion cannot touch them (`git show run1/companion:<path> | git apply`):
+`docs/companion/proposals/runners-run1.diff` adds this suite to `run-engine-tests.ps1` and
+`tools/linux/test-all.sh` (with the environment built by `tools/linux/setup-toolchain.sh` from
+`companion/requirements.lock.txt`), and `docs/companion/proposals/contracts-run1.diff` carries the
+contract proposals described in [TRANSPORT.md](TRANSPORT.md) and the lane report.
+
 ## Register it with an MCP client
 
 Registering a server is persistent client configuration, so the founder approves it. These commands
