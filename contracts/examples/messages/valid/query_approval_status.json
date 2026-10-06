@@ -1,0 +1,10 @@
+{
+  "schema": "enfractal.query",
+  "version": 1,
+  "query_id": "q-0005",
+  "room_id": "garage_example",
+  "op": "approval.status",
+  "args": {
+    "request_id": "9c1f4e2ab7d84c03a6e5f10b2d7c8e94"
+  }
+}

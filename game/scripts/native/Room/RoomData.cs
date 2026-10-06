@@ -1,5 +1,6 @@
 using Godot;
 using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Linq;
 using System.Security.Cryptography;
@@ -32,6 +33,8 @@ public sealed record SpawnPoint(string Id, string Role, Vector3 PositionM, float
 
 public sealed record LightHint(string Id, string Kind, Vector3? PositionM, Vector3? Direction, Color Color, float RelativeIntensity);
 
+public sealed record StylePin(string PresetId, int PresetVersion, string PresetSha256);
+
 /// <summary>
 /// Loads contracts/room-manifest.schema.json documents with integrity checks: every referenced file
 /// must be listed with a matching SHA-256 and size, paths stay inside the room, and pinned bytes are
@@ -41,7 +44,12 @@ public sealed record LightHint(string Id, string Kind, Vector3? PositionM, Vecto
 public sealed class RoomData
 {
     public const int SchemaVersion = 1;
-    private static readonly Regex RelativePath = new(@"^(?!/)(?!.*(^|/)\.\.(/|$))[A-Za-z0-9_][A-Za-z0-9_./-]{0,199}$", RegexOptions.Compiled);
+    // Same rules as contracts/common.schema.json: one spelling per file, no ".", ".." or empty segments.
+    private static readonly Regex RelativePath = new(@"^(?!.*(?:^|/)\.\.?(?:/|$))(?!.*//)(?!.*/$)[A-Za-z0-9_][A-Za-z0-9_./-]{0,199}$", RegexOptions.Compiled);
+    private static readonly Regex AssetPath = new(@"^objects/[a-z][a-z0-9_-]{0,63}/asset\.json$", RegexOptions.Compiled);
+    // Control, line-separator, zero-width and bidirectional-override characters cannot appear in display text.
+    private static readonly Regex UnsafeText = new(@"[\u0000-\u001F\u007F-\u009F\u200B-\u200F\u2028\u2029\u202A-\u202E\u2060-\u2069\uFEFF]", RegexOptions.Compiled);
+    public const float CoordinateLimitM = 1000f;
     private static readonly Regex Token = new(@"^[a-z][a-z0-9_-]{0,63}$", RegexOptions.Compiled);
     private static readonly JsonDocumentOptions Strict = new() { AllowTrailingCommas = false, CommentHandling = JsonCommentHandling.Disallow, MaxDepth = 64 };
 
@@ -55,6 +63,9 @@ public sealed class RoomData
     public IReadOnlyList<ObjectInstance> Objects { get; private init; } = Array.Empty<ObjectInstance>();
     public IReadOnlyList<SpawnPoint> Spawns { get; private init; } = Array.Empty<SpawnPoint>();
     public IReadOnlyList<LightHint> LightHints { get; private init; } = Array.Empty<LightHint>();
+    public StylePin? DefaultStyle { get; private init; }
+    /// <summary>Mesh bytes exactly as hash-verified, keyed by full path; the builder never reads them from disk again.</summary>
+    public IReadOnlyDictionary<string, byte[]> VerifiedMeshes { get; private init; } = new Dictionary<string, byte[]>();
 
     public SpawnPoint SpawnFor(string role, SpawnPoint? except = null) =>
         Spawns.FirstOrDefault(s => s.Role == role && s != except) ??
@@ -74,6 +85,7 @@ public sealed class RoomData
         var folder = directory[(directory.LastIndexOf('/') + 1)..];
         Expect(folder == roomId, $"room_id {roomId} must match its directory name {folder}");
 
+        var meshes = new Dictionary<string, byte[]>();
         var listed = new Dictionary<string, (string Sha, long Bytes)>();
         foreach (var entry in Arr(root, "files"))
         {
@@ -84,15 +96,14 @@ public sealed class RoomData
         AssetInfo AssetAt(string path)
         {
             if (assets.TryGetValue(path, out var cached)) return cached;
-            var bytes = ReadListed(directory, listed, SafePath(path), "room.json");
-            var slash = path.LastIndexOf('/');
-            Expect(slash > 0, $"asset {path} must live in its own directory, objects/<asset_id>/asset.json");
-            var asset = ParseAsset(directory + "/" + path[..slash], bytes, path);
+            Expect(AssetPath.IsMatch(path), $"asset path {path} must be objects/<asset_id>/asset.json");
+            var bytes = ReadListed(directory, listed, path, "room.json");
+            var asset = ParseAsset(directory + "/" + path[..path.LastIndexOf('/')], bytes, path, meshes);
             assets[path] = asset;
             return asset;
         }
 
-        var shell = Arr(root.GetProperty("shell"), "parts").Select(p => ParseShell(directory, listed, p)).ToArray();
+        var shell = Arr(root.GetProperty("shell"), "parts").Select(p => ParseShell(directory, listed, p, meshes)).ToArray();
         var objects = Arr(root, "objects").Select(o =>
         {
             var transform = o.GetProperty("transform");
@@ -100,7 +111,7 @@ public sealed class RoomData
             return new ObjectInstance(
                 Str(o, "id"), AssetAt(Str(o, "asset")), Vec3(transform.GetProperty("position_m")), Quat(transform.GetProperty("rotation")),
                 transform.TryGetProperty("scale", out var scale) ? scale.GetSingle() : 1f,
-                Str(support, "kind"), OptStr(support, "target_id"), OptStr(o, "display_name"));
+                Str(support, "kind"), OptStr(support, "target_id"), OptDisplay(o, "display_name", 80));
         }).ToArray();
         var spawns = Arr(root, "spawns").Select(s => new SpawnPoint(Str(s, "id"), Str(s, "role"), Vec3(s.GetProperty("position_m")), s.GetProperty("yaw_deg").GetSingle())).ToArray();
         var hints = root.TryGetProperty("light_hints", out var h) ? h.EnumerateArray().Select(l => new LightHint(
@@ -115,16 +126,19 @@ public sealed class RoomData
         var ids = shell.Select(s => s.Id).Concat(objects.Select(o => o.Id)).ToArray();
         Expect(ids.Length == ids.Distinct().Count(), "shell and object ids must be unique");
         Expect(spawns.Any(s => s.Role is "player" or "any") && spawns.Any(s => s.Role is "companion" or "any"), "room needs player and companion spawns");
+        StylePin? style = null;
+        if (root.TryGetProperty("default_style", out var pin))
+            style = new StylePin(Str(pin, "preset_id"), Int(pin, "preset_version"), Str(pin, "preset_sha256"));
 
         return new RoomData
         {
-            Directory = directory, RoomId = roomId, DisplayName = Str(root, "display_name"),
+            Directory = directory, RoomId = roomId, DisplayName = Display(root, "display_name", 80), DefaultStyle = style, VerifiedMeshes = meshes,
             SourceKind = Str(root.GetProperty("source"), "kind"), ManifestSha256 = Sha256Hex(manifestBytes),
             Bounds = new Aabb(min, max - min), Shell = shell, Objects = objects, Spawns = spawns, LightHints = hints,
         };
     }
 
-    private static ShellPart ParseShell(string directory, Dictionary<string, (string Sha, long Bytes)> listed, JsonElement part)
+    private static ShellPart ParseShell(string directory, Dictionary<string, (string Sha, long Bytes)> listed, JsonElement part, Dictionary<string, byte[]> meshes)
     {
         var geometry = part.GetProperty("geometry");
         var kind = Str(geometry, "kind");
@@ -140,14 +154,14 @@ public sealed class RoomData
         else
         {
             mesh = SafePath(Str(geometry, "mesh"));
-            ReadListed(directory, listed, mesh, "room.json");
+            meshes[directory + "/" + mesh] = ReadMesh(directory, listed, mesh, "room.json");
         }
         if (part.TryGetProperty("texture", out var texture)) ReadListed(directory, listed, SafePath(texture.GetString()!), "room.json");
         return new ShellPart(Str(part, "id"), Str(part, "role"), points, thickness, mesh, part.GetProperty("collides").GetBoolean(),
             Str(part, "material_role"), part.TryGetProperty("base_color", out var color) ? new Color(color.GetString()!) : new Color("b3aea4"));
     }
 
-    private static AssetInfo ParseAsset(string assetDirectory, byte[] bytes, string label)
+    private static AssetInfo ParseAsset(string assetDirectory, byte[] bytes, string label, Dictionary<string, byte[]> meshes)
     {
         using var document = Parse(bytes, label);
         var root = document.RootElement;
@@ -164,21 +178,23 @@ public sealed class RoomData
         if (geometryKind == "mesh")
         {
             mesh = SafePath(Str(geometry, "mesh"));
-            ReadListed(assetDirectory, listed, mesh, label);
+            meshes[assetDirectory + "/" + mesh] = ReadMesh(assetDirectory, listed, mesh, label);
         }
         else primitive = Str(geometry, "primitive");
         var collision = root.GetProperty("collision");
         var collisionFile = OptStr(collision, "file");
-        if (collisionFile != null) ReadListed(assetDirectory, listed, SafePath(collisionFile), label);
+        if (collisionFile != null) meshes[assetDirectory + "/" + collisionFile] = ReadMesh(assetDirectory, listed, SafePath(collisionFile), label);
+        var collisionKind = Str(collision, "kind");
+        Expect(geometryKind != "mesh" || collisionKind != "primitive", $"{label}: a mesh asset cannot use primitive collision");
         var physics = root.GetProperty("physics");
         var dimensions = Vec3(root.GetProperty("dimensions_m"));
         Expect(dimensions.X > 0 && dimensions.Y > 0 && dimensions.Z > 0, $"{label} dimensions must be positive");
         var materials = Arr(root, "materials").Select(m => new MaterialSlot(Str(m, "slot"), Str(m, "role"),
             m.TryGetProperty("base_color", out var c) ? new Color(c.GetString()!) : null)).ToArray();
         return new AssetInfo(
-            assetId, assetDirectory, Str(root, "display_name"), Str(root, "category"), Str(root, "category_group"), Str(root, "tier"),
+            assetId, assetDirectory, Display(root, "display_name", 80), Display(root, "category", 60), Str(root, "category_group"), Str(root, "tier"),
             Str(root.GetProperty("provenance"), "kind"), dimensions, geometryKind, primitive, mesh,
-            Str(collision, "kind"), collisionFile, physics.GetProperty("movable").GetBoolean(), physics.GetProperty("mass_kg").GetSingle(),
+            collisionKind, collisionFile, physics.GetProperty("movable").GetBoolean(), physics.GetProperty("mass_kg").GetSingle(),
             materials, Arr(root, "affordances").Select(a => a.GetString()!).ToArray(), Str(root.GetProperty("review"), "status"));
     }
 
@@ -205,10 +221,77 @@ public sealed class RoomData
         return bytes;
     }
 
+    private static byte[] ReadMesh(string directory, Dictionary<string, (string Sha, long Bytes)> listed, string path, string label)
+    {
+        Expect(path.EndsWith(".glb", StringComparison.Ordinal), $"{label}: mesh {path} must be a self-contained .glb");
+        var bytes = ReadListed(directory, listed, path, label);
+        RequireSelfContainedGlb(bytes, $"{label}: {path}");
+        return bytes;
+    }
+
+    /// <summary>A pinned GLB must embed every buffer and image; an external URI would load unhashed bytes, possibly from outside the room.</summary>
+    public static void RequireSelfContainedGlb(byte[] bytes, string label)
+    {
+        Expect(bytes.Length >= 20 && bytes[0] == (byte)'g' && bytes[1] == (byte)'l' && bytes[2] == (byte)'T' && bytes[3] == (byte)'F', $"{label} is not a binary glTF file");
+        // GLB is little-endian. Lengths stay unsigned so a hostile chunk length cannot wrap negative.
+        var version = BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(4));
+        var length = BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(8));
+        Expect(version == 2 && length == bytes.Length, $"{label} has an invalid GLB header");
+        var chunkLength = BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(12));
+        Expect(BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(16)) == 0x4E4F534A && 20L + chunkLength <= bytes.Length, $"{label} does not start with a JSON chunk");
+        // Same tolerance as contracts/validate.py: trailing space or NUL padding is not part of the JSON.
+        var json = bytes.AsSpan(20, (int)chunkLength).TrimEnd(stackalloc byte[] { 0x20, 0x00 }).ToArray();
+        using var document = Parse(json, label);
+        Expect(document.RootElement.ValueKind == JsonValueKind.Object, $"{label} has a GLB JSON chunk that is not an object");
+        foreach (var kind in new[] { "buffers", "images" })
+        {
+            if (!document.RootElement.TryGetProperty(kind, out var items)) continue;
+            Expect(items.ValueKind == JsonValueKind.Array, $"{label} has a GLB '{kind}' entry that is not an array");
+            foreach (var item in items.EnumerateArray())
+                if (item.ValueKind == JsonValueKind.Object && item.TryGetProperty("uri", out var uri) &&
+                    !(uri.ValueKind == JsonValueKind.String && uri.GetString()!.StartsWith("data:", StringComparison.Ordinal)))
+                    throw new RoomLoadException($"{label} references external file '{uri}'; meshes must be self-contained");
+        }
+    }
+
+    /// <summary>JsonDocument keeps the last of duplicate keys; the contract rejects them, so check first.</summary>
+    private static void RejectDuplicateKeys(byte[] bytes, string label)
+    {
+        var reader = new Utf8JsonReader(bytes, new JsonReaderOptions { CommentHandling = JsonCommentHandling.Disallow, MaxDepth = 64 });
+        var scopes = new Stack<HashSet<string>>();
+        try
+        {
+            while (reader.Read())
+            {
+                switch (reader.TokenType)
+                {
+                    case JsonTokenType.StartObject: scopes.Push(new HashSet<string>(StringComparer.Ordinal)); break;
+                    case JsonTokenType.EndObject: scopes.Pop(); break;
+                    case JsonTokenType.PropertyName:
+                        var name = reader.GetString()!;
+                        if (!scopes.Peek().Add(name)) throw new RoomLoadException($"{label} has duplicate key '{name}'");
+                        break;
+                }
+            }
+        }
+        catch (JsonException error) { throw new RoomLoadException($"{label} is not valid JSON: {error.Message}"); }
+    }
+
+    private static string Display(JsonElement element, string name, int maxLength)
+    {
+        var text = Str(element, name);
+        Expect(text.Length <= maxLength && !UnsafeText.IsMatch(text), $"'{name}' must be at most {maxLength} characters without control or bidirectional characters");
+        return text;
+    }
+
+    private static string? OptDisplay(JsonElement element, string name, int maxLength) =>
+        element.TryGetProperty(name, out _) ? Display(element, name, maxLength) : null;
+
     public static string Sha256Hex(byte[] bytes) => Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
 
     private static JsonDocument Parse(byte[] bytes, string label)
     {
+        RejectDuplicateKeys(bytes, label);
         try { return JsonDocument.Parse(bytes, Strict); }
         catch (JsonException error) { throw new RoomLoadException($"{label} is not valid JSON: {error.Message}"); }
     }
@@ -245,8 +328,12 @@ public sealed class RoomData
     private static Vector3 Vec3(JsonElement element)
     {
         var values = element.EnumerateArray().Select(v => v.GetDouble()).ToArray();
-        Expect(values.Length == 3 && values.All(double.IsFinite), "expected three finite numbers");
-        return new Vector3((float)values[0], (float)values[1], (float)values[2]);
+        Expect(values.Length == 3, "expected three numbers");
+        var vector = new Vector3((float)values[0], (float)values[1], (float)values[2]);
+        // Check after narrowing to float: a finite double can still overflow the runtime's float32.
+        Expect(vector.IsFinite() && Mathf.Abs(vector.X) <= CoordinateLimitM && Mathf.Abs(vector.Y) <= CoordinateLimitM && Mathf.Abs(vector.Z) <= CoordinateLimitM,
+            $"coordinates must be finite and within ±{CoordinateLimitM} m");
+        return vector;
     }
 
     private static Quaternion Quat(JsonElement element)

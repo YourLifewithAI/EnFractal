@@ -19,3 +19,7 @@ pytest-cache-files-*/
 
 # Photos and derived data of real rooms stay local; never commit them without the founder's approval.
 captures/
+
+# Captured rooms are exported to the player's user data, never committed. Only hand-built test rooms are tracked.
+game/rooms/*
+!game/rooms/test_room/

@@ -14,9 +14,12 @@ namespace EnFractal.Native;
 public partial class RoomWorld : Node3D
 {
     public const string DefaultRoom = "res://rooms/test_room";
-    public const string DefaultStyle = "res://styles/storybook_painterly.json";
+    public const string DefaultStyleId = "storybook_painterly";
+    public const int DefaultStyleVersion = 1;
+    public static readonly string DefaultStyle = StylePreset.PathFor(DefaultStyleId, DefaultStyleVersion);
     [Export] public string RoomDirectory { get; set; } = DefaultRoom;
-    [Export] public string StylePresetPath { get; set; } = DefaultStyle;
+    /// <summary>Overrides the room's pinned style when set (tests, previews).</summary>
+    [Export] public string StylePresetPath { get; set; } = "";
     public RoomData Room { get; private set; } = null!;
     public LookDirector Look { get; private set; } = null!;
     public Node3D Built { get; private set; } = null!;
@@ -24,6 +27,8 @@ public partial class RoomWorld : Node3D
     public CompanionAvatar Companion { get; private set; } = null!;
     public bool WorldReady { get; private set; }
     public string LoadError { get; private set; } = "";
+    /// <summary>Set when the room's pinned style could not be used and the default look was applied instead.</summary>
+    public string StyleNote { get; private set; } = "";
 
     /// <summary>A bare room id resolves to the player's captured rooms first, then to rooms shipped with the game.</summary>
     public static string ResolveRoom(string idOrPath)
@@ -33,12 +38,28 @@ public partial class RoomWorld : Node3D
         return FileAccess.FileExists(captured + "/room.json") ? captured : $"res://rooms/{idOrPath}";
     }
 
+    /// <summary>An explicit override, else the room's pinned style, else the default. A pin that does not verify falls back visibly, never silently.</summary>
+    private StylePreset ChooseStyle()
+    {
+        if (StylePresetPath.Length > 0) return StylePreset.Load(StylePresetPath);
+        if (Room.DefaultStyle is { } pin)
+        {
+            try { return StylePreset.Resolve(pin.PresetId, pin.PresetVersion, pin.PresetSha256); }
+            catch (Exception error)
+            {
+                StyleNote = $"Room style {pin.PresetId} v{pin.PresetVersion} is unavailable ({error.Message}); showing the default look.";
+                GD.Print("LOOK: " + StyleNote);
+            }
+        }
+        return StylePreset.Resolve(DefaultStyleId, DefaultStyleVersion);
+    }
+
     public override async void _Ready()
     {
         try
         {
             Room = RoomData.Load(RoomDirectory);
-            var preset = StylePreset.Load(StylePresetPath);
+            var preset = ChooseStyle();
             Look = new LookDirector { Name = "Look" };
             AddChild(Look);
             Look.Apply(preset, Room);

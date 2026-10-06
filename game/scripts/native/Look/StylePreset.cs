@@ -38,6 +38,21 @@ public sealed class StylePreset
     public float DefaultRoughness { get; private init; }
     public IReadOnlyDictionary<string, float> RoleRoughness { get; private init; } = new Dictionary<string, float>();
 
+    public const string StylesRoot = "res://styles";
+
+    public static string PathFor(string presetId, int version) => $"{StylesRoot}/{presetId}/v{version}.json";
+
+    /// <summary>Resolve a pinned preset: game/styles/&lt;id&gt;/v&lt;version&gt;.json, which must declare that id and version and, when a hash is pinned, match it.</summary>
+    public static StylePreset Resolve(string presetId, int version, string? expectedSha256 = null)
+    {
+        var preset = Load(PathFor(presetId, version));
+        if (preset.PresetId != presetId || preset.PresetVersion != version)
+            throw new InvalidOperationException($"{preset.Path} declares {preset.PresetId} v{preset.PresetVersion}, not {presetId} v{version}");
+        if (expectedSha256 != null && preset.Sha256 != expectedSha256)
+            throw new InvalidOperationException($"{preset.Path} does not match its pin; a pinned preset version must never change");
+        return preset;
+    }
+
     public static StylePreset Load(string path)
     {
         if (!FileAccess.FileExists(path)) throw new InvalidOperationException($"style preset not found: {path}");

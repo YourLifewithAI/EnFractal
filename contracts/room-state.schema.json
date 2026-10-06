@@ -2,18 +2,38 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://contracts.enfractal.invalid/v1/room-state.schema.json",
   "title": "EnFractal room state (saved play on top of a room manifest)",
-  "description": "Everything play has changed in a room: moved or removed objects, creations, locks, avatar identities, the active style and the receipt ledger. The scene is rebuilt from manifest + state; no other scene state is authoritative. Written atomically per docs/engine/persistence-notes.md. Velocities and running effects are not saved.",
+  "description": "Everything play has changed in a room: moved or removed objects, creations, locks, avatar identities, the active style and the durable receipt ledger. The scene is rebuilt from manifest + state; no other scene state is authoritative. Written atomically per docs/engine/persistence-notes.md. Velocities, running effects, goals and transient receipts are not saved. When a checkpoint is taken, receipts at or below its revision may be compacted; receipt.lookup then reports compacted.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema", "version", "room_id", "room_pin", "style_pin", "rules", "store_revision", "session", "entities", "receipts"],
+  "required": [
+    "schema",
+    "version",
+    "room_id",
+    "room_pin",
+    "style_pin",
+    "rules",
+    "store_revision",
+    "session",
+    "entities",
+    "receipts"
+  ],
   "properties": {
-    "schema": { "const": "enfractal.room_state" },
-    "version": { "const": 1 },
-    "room_id": { "$ref": "common.schema.json#/$defs/token" },
+    "schema": {
+      "const": "enfractal.room_state"
+    },
+    "version": {
+      "type": "integer",
+      "const": 1
+    },
+    "room_id": {
+      "$ref": "common.schema.json#/$defs/token"
+    },
     "room_pin": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["manifest_sha256"],
+      "required": [
+        "manifest_sha256"
+      ],
       "properties": {
         "manifest_sha256": {
           "description": "SHA-256 of the room.json bytes this state was built on. A mismatch means the room was re-exported and the state needs an explicit migration.",
@@ -21,15 +41,26 @@
         }
       }
     },
-    "style_pin": { "$ref": "common.schema.json#/$defs/style_pin" },
+    "style_pin": {
+      "$ref": "common.schema.json#/$defs/style_pin"
+    },
     "rules": {
       "description": "Kernel versions that interpreted this state.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["command_version", "compiler_version"],
+      "required": [
+        "command_version",
+        "compiler_version"
+      ],
       "properties": {
-        "command_version": { "type": "integer", "minimum": 1 },
-        "compiler_version": { "type": "integer", "minimum": 1 }
+        "command_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "compiler_version": {
+          "type": "integer",
+          "minimum": 1
+        }
       }
     },
     "store_revision": {
@@ -41,35 +72,85 @@
       "description": "Writer fence: a stale session must not overwrite a newer revision.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["session_id", "written_utc", "build"],
+      "required": [
+        "session_id",
+        "written_utc",
+        "build"
+      ],
       "properties": {
-        "session_id": { "type": "string", "pattern": "^[a-f0-9]{16,64}$" },
-        "written_utc": { "$ref": "common.schema.json#/$defs/utc_timestamp" },
-        "build": { "type": "string", "maxLength": 80 }
+        "session_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{16,64}$"
+        },
+        "written_utc": {
+          "$ref": "common.schema.json#/$defs/utc_timestamp"
+        },
+        "build": {
+          "allOf": [
+            {
+              "$ref": "common.schema.json#/$defs/display_text"
+            },
+            {
+              "maxLength": 80
+            }
+          ]
+        }
       }
     },
     "entities": {
       "description": "Keyed by entity id. Captured objects appear here only once play has changed them.",
       "type": "object",
-      "propertyNames": { "$ref": "common.schema.json#/$defs/entity_id" },
+      "propertyNames": {
+        "$ref": "common.schema.json#/$defs/entity_id"
+      },
       "maxProperties": 2048,
-      "additionalProperties": { "$ref": "#/$defs/entity_state" }
+      "additionalProperties": {
+        "$ref": "#/$defs/entity_state"
+      }
     },
     "receipts": {
       "description": "Keyed by principal|action_id. Bounded; see persistence notes for the reserved recovery path.",
       "type": "object",
-      "propertyNames": { "pattern": "^(player|companion|guest|guest_companion|system):[a-z0-9_-]{1,32}\\|[A-Za-z0-9][A-Za-z0-9_-]{0,63}$" },
+      "propertyNames": {
+        "pattern": "^(player|companion|guest|guest_companion|system):[a-z0-9_-]{1,32}\\|[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+      },
       "maxProperties": 4096,
       "additionalProperties": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["fingerprint", "result"],
+        "required": [
+          "fingerprint",
+          "result"
+        ],
         "properties": {
           "fingerprint": {
             "description": "SHA-256 of the canonical command JSON (sorted keys, no whitespace).",
             "$ref": "common.schema.json#/$defs/sha256"
           },
-          "result": { "$ref": "game-command.schema.json#/$defs/result" }
+          "result": {
+            "description": "Only successful, durable command results are kept here.",
+            "allOf": [
+              {
+                "$ref": "game-command.schema.json#/$defs/result"
+              },
+              {
+                "required": [
+                  "action_id"
+                ],
+                "properties": {
+                  "ok": {
+                    "const": true
+                  },
+                  "op": {
+                    "$ref": "game-command.schema.json#/$defs/command_op"
+                  },
+                  "transient": {
+                    "const": false
+                  }
+                }
+              }
+            ]
+          }
         }
       }
     },
@@ -79,50 +160,108 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["id", "revision", "path", "created_utc"],
+        "required": [
+          "id",
+          "revision",
+          "path",
+          "created_utc"
+        ],
         "properties": {
-          "id": { "$ref": "common.schema.json#/$defs/token" },
-          "revision": { "type": "integer", "minimum": 0 },
-          "label": { "type": "string", "maxLength": 80 },
-          "path": { "$ref": "common.schema.json#/$defs/rel_path" },
-          "created_utc": { "$ref": "common.schema.json#/$defs/utc_timestamp" }
+          "id": {
+            "$ref": "common.schema.json#/$defs/token"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "label": {
+            "allOf": [
+              {
+                "$ref": "common.schema.json#/$defs/display_text"
+              },
+              {
+                "maxLength": 80
+              }
+            ]
+          },
+          "path": {
+            "$ref": "common.schema.json#/$defs/rel_path"
+          },
+          "created_utc": {
+            "$ref": "common.schema.json#/$defs/utc_timestamp"
+          }
         }
       }
     },
-    "extensions": { "$ref": "common.schema.json#/$defs/extensions" }
+    "extensions": {
+      "$ref": "common.schema.json#/$defs/extensions"
+    }
   },
   "$defs": {
     "entity_state": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "kind", "revision", "provenance", "protection"],
+      "required": [
+        "id",
+        "kind",
+        "revision",
+        "provenance",
+        "protection"
+      ],
       "properties": {
-        "id": { "$ref": "common.schema.json#/$defs/entity_id" },
-        "kind": { "enum": ["object", "creation", "avatar"] },
+        "id": {
+          "$ref": "common.schema.json#/$defs/entity_id"
+        },
+        "kind": {
+          "enum": [
+            "object",
+            "creation",
+            "avatar"
+          ]
+        },
         "revision": {
           "description": "Entity revision, incremented on each change to this entity.",
           "type": "integer",
           "minimum": 1
         },
-        "removed": { "type": "boolean" },
-        "transform": { "$ref": "common.schema.json#/$defs/transform" },
+        "removed": {
+          "type": "boolean"
+        },
+        "transform": {
+          "$ref": "common.schema.json#/$defs/transform"
+        },
         "parts": {
           "type": "object",
-          "propertyNames": { "$ref": "common.schema.json#/$defs/token" },
-          "additionalProperties": { "$ref": "common.schema.json#/$defs/unit_interval" }
+          "propertyNames": {
+            "$ref": "common.schema.json#/$defs/token"
+          },
+          "additionalProperties": {
+            "$ref": "common.schema.json#/$defs/unit_interval"
+          }
         },
         "creation": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["source", "source_sha256"],
+          "required": [
+            "source",
+            "source_sha256"
+          ],
           "properties": {
             "source": {
               "description": "The editable enfractal.creation source; the compiled artifact is derived again on load, never trusted from the file.",
               "type": "object",
-              "required": ["schema"],
-              "properties": { "schema": { "const": "enfractal.creation" } }
+              "required": [
+                "schema"
+              ],
+              "properties": {
+                "schema": {
+                  "const": "enfractal.creation"
+                }
+              }
             },
-            "source_sha256": { "$ref": "common.schema.json#/$defs/sha256" },
+            "source_sha256": {
+              "$ref": "common.schema.json#/$defs/sha256"
+            },
             "transformed_from": {
               "description": "Entity this creation replaced through entity.transform; identity and protection carry over.",
               "$ref": "common.schema.json#/$defs/entity_id"
@@ -132,17 +271,42 @@
         "avatar": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["role", "display_name", "appearance"],
+          "required": [
+            "role",
+            "display_name",
+            "appearance"
+          ],
           "properties": {
-            "role": { "enum": ["player", "companion"] },
-            "display_name": { "type": "string", "minLength": 1, "maxLength": 40 },
+            "role": {
+              "enum": [
+                "player",
+                "companion"
+              ]
+            },
+            "display_name": {
+              "allOf": [
+                {
+                  "$ref": "common.schema.json#/$defs/display_text"
+                },
+                {
+                  "maxLength": 40
+                }
+              ],
+              "minLength": 1
+            },
             "appearance": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["color"],
+              "required": [
+                "color"
+              ],
               "properties": {
-                "color": { "$ref": "common.schema.json#/$defs/color_hex" },
-                "body": { "$ref": "common.schema.json#/$defs/token" }
+                "color": {
+                  "$ref": "common.schema.json#/$defs/color_hex"
+                },
+                "body": {
+                  "$ref": "common.schema.json#/$defs/token"
+                }
               }
             }
           }
@@ -150,34 +314,117 @@
         "protection": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["locked"],
+          "required": [
+            "locked"
+          ],
           "properties": {
-            "locked": { "type": "boolean" },
-            "locked_by": { "$ref": "common.schema.json#/$defs/principal_id" },
-            "locked_revision": { "type": "integer", "minimum": 1 },
+            "locked": {
+              "type": "boolean"
+            },
+            "locked_by": {
+              "$ref": "common.schema.json#/$defs/principal_id"
+            },
+            "locked_revision": {
+              "type": "integer",
+              "minimum": 1
+            },
             "support_ids": {
               "description": "Entities this one rests on; they are protected from changes that would undermine it.",
               "type": "array",
               "maxItems": 16,
-              "items": { "$ref": "common.schema.json#/$defs/entity_id" }
+              "items": {
+                "$ref": "common.schema.json#/$defs/entity_id"
+              }
             }
           }
         },
         "provenance": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["kind", "created_by", "created_revision"],
+          "required": [
+            "kind",
+            "created_by",
+            "created_revision"
+          ],
           "properties": {
-            "kind": { "$ref": "common.schema.json#/$defs/provenance_kind" },
-            "created_by": { "$ref": "common.schema.json#/$defs/principal_id" },
-            "created_revision": { "type": "integer", "minimum": 0 }
+            "kind": {
+              "$ref": "common.schema.json#/$defs/provenance_kind"
+            },
+            "created_by": {
+              "$ref": "common.schema.json#/$defs/principal_id"
+            },
+            "created_revision": {
+              "type": "integer",
+              "minimum": 0
+            }
           }
         }
       },
       "allOf": [
-        { "if": { "properties": { "kind": { "const": "creation" } }, "required": ["kind"] }, "then": { "required": ["creation", "transform"] } },
-        { "if": { "properties": { "kind": { "const": "avatar" } }, "required": ["kind"] }, "then": { "required": ["avatar"], "not": { "required": ["transform"] } } },
-        { "if": { "properties": { "protection": { "properties": { "locked": { "const": true } } } } }, "then": { "properties": { "protection": { "required": ["locked", "locked_by", "locked_revision"] } } } }
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "creation"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "creation",
+              "transform"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "avatar"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "avatar"
+            ],
+            "not": {
+              "required": [
+                "transform"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "protection": {
+                "properties": {
+                  "locked": {
+                    "const": true
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "protection": {
+                "required": [
+                  "locked",
+                  "locked_by",
+                  "locked_revision"
+                ]
+              }
+            }
+          }
+        }
       ]
     }
   }

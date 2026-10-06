@@ -3,7 +3,6 @@
   "version": 1,
   "action_id": "dragonish-0001",
   "room_id": "garage_example",
-  "expected_revision": 4,
   "op": "entity.transform",
   "args": {
     "target": "obj:bean_bag",
@@ -149,8 +148,8 @@
       }
     }
   },
-  "approval": {
-    "approval_id": "approve-7f3a"
+  "expected_entities": {
+    "obj:bean_bag": 2
   },
   "note": "Companion: you asked for something that can fly."
 }

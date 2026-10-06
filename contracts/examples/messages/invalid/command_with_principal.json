@@ -3,7 +3,6 @@
   "version": 1,
   "action_id": "grab-0009",
   "room_id": "garage_example",
-  "expected_revision": 4,
   "op": "entity.grab",
   "args": {
     "target": "obj:bean_bag"

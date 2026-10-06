@@ -16,6 +16,7 @@
         "id": "obj:bean_bag",
         "kind": "object",
         "display_name": "Bean bag",
+        "revision": 2,
         "position_m": [
           1.0,
           0.0,
@@ -49,6 +50,7 @@
         "id": "obj:paint_clutter",
         "kind": "object",
         "display_name": "Paint supplies",
+        "revision": 0,
         "position_m": [
           0.8,
           0.9,

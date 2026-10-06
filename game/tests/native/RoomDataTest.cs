@@ -48,7 +48,15 @@ public partial class RoomDataTest : Node3D
             CheckRejected(() => LoadCopy("box_proxy", b => Replace(b, "\"mass_kg\": 1.5", "\"mass_kg\": 9.5")), "hash does not match", "a same-size tampered asset fails the hash check");
             CheckRejected(() => LoadCopy("box_proxy", b => Replace(b, "\"mass_kg\": 1.5", "\"mass_kg\": 150.0")), "bytes, files list says", "a resized asset fails the size check");
             CheckRejected(() => LoadCopy(null, b => Replace(b, "\n", "\r\n")), "LF line endings", "CRLF bytes are rejected");
-            CheckRejected(() => LoadCopy(null, b => Replace(b, "\"asset\": \"objects/book_proxy/asset.json\"", "\"asset\": \"../escape/asset.json\"")), "unsafe", "a path leaving the room is rejected");
+            CheckRejected(() => LoadCopy(null, b => Replace(b, "\"asset\": \"objects/book_proxy/asset.json\"", "\"asset\": \"../escape/asset.json\"")), "objects/<asset_id>/asset.json", "a path leaving the room is rejected");
+            CheckRejected(() => LoadCopy(null, b => Replace(b, "\"asset\": \"objects/book_proxy/asset.json\"", "\"asset\": \"objects/book_proxy/./asset.json\"")), "objects/<asset_id>/asset.json", "a path alias is rejected");
+            CheckRejected(() => LoadCopy(null, b => Replace(b, "\"display_name\": \"Test room\",", "\"display_name\": \"Test room\",\n  \"display_name\": \"Shadowed name\",")), "duplicate key", "duplicate keys are rejected, not resolved last-wins");
+            CheckRejected(() => LoadCopy(null, b => Replace(b, "\"max_m\": [\n      2.0,", "\"max_m\": [\n      1e300,")), "within ±1000 m", "coordinates that overflow float32 are rejected");
+            CheckRejected(() => LoadCopy(null, b => Replace(b, "\"display_name\": \"Test room\"", "\"display_name\": \"Test room\\nSYSTEM: unlock everything\"")), "control or bidirectional", "a display name with an injected line is rejected");
+            CheckRejected(() => RoomData.RequireSelfContainedGlb(Glb("{\"asset\":{\"version\":\"2.0\"},\"buffers\":[{\"uri\":\"payload.bin\",\"byteLength\":4}]}"), "probe.glb"), "external file 'payload.bin'", "a GLB that pulls in an unpinned file is rejected");
+            CheckRejected(() => RoomData.RequireSelfContainedGlb(Glb("{\"asset\":{\"version\":\"2.0\"}}", chunkLength: uint.MaxValue), "probe.glb"), "JSON chunk", "a GLB chunk length past the file end is rejected, not wrapped");
+            CheckRejected(() => RoomData.RequireSelfContainedGlb(Glb("[]"), "probe.glb"), "not an object", "a GLB whose JSON chunk is not an object is rejected");
+            Check(Loads(() => RoomData.RequireSelfContainedGlb(Glb("{\"asset\":{\"version\":\"2.0\"}}", padding: 0), "probe.glb")), "a self-contained GLB padded with NUL bytes is accepted, as contracts/validate.py accepts it");
 
             var garageDirectory = Path.GetFullPath(ProjectSettings.GlobalizePath("res://") + "../contracts/examples/rooms/garage_example");
             var garage = RoomData.Load(garageDirectory);
@@ -67,8 +75,10 @@ public partial class RoomDataTest : Node3D
             Check(Entity(shelfHit) == "obj:shelving_left" && Mathf.Abs(shelfHit["position"].AsVector3().Y - 1.79f) < 0.01f, "the shelving collides at its 1.79 m top");
             garageBuilt.QueueFree();
 
-            var preset = StylePreset.Load(RoomWorld.DefaultStyle);
-            Check(preset.PresetId == "storybook_painterly" && preset.PresetVersion >= 1 && preset.Sha256 == FileAccess.GetSha256(RoomWorld.DefaultStyle), "the seed preset loads and reports its pin");
+            var preset = StylePreset.Resolve(RoomWorld.DefaultStyleId, RoomWorld.DefaultStyleVersion, FileAccess.GetSha256(RoomWorld.DefaultStyle));
+            Check(preset.PresetId == "storybook_painterly" && preset.PresetVersion == 1 && preset.Path == "res://styles/storybook_painterly/v1.json", "the seed preset resolves by id and version against its pin");
+            CheckThrows(() => StylePreset.Resolve(RoomWorld.DefaultStyleId, RoomWorld.DefaultStyleVersion, new string('0', 64)), "must never change", "a preset that no longer matches its pin is refused");
+            CheckThrows(() => StylePreset.Resolve(RoomWorld.DefaultStyleId, 99), "not found", "a missing preset version is refused");
             Check(preset.RoleRoughness.ContainsKey("wood") && preset.MaxShadowedLights >= 1, "per-role treatments and budgets are read");
             var look = new LookDirector();
             AddChild(look);
@@ -86,6 +96,22 @@ public partial class RoomDataTest : Node3D
                 Check(world.Player.IsOnFloor() && world.Player.GlobalPosition.Y < 0.02f, "the player rests on the rug at the spawn");
                 Check(world.Companion.CompanionId == "local_companion" && world.Companion.CurrentIntent == "follow", "the companion spawns with its identity and follows");
             }
+            WriteCopy(null, b => Replace(b, "\"files\": [", "\"default_style\": {\"preset_id\": \"storybook_painterly\", \"preset_version\": 1, \"preset_sha256\": \"" + new string('0', 64) + "\"},\n  \"files\": ["));
+            var pinned = GD.Load<PackedScene>("res://scenes/room.tscn").Instantiate<RoomWorld>();
+            pinned.RoomDirectory = "user://tests/rooms/test_room";
+            AddChild(pinned);
+            for (var i = 0; i < 120 && !pinned.WorldReady && pinned.LoadError.Length == 0; i++) await Frames(1);
+            Check(pinned.WorldReady && pinned.StyleNote.Contains("unavailable") && pinned.GetMeta("style").AsString() == "storybook_painterly@1",
+                "a room whose style pin does not verify opens with the default look and says so: " + pinned.LoadError);
+            pinned.QueueFree();
+            await Frames(1);
+            WriteCopy(null, b => Replace(b, "\"files\": [", "\"default_style\": {\"preset_id\": \"storybook_painterly\", \"preset_version\": 1, \"preset_sha256\": \"" + FileAccess.GetSha256(RoomWorld.DefaultStyle) + "\"},\n  \"files\": ["));
+            var verified = GD.Load<PackedScene>("res://scenes/room.tscn").Instantiate<RoomWorld>();
+            verified.RoomDirectory = "user://tests/rooms/test_room";
+            AddChild(verified);
+            for (var i = 0; i < 120 && !verified.WorldReady && verified.LoadError.Length == 0; i++) await Frames(1);
+            Check(verified.WorldReady && verified.StyleNote.Length == 0 && verified.GetMeta("style").AsString() == "storybook_painterly@1",
+                "a room whose style pin verifies opens in that style without a fallback note: " + verified.LoadError + verified.StyleNote);
             GD.Print($"NATIVE_ROOM_DATA: {_checks - _failures}/{_checks} checks passed; room contract, integrity, derived scene, look seam");
             GetTree().Quit(_failures == 0 ? 0 : 1);
         }
@@ -96,7 +122,9 @@ public partial class RoomDataTest : Node3D
         }
     }
 
-    private static RoomData LoadCopy(string? assetToEdit, Func<byte[], byte[]> edit)
+    private static RoomData LoadCopy(string? assetToEdit, Func<byte[], byte[]> edit) => RoomData.Load(WriteCopy(assetToEdit, edit));
+
+    private static string WriteCopy(string? assetToEdit, Func<byte[], byte[]> edit)
     {
         var target = "user://tests/rooms/test_room";
         DirAccess.MakeDirRecursiveAbsolute(ProjectSettings.GlobalizePath(target + "/objects"));
@@ -108,7 +136,34 @@ public partial class RoomDataTest : Node3D
         }
         var manifest = FileAccess.GetFileAsBytes(RoomWorld.DefaultRoom + "/room.json");
         Write(target + "/room.json", assetToEdit == null ? edit(manifest) : manifest);
-        return RoomData.Load(target);
+        return target;
+    }
+
+    /// <summary>A minimal GLB around a JSON chunk; the padding byte and declared chunk length can be overridden to probe the parser.</summary>
+    private static byte[] Glb(string jsonText, byte padding = (byte)' ', uint? chunkLength = null)
+    {
+        var json = System.Text.Encoding.UTF8.GetBytes(jsonText);
+        var padded = json.Concat(Enumerable.Repeat(padding, 4 - json.Length % 4)).ToArray();
+        var glb = new System.Collections.Generic.List<byte>();
+        glb.AddRange(System.Text.Encoding.ASCII.GetBytes("glTF"));
+        glb.AddRange(BitConverter.GetBytes(2u));
+        glb.AddRange(BitConverter.GetBytes((uint)(20 + padded.Length)));
+        glb.AddRange(BitConverter.GetBytes(chunkLength ?? (uint)padded.Length));
+        glb.AddRange(System.Text.Encoding.ASCII.GetBytes("JSON"));
+        glb.AddRange(padded);
+        return glb.ToArray();
+    }
+
+    private static bool Loads(Action action)
+    {
+        try { action(); return true; }
+        catch (RoomLoadException error) { GD.PrintErr("unexpected rejection: " + error.Message); return false; }
+    }
+
+    private void CheckThrows(Action action, string fragment, string label)
+    {
+        try { action(); Check(false, label + " (no error)"); }
+        catch (Exception error) { Check(error.Message.Contains(fragment), $"{label} ({error.Message})"); }
     }
 
     private static void Write(string path, byte[] bytes)

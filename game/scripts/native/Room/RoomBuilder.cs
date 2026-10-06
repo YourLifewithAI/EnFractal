@@ -3,7 +3,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using EnFractal.Native.Look;
-using FileAccess = Godot.FileAccess;
 
 namespace EnFractal.Native.Room;
 
@@ -27,7 +26,7 @@ public static class RoomBuilder
         root.AddChild(shell);
         root.AddChild(objects);
         foreach (var part in room.Shell) shell.AddChild(BuildShellPart(room, part));
-        foreach (var instance in room.Objects) objects.AddChild(BuildObject(instance));
+        foreach (var instance in room.Objects) objects.AddChild(BuildObject(room, instance));
         return root;
     }
 
@@ -43,7 +42,7 @@ public static class RoomBuilder
         node.SetMeta("material_role", part.MaterialRole);
         if (part.MeshPath != null)
         {
-            var scene = LoadGlb(room.Directory + "/" + part.MeshPath, part.Id);
+            var scene = LoadGlb(room, room.Directory + "/" + part.MeshPath, part.Id);
             node.AddChild(scene);
             if (part.Collides)
                 foreach (var mesh in Meshes(scene))
@@ -56,7 +55,7 @@ public static class RoomBuilder
         return node;
     }
 
-    private static Node3D BuildObject(ObjectInstance instance)
+    private static Node3D BuildObject(RoomData room, ObjectInstance instance)
     {
         var asset = instance.Asset;
         Node3D body = asset.CollisionKind == "none" ? new Node3D() : new StaticBody3D { CollisionLayer = WorldLayer, CollisionMask = 0 };
@@ -88,7 +87,7 @@ public static class RoomBuilder
             if (asset.CollisionKind == "primitive") body.AddChild(new CollisionShape3D { Name = "Collision", Shape = shape, Position = centre });
             return body;
         }
-        var visual = LoadGlb(asset.Directory + "/" + asset.MeshPath, instance.Id);
+        var visual = LoadGlb(room, asset.Directory + "/" + asset.MeshPath, instance.Id);
         visual.Name = "Visual";
         body.AddChild(visual);
         switch (asset.CollisionKind)
@@ -107,6 +106,11 @@ public static class RoomBuilder
                 foreach (var mesh in Meshes(visual))
                     body.AddChild(new CollisionShape3D { Shape = mesh.Mesh.CreateTrimeshShape(), Transform = RelativeTransform(visual, mesh) });
                 break;
+            case "none":
+                break;
+            default:
+                // Never build a body that silently has no collision.
+                throw new RoomLoadException($"{instance.Id}: collision kind '{asset.CollisionKind}' is not supported for mesh assets");
         }
         return body;
     }
@@ -194,12 +198,13 @@ public static class RoomBuilder
         return true;
     }
 
-    private static Node3D LoadGlb(string path, string label)
+    /// <summary>Builds from the bytes RoomData already verified, with no base path, so nothing outside the pinned file can load.</summary>
+    private static Node3D LoadGlb(RoomData room, string path, string label)
     {
-        if (!FileAccess.FileExists(path)) throw new RoomLoadException($"{label}: mesh {path} not found");
+        if (!room.VerifiedMeshes.TryGetValue(path, out var bytes)) throw new RoomLoadException($"{label}: mesh {path} was not verified at load");
         var document = new GltfDocument();
         var state = new GltfState();
-        var error = document.AppendFromBuffer(FileAccess.GetFileAsBytes(path), path.GetBaseDir(), state);
+        var error = document.AppendFromBuffer(bytes, "", state);
         if (error != Error.Ok) throw new RoomLoadException($"{label}: mesh {path} could not be read ({error})");
         return document.GenerateScene(state) as Node3D ?? throw new RoomLoadException($"{label}: mesh {path} has no 3D scene");
     }

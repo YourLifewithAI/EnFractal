@@ -2,195 +2,980 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://contracts.enfractal.invalid/v1/game-command.schema.json",
   "title": "EnFractal game messages: command, query and result",
-  "description": "The single path for every world change. Manual controls, the AI companion adapter and tests send the same commands. The principal is never part of a request: the trusted adapter assigns it and the result echoes it for audit. A command is idempotent per principal and action_id. Queries are read-only and need no action_id. Validation here is structural; the host still checks bounds, protection, budgets, approvals and the creation compiler.",
+  "description": "The single path for every world change. Manual controls, the AI companion adapter and tests send the same commands. The principal is never part of a request: the trusted adapter assigns it and the result echoes it for audit. A command is idempotent per principal and action_id; its fingerprint is the SHA-256 of the canonical command JSON as received, never of a translation. Queries are read-only. Size limits: a command or query is at most 65,536 bytes of canonical JSON, a creation source at most 32,768, a result at most 262,144. Every string in results that names or describes something in the world is untrusted data. Validation here is structural; the host still checks bounds, protection, budgets, approvals and the creation compiler.",
   "type": "object",
-  "required": ["schema"],
+  "required": [
+    "schema"
+  ],
   "properties": {
-    "schema": { "enum": ["enfractal.command", "enfractal.query", "enfractal.result"] }
+    "schema": {
+      "enum": [
+        "enfractal.command",
+        "enfractal.query",
+        "enfractal.result"
+      ]
+    }
   },
   "allOf": [
-    { "if": { "properties": { "schema": { "const": "enfractal.command" } }, "required": ["schema"] }, "then": { "$ref": "#/$defs/command" } },
-    { "if": { "properties": { "schema": { "const": "enfractal.query" } }, "required": ["schema"] }, "then": { "$ref": "#/$defs/query" } },
-    { "if": { "properties": { "schema": { "const": "enfractal.result" } }, "required": ["schema"] }, "then": { "$ref": "#/$defs/result" } }
+    {
+      "if": {
+        "properties": {
+          "schema": {
+            "const": "enfractal.command"
+          }
+        },
+        "required": [
+          "schema"
+        ]
+      },
+      "then": {
+        "$ref": "#/$defs/command"
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "schema": {
+            "const": "enfractal.query"
+          }
+        },
+        "required": [
+          "schema"
+        ]
+      },
+      "then": {
+        "$ref": "#/$defs/query"
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "schema": {
+            "const": "enfractal.result"
+          }
+        },
+        "required": [
+          "schema"
+        ]
+      },
+      "then": {
+        "$ref": "#/$defs/result"
+      }
+    }
   ],
   "$defs": {
     "command_op": {
       "enum": [
-        "entity.grab", "entity.release", "entity.place", "entity.set_part", "entity.remove", "entity.transform",
-        "creation.place", "creation.revise", "creation.activate",
-        "protect.lock", "protect.unlock",
-        "goal.set", "goal.stop",
-        "effect.start", "effect.stop",
+        "entity.grab",
+        "entity.release",
+        "entity.place",
+        "entity.set_part",
+        "entity.remove",
+        "entity.transform",
+        "creation.place",
+        "creation.revise",
+        "creation.activate",
+        "protect.lock",
+        "protect.unlock",
+        "goal.set",
+        "goal.stop",
+        "effect.start",
+        "effect.stop",
         "style.set",
-        "room.checkpoint", "room.undo"
+        "room.checkpoint",
+        "room.undo"
       ]
     },
     "query_op": {
-      "enum": ["room.describe", "entities.list", "entity.inspect", "capabilities.list", "observe", "jobs.status", "receipt.lookup"]
+      "enum": [
+        "room.describe",
+        "entities.list",
+        "entity.inspect",
+        "capabilities.list",
+        "observe",
+        "jobs.status",
+        "receipt.lookup",
+        "approval.status"
+      ]
     },
     "command": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["schema", "version", "action_id", "room_id", "expected_revision", "op", "args"],
+      "required": [
+        "schema",
+        "version",
+        "action_id",
+        "room_id",
+        "op",
+        "args"
+      ],
       "properties": {
-        "schema": { "const": "enfractal.command" },
-        "version": { "const": 1 },
-        "action_id": { "$ref": "common.schema.json#/$defs/action_id" },
-        "room_id": { "$ref": "common.schema.json#/$defs/token" },
+        "schema": {
+          "const": "enfractal.command"
+        },
+        "version": {
+          "type": "integer",
+          "const": 1
+        },
+        "action_id": {
+          "$ref": "common.schema.json#/$defs/action_id"
+        },
+        "room_id": {
+          "$ref": "common.schema.json#/$defs/token"
+        },
         "expected_revision": {
-          "description": "Room revision the sender saw. Any committed change, including a permission or lock change, increments it.",
+          "description": "Optional room revision the sender saw; when present it must match exactly. Use it for whole-room edits such as undo. Stop ops ignore it.",
           "type": "integer",
           "minimum": 0
         },
-        "op": { "$ref": "#/$defs/command_op" },
-        "args": { "type": "object" },
+        "op": {
+          "$ref": "#/$defs/command_op"
+        },
+        "args": {
+          "type": "object"
+        },
         "preview": {
           "description": "Validate and predict without committing. A preview records no receipt, so the same action_id can then be committed.",
           "type": "boolean"
         },
-        "approval": {
-          "description": "Issued by the game UI to the player for one exact command (op, args, targets, room, expected_revision) with an expiry. A model cannot mint one; the host rejects any mismatch.",
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["approval_id"],
-          "properties": {
-            "approval_id": { "$ref": "common.schema.json#/$defs/token" }
-          }
-        },
         "note": {
           "description": "Optional human-readable reason shown in the UI and logs. Untrusted text; never interpreted.",
-          "type": "string",
-          "maxLength": 280
+          "allOf": [
+            {
+              "$ref": "common.schema.json#/$defs/display_text"
+            },
+            {
+              "maxLength": 280
+            }
+          ]
+        },
+        "expected_entities": {
+          "description": "Optional per-entity revisions the sender saw; each listed entity must still be at that revision. This is what a slow companion should use, so unrelated changes elsewhere in the room do not conflict.",
+          "type": "object",
+          "propertyNames": {
+            "$ref": "common.schema.json#/$defs/entity_id"
+          },
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "maxProperties": 64
         }
       },
       "allOf": [
-        { "if": { "$ref": "#/$defs/is_op/entity.grab" }, "then": { "properties": { "args": { "$ref": "#/$defs/args/entity.grab" } } } },
-        { "if": { "$ref": "#/$defs/is_op/entity.release" }, "then": { "properties": { "args": { "$ref": "#/$defs/args/entity.release" } } } },
-        { "if": { "$ref": "#/$defs/is_op/entity.place" }, "then": { "properties": { "args": { "$ref": "#/$defs/args/entity.place" } } } },
-        { "if": { "$ref": "#/$defs/is_op/entity.set_part" }, "then": { "properties": { "args": { "$ref": "#/$defs/args/entity.set_part" } } } },
-        { "if": { "$ref": "#/$defs/is_op/entity.remove" }, "then": { "properties": { "args": { "$ref": "#/$defs/args/target_only" } } } },
-        { "if": { "$ref": "#/$defs/is_op/entity.transform" }, "then": { "properties": { "args": { "$ref": "#/$defs/args/entity.transform" } } } },
-        { "if": { "$ref": "#/$defs/is_op/creation.place" }, "then": { "properties": { "args": { "$ref": "#/$defs/args/creation.place" } } } },
-        { "if": { "$ref": "#/$defs/is_op/creation.revise" }, "then": { "properties": { "args": { "$ref": "#/$defs/args/creation.revise" } } } },
-        { "if": { "$ref": "#/$defs/is_op/creation.activate" }, "then": { "properties": { "args": { "$ref": "#/$defs/args/target_only" } } } },
-        { "if": { "$ref": "#/$defs/is_op/protect.lock" }, "then": { "properties": { "args": { "$ref": "#/$defs/args/targets_only" } } } },
-        { "if": { "$ref": "#/$defs/is_op/protect.unlock" }, "then": { "properties": { "args": { "$ref": "#/$defs/args/targets_only" } } } },
-        { "if": { "$ref": "#/$defs/is_op/goal.set" }, "then": { "properties": { "args": { "$ref": "#/$defs/args/goal.set" } } } },
-        { "if": { "$ref": "#/$defs/is_op/goal.stop" }, "then": { "properties": { "args": { "$ref": "#/$defs/args/goal.stop" } } } },
-        { "if": { "$ref": "#/$defs/is_op/effect.start" }, "then": { "properties": { "args": { "$ref": "#/$defs/args/effect.start" } } } },
-        { "if": { "$ref": "#/$defs/is_op/effect.stop" }, "then": { "properties": { "args": { "$ref": "#/$defs/args/effect.stop" } } } },
-        { "if": { "$ref": "#/$defs/is_op/style.set" }, "then": { "properties": { "args": { "$ref": "#/$defs/args/style.set" } } } },
-        { "if": { "$ref": "#/$defs/is_op/room.checkpoint" }, "then": { "properties": { "args": { "$ref": "#/$defs/args/room.checkpoint" } } } },
-        { "if": { "$ref": "#/$defs/is_op/room.undo" }, "then": { "properties": { "args": { "$ref": "#/$defs/args/room.undo" } } } }
+        {
+          "if": {
+            "$ref": "#/$defs/is_op/entity.grab"
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/$defs/args/entity.grab"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "$ref": "#/$defs/is_op/entity.release"
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/$defs/args/entity.release"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "$ref": "#/$defs/is_op/entity.place"
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/$defs/args/entity.place"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "$ref": "#/$defs/is_op/entity.set_part"
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/$defs/args/entity.set_part"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "$ref": "#/$defs/is_op/entity.remove"
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/$defs/args/target_only"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "$ref": "#/$defs/is_op/entity.transform"
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/$defs/args/entity.transform"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "$ref": "#/$defs/is_op/creation.place"
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/$defs/args/creation.place"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "$ref": "#/$defs/is_op/creation.revise"
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/$defs/args/creation.revise"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "$ref": "#/$defs/is_op/creation.activate"
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/$defs/args/target_only"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "$ref": "#/$defs/is_op/protect.lock"
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/$defs/args/targets_only"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "$ref": "#/$defs/is_op/protect.unlock"
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/$defs/args/targets_only"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "$ref": "#/$defs/is_op/goal.set"
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/$defs/args/goal.set"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "$ref": "#/$defs/is_op/goal.stop"
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/$defs/args/goal.stop"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "$ref": "#/$defs/is_op/effect.start"
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/$defs/args/effect.start"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "$ref": "#/$defs/is_op/effect.stop"
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/$defs/args/effect.stop"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "$ref": "#/$defs/is_op/style.set"
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/$defs/args/style.set"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "$ref": "#/$defs/is_op/room.checkpoint"
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/$defs/args/room.checkpoint"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "$ref": "#/$defs/is_op/room.undo"
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/$defs/args/room.undo"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "$ref": "#/$defs/is_op/room.undo"
+          },
+          "then": {
+            "required": [
+              "expected_revision"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "op": {
+                "$ref": "#/$defs/destructive_ops"
+              }
+            },
+            "required": [
+              "op"
+            ]
+          },
+          "then": {
+            "anyOf": [
+              {
+                "required": [
+                  "expected_revision"
+                ]
+              },
+              {
+                "required": [
+                  "expected_entities"
+                ]
+              }
+            ]
+          }
+        }
       ]
     },
     "query": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["schema", "version", "query_id", "room_id", "op", "args"],
+      "required": [
+        "schema",
+        "version",
+        "query_id",
+        "room_id",
+        "op",
+        "args"
+      ],
       "properties": {
-        "schema": { "const": "enfractal.query" },
-        "version": { "const": 1 },
+        "schema": {
+          "const": "enfractal.query"
+        },
+        "version": {
+          "type": "integer",
+          "const": 1
+        },
         "query_id": {
           "description": "Correlation id for matching the result; not an idempotency key.",
           "$ref": "common.schema.json#/$defs/action_id"
         },
-        "room_id": { "$ref": "common.schema.json#/$defs/token" },
-        "op": { "$ref": "#/$defs/query_op" },
-        "args": { "type": "object" }
+        "room_id": {
+          "$ref": "common.schema.json#/$defs/token"
+        },
+        "op": {
+          "$ref": "#/$defs/query_op"
+        },
+        "args": {
+          "type": "object"
+        }
       },
       "allOf": [
-        { "if": { "$ref": "#/$defs/is_op/room.describe" }, "then": { "properties": { "args": { "$ref": "#/$defs/args/empty" } } } },
-        { "if": { "$ref": "#/$defs/is_op/entities.list" }, "then": { "properties": { "args": { "$ref": "#/$defs/args/entities.list" } } } },
-        { "if": { "$ref": "#/$defs/is_op/entity.inspect" }, "then": { "properties": { "args": { "$ref": "#/$defs/args/target_only" } } } },
-        { "if": { "$ref": "#/$defs/is_op/capabilities.list" }, "then": { "properties": { "args": { "$ref": "#/$defs/args/capabilities.list" } } } },
-        { "if": { "$ref": "#/$defs/is_op/observe" }, "then": { "properties": { "args": { "$ref": "#/$defs/args/observe" } } } },
-        { "if": { "$ref": "#/$defs/is_op/jobs.status" }, "then": { "properties": { "args": { "$ref": "#/$defs/args/jobs.status" } } } },
-        { "if": { "$ref": "#/$defs/is_op/receipt.lookup" }, "then": { "properties": { "args": { "$ref": "#/$defs/args/receipt.lookup" } } } }
+        {
+          "if": {
+            "$ref": "#/$defs/is_op/room.describe"
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/$defs/args/empty"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "$ref": "#/$defs/is_op/entities.list"
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/$defs/args/entities.list"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "$ref": "#/$defs/is_op/entity.inspect"
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/$defs/args/target_only"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "$ref": "#/$defs/is_op/capabilities.list"
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/$defs/args/capabilities.list"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "$ref": "#/$defs/is_op/observe"
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/$defs/args/observe"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "$ref": "#/$defs/is_op/jobs.status"
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/$defs/args/jobs.status"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "$ref": "#/$defs/is_op/receipt.lookup"
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/$defs/args/receipt.lookup"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "$ref": "#/$defs/is_op/approval.status"
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/$defs/args/approval.status"
+              }
+            }
+          }
+        }
       ]
     },
     "result": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["schema", "version", "ok", "op", "principal", "room_id", "revision", "replayed", "preview", "at_utc"],
+      "required": [
+        "schema",
+        "version",
+        "ok",
+        "op",
+        "principal",
+        "room_id",
+        "revision",
+        "replayed",
+        "preview",
+        "at_utc"
+      ],
       "properties": {
-        "schema": { "const": "enfractal.result" },
-        "version": { "const": 1 },
-        "ok": { "type": "boolean" },
-        "op": { "anyOf": [ { "$ref": "#/$defs/command_op" }, { "$ref": "#/$defs/query_op" }, { "const": "invalid" } ] },
-        "action_id": { "$ref": "common.schema.json#/$defs/action_id" },
-        "query_id": { "$ref": "common.schema.json#/$defs/action_id" },
-        "principal": { "$ref": "common.schema.json#/$defs/principal_id" },
-        "room_id": { "$ref": "common.schema.json#/$defs/token" },
+        "schema": {
+          "const": "enfractal.result"
+        },
+        "version": {
+          "type": "integer",
+          "const": 1
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "op": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/command_op"
+            },
+            {
+              "$ref": "#/$defs/query_op"
+            },
+            {
+              "const": "invalid"
+            }
+          ]
+        },
+        "action_id": {
+          "$ref": "common.schema.json#/$defs/action_id"
+        },
+        "query_id": {
+          "$ref": "common.schema.json#/$defs/action_id"
+        },
+        "principal": {
+          "$ref": "common.schema.json#/$defs/principal_id"
+        },
+        "room_id": {
+          "$ref": "common.schema.json#/$defs/token"
+        },
         "revision": {
           "description": "Room revision after a committed command, or the current revision otherwise.",
           "type": "integer",
           "minimum": 0
         },
-        "replayed": { "type": "boolean" },
-        "preview": { "type": "boolean" },
-        "affected": { "type": "array", "maxItems": 256, "items": { "$ref": "common.schema.json#/$defs/entity_id" } },
-        "created": { "type": "array", "maxItems": 64, "items": { "$ref": "common.schema.json#/$defs/entity_id" } },
-        "job_id": { "$ref": "common.schema.json#/$defs/token" },
-        "approval_needed": {
-          "description": "Present when the host requires the player to approve this exact command in the UI before it can commit.",
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["reason", "expires_utc"],
-          "properties": {
-            "reason": { "type": "string", "maxLength": 280 },
-            "expires_utc": { "$ref": "common.schema.json#/$defs/utc_timestamp" }
+        "replayed": {
+          "type": "boolean"
+        },
+        "preview": {
+          "type": "boolean"
+        },
+        "affected": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "$ref": "common.schema.json#/$defs/entity_id"
           }
         },
-        "error": { "$ref": "#/$defs/error" },
-        "data": { "type": "object" },
-        "at_utc": { "$ref": "common.schema.json#/$defs/utc_timestamp" }
+        "created": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "$ref": "common.schema.json#/$defs/entity_id"
+          }
+        },
+        "job_id": {
+          "$ref": "common.schema.json#/$defs/token"
+        },
+        "approval_needed": {
+          "description": "The host is holding this exact command for the player. The player approves or denies it in the game UI; on approval the host commits the held command under the original principal and action_id. Nobody resends it, and no request ever carries an approval. Poll approval.status or receipt.lookup for the outcome.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "request_id",
+            "reason",
+            "expires_utc"
+          ],
+          "properties": {
+            "request_id": {
+              "$ref": "common.schema.json#/$defs/request_id"
+            },
+            "reason": {
+              "allOf": [
+                {
+                  "$ref": "common.schema.json#/$defs/display_text"
+                },
+                {
+                  "maxLength": 280
+                }
+              ]
+            },
+            "expires_utc": {
+              "$ref": "common.schema.json#/$defs/utc_timestamp"
+            }
+          }
+        },
+        "error": {
+          "$ref": "#/$defs/error"
+        },
+        "data": {
+          "type": "object",
+          "maxProperties": 32
+        },
+        "at_utc": {
+          "$ref": "common.schema.json#/$defs/utc_timestamp"
+        },
+        "approved_by": {
+          "description": "Present when the player approved this command in the game UI. The receipt stays under the original principal and action_id.",
+          "$ref": "common.schema.json#/$defs/principal_id"
+        },
+        "transient": {
+          "description": "True for commands that change no saved state (goals, effects, grabs). Their receipts live for the session only.",
+          "type": "boolean"
+        }
       },
       "allOf": [
-        { "if": { "properties": { "ok": { "const": true } }, "required": ["ok"] }, "then": { "not": { "required": ["error"] } }, "else": { "required": ["error"] } },
-        { "if": { "properties": { "ok": { "const": true }, "op": { "const": "entities.list" } }, "required": ["ok", "op"] }, "then": { "required": ["data"], "properties": { "data": { "$ref": "#/$defs/data/entities.list" } } } },
-        { "if": { "properties": { "ok": { "const": true }, "op": { "const": "entity.inspect" } }, "required": ["ok", "op"] }, "then": { "required": ["data"], "properties": { "data": { "$ref": "#/$defs/data/entity.inspect" } } } },
-        { "if": { "properties": { "ok": { "const": true }, "op": { "const": "observe" } }, "required": ["ok", "op"] }, "then": { "required": ["data"], "properties": { "data": { "$ref": "#/$defs/data/observe" } } } },
-        { "if": { "properties": { "ok": { "const": true }, "op": { "const": "receipt.lookup" } }, "required": ["ok", "op"] }, "then": { "required": ["data"], "properties": { "data": { "$ref": "#/$defs/data/receipt.lookup" } } } }
+        {
+          "if": {
+            "properties": {
+              "ok": {
+                "const": true
+              }
+            },
+            "required": [
+              "ok"
+            ]
+          },
+          "then": {
+            "not": {
+              "required": [
+                "error"
+              ]
+            }
+          },
+          "else": {
+            "required": [
+              "error"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ok": {
+                "const": true
+              },
+              "op": {
+                "const": "entities.list"
+              }
+            },
+            "required": [
+              "ok",
+              "op"
+            ]
+          },
+          "then": {
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/$defs/data/entities.list"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ok": {
+                "const": true
+              },
+              "op": {
+                "const": "entity.inspect"
+              }
+            },
+            "required": [
+              "ok",
+              "op"
+            ]
+          },
+          "then": {
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/$defs/data/entity.inspect"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ok": {
+                "const": true
+              },
+              "op": {
+                "const": "observe"
+              }
+            },
+            "required": [
+              "ok",
+              "op"
+            ]
+          },
+          "then": {
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/$defs/data/observe"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ok": {
+                "const": true
+              },
+              "op": {
+                "const": "receipt.lookup"
+              }
+            },
+            "required": [
+              "ok",
+              "op"
+            ]
+          },
+          "then": {
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/$defs/data/receipt.lookup"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ok": {
+                "const": true
+              },
+              "op": {
+                "const": "room.describe"
+              }
+            },
+            "required": [
+              "ok",
+              "op"
+            ]
+          },
+          "then": {
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/$defs/data/room.describe"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ok": {
+                "const": true
+              },
+              "op": {
+                "const": "approval.status"
+              }
+            },
+            "required": [
+              "ok",
+              "op"
+            ]
+          },
+          "then": {
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/$defs/data/approval.status"
+              }
+            }
+          }
+        }
       ]
     },
     "error": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["code", "message", "retryable"],
+      "required": [
+        "code",
+        "message",
+        "retryable"
+      ],
       "properties": {
-        "code": { "$ref": "#/$defs/error_code" },
+        "code": {
+          "$ref": "#/$defs/error_code"
+        },
         "message": {
           "description": "Plain language for the player or the companion to relay. No paths, stack traces, SQL or credentials.",
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 500
+          "allOf": [
+            {
+              "$ref": "common.schema.json#/$defs/display_text"
+            },
+            {
+              "maxLength": 500
+            }
+          ],
+          "minLength": 1
         },
-        "field_path": { "type": "string", "maxLength": 200 },
-        "retryable": { "type": "boolean" },
-        "allowed": {},
-        "actual": {}
+        "field_path": {
+          "allOf": [
+            {
+              "$ref": "common.schema.json#/$defs/display_text"
+            },
+            {
+              "maxLength": 200
+            }
+          ]
+        },
+        "retryable": {
+          "type": "boolean"
+        },
+        "allowed": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "common.schema.json#/$defs/scalar"
+            },
+            {
+              "type": "array",
+              "maxItems": 16,
+              "items": {
+                "$ref": "common.schema.json#/$defs/scalar"
+              }
+            }
+          ]
+        },
+        "actual": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "common.schema.json#/$defs/scalar"
+            },
+            {
+              "type": "array",
+              "maxItems": 16,
+              "items": {
+                "$ref": "common.schema.json#/$defs/scalar"
+              }
+            }
+          ]
+        }
       }
     },
     "error_code": {
       "enum": [
-        "request_invalid", "version_unsupported", "field_unknown", "action_id_invalid", "action_id_conflict",
-        "revision_conflict", "room_mismatch", "not_ready",
-        "principal_unknown", "permission_denied", "actor_denied",
-        "approval_required", "approval_mismatch", "approval_expired",
-        "target_not_found", "target_protected", "target_busy", "target_too_heavy",
-        "out_of_bounds", "occupied", "unsupported_capability", "invalid_args",
-        "budget_exceeded", "rate_limited", "receipt_limit", "state_limit",
-        "persistence_uncertain", "internal_error"
+        "request_invalid",
+        "version_unsupported",
+        "field_unknown",
+        "action_id_invalid",
+        "action_id_conflict",
+        "revision_conflict",
+        "room_mismatch",
+        "not_ready",
+        "principal_unknown",
+        "permission_denied",
+        "actor_denied",
+        "approval_required",
+        "approval_mismatch",
+        "approval_expired",
+        "target_not_found",
+        "target_protected",
+        "target_busy",
+        "target_too_heavy",
+        "out_of_bounds",
+        "occupied",
+        "unsupported_capability",
+        "invalid_args",
+        "budget_exceeded",
+        "rate_limited",
+        "receipt_limit",
+        "state_limit",
+        "persistence_uncertain",
+        "internal_error"
       ]
     },
     "placement": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["position_m"],
+      "required": [
+        "position_m"
+      ],
       "properties": {
-        "position_m": { "$ref": "common.schema.json#/$defs/vec3" },
-        "rotation": { "$ref": "common.schema.json#/$defs/quat_xyzw" },
+        "position_m": {
+          "$ref": "common.schema.json#/$defs/vec3"
+        },
+        "rotation": {
+          "$ref": "common.schema.json#/$defs/quat_xyzw"
+        },
         "on": {
           "description": "Entity the placed thing should rest on; the host snaps to its walkable top or rejects.",
           "$ref": "common.schema.json#/$defs/entity_id"
@@ -202,214 +987,822 @@
       "pattern": "^avatar:[A-Za-z0-9_-]{1,64}$"
     },
     "creation_source": {
-      "description": "An enfractal.creation manifest. The creation compiler is its authority; this contract only checks the envelope.",
+      "description": "An enfractal.creation manifest. The creation compiler is its authority; this contract fixes its top-level keys and sizes so nothing else rides along.",
       "type": "object",
-      "required": ["schema"],
-      "properties": { "schema": { "const": "enfractal.creation" } }
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "version",
+        "name",
+        "seed",
+        "mount",
+        "parts",
+        "nodes",
+        "edges"
+      ],
+      "properties": {
+        "schema": {
+          "const": "enfractal.creation"
+        },
+        "version": {
+          "type": "integer",
+          "const": 1
+        },
+        "name": {
+          "allOf": [
+            {
+              "$ref": "common.schema.json#/$defs/display_text"
+            },
+            {
+              "maxLength": 64
+            }
+          ]
+        },
+        "seed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "mount": {
+          "enum": [
+            "ground",
+            "avatar"
+          ]
+        },
+        "parts": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 24,
+          "items": {
+            "type": "object",
+            "maxProperties": 8
+          }
+        },
+        "nodes": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "maxProperties": 8
+          }
+        },
+        "edges": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "maxProperties": 4
+          }
+        }
+      }
     },
     "entity_summary": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "kind", "display_name", "position_m", "bounds_m", "affordances", "movable", "protected", "provenance_kind"],
+      "required": [
+        "id",
+        "kind",
+        "display_name",
+        "position_m",
+        "bounds_m",
+        "affordances",
+        "movable",
+        "protected",
+        "provenance_kind",
+        "revision"
+      ],
       "properties": {
-        "id": { "$ref": "common.schema.json#/$defs/entity_id" },
-        "kind": { "enum": ["shell", "object", "creation", "avatar", "effect"] },
-        "display_name": { "type": "string", "maxLength": 80 },
-        "category": { "type": "string", "maxLength": 60 },
-        "category_group": { "$ref": "common.schema.json#/$defs/category_group" },
-        "position_m": { "$ref": "common.schema.json#/$defs/vec3" },
-        "bounds_m": { "$ref": "common.schema.json#/$defs/aabb" },
-        "affordances": { "type": "array", "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/affordance" } },
-        "movable": { "type": "boolean" },
-        "protected": { "type": "boolean" },
-        "provenance_kind": { "$ref": "common.schema.json#/$defs/provenance_kind" },
-        "held_by": { "$ref": "#/$defs/avatar_id" }
-      }
+        "id": {
+          "$ref": "common.schema.json#/$defs/entity_id"
+        },
+        "kind": {
+          "enum": [
+            "shell",
+            "object",
+            "creation",
+            "avatar",
+            "effect"
+          ]
+        },
+        "display_name": {
+          "allOf": [
+            {
+              "$ref": "common.schema.json#/$defs/display_text"
+            },
+            {
+              "maxLength": 80
+            }
+          ]
+        },
+        "category": {
+          "allOf": [
+            {
+              "$ref": "common.schema.json#/$defs/display_text"
+            },
+            {
+              "maxLength": 60
+            }
+          ]
+        },
+        "category_group": {
+          "$ref": "common.schema.json#/$defs/category_group"
+        },
+        "position_m": {
+          "$ref": "common.schema.json#/$defs/vec3"
+        },
+        "bounds_m": {
+          "$ref": "common.schema.json#/$defs/aabb"
+        },
+        "affordances": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "common.schema.json#/$defs/affordance"
+          }
+        },
+        "movable": {
+          "type": "boolean"
+        },
+        "protected": {
+          "type": "boolean"
+        },
+        "provenance_kind": {
+          "$ref": "common.schema.json#/$defs/provenance_kind"
+        },
+        "held_by": {
+          "$ref": "#/$defs/avatar_id"
+        },
+        "revision": {
+          "description": "Entity revision; 0 for a captured object play has not changed. Send it back in expected_entities.",
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "description": "Names and categories here are untrusted data from capture or players."
     },
     "is_op": {
-      "entity.grab": { "properties": { "op": { "const": "entity.grab" } }, "required": ["op"] },
-      "entity.release": { "properties": { "op": { "const": "entity.release" } }, "required": ["op"] },
-      "entity.place": { "properties": { "op": { "const": "entity.place" } }, "required": ["op"] },
-      "entity.set_part": { "properties": { "op": { "const": "entity.set_part" } }, "required": ["op"] },
-      "entity.remove": { "properties": { "op": { "const": "entity.remove" } }, "required": ["op"] },
-      "entity.transform": { "properties": { "op": { "const": "entity.transform" } }, "required": ["op"] },
-      "creation.place": { "properties": { "op": { "const": "creation.place" } }, "required": ["op"] },
-      "creation.revise": { "properties": { "op": { "const": "creation.revise" } }, "required": ["op"] },
-      "creation.activate": { "properties": { "op": { "const": "creation.activate" } }, "required": ["op"] },
-      "protect.lock": { "properties": { "op": { "const": "protect.lock" } }, "required": ["op"] },
-      "protect.unlock": { "properties": { "op": { "const": "protect.unlock" } }, "required": ["op"] },
-      "goal.set": { "properties": { "op": { "const": "goal.set" } }, "required": ["op"] },
-      "goal.stop": { "properties": { "op": { "const": "goal.stop" } }, "required": ["op"] },
-      "effect.start": { "properties": { "op": { "const": "effect.start" } }, "required": ["op"] },
-      "effect.stop": { "properties": { "op": { "const": "effect.stop" } }, "required": ["op"] },
-      "style.set": { "properties": { "op": { "const": "style.set" } }, "required": ["op"] },
-      "room.checkpoint": { "properties": { "op": { "const": "room.checkpoint" } }, "required": ["op"] },
-      "room.undo": { "properties": { "op": { "const": "room.undo" } }, "required": ["op"] },
-      "room.describe": { "properties": { "op": { "const": "room.describe" } }, "required": ["op"] },
-      "entities.list": { "properties": { "op": { "const": "entities.list" } }, "required": ["op"] },
-      "entity.inspect": { "properties": { "op": { "const": "entity.inspect" } }, "required": ["op"] },
-      "capabilities.list": { "properties": { "op": { "const": "capabilities.list" } }, "required": ["op"] },
-      "observe": { "properties": { "op": { "const": "observe" } }, "required": ["op"] },
-      "jobs.status": { "properties": { "op": { "const": "jobs.status" } }, "required": ["op"] },
-      "receipt.lookup": { "properties": { "op": { "const": "receipt.lookup" } }, "required": ["op"] }
+      "entity.grab": {
+        "properties": {
+          "op": {
+            "const": "entity.grab"
+          }
+        },
+        "required": [
+          "op"
+        ]
+      },
+      "entity.release": {
+        "properties": {
+          "op": {
+            "const": "entity.release"
+          }
+        },
+        "required": [
+          "op"
+        ]
+      },
+      "entity.place": {
+        "properties": {
+          "op": {
+            "const": "entity.place"
+          }
+        },
+        "required": [
+          "op"
+        ]
+      },
+      "entity.set_part": {
+        "properties": {
+          "op": {
+            "const": "entity.set_part"
+          }
+        },
+        "required": [
+          "op"
+        ]
+      },
+      "entity.remove": {
+        "properties": {
+          "op": {
+            "const": "entity.remove"
+          }
+        },
+        "required": [
+          "op"
+        ]
+      },
+      "entity.transform": {
+        "properties": {
+          "op": {
+            "const": "entity.transform"
+          }
+        },
+        "required": [
+          "op"
+        ]
+      },
+      "creation.place": {
+        "properties": {
+          "op": {
+            "const": "creation.place"
+          }
+        },
+        "required": [
+          "op"
+        ]
+      },
+      "creation.revise": {
+        "properties": {
+          "op": {
+            "const": "creation.revise"
+          }
+        },
+        "required": [
+          "op"
+        ]
+      },
+      "creation.activate": {
+        "properties": {
+          "op": {
+            "const": "creation.activate"
+          }
+        },
+        "required": [
+          "op"
+        ]
+      },
+      "protect.lock": {
+        "properties": {
+          "op": {
+            "const": "protect.lock"
+          }
+        },
+        "required": [
+          "op"
+        ]
+      },
+      "protect.unlock": {
+        "properties": {
+          "op": {
+            "const": "protect.unlock"
+          }
+        },
+        "required": [
+          "op"
+        ]
+      },
+      "goal.set": {
+        "properties": {
+          "op": {
+            "const": "goal.set"
+          }
+        },
+        "required": [
+          "op"
+        ]
+      },
+      "goal.stop": {
+        "properties": {
+          "op": {
+            "const": "goal.stop"
+          }
+        },
+        "required": [
+          "op"
+        ]
+      },
+      "effect.start": {
+        "properties": {
+          "op": {
+            "const": "effect.start"
+          }
+        },
+        "required": [
+          "op"
+        ]
+      },
+      "effect.stop": {
+        "properties": {
+          "op": {
+            "const": "effect.stop"
+          }
+        },
+        "required": [
+          "op"
+        ]
+      },
+      "style.set": {
+        "properties": {
+          "op": {
+            "const": "style.set"
+          }
+        },
+        "required": [
+          "op"
+        ]
+      },
+      "room.checkpoint": {
+        "properties": {
+          "op": {
+            "const": "room.checkpoint"
+          }
+        },
+        "required": [
+          "op"
+        ]
+      },
+      "room.undo": {
+        "properties": {
+          "op": {
+            "const": "room.undo"
+          }
+        },
+        "required": [
+          "op"
+        ]
+      },
+      "room.describe": {
+        "properties": {
+          "op": {
+            "const": "room.describe"
+          }
+        },
+        "required": [
+          "op"
+        ]
+      },
+      "entities.list": {
+        "properties": {
+          "op": {
+            "const": "entities.list"
+          }
+        },
+        "required": [
+          "op"
+        ]
+      },
+      "entity.inspect": {
+        "properties": {
+          "op": {
+            "const": "entity.inspect"
+          }
+        },
+        "required": [
+          "op"
+        ]
+      },
+      "capabilities.list": {
+        "properties": {
+          "op": {
+            "const": "capabilities.list"
+          }
+        },
+        "required": [
+          "op"
+        ]
+      },
+      "observe": {
+        "properties": {
+          "op": {
+            "const": "observe"
+          }
+        },
+        "required": [
+          "op"
+        ]
+      },
+      "jobs.status": {
+        "properties": {
+          "op": {
+            "const": "jobs.status"
+          }
+        },
+        "required": [
+          "op"
+        ]
+      },
+      "receipt.lookup": {
+        "properties": {
+          "op": {
+            "const": "receipt.lookup"
+          }
+        },
+        "required": [
+          "op"
+        ]
+      },
+      "approval.status": {
+        "properties": {
+          "op": {
+            "const": "approval.status"
+          }
+        },
+        "required": [
+          "op"
+        ]
+      }
     },
     "args": {
-      "empty": { "type": "object", "additionalProperties": false },
+      "empty": {
+        "type": "object",
+        "additionalProperties": false
+      },
       "target_only": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["target"],
-        "properties": { "target": { "$ref": "common.schema.json#/$defs/entity_id" } }
+        "required": [
+          "target"
+        ],
+        "properties": {
+          "target": {
+            "$ref": "common.schema.json#/$defs/entity_id"
+          }
+        }
       },
       "targets_only": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["targets"],
+        "required": [
+          "targets"
+        ],
         "properties": {
-          "targets": { "type": "array", "minItems": 1, "maxItems": 64, "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/entity_id" } }
+          "targets": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 64,
+            "uniqueItems": true,
+            "items": {
+              "$ref": "common.schema.json#/$defs/entity_id"
+            }
+          }
         }
       },
       "entity.grab": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["target"],
+        "required": [
+          "target"
+        ],
         "properties": {
-          "target": { "$ref": "common.schema.json#/$defs/entity_id" },
-          "actor": { "description": "Defaults to the principal's own avatar. A player may direct the companion; a companion may not direct the player.", "$ref": "#/$defs/avatar_id" }
+          "target": {
+            "$ref": "common.schema.json#/$defs/entity_id"
+          },
+          "actor": {
+            "description": "Defaults to the principal's own avatar. A player may direct the companion; a companion may not direct the player.",
+            "$ref": "#/$defs/avatar_id"
+          }
         }
       },
       "entity.release": {
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "actor": { "$ref": "#/$defs/avatar_id" },
-          "placement": { "$ref": "#/$defs/placement" }
+          "actor": {
+            "$ref": "#/$defs/avatar_id"
+          },
+          "placement": {
+            "$ref": "#/$defs/placement"
+          }
         }
       },
       "entity.place": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["target", "placement"],
+        "required": [
+          "target",
+          "placement"
+        ],
         "properties": {
-          "target": { "$ref": "common.schema.json#/$defs/entity_id" },
-          "placement": { "$ref": "#/$defs/placement" }
+          "target": {
+            "$ref": "common.schema.json#/$defs/entity_id"
+          },
+          "placement": {
+            "$ref": "#/$defs/placement"
+          }
         }
       },
       "entity.set_part": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["target", "part_id", "value"],
+        "required": [
+          "target",
+          "part_id",
+          "value"
+        ],
         "properties": {
-          "target": { "$ref": "common.schema.json#/$defs/entity_id" },
-          "part_id": { "$ref": "common.schema.json#/$defs/token" },
-          "value": { "$ref": "common.schema.json#/$defs/unit_interval" }
+          "target": {
+            "$ref": "common.schema.json#/$defs/entity_id"
+          },
+          "part_id": {
+            "$ref": "common.schema.json#/$defs/token"
+          },
+          "value": {
+            "$ref": "common.schema.json#/$defs/unit_interval"
+          }
         }
       },
       "entity.transform": {
         "description": "Turn an entity into something else while keeping its identity, protection and history.",
         "type": "object",
         "additionalProperties": false,
-        "required": ["target", "into"],
+        "required": [
+          "target",
+          "into"
+        ],
         "properties": {
-          "target": { "$ref": "common.schema.json#/$defs/entity_id" },
+          "target": {
+            "$ref": "common.schema.json#/$defs/entity_id"
+          },
           "into": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["source"],
-            "properties": { "source": { "$ref": "#/$defs/creation_source" } }
+            "required": [
+              "source"
+            ],
+            "properties": {
+              "source": {
+                "$ref": "#/$defs/creation_source"
+              }
+            }
           }
         }
       },
       "creation.place": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["source", "placement"],
+        "required": [
+          "source",
+          "placement"
+        ],
         "properties": {
-          "source": { "$ref": "#/$defs/creation_source" },
-          "placement": { "$ref": "#/$defs/placement" }
+          "source": {
+            "$ref": "#/$defs/creation_source"
+          },
+          "placement": {
+            "$ref": "#/$defs/placement"
+          }
         }
       },
       "creation.revise": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["target"],
-        "anyOf": [ { "required": ["source"] }, { "required": ["placement"] } ],
+        "required": [
+          "target"
+        ],
+        "anyOf": [
+          {
+            "required": [
+              "source"
+            ]
+          },
+          {
+            "required": [
+              "placement"
+            ]
+          }
+        ],
         "properties": {
-          "target": { "type": "string", "pattern": "^creation:[A-Za-z0-9_-]{1,64}$" },
-          "source": { "$ref": "#/$defs/creation_source" },
-          "placement": { "$ref": "#/$defs/placement" }
+          "target": {
+            "type": "string",
+            "pattern": "^creation:[A-Za-z0-9_-]{1,64}$"
+          },
+          "source": {
+            "$ref": "#/$defs/creation_source"
+          },
+          "placement": {
+            "$ref": "#/$defs/placement"
+          }
         }
       },
       "goal.set": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["actor", "goal"],
+        "required": [
+          "actor",
+          "goal"
+        ],
         "properties": {
-          "actor": { "$ref": "#/$defs/avatar_id" },
-          "goal": { "enum": ["follow", "stay", "come", "look_at", "point_at", "go_to", "fetch", "wander"] },
-          "target": { "$ref": "common.schema.json#/$defs/entity_id" },
-          "position_m": { "$ref": "common.schema.json#/$defs/vec3" },
-          "area": { "$ref": "common.schema.json#/$defs/aabb" },
-          "duration_s": { "type": "number", "exclusiveMinimum": 0, "maximum": 3600 }
+          "actor": {
+            "$ref": "#/$defs/avatar_id"
+          },
+          "goal": {
+            "enum": [
+              "follow",
+              "stay",
+              "come",
+              "look_at",
+              "point_at",
+              "go_to",
+              "fetch",
+              "wander"
+            ]
+          },
+          "target": {
+            "$ref": "common.schema.json#/$defs/entity_id"
+          },
+          "position_m": {
+            "$ref": "common.schema.json#/$defs/vec3"
+          },
+          "area": {
+            "$ref": "common.schema.json#/$defs/aabb"
+          },
+          "duration_s": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 3600
+          }
         },
         "allOf": [
-          { "if": { "properties": { "goal": { "enum": ["look_at", "point_at", "go_to"] } }, "required": ["goal"] }, "then": { "anyOf": [ { "required": ["target"] }, { "required": ["position_m"] } ] } },
-          { "if": { "properties": { "goal": { "const": "fetch" } }, "required": ["goal"] }, "then": { "required": ["target"] } }
+          {
+            "if": {
+              "properties": {
+                "goal": {
+                  "enum": [
+                    "look_at",
+                    "point_at",
+                    "go_to"
+                  ]
+                }
+              },
+              "required": [
+                "goal"
+              ]
+            },
+            "then": {
+              "anyOf": [
+                {
+                  "required": [
+                    "target"
+                  ]
+                },
+                {
+                  "required": [
+                    "position_m"
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "goal": {
+                  "const": "fetch"
+                }
+              },
+              "required": [
+                "goal"
+              ]
+            },
+            "then": {
+              "required": [
+                "target"
+              ]
+            }
+          }
         ]
       },
       "goal.stop": {
         "description": "Always permitted and never needs approval. Without an actor it stops every actor the principal may direct, their goals and their effects.",
         "type": "object",
         "additionalProperties": false,
-        "properties": { "actor": { "$ref": "#/$defs/avatar_id" } }
+        "properties": {
+          "actor": {
+            "$ref": "#/$defs/avatar_id"
+          }
+        }
       },
       "effect.start": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["capability", "params", "area", "duration_s"],
+        "required": [
+          "capability",
+          "params",
+          "area",
+          "duration_s"
+        ],
         "properties": {
-          "capability": { "$ref": "common.schema.json#/$defs/token" },
-          "params": { "type": "object", "maxProperties": 32 },
+          "capability": {
+            "$ref": "common.schema.json#/$defs/token"
+          },
+          "params": {
+            "description": "Capability parameters: bounded scalars under lowercase names. Reserved names that look like identity or authority are refused.",
+            "type": "object",
+            "maxProperties": 16,
+            "additionalProperties": {
+              "$ref": "common.schema.json#/$defs/scalar"
+            },
+            "propertyNames": {
+              "pattern": "^[a-z][a-z0-9_]{0,31}$",
+              "not": {
+                "enum": [
+                  "principal",
+                  "action_id",
+                  "approval",
+                  "approval_id",
+                  "approved",
+                  "owner",
+                  "owner_id",
+                  "room_id",
+                  "actor",
+                  "grant",
+                  "role"
+                ]
+              }
+            }
+          },
           "area": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["center_m", "radius_m"],
+            "required": [
+              "center_m",
+              "radius_m"
+            ],
             "properties": {
-              "center_m": { "$ref": "common.schema.json#/$defs/vec3" },
-              "radius_m": { "type": "number", "exclusiveMinimum": 0, "maximum": 10 }
+              "center_m": {
+                "$ref": "common.schema.json#/$defs/vec3"
+              },
+              "radius_m": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 10
+              }
             }
           },
-          "duration_s": { "type": "number", "exclusiveMinimum": 0, "maximum": 600 },
-          "targets": { "type": "array", "maxItems": 64, "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/entity_id" } }
+          "duration_s": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 600
+          },
+          "targets": {
+            "type": "array",
+            "maxItems": 64,
+            "uniqueItems": true,
+            "items": {
+              "$ref": "common.schema.json#/$defs/entity_id"
+            }
+          }
         }
       },
       "effect.stop": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["effect"],
+        "required": [
+          "effect"
+        ],
         "properties": {
-          "effect": { "anyOf": [ { "type": "string", "pattern": "^effect:[A-Za-z0-9_-]{1,64}$" }, { "const": "all" } ] }
+          "effect": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^effect:[A-Za-z0-9_-]{1,64}$"
+              },
+              {
+                "const": "all"
+              }
+            ]
+          }
         }
       },
       "style.set": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["preset_id", "preset_version"],
+        "required": [
+          "preset_id",
+          "preset_version"
+        ],
         "properties": {
-          "preset_id": { "$ref": "common.schema.json#/$defs/token" },
-          "preset_version": { "type": "integer", "minimum": 1 }
+          "preset_id": {
+            "$ref": "common.schema.json#/$defs/token"
+          },
+          "preset_version": {
+            "type": "integer",
+            "minimum": 1
+          }
         }
       },
       "room.checkpoint": {
         "type": "object",
         "additionalProperties": false,
-        "properties": { "label": { "type": "string", "maxLength": 80 } }
+        "properties": {
+          "label": {
+            "type": "string",
+            "maxLength": 80
+          }
+        }
       },
       "room.undo": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["to_revision"],
-        "properties": { "to_revision": { "type": "integer", "minimum": 0 } }
+        "required": [
+          "to_revision"
+        ],
+        "properties": {
+          "to_revision": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
       },
       "entities.list": {
         "type": "object",
@@ -419,89 +1812,194 @@
             "type": "object",
             "additionalProperties": false,
             "properties": {
-              "kind": { "enum": ["shell", "object", "creation", "avatar", "effect"] },
-              "category_group": { "$ref": "common.schema.json#/$defs/category_group" },
-              "affordance": { "$ref": "common.schema.json#/$defs/affordance" },
-              "provenance_kind": { "$ref": "common.schema.json#/$defs/provenance_kind" },
+              "kind": {
+                "enum": [
+                  "shell",
+                  "object",
+                  "creation",
+                  "avatar",
+                  "effect"
+                ]
+              },
+              "category_group": {
+                "$ref": "common.schema.json#/$defs/category_group"
+              },
+              "affordance": {
+                "$ref": "common.schema.json#/$defs/affordance"
+              },
+              "provenance_kind": {
+                "$ref": "common.schema.json#/$defs/provenance_kind"
+              },
               "near": {
                 "type": "object",
                 "additionalProperties": false,
-                "required": ["center_m", "radius_m"],
+                "required": [
+                  "center_m",
+                  "radius_m"
+                ],
                 "properties": {
-                  "center_m": { "$ref": "common.schema.json#/$defs/vec3" },
-                  "radius_m": { "type": "number", "exclusiveMinimum": 0, "maximum": 50 }
+                  "center_m": {
+                    "$ref": "common.schema.json#/$defs/vec3"
+                  },
+                  "radius_m": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "maximum": 50
+                  }
                 }
               }
             }
           },
-          "cursor": { "type": "string", "maxLength": 128 },
-          "limit": { "type": "integer", "minimum": 1, "maximum": 100 }
+          "cursor": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
         }
       },
       "capabilities.list": {
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "category": { "$ref": "common.schema.json#/$defs/token" },
-          "cursor": { "type": "string", "maxLength": 128 },
-          "limit": { "type": "integer", "minimum": 1, "maximum": 100 }
+          "category": {
+            "$ref": "common.schema.json#/$defs/token"
+          },
+          "cursor": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
         }
       },
       "observe": {
         "description": "What the actor can currently perceive, limited to its line of sight and radius.",
         "type": "object",
         "additionalProperties": false,
-        "required": ["actor"],
+        "required": [
+          "actor"
+        ],
         "properties": {
-          "actor": { "$ref": "#/$defs/avatar_id" },
-          "radius_m": { "type": "number", "exclusiveMinimum": 0, "maximum": 20 }
+          "actor": {
+            "$ref": "#/$defs/avatar_id"
+          },
+          "radius_m": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 20
+          }
         }
       },
       "jobs.status": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["job_id"],
-        "properties": { "job_id": { "$ref": "common.schema.json#/$defs/token" } }
+        "required": [
+          "job_id"
+        ],
+        "properties": {
+          "job_id": {
+            "$ref": "common.schema.json#/$defs/token"
+          }
+        }
       },
       "receipt.lookup": {
         "description": "Reconcile before retrying: ask whether an earlier action committed.",
         "type": "object",
         "additionalProperties": false,
-        "required": ["action_id"],
-        "properties": { "action_id": { "$ref": "common.schema.json#/$defs/action_id" } }
+        "required": [
+          "action_id"
+        ],
+        "properties": {
+          "action_id": {
+            "$ref": "common.schema.json#/$defs/action_id"
+          }
+        }
+      },
+      "approval.status": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "request_id"
+        ],
+        "properties": {
+          "request_id": {
+            "$ref": "common.schema.json#/$defs/request_id"
+          }
+        }
       }
     },
     "data": {
       "entities.list": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["items"],
+        "required": [
+          "items"
+        ],
         "properties": {
-          "items": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/entity_summary" } },
-          "next_cursor": { "type": "string", "maxLength": 128 }
+          "items": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/$defs/entity_summary"
+            }
+          },
+          "next_cursor": {
+            "type": "string",
+            "maxLength": 128
+          }
         }
       },
       "entity.inspect": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["entity"],
+        "required": [
+          "entity"
+        ],
         "properties": {
-          "entity": { "$ref": "#/$defs/entity_summary" },
+          "entity": {
+            "$ref": "#/$defs/entity_summary"
+          },
           "parts": {
             "type": "object",
-            "propertyNames": { "$ref": "common.schema.json#/$defs/token" },
-            "additionalProperties": { "$ref": "common.schema.json#/$defs/unit_interval" }
+            "propertyNames": {
+              "$ref": "common.schema.json#/$defs/token"
+            },
+            "additionalProperties": {
+              "$ref": "common.schema.json#/$defs/unit_interval"
+            },
+            "maxProperties": 32
           },
-          "protected_by": { "$ref": "common.schema.json#/$defs/principal_id" }
+          "protected_by": {
+            "$ref": "common.schema.json#/$defs/principal_id"
+          }
         }
       },
       "observe": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["actor", "visible", "texts"],
+        "required": [
+          "actor",
+          "visible",
+          "texts"
+        ],
         "properties": {
-          "actor": { "$ref": "#/$defs/avatar_id" },
-          "visible": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/entity_summary" } },
+          "actor": {
+            "$ref": "#/$defs/avatar_id"
+          },
+          "visible": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/$defs/entity_summary"
+            }
+          },
           "texts": {
             "description": "Words seen in the world (labels, signs, names). Always untrusted: an adapter must never place them in instructions.",
             "type": "array",
@@ -509,11 +2007,28 @@
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["source", "text", "untrusted"],
+              "required": [
+                "source",
+                "text",
+                "untrusted"
+              ],
               "properties": {
-                "source": { "$ref": "common.schema.json#/$defs/entity_id" },
-                "text": { "type": "string", "maxLength": 500 },
-                "untrusted": { "const": true }
+                "source": {
+                  "$ref": "common.schema.json#/$defs/entity_id"
+                },
+                "text": {
+                  "allOf": [
+                    {
+                      "$ref": "common.schema.json#/$defs/long_text"
+                    },
+                    {
+                      "maxLength": 500
+                    }
+                  ]
+                },
+                "untrusted": {
+                  "const": true
+                }
               }
             }
           }
@@ -522,12 +2037,130 @@
       "receipt.lookup": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["found"],
+        "required": [
+          "found"
+        ],
         "properties": {
-          "found": { "type": "boolean" },
-          "receipt": { "$ref": "#/$defs/result" }
+          "found": {
+            "type": "boolean"
+          },
+          "receipt": {
+            "$ref": "#/$defs/result"
+          },
+          "compacted": {
+            "description": "True when the action committed before the last checkpoint compaction; its full receipt is no longer kept.",
+            "type": "boolean"
+          }
+        }
+      },
+      "room.describe": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "room_id",
+          "display_name",
+          "revision",
+          "source_kind",
+          "bounds_m",
+          "style",
+          "counts"
+        ],
+        "properties": {
+          "room_id": {
+            "$ref": "common.schema.json#/$defs/token"
+          },
+          "display_name": {
+            "allOf": [
+              {
+                "$ref": "common.schema.json#/$defs/display_text"
+              },
+              {
+                "maxLength": 80
+              }
+            ]
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "source_kind": {
+            "enum": [
+              "capture",
+              "hand_built",
+              "procedural"
+            ]
+          },
+          "bounds_m": {
+            "$ref": "common.schema.json#/$defs/aabb"
+          },
+          "style": {
+            "$ref": "common.schema.json#/$defs/style_pin"
+          },
+          "counts": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "objects",
+              "creations",
+              "shell_parts"
+            ],
+            "properties": {
+              "objects": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "creations": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "shell_parts": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        }
+      },
+      "approval.status": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "request_id",
+          "state"
+        ],
+        "properties": {
+          "request_id": {
+            "$ref": "common.schema.json#/$defs/request_id"
+          },
+          "state": {
+            "enum": [
+              "pending",
+              "approved",
+              "denied",
+              "expired"
+            ]
+          },
+          "result": {
+            "$ref": "#/$defs/result"
+          }
         }
       }
+    },
+    "player_only_ops": {
+      "description": "Ops a companion principal can never perform. The companion adapter must not expose them and the host rejects them from companion principals. Unlocking is always a direct player action.",
+      "enum": [
+        "protect.unlock"
+      ]
+    },
+    "destructive_ops": {
+      "description": "Ops that must say which state they expect: expected_revision or expected_entities covering the targets.",
+      "enum": [
+        "entity.remove",
+        "entity.transform",
+        "creation.revise",
+        "protect.lock",
+        "protect.unlock"
+      ]
     }
   }
 }

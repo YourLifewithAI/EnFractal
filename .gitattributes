@@ -9,7 +9,9 @@
 # Preserve the byte hash stored in the Blender asset manifests on every host.
 tools/art/*.py text eol=lf
 
-# Pinned contract data: hashes cover exact bytes, so every checkout must keep LF.
-contracts/**/*.json text eol=lf
-game/rooms/**/*.json text eol=lf
-game/styles/*.json text eol=lf
+# Pinned contract data: hashes cover exact bytes. Generated rooms and examples are never converted
+# (any file type, any platform); hand-edited JSON is normalised to LF on commit.
+contracts/*.schema.json text eol=lf
+contracts/examples/** -text
+game/rooms/** -text
+game/styles/**/*.json text eol=lf
