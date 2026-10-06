@@ -13,15 +13,7 @@ public partial class NativeGameBoot : Node
             AddChild(new NativeContractProbe());
             return;
         }
-        var legacy = OS.GetCmdlineUserArgs().Contains("--legacy-barton");
-        if (legacy && OS.HasFeature("template"))
-        {
-            GD.PushError("Barton is a retired development fixture and is not included in native exports.");
-            GetTree().Quit(1);
-            return;
-        }
-        DisplayServer.WindowSetTitle(legacy ? "EnFractal - retired Barton fixture" : "EnFractal - Pfluger District");
-        var scene = legacy ? "res://scenes/main.tscn" : "res://scenes/pfluger_world.tscn";
-        AddChild(GD.Load<PackedScene>(scene).Instantiate());
+        DisplayServer.WindowSetTitle("EnFractal - Test Room");
+        AddChild(GD.Load<PackedScene>("res://scenes/room_test.tscn").Instantiate());
     }
 }

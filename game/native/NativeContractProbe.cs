@@ -10,10 +10,6 @@ public partial class NativeContractProbe : Node
     {
         try
         {
-            if (OS.HasFeature("template") &&
-                (Godot.FileAccess.FileExists("res://maps/barton_creek/manifest.json") ||
-                 !Godot.FileAccess.FileExists("res://maps/pfluger_district/manifest.json")))
-                throw new System.InvalidOperationException("Native export must include Pfluger and exclude the retired Barton map");
             using var contract = new NativeWorldContract();
             var profile = contract.GetDefaultProfile();
             if (!contract.ValidateProfile(profile) || profile["height_m"].AsDouble() != 0.30 ||
