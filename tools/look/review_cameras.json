@@ -1,0 +1,64 @@
+{
+  "schema": "enfractal.look_review_cameras",
+  "version": 1,
+  "room_id": "test_room",
+  "description": "Five fixed review cameras for the placeholder room. World metres, +Y up, -Z forward (north). Positions do not follow the avatars, so captures stay comparable while the avatar profile changes. Focus points sit on the player's spawn, where the player's reach must stay crisp.",
+  "resolution": [1920, 1080],
+  "clock": {
+    "hour": 16.5,
+    "date": "2026-10-06",
+    "note": "Review captures pin the hour and date so time of day and season do not drift between rounds. The preset's own default hour is 16.5; 6 October is autumn in the northern hemisphere."
+  },
+  "cameras": [
+    {
+      "id": "player_eye",
+      "label": "Player eye",
+      "purpose": "What the 10 cm player sees: rug, book and doorstop within reach, the table and far wall beyond. Judges near crispness, far softening and how the floor reads at eye level.",
+      "position_m": [0.0, 0.087, 0.6],
+      "look_at_m": [-0.25, 0.14, -0.6],
+      "fov_deg": 70,
+      "focus_m": [-0.1, 0.03, 0.3],
+      "hide_player_body": true
+    },
+    {
+      "id": "over_shoulder",
+      "label": "Over the shoulder",
+      "purpose": "The default play camera: just behind and above the player's left shoulder, the companion beside it. Judges the avatar against the room, its contact shadow, and the diorama depth of field.",
+      "position_m": [-0.15, 0.22, 1.12],
+      "look_at_m": [0.12, 0.06, 0.1],
+      "fov_deg": 68,
+      "focus_m": [0.0, 0.06, 0.6],
+      "hide_player_body": false
+    },
+    {
+      "id": "companion",
+      "label": "Companion",
+      "purpose": "In front of the two avatars, a little above companion height, looking back at them with the south-west corner behind. Judges both characters in one frame, their contact shadows and side light.",
+      "position_m": [0.5, 0.16, 0.02],
+      "look_at_m": [0.12, 0.07, 0.72],
+      "fov_deg": 55,
+      "focus_m": [0.22, 0.06, 0.6],
+      "hide_player_body": false
+    },
+    {
+      "id": "low_corner",
+      "label": "Low corner",
+      "purpose": "Floor level in the north-east corner looking across the room past the box: long floor perspective, contre-jour light, wall bases and corners.",
+      "position_m": [1.84, 0.05, -1.34],
+      "look_at_m": [-0.2, 0.5, 0.8],
+      "fov_deg": 65,
+      "focus_m": [0.0, 0.06, 0.6],
+      "hide_player_body": false
+    },
+    {
+      "id": "ceiling_corner",
+      "label": "Ceiling corner",
+      "purpose": "High in the south-west corner looking down at the whole room: the tabletop-miniature view. Judges palette, warm key against cool shadow, the tilt-shift band and clutter density.",
+      "position_m": [-1.84, 2.26, 1.36],
+      "look_at_m": [0.15, 0.05, 0.25],
+      "fov_deg": 60,
+      "focus_m": [0.0, 0.06, 0.6],
+      "hide_player_body": false
+    }
+  ]
+}
