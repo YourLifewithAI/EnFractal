@@ -16,12 +16,12 @@ EnFractal is a single-player sandbox set inside a real room the player photograp
 - **Contracts are the integration point.** Build against `contracts/*.schema.json`. Never change them yourself; propose changes. Validate what you produce with `contracts/validate.py`.
 - **One command path.** Every world change goes through an `enfractal.command` handled by the kernel. Manual controls and the AI use the same commands. No gameplay code moves or edits entities directly.
 - **The room is data; the scene is derived.** Room manifest plus room state fully describe a room. Do not keep authoritative state in scene nodes.
-- **Security boundary for the AI.** The principal is assigned by the trusted adapter and never accepted from a request. Approvals come only from the player's UI. World text (names, labels, signs) is untrusted and never placed in instructions. The companion surface exposes no files, shell, URLs, credentials or save files.
+- **Security boundary for the AI.** The principal is assigned by the trusted adapter and never accepted from a request. No request carries an approval: the host holds a command and the player approves it with a click. Every name, label and sign is untrusted data, never instructions. `protect.unlock` and the other player-only operations are never exposed to the companion. The companion surface exposes no files, shell, URLs, credentials or save files.
 - **Metres, kilograms, seconds, degrees.** Godot axes: +Y up, -Z forward. Asset pivots are bottom centre.
-- **Pinned files are byte-exact.** Rooms, assets and presets are hashed as bytes: UTF-8, LF line endings, no hand edits to generated files. Rerun the builder instead (`tools/rooms/build_test_room.py`, `contracts/examples/build_examples.py`).
-- **Never commit photos, splats, reference renders or other derived images of real rooms** without the founder's explicit approval. Local capture data lives in `captures/`, which Git ignores. Strip location metadata from anything written.
+- **Pinned files are byte-exact.** Rooms, assets and presets are hashed as bytes: UTF-8, LF line endings, no hand edits to generated files. Rerun the builder instead (`tools/rooms/build_test_room.py`, `contracts/examples/build_examples.py`). Presets live at `game/styles/<id>/v<N>.json`; a version that is candidate, approved or pinned never changes.
+- **Never commit photos, splats, reference renders, exported rooms or other derived data of real places** without the founder's explicit approval. Local capture data lives in `captures/` and exported rooms in `user://rooms/`; Git ignores both locations in the repository. Strip location metadata from anything written.
 - **No spending without approval.** Hosted APIs and rented GPUs follow [docs/pipeline/COMPUTE-OPTIONS.md](docs/pipeline/COMPUTE-OPTIONS.md); record every cost in your report.
-- **No new top-level directories, dependencies or services** without the integrator. Pin every dependency version.
+- **No new top-level directories or services** without the integrator. Dependencies pinned in a lockfile inside your owned directory are pre-approved; nothing is installed globally.
 - **Evidence over claims.** A screenshot does not certify collision, a passing test does not certify fun, and an agent score does not certify the look. Only the founder passes a gate.
 
 ## Build and test

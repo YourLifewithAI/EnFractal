@@ -36,15 +36,16 @@ Every run is built by parallel agent lanes. A lane **edits only the paths it own
 |---|---|
 | `pipeline/roomscan/**` (Python package, MCP server, SKILL.md, tests) | C1 to C7 |
 | `docs/pipeline/**` | C design notes and compute costs |
-| `game/rooms/<captured_room_id>/**` (export output; never `test_room`) | C6 |
 | `captures/` (local photos and intermediate data; **ignored by Git, never committed**) | C1 to C5 |
+| Captured room exports go to the player's user data, `user://rooms/<room_id>/` (on Windows under `%APPDATA%\Godot\app_userdata\EnFractal\rooms\`), never into the repository; Git ignores `game/rooms/*` except `test_room` | C6 |
 
 ## Track P: Play
 
 | Path | Packets |
 |---|---|
 | `game/scripts/creation_*.gd`, `game/scripts/invention_*.gd`, `game/scripts/world_state.gd`, `game/scripts/world_physics_profile.gd`, `game/scripts/player_controller.gd` (legacy fixture, to be removed), `game/creation_templates/**` | P1 |
-| `game/scripts/native/Kernel/**` (C# side of the kernel and the command host) | P1 |
+| `game/scripts/native/Kernel/**` (C# side of the kernel and the command host; the integrator wires its `CommandHost.Attach(RoomWorld)` entry point into `RoomWorld.cs` at merge) | P1 |
+| `game/tests/native/Kernel/**`, `game/tests/native_kernel_*.tscn`, `game/tests/fixtures/kernel/**`, `tools/kernel/**` (command-host tests, golden canonical-JSON fixtures and their Python reproducer) | P1 |
 | `game/native/WorldScaleProfile.cs`, `game/scripts/native/SmallPlayerController.cs`, `game/scripts/native/CompanionAvatar.cs` (body and movement only) | P2 |
 | `game/scripts/native/Room/**` (room data and builder) | P6, from Run 2 |
 | `game/scripts/native/Sandbox/**` | P3, from Run 2 |
@@ -65,6 +66,7 @@ Every run is built by parallel agent lanes. A lane **edits only the paths it own
 
 - **Need a change in a file you do not own?** Write the exact diff and the reason in your lane report. The integrator applies it or hands it to the owning lane. Do not edit it yourself, even for a one-line fix.
 - **Need a contract change?** Same: propose it. Contracts change in one integrator commit with their examples, consumers and tests.
+- **Dependencies** pinned in a lockfile inside your owned directory (for example `pipeline/roomscan/pyproject.toml` with `uv.lock`, or `companion/pyproject.toml`) are pre-approved. Global installs, new services and paid APIs are not.
 - **New tests** go in your owned test paths. Ask the integrator to add them to `run-engine-tests.ps1`, `tools/test-room.ps1` or `tools/linux/test-all.sh`.
 - **New directories** under an owned path are yours. A new top-level directory needs the integrator.
 - **Generated files** (rooms, examples, `.uid` sidecars Godot creates for new scripts) are committed by whoever owns the generator or the new script.
