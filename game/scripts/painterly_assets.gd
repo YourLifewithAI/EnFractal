@@ -1,8 +1,8 @@
 extends RefCounted
 ## Shared original artwork, independent from object placement and permissions.
 
-const TEXTURE_ROOT := "res://assets/art/barton/textures/"
-const TREE_ROOT := "res://assets/art/barton/trees/"
+const TEXTURE_ROOT := "res://assets/art/painterly/textures/"
+const TREE_ROOT := "res://assets/art/painterly/trees/"
 const STYLE_VERSION := "painterly_v1"
 static var _materials: Dictionary = {}
 

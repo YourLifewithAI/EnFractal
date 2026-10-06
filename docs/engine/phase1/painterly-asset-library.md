@@ -4,14 +4,14 @@ This is the first editable art library for the [ART-0–3 checkpoint](../checkpo
 
 ## Sources and exports
 
-The [Blender source directory](../../../assets/art_sources/barton/trees/) contains original `.blend` files with branch curves, hidden canopy guides, final meshes, packed original textures and the builder source. The [rebuild instructions](../../../assets/art_sources/barton/trees/README.md) use the deterministic [Blender recipe](../../../tools/art/build_barton_trees.py). Direct manual Blender edits remain editable, but the current recipe rebuild does not automatically read those edits back.
+The [Blender source directory](../../../assets/art_sources/painterly/trees/) contains original `.blend` files with branch curves, hidden canopy guides, final meshes, packed original textures and the builder source. The [rebuild instructions](../../../assets/art_sources/painterly/trees/README.md) use the deterministic [Blender recipe](../../../tools/art/build_painterly_trees.py). Direct manual Blender edits remain editable, but the current recipe rebuild does not automatically read those edits back.
 
 | Asset | Branch controls | Foliage cards | Total triangles |
 |---|---:|---:|---:|
 | `barton_live_oak_v1` | 32 | 559 | 12,620 |
 | `barton_ashe_juniper_v1` | 11 | 492 | 6,890 |
 
-The oak's overlapping horizontal groups follow primary and secondary boughs. Juniper groups overlap along their supporting branches. Neither export contains a closed canopy shell. GLBs have separate `Trunk` and `Leaves` nodes and use shared runtime materials. Asset manifests beside the [runtime exports](../../../game/assets/art/barton/trees/) record bounds, hashes, seed, pivot convention, material roles and limitations. They describe illustrative species studies, not scanned/surveyed individuals.
+The oak's overlapping horizontal groups follow primary and secondary boughs. Juniper groups overlap along their supporting branches. Neither export contains a closed canopy shell. GLBs have separate `Trunk` and `Leaves` nodes and use shared runtime materials. Asset manifests beside the [runtime exports](../../../game/assets/art/painterly/trees/) record bounds, hashes, seed, pivot convention, material roles and limitations. They describe illustrative species studies, not scanned/surveyed individuals.
 
 ![Oak in the destination engine](../../images/art1-oak-00.png)
 
@@ -21,7 +21,7 @@ Additional [walking-height](../../images/art1-oak-walking.png) and [distant](../
 
 ## Painted textures and provenance
 
-Six original PNG sources are checked into [the texture directory](../../../game/assets/art/barton/textures/): oak leaf cluster, juniper spray, grass tuft, bark, ground paint and limestone paint. They were generated with the built-in image-generation tool for this project. Exact prompts and provenance are in [generation-prompts.json](../../../assets/art_sources/barton/textures/generation-prompts.json) and [grass-generation-prompt.json](../../../assets/art_sources/barton/textures/grass-generation-prompt.json). No pixels from the supplied reference images or third-party artwork were copied into these assets.
+Six original PNG sources are checked into [the texture directory](../../../game/assets/art/painterly/textures/): oak leaf cluster, juniper spray, grass tuft, bark, ground paint and limestone paint. They were generated with the built-in image-generation tool for this project. Exact prompts and provenance are in [generation-prompts.json](../../../assets/art_sources/painterly/textures/generation-prompts.json) and [grass-generation-prompt.json](../../../assets/art_sources/painterly/textures/grass-generation-prompt.json). No pixels from the supplied reference images or third-party artwork were copied into these assets.
 
 The source PNGs are retained at their generated resolution. Foliage/grass have real alpha channels. Tracked Godot `.import` settings cap runtime size at **1024 px**, enable mipmaps and VRAM compression, and preserve alpha borders. This replaces the old fixture's zero-texture/no-cutout rule with an explicit art experiment. Compression quality, overdraw and motion still require target-device review. Image generation is not bitwise repeatable: reproducibility comes from retaining/versioning the actual source files, not from promising identical regeneration from a prompt.
 

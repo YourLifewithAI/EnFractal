@@ -4,12 +4,12 @@ importer="scene"
 importer_version=1
 type="PackedScene"
 uid="uid://15lgiu1h6rah"
-path="res://.godot/imported/ashe-juniper-v1.glb-36f8750497e0cec456c5719e1b2a7c32.scn"
+path="res://.godot/imported/ashe-juniper-v1.glb-327347435e9d850d054c24cda902bba7.scn"
 
 [deps]
 
-source_file="res://assets/art/barton/trees/ashe-juniper-v1.glb"
-dest_files=["res://.godot/imported/ashe-juniper-v1.glb-36f8750497e0cec456c5719e1b2a7c32.scn"]
+source_file="res://assets/art/painterly/trees/ashe-juniper-v1.glb"
+dest_files=["res://.godot/imported/ashe-juniper-v1.glb-327347435e9d850d054c24cda902bba7.scn"]
 
 [params]
 

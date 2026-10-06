@@ -57,7 +57,7 @@ function Get-ArtImportResourceKey {
 
 function Get-PendingArtImport {
     param([string]$Root, [hashtable]$SettingsHashes = @{}, [switch]$SkipSettingsCheck)
-    $artPath = Join-Path $Root 'assets\art\barton'
+    $artPath = Join-Path $Root 'assets\art\painterly'
     if (-not (Test-Path -LiteralPath $artPath -PathType Container)) {
         throw 'The Barton painterly source assets are missing from this checkout.'
     }
@@ -158,7 +158,7 @@ if ($remaining.Count -gt 0) {
 # Capture the settings after import, because Godot may normalize the sidecar.
 # Only a successful process and verified resources may update this stamp.
 $importedSettings = [ordered]@{}
-$artPath = Join-Path $ProjectPath 'assets\art\barton'
+$artPath = Join-Path $ProjectPath 'assets\art\painterly'
 foreach ($resource in @(Get-ChildItem -LiteralPath $artPath -Recurse -File | Where-Object Extension -In @('.png', '.glb') | Sort-Object FullName)) {
     $sidecar = Get-Content -LiteralPath ($resource.FullName + '.import') -Raw
     $settingsHash = Get-ArtImportSettingsHash -Sidecar $sidecar

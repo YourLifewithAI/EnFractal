@@ -1,15 +1,15 @@
 {
   "schema": "enfractal.art.asset.v1",
-  "id": "barton_ashe_juniper_v1",
+  "id": "painterly_ashe_juniper_v1",
   "species": "juniper",
   "interpretation": "Original illustrative tree; no surveyed individual claim.",
-  "builder": "tools/art/build_barton_trees.py",
-  "builder_sha256": "c6b21d1a188ce9f6f45af1ce1cb3b5223230e62dcb5297a4ff57443a2fd6f32e",
+  "builder": "tools/art/build_painterly_trees.py",
+  "builder_sha256": "c93672cfb5fab283861b8eb031f0343cb150be656601b483085dbe581239c1ea",
   "seed": 3010250924,
   "blender_version": "4.5.14 LTS",
-  "source": "assets/art_sources/barton/trees/ashe-juniper-v1.blend",
-  "export": "game/assets/art/barton/trees/ashe-juniper-v1.glb",
-  "leaf_texture": "game/assets/art/barton/textures/juniper-spray-v1.png",
+  "source": "assets/art_sources/painterly/trees/ashe-juniper-v1.blend",
+  "export": "game/assets/art/painterly/trees/ashe-juniper-v1.glb",
+  "leaf_texture": "game/assets/art/painterly/textures/juniper-spray-v1.png",
   "leaf_texture_sha256": "37a4d39c9bb94407e92a6cc6cc9dc41f8941efd691482a5d1b00014ee4900653",
   "bounds_blender_z_up_m": {
     "minimum": [

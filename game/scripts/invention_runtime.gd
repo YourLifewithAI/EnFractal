@@ -27,7 +27,7 @@ var guest_was_affected := false
 var activation_count := 0
 var evaluated_nodes := 0
 var rejected_activations := 0
-var save_path := "user://worlds/barton_inventions.json"
+var save_path := "user://worlds/room_inventions.json"
 var session_token := ""
 var field_display: MultiMeshInstance3D
 var third_person := false

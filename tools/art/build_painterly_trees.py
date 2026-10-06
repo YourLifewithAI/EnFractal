@@ -1,6 +1,6 @@
-"""Build original, editable Barton tree studies with Blender's Python runtime.
+"""Build original, editable painterly tree studies with Blender's Python runtime.
 
-Run: blender --background --python tools/art/build_barton_trees.py -- --species all
+Run: blender --background --python tools/art/build_painterly_trees.py -- --species all
 The branch architecture is authored here; deterministic scatter fills its canopy
 guides with textured twig cards. Guides are retained in the .blend but never in
 the exported game mesh. Blender Z-up metres become Godot Y-up through glTF.
@@ -21,9 +21,9 @@ import bpy
 from mathutils import Vector
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE_DIR = ROOT / "assets/art_sources/barton/trees"
-GAME_DIR = ROOT / "game/assets/art/barton/trees"
-TEXTURES = ROOT / "game/assets/art/barton/textures"
+SOURCE_DIR = ROOT / "assets/art_sources/painterly/trees"
+GAME_DIR = ROOT / "game/assets/art/painterly/trees"
+TEXTURES = ROOT / "game/assets/art/painterly/textures"
 SEED = 3010250924
 
 # Path points: x, y, height in metres, radius. Curves remain editable in source.
@@ -194,7 +194,7 @@ def make_trunks(branches, collection, guides):
         faces.append(tuple(base+k for k in reversed(range(sides))))
         final=base+(len(samples)-1)*(sides+1)
         faces.append(tuple(final+k for k in range(sides)))
-    mesh=bpy.data.meshes.new('Barton authored branch architecture')
+    mesh=bpy.data.meshes.new('Painterly authored branch architecture')
     mesh.from_pydata(vertices,[],faces)
     mesh.update()
     uv=mesh.uv_layers.new(name='BarkUV')
@@ -380,7 +380,7 @@ def build(species):
     scene=bpy.context.scene
     scene.unit_settings.system='METRIC'
     scene.unit_settings.scale_length=1
-    scene['asset_id']='barton_'+('live_oak' if species=='oak' else 'ashe_juniper')+'_v1'
+    scene['asset_id']='painterly_'+('live_oak' if species=='oak' else 'ashe_juniper')+'_v1'
     scene['style']='Grounded painterly 3D; original reference-guided asset proof.'
     scene['source_map_claim']='Illustrative species morphology; not a scanned/surveyed individual.'
     bpy.context.view_layer.update()
@@ -392,7 +392,7 @@ def build(species):
     SOURCE_DIR.mkdir(parents=True,exist_ok=True)
     GAME_DIR.mkdir(parents=True,exist_ok=True)
     # Store the generator itself in the editable Blender file for provenance.
-    text=bpy.data.texts.get('build_barton_trees.py') or bpy.data.texts.new('build_barton_trees.py')
+    text=bpy.data.texts.get('build_painterly_trees.py') or bpy.data.texts.new('build_painterly_trees.py')
     text.clear()
     text.write(Path(__file__).read_text(encoding='utf8'))
     for image in bpy.data.images:
@@ -420,7 +420,7 @@ def build(species):
     metadata={
         'schema':'enfractal.art.asset.v1','id':scene['asset_id'],'species':species,
         'interpretation':'Original illustrative tree; no surveyed individual claim.',
-        'builder':'tools/art/build_barton_trees.py','builder_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+        'builder':'tools/art/build_painterly_trees.py','builder_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         'seed':SEED,'blender_version':bpy.app.version_string,
         'source':str((SOURCE_DIR/(name+'.blend')).relative_to(ROOT)).replace('\\','/'),
         'export':str(glb.relative_to(ROOT)).replace('\\','/'),
@@ -437,7 +437,7 @@ def build(species):
         'limitations':['Asset proof; no accepted visual quality score','No collision mesh included; root gameplay system supplies simplified collision','No automatic LODs yet','Source includes editable curves/empty guides; rerun builder to regenerate meshes after editing script recipe'],
     }
     (GAME_DIR/(name+'.asset.json')).write_text(json.dumps(metadata,indent=2)+'\n',encoding='utf8')
-    print('BARTON_TREE '+json.dumps(metadata))
+    print('PAINTERLY_TREE '+json.dumps(metadata))
 
 
 if __name__=='__main__':

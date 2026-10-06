@@ -3,7 +3,7 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://kagiaiuc3wyo"
-path.s3tc="res://.godot/imported/ground-paint-v1.png-04a874002d077f604f1d6f0461c5a42d.s3tc.ctex"
+path.s3tc="res://.godot/imported/ground-paint-v1.png-54215cc62b27a1a49a3f0052a3d266cf.s3tc.ctex"
 metadata={
 "imported_formats": ["s3tc_bptc"],
 "vram_texture": true
@@ -11,8 +11,8 @@ metadata={
 
 [deps]
 
-source_file="res://assets/art/barton/textures/ground-paint-v1.png"
-dest_files=["res://.godot/imported/ground-paint-v1.png-04a874002d077f604f1d6f0461c5a42d.s3tc.ctex"]
+source_file="res://assets/art/painterly/textures/ground-paint-v1.png"
+dest_files=["res://.godot/imported/ground-paint-v1.png-54215cc62b27a1a49a3f0052a3d266cf.s3tc.ctex"]
 
 [params]
 

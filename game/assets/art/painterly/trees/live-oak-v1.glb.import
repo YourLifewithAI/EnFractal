@@ -4,12 +4,12 @@ importer="scene"
 importer_version=1
 type="PackedScene"
 uid="uid://c4w6psxagbu4u"
-path="res://.godot/imported/live-oak-v1.glb-2754650fa26ee1c4d96d92457ae59cdd.scn"
+path="res://.godot/imported/live-oak-v1.glb-d92545094a5e2ffd6020fc425c59487d.scn"
 
 [deps]
 
-source_file="res://assets/art/barton/trees/live-oak-v1.glb"
-dest_files=["res://.godot/imported/live-oak-v1.glb-2754650fa26ee1c4d96d92457ae59cdd.scn"]
+source_file="res://assets/art/painterly/trees/live-oak-v1.glb"
+dest_files=["res://.godot/imported/live-oak-v1.glb-d92545094a5e2ffd6020fc425c59487d.scn"]
 
 [params]
 
