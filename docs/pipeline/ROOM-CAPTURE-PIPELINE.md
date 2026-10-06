@@ -72,7 +72,7 @@ Review gate: the agent shows the founder an annotated top-down layout and the ob
 
 For each inventory entry, generate a **closed, textured mesh** from its best masked views, then fit it to the measured box.
 
-- **Image-to-3D backends.** Open models that run locally: Hunyuan3D 2.x (the mini variants fit an 8 GB GPU), TRELLIS (check VRAM; the original release wanted more than 8 GB), TripoSG, and Meta's SAM 3D Objects (late 2025), which is built for exactly this "object in a photo to full 3D with pose" case. Hosted alternatives (Meshy, Tripo, Rodin) trade money for VRAM and should be an opt-in backend behind the same interface because the founder's incremental AI budget is small.
+- **Image-to-3D backends.** Open models: Hunyuan3D 2.1 (about 10 GB for shape, about 21 GB with textures; a community offload fork runs shape on 6 GB), TRELLIS.2 (6–8 GB in low-VRAM mode, 16 GB comfortable), SPAR3D and TripoSR (small, lower fidelity), and Meta's SAM 3D Objects (November 2025, 16 GB+), which is built for exactly this "object in a photo to full 3D with pose" case. Hosted per-object APIs (fal.ai, Replicate, Stability, Tripo, Meshy) and rented GPUs trade cents per object for VRAM; see [compute options](COMPUTE-OPTIONS.md) for prices. The backend is a pluggable choice behind one interface.
 - **Fit.** Scale the generated mesh to the measured dimensions, align orientation to the inventory pose, and snap to its support surface. The agent compares a render of the placed asset with the reference splat from the same viewpoint and flags mismatches.
 - **Game readiness.** Decimate to a budget per tier, generate collision (convex hull for simple props, convex decomposition for furniture; Godot can do both at import, or run CoACD offline), write a mass estimate from volume and material, and emit a Godot scene per object with the metadata above. Blender runs headlessly from a script for repair and decimation; the uploaded document's blender-mcp is useful for *interactive* inspection by an agent and can be kept as an optional tool, but the deterministic path should be a plain `blender --background --python` step so results are reproducible.
 
@@ -126,7 +126,7 @@ This server is a development and content tool. It is distinct from the in-game c
 
 ## Compute and cost, stated plainly
 
-- The development machine's RTX 2070 Super (8 GB) can run pose estimation, SAM 2, small 3DGS training at reduced resolution, and the smaller image-to-3D models. Larger generators and whole-room 3DGS at full 24 MP will need reduced resolution, a cloud GPU session, or a hosted API. Measure before promising.
+- The development machine's RTX 2070 Super (8 GB) can run pose estimation in batches, SAM 2, room-scale 3DGS at reduced resolution, and the smaller or shape-only image-to-3D models. Textured generation with the stronger models needs a hosted API (cents per object) or a rented GPU (under a dollar per room). Numbers are in [compute options](COMPUTE-OPTIONS.md).
 - Per-object generation for a garage is on the order of 20–40 full assets plus clutter sets. At a few minutes each locally, that is an afternoon of unattended GPU time per room, which is acceptable.
 - The founder's small incremental AI budget rules out hosted generation as the default. Keep hosted backends opt-in per object.
 
