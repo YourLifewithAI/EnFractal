@@ -13,13 +13,13 @@ func _initialize() -> void:
 
 
 func _run() -> void:
-	var manifest = JSON.parse_string(FileAccess.get_file_as_string("res://maps/barton_creek/manifest.json"))
-	_expect(manifest is Dictionary, "read pinned map manifest")
+	var manifest = JSON.parse_string(FileAccess.get_file_as_string("res://tests/fixtures/flat_room_manifest.json"))
+	_expect(manifest is Dictionary, "read flat room fixture manifest")
 	if not manifest is Dictionary:
 		quit(1)
 		return
 	var state = WorldState.new()
-	_expect(state.initialize("home-barton-creek-local", "barton_creek_v0-local", manifest), "initialize world")
+	_expect(state.initialize("home-test-room-local", "test_flat_room_v0-local", manifest), "initialize world")
 	var authority := {
 		"actor_id": "local-player",
 		"world_id": state.world_id,

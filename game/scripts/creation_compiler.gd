@@ -3,7 +3,7 @@ extends RefCounted
 ## editable source before admitting an instance, never trust a supplied artifact.
 
 const COMPILER_VERSION := 1
-const STYLE_VERSION := "barton_painterly_v1"
+const STYLE_VERSION := "painterly_v1"
 const MAX_BYTES := 32768
 const MAX_PARTS := 24
 const MAX_NODES := 16

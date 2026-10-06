@@ -1,6 +1,8 @@
 extends CharacterBody3D
-## Temporary walking/gliding test body. Camera presentation lives in the scene,
-## and can later be replaced by a third-person creature rig.
+## LEGACY FIXTURE BODY (1.7 m, GDScript). Kept only because invention_runtime.gd
+## and its tests are wired to this API (configure/spawn_at/creation effects).
+## The game's controller is scripts/native/SmallPlayerController.cs. R0 rewires
+## the invention runtime to the C# controller and removes this file.
 
 signal recovered(position: Vector3)
 

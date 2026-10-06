@@ -5,7 +5,7 @@ extends RefCounted
 const COMPILER = preload("res://scripts/creation_compiler.gd")
 const SCHEMA := "enfractal.creation-world"
 const VERSION := 1
-const STYLE_VERSION := "barton_painterly_v1"
+const STYLE_VERSION := "painterly_v1"
 const MAX_SAVE_BYTES := 4 * 1024 * 1024
 const MAX_RECEIPTS := 2048
 const MAX_REQUEST_BYTES := 65536

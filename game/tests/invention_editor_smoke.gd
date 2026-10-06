@@ -1,6 +1,22 @@
 extends SceneTree
 ## Real editor controls and isolated preview against the local host boundary.
+## The host is a flat-floor fixture (the same shape as invention_runtime_smoke);
+## the runtime, authority, editor and legacy fixture body are real.
 const COMPILER = preload("res://scripts/creation_compiler.gd")
+const Runtime = preload("res://scripts/invention_runtime.gd")
+const Player = preload("res://scripts/player_controller.gd")
+
+class FlatMap extends RefCounted:
+	func surface_height_at(_x: float, _z: float) -> float:
+		return 0.0
+
+class TestViewer extends Node3D:
+	var manifest := {"id": "editor-smoke-fixture", "source": "flat-pinned-physics-floor"}
+	var map_runtime = FlatMap.new()
+	var player_body
+	var walking := true
+	var walk_camera: Camera3D
+	var invention_runtime
 const SAVE := "user://tests/invention_editor_smoke_world.json"
 const EXPORT := "user://tests/invention_editor_smoke_export.json"
 const OVERSIZE := "user://tests/invention_editor_smoke_oversize.json"
@@ -18,8 +34,35 @@ func _run() -> void:
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("user://tests"))
 	for path in [SAVE, EXPORT, OVERSIZE]:
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
-	var scene: Node3D = load("res://scenes/main.tscn").instantiate()
+	var scene := TestViewer.new()
 	root.add_child(scene)
+	var floor := StaticBody3D.new()
+	var floor_shape := CollisionShape3D.new()
+	var floor_box := BoxShape3D.new()
+	floor_box.size = Vector3(150, 1, 150)
+	floor_shape.shape = floor_box
+	floor.position = Vector3(0, -0.5, 350)
+	floor.add_child(floor_shape)
+	scene.add_child(floor)
+	var player = Player.new()
+	player.name = "FixturePlayer"
+	var player_shape := CollisionShape3D.new()
+	var capsule := CapsuleShape3D.new()
+	capsule.radius = 0.3
+	capsule.height = 1.7
+	player_shape.shape = capsule
+	player.add_child(player_shape)
+	scene.walk_camera = Camera3D.new()
+	player.add_child(scene.walk_camera)
+	scene.player_body = player
+	scene.add_child(player)
+	player.configure(Callable(scene.map_runtime, "surface_height_at"), 1000.0)
+	player.spawn_at(0, 350, 0)
+	var host_runtime = Runtime.new()
+	host_runtime.save_path = SAVE
+	host_runtime.configure(scene)
+	scene.add_child(host_runtime)
+	scene.invention_runtime = host_runtime
 	await process_frame
 	var runtime = scene.invention_runtime
 	_check(runtime != null and runtime.editor != null, "real local runtime constructs editor")
