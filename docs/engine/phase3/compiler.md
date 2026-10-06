@@ -1,6 +1,6 @@
 # Portable manual invention compiler
 
-> **Kernel record.** This describes the creation kernel as built for the retired Barton workshop. The kernel is kept; its plot bounds, terrain sampler and legacy fixture body are generalized for rooms in R0 (see the [room-scale direction](../../ROOM-SCALE-DIRECTION.md)). Scene, launcher and checkpoint references below may point at files now on the `geography-era-final` branch.
+> **Kernel record, generalized for rooms in Run 1 (P1).** The kernel was built for the retired Barton workshop and is kept. Run 1 replaced its plot rectangle with the room's bounds, its protected garden with locks, its terrain sampler with a physics surface query, its fixture identities with `player:local` and `companion:local`, and its 1.7 m GDScript body with the 10 cm C# body (see [command-host.md](command-host.md), [body-and-physics.md](body-and-physics.md) and the [room-scale direction](../../ROOM-SCALE-DIRECTION.md)). Integration-scene and checkpoint references below may point at files now on the `geography-era-final` branch.
 
 `game/scripts/creation_compiler.gd` implements the source-to-artifact boundary in the [manual invention contract](manual-invention-contract.md). It contains no scene generation, host permission changes, runtime effects or template-name dispatch. The same source can pass through manual editing, JSON import, authority admission and a future AI adapter.
 
@@ -9,9 +9,9 @@
 - `compile(manifest: Variant) -> Dictionary` returns either `{ok: true, artifact: ...}` or `{ok: false, code, path, message}`. It does not mutate the input draft.
 - `registry() -> Dictionary` returns fresh editable metadata: `schema`, `version`, `limits`, `mounts`, `shapes`, `materials` and `operations`. Each operation has `label`, `trigger` and exact `params`; spin also has `required_shape`, glide has `mount`. Parameter definitions carry `type`, `min`, `max`, `default`, `step` and, for numbers, `unit`. The wind direction has `type: "vector3"` and `normalized: true`.
 - `templates() -> Array` loads five source dictionaries from `game/creation_templates/*.json`. Each call returns fresh parsed data. Template names have no effect on compilation or live behavior.
-- `canonical_json(value: Variant) -> String` produces a stable representation of already bounded JSON-compatible data. Callers must validate arbitrary request depth, size and types before using this utility. `compile` performs this validation itself.
+- `canonical_json(value: Variant) -> String` writes [canonical JSON v1](canonical-json.md), byte-identical with the C# command host and the Python reference (`creation_json.gd` does the exact work). It returns "" for a value JSON cannot hold. Callers must validate arbitrary request depth, size and types before using this utility. `compile` performs this validation itself.
 
-The artifact holds normalized editable `source`, source SHA-256 `hash`, `compiler_version: 1`, `style_version: "barton_painterly_v1"`, acyclic `order`, conservative rotated `bounds`, and `cost`. A hash identifies normalized source; it is not proof that a caller-provided artifact is trustworthy. Authority recompiles source at commit and load.
+The artifact holds normalized editable `source`, source SHA-256 `hash`, `compiler_version: 1`, `style_version: "painterly_v1"`, acyclic `order`, conservative rotated `bounds`, and `cost`. A hash identifies normalized source; it is not proof that a caller-provided artifact is trustworthy. Authority recompiles source at commit and load.
 
 `cost.parts`, `nodes` and `edges` count source elements. `fields` counts wind nodes, `lights` light nodes, and `rotors` spin nodes. Two spin nodes targeting one part count as two actuators. These are reservation estimates; runtime quotas still govern evaluation, activation, active fields and actual affected avatars.
 
