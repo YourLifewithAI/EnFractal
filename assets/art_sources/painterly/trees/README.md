@@ -1,5 +1,7 @@
 # Barton tree asset proof
 
+> Renamed from the Barton art pass on 6 October 2026. These are original painterly reference assets kept for outdoor test rooms and creations; the Central Texas species framing is historical.
+
 These are original, illustrative live-oak and Ashe-juniper studies for the
 grounded painterly 3D pipeline. They are not surveyed individuals or scanned
 trees, and have not yet passed the art-quality gate.

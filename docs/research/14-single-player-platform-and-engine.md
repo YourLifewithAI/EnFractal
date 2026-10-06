@@ -1,5 +1,7 @@
 # Single-player platform, engine and companion integration
 
+> **Retained research, context only.** Written for the shared-Earth and Pfluger-district plans. The technical findings still apply; the sequencing, locations, scale and any reference to S0–S6, SP packets or E packets are superseded by the [room-scale direction](../ROOM-SCALE-DIRECTION.md). Links to removed files were unlinked; those files are on the `geography-era-final` branch.
+
 > **Decision recorded later on 2 October 2026:** The founder selected native Godot .NET and C# for S0–S6. The comparisons and 36-hour experiment plan below are retained research, not active work. Reopen alternatives only for demonstrated need. See the [accepted ADR](../engine/decisions/0001-native-godot-csharp.md).
 
 

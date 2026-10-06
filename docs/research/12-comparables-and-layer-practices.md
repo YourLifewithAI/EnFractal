@@ -1,5 +1,7 @@
 # Comparable projects and layer practices for EnFractal
 
+> **Retained research, context only.** Written for the shared-Earth and Pfluger-district plans. The technical findings still apply; the sequencing, locations, scale and any reference to S0–S6, SP packets or E packets are superseded by the [room-scale direction](../ROOM-SCALE-DIRECTION.md). Links to removed files were unlinked; those files are on the `geography-era-final` branch.
+
 > **Current direction — 2 October 2026:** The [revised roadmap](../history/ROADMAP.md) and [backlog](../history/BACKLOG.md) govern scope and order: single-player embodied AI first, multiplayer last. Use the evidence relevant to the active single-player packet. Do not run ongoing multiplayer research or implementation merely because this earlier matrix includes shared-world layers. The dated research below is retained for context.
 
 **Research snapshot: 1 October 2026. Status: evidence and experiments, not an architecture decision or a passed roadmap gate.** This complements the [MVP roadmap](../history/ROADMAP.md), [execution backlog](../history/BACKLOG.md), [world vision](../history/WORLD-VISION.md), and proposed phase 0 contract. Sources below are primary: project/operator documentation, standards, and source repositories. EnFractal's proposed applications are inferences from those mechanisms, not claims that the other projects use EnFractal's design. Recheck versioned software documentation and service terms before implementation.

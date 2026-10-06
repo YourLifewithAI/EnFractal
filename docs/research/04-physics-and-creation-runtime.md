@@ -1,5 +1,7 @@
 # Physics and the creation runtime
 
+> **Retained research, context only.** Written for the shared-Earth and Pfluger-district plans. The technical findings still apply; the sequencing, locations, scale and any reference to S0–S6, SP packets or E packets are superseded by the [room-scale direction](../ROOM-SCALE-DIRECTION.md). Links to removed files were unlinked; those files are on the `geography-era-final` branch.
+
 > **Current direction — 2 October 2026:** The [revised roadmap](../history/ROADMAP.md) and [backlog](../history/BACKLOG.md) govern scope and order: single-player embodied AI first, multiplayer last. The earlier two-player demonstration and small wind/glide vocabulary below no longer define the first product. Bounded storms, floods, rideable companion forms and protected transformations are now active single-player capability work. The dated research below is retained for context.
 
 Planning recommendation, 2026-09-30. This is a design and validation plan, not an implemented engine or a measured capacity claim. Scope assumes one developer with coding agents, a Windows client, a small private alpha, and the project's total hosting/AI ceiling below $100 per month.

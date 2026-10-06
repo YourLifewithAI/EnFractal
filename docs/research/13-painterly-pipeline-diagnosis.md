@@ -1,5 +1,7 @@
 # Why the painterly art is not working yet
 
+> **Retained research, context only.** Written for the shared-Earth and Pfluger-district plans. The technical findings still apply; the sequencing, locations, scale and any reference to S0–S6, SP packets or E packets are superseded by the [room-scale direction](../ROOM-SCALE-DIRECTION.md). Links to removed files were unlinked; those files are on the `geography-era-final` branch.
+
 Research and implementation audit of baseline `cf46c03`, prompted by the founder's concern that repeated passes keep producing the same low-quality graphics. This is a change in production approach, not an accepted art milestone. Three independent agents examined artist workflows, the renderer implementation, and hardware-conscious techniques. No production rendering code was changed by this research packet.
 
 ## Finding

@@ -1,5 +1,7 @@
 # AI creation, MCP, and security roadmap
 
+> **Retained research, context only.** Written for the shared-Earth and Pfluger-district plans. The technical findings still apply; the sequencing, locations, scale and any reference to S0–S6, SP packets or E packets are superseded by the [room-scale direction](../ROOM-SCALE-DIRECTION.md). Links to removed files were unlinked; those files are on the `geography-era-final` branch.
+
 > **Current direction — 2 October 2026:** The [revised roadmap](../history/ROADMAP.md) and [backlog](../history/BACKLOG.md) govern scope and order: single-player embodied AI first, multiplayer last. The earlier optional-workshop and late-avatar sequencing below is superseded: a separately embodied, game-only BYO AI companion is central to the first single-player experience. Keep the security boundaries; remote accounts and hosted previews are not prerequisites. The dated research below is retained for context.
 
 Planning only. Research checked 2026-09-30. Recommendations and numerical ceilings below are design proposals, not implemented controls or measured performance. The first release assumes one developer with coding agents, a small invited population, and the coordinating roadmap's $95/month total operating envelope, below the user's $100 ceiling.

@@ -1,5 +1,7 @@
 # Performance, rendering, language and engine plan
 
+> **Retained research, context only.** Written for the shared-Earth and Pfluger-district plans. The technical findings still apply; the sequencing, locations, scale and any reference to S0–S6, SP packets or E packets are superseded by the [room-scale direction](../ROOM-SCALE-DIRECTION.md). Links to removed files were unlinked; those files are on the `geography-era-final` branch.
+
 > **Current direction — 2 October 2026:** The [revised roadmap](../history/ROADMAP.md) and [backlog](../history/BACKLOG.md) govern scope and order: single-player embodied AI first, multiplayer last. Native Godot .NET with C# is now selected in the [accepted ADR](../engine/decisions/0001-native-godot-csharp.md). Existing GDScript migrates incrementally; shaders and Python remain. Alternative engine/browser experiments in [study 14](14-single-player-platform-and-engine.md) are deferred. The dated research below is retained for context.
 
 Planning date and primary-source lookup: 2026-09-30. This document proposes decisions and acceptance targets; it reports no game benchmarks. Implementation remains unauthorized in this planning phase.

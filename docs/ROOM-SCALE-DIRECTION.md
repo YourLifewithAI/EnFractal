@@ -84,6 +84,16 @@ The earlier choice of the Compatibility renderer served an 8 GiB integrated-grap
 
 Multiplayer remains a later project with its own gates.
 
+## Founder decisions, 6 October 2026
+
+- **Cleanup approved and executed**: geography, the PostgreSQL save/travel service, the multiplayer experiments and the geography research are gone; the painterly art is kept as reference; superseded plans live in `docs/history/`.
+- **Multiplayer is a real later goal**: players and businesses scanning spaces, rebuilding them with their AI to the game's specs, and sharing them for individual or shared play. On hold until single-player is robust. The invariants above are how single-player stays compatible with it.
+- **Capture device**: a base iPhone 17 with no LiDAR. Photos are the input; a cheap LiDAR measuring rig is a possible side project, not a dependency.
+- **Compute and cost**: keep extra spend minimal; a few dollars at a time is acceptable. Options are being costed in `docs/pipeline/COMPUTE-OPTIONS.md` for the founder to choose from.
+- **First style preset**: painterly/storybook with Tiny Glade warmth.
+- **Scale**: 1 unit = 1 metre with a 0.10 m avatar; size and scale will be tuned in play.
+- **First AI client**: model-neutral MCP surface; Claude is acceptable as the first client to pair. Accessibility to any capable AI is the requirement.
+
 ## Pointers
 
 - [Capture-to-Godot pipeline design](pipeline/ROOM-CAPTURE-PIPELINE.md): the MCP/skill, method recommendations, and the garage test case.

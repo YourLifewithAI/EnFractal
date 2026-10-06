@@ -1,5 +1,7 @@
 # EnFractal milestone reviews
 
+> **Review rubric, kept.** The phase names and the art rubric it cites belong to the geography era; the scoring method, the three-independent-reviewer rule and the 8.5 target carry forward to the R0–R5 phases in the [room-scale direction](../ROOM-SCALE-DIRECTION.md).
+
 The [roadmap](../history/ROADMAP.md) defines the phase exit gates. This file defines how the implementation team checks progress without treating an agent's completed patch as an accepted milestone.
 
 ## Reporting rhythm

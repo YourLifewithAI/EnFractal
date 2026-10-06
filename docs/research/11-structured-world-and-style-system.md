@@ -1,5 +1,7 @@
 # Structured world and style system
 
+> **Retained research, context only.** Written for the shared-Earth and Pfluger-district plans. The technical findings still apply; the sequencing, locations, scale and any reference to S0–S6, SP packets or E packets are superseded by the [room-scale direction](../ROOM-SCALE-DIRECTION.md). Links to removed files were unlinked; those files are on the `geography-era-final` branch.
+
 > **Current direction — 2 October 2026:** The [revised roadmap](../history/ROADMAP.md) and [backlog](../history/BACKLOG.md) govern scope and order: single-player embodied AI first, multiplayer last. Retain semantic parts, provenance and coherent regeneration. Current single-player scope includes dramatic fantasy transformations and the embodied companion; earlier remote-play dependencies and tiny construction-only limits are not the current product boundary. The dated research below is retained for context.
 
 **Planning direction, 1 October 2026.** This translates the founder's [world and creation vision](../history/WORLD-VISION.md) into interfaces and tests. It does not claim that the current Barton Creek viewer already has semantic buildings, player editing, or procedural joins. The existing map builder and three-style material study are inputs to this work.

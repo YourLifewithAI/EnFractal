@@ -1,5 +1,7 @@
 # Visual direction, asset pipeline, and art decision plan
 
+> **Retained research, context only.** Written for the shared-Earth and Pfluger-district plans. The technical findings still apply; the sequencing, locations, scale and any reference to S0–S6, SP packets or E packets are superseded by the [room-scale direction](../ROOM-SCALE-DIRECTION.md). Links to removed files were unlinked; those files are on the `geography-era-final` branch.
+
 **Dated option survey, prepared September 30, 2026.** Its original style recommendation below is superseded by the founder's [grounded painterly 3D world vision](../history/WORLD-VISION.md), confirmed October 1. The Barton Creek Greenbelt study has since produced three material/lighting captures, but no finished environment art or low-hardware benchmark. Performance figures below remain proposed acceptance targets, not observed minimum-device results. This workstream assumes one developer with coding agents, a Windows native first release, an 8 GiB integrated-graphics baseline, and an additional test on the observed RTX 2070 Super laptop with 8 GiB VRAM confirmed by the coordinating agent through `nvidia-smi`.
 
 ## Recommendation and decision to make
