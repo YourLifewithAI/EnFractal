@@ -122,7 +122,11 @@ class Adapter:
                                   "op": spec.op}, HostError(
                 "not_ready", "The game is not running or did not accept the companion. Start the room and try again.",
                 retryable=True))
-        message, refusal = self._build(spec, arguments)
+        try:
+            message, refusal = self._build(spec, arguments)
+        except RecursionError:
+            skeleton = {"schema": COMMAND_SCHEMA if spec.kind == "command" else QUERY_SCHEMA, "op": spec.op}
+            return self._refusal(skeleton, HostError("request_invalid", "Arguments are nested too deeply."))
         if refusal is not None:
             return refusal
         if spec.op not in STOP_OPS and not self.limits[spec.kind].take():

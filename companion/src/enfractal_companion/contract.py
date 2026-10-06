@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import importlib.util
 import json
-import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -83,7 +82,7 @@ class Contracts:
     """Loaded contract schemas plus the integrator's validator module."""
 
     def __init__(self, contracts_dir: Path | None = None):
-        self.dir = Path(contracts_dir or os.environ.get("ENFRACTAL_CONTRACTS_DIR") or DEFAULT_CONTRACTS_DIR).resolve()
+        self.dir = Path(contracts_dir or DEFAULT_CONTRACTS_DIR).resolve()
         self.validate = _load_validator(self.dir)
         self.command_schema = self.validate.load_strict(self.dir / "game-command.schema.json")
         self.common_schema = self.validate.load_strict(self.dir / "common.schema.json")

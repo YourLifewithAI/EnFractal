@@ -203,6 +203,22 @@ class Refusals(unittest.IsolatedAsyncioTestCase):
         self.assertRefused(result, "budget_exceeded")
         self.assertEqual(h.host.emitted, [])
 
+    @harness_test()
+    async def test_refuses_pathologically_nested_arguments_before_sending(self, h):
+        deep: dict = {}
+        node = deep
+        for _ in range(5000):
+            node["x"] = {}
+            node = node["x"]
+        # The SDK client cannot even serialise this, so hand it to the adapter the way a raw client's
+        # parsed JSON would arrive.
+        result = await h.adapter.call("effect_start", {"action_id": "deep-1", "capability": "glow", "params": deep,
+                                                       "area": {"center_m": [0, 0.5, 0], "radius_m": 1},
+                                                       "duration_s": 5})
+        self.assertRefused(result, "request_invalid")
+        self.assertEqual(contract_problems(result), [])
+        self.assertEqual(h.host.emitted, [])
+
     @harness_test(command_burst=2, command_rate_per_s=0.001)
     async def test_rate_limits_commands_before_they_reach_the_game(self, h):
         results = [await h.call("goal_set", {"action_id": f"g-{i}", "goal": "stay"}) for i in range(3)]

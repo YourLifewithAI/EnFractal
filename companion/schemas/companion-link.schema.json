@@ -1,0 +1,281 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.enfractal.invalid/v1/companion-link.schema.json",
+  "title": "EnFractal companion link: session file and frames",
+  "description": "PROPOSED for contracts/ by Lane A (Run 1). The loopback connection between the companion MCP server and the running game. The game listens on 127.0.0.1 or ::1 only and writes the session file to user://companion/session.json with a fresh 256-bit token per launch. Both sides prove knowledge of the token with HMAC-SHA256 over two fresh nonces, so the token never crosses the socket. Each frame is a 4-byte big-endian length followed by one UTF-8 JSON object; duplicate keys and non-finite numbers are refused. The game binds the principal to the authenticated connection; no frame carries a principal, an approval or the token. Request and response frames carry enfractal.command / enfractal.query and enfractal.result messages from game-command.schema.json.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/session_file"
+    },
+    {
+      "$ref": "#/$defs/hello"
+    },
+    {
+      "$ref": "#/$defs/challenge"
+    },
+    {
+      "$ref": "#/$defs/auth"
+    },
+    {
+      "$ref": "#/$defs/ready"
+    },
+    {
+      "$ref": "#/$defs/refused"
+    },
+    {
+      "$ref": "#/$defs/request"
+    },
+    {
+      "$ref": "#/$defs/response"
+    }
+  ],
+  "$defs": {
+    "hex256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "session_file": {
+      "description": "user://companion/session.json, written atomically by the game at startup and deleted at exit. Readable only by the player's account. The companion refuses any host that is not a loopback literal.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "version",
+        "host",
+        "port",
+        "token",
+        "room_id",
+        "pid",
+        "created_utc"
+      ],
+      "properties": {
+        "schema": {
+          "const": "enfractal.companion_session"
+        },
+        "version": {
+          "type": "integer",
+          "const": 1
+        },
+        "host": {
+          "enum": [
+            "127.0.0.1",
+            "::1"
+          ]
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "token": {
+          "description": "256 bits from a CSPRNG, lowercase hex. New every launch. Never sent over the socket.",
+          "$ref": "#/$defs/hex256"
+        },
+        "room_id": {
+          "$ref": "common.schema.json#/$defs/token"
+        },
+        "pid": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "created_utc": {
+          "$ref": "common.schema.json#/$defs/utc_timestamp"
+        }
+      }
+    },
+    "hello": {
+      "description": "Companion to game, first frame.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "protocol",
+        "version",
+        "client_nonce"
+      ],
+      "properties": {
+        "type": {
+          "const": "hello"
+        },
+        "protocol": {
+          "const": "enfractal.companion_link"
+        },
+        "version": {
+          "type": "integer",
+          "const": 1
+        },
+        "client_nonce": {
+          "$ref": "#/$defs/hex256"
+        }
+      }
+    },
+    "challenge": {
+      "description": "Game to companion. server_proof = hex(HMAC-SHA256(key = token bytes, msg = 'enfractal.companion_link/1|server|' + client_nonce + '|' + server_nonce)). The companion verifies it before sending anything else, so a listener that does not know the token learns nothing.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "protocol",
+        "version",
+        "server_nonce",
+        "server_proof"
+      ],
+      "properties": {
+        "type": {
+          "const": "challenge"
+        },
+        "protocol": {
+          "const": "enfractal.companion_link"
+        },
+        "version": {
+          "type": "integer",
+          "const": 1
+        },
+        "server_nonce": {
+          "$ref": "#/$defs/hex256"
+        },
+        "server_proof": {
+          "$ref": "#/$defs/hex256"
+        }
+      }
+    },
+    "auth": {
+      "description": "Companion to game. client_proof = hex(HMAC-SHA256(key = token bytes, msg = 'enfractal.companion_link/1|client|' + client_nonce + '|' + server_nonce)), compared in constant time.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "client_proof"
+      ],
+      "properties": {
+        "type": {
+          "const": "auth"
+        },
+        "client_proof": {
+          "$ref": "#/$defs/hex256"
+        }
+      }
+    },
+    "ready": {
+      "description": "Game to companion after a valid proof. Reports the principal and avatar the game assigned to this connection; the companion never chooses them.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "session_id",
+        "principal",
+        "avatar",
+        "room_id",
+        "limits"
+      ],
+      "properties": {
+        "type": {
+          "const": "ready"
+        },
+        "session_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "principal": {
+          "$ref": "common.schema.json#/$defs/principal_id"
+        },
+        "avatar": {
+          "type": "string",
+          "pattern": "^avatar:[A-Za-z0-9_-]{1,64}$"
+        },
+        "room_id": {
+          "$ref": "common.schema.json#/$defs/token"
+        },
+        "limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "max_request_frame",
+            "max_response_frame"
+          ],
+          "properties": {
+            "max_request_frame": {
+              "type": "integer",
+              "minimum": 65536
+            },
+            "max_response_frame": {
+              "type": "integer",
+              "minimum": 262144
+            }
+          }
+        }
+      }
+    },
+    "refused": {
+      "description": "Game to companion, then the game closes the connection.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "code"
+      ],
+      "properties": {
+        "type": {
+          "const": "refused"
+        },
+        "code": {
+          "enum": [
+            "hello_invalid",
+            "handshake_invalid",
+            "handshake_timeout",
+            "auth_failed",
+            "locked",
+            "busy",
+            "frame_invalid"
+          ]
+        }
+      }
+    },
+    "request": {
+      "description": "Companion to game. One enfractal.command or enfractal.query. Any other frame type after authentication is frame_invalid and closes the connection.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "seq",
+        "message"
+      ],
+      "properties": {
+        "type": {
+          "const": "request"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "message": {
+          "type": "object"
+        }
+      }
+    },
+    "response": {
+      "description": "Game to companion. Echoes seq; message is one enfractal.result.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "seq",
+        "message"
+      ],
+      "properties": {
+        "type": {
+          "const": "response"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "message": {
+          "type": "object"
+        }
+      }
+    }
+  }
+}

@@ -530,6 +530,23 @@ class SizeLimits(HostCase):
         result = self.send(command("goal.set", {"actor": "avatar:companion", "goal": "stay"}, "stay-1", note="n" * 281))
         self.assertRefused(result, "request_invalid", "$.note")
 
+    def test_refuses_pathologically_nested_arguments(self):
+        deep: dict = {}
+        node = deep
+        for _ in range(5000):
+            node["x"] = {}
+            node = node["x"]
+        for args in ({"actor": "avatar:companion", "goal": "stay", "area": deep},
+                     {"capability": "glow", "params": deep, "area": {"center_m": [0, 0.5, 0], "radius_m": 1},
+                      "duration_s": 5}):
+            op = "goal.set" if "goal" in args else "effect.start"
+            with self.subTest(op=op):
+                result = self.send(command(op, args, "deep-" + op.replace(".", "-")))
+                self.assertFalse(result["ok"])
+                self.assertIn(result["error"]["code"], ("request_invalid", "field_unknown", "invalid_args"))
+        self.assertEqual(self.host.goals, {})
+        self.assertFalse(any(e.kind == "effect" for e in self.host.entities.values()))
+
     def test_refuses_duplicate_keys_and_non_finite_numbers(self):
         for raw in (b'{"schema":"enfractal.command","schema":"enfractal.query"}',
                     b'{"schema":"enfractal.query","version":1,"query_id":"q","room_id":"test_room","op":"observe",'

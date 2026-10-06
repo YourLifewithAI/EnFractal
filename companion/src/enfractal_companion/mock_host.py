@@ -348,6 +348,8 @@ class MockHost:
                 result = self._handle(principal, message)
             except HostError as error:
                 result = self._fail(principal, message, error)
+            except RecursionError:
+                result = self._fail(principal, None, HostError("request_invalid", "The request is nested too deeply."))
             except Exception:  # never let a bug leak a stack trace to the requester
                 log.exception("mock host failed on a request")
                 result = self._fail(principal, message, HostError(
