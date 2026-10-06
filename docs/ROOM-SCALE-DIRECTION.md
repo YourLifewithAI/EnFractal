@@ -56,6 +56,17 @@ Two things are decisions, not assumptions:
 - **Game feel at 10 cm.** Real gravity makes a 10 cm body fall and jump in a fraction of a second. The existing bounded physics-profile mechanism (`world_physics_profile.gd`) already allows a tuned gravity/jump profile; treat feel as a tunable, not a physics-accuracy claim.
 - **Engine precision at small scale.** Godot physics (Jolt is built in since 4.4) is tuned around metre-scale bodies. If a 0.02 m radius capsule proves jittery, the fallback is to scale the room ×10 at import (1 unit = 10 cm) and keep the avatar at 1 unit. That is a one-line import setting if assets stay metric; it is not a reason to abandon metres now.
 
+## Single-player choices that keep multiplayer possible
+
+Multiplayer is a real future goal: players inviting other players and their companion AIs into a shared room. It is deferred until single-player is smooth. These four habits cost nothing now and avoid a rewrite later. None of them is networking.
+
+- **One command path for every world change.** Typed command, action ID, authority check, receipt. No gameplay code moves or edits an entity outside that path. In multiplayer that path becomes the server's; everything else replicates its results.
+- **The room is data; the scene is derived.** Shell, objects, creations, locks and avatars are fully described by serializable state, and the Godot scene is rebuilt from it. Sharing a room later is sending that state.
+- **Every action names a principal.** Player, companion, and later guests and their companions are principals with grants. Keep "who did this" on every action even with one person in the room.
+- **The companion connects through a restricted adapter.** Scoped observations and typed commands only. Each future guest brings their own AI through the same surface, which is what keeps a guest's companion from wrecking the host's room.
+
+Deferred until the multiplayer phase: transport, replication, accounts, hosted services, consent and moderation, and any database service. The persistence semantics from the earlier save/travel work (idempotent receipts, fenced sessions, a checkpoint before any transfer, reconcile-before-retry) are kept as rules for the file-based saves, not as a server.
+
 ## Rendering decision to revisit
 
 The earlier choice of the Compatibility renderer served an 8 GiB integrated-graphics baseline for a 4 km outdoor world. A single bounded room is the ideal case for **Forward+ with VoxelGI** (bounded interior global illumination) and depth of field for the tilt-shift "diorama" look described in the founder's art notes. Recommendation: switch the room scene to Forward+ and profile on the development machine; keep a Compatibility fallback only if a measured device requirement appears.

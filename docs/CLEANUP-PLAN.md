@@ -69,6 +69,8 @@ The local PostgreSQL control plane, sandbox worlds, invitations, portal travel a
 
 Kept: the authority's `persistence_sink` and receipt model, and `durable_creation_smoke.gd`, which tests the authority's save envelope without the database. The ideas worth carrying (idempotent action receipts, fenced sessions, uncertain-result reconciliation) are already in the authority.
 
+**Founder decision, 6 October 2026:** multiplayer with invited players and their companion AIs is a real later goal, but single-player comes first. The service can be restored from history at any time; the last commit before the deletions will be tagged so restoring it is one command. The expectation is that it will serve as a reference when the multiplayer phase begins rather than being revived verbatim, because it was built around sandbox worlds, invitations and host fencing for a shared Earth. Before deletion, the protocol and transaction-contract sections of `services/save_travel/README.md` are moved into a short persistence-notes document so the file-based room saves honor the same semantics from the start.
+
 **Note on local data.** `.cache/postgresql/data` on the founder's two machines holds Barton-era world saves. It is not in the repository and nothing here touches it. The question is only whether the founder wants a one-time export before the tooling that can read it is removed.
 
 ## C. Multiplayer authority and transport experiments (delete, Q3)
