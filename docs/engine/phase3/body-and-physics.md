@@ -29,7 +29,7 @@ The body also carries the creation-effect API ported from the retired 1.7 m GDSc
 | Preset | Gravity | 6.5 cm jump lasts | Fall from the 0.75 m table |
 |---|---:|---:|---:|
 | `room_tuned` (default) | 3.5 m/s² | 0.37 s (measured 19 to 27 ticks) | 0.65 s |
-| `room_real` | 9.8 m/s² | 0.23 s (measured 11 to 17 ticks) | 0.39 s |
+| `room_real` | 9.8 m/s² | about 0.21 s (measured 11 to 17 ticks) | 0.39 s |
 | `room_floaty` | 1.6 m/s² | 0.55 s | 0.97 s |
 
 Real gravity at 10 cm reads as a hopping insect: a jump is over in a quarter of a second. The tuned preset gives a game-like 0.37 s jump while keeping falls brisk. **Recommendation: `room_tuned`**, confirmed or replaced by the founder in the playtest (key **G** cycles the presets live and prints the active one to the console).
@@ -77,7 +77,7 @@ Run `pwsh -NoProfile -File run-room.ps1`. Click the window to capture the mouse.
 | Space | Jump (6.5 cm) |
 | R | Recover to the last safe footing |
 | **G** | Cycle gravity: tuned (3.5) → real (9.8) → floaty (1.6) → tuned; the console prints which |
-| F1 / F2 / F3 | Eye camera / over-the-shoulder / room overview |
+| F1 / F2 / F3 | Eye camera / over-the-shoulder / room overview (F2 and F3 are framed for the 10 cm body only once the integrator applies the RoomHud change from the Run 1 lane report; until then use F1) |
 | 1 2 3 4 5 | Companion: follow, stay, come, stop, point ahead |
 | B | Invention editor (optional; creations are still human-scale, see open questions) |
 
