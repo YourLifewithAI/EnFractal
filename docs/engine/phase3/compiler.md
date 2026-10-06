@@ -1,5 +1,7 @@
 # Portable manual invention compiler
 
+> **Kernel record.** This describes the creation kernel as built for the retired Barton workshop. The kernel is kept; its plot bounds, terrain sampler and legacy fixture body are generalized for rooms in R0 (see the [room-scale direction](../../ROOM-SCALE-DIRECTION.md)). Scene, launcher and checkpoint references below may point at files now on the `geography-era-final` branch.
+
 `game/scripts/creation_compiler.gd` implements the source-to-artifact boundary in the [manual invention contract](manual-invention-contract.md). It contains no scene generation, host permission changes, runtime effects or template-name dispatch. The same source can pass through manual editing, JSON import, authority admission and a future AI adapter.
 
 ## Public handoff

@@ -1,0 +1,22 @@
+{
+  "schema": "enfractal.command",
+  "version": 1,
+  "action_id": "breeze-0001",
+  "room_id": "garage_example",
+  "op": "effect.start",
+  "args": {
+    "capability": "wind_field",
+    "params": {
+      "speed_mps": 1.5
+    },
+    "area": {
+      "center_m": [
+        0.0,
+        0.3,
+        0.0
+      ],
+      "radius_m": 1.5
+    },
+    "duration_s": 20
+  }
+}

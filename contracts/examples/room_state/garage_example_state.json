@@ -1,0 +1,319 @@
+{
+  "schema": "enfractal.room_state",
+  "version": 1,
+  "room_id": "garage_example",
+  "room_pin": {
+    "manifest_sha256": "a7629a89ef4e6d64d3f163c8a8ca433c70ba06cad296b7608a729cf0855ccf37"
+  },
+  "style_pin": {
+    "preset_id": "storybook_painterly",
+    "preset_version": 1,
+    "preset_sha256": "5d1c0e8a1b7f4e3c9a2d6b8f0e4a7c3d1b9f5e2a8c6d4b0f7e3a1c9d5b2f8e64"
+  },
+  "rules": {
+    "command_version": 1,
+    "compiler_version": 1
+  },
+  "store_revision": 4,
+  "session": {
+    "session_id": "5f2c9a7d41e08b36c0d1a2b3c4d5e6f7",
+    "written_utc": "2026-10-06T00:04:00Z",
+    "build": "dev-example"
+  },
+  "entities": {
+    "obj:bean_bag": {
+      "id": "obj:bean_bag",
+      "kind": "object",
+      "revision": 2,
+      "transform": {
+        "position_m": [
+          1.0,
+          0.0,
+          0.9
+        ],
+        "rotation": [
+          0.0,
+          0.258819,
+          0.0,
+          0.965926
+        ]
+      },
+      "provenance": {
+        "kind": "captured_generated",
+        "created_by": "system:capture",
+        "created_revision": 0
+      },
+      "protection": {
+        "locked": false
+      }
+    },
+    "creation:00000001": {
+      "id": "creation:00000001",
+      "kind": "creation",
+      "revision": 2,
+      "transform": {
+        "position_m": [
+          -1.2,
+          0.0,
+          0.8
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "creation": {
+        "source": {
+          "schema": "enfractal.creation",
+          "version": 1,
+          "name": "Spinner",
+          "seed": 51,
+          "mount": "ground",
+          "parts": [
+            {
+              "id": "foot",
+              "shape": "cylinder",
+              "position_m": [
+                0,
+                0.15,
+                0
+              ],
+              "rotation_deg": [
+                0,
+                0,
+                0
+              ],
+              "size_m": [
+                1.1,
+                0.3,
+                1.1
+              ],
+              "material": "stone"
+            },
+            {
+              "id": "pole",
+              "shape": "cylinder",
+              "position_m": [
+                0,
+                0.9,
+                0
+              ],
+              "rotation_deg": [
+                0,
+                0,
+                0
+              ],
+              "size_m": [
+                0.15,
+                1.2,
+                0.15
+              ],
+              "material": "wood"
+            },
+            {
+              "id": "rotor",
+              "shape": "rotor",
+              "position_m": [
+                0,
+                1.6,
+                0
+              ],
+              "rotation_deg": [
+                0,
+                0,
+                0
+              ],
+              "size_m": [
+                2,
+                0.18,
+                2
+              ],
+              "material": "copper"
+            }
+          ],
+          "nodes": [
+            {
+              "id": "beat",
+              "op": "timer",
+              "part_id": "pole",
+              "params": {
+                "interval_s": 3
+              }
+            },
+            {
+              "id": "turn",
+              "op": "spin",
+              "part_id": "rotor",
+              "params": {
+                "speed_rpm": 30,
+                "duration_s": 2.5
+              }
+            },
+            {
+              "id": "signal",
+              "op": "light",
+              "part_id": "pole",
+              "params": {
+                "intensity": 0.4,
+                "duration_s": 2.5
+              }
+            }
+          ],
+          "edges": [
+            {
+              "from": "beat",
+              "to": "turn"
+            },
+            {
+              "from": "beat",
+              "to": "signal"
+            }
+          ]
+        },
+        "source_sha256": "649d6fa9ea95a1aa283c6ddc523fecd3ba866f2a8440c77933538c2bf0996532"
+      },
+      "provenance": {
+        "kind": "ai_created",
+        "created_by": "companion:local",
+        "created_revision": 2
+      },
+      "protection": {
+        "locked": true,
+        "locked_by": "player:local",
+        "locked_revision": 3,
+        "support_ids": [
+          "shell:floor"
+        ]
+      }
+    },
+    "avatar:player": {
+      "id": "avatar:player",
+      "kind": "avatar",
+      "revision": 1,
+      "avatar": {
+        "role": "player",
+        "display_name": "Player",
+        "appearance": {
+          "color": "#d28f63"
+        }
+      },
+      "provenance": {
+        "kind": "hand_authored",
+        "created_by": "system:host",
+        "created_revision": 0
+      },
+      "protection": {
+        "locked": false
+      }
+    },
+    "avatar:companion": {
+      "id": "avatar:companion",
+      "kind": "avatar",
+      "revision": 1,
+      "avatar": {
+        "role": "companion",
+        "display_name": "Wisp",
+        "appearance": {
+          "color": "#65b9b0"
+        }
+      },
+      "provenance": {
+        "kind": "hand_authored",
+        "created_by": "system:host",
+        "created_revision": 0
+      },
+      "protection": {
+        "locked": false
+      }
+    }
+  },
+  "receipts": {
+    "player:local|place-beanbag-0001": {
+      "fingerprint": "1111111111111111111111111111111111111111111111111111111111111111",
+      "result": {
+        "schema": "enfractal.result",
+        "version": 1,
+        "ok": true,
+        "op": "entity.place",
+        "action_id": "place-beanbag-0001",
+        "principal": "player:local",
+        "room_id": "garage_example",
+        "revision": 1,
+        "replayed": false,
+        "preview": false,
+        "at_utc": "2026-10-06T00:01:00Z",
+        "affected": [
+          "obj:bean_bag"
+        ]
+      }
+    },
+    "companion:local|spinner-0001": {
+      "fingerprint": "2222222222222222222222222222222222222222222222222222222222222222",
+      "result": {
+        "schema": "enfractal.result",
+        "version": 1,
+        "ok": true,
+        "op": "creation.place",
+        "action_id": "spinner-0001",
+        "principal": "companion:local",
+        "room_id": "garage_example",
+        "revision": 2,
+        "replayed": false,
+        "preview": false,
+        "at_utc": "2026-10-06T00:02:00Z",
+        "created": [
+          "creation:00000001"
+        ]
+      }
+    },
+    "player:local|lock-spinner-0001": {
+      "fingerprint": "3333333333333333333333333333333333333333333333333333333333333333",
+      "result": {
+        "schema": "enfractal.result",
+        "version": 1,
+        "ok": true,
+        "op": "protect.lock",
+        "action_id": "lock-spinner-0001",
+        "principal": "player:local",
+        "room_id": "garage_example",
+        "revision": 3,
+        "replayed": false,
+        "preview": false,
+        "at_utc": "2026-10-06T00:03:00Z",
+        "affected": [
+          "creation:00000001"
+        ]
+      }
+    },
+    "companion:local|move-beanbag-0002": {
+      "fingerprint": "4444444444444444444444444444444444444444444444444444444444444444",
+      "result": {
+        "schema": "enfractal.result",
+        "version": 1,
+        "ok": true,
+        "op": "entity.place",
+        "action_id": "move-beanbag-0002",
+        "principal": "companion:local",
+        "room_id": "garage_example",
+        "revision": 4,
+        "replayed": false,
+        "preview": false,
+        "at_utc": "2026-10-06T00:04:00Z",
+        "affected": [
+          "obj:bean_bag"
+        ]
+      }
+    }
+  },
+  "checkpoints": [
+    {
+      "id": "before_spinner",
+      "revision": 1,
+      "label": "Before the spinner",
+      "path": "checkpoints/r1.json",
+      "created_utc": "2026-10-06T00:01:30Z"
+    }
+  ]
+}

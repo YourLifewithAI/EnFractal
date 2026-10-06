@@ -4,8 +4,8 @@ __pycache__/
 *.py[cod]
 .godot/
 *.import
-!game/assets/art/barton/textures/*.png.import
-!game/assets/art/barton/trees/*.glb.import
+!game/assets/art/painterly/textures/*.png.import
+!game/assets/art/painterly/trees/*.glb.import
 .cache/
 *.tmp
 
@@ -16,3 +16,10 @@ __pycache__/
 
 # Interrupted pytest cache staging on Windows
 pytest-cache-files-*/
+
+# Photos and derived data of real rooms stay local; never commit them without the founder's approval.
+captures/
+
+# Captured rooms are exported to the player's user data, never committed. Only hand-built test rooms are tracked.
+game/rooms/*
+!game/rooms/test_room/

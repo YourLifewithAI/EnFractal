@@ -1,0 +1,21 @@
+{
+  "schema": "enfractal.command",
+  "version": 1,
+  "action_id": "move-beanbag-0003",
+  "room_id": "garage_example",
+  "op": "entity.place",
+  "args": {
+    "target": "obj:bean_bag",
+    "placement": {
+      "position_m": [
+        1.4,
+        0.0,
+        0.2
+      ]
+    }
+  },
+  "expected_entities": {
+    "obj:bean_bag": 2
+  },
+  "preview": true
+}

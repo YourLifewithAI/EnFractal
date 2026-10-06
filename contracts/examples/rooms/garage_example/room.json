@@ -1,0 +1,462 @@
+{
+  "schema": "enfractal.room",
+  "version": 1,
+  "room_id": "garage_example",
+  "display_name": "Garage (example manifest)",
+  "description": "Illustrative capture-export manifest. Shapes and numbers are examples; no photographs are included and nothing here was produced from the founder's photos.",
+  "created_utc": "2026-10-06T00:00:00Z",
+  "units": "m",
+  "axes": "y_up_neg_z_forward",
+  "source": {
+    "kind": "capture",
+    "capture": {
+      "session_id": "garage_example_session",
+      "photo_count": 140,
+      "devices": [
+        "iPhone 17 dual wide camera"
+      ],
+      "captured_utc_first": "2026-10-04T21:40:00Z",
+      "captured_utc_last": "2026-10-04T22:05:00Z",
+      "privacy": {
+        "location_metadata_removed": true,
+        "people_visible": false,
+        "shareable": false,
+        "notes": "Example only. A real export keeps shareable false until the owner opts in."
+      }
+    },
+    "pipeline": {
+      "name": "enfractal-roomscan",
+      "version": "0.0.0-example",
+      "backends": [
+        {
+          "stage": "poses",
+          "name": "vggt",
+          "version": "1.0",
+          "license": "see upstream",
+          "hosted": false
+        },
+        {
+          "stage": "segmentation",
+          "name": "sam2",
+          "version": "2.1",
+          "license": "Apache-2.0",
+          "hosted": false
+        },
+        {
+          "stage": "generation",
+          "name": "hunyuan3d",
+          "version": "2.1",
+          "license": "Tencent Hunyuan Community License",
+          "hosted": true
+        }
+      ]
+    }
+  },
+  "bounds": {
+    "min_m": [
+      -3.0,
+      0.0,
+      -2.75
+    ],
+    "max_m": [
+      3.0,
+      2.7,
+      2.75
+    ]
+  },
+  "shell": {
+    "parts": [
+      {
+        "id": "shell:floor",
+        "role": "floor",
+        "geometry": {
+          "kind": "polygon",
+          "points_m": [
+            [
+              -3.12,
+              0,
+              -2.87
+            ],
+            [
+              -3.12,
+              0,
+              2.87
+            ],
+            [
+              3.12,
+              0,
+              2.87
+            ],
+            [
+              3.12,
+              0,
+              -2.87
+            ]
+          ],
+          "thickness_m": 0.12
+        },
+        "collides": true,
+        "material_role": "concrete",
+        "base_color": "#8f8aa8"
+      },
+      {
+        "id": "shell:ceiling",
+        "role": "ceiling",
+        "geometry": {
+          "kind": "polygon",
+          "points_m": [
+            [
+              -3.12,
+              2.7,
+              -2.87
+            ],
+            [
+              3.12,
+              2.7,
+              -2.87
+            ],
+            [
+              3.12,
+              2.7,
+              2.87
+            ],
+            [
+              -3.12,
+              2.7,
+              2.87
+            ]
+          ],
+          "thickness_m": 0.12
+        },
+        "collides": true,
+        "material_role": "plaster",
+        "base_color": "#e6e4e8"
+      },
+      {
+        "id": "shell:wall_north",
+        "role": "wall",
+        "geometry": {
+          "kind": "polygon",
+          "points_m": [
+            [
+              -3.12,
+              0,
+              -2.75
+            ],
+            [
+              3.12,
+              0,
+              -2.75
+            ],
+            [
+              3.12,
+              2.7,
+              -2.75
+            ],
+            [
+              -3.12,
+              2.7,
+              -2.75
+            ]
+          ],
+          "thickness_m": 0.12
+        },
+        "collides": true,
+        "material_role": "painted_wall",
+        "base_color": "#c9c6cc"
+      },
+      {
+        "id": "shell:wall_south",
+        "role": "wall",
+        "geometry": {
+          "kind": "polygon",
+          "points_m": [
+            [
+              3.12,
+              0,
+              2.75
+            ],
+            [
+              -3.12,
+              0,
+              2.75
+            ],
+            [
+              -3.12,
+              2.7,
+              2.75
+            ],
+            [
+              3.12,
+              2.7,
+              2.75
+            ]
+          ],
+          "thickness_m": 0.12
+        },
+        "collides": true,
+        "material_role": "painted_wall",
+        "base_color": "#c9c6cc"
+      },
+      {
+        "id": "shell:wall_east",
+        "role": "wall",
+        "geometry": {
+          "kind": "polygon",
+          "points_m": [
+            [
+              3.0,
+              0,
+              -2.75
+            ],
+            [
+              3.0,
+              0,
+              2.75
+            ],
+            [
+              3.0,
+              2.7,
+              2.75
+            ],
+            [
+              3.0,
+              2.7,
+              -2.75
+            ]
+          ],
+          "thickness_m": 0.12
+        },
+        "collides": true,
+        "material_role": "painted_wall",
+        "base_color": "#c4c1c8"
+      },
+      {
+        "id": "shell:wall_west",
+        "role": "wall",
+        "geometry": {
+          "kind": "polygon",
+          "points_m": [
+            [
+              -3.0,
+              0,
+              2.75
+            ],
+            [
+              -3.0,
+              0,
+              -2.75
+            ],
+            [
+              -3.0,
+              2.7,
+              -2.75
+            ],
+            [
+              -3.0,
+              2.7,
+              2.75
+            ]
+          ],
+          "thickness_m": 0.12
+        },
+        "collides": true,
+        "material_role": "painted_wall",
+        "base_color": "#c4c1c8"
+      }
+    ],
+    "openings": [
+      {
+        "id": "house_door",
+        "kind": "door",
+        "host_part_id": "shell:wall_north",
+        "center_m": [
+          -1.9,
+          1.015,
+          -2.75
+        ],
+        "size_m": [
+          0.9,
+          2.03
+        ],
+        "state": "open",
+        "traversable": true,
+        "leads_to": {
+          "room_id": "hallway"
+        }
+      },
+      {
+        "id": "garage_door",
+        "kind": "garage_door",
+        "host_part_id": "shell:wall_south",
+        "center_m": [
+          0.0,
+          1.05,
+          2.75
+        ],
+        "size_m": [
+          4.8,
+          2.1
+        ],
+        "state": "closed",
+        "traversable": false
+      }
+    ]
+  },
+  "objects": [
+    {
+      "id": "obj:shelving_left",
+      "asset": "objects/pine_shelving/asset.json",
+      "transform": {
+        "position_m": [
+          -0.1,
+          0.0,
+          -2.5
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "support": {
+        "kind": "floor",
+        "target_id": "shell:floor"
+      }
+    },
+    {
+      "id": "obj:shelving_right",
+      "asset": "objects/pine_shelving/asset.json",
+      "transform": {
+        "position_m": [
+          0.8,
+          0.0,
+          -2.5
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "support": {
+        "kind": "floor",
+        "target_id": "shell:floor"
+      }
+    },
+    {
+      "id": "obj:paint_clutter",
+      "asset": "objects/paint_clutter/asset.json",
+      "transform": {
+        "position_m": [
+          0.8,
+          0.9,
+          -2.5
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "support": {
+        "kind": "object",
+        "target_id": "obj:shelving_right"
+      }
+    },
+    {
+      "id": "obj:bean_bag",
+      "asset": "objects/bean_bag/asset.json",
+      "transform": {
+        "position_m": [
+          0.6,
+          0.0,
+          1.2
+        ],
+        "rotation": [
+          0.0,
+          -0.173648,
+          0.0,
+          0.984808
+        ]
+      },
+      "support": {
+        "kind": "floor",
+        "target_id": "shell:floor"
+      }
+    }
+  ],
+  "spawns": [
+    {
+      "id": "player_start",
+      "role": "player",
+      "position_m": [
+        -0.5,
+        0.0,
+        0.4
+      ],
+      "yaw_deg": 0.0
+    },
+    {
+      "id": "companion_start",
+      "role": "companion",
+      "position_m": [
+        -0.1,
+        0.0,
+        0.4
+      ],
+      "yaw_deg": 0.0
+    }
+  ],
+  "light_hints": [
+    {
+      "id": "ceiling_light",
+      "kind": "ceiling_lamp",
+      "position_m": [
+        0.0,
+        2.6500000000000004,
+        0.0
+      ],
+      "color": "#f4f1e8",
+      "relative_intensity": 0.7,
+      "estimated": true
+    },
+    {
+      "id": "house_door_daylight",
+      "kind": "window",
+      "position_m": [
+        -1.9,
+        1.2,
+        -2.75
+      ],
+      "direction": [
+        0.0,
+        -0.3,
+        1.0
+      ],
+      "color": "#fff4e0",
+      "relative_intensity": 0.4,
+      "estimated": true
+    }
+  ],
+  "files": [
+    {
+      "path": "objects/bean_bag/asset.json",
+      "sha256": "d9fe2c659d679af0241d65e0c6b2a166d0fe07134c5de0a0b93f87e9d771d670",
+      "bytes": 1462
+    },
+    {
+      "path": "objects/paint_clutter/asset.json",
+      "sha256": "9617dd74f6bfcf893e9f151adda4389612057a779b0d9eaf8ba55f863e5ed309",
+      "bytes": 1472
+    },
+    {
+      "path": "objects/pine_shelving/asset.json",
+      "sha256": "c9098b7de8957fb804de181d8c6444e97fd955c49a8ea4ec3038868fbd841bdc",
+      "bytes": 2164
+    }
+  ]
+}

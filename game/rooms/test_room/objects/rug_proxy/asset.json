@@ -1,0 +1,49 @@
+{
+  "schema": "enfractal.asset",
+  "version": 1,
+  "asset_id": "rug_proxy",
+  "display_name": "Rug",
+  "category": "rug",
+  "category_group": "textile",
+  "tier": "proxy",
+  "provenance": {
+    "kind": "placeholder",
+    "license": "Original EnFractal placeholder; CC0-1.0",
+    "created_utc": "2026-10-06T00:00:00Z",
+    "notes": "Primitive stand-in at real furniture size so scale reads from the small avatar."
+  },
+  "pivot": "bottom_center",
+  "dimensions_m": [
+    1.6,
+    0.006,
+    1.1
+  ],
+  "geometry": {
+    "kind": "primitive",
+    "primitive": "box"
+  },
+  "collision": {
+    "kind": "primitive"
+  },
+  "physics": {
+    "movable": true,
+    "mass_kg": 2.0
+  },
+  "materials": [
+    {
+      "slot": "body",
+      "role": "fabric",
+      "base_color": "#7a5b63"
+    }
+  ],
+  "affordances": [
+    "walkable_top",
+    "soft"
+  ],
+  "review": {
+    "status": "approved",
+    "reviewer": "integrator",
+    "notes": "Placeholder geometry; approved as a test fixture only."
+  },
+  "files": []
+}

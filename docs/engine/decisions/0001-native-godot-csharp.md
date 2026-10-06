@@ -1,5 +1,7 @@
 # ADR 0001: native Godot with C# for the single-player game
 
+> **Scope note, 6 October 2026.** The platform decision (native Godot .NET with C#, incremental GDScript migration, metric units) stands. The location and scale paragraphs below (Pfluger district, Barton retirement, 0.30 m player) are superseded by the [room-scale direction](../../ROOM-SCALE-DIRECTION.md): one photographed room, a ~0.10 m player. Files they cite are on the `geography-era-final` branch.
+
 **Status: accepted by founder direction, 2 October 2026.** This accepts the platform and implementation direction; it does not certify a build, migration, performance target or completed S0 gate. Implementation evidence must be recorded separately against an exact commit and toolchain.
 
 ## Decision and scope
@@ -12,13 +14,13 @@ The initial player height is exactly **0.30 m (30 cm)** in real-scale geography.
 
 The embodied, dedicated game-only BYO AI is central to S0–S6. Browser delivery, Bevy comparison and a custom renderer are no longer active implementation choices. Multiplayer, real-account services, replication and hosted world orchestration remain deferred until single-player acceptance and an explicit founder go decision. Native local AI integration does not authorize these additional systems.
 
-This decision supersedes the platform uncertainty in the older [phase 0 record](../phase0/decisions.md) and the browser/native bake-off proposed in [research 14](../../roadmap/research/14-single-player-platform-and-engine.md). Their observations remain historical evidence. The current [roadmap](../../roadmap/ROADMAP.md), [backlog](../../roadmap/BACKLOG.md) and [world vision](../../WORLD-VISION.md) define the experience and execution sequence.
+This decision supersedes the platform uncertainty in the older phase 0 record and the browser/native bake-off proposed in [research 14](../../research/14-single-player-platform-and-engine.md). Their observations remain historical evidence. The current [roadmap](../../history/ROADMAP.md), [backlog](../../history/BACKLOG.md) and [world vision](../../history/WORLD-VISION.md) define the experience and execution sequence.
 
 ## Baseline inspected
 
 Published implementation `750ef88284322b6ab736ba7f4bd4f333c954cd27` contains a GDScript Godot application, a Python map builder, Godot shaders and a Python/PostgreSQL local save/travel service. The checkpoint reports 24 engine suites; those reported results are not C# migration evidence. At the start of this decision review there was no C# project or C# runtime source in the repository. Planning documents had uncommitted single-player, Pfluger and metric-avatar revisions; this ADR does not replace or revert them.
 
-The local game currently owns creation validation through [creation_compiler.gd](../../../game/scripts/creation_compiler.gd), command authorization through [creation_authority.gd](../../../game/scripts/creation_authority.gd), and physical capability execution through [invention_runtime.gd](../../../game/scripts/invention_runtime.gd). [travel_runtime.gd](../../../game/scripts/travel_runtime.gd) provides the trusted persistence adapter. These are useful working boundaries to preserve.
+The local game currently owns creation validation through [creation_compiler.gd](../../../game/scripts/creation_compiler.gd), command authorization through [creation_authority.gd](../../../game/scripts/creation_authority.gd), and physical capability execution through [invention_runtime.gd](../../../game/scripts/invention_runtime.gd). travel_runtime.gd provides the trusted persistence adapter. These are useful working boundaries to preserve.
 
 The current character is still a 1.7 m fixture with human-scale movement and clearance constants. Neither this ADR nor a C# project file converts it to the accepted 0.30 m player. The current geographic package has 2 m terrain samples and visual structure approximations; it does not establish the detailed traversal surfaces required at the new scale.
 
@@ -40,7 +42,7 @@ The companion receives a dedicated, revocable game grant and only permitted obse
 
 The AI surface cannot expose arbitrary scripts, shaders, shell commands, local files, SQL, provider credentials, role changes, unlock operations or arbitrary save-envelope writes. A model cannot approve itself. Routine reversible actions may execute within an existing scoped grant; consequential changes bind any required player review to the exact operation, targets, world, artifact/revision and expiry. Locked source, supporting terrain and declared access/support relationships require protection against both direct edits and indirect physical effects.
 
-The [save/travel service](../../../services/save_travel/README.md) trusts the Godot host to validate gameplay envelopes. Its loopback bearer token is a host credential, not an agent grant. Keep it and the database DSN out of companion context, tool results, logs and saves. The C# adapter must use the existing authority/persistence seam; it must not give the companion `world_save`, `bootstrap` or a database connection. A successful provider response or authenticated MCP call still requires game authorization.
+The save/travel service trusts the Godot host to validate gameplay envelopes. Its loopback bearer token is a host credential, not an agent grant. Keep it and the database DSN out of companion context, tool results, logs and saves. The C# adapter must use the existing authority/persistence seam; it must not give the companion `world_save`, `bootstrap` or a database connection. A successful provider response or authenticated MCP call still requires game authorization.
 
 Local snapshots currently expose fixture-wide state, and live-clearance/distance callbacks are optional in the existing API. Before exposing companion tools, provide filtered observations and require the relevant host checks to be installed; absence must not silently admit an action. This is local integration work, not a reason to build account or multiplayer services.
 

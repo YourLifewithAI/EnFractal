@@ -1,9 +1,9 @@
 extends RefCounted
 ## Shared original artwork, independent from object placement and permissions.
 
-const TEXTURE_ROOT := "res://assets/art/barton/textures/"
-const TREE_ROOT := "res://assets/art/barton/trees/"
-const STYLE_VERSION := "barton_painterly_v1"
+const TEXTURE_ROOT := "res://assets/art/painterly/textures/"
+const TREE_ROOT := "res://assets/art/painterly/trees/"
+const STYLE_VERSION := "painterly_v1"
 static var _materials: Dictionary = {}
 
 
@@ -47,11 +47,47 @@ static func groundcover_material() -> ShaderMaterial:
 	return material
 
 
+static func surface_material(role := "limestone") -> ShaderMaterial:
+	var key := "surface_" + role
+	if _materials.has(key):
+		return _materials[key]
+	var material := ShaderMaterial.new()
+	material.resource_name = "Painted %s %s" % [role, STYLE_VERSION]
+	material.shader = load("res://shaders/painterly_surface.gdshader")
+	var limestone := TEXTURE_ROOT + "limestone-paint-v1.png"
+	var texture_path := limestone if ResourceLoader.exists(limestone) else TEXTURE_ROOT + "ground-paint-v1.png"
+	material.set_shader_parameter("surface_paint", _texture_or_white(texture_path))
+	if role == "soil":
+		material.set_shader_parameter("base_color", Color("9d8056"))
+		material.set_shader_parameter("shade_color", Color("695b41"))
+		material.set_shader_parameter("strata_strength", 0.0)
+		material.set_shader_parameter("material_roughness", 0.98)
+	elif role == "wet_limestone":
+		material.set_shader_parameter("base_color", Color("a39b77"))
+		material.set_shader_parameter("shade_color", Color("676951"))
+		material.set_shader_parameter("material_roughness", 0.68)
+	_materials[key] = material
+	return material
+
+
+static func _texture_or_white(path: String) -> Texture2D:
+	if ResourceLoader.exists(path):
+		return load(path) as Texture2D
+	# Placeholder is conspicuously plain; it is not presented as painted art.
+	return _solid_texture(Color.WHITE)
+
+
+static func _solid_texture(color: Color) -> ImageTexture:
+	var image := Image.create(4, 4, false, Image.FORMAT_RGBA8)
+	image.fill(color)
+	return ImageTexture.create_from_image(image)
+
+
 static func make_tree(species := "oak", collider := true) -> Node3D:
 	var filename := "ashe-juniper-v1.glb" if species == "juniper" else "live-oak-v1.glb"
 	var source: PackedScene = load(TREE_ROOT + filename)
 	var tree: Node3D = source.instantiate()
-	tree.set_meta("asset_id", "barton_ashe_juniper_v1" if species == "juniper" else "barton_live_oak_v1")
+	tree.set_meta("asset_id", "painterly_ashe_juniper_v1" if species == "juniper" else "painterly_live_oak_v1")
 	tree.set_meta("style_version", STYLE_VERSION)
 	tree.set_meta("provenance", "original illustrative tree; placement is not a surveyed individual")
 	_bind_tree_materials(tree, species)

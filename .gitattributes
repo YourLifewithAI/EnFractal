@@ -9,11 +9,9 @@
 # Preserve the byte hash stored in the Blender asset manifests on every host.
 tools/art/*.py text eol=lf
 
-# JSON sources participate in map/style pins; checkout line endings must not change hashes.
-game/styles/*.json text eol=lf
-# Legacy package manifests pin CRLF feature bytes; preserve those exact hashes.
-game/maps/barton_creek/*.json text eol=crlf
-
-# New district packages use explicit LF bytes before hashing.
-maps/pfluger_district/**/*.json text eol=lf
-game/maps/pfluger_district/*.json text eol=lf
+# Pinned contract data: hashes cover exact bytes. Generated rooms and examples are never converted
+# (any file type, any platform); hand-edited JSON is normalised to LF on commit.
+contracts/*.schema.json text eol=lf
+contracts/examples/** -text
+game/rooms/** -text
+game/styles/**/*.json text eol=lf

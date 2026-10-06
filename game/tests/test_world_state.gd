@@ -12,13 +12,13 @@ func _initialize() -> void:
 
 
 func _run() -> void:
-	var manifest = JSON.parse_string(FileAccess.get_file_as_string("res://maps/barton_creek/manifest.json"))
-	_expect(manifest is Dictionary, "read Barton Creek manifest")
+	var manifest = JSON.parse_string(FileAccess.get_file_as_string("res://tests/fixtures/flat_room_manifest.json"))
+	_expect(manifest is Dictionary, "read flat room fixture manifest")
 	if not manifest is Dictionary:
 		quit(1)
 		return
 	var state = WorldState.new()
-	_expect(state.initialize("home-barton-creek-local", "barton_creek_v0-local", manifest), "initialize pinned world")
+	_expect(state.initialize("home-test-room-local", "test_flat_room_v0-local", manifest), "initialize pinned world")
 	var entity := {
 		"kind": "platform",
 		"plot_id": "workshop-01",
@@ -51,7 +51,7 @@ func _run() -> void:
 	_expect(state.apply_validated_edit(removal).get("replayed") == true and state.revision == 3, "remove retry remains idempotent")
 	_expect(state.save_to_path(SAVE_PATH), "atomic replacement of existing snapshot")
 	var restored = WorldState.new()
-	var loaded: bool = restored.load_from_path(SAVE_PATH, manifest, "home-barton-creek-local", "barton_creek_v0-local")
+	var loaded: bool = restored.load_from_path(SAVE_PATH, manifest, "home-test-room-local", "test_flat_room_v0-local")
 	if not loaded:
 		print("Reload failed: ", restored.last_error)
 	_expect(loaded, "reload saved world")

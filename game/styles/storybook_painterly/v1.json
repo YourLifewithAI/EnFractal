@@ -1,0 +1,102 @@
+{
+  "schema": "enfractal.style",
+  "version": 1,
+  "preset_id": "storybook_painterly",
+  "preset_version": 1,
+  "display_name": "Storybook painterly",
+  "description": "First preset: a warm, handmade toy diorama. Soft bounced light, gently desaturated colour that shifts with the hour and the season, crisp detail within the player's reach and a soft far room. SEED VALUES: copied from the placeholder room's lighting plus the founder's art notes; nothing here has passed the look gate. The Look track owns this file from Run 1.",
+  "status": "seed",
+  "look_bible": "docs/look/LOOK-BIBLE.md",
+  "renderer": {
+    "method": "forward_plus",
+    "gi": { "mode": "voxelgi", "energy": 1.0, "bounce_feedback": 0.4 },
+    "shadows": { "enabled": true, "softness": 0.6, "tint": "#4a4060" },
+    "ambient_occlusion": { "enabled": true, "intensity": 1.2, "radius_m": 0.25 },
+    "glow": { "enabled": true, "intensity": 0.6, "bloom": 0.1 },
+    "tonemap": { "mode": "filmic", "exposure": 0.9, "white": 2.0 }
+  },
+  "palette": {
+    "saturation": 0.85,
+    "contrast": 0.95,
+    "warmth": 0.2,
+    "shadow_tint": "#5a5478",
+    "highlight_tint": "#fff1d2",
+    "accents": ["#d28f63", "#65b9b0", "#d7b765", "#a18cc3", "#75965c"]
+  },
+  "lighting": {
+    "key": { "color": "#fff1d2", "energy": 0.9, "elevation_deg": 42, "azimuth_deg": 35, "casts_shadows": true },
+    "ambient": { "color": "#c9c2b3", "energy": 0.35 },
+    "background": "#2a2f33",
+    "honor_room_lights": 1.0,
+    "room_light_energy_scale": 2.0
+  },
+  "time_of_day": {
+    "enabled": true,
+    "default_hour": 16.5,
+    "follow_clock": false,
+    "keys": [
+      { "hour": 6.0, "key_color": "#ffd2a8", "key_energy": 0.45, "ambient_color": "#9fa8c8", "ambient_energy": 0.25 },
+      { "hour": 12.0, "key_color": "#fff6e4", "key_energy": 1.0, "ambient_color": "#d4d2c8", "ambient_energy": 0.4 },
+      { "hour": 17.5, "key_color": "#ffd9a0", "key_energy": 0.85, "ambient_color": "#cbbca4", "ambient_energy": 0.35 },
+      { "hour": 21.0, "key_color": "#8fa0d8", "key_energy": 0.15, "ambient_color": "#55608c", "ambient_energy": 0.2 }
+    ]
+  },
+  "seasons": {
+    "enabled": true,
+    "follow_calendar": true,
+    "hemisphere": "north",
+    "grades": {
+      "spring": { "saturation": 0.95, "warmth": 0.05, "tint": "#dbe8c4" },
+      "summer": { "saturation": 0.9, "warmth": 0.25, "tint": "#f3d9a4" },
+      "autumn": { "saturation": 1.0, "warmth": 0.35, "tint": "#e2a06a" },
+      "winter": { "saturation": 0.75, "warmth": -0.35, "tint": "#bcd3e8" }
+    }
+  },
+  "camera": {
+    "fov_deg": 70,
+    "depth_of_field": {
+      "enabled": true,
+      "focus": "player",
+      "focus_band_m": 0.6,
+      "far_blur": 0.55,
+      "near_blur": 0.5,
+      "near_blur_distance_m": 0.08
+    },
+    "tilt_shift": { "enabled": true, "strength": 0.35 }
+  },
+  "post": {
+    "kuwahara": { "enabled": false, "radius_px": 4, "sharpness": 8, "world_space_orientation": true },
+    "outline": { "enabled": false, "color": "#3a3030", "width_px": 1 },
+    "grain": 0.05,
+    "vignette": 0.15
+  },
+  "materials": {
+    "default": { "albedo_softening": 0.4, "stroke_normal_strength": 0.25, "edge_wear": 0.2, "roughness": 0.85 },
+    "roles": {
+      "painted_wall": { "tint": "#e6dccb", "albedo_softening": 0.5, "stroke_normal_strength": 0.3, "edge_wear": 0.1, "roughness": 0.9 },
+      "wood": { "tint": "#c79a63", "albedo_softening": 0.35, "stroke_normal_strength": 0.35, "edge_wear": 0.3, "roughness": 0.8 },
+      "fabric": { "albedo_softening": 0.5, "stroke_normal_strength": 0.2, "edge_wear": 0.05, "roughness": 0.95 },
+      "metal": { "albedo_softening": 0.3, "stroke_normal_strength": 0.15, "edge_wear": 0.35, "roughness": 0.5, "metallic": 0.6 },
+      "concrete": { "tint": "#a79f92", "albedo_softening": 0.45, "stroke_normal_strength": 0.3, "edge_wear": 0.25, "roughness": 0.95, "texture": "res://assets/art/painterly/textures/ground-paint-v1.png" },
+      "paper": { "albedo_softening": 0.55, "stroke_normal_strength": 0.15, "edge_wear": 0.1, "roughness": 0.95 },
+      "plastic": { "albedo_softening": 0.45, "stroke_normal_strength": 0.1, "edge_wear": 0.1, "roughness": 0.6 }
+    }
+  },
+  "geometry": { "bevel_m": 0.004, "wobble_m": 0.002, "silhouette_softening": 0.3, "decimation_ratio": 0.5 },
+  "charm": {
+    "enabled": false,
+    "seed": 20261006,
+    "kinds": ["moss", "vines", "pebbles", "crumbs", "dust_bunnies", "trim", "clutter"],
+    "density": { "floor_edges": 0.3, "wall_bases": 0.2, "object_tops": 0.15, "creations": 0.4, "outdoor_ground": 0.5 }
+  },
+  "restyle": {
+    "method": "img2img_atlas",
+    "prompt": "hand-painted storybook miniature, soft painterly brush texture, warm gentle light, slightly desaturated palette, handmade toy craftsmanship, cozy",
+    "negative_prompt": "photorealistic, harsh specular, noisy photo texture, text, logos, people",
+    "references": [],
+    "strength": 0.45,
+    "conditioning": ["depth", "normal"],
+    "seed": 20261006
+  },
+  "budgets": { "target_frame_ms": 16.7, "max_shadowed_lights": 4, "reference_gpu": "NVIDIA RTX 2070 SUPER 8 GB" }
+}

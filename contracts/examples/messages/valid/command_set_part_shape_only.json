@@ -1,0 +1,13 @@
+{
+  "schema": "enfractal.command",
+  "version": 1,
+  "action_id": "open-cabinet-0001",
+  "room_id": "garage_example",
+  "op": "entity.set_part",
+  "args": {
+    "target": "obj:shelving_left",
+    "part_id": "left_door",
+    "value": 1.0
+  },
+  "note": "Structural example only: the example shelving has no parts, so a host answers invalid_args."
+}

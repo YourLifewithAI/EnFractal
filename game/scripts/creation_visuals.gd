@@ -1,6 +1,5 @@
 extends RefCounted
 ## Rendering adapter for approved compiler parts. It never recognizes recipe names.
-const GROUND := preload("res://scripts/painterly_ground_kit.gd")
 const PAINT := preload("res://scripts/painterly_assets.gd")
 static var materials: Dictionary = {}
 
@@ -62,7 +61,7 @@ static func _material(role: String) -> Material:
 		return materials[role]
 	var result: Material
 	if role == "stone":
-		result = GROUND.make_surface_material()
+		result = PAINT.surface_material()
 	elif role == "wood":
 		result = PAINT.bark_material()
 	else:

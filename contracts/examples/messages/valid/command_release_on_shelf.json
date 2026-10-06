@@ -1,0 +1,17 @@
+{
+  "schema": "enfractal.command",
+  "version": 1,
+  "action_id": "release-0003",
+  "room_id": "garage_example",
+  "op": "entity.release",
+  "args": {
+    "placement": {
+      "position_m": [
+        0.8,
+        0.9,
+        -2.4
+      ],
+      "on": "obj:shelving_right"
+    }
+  }
+}

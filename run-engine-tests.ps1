@@ -8,7 +8,7 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
     exit $LASTEXITCODE
 }
 
-# Native baseline: build C# before running retained GDScript regressions.
+# Native baseline: build C# before running the retained GDScript kernel regressions.
 . (Join-Path $PSScriptRoot 'tools/native-toolchain.ps1')
 $nativeToolchain = Get-EnfractalNativeToolchain
 Build-EnfractalNativeProject -Toolchain $nativeToolchain
@@ -25,30 +25,14 @@ New-Item -ItemType Directory -Force $env:APPDATA,$env:LOCALAPPDATA | Out-Null
 
 $tests = @(
     'native_interop_smoke.gd',
-    'map_runtime_smoke.gd',
-    'terrain_seam_smoke.gd',
-    'visual_streaming_smoke.gd',
-    'terrain_residency_smoke.gd',
-    'terrain_loading_input_smoke.gd',
     'test_world_state.gd',
-    'test_creation_ops.gd',
-    'movement_physics_smoke.gd',
     'world_physics_smoke.gd',
-    'path_platform_join_smoke.gd',
-    'workshop_integration.gd',
-    'workshop_path_integration.gd',
-    'art_reference_smoke.gd',
-    'workshop_art_smoke.gd',
-    'painterly_geometry_smoke.gd',
     'creation_compiler_smoke.gd',
     'creation_authority_smoke.gd',
     'creation_visuals_smoke.gd',
     'invention_runtime_smoke.gd',
     'invention_editor_smoke.gd',
-    'manual_invention_integration.gd',
-    'durable_creation_smoke.gd',
-    'travel_panel_smoke.gd',
-    'travel_adapter_faults.gd'
+    'durable_creation_smoke.gd'
 )
 foreach ($test in $tests) {
     $result = Invoke-EnfractalNativeProcess -Toolchain $nativeToolchain -FilePath $enginePath `

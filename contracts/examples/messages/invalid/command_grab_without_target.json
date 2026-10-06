@@ -1,0 +1,8 @@
+{
+  "schema": "enfractal.command",
+  "version": 1,
+  "action_id": "grab-0010",
+  "room_id": "garage_example",
+  "op": "entity.grab",
+  "args": {}
+}

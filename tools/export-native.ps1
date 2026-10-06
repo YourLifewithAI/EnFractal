@@ -25,10 +25,9 @@ Write-Output $probe.Stdout.Trim()
 $startup = Invoke-EnfractalNativeProcess -Toolchain $nativeToolchain -FilePath $outputPath `
     -Arguments @('--headless', '--fixed-fps', '60', '--quit-after', '240') -TimeoutSeconds 60 `
     -WorkingDirectory $probeWorkingPath -WithoutDotnetRuntime
-if ($startup.Stderr -or $startup.Stdout -notmatch 'PFLUGER_WORLD_READY') {
-    throw "Exported game failed to load its default Pfluger destination:`n$($startup.Stdout)`n$($startup.Stderr)"
+if ($startup.Stderr -or $startup.Stdout -notmatch 'ROOM_WORLD_READY') {
+    throw "Exported game failed to load its default room scene:`n$($startup.Stdout)`n$($startup.Stderr)"
 }
 Write-Output $startup.Stdout.Trim()
 Copy-Item -LiteralPath (Join-Path $nativeToolchain.ProjectPath 'RELEASE-CREDITS.md') -Destination (Join-Path (Split-Path -Parent $outputPath) 'CREDITS.md')
-Copy-Item -LiteralPath (Join-Path $nativeToolchain.RepositoryPath 'maps/pfluger_district/COPYING.md') -Destination (Join-Path (Split-Path -Parent $outputPath) 'DATA-LICENSE.md')
 Write-Output "Native Windows build: $outputPath"

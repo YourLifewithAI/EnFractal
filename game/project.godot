@@ -1,8 +1,8 @@
-; Native EnFractal. The historical application name preserves existing local save paths; the window title follows the active scene.
+; Native EnFractal. The application name defines the user:// save directory.
 config_version=5
 
 [application]
-config/name="EnFractal — Barton Creek local workshop"
+config/name="EnFractal"
 run/main_scene="res://scenes/native_boot.tscn"
 config/features=PackedStringArray("4.7", "C#", "GL Compatibility")
 

@@ -1,4 +1,5 @@
 using Godot;
+using System.Linq;
 
 namespace EnFractal.Native;
 
@@ -6,22 +7,18 @@ public partial class NativeGameBoot : Node
 {
     public override void _Ready()
     {
+        var arguments = OS.GetCmdlineUserArgs();
         // Release templates reject command-line scene overrides. This bounded probe
         // uses the real exported entry point, without reading or writing user saves.
-        if (OS.GetCmdlineUserArgs().Contains("--native-contract-probe"))
+        if (arguments.Contains("--native-contract-probe"))
         {
             AddChild(new NativeContractProbe());
             return;
         }
-        var legacy = OS.GetCmdlineUserArgs().Contains("--legacy-barton");
-        if (legacy && OS.HasFeature("template"))
-        {
-            GD.PushError("Barton is a retired development fixture and is not included in native exports.");
-            GetTree().Quit(1);
-            return;
-        }
-        DisplayServer.WindowSetTitle(legacy ? "EnFractal - retired Barton fixture" : "EnFractal - Pfluger District");
-        var scene = legacy ? "res://scenes/main.tscn" : "res://scenes/pfluger_world.tscn";
-        AddChild(GD.Load<PackedScene>(scene).Instantiate());
+        var world = GD.Load<PackedScene>("res://scenes/room.tscn").Instantiate<RoomWorld>();
+        var room = arguments.FirstOrDefault(a => a.StartsWith("--room="))?["--room=".Length..];
+        if (!string.IsNullOrWhiteSpace(room)) world.RoomDirectory = RoomWorld.ResolveRoom(room);
+        DisplayServer.WindowSetTitle("EnFractal");
+        AddChild(world);
     }
 }

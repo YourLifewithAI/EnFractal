@@ -1,5 +1,7 @@
 # Phase 3 manual invention: primary-source implementation notes
 
+> **Kernel record.** This describes the creation kernel as built for the retired Barton workshop. The kernel is kept; its plot bounds, terrain sampler and legacy fixture body are generalized for rooms in R0 (see the [room-scale direction](../../ROOM-SCALE-DIRECTION.md)). Scene, launcher and checkpoint references below may point at files now on the `geography-era-final` branch.
+
 Checked **2026-10-02** against Godot **4.7** documentation and Roblox Creator Hub. This note informs the [manual invention contract](manual-invention-contract.md); it is not an acceptance score or proof that the current playable build passes its tests.
 
 | Layer | Primary-source finding | Decision and specific acceptance check |

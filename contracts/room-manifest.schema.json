@@ -1,0 +1,726 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.enfractal.invalid/v1/room-manifest.schema.json",
+  "title": "EnFractal room manifest (room.json)",
+  "description": "The immutable baseline of one room: shell, object instances, spawns and light hints. Written by the capture exporter (or by hand for test rooms), read by the game. Its identity pin is the SHA-256 of the file bytes; every other file in the room directory is pinned through the files list, and each asset.json pins its own files. Runtime changes never rewrite this file; they live in room state. Every string in it is untrusted data. Captured rooms are written to the player's user data (user://rooms/<room_id>/), never into the repository.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "version",
+    "room_id",
+    "display_name",
+    "created_utc",
+    "units",
+    "axes",
+    "source",
+    "bounds",
+    "shell",
+    "objects",
+    "spawns",
+    "files"
+  ],
+  "properties": {
+    "schema": {
+      "const": "enfractal.room"
+    },
+    "version": {
+      "type": "integer",
+      "const": 1
+    },
+    "room_id": {
+      "$ref": "common.schema.json#/$defs/token"
+    },
+    "display_name": {
+      "allOf": [
+        {
+          "$ref": "common.schema.json#/$defs/display_text"
+        },
+        {
+          "maxLength": 80
+        }
+      ],
+      "minLength": 1
+    },
+    "description": {
+      "allOf": [
+        {
+          "$ref": "common.schema.json#/$defs/long_text"
+        },
+        {
+          "maxLength": 2000
+        }
+      ]
+    },
+    "created_utc": {
+      "$ref": "common.schema.json#/$defs/utc_timestamp"
+    },
+    "units": {
+      "const": "m"
+    },
+    "axes": {
+      "description": "Godot convention: +Y up, -Z forward, right-handed, 1 unit = 1 metre.",
+      "const": "y_up_neg_z_forward"
+    },
+    "source": {
+      "$ref": "#/$defs/source"
+    },
+    "bounds": {
+      "description": "Playable volume. Avatars and creations outside it are recovered; effects are clipped to it.",
+      "$ref": "common.schema.json#/$defs/aabb"
+    },
+    "shell": {
+      "$ref": "#/$defs/shell"
+    },
+    "objects": {
+      "type": "array",
+      "maxItems": 512,
+      "items": {
+        "$ref": "#/$defs/object_instance"
+      }
+    },
+    "spawns": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 16,
+      "items": {
+        "$ref": "#/$defs/spawn"
+      },
+      "allOf": [
+        {
+          "contains": {
+            "type": "object",
+            "properties": {
+              "role": {
+                "enum": [
+                  "player",
+                  "any"
+                ]
+              }
+            },
+            "required": [
+              "role"
+            ]
+          }
+        },
+        {
+          "contains": {
+            "type": "object",
+            "properties": {
+              "role": {
+                "enum": [
+                  "companion",
+                  "any"
+                ]
+              }
+            },
+            "required": [
+              "role"
+            ]
+          }
+        }
+      ]
+    },
+    "light_hints": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "$ref": "#/$defs/light_hint"
+      }
+    },
+    "default_style": {
+      "description": "Style the room opens with. The active style is pinned in room state, so restyling never rewrites the manifest.",
+      "$ref": "common.schema.json#/$defs/style_pin"
+    },
+    "reference": {
+      "$ref": "#/$defs/reference"
+    },
+    "files": {
+      "description": "Every file the manifest references (shell meshes, asset.json files, reference media), with hashes. Files not listed here must not be loaded.",
+      "type": "array",
+      "maxItems": 2048,
+      "items": {
+        "$ref": "common.schema.json#/$defs/file_entry"
+      }
+    },
+    "extensions": {
+      "$ref": "common.schema.json#/$defs/extensions"
+    }
+  },
+  "$defs": {
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "capture",
+            "hand_built",
+            "procedural"
+          ]
+        },
+        "capture": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "session_id",
+            "photo_count",
+            "privacy"
+          ],
+          "properties": {
+            "session_id": {
+              "$ref": "common.schema.json#/$defs/token"
+            },
+            "photo_count": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 5000
+            },
+            "devices": {
+              "type": "array",
+              "maxItems": 8,
+              "items": {
+                "allOf": [
+                  {
+                    "$ref": "common.schema.json#/$defs/display_text"
+                  },
+                  {
+                    "maxLength": 80
+                  }
+                ]
+              }
+            },
+            "captured_utc_first": {
+              "$ref": "common.schema.json#/$defs/utc_timestamp"
+            },
+            "captured_utc_last": {
+              "$ref": "common.schema.json#/$defs/utc_timestamp"
+            },
+            "privacy": {
+              "description": "Rooms are people's homes and businesses. Sharing later depends on these being true statements.",
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "location_metadata_removed",
+                "people_visible",
+                "shareable"
+              ],
+              "properties": {
+                "location_metadata_removed": {
+                  "type": "boolean"
+                },
+                "people_visible": {
+                  "type": "boolean"
+                },
+                "shareable": {
+                  "type": "boolean"
+                },
+                "notes": {
+                  "allOf": [
+                    {
+                      "$ref": "common.schema.json#/$defs/long_text"
+                    },
+                    {
+                      "maxLength": 500
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "pipeline": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "version"
+          ],
+          "properties": {
+            "name": {
+              "allOf": [
+                {
+                  "$ref": "common.schema.json#/$defs/display_text"
+                },
+                {
+                  "maxLength": 80
+                }
+              ]
+            },
+            "version": {
+              "allOf": [
+                {
+                  "$ref": "common.schema.json#/$defs/display_text"
+                },
+                {
+                  "maxLength": 40
+                }
+              ]
+            },
+            "backends": {
+              "type": "array",
+              "maxItems": 16,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "stage",
+                  "name",
+                  "version",
+                  "license"
+                ],
+                "properties": {
+                  "stage": {
+                    "enum": [
+                      "ingest",
+                      "poses",
+                      "layout",
+                      "segmentation",
+                      "reference",
+                      "generation",
+                      "fit",
+                      "collision",
+                      "restyle",
+                      "export"
+                    ]
+                  },
+                  "name": {
+                    "allOf": [
+                      {
+                        "$ref": "common.schema.json#/$defs/display_text"
+                      },
+                      {
+                        "maxLength": 80
+                      }
+                    ]
+                  },
+                  "version": {
+                    "allOf": [
+                      {
+                        "$ref": "common.schema.json#/$defs/display_text"
+                      },
+                      {
+                        "maxLength": 40
+                      }
+                    ]
+                  },
+                  "license": {
+                    "allOf": [
+                      {
+                        "$ref": "common.schema.json#/$defs/display_text"
+                      },
+                      {
+                        "maxLength": 120
+                      }
+                    ]
+                  },
+                  "hosted": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "capture"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "capture",
+              "pipeline"
+            ]
+          }
+        }
+      ]
+    },
+    "shell": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "parts"
+      ],
+      "properties": {
+        "parts": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 128,
+          "items": {
+            "$ref": "#/$defs/shell_part"
+          }
+        },
+        "openings": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/opening"
+          }
+        }
+      }
+    },
+    "shell_part": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "role",
+        "geometry",
+        "collides",
+        "material_role"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^shell:[A-Za-z0-9_-]{1,64}$"
+        },
+        "role": {
+          "enum": [
+            "floor",
+            "wall",
+            "ceiling",
+            "ground",
+            "platform",
+            "stair",
+            "backdrop"
+          ]
+        },
+        "geometry": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "points_m",
+                "thickness_m"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "polygon"
+                },
+                "points_m": {
+                  "description": "Coplanar, simple polygon. Winding is counter-clockwise seen from inside the room, so the right-hand normal points into the room; thickness extrudes away from the room.",
+                  "type": "array",
+                  "minItems": 3,
+                  "maxItems": 64,
+                  "items": {
+                    "$ref": "common.schema.json#/$defs/vec3"
+                  }
+                },
+                "thickness_m": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "maximum": 1
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "mesh"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "mesh"
+                },
+                "mesh": {
+                  "$ref": "common.schema.json#/$defs/glb_path"
+                }
+              }
+            }
+          ]
+        },
+        "collides": {
+          "type": "boolean"
+        },
+        "material_role": {
+          "$ref": "common.schema.json#/$defs/material_role"
+        },
+        "base_color": {
+          "$ref": "common.schema.json#/$defs/color_hex"
+        },
+        "texture": {
+          "$ref": "common.schema.json#/$defs/rel_path"
+        }
+      }
+    },
+    "opening": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "host_part_id",
+        "center_m",
+        "size_m",
+        "state",
+        "traversable"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "common.schema.json#/$defs/token"
+        },
+        "kind": {
+          "enum": [
+            "door",
+            "window",
+            "garage_door",
+            "archway",
+            "vent",
+            "pet_door",
+            "portal"
+          ]
+        },
+        "host_part_id": {
+          "type": "string",
+          "pattern": "^shell:[A-Za-z0-9_-]{1,64}$"
+        },
+        "center_m": {
+          "$ref": "common.schema.json#/$defs/vec3"
+        },
+        "size_m": {
+          "description": "Width along the host surface, then height.",
+          "type": "array",
+          "items": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 20
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "state": {
+          "enum": [
+            "open",
+            "closed",
+            "fixed"
+          ]
+        },
+        "traversable": {
+          "type": "boolean"
+        },
+        "leads_to": {
+          "description": "Another room of the same house. Unused until rooms connect.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "room_id"
+          ],
+          "properties": {
+            "room_id": {
+              "$ref": "common.schema.json#/$defs/token"
+            },
+            "spawn_id": {
+              "$ref": "common.schema.json#/$defs/token"
+            }
+          }
+        }
+      }
+    },
+    "object_instance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "asset",
+        "transform",
+        "support"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^obj:[A-Za-z0-9_-]{1,64}$"
+        },
+        "asset": {
+          "description": "objects/<asset_id>/asset.json. Several instances may share one asset.",
+          "type": "string",
+          "pattern": "^objects/[a-z][a-z0-9_-]{0,63}/asset\\.json$"
+        },
+        "transform": {
+          "description": "Placement of the asset's pivot (bottom centre of its bounds) in room coordinates.",
+          "$ref": "common.schema.json#/$defs/transform"
+        },
+        "support": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "enum": [
+                "floor",
+                "wall",
+                "ceiling",
+                "shell",
+                "object",
+                "none"
+              ]
+            },
+            "target_id": {
+              "$ref": "common.schema.json#/$defs/entity_id"
+            }
+          }
+        },
+        "initial_parts": {
+          "description": "Initial articulation per asset part, 0 closed to 1 fully open.",
+          "type": "object",
+          "propertyNames": {
+            "$ref": "common.schema.json#/$defs/token"
+          },
+          "additionalProperties": {
+            "$ref": "common.schema.json#/$defs/unit_interval"
+          }
+        },
+        "display_name": {
+          "allOf": [
+            {
+              "$ref": "common.schema.json#/$defs/display_text"
+            },
+            {
+              "maxLength": 80
+            }
+          ],
+          "minLength": 1
+        }
+      }
+    },
+    "spawn": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "role",
+        "position_m",
+        "yaw_deg"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "common.schema.json#/$defs/token"
+        },
+        "role": {
+          "enum": [
+            "player",
+            "companion",
+            "any"
+          ]
+        },
+        "position_m": {
+          "$ref": "common.schema.json#/$defs/vec3"
+        },
+        "yaw_deg": {
+          "type": "number",
+          "minimum": -180,
+          "maximum": 180
+        }
+      }
+    },
+    "light_hint": {
+      "description": "A light the capture saw. The style preset decides how strongly to honour it.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "color",
+        "relative_intensity",
+        "estimated"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "common.schema.json#/$defs/token"
+        },
+        "kind": {
+          "enum": [
+            "sun",
+            "sky",
+            "window",
+            "ceiling_lamp",
+            "lamp",
+            "screen",
+            "ambient"
+          ]
+        },
+        "position_m": {
+          "$ref": "common.schema.json#/$defs/vec3"
+        },
+        "direction": {
+          "$ref": "common.schema.json#/$defs/vec3"
+        },
+        "color": {
+          "$ref": "common.schema.json#/$defs/color_hex"
+        },
+        "relative_intensity": {
+          "$ref": "common.schema.json#/$defs/unit_interval"
+        },
+        "estimated": {
+          "type": "boolean"
+        }
+      }
+    },
+    "reference": {
+      "description": "Review material for agents and the founder. Excluded from game builds.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "splat": {
+          "$ref": "common.schema.json#/$defs/rel_path"
+        },
+        "views": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "image",
+              "camera"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "common.schema.json#/$defs/token"
+              },
+              "image": {
+                "$ref": "common.schema.json#/$defs/rel_path"
+              },
+              "camera": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "transform",
+                  "fov_deg"
+                ],
+                "properties": {
+                  "transform": {
+                    "$ref": "common.schema.json#/$defs/transform"
+                  },
+                  "fov_deg": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "exclusiveMaximum": 180
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

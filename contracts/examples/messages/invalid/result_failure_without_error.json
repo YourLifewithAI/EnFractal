@@ -1,0 +1,13 @@
+{
+  "schema": "enfractal.result",
+  "version": 1,
+  "ok": false,
+  "op": "entity.grab",
+  "action_id": "grab-0013",
+  "principal": "player:local",
+  "room_id": "garage_example",
+  "revision": 5,
+  "replayed": false,
+  "preview": false,
+  "at_utc": "2026-10-06T00:05:00Z"
+}

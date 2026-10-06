@@ -1,0 +1,24 @@
+{
+  "schema": "enfractal.result",
+  "version": 1,
+  "ok": true,
+  "op": "observe",
+  "query_id": "q-0009",
+  "principal": "companion:local",
+  "room_id": "garage_example",
+  "revision": 4,
+  "replayed": false,
+  "preview": false,
+  "data": {
+    "actor": "avatar:companion",
+    "visible": [],
+    "texts": [
+      {
+        "source": "obj:paint_clutter",
+        "text": "hello",
+        "untrusted": false
+      }
+    ]
+  },
+  "at_utc": "2026-10-06T00:05:00Z"
+}

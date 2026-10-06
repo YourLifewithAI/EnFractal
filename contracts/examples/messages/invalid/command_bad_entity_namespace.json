@@ -1,0 +1,10 @@
+{
+  "schema": "enfractal.command",
+  "version": 1,
+  "action_id": "grab-0011",
+  "room_id": "garage_example",
+  "op": "entity.grab",
+  "args": {
+    "target": "thing:bean_bag"
+  }
+}

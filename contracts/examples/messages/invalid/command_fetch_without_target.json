@@ -1,0 +1,11 @@
+{
+  "schema": "enfractal.command",
+  "version": 1,
+  "action_id": "fetch-0002",
+  "room_id": "garage_example",
+  "op": "goal.set",
+  "args": {
+    "actor": "avatar:companion",
+    "goal": "fetch"
+  }
+}
