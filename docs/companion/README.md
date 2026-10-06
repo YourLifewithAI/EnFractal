@@ -43,6 +43,10 @@ sender owns: `action_id` (required), `expected_revision`, `expected_entities`, `
 adapter fills `schema`, `version`, `room_id`, `op` and `query_id`, and fills `actor` with the companion's
 own avatar where the contract requires one. Nothing else is accepted: no principal, no approval, no room.
 
+When the adapter refuses a call before sending it, it answers with a contract-valid `enfractal.result` of
+its own (same error codes as the host). Its `field_path` names the tool argument for unknown or
+forbidden fields (`$.principal`) and the contract message otherwise (`$.args.target`), as the host does.
+
 Each result is the game's `enfractal.result`, returned twice in the same call: as `structuredContent`,
 and as a text block holding a fixed preamble line and one line of ASCII-escaped JSON. `isError` is true
 when `ok` is false. Published input schemas inline every `$ref` and drop `if`/`then`/`not`, which older

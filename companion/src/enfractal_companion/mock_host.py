@@ -44,7 +44,6 @@ from .contract import (
     AUTHORITY_KEYS,
     COMMAND_SCHEMA,
     QUERY_SCHEMA,
-    RESULT_SCHEMA,
     Contracts,
     DEFAULT_REPO_ROOT,
 )

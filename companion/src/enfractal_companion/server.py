@@ -83,6 +83,8 @@ class Adapter:
         self.contracts = contracts
         self.link = link
         self.specs: dict[str, ToolSpec] = {spec.name: spec for spec in contracts.tool_specs()}
+        self._actor_required = {spec.name for spec in self.specs.values()
+                                if spec.actor_field and spec.actor_field in contracts.args_schema(spec.op).get("required", [])}
         self.known_ops = frozenset(contracts.command_ops) | frozenset(contracts.query_ops)
         self.limits = {"command": RateLimiter(command_rate_per_s, command_burst, clock),
                        "query": RateLimiter(query_rate_per_s, query_burst, clock)}
@@ -168,7 +170,7 @@ class Adapter:
         args = {k: v for k, v in arguments.items() if k in spec.args_properties}
         if spec.actor_field:
             actor = args.get(spec.actor_field)
-            if actor is None and spec.actor_field in self._required_args(spec):
+            if actor is None and spec.name in self._actor_required:
                 args[spec.actor_field] = self.avatar
             elif actor is not None and actor != self.avatar:
                 return skeleton, self._refusal(skeleton, HostError(
@@ -200,9 +202,6 @@ class Adapter:
         for problem in self.contracts.schema_errors(message):  # size limits on creation sources
             return skeleton, self._refusal(message, HostError("budget_exceeded", "The creation is larger than the size limit."))
         return message, None
-
-    def _required_args(self, spec: ToolSpec) -> list[str]:
-        return list(self.contracts.args_schema(spec.op).get("required", []))
 
     def _check_result(self, message: dict, result: Any) -> str | None:
         if not isinstance(result, dict):

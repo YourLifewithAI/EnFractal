@@ -15,7 +15,7 @@ import textwrap
 import unittest
 from pathlib import Path
 
-from support import CONTRACTS, SRC
+from support import SRC
 
 PROBE = textwrap.dedent(r'''
     import json, os, socket, subprocess, sys, urllib.request
