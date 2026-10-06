@@ -147,6 +147,19 @@ The cleanup plan's "R0" work is Run 1's P lane. Multiplayer remains a later proj
 - **Scale**: 1 unit = 1 metre with a 0.10 m avatar; size and scale will be tuned in play.
 - **First AI client**: model-neutral MCP surface; Claude is acceptable as the first client to pair. Accessibility to any capable AI is the requirement.
 
+## Founder decisions during Run 1, 6 October 2026
+
+Details and the founder's reference notes are in [the Run 1 status page](runs/RUN-1-STATUS.md).
+
+- **Light comes only from real sources** (windows and lamps). Darkness is possible and is gameplay. Changing the lights is a 10 cm puzzle: the avatars need tools or powers, and the companion helps.
+- **The player chooses a material medium** (felt, stone, clay, yarn, cardboard and so on), and the whole room manifests in it. Architecture styles (cottage, urban, modern) are player options too. "Fanciful" and "cozy" are the target words.
+- **Cameras:** over-the-shoulder, first person and isometric, all with a gentle tilt-shift blur. While moving, focus follows the avatars; while building, it follows the cursor or a free camera.
+- **The time of day follows the real clock** and the seasons follow the calendar, with stronger swings.
+- **Avatars are felt figurines** with a few head, torso, arm and leg options for now.
+- **The companion sees what is in its line of sight.** Voice is for talking to the companion; the player uses the keyboard.
+- **No approval clicks.** Host-enforced tiers with undo, preview-then-commit, and a spoken or keyed "yes" only for the irreversible; see [the live voice design](companion/LIVE-VOICE.md). A fixed command set comes first, with a help panel. A small local model inside the game is preferred over hosted AI.
+- **Physics:** the 10 cm body runs at 1 unit = 1 metre with no ×10 import scale, on Jolt Physics. The room renders with Forward+.
+
 ## Pointers
 
 - [Capture-to-Godot pipeline design](pipeline/ROOM-CAPTURE-PIPELINE.md): the MCP/skill, method recommendations, and the garage test case.
