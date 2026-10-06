@@ -74,7 +74,8 @@ public sealed class RoomData
 
     public static RoomData Load(string directory)
     {
-        directory = directory.TrimEnd('/');
+        // Everything below joins and splits on '/'; a native Windows path (System.IO.Path) arrives with '\'.
+        directory = directory.Replace(System.IO.Path.DirectorySeparatorChar, '/').TrimEnd('/');
         var manifestBytes = ReadPinned(directory + "/room.json", "room.json");
         using var document = Parse(manifestBytes, "room.json");
         var root = document.RootElement;
