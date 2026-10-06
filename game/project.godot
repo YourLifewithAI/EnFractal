@@ -4,7 +4,7 @@ config_version=5
 [application]
 config/name="EnFractal"
 run/main_scene="res://scenes/native_boot.tscn"
-config/features=PackedStringArray("4.7", "C#", "GL Compatibility")
+config/features=PackedStringArray("4.7", "C#", "Forward Plus")
 
 [display]
 window/size/viewport_width=1280

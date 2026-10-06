@@ -36,7 +36,20 @@ echo "== native fixtures and room boot"
 run native_contract_probe "Native release probe passed" --headless --path "$P" res://scenes/native_contract_probe.tscn
 run native_small_avatar "checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_small_avatar.tscn
 run native_room_data "checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_room_data.tscn
+run native_look_preset "checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_look_preset.tscn
 run room_boot "ROOM_WORLD_READY" --headless --path "$P" --fixed-fps 60 --quit-after 240 res://scenes/room.tscn
+echo "== C# kernel"
+run native_kernel_canonical_json "checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_kernel_canonical_json.tscn
+HOST_DUMP="$LOG/command_host_messages"; rm -rf "$HOST_DUMP"
+run native_kernel_command_host "checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_kernel_command_host.tscn -- --dump="$HOST_DUMP"
+if (cd "$REPO" && "$LINUX/contracts-venv/bin/python" -I contracts/validate.py "$HOST_DUMP"/*.json > "$LOG/host_messages.log" 2>&1); then
+  echo "PASS command host messages validate: $(tail -1 "$LOG/host_messages.log")"
+else cat "$LOG/host_messages.log"; failed=1; fi
+echo "== kernel canonical JSON (Python reference)"
+if (cd "$REPO" && "$LINUX/contracts-venv/bin/python" tools/kernel/canonical_json.py --check game/tests/fixtures/kernel > "$LOG/canonical.log" 2>&1 \
+    && "$LINUX/contracts-venv/bin/python" -m unittest discover -s tools/kernel >> "$LOG/canonical.log" 2>&1); then
+  echo "PASS $(head -1 "$LOG/canonical.log" | cut -c1-150)"
+else cat "$LOG/canonical.log"; failed=1; fi
 echo "== contracts"
 if (cd "$REPO" && "$LINUX/contracts-venv/bin/python" -m unittest discover -s contracts/tests > "$LOG/contracts.log" 2>&1); then
   echo "PASS contracts: $(grep -E '^Ran' "$LOG/contracts.log")"

@@ -65,6 +65,7 @@ public partial class RoomWorld : Node3D
             Look.Apply(preset, Room);
             Built = RoomBuilder.Build(Room);
             AddChild(Built);
+            Look.Dress(Built);
             // Let PhysicsServer register every collider before placing actors on them.
             await ToSignal(GetTree(), SceneTree.SignalName.PhysicsFrame);
             var lift = Vector3.Up * 0.008f;
@@ -72,6 +73,7 @@ public partial class RoomWorld : Node3D
             var companionSpawn = Room.SpawnFor("companion", playerSpawn);
             Player = new SmallPlayerController { Name = "Player", Position = playerSpawn.PositionM + lift, Rotation = new Vector3(0, Mathf.DegToRad(playerSpawn.YawDeg), 0) };
             AddChild(Player);
+            Look.FocusTarget = Player;
             Player.SetSpawnPoint(Player.Position);
             Companion = new CompanionAvatar { Name = "Companion", Position = companionSpawn.PositionM + lift, Rotation = new Vector3(0, Mathf.DegToRad(companionSpawn.YawDeg), 0) };
             Companion.ConfigureIdentity("local_companion");
@@ -80,6 +82,7 @@ public partial class RoomWorld : Node3D
             Companion.BindPlayer(Player);
             Companion.Follow();
             AddChild(new RoomHud { Player = Player, Companion = Companion, RoomTitle = Room.DisplayName.ToUpperInvariant() });
+            Kernel.CommandHost.Attach(this);
             SetMeta("room_id", Room.RoomId);
             SetMeta("room_manifest_sha256", Room.ManifestSha256);
             SetMeta("style", $"{preset.PresetId}@{preset.PresetVersion}");

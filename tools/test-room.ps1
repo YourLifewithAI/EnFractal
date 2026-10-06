@@ -15,6 +15,10 @@ $roomData = Invoke-EnfractalNativeProcess -Toolchain $toolchain -FilePath $toolc
     -Arguments @('--headless', '--path', $toolchain.ProjectPath, '--fixed-fps', '60', 'res://tests/native_room_data.tscn') -TimeoutSeconds 90
 if ($roomData.Stderr -or $roomData.Stdout -notmatch 'checks passed') { throw "$($roomData.Stdout)`n$($roomData.Stderr)" }
 Write-Output $roomData.Stdout.Trim()
+$look = Invoke-EnfractalNativeProcess -Toolchain $toolchain -FilePath $toolchain.EnginePath `
+    -Arguments @('--headless', '--path', $toolchain.ProjectPath, '--fixed-fps', '60', 'res://tests/native_look_preset.tscn') -TimeoutSeconds 90
+if ($look.Stderr -or $look.Stdout -notmatch 'checks passed') { throw "$($look.Stdout)`n$($look.Stderr)" }
+Write-Output $look.Stdout.Trim()
 $room = Invoke-EnfractalNativeProcess -Toolchain $toolchain -FilePath $toolchain.EnginePath `
     -Arguments @('--headless', '--path', $toolchain.ProjectPath, '--fixed-fps', '60', '--quit-after', '240', 'res://scenes/room.tscn') -TimeoutSeconds 60
 if ($room.Stderr -or $room.Stdout -notmatch 'ROOM_WORLD_READY') { throw "Placeholder room failed to load:`n$($room.Stdout)`n$($room.Stderr)" }

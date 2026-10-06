@@ -44,10 +44,10 @@ public partial class RoomHud : CanvasLayer
         column.AddChild(new Label { Text = RoomTitle });
         _state = new Label(); column.AddChild(_state);
         var actions = new HBoxContainer(); column.AddChild(actions);
-        AddButton(actions, "1 Follow", Companion.Follow);
-        AddButton(actions, "2 Wait", Companion.Stay);
-        AddButton(actions, "3 Come", Companion.Come);
-        AddButton(actions, "4 Stop", Companion.Stop);
+        AddButton(actions, "1 Follow", () => Goal("follow"));
+        AddButton(actions, "2 Wait", () => Goal("stay"));
+        AddButton(actions, "3 Come", () => Goal("come"));
+        AddButton(actions, "4 Stop", () => Goal("stop"));
         AddButton(actions, "5 Point", PointAhead);
         AddButton(actions, "Customize", ToggleCustomization);
         var footer = new PanelContainer { Theme = theme };
@@ -82,12 +82,14 @@ public partial class RoomHud : CanvasLayer
 
     private void BuildCameras()
     {
-        _arm = new SpringArm3D { Name = "FollowCameraArm", Position = new Vector3(0.13f, 0.24f, 0), SpringLength = 0.95f, Margin = 0.025f, CollisionMask = 1 };
+        // Over-the-shoulder framing scales with the body (0.10 m player: 8 cm up, 32 cm behind).
+        var height = Player.BodyHeightM;
+        _arm = new SpringArm3D { Name = "FollowCameraArm", Position = new Vector3(Player.BodyRadiusM * 2.2f, height * 0.8f, 0), SpringLength = height * 3.2f, Margin = height * 0.1f, CollisionMask = 1 };
         Player.AddChild(_arm);
         _arm.AddExcludedObject(Player.GetRid());
-        _shoulder = new Camera3D { Name = "FollowCamera", Near = 0.01f, Far = 2500, Fov = 68 };
+        _shoulder = new Camera3D { Name = "FollowCamera", Near = 0.005f, Far = 100, Fov = 68 };
         _arm.AddChild(_shoulder);
-        _reference = new Camera3D { Name = "ReferenceCamera", Near = 0.02f, Far = 2500, Fov = 65 };
+        _reference = new Camera3D { Name = "ReferenceCamera", Near = 0.01f, Far = 100, Fov = 65 };
         Player.GetParent().AddChild(_reference);
     }
 
@@ -100,8 +102,9 @@ public partial class RoomHud : CanvasLayer
         else if (mode == 1) _shoulder.MakeCurrent();
         else
         {
-            _reference.GlobalPosition = Player.GlobalPosition + Player.GlobalBasis.Z * 3 + Vector3.Up * 2;
-            _reference.LookAt(Player.GlobalPosition + Vector3.Up * 0.20f);
+            // Stay inside a small room: a metre behind and above the player, looking down at it.
+            _reference.GlobalPosition = Player.GlobalPosition + Player.GlobalBasis.Z * 0.9f + Vector3.Up * 0.6f;
+            _reference.LookAt(Player.GlobalPosition + Vector3.Up * (Player.BodyHeightM * 0.6f));
             _reference.MakeCurrent();
         }
     }
@@ -109,7 +112,7 @@ public partial class RoomHud : CanvasLayer
     public override void _Process(double delta)
     {
         _arm.Rotation = new Vector3(Mathf.Clamp(Player.EyeCamera.Rotation.X - 0.18f, -1.1f, 0.8f), 0, 0);
-        _state.Text = $"{Player.BodyHeightM * 100:0} cm player  ·  {Companion.CompanionName}: {Companion.CurrentIntent}" + (Companion.GoalBlocked ? " · path blocked" : "");
+        _state.Text = $"{Player.BodyHeightM * 100:0} cm player  ·  gravity {Player.WorldPhysicsId} (G)  ·  {Companion.CompanionName}: {Companion.CurrentIntent}" + (Companion.GoalBlocked ? " · path blocked" : "");
         _notice.Text = _noticeText;
     }
 
@@ -130,10 +133,11 @@ public partial class RoomHud : CanvasLayer
                 case Key.F1: SetViewMode(0); break;
                 case Key.F2: SetViewMode(1); break;
                 case Key.F3: SetViewMode(2); break;
-                case Key.Key1: Companion.Follow(); break;
-                case Key.Key2: Companion.Stay(); break;
-                case Key.Key3: Companion.Come(); break;
-                case Key.Key4: Companion.Stop(); break;
+                // Companion keys are goal commands from the player, on the same path as the companion's own.
+                case Key.Key1: Goal("follow"); break;
+                case Key.Key2: Goal("stay"); break;
+                case Key.Key3: Goal("come"); break;
+                case Key.Key4: Goal("stop"); break;
                 case Key.Key5: PointAhead(); break;
             }
         }
@@ -141,7 +145,15 @@ public partial class RoomHud : CanvasLayer
             Input.MouseMode = Input.MouseModeEnum.Captured;
     }
 
-    private void PointAhead() => Companion.PointAt(Player.GlobalPosition - Player.GlobalBasis.Z * 2 + Vector3.Up * 0.15f);
+    private void PointAhead() => Goal("point_at", Player.GlobalPosition - Player.GlobalBasis.Z * 0.6f + Vector3.Up * 0.05f);
+
+    private void Goal(string goal, Vector3? point = null)
+    {
+        var host = Kernel.CommandHost.Of(GetParent());
+        if (host == null) { _noticeText = "The command host is not attached; companion keys are off."; return; }
+        var result = host.PlayerGoal(goal, point);
+        if (!result["ok"]!.GetValue<bool>()) _noticeText = result["error"]!["message"]!.GetValue<string>();
+    }
 
     private void ToggleCustomization()
     {

@@ -32,7 +32,8 @@ $tests = @(
     'creation_visuals_smoke.gd',
     'invention_runtime_smoke.gd',
     'invention_editor_smoke.gd',
-    'durable_creation_smoke.gd'
+    'durable_creation_smoke.gd',
+    'kernel_canonical_json_smoke.gd'
 )
 foreach ($test in $tests) {
     $result = Invoke-EnfractalNativeProcess -Toolchain $nativeToolchain -FilePath $enginePath `
@@ -54,3 +55,13 @@ if ($probe.Stderr -or $probe.Stdout -notmatch 'Native release probe passed:') {
     throw "Native compiler probe failed:`n$($probe.Stdout)`n$($probe.Stderr)"
 }
 Write-Output ($probe.Stdout.Trim().Split("`n") | Select-Object -Last 1)
+
+# C# kernel: canonical JSON golden fixture (C# and GDScript) and the enfractal.command host.
+foreach ($scene in @('native_kernel_canonical_json.tscn', 'native_kernel_command_host.tscn')) {
+    $kernel = Invoke-EnfractalNativeProcess -Toolchain $nativeToolchain -FilePath $enginePath `
+        -Arguments @('--headless', '--path', $projectPath, '--fixed-fps', '60', "res://tests/$scene") -TimeoutSeconds 120
+    if ($kernel.Stderr -or $kernel.Stdout -notmatch 'NATIVE_KERNEL_[A-Z_]+: \d+/\d+ checks passed') {
+        throw "$scene failed:`n$($kernel.Stdout)`n$($kernel.Stderr)"
+    }
+    Write-Output ($kernel.Stdout.Trim().Split("`n") | Select-Object -Last 1)
+}
