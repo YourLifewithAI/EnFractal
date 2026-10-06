@@ -1,22 +1,15 @@
 extends SceneTree
-## Real editor controls and isolated preview against the local host boundary.
-## The host is a flat-floor fixture (the same shape as invention_runtime_smoke);
-## the runtime, authority, editor and legacy fixture body are real.
+## Real editor controls and isolated preview against the local room host. The room description is a
+## fixture (a large test hall, floor top y = 0); the runtime, authority, editor and C# body are real.
 const COMPILER = preload("res://scripts/creation_compiler.gd")
 const Runtime = preload("res://scripts/invention_runtime.gd")
-const Player = preload("res://scripts/player_controller.gd")
-
-class FlatMap extends RefCounted:
-	func surface_height_at(_x: float, _z: float) -> float:
-		return 0.0
-
-class TestViewer extends Node3D:
-	var manifest := {"id": "editor-smoke-fixture", "source": "flat-pinned-physics-floor"}
-	var map_runtime = FlatMap.new()
-	var player_body
-	var walking := true
-	var walk_camera: Camera3D
-	var invention_runtime
+const Player = preload("res://scripts/native/SmallPlayerController.cs")
+const ROOM := {
+	"room_id": "editor_fixture",
+	"manifest_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+	"bounds": {"min_m": [-60, -1, 290], "max_m": [60, 30, 410]},
+	"entities": {"obj:garden": {"min_m": [-15, 0, 380], "max_m": [15, 1, 410]}},
+}
 const SAVE := "user://tests/invention_editor_smoke_world.json"
 const EXPORT := "user://tests/invention_editor_smoke_export.json"
 const OVERSIZE := "user://tests/invention_editor_smoke_oversize.json"
@@ -34,7 +27,7 @@ func _run() -> void:
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("user://tests"))
 	for path in [SAVE, EXPORT, OVERSIZE]:
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
-	var scene := TestViewer.new()
+	var scene := Node3D.new()
 	root.add_child(scene)
 	var floor := StaticBody3D.new()
 	var floor_shape := CollisionShape3D.new()
@@ -46,25 +39,16 @@ func _run() -> void:
 	scene.add_child(floor)
 	var player = Player.new()
 	player.name = "FixturePlayer"
-	var player_shape := CollisionShape3D.new()
-	var capsule := CapsuleShape3D.new()
-	capsule.radius = 0.3
-	capsule.height = 1.7
-	player_shape.shape = capsule
-	player.add_child(player_shape)
-	scene.walk_camera = Camera3D.new()
-	player.add_child(scene.walk_camera)
-	scene.player_body = player
+	player.ReadKeyboard = false
+	player.position = Vector3(0, 0.003, 350)
 	scene.add_child(player)
-	player.configure(Callable(scene.map_runtime, "surface_height_at"), 1000.0)
-	player.spawn_at(0, 350, 0)
 	var host_runtime = Runtime.new()
 	host_runtime.save_path = SAVE
-	host_runtime.configure(scene)
+	host_runtime.keyboard_enabled = false
+	host_runtime.configure(ROOM, player)
 	scene.add_child(host_runtime)
-	scene.invention_runtime = host_runtime
 	await process_frame
-	var runtime = scene.invention_runtime
+	var runtime = host_runtime
 	_check(runtime != null and runtime.editor != null, "real local runtime constructs editor")
 	if runtime == null or runtime.editor == null:
 		_finish(previous_manual, previous_save)
@@ -176,6 +160,11 @@ func _run() -> void:
 	var revision_before_preflight: int = runtime.authority.revision
 	var permission_before_preflight: int = runtime.authority.permission_revision
 	var source_before_preflight: String = COMPILER.canonical_json(editor.current_source())
+	var locked: Dictionary = runtime.authority.submit("player:local", {"op": "lock", "action_id": "lock_garden", "targets": ["obj:garden"], "expected_revision": runtime.authority.revision, "expected_permission_revision": runtime.authority.permission_revision})
+	_check(locked.get("ok", false), "the garden is locked before the protected placement test")
+	editor.refresh_world()
+	revision_before_preflight = runtime.authority.revision
+	permission_before_preflight = runtime.authority.permission_revision
 	editor.placement_controls["x_m"].value = 0.0
 	editor.placement_controls["z_m"].value = 395.0
 	editor._test_draft()

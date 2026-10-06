@@ -2,6 +2,7 @@ extends RefCounted
 ## Data-only creation compiler. The artifact is derived; authority must recompile
 ## editable source before admitting an instance, never trust a supplied artifact.
 
+const JSON_KERNEL = preload("res://scripts/creation_json.gd")
 const COMPILER_VERSION := 1
 const STYLE_VERSION := "painterly_v1"
 const MAX_BYTES := 32768
@@ -240,25 +241,12 @@ static func compile(manifest: Variant) -> Dictionary:
 			"fields": counts.wind, "lights": counts.light, "rotors": counts.spin}}}
 
 
-## Stable UTF-8 representation for already JSON-compatible bounded values.
-## compile performs the depth/size/type guard first; callers hashing requests
-## should likewise bound them before using this general utility.
+## EnFractal canonical JSON v1 (scripts/creation_json.gd): exact numbers, sorted keys, no
+## whitespace; byte-identical with the C# command host and tools/kernel/canonical_json.py.
+## compile performs the depth/size/type guard first; callers hashing requests should likewise
+## bound them before using this general utility. Returns "" for a value JSON cannot hold.
 static func canonical_json(value: Variant) -> String:
-	if value is Dictionary:
-		var keys: Array = value.keys()
-		keys.sort()
-		var entries: PackedStringArray = []
-		for key in keys:
-			entries.append(JSON.stringify(key) + ":" + canonical_json(value[key]))
-		return "{" + ",".join(entries) + "}"
-	if value is Array:
-		var entries: PackedStringArray = []
-		for element in value:
-			entries.append(canonical_json(element))
-		return "[" + ",".join(entries) + "]"
-	if _finite_number(value):
-		return JSON.stringify(_normalized_number(value), "", true, true)
-	return JSON.stringify(value, "", true, true)
+	return JSON_KERNEL.canonical(value)
 
 
 static func _keys(value: Variant, allowed: Array, path: String) -> Dictionary:

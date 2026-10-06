@@ -1,39 +1,49 @@
 extends RefCounted
 class_name EnfractalWorldState
-## Local prototype state: an immutable, hash-pinned map package plus sparse player edits.
+## Local prototype state: a hash-pinned room manifest plus sparse player edits.
 ## This is deliberately not an authority or permission system. Only commands already
 ## checked by the creation/permission layer may be passed to apply_validated_edit().
 
+const COMPILER = preload("res://scripts/creation_compiler.gd")
+const JSON_KERNEL = preload("res://scripts/creation_json.gd")
 const SCHEMA := "enfractal-world-state"
-# Version 2 adds the spatial-manifest digest. Version 1 saves cannot be safely
-# placed after a coordinate/decode change, so they require an explicit migration.
-const SCHEMA_VERSION := 2
+# Version 3 pins a room manifest (the SHA-256 of room.json's bytes) instead of a map package.
+# Earlier versions pinned geography and are refused rather than migrated.
+const SCHEMA_VERSION := 3
 const MAX_ENTITIES := 256
 const MAX_ACTIONS := 2048
 const MAX_COMMAND_BYTES := 16384
 const MAX_SAVE_BYTES := 4 * 1024 * 1024
 
 var world_id := ""
-var frame_id := ""
-var base_map: Dictionary = {}
+var room_pin: Dictionary = {}
 var revision := 0
 var last_error := ""
 
-# Never serialize the terrain or OSM feature package here. These dictionaries contain
-# only authored entities and action receipts for this one world.
+# Never serialize the room package here. These dictionaries contain only
+# authored entities and action receipts for this one world.
 var _entities: Dictionary = {}
 var _actions: Dictionary = {}
 
 
-func initialize(new_world_id: String, new_frame_id: String, manifest: Dictionary) -> bool:
+## The pin of a room directory: its room_id and the SHA-256 of its room.json bytes.
+static func pin_room(directory: String) -> Dictionary:
+	var path := directory.trim_suffix("/") + "/room.json"
+	if not FileAccess.file_exists(path):
+		return {}
+	var parsed: Dictionary = JSON_KERNEL.parse(FileAccess.get_file_as_string(path))
+	if not parsed.ok or not parsed.value is Dictionary or not parsed.value.get("room_id") is String:
+		return {}
+	return {"room_id": parsed.value.room_id, "manifest_sha256": FileAccess.get_sha256(path)}
+
+
+func initialize(new_world_id: String, pin: Dictionary) -> bool:
 	last_error = ""
-	var pinned_base := _pin_base(manifest)
-	if not _valid_token(new_world_id) or not _valid_token(new_frame_id) or pinned_base.is_empty():
-		last_error = "invalid_world_identity_or_base"
+	if not _valid_token(new_world_id) or not _valid_pin(pin):
+		last_error = "invalid_world_identity_or_room"
 		return false
 	world_id = new_world_id
-	frame_id = new_frame_id
-	base_map = pinned_base
+	room_pin = pin.duplicate(true)
 	revision = 0
 	_entities.clear()
 	_actions.clear()
@@ -59,9 +69,9 @@ func get_snapshot() -> Dictionary:
 
 
 func apply_validated_edit(command: Dictionary) -> Dictionary:
-	if world_id.is_empty() or base_map.is_empty():
+	if world_id.is_empty() or room_pin.is_empty():
 		return _failure("world_not_initialized")
-	if not _json_safe(command) or JSON.stringify(command, "", true).to_utf8_buffer().size() > MAX_COMMAND_BYTES:
+	if not _json_safe(command) or COMPILER.canonical_json(command).to_utf8_buffer().size() > MAX_COMMAND_BYTES:
 		return _failure("invalid_command_data")
 	var action_id: Variant = command.get("action_id")
 	var expected_revision: Variant = command.get("expected_revision")
@@ -72,7 +82,7 @@ func apply_validated_edit(command: Dictionary) -> Dictionary:
 		return _failure("invalid_expected_revision")
 	if typeof(operation) != TYPE_STRING or operation not in ["place", "update", "remove"]:
 		return _failure("unsupported_operation")
-	var fingerprint := JSON.stringify(command, "", true).sha256_text()
+	var fingerprint := COMPILER.canonical_json(command).sha256_text()
 	if _actions.has(action_id):
 		var prior: Dictionary = _actions[action_id]
 		if prior.get("fingerprint") != fingerprint:
@@ -119,7 +129,7 @@ func apply_validated_edit(command: Dictionary) -> Dictionary:
 	var receipt := {"ok": true, "revision": revision + 1, "entity_id": entity_id, "replayed": false}
 	var next_actions := _actions.duplicate(true)
 	next_actions[action_id] = {"fingerprint": fingerprint, "receipt": receipt.duplicate(true)}
-	if not _json_safe(next_entities) or JSON.stringify(_snapshot(next_entities, next_actions, revision + 1), "", true).to_utf8_buffer().size() > MAX_SAVE_BYTES:
+	if not _json_safe(next_entities) or COMPILER.canonical_json(_snapshot(next_entities, next_actions, revision + 1)).to_utf8_buffer().size() > MAX_SAVE_BYTES:
 		return _failure("state_limit")
 	_entities = next_entities
 	_actions = next_actions
@@ -132,7 +142,7 @@ func save_to_path(path: String) -> bool:
 	if world_id.is_empty() or not _valid_save_path(path):
 		last_error = "invalid_save_path_or_world"
 		return false
-	var serialized := JSON.stringify(get_snapshot(), "\t", true)
+	var serialized := COMPILER.canonical_json(get_snapshot())
 	if serialized.to_utf8_buffer().size() > MAX_SAVE_BYTES:
 		last_error = "state_limit"
 		return false
@@ -157,14 +167,13 @@ func save_to_path(path: String) -> bool:
 	return true
 
 
-func load_from_path(path: String, expected_manifest: Dictionary, expected_world_id := "", expected_frame_id := "") -> bool:
+func load_from_path(path: String, expected_pin: Dictionary, expected_world_id := "") -> bool:
 	last_error = ""
 	if not _valid_save_path(path):
 		last_error = "invalid_save_path"
 		return false
-	var expected_base := _pin_base(expected_manifest)
-	if expected_base.is_empty():
-		last_error = "invalid_expected_base"
+	if not _valid_pin(expected_pin):
+		last_error = "invalid_expected_room"
 		return false
 	var file := FileAccess.open(path, FileAccess.READ)
 	if file == null:
@@ -173,24 +182,23 @@ func load_from_path(path: String, expected_manifest: Dictionary, expected_world_
 	if file.get_length() > MAX_SAVE_BYTES:
 		last_error = "state_limit"
 		return false
-	var json := JSON.new()
-	if json.parse(file.get_as_text()) != OK or not json.data is Dictionary:
+	var parsed: Dictionary = JSON_KERNEL.parse(file.get_as_text())
+	if not parsed.ok or not parsed.value is Dictionary:
 		last_error = "invalid_save_json"
 		return false
-	var snapshot: Dictionary = json.data
+	var snapshot: Dictionary = parsed.value
 	if snapshot.get("schema") != SCHEMA or _json_integer(snapshot.get("version")) != SCHEMA_VERSION:
 		last_error = "unsupported_save_version"
 		return false
 	var loaded_world: Variant = snapshot.get("world_id")
-	var loaded_frame: Variant = snapshot.get("frame_id")
-	if typeof(loaded_world) != TYPE_STRING or typeof(loaded_frame) != TYPE_STRING or not _valid_token(loaded_world) or not _valid_token(loaded_frame):
+	if typeof(loaded_world) != TYPE_STRING or not _valid_token(loaded_world):
 		last_error = "invalid_world_identity"
 		return false
-	if (not expected_world_id.is_empty() and loaded_world != expected_world_id) or (not expected_frame_id.is_empty() and loaded_frame != expected_frame_id):
+	if not expected_world_id.is_empty() and loaded_world != expected_world_id:
 		last_error = "world_identity_mismatch"
 		return false
-	if snapshot.get("base_map") != expected_base:
-		last_error = "base_map_mismatch"
+	if snapshot.get("room_pin") != expected_pin:
+		last_error = "room_pin_mismatch"
 		return false
 	var loaded_revision := _json_integer(snapshot.get("revision"))
 	var loaded_entities: Variant = snapshot.get("entities")
@@ -225,8 +233,7 @@ func load_from_path(path: String, expected_manifest: Dictionary, expected_world_
 		old_receipt["revision"] = receipt_revision
 	# No live state changes until every identity, hash, and structure check succeeds.
 	world_id = loaded_world
-	frame_id = loaded_frame
-	base_map = expected_base
+	room_pin = expected_pin.duplicate(true)
 	revision = loaded_revision
 	_entities = loaded_entities.duplicate(true)
 	_actions = loaded_actions.duplicate(true)
@@ -238,63 +245,15 @@ func _snapshot(entities: Dictionary, actions: Dictionary, current_revision: int)
 		"schema": SCHEMA,
 		"version": SCHEMA_VERSION,
 		"world_id": world_id,
-		"frame_id": frame_id,
-		"base_map": base_map.duplicate(true),
+		"room_pin": room_pin.duplicate(true),
 		"revision": current_revision,
 		"entities": entities.duplicate(true),
 		"actions": actions.duplicate(true),
 	}
 
 
-func _pin_base(manifest: Dictionary) -> Dictionary:
-	var map_id: Variant = manifest.get("map_id")
-	var features_hash: Variant = manifest.get("features_sha256")
-	var heights_hash: Variant = manifest.get("heights_sha256")
-	if typeof(map_id) != TYPE_STRING or not _valid_token(map_id) or not _valid_sha256(features_hash) or not _valid_sha256(heights_hash):
-		return {}
-	# Identical terrain/feature bytes can land in a different place when the CRS,
-	# local origin, axis convention, dimensions, or height decoder changes. Pin
-	# those fields independently of incidental manifest text such as credits.
-	var spatial_keys := [
-		"format", "crs", "axes", "center_lat", "center_lon",
-		"center_projected_m", "side_m", "grid_side", "sample_spacing_m",
-		"tile_side_m", "height_encoding", "height_offset_m",
-		"height_scale_m", "height_origin_m", "height_min_m", "height_max_m",
-	]
-	var spatial := {}
-	for key in spatial_keys:
-		if not manifest.has(key):
-			return {}
-		spatial[key] = manifest[key]
-	if not _valid_spatial_metadata(spatial):
-		return {}
-	var spatial_hash := JSON.stringify(spatial, "", true, true).sha256_text()
-	return {
-		"map_id": map_id,
-		"features_sha256": features_hash,
-		"heights_sha256": heights_hash,
-		"spatial_manifest_sha256": spatial_hash,
-	}
-
-
-func _valid_spatial_metadata(spatial: Dictionary) -> bool:
-	for key in ["format", "crs", "axes", "height_encoding"]:
-		if typeof(spatial[key]) != TYPE_STRING or String(spatial[key]).is_empty():
-			return false
-	for key in ["center_lat", "center_lon", "height_offset_m", "height_scale_m", "height_origin_m", "height_min_m", "height_max_m"]:
-		if not _finite_number(spatial[key]):
-			return false
-	for key in ["side_m", "grid_side", "sample_spacing_m", "tile_side_m"]:
-		if not _finite_number(spatial[key]) or float(spatial[key]) <= 0.0 or float(spatial[key]) != floor(float(spatial[key])):
-			return false
-	var projected: Variant = spatial["center_projected_m"]
-	return projected is Array and projected.size() == 2 and _finite_number(projected[0]) and _finite_number(projected[1])
-
-
-func _finite_number(value: Variant) -> bool:
-	if typeof(value) != TYPE_FLOAT and typeof(value) != TYPE_INT:
-		return false
-	return not is_nan(float(value)) and not is_inf(float(value))
+func _valid_pin(pin: Dictionary) -> bool:
+	return pin.size() == 2 and pin.get("room_id") is String and _valid_token(pin.room_id) and _valid_sha256(pin.get("manifest_sha256"))
 
 
 func _valid_sha256(value: Variant) -> bool:
