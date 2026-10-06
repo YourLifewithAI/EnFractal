@@ -122,7 +122,7 @@ Build a thin Python MCP server (FastMCP) in this repository, `pipeline/roomscan/
 
 The skill's loop: ingest → assess → ask for more photos → repeat until coverage passes → layout → inventory → **founder review** → generate (tiered) → style → export → render → **founder review**. Every gate shows images, not just numbers.
 
-This server is a development and content tool. It is distinct from the in-game companion adapter, which only gets the restricted game command surface described in the earlier [AI and security study](../roadmap/research/05-ai-mcp-and-security.md).
+This server is a development and content tool. It is distinct from the in-game companion adapter, which only gets the restricted game command surface described in the earlier [AI and security study](../research/05-ai-mcp-and-security.md).
 
 ## Compute and cost, stated plainly
 

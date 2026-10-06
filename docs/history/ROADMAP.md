@@ -1,10 +1,12 @@
 # EnFractal roadmap: the player, their AI, and a world of magic
 
+> Links to files removed in the room-scale cleanup have been unlinked; those files are on the `geography-era-final` branch.
+
 > **Superseded on 6 October 2026.** The S0–S6/M7 plan below targeted the Pfluger district. The active plan is the R0–R5 sequence in the [room-scale direction](../ROOM-SCALE-DIRECTION.md). Retained as history; do not execute SP packets from this file.
 
 **Direction revision v0.4 — 2 October 2026.** The founder's current priority is a compelling **single-player experience with an embodied, personalized AI companion**. AI is the magic of the game: the player expresses an intention, including a loose or ambitious wish, and their companion interprets it and changes or acts in the world through a coherent baseline ruleset. Multiplayer is the final expansion stage. Do not spend implementation time or coding-agent tokens on multiplayer before the single-player acceptance gate is met and the founder explicitly starts that stage.
 
-This revision supersedes the earlier shared-world-first and optional-AI plan. On 2 October the founder selected native Godot with C#; the earlier browser/engine comparison is deferred. The [world vision](../WORLD-VISION.md) governs product/art intent; the [backlog](BACKLOG.md) defines actionable packets. Earlier checkpoints retain their original phase numbers as historical evidence. The new **S0–S6 / M7** sequence below must not be confused with those old phase numbers or ART-0–5.
+This revision supersedes the earlier shared-world-first and optional-AI plan. On 2 October the founder selected native Godot with C#; the earlier browser/engine comparison is deferred. The [world vision](WORLD-VISION.md) governs product/art intent; the [backlog](BACKLOG.md) defines actionable packets. Earlier checkpoints retain their original phase numbers as historical evidence. The new **S0–S6 / M7** sequence below must not be confused with those old phase numbers or ART-0–5.
 
 ## The experience we are making
 
@@ -32,7 +34,7 @@ Review baseline: published commit `750ef88284322b6ab736ba7f4bd4f333c954cd27` (2 
 | Verification | Save/travel checkpoint reports **24/24 engine suites**, plus database/adapter/recovery checks | Functional evidence does not establish art, future AI-adapter security, performance or enjoyment |
 | Multiplayer | Loopback and separate-process authority experiments | Continuous remote simulation, replication and account identity incomplete and now deferred |
 
-Evidence: [manual invention](../engine/checkpoints/manual-invention.md), [art](../engine/checkpoints/art0-3.md), [save and travel](../engine/checkpoints/save-and-travel.md), [map](../../maps/barton_creek/README.md). Preserve these systems and their saves. Ignored `.cache/postgresql/data` contains user work; never treat it as disposable cache. Existing local journeys may remain usable; further hosted travel, invitation and account work is outside active scope.
+Evidence: [manual invention](manual-invention.md), art, save and travel, map. Preserve these systems and their saves. Ignored `.cache/postgresql/data` contains user work; never treat it as disposable cache. Existing local journeys may remain usable; further hosted travel, invitation and account work is outside active scope.
 
 ## First location and player scale
 
@@ -44,7 +46,7 @@ The initial player avatar is **30 cm (0.30 m)** tall in a world retaining real g
 
 Publicly available, reusable geodata and photographs are the primary inputs. Prioritize well-documented recognizable places rather than a uniformly detailed globe. The founder's own photographs should first serve as independent validation and later fill identified gaps; a bespoke complete photo survey must not quietly become the required input for every region. Check exact coverage, dates, rights and reconstruction fitness before equating many web photos with usable 3D evidence. A recorded landmark/date/coverage audit precedes district production.
 
-Measure two qualities separately: geographic/landmark fidelity from ordinary reference viewpoints, and convincing painterly traversal from the 30 cm avatar. Coarse elevation is insufficient for curb/root/step-scale collisions; use evidence-backed close geometry where available and label procedural interpretation elsewhere. Keep bridges, decks, rails and underpasses as structures independent of bare-earth terrain. Claiming a small creative plot is a local single-player action; online ownership services remain deferred. [District and scale study](research/15-pfluger-district-and-small-avatar.md).
+Measure two qualities separately: geographic/landmark fidelity from ordinary reference viewpoints, and convincing painterly traversal from the 30 cm avatar. Coarse elevation is insufficient for curb/root/step-scale collisions; use evidence-backed close geometry where available and label procedural interpretation elsewhere. Keep bridges, decks, rails and underpasses as structures independent of bare-earth terrain. Claiming a small creative plot is a local single-player action; online ownership services remain deferred. District and scale study.
 
 ### Metric units throughout
 
@@ -120,7 +122,7 @@ Resolve the new district's source elevation datum and label inferred building/br
 
 C# owns new gameplay/domain systems and adapters. Preserve working GDScript compiler, authority, renderer helpers and regression fixtures during an incremental migration; replace a subsystem only with equivalent rules, save compatibility and passing tests. Python remains appropriate for offline geodata and the existing local save service; shaders remain Godot shaders. A language choice does not require rewriting a working data pipeline.
 
-Use the Compatibility renderer as the initial baseline and profile the actual small-avatar scene before changing rendering paths. Pin the .NET engine, SDK and build dependencies, provide a repeatable local bootstrap/build/test path, and verify a C# contract invoked from GDScript before adding gameplay. Record this machine's results separately from the untested low-device targets. The [accepted ADR](../engine/decisions/0001-native-godot-csharp.md) owns the decision; the [platform study](research/14-single-player-platform-and-engine.md) remains background research.
+Use the Compatibility renderer as the initial baseline and profile the actual small-avatar scene before changing rendering paths. Pin the .NET engine, SDK and build dependencies, provide a repeatable local bootstrap/build/test path, and verify a C# contract invoked from GDScript before adding gameplay. Record this machine's results separately from the untested low-device targets. The [accepted ADR](../engine/decisions/0001-native-godot-csharp.md) owns the decision; the [platform study](../research/14-single-player-platform-and-engine.md) remains background research.
 
 Native delivery permits a local MCP process and local saves without game hosting. Keep the agent bridge separate from the trusted save service. Distribution should eventually avoid requiring players to install development tools or operate PostgreSQL manually; evaluate that packaging behind an explicit storage adapter without discarding existing worlds.
 
@@ -136,11 +138,11 @@ Signs, chat, object names, blueprints, image/OCR content and imported-world desc
 
 First-integration attack cases include injected signs/blueprints, owner impersonation, canary-secret exfiltration, new-tool requests, guessed handles, altered approval targets, revocation during effects, chained effects reaching locked objects/terrain, oversized manifests, repeated preview/model calls and shutdown/reload during writes. Also call malicious commands directly: rules must hold if the model is completely persuaded. Any bridge needs audience-scoped credentials, current authorization and bounded outputs/usage. Do not expose the trusted localhost save endpoint as a shortcut.
 
-The [AI/security study](research/05-ai-mcp-and-security.md) retains useful contracts. Its earlier optional-workshop and late-avatar sequencing is superseded. Development assistants, player companions and future world operators have distinct credentials/tools. Codex Security can support code review; it does not replace game-specific protection or prompt-injection tests.
+The [AI/security study](../research/05-ai-mcp-and-security.md) retains useful contracts. Its earlier optional-workshop and late-avatar sequencing is superseded. Development assistants, player companions and future world operators have distinct credentials/tools. Codex Security can support code review; it does not replace game-specific protection or prompt-injection tests.
 
 ## Active phases and acceptance
 
-**Implementation progress:** [S0 native foundation](../engine/checkpoints/s0-native-foundation.md) is merged to main. The [S1 engineering checkpoint](../engine/checkpoints/s1-pfluger-avatar.md) adds the archived Pfluger source package, default native destination, two customizable avatars and a tested 150 m route. S1 art/fidelity/device acceptance remains open. [Codex profile research](../engine/decisions/0002-codex-game-profile.md) records the chosen first client and unresolved isolation proof. S2–S6 are not complete; multiplayer remains inactive.
+**Implementation progress:** [S0 native foundation](s0-native-foundation.md) is merged to main. The S1 engineering checkpoint adds the archived Pfluger source package, default native destination, two customizable avatars and a tested 150 m route. S1 art/fidelity/device acceptance remains open. [Codex profile research](0002-codex-game-profile.md) records the chosen first client and unresolved isolation proof. S2–S6 are not complete; multiplayer remains inactive.
 
 These are delivery gates, not equal-sized tasks or calendar promises. The old 360–705-hour shared-MVP estimate is superseded; do not reuse it as a single-player estimate. Estimate bounded packets and revise from observed work. Art/control work and companion-contract work can proceed together after the minimum platform/contract decisions.
 
@@ -175,7 +177,7 @@ Retain the founder's **under-$100/month ceiling**, with a **$95 planning cap** a
 
 Native single-player requires no game hosting. Measure any separately proposed AI relay costs before adopting one. The former $55 multiplayer-host allocation remains unspent, not a purchase instruction. Cloud GPU streaming, always-on autonomous agents and unbounded repair loops are not budgeted. Jobs reserve maximum supported charge/work and stop when allowance is exhausted.
 
-Revenue remains reinvested after obligations and a reserve. Pricing, subscriptions, land economies and marketplaces are deferred. The [business study](research/07-business-costs-and-reinvestment.md) is historical scenario analysis, not a launch or purchase commitment.
+Revenue remains reinvested after obligations and a reserve. Pricing, subscriptions, land economies and marketplaces are deferred. The [business study](../research/07-business-costs-and-reinvestment.md) is historical scenario analysis, not a launch or purchase commitment.
 
 Use at most two builders plus a reviewer on independent packets. Each names owned files, contracts, evidence, failure cases and a stop condition. Separate branches/worktrees across this machine and the home laptop; fetch/inspect published changes before integration. One owner integrates shared schemas/rules. Do not automatically continue into networking because an old E packet lists it next. Preserve saves and checkpoint evidence; refreshing a checkout does not require setup reruns or cache deletion.
 
@@ -193,11 +195,11 @@ Execute [SP01–SP18](BACKLOG.md) in S0–S6 order, with bounded reviewable incr
 
 | Reference | Role under this revision |
 |---|---|
-| [World vision](../WORLD-VISION.md), [backlog](BACKLOG.md) | Confirmed experience and active execution order |
-| [Platform/engine study](research/14-single-player-platform-and-engine.md) | Retained alternatives; native Godot/C# now selected |
-| [Pfluger district and small avatar](research/15-pfluger-district-and-small-avatar.md) | Active location/boundaries, public-data reconstruction, 30 cm scale and founder validation |
-| [Map](research/01-global-map.md), [imagery](research/09-maxar-open-data-assessment.md), [QGIS](research/10-qgis-mcp-assessment.md) | Geography, rights and development tooling |
-| [Earlier stack](research/02-performance-and-stack.md), [visual options](research/03-visual-style-options.md) | Alternatives; native/C# selected; faceted-atlas direction superseded |
-| [Physics](research/04-physics-and-creation-runtime.md), [AI/security](research/05-ai-mcp-and-security.md), [structured world](research/11-structured-world-and-style-system.md) | Reuse contracts; current scope/sequence overrides earlier restrictions and remote dependencies |
-| [Painterly diagnosis](research/13-painterly-pipeline-diagnosis.md), [comparables](research/12-comparables-and-layer-practices.md) | Art/generator and technical evidence |
-| [Earth/portals](research/06-persistent-earth-and-portals.md), [business](research/07-business-costs-and-reinvestment.md), [product/release](research/08-product-community-and-release.md) | Reuse local recovery/research practices; online/commercial planning deferred |
+| [World vision](WORLD-VISION.md), [backlog](BACKLOG.md) | Confirmed experience and active execution order |
+| [Platform/engine study](../research/14-single-player-platform-and-engine.md) | Retained alternatives; native Godot/C# now selected |
+| Pfluger district and small avatar | Active location/boundaries, public-data reconstruction, 30 cm scale and founder validation |
+| Map, imagery, QGIS | Geography, rights and development tooling |
+| [Earlier stack](../research/02-performance-and-stack.md), [visual options](../research/03-visual-style-options.md) | Alternatives; native/C# selected; faceted-atlas direction superseded |
+| [Physics](../research/04-physics-and-creation-runtime.md), [AI/security](../research/05-ai-mcp-and-security.md), [structured world](../research/11-structured-world-and-style-system.md) | Reuse contracts; current scope/sequence overrides earlier restrictions and remote dependencies |
+| [Painterly diagnosis](../research/13-painterly-pipeline-diagnosis.md), [comparables](../research/12-comparables-and-layer-practices.md) | Art/generator and technical evidence |
+| Earth/portals, [business](../research/07-business-costs-and-reinvestment.md), [product/release](../research/08-product-community-and-release.md) | Reuse local recovery/research practices; online/commercial planning deferred |

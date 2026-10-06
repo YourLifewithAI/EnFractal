@@ -1,6 +1,6 @@
 # Visual direction, asset pipeline, and art decision plan
 
-**Dated option survey, prepared September 30, 2026.** Its original style recommendation below is superseded by the founder's [grounded painterly 3D world vision](../../WORLD-VISION.md), confirmed October 1. The [Barton Creek Greenbelt study](../../greenbelt-style-study.md) has since produced three material/lighting captures, but no finished environment art or low-hardware benchmark. Performance figures below remain proposed acceptance targets, not observed minimum-device results. This workstream assumes one developer with coding agents, a Windows native first release, an 8 GiB integrated-graphics baseline, and an additional test on the observed RTX 2070 Super laptop with 8 GiB VRAM confirmed by the coordinating agent through `nvidia-smi`.
+**Dated option survey, prepared September 30, 2026.** Its original style recommendation below is superseded by the founder's [grounded painterly 3D world vision](../history/WORLD-VISION.md), confirmed October 1. The Barton Creek Greenbelt study has since produced three material/lighting captures, but no finished environment art or low-hardware benchmark. Performance figures below remain proposed acceptance targets, not observed minimum-device results. This workstream assumes one developer with coding agents, a Windows native first release, an 8 GiB integrated-graphics baseline, and an additional test on the observed RTX 2070 Super laptop with 8 GiB VRAM confirmed by the coordinating agent through `nvidia-smi`.
 
 ## Recommendation and decision to make
 

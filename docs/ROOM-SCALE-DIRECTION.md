@@ -2,7 +2,7 @@
 
 **Direction change, 6 October 2026.** EnFractal no longer starts from real geography at district or globe scale. It starts from **one real room or house that the player photographs**, reconstructed into individually editable game objects, restyled into something whimsical, and inhabited by a **player avatar about 10 cm tall** and a **separate avatar for the player's own AI**. The AI is the player's magic. Everything else in this repository is measured against that.
 
-The earlier vision (Barton Creek, the Pfluger district, a shared painterly Earth) is retained in Git history and in a few explicitly historical documents. It is no longer the product. See the [cleanup plan](CLEANUP-PLAN.md) for what is being removed and what carries forward.
+The earlier vision (Barton Creek, the Pfluger district, a shared painterly Earth) is no longer the product. Its code and data live on the `geography-era-final` branch; its planning documents are under `docs/history/` with superseded banners. The [cleanup plan](CLEANUP-PLAN.md) records what was removed, what carries forward and the founder decisions behind it.
 
 ## What stays true from the earlier vision
 
@@ -88,4 +88,4 @@ Multiplayer remains a later project with its own gates.
 
 - [Capture-to-Godot pipeline design](pipeline/ROOM-CAPTURE-PIPELINE.md): the MCP/skill, method recommendations, and the garage test case.
 - [Cleanup plan](CLEANUP-PLAN.md): what is deleted, kept, or generalized, and the questions that gate deletion.
-- Historical: [earlier world vision](WORLD-VISION.md), [earlier roadmap](roadmap/ROADMAP.md), [earlier backlog](roadmap/BACKLOG.md).
+- Historical: [earlier world vision](history/WORLD-VISION.md), [earlier roadmap](history/ROADMAP.md), [earlier backlog](history/BACKLOG.md).

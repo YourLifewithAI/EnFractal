@@ -1,6 +1,6 @@
 # EnFractal milestone reviews
 
-The [roadmap](../roadmap/ROADMAP.md) defines the phase exit gates. This file defines how the implementation team checks progress without treating an agent's completed patch as an accepted milestone.
+The [roadmap](../history/ROADMAP.md) defines the phase exit gates. This file defines how the implementation team checks progress without treating an agent's completed patch as an accepted milestone.
 
 ## Reporting rhythm
 
@@ -22,6 +22,6 @@ Each reviewer scores the same five dimensions, then provides a weighted total. A
 | Art, usability, and accessibility | 15% | Walking-height visual review, style consistency, controls, readable cues and reduced settings |
 | Reproducibility and maintainability | 15% | Clean build, source rights, pinned versions, documented contracts, rollback and migration path |
 
-Early phases need not implement later-phase features, but they must satisfy their own [exit evidence](../roadmap/ROADMAP.md#phases-and-exit-gates). Later phases cannot compensate for an unresolved earlier invariant by raising a subjective score.
+Early phases need not implement later-phase features, but they must satisfy their own [exit evidence](../history/ROADMAP.md#phases-and-exit-gates). Later phases cannot compensate for an unresolved earlier invariant by raising a subjective score.
 
-For the grounded painterly presentation gate, apply the separate [art rubric](phase1/painterly-reference-brief.md#paired-acceptance-review) against the founder's references and a playable walking-height route. Do not average an unacceptable visual result into acceptance using strong correctness or performance scores. The [pipeline diagnosis](../roadmap/research/13-painterly-pipeline-diagnosis.md) sets the next evidence sequence; research completion and a renderer diagnostic are not rendered-art acceptance.
+For the grounded painterly presentation gate, apply the separate art rubric against the founder's references and a playable walking-height route. Do not average an unacceptable visual result into acceptance using strong correctness or performance scores. The [pipeline diagnosis](../research/13-painterly-pipeline-diagnosis.md) sets the next evidence sequence; research completion and a renderer diagnostic are not rendered-art acceptance.

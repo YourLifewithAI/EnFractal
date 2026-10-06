@@ -14,9 +14,9 @@ The current captures do not meet the supplied references. Previous scores around
 
 | Area | Current evidence | Why it falls short | Required change |
 |---|---|---|---|
-| Tree architecture | [Workshop dressing](../../../game/scripts/workshop_art_dressing.gd), `_make_trees`: straight seven-sided cylinders and a few closed crown lobes | Repeated poles and balloons lack the branching, gaps and uneven outline of an oak | Author tapering, curving branch forks and intentional canopy groups; prove the silhouette from multiple angles |
+| Tree architecture | Workshop dressing, `_make_trees`: straight seven-sided cylinders and a few closed crown lobes | Repeated poles and balloons lack the branching, gaps and uneven outline of an oak | Author tapering, curving branch forks and intentional canopy groups; prove the silhouette from multiple angles |
 | Foliage | `_crown_mesh`: a 10-column, 4-row shell plus 16/32 opaque marks | Surface decorations cannot create depth or sky gaps inside a solid crown | Compare painted, tightly fitted leaf-cluster cards against properly shaped opaque clusters on the same branch structure |
-| Materials | Workshop and [reference-scene](../../../game/scripts/art_reference.gd) material factories use albedo colors, roughness and vertex colors without painted texture inputs | Bark, rock, soil and leaves have too little distinct surface information | Original reusable painted textures, meaningful UVs, controlled roughness and self-occlusion; broad marks following form |
+| Materials | Workshop and reference-scene material factories use albedo colors, roughness and vertex colors without painted texture inputs | Bark, rock, soil and leaves have too little distinct surface information | Original reusable painted textures, meaningful UVs, controlled roughness and self-occlusion; broad marks following form |
 | Ground and water | Large plain terrain regions, small scatter marks and narrow color ribbons | Disconnected props and abrupt edges; little sense of soil, rock strata or creek banks | A continuous terrain material treatment plus designed banks, ledges and clustered ground-cover patches |
 | Rendering correctness | Terrain face orientation and supplied normals disagree; two-sided rendering masks the visibility symptom | Lighting is evaluated on the wrong side of affected surfaces | Repair orientation and normal conventions, then rebalance lighting and material colors |
 | Low profile | Workshop disables shadows and fog outright | Removes depth and grounding along with cost | Reduce shadow distance/resolution, distant detail and tiny-object shadow casting first; preserve major forms and contacts |
@@ -54,11 +54,11 @@ An isolated runtime probe on the installed Godot **4.7.2** inspected the art-ref
 
 Reversing only the terrain indices in memory, while retaining the camera, lights and materials, restored direct illumination and visible cast shadows on the terrain. The corrected diagnostic is overbright because the existing material/light choices were made around the defective result. Do not treat it as an art improvement ready to ship. The production repair must audit other custom mesh generators, preserve collision behavior, and recalibrate light and color after correcting the geometry.
 
-The [diagnostic evidence](../../engine/phase1/painterly-render-audit.md) records the probe, captures, affected scope and remaining uncertainty. The old foliage-card failure is a separate investigation; the terrain defect does not establish its cause.
+The diagnostic evidence records the probe, captures, affected scope and remaining uncertainty. The old foliage-card failure is a separate investigation; the terrain defect does not establish its cause.
 
 ## Replace assumed performance restrictions with measurements
 
-The [art-reference budget](../../../game/styles/art_reference.json) explicitly permits zero texture pixels and disables transparency and runtime shaders. These fixture restrictions were allowed to define the art approach without a comparison showing they were necessary. They are not requirements from the founder. `StandardMaterial3D` already executes GPU shaders; “no shaders” is not a meaningful distinction. In the next implementation packet, replace the categorical restrictions with measured texture/material/overdraw budgets and the smallest material implementation that provides the required appearance.
+The art-reference budget explicitly permits zero texture pixels and disables transparency and runtime shaders. These fixture restrictions were allowed to define the art approach without a comparison showing they were necessary. They are not requirements from the founder. `StandardMaterial3D` already executes GPU shaders; “no shaders” is not a meaningful distinction. In the next implementation packet, replace the categorical restrictions with measured texture/material/overdraw budgets and the smallest material implementation that provides the required appearance.
 
 | Candidate | First experiment | Cost and limitation to measure |
 |---|---|---|
@@ -105,7 +105,7 @@ AI creation remains structured: “make a shaded path” selects approved tree/p
 
 ### Visual and performance acceptance
 
-Use the supplied images as visual targets, with the existing [reference brief](../../engine/phase1/painterly-reference-brief.md) translating them to Texas geography. Geographic grounding does **not** require dull olive colors. Warm limestone, luminous foliage, cool shade and selective saturation can preserve local identity. Borrow the relationships between light, color and forms without relabeling fantasy species as surveyed Barton vegetation.
+Use the supplied images as visual targets, with the existing reference brief translating them to Texas geography. Geographic grounding does **not** require dull olive colors. Warm limestone, luminous foliage, cool shade and selective saturation can preserve local identity. Borrow the relationships between light, color and forms without relabeling fantasy species as surveyed Barton vegetation.
 
 Review silhouette, material identity, light/color, contact, depth and composition against the references. Assess walking-height motion and at least three views; one flattering still or a white-background asset render is insufficient. If reviewers still describe the result as balloons, plasticine or a blockout, stop expansion and revise that asset/material combination. Do not award appearance points for test coverage, determinism or low triangle count. Keep the existing 8.5 visual target and separate milestone gate; do not create a new score for this research report as a substitute for rendered progress.
 

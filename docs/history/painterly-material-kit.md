@@ -1,12 +1,14 @@
 # Barton painted material and bank kit
 
+> Links to files removed in the room-scale cleanup have been unlinked; those files are on the `geography-era-final` branch.
+
 ART-2 supplies a small reusable material vocabulary for the walking-height proof. It is an original illustrative treatment of the sourced terrain, not a new survey or an accepted art milestone. The kit does not alter terrain heights, collision or semantic edit records.
 
 ## Integration
 
-Load [painterly_ground_kit.gd](../../../game/scripts/painterly_ground_kit.gd) and call `make_terrain_material(origin_xz := Vector2.ZERO)`. Before replacing the current terrain material, call `copy_terrain_source_parameters(new_material, old_material)`. Apply the new material to existing terrain instances as well as the material used by newly streamed tiles.
+Load painterly_ground_kit.gd and call `make_terrain_material(origin_xz := Vector2.ZERO)`. Before replacing the current terrain material, call `copy_terrain_source_parameters(new_material, old_material)`. Apply the new material to existing terrain instances as well as the material used by newly streamed tiles.
 
-The [ground shader](../../../game/shaders/painterly_ground.gdshader) retains the source renderer's elevation, slope, imagery-mask and palette uniforms. Outside a softly blended patch centered at `(0, 350)`, it uses the existing source interpretation. Inside the patch it combines the original painted ground texture, broad variations, slope and source masks into grass, soil and limestone regions. It shades the actual terrain surface; there is no floating color overlay. Defaults are a 22 m radius with a 9 m transition; the integrated workshop sets 35 m and 10 m. These are composition choices, not measured performance limits. Semantic edit contacts apply independently of this radius throughout the authorized plot.
+The ground shader retains the source renderer's elevation, slope, imagery-mask and palette uniforms. Outside a softly blended patch centered at `(0, 350)`, it uses the existing source interpretation. Inside the patch it combines the original painted ground texture, broad variations, slope and source masks into grass, soil and limestone regions. It shades the actual terrain surface; there is no floating color overlay. Defaults are a 22 m radius with a 9 m transition; the integrated workshop sets 35 m and 10 m. These are composition choices, not measured performance limits. Semantic edit contacts apply independently of this radius throughout the authorized plot.
 
 `geographic_origin_xz` is added to rendered world XZ coordinates. If a floating-origin system moves all visible geometry, update this offset so texture placement and edit masks remain geographically stable. Every tile and semantic edit mask must use the same frame.
 
@@ -27,7 +29,7 @@ The kit binds `res://assets/art/barton/textures/ground-paint-v1.png` and `limest
 
 The ground shader uses two differently scaled samples from one repeating ground texture, plus the existing source mask. Grass and shade are controlled independently from the texture's original earth colors. A luminance-derived control blends the regional palette. Source imagery masks remain data, not source-color textures. Imported color behavior is reviewed in the installed renderer rather than assumed identical across rendering backends.
 
-[painterly_surface.gdshader](../../../game/shaders/painterly_surface.gdshader) blends the painted limestone texture using local triplanar coordinates. Texture marks travel with an edited stone. It preserves some image color differences and adds restrained, antialiased horizontal seams and a broad stain sample. A material factory provides `limestone`, `wet_limestone` and `soil` roles. Opaque back-face culling stays enabled. The shader uses four texture samples; the integrated renderer must measure their cost rather than treating them as free.
+[painterly_surface.gdshader](../../game/shaders/painterly_surface.gdshader) blends the painted limestone texture using local triplanar coordinates. Texture marks travel with an edited stone. It preserves some image color differences and adds restrained, antialiased horizontal seams and a broad stain sample. A material factory provides `limestone`, `wet_limestone` and `soil` roles. Opaque back-face culling stays enabled. The shader uses four texture samples; the integrated renderer must measure their cost rather than treating them as free.
 
 Reuse material resources across stones. `make_limestone_piece(size, seed, material)` accepts a shared material. The generator makes a tapered, beveled irregular piece with a bottom origin and 72 triangles; stable seeds reproduce its footprint, top heights and restrained face variation. Vertex alpha carries a small self-occlusion weight and is not emitted as surface transparency. These stones are render children; callers keep collision proxies and editable identities separate.
 

@@ -1,5 +1,7 @@
 # Manual invention v1 implementation contract
 
+> **Kernel record.** This describes the creation kernel as built for the retired Barton workshop. The kernel is kept; its plot bounds, terrain sampler and legacy fixture body are generalized for rooms in R0 (see the [room-scale direction](../../ROOM-SCALE-DIRECTION.md)). Scene, launcher and checkpoint references below may point at files now on the `geography-era-final` branch.
+
 This packet implements E11–E14's local manual creation loop in the existing Godot/GDScript application. It does not promote the earlier loopback network fixture into production account authentication or claim remote multiplayer acceptance. The same compiler and host-owned command service must serve editor drafts, placements, revisions and future network/AI adapters. No new hosted service or paid inference is needed.
 
 ## Portable manifest

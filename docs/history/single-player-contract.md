@@ -2,7 +2,7 @@
 
 > **Superseded on 6 October 2026.** The first journey below is set at the Pfluger bridge with a 0.30 m player. The room-scale replacement is in the [room-scale direction](../ROOM-SCALE-DIRECTION.md). The targeting, protection and companion-boundary sections remain the intended rules and will be folded into the new contract.
 
-Accepted product decisions, 2 October 2026. Implementation progress belongs in the [roadmap](../roadmap/ROADMAP.md) and phase checkpoints; this contract is not evidence that a feature already works.
+Accepted product decisions, 2 October 2026. Implementation progress belongs in the [roadmap](ROADMAP.md) and phase checkpoints; this contract is not evidence that a feature already works.
 
 ## First journey
 

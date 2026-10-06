@@ -59,11 +59,11 @@ function Get-PendingArtImport {
     param([string]$Root, [hashtable]$SettingsHashes = @{}, [switch]$SkipSettingsCheck)
     $artPath = Join-Path $Root 'assets\art\painterly'
     if (-not (Test-Path -LiteralPath $artPath -PathType Container)) {
-        throw 'The Barton painterly source assets are missing from this checkout.'
+        throw 'The painterly reference assets are missing from this checkout.'
     }
     $resources = @(Get-ChildItem -LiteralPath $artPath -Recurse -File | Where-Object Extension -In @('.png', '.glb'))
     if ($resources.Count -eq 0) {
-        throw 'No Barton PNG or GLB source assets were found for import.'
+        throw 'No painterly PNG or GLB reference assets were found for import.'
     }
     foreach ($resource in $resources) {
         $sidecarPath = $resource.FullName + '.import'

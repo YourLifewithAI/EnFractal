@@ -1,6 +1,6 @@
 # Single-player platform, engine and companion integration
 
-> **Decision recorded later on 2 October 2026:** The founder selected native Godot .NET and C# for S0–S6. The comparisons and 36-hour experiment plan below are retained research, not active work. Reopen alternatives only for demonstrated need. See the [accepted ADR](../../engine/decisions/0001-native-godot-csharp.md).
+> **Decision recorded later on 2 October 2026:** The founder selected native Godot .NET and C# for S0–S6. The comparisons and 36-hour experiment plan below are retained research, not active work. Reopen alternatives only for demonstrated need. See the [accepted ADR](../engine/decisions/0001-native-godot-csharp.md).
 
 
 Planning and primary-source verification date: **2026-10-02**. Repository baseline inspected: `750ef88`. This is a decision proposal, not an implementation report or benchmark. The work caps below limit investigation effort; they are not delivery estimates.
@@ -15,7 +15,7 @@ The implemented baseline is **Godot with GDScript, Python tooling and Godot shad
 
 ## Current geographic and avatar specimen
 
-The first-location choice is now the Pfluger Pedestrian Bridge / Lady Bird Lake district, bounded by 6th Street, Barton Springs Road, Congress Avenue and MoPac; Barton Creek content development is on hold. Test a **0.30 m player avatar in meter-scale geography**, including low camera height, curbs/roots, bridge decks, foliage occlusion and appropriately retuned locomotion. Both candidate engines must use this same scale and detail workload. Use a labeled synthetic or preserved Barton specimen if public-source auditing is not ready; do not claim it is a reconstruction of Pfluger. This does not increase the experiment cap. [Location/scale study](15-pfluger-district-and-small-avatar.md).
+The first-location choice is now the Pfluger Pedestrian Bridge / Lady Bird Lake district, bounded by 6th Street, Barton Springs Road, Congress Avenue and MoPac; Barton Creek content development is on hold. Test a **0.30 m player avatar in meter-scale geography**, including low camera height, curbs/roots, bridge decks, foliage occlusion and appropriately retuned locomotion. Both candidate engines must use this same scale and detail workload. Use a labeled synthetic or preserved Barton specimen if public-source auditing is not ready; do not claim it is a reconstruction of Pfluger. This does not increase the experiment cap. Location/scale study.
 
 ## What creative freedom requires
 

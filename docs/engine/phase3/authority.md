@@ -1,5 +1,7 @@
 # Local manual-creation authority
 
+> **Kernel record.** This describes the creation kernel as built for the retired Barton workshop. The kernel is kept; its plot bounds, terrain sampler and legacy fixture body are generalized for rooms in R0 (see the [room-scale direction](../../ROOM-SCALE-DIRECTION.md)). Scene, launcher and checkpoint references below may point at files now on the `geography-era-final` branch.
+
 `game/scripts/creation_authority.gd` is the host-owned command boundary for the manual invention editor. It is a separate `RefCounted` service, preserving the older path/platform fixture. The trusted local adapter supplies the *in-process identity argument*; no request can set its principal, owner, height, instance identity, artifact, permission grants or resource reservation. This is a local authority boundary, **not remote account authentication or completed network multiplayer**.
 
 ## Integration

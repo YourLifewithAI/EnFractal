@@ -8,7 +8,7 @@ Read the [room-scale direction](docs/ROOM-SCALE-DIRECTION.md) for the concept, t
 
 ## Status
 
-The repository is mid-transition. It previously built a geography-based world (Barton Creek, then the Pfluger district in Austin) with a 0.30 m player. That work is being removed or generalized per the [cleanup plan](docs/CLEANUP-PLAN.md), which lists every file group, its disposition and the founder questions that gate deletion. Until the plan is executed, the old launchers and tests still refer to map packages.
+The geography era is cleaned out. The repository previously built a real-place world (Barton Creek, then the Pfluger district in Austin) with a 0.30 m player; the map data, terrain runtime, district scenes, PostgreSQL save/travel service and multiplayer experiments were removed on 6 October 2026 per the [cleanup plan](docs/CLEANUP-PLAN.md). Everything removed is on the `geography-era-final` branch. The project now boots into a hand-built placeholder room (`run-room.ps1`) so the controllers have a floor while the capture pipeline is built. The kernel's room generalization and the 10 cm body retune are the R0 work described in the direction document.
 
 What carries forward from the earlier work:
 
@@ -25,6 +25,9 @@ What carries forward from the earlier work:
 - Claims need evidence: a checkpoint records what ran, on what machine, and what remains open.
 - Photo sets for test rooms live in the founder's Google Drive folder **Enfractal / Photos for space generation / <room>**. The first test case is the garage; the second is a friend's back yard.
 
-## Historical documents
+## Where things are
 
-[Earlier world vision](docs/WORLD-VISION.md), [earlier roadmap](docs/roadmap/ROADMAP.md) and [backlog](docs/roadmap/BACKLOG.md) carry a superseded banner. Checkpoints under `docs/engine/checkpoints/` record what the geography-era builds did and are candidates for removal in the cleanup plan.
+- `docs/ROOM-SCALE-DIRECTION.md` and `docs/pipeline/` are the active plan.
+- `docs/engine/` holds the kept engineering records: the platform ADR, the creation-kernel documents under `phase3/`, the persistence rules and the review rubric.
+- `docs/research/` holds the research that still applies (physics and creation runtime, AI/MCP security, structured world and style, visual style, platform, costs, product).
+- `docs/history/` holds the superseded vision, roadmap, backlog, contract and the last geography-era checkpoints, each with a superseded banner. They are context, not instructions.

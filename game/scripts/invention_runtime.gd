@@ -97,7 +97,7 @@ func set_editor_open(value: bool) -> void:
 func notice(text: String) -> void:
 	message = text
 	if hud:
-		hud.text = "BARTON · INVENTION WORKSHOP\n" + message
+		hud.text = "INVENTION WORKSHOP\n" + message
 
 func _action() -> String:
 	action_counter += 1
@@ -366,7 +366,7 @@ func _physics_process(delta: float) -> void:
 	_step_guest(delta)
 	if not editor_open:
 		var state := "effects allowed" if local_consent else "effects stopped"
-		hud.text = "BARTON · INVENTION WORKSHOP   /   " + state + "\nB Build · F Device · E Worn design · V/Q Revise · C Consent · H Camera\n" + message
+		hud.text = "INVENTION WORKSHOP   /   " + state + "\nB Build · F Device · E Worn design · V/Q Revise · C Consent · H Camera\n" + message
 	hud_card.visible = not editor_open and viewer.walking
 
 func _step_animations(delta: float) -> void:

@@ -1,10 +1,12 @@
 # Manual invention: playable local checkpoint
 
+> Links to files removed in the room-scale cleanup have been unlinked; those files are on the `geography-era-final` branch.
+
 **2 October 2026 — main roadmap Phase 3, E11–E14.** This is the general manual creation system in the actual Barton Creek map. The earlier ART-0–3 checkpoint was an art workstream; it was not this milestone. The new implementation supports source editing, contained previews, host-owned permission checks, placement/equipment, live behaviors, revision and reload without AI or a hosted service.
 
 ## Try the loop
 
-Run [`run-invention-workshop.ps1`](../../../run-invention-workshop.ps1) from the repository. It opens the actual Barton map at walking height. Normal play uses its own local invention save and preserves the older path/platform workshop save.
+Run `run-invention-workshop.ps1` from the repository. It opens the actual Barton map at walking height. Normal play uses its own local invention save and preserves the older path/platform workshop save.
 
 1. Press **B**. Start with **Updraft totem**, **Rescue pad**, **Sensor lantern**, **Spinner**, or the wearable **Storm glider**. Blank designs use exactly the same compiler.
 2. Select a part to change its shape, material, position, rotation or size. A copper guide identifies the selected part. **Shift-drag** or turn on **Move part** to move it horizontally in the study; height, rotation and size also have numeric controls. Ordinary dragging orbits and the wheel zooms. Add typed behaviors and connect their wires. Wind vectors have a **Normalize** action. Draft Undo/Redo never rolls back another world edit. Import/Export exchanges portable JSON source. Closing an unfinished new draft keeps it for this local session.
@@ -14,9 +16,9 @@ Run [`run-invention-workshop.ps1`](../../../run-invention-workshop.ps1) from the
 
 **WASD** walks, mouse looks, **Space** jumps/holds the existing glide movement, **Shift** runs, **R** recovers, **Tab** changes walking/flying, and **Escape** closes the editor or releases the mouse. Invention effects are additional approved movement capabilities. Ordinary movement remains available when consent is off. Legacy P/E/J/K/O editing shortcuts are disabled in this launcher.
 
-![Actual Godot manual creation editor](../../images/manual-invention-editor.png)
+!Actual Godot manual creation editor
 
-![Actual Barton map with placed and equipped inventions](../../images/manual-invention-play.png)
+!Actual Barton map with placed and equipped inventions
 
 ## What is implemented
 
@@ -33,7 +35,7 @@ The construction interpreter applies wind explicitly to the player controller. F
 
 ## Verification and review
 
-Reproduce with [`run-engine-tests.ps1`](../../../run-engine-tests.ps1). The added checks cover compiler acceptance/rejection, authority commands and persistence, actual mesh extents/winding, real CharacterBody motion, editor behavior, and the complete map/editor loop. The map test uses a separate temporary save. In graphical mode it also writes the two screenshots above; it clicks the visible Test/Confirm controls and routes use/revise shortcuts through the input system. Headless mode routes those events directly into the viewport.
+Reproduce with [`run-engine-tests.ps1`](../../run-engine-tests.ps1). The added checks cover compiler acceptance/rejection, authority commands and persistence, actual mesh extents/winding, real CharacterBody motion, editor behavior, and the complete map/editor loop. The map test uses a separate temporary save. In graphical mode it also writes the two screenshots above; it clicks the visible Test/Confirm controls and routes use/revise shortcuts through the input system. Headless mode routes those events directly into the viewport.
 
 Independent reviews caught and drove fixes for swept rotor bounds, stale runtime artifacts, combined wind/glide velocity bookkeeping, protected recovery, preview lifecycle, inaccessible footer controls, low-contrast selections and wearable target selection. The final independent local checkpoint review rated this implementation **8.6/10** (functionality/correctness 8.9, editor/player experience 8.3), after checking the rendered editor, direct dragging, shared read-only placement validation, and independently rerunning the authority and editor checks. The technical authority/runtime integration review rated its bounded scope **8.5/10**. The compiler/geometry review rated its scope **8.6/10**, with the compiler portion explicitly identified as self-review. These are scoped agent assessments, not a whole-game, visual-quality or player-study score.
 
@@ -48,7 +50,7 @@ The final integration freeze passes **21/21 engine suites**, including all 15 pr
 | Editor | 39 checks, zero failures; includes 900 × 600 footer visibility, selection/orbit, direct dragging, draft recovery and preview cleanup |
 | Actual map/editor loop | 76 checks, zero failures in headless, standard graphical and low graphical runs |
 
-The graphical runs use Godot 4.7.2 Compatibility on the development RTX 2070 Super. [Low-profile editor](../../images/manual-invention-editor-low.png) and [low-profile play](../../images/manual-invention-play-low.png) are additional actual-engine captures. This confirms functionality in both profiles; it does not certify frame time or memory on the target laptop. The map test checks visible mouse targets, mouse-driven part dragging and Undo, protected-placement rejection before confirmation, F/V and E/Q input routing, use distance/wearer permissions, consent, revised source reload and spawning around existing inventions.
+The graphical runs use Godot 4.7.2 Compatibility on the development RTX 2070 Super. Low-profile editor and low-profile play are additional actual-engine captures. This confirms functionality in both profiles; it does not certify frame time or memory on the target laptop. The map test checks visible mouse targets, mouse-driven part dragging and Undo, protected-placement rejection before confirmation, F/V and E/Q input routing, use distance/wearer permissions, consent, revised source reload and spawning around existing inventions.
 
 ## Remaining roadmap gates
 
@@ -56,4 +58,4 @@ This local implementation does **not** close the earlier E09/E10 remote multipla
 
 The existing path/platform relationship fixture remains independently tested and preserved; it is not yet editable through this general invention editor. The Storm glider is a functional movement composition, not finished dragon character art. General neighborhood reconstruction, free rigid-body joints, AI/MCP player creation, Home Earth partitioning, portals and subscriptions remain later work. The grounded painterly direction remains in force, while the separate visual gate is still below 8.5 and the target 8 GiB integrated-graphics laptop has not been certified. The playable build requires no hosting or paid player-inference service.
 
-Implementation detail: [contract](../phase3/manual-invention-contract.md), [compiler](../phase3/compiler.md), [authority](../phase3/authority.md), [editor](../phase3/editor.md), and [primary-source research](../phase3/research.md).
+Implementation detail: [contract](../engine/phase3/manual-invention-contract.md), [compiler](../engine/phase3/compiler.md), [authority](../engine/phase3/authority.md), [editor](../engine/phase3/editor.md), and [primary-source research](../engine/phase3/research.md).

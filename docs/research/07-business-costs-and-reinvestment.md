@@ -1,6 +1,6 @@
 # Free access subscriptions and development funding
 
-> **Current direction — 2 October 2026:** The [revised roadmap](../ROADMAP.md) and [backlog](../BACKLOG.md) govern scope and order: single-player embodied AI first, multiplayer last. This is historical scenario analysis, not current vendor pricing or a purchase instruction. The under-$100 ceiling remains; multiplayer hosting, subscriptions and billing implementation are deferred while single-player value is tested. The dated research below is retained for context.
+> **Current direction — 2 October 2026:** The [revised roadmap](../history/ROADMAP.md) and [backlog](../history/BACKLOG.md) govern scope and order: single-player embodied AI first, multiplayer last. This is historical scenario analysis, not current vendor pricing or a purchase instruction. The under-$100 ceiling remains; multiplayer hosting, subscriptions and billing implementation are deferred while single-player value is tested. The dated research below is retained for context.
 
 Planning proposal, 30 September 2026. The founder is one person working with coding agents. Early hosting and incremental AI spending must stay below $100 per month. The founder intends to put revenue back into development. The prices, quotas, conversion assumptions and revenue examples below are proposals to test, not offers, forecasts or evidence of demand.
 
