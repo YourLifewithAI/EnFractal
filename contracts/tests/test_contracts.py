@@ -49,7 +49,8 @@ EXPECTED_FAILURES = {
 
 
 def write_json(path: Path, document) -> None:
-    path.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+    # Bytes, not text: write_text turns "\n" into "\r\n" on Windows and the validator rejects CR in pinned files.
+    path.write_bytes((json.dumps(document, indent=2) + "\n").encode("utf-8"))
 
 
 def files_under(root: Path) -> dict[str, bytes]:
