@@ -1240,7 +1240,7 @@ public partial class CommandHost : Node
     {
         var layer = new CanvasLayer { Name = "ApprovalPrompt", Layer = 6 };
         AddChild(layer);
-        _prompt = new PanelContainer { Name = "ApprovalPanel", Visible = false, Position = new Vector2(380, 120), CustomMinimumSize = new Vector2(520, 0) };
+        _prompt = new PanelContainer { Name = "ApprovalPanel", Visible = false, Position = new Vector2(380, 240), CustomMinimumSize = new Vector2(520, 0) };
         var style = new StyleBoxFlat { BgColor = new Color(0.09f, 0.08f, 0.06f, 0.95f), ContentMarginLeft = 16, ContentMarginRight = 16, ContentMarginTop = 12, ContentMarginBottom = 12 };
         style.SetCornerRadiusAll(10);
         _prompt.AddThemeStyleboxOverride("panel", style);

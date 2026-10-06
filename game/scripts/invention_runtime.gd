@@ -68,8 +68,9 @@ func _ready() -> void:
 	layer.layer = 4
 	add_child(layer)
 	hud_card = PanelContainer.new()
-	hud_card.position = Vector2(16, 606)
-	hud_card.size = Vector2(760, 96)
+	# Top right: RoomHud owns the top-left panel and the bottom-wide footer.
+	hud_card.position = Vector2(704, 16)
+	hud_card.size = Vector2(560, 84)
 	var card_style := StyleBoxFlat.new()
 	card_style.bg_color = Color(0.045, 0.11, 0.12, 0.88)
 	card_style.content_margin_left = 12
