@@ -157,7 +157,9 @@ Details and the founder's reference notes are in [the Run 1 status page](runs/RU
 - **The time of day follows the real clock** and the seasons follow the calendar, with stronger swings.
 - **Avatars are felt figurines** with a few head, torso, arm and leg options for now.
 - **The companion sees what is in its line of sight.** Voice is for talking to the companion; the player uses the keyboard.
-- **No approval clicks.** Host-enforced tiers with undo, preview-then-commit, and a spoken or keyed "yes" only for the irreversible; see [the live voice design](companion/LIVE-VOICE.md). A fixed command set comes first, with a help panel. A small local model inside the game is preferred over hosted AI.
+- **No approval clicks.** Host-enforced tiers with undo, preview-then-commit, and a spoken or keyed "yes" only for the irreversible; see [the live voice design](companion/LIVE-VOICE.md). A fixed command set comes first, with a help panel.
+- **Bring your own AI.** Players connect their own AI or agent harness to the game's MCP surface. No model is bundled for now, and no hosted AI is provided. The audience is people who already use AI well. Multiplayer with players and their AIs comes later.
+- **Style before medium.** First settle one artistic style in the spirit of Tiny Glade, with camera angles that read as artistic rather than photorealistic. Material media come later.
 - **Physics:** the 10 cm body runs at 1 unit = 1 metre with no ×10 import scale, on Jolt Physics. The room renders with Forward+.
 
 ## Pointers

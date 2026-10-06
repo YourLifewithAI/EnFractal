@@ -69,9 +69,9 @@ Microphone and accessibility:
 - **Microphone mode:** toggle push-to-talk by default (the founder's decision). Open mic is opt-in, with a headset recommended for echo cancellation.
 - **Speech-off fallback:** the keyboard, through the same commands.
 
-## A local model inside the game (the founder's preference)
+## A local model inside the game (deferred)
 
-The founder prefers a small local model bundled with the game over hosted AI.
+**Superseded the same evening by the release decision below: bring your own AI.** No model ships with the game for now. This section stays as research for a possible later exploration. The fixed command grammar (the reflex and talker layers) still runs locally and needs no model.
 
 **Fast layer: no model needed.** The fixed grammar does the work.
 
@@ -86,7 +86,7 @@ The founder prefers a small local model bundled with the game over hosted AI.
 - quality on loose wishes;
 - players with weaker GPUs, where a CPU-only model is slow.
 
-**Plan:** the Run 3 actor bake-off includes the local 4B model as the leading candidate. If it passes, it is the default and hosted models are optional.
+**Plan (deferred):** a local model may join a later actor bake-off as a comparison. It is not the default.
 
 ## Cost per hour of play
 
@@ -103,14 +103,22 @@ Budget and funding:
 - **Development budget:** $10 a month for hosted actor tests, from Run 3 (approved).
 - **Scaled costs:** speech never needs to cost per use because it runs locally. If any voice path ever does, the founder's fallback is symbolic UI buttons.
 
-**Release model** (open question for the founder): this means who supplies and pays for the AI when the game ships. The options:
-1. A local model in the game. Free for players, offline and private.
-2. The player brings their own AI account, for example by signing in to OpenRouter or pasting an API key. The player pays the provider directly.
-3. The game bundles hosted AI. That needs accounts, billing and moderation, and means running a service.
+**Release model: bring your own AI (decided by the founder, 6 October 2026).** This answers who supplies and pays for the AI when the game ships. The options were:
+1. a local model in the game;
+2. the player brings their own AI;
+3. the game bundles hosted AI.
 
-Consumer subscriptions such as Claude Pro or ChatGPT Plus cannot currently be used by third-party games.
+The founder chose **(2), and widened it.** Players connect their own AI, and that includes their own agent harnesses (for example Hermes Agent, OpenClaw or a homebrew harness), not only an API key. The audience already uses AI well and wants a malleable sandbox where their AI can create and experiment. Multiplayer, with players and their AIs playing with and against each other, comes later.
+- (1) is deferred. The founder judges small local models not yet good enough, and a local model may be explored later.
+- (3) is out.
+- Developer cost for the actor is zero. Players pay their own provider, which is about $0.02–0.35 an hour depending on the model (table above).
 
-**Recommendation:** (1) as the default, with (2) as an option.
+Consumer subscriptions such as Claude Pro or ChatGPT Plus cannot currently be used by third-party games through the vendors' APIs. A player's own harness may still be signed in to one; that is between the player and their provider.
+
+**What BYOAI asks of the surface:**
+- The MCP server stays strictly vendor-neutral and harness-neutral.
+- Connecting must be easy: a documented launch command and token handoff for common harnesses, and the transports they expect.
+- The security boundary assumes an arbitrary, possibly adversarial client: tiers, player-only ops, provenance, and no files, shell, URLs or credentials. That boundary matters more, not less, when the harness is unknown.
 
 ## Hosted voice, for comparison
 
@@ -148,7 +156,7 @@ Consumer subscriptions such as Claude Pro or ChatGPT Plus cannot currently be us
    - The grammar for the core commands, the text box, captions, the help panel and visible companion states.
    - Exit when "fetch the mug" works by voice and by text.
 2. **Run 3.**
-   - The actor through thin, model-neutral adapters (local first).
+   - The actor is the player's own AI, through the MCP surface and thin adapters for common harnesses. Make connecting a harness a short, documented step.
    - The tiers replace click approvals; red-team in-world injection.
    - Exit when a loose wish completes with zero clicks.
 3. **Run 4.** Scenarios: dragon (T2 when contained, T3 otherwise), spaceport restyle (T3 with a preview), interrupting plans mid-way, and a talk budget.

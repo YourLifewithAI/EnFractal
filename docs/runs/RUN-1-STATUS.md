@@ -89,9 +89,14 @@ These are reproduced or verified by the integrator, and the fix rounds were in p
 - **Voice is for talking to the companion only.** The player moves and interacts with the keyboard.
 - **Microphone:** toggle push-to-talk by default. With voice toggled off, the keyboard is the default way to command the companion.
 - **Fast layer:** fixed commands, not an AI model. Players can learn the commands from **a help tab or panel** in the game.
-- **Development budget:** $10 a month is approved for testing hosted models as the actor, from Run 3. **Preferred:** a small local model bundled with the game, if one is good enough. Speech recognition and synthesis run locally. If voice ever drives scaled costs, park it in favour of symbolic communication (buttons for build, place and action types). The appeal of speech is that it keeps the screen uncluttered.
+- **Development budget:** $10 a month is approved for testing hosted models as the actor, from Run 3. Speech recognition and synthesis run locally. If voice ever drives scaled costs, park it in favour of symbolic communication (buttons for build, place and action types). The appeal of speech is that it keeps the screen uncluttered.
 - **Voice language at launch:** English voice; typed commands in every supported language.
-- **Release model** (who supplies the AI when the game ships): the founder asked for an explanation. Still open.
+- **Release model: bring your own AI (BYOAI)** (decided later the same evening).
+  - Players bring their own AI, including their own harnessed agents (for example Hermes Agent, OpenClaw or a homebrew harness), and connect it to the game's MCP surface.
+  - The audience is people who already use AI well and want to give their AI a malleable sandbox to create and experiment in. Multiplayer, with players and their AIs playing with and against each other, comes later.
+  - No model is bundled with the game for now. A built-in model may be explored later, but the founder judges small models not yet good enough.
+  - BYOAI is also the cheapest model for the developers.
+  - The open work: make connecting as easy as possible while still supporting arbitrary harnesses.
 
 **Look**
 - **Light comes only from real sources:** windows and lamps. No "lid lifted off" sunlight. Closing the blinds or turning off the lights makes the room dark, and that has gameplay potential.
@@ -100,6 +105,7 @@ These are reproduced or verified by the integrator, and the fix rounds were in p
 - **Time of day follows the real clock by default** (seasons already follow the calendar).
 - **Avatars are felt figurines,** soft and pliable. For now: three options each for the head, torso, arms and legs, mostly colour variations. Modular appearance comes later; gameplay first.
 - **The player chooses a material medium** (felt, stone, clay, yarn, cardboard and so on), and every surface and object in the game manifests in that medium. Objects can track their real material, or follow the chosen theme. Each medium needs research into real handcrafted work in that medium, to guide the AI restyle.
+- **Style before medium (later the same evening).** Do not pick a first material medium yet; media come later. First settle one artistic style in the spirit of Tiny Glade, and work on camera angles so the scene reads as artistic, not photorealistic.
 - **Cameras:** the player can choose over-the-shoulder, first person, or an **isometric or high-angle view** that shows more of the world around the character. All views gently blur the foreground and background.
 - **Depth of field:** while moving, focus follows the player and companion. When building and zoomed out, focus follows the mouse, or a free camera the player controls.
 - **Feel:** "fanciful" and "cozy" are the words the founder wants players to use. Warm twilight and sunset pastels (orange, gold, light blue). Fairy lights and glowing windows give a handcrafted warmth. Cottage-core is apt.
@@ -131,7 +137,8 @@ The images stay in Google Drive (`Enfractal/Art inspiration`) and are cited by f
 - **L.**
   - Replace the diorama key light with lighting from room sources only. That needs windows: the integrator will add a window opening and its light hints to `tools/rooms/build_test_room.py` and regenerate the room.
   - Make the swings stronger, use the real clock by default, and add depth-of-field modes: follow the avatars, and follow the cursor or free camera while building.
-  - Felt figurine avatars, and a preset per material medium (which medium comes first is an open question).
+  - First, one artistic style in the spirit of Tiny Glade, and camera angles that read as artistic rather than photorealistic. Material media are deferred.
+  - Felt figurine avatars.
 - **P.**
   - Isometric and free build cameras (with P5).
   - Light switches and blinds as physical, puzzle-like interactions at 10 cm (P3 sandbox verbs).
