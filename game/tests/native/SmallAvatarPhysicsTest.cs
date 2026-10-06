@@ -508,14 +508,16 @@ public partial class SmallAvatarPhysicsTest : Node3D
         Check(edge.Transitions <= 2 && (edge.Drift < 0.0005f || edge.FloorRatio > 0.8f), $"half over the book edge either holds or slides off once: {Describe(edge)}");
         var rug = byName["walk_across_rug"];
         Check(rug.FloorRatio >= 0.97f && rug.Transitions <= 6 && rug.RoughnessMax < 0.008f, $"walking over the rug edges stays grounded: {Describe(rug)}");
+        Check(ProjectSettings.GetSetting("physics/3d/physics_engine").AsString() == "Jolt Physics", "the project runs Jolt Physics, the engine these thresholds were measured on");
         var push = byName["push_into_book_side"];
         Check(push.Drift < 0.0005f && push.VerticalSpread < 0.0005f, $"pushing into a wall does not vibrate: {Describe(push)}");
         foreach (var angle in new[] { "10", "20", "30", "40" })
         {
             var up = byName["walk_up_slope_" + angle];
             var down = byName["walk_down_slope_" + angle];
-            Check(up.FloorRatio >= 0.95f, $"walking up a {angle} degree slope stays grounded: {Describe(up)}");
-            Check(down.FloorRatio >= 0.95f, $"walking down a {angle} degree slope stays grounded: {Describe(down)}");
+            // Jolt walks slopes smoothly; Godot Physics stuttered here (RMS 0.57 to 0.81 mm per tick squared on 20 and 30 degrees).
+            Check(up.FloorRatio >= 0.95f && up.RoughnessRms < 0.0005f, $"walking up a {angle} degree slope stays grounded and smooth: {Describe(up)}");
+            Check(down.FloorRatio >= 0.95f && down.RoughnessRms < 0.0005f, $"walking down a {angle} degree slope stays grounded and smooth: {Describe(down)}");
         }
     }
 
