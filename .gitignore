@@ -16,3 +16,6 @@ __pycache__/
 
 # Interrupted pytest cache staging on Windows
 pytest-cache-files-*/
+
+# Photos and derived data of real rooms stay local; never commit them without the founder's approval.
+captures/
