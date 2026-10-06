@@ -1,6 +1,8 @@
 extends SceneTree
+## Bounded world physics through the real C# body: presets, revisions, gravity, wind and refusal of
+## invalid profiles. Gravity changes how long a fall or jump lasts; the body's jump height does not change.
 
-const PlayerScene = preload("res://scenes/player_test.tscn")
+const Player = preload("res://scripts/native/SmallPlayerController.cs")
 const Profile = preload("res://scripts/world_physics_profile.gd")
 
 
@@ -8,60 +10,79 @@ func _initialize() -> void:
 	call_deferred("_run")
 
 
-func _flat_height(_x: float, _z: float) -> float:
-	return 0.0
-
-
 func _run() -> void:
-	var player: CharacterBody3D = PlayerScene.instantiate()
+	var floor := StaticBody3D.new()
+	var shape := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = Vector3(20, 0.1, 20)
+	shape.shape = box
+	floor.add_child(shape)
+	floor.position = Vector3(0, -0.05, 0)
+	root.add_child(floor)
+	var player = Player.new()
+	player.ReadKeyboard = false
 	root.add_child(player)
-	player.configure(Callable(self, "_flat_height"), 1000.0)
-	if not player.spawn_at(0.0, 0.0, 0.0):
-		_fail("flat-world test spawn failed")
+	await _frames(5)
+	if player.WorldPhysicsId != Profile.DEFAULT["id"] or not is_equal_approx(player.GravityMps2, Profile.DEFAULT["gravity_mps2"]):
+		_fail("body did not start with the default room profile")
 		return
-	var invalid: Dictionary = Profile.preset("ridge_breeze_test", 1)
+	var invalid: Dictionary = Profile.preset("room_breeze_test", 1)
 	invalid["wind_x_mps"] = INF
-	if player.set_world_physics(invalid) or player.world_physics["revision"] != 0:
+	if player.SetWorldPhysics(invalid) or player.WorldPhysicsRevision != 0:
 		_fail("non-finite wind changed world physics")
 		return
-	invalid = Profile.preset("ridge_breeze_test", 1)
+	invalid = Profile.preset("room_breeze_test", 1)
 	invalid["wind_x_mps"] = 20.0
-	if player.set_world_physics(invalid):
+	if player.SetWorldPhysics(invalid):
 		_fail("unbounded wind was accepted")
 		return
-	if not player.set_world_physics(Profile.preset("light_gravity_test", 1)):
-		_fail("bounded light-gravity revision was rejected")
+	invalid = Profile.preset("room_tuned", 1)
+	invalid["gravity_mps2"] = 0.2
+	if player.SetWorldPhysics(invalid):
+		_fail("gravity below the room bound was accepted")
 		return
-	player.global_position = Vector3(0.0, 50.0, 0.0)
-	for i in range(30):
-		await physics_frame
-	var light_fall_speed: float = -player.velocity.y
-	if not player.set_world_physics(Profile.preset("earth_test", 2)):
-		_fail("bounded Earth revision was rejected")
+	invalid = Profile.preset("room_tuned", 1)
+	invalid["authority"] = "player"
+	if player.SetWorldPhysics(invalid):
+		_fail("a profile with an extra field was accepted")
 		return
-	player.global_position = Vector3(0.0, 50.0, 0.0)
-	player.velocity = Vector3.ZERO
-	for i in range(30):
-		await physics_frame
-	var earth_fall_speed: float = -player.velocity.y
-	if earth_fall_speed < light_fall_speed + 5.0:
-		_fail("gravity profile did not materially change falling speed")
+	if not player.SetWorldPhysics(Profile.preset("room_floaty", 1)):
+		_fail("bounded floaty revision was rejected")
 		return
-	if player.set_world_physics(Profile.preset("light_gravity_test", 1)):
+	var floaty_fall := await _fall_speed(player)
+	if not player.SetWorldPhysics(Profile.preset("room_real", 2)):
+		_fail("bounded real-gravity revision was rejected")
+		return
+	var real_fall := await _fall_speed(player)
+	if real_fall < floaty_fall + 2.0:
+		_fail("gravity profile did not materially change falling speed (%.2f vs %.2f m/s)" % [floaty_fall, real_fall])
+		return
+	if player.SetWorldPhysics(Profile.preset("room_floaty", 1)):
 		_fail("stale physics revision was accepted")
 		return
-	if not player.set_world_physics(Profile.preset("ridge_breeze_test", 3)):
+	if not player.SetWorldPhysics(Profile.preset("room_breeze_test", 3)):
 		_fail("bounded wind revision was rejected")
 		return
-	player.global_position = Vector3(0.0, 50.0, 0.0)
+	player.global_position = Vector3(0.0, 2.0, 0.0)
 	player.velocity = Vector3.ZERO
-	for i in range(30):
-		await physics_frame
-	if player.velocity.x < 3.0 or player.global_position.x < 0.4:
-		_fail("airborne wind did not move the player")
+	await _frames(30)
+	if player.velocity.x < 0.3 or player.global_position.x < 0.08:
+		_fail("airborne wind did not move the body (vx=%.3f, x=%.3f)" % [player.velocity.x, player.global_position.x])
 		return
-	print("World physics smoke passed: revision, gravity, wind, and invalid-profile bounds")
+	print("World physics smoke passed: C# body, room presets, revision, gravity, wind and invalid-profile bounds")
 	quit(0)
+
+
+func _fall_speed(player) -> float:
+	player.global_position = Vector3(0.0, 3.0, 0.0)
+	player.velocity = Vector3.ZERO
+	await _frames(30)
+	return -player.velocity.y
+
+
+func _frames(count: int) -> void:
+	for _index in range(count):
+		await physics_frame
 
 
 func _fail(message: String) -> void:

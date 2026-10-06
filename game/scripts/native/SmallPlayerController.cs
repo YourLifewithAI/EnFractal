@@ -1,29 +1,70 @@
 using Godot;
+using Godot.Collections;
 
 namespace EnFractal.Native;
 
 /// <summary>
-/// Native small-body prototype. The root is at the feet; geography stays in metres.
+/// The player's 10 cm body. The root is at the feet; the room stays in real metres. Body properties
+/// (size, speeds, step, jump height) live here; gravity and wind are world properties from
+/// scripts/world_physics_profile.gd, so a gravity change alters how long a jump lasts, not how high.
+/// Creation effects (friendly wind, worn gliders) arrive through SetCreationEffects from the
+/// invention runtime; this body never decides on its own that an effect is allowed.
 /// The procedural body is an original blockout, not accepted character art.
 /// </summary>
 [GlobalClass]
 public partial class SmallPlayerController : CharacterBody3D
 {
+    public const string WorldPhysicsScript = "res://scripts/world_physics_profile.gd";
+
     [Export] public bool ReadKeyboard { get; set; } = true;
-    [Export] public float WalkSpeedMps { get; set; } = 0.9f;
-    [Export] public float RunSpeedMps { get; set; } = 1.5f;
-    [Export] public float GravityMps2 { get; set; } = 9.8f;
-    [Export] public float JumpSpeedMps { get; set; } = 1.55f;
-    [Export] public float StepHeightM { get; set; } = 0.045f;
+    [Export] public float WalkSpeedMps { get; set; } = 0.32f;
+    [Export] public float RunSpeedMps { get; set; } = 0.60f;
+    [Export] public float GroundAccelerationMps2 { get; set; } = 4.0f;
+    [Export] public float AirAccelerationMps2 { get; set; } = 1.4f;
+    /// <summary>Jump apex above the take-off floor. Clears the 4 cm book with room to spare.</summary>
+    [Export] public float JumpApexM { get; set; } = 0.065f;
+    [Export] public float StepHeightM { get; set; } = 0.02f;
+    [Export] public float FloorSnapM { get; set; } = 0.015f;
+    [Export] public float SafeMarginM { get; set; } = 0.001f;
+    [Export] public float TerminalFallMps { get; set; } = 6.0f;
+    /// <summary>A jump pressed this long before landing still happens.</summary>
+    [Export] public float JumpBufferS { get; set; } = 0.10f;
+    /// <summary>A jump pressed this long after walking off an edge still happens.</summary>
+    [Export] public float CoyoteTimeS { get; set; } = 0.08f;
+    /// <summary>Creation-induced speed is capped relative to the body, not at human scale.</summary>
+    [Export] public float MaxCreationSpeedMps { get; set; } = 1.2f;
+    public const float MaxCreationAccelerationMps2 = 4.0f;
+    public const float MaxGlideLimitMps = 7.0f;
+
+    public float GravityMps2 { get; private set; } = 3.5f;
+    public Vector2 WindMps { get; private set; }
+    public string WorldPhysicsId { get; private set; } = "room_tuned";
+    public int WorldPhysicsRevision { get; private set; } = -1;
+    /// <summary>
+    /// Take-off speed whose apex, integrated at the physics tick, is JumpApexM: the discrete apex is
+    /// v^2/2g + v*dt/2, so the jump is equally high under every gravity preset.
+    /// </summary>
+    public float JumpSpeedMps
+    {
+        get
+        {
+            var half = GravityMps2 * 0.5f / Engine.PhysicsTicksPerSecond;
+            return -half + Mathf.Sqrt(half * half + 2.0f * GravityMps2 * JumpApexM);
+        }
+    }
 
     public bool InputEnabled { get; private set; } = true;
     public Camera3D EyeCamera { get; private set; } = null!;
     public float BodyHeightM => (float)Profile.HeightMeters;
     public float BodyRadiusM => (float)Profile.RadiusMeters;
+    public float ReachM => (float)Profile.InteractionReachMeters;
     public int StepsClimbed { get; private set; }
+    public int JumpsStarted { get; private set; }
     public bool IsBlocked { get; private set; }
     public Color AppearanceColor { get; private set; } = new("d28f63");
     public Vector3 LastSafePosition { get; private set; }
+    public Vector3 CreationVelocity => _creationVelocity;
+    public bool HasCreationGuard { get; private set; }
 
     protected virtual WorldScaleProfile Profile => WorldScaleProfile.SmallPlayer;
     protected Node3D VisualRoot = null!;
@@ -32,12 +73,18 @@ public partial class SmallPlayerController : CharacterBody3D
 
     private CapsuleShape3D _capsule = null!;
     private Vector2 _control;
-    private bool _jumpRequested;
+    private float _jumpBuffer;
+    private float _coyote;
     private bool _sprint;
     private float _pitch;
     private Vector3 _spawnPoint;
     private bool _ready;
     private readonly KinematicCollision3D _stepContact = new();
+    private Vector3 _creationAcceleration;
+    private Vector3 _creationVelocity;
+    private Vector3 _creationApplied;
+    private float _creationGlideLimit;
+    private Callable _creationGuard;
 
     public override void _Ready()
     {
@@ -45,8 +92,8 @@ public partial class SmallPlayerController : CharacterBody3D
         CollisionLayer = 2;
         // A companion must never become an obstacle trapping direct player control.
         CollisionMask = 1;
-        SafeMargin = 0.001f;
-        FloorSnapLength = 0.025f;
+        SafeMargin = SafeMarginM;
+        FloorSnapLength = FloorSnapM;
         FloorMaxAngle = Mathf.DegToRad(45.0f);
         FloorStopOnSlope = true;
         FloorConstantSpeed = true;
@@ -56,13 +103,16 @@ public partial class SmallPlayerController : CharacterBody3D
             Name = "SmallBodyCollision", Shape = _capsule,
             Position = Vector3.Up * (BodyHeightM * 0.5f)
         });
+        // Near plane well inside the capsule radius so a wall a body-width away never clips; a room-scale
+        // far plane keeps depth precision for the Compatibility renderer.
         EyeCamera = new Camera3D
         {
             Name = "EyeCamera", Position = Vector3.Up * (float)Profile.EyeHeightMeters,
-            Near = 0.01f, Far = 2500.0f, Fov = 72.0f, Current = false
+            Near = Mathf.Min(0.01f, BodyRadiusM * 0.25f), Far = 100.0f, Fov = 72.0f, Current = false
         };
         AddChild(EyeCamera);
         BuildVisual();
+        if (WorldPhysicsRevision < 0) ApplyWorldPhysics(DefaultWorldPhysics());
         _spawnPoint = GlobalPosition;
         LastSafePosition = _spawnPoint;
         _ready = true;
@@ -85,9 +135,10 @@ public partial class SmallPlayerController : CharacterBody3D
             RadialSegments = 12, Rings = 6
         }, new Vector3(0, BodyHeightM * 0.81f, 0), face);
         var dark = new StandardMaterial3D { AlbedoColor = new Color("183631"), Roughness = 1 };
+        var eye = BodyRadiusM * 0.117f;
         foreach (var side in new[] { -1.0f, 1.0f })
-            AddMesh(VisualRoot, new SphereMesh { Radius = 0.007f, Height = 0.014f, RadialSegments = 8, Rings = 4 },
-                new Vector3(side * 0.020f, BodyHeightM * 0.83f, -BodyRadiusM * 0.72f), dark);
+            AddMesh(VisualRoot, new SphereMesh { Radius = eye, Height = eye * 2, RadialSegments = 8, Rings = 4 },
+                new Vector3(side * BodyRadiusM * 0.333f, BodyHeightM * 0.83f, -BodyRadiusM * 0.72f), dark);
     }
 
     protected static MeshInstance3D AddMesh(Node3D parent, Mesh mesh, Vector3 position, Material material)
@@ -104,11 +155,11 @@ public partial class SmallPlayerController : CharacterBody3D
         if (BodyMaterial != null) BodyMaterial.AlbedoColor = AppearanceColor;
     }
 
-    /// <summary>Right and forward input, clamped to the unit disc. Retained until replaced.</summary>
+    /// <summary>Right and forward input, clamped to the unit disc. Retained until replaced. A jump request is buffered briefly.</summary>
     public void SetControlInput(Vector2 rightForward, bool jump = false, bool sprint = false)
     {
         _control = rightForward.IsFinite() ? rightForward.LimitLength() : Vector2.Zero;
-        _jumpRequested = InputEnabled && jump;
+        if (InputEnabled && jump) _jumpBuffer = JumpBufferS;
         _sprint = sprint;
     }
 
@@ -116,7 +167,7 @@ public partial class SmallPlayerController : CharacterBody3D
     {
         InputEnabled = enabled;
         _control = Vector2.Zero;
-        _jumpRequested = false;
+        _jumpBuffer = 0;
         Velocity = new Vector3(0, Velocity.Y, 0);
     }
 
@@ -125,27 +176,112 @@ public partial class SmallPlayerController : CharacterBody3D
         if (feetPosition.IsFinite()) _spawnPoint = feetPosition;
     }
 
+    /// <summary>The trusted host's gravity and wind. Accepts only a valid profile with a newer revision.</summary>
+    public bool SetWorldPhysics(Dictionary profile)
+    {
+        var script = GD.Load<GDScript>(WorldPhysicsScript);
+        if (!script.Call("validate", profile).AsBool() || profile["revision"].AsInt32() <= WorldPhysicsRevision) return false;
+        ApplyWorldPhysics(profile);
+        return true;
+    }
+
+    /// <summary>Playtest seam: switch to the next gravity preset (G key). Returns the new preset id.</summary>
+    public string CycleWorldPhysics()
+    {
+        var script = GD.Load<GDScript>(WorldPhysicsScript);
+        var ids = script.GetScriptConstantMap()["PRESET_IDS"].AsGodotArray();
+        var next = 0;
+        for (var index = 0; index < ids.Count; index++)
+            if (ids[index].AsString() == WorldPhysicsId) next = (index + 1) % ids.Count;
+        var profile = script.Call("preset", ids[next], WorldPhysicsRevision + 1).AsGodotDictionary();
+        SetWorldPhysics(profile);
+        GD.Print($"PHYSICS_PROFILE {WorldPhysicsId} gravity={GravityMps2:0.##} m/s2 jump={JumpApexM * 100:0.#} cm airtime={2 * JumpSpeedMps / GravityMps2:0.00} s");
+        return WorldPhysicsId;
+    }
+
+    /// <summary>Test seam for the ×10 import-scale measurement only: it bypasses the room gravity bounds.</summary>
+    internal void SetGravityForScaleProbe(float gravity) => GravityMps2 = gravity;
+
+    private static Dictionary DefaultWorldPhysics() =>
+        GD.Load<GDScript>(WorldPhysicsScript).GetScriptConstantMap()["DEFAULT"].AsGodotDictionary();
+
+    private void ApplyWorldPhysics(Dictionary profile)
+    {
+        WorldPhysicsId = profile["id"].AsString();
+        WorldPhysicsRevision = profile["revision"].AsInt32();
+        GravityMps2 = (float)profile["gravity_mps2"].AsDouble();
+        WindMps = new Vector2((float)profile["wind_x_mps"].AsDouble(), (float)profile["wind_z_mps"].AsDouble());
+    }
+
+    /// <summary>
+    /// Creation forces for the next physics ticks. Without a valid position guard, or with a non-finite
+    /// acceleration, every creation contribution is removed at once (consent revoked, effect expired).
+    /// </summary>
+    public void SetCreationEffects(Vector3 acceleration, float glideLimit, Callable positionGuard)
+    {
+        if (!IsCallable(positionGuard) || !acceleration.IsFinite() || !float.IsFinite(glideLimit))
+        {
+            ClearCreationMotion();
+            return;
+        }
+        if (acceleration.IsZeroApprox())
+        {
+            Velocity -= _creationApplied;
+            _creationApplied = Vector3.Zero;
+            _creationVelocity = Vector3.Zero;
+        }
+        _creationAcceleration = acceleration.LimitLength(MaxCreationAccelerationMps2);
+        _creationGlideLimit = Mathf.Clamp(glideLimit, 0, MaxGlideLimitMps);
+        _creationGuard = positionGuard;
+        HasCreationGuard = true;
+    }
+
+    public void ClearCreationMotion()
+    {
+        Velocity -= _creationApplied;
+        _creationApplied = Vector3.Zero;
+        _creationVelocity = Vector3.Zero;
+        _creationAcceleration = Vector3.Zero;
+        _creationGlideLimit = 0;
+        _creationGuard = default;
+        HasCreationGuard = false;
+    }
+
+    /// <summary>Guards come from GDScript as method callables (object and method name) or from C# as delegates.</summary>
+    private static bool IsCallable(Callable callable) =>
+        callable.Delegate != null || (callable.Target != null && GodotObject.IsInstanceValid(callable.Target) && callable.Method != null && callable.Method.ToString().Length > 0);
+
+    private bool GuardAllows(Vector3 position) => !HasCreationGuard || _creationGuard.Call(position).AsBool();
+
     /// <summary>Only teleport to a supported, unoccupied surface near the supplied foot height.</summary>
     public bool TryTeleportTo(Vector3 feetPosition)
     {
         if (!_ready || !feetPosition.IsFinite() || !FindSupportedPosition(feetPosition, out var position)) return false;
         GlobalPosition = position;
         Velocity = Vector3.Zero;
-        _jumpRequested = false;
+        _jumpBuffer = 0;
         LastSafePosition = position;
         HasSafePosition = true;
         return true;
     }
 
+    /// <summary>Back to the last safe footing, else the spawn. While a creation moves the body, a checkpoint the guard refuses is skipped.</summary>
     public bool Recover()
     {
         SetControlInput(Vector2.Zero);
         Velocity = Vector3.Zero;
-        if (HasSafePosition && TryTeleportTo(LastSafePosition)) return true;
-        if (TryTeleportTo(_spawnPoint)) return true;
-        foreach (var offset in new[] { Vector3.Right, Vector3.Left, Vector3.Forward, Vector3.Back })
-            if (TryTeleportTo(_spawnPoint + offset * 0.20f)) return true;
-        return false;
+        var guarded = HasCreationGuard;
+        var recovered = false;
+        if (HasSafePosition && (!guarded || GuardAllows(LastSafePosition)) && TryTeleportTo(LastSafePosition)) recovered = true;
+        else if ((!guarded || GuardAllows(_spawnPoint)) && TryTeleportTo(_spawnPoint)) recovered = true;
+        else
+            foreach (var offset in new[] { Vector3.Right, Vector3.Left, Vector3.Forward, Vector3.Back })
+            {
+                var candidate = _spawnPoint + offset * (BodyHeightM * 0.8f);
+                if ((!guarded || GuardAllows(candidate)) && TryTeleportTo(candidate)) { recovered = true; break; }
+            }
+        ClearCreationMotion();
+        return recovered;
     }
 
     public override void _UnhandledInput(InputEvent input)
@@ -159,8 +295,10 @@ public partial class SmallPlayerController : CharacterBody3D
         }
         if (input is InputEventKey key && key.Pressed && !key.Echo)
         {
-            if (key.PhysicalKeycode == Key.Space || key.Keycode == Key.Space) _jumpRequested = true;
-            if (key.PhysicalKeycode == Key.R || key.Keycode == Key.R) Recover();
+            var code = key.PhysicalKeycode != Key.None ? key.PhysicalKeycode : key.Keycode;
+            if (code == Key.Space) _jumpBuffer = JumpBufferS;
+            if (code == Key.R) Recover();
+            if (code == Key.G) CycleWorldPhysics();
         }
     }
 
@@ -168,6 +306,9 @@ public partial class SmallPlayerController : CharacterBody3D
     {
         if (!_ready) return;
         var dt = Mathf.Clamp((float)delta, 0, 0.05f);
+        // Separate last tick's creation contribution from the body's own motion.
+        Velocity -= _creationApplied;
+        _creationApplied = Vector3.Zero;
         var control = InputEnabled ? _control : Vector2.Zero;
         var sprint = _sprint;
         if (InputEnabled && ReadKeyboard)
@@ -177,18 +318,39 @@ public partial class SmallPlayerController : CharacterBody3D
                 (Input.IsPhysicalKeyPressed(Key.W) ? 1 : 0) - (Input.IsPhysicalKeyPressed(Key.S) ? 1 : 0)).LimitLength();
             sprint = Input.IsPhysicalKeyPressed(Key.Shift);
         }
+        var onFloor = IsOnFloor();
+        _coyote = onFloor ? CoyoteTimeS : Mathf.Max(0, _coyote - dt);
         var local = new Vector3(control.X, 0, -control.Y);
         var wish = GlobalBasis * local;
         wish.Y = 0;
         var desired = wish * (sprint ? RunSpeedMps : WalkSpeedMps);
-        var acceleration = IsOnFloor() ? 9.0f : 3.0f;
+        if (!onFloor && WindMps != Vector2.Zero)
+            desired = (desired + new Vector3(WindMps.X, 0, WindMps.Y)).LimitLength(RunSpeedMps + WindMps.Length());
+        var acceleration = onFloor ? GroundAccelerationMps2 : AirAccelerationMps2;
         var horizontal = new Vector3(Velocity.X, 0, Velocity.Z).MoveToward(desired, acceleration * dt);
-        var vertical = IsOnFloor() ? Mathf.Min(0, Velocity.Y) : Mathf.Max(Velocity.Y - GravityMps2 * dt, -8.0f);
-        if (_jumpRequested && InputEnabled && IsOnFloor()) vertical = JumpSpeedMps;
-        _jumpRequested = false;
-        Velocity = new Vector3(horizontal.X, vertical, horizontal.Z);
+        var vertical = onFloor ? Mathf.Min(0, Velocity.Y) : Mathf.Max(Velocity.Y - GravityMps2 * dt, -TerminalFallMps);
+        var jumped = false;
+        if (_jumpBuffer > 0 && InputEnabled && _coyote > 0)
+        {
+            vertical = JumpSpeedMps;
+            _jumpBuffer = 0;
+            _coyote = 0;
+            jumped = true;
+            JumpsStarted++;
+        }
+        else _jumpBuffer = Mathf.Max(0, _jumpBuffer - dt);
+        // Friendly lift is an explicit game capability: upward acceleration includes weight support.
+        if (_creationAcceleration.Y > 0) vertical = Mathf.Max(vertical, 0);
+        if (_creationGlideLimit > 0) vertical = Mathf.Max(vertical, -_creationGlideLimit);
+        var own = new Vector3(horizontal.X, vertical, horizontal.Z);
+        _creationVelocity = (_creationVelocity + _creationAcceleration * dt).LimitLength(MaxCreationSpeedMps);
+        var total = own + _creationVelocity;
+        if (_creationGlideLimit > 0) total.Y = Mathf.Max(total.Y, -_creationGlideLimit);
+        _creationApplied = total - own;
+        Velocity = total;
         var before = GlobalPosition;
-        if (IsOnFloor() && vertical <= 0 && horizontal.LengthSquared() > 0.000001f && TryStep(horizontal * dt))
+        if (onFloor && !jumped && vertical <= 0 && _creationApplied == Vector3.Zero &&
+            horizontal.LengthSquared() > 0.000001f && TryStep(horizontal * dt))
         {
             // The step already includes the horizontal movement for this tick.
             Velocity = Vector3.Down * 0.05f;
@@ -196,10 +358,25 @@ public partial class SmallPlayerController : CharacterBody3D
             Velocity = new Vector3(horizontal.X, Velocity.Y, horizontal.Z);
         }
         else MoveAndSlide();
+        // Project the creation contribution along contacts the same way MoveAndSlide projects motion.
+        for (var index = 0; index < GetSlideCollisionCount(); index++)
+        {
+            var normal = GetSlideCollision(index).GetNormal();
+            if (_creationApplied.Dot(normal) < 0) _creationApplied = _creationApplied.Slide(normal);
+            if (_creationVelocity.Dot(normal) < 0) _creationVelocity = _creationVelocity.Slide(normal);
+        }
+        if (HasCreationGuard && !GuardAllows(GlobalPosition))
+        {
+            // Creation motion may not carry the body into space it is not allowed to be pushed into.
+            GlobalPosition = before;
+            Velocity = Vector3.Zero;
+            _creationApplied = Vector3.Zero;
+            _creationVelocity = Vector3.Zero;
+        }
         var actual = GlobalPosition - before;
         actual.Y = 0;
         IsBlocked = control.LengthSquared() > 0.1f && actual.LengthSquared() < 0.0000001f;
-        if (IsOnFloor() && Mathf.Abs(Velocity.Y) < 0.1f)
+        if (IsOnFloor() && Mathf.Abs(Velocity.Y) < 0.1f && (!HasCreationGuard || GuardAllows(GlobalPosition)))
         {
             LastSafePosition = GlobalPosition;
             HasSafePosition = true;
@@ -208,11 +385,12 @@ public partial class SmallPlayerController : CharacterBody3D
         VisualRoot.Visible = !EyeCamera.Current;
     }
 
-    protected bool HasSupportNear(Vector3 position, float maximumDrop = 0.12f)
+    protected bool HasSupportNear(Vector3 position, float maximumDrop = -1)
     {
-        var query = PhysicsRayQueryParameters3D.Create(position + Vector3.Up * 0.06f,
+        if (maximumDrop < 0) maximumDrop = BodyHeightM * 0.5f;
+        var query = PhysicsRayQueryParameters3D.Create(position + Vector3.Up * (BodyHeightM * 0.25f),
             position - Vector3.Up * maximumDrop, 1);
-        query.Exclude = new Godot.Collections.Array<Rid> { GetRid() };
+        query.Exclude = new Array<Rid> { GetRid() };
         var hit = GetWorld3D().DirectSpaceState.IntersectRay(query);
         return hit.Count > 0 && hit["normal"].AsVector3().Y >= Mathf.Cos(FloorMaxAngle);
     }
@@ -220,9 +398,9 @@ public partial class SmallPlayerController : CharacterBody3D
     private bool FindSupportedPosition(Vector3 requested, out Vector3 result)
     {
         result = requested;
-        var ray = PhysicsRayQueryParameters3D.Create(requested + Vector3.Up * 0.10f,
-            requested - Vector3.Up * 0.50f, 1);
-        ray.Exclude = new Godot.Collections.Array<Rid> { GetRid() };
+        var ray = PhysicsRayQueryParameters3D.Create(requested + Vector3.Up * (BodyHeightM * 0.4f),
+            requested - Vector3.Up * Mathf.Max(0.5f, BodyHeightM * 2), 1);
+        ray.Exclude = new Array<Rid> { GetRid() };
         var hit = GetWorld3D().DirectSpaceState.IntersectRay(ray);
         if (hit.Count == 0 || hit["normal"].AsVector3().Y < Mathf.Cos(FloorMaxAngle)) return false;
         // A vertical capsule touches a slope off its centre ray. Raise its lower
@@ -230,12 +408,12 @@ public partial class SmallPlayerController : CharacterBody3D
         // body against nearby geometry (including roofs and uneven terrain).
         var supportNormal = hit["normal"].AsVector3();
         var slopeClearance = BodyRadiusM * (1.0f / supportNormal.Y - 1.0f);
-        result = hit["position"].AsVector3() + Vector3.Up * (slopeClearance + 0.003f);
+        result = hit["position"].AsVector3() + Vector3.Up * (slopeClearance + SafeMarginM * 2 + 0.001f);
         var query = new PhysicsShapeQueryParameters3D
         {
             Shape = _capsule, CollisionMask = CollisionMask,
             Transform = new Transform3D(Basis.Identity, result + Vector3.Up * (BodyHeightM * 0.5f)),
-            Margin = 0.0005f, Exclude = new Godot.Collections.Array<Rid> { GetRid() }
+            Margin = SafeMarginM * 0.5f, Exclude = new Array<Rid> { GetRid() }
         };
         return GetWorld3D().DirectSpaceState.IntersectShape(query, 1).Count == 0;
     }
@@ -259,7 +437,7 @@ public partial class SmallPlayerController : CharacterBody3D
             _stepContact.GetNormal().Y < Mathf.Cos(FloorMaxAngle)) return false;
         var tread = raised.Origin + _stepContact.GetTravel();
         var rise = tread.Y - GlobalPosition.Y;
-        if (rise <= 0.003f || rise > StepHeightM + SafeMargin) return false;
+        if (rise <= SafeMargin * 3 || rise > StepHeightM + SafeMargin) return false;
         GlobalPosition += horizontalMotion + Vector3.Up * rise;
         StepsClimbed++;
         return true;

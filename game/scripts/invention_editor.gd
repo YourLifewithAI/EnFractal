@@ -56,6 +56,7 @@ var _move_changed := false
 var _move_button: CheckButton
 var _suspended_new_source: Dictionary = {}
 var _suspended_new_placement: Dictionary = {}
+var _placement_height: Variant = null
 var _suspended_undo: Array = []
 var _suspended_redo: Array = []
 var _suspended_selection := [0, 0, 0]
@@ -95,7 +96,7 @@ func _ready() -> void:
 func open_editor(instance_id := "") -> bool:
 	if runtime == null or runtime.authority == null:
 		return false
-	var snapshot: Dictionary = runtime.authority.snapshot("local_player")
+	var snapshot: Dictionary = runtime.authority.snapshot("player:local")
 	if not snapshot.get("ok", false):
 		_show_status(str(snapshot.get("message", "Workshop source is unavailable.")), true)
 		return false
@@ -109,7 +110,7 @@ func open_editor(instance_id := "") -> bool:
 			return false
 		var live: Dictionary = snapshot["instances"][instance_id]
 		draft = live["source"].duplicate(true)
-		_set_placement({"x_m": float(live["position_m"][0]), "z_m": float(live["position_m"][2]), "yaw_deg": float(live["yaw_deg"])})
+		_set_placement({"x_m": float(live["position_m"][0]), "z_m": float(live["position_m"][2]), "yaw_deg": float(live["yaw_deg"]), "y_m": float(live["position_m"][1])})
 		_undo.clear()
 		_redo.clear()
 		_selected_part = 0
@@ -419,11 +420,13 @@ func _build_preview(main: HBoxContainer) -> void:
 	var placement := HBoxContainer.new()
 	placement.add_theme_constant_override("separation", 6)
 	body.add_child(placement)
+	# The room's floor area bounds the placement controls; the authority rechecks everything at commit.
+	var limits: Dictionary = runtime.placement_limits() if runtime != null and runtime.has_method("placement_limits") else {"x_min": -2.0, "x_max": 2.0, "z_min": -2.0, "z_max": 2.0, "step": 0.05}
 	for key in ["x_m", "z_m", "yaw_deg"]:
 		var text := "X" if key == "x_m" else "Z" if key == "z_m" else "Turn"
 		placement.add_child(_label(text, 12, MUTED))
-		var spin := _spin(-60.0 if key == "x_m" else 290.0 if key == "z_m" else -180.0,
-			60.0 if key == "x_m" else 410.0 if key == "z_m" else 180.0, 0.5 if key != "yaw_deg" else 5.0)
+		var spin := _spin(float(limits.x_min) if key == "x_m" else float(limits.z_min) if key == "z_m" else -180.0,
+			float(limits.x_max) if key == "x_m" else float(limits.z_max) if key == "z_m" else 180.0, float(limits.step) if key != "yaw_deg" else 5.0)
 		spin.name = "Placement" + text
 		spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		spin.value_changed.connect(func(_value: float): _placement_changed())
@@ -822,26 +825,26 @@ func _render_wire_form() -> void:
 
 func _render_access_form() -> void:
 	_clear_form(access_form)
-	access_form.add_child(_label("Local workshop access", 15, STONE))
-	var note := _label("These controls affect the live local workshop. Preview effects never bypass consent or plot rules.", 12, MUTED)
+	access_form.add_child(_label("Room access", 15, STONE))
+	var note := _label("These controls affect the live room. Preview effects never bypass consent, room bounds or locks.", 12, MUTED)
 	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	access_form.add_child(note)
 	var roles: Dictionary = _snapshot.get("roles", {})
 	var consent: Dictionary = _snapshot.get("consent", {})
 	var local := CheckButton.new()
 	local.text = "My avatar can receive effects"
-	local.set_pressed_no_signal(bool(consent.get("local_player", true)))
+	local.set_pressed_no_signal(bool(consent.get("player:local", true)))
 	local.toggled.connect(func(enabled: bool): _change_access("local_consent", enabled))
 	access_form.add_child(local)
-	var guest := CheckButton.new()
-	guest.text = "Local guest mannequin can receive effects"
-	guest.set_pressed_no_signal(bool(consent.get("guest_player", false)))
-	guest.toggled.connect(func(enabled: bool): _change_access("guest_consent", enabled))
-	access_form.add_child(guest)
+	var companion := CheckButton.new()
+	companion.text = "Companion can receive effects"
+	companion.set_pressed_no_signal(bool(consent.get("companion:local", false)))
+	companion.toggled.connect(func(enabled: bool): _change_access("companion_consent", enabled))
+	access_form.add_child(companion)
 	var builder := CheckButton.new()
-	builder.text = "Guest may build their own inventions"
-	builder.set_pressed_no_signal(roles.get("guest_player", "visitor") == "editor")
-	builder.toggled.connect(func(enabled: bool): _change_access("guest_builder", enabled))
+	builder.text = "Companion may build its own inventions"
+	builder.set_pressed_no_signal(roles.get("companion:local", "visitor") == "editor")
+	builder.toggled.connect(func(enabled: bool): _change_access("companion_builder", enabled))
 	access_form.add_child(builder)
 	access_form.add_child(_rule())
 	access_form.add_child(_label("World revision %d  ·  permissions %d" % [expected_revision, expected_permission_revision], 12, SAGE))
@@ -1151,6 +1154,7 @@ func _remove_edge() -> void:
 
 
 func _set_placement(placement: Dictionary) -> void:
+	_placement_height = placement.get("y_m", null)
 	_building_ui = true
 	for key in ["x_m", "z_m", "yaw_deg"]:
 		if placement_controls.has(key):
@@ -1159,7 +1163,11 @@ func _set_placement(placement: Dictionary) -> void:
 
 
 func _placement() -> Dictionary:
-	return {"x_m": float(placement_controls["x_m"].value), "z_m": float(placement_controls["z_m"].value), "yaw_deg": float(placement_controls["yaw_deg"].value)}
+	var placement := {"x_m": float(placement_controls["x_m"].value), "z_m": float(placement_controls["z_m"].value), "yaw_deg": float(placement_controls["yaw_deg"].value)}
+	# The support height the draft was opened at: placement probes for a surface just above it.
+	if _placement_height != null:
+		placement["y_m"] = float(_placement_height)
+	return placement
 
 
 func _placement_changed() -> void:
@@ -1185,7 +1193,7 @@ func _test_draft() -> void:
 	if not result.get("ok", false):
 		_show_status("%s: %s" % [result.get("path", "$"), result.get("message", "Review this draft.")], true)
 		return
-	var live: Dictionary = runtime.authority.snapshot("local_player")
+	var live: Dictionary = runtime.authority.snapshot("player:local")
 	if not live.get("ok", false):
 		_show_status(str(live.get("message", "The workshop is unavailable.")), true)
 		return
@@ -1242,10 +1250,10 @@ func _change_access(kind: String, enabled: bool) -> void:
 	match kind:
 		"local_consent":
 			result = runtime.set_local_consent(enabled)
-		"guest_consent":
-			result = runtime.set_guest_consent(enabled)
-		"guest_builder":
-			result = runtime.set_guest_builder(enabled)
+		"companion_consent":
+			result = runtime.set_companion_consent(enabled)
+		"companion_builder":
+			result = runtime.set_companion_builder(enabled)
 	if not result.get("ok", false):
 		_show_status(str(result.get("message", "Access did not change.")), true)
 		_render_access_form()
@@ -1257,7 +1265,7 @@ func _change_access(kind: String, enabled: bool) -> void:
 func refresh_world() -> bool:
 	# Explicit recache preserves the draft. A changed live source must be
 	# reopened so this editor cannot overwrite it by silently rebasing.
-	var refreshed: Dictionary = runtime.authority.snapshot("local_player")
+	var refreshed: Dictionary = runtime.authority.snapshot("player:local")
 	if not refreshed.get("ok", false):
 		_show_status(str(refreshed.get("message", "The workshop is unavailable.")), true)
 		return false

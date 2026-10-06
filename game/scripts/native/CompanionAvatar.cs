@@ -3,9 +3,10 @@ using Godot;
 namespace EnFractal.Native;
 
 /// <summary>
-/// Deterministic, game-only companion body. Commands are local trusted calls;
-/// this is not an AI adapter or an authorization service. Its original geometric
-/// appearance and separate 0.24 m fixture profile do not settle final companion art/size.
+/// Deterministic, game-only companion body. Its goals arrive as enfractal.command goal.set /
+/// goal.stop through Kernel/CommandHost; this is not an AI adapter or an authorization service.
+/// It keeps its own body profile (WorldScaleProfile.Companion, 0.24 m), separate from the 10 cm
+/// player; the original geometric appearance and size do not settle final companion art.
 /// </summary>
 [GlobalClass]
 public partial class CompanionAvatar : SmallPlayerController
@@ -15,7 +16,7 @@ public partial class CompanionAvatar : SmallPlayerController
     public string CurrentIntent { get; private set; } = "stay";
     public bool GoalBlocked { get; private set; }
     public bool IsPointing => _pointer != null && _pointer.Visible;
-    protected override WorldScaleProfile Profile => new(0.24, 0.055, 0.205, 0.40);
+    protected override WorldScaleProfile Profile => WorldScaleProfile.Companion;
 
     private SmallPlayerController? _player;
     private Node3D _pointer = null!;
@@ -29,7 +30,10 @@ public partial class CompanionAvatar : SmallPlayerController
         ReadKeyboard = false;
         WalkSpeedMps = 0.80f;
         RunSpeedMps = 1.65f;
+        GroundAccelerationMps2 = 9.0f;
+        AirAccelerationMps2 = 3.0f;
         StepHeightM = 0.04f;
+        FloorSnapM = 0.025f;
         SetAppearance(new Color("65b9b0"));
         base._Ready();
         CollisionLayer = 4;

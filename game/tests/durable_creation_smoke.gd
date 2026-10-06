@@ -1,6 +1,11 @@
 extends SceneTree
 const AUTHORITY = preload("res://scripts/creation_authority.gd")
 const COMPILER = preload("res://scripts/creation_compiler.gd")
+const PLAYER := "player:local"
+const ROOM := {"room_id": "durable_fixture", "manifest_sha256": "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+	"bounds": {"min_m": [-60, -1, 290], "max_m": [60, 30, 410]}}
+const OTHER_ROOM := {"room_id": "durable_fixture", "manifest_sha256": "fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321",
+	"bounds": {"min_m": [-60, -1, 290], "max_m": [60, 30, 410]}}
 var checks := 0
 var failures := 0
 var disk: Dictionary = {}
@@ -22,8 +27,8 @@ func _save(envelope: Dictionary) -> Dictionary:
 	disk = envelope.duplicate(true)
 	return {"ok":acknowledge,"message":"Commit result unknown; recover before editing."}
 
-func _height(_x: float, _z: float) -> float:
-	return 0.0
+func _height(_x: float, _z: float, _from_y: float) -> Dictionary:
+	return {"ok": true, "height_m": 0.0, "entity_id": "shell:floor"}
 
 func _guard() -> bool:
 	return permit
@@ -35,41 +40,41 @@ func _request(authority, action: String) -> Dictionary:
 func _run() -> void:
 	var authority = AUTHORITY.new()
 	var path := "user://tests/durable_sink_%d.json" % OS.get_process_id()
-	authority.configure({"fixture":"durable"},Callable(self,"_height"),path)
+	authority.configure(ROOM,Callable(self,"_height"),path)
 	authority.persistence_sink = Callable(self,"_save")
 	authority.access_guard = Callable(self,"_guard")
 	var request := _request(authority,"first")
-	check(authority.submit("local_player",request).ok,"durable acknowledged placement")
+	check(authority.submit(PLAYER,request).ok,"durable acknowledged placement")
 	check(calls == 1 and disk.instances.size() == 1,"one sink commit with editable source")
 	check(not FileAccess.file_exists(path),"external sink never writes a competing local world file")
 	check(not disk.instances[0].has("artifact"),"derivatives not durable source")
 	var exported: Dictionary = authority.export_envelope()
 	exported.instances.clear()
-	check(authority.snapshot("local_player").instances.size() == 1,"export has no mutable reference to host state")
-	check(authority.submit("local_player",request).replayed and calls == 1,"retry uses durable receipt without duplicate commit")
+	check(authority.snapshot(PLAYER).instances.size() == 1,"export has no mutable reference to host state")
+	check(authority.submit(PLAYER,request).replayed and calls == 1,"retry uses durable receipt without duplicate commit")
 	acknowledge = false
 	var uncertain := _request(authority,"uncertain")
-	var failed: Dictionary = authority.submit("local_player",uncertain)
+	var failed: Dictionary = authority.submit(PLAYER,uncertain)
 	check(not failed.ok and authority.revision == 1,"unknown commit never acknowledges or changes visible revision")
-	check(authority.snapshot("local_player").instances.size() == 1 and disk.instances.size() == 2,"uncertainty holds old local state while database may have committed")
+	check(authority.snapshot(PLAYER).instances.size() == 1 and disk.instances.size() == 2,"uncertainty holds old local state while database may have committed")
 	permit = false
 	check(not authority.is_ready(),"host fence disables readiness")
-	check(not authority.submit("local_player",_request(authority,"blocked")).ok and calls == 2,"fenced writer cannot call persistence")
+	check(not authority.submit(PLAYER,_request(authority,"blocked")).ok and calls == 2,"fenced writer cannot call persistence")
 	permit = true
 	check(authority.load_envelope(disk).ok,"reload reconciles committed result")
-	check(authority.snapshot("local_player").instances.size() == 2,"committed creation survives lost response")
-	check(authority.submit("local_player",uncertain).replayed and calls == 2,"original action receipt survives recovery")
-	check(not authority.snapshot("local_player").consent.local_player,"recover resets consent")
+	check(authority.snapshot(PLAYER).instances.size() == 2,"committed creation survives lost response")
+	check(authority.submit(PLAYER,uncertain).replayed and calls == 2,"original action receipt survives recovery")
+	check(not authority.snapshot(PLAYER).consent[PLAYER],"recover resets consent")
 	var wrong: Dictionary = disk.duplicate(true)
-	wrong.base_pin = "different"
-	check(not authority.load_envelope(wrong).ok and not authority.is_ready(),"foreign base fails closed")
+	wrong.room_pin.manifest_sha256 = OTHER_ROOM.manifest_sha256
+	check(not authority.load_envelope(wrong).ok and not authority.is_ready(),"foreign room pin fails closed")
 	check(authority.load_envelope(disk).ok,"valid pinned envelope can recover")
 	wrong = disk.duplicate(true)
 	wrong.instances[0].source.parts[0].material = "arbitrary_shader"
 	check(not authority.load_envelope(wrong).ok,"restored source goes through same compiler")
 	var blank = AUTHORITY.new()
-	blank.configure({"fixture":"durable"},Callable(self,"_height"),"user://tests/blank_unused.json")
+	blank.configure(ROOM,Callable(self,"_height"),"user://tests/blank_unused.json")
 	check(authority.load_envelope(blank.export_envelope()).ok,"empty sandbox source accepted")
-	check(authority.snapshot("local_player").instances.is_empty(),"switching world drops old creations and receipts")
+	check(authority.snapshot(PLAYER).instances.is_empty(),"switching world drops old creations and receipts")
 	print("Durable creation adapter: %d checks, %d failures" % [checks,failures])
 	quit(0 if failures == 0 else 1)
