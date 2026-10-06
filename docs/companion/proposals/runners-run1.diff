@@ -1,0 +1,77 @@
+diff --git a/.gitattributes b/.gitattributes
+index ea7c40f..610fb20 100644
+--- a/.gitattributes
++++ b/.gitattributes
+@@ -18,3 +18,8 @@ game/styles/**/*.json text eol=lf
+ 
+ # Godot rewrites import sidecars with LF on every host; a CRLF checkout then shows them modified after each import.
+ *.import text eol=lf
++
++# Companion (A1): the proposed link schema is pinned like the contracts, and proposal patches must
++# reach Windows checkouts byte-exact or git apply refuses them.
++companion/schemas/*.json text eol=lf
++docs/companion/proposals/*.diff -text
+diff --git a/run-engine-tests.ps1 b/run-engine-tests.ps1
+index a86649e..29225b3 100644
+--- a/run-engine-tests.ps1
++++ b/run-engine-tests.ps1
+@@ -54,3 +54,15 @@ if ($probe.Stderr -or $probe.Stdout -notmatch 'Native release probe passed:') {
+     throw "Native compiler probe failed:`n$($probe.Stdout)`n$($probe.Stderr)"
+ }
+ Write-Output ($probe.Stdout.Trim().Split("`n") | Select-Object -Last 1)
++
++# Companion (A1): MCP surface, mock host, link and boundary tests in the pinned companion environment.
++# The first run needs network once to fill companion/.venv from companion/uv.lock.
++$uv = Get-Command uv -CommandType Application -ErrorAction SilentlyContinue
++if (-not $uv) { throw 'uv is required for the companion tests (companion/uv.lock); see docs/companion/README.md.' }
++$companionOutput = & $uv.Source run --project (Join-Path $PSScriptRoot 'companion') --locked --quiet `
++    python -m unittest discover -s (Join-Path $PSScriptRoot 'companion/tests') 2>&1 | ForEach-Object { "$_" }
++if ($LASTEXITCODE -ne 0) {
++    Write-Output $companionOutput
++    throw "Companion tests failed with exit code $LASTEXITCODE."
++}
++Write-Output ("companion: " + (($companionOutput | Select-String -Pattern '^Ran \d+ tests' | Select-Object -Last 1).Line))
+diff --git a/tools/linux/setup-toolchain.sh b/tools/linux/setup-toolchain.sh
+index 4108918..0b3afc6 100644
+--- a/tools/linux/setup-toolchain.sh
++++ b/tools/linux/setup-toolchain.sh
+@@ -30,5 +30,9 @@ install sdk_linux tar
+ if [ ! -x "$DEST/contracts-venv/bin/python" ]; then python3 -m venv "$DEST/contracts-venv"; fi
+ "$DEST/contracts-venv/bin/pip" install -q -r "$REPO/contracts/requirements.txt"
+ echo "ok  contract validator environment"
++python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else "the companion needs Python 3.11 or newer")'
++if [ ! -x "$DEST/companion-venv/bin/python" ]; then python3 -m venv "$DEST/companion-venv"; fi
++"$DEST/companion-venv/bin/pip" install -q --require-hashes -r "$REPO/companion/requirements.lock.txt"
++echo "ok  companion environment"
+ "$REPO/$(field engine_linux marker)" --version
+ "$DEST/dotnet/dotnet" --list-sdks
+diff --git a/tools/linux/test-all.sh b/tools/linux/test-all.sh
+index 2e72b54..cf378bc 100644
+--- a/tools/linux/test-all.sh
++++ b/tools/linux/test-all.sh
+@@ -1,12 +1,12 @@
+ #!/usr/bin/env bash
+-# Headless Linux mirror of run-engine-tests.ps1 and tools/test-room.ps1, plus the contract tests.
++# Headless Linux mirror of run-engine-tests.ps1 and tools/test-room.ps1, plus the contract and companion tests.
+ # Run tools/linux/setup-toolchain.sh first. Exits non-zero if anything fails; stderr output from
+ # Godot counts as a failure, exactly as in the Windows runners.
+ set -u
+ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+ LINUX="$REPO/.cache/linux"
+ GODOT="$LINUX/godot/Godot_v4.7.2-stable_mono_linux_x86_64/Godot_v4.7.2-stable_mono_linux.x86_64"
+-[ -x "$GODOT" ] && [ -x "$LINUX/dotnet/dotnet" ] || { echo "Run tools/linux/setup-toolchain.sh first." >&2; exit 2; }
++[ -x "$GODOT" ] && [ -x "$LINUX/dotnet/dotnet" ] && [ -x "$LINUX/companion-venv/bin/python" ] || { echo "Run tools/linux/setup-toolchain.sh first." >&2; exit 2; }
+ export DOTNET_ROOT="$LINUX/dotnet" PATH="$LINUX/dotnet:$PATH" DOTNET_CLI_HOME="$LINUX/dotnet-home" NUGET_PACKAGES="$LINUX/nuget" \
+        DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1 DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1
+ # Keep test saves away from any real player data.
+@@ -44,6 +44,10 @@ else cat "$LOG/contracts.log"; failed=1; fi
+ if (cd "$REPO" && "$LINUX/contracts-venv/bin/python" -I contracts/validate.py game/rooms/test_room game/styles/*/v*.json > "$LOG/validate.log" 2>&1); then
+   echo "PASS shipped rooms and presets validate"
+ else cat "$LOG/validate.log"; failed=1; fi
++echo "== companion"
++if (cd "$REPO" && PYTHONPATH="$REPO/companion/src" "$LINUX/companion-venv/bin/python" -m unittest discover -s companion/tests > "$LOG/companion.log" 2>&1); then
++  echo "PASS companion: $(grep -E '^Ran' "$LOG/companion.log")"
++else cat "$LOG/companion.log"; failed=1; fi
+ 
+ echo "== $([ $failed -eq 0 ] && echo GREEN || echo RED)"
+ exit $failed
