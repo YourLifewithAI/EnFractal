@@ -9,8 +9,9 @@ writes one PNG per camera plus timings.json into -OutDir, then quits. A Godot wi
 With -Baseline <commit>, the game folder of that commit is exported under .cache/look-baseline/ and the
 current harness is copied into it, so "before" captures use exactly that commit's look code.
 
-Before launching, the script checks GPU memory with nvidia-smi and waits while another job (for example
-pose estimation) holds most of it, so timings are not taken under contention.
+Before launching, the script waits until nvidia-smi shows the GPU quiet for six seconds, samples GPU memory
+during the capture, records both in timings.json, and retries (twice by default) if another job (for
+example pose estimation) used the GPU meanwhile, so timings are not taken under contention.
 
 .EXAMPLE
 pwsh -NoProfile -File tools/look/capture-look.ps1 -Label after -OutDir docs/look/reviews/run1/after -Sweep
@@ -26,7 +27,9 @@ param(
     [string]$Only = '',
     [switch]$Sweep,
     [switch]$RootViewport,
-    [int]$MaxBusyVramMiB = 4096,
+    [int]$MaxBusyVramMiB = 3072,
+    [int]$MaxBusyUtilisation = 60,
+    [int]$ContentionRetries = 2,
     [int]$TimeoutSeconds = 300
 )
 $ErrorActionPreference = 'Stop'
@@ -79,21 +82,32 @@ $import = Invoke-EnfractalNativeProcess -Toolchain $toolchain -FilePath $toolcha
     -Arguments @('--headless', '--editor', '--path', $projectPath, '--import') -TimeoutSeconds 180
 if ($import.Stderr -match 'SCRIPT ERROR:') { throw $import.Stderr }
 
-# Wait while another GPU job holds most of the card's memory.
-$gpuNote = 'nvidia-smi unavailable'
-if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) {
-    for ($attempt = 1; $attempt -le 20; $attempt++) {
-        $query = (nvidia-smi --query-gpu=name,memory.used,memory.total,utilization.gpu --format=csv,noheader,nounits | Select-Object -First 1).Split(',').ForEach({ $_.Trim() })
-        $gpuNote = "$($query[0]); $($query[1]) of $($query[2]) MiB in use and $($query[3])% utilisation before launch"
-        if ([int]$query[1] -le $MaxBusyVramMiB) { break }
-        Write-Output "GPU busy ($gpuNote); waiting 30 s (attempt $attempt of 20)"
-        Start-Sleep -Seconds 30
+$haveSmi = [bool](Get-Command nvidia-smi -ErrorAction SilentlyContinue)
+
+function Get-GpuSample {
+    $fields = (nvidia-smi --query-gpu=name,memory.used,memory.total,utilization.gpu --format=csv,noheader,nounits | Select-Object -First 1).Split(',').ForEach({ $_.Trim() })
+    [pscustomobject]@{ Name = $fields[0]; Used = [int]$fields[1]; Total = [int]$fields[2]; Utilisation = [int]$fields[3] }
+}
+
+# Another lane may run GPU jobs (pose estimation) in bursts. Wait until the card has been quiet for six
+# seconds: no large allocation and no saturating job (ordinary desktop use stays below the thresholds).
+function Wait-QuietGpu {
+    if (-not $haveSmi) { return 'nvidia-smi unavailable' }
+    $quiet = 0
+    for ($sample = 1; $sample -le 300; $sample++) {
+        $gpu = Get-GpuSample
+        if ($gpu.Used -le $MaxBusyVramMiB -and $gpu.Utilisation -le $MaxBusyUtilisation) { $quiet++ } else { $quiet = 0 }
+        if ($quiet -ge 3) {
+            return "$($gpu.Name); $($gpu.Used) of $($gpu.Total) MiB in use and $($gpu.Utilisation)% utilisation before launch (quiet for 6 s)"
+        }
+        if ($quiet -eq 0 -and $sample % 15 -eq 1) { Write-Output "GPU busy ($($gpu.Used) MiB, $($gpu.Utilisation)%); waiting for it to go quiet" | Out-Host }
+        Start-Sleep -Seconds 2
     }
-    Write-Output "GPU: $gpuNote"
+    throw 'The GPU did not go quiet within 10 minutes; another job is using it. Retry later.'
 }
 
 $userArgs = @("--cameras=$camerasPath", "--out=$outPath", "--label=$Label", "--commit=$commit$(if ($dirty) { '+uncommitted' })",
-    "--warmup=$WarmupFrames", "--frames=$MeasureFrames", "--note=$gpuNote")
+    "--warmup=$WarmupFrames", "--frames=$MeasureFrames")
 if ($Only) { $userArgs += "--only=$Only" }
 if ($Sweep) { $userArgs += '--sweep' }
 if ($RootViewport) { $userArgs += '--root-viewport' }
@@ -102,31 +116,58 @@ if ($RootViewport) { $engineArgs += @('--resolution', '1920x1080', '--position',
 else { $engineArgs += @('--resolution', '960x540', '--position', '40,40') }
 $engineArgs += @('res://tests/native_look_capture.tscn', '--') + $userArgs
 
-# A visible window is required, so this does not use the hidden-window helper the test runners use.
-$start = [System.Diagnostics.ProcessStartInfo]::new($toolchain.EnginePath)
-foreach ($argument in $engineArgs) { $start.ArgumentList.Add($argument) }
-$start.WorkingDirectory = $projectPath
-$start.UseShellExecute = $false
-$start.CreateNoWindow = $true
-$start.RedirectStandardOutput = $true
-$start.RedirectStandardError = $true
-$start.Environment['DOTNET_ROOT'] = $env:DOTNET_ROOT
-# Keep the player's real user:// data (avatar preferences, rooms) out of review captures.
-$start.Environment['APPDATA'] = Join-Path $repository '.cache/look-capture/appdata'
-$start.Environment['LOCALAPPDATA'] = Join-Path $repository '.cache/look-capture/localappdata'
-New-Item -ItemType Directory -Force $start.Environment['APPDATA'], $start.Environment['LOCALAPPDATA'] | Out-Null
-$process = [System.Diagnostics.Process]::Start($start)
-$stdoutRead = $process.StandardOutput.ReadToEndAsync()
-$stderrRead = $process.StandardError.ReadToEndAsync()
-if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
-    $process.Kill($true)
-    throw "Look capture timed out after $TimeoutSeconds s`n$($stdoutRead.Result)`n$($stderrRead.Result)"
-}
-$stdout = $stdoutRead.Result
-$stderr = $stderrRead.Result
-Set-Content -LiteralPath (Join-Path $repository ".cache/look-capture-$Label.log") -Value "$stdout`n--- stderr`n$stderr"
-if ($process.ExitCode -ne 0 -or $stdout -notmatch 'LOOK_CAPTURE_DONE') {
-    throw "Look capture failed (exit $($process.ExitCode)):`n$stdout`n$stderr"
+for ($attempt = 1; ; $attempt++) {
+    $gpuNote = Wait-QuietGpu
+    Write-Output "GPU: $gpuNote"
+    # A visible window is required, so this does not use the hidden-window helper the test runners use.
+    $start = [System.Diagnostics.ProcessStartInfo]::new($toolchain.EnginePath)
+    foreach ($argument in $engineArgs + @("--note=$gpuNote")) { $start.ArgumentList.Add($argument) }
+    $start.WorkingDirectory = $projectPath
+    $start.UseShellExecute = $false
+    $start.CreateNoWindow = $true
+    $start.RedirectStandardOutput = $true
+    $start.RedirectStandardError = $true
+    $start.Environment['DOTNET_ROOT'] = $env:DOTNET_ROOT
+    # Keep the player's real user:// data (avatar preferences, rooms) out of review captures.
+    $start.Environment['APPDATA'] = Join-Path $repository '.cache/look-capture/appdata'
+    $start.Environment['LOCALAPPDATA'] = Join-Path $repository '.cache/look-capture/localappdata'
+    New-Item -ItemType Directory -Force $start.Environment['APPDATA'], $start.Environment['LOCALAPPDATA'] | Out-Null
+    $process = [System.Diagnostics.Process]::Start($start)
+    $stdoutRead = $process.StandardOutput.ReadToEndAsync()
+    $stderrRead = $process.StandardError.ReadToEndAsync()
+    # Sample the GPU while the capture runs.
+    $samples = [System.Collections.Generic.List[object]]::new()
+    $clock = [System.Diagnostics.Stopwatch]::StartNew()
+    $finished = $false
+    while (-not ($finished = $process.WaitForExit(500)) -and $clock.Elapsed.TotalSeconds -lt $TimeoutSeconds) {
+        if ($haveSmi) { $samples.Add((Get-GpuSample)) }
+    }
+    if (-not $finished) {
+        $process.Kill($true)
+        throw "Look capture timed out after $TimeoutSeconds s`n$($stdoutRead.Result)`n$($stderrRead.Result)"
+    }
+    $stdout = $stdoutRead.Result
+    $stderr = $stderrRead.Result
+    Set-Content -LiteralPath (Join-Path $repository ".cache/look-capture-$Label.log") -Value "$stdout`n--- stderr`n$stderr"
+    if ($process.ExitCode -ne 0 -or $stdout -notmatch 'LOOK_CAPTURE_DONE') {
+        throw "Look capture failed (exit $($process.ExitCode)):`n$stdout`n$stderr"
+    }
+    # The capture itself uses well under 1.5 GiB; more than that on top of the idle baseline means another job ran.
+    $monitorNote = 'not sampled'
+    $contended = $false
+    if ($samples.Count -gt 0) {
+        $baseline = [int]([regex]::Match($gpuNote, '(\d+) of').Groups[1].Value)
+        $peak = ($samples | Measure-Object Used -Maximum).Maximum
+        $contended = $peak - $baseline -gt 1536
+        $monitorNote = "GPU memory during capture $(($samples | Measure-Object Used -Minimum).Minimum)-$peak MiB over $($samples.Count) samples$(if ($contended) { '; another job likely used the GPU during this capture' })"
+    }
+    $timingsPath = Join-Path $outPath 'timings.json'
+    $report = Get-Content -LiteralPath $timingsPath -Raw | ConvertFrom-Json
+    $report | Add-Member -NotePropertyName 'gpu_during_capture' -NotePropertyValue $monitorNote -Force
+    [System.IO.File]::WriteAllText($timingsPath, (($report | ConvertTo-Json -Depth 8) -replace "`r`n", "`n") + "`n", [System.Text.UTF8Encoding]::new($false))
+    Write-Output "GPU: $monitorNote"
+    if (-not $contended -or $attempt -gt $ContentionRetries) { break }
+    Write-Output "Retrying the capture (attempt $($attempt + 1)) because another job used the GPU."
 }
 $stdout.Split("`n") | Where-Object { $_ -match '^(LOOK|Godot Engine|Vulkan|D3D12|OpenGL)' } | ForEach-Object { Write-Output $_.TrimEnd() }
 if ($stderr.Trim()) { Write-Output "--- engine stderr (warnings) ---"; Write-Output $stderr.Trim() }
