@@ -21,9 +21,13 @@ layout(push_constant, std430) uniform Params {
 	float grain;
 	float vignette;
 	float seed;
+	float vignette_start;
+	float vignette_end;
+	float grain_fine;
+	float grain_soft;
+	float grain_soft_px;
 	float pad0;
 	float pad1;
-	float pad2;
 } params;
 
 float hash12(vec2 p) {
@@ -38,12 +42,12 @@ void main() {
 	vec4 color = imageLoad(color_image, pixel);
 	vec2 uv = (vec2(pixel) + 0.5) / params.size;
 	vec2 centred = (uv - 0.5) * vec2(params.size.x / params.size.y, 1.0);
-	float edge = smoothstep(0.45, 1.05, length(centred));
+	float edge = smoothstep(params.vignette_start, params.vignette_end, length(centred));
 	float vignette = 1.0 - params.vignette * edge;
 	// Two scales of grain: a fine tooth and a softer mottle, multiplicative so shadows stay clean.
 	float fine = hash12(vec2(pixel) + params.seed) - 0.5;
-	float soft = hash12(floor(vec2(pixel) / 3.0) + params.seed * 1.7) - 0.5;
-	float grain = 1.0 + params.grain * (fine * 1.2 + soft * 0.8);
+	float soft = hash12(floor(vec2(pixel) / max(params.grain_soft_px, 1.0)) + params.seed * 1.7) - 0.5;
+	float grain = 1.0 + params.grain * (fine * params.grain_fine + soft * params.grain_soft);
 	color.rgb *= vignette * grain;
 	imageStore(color_image, pixel, color);
 }
@@ -51,6 +55,8 @@ void main() {
 
     public float Grain { get; set; }
     public float Vignette { get; set; }
+    /// <summary>Vignette range and grain mix (x_look_post).</summary>
+    public PostTuning Tuning { get; set; } = LookTuning.Default.Post;
     /// <summary>Whether the shader compiled and the effect has run at least once (for reports and tests).</summary>
     public bool Ran { get; private set; }
     public string Error { get; private set; } = "";
@@ -91,7 +97,11 @@ void main() {
         if (renderData.GetRenderSceneBuffers() is not RenderSceneBuffersRD buffers) return;
         var size = buffers.GetInternalSize();
         if (size.X == 0 || size.Y == 0) return;
-        Span<float> constants = stackalloc float[] { size.X, size.Y, Grain, Vignette, 17.0f, 0f, 0f, 0f };
+        Span<float> constants = stackalloc float[]
+        {
+            size.X, size.Y, Grain, Vignette, 17.0f, Tuning.VignetteStart, Tuning.VignetteEnd,
+            Tuning.GrainFine, Tuning.GrainSoft, Tuning.GrainSoftPx, 0f, 0f,
+        };
         var bytes = System.Runtime.InteropServices.MemoryMarshal.AsBytes(constants).ToArray();
         var groupsX = (uint)((size.X - 1) / 8 + 1);
         var groupsY = (uint)((size.Y - 1) / 8 + 1);

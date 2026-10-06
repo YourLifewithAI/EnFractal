@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
+using System.Threading.Tasks;
 using EnFractal.Native.Room;
 
 namespace EnFractal.Native.Look;
@@ -16,38 +17,64 @@ public readonly record struct DepthOfField(bool FarEnabled, float FarDistance, f
 /// ambient, the room's captured lights, VoxelGI baked to the room bounds, soft shadows, SSAO, restrained
 /// glow, depth of field that keeps the player's reach crisp, and a colour grade driven by the preset's
 /// palette, the hour and the season. Visual only: it never changes room data, collision or protection.
-/// The renderer itself is a project setting; a mismatch with the preset is reported, not fixed here.
+///
+/// It dresses every mesh that enters the tree under its parent (the room, later rebuilds, creations): paint
+/// seeds and box edges for painterly materials, the shell's visual layer and GI modes for room entities, and
+/// a VoxelGI (re)bake whenever new shell geometry arrives. RoomWorld may also call Dress(room) directly.
+/// The renderer is a project setting; when the machine renders with something else, the look says so.
 /// </summary>
 public partial class LookDirector : Node3D
 {
     /// <summary>Visual layer for the room shell. The diorama key casts no shadows from it.</summary>
     public const uint ShellVisualLayer = 1u << 1;
-    /// <summary>Where the eye camera focuses: just beyond the player's reach.</summary>
-    public const float EyeFocusM = 0.3f;
+    /// <summary>Meta marking a VoxelGI bake stand-in material; none may remain after a bake.</summary>
+    public const string BakeStandInMeta = "look_bake_stand_in";
+    /// <summary>Meta marking a mesh the look has already dressed.</summary>
+    public const string DressedMeta = "look_dressed";
+    private const int LutCacheSize = 12;
 
     public StylePreset Preset { get; private set; } = null!;
     public int RoomLightCount { get; private set; }
+    /// <summary>Empty when the machine renders with the renderer the preset is designed for; otherwise what is missing.</summary>
     public string RendererNote { get; private set; } = "";
     public string GiNote { get; private set; } = "";
     public LookMoment Moment { get; private set; } = null!;
+    /// <summary>True once room geometry with a shell has been dressed (and baked, on a GPU).</summary>
     public bool Dressed { get; private set; }
     public VoxelGI? Gi { get; private set; }
     public Godot.Environment Environment { get; private set; } = null!;
     public DirectionalLight3D Key { get; private set; } = null!;
     /// <summary>Grain and vignette (Forward+ compositor effect), when the preset asks for them.</summary>
     public LookPostEffect? Post { get; private set; }
-    /// <summary>What depth of field focuses on when the preset says "player". RoomWorld's Player is found by name if this is not set.</summary>
+    /// <summary>Whether the running renderer supports depth of field; without it no camera attributes are set.</summary>
+    public bool DofSupported { get; private set; }
+    /// <summary>The player body depth of field focuses on. If unset, the parent's first SmallPlayerController that is not a companion.</summary>
     public Node3D? FocusTarget { get; set; }
+    /// <summary>The companion body, for presets that focus on the companion. If unset, the parent's first CompanionAvatar.</summary>
+    public Node3D? FocusCompanion { get; set; }
+    /// <summary>Things that went wrong with the look but did not stop the room: shown in reports and the review harness.</summary>
+    public IReadOnlyList<string> Warnings => _warnings;
+    /// <summary>LUTs built so far (cache misses), for tests and reports.</summary>
+    public int GradeBuilds { get; private set; }
 
     private RoomData _room = null!;
     private float? _pinnedHour;
     private int? _pinnedDay;
     private double _clockTimer;
+    private int _framesSinceApply;
     private readonly Dictionary<ulong, CameraAttributesPractical> _attributes = new();
     private readonly HashSet<ulong> _framed = new();
     private readonly List<Light3D> _roomLights = new();
-    /// <summary>How much brighter room lamps glow at full night than in full daylight.</summary>
-    public const float LampNightBoost = 1.5f;
+    private readonly List<string> _warnings = new();
+    private readonly HashSet<string> _warned = new();
+    private readonly List<MeshInstance3D> _pending = new();
+    private bool _flushQueued;
+    private Node3D? _bakeQueuedRoot;
+    private readonly Dictionary<GradeParams, ImageTexture3D> _luts = new();
+    private readonly LinkedList<GradeParams> _lutOrder = new();
+    private GradeParams? _wantedGrade;
+    private Task<byte[]>? _lutTask;
+    private GradeParams? _lutTaskKey;
 
     public void Apply(StylePreset preset, RoomData room)
     {
@@ -58,29 +85,50 @@ public partial class LookDirector : Node3D
         var world = new WorldEnvironment { Name = "Environment", Environment = Environment };
         if (preset.Grain > 0f || preset.Vignette > 0f)
         {
-            Post = new LookPostEffect { Grain = preset.Grain, Vignette = preset.Vignette };
+            Post = new LookPostEffect { Grain = preset.Grain, Vignette = preset.Vignette, Tuning = preset.Tuning.Post };
             world.Compositor = new Compositor { CompositorEffects = new Godot.Collections.Array<CompositorEffect> { Post } };
         }
         AddChild(world);
         BuildKey(preset, room);
         BuildRoomLights(preset, room);
-        var current = ProjectSettings.GetSetting("rendering/renderer/rendering_method").AsString();
-        if (current != preset.RendererMethod)
-        {
-            RendererNote = $"preset {preset.PresetId} is designed for {preset.RendererMethod}; project renders with {current}";
-            GD.Print("LOOK: " + RendererNote);
-        }
+        var running = RenderingServer.GetCurrentRenderingMethod();
+        DofSupported = running is "forward_plus" or "mobile";
+        RendererNote = RendererNoteFor(preset.PresetId, preset.RendererMethod, running);
+        if (RendererNote.Length > 0) Warn(RendererNote);
         if (preset.KuwaharaEnabled || preset.OutlineEnabled)
-            GD.Print("LOOK: the preset enables kuwahara or outline post effects, which this runtime does not implement yet");
-        ApplyMoment();
-        // RoomWorld builds the room after applying the look; dress it once it is in the tree.
-        CallDeferred(MethodName.DressSibling);
+            Warn("the preset enables kuwahara or outline post effects, which this runtime does not implement yet");
+        if (preset.DofEnabled && preset.DofFocus == "cursor")
+            Warn("depth-of-field focus 'cursor' is not implemented yet; focusing a fixed distance ahead instead");
+        ApplyMoment(synchronous: true);
+        _framesSinceApply = 0;
+        // Meshes already under the parent (a room built before the look) are dressed too.
+        if (GetParent() is { } parent)
+            foreach (var mesh in parent.FindChildren("*", "MeshInstance3D", true, false).OfType<MeshInstance3D>()) Queue(mesh);
+    }
+
+    /// <summary>What the room loses when the machine does not render with the renderer the preset is designed for.</summary>
+    public static string RendererNoteFor(string presetId, string designedFor, string running)
+    {
+        if (running == designedFor) return "";
+        var loss = running == "gl_compatibility"
+            ? "; the Compatibility renderer has no VoxelGI bounce, depth of field, TAA or grain and vignette, so the room looks flatter and harder-edged"
+            : "";
+        return $"preset {presetId} is designed for {designedFor}; this machine renders with {running}{loss}";
+    }
+
+    private void Warn(string message)
+    {
+        if (!_warned.Add(message)) return;
+        _warnings.Add(message);
+        GD.Print("LOOK WARNING: " + message);
     }
 
     // ---------- environment ----------
 
     private static Godot.Environment BuildEnvironment(StylePreset preset)
     {
+        var ssao = preset.Tuning.Ssao;
+        var glow = preset.Tuning.Glow;
         var environment = new Godot.Environment
         {
             BackgroundMode = Godot.Environment.BGMode.Color,
@@ -100,26 +148,32 @@ public partial class LookDirector : Node3D
             SsaoEnabled = preset.AoEnabled,
             SsaoRadius = preset.AoRadiusM,
             SsaoIntensity = preset.AoIntensity,
-            SsaoPower = 1.4f,
-            SsaoDetail = 0.6f,
-            SsaoHorizon = 0.06f,
-            SsaoSharpness = 0.98f,
-            SsaoLightAffect = 0.15f,
-            SsaoAOChannelAffect = 0.5f,
+            SsaoPower = ssao.Power,
+            SsaoDetail = ssao.Detail,
+            SsaoHorizon = ssao.Horizon,
+            SsaoSharpness = ssao.Sharpness,
+            SsaoLightAffect = ssao.LightAffect,
+            SsaoAOChannelAffect = ssao.AoChannelAffect,
             SsilEnabled = preset.SsilEnabled,
             SsilRadius = preset.SsilRadiusM,
             SsilIntensity = preset.SsilIntensity,
-            SsilSharpness = 0.98f,
+            SsilSharpness = ssao.Sharpness,
             GlowEnabled = preset.GlowEnabled,
             GlowIntensity = preset.GlowIntensity,
-            GlowStrength = 1.0f,
+            GlowStrength = glow.Strength,
             GlowBloom = preset.GlowBloom,
-            GlowBlendMode = Godot.Environment.GlowBlendModeEnum.Softlight,
-            GlowHdrThreshold = 0.9f,
+            GlowBlendMode = glow.BlendMode switch
+            {
+                "additive" => Godot.Environment.GlowBlendModeEnum.Additive,
+                "screen" => Godot.Environment.GlowBlendModeEnum.Screen,
+                "replace" => Godot.Environment.GlowBlendModeEnum.Replace,
+                "mix" => Godot.Environment.GlowBlendModeEnum.Mix,
+                _ => Godot.Environment.GlowBlendModeEnum.Softlight,
+            },
+            GlowHdrThreshold = glow.HdrThreshold,
             AdjustmentEnabled = true,
         };
-        // Wide, soft glow levels; the tight levels make edges sparkle.
-        for (var level = 0; level < 7; level++) environment.SetGlowLevel(level, level is >= 2 and <= 4 ? 1f : 0f);
+        for (var level = 0; level < 7; level++) environment.SetGlowLevel(level, glow.Levels[level]);
         return environment;
     }
 
@@ -130,21 +184,27 @@ public partial class LookDirector : Node3D
         var diagonal = room.Bounds.Size.Length();
         var diorama = preset.KeyMode == "diorama";
         var softness = preset.ShadowSoftness;
+        var s = preset.Tuning.Shadows;
         Key = new DirectionalLight3D
         {
             Name = "Key",
             ShadowEnabled = preset.KeyCastsShadows && preset.ShadowsEnabled,
-            LightAngularDistance = 0.5f + 3.5f * softness,
-            ShadowBlur = 1f + softness,
-            DirectionalShadowMode = DirectionalLight3D.ShadowMode.Parallel2Splits,
-            DirectionalShadowMaxDistance = Mathf.Max(6f, diagonal * 1.6f),
+            LightAngularDistance = s.KeyAngularBaseDeg + s.KeyAngularPerSoftnessDeg * softness,
+            ShadowBlur = s.BlurBase + s.BlurPerSoftness * softness,
+            DirectionalShadowMode = s.KeySplits switch
+            {
+                1 => DirectionalLight3D.ShadowMode.Orthogonal,
+                4 => DirectionalLight3D.ShadowMode.Parallel4Splits,
+                _ => DirectionalLight3D.ShadowMode.Parallel2Splits,
+            },
+            DirectionalShadowMaxDistance = Mathf.Max(s.KeyMinDistanceM, diagonal * s.KeyDistancePerDiagonal),
             DirectionalShadowBlendSplits = true,
-            ShadowBias = 0.03f,
-            ShadowNormalBias = 1.0f,
+            ShadowBias = s.Bias,
+            ShadowNormalBias = s.NormalBias,
             LightBakeMode = Light3D.BakeMode.Dynamic,
         };
         // In diorama mode the key lights the room as if the ceiling were lifted off: the shell casts no key
-        // shadows, and walls and ceilings stay out of the VoxelGI bake (see Dress), so the bounce follows.
+        // shadows, and walls and ceilings stay out of the VoxelGI bake (see DressMesh), so the bounce follows.
         if (diorama) Key.ShadowCasterMask = 0xFFFFFu & ~ShellVisualLayer;
         AddChild(Key);
     }
@@ -152,6 +212,7 @@ public partial class LookDirector : Node3D
     private void BuildRoomLights(StylePreset preset, RoomData room)
     {
         var diagonal = room.Bounds.Size.Length();
+        var s = preset.Tuning.Shadows;
         var shadowBudget = Math.Max(0, preset.MaxShadowedLights - (Key.ShadowEnabled ? 1 : 0));
         foreach (var hint in room.LightHints.Where(h => h.PositionM != null))
         {
@@ -159,7 +220,7 @@ public partial class LookDirector : Node3D
             if (energy <= 0) continue;
             Light3D light;
             if (hint.Kind is "ceiling_lamp" or "lamp" or "screen")
-                light = new OmniLight3D { OmniRange = diagonal, OmniAttenuation = 1.2f };
+                light = new OmniLight3D { OmniRange = diagonal, OmniAttenuation = preset.Tuning.Lamps.Attenuation };
             else if (hint.Kind == "window" && hint.Direction is { } direction && direction.LengthSquared() > 1e-6f)
             {
                 var spot = new SpotLight3D { SpotRange = diagonal, SpotAngle = 60f };
@@ -174,10 +235,10 @@ public partial class LookDirector : Node3D
             light.LightColor = hint.Color;
             light.LightEnergy = energy;
             light.ShadowEnabled = preset.ShadowsEnabled && shadowBudget-- > 0;
-            light.LightSize = 0.05f + 0.25f * preset.ShadowSoftness;
-            light.ShadowBlur = 1f + preset.ShadowSoftness;
-            light.ShadowBias = 0.03f;
-            light.ShadowNormalBias = 1.0f;
+            light.LightSize = s.LampSizeBaseM + s.LampSizePerSoftnessM * preset.ShadowSoftness;
+            light.ShadowBlur = s.BlurBase + s.BlurPerSoftness * preset.ShadowSoftness;
+            light.ShadowBias = s.Bias;
+            light.ShadowNormalBias = s.NormalBias;
             light.SetMeta("light_hint_id", hint.Id);
             light.SetMeta("base_energy", energy);
             AddChild(light);
@@ -188,22 +249,33 @@ public partial class LookDirector : Node3D
 
     // ---------- time of day and season ----------
 
-    /// <summary>Pin the look to an hour and a day of the year (review captures, previews). Unpinned, the preset decides.</summary>
+    /// <summary>Pin the look to an hour and a day of the year (review captures, previews). The grade is rebuilt before this returns.</summary>
     public void SetClock(float hour, int dayOfYear)
     {
         _pinnedHour = hour;
         _pinnedDay = Math.Clamp(dayOfYear, 1, 366);
-        ApplyMoment();
+        ApplyMoment(synchronous: true);
+    }
+
+    /// <summary>Pin the clock but build a missing grade LUT off the main thread; the old grade stays until it is ready.</summary>
+    public void SetClockAsync(float hour, int dayOfYear)
+    {
+        _pinnedHour = hour;
+        _pinnedDay = Math.Clamp(dayOfYear, 1, 366);
+        ApplyMoment(synchronous: false);
     }
 
     public void ReleaseClock()
     {
         _pinnedHour = null;
         _pinnedDay = null;
-        ApplyMoment();
+        ApplyMoment(synchronous: true);
     }
 
-    private void ApplyMoment()
+    /// <summary>Whether the grade for the current moment is the one on screen (false while an off-thread LUT is building).</summary>
+    public bool GradeCurrent => _wantedGrade != null && _luts.TryGetValue(_wantedGrade, out var lut) && Environment.AdjustmentColorCorrection == lut;
+
+    private void ApplyMoment(bool synchronous)
     {
         var hour = _pinnedHour ?? (Preset.FollowClock ? LookClock.NowHour() : Preset.DefaultHour);
         var day = _pinnedDay ?? (Preset.FollowCalendar ? LookClock.TodayDayOfYear() : 196);
@@ -212,52 +284,137 @@ public partial class LookDirector : Node3D
         Key.LightEnergy = Moment.KeyEnergy;
         Key.RotationDegrees = new Vector3(-Moment.KeyElevationDeg, Moment.KeyAzimuthDeg, 0);
         foreach (var lamp in _roomLights)
-            lamp.LightEnergy = (float)lamp.GetMeta("base_energy").AsDouble() * (1f + LampNightBoost * (1f - Moment.Daylight));
+            lamp.LightEnergy = (float)lamp.GetMeta("base_energy").AsDouble() * (1f + Preset.Tuning.Lamps.NightBoost * (1f - Moment.Daylight));
         Environment.AmbientLightColor = Moment.AmbientColor;
         Environment.AmbientLightEnergy = Moment.AmbientEnergy;
-        Environment.AdjustmentColorCorrection = ColorGrade.LutTexture(GradeParams.For(Preset, Moment));
+        ApplyGrade(GradeParams.For(Preset, Moment).Quantized(), synchronous);
     }
 
-    // ---------- dressing the built room ----------
-
-    private void DressSibling()
+    private void ApplyGrade(GradeParams grade, bool synchronous)
     {
-        if (Dressed || !IsInsideTree()) return;
-        if (GetParent()?.GetNodeOrNull<Node3D>("Room") is { } room) Dress(room);
+        _wantedGrade = grade;
+        if (_luts.TryGetValue(grade, out var cached))
+        {
+            Environment.AdjustmentColorCorrection = cached;
+            _lutOrder.Remove(grade);
+            _lutOrder.AddFirst(grade);
+            return;
+        }
+        if (synchronous)
+        {
+            CacheLut(grade, ColorGrade.LutTexture(grade));
+            Environment.AdjustmentColorCorrection = _luts[grade];
+            return;
+        }
+        if (_lutTask != null && Equals(_lutTaskKey, grade)) return;
+        _lutTaskKey = grade;
+        _lutTask = Task.Run(() => ColorGrade.LutBytes(grade));
+    }
+
+    private void CacheLut(GradeParams grade, ImageTexture3D texture)
+    {
+        GradeBuilds++;
+        _luts[grade] = texture;
+        _lutOrder.AddFirst(grade);
+        while (_lutOrder.Count > LutCacheSize)
+        {
+            _luts.Remove(_lutOrder.Last!.Value);
+            _lutOrder.RemoveLast();
+        }
+    }
+
+    private void CollectLut()
+    {
+        if (_lutTask is not { IsCompleted: true } task || _lutTaskKey is not { } key) return;
+        _lutTask = null;
+        _lutTaskKey = null;
+        if (!task.IsCompletedSuccessfully) { Warn("the colour grade could not be built: " + task.Exception?.GetBaseException().Message); return; }
+        if (!_luts.ContainsKey(key)) CacheLut(key, ColorGrade.LutTexture(task.Result, key.Tuning.LutSize));
+        if (Equals(_wantedGrade, key)) Environment.AdjustmentColorCorrection = _luts[key];
+        else if (_wantedGrade != null && !_luts.ContainsKey(_wantedGrade)) ApplyGrade(_wantedGrade, synchronous: false);
+    }
+
+    // ---------- dressing ----------
+
+    public override void _EnterTree() => GetTree().NodeAdded += OnNodeAdded;
+
+    public override void _ExitTree()
+    {
+        GetTree().NodeAdded -= OnNodeAdded;
+        Post?.Release();
+    }
+
+    private void OnNodeAdded(Node node)
+    {
+        if (Preset != null && node is MeshInstance3D mesh) Queue(mesh);
+    }
+
+    private void Queue(MeshInstance3D mesh)
+    {
+        if (mesh.HasMeta(DressedMeta) || GetParent() is not { } parent || !parent.IsAncestorOf(mesh) || IsAncestorOf(mesh)) return;
+        _pending.Add(mesh);
+        if (_flushQueued) return;
+        _flushQueued = true;
+        CallDeferred(MethodName.FlushPending);
+    }
+
+    private void FlushPending()
+    {
+        _flushQueued = false;
+        var meshes = _pending.Where(m => IsInstanceValid(m) && m.IsInsideTree()).Distinct().ToArray();
+        _pending.Clear();
+        Node3D? bakeRoot = null;
+        foreach (var mesh in meshes)
+            if (DressMesh(mesh)) bakeRoot ??= SubtreeRoot(mesh);
+        if (bakeRoot != null) Bake(bakeRoot);
     }
 
     /// <summary>
-    /// Finish the look on a built room: per-instance paint seeds, softened box edges, the shell on its own
-    /// visual layer, GI modes and the VoxelGI bake. Idempotent. GI modes: movable objects are dynamic,
-    /// fixed ones static; in diorama mode only floors join the bake from the shell, because walls and
-    /// ceilings would block the lifted-lid key in the voxels (they still receive GI).
+    /// Dress a built room or any later subtree now: paint seeds and box edges for painterly materials, the
+    /// shell's visual layer and GI modes for room entities, and a VoxelGI bake when it brings shell geometry.
+    /// Meshes already dressed are skipped, so calling it again, or after the automatic pass, is harmless.
     /// </summary>
-    public void Dress(Node3D room)
+    public void Dress(Node3D root)
     {
-        if (Dressed) return;
-        Dressed = true;
+        var bake = false;
+        foreach (var mesh in root.FindChildren("*", "MeshInstance3D", true, false).OfType<MeshInstance3D>().Append(root as MeshInstance3D).OfType<MeshInstance3D>())
+            bake |= DressMesh(mesh);
+        if (bake) Bake(root);
+    }
+
+    /// <summary>Dress one mesh; returns true when it is shell geometry that belongs in the GI bake.</summary>
+    private bool DressMesh(MeshInstance3D mesh)
+    {
+        if (mesh.HasMeta(DressedMeta)) return false;
+        mesh.SetMeta(DressedMeta, true);
+        var owner = OwnerEntity(mesh);
+        if (owner == null) return false; // not room data (an avatar, a gizmo): left alone
         var diorama = Preset.KeyMode == "diorama";
-        foreach (var mesh in room.FindChildren("*", "MeshInstance3D", true, false).OfType<MeshInstance3D>())
+        if (MaterialLibrary.IsPainterly(mesh.MaterialOverride))
         {
-            var owner = OwnerEntity(mesh);
-            var entity = owner?.HasMeta("entity_id") == true ? owner.GetMeta("entity_id").AsString() : mesh.Name.ToString();
-            mesh.SetInstanceShaderParameter("paint_seed", Seed(entity));
+            mesh.SetInstanceShaderParameter("paint_seed", Seed(owner.GetMeta("entity_id").AsString()));
             if (mesh.Mesh is BoxMesh box)
             {
                 mesh.SetInstanceShaderParameter("box_edges", 1f);
                 mesh.SetInstanceShaderParameter("box_half_extents", box.Size * 0.5f);
             }
-            var isShell = owner?.HasMeta("surface_role") == true;
-            if (isShell && diorama) mesh.Layers = ShellVisualLayer;
-            var movable = owner?.HasMeta("movable") == true && owner.GetMeta("movable").AsBool();
-            var surface = isShell ? owner!.GetMeta("surface_role").AsString() : "";
-            mesh.GIMode = isShell
-                ? (diorama && surface != "floor" ? GeometryInstance3D.GIModeEnum.Disabled : GeometryInstance3D.GIModeEnum.Static)
-                : (movable ? GeometryInstance3D.GIModeEnum.Dynamic : GeometryInstance3D.GIModeEnum.Static);
         }
-        if (Preset.GiMode == "voxelgi") BakeVoxelGi(room);
-        else GiNote = $"gi mode {Preset.GiMode}: no global illumination node";
-        if (GiNote.Length > 0) GD.Print("LOOK: " + GiNote);
+        var isShell = owner.HasMeta("surface_role");
+        if (isShell && diorama) mesh.Layers = ShellVisualLayer;
+        var movable = owner.HasMeta("movable") && owner.GetMeta("movable").AsBool();
+        var surface = isShell ? owner.GetMeta("surface_role").AsString() : "";
+        mesh.GIMode = isShell
+            ? (diorama && surface != "floor" ? GeometryInstance3D.GIModeEnum.Disabled : GeometryInstance3D.GIModeEnum.Static)
+            : (movable ? GeometryInstance3D.GIModeEnum.Dynamic : GeometryInstance3D.GIModeEnum.Static);
+        return isShell;
+    }
+
+    private Node3D? SubtreeRoot(Node node)
+    {
+        var parent = GetParent();
+        for (var current = node; current != null; current = current.GetParent())
+            if (current.GetParent() == parent) return current as Node3D;
+        return null;
     }
 
     private static Node3D? OwnerEntity(Node node)
@@ -276,47 +433,83 @@ public partial class LookDirector : Node3D
     }
 
     /// <summary>The VoxelGI volume for a room: its bounds plus a margin so the shell's thickness is inside.</summary>
-    public static Aabb GiVolume(RoomData room)
+    public static Aabb GiVolume(RoomData room, GiTuning gi) => room.Bounds.Grow(gi.MarginM);
+
+    private void Bake(Node3D root)
     {
-        const float margin = 0.3f;
-        return room.Bounds.Grow(margin);
+        Dressed = true;
+        if (Preset.GiMode != "voxelgi") GiNote = $"gi mode {Preset.GiMode}: no global illumination node";
+        else BakeVoxelGi(root);
+        if (GiNote.Length > 0) GD.Print("LOOK: " + GiNote);
     }
 
-    private void BakeVoxelGi(Node3D room)
+    /// <summary>
+    /// Run a bake with flat stand-ins of the painterly colours on every mesh that has one (VoxelGI voxelizes
+    /// BaseMaterial3D albedo only), and put every original material back afterwards, even when the bake or the
+    /// swap itself throws.
+    /// </summary>
+    public static void WithBakeStandIns(IEnumerable<GeometryInstance3D> meshes, Action bake)
+    {
+        var swaps = new List<(GeometryInstance3D Mesh, Material? Original)>();
+        try
+        {
+            foreach (var mesh in meshes)
+                if (MaterialLibrary.BakeAlbedo(mesh.MaterialOverride) is { } albedo)
+                {
+                    var standIn = new StandardMaterial3D { AlbedoColor = albedo };
+                    standIn.SetMeta(BakeStandInMeta, true);
+                    swaps.Add((mesh, mesh.MaterialOverride));
+                    mesh.MaterialOverride = standIn;
+                }
+            bake();
+        }
+        finally
+        {
+            foreach (var (mesh, original) in swaps) mesh.MaterialOverride = original;
+        }
+    }
+
+    private void BakeVoxelGi(Node3D root)
     {
         if (RenderingServer.GetRenderingDevice() == null)
         {
             GiNote = $"VoxelGI needs a GPU rendering device (Forward+ or Mobile); none here (display {DisplayServer.GetName()}, driver '{RenderingServer.GetCurrentRenderingDriverName()}'), so no GI";
             return;
         }
-        var volume = GiVolume(_room);
-        Gi = new VoxelGI { Name = "RoomGI", Size = volume.Size, Position = volume.GetCenter(), Subdiv = VoxelGI.SubdivEnum.Subdiv128 };
-        AddChild(Gi);
-        // VoxelGI voxelizes BaseMaterial3D albedo only; bake with flat proxies of the painterly colours.
-        var swaps = new List<(GeometryInstance3D Mesh, Material? Original)>();
-        foreach (var mesh in room.FindChildren("*", "MeshInstance3D", true, false).OfType<MeshInstance3D>())
-            if (mesh.GIMode == GeometryInstance3D.GIModeEnum.Static && MaterialLibrary.BakeAlbedo(mesh.MaterialOverride) is { } albedo)
-            {
-                swaps.Add((mesh, mesh.MaterialOverride));
-                mesh.MaterialOverride = new StandardMaterial3D { AlbedoColor = albedo };
-            }
+        var tuning = Preset.Tuning.Gi;
+        var volume = GiVolume(_room, tuning);
+        if (Gi == null)
+        {
+            Gi = new VoxelGI { Name = "RoomGI" };
+            AddChild(Gi);
+        }
+        Gi.Size = volume.Size;
+        Gi.Position = volume.GetCenter();
+        Gi.Subdiv = tuning.Subdiv switch
+        {
+            64 => VoxelGI.SubdivEnum.Subdiv64,
+            256 => VoxelGI.SubdivEnum.Subdiv256,
+            512 => VoxelGI.SubdivEnum.Subdiv512,
+            _ => VoxelGI.SubdivEnum.Subdiv128,
+        };
         var clock = Stopwatch.StartNew();
-        try { Gi.Bake(room); }
-        finally { foreach (var (mesh, original) in swaps) mesh.MaterialOverride = original; }
+        var meshes = root.FindChildren("*", "MeshInstance3D", true, false).OfType<MeshInstance3D>()
+            .Where(m => m.GIMode == GeometryInstance3D.GIModeEnum.Static);
+        WithBakeStandIns(meshes, () => Gi.Bake(root));
         var data = Gi.Data;
         if (data != null)
         {
             data.Energy = Preset.GiEnergy;
             data.Propagation = Mathf.Clamp(Preset.GiBounceFeedback, 0f, 1f);
-            data.UseTwoBounces = Preset.GiBounceFeedback > 0.2f;
+            data.UseTwoBounces = Preset.GiBounceFeedback > tuning.TwoBouncesAbove;
             // Inside the volume VoxelGI replaces the environment's ambient light. A diorama has its lid off,
             // so cones that leave the room see the sky (the ambient colour); a fixed-key room is closed.
             data.Interior = Preset.KeyMode != "diorama";
-            data.NormalBias = 0f;
-            data.Bias = 1.5f;
+            data.NormalBias = tuning.NormalBias;
+            data.Bias = tuning.Bias;
         }
-        GiNote = string.Format(CultureInfo.InvariantCulture, "VoxelGI {0:0.0#} x {1:0.0#} x {2:0.0#} m at subdiv 128 baked in {3} ms",
-            volume.Size.X, volume.Size.Y, volume.Size.Z, clock.ElapsedMilliseconds);
+        GiNote = string.Format(CultureInfo.InvariantCulture, "VoxelGI {0:0.0#} x {1:0.0#} x {2:0.0#} m at subdiv {3} baked in {4} ms",
+            volume.Size.X, volume.Size.Y, volume.Size.Z, tuning.Subdiv, clock.ElapsedMilliseconds);
     }
 
     // ---------- depth of field ----------
@@ -329,14 +522,15 @@ public partial class LookDirector : Node3D
     /// </summary>
     public static DepthOfField DepthOfFieldFor(StylePreset preset, float focusDistance, float lookingDown)
     {
+        var t = preset.Tuning.Dof;
         var d = Mathf.Max(focusDistance, 0.05f);
-        var tilt = preset.TiltShiftEnabled ? preset.TiltShiftStrength * Mathf.Clamp(lookingDown * 1.5f, 0f, 1f) : 0f;
-        var halfBand = 0.5f * preset.FocusBandM * (1f - 0.4f * tilt);
+        var tilt = preset.TiltShiftEnabled ? preset.TiltShiftStrength * Mathf.Clamp(lookingDown * t.TiltPitchGain, 0f, 1f) : 0f;
+        var halfBand = 0.5f * preset.FocusBandM * (1f - t.TiltBandNarrowing * tilt);
         var farDistance = d + halfBand;
-        var farTransition = (0.25f + 0.35f * d) * (1.3f - preset.FarBlur);
+        var farTransition = (t.FarTransitionBaseM + t.FarTransitionPerM * d) * (t.FarBlurReference - preset.FarBlur);
         var nearDistance = Mathf.Max(preset.NearBlurDistanceM, d - halfBand);
-        var nearTransition = nearDistance * (0.9f - 0.5f * preset.NearBlur);
-        var amount = (0.02f + 0.10f * Mathf.Max(preset.FarBlur, preset.NearBlur)) * (1f + tilt);
+        var nearTransition = nearDistance * (t.NearTransitionBase - t.NearTransitionPerBlur * preset.NearBlur);
+        var amount = (t.AmountBase + t.AmountPerBlur * Mathf.Max(preset.FarBlur, preset.NearBlur)) * (1f + tilt);
         return new DepthOfField(preset.DofEnabled && preset.FarBlur > 0f, farDistance, Mathf.Max(farTransition, 0.05f),
             preset.DofEnabled && preset.NearBlur > 0f && nearDistance > 0.01f, nearDistance, Mathf.Max(nearTransition, 0.01f), amount);
     }
@@ -348,8 +542,12 @@ public partial class LookDirector : Node3D
         Focus(camera, focusPoint);
     }
 
+    /// <summary>The depth-of-field attributes the look gave a camera, if any.</summary>
+    public CameraAttributesPractical? AttributesFor(Camera3D camera) => _attributes.TryGetValue(camera.GetInstanceId(), out var a) ? a : null;
+
     private void Focus(Camera3D camera, Vector3 focusPoint)
     {
+        if (!DofSupported) return;
         if (!_attributes.TryGetValue(camera.GetInstanceId(), out var attributes))
         {
             attributes = new CameraAttributesPractical();
@@ -368,28 +566,67 @@ public partial class LookDirector : Node3D
         if (camera.Attributes != attributes) camera.Attributes = attributes;
     }
 
-    public override void _ExitTree() => Post?.Release();
+    /// <summary>
+    /// Where a camera should focus under the preset's focus mode. "player": a third-person camera focuses on
+    /// the player's body (body_focus_height_fraction up it); the player's own EyeCamera focuses
+    /// eye_focus_body_heights body heights ahead, just past its reach. "companion": the companion's body.
+    /// "fixed" (and "cursor", not implemented yet): focus_band_m ahead of the camera.
+    /// </summary>
+    public Vector3 FocusPointFor(Camera3D camera)
+    {
+        var forward = -camera.GlobalBasis.Z;
+        var dof = Preset.Tuning.Dof;
+        var body = Preset.DofFocus switch
+        {
+            "player" => FocusTarget ?? GetParent()?.GetChildren().OfType<SmallPlayerController>().FirstOrDefault(c => c is not CompanionAvatar),
+            "companion" => FocusCompanion ?? GetParent()?.GetChildren().OfType<CompanionAvatar>().FirstOrDefault(),
+            _ => null,
+        };
+        if (body != null && IsInstanceValid(body))
+        {
+            if (body is SmallPlayerController controller)
+            {
+                if (camera == controller.EyeCamera) return camera.GlobalPosition + forward * (dof.EyeFocusBodyHeights * controller.BodyHeightM);
+                return controller.GlobalPosition + Vector3.Up * (dof.BodyFocusHeightFraction * controller.BodyHeightM);
+            }
+            return body.GlobalPosition;
+        }
+        return camera.GlobalPosition + forward * Preset.FocusBandM;
+    }
 
     public override void _Process(double delta)
     {
         if (Preset == null) return;
+        CollectLut();
+        if (_framesSinceApply++ == 2 && !Dressed)
+            Warn("no room geometry with a shell was dressed after the first frames; the look has no GI bake and no shell layer");
         if (_pinnedHour == null && Preset.FollowClock)
         {
             _clockTimer += delta;
-            if (_clockTimer > 60.0) { _clockTimer = 0; ApplyMoment(); }
+            if (_clockTimer > 60.0) { _clockTimer = 0; ApplyMoment(synchronous: false); }
         }
-        if (!Preset.DofEnabled) return;
+        if (!Preset.DofEnabled || !DofSupported) return;
         var camera = GetViewport()?.GetCamera3D();
         if (camera == null || _framed.Contains(camera.GetInstanceId())) return;
-        var target = FocusTarget ?? GetParent()?.GetNodeOrNull<Node3D>("Player");
-        Vector3 focus;
-        if (Preset.DofFocus == "player" && target != null && IsInstanceValid(target))
-        {
-            var eye = target.IsAncestorOf(camera) && camera.GlobalPosition.DistanceTo(target.GlobalPosition) < 0.5f;
-            focus = eye ? camera.GlobalPosition - camera.GlobalBasis.Z * EyeFocusM : target.GlobalPosition + Vector3.Up * 0.05f;
-        }
-        else focus = camera.GlobalPosition - camera.GlobalBasis.Z * Mathf.Max(EyeFocusM, Preset.FocusBandM);
-        Focus(camera, focus);
+        Focus(camera, FocusPointFor(camera));
+    }
+
+    /// <summary>
+    /// Problems with the look as rendered, for the review harness: an undressed room, a renderer fallback,
+    /// VoxelGI without data, bake stand-ins left on meshes, a post effect that never ran, and any warnings.
+    /// Empty means the GPU paths did what they should.
+    /// </summary>
+    public string[] SelfCheck()
+    {
+        var problems = new List<string>(_warnings);
+        if (!Dressed) problems.Add("the room was never dressed");
+        var gpu = RenderingServer.GetRenderingDevice() != null;
+        if (gpu && Preset.GiMode == "voxelgi" && (Gi == null || Gi.Data == null)) problems.Add("VoxelGI has no baked data");
+        var standIns = GetParent()?.FindChildren("*", "GeometryInstance3D", true, false).OfType<GeometryInstance3D>()
+            .Count(g => g.MaterialOverride?.HasMeta(BakeStandInMeta) == true) ?? 0;
+        if (standIns > 0) problems.Add($"{standIns} mesh(es) still carry VoxelGI bake stand-ins");
+        if (gpu && Post != null && !Post.Ran) problems.Add("the grain and vignette effect never ran" + (Post.Error.Length > 0 ? ": " + Post.Error : ""));
+        return problems.Distinct().ToArray();
     }
 
     /// <summary>A one-line description of what the look applied, for review reports.</summary>
@@ -397,7 +634,7 @@ public partial class LookDirector : Node3D
         "{0}@{1} ({2}) sha256={3}; renderer={4}{5}; key={6} elevation {7:0.#} azimuth {8:0.#} energy {9:0.##}; hour {10:0.##} day {11} season {12}; {13}; ssao={14} ssil={15} glow={16} dof={17} tilt={18}; grain {19} vignette {20} post effect {21}",
         Preset.PresetId, Preset.PresetVersion, Preset.Status, Preset.Sha256, RenderingServer.GetCurrentRenderingMethod(),
         RendererNote.Length > 0 ? " (" + RendererNote + ")" : "", Preset.KeyMode, Moment.KeyElevationDeg, Moment.KeyAzimuthDeg, Moment.KeyEnergy,
-        Moment.Hour, Moment.DayOfYear, Moment.Season, GiNote, Preset.AoEnabled, Preset.SsilEnabled, Preset.GlowEnabled, Preset.DofEnabled,
+        Moment.Hour, Moment.DayOfYear, Moment.Season, GiNote, Preset.AoEnabled, Preset.SsilEnabled, Preset.GlowEnabled, Preset.DofEnabled && DofSupported,
         Preset.TiltShiftEnabled ? Preset.TiltShiftStrength : 0f, Preset.Grain, Preset.Vignette,
         Post == null ? "off" : Post.Ran ? "ran" : Post.Error.Length > 0 ? "failed: " + Post.Error : "not run (no GPU device)");
 }
