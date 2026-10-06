@@ -1,5 +1,7 @@
 # EnFractal execution backlog: single-player embodied AI first
 
+> **Superseded on 6 October 2026.** These SP packets targeted real geography. The active work is defined by the [room-scale direction](../ROOM-SCALE-DIRECTION.md) and the [cleanup plan](../CLEANUP-PLAN.md). Retained as history.
+
 **Revised 2 October 2026 against published implementation `750ef88`.** Execute this backlog with the [v0.4 roadmap](ROADMAP.md) and [world vision](../WORLD-VISION.md). The player and their separately embodied AI companion are the center of play. Spoken/typed wishes should produce expressive, physically meaningful changes while saved/locked creations remain protected. Native Godot .NET with C# is selected; browser and alternative-engine experiments are deferred unless a measured blocker justifies reopening them. Multiplayer is last, after single-player acceptance and an explicit founder go decision.
 
 ## Status and identifier rules

@@ -1,5 +1,7 @@
 # EnFractal roadmap: the player, their AI, and a world of magic
 
+> **Superseded on 6 October 2026.** The S0–S6/M7 plan below targeted the Pfluger district. The active plan is the R0–R5 sequence in the [room-scale direction](../ROOM-SCALE-DIRECTION.md). Retained as history; do not execute SP packets from this file.
+
 **Direction revision v0.4 — 2 October 2026.** The founder's current priority is a compelling **single-player experience with an embodied, personalized AI companion**. AI is the magic of the game: the player expresses an intention, including a loose or ambitious wish, and their companion interprets it and changes or acts in the world through a coherent baseline ruleset. Multiplayer is the final expansion stage. Do not spend implementation time or coding-agent tokens on multiplayer before the single-player acceptance gate is met and the founder explicitly starts that stage.
 
 This revision supersedes the earlier shared-world-first and optional-AI plan. On 2 October the founder selected native Godot with C#; the earlier browser/engine comparison is deferred. The [world vision](../WORLD-VISION.md) governs product/art intent; the [backlog](BACKLOG.md) defines actionable packets. Earlier checkpoints retain their original phase numbers as historical evidence. The new **S0–S6 / M7** sequence below must not be confused with those old phase numbers or ART-0–5.

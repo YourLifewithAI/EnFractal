@@ -1,5 +1,7 @@
 # Enfractal MVP planning brief
 
+> **Historical.** Budget, hardware and founder constraints recorded here still apply; the shared-Earth product requirements do not. See the [room-scale direction](../ROOM-SCALE-DIRECTION.md).
+
 **Historical brief from the planning-only phase, 30 September 2026.** This records the original scope for the roadmap research. It is not the current repository status: the [Barton Creek prototype](../../maps/barton_creek/README.md) and [style study](../greenbelt-style-study.md) now contain implementation, and the founder has confirmed the [world and creation vision](../WORLD-VISION.md). No deployment, account, purchase or hosted infrastructure is implied by that later prototype work.
 
 ## Source conversations
