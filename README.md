@@ -23,7 +23,7 @@ What carries forward from the earlier work:
 - Metric units everywhere; 1 world unit = 1 metre. Captured rooms and generated assets are real size.
 - The companion and manual controls use the same validated operations. No second physics, no bypass.
 - Claims need evidence: a checkpoint records what ran, on what machine, and what remains open.
-- Photo sets for test rooms live in the founder's Google Drive folder **Enfractal / Photos for space generation / <room>**. The first test case is the garage; the second is a friend's back yard.
+- Photo sets for test rooms live in the founder's Google Drive folder **Enfractal / Photos for space generation / <room>**, and art references in **Enfractal / Art inspiration**. Both stay in Drive and are read in place; nothing from them is committed. The first test case is the garage; the second is a friend's back yard.
 
 ## Where things are
 

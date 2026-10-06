@@ -31,7 +31,7 @@ shell + assets ─► style pass ─► Godot room scene (shell + N object scene
 
 ### 1. Ingest and capture guidance (the part that talks to the player)
 
-Input: a folder of photos. The founder's convention is a Google Drive folder named **Enfractal**, with `Photos for space generation/<room name>/`. Today it holds `Garage` (iPhone 17 HEIC, 4284×5712, 26 mm equivalent, indoor exposures around 1/40 s at ISO 500) and `Back yard`.
+Input: a folder of photos. The founder's convention is a Google Drive folder named **Enfractal**, with `Photos for space generation/<room name>/`. Today it holds `Garage` (iPhone 17 HEIC, 4284×5712, 26 mm equivalent, indoor exposures around 1/40 s at ISO 500) and `Back yard`. Drive stays the only home of the originals: the pipeline reads them in place, through Google Drive for desktop on the founder's machine, and writes everything it derives under `captures/<room>/`.
 
 The agent should:
 
