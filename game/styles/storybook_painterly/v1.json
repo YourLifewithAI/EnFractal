@@ -109,7 +109,6 @@
   "budgets": { "target_frame_ms": 16.7, "max_shadowed_lights": 4, "reference_gpu": "NVIDIA RTX 2070 SUPER 8 GB" },
   "extensions": {
     "x_look_key_mode": "diorama",
-    "x_look_ssil": { "enabled": false, "intensity": 0.6, "radius_m": 0.2 },
     "x_look_glaze_amount": 0.35
   }
 }

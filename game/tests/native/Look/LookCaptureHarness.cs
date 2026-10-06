@@ -295,6 +295,7 @@ public partial class LookCaptureHarness : Node
             ["cameras_file"] = camerasPath,
             ["msaa_3d"] = (_target != null ? _target.Msaa3D : GetViewport().Msaa3D).ToString(),
             ["screen_space_aa"] = (_target != null ? _target.ScreenSpaceAA : GetViewport().ScreenSpaceAA).ToString(),
+            ["use_taa"] = _target != null ? _target.UseTaa : GetViewport().UseTaa,
             ["cameras"] = _results,
         };
         if (_look != null && _look.HasMethod("DescribeLook")) report["look"] = _look.Call("DescribeLook").AsString();

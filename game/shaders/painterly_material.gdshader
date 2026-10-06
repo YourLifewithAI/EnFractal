@@ -163,7 +163,7 @@ void fragment() {
 	vec4 warp = noise_r(pw / (s * 2.5));
 	pw += (vec3(warp.x, warp.y * 0.1, warp.z * 0.1) - vec3(0.5, 0.0, 0.0)) * s * 0.9;
 	vec4 wash = noise_r(pw / (s * 5.0));
-	vec4 strokes = stroke_noise(pw * 1.0 + seed * 0.7, grain, stroke_stretch, s);
+	vec4 strokes = stroke_noise(pw + seed * 0.7, grain, stroke_stretch, s);
 	vec4 bristle = stroke_noise(pw + seed * 1.3, grain, stroke_stretch * 1.5, s * 0.25);
 	float d_wash = detail(s * 5.0, footprint);
 	float d_strokes = detail(s, footprint);
