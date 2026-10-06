@@ -310,6 +310,8 @@ func _test_approval_and_meta() -> void:
 	_expect(host.receipt_for(PLAYER, "companion_removes").is_empty(), "receipts are principal-bound")
 	_expect(host.submit(COMPANION, remove, {"fingerprint": fingerprint}).replayed, "the same contract fingerprint replays")
 	_expect_code(host.submit(COMPANION, remove, {"fingerprint": "ef".repeat(32)}), "action_id_conflict", "a different contract fingerprint conflicts")
+	var direct: Dictionary = host.receipt_for(PLAYER, "players_thing")
+	_expect(direct.meta.op == "creation.place" and direct.meta.at_utc.ends_with("Z") and direct.meta.approved_by.is_empty(), "receipts committed without a host still name their contract op and time")
 	var second: Dictionary = host.submit(PLAYER, _command(host, "place", "players_second", _source()))
 	_expect_code(host.submit(PLAYER, _command(host, "remove", "self_approved", {}, second.instance_id), {"approved_by": PLAYER}), "request_invalid", "the player cannot be recorded as approving their own command")
 	_expect_code(host.submit(COMPANION, _command(host, "remove", "bad_meta", {}, second.instance_id), {"approved_by": "companion:local"}), "request_invalid", "only the player can approve")

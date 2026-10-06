@@ -136,6 +136,7 @@ func submit(principal: String, request: Dictionary, receipt_meta: Dictionary = {
 		return _failure("revision_conflict", "expected_revision", "The room changed. Refresh before confirming this edit.")
 	if not _whole(request.get("expected_permission_revision")) or int(request.expected_permission_revision) != permission_revision:
 		return _failure("permission_revision_conflict", "expected_permission_revision", "Permissions changed. Refresh before confirming this edit.")
+	meta = _complete_meta(meta, op)
 	if op in ["lock", "unlock"]:
 		return _submit_lock(principal, op, request.get("targets"), key, fingerprint, meta)
 	var instance_id := ""
@@ -742,6 +743,17 @@ func _validate_saved(data: Dictionary) -> Dictionary:
 		if not _room_entities.has(entity_id) or not _whole(data.entity_revisions[entity_id]) or int(data.entity_revisions[entity_id]) < 1 or int(data.entity_revisions[entity_id]) > int(data.revision):
 			return _failure("save_invalid", "entity_revisions", "A saved object revision names something not in this room.")
 	return {"ok": true, "instances": rebuilt}
+
+
+## Every durable receipt names its contract op and commit time, so receipt.lookup can rebuild the
+## contract result even for commits that came through the runtime directly.
+func _complete_meta(meta: Dictionary, op: String) -> Dictionary:
+	var complete := meta.duplicate()
+	if String(complete.op).is_empty():
+		complete.op = {"place": "creation.place", "revise": "creation.revise", "remove": "entity.remove", "lock": "protect.lock", "unlock": "protect.unlock", "activate": "creation.activate"}[op]
+	if String(complete.at_utc).is_empty():
+		complete.at_utc = Time.get_datetime_string_from_system(true) + "Z"
+	return complete
 
 
 ## Normalized receipt metadata from the trusted host, or {} when it is malformed.
