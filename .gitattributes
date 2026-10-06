@@ -15,3 +15,6 @@ contracts/*.schema.json text eol=lf
 contracts/examples/** -text
 game/rooms/** -text
 game/styles/**/*.json text eol=lf
+
+# Godot rewrites import sidecars with LF on every host; a CRLF checkout then shows them modified after each import.
+*.import text eol=lf
