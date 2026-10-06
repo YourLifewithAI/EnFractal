@@ -1,9 +1,0 @@
-; Standalone, loopback-only transport probe. No gameplay scenes or imports.
-config_version=5
-
-[application]
-config/name="Enfractal Transport Smoke"
-config/features=PackedStringArray("4.7")
-
-[rendering]
-renderer/rendering_method="gl_compatibility"
