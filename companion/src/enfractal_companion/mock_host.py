@@ -4,25 +4,33 @@ It loads a real room (`game/rooms/test_room` by default) through the room contra
 `enfractal.command` and `enfractal.query` messages with `enfractal.result` messages:
 
 - the principal comes from the caller (the trusted transport), never from the message;
-- every message is validated against the contract, plus the semantic rules a schema cannot express;
+- every message is validated against the contract (with ECMA-262 patterns), plus the value rules
+  (int64, finite numbers, no hidden characters) and the semantic rules a schema cannot express;
 - commands are idempotent per principal and action_id, fingerprinted over the canonical command
-  JSON as received; same content replays the receipt, different content is `action_id_conflict`;
-- `expected_revision` and `expected_entities` are checked here, never by the sender, and
-  `goal.stop` / `effect.stop` never fail on revisions or rate limits;
-- goals, effects and grabs get transient receipts; everything else gets a durable receipt;
-- commands that need the player's consent are held: the host mints a 128-bit `request_id`, the
+  JSON as received (an explicit `"preview": false` is the same as none); same content replays the
+  receipt, different content is `action_id_conflict`;
+- `goal.stop` and `effect.stop` always apply: they never fail on revisions, rate limits, a full
+  receipt ledger or a reused action_id, and the player's stop also stops the companion;
+- `expected_revision` and `expected_entities` are checked here, never by the sender;
+- goals, effects and grabs get transient receipts (bounded per principal, oldest dropped first);
+  everything else gets a durable receipt (at most 4,096 per room, like room state), and a
+  checkpoint compacts the durable ones, after which `receipt.lookup` answers `compacted: true`;
+- a companion perceives only what is in line of sight of its avatar (perception.py), and
+  `observe`, `entities.list`, `entity.inspect` and command targets all use that perception;
+- commands in the policy's held set wait for the player: the host mints a 128-bit `request_id`, the
   player approves or denies through `player_decide` (the game UI, never the companion's
   connection), and an approved command commits under its original principal and action_id with
-  `approved_by`; approvals expire, and lapse if the entities they touch change;
-- `protect.unlock` (every op in `$defs/player_only_ops`) is refused from companion principals;
-- a companion observes and acts only through its own avatar;
-- unknown, removed and foreign entity ids all fail with the same `target_not_found` answer;
-- world text is emitted only in contract fields and sanitised to the contract's character rules;
-- every result is validated against the contract before it leaves; a result that would not
-  validate is replaced by `internal_error`.
+  `approved_by`; approvals expire, and lapse if the entities they touch change. Every safety
+  property also holds with an empty held set;
+- protection is the player's: `protect.unlock` (every op in `$defs/player_only_ops`) is refused
+  from companion principals, and no companion command (including `room.undo`) changes a protected
+  entity or any protection state except adding a lock;
+- unknown, removed, foreign and unperceived entity ids all fail with the same `target_not_found`;
+- world text is emitted only in contract fields and sanitised (textsafety.py);
+- every result is validated before it leaves; one that would not validate becomes `internal_error`.
 
-The world model is deliberately simple (no physics, no line of sight): Run 2 replaces it with the
-kernel. What must carry over is the message behaviour, which the boundary tests pin down.
+The world model is deliberately simple (boxes, no physics): Run 2 replaces it with the kernel.
+What must carry over is the message behaviour, which the boundary tests pin down.
 """
 from __future__ import annotations
 
@@ -33,20 +41,25 @@ import math
 import secrets
 import threading
 import time
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from . import textsafety
-from .refusals import HostError, base_result, failure, map_schema_errors
+from . import perception, textsafety
+from .canonical import CanonicalJsonError
 from .contract import (
-    AUTHORITY_KEYS,
     COMMAND_SCHEMA,
     QUERY_SCHEMA,
     Contracts,
     DEFAULT_REPO_ROOT,
+    creation_sources,
+    find_forbidden_key,
+    is_authority_key,
+    value_problems,
 )
+from .refusals import HostError, base_result, failure, forbidden_key_error, map_schema_errors, value_error
 
 log = logging.getLogger("enfractal.mock_host")
 
@@ -55,7 +68,13 @@ COMPANION = "companion:local"
 OWN_AVATAR = {PLAYER: "avatar:player", COMPANION: "avatar:companion"}
 STOP_OPS = frozenset({"goal.stop", "effect.stop"})
 TRANSIENT_OPS = frozenset({"entity.grab", "creation.activate", "goal.set", "goal.stop", "effect.start", "effect.stop"})
+# Durable, but they change no world state, so they do not move the room revision.
+NO_REVISION_OPS = frozenset({"room.checkpoint"})
 LOCKABLE_KINDS = frozenset({"object", "creation"})
+# A new style.set may pin only a reviewed preset. Seed and draft files still change (contracts/README.md
+# "Styles are versioned files"); a retired preset stays loadable for old saves but is not offered for new pins.
+PINNABLE_STATUSES = frozenset({"candidate", "approved"})
+OCCLUDING_KINDS = frozenset({"shell", "object", "creation"})
 
 DEFAULT_ROOM_DIR = DEFAULT_REPO_ROOT / "game" / "rooms" / "test_room"
 DEFAULT_STYLES_DIR = DEFAULT_REPO_ROOT / "game" / "styles"
@@ -66,27 +85,42 @@ CAPABILITIES: dict[str, tuple[str, dict[str, tuple[float, float]]]] = {
     "glow": ("light", {"intensity": (0.0, 1.0)}),
 }
 
+RECOMMENDED_HELD_OPS = frozenset({"entity.remove", "entity.transform", "creation.revise", "room.undo", "style.set"})
+
 
 @dataclass
 class HostPolicy:
-    """Numbers the founder decides. These are the recommended defaults (see docs/companion/SECURITY.md)."""
+    """The one policy table. Values the founder decides are marked; see docs/companion/SECURITY.md."""
 
-    # Companion commands the host holds for the player's click.
-    companion_approval_ops: frozenset[str] = frozenset(
-        {"entity.remove", "entity.transform", "creation.revise", "room.undo", "style.set"})
+    # Companion commands the host holds for the player's click. The founder's goal is none
+    # (live play by conversation); every safety property is tested with this set empty.
+    companion_approval_ops: frozenset[str] = RECOMMENDED_HELD_OPS
     approval_ttl_s: float = 300.0
     max_pending_approvals: int = 3
-    # Token buckets per principal. Stop ops are never limited.
+    # Token buckets per principal. Stop ops are never limited. (Founder decision; recommended values.)
     command_rate_per_s: float = 2.0
     command_burst: int = 10
     query_rate_per_s: float = 10.0
     query_burst: int = 30
-    observe_default_radius_m: float = 3.0
+    # Perception (founder decision 1: line of sight). The three flags are open founder questions;
+    # the defaults are the recommendations in docs/companion/PERCEPTION.md.
+    observe_max_radius_m: float = 20.0
+    companion_targets_need_perception: bool = True  # commands may only name entities in sight now
+    perception_memory_s: float = 0.0  # how long a seen entity stays nameable once out of sight
+    follow_player_out_of_sight: bool = True  # follow/come keep working when the player is not in sight
+    # Effects (open founder question: may companion effects touch the player's avatar?).
+    companion_effects_may_target_player: bool = True
     max_effects_per_principal: int = 4
     max_creations: int = 32
     carry_limit_kg: dict[str, float] = field(default_factory=lambda: {"avatar:player": 0.5, "avatar:companion": 2.0})
     history_depth: int = 64
-    max_receipts_per_principal: int = 4096
+    max_checkpoints: int = 64  # room-state keeps at most 64
+    max_durable_receipts: int = 4096  # per room, across principals, like room-state receipts
+    max_transient_receipts_per_principal: int = 1024
+    max_compacted_receipts: int = 16384
+
+
+NO_HOLDS = HostPolicy(companion_approval_ops=frozenset())
 
 
 class SystemClock:
@@ -112,7 +146,7 @@ def utc(ts: float) -> str:
 
 
 def _not_found(field_path: str) -> HostError:
-    # One answer for unknown, removed and other-room ids: it confirms nothing about what exists.
+    # One answer for unknown, removed, other-room and unperceived ids: it confirms nothing about what exists.
     return HostError("target_not_found", "No entity with that id is in this room.", field_path=field_path)
 
 
@@ -193,6 +227,13 @@ class Receipt:
 
 
 @dataclass
+class Compacted:
+    fingerprint: str
+    op: str
+    revision: int
+
+
+@dataclass
 class Approval:
     request_id: str
     principal: str
@@ -224,16 +265,22 @@ class MockHost:
     """The game side of the companion boundary, minus physics."""
 
     def __init__(self, contracts: Contracts, room_dir: Path | None = None, styles_dir: Path | None = None,
-                 policy: HostPolicy | None = None, clock=None):
+                 policy: HostPolicy | None = None, clock=None, extra_companions: dict[str, str] | None = None):
         self.contracts = contracts
         self.policy = policy or HostPolicy()
         self.clock = clock or SystemClock()
         self._lock = threading.RLock()
         self.room_dir = Path(room_dir or DEFAULT_ROOM_DIR)
+        self.style_status: dict[tuple[str, int], str] = {}
         self.styles = self._index_styles(Path(styles_dir or DEFAULT_STYLES_DIR))
+        # principal -> its own avatar. Tests add a second companion to prove principals stay apart.
+        self.avatars: dict[str, str] = dict(OWN_AVATAR)
+        self.avatars.update(extra_companions or {})
         self.entities: dict[str, Entity] = {}
         self.revision = 0
-        self.receipts: dict[tuple[str, str], Receipt] = {}
+        self.receipts: dict[tuple[str, str], Receipt] = {}  # durable, at most max_durable_receipts
+        self.transient: OrderedDict[tuple[str, str], Receipt] = OrderedDict()
+        self.compacted: OrderedDict[tuple[str, str], Compacted] = OrderedDict()
         self.terminal: dict[tuple[str, str], Receipt] = {}  # denied or lapsed approvals, replayed as-is
         self.approvals: dict[str, Approval] = {}
         self.approval_by_action: dict[tuple[str, str], str] = {}
@@ -242,8 +289,11 @@ class MockHost:
         self.checkpoints: list[dict] = []
         self.history: dict[int, dict] = {}
         self.buckets: dict[tuple[str, str], _Bucket] = {}
+        self.last_seen: dict[str, dict[str, float]] = {}
+        self._view: set[str] | None = None  # what the current requester may name; None means everything
         self._creation_counter = 0
         self._effect_counter = 0
+        self._checkpoint_counter = 0
         self._load_room()
         self.history[0] = self._snapshot()
         self.listeners: list[Callable[[str, dict], None]] = []
@@ -261,12 +311,13 @@ class MockHost:
                 except Exception:  # an unreadable preset is simply not offered
                     continue
                 found[key] = hashlib.sha256(path.read_bytes()).hexdigest()
+                self.style_status[key] = preset.get("status", "seed")
         return found
 
     def _load_room(self) -> None:
         load = self.contracts.validate.load_strict
         room = load(self.room_dir / "room.json")
-        problems = self.contracts.schema_errors(room)
+        problems = self.contracts.validate.schema_errors(room)
         if problems:
             raise ValueError(f"room {self.room_dir} does not validate: {problems[:3]}")
         self.room = room
@@ -310,9 +361,13 @@ class MockHost:
         self.entities["avatar:player"] = Entity(
             id="avatar:player", kind="avatar", display_name="Player", position=list(player_spawn["position_m"]),
             half_extents=[0.02, 0.10, 0.02], affordances=[], movable=False, provenance_kind="hand_authored")
-        self.entities["avatar:companion"] = Entity(
-            id="avatar:companion", kind="avatar", display_name="Wisp", position=list(companion_spawn["position_m"]),
-            half_extents=[0.055, 0.24, 0.055], affordances=[], movable=False, provenance_kind="hand_authored")
+        for offset, (principal, avatar) in enumerate(sorted((p, a) for p, a in self.avatars.items() if p != PLAYER)):
+            position = list(companion_spawn["position_m"])
+            position[0] += 0.15 * offset
+            name = "Wisp" if avatar == "avatar:companion" else avatar.split(":", 1)[1].capitalize()
+            self.entities[avatar] = Entity(
+                id=avatar, kind="avatar", display_name=name, position=position,
+                half_extents=[0.055, 0.24, 0.055], affordances=[], movable=False, provenance_kind="hand_authored")
         style = room.get("default_style")
         if style is None:
             key = next(iter(sorted(self.styles)), ("storybook_painterly", 1))
@@ -335,11 +390,56 @@ class MockHost:
         with self._lock:
             self.entities[avatar_id].position = list(position)
 
+    def move_entity(self, entity_id: str, position: list[float]) -> None:
+        """The world moving something by itself (physics, the player's hands) between requests."""
+        with self._lock:
+            self.entities[entity_id].position = list(position)
+
+    # ------------------------------------------------------------------ perception
+
+    def perceived(self, principal: str) -> set[str]:
+        """Ids the principal's avatar perceives now: line of sight from its eye, plus the room shell
+        (it stands inside it), its own avatar and whatever it holds."""
+        with self._lock:
+            avatar_id = self.avatars[principal]
+            avatar = self.entities[avatar_id]
+            eye = perception.eye_point(avatar.position, "player" if principal.startswith("player:") else "companion")
+            occluders = [(e.id, *perception.padded(e.bounds()["min_m"], e.bounds()["max_m"]))
+                         for e in self.entities.values() if not e.removed and e.kind in OCCLUDING_KINDS]
+            seen = {avatar_id}
+            for entity in self.entities.values():
+                if entity.removed:
+                    continue
+                if entity.kind == "shell" or entity.held_by == avatar_id:
+                    seen.add(entity.id)
+                elif entity.id != avatar_id:
+                    box = entity.bounds()
+                    if perception.visible(eye, entity.id, box["min_m"], box["max_m"], occluders):
+                        seen.add(entity.id)
+            now = self.clock.now()
+            memory = self.last_seen.setdefault(principal, {})
+            for entity_id in seen:
+                memory[entity_id] = now
+            return seen
+
+    def _view_for(self, principal: str, *, for_command: bool) -> set[str] | None:
+        if principal.startswith("player:"):
+            return None  # the player's own controls and UI see the whole room
+        seen = self.perceived(principal)
+        if not for_command:
+            return seen
+        if not self.policy.companion_targets_need_perception:
+            return None
+        if self.policy.perception_memory_s > 0:
+            cutoff = self.clock.now() - self.policy.perception_memory_s
+            seen |= {e for e, t in self.last_seen.get(principal, {}).items() if t >= cutoff}
+        return seen
+
     # ------------------------------------------------------------------ the wire
 
     def handle(self, principal: str, message: Any) -> dict:
         """Answer one parsed message from `principal`, which the trusted transport assigned."""
-        if principal not in OWN_AVATAR:
+        if principal not in self.avatars:
             raise ValueError(f"the transport passed an unknown principal {principal!r}")
         with self._lock:
             self._expire()
@@ -353,8 +453,11 @@ class MockHost:
                 log.exception("mock host failed on a request")
                 result = self._fail(principal, message, HostError(
                     "internal_error", "The game could not handle that request.", retryable=True))
-            if self.contracts.schema_errors(result):
-                log.error("mock host built an invalid result: %s", self.contracts.schema_errors(result)[:3])
+            finally:
+                self._view = None
+            problems = self.contracts.schema_errors(result)
+            if problems:
+                log.error("mock host built an invalid result: %s", problems[:3])
                 result = self._fail(principal, None, HostError(
                     "internal_error", "The game could not handle that request.", retryable=True))
             return result
@@ -385,12 +488,13 @@ class MockHost:
             raise HostError("room_mismatch", "That room is not the one loaded in the game.", field_path="$.room_id")
         hit = _find_authority_key(message.get("args"), ["args"])
         if hit is not None:
-            raise HostError("field_unknown", "Identity and approval fields are never accepted in a request.",
-                            field_path=textsafety.field_path(hit))
+            raise forbidden_key_error(hit, "authority" if is_authority_key(str(hit[-1])) else "key_format")
         if op in self.contracts.player_only_ops and not principal.startswith("player:"):
             raise HostError("permission_denied", "Only the player can do that, directly in the game.", field_path="$.op")
         if is_command:
+            self._view = self._view_for(principal, for_command=True)
             return self._command(principal, message)
+        self._view = self._view_for(principal, for_command=False)
         return self._query(principal, message)
 
     def _take(self, principal: str, kind: str) -> bool:
@@ -403,23 +507,29 @@ class MockHost:
         return self.buckets[key].take(now)
 
     def _check_schema(self, message: dict) -> None:
-        canonical = self.contracts.canonical_bytes(message)
+        problems = value_problems(message)
+        if message.get("schema") == COMMAND_SCHEMA and message.get("op") in STOP_OPS:
+            # A stop ignores revisions, so a revision outside int64 is no reason to refuse it.
+            problems = [(path, kind) for path, kind in problems
+                        if not (kind == "integer_range" and path[:1] in (["expected_revision"], ["expected_entities"]))]
+        if problems:
+            raise value_error(problems)
+        try:
+            canonical_size = len(self.contracts.canonical_bytes(message))
+        except CanonicalJsonError:
+            raise HostError("request_invalid", "The request cannot be written as canonical JSON (too deeply nested).") from None
         limit = self.contracts.message_limits[message["schema"]]
-        if len(canonical) > limit:
+        if canonical_size > limit:
             raise HostError("request_invalid", f"The request is larger than {limit} bytes of canonical JSON.",
-                            field_path="$", allowed=limit, actual=len(canonical))
+                            field_path="$", allowed=limit, actual=canonical_size)
         errors = list(self.contracts.iter_errors(message))
         if errors:
             raise map_schema_errors(errors)
-        args = message.get("args", {})
-        for key in ("source",):
-            for holder, path in ((args, "$.args.source"), (args.get("into") if isinstance(args.get("into"), dict) else {}, "$.args.into.source")):
-                source = holder.get(key) if isinstance(holder, dict) else None
-                if isinstance(source, dict):
-                    size = len(self.contracts.canonical_bytes(source))
-                    if size > self.contracts.creation_source_limit:
-                        raise HostError("budget_exceeded", "The creation is larger than the size limit.",
-                                        field_path=path, allowed=self.contracts.creation_source_limit, actual=size)
+        for path, source in creation_sources(message):
+            size = len(self.contracts.canonical_bytes(source))
+            if size > self.contracts.creation_source_limit:
+                raise HostError("budget_exceeded", "The creation is larger than the size limit.",
+                                field_path=path, allowed=self.contracts.creation_source_limit, actual=size)
 
     # ------------------------------------------------------------------ results
 
@@ -439,28 +549,29 @@ class MockHost:
 
     # ------------------------------------------------------------------ commands
 
+    def _fingerprint(self, message: dict) -> str:
+        """SHA-256 of the command as received in canonical JSON v1 (the kernel host's form, see
+        canonical.py); an explicit `"preview": false` equals none."""
+        if message.get("preview") is False:
+            message = {k: v for k, v in message.items() if k != "preview"}
+        return hashlib.sha256(self.contracts.canonical_bytes(message)).hexdigest()
+
     def _command(self, principal: str, message: dict) -> dict:
         op = message["op"]
         action_id = message["action_id"]
         key = (principal, action_id)
-        fingerprint = hashlib.sha256(self.contracts.canonical_bytes(message)).hexdigest()
-        preview = bool(message.get("preview", False))
-        if not preview:
-            for store in (self.receipts, self.terminal):
-                if key in store:
-                    return self._replay(store[key], fingerprint, message)
-            request_id = self.approval_by_action.get(key)
-            if request_id is not None:
-                approval = self.approvals[request_id]
-                if approval.fingerprint != fingerprint:
-                    raise HostError("action_id_conflict", "That action id was already used for a different command.",
-                                    field_path="$.action_id")
-                replay = copy.deepcopy(approval.pending_result)
-                replay["replayed"] = True
-                replay["at_utc"] = utc(self.clock.now())
-                return replay
-        self._check_revisions(principal, message)
         handler = getattr(self, "_op_" + op.replace(".", "_"))
+        preview = message.get("preview") is True
+        if op in STOP_OPS and not preview:
+            # A stop always applies, whatever the ledger or an earlier use of this action id says.
+            result = self._commit(principal, message, handler)
+            self._store_receipt(key, self._fingerprint(message), result)
+            return result
+        fingerprint = self._fingerprint({k: v for k, v in message.items() if k != "preview"} if preview else message)
+        earlier = self._earlier(key, fingerprint, message)
+        if earlier is not None:
+            return earlier
+        self._check_revisions(principal, message)
         prediction = handler(principal, message, False, None)
         if preview:
             result = self._base(principal, message)
@@ -470,17 +581,44 @@ class MockHost:
             return result
         if principal != PLAYER and op in self.policy.companion_approval_ops:
             return self._hold(principal, message, fingerprint, prediction)
-        self._check_receipt_room(principal)
+        if op not in TRANSIENT_OPS and op != "room.checkpoint":
+            self._check_receipt_room(principal)
         result = self._commit(principal, message, handler)
         self._store_receipt(key, fingerprint, result)
         return result
 
+    def _earlier(self, key: tuple[str, str], fingerprint: str, message: dict) -> dict | None:
+        """The answer for an action id this principal already used, or None if it is new."""
+        for store in (self.receipts, self.transient, self.terminal):
+            if key in store:
+                return self._replay(store[key], fingerprint, message)
+        if key in self.compacted:
+            entry = self.compacted[key]
+            if entry.fingerprint != fingerprint:
+                raise HostError("action_id_conflict", "That action id was already used for a different command.",
+                                field_path="$.action_id")
+            replay = self._base(key[0], message)
+            replay.update({"replayed": True, "revision": entry.revision, "transient": False})
+            return replay
+        request_id = self.approval_by_action.get(key)
+        if request_id is not None:
+            approval = self.approvals[request_id]
+            if approval.fingerprint != fingerprint:
+                raise HostError("action_id_conflict", "That action id was already used for a different command.",
+                                field_path="$.action_id")
+            replay = copy.deepcopy(approval.pending_result)
+            replay["replayed"] = True
+            replay["at_utc"] = utc(self.clock.now())
+            return replay
+        return None
+
     def _commit(self, principal: str, message: dict, handler, approved_by: str | None = None) -> dict:
         op = message["op"]
         durable = op not in TRANSIENT_OPS
-        new_revision = self.revision + 1 if durable else None
+        moves_revision = durable and op not in NO_REVISION_OPS
+        new_revision = self.revision + 1 if moves_revision else None
         outcome = handler(principal, message, True, new_revision)
-        if durable:
+        if moves_revision:
             self.revision = new_revision
             self.history[new_revision] = self._snapshot()
             for old in [r for r in self.history if r < new_revision - self.policy.history_depth]:
@@ -494,12 +632,20 @@ class MockHost:
         return result
 
     def _check_receipt_room(self, principal: str) -> None:
-        count = sum(1 for (p, _a) in self.receipts if p == principal)
-        if count >= self.policy.max_receipts_per_principal:
-            raise HostError("receipt_limit", "The receipt ledger is full; take a checkpoint.", retryable=False)
+        count = len(self.receipts)
+        if count >= self.policy.max_durable_receipts:
+            raise HostError("receipt_limit", "The receipt ledger is full. A checkpoint compacts it.", retryable=True)
 
     def _store_receipt(self, key: tuple[str, str], fingerprint: str, result: dict) -> None:
-        self.receipts[key] = Receipt(fingerprint, copy.deepcopy(result), durable=not result.get("transient", False))
+        receipt = Receipt(fingerprint, copy.deepcopy(result), durable=not result.get("transient", False))
+        if receipt.durable:
+            self.receipts[key] = receipt
+            return
+        self.transient.pop(key, None)
+        self.transient[key] = receipt
+        mine = [k for k in self.transient if k[0] == key[0]]
+        for old in mine[:max(0, len(mine) - self.policy.max_transient_receipts_per_principal)]:
+            del self.transient[old]
 
     def _replay(self, receipt: Receipt, fingerprint: str, message: dict) -> dict:
         if receipt.fingerprint != fingerprint:
@@ -540,7 +686,7 @@ class MockHost:
         request_id = secrets.token_hex(16)
         expires_at = self.clock.now() + self.policy.approval_ttl_s
         touched = {}
-        for entity_id in _targets(message["args"]):
+        for entity_id in _targets(message["args"]) + list(prediction.get("affected", [])):
             entity = self._entity(entity_id)
             if entity is not None:
                 touched[entity_id] = entity.revision
@@ -548,7 +694,7 @@ class MockHost:
         result["ok"] = False
         result["approval_needed"] = {
             "request_id": request_id,
-            "reason": _approval_reason(message),
+            "reason": self._approval_reason(message),
             "expires_utc": utc(expires_at),
         }
         result["error"] = {"code": "approval_required", "message": "Waiting for the player to approve this change in the game.",
@@ -560,6 +706,44 @@ class MockHost:
         self._emit("approval_requested", {"request_id": request_id, "op": message["op"], "principal": principal,
                                           "reason": result["approval_needed"]["reason"]})
         return result
+
+    def _approval_reason(self, message: dict) -> str:
+        """What the player is asked to approve, stated as its concrete effect."""
+        op, args = message["op"], message["args"]
+
+        def named(entity_id: str) -> str:
+            entity = self.entities.get(entity_id)
+            name = textsafety.display_text(entity.display_name, 40) if entity else "unknown"
+            revision = entity.revision if entity else 0
+            return f'{entity_id} ("{name}", revision {revision})'
+
+        if op == "entity.remove":
+            what = f"remove {named(args['target'])} from the room"
+        elif op == "entity.transform":
+            new_name = textsafety.display_text(args["into"]["source"]["name"], 40)
+            what = f'turn {named(args["target"])} into "{new_name}"'
+        elif op == "creation.revise":
+            parts = []
+            if "source" in args:
+                parts.append(f'rebuild it as "{textsafety.display_text(args["source"]["name"], 40)}"')
+            if "placement" in args:
+                x, y, z = (round(v, 2) for v in args["placement"]["position_m"])
+                parts.append(f"move it to ({x}, {y}, {z})")
+            what = f"change {named(args['target'])}: " + " and ".join(parts)
+        elif op == "room.undo":
+            changed = self._undo_plan(args["to_revision"])
+            listed = ", ".join(entity_id for entity_id, _state in changed[:6])
+            more = f" and {len(changed) - 6} more" if len(changed) > 6 else ""
+            what = (f"undo the room from revision {self.revision} to revision {args['to_revision']}, "
+                    f"changing {len(changed)} entities: {listed or 'none'}{more}")
+        elif op == "style.set":
+            what = (f"switch the room style from {self.style['preset_id']} v{self.style['preset_version']} "
+                    f"to {args['preset_id']} v{args['preset_version']}")
+        else:
+            targets = ", ".join(_targets(args)) or "the room"
+            what = f"{op} on {targets}"
+        reason = f"Your companion wants to {what}. Approve or deny in the game."
+        return reason if len(reason) <= 280 else reason[:276] + "..."
 
     # ------------------------------------------------------------------ the player's side (game UI only)
 
@@ -581,24 +765,28 @@ class MockHost:
                 return {"state": approval.state, "result": approval.result}
             message = approval.message
             key = (approval.principal, approval.action_id)
-            if not approve:
-                self._finish(approval, "denied", HostError("permission_denied", "The player declined this change."))
-            elif self._lapsed(approval):
-                self._finish(approval, "expired", HostError(
-                    "approval_mismatch", "The room changed before the player approved; ask again.", retryable=True))
-            else:
-                try:
-                    self._check_revisions(approval.principal, message)
-                    handler = getattr(self, "_op_" + message["op"].replace(".", "_"))
-                    handler(approval.principal, message, False, None)
-                    self._check_receipt_room(approval.principal)
-                    result = self._commit(approval.principal, message, handler, approved_by=PLAYER)
-                    self._store_receipt(key, approval.fingerprint, result)
-                    approval.state, approval.result = "approved", result
-                except HostError as error:
+            self._view = None
+            try:
+                if not approve:
+                    self._finish(approval, "denied", HostError(
+                        "permission_denied", "The player declined this change. To ask again, use a new action_id."))
+                elif self._lapsed(approval):
                     self._finish(approval, "expired", HostError(
-                        "approval_mismatch", "The change can no longer be made as approved; ask again.", retryable=True,
-                    ) if error.code != "receipt_limit" else error)
+                        "approval_mismatch", "The room changed before the player approved. To ask again, use a new action_id."))
+                else:
+                    try:
+                        self._check_revisions(approval.principal, message)
+                        handler = getattr(self, "_op_" + message["op"].replace(".", "_"))
+                        handler(approval.principal, message, False, None)
+                        self._check_receipt_room(approval.principal)
+                        result = self._commit(approval.principal, message, handler, approved_by=PLAYER)
+                        self._store_receipt(key, approval.fingerprint, result)
+                        approval.state, approval.result = "approved", result
+                    except HostError as error:
+                        self._finish(approval, "expired", error if error.code == "receipt_limit" else HostError(
+                            "approval_mismatch", "The change can no longer be made as approved. To ask again, use a new action_id."))
+            finally:
+                self._view = None
             del self.approval_by_action[key]
             self._emit("approval_decided", {"request_id": request_id, "state": approval.state})
             return {"state": approval.state, "result": approval.result}
@@ -626,8 +814,8 @@ class MockHost:
         now = self.clock.now()
         for approval in list(self.approvals.values()):
             if approval.state == "pending" and now >= approval.expires_at:
-                self._finish(approval, "expired", HostError("approval_expired", "The player did not answer in time.",
-                                                            retryable=True))
+                self._finish(approval, "expired", HostError(
+                    "approval_expired", "The player did not answer in time. To ask again, use a new action_id."))
                 self.approval_by_action.pop((approval.principal, approval.action_id), None)
         for entity in list(self.entities.values()):
             if entity.kind == "effect" and not entity.removed and entity.expires_at is not None and now >= entity.expires_at:
@@ -639,6 +827,8 @@ class MockHost:
         entity = self.entities.get(entity_id)
         if entity is None or entity.removed:
             return None
+        if self._view is not None and entity_id not in self._view:
+            return None  # out of sight: indistinguishable from an id that does not exist
         return entity
 
     def _require(self, entity_id: str, field_path: str) -> Entity:
@@ -647,15 +837,23 @@ class MockHost:
             raise _not_found(field_path)
         return entity
 
+    def _directable(self, principal: str) -> set[str]:
+        """Avatars this principal may direct: its own, and the player may direct every companion."""
+        own = {self.avatars[principal]}
+        if principal.startswith("player:"):
+            own |= {a for p, a in self.avatars.items() if not p.startswith("player:")}
+        return own
+
+    def _principal_of(self, avatar_id: str) -> str | None:
+        return next((p for p, a in self.avatars.items() if a == avatar_id), None)
+
     def _actor(self, principal: str, args: dict) -> str:
-        actor = args.get("actor", OWN_AVATAR[principal])
-        allowed = {OWN_AVATAR[principal]}
-        if principal == PLAYER:
-            allowed.add("avatar:companion")  # a player may direct the companion; never the reverse
-        if actor not in allowed:
+        actor = args.get("actor", self.avatars[principal])
+        if actor not in self._directable(principal):
             raise HostError("actor_denied", "A companion acts and observes only through its own avatar.",
                             field_path="$.args.actor")
-        self._require(actor, "$.args.actor")
+        if self.entities.get(actor) is None:
+            raise _not_found("$.args.actor")
         return actor
 
     def _check_placement(self, placement: dict | None, field_path: str) -> None:
@@ -684,6 +882,24 @@ class MockHost:
     def _snapshot(self) -> dict:
         return {"entities": {k: e.durable_state() for k, e in self.entities.items() if e.kind not in ("effect", "avatar")},
                 "style": dict(self.style)}
+
+    def _undo_plan(self, to_revision: int) -> list[tuple[str, dict | None]]:
+        """(entity id, the state it would get, or None to remove it) for every entity undo would change."""
+        snapshot = self.history.get(to_revision)
+        if snapshot is None:
+            return []
+        changes: list[tuple[str, dict | None]] = []
+        for entity_id, state in snapshot["entities"].items():
+            entity = self.entities.get(entity_id)
+            current = entity.durable_state() if entity else None
+            if current is not None and {k: v for k, v in current.items() if k != "revision"} == \
+                    {k: v for k, v in state.items() if k != "revision"}:
+                continue
+            changes.append((entity_id, state))
+        for entity_id, entity in self.entities.items():
+            if entity.kind in ("object", "creation") and entity_id not in snapshot["entities"] and not entity.removed:
+                changes.append((entity_id, None))
+        return sorted(changes, key=lambda item: item[0])
 
     # ------------------------------------------------------------------ op handlers
     # Each handler validates first. With apply=False it only predicts the outcome; with apply=True it
@@ -715,7 +931,7 @@ class MockHost:
         args = message["args"]
         actor = self._actor(principal, args)
         held_id = self.holding.get(actor)
-        if held_id is None or self._entity(held_id) is None:
+        if held_id is None or self.entities.get(held_id) is None or self.entities[held_id].removed:
             raise HostError("invalid_args", "The avatar is not holding anything.", field_path="$.args")
         placement = args.get("placement")
         self._check_placement(placement, "$.args.placement")
@@ -734,7 +950,7 @@ class MockHost:
         self._check_changeable(target, "$.args.target", "moved")
         if not target.movable:
             raise HostError("permission_denied", "That cannot be moved.", field_path="$.args.target")
-        if target.held_by and target.held_by != OWN_AVATAR[principal]:
+        if target.held_by and target.held_by != self.avatars[principal]:
             raise HostError("target_busy", "Someone is holding that.", field_path="$.args.target")
         self._check_placement(args["placement"], "$.args.placement")
         if not apply:
@@ -829,9 +1045,15 @@ class MockHost:
         for i, target in enumerate(targets):
             if target.kind not in LOCKABLE_KINDS:
                 raise HostError("invalid_args", "Only objects and creations can be protected.", field_path=f"$.args.targets[{i}]")
+            if target.held_by:
+                # A held thing could be carried off and put down elsewhere after the lock. Put it down first.
+                raise HostError("target_busy", "Someone is holding that; it can be protected once it is put down.",
+                                field_path=f"$.args.targets[{i}]")
         if not apply:
             return {"affected": [t.id for t in targets]}
         for target in targets:
+            if target.protected:
+                continue  # already protected: the lock and who set it stay as they are
             target.protected, target.protected_by = True, principal
             self._touch(target, new_revision)
         return {"affected": [t.id for t in targets]}
@@ -850,6 +1072,9 @@ class MockHost:
     def _op_goal_set(self, principal, message, apply, new_revision):
         args = message["args"]
         actor = self._actor(principal, args)
+        if args["goal"] in ("follow", "come") and "target" not in args and not principal.startswith("player:") \
+                and not self.policy.follow_player_out_of_sight and "avatar:player" not in (self._view or {"avatar:player"}):
+            raise HostError("target_not_found", "The player is not in sight.", field_path="$.args.goal")
         if "target" in args:
             target = self._require(args["target"], "$.args.target")
             if args["goal"] == "fetch":
@@ -877,13 +1102,13 @@ class MockHost:
         return outcome
 
     def _op_goal_stop(self, principal, message, apply, new_revision):
+        # Always permitted. Without an actor it stops every actor the principal may direct, their
+        # goals and their effects; the player's stop therefore stops the companion as well.
         args = message["args"]
-        if "actor" in args:
-            actors = [self._actor(principal, args)]
-        else:
-            actors = [OWN_AVATAR[principal]] + (["avatar:companion"] if principal == PLAYER else [])
-        stopped_effects = [e.id for e in self.entities.values()
-                           if e.kind == "effect" and not e.removed and e.created_by == principal]
+        actors = [self._actor(principal, args)] if "actor" in args else sorted(self._directable(principal))
+        owners = {self._principal_of(actor) for actor in actors}
+        stopped_effects = sorted(e.id for e in self.entities.values()
+                                 if e.kind == "effect" and not e.removed and e.created_by in owners)
         if apply:
             for actor in actors:
                 self.goals.pop(actor, None)
@@ -913,6 +1138,10 @@ class MockHost:
             if target.protected:
                 raise HostError("target_protected", "A target is protected. Only the player can unlock it.",
                                 field_path=f"$.args.targets[{i}]")
+            if target.id == "avatar:player" and not principal.startswith("player:") \
+                    and not self.policy.companion_effects_may_target_player:
+                raise HostError("permission_denied", "Companion effects may not target the player.",
+                                field_path=f"$.args.targets[{i}]")
         live = [e for e in self.entities.values() if e.kind == "effect" and not e.removed and e.created_by == principal]
         if len(live) >= self.policy.max_effects_per_principal:
             raise HostError("budget_exceeded", "Too many of your effects are running; stop one first.",
@@ -931,9 +1160,11 @@ class MockHost:
         return {"created": [effect_id], "affected": [effect_id]}
 
     def _op_effect_stop(self, principal, message, apply, new_revision):
+        # Always permitted. The player may stop any companion's effects; a companion only its own.
         which = message["args"]["effect"]
-        mine = [e for e in self.entities.values() if e.kind == "effect" and not e.removed and e.created_by == principal]
-        stopping = [e for e in mine if which == "all" or e.id == which]
+        owners = {self._principal_of(avatar) for avatar in self._directable(principal)}
+        stoppable = [e for e in self.entities.values() if e.kind == "effect" and not e.removed and e.created_by in owners]
+        stopping = sorted((e for e in stoppable if which == "all" or e.id == which), key=lambda e: e.id)
         if apply:
             for effect in stopping:
                 effect.removed = True
@@ -944,45 +1175,66 @@ class MockHost:
         key = (args["preset_id"], args["preset_version"])
         if key not in self.styles:
             raise HostError("invalid_args", "No style preset with that id and version is installed.", field_path="$.args.preset_id")
+        if self.style_status.get(key) not in PINNABLE_STATUSES:
+            # contracts/README.md "Styles are versioned files": nothing may pin a seed or draft preset.
+            raise HostError("invalid_args", "That preset version is a seed, draft or retired preset and cannot be pinned.",
+                            field_path="$.args.preset_version", allowed=sorted(PINNABLE_STATUSES))
         if not apply:
             return {}
         self.style = {"preset_id": key[0], "preset_version": key[1], "preset_sha256": self.styles[key]}
         return {}
 
     def _op_room_checkpoint(self, principal, message, apply, new_revision):
+        # Records the current revision; does not move it, so a checkpoint never stales anyone's
+        # expected_revision. Compacts the durable receipts it covers.
         if not apply:
             return {}
-        label = textsafety.display_text(message["args"].get("label", ""), 80) if message["args"].get("label") else None
-        checkpoint = {"id": f"cp{len(self.checkpoints) + 1:04d}", "revision": new_revision}
+        self._checkpoint_counter += 1
+        label = textsafety.display_text(message["args"]["label"], 80) if message["args"].get("label") else None
+        checkpoint = {"id": f"cp{self._checkpoint_counter:04d}", "revision": self.revision}
         if label:
             checkpoint["label"] = label
         self.checkpoints.append(checkpoint)
-        return {"data": {"checkpoint_id": checkpoint["id"]}}
+        del self.checkpoints[:max(0, len(self.checkpoints) - self.policy.max_checkpoints)]
+        for key, receipt in list(self.receipts.items()):
+            if receipt.result["revision"] <= self.revision:
+                self.compacted[key] = Compacted(receipt.fingerprint, receipt.result["op"], receipt.result["revision"])
+                del self.receipts[key]
+        while len(self.compacted) > self.policy.max_compacted_receipts:
+            self.compacted.popitem(last=False)
+        return {"data": {"checkpoint_id": checkpoint["id"], "checkpoint_revision": self.revision}}
 
     def _op_room_undo(self, principal, message, apply, new_revision):
         to_revision = message["args"]["to_revision"]
         if to_revision >= self.revision or to_revision not in self.history:
             raise HostError("invalid_args", "That revision cannot be restored.", field_path="$.args.to_revision",
                             allowed=[min(self.history), max(self.revision - 1, 0)], actual=to_revision)
+        changes = self._undo_plan(to_revision)
+        if not principal.startswith("player:"):
+            # Protection is the player's. A companion's undo may not touch a protected entity, and may
+            # not change any entity's protection, in either direction.
+            for entity_id, state in changes:
+                entity = self.entities.get(entity_id)
+                now_protected = bool(entity and not entity.removed and entity.protected)
+                then_protected = bool(state and not state["removed"] and state["protected"])
+                if now_protected or then_protected != now_protected:
+                    raise HostError("target_protected",
+                                    "Undoing to that revision would change something protected. Only the player can do that.",
+                                    field_path="$.args.to_revision")
         if not apply:
-            return {}
+            return {"affected": [entity_id for entity_id, _state in changes][:256]}
         snapshot = self.history[to_revision]
         changed = []
-        for entity_id, state in snapshot["entities"].items():
-            entity = self.entities.get(entity_id)
-            current = entity.durable_state() if entity else None
-            if current is not None and {k: v for k, v in current.items() if k != "revision"} == \
-                    {k: v for k, v in state.items() if k != "revision"}:
-                continue
-            restored = Entity(id=entity_id, **{k: copy.deepcopy(v) for k, v in state.items()})
-            restored.revision = new_revision
-            self.entities[entity_id] = restored
-            changed.append(entity_id)
-        for entity_id, entity in self.entities.items():
-            if entity.kind in ("object", "creation") and entity_id not in snapshot["entities"] and not entity.removed:
+        for entity_id, state in changes:
+            if state is None:
+                entity = self.entities[entity_id]
                 entity.removed = True
                 entity.revision = new_revision
-                changed.append(entity_id)
+            else:
+                restored = Entity(id=entity_id, **{k: copy.deepcopy(v) for k, v in state.items()})
+                restored.revision = new_revision
+                self.entities[entity_id] = restored
+            changed.append(entity_id)
         for actor, held in list(self.holding.items()):
             if held in changed:
                 del self.holding[actor]
@@ -1013,8 +1265,8 @@ class MockHost:
                 "style": dict(self.style), "counts": counts,
             }
         elif op == "entities.list":
-            items = [e for e in sorted(self.entities.values(), key=lambda e: e.id) if not e.removed]
-            items = [e for e in items if _matches(e, args.get("filter", {}))]
+            items = [e for e in sorted(self.entities.values(), key=lambda e: e.id)
+                     if self._entity(e.id) is not None and _matches(e, args.get("filter", {}))]
             offset = _cursor(args.get("cursor"))
             limit = args.get("limit", 50)
             page = items[offset:offset + limit]
@@ -1042,10 +1294,12 @@ class MockHost:
                 result["data"]["next_cursor"] = str(offset + limit)
         elif op == "observe":
             actor = self._actor(principal, args)
-            radius = float(args.get("radius_m", self.policy.observe_default_radius_m))
+            radius = min(float(args.get("radius_m", self.policy.observe_max_radius_m)), self.policy.observe_max_radius_m)
+            seen = self.perceived(self._principal_of(actor) or principal)
             origin = self.entities[actor].position
             visible = []
-            for entity in self.entities.values():
+            for entity_id in seen:
+                entity = self.entities[entity_id]
                 if entity.removed or entity.kind == "shell" or entity.id == actor:
                     continue
                 distance = _distance_to_box(origin, entity.bounds())
@@ -1062,10 +1316,14 @@ class MockHost:
         elif op == "jobs.status":
             raise HostError("target_not_found", "No job with that id is running.", field_path="$.args.job_id")
         elif op == "receipt.lookup":
-            receipt = self.receipts.get((principal, args["action_id"]))
-            result["data"] = {"found": receipt is not None}
+            key = (principal, args["action_id"])
+            receipt = self.receipts.get(key) or self.transient.get(key)
             if receipt is not None:
-                result["data"]["receipt"] = copy.deepcopy(receipt.result)
+                result["data"] = {"found": True, "receipt": copy.deepcopy(receipt.result)}
+            elif key in self.compacted:
+                result["data"] = {"found": True, "compacted": True}
+            else:
+                result["data"] = {"found": False}
         elif op == "approval.status":
             approval = self.approvals.get(args["request_id"])
             if approval is None or approval.principal != principal:
@@ -1092,32 +1350,9 @@ def _targets(args: dict) -> list[str]:
 
 
 def _find_authority_key(value: Any, path: list) -> list | None:
-    if isinstance(value, dict):
-        for key, item in value.items():
-            if isinstance(key, str) and key.lower() in AUTHORITY_KEYS:
-                return path + [key]
-            hit = _find_authority_key(item, path + [key])
-            if hit is not None:
-                return hit
-    elif isinstance(value, list):
-        for index, item in enumerate(value):
-            hit = _find_authority_key(item, path + [index])
-            if hit is not None:
-                return hit
-    return None
-
-
-def _approval_reason(message: dict) -> str:
-    op = message["op"]
-    target = message["args"].get("target")
-    words = {
-        "entity.remove": "remove", "entity.transform": "transform", "creation.revise": "change",
-        "room.undo": "undo the room to an earlier revision", "style.set": "change the room's style",
-    }
-    verb = words.get(op, op)
-    if isinstance(target, str):
-        return f"Your companion wants to {verb} {target}. Approve or deny in the game."
-    return f"Your companion wants to {verb}. Approve or deny in the game."
+    """Path to the first key that names identity or authority, or is not a plain lowercase token."""
+    found = find_forbidden_key(value, path, token_keys=True)
+    return found[0] if found is not None else None
 
 
 def _inside(point, bounds, tolerance: float = 1e-3) -> bool:

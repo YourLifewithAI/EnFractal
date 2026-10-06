@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import itertools
+import secrets
 import logging
 import sys
 import time
@@ -31,9 +32,11 @@ from pathlib import Path
 from typing import Any
 
 from . import __version__, lockdown, textsafety
-from .contract import AUTHORITY_KEYS, COMMAND_SCHEMA, CONTRACT_VERSION, PACKAGE_DIR, QUERY_SCHEMA, Contracts, ToolSpec, dumps_compact
+from .canonical import CanonicalJsonError
+from .contract import (COMMAND_SCHEMA, CONTRACT_VERSION, PACKAGE_DIR, QUERY_SCHEMA, Contracts, ToolSpec, dumps_compact,
+                       find_forbidden_key, is_authority_key, value_problems)
 from .link import LinkClient, LinkError, SessionInfo, default_session_path
-from .refusals import HostError, base_result, failure, map_schema_errors
+from .refusals import HostError, base_result, failure, forbidden_key_error, map_schema_errors, value_error
 
 log = logging.getLogger("enfractal.companion")
 
@@ -79,10 +82,10 @@ class Adapter:
 
     def __init__(self, contracts: Contracts, link: LinkClient, *, command_rate_per_s: float = 2.0,
                  command_burst: int = 10, query_rate_per_s: float = 10.0, query_burst: int = 30,
-                 clock=time.monotonic, wallclock=time.time):
+                 clock=time.monotonic, wallclock=time.time, schema_profile: str = "full"):
         self.contracts = contracts
         self.link = link
-        self.specs: dict[str, ToolSpec] = {spec.name: spec for spec in contracts.tool_specs()}
+        self.specs: dict[str, ToolSpec] = {spec.name: spec for spec in contracts.tool_specs(schema_profile)}
         self._actor_required = {spec.name for spec in self.specs.values()
                                 if spec.actor_field and spec.actor_field in contracts.args_schema(spec.op).get("required", [])}
         self.known_ops = frozenset(contracts.command_ops) | frozenset(contracts.query_ops)
@@ -155,19 +158,22 @@ class Adapter:
             return skeleton, self._refusal(skeleton, HostError("request_invalid", "Tool arguments must be an object."))
         if spec.kind == "command" and isinstance(arguments.get("action_id"), str):
             skeleton["action_id"] = arguments["action_id"]
+        # Values JSON and the contract rule out but a parsed tool call can carry (NaN, Infinity, huge
+        # integers, hidden characters) are refused before anything else, and before a rate token is spent.
+        problems = value_problems(arguments)
+        if problems:
+            return skeleton, self._refusal(skeleton, value_error(problems))
         allowed = set(spec.input_schema["properties"])
         for key in arguments:
             if key not in allowed:
-                return skeleton, self._refusal(skeleton, HostError(
-                    "field_unknown", "This tool does not take that field." if key.lower() not in AUTHORITY_KEYS else
-                    "Identity and approval fields are never accepted in a request.",
-                    field_path=textsafety.field_path([key])))
-        hit = _authority_key(arguments, [])
-        if hit is not None:
-            return skeleton, self._refusal(skeleton, HostError(
-                "field_unknown", "Identity and approval fields are never accepted in a request.",
-                field_path=textsafety.field_path(hit)))
+                error = forbidden_key_error([key], "authority") if is_authority_key(key) else HostError(
+                    "field_unknown", "This tool does not take that field.", field_path=textsafety.field_path([key]))
+                return skeleton, self._refusal(skeleton, error)
+        envelope = {k: v for k, v in arguments.items() if k not in spec.args_properties}
         args = {k: v for k, v in arguments.items() if k in spec.args_properties}
+        found = find_forbidden_key(envelope, [], token_keys=False) or find_forbidden_key(args, [], token_keys=True)
+        if found is not None:
+            return skeleton, self._refusal(skeleton, forbidden_key_error(*found))
         if spec.actor_field:
             actor = args.get(spec.actor_field)
             if actor is None and spec.name in self._actor_required:
@@ -177,11 +183,16 @@ class Adapter:
                     "actor_denied", "A companion acts and observes only through its own avatar.",
                     field_path=f"$.{spec.actor_field}"))
         if spec.kind == "command":
-            message = {"schema": COMMAND_SCHEMA, "version": CONTRACT_VERSION, "action_id": arguments.get("action_id"),
+            action_id = arguments.get("action_id")
+            if action_id is None and spec.op in STOP_OPS:
+                action_id = f"stop-{secrets.token_hex(8)}"  # a stop never waits on the model to invent an id
+            message = {"schema": COMMAND_SCHEMA, "version": CONTRACT_VERSION, "action_id": action_id,
                        "room_id": self.room_id, "op": spec.op, "args": args}
             for key in ("expected_revision", "expected_entities", "preview", "note"):
                 if key in arguments:
                     message[key] = arguments[key]
+            if message.get("preview") is False:
+                del message["preview"]  # the same command as no preview at all
             if message["action_id"] is None:
                 del message["action_id"]
         else:
@@ -189,8 +200,8 @@ class Adapter:
                        "room_id": self.room_id, "op": spec.op, "args": args}
         try:
             size = len(self.contracts.canonical_bytes(message))
-        except (TypeError, ValueError):
-            return skeleton, self._refusal(skeleton, HostError("request_invalid", "Arguments must be plain JSON."))
+        except (CanonicalJsonError, TypeError, ValueError):
+            return skeleton, self._refusal(skeleton, HostError("request_invalid", "Arguments must be plain JSON, nested at most 128 deep."))
         limit = self.contracts.message_limits[message["schema"]]
         if size > limit:
             return skeleton, self._refusal(message, HostError(
@@ -199,7 +210,7 @@ class Adapter:
         errors = list(self.contracts.iter_errors(message))
         if errors:
             return skeleton, self._refusal(message, map_schema_errors(errors))
-        for problem in self.contracts.schema_errors(message):  # size limits on creation sources
+        for problem in self.contracts.size_problems(message):  # creation sources
             return skeleton, self._refusal(message, HostError("budget_exceeded", "The creation is larger than the size limit."))
         return message, None
 
@@ -224,22 +235,6 @@ class Adapter:
 def present(result: dict) -> str:
     """The text block a model reads: a fixed preamble and one line of escaped JSON."""
     return RESULT_PREAMBLE + "\n" + dumps_compact(result)
-
-
-def _authority_key(value: Any, path: list) -> list | None:
-    if isinstance(value, dict):
-        for key, item in value.items():
-            if isinstance(key, str) and key.lower() in AUTHORITY_KEYS:
-                return path + [key]
-            found = _authority_key(item, path + [key])
-            if found is not None:
-                return found
-    elif isinstance(value, list):
-        for index, item in enumerate(value):
-            found = _authority_key(item, path + [index])
-            if found is not None:
-                return found
-    return None
 
 
 # ---------------------------------------------------------------------------- MCP glue
@@ -293,6 +288,9 @@ def _parse(argv: list[str] | None) -> argparse.Namespace:
                         help="serve an in-process mock game host (the test room) over the real loopback link")
     parser.add_argument("--mock-room", type=Path, help="room directory for --mock (default: game/rooms/test_room)")
     parser.add_argument("--contracts-dir", type=Path, help="contracts directory (default: the repository's contracts/)")
+    parser.add_argument("--schema-profile", default="full", choices=["full", "minimal"],
+                        help="tool input schemas: full (contract-derived) or minimal (only the most widely "
+                             "supported JSON Schema keywords); the adapter validates fully either way")
     parser.add_argument("--no-lockdown", action="store_true",
                         help="diagnostics only: skip the environment scrub and the audit-hook sandbox")
     parser.add_argument("--log-level", default="WARNING", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
@@ -321,13 +319,13 @@ def main(argv: list[str] | None = None) -> int:
         lockdown.install(read_files=[session_path] if session_path else [],
                          read_roots=[PACKAGE_DIR.parent, contracts.dir])
     try:
-        asyncio.run(_serve(contracts, host, session_path))
+        asyncio.run(_serve(contracts, host, session_path, options.schema_profile))
     except KeyboardInterrupt:
         pass
     return 0
 
 
-async def _serve(contracts: Contracts, host, session_path: Path | None) -> None:
+async def _serve(contracts: Contracts, host, session_path: Path | None, schema_profile: str = "full") -> None:
     from mcp.server.stdio import stdio_server
 
     link_server = None
@@ -338,7 +336,7 @@ async def _serve(contracts: Contracts, host, session_path: Path | None) -> None:
         client = LinkClient(lambda: info)
     else:
         client = LinkClient.from_file(session_path)
-    adapter = Adapter(contracts, client)
+    adapter = Adapter(contracts, client, schema_profile=schema_profile)
     server = build_server(adapter)
     try:
         async with stdio_server() as (read_stream, write_stream):

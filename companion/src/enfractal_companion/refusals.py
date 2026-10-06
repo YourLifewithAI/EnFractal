@@ -12,7 +12,7 @@ from typing import Any
 from . import textsafety
 
 RESULT_SCHEMA = "enfractal.result"
-_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
+_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}")
 
 
 class HostError(Exception):
@@ -110,7 +110,7 @@ def base_result(*, principal: str, room_id: str, revision: int, at_utc: str, mes
     if isinstance(message, dict):
         key = {"enfractal.command": "action_id", "enfractal.query": "query_id"}.get(message.get("schema"))
         value = message.get(key) if key else None
-        if isinstance(value, str) and _ID.match(value):
+        if isinstance(value, str) and _ID.fullmatch(value):
             result[key] = value
     return result
 
@@ -123,9 +123,51 @@ def failure(result: dict, error: HostError) -> dict:
                   "retryable": error.retryable}
     if error.field_path:
         body["field_path"] = error.field_path
-    if error.has_allowed:
+    # `allowed` and `actual` are contract scalars (or short lists of them). A value that is not one,
+    # for example a requester's revision of 10**30, is left out rather than breaking the result.
+    if error.has_allowed and _echoable(error.allowed):
         body["allowed"] = error.allowed
-    if error.actual is not None:
+    if error.actual is not None and _echoable(error.actual):
         body["actual"] = error.actual
     result["error"] = body
     return result
+
+
+def _scalar(value: Any) -> bool:
+    if isinstance(value, bool) or value is None:
+        return True
+    if isinstance(value, (int, float)):
+        return value == value and -1_000_000 <= value <= 1_000_000
+    if isinstance(value, str):
+        return len(value) <= 64 and not textsafety.hidden_characters(value)
+    return False
+
+
+def _echoable(value: Any) -> bool:
+    if isinstance(value, list):
+        return len(value) <= 16 and all(_scalar(item) and item is not None for item in value)
+    return _scalar(value)
+
+
+_VALUE_MESSAGES = {
+    "integer_range": "A number is outside the 64-bit integer range.",
+    "non_finite": "Numbers must be finite.",
+    "hidden_text": "A text value contains invisible characters.",
+    "key_type": "Field names must be text.",
+    "type": "A value is not plain JSON.",
+}
+
+
+def value_error(problems: list) -> HostError:
+    """One refusal for the first value problem (see contract.value_problems)."""
+    path, kind = problems[0]
+    code = "invalid_args" if path[:1] == ["args"] else "request_invalid"
+    return HostError(code, _VALUE_MESSAGES.get(kind, "A value is not allowed here."), field_path=textsafety.field_path(path))
+
+
+def forbidden_key_error(path: list, reason: str) -> HostError:
+    if reason == "authority":
+        return HostError("field_unknown", "Identity and approval fields are never accepted in a request.",
+                         field_path=textsafety.field_path(path))
+    return HostError("field_unknown", "Field names inside args are plain lowercase tokens.",
+                     field_path=textsafety.field_path(path))

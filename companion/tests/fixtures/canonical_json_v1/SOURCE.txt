@@ -1,0 +1,14 @@
+Canonical JSON v1 golden fixture, copied byte for byte from Lane P (read only, never re-serialized):
+
+  branch  run1/play
+  commit  d0fb84334c89deb6330afce7289e623c7d583049 (head when copied, 6 October 2026)
+  files   game/tests/fixtures/kernel/canonical_input.json
+          game/tests/fixtures/kernel/canonical_expected.json
+          game/tests/fixtures/kernel/canonical_expected.sha256
+          (last changed on run1/play in 260bc2ab474d99f8c65662fb643f897e5786e6f5)
+  checked python tools/kernel/canonical_json.py --check <this folder>
+          -> PASS canonical JSON v1 golden fixture reproduced by Python:
+             sha256 a08519e8874d0895f7d9fded02fccb92ebf508101829de3db7c6ad9df2c85589
+
+At integration, point companion/tests/test_canonical_json.py at the shared fixture in
+game/tests/fixtures/kernel/ and delete this copy.

@@ -26,7 +26,7 @@ import validate as contract_validate  # noqa: E402  (contracts/validate.py, the 
 
 from enfractal_companion.contract import Contracts  # noqa: E402
 from enfractal_companion.link import LinkServer  # noqa: E402
-from enfractal_companion.mock_host import COMPANION, PLAYER, FakeClock, HostPolicy, MockHost  # noqa: E402
+from enfractal_companion.mock_host import COMPANION, NO_HOLDS, PLAYER, FakeClock, HostPolicy, MockHost  # noqa: E402
 
 _CONTRACTS: Contracts | None = None
 contract_validate.validator_for("enfractal.result")  # warm the validator once, off any event loop
@@ -58,8 +58,8 @@ class RecordingHost(MockHost):
         return result
 
 
-def new_host(policy: HostPolicy | None = None, clock: FakeClock | None = None) -> RecordingHost:
-    return RecordingHost(contracts(), policy=policy, clock=clock or FakeClock())
+def new_host(policy: HostPolicy | None = None, clock: FakeClock | None = None, **kwargs) -> RecordingHost:
+    return RecordingHost(contracts(), policy=policy, clock=clock or FakeClock(), **kwargs)
 
 
 def command(op: str, args: dict, action_id: str, room_id: str = "test_room", **extra) -> dict:

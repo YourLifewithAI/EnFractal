@@ -18,11 +18,25 @@ from pathlib import Path
 from support import SRC
 
 PROBE = textwrap.dedent(r'''
-    import json, os, socket, subprocess, sys, urllib.request
+    import asyncio, ctypes, json, os, socket, subprocess, sys, urllib.request
     from pathlib import Path
     sys.path.insert(0, sys.argv[1])
     from enfractal_companion import lockdown
     allowed, outside, port = Path(sys.argv[2]), Path(sys.argv[3]), int(sys.argv[4])
+    # Before the lockdown: this machine's own non-loopback address and a closed port on it. Connecting
+    # there never leaves the machine (the local stack refuses it), so a let-through shows as a refusal.
+    udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        udp.connect(("192.0.2.1", 9))  # picks the outbound interface; sends nothing
+        lan_ip = udp.getsockname()[0]
+    except OSError:
+        lan_ip = "192.0.2.1"
+    udp.close()
+    if lan_ip.startswith("127."):
+        lan_ip = "192.0.2.1"
+    # A child of this probe that outlives it by a few seconds on its own; nothing may end it early.
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(8)"],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     removed = lockdown.scrub_environment()
     lockdown.install(read_files=[allowed], read_roots=[Path(sys.argv[1])])
     report = {"env": sorted(os.environ), "removed_secret": "ENFRACTAL_CANARY_API_KEY" in removed}
@@ -51,9 +65,19 @@ PROBE = textwrap.dedent(r'''
     attempt("connect_public_ip", lambda: socket.create_connection(("192.0.2.1", 443), timeout=1))
     attempt("fetch_url", lambda: urllib.request.urlopen("http://192.0.2.1/", timeout=1))
     attempt("connect_loopback_game", lambda: socket.create_connection(("127.0.0.1", port), timeout=2).close())
+    async def async_connect():
+        reader, writer = await asyncio.wait_for(asyncio.open_connection(lan_ip, 9), 2)
+        writer.close()
+    attempt("event_loop_connect_off_loopback", lambda: asyncio.run(async_connect()))
     if os.name == "nt":
-        import winreg
+        import _winapi, winreg
         attempt("registry", lambda: winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Software"))
+        attempt("winapi_create_file", lambda: _winapi.CreateFile(str(outside.with_name("winapi.txt")), 0x40000000, 0, 0, 2, 0, 0))
+        attempt("winapi_terminate_process", lambda: _winapi.TerminateProcess(_winapi.OpenProcess(1, False, child.pid), 9))
+        attempt("ctypes_load_library", lambda: ctypes.WinDLL("kernel32"))
+    else:
+        attempt("ctypes_load_library", lambda: ctypes.CDLL("libc.so.6"))
+    report["child_alive"] = child.poll() is None
     print(json.dumps(report))
 ''')
 
@@ -122,6 +146,19 @@ class Lockdown(unittest.TestCase):
     @unittest.skipUnless(os.name == "nt", "the registry exists on Windows only")
     def test_refuses_the_registry(self):
         self.assertBlocked("registry")
+
+    def test_refuses_event_loop_connects_beyond_loopback(self):
+        self.assertBlocked("event_loop_connect_off_loopback")
+
+    @unittest.skipUnless(os.name == "nt", "_winapi exists on Windows only")
+    def test_refuses_winapi_files_and_processes(self):
+        self.assertBlocked("winapi_create_file")
+        self.assertBlocked("winapi_terminate_process")
+        self.assertTrue(self.report["child_alive"])
+        self.assertFalse(self.outside.with_name("winapi.txt").exists())
+
+    def test_refuses_loading_native_libraries_through_ctypes(self):
+        self.assertBlocked("ctypes_load_library")
 
 
 if __name__ == "__main__":
