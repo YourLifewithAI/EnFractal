@@ -1,0 +1,50 @@
+{
+  "schema": "enfractal.asset",
+  "version": 1,
+  "asset_id": "book_proxy",
+  "display_name": "Book",
+  "category": "book",
+  "category_group": "stationery",
+  "tier": "proxy",
+  "provenance": {
+    "kind": "placeholder",
+    "license": "Original EnFractal placeholder; CC0-1.0",
+    "created_utc": "2026-10-06T00:00:00Z",
+    "notes": "Primitive stand-in at real furniture size so scale reads from the small avatar."
+  },
+  "pivot": "bottom_center",
+  "dimensions_m": [
+    0.22,
+    0.04,
+    0.15
+  ],
+  "geometry": {
+    "kind": "primitive",
+    "primitive": "box"
+  },
+  "collision": {
+    "kind": "primitive"
+  },
+  "physics": {
+    "movable": true,
+    "mass_kg": 0.6
+  },
+  "materials": [
+    {
+      "slot": "body",
+      "role": "paper",
+      "base_color": "#5b6f8a"
+    }
+  ],
+  "affordances": [
+    "walkable_top",
+    "climbable",
+    "readable"
+  ],
+  "review": {
+    "status": "approved",
+    "reviewer": "integrator",
+    "notes": "Placeholder geometry; approved as a test fixture only."
+  },
+  "files": []
+}

@@ -1,0 +1,398 @@
+{
+  "schema": "enfractal.room",
+  "version": 1,
+  "room_id": "test_room",
+  "display_name": "Test room",
+  "description": "Hand-built placeholder room: a 4 x 3 x 2.4 m box with furniture-sized proxies. Not a captured space. The Look track develops the first style here before captured assets exist.",
+  "created_utc": "2026-10-06T00:00:00Z",
+  "units": "m",
+  "axes": "y_up_neg_z_forward",
+  "source": {
+    "kind": "hand_built"
+  },
+  "bounds": {
+    "min_m": [
+      -2.0,
+      0.0,
+      -1.5
+    ],
+    "max_m": [
+      2.0,
+      2.4,
+      1.5
+    ]
+  },
+  "shell": {
+    "parts": [
+      {
+        "id": "shell:floor",
+        "role": "floor",
+        "geometry": {
+          "kind": "polygon",
+          "points_m": [
+            [
+              -2.1,
+              0,
+              -1.6
+            ],
+            [
+              -2.1,
+              0,
+              1.6
+            ],
+            [
+              2.1,
+              0,
+              1.6
+            ],
+            [
+              2.1,
+              0,
+              -1.6
+            ]
+          ],
+          "thickness_m": 0.1
+        },
+        "collides": true,
+        "material_role": "wood",
+        "base_color": "#8a7a66"
+      },
+      {
+        "id": "shell:ceiling",
+        "role": "ceiling",
+        "geometry": {
+          "kind": "polygon",
+          "points_m": [
+            [
+              -2.1,
+              2.4,
+              -1.6
+            ],
+            [
+              2.1,
+              2.4,
+              -1.6
+            ],
+            [
+              2.1,
+              2.4,
+              1.6
+            ],
+            [
+              -2.1,
+              2.4,
+              1.6
+            ]
+          ],
+          "thickness_m": 0.1
+        },
+        "collides": true,
+        "material_role": "plaster",
+        "base_color": "#e9e4da"
+      },
+      {
+        "id": "shell:wall_north",
+        "role": "wall",
+        "geometry": {
+          "kind": "polygon",
+          "points_m": [
+            [
+              -2.1,
+              0,
+              -1.5
+            ],
+            [
+              2.1,
+              0,
+              -1.5
+            ],
+            [
+              2.1,
+              2.4,
+              -1.5
+            ],
+            [
+              -2.1,
+              2.4,
+              -1.5
+            ]
+          ],
+          "thickness_m": 0.1
+        },
+        "collides": true,
+        "material_role": "painted_wall",
+        "base_color": "#b9b4ab"
+      },
+      {
+        "id": "shell:wall_south",
+        "role": "wall",
+        "geometry": {
+          "kind": "polygon",
+          "points_m": [
+            [
+              2.1,
+              0,
+              1.5
+            ],
+            [
+              -2.1,
+              0,
+              1.5
+            ],
+            [
+              -2.1,
+              2.4,
+              1.5
+            ],
+            [
+              2.1,
+              2.4,
+              1.5
+            ]
+          ],
+          "thickness_m": 0.1
+        },
+        "collides": true,
+        "material_role": "painted_wall",
+        "base_color": "#b9b4ab"
+      },
+      {
+        "id": "shell:wall_east",
+        "role": "wall",
+        "geometry": {
+          "kind": "polygon",
+          "points_m": [
+            [
+              2.0,
+              0,
+              -1.5
+            ],
+            [
+              2.0,
+              0,
+              1.5
+            ],
+            [
+              2.0,
+              2.4,
+              1.5
+            ],
+            [
+              2.0,
+              2.4,
+              -1.5
+            ]
+          ],
+          "thickness_m": 0.1
+        },
+        "collides": true,
+        "material_role": "painted_wall",
+        "base_color": "#b3aea4"
+      },
+      {
+        "id": "shell:wall_west",
+        "role": "wall",
+        "geometry": {
+          "kind": "polygon",
+          "points_m": [
+            [
+              -2.0,
+              0,
+              1.5
+            ],
+            [
+              -2.0,
+              0,
+              -1.5
+            ],
+            [
+              -2.0,
+              2.4,
+              -1.5
+            ],
+            [
+              -2.0,
+              2.4,
+              1.5
+            ]
+          ],
+          "thickness_m": 0.1
+        },
+        "collides": true,
+        "material_role": "painted_wall",
+        "base_color": "#b3aea4"
+      }
+    ],
+    "openings": []
+  },
+  "objects": [
+    {
+      "id": "obj:table",
+      "asset": "objects/table_proxy/asset.json",
+      "transform": {
+        "position_m": [
+          -0.9,
+          0.0,
+          -0.9
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "support": {
+        "kind": "floor",
+        "target_id": "shell:floor"
+      }
+    },
+    {
+      "id": "obj:box",
+      "asset": "objects/box_proxy/asset.json",
+      "transform": {
+        "position_m": [
+          1.1,
+          0.0,
+          0.2
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "support": {
+        "kind": "floor",
+        "target_id": "shell:floor"
+      }
+    },
+    {
+      "id": "obj:book",
+      "asset": "objects/book_proxy/asset.json",
+      "transform": {
+        "position_m": [
+          0.45,
+          0.0,
+          0.1
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "support": {
+        "kind": "floor",
+        "target_id": "shell:floor"
+      }
+    },
+    {
+      "id": "obj:rug",
+      "asset": "objects/rug_proxy/asset.json",
+      "transform": {
+        "position_m": [
+          0.2,
+          0.0,
+          0.7
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "support": {
+        "kind": "floor",
+        "target_id": "shell:floor"
+      }
+    },
+    {
+      "id": "obj:doorstop",
+      "asset": "objects/doorstop_proxy/asset.json",
+      "transform": {
+        "position_m": [
+          -0.3,
+          0.0,
+          0.5
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "support": {
+        "kind": "floor",
+        "target_id": "shell:floor"
+      }
+    }
+  ],
+  "spawns": [
+    {
+      "id": "player_start",
+      "role": "player",
+      "position_m": [
+        0.0,
+        0.0,
+        0.6
+      ],
+      "yaw_deg": 0.0
+    },
+    {
+      "id": "companion_start",
+      "role": "companion",
+      "position_m": [
+        0.45,
+        0.0,
+        0.6
+      ],
+      "yaw_deg": 0.0
+    }
+  ],
+  "light_hints": [
+    {
+      "id": "ceiling_lamp",
+      "kind": "ceiling_lamp",
+      "position_m": [
+        0.0,
+        2.25,
+        0.0
+      ],
+      "color": "#ffe7bf",
+      "relative_intensity": 0.8,
+      "estimated": false
+    }
+  ],
+  "files": [
+    {
+      "path": "objects/book_proxy/asset.json",
+      "sha256": "500c41038d848c1ebc97d46ccdc3b63da1d9da6c9183d7e83c6d1f95511c9be6",
+      "bytes": 1027
+    },
+    {
+      "path": "objects/box_proxy/asset.json",
+      "sha256": "4f78c12f27e9e0f075f13f7867067bfaf1a5d16e2372ce5bf493f7301fe3b1c6",
+      "bytes": 1047
+    },
+    {
+      "path": "objects/doorstop_proxy/asset.json",
+      "sha256": "50d9c4634dd09dcc6c323b0418510b309ca4da6bba0b89d6d24087455afb7007",
+      "bytes": 1025
+    },
+    {
+      "path": "objects/rug_proxy/asset.json",
+      "sha256": "232c9322d3895f79f204ed870f38c15e5e2ac0ef20651bb333ce9d4604d04dd9",
+      "bytes": 1000
+    },
+    {
+      "path": "objects/table_proxy/asset.json",
+      "sha256": "947f817d57a2d0326b19aff34408b1365b36b6ad3a51380d39e3c7ff739f2669",
+      "bytes": 1015
+    }
+  ]
+}

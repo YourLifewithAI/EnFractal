@@ -8,6 +8,7 @@ public partial class RoomHud : CanvasLayer
     public SmallPlayerController Player { get; set; } = null!;
     public CompanionAvatar Companion { get; set; } = null!;
     public int ViewMode { get; private set; } = 1;
+    public string RoomTitle { get; set; } = "ROOM";
     public bool Customizing => _customization.Visible;
     private const string ProfilePath = "user://single_player/room/avatar_profile_v1.cfg";
     private static readonly Color[] Palette = { new("d28f63"), new("65b9b0"), new("d7b765"), new("a18cc3"), new("75965c") };
@@ -40,7 +41,7 @@ public partial class RoomHud : CanvasLayer
         var top = new PanelContainer { Position = new Vector2(18, 18), Theme = theme };
         AddChild(top);
         var column = new VBoxContainer(); top.AddChild(column);
-        column.AddChild(new Label { Text = "TEST ROOM" });
+        column.AddChild(new Label { Text = RoomTitle });
         _state = new Label(); column.AddChild(_state);
         var actions = new HBoxContainer(); column.AddChild(actions);
         AddButton(actions, "1 Follow", Companion.Follow);
