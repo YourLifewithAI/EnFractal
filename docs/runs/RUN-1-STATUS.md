@@ -102,7 +102,7 @@ Evidence on `run1/integration` at `0fc905b` (after the contract change, the P ke
 
 ### The founder's reference notes so far
 
-The images stay in Google Drive (`Enfractal/Art inspiration`) and are cited by file name only. The founder is still writing notes on the rest. The Look lane's proposed key frames were Tiny Glade 1, 4, 5, 7 and 8, Tilt Shift 6, Titl Shift 7 and Magic Moorland. The founder's notes so far:
+The images stay in Google Drive (`Enfractal/Art inspiration`) and are cited by file name only. The Look lane's proposed key frames were Tiny Glade 1, 4, 5, 7 and 8, Tilt Shift 6, Titl Shift 7 and Magic Moorland. **On 7 October the founder wrote the Look direction** in the Google Doc `Enfractal/Art inspiration/Look and Art Style direction` (summarised under the next heading); the 6 October notes come first:
 
 - **Titl Shift 7**
   - A visible tactile medium and craftsmanship: surfaces and objects should look made from specific materials. This led to the decision that the player picks the medium.
@@ -115,6 +115,42 @@ The images stay in Google Drive (`Enfractal/Art inspiration`) and are cited by f
   - Soft greens, creamy whites, terracotta and pale pink blossom give a calm storybook atmosphere. Leaves, flowers and shingles each read as distinct objects.
 - **Titl Shift 2 and 3:** tilt-shift views of urban centres, references for an urban style.
 - **Scifi artistic:** a more modern architecture reference.
+
+### The founder's Look direction, 7 October
+
+The source is the Google Doc `Look and Art Style direction`, with ten frames from `Art inspiration`. The Look lane reads the doc and the images in place, never copying them. **Tiny Glade 7 is dropped:** the founder judged it too far from any style the game would use.
+
+**What runs through every frame:**
+- **Details bring a scene to life,** never one motif. Laundry and bunting, window planters, fence posts and slats, benches, streetlights, smoke from chimneys, a swing or a wagon that implies someone off screen, moss on a dead robot. It must look like a place a player hand-crafted and someone lives in.
+- **Architecture: consistency within a theme matters more than the style.** Any architecture can be cozy with the right palette and approach: a classical palace in `Tiny Glade 8.png`, a sci-fi cantina in `Scifi artistic.png`, a modern city in `Titl Shift 3.png`.
+- **Colour contrast is a way to focus,** as much as tilt-shift is.
+  - Muted living spaces against a vibrant landscape, or the reverse.
+  - Saturated warm earths against cool water and sky: terracotta, ochre and wood against teal, azure and emerald.
+  - Pops of colour: bunting, a red bus, neon.
+- **Seasons through the palette.** Winter muted and desaturated (`Tiny Glade 8.png`); spring and autumn vibrant; summer verdant, with harsher sun and a clear blue sky (`Tiny Glade 3.png`, `Tiny Glade 5.png`).
+- **Light:**
+  - warm indoor ambience with golden window light;
+  - focused warm-white point lights (streetlights, lit windows) as accents;
+  - creamy bokeh on background lights;
+  - bright daylight with crisp speculars, which makes things read as miniatures (`3D Tilt-shift 1.png`).
+- **Distance:** a gentle atmospheric haze softens far hills (`Magic Moorland.png`, `Painterly scene with robot.png`).
+- **Tilt-shift:**
+  - shallow depth of field and a high three-quarter view read as a tabletop miniature (`Tilt Shift 6 - this one on a table.png`, `3D Tilt-shift 1.png`, `Tiny Glade 8.png`);
+  - extremely tight focus (`Titl Shift 3.png`) would be awkward to move through, but **the player should be able to switch to a view like that to look at what they built with their companion;**
+  - `Tilt Shift 6` matters because it is a charming, believable miniature city **built on a table indoors**, the closest thing to EnFractal's premise.
+- **Painterly surfaces:** rounded leaf clusters, ferns, mushrooms and single flowers; visible brushwork; textured mossy metal.
+
+**Frame by frame** (what the founder wants taken from each):
+- `Tiny Glade 6.png`: dense, layered, unique buildings in one theme; moss green, muted teal slate, ochre, terracotta and warm wood, with colourful bunting and laundry; a lived-in miniature without tilt-shift.
+- `Magic Moorland.png`: chunky timber framing, red tile and stone, carved spirals; bright saturated light, stylised clouds, haze over far hills; a small dock that makes the place lived-in.
+- `Tilt Shift 6 - this one on a table.png`: as above, plus the high three-quarter view showing the board's edge on the table corner.
+- `Scifi artistic.png`: a soft, painted landscape against a lived-in neon outpost; contrast as the charm, triadic colour.
+- `3D Tilt-shift 1.png`: a thin crisp band on the waterfront, with heavy blur above and below; bright, high-contrast daylight.
+- `Tiny Glade 8.png`: a muted, wintry palette (slate, sage, frost white, a little terracotta) as a model for winter.
+- `Tiny Glade 3.png`: eye level, with soft blur on the foreground bridge; a bright summer day; chimney smoke.
+- `Painterly scene with robot.png`: Ghibli-like solarpunk with saturated greens and azure; life details; the foreground in tree shade.
+- `Tiny Glade 5.png`: consistent Tudor details (fences, laundry, shingles, a stone patio, bushes hugging the foundations); summer light with tilt-shift.
+- `Titl Shift 3.png`: modern and urban, yet cozy through focus alone; too tight for play, right for an observe view.
 
 ## Founder playtest notes, 6 October (first pass)
 
@@ -229,7 +265,7 @@ The images stay in Google Drive (`Enfractal/Art inspiration`) and are cited by f
      - a second width at the rear-door end, and one corner-to-corner diagonal, to settle the 17 cm width gap;
      - whether the selfie-camera shots were intentional;
      - when convenient, the top-up photos from the report's steps, on the 1x back camera.
-   - **The remaining art reference notes and the look verdict.** The L fix round folds them in.
+   - **The look verdict** on the L fix round's after-captures. The founder's Look direction arrived on 7 October (above), and the L fix round folds it in.
    - **Remove `C:\dev\EnFractal-run1\review-play`.** Unlink its two `.cache` junctions first: the commands are in the 7 October chat, and the automatic safety check blocks agents from deleting it.
    - **Connecting a real AI:** the kernel round fixed `capabilities.list` (P1), which blocked it. A real AI talks to the mock host today (A1's live check, after `claude` /login); the real game host joins with A2 in Run 2.
    - **The three kernel-round decisions** under "Still open" (job ids, goals the companion cannot carry out yet, what the companion remembers).
@@ -237,7 +273,7 @@ The images stay in Google Drive (`Enfractal/Art inspiration`) and are cited by f
    - Read ORCHESTRATION.md and this page.
    - **Contract change: done for A and P in `7e2c779`.** Still to come, with the L fix round and its consumers, before the preset becomes `candidate`: the `x_look_*` keys and a room `site` key (the L review's M5 and M6).
    - **The P kernel round: done** (`d61e811`, merged).
-   - **The L fix round,** after the founder's look verdict:
+   - **The L fix round** (dispatched 7 October with the founder's Look direction):
      - the review's eight majors and the minors;
      - M1 also needs `RoomBuilder` to cut `shell.openings`, which is a change to the room builder in P's code (`game/scripts/native/Room/**`);
      - check the floorboard shimmer under FXAA.
