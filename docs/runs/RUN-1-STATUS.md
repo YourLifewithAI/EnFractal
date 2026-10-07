@@ -52,10 +52,17 @@ Evidence on `run1/integration` at `0fc905b` (after the contract change, the P ke
       - **The minimap:**
         - normally a small circle in the upper right or upper left of the screen;
         - with the journal open, the journal takes one side of the screen and an expanded minimap the other.
-      - **The integrator's notes for the design:**
-        - Draw the map from room data (shell polygons, object footprints, creations, avatars) in the journal's ink-on-drafting-paper style, rather than from a second top-down camera. It is cheaper, it matches "the room is data", and it controls what is shown.
-        - Rooms have levels at 10 cm (floor, box tops, shelves), so the map must show which level the player is on.
-        - The AI's journal and map follow the line-of-sight rule: never more than the companion has perceived or been told.
+      - **Decided by the founder (7 October):**
+        - **Drawn from room data** (shell polygons, object footprints, creations, avatars) in the journal's ink-on-drafting-paper style, not from a second top-down camera. It is cheap, it matches "the room is data", and the game decides what appears.
+        - **Levels:** the level the player is on (floor, a box top, a shelf) is drawn in full, and **the other levels fade out**.
+        - **The map starts blank and fills in as the player and companion explore.** Players will share the worlds they capture and stylise, so a visitor does not know the room. Searching for resources in a challenge mode is more fun than knowing at once, and it matters for cooperative or competitive multiplayer later. Creative modes may not care.
+        - **The player and their companion share one knowledge of the world.** The AI sees what the player sees; when they search, the companion fills in gaps on the player's map, and the player's discoveries inform the AI. Their knowledge is not kept separate, because separating it gets too complicated.
+      - **What shared knowledge changes (integrator's notes, to settle in the Run 2 design):**
+        - **This replaces the 6 October rule** (the companion perceives only its avatar's line of sight, for every query). Perception becomes the pair's, per player: what either avatar has seen, plus what is on the player's screen now. Things out of everyone's view show as last seen, and may be stale.
+        - **Code to revisit:** `PERCEPTION.md`, the host's perception checks (P3, merged today, stops the companion naming the player out of its own sight), and the perception memory.
+        - **Multiplayer:** knowledge is per team (a player and their AI). Another team's AI sees only what its own team has discovered, which suits competitive modes.
+        - **The camera:** in modes with a blank map, a high or free camera must not reveal undiscovered areas, or it gives the search away. Undiscovered areas could stay hidden under fog on screen too. This is for P and L when the modes are designed.
+        - **Saves:** what has been discovered must be saved with the room, so room state needs a field for it (a contract change, later).
         - It lands with the journal: UI (P5, pulled into Run 2 if the plan allows), look (L), and the journal's queries and contract (A, with the integrator).
   - **Contract requests: applied on 7 October in `7e2c779`.** Lane A's C1 (`observe` defaults to 20 m, the maximum) and C2 (`"preview": false` is part of the content). Lane P's `room.checkpoint` result data (`checkpoint_revision`, required on a committed checkpoint), the README on receipts and stops, and a player-only `world.set_physics` op (a preset id; transient; the revision does not move). The mock handles it for the player and refuses it from the companion; the adapter never lists it.
     - The host's memory goes stale after 60 s, as proposed. Still only proposed: keep the adapter's tighter rate limits in front of the host's.
