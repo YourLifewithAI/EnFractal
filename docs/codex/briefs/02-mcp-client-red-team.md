@@ -9,7 +9,10 @@
 [mcp_servers.enfractal]
 command = 'C:\dev\EnFractal-codex\companion\.venv\Scripts\python.exe'
 args = ['-m', 'enfractal_companion', '--mock']
+env = { SYSTEMROOT = 'C:\Windows' }
 ```
+
+**How the integrator ran it on 7 October** (no change to the founder's Codex configuration). The Codex desktop app's CLI was used, with `codex exec --ignore-user-config -C C:\dev\EnFractal-codex -s read-only`, the server above given as `-c mcp_servers.enfractal.*` overrides, and `--disable` for `shell_tool`, `unified_exec`, `browser_use`, `browser_use_external`, `browser_annotation_api`, `computer_use`, `apps`, `plugins`, `image_generation`, `multi_agent`, `hooks`, `in_app_browser`, `remote_plugin`, `tool_suggest`, `skill_search`, `workspace_dependencies`, `view_image` and `sleep_tool`. The rules and this brief went in as the prompt, since the session could not read files. **Keep `code_mode_host` on:** in Codex 0.162 every MCP tool is called through it. Codex does not list MCP tools until the model looks for them (`mcp__enfractal__*`).
 
 Read `docs/companion/README.md`, "Connect an MCP client or agent harness", for what the server is and is not.
 

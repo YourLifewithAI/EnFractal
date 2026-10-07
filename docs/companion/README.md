@@ -117,6 +117,8 @@ it on his machine.
    any to it (it clears its environment at startup either way). There is no token to hand over: the
    server reads the game's session file itself.
 
+   **On Windows, give the server `SYSTEMROOT`.** Some clients start MCP servers with an almost empty environment (Codex does). Without `SYSTEMROOT`, Python's asyncio cannot load Winsock, and the server exits at once (`WinError 10106`). Add `SYSTEMROOT = C:\Windows` to the server's environment in the client's configuration; in Codex, `env = { SYSTEMROOT = 'C:\Windows' }`. Found on 7 October 2026 with Codex CLI 0.162.
+
 3. Check that the client lists 25 tools and no resources or prompts, then ask, for example: "Observe what
    the companion can see, then set a follow goal for it." Expect an `observe` result listing the
    test-room props and a `goal_set` result with `"ok": true` and `"transient": true`.
