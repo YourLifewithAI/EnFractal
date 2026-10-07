@@ -98,6 +98,7 @@ Add one row per agent run.
 | 2026-10-07 | Codex brief 05: docs audit | GPT-6.1 Sol | not shown | 42 findings with sources |
 | 2026-10-07 | Codex brief 06: HUD declutter and name tag (third playtest) | GPT-6.1 Sol, high effort | 77k | Clean; compiled in its sandbox; play HUD 51 to 72 checks, all passing on the integrator's run |
 | 2026-10-07 | Codex brief 08: docs fixes | GPT-6.1 Sol | 80k | 29 fixed, 1 correctly left; small edits in each file's voice |
+| 2026-10-07 | Codex brief 07: observe focus diagnosis, then a source check | GPT-6.1 Sol, high effort; web search for the follow-up | 135k plus a small follow-up | Two real causes with arithmetic and exact diffs. It flagged its own uncertain third cause and settled it from Godot's tagged renderer source |
 
 The first Codex launches failed at once, "blocked by policy". They had skipped the founder's config, which also turned off the Windows sandbox, and the sandbox then could not start the Store-packaged PowerShell 7. Codex stopped and reported, as its rules say. `tools/codex/run.ps1` now handles both.
 
