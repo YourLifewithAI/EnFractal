@@ -24,7 +24,9 @@ public sealed class PendingApproval
     public DateTime Created { get; init; }
     public DateTime Expires { get; init; }
     public Dictionary<string, int> Touched { get; init; } = new();
-    /// <summary>pending, approved, denied or expired (an approval also lapses when what it touches changes).</summary>
+    /// <summary>The room revision when it was held, for a command that named expected_revision (null otherwise).</summary>
+    public int? RoomRevision { get; init; }
+    /// <summary>pending, approved, denied or expired (an approval also lapses, as expired, when what it touches changes).</summary>
     public string State { get; internal set; } = "pending";
     public JsonObject? Result { get; internal set; }
     internal JsonObject Held { get; set; } = new();
@@ -32,12 +34,15 @@ public sealed class PendingApproval
 
 /// <summary>
 /// The room's single command path (contracts/game-command.schema.json). Manual controls, the companion
-/// adapter and tests send enfractal.command and enfractal.query; the host answers enfractal.result.
+/// adapter and tests send enfractal.command and enfractal.query; the host answers enfractal.result, and
+/// always answers: an unexpected failure is internal_error, never an exception out of Handle.
 /// The principal comes from the trusted caller, never from the message. The host fingerprints the command
-/// as received (SHA-256 of canonical JSON), checks expected_revision and expected_entities itself, never
-/// refuses goal.stop or effect.stop on revisions, keeps transient receipts for goals, effects and
-/// activations, refuses protect.unlock from the companion, and holds companion changes to the player's
-/// creations for the player's click. Durable receipts live with the state in the creation authority.
+/// as received (SHA-256 of canonical JSON), checks expected_revision and expected_entities itself, keeps
+/// transient receipts for goals, effects and activations (bounded per principal, oldest forgotten first),
+/// refuses protect.unlock from the companion, holds companion changes to the player's creations for the
+/// player's click, and gives the companion only what its avatar can see. goal.stop and effect.stop always
+/// apply: never refused on revisions, rate limits, capacity or a reused action id. Durable receipts live
+/// with the state in the creation authority, which keeps the last 256 for the player.
 /// </summary>
 public partial class CommandHost : Node
 {
@@ -47,21 +52,24 @@ public partial class CommandHost : Node
     public const string CompanionAvatarId = "avatar:companion";
     public const int MaxMessageBytes = 65536;
     public const int MaxResultBytes = 262144;
-    public const int MaxTransientReceipts = 2048;
+    /// <summary>Transient receipts kept per principal for the session; the oldest is forgotten first, so nothing fails for capacity.</summary>
+    public const int MaxTransientPerPrincipal = 1024;
     public const int MaxPendingApprovals = 8;
     public const int CompanionMessagesPerSecond = 30;
     public static readonly TimeSpan ApprovalLifetime = TimeSpan.FromMinutes(5);
     public const string RuntimeScript = "res://scripts/invention_runtime.gd";
 
-    private static readonly Regex ActionId = new(@"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$", RegexOptions.Compiled);
-    private static readonly Regex Token = new(@"^[a-z][a-z0-9_-]{0,63}$", RegexOptions.Compiled);
-    private static readonly Regex EntityId = new(@"^(shell|obj|creation|avatar|effect|edit):[A-Za-z0-9_-]{1,64}$", RegexOptions.Compiled);
-    private static readonly Regex AvatarId = new(@"^avatar:[A-Za-z0-9_-]{1,64}$", RegexOptions.Compiled);
-    private static readonly Regex CreationId = new(@"^creation:[A-Za-z0-9_-]{1,64}$", RegexOptions.Compiled);
-    private static readonly Regex EffectId = new(@"^effect:[A-Za-z0-9_-]{1,64}$", RegexOptions.Compiled);
-    private static readonly Regex RequestIdPattern = new(@"^[a-f0-9]{32,64}$", RegexOptions.Compiled);
-    private static readonly Regex ParamName = new(@"^[a-z][a-z0-9_]{0,31}$", RegexOptions.Compiled);
-    private static readonly Regex UnsafeText = new("[\u0000-\u001F\u007F-\u009F\u200B-\u200F\u2028\u2029\u202A-\u202E\u2060-\u2069\uFEFF]", RegexOptions.Compiled);
+    // \A and \z, never ^ and $: in .NET, $ also matches before a final newline (Lane P review).
+    private static readonly Regex ActionId = new(@"\A[A-Za-z0-9][A-Za-z0-9_-]{0,63}\z", RegexOptions.Compiled);
+    private static readonly Regex Token = new(@"\A[a-z][a-z0-9_-]{0,63}\z", RegexOptions.Compiled);
+    private static readonly Regex EntityId = new(@"\A(shell|obj|creation|avatar|effect|edit):[A-Za-z0-9_-]{1,64}\z", RegexOptions.Compiled);
+    private static readonly Regex AvatarId = new(@"\Aavatar:[A-Za-z0-9_-]{1,64}\z", RegexOptions.Compiled);
+    private static readonly Regex CreationId = new(@"\Acreation:[A-Za-z0-9_-]{1,64}\z", RegexOptions.Compiled);
+    private static readonly Regex EffectId = new(@"\Aeffect:[A-Za-z0-9_-]{1,64}\z", RegexOptions.Compiled);
+    private static readonly Regex RequestIdPattern = new(@"\A[a-f0-9]{32,64}\z", RegexOptions.Compiled);
+    private static readonly Regex ParamName = new(@"\A[a-z][a-z0-9_]{0,31}\z", RegexOptions.Compiled);
+    private static readonly Regex PathSegment = new(@"\A[A-Za-z0-9_.:-]{1,64}\z", RegexOptions.Compiled);
+    private static readonly Regex ManifestPrefix = new(@"\A[0-9a-f]{16}\z", RegexOptions.Compiled);
     private static readonly HashSet<string> CommandOps = new()
     {
         "entity.grab", "entity.release", "entity.place", "entity.set_part", "entity.remove", "entity.transform",
@@ -74,6 +82,7 @@ public partial class CommandHost : Node
     };
     private static readonly HashSet<string> DestructiveOps = new() { "entity.remove", "entity.transform", "creation.revise", "protect.lock", "protect.unlock" };
     private static readonly HashSet<string> TransientOps = new() { "goal.set", "goal.stop", "effect.start", "effect.stop", "entity.grab", "entity.release", "creation.activate" };
+    private static readonly HashSet<string> StopOps = new() { "goal.stop", "effect.stop" };
     private static readonly HashSet<string> Affordances = new()
     {
         "walkable_top", "climbable", "sittable", "openable", "container", "soft", "breakable", "light_source", "switchable", "screen", "readable", "rideable", "hazard",
@@ -88,13 +97,18 @@ public partial class CommandHost : Node
     public Node3D Runtime { get; private set; } = null!;
     public GodotObject Authority { get; private set; } = null!;
     public string SavePath { get; private set; } = "";
+    /// <summary>Set when this room has saved creations under another manifest hash (the room was re-exported); shown to the player.</summary>
+    public string SaveNotice { get; private set; } = "";
     /// <summary>Test seam for approval expiry; the game uses the system clock.</summary>
     public Func<DateTime> Clock { get; set; } = () => DateTime.UtcNow;
+    /// <summary>Test seam: sees (and may spoil) every result before the host checks that it serialises.</summary>
+    internal Action<JsonObject>? BeforeAnswerForTests { get; set; }
     /// <summary>Raised when the host starts holding a command for the player.</summary>
     public event Action<PendingApproval>? ApprovalRequested;
     public IReadOnlyList<PendingApproval> PendingApprovals => _approvals.Values.Where(a => a.State == "pending").OrderBy(a => a.Created).ToList();
 
     private readonly Dictionary<string, (string Fingerprint, JsonObject Result)> _transient = new();
+    private readonly Dictionary<string, LinkedList<string>> _transientOrder = new();
     private readonly Dictionary<string, PendingApproval> _approvals = new();
     private readonly Dictionary<string, string> _approvalByAction = new();
     private readonly Queue<DateTime> _companionCalls = new();
@@ -102,6 +116,10 @@ public partial class CommandHost : Node
     private int _counter;
     private PanelContainer? _prompt;
     private Label? _promptText;
+    /// <summary>What the requesting principal perceives, computed once per message; null until needed.</summary>
+    private HashSet<string>? _perceived;
+    /// <summary>True while the player's click commits a held command: the player approved it, so the companion's sight no longer matters.</summary>
+    private bool _approving;
 
     /// <summary>The integrator's one-line wiring: RoomWorld calls CommandHost.Attach(this) once its room, player and companion exist.</summary>
     public static CommandHost Attach(RoomWorld world) =>
@@ -130,12 +148,38 @@ public partial class CommandHost : Node
         AddChild(Runtime);
         Authority = Runtime.Get("authority").AsGodotObject();
         Runtime.Set("command_sink", new Callable(this, MethodName.RuntimeCommand));
+        SaveNotice = OtherManifestNotice(SavePath);
+        if (SaveNotice.Length > 0)
+        {
+            GD.Print("COMMAND_HOST " + SaveNotice);
+            Runtime.Call("notice", SaveNotice);
+        }
         BuildPrompt();
+    }
+
+    /// <summary>
+    /// A room re-exported with a new manifest gets a fresh save folder, so its old creations silently vanished
+    /// (Lane P review). Until saves migrate between manifests, the player is told when other manifests of this
+    /// room have saved creations, which stay untouched on disk.
+    /// </summary>
+    public static string OtherManifestNotice(string savePath)
+    {
+        var file = savePath.GetFile();
+        var manifestDirectory = savePath.GetBaseDir();
+        var roomDirectory = manifestDirectory.GetBaseDir();
+        using var directory = DirAccess.Open(roomDirectory);
+        if (directory == null) return "";
+        var others = directory.GetDirectories()
+            .Where(name => name != manifestDirectory.GetFile() && ManifestPrefix.IsMatch(name) && Godot.FileAccess.FileExists($"{roomDirectory}/{name}/{file}"))
+            .OrderBy(name => name, StringComparer.Ordinal).ToList();
+        if (others.Count is 0) return "";
+        return $"Creations saved for an earlier version of this room (manifest {string.Join(", ", others.Take(3))}) were not loaded, because the room changed since. They are kept on disk.";
     }
 
     public override void _Process(double delta)
     {
-        foreach (var approval in _approvals.Values) Expire(approval);
+        // A lapse shows at once: the prompt never offers a request whose entities have changed.
+        foreach (var approval in _approvals.Values) Refresh(approval);
         if (_prompt == null || _promptText == null) return;
         var next = PendingApprovals.FirstOrDefault();
         _prompt.Visible = next != null;
@@ -155,14 +199,37 @@ public partial class CommandHost : Node
     {
         if (principal is not (PlayerPrincipal or CompanionPrincipal))
             return Fail("invalid", "system:host", null, null, new Refusal("principal_unknown", "The host did not admit this caller."));
+        _perceived = null;
+        try { return HandleChecked(message, principal); }
+        catch (Exception error)
+        {
+            // The host always answers (Lane P review: a result that could not be serialised threw out of Handle).
+            GD.Print("COMMAND_HOST internal error: " + error.GetType().Name);
+            return InternalError("invalid", principal);
+        }
+        finally { _perceived = null; }
+    }
+
+    private JsonObject HandleChecked(string message, string principal)
+    {
+        // The companion's rate limit comes before parsing and every other check, so a flood of invalid messages
+        // is limited too. Stops are exempt: when no token is left, only text that may be a stop is parsed at all.
+        var companion = principal == CompanionPrincipal;
+        if (companion && !TokensLeft() && !MightBeStop(message)) return RateLimited(principal);
         if (message.Length > MaxMessageBytes * 4)
-            return Fail("invalid", principal, null, null, new Refusal("request_invalid", "The message is larger than 64 KiB."));
+            return companion && !TakeToken() ? RateLimited(principal) : Fail("invalid", principal, null, null, new Refusal("request_invalid", "The message is larger than 64 KiB."));
         JsonDocument document;
         try { document = CanonicalJson.Parse(message); }
-        catch (CanonicalJsonException error) { return Fail("invalid", principal, null, null, new Refusal("request_invalid", "The message is not strict JSON: " + error.Message)); }
+        catch (CanonicalJsonException error)
+        {
+            return companion && !TakeToken() ? RateLimited(principal)
+                : Fail("invalid", principal, null, null, new Refusal("request_invalid", "The message is not strict JSON: " + error.Message));
+        }
         using (document)
         {
             var root = document.RootElement;
+            var stop = root.ValueKind == JsonValueKind.Object && Str(root, "schema") == "enfractal.command" && StopOps.Contains(Op(root));
+            if (companion && !stop && !TakeToken()) return RateLimited(principal);
             if (root.ValueKind != JsonValueKind.Object)
                 return Fail("invalid", principal, null, null, new Refusal("request_invalid", "A message is a JSON object."));
             var canonical = CanonicalJson.Bytes(root);
@@ -171,11 +238,18 @@ public partial class CommandHost : Node
             if (schema == "enfractal.command") result = HandleCommand(root, canonical, principal);
             else if (schema == "enfractal.query") result = HandleQuery(root, canonical, principal);
             else result = Fail("invalid", principal, null, null, new Refusal("request_invalid", "Send an enfractal.command or an enfractal.query.", "$.schema"));
-            if (CanonicalJson.Bytes(result).Length > MaxResultBytes)
+            BeforeAnswerForTests?.Invoke(result);
+            byte[] bytes;
+            try { bytes = CanonicalJson.Bytes(result); }
+            catch (CanonicalJsonException) { return InternalError(Op(root), principal); }
+            if (bytes.Length > MaxResultBytes)
                 result = Fail(Op(root), principal, null, null, new Refusal("internal_error", "The answer would be larger than 256 KiB."));
             return result;
         }
     }
+
+    private JsonObject InternalError(string op, string principal) =>
+        Fail(op, principal, null, null, new Refusal("internal_error", "The game could not handle that request.", retryable: true));
 
     /// <summary>The GDScript runtime's command sink: manual edits from the invention editor, always as the player.</summary>
     public Godot.Collections.Dictionary RuntimeCommand(Godot.Collections.Dictionary command)
@@ -185,6 +259,9 @@ public partial class CommandHost : Node
         catch (CanonicalJsonException error) { text = "{\"schema\":\"invalid\",\"reason\":" + JsonSerializer.Serialize(error.Message) + "}"; }
         return KernelJson.ToVariant(HandleObject(text, PlayerPrincipal)).AsGodotDictionary();
     }
+
+    /// <summary>Transient receipts the host keeps for principal this session.</summary>
+    public int TransientReceiptCount(string principal) => _transientOrder.TryGetValue(principal, out var order) ? order.Count : 0;
 
     /// <summary>Manual companion controls (HUD keys) as goal.set / goal.stop commands from the player.</summary>
     public JsonObject PlayerGoal(string goal, Vector3? point = null)
@@ -207,31 +284,42 @@ public partial class CommandHost : Node
     /// <summary>The player's click: commit the held command under its original principal, recorded as approved by the player.</summary>
     public JsonObject Approve(string requestId)
     {
-        if (!_approvals.TryGetValue(requestId, out var approval) || approval.State != "pending")
+        if (!_approvals.TryGetValue(requestId, out var approval))
             return Fail("approval.status", PlayerPrincipal, null, null, new Refusal("target_not_found", "There is no waiting request with that id."));
-        Expire(approval);
-        if (approval.State == "expired")
-            return Fail(approval.Op, approval.Principal, approval.ActionId, null, new Refusal("approval_expired", "That request expired before it was approved."));
-        if (approval.Touched.Any(t => EntityRevision(t.Key) != t.Value))
-        {
-            approval.State = "expired";
-            approval.Result = Fail(approval.Op, approval.Principal, approval.ActionId, null, new Refusal("approval_mismatch", "What the request would change has changed since it was asked; it was not applied."));
-            return approval.Result;
-        }
+        Refresh(approval);
+        if (approval.State != "pending")
+            return approval.Result != null && approval.State != "approved" ? (JsonObject)approval.Result.DeepClone()
+                : Fail("approval.status", PlayerPrincipal, null, null, new Refusal("target_not_found", "There is no waiting request with that id."));
         using var document = JsonDocument.Parse(approval.CommandText);
-        var result = Execute(document.RootElement, approval.Principal, approval.Fingerprint, PlayerPrincipal);
-        approval.State = "approved";
-        approval.Result = result;
-        return result;
+        JsonObject result;
+        _perceived = null;
+        _approving = true;
+        try { result = Execute(document.RootElement, approval.Principal, approval.Fingerprint, PlayerPrincipal); }
+        finally { _approving = false; _perceived = null; }
+        if (result["ok"]!.GetValue<bool>())
+        {
+            approval.State = "approved";
+            approval.Result = result;
+            return result;
+        }
+        // Approved, but it can no longer be made as asked (an unrelated change met its expected_revision, a full
+        // ledger): a clear terminal state, never "approved" with ok false, and never an invitation to resend it.
+        var code = result["error"]?["code"]?.GetValue<string>();
+        Finish(approval, code == "receipt_limit"
+            ? new Refusal("receipt_limit", "The receipt ledger is full; nothing was changed. A room.checkpoint compacts it; then ask again with a new action_id.")
+            : new Refusal("approval_mismatch", "The change can no longer be made as approved; nothing was changed. To ask again, use a new action_id."));
+        return (JsonObject)approval.Result!.DeepClone();
     }
 
     public JsonObject Deny(string requestId)
     {
-        if (!_approvals.TryGetValue(requestId, out var approval) || approval.State != "pending")
+        if (!_approvals.TryGetValue(requestId, out var approval))
             return Fail("approval.status", PlayerPrincipal, null, null, new Refusal("target_not_found", "There is no waiting request with that id."));
-        approval.State = "denied";
-        approval.Result = Fail(approval.Op, approval.Principal, approval.ActionId, null, new Refusal("permission_denied", "The player declined this request."));
-        return approval.Result;
+        Refresh(approval);
+        if (approval.State != "pending")
+            return Fail("approval.status", PlayerPrincipal, null, null, new Refusal("target_not_found", "There is no waiting request with that id."));
+        Finish(approval, new Refusal("permission_denied", "The player declined this request. To ask again, use a new action_id."), "denied");
+        return (JsonObject)approval.Result!.DeepClone();
     }
 
     // ---- commands ----
@@ -240,16 +328,21 @@ public partial class CommandHost : Node
     {
         var op = Op(root);
         var actionId = root.TryGetProperty("action_id", out var a) && a.ValueKind == JsonValueKind.String && ActionId.IsMatch(a.GetString()!) ? a.GetString() : null;
+        var stop = StopOps.Contains(op);
         try
         {
-            CheckEnvelope(root, command: true);
+            CheckEnvelope(root, command: true, stop);
             if (canonical.Length > MaxMessageBytes) throw new Refusal("request_invalid", "A command is at most 65,536 bytes of canonical JSON.");
-            RateLimit(principal);
+            CheckText(root, "$", stop);
             var fingerprint = CanonicalJson.Sha256Hex(canonical);
-            var replay = Replay(principal, actionId!, fingerprint);
-            if (replay != null) return replay;
-            var held = HeldAnswer(principal, actionId!, fingerprint);
-            if (held != null) return held;
+            // A stop always applies, whatever an earlier use of its action id says: stopping twice is harmless.
+            if (!stop)
+            {
+                var replay = Replay(op, principal, actionId!, fingerprint);
+                if (replay != null) return replay;
+                var held = HeldAnswer(principal, actionId!, fingerprint);
+                if (held != null) return held;
+            }
             return Execute(root, principal, fingerprint, null);
         }
         catch (Refusal refusal) { return Fail(op, principal, actionId, null, refusal); }
@@ -268,7 +361,8 @@ public partial class CommandHost : Node
                 throw new Refusal("permission_denied", "Only the player can unlock, directly in the game.", "$.op");
             var unsupported = Unsupported(op, args, principal);
             if (unsupported != null) throw new Refusal("unsupported_capability", unsupported, "$.op");
-            if (op is not ("goal.stop" or "effect.stop")) CheckExpectations(root, op, args);
+            if (!StopOps.Contains(op)) CheckExpectations(root, op, args, principal);
+            CheckPerceived(op, args, principal);
             if (approvedBy == null && !preview && principal == CompanionPrincipal && NeedsApproval(op, args, out var reason, out var touched))
                 return Hold(root, principal, actionId, fingerprint, op, reason, touched);
             var meta = new Godot.Collections.Dictionary { ["fingerprint"] = fingerprint, ["op"] = op, ["at_utc"] = Now() };
@@ -282,6 +376,7 @@ public partial class CommandHost : Node
                 "goal.set" => GoalSet(args, principal, actionId, fingerprint, preview),
                 "goal.stop" => GoalStop(args, principal, actionId, fingerprint, preview),
                 "effect.stop" => EffectStop(args, principal, actionId, fingerprint, preview),
+                "room.checkpoint" => Checkpoint(args, principal, actionId, meta, preview),
                 _ => throw new Refusal("unsupported_capability", "This operation is not available yet.", "$.op"),
             };
         }
@@ -421,19 +516,27 @@ public partial class CommandHost : Node
         return Transient("goal.set", principal, actionId, fingerprint, new JsonArray(actor), null);
     }
 
+    /// <summary>
+    /// Stops goals and effects. The player's stop with no actor covers everything the player directs: the
+    /// companion's goals and every effect. Naming an avatar covers that avatar's goals and effects. The
+    /// companion's stop covers only its own; it may not name the player's avatar.
+    /// </summary>
     private JsonObject GoalStop(JsonElement args, string principal, string actionId, string fingerprint, bool preview)
     {
         var actor = args.TryGetProperty("actor", out var a) ? a.GetString() : null;
         if (actor != null && actor != PlayerAvatar && actor != CompanionAvatarId)
             throw new Refusal("target_not_found", "There is no such actor in this room.", "$.args.actor");
+        if (actor == PlayerAvatar && principal != PlayerPrincipal)
+            throw new Refusal("actor_denied", "A companion may not direct the player.", "$.args.actor");
         if (preview) return Previewed("goal.stop", principal, actionId);
+        var whose = actor == null ? (principal == PlayerPrincipal ? "" : principal) : actor == CompanionAvatarId ? CompanionPrincipal : PlayerPrincipal;
         var affected = new JsonArray();
-        if ((actor == null || actor == CompanionAvatarId) && Companion != null)
+        if (whose != PlayerPrincipal && Companion != null)
         {
             Companion.Stop();
             affected.Add(CompanionAvatarId);
         }
-        var stopped = actor == null ? Runtime.Call("stop_effects").AsInt32() : 0;
+        var stopped = Runtime.Call("stop_effects", whose).AsInt32();
         return Transient("goal.stop", principal, actionId, fingerprint, affected, new JsonObject { ["effects_stopped"] = stopped });
     }
 
@@ -441,9 +544,22 @@ public partial class CommandHost : Node
     {
         var effect = Str(args, "effect")!;
         if (preview) return Previewed("effect.stop", principal, actionId);
-        // Creation effects have no effect: ids yet, so a named effect is already stopped.
-        var stopped = effect == "all" ? Runtime.Call("stop_effects").AsInt32() : 0;
+        // Creation effects have no effect: ids yet, so a named effect is already stopped. "all" is everything for
+        // the player and the companion's own effects for the companion.
+        var stopped = effect == "all" ? Runtime.Call("stop_effects", principal == PlayerPrincipal ? "" : principal).AsInt32() : 0;
         return Transient("effect.stop", principal, actionId, fingerprint, new JsonArray(), new JsonObject { ["effects_stopped"] = stopped });
+    }
+
+    /// <summary>room.checkpoint: compacts the durable ledger in the authority. It changes no world state and never fails for a full ledger.</summary>
+    private JsonObject Checkpoint(JsonElement args, string principal, string actionId, Godot.Collections.Dictionary meta, bool preview)
+    {
+        if (preview) return Previewed("room.checkpoint", principal, actionId);
+        var request = new Godot.Collections.Dictionary
+        {
+            ["op"] = "checkpoint", ["action_id"] = actionId, ["label"] = Str(args, "label") ?? "",
+            ["expected_revision"] = Revision, ["expected_permission_revision"] = PermissionRevision,
+        };
+        return Submit(request, principal, actionId, meta);
     }
 
     private JsonObject Submit(Godot.Collections.Dictionary request, string principal, string actionId, Godot.Collections.Dictionary meta)
@@ -455,15 +571,26 @@ public partial class CommandHost : Node
         return Durable(record, replayed: false);
     }
 
+    /// <summary>
+    /// A transient receipt for the session. Never fails: each principal keeps its latest MaxTransientPerPrincipal and
+    /// the oldest is forgotten, so a full store can never turn an action that already happened into a refusal.
+    /// </summary>
     private JsonObject Transient(string op, string principal, string actionId, string fingerprint, JsonArray affected, JsonObject? data)
     {
-        if (_transient.Count >= MaxTransientReceipts)
-            throw new Refusal("receipt_limit", "The session's transient receipt limit has been reached.");
         var result = Result(op, principal, actionId, null, true);
         result["transient"] = true;
         if (affected.Count > 0) result["affected"] = affected;
         if (data != null) result["data"] = data;
-        _transient[principal + "|" + actionId] = (fingerprint, (JsonObject)result.DeepClone());
+        var key = principal + "|" + actionId;
+        if (!_transientOrder.TryGetValue(principal, out var order)) _transientOrder[principal] = order = new LinkedList<string>();
+        if (_transient.ContainsKey(key)) order.Remove(key);
+        _transient[key] = (fingerprint, (JsonObject)result.DeepClone());
+        order.AddLast(key);
+        while (order.Count > MaxTransientPerPrincipal)
+        {
+            _transient.Remove(order.First!.Value);
+            order.RemoveFirst();
+        }
         return result;
     }
 
@@ -475,7 +602,7 @@ public partial class CommandHost : Node
         return result;
     }
 
-    private JsonObject? Replay(string principal, string actionId, string fingerprint)
+    private JsonObject? Replay(string op, string principal, string actionId, string fingerprint)
     {
         if (_transient.TryGetValue(principal + "|" + actionId, out var transient))
         {
@@ -486,7 +613,19 @@ public partial class CommandHost : Node
             return copy;
         }
         var record = Authority.Call("receipt_for", principal, actionId).AsGodotDictionary();
-        if (record.Count == 0) return null;
+        if (record.Count == 0)
+        {
+            // A checkpoint compacted it: it still replays, and still refuses other content under its id.
+            var compacted = Authority.Call("compacted_receipt", principal, actionId).AsGodotDictionary();
+            if (compacted.Count == 0) return null;
+            if (compacted["fingerprint_prefix"].AsString() != fingerprint[..16])
+                throw new Refusal("action_id_conflict", "This action id was already used for different content.", "$.action_id");
+            var replayed = Result(op, principal, actionId, null, true);
+            replayed["revision"] = compacted["revision"].AsInt32();
+            replayed["replayed"] = true;
+            replayed["transient"] = false;
+            return replayed;
+        }
         if (record["fingerprint"].AsString() != fingerprint)
             throw new Refusal("action_id_conflict", "This action id was already used for different content.", "$.action_id");
         return Durable(record, replayed: true);
@@ -507,6 +646,7 @@ public partial class CommandHost : Node
             if (list.Count > 0) result[key] = new JsonArray(list.Select(v => (JsonNode?)JsonValue.Create(v.AsString())).ToArray());
         }
         if (meta["approved_by"].AsString().Length > 0) result["approved_by"] = meta["approved_by"].AsString();
+        if (meta["op"].AsString() == "room.checkpoint") result["data"] = new JsonObject { ["checkpoint_revision"] = receipt["revision"].AsInt32() };
         return result;
     }
 
@@ -537,6 +677,7 @@ public partial class CommandHost : Node
             RequestId = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16)).ToLowerInvariant(),
             Principal = principal, ActionId = actionId, Fingerprint = fingerprint, Op = op, Reason = reason,
             CommandText = CanonicalJson.Text(root), Created = Clock(), Expires = Clock() + ApprovalLifetime, Touched = touched,
+            RoomRevision = root.TryGetProperty("expected_revision", out _) ? Revision : null,
         };
         var result = Fail(op, principal, actionId, null, new Refusal("approval_required", "Waiting for the player to approve this change.", retryable: true));
         result["approval_needed"] = new JsonObject
@@ -551,18 +692,15 @@ public partial class CommandHost : Node
         return result;
     }
 
-    /// <summary>The answer for a command that is (or was) held: the same request while pending, a refusal once denied.</summary>
+    /// <summary>
+    /// The answer for a command that is (or was) held: the same request while pending; once denied, expired or
+    /// lapsed, the same final refusal (not retryable) for that action id, which says to use a new one.
+    /// </summary>
     private JsonObject? HeldAnswer(string principal, string actionId, string fingerprint)
     {
         if (!_approvalByAction.TryGetValue(principal + "|" + actionId, out var requestId)) return null;
         var approval = _approvals[requestId];
-        Expire(approval);
-        if (approval.State == "expired")
-        {
-            // An expired request can be asked again (a new request id); a lapsed one too.
-            _approvalByAction.Remove(principal + "|" + actionId);
-            return null;
-        }
+        Refresh(approval);
         if (approval.Fingerprint != fingerprint)
             throw new Refusal("action_id_conflict", "This action id was already used for different content.", "$.action_id");
         if (approval.State == "pending")
@@ -571,13 +709,27 @@ public partial class CommandHost : Node
             held["at_utc"] = Now();
             return held;
         }
-        if (approval.State == "denied") throw new Refusal("permission_denied", "The player declined this request.");
-        return approval.Result == null ? null : (JsonObject)approval.Result.DeepClone();
+        if (approval.Result == null) return null;
+        var final = (JsonObject)approval.Result.DeepClone();
+        final["replayed"] = true;
+        final["at_utc"] = Now();
+        return final;
     }
 
-    private void Expire(PendingApproval approval)
+    /// <summary>A pending approval expires after its lifetime, and lapses (expired) as soon as an entity it touches, or the room revision it expected, changes.</summary>
+    private void Refresh(PendingApproval approval)
     {
-        if (approval.State == "pending" && Clock() >= approval.Expires) approval.State = "expired";
+        if (approval.State != "pending") return;
+        if (Clock() >= approval.Expires)
+            Finish(approval, new Refusal("approval_expired", "The player did not answer in time. To ask again, use a new action_id."));
+        else if (approval.Touched.Any(t => EntityRevision(t.Key) != t.Value) || (approval.RoomRevision is { } room && room != Revision))
+            Finish(approval, new Refusal("approval_mismatch", "What the request would change has changed since it was asked; nothing was changed. To ask again, use a new action_id."));
+    }
+
+    private void Finish(PendingApproval approval, Refusal refusal, string state = "expired")
+    {
+        approval.State = state;
+        approval.Result = Fail(approval.Op, approval.Principal, approval.ActionId, null, refusal);
     }
 
     // ---- queries ----
@@ -588,17 +740,17 @@ public partial class CommandHost : Node
         var queryId = root.TryGetProperty("query_id", out var q) && q.ValueKind == JsonValueKind.String && ActionId.IsMatch(q.GetString()!) ? q.GetString() : null;
         try
         {
-            CheckEnvelope(root, command: false);
+            CheckEnvelope(root, command: false, stop: false);
             if (canonical.Length > MaxMessageBytes) throw new Refusal("request_invalid", "A query is at most 65,536 bytes of canonical JSON.");
-            RateLimit(principal);
+            CheckText(root, "$", stop: false);
             var args = root.GetProperty("args");
             CheckQueryArgs(op, args);
             var result = Result(op, principal, null, queryId, true);
             result["data"] = op switch
             {
-                "room.describe" => Describe(),
-                "entities.list" => List(args),
-                "entity.inspect" => Inspect(args),
+                "room.describe" => Describe(principal),
+                "entities.list" => List(args, principal),
+                "entity.inspect" => Inspect(args, principal),
                 "capabilities.list" => Capabilities(),
                 "observe" => Observe(args, principal),
                 "receipt.lookup" => Lookup(args, principal),
@@ -610,23 +762,28 @@ public partial class CommandHost : Node
         catch (Refusal refusal) { return Fail(op, principal, null, queryId, refusal); }
     }
 
-    private JsonObject Describe()
+    /// <summary>The room's identity and counts; for the companion the counts are of what it can see, never of what is hidden.</summary>
+    private JsonObject Describe(string principal)
     {
         var style = Style ?? StylePreset.Resolve(RoomWorld.DefaultStyleId, RoomWorld.DefaultStyleVersion);
-        var creations = Authority.Call("snapshot", PlayerPrincipal).AsGodotDictionary();
-        var count = creations.ContainsKey("instances") ? creations["instances"].AsGodotDictionary().Count : 0;
+        var entities = Visible(principal);
         return new JsonObject
         {
             ["room_id"] = Room.RoomId, ["display_name"] = KernelJson.DisplayText(Room.DisplayName, 80), ["revision"] = Revision,
             ["source_kind"] = Room.SourceKind, ["bounds_m"] = KernelJson.Box(Room.Bounds),
             ["style"] = new JsonObject { ["preset_id"] = style.PresetId, ["preset_version"] = style.PresetVersion, ["preset_sha256"] = style.Sha256 },
-            ["counts"] = new JsonObject { ["objects"] = Room.Objects.Count, ["creations"] = count, ["shell_parts"] = Room.Shell.Count },
+            ["counts"] = new JsonObject
+            {
+                ["objects"] = entities.Count(e => e["kind"]!.GetValue<string>() == "object"),
+                ["creations"] = entities.Count(e => e["kind"]!.GetValue<string>() == "creation"),
+                ["shell_parts"] = entities.Count(e => e["kind"]!.GetValue<string>() == "shell"),
+            },
         };
     }
 
-    private JsonObject List(JsonElement args)
+    private JsonObject List(JsonElement args, string principal)
     {
-        IEnumerable<JsonObject> items = Entities();
+        IEnumerable<JsonObject> items = Visible(principal);
         if (args.TryGetProperty("filter", out var filter))
         {
             if (filter.TryGetProperty("kind", out var kind)) items = items.Where(e => e["kind"]!.GetValue<string>() == kind.GetString());
@@ -651,10 +808,11 @@ public partial class CommandHost : Node
         return data;
     }
 
-    private JsonObject Inspect(JsonElement args)
+    private JsonObject Inspect(JsonElement args, string principal)
     {
         var target = Str(args, "target")!;
-        var entity = Entities().FirstOrDefault(e => e["id"]!.GetValue<string>() == target)
+        // Out of sight is byte-identical to not in the room.
+        var entity = Visible(principal).FirstOrDefault(e => e["id"]!.GetValue<string>() == target)
             ?? throw new Refusal("target_not_found", "That is not in this room.", "$.args.target");
         var data = new JsonObject { ["entity"] = entity };
         var locks = Authority.Call("snapshot", PlayerPrincipal).AsGodotDictionary();
@@ -665,7 +823,7 @@ public partial class CommandHost : Node
 
     private static JsonObject Capabilities() => new()
     {
-        ["commands"] = new JsonArray("creation.place", "creation.revise", "creation.activate", "entity.remove", "protect.lock", "protect.unlock", "goal.set", "goal.stop", "effect.stop"),
+        ["commands"] = new JsonArray("creation.place", "creation.revise", "creation.activate", "entity.remove", "protect.lock", "protect.unlock", "goal.set", "goal.stop", "effect.stop", "room.checkpoint"),
         ["queries"] = new JsonArray(QueryOps.Where(o => o != "jobs.status").OrderBy(o => o, StringComparer.Ordinal).Select(o => (JsonNode?)JsonValue.Create(o)).ToArray()),
         ["goals"] = new JsonArray(SupportedGoals.Select(g => (JsonNode?)JsonValue.Create(g)).ToArray()),
         ["player_only"] = new JsonArray("protect.unlock"),
@@ -677,26 +835,19 @@ public partial class CommandHost : Node
         var actor = Str(args, "actor")!;
         if (principal == CompanionPrincipal && actor != CompanionAvatarId)
             throw new Refusal("actor_denied", "A companion observes only through its own avatar.", "$.args.actor");
-        CharacterBody3D? body = actor == CompanionAvatarId ? Companion : actor == PlayerAvatar ? Player : null;
+        SmallPlayerController? body = actor == CompanionAvatarId ? Companion : actor == PlayerAvatar ? Player : null;
         if (body == null) throw new Refusal("target_not_found", "There is no such actor in this room.", "$.args.actor");
         var radius = args.TryGetProperty("radius_m", out var r) ? (float)CanonicalJson.ReadNumber(r) : 3.0f;
-        var eye = body.GlobalPosition + Vector3.Up * ((body as SmallPlayerController)?.BodyHeightM ?? 0.1f) * 0.87f;
-        var space = GetViewport().World3D.DirectSpaceState;
+        var eye = body.EyeCamera.GlobalPosition;
+        var entities = Entities();
+        var sight = Perceive(body, actor, entities);
         var visible = new List<(float Distance, JsonObject Entity)>();
-        foreach (var entity in Entities())
+        foreach (var entity in entities)
         {
             var id = entity["id"]!.GetValue<string>();
-            if (id == actor) continue;
+            if (id == actor || !sight.Contains(id)) continue;
             var distance = Distance(entity, eye);
-            if (distance > radius) continue;
-            var low = ReadNodeVector(entity["bounds_m"]!["min_m"]!);
-            var high = ReadNodeVector(entity["bounds_m"]!["max_m"]!);
-            var box = new Aabb(low, high - low);
-            var ray = PhysicsRayQueryParameters3D.Create(eye, (low + high) * 0.5f, 1);
-            ray.Exclude = new Godot.Collections.Array<Rid> { body.GetRid() };
-            var hit = space.IntersectRay(ray);
-            if (hit.Count > 0 && !box.Grow(0.05f).HasPoint(hit["position"].AsVector3())) continue;
-            visible.Add((distance, entity));
+            if (distance <= radius) visible.Add((distance, entity));
         }
         var seen = visible.OrderBy(v => v.Distance).ThenBy(v => v.Entity["id"]!.GetValue<string>(), StringComparer.Ordinal).Take(100).Select(v => v.Entity).ToList();
         // Every name seen in the world is untrusted text, never instructions.
@@ -718,7 +869,9 @@ public partial class CommandHost : Node
         if (_transient.TryGetValue(principal + "|" + actionId, out var transient))
             return new JsonObject { ["found"] = true, ["receipt"] = transient.Result.DeepClone() };
         var record = Authority.Call("receipt_for", principal, actionId).AsGodotDictionary();
-        if (record.Count == 0) return new JsonObject { ["found"] = false };
+        if (record.Count == 0)
+            return Authority.Call("compacted_receipt", principal, actionId).AsGodotDictionary().Count > 0
+                ? new JsonObject { ["found"] = true, ["compacted"] = true } : new JsonObject { ["found"] = false };
         return new JsonObject { ["found"] = true, ["receipt"] = Durable(record, replayed: false) };
     }
 
@@ -727,9 +880,9 @@ public partial class CommandHost : Node
         var requestId = Str(args, "request_id")!;
         if (!_approvals.TryGetValue(requestId, out var approval) || (approval.Principal != principal && principal != PlayerPrincipal))
             throw new Refusal("target_not_found", "There is no request with that id.", "$.args.request_id");
-        Expire(approval);
+        Refresh(approval);
         var data = new JsonObject { ["request_id"] = requestId, ["state"] = approval.State };
-        if (approval.Result != null && approval.State is "approved" or "denied") data["result"] = approval.Result.DeepClone();
+        if (approval.Result != null) data["result"] = approval.Result.DeepClone();
         return data;
     }
 
@@ -789,6 +942,104 @@ public partial class CommandHost : Node
         if (category != null) summary["category"] = KernelJson.DisplayText(category, 60);
         if (group != null) summary["category_group"] = group;
         return summary;
+    }
+
+    // ---- perception (docs/companion/PERCEPTION.md) ----
+
+    /// <summary>Every entity for the player; for the companion, only what its avatar can see now.</summary>
+    private List<JsonObject> Visible(string principal)
+    {
+        var entities = Entities();
+        if (principal == PlayerPrincipal || _approving) return entities;
+        var sight = Perception(principal, entities);
+        return entities.Where(e => sight.Contains(e["id"]!.GetValue<string>())).ToList();
+    }
+
+    private HashSet<string> Perception(string principal, List<JsonObject>? entities = null)
+    {
+        if (_perceived != null) return _perceived;
+        var body = principal == CompanionPrincipal ? Companion : Player;
+        _perceived = Perceive(body, principal == CompanionPrincipal ? CompanionAvatarId : PlayerAvatar, entities ?? Entities());
+        return _perceived;
+    }
+
+    /// <summary>Whether principal may name this entity: the player always; the companion only what it can see now.</summary>
+    private bool Perceives(string principal, string id) => principal == PlayerPrincipal || _approving || Perception(principal).Contains(id);
+
+    /// <summary>
+    /// Line of sight from a body's eye (PERCEPTION.md, with physics ray casts against the real colliders in place of
+    /// the mock's boxes). Each entity is sampled at 15 points of its bounds (the centre, eight corners and six face
+    /// centres, each pulled 1 cm or a quarter of the box inside); a sample is seen when a ray from the eye reaches it
+    /// or the entity itself first. Rays test only the world layer, so avatars and effects never occlude. The body's
+    /// own avatar and the room shell are always perceived.
+    /// </summary>
+    public HashSet<string> Perceive(SmallPlayerController? body, string ownAvatar, List<JsonObject> entities)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        if (body == null || !IsInstanceValid(body) || !body.IsInsideTree()) return seen;
+        var eye = body.EyeCamera.GlobalPosition;
+        var space = body.GetWorld3D().DirectSpaceState;
+        var exclude = new Godot.Collections.Array<Rid> { body.GetRid() };
+        foreach (var entity in entities)
+        {
+            var id = entity["id"]!.GetValue<string>();
+            if (id == ownAvatar || entity["kind"]!.GetValue<string>() == "shell")
+            {
+                seen.Add(id);
+                continue;
+            }
+            var low = ReadNodeVector(entity["bounds_m"]!["min_m"]!);
+            var high = ReadNodeVector(entity["bounds_m"]!["max_m"]!);
+            var box = new Aabb(low, high - low).Grow(0.002f);
+            foreach (var sample in Samples(low, high))
+            {
+                var ray = PhysicsRayQueryParameters3D.Create(eye, sample, RoomBuilder.WorldLayer, exclude);
+                var hit = space.IntersectRay(ray);
+                if (hit.Count == 0 || box.HasPoint(hit["position"].AsVector3()))
+                {
+                    seen.Add(id);
+                    break;
+                }
+            }
+        }
+        return seen;
+    }
+
+    private static IEnumerable<Vector3> Samples(Vector3 low, Vector3 high)
+    {
+        var centre = (low + high) * 0.5f;
+        var size = high - low;
+        var reach = new Vector3(Mathf.Max(0, size.X * 0.5f - Mathf.Min(0.01f, size.X * 0.25f)),
+            Mathf.Max(0, size.Y * 0.5f - Mathf.Min(0.01f, size.Y * 0.25f)), Mathf.Max(0, size.Z * 0.5f - Mathf.Min(0.01f, size.Z * 0.25f)));
+        yield return centre;
+        foreach (var x in new[] { -1f, 1f })
+        foreach (var y in new[] { -1f, 1f })
+        foreach (var z in new[] { -1f, 1f })
+            yield return centre + reach * new Vector3(x, y, z);
+        foreach (var axis in new[] { Vector3.Right, Vector3.Up, Vector3.Back })
+        {
+            yield return centre + reach * axis;
+            yield return centre - reach * axis;
+        }
+    }
+
+    /// <summary>A companion command may name only what the companion can see now: anything else is target_not_found, as if it did not exist.</summary>
+    private void CheckPerceived(string op, JsonElement args, string principal)
+    {
+        if (principal == PlayerPrincipal || _approving) return;
+        foreach (var (id, path) in Named(op, args))
+            if (!id.StartsWith("avatar:", StringComparison.Ordinal) && !Perceives(principal, id))
+                throw new Refusal("target_not_found", "That is not in this room.", path);
+    }
+
+    private static IEnumerable<(string Id, string Path)> Named(string op, JsonElement args)
+    {
+        if (args.TryGetProperty("target", out var target) && target.ValueKind == JsonValueKind.String) yield return (target.GetString()!, "$.args.target");
+        if (args.TryGetProperty("targets", out var targets) && targets.ValueKind == JsonValueKind.Array)
+            foreach (var item in targets.EnumerateArray())
+                if (item.ValueKind == JsonValueKind.String) yield return (item.GetString()!, "$.args.targets");
+        if (args.TryGetProperty("placement", out var placement) && placement.ValueKind == JsonValueKind.Object && placement.TryGetProperty("on", out var on) && on.ValueKind == JsonValueKind.String)
+            yield return (on.GetString()!, "$.args.placement.on");
     }
 
     public int EntityRevision(string id)
@@ -872,7 +1123,7 @@ public partial class CommandHost : Node
         public JsonNode? Actual { get; } = actual;
     }
 
-    private void CheckEnvelope(JsonElement root, bool command)
+    private void CheckEnvelope(JsonElement root, bool command, bool stop)
     {
         var allowed = command
             ? new[] { "schema", "version", "action_id", "room_id", "expected_revision", "op", "args", "preview", "note", "expected_entities" }
@@ -899,8 +1150,10 @@ public partial class CommandHost : Node
         if (!command) return;
         if (root.TryGetProperty("preview", out var preview) && preview.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
             throw new Refusal("request_invalid", "preview is true or false.", "$.preview");
-        if (root.TryGetProperty("note", out var note) && (note.ValueKind != JsonValueKind.String || note.GetString()!.Length > 280 || UnsafeText.IsMatch(note.GetString()!)))
-            throw new Refusal("request_invalid", "A note is one line of at most 280 characters.", "$.note");
+        if (root.TryGetProperty("note", out var note) && (note.ValueKind != JsonValueKind.String || KernelText.CodePoints(note.GetString()!).Length > 280 || KernelText.HasHidden(note.GetString()!)))
+            throw new Refusal("request_invalid", "A note is one line of at most 280 visible characters.", "$.note");
+        // A stop applies whatever expectations come with it, malformed ones included: they are ignored.
+        if (stop) return;
         if (root.TryGetProperty("expected_revision", out var expected) && (!IsIntegerLiteral(expected) || expected.GetDouble() < 0))
             throw new Refusal("request_invalid", "expected_revision is a non-negative integer.", "$.expected_revision");
         if (root.TryGetProperty("expected_entities", out var entities))
@@ -915,7 +1168,37 @@ public partial class CommandHost : Node
             throw new Refusal("request_invalid", "This change must name expected_revision or expected_entities.", "$");
     }
 
-    private void CheckExpectations(JsonElement root, string op, JsonElement args)
+    /// <summary>
+    /// Refuses a hidden character (KernelText: controls, format characters, blanks, variation selectors, plane 14,
+    /// emoji markers out of place) in any string or key of a request, wherever it is. A stop's expectations are
+    /// ignored, so they are not checked either.
+    /// </summary>
+    private static void CheckText(JsonElement element, string path, bool stop, int depth = 0)
+    {
+        switch (element.ValueKind)
+        {
+            case JsonValueKind.Object:
+                foreach (var property in element.EnumerateObject())
+                {
+                    if (stop && depth == 0 && property.Name is "expected_revision" or "expected_entities") continue;
+                    var inner = path + "." + (PathSegment.IsMatch(property.Name) ? property.Name : "?");
+                    if (KernelText.HasHidden(property.Name))
+                        throw new Refusal("request_invalid", "Names in a request may not contain control or invisible characters.", inner);
+                    CheckText(property.Value, inner, stop, depth + 1);
+                }
+                break;
+            case JsonValueKind.Array:
+                var index = 0;
+                foreach (var item in element.EnumerateArray()) CheckText(item, $"{path}[{index++}]", stop, depth + 1);
+                break;
+            case JsonValueKind.String:
+                if (KernelText.HasHidden(element.GetString()!))
+                    throw new Refusal("request_invalid", "Text in a request may not contain control or invisible characters.", path);
+                break;
+        }
+    }
+
+    private void CheckExpectations(JsonElement root, string op, JsonElement args, string principal)
     {
         if (root.TryGetProperty("expected_revision", out var expected) && expected.GetInt64() != Revision)
             throw new Refusal("revision_conflict", "The room changed. Look again before retrying.", "$.expected_revision", true, JsonValue.Create(Revision));
@@ -923,7 +1206,8 @@ public partial class CommandHost : Node
         {
             foreach (var entry in entities.EnumerateObject())
             {
-                var current = EntityRevision(entry.Name);
+                // Out of the companion's sight is the same as not in the room.
+                var current = Perceives(principal, entry.Name) ? EntityRevision(entry.Name) : -1;
                 if (current < 0) throw new Refusal("target_not_found", "That is not in this room.", "$.expected_entities");
                 if (current != entry.Value.GetInt64())
                     throw new Refusal("revision_conflict", "Something it names has changed. Look again before retrying.", "$.expected_entities", true, JsonValue.Create(current));
@@ -1012,6 +1296,9 @@ public partial class CommandHost : Node
             if (args.TryGetProperty("duration_s", out var duration) && (duration.ValueKind != JsonValueKind.Number || duration.GetDouble() is <= 0 or > 3600))
                 throw new Refusal("request_invalid", "duration_s is between 0 and 3600 seconds.", "$.args.duration_s");
         }
+        if (op == "room.checkpoint" && args.TryGetProperty("label", out var label) &&
+            (label.ValueKind != JsonValueKind.String || KernelText.CodePoints(label.GetString()!).Length > 80))
+            throw new Refusal("request_invalid", "A checkpoint label is one line of at most 80 characters.", "$.args.label");
         if (op == "effect.stop")
         {
             var effect = args.GetProperty("effect");
@@ -1132,7 +1419,7 @@ public partial class CommandHost : Node
         "entity.transform" => "Transforming objects arrives with the first magic (Run 3).",
         "effect.start" => "Free-standing effects arrive with the first magic (Run 3).",
         "style.set" => "Restyling the room from a command arrives with the look runtime.",
-        "room.checkpoint" or "room.undo" => "Checkpoints and undo arrive with room saves (Run 3).",
+        "room.undo" => "Undo arrives with room saves (Run 3).",
         "goal.set" when Str(args, "goal") is "go_to" or "fetch" or "wander" => "That goal arrives with the companion's embodiment (Run 2).",
         _ => null,
     };
@@ -1155,15 +1442,31 @@ public partial class CommandHost : Node
         return (position[0], position[1], position[2], yaw, on);
     }
 
-    private void RateLimit(string principal)
+    // ---- the companion's rate limit: 30 messages a second, stops exempt ----
+
+    private bool TokensLeft()
     {
-        if (principal != CompanionPrincipal) return;
         var now = Clock();
         while (_companionCalls.Count > 0 && now - _companionCalls.Peek() > TimeSpan.FromSeconds(1)) _companionCalls.Dequeue();
-        if (_companionCalls.Count >= CompanionMessagesPerSecond)
-            throw new Refusal("rate_limited", "Too many messages; wait a moment.", retryable: true);
-        _companionCalls.Enqueue(now);
+        return _companionCalls.Count < CompanionMessagesPerSecond;
     }
+
+    private bool TakeToken()
+    {
+        if (!TokensLeft()) return false;
+        _companionCalls.Enqueue(Clock());
+        return true;
+    }
+
+    /// <summary>
+    /// Whether text could be a goal.stop or effect.stop. A JSON string can spell a letter or '.' only literally or
+    /// with a \u escape, so text with neither op name and no \u escape is never a stop and needs no parsing.
+    /// </summary>
+    private static bool MightBeStop(string message) =>
+        message.Contains("goal.stop", StringComparison.Ordinal) || message.Contains("effect.stop", StringComparison.Ordinal) || message.Contains("\\u", StringComparison.Ordinal);
+
+    private JsonObject RateLimited(string principal) =>
+        Fail("invalid", principal, null, null, new Refusal("rate_limited", "Too many messages; wait a moment.", retryable: true));
 
     // ---- results ----
 
