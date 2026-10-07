@@ -18,8 +18,10 @@ import numpy as np
 
 from ..jsonio import text_bytes
 from ..paths import OutputGuard
+from ..textutil import md_text
 from .grid import GOOD_VIEWS
 from .objects import sector_of
+from .visibility import LOW_CAMERA_M
 
 MAP_LEGEND = ("Blue: in three or more photos taken from different spots. Amber: in one or two, or only from "
               "one spot. Red: in none. Grey: furniture stands there (floor under it, wall behind it), so I do "
@@ -68,6 +70,7 @@ def coverage_record(context: dict[str, Any]) -> dict[str, Any]:
         "room_frame": context["frame"].as_dict(),
         "view_graph": {k: graph[k] for k in ("min_overlap", "not_fitted", "unplaced", "weakly_linked")}
         | {"links": len(graph["edges"]), "groups": [len(c) for c in graph["components"]]},
+        "scale": context["scale"],
         "surfaces": surfaces,
         "objects": objects,
         "guidance": context.get("guidance"),
@@ -107,7 +110,6 @@ def summary_numbers(context: dict[str, Any]) -> dict[str, Any]:
     heights = np.array([context["cams"][v][1] for v in context["registered"]])
     pose = context.get("pose_info") or {}
     fits = [f for f in pose.get("fits", []) if f.get("batch", 0) > 0 and f.get("merged")]
-    scale = pose.get("scale", {})
     return {
         "files": s["files"],
         "unique": s["status_counts"].get("ok", 0) + s["status_counts"].get("near_duplicate", 0)
@@ -125,12 +127,11 @@ def summary_numbers(context: dict[str, Any]) -> dict[str, Any]:
         "walls": walls,
         "floor": floor,
         "ceiling": ceiling,
-        "low_share": float((heights < 0.7).mean()) if len(heights) else 0.0,
+        "low_share": float((heights < LOW_CAMERA_M).mean()) if len(heights) else 0.0,
         "median_height": float(np.median(heights)) if len(heights) else None,
-        "standing_height": float(np.quantile(heights, 0.75)) if len(heights) else None,
         "join_centre_cm": 100 * float(np.median([f["median_center_error_m"] for f in fits])) if fits else None,
         "join_rot_deg": float(np.median([f["median_rotation_error_deg"] for f in fits])) if fits else None,
-        "scale_spread_pct": scale.get("spread_pct"),
+        "scale": context["scale"],
     }
 
 
@@ -144,6 +145,32 @@ def write_reports(guard: OutputGuard, cov_rel: Path, context: dict[str, Any]) ->
     return {"md": md_path, "html": html_path}
 
 
+def _percent_words(low: float, high: float) -> str:
+    """'from about 2% smaller to about 26% larger', from the signed percentages of a range."""
+    smaller = f"about {abs(round(low))}% smaller" if round(low) < 0 else "no smaller"
+    larger = f"about {round(high)}% larger" if round(high) > 0 else "no larger"
+    return f"from {smaller} to {larger}"
+
+
+def size_sentence(n: dict[str, Any]) -> str:
+    """How big the room is, and how far to trust that, in one sentence for the top of the report."""
+    scale = n["scale"]
+    text = f"The room comes out about {n['width']:.1f} m by {n['depth']:.1f} m"
+    text += f", with the ceiling about {n['height']:.1f} m up." if n["height"] else ". I could not find the ceiling."
+    if scale["scale_source"] == "tape":
+        checks = scale["tape"]["checks"]
+        worst = max((abs(r["residual_m"]) for r in checks["rows"] if r["residual_m"] is not None and not r["check_only"]),
+                    default=0.0)
+        return (text + f" These sizes are scaled to your tape measurements (the model's own sizes were multiplied by "
+                       f"{scale['applied_factor']:.2f}); the tape and the model still differ by up to {100 * worst:.0f} cm.")
+    batch = scale["batch"]
+    if batch["batches"] < 2:
+        return text + " Treat these sizes as rough: nothing here checks the model's sense of scale. Measure a wall with a tape."
+    return (text + f" Treat these sizes as rough: they come from the model's own sense of scale, and its other photo "
+                   f"groups put the true size {_percent_words(batch['vs_used_pct']['low'], batch['vs_used_pct']['high'])} "
+                   f"than drawn. A tape measurement fixes that (see How sure is this).")
+
+
 def _intro_lines(n: dict[str, Any], context: dict[str, Any]) -> list[str]:
     g = context["guidance"]
     verdict = g["verdict"]
@@ -152,10 +179,7 @@ def _intro_lines(n: dict[str, Any], context: dict[str, Any]) -> list[str]:
         f"copies of one of them.",
         f"{n['used']} photos were sharp enough to use ({n['blurry']} were blurry), and {n['fitted']} of those fitted "
         f"together into one model of the room.",
-        (f"The room comes out about {n['width']:.1f} m by {n['depth']:.1f} m"
-         + (f", with the ceiling about {n['height']:.1f} m up." if n["height"] else ". I could not find the ceiling.")
-         + (f" Treat these sizes as rough: they could be off by about {max(5, round(n['scale_spread_pct'] or 0))}%."
-            if n.get("scale_spread_pct") is not None else "")),
+        size_sentence(n),
         (f"Coverage: {n['walls_good_pct']:.0f}% of the walls, {n['floor']['good_pct']:.0f}% of the open floor"
          + (f" and {n['ceiling']['good_pct']:.0f}% of the ceiling" if n["ceiling"] else "")
          + f" are in {GOOD_VIEWS} or more photos taken from different spots, which is what a 3D rebuild "
@@ -174,29 +198,30 @@ def render_markdown(context: dict[str, Any]) -> str:
     n = summary_numbers(context)
     g = context["guidance"]
     room = context["manifest"]["room"]
-    out = [f"# {room.capitalize()} photo coverage: what to photograph next", "",
-           f"Session {context['manifest']['session_id']}, {time.strftime('%d %B %Y')}.", "", "## In short", ""]
-    out += [f"- {line}" for line in _intro_lines(n, context)]
+    out = [f"# {md_text(room.capitalize())} photo coverage: what to photograph next", "",
+           f"Session {md_text(context['manifest']['session_id'])}, {time.strftime('%d %B %Y')}.", "", "## In short", ""]
+    out += [f"- {md_text(line)}" for line in _intro_lines(n, context)]
     out += ["", "## What to photograph next", "",
             "In this order. The numbers match the dark circles on the map. Wall A is at the top of the map: it is "
             "the wall you faced in your first photo. \"Left\" and \"right\" are as you stand facing the wall or "
             "the furniture.", ""]
     for it in g["items"]:
-        near = f" You took {it['near_photo']} from about there." if it.get("near_photo") else ""
-        out.append(f"{it['number']}. **{KIND_TITLES.get(it['kind'], it['kind'])}.** {it['text']} *Why:* {it['why']}{near}")
+        near = f" You took {md_text(it['near_photo'])} from about there." if it.get("near_photo") else ""
+        out.append(f"{it['number']}. **{md_text(KIND_TITLES.get(it['kind'], it['kind']))}.** {md_text(it['text'])} "
+                   f"*Why:* {md_text(it['why'])}{near}")
     if g["more"]:
         out += ["", f"Smaller gaps, if you have time ({len(g['more'])}):", ""]
-        out += [f"- {it['text']}" for it in g["more"][:15]]
+        out += [f"- {md_text(it['text'])}" for it in g["more"][:15]]
     out += ["", "## The map", "", "![Coverage map, seen from above](coverage-map.png)", "",
             MAP_LEGEND, "",
             "![The walls unfolded](walls.png)", ""]
     out += ["## Photos with problems", ""]
     for note in g["notes"]:
         names = note.get("photos_named")
-        out.append(f"- {note['text']}" + (f" ({', '.join(names)})" if names else ""))
+        out.append(f"- {md_text(note['text'])}" + (f" ({md_text(', '.join(names))})" if names else ""))
     lost = context["graph"].get("not_fitted", []) + context["graph"].get("unplaced", [])
     if lost:
-        out.append(f"- Did not fit with the others: {', '.join(context['views'][i]['name'] for i in lost)}.")
+        out.append(f"- Did not fit with the others: {md_text(', '.join(context['views'][i]['name'] for i in lost))}.")
     out += ["", "## Furniture I found", ""]
     objects = context.get("objects") or []
     if objects:
@@ -204,26 +229,99 @@ def render_markdown(context: dict[str, Any]) -> str:
                 "object list, not the list itself.", "", "| Object | Photos | Sides seen | Wall |", "|---|---|---|---|"]
         for o in objects:
             sides = ", ".join(sorted({sector_of(a) for a in o.view_angles_deg})) or "none"
-            out.append(f"| {o.label} ({o.id}) | {len(o.views)} | {sides} | {o.wall or 'free-standing'} |")
+            out.append(f"| {md_text(o.label)} ({md_text(o.id)}) | {len(o.views)} | {md_text(sides)} | "
+                       f"{md_text(o.wall or 'free-standing')} |")
     else:
         det = context.get("detection") or {}
-        out.append("Furniture detection " + ("failed: " + det["error"] if det.get("error") else "was skipped") + ".")
+        out.append("Furniture detection " + ("failed: " + md_text(det["error"]) if det.get("error") else "was skipped") + ".")
     out += ["", "## How sure is this?", ""]
-    out += [f"- {line}" for line in confidence_lines(n, context)]
+    out += [f"- {md_text(line)}" for line in confidence_lines(n, context)]
     out += ["", "## Technical details", ""]
-    out += [f"- {line}" for line in technical_lines(context)]
+    out += [f"- {md_text(line)}" for line in technical_lines(context)]
     return "\n".join(out)
 
 
+def _measurement_name(row: dict[str, Any]) -> str:
+    between = row["between"]
+    return {"wall_to_wall": f"between walls {' and '.join(between)}", "floor_to_ceiling": "floor to ceiling",
+            "diagonal": "corner to corner", "opening": f"the opening on wall {''.join(between)}"}[row["kind"]]
+
+
+def _measurement_label(row: dict[str, Any]) -> str:
+    name = _measurement_name(row)
+    place = (row.get("where") or "").strip()
+    return name[0].upper() + name[1:] + (f" ({place})" if place and place.lower() != name.lower() else "")
+
+
+def scale_lines(n: dict[str, Any]) -> list[str]:
+    """What the room's scale rests on, in plain words, with every tape measurement against the model."""
+    scale = n["scale"]
+    tape = scale["tape"]
+    lines: list[str] = []
+    if scale["scale_source"] == "tape":
+        checks = tape["checks"]
+        lines.append(
+            f"Scale: your tape measurements set it. Fitting one scale to them says to multiply the model's own sizes by "
+            f"{scale['applied_factor']:.3f}. That was done before the room was measured, so the room sizes, the 25 cm "
+            f"cells and the distances in the steps are in real metres. The fit itself is good to about "
+            f"{tape['fit_sigma_pct']:.1f}%.")
+        for row in checks["rows"]:
+            if row["check_only"] or row["residual_m"] is None:
+                continue
+            cm = 100 * row["residual_m"]
+            lines.append(f"{_measurement_label(row)}: tape {row['tape_m']:.3f} m, model {row['model_m']:.3f} m: "
+                         f"{abs(cm):.1f} cm {'too long' if cm > 0 else 'too short'} ({row['residual_pct']:+.1f}%).")
+        if checks["rms_cm"] is not None:
+            lines.append(f"The differences from the tape average {checks['rms_cm']:.0f} cm (root mean square).")
+        implied = [r for r in checks["rows"] if "implied_scale" in r]
+        if len(implied) > 1:
+            lines.append("Taken one at a time, the measurements would each ask for a different scale ("
+                         + "; ".join(f"{_measurement_name(r)} x{r['implied_scale']:.3f}"
+                                     for r in implied)
+                         + "). That is for information only: one scale was applied to every direction, because "
+                           "the model's mistake is a single overall scale, not a stretched room.")
+        spread = checks["wall_copy_spread_cm"]
+        for row in checks["rows"]:
+            if row["flagged"] and not row["check_only"]:
+                lines.append(
+                    f"Check this one: {_measurement_name(row)} is {abs(100 * row['residual_m']):.0f} cm off, more "
+                    f"than the {checks['flag_limit_cm']:.0f} cm limit (twice the "
+                    f"{'%.0f cm' % spread if spread is not None else 'usual'} by which the groups of photos disagree "
+                    f"about where a wall is). Either the tape was taken where the room is not typical, or the model "
+                    f"has this wall in the wrong place.")
+        for row in checks["rows"]:
+            if not row["check_only"]:
+                continue
+            label = _measurement_label(row)
+            if row["model_m"] is None:
+                lines.append(f"{label} was not used for the scale (an opening is only a check), and no gap was "
+                             f"found there to check it against.")
+            else:
+                verdict = "which does not match" if row["flagged"] else "which matches"
+                lines.append(f"{label} was not used for the scale (an opening is only a check): tape "
+                             f"{row['tape_m']:.2f} m, the photos see a gap about {row['model_m']:.2f} m wide, "
+                             f"{verdict} to within one 25 cm cell.")
+    else:
+        batch = scale["batch"]
+        lines.append(
+            "Scale: no tape measurements were used, so the room is in the model's own scale, the one of its first group "
+            "of photos. "
+            + ("" if batch["batches"] < 2 else
+               f"The other groups of photos put the true size {_percent_words(batch['vs_used_pct']['low'], batch['vs_used_pct']['high'])} "
+               f"than drawn, so every distance in this report is only rough. ")
+            + "To fix it, tape two or three lengths of the room and list them in the room's measurements.json "
+              "(the roomscan README shows how).")
+    if tape:
+        lines += list(tape["notes"])
+    return lines
+
+
 def confidence_lines(n: dict[str, Any], context: dict[str, Any]) -> list[str]:
-    lines = []
+    lines = scale_lines(n)
     if n["join_centre_cm"] is not None:
         lines.append(f"The photos are placed in groups of up to 32 (what fits on the graphics card) and the groups "
                      f"are then joined. Where groups meet they agree to about {n['join_centre_cm']:.0f} cm and "
                      f"{n['join_rot_deg']:.0f} degrees, so read the map to about a cell (25 cm), not finer.")
-    if n["standing_height"] is not None:
-        lines.append(f"Your standing photos come out about {n['standing_height']:.1f} m above the floor, which is "
-                     f"about where people hold a phone, so the overall size is in the right range.")
     lines.append("A patch counts as covered when at least three photos taken from different spots show it. Floor "
                  "under furniture and wall behind it are grey and not counted against you; floor that clutter only "
                  "hides from where you stood still counts as a gap, because a photo from closer would show it.")
@@ -251,8 +349,12 @@ def technical_lines(context: dict[str, Any]) -> list[str]:
         lines.append(f"Furniture: {det.get('detector')}; {det.get('photos')} photos, GPU {det.get('gpu_seconds')} s, "
                      f"peak {det.get('peak_allocated_mib')} MiB"
                      + (" (reused from the cache)" if det.get("reused_from_cache") else "") + ".")
+    scale = context.get("scale") or {}
+    if scale:
+        lines.append(f"Scale source: {scale['scale_source']}; applied factor {scale['applied_factor']}; batch scales "
+                     + ", ".join(f"{k}: {v}" for k, v in scale["batch"]["batch_scales"].items()) + ".")
     for model, info in (run.get("models") or {}).items():
-        lines.append(f"Model {model}: licence {info.get('licence')}.")
+        lines.append(f"Model {model}: licence {info.get('licence')}." + (f" Note: {info['note']}." if info.get("note") else ""))
     lines.append(f"Money spent: ${run.get('money_spent_usd', 0)}. Everything ran on this PC.")
     return lines
 

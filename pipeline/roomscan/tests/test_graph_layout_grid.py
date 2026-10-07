@@ -8,7 +8,8 @@ import pytest
 import scene
 from roomscan.coverage.geometry import transform_points
 from roomscan.coverage.graph import build_view_graph, overlap_matrix
-from roomscan.coverage.grid import GOOD_VIEWS, WALLS, floor_grid, regions, runs, wall_axes, wall_grid
+from roomscan.coverage.grid import (GOOD_VIEWS, WALLS, SurfaceGrid, floor_grid, regions, runs, wall_axes,
+                                  wall_grid)
 from roomscan.coverage.visibility import Views
 from roomscan.coverage.layout import camera_forward, camera_up, collect_points, fit_room
 
@@ -127,3 +128,51 @@ def test_runs_and_regions():
     mask[2:4, 3:5] = True
     found = regions(mask)
     assert [len(r) for r in found] == [4, 2]
+
+
+def test_right_is_the_right_hand_of_a_person_facing_the_wall():
+    # A camera in the middle of the room looking at each wall: its x axis (OpenCV: image right) is the
+    # direction "right" along that wall, so u grows to the right and a left-end/right-end pair is ordered
+    # the way the founder reads the wall. Flipping the sign puts every "left of" and "right of" the wrong way.
+    bounds = (-2.0, 2.0, -2.5, 2.5)
+    for key, (_, _, inward, _) in WALLS.items():
+        axes = wall_axes(key, bounds)
+        eye = np.array([0.0, 1.5, 0.0])
+        c2w = scene.look_at(eye, eye + np.array([-inward[0], 0.0, -inward[1]]))
+        facing_right = c2w[:3, 0]
+        assert axes["right"] == pytest.approx([facing_right[0], facing_right[2]], abs=1e-9), key
+        assert (axes["right_end"] - axes["left_end"]) @ axes["right"] == pytest.approx(axes["length"])
+    # Concretely: facing wall A (the top of the map) the left end is at x min; facing wall D, at z max.
+    assert wall_axes("A", bounds)["left_end"] == pytest.approx([-2.0, -2.5])
+    assert wall_axes("D", bounds)["left_end"] == pytest.approx([-2.0, 2.5])
+    assert wall_axes("B", bounds)["left_end"] == pytest.approx([2.0, -2.5])
+    assert wall_axes("C", bounds)["left_end"] == pytest.approx([2.0, 2.5])
+
+
+def test_three_photos_from_one_spot_do_not_make_a_cell_covered():
+    # Three photos taken from one spot see a cell, but they cannot rebuild it: they all look at it from
+    # one direction. Three photos a step apart can.
+    room = scene.Room(size=(4.0, 2.5, 5.0))
+    bounds = (-2.0, 2.0, -2.5, 2.5)
+
+    def grid(eyes):
+        preds = {i: scene.prediction(room, scene.look_at(eye, (0.0, 1.3, -2.5))) for i, eye in enumerate(eyes)}
+        return wall_grid("A", Views.from_preds(preds, list(preds), np.eye(4)), bounds, 2.5)
+
+    one_spot = grid([(0.0, 1.5, 1.0)] * 3)
+    apart = grid([(-1.0, 1.5, 1.0), (0.0, 1.5, 1.0), (1.0, 1.5, 1.0)])
+    common = (one_spot.views >= GOOD_VIEWS) & (apart.views >= GOOD_VIEWS)
+    assert common.sum() >= 6, "both setups must see the same cells for the comparison to mean anything"
+    assert (one_spot.spread[common] > 0.99).all() and (apart.spread[common] < 0.985).mean() > 0.8
+    assert not one_spot.good[common].any()  # seen by three photos, from one place: not covered
+    assert apart.good[common].mean() > 0.8
+    assert one_spot.stats()["good"] == 0 and one_spot.stats()["thin"] >= common.sum()
+    assert apart.stats()["good"] >= common.sum() * 0.8
+
+
+def test_good_needs_enough_photos_and_enough_spread():
+    views = np.array([[3, 3, 2, 5]])
+    spread = np.array([[0.9, 0.995, 0.5, 0.2]])
+    grid = SurfaceGrid("wall", views, np.zeros_like(views, bool), (0.0, 1.0, 0.0, 0.25), spread=spread)
+    assert grid.good.tolist() == [[True, False, False, True]]
+    assert grid.state().tolist() == [[2, 1, 1, 2]]  # good, thin (all one spot), thin (two photos), good

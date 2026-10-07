@@ -1,4 +1,4 @@
-"""Tighten the merged batches against each other, and settle the room's scale.
+"""Tighten the merged batches against each other.
 
 Each GPU batch comes back in its own metric frame and the anchor fit in ``chunks`` brings it into
 the room frame, but two predictions of the same photo never agree exactly, so walls can come out
@@ -6,8 +6,8 @@ doubled where batches meet. Here every batch's similarity is refined by a trimme
 surfaces of all the other batches (nearest points within a shrinking radius, normals required to
 agree), batch by batch, for a few rounds. The reference batch stays fixed.
 
-Each batch also carries its own metric estimate. The room keeps the median of them rather than
-the reference batch's alone, and the spread is reported as the scale uncertainty.
+The reference (seed) batch also fixes the room's scale: this module never rescales the room as a
+whole. Whether the founder's tape measurements then rescale it is decided in ``scale``.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from typing import Any
 import numpy as np
 
 from .chunks import move_prediction
-from .geometry import grid_normals, normalize, sim3_matrix, umeyama
+from .geometry import grid_normals, sim3_matrix, umeyama
 
 RADII = (0.40, 0.30, 0.20, 0.15, 0.10)
 
@@ -146,37 +146,3 @@ def refine_batches(preds: dict[int, dict[str, np.ndarray]], *, reference: int = 
                                      for h in history if h["round"] == rounds - 1))
     return out, {"rounds": rounds, "history": history,
                  "per_batch": {str(b): _describe(total[b]) for b in sorted(total)}}
-
-
-def consensus_scale(batch_scales: dict[int, float]) -> dict[str, float]:
-    """The room scale factor that gives the median batch its own metric scale, and the spread.
-
-    ``batch_scales`` maps batch -> the scale applied to that batch's raw prediction to bring it
-    into the room frame (the reference batch is 1). Multiplying the room by the returned
-    ``factor`` makes the median batch metric.
-    """
-    values = np.array(sorted(batch_scales.values()), float)
-    med = float(np.median(values))
-    return {"factor": 1.0 / med, "median_batch_scale": med,
-            "spread_pct": round(100 * float(values.max() - values.min()) / med / 2, 1) if len(values) > 1 else 0.0}
-
-
-def wall_spread(xyz: np.ndarray, nor: np.ndarray, frame) -> dict[str, float]:
-    """How thick the walls come out: median distance of wall-facing points to each wall plane."""
-    out = {}
-    for name, axis, side in (("x_min", 0, -1), ("x_max", 0, 1), ("z_min", 2, -1), ("z_max", 2, 1)):
-        plane = getattr(frame, name)
-        facing = nor[:, axis] * -side > 0.8
-        near = facing & (np.abs(xyz[:, axis] - plane) < 0.6)
-        out[name] = round(float(np.median(np.abs(xyz[near, axis] - plane))), 3) if near.sum() > 50 else None
-    return out
-
-
-def scale_prediction(pred: dict[str, np.ndarray], factor: float) -> dict[str, np.ndarray]:
-    """Uniformly rescale a prediction about the frame origin."""
-    S = np.eye(4)
-    S[:3, :3] *= factor
-    return move_prediction(pred, S)
-
-
-__all__ = ["refine_batches", "consensus_scale", "wall_spread", "icp_sim3", "scale_prediction", "normalize"]

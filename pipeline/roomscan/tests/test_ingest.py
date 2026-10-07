@@ -14,7 +14,9 @@ from PIL import Image
 import synth
 from roomscan import exif as exifmod
 from roomscan import quality
-from roomscan.ingest import ingest, photo_sort_key, resolve_session, scan_source
+from roomscan.ingest import (INGEST_VERSION, SessionConflictError, ingest, photo_sort_key, render_report,
+                             resolve_session, scan_source, session_id_for)
+from roomscan.textutil import md_text
 from roomscan.paths import OutputGuard, PathPolicyError
 
 
@@ -238,3 +240,84 @@ def test_manifest_counts_lenses(layout):
     manifest = run(source, captures)["manifest"]
     assert manifest["summary"]["lens_counts"] == {"main": 7}  # every file except the exact copy
     assert {p.get("lens_kind") for p in manifest["photos"] if p["status"] == "ok"} == {"main"}
+
+
+def test_clean_exif_leaves_the_gps_block_out_itself(tmp_path):
+    # Ingest also fails closed when a location survives, but the clean copy must be clean on its own.
+    path = synth.save_jpeg(synth.view(1, (0, 0)), tmp_path / "gps.jpg", exif=synth.exif_with_gps(), xmp=synth.FAKE_XMP)
+    with Image.open(path) as im:
+        assert im.getexif().get_ifd(exifmod.GPS_IFD)  # the source does carry one
+        clean = exifmod.clean_exif(im)
+    assert exifmod.GPS_IFD not in clean and not clean.get_ifd(exifmod.GPS_IFD)
+    sub = clean[exifmod.EXIF_IFD]  # held as a plain dict until it is written
+    assert 0x927C not in sub  # the maker note is gone too
+    assert clean[exifmod.MODEL] == "TestPhone 1" and sub[exifmod.FOCAL_35MM] == 26
+
+
+def test_the_session_follows_the_photos_the_rules_and_the_version(layout):
+    source, captures = layout
+    make_set(source)
+    first = run(source, captures)
+    listing = [{k: p[k] for k in ("name", "size_bytes", "sha256")} for p in first["manifest"]["photos"]]
+    same = session_id_for(listing)
+    assert same == first["session_id"] and session_id_for(list(reversed(listing))) == same
+    assert session_id_for(listing, quality.Thresholds(blur_abs_min=30.0)) != same
+    assert session_id_for(listing, ingest_version=INGEST_VERSION + 1) != same
+
+    # Re-running after a threshold change makes a new session and leaves the old one exactly as it was.
+    old = Path(first["session_dir"]) / "manifest.json"
+    old_bytes = old.read_bytes()
+    stricter = ingest(source, "garage", captures, workers=1, thresholds=quality.Thresholds(blur_abs_min=30.0),
+                      log=lambda *_: None)
+    assert stricter["session_id"] != first["session_id"]
+    assert stricter["manifest"]["thresholds"]["blur_abs_min"] == 30.0
+    assert old.read_bytes() == old_bytes and old_bytes.count(b'"blur_abs_min": 25.0') == 1
+
+
+def test_a_session_is_never_overwritten_by_a_different_manifest(layout):
+    source, captures = layout
+    make_set(source)
+    first = run(source, captures)
+    manifest = Path(first["session_dir"]) / "manifest.json"
+    manifest.write_bytes(manifest.read_bytes() + b" ")  # as if the code had changed without a new version
+    changed = manifest.read_bytes()
+    with pytest.raises(SessionConflictError, match="INGEST_VERSION"):
+        run(source, captures)
+    assert manifest.read_bytes() == changed
+
+
+def test_derived_files_are_named_by_the_bytes_alone(layout, tmp_path):
+    source, captures = layout
+    make_set(source)
+    first = run(source, captures)
+    derived = {p["sha256"]: p["derived"] for p in first["manifest"]["photos"] if p.get("derived")}
+    assert derived and all(d["jpeg"] == f"photos/{sha[:16]}.jpg" and d["thumb"] == f"thumbs/{sha[:16]}.jpg"
+                           for sha, d in derived.items())
+    # The same bytes under other names, converted from scratch somewhere else, land in the same files.
+    other = tmp_path / "other" / "Drive"
+    other.mkdir(parents=True)
+    for k, p in enumerate(sorted(source.iterdir())):
+        shutil.copyfile(p, other / f"renamed_{k:02d}{p.suffix}")
+    elsewhere = ingest(other, "garage", tmp_path / "other" / "captures", workers=1, log=lambda *_: None)
+    assert {p["sha256"]: p["derived"]["jpeg"] for p in elsewhere["manifest"]["photos"] if p.get("derived")} ==         {sha: d["jpeg"] for sha, d in derived.items()}
+    # And a cache hit does not remember which name converted the bytes first.
+    (source / "IMG_0003.jpg").rename(source / "A_renamed.jpg")
+    again = run(source, captures)
+    moved = next(p for p in again["manifest"]["photos"] if p["name"] == "A_renamed.jpg")
+    assert moved["derived"]["jpeg"] == f"photos/{moved['sha256'][:16]}.jpg"
+    assert again["run"]["converted"] == 0
+
+
+def test_the_markdown_report_escapes_file_names_and_lens_text():
+    hostile = "[x](http://evil.example)<script>alert(1)</script>|*a*_b_`c`&amp;\nsecond line"
+    m = {"room": "garage", "session_id": "s-1",
+         "summary": {"files": 2, "total_bytes": 10, "status_counts": {"ok": 2}, "usable_for_poses": 2,
+                     "session_median_sharpness": 1.0, "sources_with_location": 0},
+         "duplicates": {"exact": [[hostile, hostile + " (1)"]], "near": [{"keep": hostile, "others": [hostile + "2"]}]},
+         "flags": {"blurry": [hostile]},
+         "photos": [{"name": hostile, "status": "ok", "exif": {"focal_length_35mm": 26, "lens_model": hostile}}]}
+    text = render_report(m)
+    for raw in ("[x](", "<script>", "*a*", "_b_", "`c`", "\nsecond"):
+        assert raw not in text, raw
+    assert "\\[x\\]" in text and "\\<script\\>" in text and "\\&amp;" in text
+    assert md_text("a\nb\r\n| c |") == "a b \\| c \\|"

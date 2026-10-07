@@ -23,7 +23,8 @@ def _cache_key(views: list[dict[str, Any]], indices: list[int], detector: str = 
     return sha256_hex(json_bytes({
         "views": [[views[i]["name"], views[i]["sha256"]] for i in indices],
         "detector": detector, "revision": MODEL_REGISTRY[DETECTOR]["revision"],
-        "vocabulary": VOCABULARY, "threshold": THRESHOLD, "version": 2,  # 2: draft-mode decoding
+        "vocabulary": VOCABULARY, "threshold": THRESHOLD,
+        "version": 3,  # 2: draft-mode decoding; 3: photos not near 3:4 are padded like the pose input, not cropped
     }))
 
 

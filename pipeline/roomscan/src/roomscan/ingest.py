@@ -2,16 +2,22 @@
 
 Layout under ``<captures>/<room>/``::
 
-    photos/<stem>-<sha10>.jpg       full-resolution JPEG, orientation applied, allow-listed EXIF only
-    thumbs/<stem>-<sha10>.jpg       384 px preview for reports, no EXIF
+    photos/<sha16>.jpg              full-resolution JPEG, orientation applied, allow-listed EXIF only
+    thumbs/<sha16>.jpg              384 px preview for reports, no EXIF
     cache/ingest-v<N>/<sha256>.json per-photo analysis, reused when the same bytes come back
     sessions/<session_id>/manifest.json   the session: every photo's name, size, SHA-256 and results
     sessions/<session_id>/ingest-report.md
     sessions/<session_id>/ingest-run.json  timings, versions, source folder (not part of the result)
     sessions/index.json, latest-session.txt
 
-A session id is derived from the sorted (name, size, SHA-256) listing, so the same photo set always
-maps to the same session and adding photos creates a new session without touching an earlier one.
+Derived files are named by the first 16 hex digits of the source's SHA-256 and nothing else, so the
+same bytes always give the same file whatever the source was called when it was first converted.
+
+A session id is derived from the sorted (name, size, SHA-256) listing together with the ingest
+version and the quality thresholds, so the same photo set under the same rules always maps to the
+same session, adding photos creates a new session without touching an earlier one, and a change of
+rules makes a new session instead of overwriting the old one. As a second guard, an existing
+session's manifest is never replaced by a different one (``SessionConflictError``).
 """
 
 from __future__ import annotations
@@ -36,8 +42,9 @@ from . import quality
 from .imageio import register_heif
 from .jsonio import canonical_bytes, json_bytes, sha256_hex, text_bytes
 from .paths import OutputGuard, check_source_and_output, room_root
+from .textutil import md_text
 
-INGEST_VERSION = 2  # 2: adds edge_sharpness
+INGEST_VERSION = 3  # 2: adds edge_sharpness; 3: derived files named by the bytes alone
 PHOTO_EXTENSIONS = {".heic", ".heif", ".jpg", ".jpeg", ".png"}
 JPEG_QUALITY = 92
 THUMB_LONG_SIDE = 384
@@ -70,12 +77,6 @@ def scan_source(source: Path) -> list[SourcePhoto]:
         found.append(SourcePhoto(rel, path, path.stat().st_size))
     found.sort(key=lambda p: photo_sort_key(p.name))
     return found
-
-
-def safe_stem(name: str) -> str:
-    stem = PurePosixPath(name).stem
-    stem = re.sub(r"[^A-Za-z0-9_-]+", "_", stem).strip("_")
-    return stem[:60] or "photo"
 
 
 def _sha256_file(path: Path) -> str:
@@ -116,7 +117,7 @@ def analyse_photo(job: dict[str, Any]) -> dict[str, Any]:
         # pillow-heif applies HEIF rotation itself and reports orientation 1; JPEGs rotate here.
         img = ImageOps.exif_transpose(opened)
         img = img.convert("RGB")
-    stem = f"{safe_stem(job['name'])}-{sha[:10]}"
+    stem = sha[:16]  # the bytes alone name the files, so a cache hit and a fresh conversion agree
     jpeg = _encode_jpeg(img, quality_level=JPEG_QUALITY, exif=cleaned, icc=icc)
     exifmod.assert_no_location(jpeg, f"{stem}.jpg")
     thumb_img = img.copy()
@@ -169,9 +170,16 @@ def _cached(guard: OutputGuard, sha: str) -> dict[str, Any] | None:
         return None
 
 
-def session_id_for(listing: list[dict[str, Any]]) -> str:
-    entries = sorted((p["name"], p["size_bytes"], p["sha256"]) for p in listing)
-    return "s-" + sha256_hex(canonical_bytes(entries))[:12]
+class SessionConflictError(RuntimeError):
+    """A session with this id already has a different manifest; it is left as it is."""
+
+
+def session_id_for(listing: list[dict[str, Any]], thresholds: quality.Thresholds = quality.Thresholds(),
+                   ingest_version: int = INGEST_VERSION) -> str:
+    """The same photos under the same rules, and only those, give the same session."""
+    entries = sorted([p["name"], p["size_bytes"], p["sha256"]] for p in listing)
+    return "s-" + sha256_hex(canonical_bytes({"photos": entries, "ingest_version": ingest_version,
+                                              "thresholds": thresholds.as_dict()}))[:12]
 
 
 def _near_duplicate_groups(uniques: list[dict[str, Any]], t: quality.Thresholds) -> list[list[int]]:
@@ -333,7 +341,7 @@ def ingest(
         exact_groups.setdefault(r["sha256"], []).append(r["name"])
     exact_report = [names for names in exact_groups.values() if len(names) > 1]
 
-    session_id = session_id_for(listing)
+    session_id = session_id_for(listing, thresholds)
     counts: dict[str, int] = {}
     for r in records:
         counts[r["status"]] = counts.get(r["status"], 0) + 1
@@ -363,7 +371,14 @@ def ingest(
         "photos": records,
     }
     session_dir = guard.mkdir("sessions", session_id)
-    manifest_path = guard.write_bytes(Path("sessions") / session_id / "manifest.json", json_bytes(manifest))
+    manifest_bytes = json_bytes(manifest)
+    existing = guard.path("sessions", session_id, "manifest.json")
+    if existing.is_file() and existing.read_bytes() != manifest_bytes:
+        raise SessionConflictError(
+            f"Session {session_id} already has a different manifest, and it was left as it is. The code or the "
+            f"files it writes changed without INGEST_VERSION changing; raise INGEST_VERSION, or remove "
+            f"{existing.parent} if the old session is no longer needed.")
+    manifest_path = guard.write_bytes(Path("sessions") / session_id / "manifest.json", manifest_bytes)
     guard.write_bytes(Path("sessions") / session_id / "ingest-report.md", text_bytes(render_report(manifest)))
 
     total_s = time.perf_counter() - started
@@ -417,12 +432,13 @@ def resolve_session(captures_root: Path, room: str, session: str | None) -> Path
 
 
 def render_report(m: dict[str, Any]) -> str:
+    """The ingest report. File names and EXIF text are data, so they go through ``md_text``."""
     s = m["summary"]
     lines = [
-        f"# Ingest report: {m['room']} session {m['session_id']}",
+        f"# Ingest report: {md_text(m['room'])} session {md_text(m['session_id'])}",
         "",
         f"- Files: {s['files']} ({s['total_bytes'] / 1e6:.1f} MB)",
-        f"- Status: " + ", ".join(f"{k} {v}" for k, v in s["status_counts"].items()),
+        f"- Status: " + ", ".join(f"{md_text(k)} {v}" for k, v in s["status_counts"].items()),
         f"- Usable for poses (not a duplicate, not blurry): {s['usable_for_poses']}",
         f"- Session median sharpness: {s['session_median_sharpness']}",
         f"- Source files that carried GPS: {s['sources_with_location']} (stripped from every written file)",
@@ -430,21 +446,22 @@ def render_report(m: dict[str, Any]) -> str:
         "## Exact duplicates (byte-identical)",
         "",
     ]
-    lines += [f"- {', '.join(g)}" for g in m["duplicates"]["exact"]] or ["- none"]
+    lines += [f"- {md_text(', '.join(g))}" for g in m["duplicates"]["exact"]] or ["- none"]
     lines += ["", "## Near-duplicates (kept the sharpest of each group)", ""]
-    lines += [f"- keep {g['keep']}; skip {', '.join(g['others'])}" for g in m["duplicates"]["near"]] or ["- none"]
+    lines += [f"- keep {md_text(g['keep'])}; skip {md_text(', '.join(g['others']))}"
+              for g in m["duplicates"]["near"]] or ["- none"]
     lines += ["", "## Quality flags", "",
               "blurry: low detail and soft edges (left out of pose estimation). low_detail: a plain surface "
               "whose edges are crisp (kept). Clipping and exposure flags are reported only.", ""]
     for flag, names in m["flags"].items():
-        lines.append(f"- {flag}: {len(names)}" + (f" ({', '.join(names)})" if names else ""))
+        lines.append(f"- {md_text(flag)}: {len(names)}" + (f" ({md_text(', '.join(names))})" if names else ""))
     lenses: dict[str, int] = {}
     for p in m["photos"]:
         if p["status"] == "ok" and p.get("exif"):
             key = f"{p['exif'].get('focal_length_35mm')} mm equiv ({p['exif'].get('lens_model')})"
             lenses[key] = lenses.get(key, 0) + 1
     lines += ["", "## Lenses used (unique photos)", ""]
-    lines += [f"- {k}: {v}" for k, v in sorted(lenses.items(), key=lambda kv: -kv[1])]
+    lines += [f"- {md_text(k)}: {v}" for k, v in sorted(lenses.items(), key=lambda kv: -kv[1])]
     return "\n".join(lines)
 
 

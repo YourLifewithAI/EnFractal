@@ -18,7 +18,7 @@ from typing import Any
 import numpy as np
 from PIL import Image
 
-from .backend import MODEL_REGISTRY, STORE_STRIDE, TARGET_SIZE, open_reduced, processed_geometry
+from .backend import MODEL_REGISTRY, STORE_STRIDE, TARGET_SIZE, fit_to_canvas, open_reduced
 
 DETECTOR = "google/owlv2-base-patch16-ensemble"
 
@@ -170,19 +170,15 @@ def detection_factor(long_side: int = DETECTION_LONG_SIDE) -> float:
 
 
 def detection_image(path: Path, long_side: int = DETECTION_LONG_SIDE) -> tuple[Image.Image, float]:
-    """The photo cropped exactly like the pose model's input, at a size the detector likes.
+    """The photo fitted exactly like the pose model's input (cropped or padded), at a size the detector likes.
 
     Returns the image and the factor from its pixels to the stored point-map pixels.
     """
+    k = long_side / max(TARGET_SIZE)
+    size = (round(TARGET_SIZE[0] * k), round(TARGET_SIZE[1] * k))
     with open_reduced(path, (long_side // 2, long_side // 2)) as im:  # decodes at least long_side
-        im = im.convert("RGB")
-        scale, left, top = processed_geometry(im.width, im.height)
-        tw, th = TARGET_SIZE
-        crop = (left / scale, top / scale, (left + tw) / scale, (top + th) / scale)
-        im = im.crop(tuple(round(c) for c in crop))
-        k = long_side / max(tw, th)
-        im = im.resize((round(tw * k), round(th * k)), Image.Resampling.LANCZOS)
-    return im, detection_factor(long_side)
+        canvas, _ = fit_to_canvas(im.convert("RGB"), size)
+    return canvas, detection_factor(long_side)
 
 
 def lift(det: Detection, pts_room: np.ndarray, valid: np.ndarray, *, shrink: float = 0.25) -> bool:

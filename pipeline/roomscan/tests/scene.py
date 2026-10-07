@@ -144,11 +144,11 @@ class FakeBackend:
     name = "synthetic"
     model_id = "synthetic-raycast"
 
-    def __init__(self, room: Room, cameras: dict[str, np.ndarray], *, seed: int = 0, scale_jitter: float = 0.03,
-                 corrupt_batches: set[int] | None = None):
+    def __init__(self, room: Room, cameras: dict[str, np.ndarray], *, names: dict[str, str], seed: int = 0,
+                 scale_jitter: float = 0.03, corrupt_batches: set[int] | None = None):
         from roomscan.coverage.backend import GpuStats
 
-        self.room, self.cameras = room, cameras
+        self.room, self.cameras, self.names = room, cameras, names
         self.rng = np.random.default_rng(seed)
         self.scale_jitter = scale_jitter
         self.corrupt = corrupt_batches or set()
@@ -162,12 +162,19 @@ class FakeBackend:
     def unload(self) -> None:
         pass
 
+    def camera_of(self, path: Path | str) -> np.ndarray:
+        """The true camera of a derived JPEG (derived files are named by their bytes, not their source)."""
+        return self.cameras[self.names[Path(path).name]]
+
+    def batch_scale(self) -> float:
+        return 1.0 + self.rng.uniform(-self.scale_jitter, self.scale_jitter)
+
     def predict(self, paths: list[Path], intrinsics=None) -> list[dict[str, np.ndarray]]:
         frame = random_frame(self.rng)
-        scale = 1.0 + self.rng.uniform(-self.scale_jitter, self.scale_jitter)
+        scale = self.batch_scale()
         out = []
         for p in paths:
-            c2w = self.cameras[photo_key(p)]
+            c2w = self.camera_of(p)
             if self.calls in self.corrupt:  # a batch the model got wrong: poses scrambled
                 c2w = random_frame(self.rng) @ c2w
             out.append(prediction(self.room, c2w, frame, scale))
@@ -177,9 +184,9 @@ class FakeBackend:
         return out
 
 
-def photo_key(path: Path | str) -> str:
-    """Original photo stem from a derived JPEG name ``<stem>-<sha10>.jpg``."""
-    return Path(path).stem.rsplit("-", 1)[0]
+def camera_names(manifest: dict) -> dict[str, str]:
+    """Derived JPEG file name -> source stem, from an ingest manifest."""
+    return {Path(p["derived"]["jpeg"]).name: Path(p["name"]).stem for p in manifest["photos"] if p.get("derived")}
 
 
 class FakeDetector:

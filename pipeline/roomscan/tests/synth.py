@@ -32,8 +32,9 @@ def canvas(seed: int = 0, size: tuple[int, int] = (1600, 1200)) -> np.ndarray:
         img[y0 : y0 + rh, x0 : x0 + rw] = rng.integers(20, 235, size=3)
     for _ in range(40):
         cx, cy, r = rng.integers(0, w), rng.integers(0, h), rng.integers(8, 60)
-        mask = (x - cx) ** 2 + (y - cy) ** 2 < r * r
-        img[mask] = rng.integers(20, 235, size=3)
+        y0, y1, x0, x1 = max(0, cy - r), min(h, cy + r + 1), max(0, cx - r), min(w, cx + r + 1)  # only the disc's box
+        mask = (x[y0:y1, x0:x1] - cx) ** 2 + (y[y0:y1, x0:x1] - cy) ** 2 < r * r
+        img[y0:y1, x0:x1][mask] = rng.integers(20, 235, size=3)
     img += rng.normal(0, 6, size=img.shape)
     out = np.clip(img, 0, 255).astype(np.uint8)
     out.setflags(write=False)

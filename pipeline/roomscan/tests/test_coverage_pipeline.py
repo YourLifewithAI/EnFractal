@@ -7,54 +7,20 @@ any machine without a GPU, a model download or a real photo.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
-import numpy as np
 import pytest
 from PIL import Image
 
-import scene
-import synth
 from roomscan.coverage.run import run_coverage
-from roomscan.ingest import ingest
-
-
-def capture_plan(room: scene.Room) -> dict[str, np.ndarray]:
-    """Cameras that look at every wall except the one at +z, from standing and knee height."""
-    cams = {}
-    ring = scene.ring_cameras(18, radius=0.6, height=1.5, centre=(-0.5, -0.8), from_deg=135, to_deg=405,
-                              pitch_target_y=1.2)
-    low = scene.ring_cameras(6, radius=0.6, height=0.45, centre=(-0.5, -0.8), from_deg=150, to_deg=390,
-                             pitch_target_y=0.3)
-    for k, c2w in enumerate(ring + low):
-        cams[f"cam_{k:02d}"] = c2w
-    # Three looks up toward the ceiling, tilted so the top of a wall is in the picture too.
-    for k, (x, z, dx, dz) in enumerate([(-0.9, -1.2, -0.6, -0.4), (-0.3, -0.6, 0.6, -0.5), (0.3, -1.4, 0.4, -0.6)]):
-        cams[f"cam_8{k}"] = scene.look_at((x, 1.5, z), (x + dx, 2.0, z + dz))
-    # Two looks at the shelving unit from its front.
-    cams["cam_90"] = scene.look_at((-0.6, 1.2, -0.3), (-1.8, 0.9, -0.3))
-    cams["cam_91"] = scene.look_at((-0.6, 1.2, 0.0), (-1.8, 0.9, -0.5))
-    return cams
-
-
-@pytest.fixture()
-def garage_session(tmp_path: Path):
-    room = scene.garage()
-    cams = capture_plan(room)
-    source = tmp_path / "Drive" / "Garage"
-    for k, name in enumerate(sorted(cams)):
-        synth.save_jpeg(synth.view(100 + k, (k * 20 % 900, k * 13 % 700)), source / f"{name}.jpg")
-    captures = tmp_path / "repo" / "captures"
-    ingest(source, "garage", captures, workers=1, log=lambda *_: None)
-    return room, cams, source, captures
 
 
 def test_coverage_end_to_end(garage_session):
-    room, cams, source, captures = garage_session
+    cams, source, captures = garage_session.cams, garage_session.source, garage_session.captures
     result = run_coverage(
         captures, "garage", chunk_size=10, anchors=3,
-        backend_factory=lambda: scene.FakeBackend(room, cams, seed=3),
-        detector_factory=lambda: scene.FakeDetector(room, cams),
+        backend_factory=garage_session.backend(), detector_factory=garage_session.detector(),
         log=lambda *_: None,
     )
     room_dir = captures / "garage"
@@ -98,6 +64,9 @@ def test_coverage_end_to_end(garage_session):
         assert it["photos"] >= 1 and (it["text"][0].isupper() or it["text"][0].isdigit())
     run = json.loads((cov / "coverage-run.json").read_bytes())
     assert run["money_spent_usd"] == 0 and run["poses"]["merged_views"] == len(cams)
+    # Photos without lens data (these synthetic ones carry none) are left to the model, and the run says so.
+    assert run["poses"]["intrinsics"]["from_exif"] == 0 and len(run["poses"]["intrinsics"]["left_to_the_model"]) == len(cams)
+    assert run["scale"]["scale_source"] == "seed_batch" and "factor" not in run["poses"]["scale"]
 
     # The report stays private and readable: no source path, plain words, the map embedded.
     page = (room_dir / "coverage-report.html").read_text(encoding="utf-8")
@@ -109,10 +78,10 @@ def test_coverage_end_to_end(garage_session):
 
 
 def test_bad_batch_is_left_out_not_misplaced(garage_session):
-    room, cams, _, captures = garage_session
+    captures = garage_session.captures
     result = run_coverage(
         captures, "garage", chunk_size=10, anchors=3, skip_detection=True,
-        backend_factory=lambda: scene.FakeBackend(room, cams, seed=5, corrupt_batches={2}),
+        backend_factory=garage_session.backend(seed=5, corrupt_batches={2}),
         log=lambda *_: None,
     )
     fits = result["run"]["poses"]["fits"]
@@ -123,3 +92,31 @@ def test_bad_batch_is_left_out_not_misplaced(garage_session):
     assert len(unplaced) == fits[2]["new_views"]
     bridge = [it for it in result["guidance"]["items"] + result["guidance"]["more"] if it["kind"] == "bridge"]
     assert bridge and all(p["name"] in bridge[0]["photos_named"] for p in unplaced)
+
+
+def test_names_from_outside_are_escaped_in_both_reports(garage_session):
+    # File names are data. Give every photo a name that tries to be markup, and make sure it comes out of
+    # the HTML report and the Markdown report as the same text, never as a tag, a link or an entity.
+    session = garage_session
+    manifest_path = session.captures / "garage" / "sessions" / session.session_id / "manifest.json"
+    manifest = json.loads(manifest_path.read_bytes())
+    hostile = 'x"><img src=y onerror=alert(1)>&[a](http://evil.example)_*|.jpg'
+    for i, photo in enumerate(manifest["photos"]):
+        photo["name"] = f"{i:02d}{hostile}"
+    names = [p["name"] for p in manifest["photos"]]
+    manifest["photos"][0]["lens_kind"] = "front"  # a note that lists the photo, with its thumbnail
+    manifest["flags"]["blurry"] = [names[1]]
+    manifest["duplicates"]["exact"] = [[names[2], names[3]]]  # the table of exact copies
+    manifest_path.write_bytes(json.dumps(manifest).encode("utf-8"))
+
+    result = run_coverage(session.captures, "garage", chunk_size=10, anchors=3, skip_detection=True,
+                          backend_factory=session.backend(), log=lambda *_: None)
+    page = Path(result["report"]).read_text(encoding="utf-8")
+    md = Path(result["markdown"]).read_text(encoding="utf-8")
+
+    assert "<img src=y" not in page and "onerror=alert(1)>" not in page
+    assert page.count("&lt;img src=y onerror=alert(1)&gt;") >= 3  # the note, the copies table and a step's photo
+    assert "&quot;&gt;&lt;img" in page and "&amp;[a](http://evil.example)" in page
+    assert not re.search(r"(?<!\\)[<>]", md)  # no angle bracket that is not backslash-escaped
+    assert "\\<img src=y onerror=alert(1)\\>" in md and "[a](" not in md and "\\[a\\]" in md and "\\|" in md
+    assert "\\&" in md and "\\_\\*" in md
