@@ -216,18 +216,29 @@ public static class RoomBuilder
         {
             var a = points[i]; var b = points[(i + 1) % points.Length];
             var outward = (b - a).Cross(normal).Normalized();
-            Triangle(tool, a, b, b + back, outward);
-            Triangle(tool, a, b + back, a + back, outward);
+            // Only the stretches of the edge that are still wall: an opening that runs off the edge (a passage at the end
+            // of a wall) leaves no face standing across it.
+            foreach (var (from, to) in OutsideHoles(flat[i], flat[(i + 1) % points.Length], cut))
+            {
+                var p = a + (b - a) * from; var q = a + (b - a) * to;
+                Triangle(tool, p, q, q + back, outward);
+                Triangle(tool, p, q + back, p + back, outward);
+            }
         }
-        // The reveal: four faces through the thickness round each hole, facing into the opening.
+        // The reveal: faces through the thickness round each hole, facing into the opening, wherever the wall goes on
+        // behind them. A door's sill on the wall's bottom edge, a side beyond the wall's end, or a side that falls inside
+        // a neighbouring opening gets none.
         foreach (var r in cut)
         {
             var corners = new[] { new Vector2(-1, -1), new Vector2(1, -1), new Vector2(1, 1), new Vector2(-1, 1) }
-                .Select(c => Lift(r.Centre + r.A * (c.X * r.Width * 0.5f) + r.B * (c.Y * r.Height * 0.5f))).ToArray();
+                .Select(c => r.Centre + r.A * (c.X * r.Width * 0.5f) + r.B * (c.Y * r.Height * 0.5f)).ToArray();
             var centre = Lift(r.Centre);
             for (var i = 0; i < 4; i++)
             {
-                var a = corners[i]; var b = corners[(i + 1) % 4];
+                var side = (corners[i] + corners[(i + 1) % 4]) * 0.5f;
+                var behind = side + (side - r.Centre).Normalized() * 0.005f;
+                if (!pieces.Any(piece => Geometry2D.IsPointInPolygon(behind, piece))) continue;
+                var a = Lift(corners[i]); var b = Lift(corners[(i + 1) % 4]);
                 var inward = centre - (a + b) * 0.5f;
                 inward = (inward - normal * inward.Dot(normal)).Normalized();
                 Triangle(tool, a, b, b + back, inward);
@@ -235,6 +246,36 @@ public static class RoomBuilder
             }
         }
         return tool.Commit();
+    }
+
+    /// <summary>The stretches of the segment a to b, as fractions of its length, that lie outside every hole.</summary>
+    private static List<(float From, float To)> OutsideHoles(Vector2 a, Vector2 b, IReadOnlyList<(Vector2 Centre, Vector2 A, Vector2 B, float Width, float Height)> holes)
+    {
+        var keep = new List<(float From, float To)> { (0f, 1f) };
+        foreach (var hole in holes)
+        {
+            // The part of the segment strictly inside the hole: inside both of its slabs, across and up.
+            var (enter, leave) = (0f, 1f);
+            foreach (var (axis, half) in new[] { (hole.A, hole.Width * 0.5f), (hole.B, hole.Height * 0.5f) })
+            {
+                var start = (a - hole.Centre).Dot(axis);
+                var rate = (b - a).Dot(axis);
+                if (Mathf.Abs(rate) < 1e-6f)
+                {
+                    // An edge along the hole's border (a door's foot on the wall's bottom edge) counts as inside it.
+                    if (Mathf.Abs(start) > half + 1e-4f) (enter, leave) = (1f, 0f);
+                    continue;
+                }
+                var t0 = (-half - start) / rate;
+                var t1 = (half - start) / rate;
+                enter = Mathf.Max(enter, Mathf.Min(t0, t1));
+                leave = Mathf.Min(leave, Mathf.Max(t0, t1));
+            }
+            if (leave - enter < 1e-5f) continue;
+            keep = keep.SelectMany(k => new[] { (From: k.From, To: Mathf.Min(k.To, enter)), (From: Mathf.Max(k.From, leave), To: k.To) })
+                .Where(k => k.To - k.From > 1e-5f).ToList();
+        }
+        return keep;
     }
 
     private static float Area(Vector2[] polygon)

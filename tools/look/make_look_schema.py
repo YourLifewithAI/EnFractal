@@ -101,7 +101,8 @@ def leaf(path: str, value):
         return {"type": "boolean"}
     if isinstance(value, (int, float)):
         if path in ENUMS:
-            return {"enum": ENUMS[path]}
+            # Without the type, 2.0 would pass the enum, and the reader's GetInt32 refuses it.
+            return {"type": "integer", "enum": ENUMS[path]}
         # A number is a number whatever the file happens to write (1 or 1.0); only counts and sizes are integers.
         schema = {"type": "integer" if path in INTEGERS or path.rstrip("[]") in INTEGERS else "number"}
     elif isinstance(value, str):

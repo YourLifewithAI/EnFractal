@@ -558,6 +558,7 @@ class SiteAndLookTuningTests(unittest.TestCase):
             "a site field left in x_look_sun": (lambda e: e["x_look_sun"].__setitem__("latitude_deg", 30), "was unexpected"),
             "a missing season": (drop_summer, "'summer' is a required property"),
             "three shadow splits": (lambda e: e["x_look_shadows"].__setitem__("key_splits", 3), "is not one of [1, 2, 4]"),
+            "two shadow splits written as 2.0": (lambda e: e["x_look_shadows"].__setitem__("key_splits", 2.0), "is not of type 'integer'"),
             "a window cone of 90 degrees": (lambda e: e["x_look_lamps"].__setitem__("window_spot_angle_deg", 90), "greater than or equal to the maximum of 90"),
         }
         for label, (mutate, fragment) in refused.items():

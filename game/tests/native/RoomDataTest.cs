@@ -287,6 +287,18 @@ public partial class RoomDataTest : Node3D
         Check(Ray(archCentre + new Vector3(0, 0, 1), archCentre + new Vector3(0, 0, -1)).Count == 0, "a body passes through the open archway");
         Check(Ray(archCentre + new Vector3(-0.6f, 0, 1), archCentre + new Vector3(-0.6f, 0, -1)).Count > 0, "the wall beside the archway still collides");
         foreach (var body in bodies) body.QueueFree();
+
+        // Openings on the wall's edge (Codex's review of 729858a). A door standing on the floor has no threshold face and
+        // no edge face across its foot; a passage running off the wall's end leaves no edge face standing in it and no
+        // reveal hanging beyond the wall. The wall is 2 x 2 m and 0.1 m thick, so each full edge face is 0.2 m².
+        var door = new ShellOpening("door", "door", "shell:probe", origin + new Vector3(1, 0.9f, 0), new Vector2(0.6f, 1.8f), "open", true);
+        var (doorMesh, _) = RoomBuilder.ExtrudePolygon(wall, 0.1f, new[] { door }, new[] { door });
+        Check(Mathf.Abs(FacingArea(doorMesh, Vector3.Up) - 0.2f) < 0.001f && Mathf.Abs(FacingArea(doorMesh, Vector3.Down) - 0.2f) < 0.001f,
+            $"a door on the floor: no threshold face, no edge face across its foot (up {FacingArea(doorMesh, Vector3.Up):0.000}, down {FacingArea(doorMesh, Vector3.Down):0.000} m², both 0.200)");
+        var passage = new ShellOpening("passage", "archway", "shell:probe", origin + new Vector3(1.9f, 1, 0), new Vector2(0.6f, 0.8f), "open", true);
+        var (passageMesh, _) = RoomBuilder.ExtrudePolygon(wall, 0.1f, new[] { passage }, new[] { passage });
+        Check(Mathf.Abs(FacingArea(passageMesh, Vector3.Right) - 0.2f) < 0.001f && Mathf.Abs(FacingArea(passageMesh, Vector3.Left) - 0.2f) < 0.001f,
+            $"a passage off the wall's end: no edge face in it, no reveal beyond the wall (right {FacingArea(passageMesh, Vector3.Right):0.000}, left {FacingArea(passageMesh, Vector3.Left):0.000} m², both 0.200)");
     }
 
     /// <summary>Total area of the triangles that face <paramref name="facing"/>.</summary>

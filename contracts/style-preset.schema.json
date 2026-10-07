@@ -955,6 +955,7 @@
               ],
               "properties": {
                 "key_splits": {
+                  "type": "integer",
                   "enum": [
                     1,
                     2,
@@ -1105,6 +1106,7 @@
               ],
               "properties": {
                 "subdiv": {
+                  "type": "integer",
                   "enum": [
                     64,
                     128,
