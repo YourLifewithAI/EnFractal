@@ -23,6 +23,13 @@ var authority
 var save_path := "user://saves/rooms/inventions.json"
 ## Manual keys (B build, F/E use, V/Q revise, K consent). Off in tests that drive the runtime directly.
 var keyboard_enabled := true
+## The invention workshop as something the player is offered: the part-by-part editor, the INVENTIONS panel
+## and the keys B, F, E, V, Q and K. The founder retired it as a player-facing concept (6 October 2026, the
+## second playtest: its Q and E also stole the isometric view's turn keys). The command host turns it off, so
+## the playable room has no panel, no editor and no key bound here; this runtime still renders creations and
+## runs their effects for the host. The kernel suites leave it on: the editor's validation, budgets, receipts
+## and undo are what the Run 2 building kit may reuse.
+var workshop_enabled := true
 ## Optional: Callable(command: Dictionary) -> Dictionary returning an enfractal.result.
 var command_sink := Callable()
 var editor
@@ -64,31 +71,35 @@ func _ready() -> void:
 	var loaded: Dictionary = authority.load_saved() if configured.ok else configured
 	authority.occupancy_query = Callable(self, "_check_occupancy")
 	authority.activation_query = Callable(self, "_check_activation")
-	var layer := CanvasLayer.new()
-	layer.layer = 4
-	add_child(layer)
-	hud_card = PanelContainer.new()
-	# Top right: RoomHud owns the top-left panel and the bottom-wide footer.
-	hud_card.position = Vector2(704, 16)
-	hud_card.size = Vector2(560, 84)
-	var card_style := StyleBoxFlat.new()
-	card_style.bg_color = Color(0.045, 0.11, 0.12, 0.88)
-	card_style.content_margin_left = 12
-	card_style.content_margin_right = 12
-	card_style.content_margin_top = 8
-	card_style.content_margin_bottom = 8
-	card_style.set_corner_radius_all(8)
-	hud_card.add_theme_stylebox_override("panel", card_style)
-	layer.add_child(hud_card)
-	hud = Label.new()
-	hud.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	hud.add_theme_font_size_override("font_size", 14)
-	hud.add_theme_color_override("font_color", Color("f4f0d9"))
-	hud_card.add_child(hud)
+	# Retired workshop: no panel, no editor and no key handler (see workshop_enabled).
+	set_process_unhandled_key_input(workshop_enabled and keyboard_enabled)
+	if workshop_enabled:
+		var layer := CanvasLayer.new()
+		layer.layer = 4
+		add_child(layer)
+		hud_card = PanelContainer.new()
+		# Top right: RoomHud owns the top-left panel and the bottom-wide footer.
+		hud_card.position = Vector2(704, 16)
+		hud_card.size = Vector2(560, 84)
+		var card_style := StyleBoxFlat.new()
+		card_style.bg_color = Color(0.045, 0.11, 0.12, 0.88)
+		card_style.content_margin_left = 12
+		card_style.content_margin_right = 12
+		card_style.content_margin_top = 8
+		card_style.content_margin_bottom = 8
+		card_style.set_corner_radius_all(8)
+		hud_card.add_theme_stylebox_override("panel", card_style)
+		layer.add_child(hud_card)
+		hud = Label.new()
+		hud.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		hud.add_theme_font_size_override("font_size", 14)
+		hud.add_theme_color_override("font_color", Color("f4f0d9"))
+		hud_card.add_child(hud)
 	_make_field_display()
-	editor = EDITOR.new()
-	editor.runtime = self
-	add_child(editor)
+	if workshop_enabled:
+		editor = EDITOR.new()
+		editor.runtime = self
+		add_child(editor)
 	if not loaded.ok:
 		notice("Invention save could not open: " + loaded.message)
 	_refresh()
@@ -325,7 +336,7 @@ func equipped_creation(owner := PLAYER) -> String:
 
 
 func _unhandled_key_input(event: InputEvent) -> void:
-	if not keyboard_enabled or not event is InputEventKey or not event.pressed or event.echo or editor_open:
+	if not workshop_enabled or not keyboard_enabled or not event is InputEventKey or not event.pressed or event.echo or editor_open:
 		return
 	var code: Key = event.physical_keycode if event.physical_keycode != KEY_NONE else event.keycode
 	if code == KEY_B:

@@ -1,0 +1,203 @@
+using Godot;
+using System;
+using System.Linq;
+using System.Threading.Tasks;
+using EnFractal.Native;
+using EnFractal.Native.Look;
+
+namespace EnFractal.Tests.Kernel;
+
+/// <summary>
+/// The second playtest's fix round, in the real room with the real look and HUD: Q and E turn the isometric view (the
+/// invention workshop that also bound them is gone), T and Shift+T step the time of day and the season through the day's
+/// own light and the solstices and equinoxes and end back on the real clock, the HUD says what the clock is, and the
+/// companion's name tag is drawn solid so depth of field and temporal anti-aliasing cannot blur it. Keys are handed to the
+/// HUD as the engine would hand them; nothing here needs a window, so it runs headless like the other room tests.
+/// </summary>
+public partial class PlayHudTest : Node
+{
+    private int _checks;
+    private int _failures;
+    private RoomWorld _world = null!;
+    private RoomHud _hud = null!;
+
+    public override async void _Ready()
+    {
+        try
+        {
+            _world = GD.Load<PackedScene>("res://scenes/room.tscn").Instantiate<RoomWorld>();
+            AddChild(_world);
+            for (var i = 0; i < 900 && !_world.WorldReady && _world.LoadError.Length == 0; i++) await Frames(1);
+            Check(_world.WorldReady, "the room boots with its HUD and look: " + _world.LoadError);
+            _hud = _world.GetNode<RoomHud>("RoomHud");
+            await Frames(10);
+            GD.Print($"PLAY_HUD_INFO: physics interpolation {GetTree().PhysicsInterpolation}, TAA {GetViewport().UseTaa}, screen-space AA {GetViewport().ScreenSpaceAA}");
+
+            TestViewKeys();
+            TestWorkshopGone();
+            await TestTimeOfDay();
+            await TestSeason();
+            await TestClockCombined();
+            await TestNoLookNoClock();
+            TestNameTag();
+
+            GD.Print($"NATIVE_KERNEL_PLAY_HUD: {_checks - _failures}/{_checks} checks passed; Q and E turn the isometric view, T and Shift+T step the time of day and the season back to the real clock, and the companion's name tag draws solid");
+            GetTree().Quit(_failures == 0 ? 0 : 1);
+        }
+        catch (Exception error)
+        {
+            GD.PushError("Play HUD test exception: " + error);
+            GetTree().Quit(1);
+        }
+    }
+
+    private static InputEventKey Press(Key key, bool shift = false) => new() { PhysicalKeycode = key, Pressed = true, ShiftPressed = shift };
+
+    private void TestViewKeys()
+    {
+        _hud.SetViewMode(3);
+        var yaw = _hud.IsoYaw;
+        _hud._UnhandledInput(Press(Key.E));
+        Check(Mathf.Abs(Mathf.AngleDifference(yaw, _hud.IsoYaw) - Mathf.Pi / 2) < 0.001f, "E turns the isometric view a quarter turn");
+        _hud._UnhandledInput(Press(Key.Q));
+        _hud._UnhandledInput(Press(Key.Q));
+        Check(Mathf.Abs(Mathf.AngleDifference(yaw, _hud.IsoYaw) + Mathf.Pi / 2) < 0.001f, "Q turns it a quarter turn the other way");
+        Check(_world.Player.MovementFrameYaw is { } frame && Mathf.IsEqualApprox(frame, _hud.IsoYaw), "movement follows the turned view");
+        _hud.SetViewMode(1);
+        var before = _hud.IsoYaw;
+        _hud._UnhandledInput(Press(Key.Q));
+        _hud._UnhandledInput(Press(Key.E));
+        Check(Mathf.IsEqualApprox(before, _hud.IsoYaw), "outside the isometric view Q and E turn nothing");
+    }
+
+    private void TestWorkshopGone()
+    {
+        var texts = _world.FindChildren("*", "Label", true, false).OfType<Label>().Select(l => l.Text).ToArray();
+        Check(!texts.Any(t => t.Contains("INVENTIONS", StringComparison.Ordinal) || t.Contains("worn design", StringComparison.Ordinal)), "the room shows no INVENTIONS panel");
+        var help = string.Join("\n", texts);
+        Check(help.Contains("Q/E turn the view", StringComparison.Ordinal) && help.Contains("T time of day", StringComparison.Ordinal) && help.Contains("Shift+T season", StringComparison.Ordinal),
+            "the help lines name Q and E, T and Shift+T");
+        Check(!help.Contains("B Build", StringComparison.Ordinal), "and say nothing of the retired build keys");
+    }
+
+    /// <summary>T: seven times of day on the day shown (dawn to night, in order, lighter by day), then the real clock.</summary>
+    private async Task TestTimeOfDay()
+    {
+        var look = _world.Look;
+        Check(_hud.TimeStop == -1 && _hud.SeasonStop == -1 && look.ClockNote.StartsWith("real clock", StringComparison.Ordinal), "the room starts on the real clock and calendar: " + look.ClockNote);
+        Check(_hud.ClockText().Contains("real clock", StringComparison.Ordinal) && _hud.ClockText().Contains("real date", StringComparison.Ordinal), "the HUD says so: " + _hud.ClockText());
+        var hours = new float[RoomHud.TimeStopNames.Length];
+        var daylight = new float[hours.Length];
+        for (var stop = 0; stop < hours.Length; stop++)
+        {
+            _hud._UnhandledInput(Press(Key.T));
+            await Frames(2);
+            hours[stop] = look.Moment.Hour;
+            daylight[stop] = look.Moment.Daylight;
+            Check(_hud.TimeStop == stop && Mathf.Abs(hours[stop] - RoomHud.TimeStopHour(look.Preset, stop, look.Moment.DayOfYear)) < 0.01f && look.ClockNote.Contains("hour pinned", StringComparison.Ordinal),
+                $"T step {stop + 1} is {RoomHud.TimeStopNames[stop]} ({hours[stop]:0.00} h, daylight {daylight[stop]:0.00}); the look is pinned to it");
+            Check(_hud.ClockText().Contains(RoomHud.TimeStopNames[stop], StringComparison.Ordinal) && _hud.ClockText().StartsWith($"{(int)hours[stop]:00}:", StringComparison.Ordinal), "the HUD shows that time: " + _hud.ClockText());
+        }
+        // In order through the day (an hour past midnight for night is allowed to wrap), light by day and dark at night.
+        var unwrapped = hours.Select((h, i) => i > 0 && h < hours[0] ? h + 24f : h).ToArray();
+        Check(unwrapped.Zip(unwrapped.Skip(1), (a, b) => b > a).All(ok => ok), "the seven times run in order: " + string.Join(", ", hours.Select(h => h.ToString("0.0"))));
+        Check(daylight[2] >= daylight[1] && daylight[2] >= daylight[3] && daylight[3] > daylight[4] && daylight[4] > daylight[6], $"noon is the brightest and the light falls through the afternoon to sunset ({string.Join(" ", daylight.Select(d => d.ToString("0.00")))})");
+        Check(daylight[6] < 0.1f && daylight[5] <= daylight[4] && look.Moment.MoonWeight > 0.9f, "night is dark and lit by the moon");
+        Check(look.LampsOn, "and the lamps are on at night");
+        _hud._UnhandledInput(Press(Key.T));
+        await Frames(2);
+        Check(_hud.TimeStop == -1 && look.ClockNote.StartsWith("real clock", StringComparison.Ordinal), "one more T returns to the real clock: " + look.ClockNote);
+    }
+
+    /// <summary>Shift+T: the four solstices and equinoxes in order, then the real calendar.</summary>
+    private async Task TestSeason()
+    {
+        var look = _world.Look;
+        var seasons = new[] { "spring", "summer", "autumn", "winter" };
+        var lengths = new float[4];
+        for (var stop = 0; stop < RoomHud.SeasonStops.Length; stop++)
+        {
+            _hud._UnhandledInput(Press(Key.T, shift: true));
+            await Frames(2);
+            lengths[stop] = LookClock.DayLength(look.Preset, look.Moment.DayOfYear);
+            Check(_hud.SeasonStop == stop && look.Moment.DayOfYear == RoomHud.SeasonStops[stop].DayOfYear && look.Moment.Season == seasons[stop],
+                $"Shift+T step {stop + 1} is the {RoomHud.SeasonStops[stop].Name} (day {look.Moment.DayOfYear}, {look.Moment.Season}, a {lengths[stop]:0.0} h day)");
+            Check(_hud.ClockText().Contains(RoomHud.SeasonStops[stop].Name, StringComparison.Ordinal) && _hud.ClockText().Contains(look.Moment.Season, StringComparison.Ordinal), "the HUD shows it: " + _hud.ClockText());
+            Check(_hud.TimeStop == -1, "stepping the season does not step the time");
+        }
+        Check(lengths[1] > lengths[0] && lengths[0] > lengths[3] && lengths[2] > lengths[3], "the June day is the longest and the December day the shortest");
+        _hud._UnhandledInput(Press(Key.T, shift: true));
+        await Frames(2);
+        Check(_hud.SeasonStop == -1 && look.ClockNote.StartsWith("real clock, real calendar", StringComparison.Ordinal), "one more Shift+T returns to the real calendar: " + look.ClockNote);
+    }
+
+    /// <summary>The two steps together: each time of day is found on the pinned date, and releasing one leaves the other pinned.</summary>
+    private async Task TestClockCombined()
+    {
+        var look = _world.Look;
+        _hud._UnhandledInput(Press(Key.T, shift: true));
+        _hud._UnhandledInput(Press(Key.T, shift: true));
+        _hud._UnhandledInput(Press(Key.T));
+        _hud._UnhandledInput(Press(Key.T));
+        _hud._UnhandledInput(Press(Key.T));
+        await Frames(2);
+        var june = RoomHud.SeasonStops[1].DayOfYear;
+        Check(look.Moment.DayOfYear == june && Mathf.Abs(look.Moment.Hour - RoomHud.TimeStopHour(look.Preset, 2, june)) < 0.01f,
+            $"noon on the June solstice is found from that day's own sun, not the real date's ({look.Moment.Hour:0.00} h)");
+        var (rise, set) = LookClock.SunTimes(look.Preset.Tuning.Sun, june);
+        Check(Mathf.Abs(look.Moment.Hour - (rise + set) * 0.5f) < 0.01f && look.Moment.SunElevationDeg > 70f, $"which is high sun (elevation {look.Moment.SunElevationDeg:0} degrees)");
+        for (var i = 0; i < 5; i++) _hud._UnhandledInput(Press(Key.T));
+        await Frames(2);
+        Check(_hud.TimeStop == -1 && _hud.SeasonStop == 1 && look.Moment.DayOfYear == june && !look.ClockNote.Contains("real calendar", StringComparison.Ordinal),
+            "back on the real clock the date stays on the June solstice");
+        // Esc-style safety: keys do nothing while the appearance panel owns the keyboard.
+        _hud._UnhandledInput(Press(Key.C));
+        var stop = _hud.TimeStop;
+        _hud._UnhandledInput(Press(Key.T));
+        Check(_hud.Customizing && _hud.TimeStop == stop, "T does nothing while the appearance panel is open");
+        _hud._UnhandledInput(Press(Key.C));
+        for (var i = 0; i < 3; i++) _hud._UnhandledInput(Press(Key.T, shift: true));
+        await Frames(2);
+        Check(_hud.SeasonStop == -1 && _hud.TimeStop == -1 && look.ClockNote.StartsWith("real clock, real calendar", StringComparison.Ordinal), "both released, the look follows the real clock again: " + look.ClockNote);
+    }
+
+    private async Task TestNoLookNoClock()
+    {
+        var world = new Node3D();
+        AddChild(world);
+        var player = new SmallPlayerController { ReadKeyboard = false };
+        world.AddChild(player);
+        var companion = new CompanionAvatar();
+        world.AddChild(companion);
+        var hud = new RoomHud { Player = player, Companion = companion, RoomTitle = "NO LOOK" };
+        world.AddChild(hud);
+        await Frames(2);
+        hud._UnhandledInput(Press(Key.T));
+        hud._UnhandledInput(Press(Key.T, shift: true));
+        Check(hud.TimeStop == -1 && hud.SeasonStop == -1 && hud.ClockText().Length == 0, "without a look the clock keys do nothing and the HUD shows no clock");
+        world.QueueFree();
+    }
+
+    /// <summary>
+    /// The name tag over the companion was see-through: depth of field read the depth behind it and blurred it, and temporal
+    /// anti-aliasing smeared it in motion. Drawn with an alpha cut it writes depth and motion like a solid, so both treat it as an object.
+    /// </summary>
+    private void TestNameTag()
+    {
+        var label = _world.Companion.GetNode<Label3D>("CompanionLabel");
+        Check(label.AlphaCut != Label3D.AlphaCutMode.Disabled, $"the name tag is drawn solid (alpha cut {label.AlphaCut}), not as see-through blending");
+        Check(!label.NoDepthTest && label.Billboard == BaseMaterial3D.BillboardModeEnum.Enabled, "it still faces the camera and hides behind what is in front of it");
+    }
+
+    private async Task Frames(int count)
+    {
+        for (var i = 0; i < count; i++) await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+    }
+
+    private void Check(bool condition, string label)
+    {
+        _checks++;
+        if (!condition) _failures++;
+        GD.Print($"{(condition ? "PASS" : "FAIL")}: {label}");
+    }
+}

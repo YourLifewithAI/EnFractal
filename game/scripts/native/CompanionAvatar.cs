@@ -109,13 +109,17 @@ public partial class CompanionAvatar : SmallPlayerController
         _entered = true;
         // The label floats a little above the body; the pointing cue comes from chest height. Both are sized
         // from the body, so they shrank with it (the 0.24 m body had its label at 0.33 m, 36 mm text).
+        // The name tag is drawn solid, with an alpha cut (founder playtest, 6 October): a see-through tag writes no
+        // depth, so depth of field read the wall behind it and blurred it in F2, and writes no motion, so temporal
+        // anti-aliasing smeared and doubled it while the camera moved in F3. Cut out, it is an object like the body.
         var h = BodyHeightM;
         _label = new Label3D
         {
             Name = "CompanionLabel", Text = CompanionName + " · companion",
             Position = Vector3.Up * (h * 1.35f), FontSize = 30, PixelSize = h * 0.006f,
             Modulate = new Color("f6dfab"), OutlineModulate = new Color("18332d"),
-            Billboard = BaseMaterial3D.BillboardModeEnum.Enabled, NoDepthTest = false
+            Billboard = BaseMaterial3D.BillboardModeEnum.Enabled, NoDepthTest = false,
+            AlphaCut = Label3D.AlphaCutMode.Discard, AlphaScissorThreshold = 0.5f
         };
         AddChild(_label);
         _pointer = new Node3D { Name = "PointingCue", Position = Vector3.Up * (h * 0.667f), Visible = false };

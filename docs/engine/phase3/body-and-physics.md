@@ -194,7 +194,7 @@ The Jolt column reproduces the independent reviewer's run on the same head to th
 - **No measured noticeability threshold.** A rough screen estimate only: at the 72° eye lens on a 1080-pixel-tall view, a vertical eye shift of d moves features 0.3 m away by about d × 2,500 pixels per metre. So 0.33 mm RMS is about 0.8 pixel per tick (at the edge of visible), 0.73 mm about 1.8 pixels, and a one-tick crease bump of 3 to 6 mm about 7 to 14 pixels, likely visible on both engines. Only the founder's playtest certifies feel.
 - **The ×10 descents cover more distance.** The scaled probe accelerates differently going down, so on Jolt the ×10 descents travelled further (234 against 208 mm body-scale on 40°, 257 against 235 mm on 30°); those rows compare slightly different walks.
 
-Not measured: physics at 120 Hz ticks and physics interpolation. Both change all frame-counted tests and the mouse-look path, so they are left for the playtest to motivate.
+Not measured here: physics at 120 Hz ticks. Physics interpolation was measured in the second playtest's fix round (see [Founder playtest 2](#founder-playtest-2-6-october-second-pass-what-was-said-and-what-changed)).
 
 ## G is a playtest-only exception to the single command path
 
@@ -213,7 +213,10 @@ Run `pwsh -NoProfile -File run-room.ps1`. Click the window to capture the mouse.
 | **G** | Cycle gravity: tuned (3.5) → real (9.8) → floaty (0.6, slow falls, more air steering) → tuned; the console prints which |
 | F1 / F2 / F3 | Eye camera / over-the-shoulder / **diorama**: in F3 the mouse orbits, the wheel zooms, and W A S D move relative to the view |
 | 1 2 3 4 5 | Companion: follow, stay, come, stop, point ahead |
-| B | Invention editor (retired as a concept; left as it is) |
+| F4 | Isometric view; **Q** and **E** turn it a quarter turn (the invention workshop that also bound them is gone) |
+| L | Lamps on or off |
+| **T** | Step the time of day: dawn, morning, noon, late afternoon, sunset, dusk, night, then back to the real clock |
+| **Shift+T** | Step the season: March equinox, June solstice, September equinox, December solstice, then back to the real calendar |
 
 Try, in order: walk and run around the rug and across its 6 mm edge; walk into the 4 cm book, then jump onto it with a run-up and walk off its far edge; stand right at the book's edge; jump onto the doorstop (4 cm); walk under the table and look up; climb onto nothing taller than the book (the box at 30 cm is a wall for a 10 cm body); then press G twice and repeat the book jump in each gravity.
 
@@ -232,6 +235,51 @@ Record the verdict per question; numbers to change live in `SmallPlayerControlle
 | "If I walk behind the big box and summon my comp, it gets stuck on the other side of the box. It can't work its way around." | Navigation: a mesh baked at runtime from the room's static collision with an 8 cm agent radius (4 cm since the companion shrank), re-baked when the room's static geometry changes, used by follow and come, with local steering kept for the final approach; unreachable goals report blocked. | In the test room, come round the big box arrives in 60 ticks (local steering alone stays stuck 0.70 m away) |
 | (Building answers, evening) "The companion shrinks to match the player (10 cm)." | The companion is a 10 cm body like the player's, in its own profile object; speeds, follow band, come distance, navigation agent (4 cm radius, 10 cm high, 1 cm climb) and its hat, label and pointing cue are scaled with it. See [The companion's body](#the-companions-body-10-cm-since-the-evening-of-6-october). | Follow rests 0.17 m away, beside the player; come stops at 0.140 m; catches a running player from 0.83 m behind and ends 0.17 m away; round the big box in 87 ticks |
 | (Look captures) Both avatars appear to hover over the rug. | The pill reaches down to the feet and the visual is seated on the support each tick. See [Why the avatars looked like they hovered](#why-the-avatars-looked-like-they-hovered). | Visual 4.0 mm (player) and 8.2 to 8.6 mm (old companion) above the surface before; 0.00 mm after, on the floor, the rug and the book |
+
+## Founder playtest 2 (6 October, second pass): what was said and what changed
+
+| The founder said | Cause | What changed | Measured |
+|---|---|---|---|
+| In F4 **Q** and **E** do not turn the view ("No worn design to revise. B opens a new draft."). | `invention_runtime.gd` also bound Q (revise the worn design) and E (use it), with B, F, V and K, and drew the INVENTIONS panel. | The workshop is retired in the playable room: the runtime has a `workshop_enabled` switch that the command host turns off, so no panel, no editor and no key handler exist there. The runtime itself stays (it renders creations and runs effects for the host), and the kernel suites keep the workshop on: its validation, budgets, receipts and undo may carry the Run 2 building kit. HUD help lines updated. | 6 new command host checks (201); `PlayHudTest` checks Q and E turn the F4 view a quarter turn each way. |
+| The clock follows real time, so a 3 a.m. playtest only shows night. | - | **T** steps dawn, morning, noon, late afternoon, sunset, dusk and night, then returns to the real clock; **Shift+T** steps the four solstices and equinoxes, then returns to the real calendar. Each time of day is found from the sun's real rise and set on the date shown (`RoomHud.TimeStopHour`), so "sunset" is the golden hour in June and in December. The top panel shows the hour, the season and the date, and says whether each is pinned or real. It uses `LookDirector.SetClock` and `ReleaseClock` only. | `PlayHudTest`: 7 times in order, noon on the June solstice at 83° sun, the June day 14.1 h and the December day 10.2 h, both released back to the real clock. |
+| The companion's name tag is blurred (F2) and smeared and doubled while the camera moves (F3). | The tag was alpha-blended: it wrote no depth, so depth of field read the wall behind it, and it wrote no motion, so temporal anti-aliasing (TAA) smeared it. | `Label3D` with `AlphaCut = Discard` (threshold 0.5): the tag is cut out and drawn solid, so it has depth and motion like the body. `OpaquePrepass` was worse (only the outline came out crisp); `Hash` matched `Discard`. | Edge sharpness of the tag (mean of the strongest tenth of Sobel gradients; bigger is crisper): F2 0.051 to **0.293**; F3 orbit 0.145 to **0.217**, and **0.282** once TAA is off (the tag at rest scores 0.286). |
+| The player is soft while running, the companion at the same distance is sharp. | **TAA**, not depth of field and not the missing physics interpolation. | See the table below. The fix is a `project.godot` change (the integrator's file): TAA off and FXAA on. Physics interpolation is prepared in code and left off. | Below. |
+
+**Diagnosis of the soft running player** (`tools/kernel/capture-play.ps1`, scenarios `run_f3` and `run_f2`, 1280 x 720 on the RTX 2070 SUPER, a 144 Hz display with vsync on; the player runs past a companion standing still). The number is how many pixels the body's silhouette takes to go from body to background across its torso: smaller is crisper.
+
+| Setting | F3 running player | F3 companion standing | F2 running player | F2 companion standing |
+|---|---|---|---|---|
+| TAA on, no interpolation (as played) | 3.2 | 2.8 | 3.8 to 4.2 (up to 9.8 on some frames) | 2.3 to 2.4 |
+| TAA on, **physics interpolation on** | 3.2 | 2.7 | 3.2 | 2.3 |
+| TAA off, no AA | 2.3 | 1.6 | 1.8 | 1.1 |
+| **TAA off, FXAA** | 2.3 | 2.0 | 1.8 | 1.5 |
+| FSR 2 at native scale (TAA off) | 2.6 | 2.2 | 3.0 | 1.6 |
+| 4x MSAA | not usable: the look's grain and vignette effect fails on an MSAA buffer ("needs the TEXTURE_USAGE_STORAGE_BIT usage flag") | | | |
+
+Capped at 60 frames a second the TAA softness is worse (F2 running player 4.3), and interpolation changes nothing at 60 Hz. So TAA is the cause: it reprojects a moving body's history through a fast-moving floor, which smears its edges. Physics interpolation does not change the blur, but it does steady the picture at 144 Hz, where physics ticks (60 a second) fall unevenly between frames: the player's scatter about a smooth path across the screen (F3, running) falls from 2.3 to 0.8 px, and the floor's largest frame-to-frame step in F2 from 3.7 to 2.1 px. At 60 Hz there is nothing to gain.
+
+The code is ready for interpolation either way: the F3 and F4 rig is not interpolated itself and follows the player's *interpolated* position (`GetGlobalTransformInterpolated`), and a teleport (`TryTeleportTo`, so respawn and recover) calls `ResetPhysicsInterpolation`. The suites pass with it on. What it costs: mouse look turns the body from input events, so with interpolation on the turn is expected to reach the screen up to one physics tick (about 16 ms) late (not measured: this is the thing to feel); and the look's depth-of-field focus (Look lane) still reads the physics position, a few millimetres behind the drawn body.
+
+Frame time (`timing` scenario, uncapped, F3 on the standing avatars, two runs each): GPU 4.10 and 4.16 ms with TAA, **3.82 and 3.84 ms with FXAA** (3.80 and 3.82 with no AA); wall time 7.65 to 7.35 ms. Interpolation adds about 0.02 ms. No other EnFractal window was open.
+
+The proposed `project.godot` diff, for the integrator:
+
+```
+ [rendering]
+-anti_aliasing/quality/use_taa=true
++anti_aliasing/quality/use_taa=false
++anti_aliasing/quality/screen_space_aa=1
+```
+
+and, optionally, once the founder has felt mouse look with it:
+
+```
+ [physics]
+ 3d/physics_engine="Jolt Physics"
++common/physics_interpolation=true
+```
+
+Depth of field needs no change without TAA (its jitter shows no noise in the captures). The Look lane should judge fine floor-board shimmer in motion, which TAA hid. `PlayCaptureHarness` (`game/tests/native/Kernel/`) takes `--taa`, `--saa=fxaa`, `--interp`, `--fps` and `--vsync` to rerun any of this.
 
 ## Next playtest checklist
 

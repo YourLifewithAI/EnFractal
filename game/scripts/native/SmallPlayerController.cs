@@ -302,6 +302,8 @@ public partial class SmallPlayerController : CharacterBody3D
     {
         if (!_ready || !feetPosition.IsFinite() || !FindSupportedPosition(feetPosition, out var position)) return false;
         GlobalPosition = position;
+        // With physics interpolation on, a teleport must not be drawn as a glide from the old place to the new one.
+        ResetPhysicsInterpolation();
         Velocity = Vector3.Zero;
         _jumpBuffer = 0;
         LastSafePosition = position;
