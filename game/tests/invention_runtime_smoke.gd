@@ -2,6 +2,9 @@ extends SceneTree
 ## The real authority, capability interpreter and C# bodies (SmallPlayerController as player:local,
 ## CompanionAvatar as companion:local) on real physics floors. Only the room description is a fixture:
 ## a 120 x 120 m test hall whose floor top is y = 0, with obj:garden as a lockable zone.
+const GUARD = preload("res://tests/kernel_test_guard.gd")
+## Fails the suite on any script or engine error (kernel_test_guard.gd).
+var guard = GUARD.new()
 const Runtime = preload("res://scripts/invention_runtime.gd")
 const Player = preload("res://scripts/native/SmallPlayerController.cs")
 const Companion = preload("res://scripts/native/CompanionAvatar.cs")
@@ -24,6 +27,7 @@ var runtime
 
 
 func _initialize() -> void:
+	OS.add_logger(guard)
 	call_deferred("_run")
 
 
@@ -340,4 +344,4 @@ func _finish() -> void:
 	world.queue_free()
 	_remove_test_save()
 	print("Invention runtime: %d checks, %d failures" % [checks, failures])
-	quit(1 if failures else 0)
+	quit(guard.exit_code(failures != 0))

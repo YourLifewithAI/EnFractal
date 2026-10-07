@@ -1,5 +1,8 @@
 extends SceneTree
 ## Exercises portable recipes, graph semantics and hostile manifest admission.
+const GUARD = preload("res://tests/kernel_test_guard.gd")
+## Fails the suite on any script or engine error (kernel_test_guard.gd).
+var guard = GUARD.new()
 
 const COMPILER := preload("res://scripts/creation_compiler.gd")
 var failed: Array[String] = []
@@ -8,6 +11,7 @@ var invalid_count := 0
 
 
 func _initialize() -> void:
+	OS.add_logger(guard)
 	call_deferred("_run")
 
 
@@ -202,11 +206,11 @@ func _run() -> void:
 	_check(valid_count >= 10 and invalid_count >= 20, "required fixture coverage")
 	if failed.is_empty():
 		print("Creation compiler smoke passed: %d valid, %d invalid fixtures; stable hashes, rotated bounds, exact schemas and DAG order." % [valid_count, invalid_count])
-		quit(0)
+		quit(guard.exit_code(false))
 	else:
 		for failure in failed:
 			push_error(failure)
-		quit(1)
+		quit(guard.exit_code(true))
 
 
 func _valid(source: Variant, label: String) -> Dictionary:

@@ -1,12 +1,16 @@
 extends SceneTree
 ## Bounded world physics through the real C# body: presets, revisions, gravity, wind and refusal of
 ## invalid profiles. Gravity changes how long a fall or jump lasts; the body's jump height does not change.
+const GUARD = preload("res://tests/kernel_test_guard.gd")
+## Fails the suite on any script or engine error (kernel_test_guard.gd).
+var guard = GUARD.new()
 
 const Player = preload("res://scripts/native/SmallPlayerController.cs")
 const Profile = preload("res://scripts/world_physics_profile.gd")
 
 
 func _initialize() -> void:
+	OS.add_logger(guard)
 	call_deferred("_run")
 
 
@@ -70,7 +74,7 @@ func _run() -> void:
 		_fail("airborne wind did not move the body (vx=%.3f, x=%.3f)" % [player.velocity.x, player.global_position.x])
 		return
 	print("World physics smoke passed: C# body, room presets, revision, gravity, wind and invalid-profile bounds")
-	quit(0)
+	quit(guard.exit_code(false))
 
 
 func _fall_speed(player) -> float:
@@ -87,4 +91,4 @@ func _frames(count: int) -> void:
 
 func _fail(message: String) -> void:
 	push_error("World physics smoke: " + message)
-	quit(1)
+	quit(guard.exit_code(true))

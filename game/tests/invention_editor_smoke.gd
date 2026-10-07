@@ -1,6 +1,9 @@
 extends SceneTree
 ## Real editor controls and isolated preview against the local room host. The room description is a
 ## fixture (a large test hall, floor top y = 0); the runtime, authority, editor and C# body are real.
+const GUARD = preload("res://tests/kernel_test_guard.gd")
+## Fails the suite on any script or engine error (kernel_test_guard.gd).
+var guard = GUARD.new()
 const COMPILER = preload("res://scripts/creation_compiler.gd")
 const Runtime = preload("res://scripts/invention_runtime.gd")
 const Player = preload("res://scripts/native/SmallPlayerController.cs")
@@ -17,6 +20,7 @@ var checks := 0
 var failures := 0
 
 func _initialize() -> void:
+	OS.add_logger(guard)
 	call_deferred("_run")
 
 func _run() -> void:
@@ -205,4 +209,4 @@ func _finish(previous_manual: String, previous_save: String) -> void:
 	for path in [SAVE, EXPORT, OVERSIZE]:
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
 	print("Invention editor smoke: %d checks, %d failures" % [checks, failures])
-	quit(0 if failures == 0 else 1)
+	quit(guard.exit_code(failures != 0))

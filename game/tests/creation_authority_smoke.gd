@@ -2,6 +2,9 @@ extends SceneTree
 ## The creation authority against room bounds, locks, a surface query and the contract principals.
 ## The fixture room is a 120 x 40 x 120 m workshop whose floor surface is at 10 m; obj:garden is the
 ## old protected garden, now protected only while it is locked.
+const GUARD = preload("res://tests/kernel_test_guard.gd")
+## Fails the suite on any script or engine error (kernel_test_guard.gd).
+var guard = GUARD.new()
 
 const Authority = preload("res://scripts/creation_authority.gd")
 const Compiler = preload("res://scripts/creation_compiler.gd")
@@ -23,6 +26,7 @@ var paths: Array[String] = []
 
 
 func _initialize() -> void:
+	OS.add_logger(guard)
 	call_deferred("_run")
 
 
@@ -36,7 +40,7 @@ func _run() -> void:
 	_expect(first.get("ok", false), "valid source compiles and persists")
 	if not first.get("ok", false):
 		print(first)
-		quit(1)
+		quit(guard.exit_code(true))
 		return
 	var id: String = first.instance_id
 	var snapshot: Dictionary = host.snapshot(PLAYER)
@@ -101,7 +105,7 @@ func _run() -> void:
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(path + ".pending"))
 	print("Creation authority: %d checks, %d failures" % [checks, failures])
-	quit(1 if failures else 0)
+	quit(guard.exit_code(failures != 0))
 
 
 func _test_locks() -> void:

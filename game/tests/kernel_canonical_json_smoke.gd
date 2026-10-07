@@ -1,6 +1,9 @@
 extends SceneTree
 ## The canonical JSON golden fixture, reproduced by GDScript. Python (tools/kernel/canonical_json.py)
 ## and C# (tests/native/Kernel/CanonicalJsonTest.cs) reproduce the same bytes from the same input.
+const GUARD = preload("res://tests/kernel_test_guard.gd")
+## Fails the suite on any script or engine error (kernel_test_guard.gd).
+var guard = GUARD.new()
 
 const JSON_KERNEL = preload("res://scripts/creation_json.gd")
 const COMPILER = preload("res://scripts/creation_compiler.gd")
@@ -11,6 +14,7 @@ var failures := 0
 
 
 func _initialize() -> void:
+	OS.add_logger(guard)
 	var source := FileAccess.get_file_as_string(FIXTURE + "canonical_input.json")
 	var expected := FileAccess.get_file_as_bytes(FIXTURE + "canonical_expected.json")
 	var digest := FileAccess.get_file_as_string(FIXTURE + "canonical_expected.sha256").strip_edges()
@@ -48,7 +52,7 @@ func _initialize() -> void:
 		var result: Dictionary = JSON_KERNEL.parse(good[0])
 		_check(result.ok and result.value == good[1], "strict parser reads %s as the nearest double" % good[0])
 	print("Kernel canonical JSON: golden fixture reproduced by GDScript, sha256 %s; %d checks, %d failures" % [digest, checks, failures])
-	quit(1 if failures else 0)
+	quit(guard.exit_code(failures != 0))
 
 
 ## GDScript's own number literals flush values near the bottom of the double range to zero.
