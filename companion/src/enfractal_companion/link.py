@@ -10,9 +10,12 @@ Specified in docs/companion/TRANSPORT.md; the frame shapes are in `schemas/compa
   pointing at someone else's listener is detected before any request is sent.
 - The game assigns the principal to the authenticated connection (`companion:local`). Requests
   carry no principal, no approval and no token.
-- Frames are a 4-byte big-endian length and one JSON object in UTF-8 (not ASCII-escaped, so a
-  frame is never much bigger than the canonical message it carries). Oversized frames, unknown
-  frame types, duplicate keys and non-finite numbers close the connection.
+- Frames are a 4-byte big-endian length and one JSON object, written as canonical JSON v1
+  (canonical.py: UTF-8, not ASCII-escaped, numbers in their shortest canonical form). A frame is
+  therefore exactly a short envelope plus the canonical bytes of the message it carries, so the
+  contract's size limits bound the frame size whatever characters or number spellings the
+  message holds. Readers accept any strict JSON within the limit. Oversized frames, unknown frame
+  types, duplicate keys and non-finite numbers close the connection.
 - There is no lockout: a wrong proof only closes that connection, so no local process can lock the
   real companion out, and guessing a 256-bit token is hopeless anyway. At most a few handshakes
   may be pending at once.
@@ -34,6 +37,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+from . import canonical
+
 log = logging.getLogger("enfractal.link")
 
 PROTOCOL = "enfractal.companion_link"
@@ -41,12 +46,13 @@ LINK_VERSION = 1
 SESSION_SCHEMA = "enfractal.companion_session"
 LOOPBACK_HOSTS = ("127.0.0.1", "::1")  # the only spellings a session file or a listener may use
 MAX_HANDSHAKE_FRAME = 1024
-# A command or query is at most 65,536 bytes of canonical JSON. Frames carry it as UTF-8 JSON, the
-# same size as canonical plus a few dozen bytes of envelope; the request limit leaves room for the
-# game to answer an oversized message with request_invalid instead of closing the connection.
+# A command or query is at most 65,536 bytes of canonical JSON, and a frame is that plus an envelope
+# of under 64 bytes. The request limit leaves room for the game to answer an oversized message with
+# request_invalid instead of closing the connection.
 MAX_REQUEST_FRAME = 131_072
-# A result is at most 262,144 bytes of canonical JSON; the envelope adds well under 4,096.
+# A result is at most 262,144 bytes of canonical JSON; the envelope adds under 64.
 MAX_RESPONSE_FRAME = 262_144 + 4_096
+MAX_SESSION_FILE = 4_096  # a real session file is about 300 bytes
 HANDSHAKE_TIMEOUT_S = 5.0
 CONNECT_TIMEOUT_S = 3.0
 REQUEST_TIMEOUT_S = 10.0
@@ -79,8 +85,20 @@ def default_session_path() -> Path:
 # ---------------------------------------------------------------------------- framing
 
 def encode_frame(document: dict) -> bytes:
-    """4-byte big-endian length, then compact UTF-8 JSON. Raises ValueError for non-finite numbers."""
-    body = json.dumps(document, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
+    """4-byte big-endian length, then the frame object as canonical JSON v1.
+
+    Each value (the message included) is written exactly as canonical.canonical_bytes writes it, so
+    the body is the canonical message plus the envelope keys. ASCII escapes (6 or 12 bytes for one
+    character) and number spellings such as -0.0 or 1.0e0 can no longer make a frame several times
+    larger than the message the contract limits. Raises ValueError (CanonicalJsonError) for
+    non-finite numbers, unpaired surrogates and nesting deeper than canonical JSON allows.
+    """
+    normalized = {key: canonical.normalize(value) for key, value in document.items()}
+    text = json.dumps(normalized, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+    try:
+        body = text.encode("utf-8")
+    except UnicodeEncodeError:
+        raise canonical.CanonicalJsonError("strings must not contain unpaired surrogates") from None
     return struct.pack(">I", len(body)) + body
 
 
@@ -166,6 +184,10 @@ def parse_session(raw: bytes) -> SessionInfo:
     if document.get("schema") != SESSION_SCHEMA or document.get("version") != LINK_VERSION:
         raise LinkError("session file is not an enfractal.companion_session version 1")
     host, port, token, room_id = (document.get(k) for k in ("host", "port", "token", "room_id"))
+    pid, created = document.get("pid"), document.get("created_utc")
+    if (pid is not None and (not isinstance(pid, int) or isinstance(pid, bool) or not 0 < pid < 2 ** 32)) \
+            or (created is not None and (not isinstance(created, str) or len(created) > 64)):
+        raise LinkError("session file pid or created_utc is malformed")
     if host not in LOOPBACK_HOSTS:
         raise LinkError("session file names a host that is not loopback; the companion only connects to this computer")
     if not isinstance(port, int) or isinstance(port, bool) or not 1 <= port <= 65535:
@@ -383,11 +405,14 @@ class LinkClient:
 
         def load() -> SessionInfo:
             try:
-                raw = path.read_bytes()
+                with path.open("rb") as handle:
+                    raw = handle.read(MAX_SESSION_FILE + 1)
             except FileNotFoundError:
                 raise LinkError("the game is not running (no session file yet)") from None
             except OSError:
                 raise LinkError("the game's session file cannot be read") from None
+            if len(raw) > MAX_SESSION_FILE:
+                raise LinkError("the game's session file is too large to be one")
             return parse_session(raw)
 
         return LinkClient(load, **kwargs)
