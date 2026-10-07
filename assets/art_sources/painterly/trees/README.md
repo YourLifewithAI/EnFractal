@@ -12,7 +12,7 @@ guides, and a copy of the generator source. The hidden guide collection is a
 construction aid. No closed crown surface is exported or rendered.
 
 The authored architecture and placement recipe live in
-`tools/art/build_barton_trees.py`. Edit that recipe and rebuild to reproduce the
+`tools/art/build_painterly_trees.py`. Edit that recipe and rebuild to reproduce the
 exports. Direct mesh/curve edits in the Blender file are possible, but rerunning
 the script currently rebuilds from the Python recipe; it does not read those
 manual edits back automatically.
@@ -20,7 +20,7 @@ manual edits back automatically.
 Run with Blender 4.5.14 LTS:
 
 ```powershell
-& .cache/blender/blender-4.5.14-windows-x64/blender.exe --background --python-exit-code 1 --python tools/art/build_barton_trees.py -- --species all
+& .cache/blender/blender-4.5.14-windows-x64/blender.exe --background --python-exit-code 1 --python tools/art/build_painterly_trees.py -- --species all
 ```
 
 The portable Blender archive came from the official download server:

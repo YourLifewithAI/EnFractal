@@ -111,8 +111,9 @@ the host's memory: never in a snapshot, a receipt, room state or a save.
 
 **The contract.** `contracts/` carries the result fields above since `72e9015`. The tests still check
 that they match the proposal (`companion/tests/fixtures/contract_memory_v1.json`). Lane P's kernel host
-does not have memory yet; [proposals/kernel-host-gaps.md](proposals/kernel-host-gaps.md) (P6) lists what
-it needs.
+now implements bounded perception memory, remembered results and clearing hooks (P6 closed on
+7 October 2026; see [command-host.md](../engine/phase3/command-host.md#queries-and-what-the-companion-perceives)).
+This remains interim plumbing until Run 2's shared map and selective journal replace it.
 
 ## What the companion still learns
 

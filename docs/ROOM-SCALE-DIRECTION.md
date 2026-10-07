@@ -124,7 +124,7 @@ The earlier choice of the Compatibility renderer served an 8 GiB integrated-grap
 
 ### The runs
 
-Each run is built by a parallel team: one builder per packet group with owned files, one integrator who owns the contracts and merges, and two independent reviewers (one for correctness and tests, one for the look rubric). No lane marks its own gate passed; the founder's judgment is final on look and fun.
+Each run is built by a parallel team: one builder per packet group with owned files, one integrator who owns the contracts and merges, and one independent reviewer when a lane completes a whole chunk of its roadmap, per [the orchestration policy](runs/ORCHESTRATION.md#reviews). No lane marks its own gate passed; the founder's judgment is final on look and fun.
 
 | Run | Lanes in parallel | Exit evidence |
 |---|---|---|
@@ -156,7 +156,7 @@ Details and the founder's reference notes are in [the Run 1 status page](runs/RU
 - **Cameras:** over-the-shoulder, first person and isometric, all with a gentle tilt-shift blur. While moving, focus follows the avatars; while building, it follows the cursor or a free camera.
 - **The time of day follows the real clock** and the seasons follow the calendar, with stronger swings.
 - **Avatars are felt figurines** with a few head, torso, arm and leg options for now.
-- **The companion sees what is in its line of sight.** Voice is for talking to the companion; the player uses the keyboard.
+- **The companion sees what is in its line of sight.** (Replaced on 7 October by [shared team knowledge and selective memory](companion/JOURNAL.md); companion-only sight remains the current code until Run 2.) Voice is for talking to the companion; the player uses the keyboard.
 - **No approval clicks.** Host-enforced tiers with undo, preview-then-commit, and a spoken or keyed "yes" only for the irreversible; see [the live voice design](companion/LIVE-VOICE.md). A fixed command set comes first, with a help panel.
 - **Bring your own AI.** Players connect their own AI or agent harness to the game's MCP surface. No model is bundled for now, and no hosted AI is provided. The audience is people who already use AI well. Multiplayer with players and their AIs comes later.
 - **Style before medium.** First settle one artistic style in the spirit of Tiny Glade, with camera angles that read as artistic rather than photorealistic. Material media come later.

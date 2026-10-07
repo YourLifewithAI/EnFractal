@@ -148,11 +148,9 @@ The four Run 1 patches were applied on `run1/integration` (`72e9015` and earlier
 They are applied from the stored blob so line-ending conversion cannot touch them
 (`git show run1/companion:<path> | git apply`).
 
-**Before the Run 2 swap:** [proposals/kernel-host-gaps.md](proposals/kernel-host-gaps.md) lists what the
-mock now shares with Lane P's kernel host (ledger, rate limit, pending approvals, `"preview": false`,
-lapses) and the kernel host's change requests: `capabilities.list` answers a payload the contract
-refuses, a reused stop id hides a durable receipt, the player's avatar is nameable out of sight,
-`observe`'s 3 m default and its shell parts, perception memory, goal jobs and `entity.release`.
+**Before the Run 2 swap:** [proposals/kernel-host-gaps.md](proposals/kernel-host-gaps.md) records the
+mock alignment and the eight host requests. All eight are closed on the real host as of 7 October 2026
+(see [the Run 1 status](../runs/RUN-1-STATUS.md#still-open)). The transport swap remains A2 work in Run 2.
 
 | Patch | What it does | Checked by |
 |---|---|---|
@@ -180,7 +178,9 @@ refuses, a reused stop id hides a durable receipt, the player's avatar is nameab
   changes is the player's. The founder confirmed this on 6 October 2026.
 - **The companion remembers what its own avatar saw** (founder, 6 October 2026): per session and room,
   bounded, never saved, with a one-bit `may_be_stale`; only goals that move or turn it may aim at a
-  remembered thing, re-checked on arrival ([PERCEPTION.md](PERCEPTION.md)).
+  remembered thing, re-checked on arrival ([PERCEPTION.md](PERCEPTION.md)). (Replaced on 7 October by
+  [shared team knowledge and selective game-relevant memory](JOURNAL.md). The per-session perception
+  cache remains interim code; the shared map and journal are not implemented yet.)
 - **Standard emoji are allowed in world text** (founder, 6 October 2026): VS15, VS16, the joiner and the
   keycap combiner only where an emoji puts them; every other invisible character stays blocked.
 - **The companion has the player's 10 cm body** (founder, 6 October 2026): eye 0.087 m, reach 0.15 m.

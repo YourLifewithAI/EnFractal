@@ -2,6 +2,8 @@
 
 **Status:** direction adopted by the founder on 6 October 2026. Implementation starts in Run 2. This summarises a research pass done that day from public sources. Prices, latencies and model names are as of that date; several are vendor claims, marked [V]. Re-check them every run.
 
+> **Updated 7 October 2026:** [shared team knowledge and selective memory](JOURNAL.md) replace companion-only knowledge in this voice design. Either avatar's eyes fill the shared map; the camera adds nothing. Current code still uses companion-only sight and a per-session perception cache. The shared map and journal are not implemented yet.
+
 ## Goal
 
 The player and the companion AI play live together through natural conversation, with **no approval clicks**. The player moves and interacts with the keyboard; voice is only for talking to the companion. Accessibility for as many players as possible is a hard requirement. Speech must never be required.
@@ -42,7 +44,7 @@ These replace click approvals. The host enforces them per operation and target c
 |---|---|
 | Local, never sent to a model | stop or freeze, undo that, yes or no, what can you do? or help, say that again, number two or "the red one" (to pick from a list) |
 | Movement | follow me, stay, come here, go to that, look at that, point at or show me X |
-| Questions | what's that? (crosshair target), what do you see? (line of sight), where's the X? (only what the companion has perceived) |
+| Questions | what's that? (crosshair target), what do you see? (line of sight), where's the X? (the team's shared knowledge) |
 | Objects | bring me that or fetch X, pick that up, put it down, put it on the shelf or put that there (ghost preview), lock this |
 | Magic | move or turn it (T2), bigger or smaller (T2, capped), make it glow or add a breeze (T2, bounded), stop the glow, make a ramp or block from a small catalogue |
 | Open wishes | From Run 3, through the actor: a previewed plan that commits as one undo step |
