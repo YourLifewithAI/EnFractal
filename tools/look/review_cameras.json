@@ -2,7 +2,7 @@
   "schema": "enfractal.look_review_cameras",
   "version": 1,
   "room_id": "test_room",
-  "description": "Five fixed review cameras for the placeholder room. World metres, +Y up, -Z forward (north). Positions do not follow the avatars, so captures stay comparable while the avatar profile changes. Focus points sit on the player's spawn, where the player's reach must stay crisp.",
+  "description": "Fixed review cameras for the placeholder room. World metres, +Y up, -Z forward (north). Positions do not follow the avatars, so captures stay comparable while the avatar profile changes. The first five are the Run 1 baseline and never change, because the scoring history depends on them; diorama_high and iso_room were added for the founder's 6 October art direction (high-angle and isometric views with a tilt-shift miniature feel). Focus points sit on the player's spawn or on the two avatars, whose reach and figures must stay crisp.",
   "resolution": [1920, 1080],
   "clock": {
     "hour": 16.5,
@@ -59,6 +59,32 @@
       "fov_deg": 60,
       "focus_m": [0.0, 0.06, 0.6],
       "hide_player_body": false
+    },
+    {
+      "id": "diorama_high",
+      "label": "High-angle diorama",
+      "purpose": "Run 1 art direction (6 October): a high-angle tilt-shift view framed on the two avatars from in front and to their left, about 1.4 m away at 45 degrees down with a 40-degree lens, so the rug, book and doorstop around them are in frame. Judges the tabletop-miniature read: the avatars and the rug around them crisp, the floor near the bottom of the frame and the far room at the top melting away, and the palette of the hour.",
+      "position_m": [-0.275, 1.05, -0.257],
+      "look_at_m": [0.22, 0.06, 0.6],
+      "fov_deg": 40,
+      "focus_m": [0.22, 0.06, 0.6],
+      "hide_player_body": false
+    },
+    {
+      "id": "iso_room",
+      "label": "Isometric room",
+      "purpose": "Run 1 art direction (6 October): an isometric-style overview from high by the north wall, about 35 degrees down (the isometric angle) with a narrow 30-degree lens, in front of the avatars (they face north) and a little to their right, looking across the room behind them to the south wall. Judges whether the whole room reads as an artistic handmade diorama rather than a photograph, with focus on the avatars and the rest of the room softening.",
+      "position_m": [0.99, 1.615, -1.461],
+      "look_at_m": [0.22, 0.06, 0.6],
+      "fov_deg": 30,
+      "focus_m": [0.22, 0.06, 0.6],
+      "hide_player_body": false
     }
-  ]
+  ],
+  "sweep": {
+    "camera": "diorama_high",
+    "hours": [7, 12, 16.5, 18, 21],
+    "dates": ["2026-01-15", "2026-04-15", "2026-07-15", "2026-10-15"],
+    "note": "The -Sweep contact sheet: one camera, rows winter, spring, summer and autumn (mid-season days), columns through the day. 18:00 shows the seasonal swing at the same clock time: night in winter, sunset light in autumn, golden afternoon in summer."
+  }
 }

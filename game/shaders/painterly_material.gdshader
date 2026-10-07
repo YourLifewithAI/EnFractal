@@ -3,7 +3,9 @@ shader_type spatial;
 // role and base colour from the style preset: albedo softening, stroke normals, edge wear, roughness and
 // metallic come from materials.roles; the role's surface pattern (planks, weave, pages, tape) and stroke
 // scale come from MaterialLibrary's role table. Marks live in object space, so they travel with an object.
-// Detail fades out where a pixel covers more than the mark, so finer marks appear as the camera comes close.
+// Detail fades out before a pixel covers half a mark (its Nyquist limit), so finer marks appear as the camera
+// comes close instead of aliasing. Every look-defining number is a uniform set from the preset (x_look_paint,
+// x_look_role_marks); what remains here is the algorithm.
 render_mode blend_mix, depth_draw_opaque, cull_back;
 
 const int PATTERN_NONE = 0;
@@ -49,6 +51,24 @@ group_uniforms edges;
 uniform float bevel_min_m : hint_range(0.0, 0.05) = 0.004;
 uniform float bevel_fraction : hint_range(0.0, 0.5) = 0.08;
 uniform float bevel_max_m : hint_range(0.0, 0.1) = 0.025;
+
+group_uniforms paint;
+uniform float tone_wash = 0.9;
+uniform float tone_strokes = 0.6;
+uniform float tone_bristle = 0.35;
+uniform float tone_gain = 0.42;
+uniform float softening_calm = 0.7;
+uniform float temperature_variation = 0.03;
+uniform float pastel_mix = 0.45;
+uniform float pastel_chroma = 0.82;
+uniform float pastel_scale = 0.94;
+uniform float pastel_lift = 0.03;
+uniform float wear_brightness = 1.32;
+uniform float wear_lift = 0.035;
+uniform float cavity_darkening = 0.35;
+uniform float stroke_normal_gain = 0.2;
+uniform float mark_fade_start = 0.15;
+uniform float mark_fade_end = 0.45;
 
 // Set per instance by the look director: box primitives get softened, worn edges and their own seed.
 instance uniform float box_edges = 0.0;
@@ -111,9 +131,10 @@ vec4 stroke_noise(vec3 p, vec3 axis, float stretch, float scale) {
 	return vec4(n.x, g);
 }
 
-// 1 while a mark of this size is larger than a pixel, fading to 0 once a pixel covers it.
+// How much of a mark size_m across to keep at this pixel footprint: all below mark_fade_start x size, none
+// above mark_fade_end x size (at most half a mark, before it aliases). Mirrored by MaterialLibrary.Detail.
 float detail(float size_m, float footprint_m) {
-	return 1.0 - smoothstep(0.35 * size_m, 0.9 * size_m, footprint_m);
+	return 1.0 - smoothstep(mark_fade_start * size_m, mark_fade_end * size_m, footprint_m);
 }
 
 // Anti-aliased line of a given width (metres) where distance_m is zero.
@@ -145,7 +166,8 @@ void fragment() {
 	vec3 n = normalize(obj_normal);
 	vec3 axis_n = face_axis(n);
 	float footprint = max(length(fwidth(p)), 1e-5);
-	vec3 seed = vec3(paint_seed * 17.31, paint_seed * 5.77, paint_seed * 11.13);
+	// Per-object offsets stay within a few tens of metres so the noise keeps its float precision.
+	vec3 seed = fract(vec3(paint_seed) * vec3(0.1731, 0.0577, 0.1113)) * 37.0;
 	bool is_box = box_edges > 0.5 && min(box_half_extents.x, min(box_half_extents.y, box_half_extents.z)) > 0.0;
 	vec3 half_size = box_half_extents;
 
@@ -168,7 +190,7 @@ void fragment() {
 	float d_wash = detail(s * 5.0, footprint);
 	float d_strokes = detail(s, footprint);
 	float d_bristle = detail(s * 0.25, footprint);
-	float tone = (wash.x - 0.5) * 0.9 * d_wash + (strokes.x - 0.5) * 0.6 * d_strokes + (bristle.x - 0.5) * 0.35 * d_bristle;
+	float tone = (wash.x - 0.5) * tone_wash * d_wash + (strokes.x - 0.5) * tone_strokes * d_strokes + (bristle.x - 0.5) * tone_bristle * d_bristle;
 	vec3 bump = strokes.yzw * 0.6 * d_strokes + bristle.yzw * 0.3 * d_bristle;
 
 	vec3 color = base_color;
@@ -200,7 +222,7 @@ void fragment() {
 		float thread = pattern_scale_m;
 		float warp = sin(6.2831853 * dot(p, t1) / thread);
 		float weft = sin(6.2831853 * dot(p, t2) / thread);
-		float weave = (warp * weft) * 0.5 * detail(thread * 0.7, footprint);
+		float weave = (warp * weft) * 0.5 * detail(thread, footprint);
 		tone += weave * 0.35;
 		if (is_box && axis_n.y > 0.5) {
 			float edge_distance = min(half_size.x - abs(p.x), half_size.z - abs(p.z));
@@ -297,19 +319,21 @@ void fragment() {
 		color = mix(color, color * paint * 1.6, texture_strength);
 	}
 
-	float calm = 1.0 - albedo_softening * 0.7;
-	color *= 1.0 + tone * 0.42 * variation * calm;
+	float calm = 1.0 - albedo_softening * softening_calm;
+	color *= 1.0 + tone * tone_gain * variation * calm;
 	// Warm where the wash is light, cool where it is dark: temperature variation, not just value.
-	color *= mix(vec3(0.97, 0.99, 1.04), vec3(1.03, 1.0, 0.96), mix(0.5, wash.x, d_wash * variation));
+	vec3 cool = vec3(1.0) + temperature_variation * vec3(-1.0, -0.333, 1.333);
+	vec3 warm = vec3(1.0) + temperature_variation * vec3(1.0, 0.0, -1.333);
+	color *= mix(cool, warm, mix(0.5, wash.x, d_wash * variation));
 	// Softening pulls the colour toward a lighter, gentler pastel of itself.
 	float luma = dot(color, vec3(0.2126, 0.7152, 0.0722));
-	color = mix(color, mix(vec3(luma), color, 0.82) * 0.94 + vec3(0.03), albedo_softening * 0.45);
-	color = mix(color, color * 1.32 + vec3(0.035), wear * edge_wear);
-	color *= 1.0 - cavity * 0.35;
+	color = mix(color, mix(vec3(luma), color, pastel_chroma) * pastel_scale + vec3(pastel_lift), albedo_softening * pastel_mix);
+	color = mix(color, color * wear_brightness + vec3(wear_lift), wear * edge_wear);
+	color *= 1.0 - cavity * cavity_darkening;
 
 	// Stroke normals: tilt the (possibly bevelled) normal by the marks' gradient.
 	vec3 tangential = bump - n * dot(bump, n);
-	n = normalize(n - tangential * stroke_normal_strength * 0.2);
+	n = normalize(n - tangential * stroke_normal_strength * stroke_normal_gain);
 
 	ALBEDO = clamp(color, 0.0, 1.0);
 	ROUGHNESS = clamp(rough + (strokes.x - 0.5) * 0.08 + wear * edge_wear * 0.1, 0.0, 1.0);
