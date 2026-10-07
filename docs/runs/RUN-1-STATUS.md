@@ -316,13 +316,19 @@ The source is the Google Doc `Look and Art Style direction`, with ten frames fro
 ## Next steps when work resumes
 
 1. **Founder (no rush):**
-   - **Answer the four questions at the top of [RUN-2.md](RUN-2.md):**
-     - the five objects;
-     - up to $5 for hosted image-to-3D, and uploading those photos;
-     - Stability's license for SPAR3D;
-     - whether the journal's data work goes in Run 2.
-   - **The Linux suite:** allow installing `unzip` and `uv` in WSL Ubuntu on the second machine, where the default user is root, or create a Codex cloud environment for `YourLifewithAI/EnFractal` at chatgpt.com/codex. Either lets the suite run.
-   - **The third playtest: done late on 7 October** (notes above). Still unchecked: the T and Shift+T light at other times of day, running without blur, and whether the floorboards shimmer under FXAA.
+   - **Run 2's questions, answered late on 7 October** ([RUN-2.md](RUN-2.md)):
+     - the five household objects;
+     - no online spending; the player's own AI makes the objects with local software, guided by the game's MCP;
+     - the journal's data in Run 2.
+
+     Still open: SPAR3D or TripoSR. **Photos of the five objects** go to Drive under `Objects/<object>/`: 8 to 12 each, all round, on the 1x camera, with one tape measurement.
+   - **The Linux suite:** the founder approved the install. `unzip`, `python3-venv` and uv 0.12.23 are in WSL Ubuntu on the second machine, which runs as root, so set `GODOT_SILENCE_ROOT_WARNING=1`. The founder also published a Codex cloud environment, "EnFractal". Its default branch is `main`, so cloud tasks must pass `--branch run1/integration`, and `codex cloud exec` needs its ID from the founder.
+   - **The third playtest: done late on 7 October** (notes above). The founder also confirmed:
+     - T and Shift+T step the light through the day "just fine";
+     - running no longer blurs;
+     - the floorboards shimmer little under FXAA, which does not bother the founder.
+
+     That closes the second playtest's list. **Still asked:** whether the 10 cm body now feels right, Run 1's last sign-off.
    - **The garage (optional; the integrator judged the estimates close enough on 7 October).** The tape fit is within 2 to 4% on each axis, which is invisible in play, and Run 2's five objects do not need better. The measurements only explain the width gap for the pipeline's sake:
      - a second width at the rear-door end, and one corner-to-corner diagonal, to settle the 17 cm width gap;
      - whether the selfie-camera shots were intentional;

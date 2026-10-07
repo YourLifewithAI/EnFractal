@@ -130,7 +130,7 @@ Each run is built by a parallel team: one builder per packet group with owned fi
 |---|---|---|
 | **Run 0 — contracts** (done 6 October 2026) | Schemas for the room manifest, asset metadata, style preset, game command and room state; the owned-file map per track | [contracts/](../contracts/README.md), [ownership](runs/OWNERSHIP.md), [Run 1 brief](runs/RUN-1.md); the game loads rooms and presets through them |
 | **Run 1 — the charming box** | L1 L2 L3 · P1 P2 · C1 C2 · A1 | The placeholder room with primitive props passes the look gate from fixed cameras; the 10 cm body feels right; the garage photo set yields a coverage report with specific guidance; the command surface passes its boundary tests with a mock client |
-| **Run 2 — five real objects** | C0 C3 C4 C5 · L4 L6 · P3 P6 · A2 | Five garage objects stand in the styled room with collision; the player picks one up and carries it; the companion fetches one; the room rebuilds from data |
+| **Run 2 — five real objects** | C0 C5 C7 (started) · L4 L6 · P3 P6 · A2 · the journal's data | Five real household objects stand in the styled room with collision; the player picks one up and carries it; the companion fetches one; the room rebuilds from data |
 | **Run 3 — the garage** | C6 C7 · L5 L7 · P4 P5 · A3 | **The milestone:** the whole garage captured, styled, sandboxable and saved; a real AI client performs one loose wish; locks and stop hold |
 | **Run 4 — scenarios and a second room** | A4 · the back yard as an outdoor shell · look iteration | Each scenario runs from a loose wish; the outdoor edge case works; budgets hold |
 | **Run 5 — playtests and release** | Accessibility, performance, fresh-player sessions, Windows build | Founder and fresh players complete the loop without coaching |
@@ -186,6 +186,8 @@ Details are in [the Run 1 status page](runs/RUN-1-STATUS.md).
 - **The game refuses what the companion cannot do yet,** with a reason. More freedom for the AI is a later challenge.
 - **Voice is deferred** until the baseline game is fully designed and working; it is a UI extension. The UI comes first: keyboard, fixed commands and symbolic buttons.
 - **Run 2 keeps its spine: real objects first.** Building comes after the sandbox verbs and the real host.
+- **The player's own AI makes the game's objects** (late on 7 October). It uses software on the player's computer (Blender, local models) or its own connectors and tools, guided by the game's MCP. No hosted or paid service is ever required, so the capture guidance (C7) is part of the product. Run 2 spends nothing online.
+- **Run 2's five objects** are household ones: a cardboard box, a couch with wooden legs, a gaming laptop, an empty Bonne Maman jam jar and a metal French press. **The journal's data work starts in Run 2.** See [the Run 2 plan](runs/RUN-2.md).
 - **The Look direction** is the founder's Google Doc `Art inspiration/Look and Art Style direction`: details make a scene, consistency within a theme, colour contrast as focus, palettes by season, and tight tilt-shift for an observe view.
 
 ## Pointers
