@@ -163,6 +163,27 @@ The images stay in Google Drive (`Enfractal/Art inspiration`) and are cited by f
 - **Buildings are sized for the 10 cm figurines.**
 - The invention workshop's part-by-part editor is retired as a player-facing concept; its validation, budgets, receipts and undo may carry the kit.
 
+**The founder's answers on building (evening of 6 October). The design doc is [docs/companion/BUILDING.md](../companion/BUILDING.md).**
+- **Structure classes with their own rule sets.** Anything built as a building is enterable. Other classes have different rules: decorations, gardens with plants that grow, fences, porches, ponds, pools, chairs and so on.
+- **Animated assembly** is the most charming. No materials for now. A materials mode is worth raising again later, for example "build only with what you see" in the garage.
+- **The player confirms "build it".** Players should know they can modify a building afterwards, and the code must allow it ("add another room to the east wing").
+- **Grounded by default.** Buildings must rest on something physical unless the player says floating is fine. It is an easy toggle, or the companion confirms it.
+- **Editing after building:** yes, very much so. **Saving your own designs:** yes.
+- **The first kit: Tiny Glade-like Victorian.**
+- **The companion shrinks to match the player (10 cm).**
+- **Modes (later).**
+  - A strictly creative mode: build and do anything, with no worry about carrying.
+  - A grounded mode, where the player and companion live by physics. It is a challenge: critters in the shadows or at certain times, gathering resources, being clever.
+  - In some modes, upgrading your AI improves its in-game capabilities.
+
+**The founder's answers on the companion (Lane A's questions):**
+- A companion's undo stays limited to its own changes.
+- The companion remembers what it has seen and where, and says when that may be out of date.
+- Standard emoji markers are allowed in names and signs, and other invisible characters stay blocked.
+- The live MCP client check waits: the founder will connect a real AI later.
+
+**The founder on the look:** the high-angle view reads almost entirely orange largely because the room's own objects are orange-hued (the boxes, the book, the rug and the floor), not only because of the light. Vary the test room's object colours (the integrator's room builder) as well as the preset's palette.
+
 ## What changes for the lanes
 
 - **L.**

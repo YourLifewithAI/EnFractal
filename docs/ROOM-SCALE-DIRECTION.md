@@ -160,6 +160,12 @@ Details and the founder's reference notes are in [the Run 1 status page](runs/RU
 - **No approval clicks.** Host-enforced tiers with undo, preview-then-commit, and a spoken or keyed "yes" only for the irreversible; see [the live voice design](companion/LIVE-VOICE.md). A fixed command set comes first, with a help panel.
 - **Bring your own AI.** Players connect their own AI or agent harness to the game's MCP surface. No model is bundled for now, and no hosted AI is provided. The audience is people who already use AI well. Multiplayer with players and their AIs comes later.
 - **Style before medium.** First settle one artistic style in the spirit of Tiny Glade, with camera angles that read as artistic rather than photorealistic. Material media come later.
+- **Building is a conversation over a ghost draft.** A kit of combinable pieces, starting with a Tiny Glade-like Victorian set, is assembled under host-enforced rules. Structure classes have their own rule sets, and buildings are always enterable. Buildings are grounded unless the player lets them float. The player confirms every build, can edit it afterwards and can save designs. Buildings are sized for the 10 cm figurines. See [the building design](companion/BUILDING.md).
+- **The companion is the player's size (10 cm).**
+- **Modes, later:**
+  - a strictly creative mode;
+  - a grounded challenge mode, with physics for both avatars, critters in the shadows, resources to gather, and AI upgrades that improve the companion's in-game abilities;
+  - a "build only with what you see" mode in a captured room.
 - **Physics:** the 10 cm body runs at 1 unit = 1 metre with no ×10 import scale, on Jolt Physics. The room renders with Forward+.
 
 ## Pointers
