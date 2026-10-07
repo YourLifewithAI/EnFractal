@@ -1,5 +1,5 @@
 #requires -Version 7.0
-# Runs the small-avatar fixture and the room data/builder fixture, then boots the default room headlessly.
+# Runs the small-avatar fixture, the room navigation fixture and the room data/builder fixture, then boots the default room headlessly.
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'native-toolchain.ps1')
 $toolchain = Get-EnfractalNativeToolchain

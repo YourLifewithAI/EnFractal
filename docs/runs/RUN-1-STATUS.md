@@ -31,7 +31,7 @@ Evidence on `run1/integration`, Windows 11 desktop, 6 October 2026:
   - Canonical JSON v1, byte-identical in Python, C# and GDScript, with a golden fixture.
   - The authority works on room bounds and locks, with a physics surface query and the principals `player:local` and `companion:local`.
   - A C# command host (`Kernel/CommandHost.cs`) handles `enfractal.command` and `enfractal.query`: receipts, idempotent replay, revisions and held approvals. The HUD's companion keys now go through it.
-  - A 10 cm body: radius 2 cm, eye 8.7 cm, reach 15 cm, jump 6.5 cm. Gravity has three presets, cycled with G: tuned 3.5, real 9.8 and floaty 1.6 m/s².
+  - A 10 cm body: radius 2 cm, eye 8.7 cm, reach 15 cm, jump 6.5 cm. Gravity has three presets, cycled with G: tuned 3.5, real 9.8 and floaty 0.6 m/s² (0.6 m/s fall limit, 2× air control; changed after the founder's first playtest).
   - A jitter spike showed **no need for a ×10 world scale**.
   - **Jolt Physics.**
   - Records are in `docs/engine/phase3/`. The playtest script is in `docs/engine/phase3/body-and-physics.md`.
