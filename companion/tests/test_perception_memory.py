@@ -45,7 +45,7 @@ BESIDE_THE_DOORSTOP = [-0.15, 0.0, 0.5]  # within reach of the doorstop at (-0.3
 OUT_OF_EVERY_SIGHT = [-1.7, 0.0, -1.2]  # behind the table: hidden from the spawn, the box and the doorstop
 IN_THE_OPEN = [0.9, 0.0, 1.0]  # on the rug, in sight of the spawn and of the doorstop's place
 
-FAST = HostPolicy(command_rate_per_s=1000.0, command_burst=1000, query_rate_per_s=1000.0, query_burst=1000)
+FAST = HostPolicy(companion_messages_per_s=1_000_000)
 MEMORY_FIELDS = ("seen", "last_seen_ago_s", "last_seen_revision", "may_be_stale")
 
 

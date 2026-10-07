@@ -207,7 +207,9 @@ class Adapter:
                 if key in arguments:
                     message[key] = arguments[key]
             if message.get("preview") is False:
-                del message["preview"]  # the same command as no preview at all
+                # The tool flag defaults to false; only true is sent. On the wire an added "preview": false is
+                # other content (the game fingerprints the command as received), so the default never travels.
+                del message["preview"]
             if message["action_id"] is None:
                 del message["action_id"]
         else:

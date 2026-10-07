@@ -16,7 +16,7 @@ from support import (
 
 from enfractal_companion.textsafety import hidden_characters
 
-FAST = dict(command_rate_per_s=1000.0, command_burst=1000, query_rate_per_s=1000.0, query_burst=1000)
+FAST = dict(companion_messages_per_s=1_000_000)
 SPINNER = example("command_creation_place_spinner")["args"]["source"]
 
 
@@ -64,6 +64,16 @@ class Receipts(FixCase):
         self.assertEqual(replay["revision"], first["revision"])
         conflict = self.send(command("protect.lock", {"targets": ["obj:book"]}, "lock-1", expected_entities={"obj:book": 0}))
         self.assertRefused(conflict, "action_id_conflict")
+        # Like the kernel's save, a compacted receipt keeps only its revision and a 64-bit fingerprint prefix.
+        self.assertEqual(len(self.host.compacted[(COMPANION, "lock-1")].fingerprint_prefix), 16)
+
+    def test_a_checkpoint_answers_its_revision_and_replays_it(self):
+        self.lock("obj:box", "lock-1")
+        checkpoint = self.send(command("room.checkpoint", {"label": "before the storm"}, "cp-1"))
+        self.assertEqual(checkpoint["data"], {"checkpoint_revision": 1})  # the kernel host's answer, nothing more
+        again = self.send(command("room.checkpoint", {"label": "before the storm"}, "cp-1"))
+        self.assertTrue(again["replayed"])
+        self.assertEqual(again["data"], checkpoint["data"])
 
     def test_receipt_limit_counts_every_principal_in_the_room(self):
         self.lock("obj:box", "lock-1")
@@ -93,6 +103,22 @@ class Stops(FixCase):
         preview = self.send(command("goal.stop", {}, "stop-1", preview=True))
         self.assertTrue(preview["preview"])
         self.assertIn("avatar:companion", self.host.goals)
+
+    def test_a_stop_preview_never_replays_or_conflicts(self):
+        self.send(command("goal.set", {"actor": "avatar:companion", "goal": "follow"}, "g-1"))
+        preview = self.send(command("goal.stop", {}, "g-1", preview=True))
+        self.assertTrue(preview["ok"] and preview["preview"] and not preview["replayed"], preview)
+        self.assertIn("avatar:companion", self.host.goals)
+
+    def test_a_stop_reusing_a_durable_action_id_leaves_that_receipt_replayable(self):
+        lock = command("protect.lock", {"targets": ["obj:box"]}, "lock-1", expected_entities={"obj:box": 0})
+        first = self.send(lock)
+        self.assertTrue(self.send(command("goal.stop", {}, "lock-1"))["ok"])
+        replay = self.send(lock)
+        self.assertTrue(replay["ok"] and replay["replayed"], replay)
+        self.assertEqual(replay["revision"], first["revision"])
+        lookup = self.send(query("receipt.lookup", {"action_id": "lock-1"}))["data"]
+        self.assertEqual(lookup["receipt"]["op"], "protect.lock")
 
 
 class Checkpoints(FixCase):
@@ -138,11 +164,34 @@ class Previews(FixCase):
                                     preview=True))
         self.assertRefused(preview, "action_id_conflict")
 
-    def test_an_explicit_preview_false_is_the_same_command(self):
+    def test_a_retry_that_only_adds_preview_false_is_a_different_command(self):
+        """The contract fingerprints the command as received, and so does the kernel host: an added
+        "preview": false is other content. (The MCP tools never send it; see test_mcp_boundary.)"""
         first = self.send(command(*self.LOCK, "lock-1", expected_entities={"obj:box": 0}))
+        self.assertTrue(first["ok"], first)
+        before = self.world()
         again = self.send(command(*self.LOCK, "lock-1", expected_entities={"obj:box": 0}, preview=False))
-        self.assertTrue(again["replayed"])
-        self.assertEqual(again["revision"], first["revision"])
+        self.assertRefused(again, "action_id_conflict", "$.action_id")
+        self.assertEqual(self.world(), before)
+        self.assertTrue(self.send(command(*self.LOCK, "lock-1", expected_entities={"obj:box": 0}))["replayed"])
+
+    def test_a_first_command_with_preview_false_replays_only_as_sent(self):
+        first = self.send(command(*self.LOCK, "lock-1", expected_entities={"obj:box": 0}, preview=False))
+        self.assertTrue(first["ok"] and not first["preview"], first)
+        self.assertTrue(self.send(command(*self.LOCK, "lock-1", expected_entities={"obj:box": 0}, preview=False))["replayed"])
+        self.assertRefused(self.send(command(*self.LOCK, "lock-1", expected_entities={"obj:box": 0})), "action_id_conflict")
+
+    def test_a_preview_under_a_committed_action_id_is_a_conflict_even_for_the_same_command(self):
+        self.send(command(*self.LOCK, "lock-1", expected_entities={"obj:box": 0}))
+        preview = self.send(command(*self.LOCK, "lock-1", expected_entities={"obj:box": 0}, preview=True))
+        self.assertRefused(preview, "action_id_conflict")
+
+    def test_a_preview_then_the_command_under_the_same_action_id_commits(self):
+        preview = self.send(command(*self.LOCK, "lock-1", expected_entities={"obj:box": 0}, preview=True))
+        self.assertTrue(preview["ok"] and preview["preview"], preview)
+        committed = self.send(command(*self.LOCK, "lock-1", expected_entities={"obj:box": 0}))
+        self.assertTrue(committed["ok"] and not committed["replayed"], committed)
+        self.assertTrue(self.host.entities["obj:box"].protected)
 
 
 class Numbers(FixCase):

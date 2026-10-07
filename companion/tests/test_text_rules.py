@@ -168,7 +168,7 @@ class ContractAware(unittest.TestCase):
                          "Keycap 1️⃣ and smuggled \U0001f600   \U0001f3f4" + " " * 6)
 
     def test_requests_with_emoji_pass_and_requests_with_hidden_markers_are_refused(self):
-        host = new_host(policy=HostPolicy(command_rate_per_s=1000.0, command_burst=1000))
+        host = new_host(policy=HostPolicy(companion_messages_per_s=1_000_000))
         ok = host.handle(COMPANION, command("goal.set", {"actor": "avatar:companion", "goal": "stay"}, "g-1",
                                             note="Back soon ❤️ 1️⃣"))
         self.assertTrue(ok["ok"], ok)

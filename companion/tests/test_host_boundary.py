@@ -217,12 +217,36 @@ class Approvals(HostCase):
         self.assertFalse(self.host.entities["obj:box"].removed)
 
     def test_refuses_more_than_the_pending_approval_limit(self):
+        limit = self.host.policy.max_pending_approvals
+        self.assertEqual(limit, 8)  # the kernel host's MaxPendingApprovals
         targets = ["obj:box", "obj:book", "obj:rug", "obj:doorstop"]
-        for i, target in enumerate(targets[:3]):
-            self.hold_remove(f"remove-{i}", target)
-        result = self.send(command("entity.remove", {"target": targets[3]}, "remove-3", expected_entities={targets[3]: 0}))
+        for i in range(limit):
+            self.hold_remove(f"remove-{i}", targets[i % len(targets)])
+        result = self.send(command("entity.remove", {"target": "obj:box"}, "remove-9", expected_entities={"obj:box": 0}))
         self.assertRefused(result, "rate_limited")
         self.assertTrue(result["error"]["retryable"])
+        self.assertEqual(len(self.host.pending_approvals()), limit)
+
+    def test_approval_status_reports_a_lapse_at_once(self):
+        """As the kernel host does: no click is needed for a stale request to stop being pending."""
+        held = self.hold_remove()
+        request_id = held["approval_needed"]["request_id"]
+        moved = self.host.player_command(command("entity.place", {"target": "obj:box",
+                                                                  "placement": {"position_m": [1.2, 0, 0.3]}}, "move-1"))
+        self.assertTrue(moved["ok"])
+        status = self.send(query("approval.status", {"request_id": request_id}))["data"]
+        self.assertEqual(status["state"], "expired")
+        self.assertEqual(status["result"]["error"]["code"], "approval_mismatch")
+        self.assertEqual(self.host.pending_approvals(), [])
+        again = self.send(command("entity.remove", {"target": "obj:box"}, "remove-1", expected_entities={"obj:box": 0}))
+        self.assertRefused(again, "approval_mismatch")
+        self.assertFalse(again["error"]["retryable"])
+
+    def test_the_player_can_read_a_companions_approval_status(self):
+        held = self.hold_remove()
+        status = self.host.handle(PLAYER, query("approval.status", {"request_id": held["approval_needed"]["request_id"]}))
+        self.assertTrue(status["ok"], status)
+        self.assertEqual(status["data"]["state"], "pending")
 
     def test_player_commands_are_not_held(self):
         result = self.host.player_command(command("entity.remove", {"target": "obj:box"}, "p-remove",
@@ -564,7 +588,10 @@ class SizeLimits(HostCase):
 
 
 class RateLimits(HostCase):
-    policy = HostPolicy(command_rate_per_s=1.0, command_burst=3, query_rate_per_s=1.0, query_burst=3)
+    """The kernel host's limit: a companion sends at most N messages in any one second, commands and queries
+    together, counted before parsing; stops are exempt and the player is never limited."""
+
+    policy = HostPolicy(companion_messages_per_s=3)
 
     def goal(self, i):
         return command("goal.set", {"actor": "avatar:companion", "goal": "stay"}, f"stay-{i}")
@@ -574,16 +601,32 @@ class RateLimits(HostCase):
         self.assertTrue(all(r["ok"] for r in results[:3]))
         self.assertRefused(results[3], "rate_limited")
         self.assertTrue(results[3]["error"]["retryable"])
+        # Refused before parsing: nothing of the message is echoed, as in the kernel host.
+        self.assertEqual(results[3]["op"], "invalid")
+        self.assertNotIn("action_id", results[3])
         self.clock.advance(1.0)
-        self.assertTrue(self.send(self.goal(4))["ok"])
+        self.assertRefused(self.send(self.goal(4)), "rate_limited")  # a one-second window, as the kernel's
+        self.clock.advance(0.01)
+        self.assertTrue(self.send(self.goal(5))["ok"])
 
     def test_refuses_a_query_flood(self):
         results = [self.send(query("room.describe", {}, f"q-{i}")) for i in range(4)]
         self.assertRefused(results[3], "rate_limited")
 
+    def test_commands_and_queries_share_one_budget(self):
+        self.assertTrue(self.send(self.goal(0))["ok"])
+        self.assertTrue(self.send(query("room.describe", {}, "q-1"))["ok"])
+        self.assertTrue(self.send(self.goal(1))["ok"])
+        self.assertRefused(self.send(query("room.describe", {}, "q-2")), "rate_limited")
+
     def test_refuses_floods_of_invalid_messages_too(self):
         for i in range(3):
             self.send(command("entity.teleport", {}, f"bad-{i}"))
+        self.assertRefused(self.send(self.goal(9)), "rate_limited")
+
+    def test_refuses_floods_of_unparseable_bytes_too(self):
+        for _ in range(3):
+            self.host.emitted.append(self.host.handle_bytes(COMPANION, b"{not json"))
         self.assertRefused(self.send(self.goal(9)), "rate_limited")
 
     def test_stop_ops_are_never_rate_limited(self):
@@ -591,12 +634,26 @@ class RateLimits(HostCase):
             self.send(self.goal(i))
         self.assertTrue(self.send(command("goal.stop", {}, "stop-1"))["ok"])
         self.assertTrue(self.send(command("effect.stop", {"effect": "all"}, "stop-2"))["ok"])
+        stop = self.host.handle_bytes(COMPANION, b'{"schema":"enfractal.command","version":1,"action_id":"stop-3",'
+                                                 b'"room_id":"test_room","op":"goal.stop","args":{}}')
+        self.host.emitted.append(stop)
+        self.assertTrue(stop["ok"], stop)  # with no budget left, text that may be a stop is still parsed
 
-    def test_rate_limits_are_per_principal(self):
+    def test_the_player_is_never_rate_limited(self):
         for i in range(4):
             self.send(self.goal(i))
-        player = self.host.player_command(command("goal.set", {"actor": "avatar:companion", "goal": "follow"}, "p-1"))
-        self.assertTrue(player["ok"], player)
+        for i in range(10):
+            player = self.host.player_command(command("goal.set", {"actor": "avatar:companion", "goal": "follow"},
+                                                      f"p-{i}"))
+            self.assertTrue(player["ok"], player)
+
+    def test_rate_limits_are_per_companion(self):
+        self.host = new_host(policy=self.policy, clock=self.clock, extra_companions={"companion:visitor": "avatar:visitor"})
+        for i in range(4):
+            self.send(self.goal(i))
+        visitor = self.host.handle("companion:visitor", command("goal.set", {"actor": "avatar:visitor", "goal": "stay"},
+                                                                 "v-1"))
+        self.assertTrue(visitor["ok"], visitor)
 
 
 class ContractShape(HostCase):
