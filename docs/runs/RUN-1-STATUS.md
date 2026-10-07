@@ -10,7 +10,7 @@ Run 1 is **in progress**. This page is the handoff: where every lane stands, wha
 | `run1/play` | `1a50485`: P1, P2, the first-playtest fixes, the 10 cm companion, the hover fix, and the fix round for the independent review. Every review finding is fixed and tested. Merged. |
 | `run1/companion` | `518e31d`: A1 and two fix rounds. Every review finding is fixed. Also: perception memory, emoji markers in context, the play-only profile, the 10 cm mock companion. 469 tests. Merged. |
 | `run1/look` | `9390e2f`: L1–L3 and two art rounds. Light comes only from real sources: the sun through the west window on a 30°N solar model, a sky fill, moonlit nights, lamps at dusk. The orange cast is gone, and there are high-angle and isometric review cameras. The preset is still `draft`. Merged. |
-| `run1/capture` | `65539b5`: C1 and C2 run end to end on the garage set with Apache-2.0 weights only; 43 tests. The coverage report is local only, in the capture worktree's `captures/garage/`. Merged. Waiting on the founder's verdict. |
+| `run1/capture` | `65539b5`: C1 and C2 run end to end on the garage set with Apache-2.0 weights only; 43 tests. The coverage report is local only, in the capture worktree's `captures/garage/`. Merged. **The founder judged the guidance useful (below), which meets C2's acceptance.** |
 
 Evidence on `run1/integration` at `72e9015`, from the second Windows machine (RTX 2070 SUPER):
 
@@ -40,7 +40,8 @@ Evidence on `run1/integration` at `72e9015`, from the second Windows machine (RT
   - move the review clock so the review frames catch sun on the avatars;
   - reframe the companion review camera for the 10 cm body.
 - **Reviews not yet done:** Lane C has never been independently reviewed. Lane L has not been reviewed since `7b664e7`. Per ORCHESTRATION.md, both are due as whole-lane reviews at Run 1 exit, since both lanes completed their Run 1 packets.
-- The reviewer's temporary worktree `C:\dev\EnFractal-run1\review-play` still holds three untracked scratch files. The founder decides whether to remove it.
+- **Lane C: fit the room's scale to the tape.** The founder's tape measurements (below) show the reconstruction runs large and unevenly so. Roomscan should take known lengths as an input, fit the scale to them, and report what is left over.
+- The reviewer's temporary worktree `C:\dev\EnFractal-run1\review-play` holds only three untracked scratch probes from the Lane P review, whose findings are all fixed and tested. The founder approved removing it and removes it by hand: the automatic safety check blocks agents from deleting it. Its `.cache\dotnet` and `.cache\godot` are junctions into the integrator's checkout, so unlink those first.
 
 ## Founder decisions, 6 October 2026
 
@@ -147,6 +148,19 @@ The images stay in Google Drive (`Enfractal/Art inspiration`) and are cited by f
 
 **The founder on the look:** the high-angle view reads almost entirely orange largely because the room's own objects are orange-hued (the boxes, the book, the rug and the floor), not only because of the light. Vary the test room's object colours (the integrator's room builder) as well as the preset's palette.
 
+## The founder's verdict on the garage coverage report (later on 6 October)
+
+- **The guidance is useful.** C2's acceptance is met.
+- **Product decision:** the game should give every player the same guidance as it stitches their rooms into game sets. Capture guidance becomes a player-facing feature; plan it in Run 2 or later.
+- **Tape measurements** of the inside length, the width across the garage-door end, the ceiling height and the rear entry door's opening. They are kept with the capture data in the capture worktree's `captures/garage/tape-measurements.json`, never committed. Compared with session `s-27647e23c354`:
+  - the room came out about 4% too long, 11% too wide and 7% too tall. All three are inside the report's stated ±13%, so the error bar held;
+  - the cause is metric scale. The 7 pose batches disagree on scale by 12.8%, and the merged room was rescaled by 1.1385 to the median batch. One uniform shrink of about 7% would leave about ±3% on each axis;
+  - the gap between the length (+4%) and the width (+11%) is not explained yet: a wall-plane fit or the batch joins are the suspects;
+  - the 0.5x photos are not clearly to blame. The two batches that hold them (the seed and batch 1) would make the room about 6% small, four of the others about 7% large, and batch 6, which holds none, agrees with the seed. The truth lies between the two groups, which looks like ordinary scale noise in the model.
+- **Duplicates:** confirmed. Many photos were uploaded twice. The 165 exact copies are skipped and do no harm.
+- **The 0.5x ultra-wide shots were intentional,** to see more of the room at once. The selfie-camera shots are not yet explained.
+- **The founder offered to reshoot the whole set.** The integrator's recommendation: not needed. 180 of 205 photos already join into one model. A top-up of the report's nine steps (about 41 photos on the 1x back camera) closes the gaps, and it tests the guidance end to end: follow it, rerun, and see the coverage rise.
+
 ## What changes for the lanes
 
 - **L.**
@@ -158,6 +172,7 @@ The images stay in Google Drive (`Enfractal/Art inspiration`) and are cited by f
   - Isometric and free build cameras (with P5).
   - Light switches and blinds as physical, puzzle-like interactions at 10 cm (P3 sandbox verbs).
 - **A.** Help with light control through capabilities such as levitate (A3); the command help panel; the tiers in place of clicks.
+- **C.** Take known lengths (a wall, the ceiling, a door) as an input, fit the room's scale to them, and report the residual on each axis. Explain the width-versus-length gap. Later: the capture guidance as a player-facing feature.
 - **UI.** A help tab listing the fixed companion commands. Symbolic command buttons as the non-voice path.
 
 ## Next steps when work resumes
@@ -169,7 +184,7 @@ The images stay in Google Drive (`Enfractal/Art inspiration`) and are cited by f
      - the companion following beside you at 10 cm, and walking round the big box with come (3);
      - both avatars standing on the rug and the book;
      - the window light at different times of day.
-   - **The garage coverage report:** the verdict, plus a tape measurement of one wall or the door, whether the photos were uploaded twice, and whether the 0.5x and selfie shots were intentional.
+   - **The garage coverage report:** the verdict and the measurements are in (above). Still open: whether the selfie-camera shots were intentional, and, whenever convenient, the top-up photos from the report's nine steps.
    - The remaining art reference notes, and the look verdict.
    - Connect a real AI when ready (the live MCP client check).
 2. **Integrator, in a fresh session:**
