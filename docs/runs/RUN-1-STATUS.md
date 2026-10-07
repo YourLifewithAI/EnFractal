@@ -33,7 +33,7 @@ Evidence on `run1/integration` at `0fc905b` (after the contract change, the P ke
     - The round also found two mock bugs (a stop under a compacted action id hid that receipt; a compacted checkpoint replayed as `internal_error`). Fixed in `0fc905b`, with tests that fail before the fix. The alignment test now also pins the memory and job limits.
   - **The kernel round's three questions; the founder answered on 7 October:**
     - **Goals are not numbered.** The player sees a description of each goal, never a number. A **journal** shows what the player and the companion are working on: old tan drafting paper inside a leather-bound notepad. That is UI (P5) with Look's art direction. The protocol still needs a handle so an AI can ask about one goal. **Integrator's proposal (next P and A rounds):** make `job_id` an opaque random token instead of a counter, so it reveals nothing and is never shown to the player.
-    - **Goals the companion cannot carry out yet:** the founder asked what "the host refuses" means. Yes: the game itself answers "not yet", with a reason the AI can read, instead of doing something else. The question is still open: is refusing right?
+    - **Goals the companion cannot carry out yet: the game refuses them, for now** (the founder, 7 October). The answer is "not yet", with a reason the AI can read. This keeps the AI bounded today. **Later the founder wants to give the AI more freedom;** that is its own challenge, for a later run.
     - **Memory is selective and about the game, not a log of everything seen.** In the founder's words, it should mostly log "important, game-relevant things".
       - **Kept:**
         - important actions completed, with whose direction ("I built a house at the player's direction");
@@ -43,6 +43,20 @@ Evidence on `run1/integration` at `0fc905b` (after the contract change, the P ke
       - **Why:** otherwise the companion gets bogged down in a mountain of irrelevant information.
       - **What it means for the code:** this replaces the 6 October rule ("remembers what it has seen and where"). The perception memory merged today (every seen entity, at most 256, stale after 60 s) stays as plumbing until Run 2 redesigns it as an event journal plus sightings tied to the current task.
       - **The journal could serve both:** one record of goals and completed actions that the player reads in the notepad and the AI reads through the MCP surface. Small, relevant context also helps weaker models (BYOAI). A design doc for Lane A comes with the Run 2 plan.
+    - **The journal and a minimap** (the founder, 7 October). The founder agreed the journal can serve as the companion's memory.
+      - **The journal shows:**
+        - what has been built;
+        - for a build in progress, how many resources of each kind are still to gather;
+        - in a mode with resources, where they can be found, how many have been gathered, and how much remains in each area.
+      - **In creative mode,** where resources do not matter: a minimap and a journal entry only.
+      - **The minimap:**
+        - normally a small circle in the upper right or upper left of the screen;
+        - with the journal open, the journal takes one side of the screen and an expanded minimap the other.
+      - **The integrator's notes for the design:**
+        - Draw the map from room data (shell polygons, object footprints, creations, avatars) in the journal's ink-on-drafting-paper style, rather than from a second top-down camera. It is cheaper, it matches "the room is data", and it controls what is shown.
+        - Rooms have levels at 10 cm (floor, box tops, shelves), so the map must show which level the player is on.
+        - The AI's journal and map follow the line-of-sight rule: never more than the companion has perceived or been told.
+        - It lands with the journal: UI (P5, pulled into Run 2 if the plan allows), look (L), and the journal's queries and contract (A, with the integrator).
   - **Contract requests: applied on 7 October in `7e2c779`.** Lane A's C1 (`observe` defaults to 20 m, the maximum) and C2 (`"preview": false` is part of the content). Lane P's `room.checkpoint` result data (`checkpoint_revision`, required on a committed checkpoint), the README on receipts and stops, and a player-only `world.set_physics` op (a preset id; transient; the revision does not move). The mock handles it for the player and refuses it from the companion; the adapter never lists it.
     - The host's memory goes stale after 60 s, as proposed. Still only proposed: keep the adapter's tighter rate limits in front of the host's.
 - **Save migration between room manifests:** today the player only gets a notice. A proposal is in `command-host.md`.
@@ -276,7 +290,6 @@ The source is the Google Doc `Look and Art Style direction`, with ten frames fro
    - **The look verdict** on the L fix round's after-captures. The founder's Look direction arrived on 7 October (above), and the L fix round folds it in.
    - **Remove `C:\dev\EnFractal-run1\review-play`.** Unlink its two `.cache` junctions first: the commands are in the 7 October chat, and the automatic safety check blocks agents from deleting it.
    - **Connecting a real AI:** the kernel round fixed `capabilities.list` (P1), which blocked it. A real AI talks to the mock host today (A1's live check, after `claude` /login); the real game host joins with A2 in Run 2.
-   - **Whether the game should refuse goals the companion cannot carry out yet** (under "Still open"). The other two kernel-round questions are answered.
    - **Test builds:** a desktop shortcut, `EnFractal (test build)`, builds and runs `C:\dev\EnFractal` (the integration branch) through `run-room.ps1`. On a failed build, its console stays open with the error.
 2. **Integrator, in a fresh session:**
    - Read ORCHESTRATION.md and this page.
@@ -287,7 +300,7 @@ The source is the Google Doc `Look and Art Style direction`, with ten frames fro
      - M1 also needs `RoomBuilder` to cut `shell.openings`, which is a change to the room builder in P's code (`game/scripts/native/Room/**`);
      - check the floorboard shimmer under FXAA.
    - Write `RUN-1-REPORT.md`.
-   - Plan Run 2: building ([BUILDING.md](../companion/BUILDING.md)), the sandbox verbs (grab and carry), modes, voice v0, the first captured room, the capture guidance as a player-facing feature, **the companion's selective memory and the journal** (a design doc for Lane A, the notepad UI for P5, its look for L), and opaque `job_id` handles.
+   - Plan Run 2: building ([BUILDING.md](../companion/BUILDING.md)), the sandbox verbs (grab and carry), modes, voice v0, the first captured room, the capture guidance as a player-facing feature, **the companion's selective memory, the journal and the minimap** (a design doc for Lane A, the notepad and minimap UI for P5, their look for L), and opaque `job_id` handles.
 3. **A cloud session** runs `tools/linux/test-all.sh` on the merged head.
 
 ## Picking this up
