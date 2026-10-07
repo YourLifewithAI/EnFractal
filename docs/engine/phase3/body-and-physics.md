@@ -1,10 +1,10 @@
 # The 10 cm body and room physics (Run 1, P2)
 
-> **Kernel record, 6 October 2026, revised after the founder's first playtest the same day.** What the player's body is, why, and what was measured. Feel is not certified here: the founder's playtest decides it. Scale and units follow the [room-scale direction](../../ROOM-SCALE-DIRECTION.md): one world unit is one metre. What the founder said and what changed is under [Founder playtest 1](#founder-playtest-1-6-october-what-was-said-and-what-changed).
+> **Kernel record, 6 October 2026, revised after the founder's first playtest the same day, and again that evening when the companion shrank to 10 cm and the hover was fixed.** What the player's body is, why, and what was measured. Feel is not certified here: the founder's playtest decides it. Scale and units follow the [room-scale direction](../../ROOM-SCALE-DIRECTION.md): one world unit is one metre. What the founder said and what changed is under [Founder playtest 1](#founder-playtest-1-6-october-what-was-said-and-what-changed); the companion's new size is under [The companion's body](#the-companions-body-10-cm-since-the-evening-of-6-october) and the hover under [Why the avatars looked like they hovered](#why-the-avatars-looked-like-they-hovered).
 
 ## The body
 
-`game/native/WorldScaleProfile.cs` defines the player as **0.10 m tall, 0.02 m radius, eye at 0.087 m, reach 0.15 m**. The companion keeps its own profile (`WorldScaleProfile.Companion`, 0.24 m) and its own speeds; whether it should shrink towards the player is an open founder question.
+`game/native/WorldScaleProfile.cs` defines the player as **0.10 m tall, 0.02 m radius, eye at 0.087 m, reach 0.15 m**. The companion has the same body since the founder's decision on the evening of 6 October ("the companion shrinks to match the player"), but keeps its own profile object (`WorldScaleProfile.Companion`) and its own speeds, because companion upgrades may change its abilities later.
 
 `game/scripts/native/SmallPlayerController.cs` holds the body properties. Values are tunings for the playtest, chosen body-relative (body heights per second, fractions of body height). The third column is the first pass the founder played; bold values are current.
 
@@ -22,6 +22,30 @@
 | Creation push cap | 8 m/s | 1.2 m/s | **1.2 m/s** | Inventions push the body at body scale |
 
 The body also carries the creation-effect API ported from the retired 1.7 m GDScript fixture (`SetCreationEffects`, `ClearCreationMotion`, a position guard that keeps creation-driven motion and recovery out of locked zones). The invention runtime drives the real player and companion through it.
+
+The visual body is an original blockout: a pill from the feet to three quarters of the height, a head and two eyes. Since the hover fix the pill reaches down to the collider's lowest point, and the visual is **seated** on whatever the capsule stands on (below).
+
+## The companion's body: 10 cm since the evening of 6 October
+
+`game/scripts/native/CompanionAvatar.cs`. Everything that was sized for the 0.24 m body is scaled to the 10 cm one (about ×0.42 for distances). The look is kept: the pill, the hat (a cone as wide as the body, a third of its height), the eyes, the gold pointing cue and the name label, all sized from the body.
+
+| Property | 0.24 m companion (before) | 10 cm companion (now) | Why |
+|---|---|---|---|
+| Height / radius / eye / reach | 0.24 / 0.055 / 0.205 / 0.40 m | **0.10 / 0.02 / 0.087 / 0.15 m** | The player's body; its own profile object |
+| Walk / run | 0.80 / 1.65 m/s | **0.32 / 1.20 m/s** | The run is 1.25× the player's 0.96 m/s run, so follow still closes a gap while the player runs. Follow and come always use the run speed as their cap; the walk is only for stepping aside |
+| Ground / air acceleration | 9.0 / 3.0 m/s² | **7.5 / 2.5 m/s²** | The player's 0.16 s ramp to full run |
+| Step / floor snap / jump | 0.04 / 0.025 / 0.065 m | **0.02 / 0.015 / 0.065 m** | The player's: the rug is a step, the book a jump |
+| Follow band (near / far) | 0.30 / 0.65 m | **0.12 / 0.30 m** | At the near edge, 8 cm (two body-widths) of floor between the two figures |
+| Follow place (side / ahead) | 0.40 / 0.08 m | **0.16 / 0.04 m** | Beside the player and in view of the over-the-shoulder camera |
+| Come stops at | 0.32 m | **0.14 m** | |
+| Steps aside when the player is within | 0.20 m | **0.08 m** | Below the come distance, so come never backs away |
+| Side change, detour, corner, stuck distances | 6, 5, 5, 3 cm | **3, 3, 2.5, 1.5 cm** | Body-relative |
+| Slowest approach | 0.15 m/s | **0.08 m/s** | The last centimetres never creep |
+| Local steering probe | 0.14 m | **0.06 m** | Three body radii |
+| Navigation agent (radius / height / climb) | 8 / 24 / 3 cm | **4 / 10 / 1 cm** | 2 cm body plus 2 cm clearance, exactly two cells |
+| Label height / text | 0.33 m / 36 mm | **0.135 m / 18 mm** | |
+
+The companion's tests were rescaled with it; the low passage it must cross without step headroom is now 11 cm (it was 26 cm for the 0.24 m body).
 
 ## Gravity: a world property, three presets
 
@@ -56,40 +80,76 @@ The diorama rig is not attached to the body, so it orbits without turning it, an
 
 `game/scripts/native/CompanionAvatar.cs`. The founder found that on follow the companion always moved directly behind them: follow aimed at a point rigidly attached 0.55 m behind and 0.22 m beside the player, so every turn swung it round. Follow is now loose:
 
-- **A comfortable band**, measured centre to centre on the floor: closer than **0.30 m** and it eases out, farther than **0.65 m** and it closes in. The companion is 0.24 m tall with a 5.5 cm radius and the player 0.10 m with 2 cm, so 0.30 m leaves about a body-width of the companion between them.
-- **Its place is beside the player's line of travel**, 0.40 m to the side and 8 cm ahead, on whichever side it is already on (it changes side only when it is clearly on the other one). Beside and slightly ahead keeps it out of the over-the-shoulder camera's line and in view.
-- **No re-targeting on turns.** The line of travel comes from the player's velocity and changes only while the player moves, so turning on the spot never moves it (measured: 0 mm while the player turns 270°). Walking back the way you came, it keeps its side instead of crossing behind you.
-- **Smooth, without oscillating.** While it follows it moves at the player's velocity plus 3 m/s per metre of distance to its place, capped at its 1.65 m/s run. It rests as soon as the player stops and it is comfortably inside the band, so it never hunts back and forth (measured: no velocity reversals while settling). Motion is exact through body-relative input while the body turns smoothly (8 rad/s) to face it; at rest it turns to face the player.
-- **Catching up.** Far from its place it runs: with the player running at 0.96 m/s for over six seconds the largest gap was 0.83 m and it finished 0.41 m away.
+Distances below are for the 10 cm companion (the 0.24 m body's are in the table above).
 
-Come now approaches to 0.32 m along the line from the player at up to its run speed, then stays. Stop, stay, look and point are unchanged.
+- **A comfortable band**, measured centre to centre on the floor: closer than **0.12 m** and it eases out, farther than **0.30 m** and it closes in. Both bodies are 10 cm with a 2 cm radius, so 0.12 m leaves about two body-widths between them.
+- **Its place is beside the player's line of travel**, 0.16 m to the side and 4 cm ahead, on whichever side it is already on (it changes side only when it is clearly on the other one, 3 cm off the line). Beside and slightly ahead keeps it out of the over-the-shoulder camera's line and in view.
+- **No re-targeting on turns.** The line of travel comes from the player's velocity and changes only while the player moves, so turning on the spot never moves it (checked: under 1 cm while the player turns 270°). Walking back the way you came, it keeps its side instead of crossing behind you.
+- **Smooth, without oscillating.** While it follows it moves at the player's velocity plus 3 m/s per metre of distance to its place, capped at its 1.20 m/s run. It rests as soon as the player stops and it is comfortably inside the band, so it never hunts back and forth (measured: no velocity reversals while settling, resting 0.17 m from the player). Motion is exact through body-relative input while the body turns smoothly (8 rad/s) to face it; at rest it turns to face the player.
+- **Catching up.** Far from its place it runs: starting 0.83 m behind with the player running at 0.96 m/s for over six seconds, the gap never grew past 0.83 m and it finished 0.17 m away, beside the player. While the player walks it stays beside them (measured: 0.16 m to the side and 4.5 cm ahead, never behind).
+
+Come approaches to 0.14 m along the line from the player at up to its run speed, then stays (measured: 0.140 m). Stop, stay, look and point are unchanged.
 
 ## Navigation: the companion finds its way round furniture
 
 The founder walked behind the big box, summoned the companion, and it stuck on the far side: it only steered locally (five headings round the straight line), and pressed flat against the box every heading collides. `game/scripts/native/Navigation/RoomNavigation.cs` gives it a real map, wired into the room by one line in `RoomWorld.cs` (`Navigation.RoomNavigation.Attach(this)`).
 
-- **Baked at runtime from the room's static collision.** At room load a Recast navigation mesh is baked from the `StaticBody3D` colliders on the world layer under the built room, inside the room bounds. Cells are 2 cm across and 1 cm high. The agent is the companion: radius **8 cm** (its 5.5 cm body plus 2 cm clearance, rounded up to whole cells, which the baker otherwise does with a warning), height **24 cm**, climb **3 cm**, slope 45°, with low ceilings and ledges filtered out. The climb sits below the body's 4 cm step, so a route never asks for a climb the body might fail: the 6 mm rug is walkable, and the 4 cm book and doorstop are walked round. The test room bakes to **69 polygons in about 22 ms**.
+- **Baked at runtime from the room's static collision.** At room load a Recast navigation mesh is baked from the `StaticBody3D` colliders on the world layer under the built room, inside the room bounds. Cells are 2 cm across and 1 cm high. The agent is the companion: radius **4 cm** (its 2 cm body plus 2 cm clearance, exactly two cells; it was 8 cm for the 0.24 m body), height **10 cm** (was 24 cm), climb **1 cm** (three quarters of the 2 cm step, rounded down to whole layers; was 3 cm), slope 45°, with low ceilings and ledges filtered out. The climb sits below the body's 2 cm step, so a route never asks for a climb the body might fail: the 6 mm rug is walkable, and the 4 cm book and doorstop are walked round. The test room bakes to **64 polygons in about 24 ms** (69 in 22 ms with the old agent). The cells stay 2 cm: 1 cm cells would allow a 3 cm agent radius but cost about four times the bake.
 - **Its own navigation map** (2 cm cells, synchronous updates at the end of each physics frame), so it never conflicts with the default map's cell size.
 - **Re-baked when the room changes.** Every 0.25 s the source collision is fingerprinted (which static bodies and shapes, and where, to the millimetre). A change re-bakes once it has held still for 0.2 s, so a carried object is baked where it is put down, not on every frame. Measured: a box added to the test floor was in the mesh 17 ticks later. `MarkDirty()` forces a bake.
-- **Used by follow and come.** Routes are re-planned every 0.1 s, or sooner when the goal moves 5 cm or the mesh is re-baked. Where the walkable line to the goal is straight, the companion keeps its local behaviour: velocity matching, the final approach, and local steering round the player's body. Where the route is a real detour (more than 5 cm longer than the straight line), it steers corner to corner. For follow, a detour to its place counts as outside the band, so a companion resting behind the box comes round. If a wall or furniture covers its side, its place moves to the other side.
-- **Blocked is reported honestly.** When the goal is not on the companion's walkable island, the route ends at the nearest point it can reach. The companion walks there and reports blocked, and the HUD shows "path blocked". It never teleports or crosses a wall. Trying to move for a second without covering 3 cm also reports blocked, and the route is planned again.
+- **Used by follow and come.** Routes are re-planned every 0.1 s, or sooner when the goal moves 3 cm or the mesh is re-baked. Where the walkable line to the goal is straight, the companion keeps its local behaviour: velocity matching, the final approach, and local steering round the player's body. Where the route is a real detour (more than 3 cm longer than the straight line), it steers corner to corner. For follow, a detour to its place counts as outside the band, so a companion resting behind the box comes round. If a wall or furniture covers its side (its place is more than an agent radius off the walkable mesh), its place moves to the other side.
+- **Blocked is reported honestly.** When the goal is not on the companion's walkable island, the route ends at the nearest point it can reach. The companion walks there and reports blocked, and the HUD shows "path blocked". It never teleports or crosses a wall. Trying to move for a second without covering 1.5 cm also reports blocked, and the route is planned again.
 
-Measured headless (Godot 4.7.2, Jolt, 60 Hz):
+Measured headless (Godot 4.7.2, Jolt, 60 Hz). The first column is the 0.24 m companion with local steering only, as the founder played it; the others are with navigation, first for the 0.24 m body and now for the 10 cm one.
 
-| Scenario | Local steering only (before) | With navigation (now) |
-|---|---|---|
-| Test room: player behind the big box, companion on the far side, come sent through the command host (key 3) | Stuck on the far side, 0.70 m away | Round the box and arrived in 60 ticks (1.0 s), no blocked ticks |
-| Test floor: the same box size, 1.2 m apart | Stuck, 0.93 m away, reported blocked | Arrived in 69 ticks; the route is 1.36 m against 1.2 m straight |
-| Follow starting behind the box | (not tested before) | Comes round and rests 0.40 to 0.44 m from the player, with nothing between them |
-| Come from inside a closed pen | Reported blocked | Reported blocked, never crossed a wall; the navigation finds no way out |
+| Scenario | Local steering only (0.24 m) | Navigation, 0.24 m | Navigation, 10 cm (now) |
+|---|---|---|---|
+| Test room: player behind the big box, companion on the far side, come sent through the command host (key 3) | Stuck on the far side, 0.70 m away | Round the box, arrived in 60 ticks | Round the box, arrived in **87 ticks** (1.45 s, at the slower 1.20 m/s run), stopping 0.14 m away, no blocked ticks. Without navigation it still sticks, 0.65 m away |
+| Test floor: the same box size, 1.2 m apart | Stuck, 0.93 m away, reported blocked | Arrived in 69 ticks; route 1.36 m | Arrived in **99 ticks**; the route is **1.30 m** against 1.2 m straight. Without navigation: stuck 0.87 m away, reported blocked |
+| Follow starting behind the box | (not tested) | Rests 0.40 to 0.44 m from the player | Comes round and rests **0.20 m** (test floor) and **0.23 m** (test room) from the player, with nothing between them |
+| Come from inside a closed pen | Reported blocked | Reported blocked, never crossed a wall | The same |
+| A box added to the test floor | | In the mesh 17 ticks later | The same (17 ticks; bake about 100 ms on the 10 × 12 m floor) |
 
 What the navigation does not do yet:
 
 - **The bake runs on the main thread**: about 22 ms for the 4 × 3 m test room and 95 ms for the 10 × 12 m test floor. A large or detailed captured room may need the background bake (`BakeFromSourceGeometryDataAsync`) to avoid a hitch when furniture moves.
 - **Only the room's built geometry is in the mesh.** Creations from the invention runtime and the two avatars are not; local steering handles them.
-- **No jumps or drops in routes** (no navigation links): the companion never plans up onto the book or off a ledge, even though its body could step 4 cm.
-- **Clearance is the companion's 24 cm.** In a captured room, a table or shelf with less than 24 cm under it is walked round, not under.
+- **No jumps or drops in routes** (no navigation links): the companion never plans up onto the book or off a ledge. Its routes climb at most 1 cm, although its body steps 2 cm and jumps 6.5 cm.
+- **Clearance is the companion's 10 cm.** In a captured room, anything with less than 10 cm under it is walked round, not under.
 - **The player has no navigation**; only the companion plans routes.
+
+## Why the avatars looked like they hovered
+
+The look captures (`docs/look/reviews/run1/step3/over_shoulder.png`) showed both avatars floating slightly above the rug, with a strip of lit floor between each body and its shadow. The two candidates were a body-to-mesh offset (Play) and shadow bias too large for 10 cm objects (Look). Measured headless in the test room (Godot 4.7.2, Jolt, 60 Hz) at `0ea09ff`, with a ray cast for the surface under the body:
+
+| Body, where | Collider's lowest point above the surface | Visual's lowest point above the collider's | Visual above the surface |
+|---|---:|---:|---:|
+| Player at its spawn (dropped 8 mm onto the rug) | 1.03 mm | 3.00 mm | **4.03 mm** |
+| Player on the floor, the 6 mm rug, the 4 cm book top (teleported) | 0.66 mm | 3.00 mm | **3.66 mm** |
+| Companion (0.24 m) at its spawn | 1.03 mm | 7.20 mm | **8.23 mm** |
+| Companion (0.24 m) on the floor, the rug, the book top | 1.44 mm | 7.20 mm | **8.64 mm** |
+
+The rug's and the book's visuals match their colliders exactly (tops at 6.00 and 40.00 mm), and the collider's lowest point is the body's feet. Floor snap (15 mm, 25 mm on the old companion) pulls bodies down and leaves no gap. Two real gaps remained:
+
+1. **The visual pill started 3 % of the body height above the feet** (`CapsuleMesh` centred at 0.39 of the height, 0.72 tall): 3 mm on the 10 cm player, 7.2 mm on the 0.24 m companion.
+2. **Jolt rests a `CharacterBody3D`'s capsule 0.5 to 1.5 mm above its support.** Its motion cast finds contact only to a fraction of the motion: casting the resting capsule down 3 mm reports contact between 0.94 and 1.13 mm, casting 20 mm between 0.31 and 1.25 mm, and `test_move` travels 0.78 mm, where a ray measures 1.03 mm. Where the body comes to rest depends on the last motion, so the gap varies (0.50 to 1.44 mm measured).
+
+At the review hour (16:30 on 6 October) the key light is 24.9° above the horizon, so a gap g under a body moves the start of its shadow 2.15 g along the floor: about 9 mm for the player and 18 mm for the old companion. That is the strip of floor in the capture.
+
+**The fix (`SmallPlayerController.cs`).** The pill now reaches down to the feet (centred at 0.375 of the height, 0.75 tall; its top is unchanged). Each physics tick, a ray along the floor normal from the capsule's nearest point to its support measures the resting gap, and the visual body is lowered by it: only on the floor, never by more than 2.5 mm, and never when the ray finds nothing that close (a ledge, a step). The physics body stays where Jolt put it, so steps, snapping and the jitter measurements are unchanged. `TestGroundContact` in the small-avatar test stands both bodies on the floor, the rug and the book top, after a teleport and after an 8 mm drop, and pins the visual's lowest point within 1 mm of the surface and no more than 0.2 mm into it. Measured: **0.00 mm** in all twelve cases, with the capsule itself 0.50 to 0.66 mm up. In the room, the same measurement at the spawn and on the floor, rug and book top gives 0.00 mm for both bodies.
+
+**Shadows were measured too; bias is not the cause.** The key light has `shadow_bias` 0.03, `shadow_normal_bias` 1.0, blur 1.55, an angular size of 2.425° (soft shadows), two splits with the first at 10 %, and a 8.87 m shadow distance (1.6 × the 5.55 m room diagonal), on a 4096 px 16-bit atlas at soft-shadow quality 3. The ceiling lamp uses the same biases with a 0.19 m light size. A GPU check with the fix in place (the over-the-shoulder and companion review cameras at 1920 × 1080, settings changed at runtime in a scratch script, no look code edited):
+
+| Key shadow settings | Contact darkness beside the player's base (1 = lit rug) | Plain rug luminance spread (acne) |
+|---|---:|---:|
+| As set (bias 0.03, normal bias 1.0) | 0.895 | 0.0152 |
+| Both biases 0 | 0.891 | 0.0234 (acne) |
+| Normal bias 0.3 | 0.901 | 0.0154 |
+| Shadow distance 5.5 m | 0.861 | 0.0196 (faint bands) |
+| Shadow distance 5.5 m and four splits | 0.834 | 0.0193 (faint bands) |
+| Sharp key (0.5°) with bias 0.01, normal bias 0.3 | 0.592: the shadow starts at the base | 0.0373 (heavy acne bands) |
+
+Removing both biases leaves the contact as it was and only adds acne, so today's biases do their job without detaching the shadow. The contact reads soft because the key is deliberately soft (a 2.4° sun). The sharp-key frame shows the shadow now starts exactly at the base, so the geometry touches. No shadow change is requested from Look. If the founder still wants a crisper footing, the levers are the key's softness or a small contact cue (for example ambient occlusion with a radius near the figures' size, where today's is 0.16 m), not the bias. A tighter shadow distance helps a little but brings faint acne unless the biases are retuned with it.
 
 ## The jitter spike
 
@@ -151,8 +211,10 @@ Record the verdict per question; numbers to change live in `SmallPlayerControlle
 | "Running doesn't feel like a significant increase in pace." | Run 0.60 → **0.96 m/s** (1.9× → 3× the walk); ground acceleration 4.0 → **6.0 m/s²** and air 1.4 → **2.0 m/s²** so the faster run still arrives crisply. Walk kept at 0.32 m/s. | 0.891 m in the first second of a run; 10 ticks to full speed, 10 to stop |
 | "The gravity shifts are fun. I'd make the floaty version even more pronounced." | Floaty 1.6 → **0.6 m/s²**, with a **0.6 m/s** fall limit and **2×** air control in that preset only; the world profile gained `terminal_fall_mps` and `air_control`; the gravity floor went from 1.0 to 0.5 m/s². Tuned and real unchanged. Jump height still fixed at 6.5 cm in every preset. The companion now shares the player's world profile. | Floaty jump 56 ticks (0.93 s, was 0.55 s); a 40 cm floaty fall caps at 0.600 m/s |
 | "The camera freezes with the F3 view. I'd still want to be able to rotate my view, as in F1 and F2." | F3 is now the **diorama** camera: a high-angle orbit centred on the player, mouse to orbit (20° to 80° down), wheel to zoom (0.30 to 2.4 m), held out of walls and the ceiling by a spring arm, depth of field focused on the player by the look. Movement in F3 follows the view. HUD help updated. F1 and F2 unchanged. | Headless checks: orbit, pitch and zoom limits, centring, camera-relative walking, held under a 12 cm deck |
-| "When I ask my companion to follow, it always moves directly behind me." | Loose follow: a 0.30 to 0.65 m band, a place beside the player's line of travel on the side the companion is already on, no re-targeting on turns, velocity matching without oscillation, running to catch up. | 0 mm moved while the player turned; 0 ticks behind while walking; no crossing when the player turns back; 0 reversals settling |
-| "If I walk behind the big box and summon my comp, it gets stuck on the other side of the box. It can't work its way around." | Navigation: a mesh baked at runtime from the room's static collision with an 8 cm agent radius, re-baked when the room's static geometry changes, used by follow and come, with local steering kept for the final approach; unreachable goals report blocked. | In the test room, come round the big box arrives in 60 ticks (local steering alone stays stuck 0.70 m away) |
+| "When I ask my companion to follow, it always moves directly behind me." | Loose follow: a 0.30 to 0.65 m band (for the 0.24 m body; 0.12 to 0.30 m since it shrank), a place beside the player's line of travel on the side the companion is already on, no re-targeting on turns, velocity matching without oscillation, running to catch up. | 0 mm moved while the player turned; 0 ticks behind while walking; no crossing when the player turns back; 0 reversals settling |
+| "If I walk behind the big box and summon my comp, it gets stuck on the other side of the box. It can't work its way around." | Navigation: a mesh baked at runtime from the room's static collision with an 8 cm agent radius (4 cm since the companion shrank), re-baked when the room's static geometry changes, used by follow and come, with local steering kept for the final approach; unreachable goals report blocked. | In the test room, come round the big box arrives in 60 ticks (local steering alone stays stuck 0.70 m away) |
+| (Building answers, evening) "The companion shrinks to match the player (10 cm)." | The companion is a 10 cm body like the player's, in its own profile object; speeds, follow band, come distance, navigation agent (4 cm radius, 10 cm high, 1 cm climb) and its hat, label and pointing cue are scaled with it. See [The companion's body](#the-companions-body-10-cm-since-the-evening-of-6-october). | Follow rests 0.17 m away, beside the player; come stops at 0.140 m; catches a running player from 0.83 m behind and ends 0.17 m away; round the big box in 87 ticks |
+| (Look captures) Both avatars appear to hover over the rug. | The pill reaches down to the feet and the visual is seated on the support each tick. See [Why the avatars looked like they hovered](#why-the-avatars-looked-like-they-hovered). | Visual 4.0 mm (player) and 8.2 to 8.6 mm (old companion) above the surface before; 0.00 mm after, on the floor, the rug and the book |
 
 ## Next playtest checklist
 
@@ -161,13 +223,15 @@ Run `pwsh -NoProfile -File run-room.ps1` and click the window to capture the mou
 1. **Shift** while walking with **W**: does the run now feel like a real change of pace, and does it start and stop crisply?
 2. **G** twice to reach floaty (the console prints `room_floaty gravity=0.6`). **Space** next to the book: does the jump hang about a second? Hold a direction in the air: can you steer it? Walk off the box edge or the book: is the slow drift fun or too slow? **G** again returns to tuned.
 3. **F3**: move the mouse to orbit and tilt, and roll the **wheel** to zoom. Walk with **W A S D**: does moving relative to the view feel right, and does the body turn naturally? Walk next to a wall and orbit towards it: does the camera stay in the room? Is the depth of field still on the avatars? Then **F1** and **F2**: unchanged?
-4. **1** (follow), then walk, turn on the spot with the mouse in F2, and walk back the way you came: does the companion stay beside you and not swing behind? Is its distance comfortable?
-5. Walk behind the big box so it is between you and the companion, then **3** (come), and **1** (follow) from there: does it walk round the box and reach you? Is the route natural?
-6. Anything that bobs, catches or clips, and anything the HUD says ("path blocked").
+4. **1** (follow), then walk, turn on the spot with the mouse in F2, and walk back the way you came: does the companion stay beside you and not swing behind? The companion is now your size (10 cm): is 12 to 30 cm, resting about 17 cm away, a comfortable distance? Does it keep up when you run (**Shift**)? Does it still read as a separate character (colour, hat) at this size?
+5. Walk behind the big box so it is between you and the companion, then **3** (come), and **1** (follow) from there: does it walk round the box and reach you? Is the route natural? Come now stops 14 cm from you.
+6. Stand still on the rug, then on the book, in **F2** and **F3**: do both avatars stand on the surface now, or does either still look as if it hovers? If one does, note the view, the time of day and where its shadow starts.
+7. Anything that bobs, catches or clips, and anything the HUD says ("path blocked").
 
 ## Open questions for the founder
 
 - Should low gravity ever let the body jump higher (for example floaty reaching the 30 cm box)? Today gravity changes the feel only.
 - Is a 0.6 m/s floaty fall too slow on long drops (1.75 s off the table)? It is one number in `world_physics_profile.gd`.
 - In F3, should W A S D stay relative to the view (as now), or should the mouse turn the body as in F1 and F2?
-- Should the companion ever plan routes that use its 4 cm step (onto the book) or a jump? Today its routes stay on the floor and the rug.
+- Should the companion ever plan routes that use its 2 cm step or its jump (onto the book)? Today its routes climb at most 1 cm: the floor and the rug.
+- At 10 cm, should the companion run faster than the player (1.20 m/s against 0.96 m/s, so follow can catch up), or match the player and fall behind while the player runs?
