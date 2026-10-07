@@ -57,7 +57,7 @@ if ($probe.Stderr -or $probe.Stdout -notmatch 'Native release probe passed:') {
 Write-Output ($probe.Stdout.Trim().Split("`n") | Select-Object -Last 1)
 
 # C# kernel: canonical JSON golden fixture (C# and GDScript) and the enfractal.command host.
-foreach ($scene in @('native_kernel_canonical_json.tscn', 'native_kernel_command_host.tscn')) {
+foreach ($scene in @('native_kernel_canonical_json.tscn', 'native_kernel_command_host.tscn', 'native_kernel_play_hud.tscn')) {
     $kernel = Invoke-EnfractalNativeProcess -Toolchain $nativeToolchain -FilePath $enginePath `
         -Arguments @('--headless', '--path', $projectPath, '--fixed-fps', '60', "res://tests/$scene") -TimeoutSeconds 120
     if ($kernel.Stderr -or $kernel.Stdout -notmatch 'NATIVE_KERNEL_[A-Z_]+: \d+/\d+ checks passed') {

@@ -2,24 +2,24 @@
 
 Run 1 is **in progress**. This page is the handoff: where every lane stands, what the founder decided, and what happens next. An integrating session also reads [ORCHESTRATION.md](ORCHESTRATION.md) (session budget, model routing, testing and reviews). The final record will be `RUN-1-REPORT.md`.
 
-## Branches (integration head `72e9015` and later)
+## Branches (integration as pushed on 7 October)
 
 | Branch | State |
 |---|---|
-| `run1/integration` | All four lanes merged. Lane A's contract proposals are applied: text rules with emoji markers, perception-memory fields, canonical link frames. Also in: the west window and new palette in the test room, the F3 diorama and F4 isometric cameras, and the L lamp key. **All Windows suites pass** (below). |
-| `run1/play` | `1a50485`: P1, P2, the first-playtest fixes, the 10 cm companion, the hover fix, and the fix round for the independent review. Every review finding is fixed and tested. Merged. |
+| `run1/integration` | All four lanes merged. Lane A's contract proposals are applied: text rules with emoji markers, perception-memory fields, canonical link frames. Also in: the west window and new palette in the test room, the F3 diorama and F4 isometric cameras, and the L lamp key. On 7 October: Lane A's alignment, Lane P's second-playtest round, the rug trimmed clear of the book and box, TAA swapped for FXAA, and the HUD test added to the runner. **All Windows suites pass** (below). |
+| `run1/play` | `0ff45a3` (7 October): the second-playtest fix round. It retires the workshop from the room, so Q and E turn F4. It adds T and Shift+T for the clock, makes the name tag solid, and diagnoses the running blur as TAA. Merged. Before that, `1a50485`: P1, P2, the first-playtest fixes, the 10 cm companion, the hover fix, and the fix round for the independent review. Every review finding is fixed and tested. Merged. |
 | `run1/companion` | `5453e9c` (7 October): the mock is aligned with the real host, 492 tests; merged. Before that, `518e31d`: A1 and two fix rounds. Every review finding is fixed. Also: perception memory, emoji markers in context, the play-only profile, the 10 cm mock companion. 469 tests. Merged. |
 | `run1/look` | `9390e2f`: L1–L3 and two art rounds. Light comes only from real sources: the sun through the west window on a 30°N solar model, a sky fill, moonlit nights, lamps at dusk. The orange cast is gone, and there are high-angle and isometric review cameras. The preset is still `draft`. Merged. |
 | `run1/capture` | `65539b5`: C1 and C2 run end to end on the garage set with Apache-2.0 weights only; 43 tests. The coverage report is local only, in the capture worktree's `captures/garage/`. Merged. **The founder judged the guidance useful (below), which meets C2's acceptance.** |
 
-Evidence on `run1/integration` at `72e9015`, from the second Windows machine (RTX 2070 SUPER):
+Evidence on `run1/integration` after the 7 October merges (Lane A `5453e9c`, Lane P `0ff45a3`, the rug fix and FXAA), from the second Windows machine (RTX 2070 SUPER):
 
 | Command | Result |
 |---|---|
-| `run-engine-tests.ps1` | Exit 0, 0 warnings. Authority 266, runtime 77, editor 40, durable 19, canonical JSON 67 and 31/31, command host 195/195; release probe at 0.10 m. The companion suite now runs inside this runner |
+| `run-engine-tests.ps1` | Exit 0, 0 warnings. Authority 266, canonical JSON 31/31, command host 201/201, play HUD 51/51, companion 492 tests; release probe at 0.10 m, with the room and style hashes verified |
 | `tools/test-room.ps1` | Exit 0. Small avatar 160/160, room navigation 10/10, room data 46/46, look 274/274; the room boots `shell=9 lights=2` |
 | Contract tests and validator | 40 OK; 0 problems |
-| roomscan | 43 passed in the lane; not rerun at integration |
+| roomscan | 43 passed in the Lane C review (CPU only); the C fix round is in progress |
 
 `tools/linux/test-all.sh` has not been run on this head; a cloud session should run it.
 
@@ -184,11 +184,11 @@ The images stay in Google Drive (`Enfractal/Art inspiration`) and are cited by f
 
 | Note | Cause found | Owner |
 |---|---|---|
-| In F4, Q and E do not turn the view. | The invention workshop also binds Q (revise the worn design) and E (use the worn design). | P fix round: retire the invention panel and its keys from the room, as the founder already retired the workshop. Q and E then turn the view. |
-| The companion's name tag is blurred. | The tag is a see-through `Label3D`. Depth of field reads the depth behind it, and TAA smears it while the camera moves. | P fix round |
-| The player blurs while running. | Not depth of field: the companion at the same distance is sharp. Suspects: TAA, or the body moving only on physics ticks. | P fix round |
+| In F4, Q and E do not turn the view. | The invention workshop also binds Q (revise the worn design) and E (use the worn design). | **Fixed (P `0ff45a3`).** The workshop is switched off in the room: no INVENTIONS panel, and no B, F, E, V, Q or K. The kernel suites keep it on for the Run 2 kit. |
+| The companion's name tag is blurred. | The tag is a see-through `Label3D`. Depth of field reads the depth behind it, and TAA smears it while the camera moves. | **Fixed (P `0ff45a3`):** an alpha cut. Tag sharpness in F2 went from 0.051 to 0.293. `PlayHudTest` is 51/51. |
+| The player blurs while running. | Measured: TAA. Physics interpolation made no difference at 60 Hz. | **Fixed by the integrator in `project.godot`:** TAA off, FXAA on. Edge softness in F2 went from about 4.0 to 1.8 px, and GPU time from 4.10 to 3.82 ms. **The founder should check that the floorboards do not shimmer in motion.** Physics interpolation is left off: it steadies the body at 144 Hz but may add up to 16 ms of mouse lag. |
 | The book sinks into the rug. | The rug overlapped the book by 2.5 cm and the box by 7.5 cm, and the doorstop sat inside the 6 mm rug. | Integrator, fixed in `6e8a41d`: the rug is trimmed, the doorstop rests on it, and the room builder now refuses props that cut into each other. |
-| Other times of day cannot be seen: the clock follows real time, and the playtest was at 3 a.m. | — | P fix round: T steps the time of day, Shift+T the season |
+| Other times of day cannot be seen: the clock follows real time, and the playtest was at 3 a.m. | — | **Fixed (P `0ff45a3`):** T steps dawn to night, from that date's real sunrise and sunset, then back to the real clock. Shift+T steps the equinoxes and solstices. Both show in the top panel. Known quirk: Shift+T pressed while running steps the season. |
 
 ## The founder's verdict on the garage coverage report (later on 6 October)
 
