@@ -181,6 +181,11 @@ The images stay in Google Drive (`Enfractal/Art inspiration`) and are cited by f
 - The companion remembers what it has seen and where, and says when that may be out of date.
 - Standard emoji markers are allowed in names and signs, and other invisible characters stay blocked.
 - The live MCP client check waits: the founder will connect a real AI later.
+- **The carry limit depends on the mode.**
+  - In a challenge mode, the companion carries what the player can carry.
+  - In a creative, build-only mode, both can carry anything.
+  - Modes are designed later. Until then, the current limits stand.
+- The two residual side channels (the staleness bit, which reveals *when* something out of sight changed, and about one hidden bit per allowed emoji marker) are accepted as negligible. Revisit them for multiplayer, where another player's AI could read what yours writes.
 
 **The founder on the look:** the high-angle view reads almost entirely orange largely because the room's own objects are orange-hued (the boxes, the book, the rug and the floor), not only because of the light. Vary the test room's object colours (the integrator's room builder) as well as the preset's palette.
 
