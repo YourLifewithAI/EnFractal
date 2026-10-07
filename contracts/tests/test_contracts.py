@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import re
 import shutil
@@ -26,6 +27,10 @@ EXAMPLES = CONTRACTS / "examples"
 TEST_ROOM = ROOT / "game" / "rooms" / "test_room"
 PRESETS = ROOT / "game" / "styles"
 SEED_PRESET = PRESETS / "storybook_painterly" / "v1.json"
+# Presets past draft never change (AGENTS.md). storybook_painterly v1 was locked as a look-gate candidate on 7 October.
+LOCKED_PRESETS = {
+    "storybook_painterly/v1.json": "e571b1e6267fb2bc4fc5fdd545331f2bb420c43d370628e71cf80ac93e44ed7a",
+}
 
 # Each invalid example and the reason it must fail.
 EXPECTED_FAILURES = {
@@ -164,6 +169,21 @@ class TestRoomTests(unittest.TestCase):
             out = Path(temporary) / "test_room"
             subprocess.run([sys.executable, "-I", str(ROOT / "tools" / "rooms" / "build_test_room.py"), "--out", str(out)], check=True, capture_output=True)
             self.assertEqual(files_under(out), files_under(TEST_ROOM), "rerun tools/rooms/build_test_room.py and commit the result")
+
+    def test_locked_presets_never_change(self):
+        # A preset that is candidate, approved or retired is locked: its bytes are its identity, and saves pin them.
+        # Tuning a locked preset means a new version file. Add each newly locked version here with its SHA-256.
+        for path in sorted(PRESETS.glob("*/v*.json")):
+            name = str(path.relative_to(PRESETS)).replace("\\", "/")
+            status = validate.load_strict(path)["status"]
+            with self.subTest(preset=name):
+                if status in ("candidate", "approved", "retired"):
+                    self.assertIn(name, LOCKED_PRESETS, f"{name} is {status}: record its SHA-256 in LOCKED_PRESETS")
+                if name in LOCKED_PRESETS:
+                    self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), LOCKED_PRESETS[name],
+                                     f"{name} is locked and must never change; put the new numbers in a new version")
+        for name in LOCKED_PRESETS:
+            self.assertTrue((PRESETS / name).is_file(), f"locked preset {name} is missing")
 
     def test_shipped_presets_are_valid_and_versioned(self):
         presets = sorted(PRESETS.glob("*/v*.json"))

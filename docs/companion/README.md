@@ -82,7 +82,7 @@ otherwise. `ENFRACTAL_CONTRACTS_DIR` points the whole suite, the stdio server in
 The server is a standard MCP stdio server with no vendor extensions. Any client that can launch a stdio
 server with a command line can use it. Both the initialize-handshake protocol era (2025-11-25) and
 2026-07-28 are served. Registering a server is persistent client configuration, so the founder approves
-it on his machine.
+it on their own machine.
 
 1. Create the environment once, in the checkout the game runs from:
 

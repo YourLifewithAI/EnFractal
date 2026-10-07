@@ -5,7 +5,7 @@
   "preset_version": 1,
   "display_name": "Storybook painterly",
   "description": "First preset: one stylized storybook style in the spirit of Tiny Glade, a cozy and fanciful handmade diorama, never photorealistic. Light only from real sources: the sun on its real path through the windows, warm gold where it lands, a cool light-blue sky fill and shade, the lamps cozy after dark and moonlit silhouettes when they are off; soft bounced light; gently desaturated colour that lets the room's own palette read, following the real clock and calendar; crisp detail within the player's reach, and a tilt-shift miniature blur from high views. DRAFT (Run 1, Look lane): tuned on the placeholder room against docs/look/LOOK-BIBLE.md; not yet submitted for the look gate, so it may still change in place.",
-  "status": "draft",
+  "status": "candidate",
   "look_bible": "docs/look/LOOK-BIBLE.md",
   "renderer": {
     "method": "forward_plus",

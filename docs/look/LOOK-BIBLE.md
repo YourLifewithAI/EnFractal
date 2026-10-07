@@ -1,8 +1,8 @@
 # Look bible: storybook painterly
 
-**Status: draft (Run 1, Look lane).** The founder's direction of 6 October: **style first, in the spirit of Tiny Glade; material media later**, and camera angles that make the scene read as artistic. His **Look direction of 7 October** is folded in below: lived-in detail, colour contrast as a way to focus, season palettes, golden window light with warm-white accents, creamy bokeh, and an observe view with a very tight tilt-shift band. The rubric, cameras and budgets apply now. Reviewers score against this file; only the founder passes the look gate.
+**Status: candidate (Run 1, Look lane).** The founder gave the look verdict on 7 October ("The captures are fine. No big changes necessary.") and locked v1 as the look-gate candidate. The founder's direction of 6 October: **style first, in the spirit of Tiny Glade; material media later**, and camera angles that make the scene read as artistic. The founder's **Look direction of 7 October** is folded in below: lived-in detail, colour contrast as a way to focus, season palettes, golden window light with warm-white accents, creamy bokeh, and an observe view with a very tight tilt-shift band. The rubric, cameras and budgets apply now. Reviewers score against this file; only the founder passes the look gate.
 
-Preset: `game/styles/storybook_painterly/v1.json` (status `draft`). Review cameras: `tools/look/review_cameras.json`. Captures: `docs/look/reviews/`. Change requests for files other lanes own: `docs/look/proposals/`.
+Preset: `game/styles/storybook_painterly/v1.json` (status `candidate`: locked, so its bytes never change and `contracts/tests` checks them; new tuning goes in `v2.json`). Review cameras: `tools/look/review_cameras.json`. Captures: `docs/look/reviews/`. Change requests for files other lanes own: `docs/look/proposals/`.
 
 ## Style first, Tiny Glade spirit; media later
 
