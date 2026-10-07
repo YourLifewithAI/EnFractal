@@ -25,6 +25,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("branch")
     parser.add_argument("--base", default="origin/run1/integration")
+    parser.add_argument("--ref", help="check this ref instead of origin/<branch> (for a local branch)")
     args = parser.parse_args()
     name = args.branch.removeprefix("origin/").removeprefix("codex/")
     brief = REPO / "docs" / "codex" / "briefs" / f"{name}.md"
@@ -33,7 +34,12 @@ def main() -> int:
         return 2
     block = re.search(r"```scope\n(.*?)```", brief.read_text(encoding="utf-8").replace("\r\n", "\n"), re.S)
     globs = [line.strip() for line in (block.group(1).splitlines() if block else []) if line.strip()]
-    ref = args.branch if args.branch.startswith("origin/") else f"origin/{args.branch}"
+    ref = args.ref or (args.branch if args.branch.startswith("origin/") else f"origin/{args.branch}")
+    try:
+        git("rev-parse", "--verify", "--quiet", ref)
+    except subprocess.CalledProcessError:
+        print(f"No such ref: {ref} (fetch first?)", file=sys.stderr)
+        return 2
     changed = git("diff", "--name-only", f"{git('merge-base', args.base, ref).strip()}..{ref}").split()
     outside = [path for path in changed if not any(fnmatch.fnmatch(path, glob) for glob in globs)]
     print(f"{ref}: {len(changed)} file(s) changed; scope {globs or '(none: report-only brief)'}")
