@@ -1,5 +1,7 @@
 # What the companion perceives and remembers
 
+> **To be replaced in Run 2.** On 7 October 2026 the founder chose shared knowledge between the player and their companion, and selective memory. [JOURNAL.md](JOURNAL.md) is the draft design. The rules below hold until that lands.
+
 **The founder's rule (6 October 2026):** the companion perceives anything within its avatar's line of
 sight. The rule applies to every companion query and every command, not only `observe`. The companion
 never perceives through the player's avatar.

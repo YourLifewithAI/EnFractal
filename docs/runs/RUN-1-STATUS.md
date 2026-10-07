@@ -323,9 +323,9 @@ The source is the Google Doc `Look and Art Style direction`, with ten frames fro
      - The plan: five garage objects captured, styled and standing in the room with collision; picked up and carried; the companion fetches one; the room rebuilt from data; the switch from the mock host to the real one (A2).
      - Also: opaque `job_id` handles.
      - **Three design docs during Run 2,** written by the integrator with the founder, so Run 3 starts from decisions:
-       - **the journal, memory and minimap, first,** because it changes the perception rules that A2 and the sandbox verbs build on;
-       - **building:** answering `BUILDING.md`'s five open questions and folding in the later decisions;
-       - **modes.**
+       - **the journal, memory and minimap: drafted on 7 October** as [JOURNAL.md](../companion/JOURNAL.md), with three questions for the founder. Its data work (the map store, the journal writer, `journal.read`, the contract) is proposed for Run 2, and the notepad and minimap UI for Run 3;
+       - **building: the founder answered `BUILDING.md`'s five open questions on 7 October** (`96c4326`). A warning before a support moves, except for an opponent's building; buildings fall when their support goes. Plants grow faster than the real clock. Companion drafts after asking. Several options, toggled. Spiral stairs;
+       - **modes: deferred** by the founder ("Run 3 or 4 maybe?"). Integrator's proposal: write the modes design in Run 3, so building and the journal fit it, and build the first challenge mode in the scenarios run after the garage milestone.
      - **Proposed and not yet decided:** Run 3 "build with your companion" (the Victorian kit, the journal and minimap, selective memory, felt avatars); Run 4 the whole garage (the old Run 3 milestone). Voice waits until the baseline game works.
 3. **A cloud session** runs `tools/linux/test-all.sh` on the merged head.
 
