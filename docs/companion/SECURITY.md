@@ -116,6 +116,14 @@ file and a policy radius below the contract's maximum, now have tests
 (`test_even_the_session_file_is_read_only`, `test_the_policy_radius_caps_whatever_radius_observe_asks_for`),
 and all 84 are caught.
 
+The founder's answers round (6 October 2026, evening) checked its five most important protections the
+same way, each against the module that guards it, and all five were caught: the player's sight filling
+the companion's memory (2 failures in `test_perception_memory.py`); a removal out of sight revealed at
+once by dropping the memory (3); commands, destructive ones included, naming remembered things (30); the
+memory's size bound removed (2); and runs of variation selectors let through by dropping "one per base"
+(9 in `test_text_rules.py`). Staleness itself, the session and room clearing, and the arrival re-check
+are covered by tests but were not mutation-checked this round.
+
 ## Policy numbers (founder decisions; current values are recommendations)
 
 | Setting | Recommended default | Where |
