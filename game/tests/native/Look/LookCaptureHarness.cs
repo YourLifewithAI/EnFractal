@@ -29,7 +29,7 @@ namespace EnFractal.Tests.Look;
 /// capture never passes silently on a fallback renderer.
 /// User arguments (after "--"): --cameras=PATH --out=DIR [--label=TEXT] [--warmup=N] [--frames=N]
 /// [--only=ID,ID] [--sweep] [--root-viewport] [--commit=TEXT] [--note=TEXT] [--post-check=false]
-/// [--light-checks=false] [--style=PATH] [--allow-problems]
+/// [--light-checks=false] [--style=PATH] [--allow-problems] [--probe=rooms|window|free-viewport|shimmer] [--garage=DIR]
 /// </summary>
 public partial class LookCaptureHarness : Node
 {
@@ -65,6 +65,12 @@ public partial class LookCaptureHarness : Node
             var root = document.RootElement;
             var resolution = new Vector2I(root.GetProperty("resolution")[0].GetInt32(), root.GetProperty("resolution")[1].GetInt32());
             System.IO.Directory.CreateDirectory(outDir);
+            // A GPU probe (LookCaptureHarness.Probes.cs) instead of the review captures.
+            if (Arg("probe", "").Length > 0)
+            {
+                await RunProbe(Arg("probe", ""), root, outDir);
+                return;
+            }
 
             Engine.MaxFps = 0;
             DisplayServer.WindowSetVsyncMode(DisplayServer.VSyncMode.Disabled);
@@ -193,6 +199,8 @@ public partial class LookCaptureHarness : Node
         var hideBody = entry.TryGetProperty("hide_player_body", out var hide) && hide.GetBoolean();
         _camera.CullMask = hideBody ? 0xFFFFFu & ~HiddenBodyLayer : 0xFFFFFu;
         var focus = entry.TryGetProperty("focus_m", out var focusElement) ? Vec(focusElement) : lookAt;
+        // A camera may ask for the observe view (a very tight tilt-shift band); older looks have no such switch and ignore it.
+        _look?.Set("Observe", entry.TryGetProperty("observe", out var observe) && observe.GetBoolean());
         if (_look != null && _look.HasMethod("FrameCamera")) _look.Call("FrameCamera", _camera, focus);
     }
 

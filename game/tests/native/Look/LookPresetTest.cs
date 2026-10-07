@@ -61,6 +61,15 @@ public partial class LookPresetTest : Node3D
             await CheckSunThroughWindow(preset, room);
             CheckNightLevels(preset, room);
             CheckGoldenHourCoolFill(preset, room);
+            await CheckSite(preset, room);
+            await CheckSunAndWindows(preset, room);
+            await CheckWindowSky(preset, room);
+            await CheckCapturedWalls(preset);
+            await CheckFocusEasing(preset, room);
+            await CheckObserve(preset, room);
+            CheckFocusPass(preset);
+            CheckSeasonLooks(preset);
+            await CheckLightProtections(preset, room);
             MaterialLibrary.Configure(preset);
             GD.Print($"NATIVE_LOOK: {_checks - _failures}/{_checks} checks passed; preset reader and look numbers, role materials and shader uniforms, grade, season tint and reduced global tint, clock at every minute, solar model, sun only through the window, night levels and lamps, golden-hour cool fill, depth of field and focus, post effect parameters, bake stand-ins, room dressing, grade cache, renderer notice");
             GetTree().Quit(_failures == 0 ? 0 : 1);
@@ -101,9 +110,9 @@ public partial class LookPresetTest : Node3D
         Check(LookTuning.Blocks.All(StylePreset.KnownLookExtensions.Contains), "every tuning block is a known look extension");
         // The numbers really come from the file: change a few and the parsed look follows.
         var edited = PresetWith(Field("sky_fill_energy", "3.25"), Field("lut_size", "17"), Field("vignette_start", "0.3"), Field("tilt_pitch_gain", "0.75"),
-            Field("latitude_deg", "51.5"), Field("key_normal_bias", "0.4"));
+            Field("moon_elevation_deg", "40"), Field("key_normal_bias", "0.4"));
         Check(Mathf.IsEqualApprox(edited.Tuning.Lamps.SkyFillEnergy, 3.25f) && edited.Tuning.Grade.LutSize == 17 && Mathf.IsEqualApprox(edited.Tuning.Post.VignetteStart, 0.3f)
-            && Mathf.IsEqualApprox(edited.Tuning.Dof.TiltPitchGain, 0.75f) && Mathf.IsEqualApprox(edited.Tuning.Sun.LatitudeDeg, 51.5f)
+            && Mathf.IsEqualApprox(edited.Tuning.Dof.TiltPitchGain, 0.75f) && Mathf.IsEqualApprox(edited.Tuning.Sun.MoonElevationDeg, 40f)
             && Mathf.IsEqualApprox(edited.Tuning.Shadows.KeyNormalBias, 0.4f), "edited tuning numbers in the preset reach the runtime");
         // A role's marks come from the preset, not a table in the code.
         var restyled = PresetWith(("\"wood\": { \"pattern\": \"wood\"", "\"wood\": { \"pattern\": \"stone\""));
@@ -130,7 +139,10 @@ public partial class LookPresetTest : Node3D
         CheckThrows(() => PresetWith(("\"x_look_key_mode\": \"sun\"", "\"x_look_key_mode\": \"diorama\"")), "real sources", "the removed diorama key is refused, saying why");
         CheckThrows(() => PresetWith(("\"fixed_day_of_year\": 196", "\"fixed_day_of_year\": 196, \"day_length_h\": [9.5, 13, 15, 11]")), "day_length_h",
             "the old per-season day lengths are refused: the solar model replaced them");
-        CheckThrows(() => PresetWith(("\"latitude_deg\": 30", "\"latitude_deg\": 95")), "latitude_deg", "a latitude off the globe is refused");
+        CheckThrows(() => PresetWith(("\"x_look_sun\": { \"real_clock", "\"x_look_sun\": { \"latitude_deg\": 30, \"real_clock")), "latitude_deg",
+            "a preset that carries a site (latitude) is refused: the site belongs to the room (review M5)");
+        CheckThrows(() => PresetWith(("\"x_look_sun\": { \"real_clock", "\"x_look_sun\": { \"solar_noon_h\": 12, \"real_clock")), "solar_noon_h",
+            "a preset that carries a solar noon is refused too");
         var withoutExtensions = Encoding.UTF8.GetBytes(_presetText[.._presetText.IndexOf(",\n  \"extensions\"", StringComparison.Ordinal)] + "\n}\n");
         var fallback = StylePreset.Parse(withoutExtensions, "probe.json");
         Check(fallback.KeyMode == "fixed" && !fallback.SsilEnabled && Mathf.IsEqualApprox(fallback.GlazeAmount, 0.35f)
@@ -199,6 +211,7 @@ public partial class LookPresetTest : Node3D
     {
         MaterialLibrary.Configure(preset);
         foreach (var role in preset.RoleTreatments.Keys.Append("emissive")) MaterialLibrary.For(role, new Color("8a7a66"));
+        MaterialLibrary.ForCaptured("wood", new Color("8a7a66"), ImageTexture.CreateFromImage(Image.CreateEmpty(4, 4, false, Image.Format.Rgb8)));
         var shader = GD.Load<Shader>(MaterialLibrary.ShaderPath);
         var declared = shader.GetShaderUniformList().Select(u => u.AsGodotDictionary()["name"].AsString()).ToHashSet();
         var set = MaterialLibrary.ParameterNames.ToHashSet();
@@ -250,9 +263,14 @@ public partial class LookPresetTest : Node3D
         Check(ColorGrade.Luma(nightGrey) < ColorGrade.Luma(dayGrey) && nightGrey.B - nightGrey.R > dayGrey.B - dayGrey.R, "nights grade darker and bluer than the afternoon");
         var shadow = ColorGrade.Apply(day, new Color(0.15f, 0.15f, 0.15f));
         Check(shadow.B > shadow.R - 0.01f, "the palette's shadow tint keeps dark greys from going warm");
-        var flat = ColorGrade.Apply(day, new Color(0.9f, 0.3f, 0.2f));
-        var luma = ColorGrade.Luma(flat);
-        Check(Mathf.Abs(flat.R - luma) < Mathf.Abs(0.9f - ColorGrade.Luma(new Color(0.9f, 0.3f, 0.2f))), "the palette desaturates strong colour");
+        // The palette is gentle and the seasons swing it (the founder, 7 October): winter is muted, spring and autumn vibrant.
+        var strong = new Color(0.9f, 0.3f, 0.2f);
+        float Chroma(Color c) => Mathf.Abs(c.R - ColorGrade.Luma(c));
+        float NoonOf(int d) { var (r, s) = LookClock.SunTimes(preset.Tuning.Sun, d); return (r + s) * 0.5f; }
+        var winterChroma = Chroma(ColorGrade.Apply(GradeParams.For(preset, LookClock.At(preset, NoonOf(15), 15)), strong));
+        var springChroma = Chroma(ColorGrade.Apply(GradeParams.For(preset, LookClock.At(preset, NoonOf(105), 105)), strong));
+        Check(preset.Saturation <= 1f && winterChroma < Chroma(strong) && springChroma > 0.9f * Chroma(strong) && winterChroma < 0.6f * springChroma,
+            $"the palette is gentle and the seasons swing it: a strong colour keeps {winterChroma / Chroma(strong):P0} of its colour in winter and {springChroma / Chroma(strong):P0} in spring");
         var texture = ColorGrade.LutTexture(day);
         Check(texture.GetWidth() == preset.Tuning.Grade.LutSize && texture.GetDepth() == preset.Tuning.Grade.LutSize, "the grade builds a 3D texture of the preset's LUT size");
         Check(day.Quantized() == GradeParams.For(preset, LookClock.At(preset, preset.DefaultHour + 0.001f, 279)).Quantized(),
@@ -530,21 +548,22 @@ public partial class LookPresetTest : Node3D
         var root = document.RootElement;
         var cameras = root.GetProperty("cameras").EnumerateArray().ToArray();
         var ids = cameras.Select(c => c.GetProperty("id").GetString()).ToArray();
-        Check(ids.Take(5).SequenceEqual(new[] { "player_eye", "over_shoulder", "companion", "low_corner", "ceiling_corner" }) && ids.Distinct().Count() == ids.Length,
-            "the five baseline review cameras come first, in order, and ids are unique: " + string.Join(",", ids));
+        Check(ids.Take(7).SequenceEqual(new[] { "player_eye", "over_shoulder", "companion", "low_corner", "ceiling_corner", "diorama_high", "iso_room" }) && ids.Skip(7).SequenceEqual(new[] { "window_view", "observe_view" })
+            && ids.Distinct().Count() == ids.Length, "the five baseline review cameras come first, then the two art-direction cameras and the window and observe views, in order, and ids are unique: " + string.Join(",", ids));
         var baseline = new Dictionary<string, (Vector3 Position, Vector3 LookAt, float Fov)>
         {
             ["player_eye"] = (new Vector3(0f, 0.087f, 0.6f), new Vector3(-0.25f, 0.14f, -0.6f), 70f),
             ["over_shoulder"] = (new Vector3(-0.15f, 0.22f, 1.12f), new Vector3(0.12f, 0.06f, 0.1f), 68f),
-            ["companion"] = (new Vector3(0.5f, 0.16f, 0.02f), new Vector3(0.12f, 0.07f, 0.72f), 55f),
+            // Reframed in the 7 October fix round for the 10 cm companion (the old camera was placed for a 0.24 m one).
+            ["companion"] = (new Vector3(0.18f, 0.1f, 0.2f), new Vector3(0.225f, 0.065f, 0.6f), 52f),
             ["low_corner"] = (new Vector3(1.84f, 0.05f, -1.34f), new Vector3(-0.2f, 0.5f, 0.8f), 65f),
             ["ceiling_corner"] = (new Vector3(-1.84f, 2.26f, 1.36f), new Vector3(0.15f, 0.05f, 0.25f), 60f),
         };
         Vector3 V(System.Text.Json.JsonElement a) => new(a[0].GetSingle(), a[1].GetSingle(), a[2].GetSingle());
         var clock = root.GetProperty("clock");
         Check(root.GetProperty("resolution")[0].GetInt32() == 1920 && root.GetProperty("resolution")[1].GetInt32() == 1080
-            && Mathf.IsEqualApprox(clock.GetProperty("hour").GetSingle(), 16.5f) && clock.GetProperty("date").GetString() == "2026-10-06",
-            "reviews stay at 1920 x 1080, pinned to 16:30 on 6 October");
+            && Mathf.IsEqualApprox(clock.GetProperty("hour").GetSingle(), 17f) && clock.GetProperty("date").GetString() == "2026-04-15",
+            "reviews stay at 1920 x 1080, pinned to 17:00 on 15 April (the low sun reaches the avatars)");
         var inside = room.Bounds.Grow(-0.02f);
         foreach (var camera in cameras)
         {
@@ -554,12 +573,61 @@ public partial class LookPresetTest : Node3D
             var focus = V(camera.GetProperty("focus_m"));
             var fov = camera.GetProperty("fov_deg").GetSingle();
             if (baseline.TryGetValue(id, out var original))
-                Check(position.IsEqualApprox(original.Position) && lookAt.IsEqualApprox(original.LookAt) && Mathf.IsEqualApprox(fov, original.Fov), $"{id} is unchanged");
+                Check(position.IsEqualApprox(original.Position) && lookAt.IsEqualApprox(original.LookAt) && Mathf.IsEqualApprox(fov, original.Fov), $"{id} is as recorded (only the companion camera was reframed)");
             var forward = (lookAt - position).Normalized();
             Check(inside.HasPoint(position) && (focus - position).Dot(forward) > 0.05f && fov is >= 20f and <= 90f, $"{id} stands inside the room and looks at its focus");
         }
         var player = room.SpawnFor("player").PositionM;
         var companion = room.SpawnFor("companion", room.SpawnFor("player")).PositionM;
+        // The companion camera frames both 10 cm bodies, each a fifth of the frame or more.
+        {
+            var camera = cameras.First(c => c.GetProperty("id").GetString() == "companion");
+            var position = V(camera.GetProperty("position_m"));
+            var forward = (V(camera.GetProperty("look_at_m")) - position).Normalized();
+            var verticalFov = Mathf.DegToRad(camera.GetProperty("fov_deg").GetSingle());
+            var halfWidth = Mathf.Tan(verticalFov / 2f) * 16f / 9f;
+            var bodies = new[] { player, companion };
+            var right = forward.Cross(Vector3.Up).Normalized();
+            var heights = bodies.Select(b => 0.1f / (b - position).Dot(forward) / (2f * Mathf.Tan(verticalFov / 2f))).ToArray();
+            var across = bodies.Select(b => Mathf.Abs((b - position).Dot(right)) / (b - position).Dot(forward) / halfWidth).ToArray();
+            Check(bodies.All(b => (b - position).Dot(forward) > 0.2f) && across.All(x => x < 0.85f) && heights.All(h => h >= 0.2f && h <= 0.6f),
+                $"the companion camera frames both 10 cm avatars, each {heights[0]:P0} and {heights[1]:P0} of the frame's height, at {across[0]:P0} and {across[1]:P0} of the way to the frame's edge");
+        }
+        // At the review clock the sun reaches both avatars through the west window (the old moment never did).
+        {
+            using var roomJson = System.Text.Json.JsonDocument.Parse(FileAccess.GetFileAsBytes(RoomWorld.DefaultRoom + "/room.json"));
+            var window = roomJson.RootElement.GetProperty("shell").GetProperty("openings").EnumerateArray().Single(o => o.GetProperty("kind").GetString() == "window");
+            var centre = V(window.GetProperty("center_m"));
+            var size = window.GetProperty("size_m");
+            var reviewDay = DateTime.ParseExact(clock.GetProperty("date").GetString()!, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture).DayOfYear;
+            var moment = LookClock.At(preset, clock.GetProperty("hour").GetSingle(), reviewDay);
+            var toSun = LookClock.Direction(moment.KeyElevationDeg, moment.KeyAzimuthDeg);
+            var through = new[] { player, companion }.Select(b =>
+            {
+                var point = b + Vector3.Up * 0.05f;
+                var t = (centre.X - point.X) / toSun.X;
+                var at = point + toSun * t;
+                return toSun.X < -0.1f && Mathf.Abs(at.Y - centre.Y) < size[1].GetSingle() * 0.5f - 0.03f && Mathf.Abs(at.Z - centre.Z) < size[0].GetSingle() * 0.5f - 0.03f;
+            }).ToArray();
+            Check(through.All(x => x) && moment.SunElevationDeg is > 10f and < 30f, $"at the review moment the low sun ({moment.SunElevationDeg:0} degrees up, bearing {moment.SunBearingDeg:0}) comes through the window onto both avatars");
+        }
+        {
+            var window = cameras.First(c => c.GetProperty("id").GetString() == "window_view");
+            var observeView = cameras.First(c => c.GetProperty("id").GetString() == "observe_view");
+            var position = V(window.GetProperty("position_m"));
+            var forward = (V(window.GetProperty("look_at_m")) - position).Normalized();
+            var halfFov = Mathf.DegToRad(window.GetProperty("fov_deg").GetSingle()) * 0.5f;
+            var pane = new Vector3(-2f, 1.25f, 0.3f);
+            Check((pane - position).Normalized().AngleTo(forward) < halfFov * 0.7f && new[] { player, companion }.All(b => (b + Vector3.Up * 0.05f - position).Normalized().AngleTo(forward) < halfFov),
+                "the window view has the window pane in frame and both avatars in front of it");
+            var observePosition = V(observeView.GetProperty("position_m"));
+            var observeForward = (V(observeView.GetProperty("look_at_m")) - observePosition).Normalized();
+            var focusDistance = (V(observeView.GetProperty("focus_m")) - observePosition).Dot(observeForward);
+            var tight = LookDirector.DepthOfFieldFor(preset, focusDistance, -observeForward.Y, observe: true);
+            float DepthOf(Vector3 p) => (p - observePosition).Dot(observeForward);
+            Check(observeView.TryGetProperty("observe", out var flag) && flag.GetBoolean() && DepthOf(player + Vector3.Up * 0.05f) > tight.NearDistance - 0.04f && DepthOf(player + Vector3.Up * 0.05f) < tight.FarDistance + 0.04f,
+                $"the observe view asks for the observe profile and its focus sits on the avatars (band {tight.NearDistance:0.###} to {tight.FarDistance:0.###} m)");
+        }
         foreach (var camera in cameras.Where(c => c.GetProperty("id").GetString() is "diorama_high" or "iso_room"))
         {
             var id = camera.GetProperty("id").GetString()!;
@@ -772,8 +840,8 @@ public partial class LookPresetTest : Node3D
         var meshes = built.FindChildren("*", "MeshInstance3D", true, false).OfType<MeshInstance3D>().ToArray();
         var shell = meshes.Where(m => m.GetParent().HasMeta("surface_role")).ToArray();
         var objects = meshes.Except(shell).ToArray();
-        Check(shell.Length == room.Shell.Count && shell.All(m => m.CastShadow == GeometryInstance3D.ShadowCastingSetting.On && (m.Layers & look.Key.ShadowCasterMask) != 0),
-            "every shell part casts the sun's shadows, so direct sun comes in only through the openings");
+        Check(shell.Length == room.Shell.Count && shell.All(m => m.CastShadow == GeometryInstance3D.ShadowCastingSetting.DoubleSided && (m.Layers & look.Key.ShadowCasterMask) != 0),
+            "every shell part casts the sun's shadows from both sides (a single-sided wall must not let the sun through), so direct sun comes in only through the openings");
         Check(shell.All(m => m.GIMode == GeometryInstance3D.GIModeEnum.Static) && shell.Any(m => m.GetParent().GetMeta("surface_role").AsString() == "ceiling"),
             "floor, walls and ceiling all join the GI bake: the room is a closed interior");
         Check(objects.Length == room.Objects.Count && objects.All(m => m.GIMode == GeometryInstance3D.GIModeEnum.Dynamic), "movable props are dynamic for GI");
@@ -922,7 +990,7 @@ public partial class LookPresetTest : Node3D
             $"the current camera's crisp band holds the player and not what is far nearer the camera ({band})");
         player.GlobalPosition = new Vector3(0.3f, 0f, -0.6f);
         camera.LookAt(player.GlobalPosition);
-        await Frames(2);
+        await Settle();
         var movedPoint = player.GlobalPosition + Vector3.Up * (dof.BodyFocusHeightFraction * player.BodyHeightM);
         Check(InFocus(camera, movedPoint, out band) && !InFocus(camera, bodyPoint, out _) && Distance(camera, movedPoint) > Distance(camera, bodyPoint) + 0.5f,
             $"the band follows the player a metre away and leaves its old place ({band})");
@@ -930,11 +998,11 @@ public partial class LookPresetTest : Node3D
         holder.AddChild(stand);
         stand.GlobalPosition = new Vector3(-0.5f, 0.05f, 0.9f);
         look.FocusTarget = stand;
-        await Frames(2);
+        await Settle();
         Check(look.FocusPointFor(camera).IsEqualApprox(stand.GlobalPosition) && InFocus(camera, stand.GlobalPosition, out _), "an explicit FocusTarget wins over the parent's player");
         look.FocusTarget = player;
         player.EyeCamera.MakeCurrent();
-        await Frames(2);
+        await Settle();
         var eyeForward = -player.EyeCamera.GlobalBasis.Z;
         var eyePoint = player.EyeCamera.GlobalPosition + eyeForward * (dof.EyeFocusBodyHeights * player.BodyHeightM);
         var reach = dof.EyeCrispBodyHeights * player.BodyHeightM;
@@ -1031,15 +1099,15 @@ public partial class LookPresetTest : Node3D
         var biggestJump = farEdges.Zip(farEdges.Skip(1)).Max(p => Mathf.Abs(p.Second - p.First));
         Check(biggestJump < 0.15f, $"as the companion walks away the band shrinks back without a jump (largest step {biggestJump:0.###} m per 2.5 cm walked; a hard cut would jump about 0.4 m)");
         friend.GlobalPosition = player.GlobalPosition + new Vector3(0.2f, 0f, -2.0f);
-        await Frames(2);
+        await Settle();
         Check(InFocus(camera, playerPoint, out band) && !InFocus(camera, friend.GlobalPosition, out _),
             $"a companion two metres away is not, and the player stays crisp ({band})");
         var cursor = new Vector3(-1.2f, 0.75f, -0.9f);
         look.FocusOverride = cursor;
-        await Frames(2);
+        await Settle();
         Check(InFocus(camera, cursor, out band) && !InFocus(camera, playerPoint, out _), $"while building, focus follows the cursor or free camera's point ({band})");
         look.FocusOverride = null;
-        await Frames(2);
+        await Settle();
         Check(InFocus(camera, playerPoint, out _), "clearing the override returns focus to the player");
         Check(look.ClockNote.Contains("pinned"), "the look reports a pinned clock: " + look.ClockNote);
         look.ReleaseClock();
@@ -1098,9 +1166,10 @@ public partial class LookPresetTest : Node3D
     private void CheckSolarModel(StylePreset preset)
     {
         var sun = preset.Tuning.Sun;
-        Check(Mathf.IsEqualApprox(sun.LatitudeDeg, 30f) && Mathf.IsEqualApprox(sun.NegZBearingDeg, 0f)
-            && _presetText.Contains("\"latitude_deg\": 30,", StringComparison.Ordinal) && _presetText.Contains("\"neg_z_bearing_deg\": 0,", StringComparison.Ordinal),
-            "the preset's x_look_sun holds the default latitude (30 degrees north) and the room's orientation (-Z is north, so -X is west)");
+        Check(Mathf.IsEqualApprox(sun.LatitudeDeg, 30f) && Mathf.IsEqualApprox(sun.NegZBearingDeg, 0f) && Mathf.IsEqualApprox(sun.SolarNoonH, 12f)
+            && !_presetText.Contains("latitude_deg", StringComparison.Ordinal) && !_presetText.Contains("neg_z_bearing_deg", StringComparison.Ordinal)
+            && !_presetText.Contains("solar_noon_h", StringComparison.Ordinal),
+            "the shared preset holds no site (review M5): a preset on its own works for the fallback site, 30 degrees north with -Z facing north (so -X is west)");
         // The founder's figures at 30 degrees north: about 10.2 h at the December solstice, 12 h at the equinoxes, 13.9 h at the June solstice.
         var december = LookClock.DayLength(preset, 355);
         var march = LookClock.DayLength(preset, 79);
@@ -1386,6 +1455,9 @@ public partial class LookPresetTest : Node3D
             1.9779984951f * l - 2.4285922050f * m + 0.4505937099f * s,
             0.0259040371f * l + 0.7827717662f * m - 0.8086757660f * s);
     }
+
+    /// <summary>Wait out the focus easing: ten times its time constant, so the band has arrived.</summary>
+    private async Task Settle() => await Frames(80);
 
     private async Task PhysicsFrames(int count)
     {

@@ -34,6 +34,8 @@ uniform float stroke_stretch : hint_range(1.0, 12.0) = 3.0;
 uniform vec3 stroke_axis = vec3(0.0, 1.0, 0.0);
 uniform float pattern_scale_m : hint_range(0.001, 1.0) = 0.1;
 uniform float variation : hint_range(0.0, 1.0) = 0.5;
+// How far the role's colour is drawn toward its own grey: the large quiet surfaces sit back so small accents carry colour.
+uniform float role_calm : hint_range(0.0, 1.0) = 0.0;
 
 group_uniforms light;
 uniform float wrap_light : hint_range(0.0, 1.0) = 0.25;
@@ -44,6 +46,14 @@ group_uniforms texture;
 uniform sampler2D paint_texture : source_color, filter_linear_mipmap_anisotropic, repeat_enable, hint_default_white;
 uniform float texture_strength : hint_range(0.0, 1.0) = 0.0;
 uniform float texture_scale_m : hint_range(0.05, 8.0) = 0.6;
+
+group_uniforms captured;
+// A captured mesh keeps its own colour texture, softened like a painter's block-in (a lower mip, so photo noise and
+// sensor grain go) and then pulled into the role's colours by the same painterly steps as everything else. Zero for
+// the room's primitives and every mesh that has no texture of its own.
+uniform sampler2D photo_texture : source_color, filter_linear_mipmap_anisotropic, repeat_enable, hint_default_white;
+uniform float photo_mix : hint_range(0.0, 1.0) = 0.0;
+uniform float photo_blur_lod : hint_range(0.0, 8.0) = 2.5;
 
 group_uniforms edges;
 uniform float bevel_min_m : hint_range(0.0, 0.05) = 0.004;
@@ -192,6 +202,10 @@ void fragment() {
 	vec3 bump = strokes.yzw * 0.6 * d_strokes + bristle.yzw * 0.3 * d_bristle;
 
 	vec3 color = base_color;
+	if (photo_mix > 0.0) {
+		vec3 photo = textureLod(photo_texture, UV, photo_blur_lod).rgb;
+		color = mix(color, photo * base_color, photo_mix);
+	}
 	float rough = roughness_value;
 	float cavity = 0.0;
 
@@ -328,6 +342,7 @@ void fragment() {
 	color = mix(color, mix(vec3(luma), color, pastel_chroma) * pastel_scale + vec3(pastel_lift), albedo_softening * pastel_mix);
 	color = mix(color, color * wear_brightness + vec3(wear_lift), wear * edge_wear);
 	color *= 1.0 - cavity * cavity_darkening;
+	color = mix(color, vec3(dot(color, vec3(0.2126, 0.7152, 0.0722))), role_calm);
 
 	// Stroke normals: tilt the (possibly bevelled) normal by the marks' gradient.
 	vec3 tangential = bump - n * dot(bump, n);

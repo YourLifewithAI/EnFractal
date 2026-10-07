@@ -85,7 +85,7 @@ public sealed class StylePreset
     public IReadOnlyList<TimeKey> TimeKeys { get; private init; } = Array.Empty<TimeKey>();
     public bool SeasonsEnabled { get; private init; }
     public bool FollowCalendar { get; private init; }
-    public string Hemisphere { get; private init; } = "north";
+    public string Hemisphere { get; private set; } = "north";
     public IReadOnlyDictionary<string, SeasonGrade> SeasonGrades { get; private init; } = new Dictionary<string, SeasonGrade>();
 
     // camera
@@ -130,18 +130,34 @@ public sealed class StylePreset
     public float SsilRadiusM { get; private init; } = 0.3f;
     public float GlazeAmount { get; private init; } = 0.35f;
     /// <summary>Every other look-defining number, from the x_look_* blocks (see LookTuning).</summary>
-    public LookTuning Tuning { get; private init; } = LookTuning.Default;
+    public LookTuning Tuning { get; private set; } = LookTuning.Default;
+    /// <summary>The site the sun is worked out for: the room's own through WithSite, otherwise the look's fallback.</summary>
+    public RoomSite Site { get; private set; } = RoomSite.Fallback;
 
     /// <summary>The x_look_* extension keys this runtime understands. Any other x_look_* key is refused, so a misspelled block cannot be silently ignored.</summary>
     public static readonly IReadOnlySet<string> KnownLookExtensions = new HashSet<string>
     {
         "x_look_key_mode", "x_look_glaze_amount", "x_look_ssil", "x_look_role_marks", "x_look_paint", "x_look_shadows", "x_look_ssao",
-        "x_look_glow", "x_look_gi", "x_look_lamps", "x_look_sun", "x_look_seasons", "x_look_grade", "x_look_dof", "x_look_post",
+        "x_look_glow", "x_look_gi", "x_look_lamps", "x_look_sun", "x_look_seasons", "x_look_grade", "x_look_dof", "x_look_post", "x_look_sky",
     };
 
     public const string StylesRoot = "res://styles";
 
     public static string PathFor(string presetId, int version) => $"{StylesRoot}/{presetId}/v{version}.json";
+
+    /// <summary>
+    /// This preset for a room that stands at a site: the same file (same hash, same numbers) with the sun's latitude,
+    /// compass facing and solar noon taken from the room, and the seasons of its hemisphere. The shared preset never
+    /// carries a site itself; the original object is left unchanged.
+    /// </summary>
+    public StylePreset WithSite(RoomSite site)
+    {
+        var clone = (StylePreset)MemberwiseClone();
+        clone.Site = site;
+        clone.Hemisphere = site.Declared ? site.Hemisphere : Hemisphere;
+        clone.Tuning = Tuning with { Sun = Tuning.Sun with { LatitudeDeg = site.LatitudeDeg, NegZBearingDeg = site.NegZBearingDeg, SolarNoonH = site.SolarNoonH } };
+        return clone;
+    }
 
     public MaterialTreatment TreatmentFor(string role) => RoleTreatments.TryGetValue(role, out var treatment) ? treatment : DefaultTreatment;
 

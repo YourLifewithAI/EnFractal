@@ -40,14 +40,23 @@ public static class MaterialLibrary
         material.SetShaderParameter(name, value);
     }
 
-    public static Material For(string role, Color baseColor)
+    public static Material For(string role, Color baseColor) => Make(role, baseColor, null);
+
+    /// <summary>
+    /// The painterly material for a captured mesh surface (review minor: captured assets got no painterly treatment): the
+    /// role's marks and softening over the surface's own colour, with its colour texture, if it has one, softened into a
+    /// block-in. Falls back to a plain material, like For, when no preset is configured.
+    /// </summary>
+    public static Material ForCaptured(string role, Color albedo, Texture2D? texture) => Make(role, albedo, texture);
+
+    private static Material Make(string role, Color baseColor, Texture2D? photo)
     {
-        var key = role + "|" + baseColor.ToHtml(false);
+        var key = role + "|" + baseColor.ToHtml(false) + (photo != null ? "|photo" + photo.GetInstanceId() : "");
         if (Cache.TryGetValue(key, out var cached)) return cached;
         if (_preset == null || _shader == null)
         {
             // No preset yet (a builder test without a look): a plain, honest material.
-            var plain = new StandardMaterial3D { AlbedoColor = baseColor, Roughness = 0.92f, ResourceName = $"{role} {baseColor.ToHtml(false)}" };
+            var plain = new StandardMaterial3D { AlbedoColor = baseColor, AlbedoTexture = photo, Roughness = 0.92f, ResourceName = $"{role} {baseColor.ToHtml(false)}" };
             Cache[key] = plain;
             return plain;
         }
@@ -70,6 +79,7 @@ public static class MaterialLibrary
         Set(material, "stroke_axis", look.StrokeAxis);
         Set(material, "pattern_scale_m", look.PatternScaleM);
         Set(material, "variation", look.Variation);
+        Set(material, "role_calm", look.Calm);
         Set(material, "wrap_light", look.Wrap);
         Set(material, "terminator_warmth", look.TerminatorWarmth);
         Set(material, "sheen", look.Sheen);
@@ -92,6 +102,13 @@ public static class MaterialLibrary
         Set(material, "stroke_normal_gain", paint.StrokeNormalGain);
         Set(material, "mark_fade_start", paint.MarkFadeStart);
         Set(material, "mark_fade_end", paint.MarkFadeEnd);
+        Set(material, "photo_mix", photo != null ? 1f : 0f);
+        Set(material, "photo_blur_lod", paint.PhotoBlurLod);
+        if (photo != null)
+        {
+            Set(material, "photo_texture", photo);
+            material.SetMeta("captured", true);
+        }
         if (treatment.Texture is { } texturePath && ResourceLoader.Exists(texturePath))
         {
             Set(material, "paint_texture", GD.Load<Texture2D>(texturePath));
