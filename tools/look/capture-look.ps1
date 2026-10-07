@@ -9,9 +9,14 @@ writes one PNG per camera plus timings.json into -OutDir, then quits. A Godot wi
 With -Baseline <commit>, the game folder of that commit is exported under .cache/look-baseline/ and the
 current harness is copied into it, so "before" captures use exactly that commit's look code.
 
-Before launching, the script waits until nvidia-smi shows the GPU quiet for six seconds, samples GPU memory
-during the capture, records both in timings.json, and retries (twice by default) if another job (for
-example pose estimation) used the GPU meanwhile, so timings are not taken under contention.
+Before launching, the script refuses to start while a game window titled "EnFractal..." is open (someone is
+playing on this GPU; pass -AllowOpenGame to override), waits until nvidia-smi shows the GPU quiet for six
+seconds, samples GPU memory during the capture, records both in timings.json, and retries (twice by default)
+if another job (for example pose estimation) used the GPU meanwhile, so timings are not taken under contention.
+
+The harness writes the look's self-check and a pixel check of the grain and vignette effect to timings.json
+(look_problems, post_effect_check). A problem, such as a renderer fallback, fails the capture after the files
+are written; pass -AllowProblems to keep the exit code at zero.
 
 .EXAMPLE
 pwsh -NoProfile -File tools/look/capture-look.ps1 -Label after -OutDir docs/look/reviews/run1/after -Sweep
@@ -30,9 +35,17 @@ param(
     [int]$MaxBusyVramMiB = 3072,
     [int]$MaxBusyUtilisation = 60,
     [int]$ContentionRetries = 2,
-    [int]$TimeoutSeconds = 300
+    [int]$TimeoutSeconds = 300,
+    [switch]$AllowOpenGame,
+    [switch]$AllowProblems
 )
 $ErrorActionPreference = 'Stop'
+
+# Someone playing the game on this GPU: never capture or time over them.
+$openGame = Get-Process | Where-Object { $_.MainWindowTitle -like 'EnFractal*' }
+if ($openGame -and -not $AllowOpenGame) {
+    throw "An EnFractal game window is open ($(($openGame | ForEach-Object { "$($_.ProcessName) $($_.Id): $($_.MainWindowTitle)" }) -join '; ')). Captures and timings wait for a quiet GPU; close the game or pass -AllowOpenGame."
+}
 $repository = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
 . (Join-Path $repository 'tools/native-toolchain.ps1')
 $toolchain = Get-EnfractalNativeToolchain
@@ -111,6 +124,7 @@ $userArgs = @("--cameras=$camerasPath", "--out=$outPath", "--label=$Label", "--c
 if ($Only) { $userArgs += "--only=$Only" }
 if ($Sweep) { $userArgs += '--sweep' }
 if ($RootViewport) { $userArgs += '--root-viewport' }
+if ($AllowProblems) { $userArgs += '--allow-problems' }
 $engineArgs = @('--path', $projectPath, '--disable-vsync')
 if ($RootViewport) { $engineArgs += @('--resolution', '1920x1080', '--position', '0,0') }
 else { $engineArgs += @('--resolution', '960x540', '--position', '40,40') }
@@ -149,7 +163,8 @@ for ($attempt = 1; ; $attempt++) {
     $stdout = $stdoutRead.Result
     $stderr = $stderrRead.Result
     Set-Content -LiteralPath (Join-Path $repository ".cache/look-capture-$Label.log") -Value "$stdout`n--- stderr`n$stderr"
-    if ($process.ExitCode -ne 0 -or $stdout -notmatch 'LOOK_CAPTURE_DONE') {
+    $problems = ($stdout.Split("`n") | Where-Object { $_ -match '^LOOK_CAPTURE_PROBLEM ' }) -join "`n"
+    if ($stdout -notmatch 'LOOK_CAPTURE_DONE' -or ($process.ExitCode -ne 0 -and -not ($process.ExitCode -eq 3 -and $problems))) {
         throw "Look capture failed (exit $($process.ExitCode)):`n$stdout`n$stderr"
     }
     # The capture itself uses well under 1.5 GiB; more than that on top of the idle baseline means another job ran.
@@ -172,3 +187,4 @@ for ($attempt = 1; ; $attempt++) {
 $stdout.Split("`n") | Where-Object { $_ -match '^(LOOK|Godot Engine|Vulkan|D3D12|OpenGL)' } | ForEach-Object { Write-Output $_.TrimEnd() }
 if ($stderr.Trim()) { Write-Output "--- engine stderr (warnings) ---"; Write-Output $stderr.Trim() }
 Write-Output "Captures and timings.json written to $outPath"
+if ($problems) { throw "The capture finished with look problems (see look_problems in timings.json):`n$problems" }

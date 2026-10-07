@@ -21,8 +21,12 @@ namespace EnFractal.Tests.Look;
 /// hooks (review clock, per-camera focus) are called by name when the LookDirector has them.
 ///
 /// Needs a real window on the GPU: under --headless it reports that and exits with code 2.
+/// After the cameras it checks the grain and vignette effect in the pixels (the first camera with and without
+/// it) and writes the look's self-check (renderer fallback, missing GI bake, bake stand-ins left, post effect
+/// never ran) to timings.json as look_problems. Any problem prints LOOK_CAPTURE_PROBLEM and exits with code 3,
+/// so a capture never passes silently on a fallback renderer.
 /// User arguments (after "--"): --cameras=PATH --out=DIR [--label=TEXT] [--warmup=N] [--frames=N]
-/// [--only=ID,ID] [--sweep] [--root-viewport] [--commit=TEXT] [--note=TEXT]
+/// [--only=ID,ID] [--sweep] [--root-viewport] [--commit=TEXT] [--note=TEXT] [--post-check=false] [--allow-problems]
 /// </summary>
 public partial class LookCaptureHarness : Node
 {
@@ -99,9 +103,13 @@ public partial class LookCaptureHarness : Node
                 GD.Print($"LOOK_CAPTURE camera={id} frame_ms_p50={timing["frame_ms_p50"]} frame_ms_p95={timing["frame_ms_p95"]} gpu_ms_mean={timing["gpu_ms_mean"]} image={image.GetWidth()}x{image.GetHeight()}");
             }
             if (Arg("sweep", "false") == "true") await Sweep(root, outDir);
-            WriteReport(outDir, camerasPath, resolution, warmup, frames);
-            GD.Print($"LOOK_CAPTURE_DONE cameras={_results.Count} out={outDir}");
-            GetTree().Quit(0);
+            if (Arg("post-check", "true") == "true") _postCheck = await PostEffectCheck(root);
+            var problems = LookProblems();
+            WriteReport(outDir, camerasPath, resolution, warmup, frames, problems);
+            foreach (var problem in problems) GD.Print("LOOK_CAPTURE_PROBLEM " + problem);
+            GD.Print($"LOOK_CAPTURE_DONE cameras={_results.Count} out={outDir} problems={problems.Count}");
+            // A renderer fallback, a post effect that did nothing or a broken bake must not pass silently as a review capture.
+            GetTree().Quit(problems.Count == 0 || Arg("allow-problems", "false") == "true" ? 0 : 3);
         }
         catch (Exception error)
         {
@@ -271,7 +279,115 @@ public partial class LookCaptureHarness : Node
         GD.Print($"LOOK_CAPTURE sweep={cameraId} rows=winter,spring,summer,autumn columns=07:00,12:00,16:30,21:00");
     }
 
-    private void WriteReport(string outDir, string camerasPath, Vector2I resolution, int warmup, int frames)
+    /// <summary>
+    /// The post effect, checked on the GPU: the first camera rendered with the effect and without it. With it, the
+    /// corners must be darker relative to the centre (the vignette) and neighbouring pixels must differ by a fixed
+    /// pattern (the grain). Older commits without the effect report that and are not judged.
+    /// </summary>
+    private async Task<Dictionary<string, object>> PostEffectCheck(JsonElement root)
+    {
+        var result = new Dictionary<string, object>();
+        var post = _look != null && _look.HasMethod("SelfCheck") ? _look.Get("Post").AsGodotObject() as CompositorEffect : null;
+        if (post == null)
+        {
+            result["ran"] = false;
+            result["note"] = "this build has no grain and vignette effect to check";
+            return result;
+        }
+        Frame(root.GetProperty("cameras")[0]);
+        post.Enabled = true;
+        for (var i = 0; i < 30; i++) await NextFrame();
+        var with = Grab();
+        post.Enabled = false;
+        for (var i = 0; i < 30; i++) await NextFrame();
+        var without = Grab();
+        post.Enabled = true;
+        for (var i = 0; i < 5; i++) await NextFrame();
+        var w = with.GetWidth();
+        var h = with.GetHeight();
+        var patch = Math.Max(8, h / 12);
+        double Mean(Image image, int x0, int y0)
+        {
+            double sum = 0;
+            for (var y = y0; y < y0 + patch; y++)
+                for (var x = x0; x < x0 + patch; x++)
+                {
+                    var c = image.GetPixel(x, y);
+                    sum += 0.2126 * c.R + 0.7152 * c.G + 0.0722 * c.B;
+                }
+            return sum / (patch * patch) + 1e-4;
+        }
+        var corners = new[] { (0, 0), (w - patch, 0), (0, h - patch), (w - patch, h - patch) };
+        var cornerRatio = corners.Average(c => Mean(with, c.Item1, c.Item2) / Mean(without, c.Item1, c.Item2));
+        var centreRatio = Mean(with, w / 2 - patch / 2, h / 2 - patch / 2) / Mean(without, w / 2 - patch / 2, h / 2 - patch / 2);
+        // Grain: the per-pixel ratio between the two images, correlated with the pattern the shader is known to
+        // multiply in (LookPostEffect.Factor, found by reflection so this file still builds against older commits).
+        // Tone mapping, 8-bit output and TAA shrink a 5% grain to well under one 8-bit level, so its spread alone
+        // cannot be told from frame-to-frame noise; the correlation can (noise alone gives about 1/sqrt(pixels)).
+        var factor = post.GetType().GetMethod("Factor", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+        var pushConstants = post.GetType().GetMethod("PushConstants")?.Invoke(post, new object[] { new Vector2I(w, h) }) as float[];
+        var measured = new List<double>();
+        var expected = new List<double>();
+        for (var y = h / 2 - patch / 2; y < h / 2 + patch / 2; y++)
+            for (var x = w / 2 - patch / 2; x < w / 2 + patch / 2; x++)
+            {
+                var a = with.GetPixel(x, y);
+                var b = without.GetPixel(x, y);
+                var lb = 0.2126 * b.R + 0.7152 * b.G + 0.0722 * b.B;
+                if (lb <= 0.08) continue;
+                measured.Add((0.2126 * a.R + 0.7152 * a.G + 0.0722 * a.B) / lb);
+                expected.Add(factor != null && pushConstants != null ? (float)factor.Invoke(null, new object[] { pushConstants, new Vector2I(x, y) })! : 1.0);
+            }
+        var spread = Spread(measured);
+        var correlation = Correlation(measured, expected);
+        var vignetteSeen = centreRatio - cornerRatio;
+        result["ran"] = true;
+        result["corner_to_centre_darkening"] = Round(vignetteSeen);
+        result["grain_spread"] = Round(spread);
+        result["grain_correlation"] = Round(correlation);
+        result["noise_correlation_scale"] = Round(measured.Count > 0 ? 1.0 / Math.Sqrt(measured.Count) : 1.0);
+        result["centre_pixels_compared"] = measured.Count;
+        // The vignette (0.15 in the preset) darkens the corners about 5% after tone mapping; the grain must
+        // correlate with its known pattern far above the noise level.
+        result["passed"] = vignetteSeen > 0.02 && measured.Count > 1000 && correlation > 8.0 / Math.Sqrt(measured.Count);
+        return result;
+    }
+
+    private Dictionary<string, object>? _postCheck;
+
+    private static double Spread(List<double> values)
+    {
+        if (values.Count < 2) return 0.0;
+        var mean = values.Average();
+        return Math.Sqrt(values.Average(v => (v - mean) * (v - mean)));
+    }
+
+    private static double Correlation(List<double> a, List<double> b)
+    {
+        if (a.Count < 2 || a.Count != b.Count) return 0.0;
+        var ma = a.Average();
+        var mb = b.Average();
+        double sab = 0, saa = 0, sbb = 0;
+        for (var i = 0; i < a.Count; i++)
+        {
+            sab += (a[i] - ma) * (b[i] - mb);
+            saa += (a[i] - ma) * (a[i] - ma);
+            sbb += (b[i] - mb) * (b[i] - mb);
+        }
+        return saa <= 0 || sbb <= 0 ? 0.0 : sab / Math.Sqrt(saa * sbb);
+    }
+
+    /// <summary>The look's self-check (renderer fallback, missing GI, bake stand-ins left, post effect never ran) and the pixel check.</summary>
+    private List<string> LookProblems()
+    {
+        var problems = new List<string>();
+        if (_look != null && _look.HasMethod("SelfCheck")) problems.AddRange(_look.Call("SelfCheck").AsStringArray());
+        if (_postCheck != null && _postCheck.TryGetValue("passed", out var passed) && passed is false)
+            problems.Add($"the grain and vignette effect did not show in the pixels (corner darkening {_postCheck["corner_to_centre_darkening"]}, grain correlation {_postCheck["grain_correlation"]} against a noise scale of {_postCheck["noise_correlation_scale"]})");
+        return problems;
+    }
+
+    private void WriteReport(string outDir, string camerasPath, Vector2I resolution, int warmup, int frames, List<string> problems)
     {
         var report = new Dictionary<string, object?>
         {
@@ -299,6 +415,9 @@ public partial class LookCaptureHarness : Node
             ["cameras"] = _results,
         };
         if (_look != null && _look.HasMethod("DescribeLook")) report["look"] = _look.Call("DescribeLook").AsString();
+        report["look_problems"] = problems;
+        if (_postCheck != null) report["post_effect_check"] = _postCheck;
+        if (_look != null && _look.HasMethod("SelfCheck")) report["player_notice"] = _look.Get("PlayerNotice").AsString();
         var json = JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true });
         System.IO.File.WriteAllBytes(System.IO.Path.Combine(outDir, "timings.json"), new UTF8Encoding(false).GetBytes(json.Replace("\r\n", "\n") + "\n"));
     }
