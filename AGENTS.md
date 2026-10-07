@@ -45,6 +45,20 @@ tools/linux/test-all.sh          # everything the Windows runners check, headles
 
 Headless Linux renders nothing, so look captures and frame timings need the founder's GPU.
 
+## Working on the founder's machine (parallel lane worktrees)
+
+Lanes run side by side in `C:\dev\EnFractal-run1\<lane>` git worktrees; the integrator's checkout is `C:\dev\EnFractal`.
+- **Stay in your worktree.** Never build, run or write in the integrator's checkout or another lane's worktree.
+- **Absolute paths for .NET file APIs.** PowerShell `cd` does not move .NET's working directory, which stays at the integrator's checkout. A relative `[System.IO.File]` path writes there.
+- **Godot needs `DOTNET_ROOT`.** When you launch Godot directly instead of through the runners, first set `$env:DOTNET_ROOT` to your worktree's `.cache\dotnet` and prepend it to `PATH`. Otherwise a modal dialog blocks the founder's screen.
+- **GPU courtesy.** Before a windowed render, capture or timing, check for a window titled `EnFractal*`. If the founder is playing, don't render.
+- **Lean testing.**
+  - While iterating, run only the tests for what you change, and the full runners once at the end.
+  - Mutation checks: at most five key protections per round.
+  - Show failing-before evidence for blockers and majors.
+- **Short reports.** About 250 words: what changed, the final pass and fail lines, decisions needed, commit hashes. The integrator asks for details when needed.
+- **Your own scratch folder.** Keep scratch files in the subfolder the integrator names, never in the repository.
+
 ## Definition of done for a lane
 
 - The run brief's acceptance list for your packets passes, with the commands and their output in your report.
