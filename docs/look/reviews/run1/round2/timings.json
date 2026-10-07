@@ -1,0 +1,300 @@
+{
+  "label": "round2",
+  "commit": "8c20037",
+  "note": "NVIDIA GeForce RTX 2070 Super; 0 of 8192 MiB in use and 0% utilisation before launch (quiet for 6 s)",
+  "captured_utc": "2026-10-07T02:21:37Z",
+  "engine": "4.7.2-stable (official)",
+  "rendering_method": "forward_plus",
+  "rendering_driver": "vulkan",
+  "adapter": "NVIDIA GeForce RTX 2070 Super",
+  "adapter_driver": "NVIDIA 32.0.15.7680",
+  "target": "offscreen SubViewport (window shows a scaled preview)",
+  "resolution": [
+    1920,
+    1080
+  ],
+  "vsync": "disabled",
+  "warmup_frames": 120,
+  "measured_frames": 300,
+  "style": "storybook_painterly@1",
+  "style_note": "",
+  "room_manifest_sha256": "fae71a80850033d74fed51c4549fb5d6b2a3ebe8068d2002a6b603f68cd8fb93",
+  "cameras_file": "C:\\dev\\EnFractal-run1\\look\\tools\\look\\review_cameras.json",
+  "msaa_3d": "Disabled",
+  "screen_space_aa": "Disabled",
+  "use_taa": true,
+  "cameras": [
+    {
+      "frames": 300,
+      "frame_ms_mean": 10.745,
+      "frame_ms_p50": 10.723,
+      "frame_ms_p95": 11.529,
+      "frame_ms_p99": 11.748,
+      "frame_ms_max": 11.964,
+      "gpu_ms_mean": 7.255,
+      "gpu_ms_p95": 7.333,
+      "render_cpu_ms_mean": 0.314,
+      "draw_calls_mean": 31,
+      "primitives_mean": 362,
+      "video_mem_mib": 494.985,
+      "camera": "player_eye",
+      "file": "player_eye.png",
+      "image_size": [
+        1920,
+        1080
+      ]
+    },
+    {
+      "frames": 300,
+      "frame_ms_mean": 11.034,
+      "frame_ms_p50": 11.023,
+      "frame_ms_p95": 11.803,
+      "frame_ms_p99": 12.041,
+      "frame_ms_max": 12.377,
+      "gpu_ms_mean": 7.528,
+      "gpu_ms_p95": 7.602,
+      "render_cpu_ms_mean": 0.348,
+      "draw_calls_mean": 66,
+      "primitives_mean": 4982,
+      "video_mem_mib": 494.985,
+      "camera": "over_shoulder",
+      "file": "over_shoulder.png",
+      "image_size": [
+        1920,
+        1080
+      ],
+      "contact_crops": [
+        "contact_over_shoulder_player.png",
+        "contact_over_shoulder_companion.png"
+      ]
+    },
+    {
+      "frames": 300,
+      "frame_ms_mean": 10.886,
+      "frame_ms_p50": 10.873,
+      "frame_ms_p95": 11.662,
+      "frame_ms_p99": 11.842,
+      "frame_ms_max": 12.085,
+      "gpu_ms_mean": 7.345,
+      "gpu_ms_p95": 7.438,
+      "render_cpu_ms_mean": 0.357,
+      "draw_calls_mean": 49,
+      "primitives_mean": 4778,
+      "video_mem_mib": 494.985,
+      "camera": "companion",
+      "file": "companion.png",
+      "image_size": [
+        1920,
+        1080
+      ],
+      "contact_crops": [
+        "contact_companion_player.png",
+        "contact_companion_companion.png"
+      ]
+    },
+    {
+      "frames": 300,
+      "frame_ms_mean": 10.454,
+      "frame_ms_p50": 10.448,
+      "frame_ms_p95": 11.202,
+      "frame_ms_p99": 11.454,
+      "frame_ms_max": 11.515,
+      "gpu_ms_mean": 6.936,
+      "gpu_ms_p95": 7.037,
+      "render_cpu_ms_mean": 0.374,
+      "draw_calls_mean": 70,
+      "primitives_mean": 5030,
+      "video_mem_mib": 494.984,
+      "camera": "low_corner",
+      "file": "low_corner.png",
+      "image_size": [
+        1920,
+        1080
+      ],
+      "contact_crops": [
+        "contact_low_corner_player.png",
+        "contact_low_corner_companion.png"
+      ]
+    },
+    {
+      "frames": 300,
+      "frame_ms_mean": 11.394,
+      "frame_ms_p50": 11.366,
+      "frame_ms_p95": 12.126,
+      "frame_ms_p99": 12.275,
+      "frame_ms_max": 12.54,
+      "gpu_ms_mean": 7.816,
+      "gpu_ms_p95": 7.906,
+      "render_cpu_ms_mean": 0.409,
+      "draw_calls_mean": 53,
+      "primitives_mean": 3426,
+      "video_mem_mib": 494.984,
+      "camera": "ceiling_corner",
+      "file": "ceiling_corner.png",
+      "image_size": [
+        1920,
+        1080
+      ]
+    },
+    {
+      "frames": 300,
+      "frame_ms_mean": 11.624,
+      "frame_ms_p50": 11.645,
+      "frame_ms_p95": 12.374,
+      "frame_ms_p99": 12.581,
+      "frame_ms_max": 12.678,
+      "gpu_ms_mean": 8.042,
+      "gpu_ms_p95": 8.114,
+      "render_cpu_ms_mean": 0.373,
+      "draw_calls_mean": 54,
+      "primitives_mean": 4838,
+      "video_mem_mib": 494.984,
+      "camera": "diorama_high",
+      "file": "diorama_high.png",
+      "image_size": [
+        1920,
+        1080
+      ]
+    },
+    {
+      "frames": 300,
+      "frame_ms_mean": 11.385,
+      "frame_ms_p50": 11.362,
+      "frame_ms_p95": 12.163,
+      "frame_ms_p99": 12.35,
+      "frame_ms_max": 12.728,
+      "gpu_ms_mean": 7.797,
+      "gpu_ms_p95": 7.868,
+      "render_cpu_ms_mean": 0.359,
+      "draw_calls_mean": 49,
+      "primitives_mean": 3378,
+      "video_mem_mib": 494.984,
+      "camera": "iso_room",
+      "file": "iso_room.png",
+      "image_size": [
+        1920,
+        1080
+      ]
+    }
+  ],
+  "look": "storybook_painterly@1 (draft) sha256=e1200d00e51fd77527824053f163bc96c6bb82cf7abf7c94ed721a4e35b4e444; renderer=forward_plus; key=sun elevation 14.2 yaw -75.7 energy 1.87 (sun at 14.2 degrees, bearing 255.7; moon weight 0; sun scale 1); sky fill energy 1.67 colour #c9d9ff; lamps off (switched by the light); hour 16.5 day 279 season autumn (hour pinned, day pinned (pinned by SetClock)); VoxelGI 4.6 x 3.0 x 3.6 m at subdiv 128 baked in 402 ms; ssao=True ssil=False glow=True dof=True tilt=0.8; grain 0.05 vignette 0.15 post effect ran",
+  "look_problems": [],
+  "post_effect_check": {
+    "ran": true,
+    "corner_to_centre_darkening": 0.07,
+    "grain_spread": 0.004,
+    "grain_correlation": 0.158,
+    "noise_correlation_scale": 0.005,
+    "centre_pixels_compared": 46656,
+    "passed": true
+  },
+  "light_checks": {
+    "sun_through_window": {
+      "camera": "ceiling_corner",
+      "sun_elevation_deg": 14.191,
+      "lit_points": 133,
+      "shaded_points": 471,
+      "lit_gain": 0.287,
+      "shaded_gain": 0.027,
+      "passed": true
+    },
+    "night": [
+      {
+        "camera": "ceiling_corner",
+        "lamps": "off",
+        "file": "night_ceiling_corner_lamps_off.png",
+        "mean_luma": 0.155,
+        "p05_luma": 0.041,
+        "p50_luma": 0.16,
+        "p95_luma": 0.303
+      },
+      {
+        "camera": "ceiling_corner",
+        "lamps": "on",
+        "file": "night_ceiling_corner_lamps_on.png",
+        "mean_luma": 0.492,
+        "p05_luma": 0.257,
+        "p50_luma": 0.481,
+        "p95_luma": 0.747
+      },
+      {
+        "camera": "over_shoulder",
+        "lamps": "off",
+        "file": "night_over_shoulder_lamps_off.png",
+        "mean_luma": 0.188,
+        "p05_luma": 0.053,
+        "p50_luma": 0.196,
+        "p95_luma": 0.262
+      },
+      {
+        "camera": "over_shoulder",
+        "lamps": "on",
+        "file": "night_over_shoulder_lamps_on.png",
+        "mean_luma": 0.433,
+        "p05_luma": 0.272,
+        "p50_luma": 0.41,
+        "p95_luma": 0.687
+      }
+    ],
+    "contact_moments": [
+      {
+        "label": "summer_sun",
+        "camera": "over_shoulder",
+        "file": "summer_sun_over_shoulder.png",
+        "contact_crops": [
+          "contact_summer_sun_over_shoulder_player.png",
+          "contact_summer_sun_over_shoulder_companion.png"
+        ]
+      },
+      {
+        "label": "summer_sun",
+        "camera": "low_corner",
+        "file": "summer_sun_low_corner.png",
+        "contact_crops": [
+          "contact_summer_sun_low_corner_player.png",
+          "contact_summer_sun_low_corner_companion.png"
+        ]
+      },
+      {
+        "label": "summer_sun",
+        "camera": "companion",
+        "file": "summer_sun_companion.png",
+        "contact_crops": [
+          "contact_summer_sun_companion_player.png",
+          "contact_summer_sun_companion_companion.png"
+        ]
+      },
+      {
+        "label": "lamp_night",
+        "camera": "over_shoulder",
+        "file": "lamp_night_over_shoulder.png",
+        "contact_crops": [
+          "contact_lamp_night_over_shoulder_player.png",
+          "contact_lamp_night_over_shoulder_companion.png"
+        ]
+      },
+      {
+        "label": "lamp_night",
+        "camera": "low_corner",
+        "file": "lamp_night_low_corner.png",
+        "contact_crops": [
+          "contact_lamp_night_low_corner_player.png",
+          "contact_lamp_night_low_corner_companion.png"
+        ]
+      },
+      {
+        "label": "lamp_night",
+        "camera": "companion",
+        "file": "lamp_night_companion.png",
+        "contact_crops": [
+          "contact_lamp_night_companion_player.png",
+          "contact_lamp_night_companion_companion.png"
+        ]
+      }
+    ],
+    "night_passed": true,
+    "ran": true
+  },
+  "player_notice": "",
+  "gpu_during_capture": "GPU memory during capture 26-670 MiB over 128 samples"
+}
