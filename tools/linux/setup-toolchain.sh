@@ -30,5 +30,9 @@ install sdk_linux tar
 if [ ! -x "$DEST/contracts-venv/bin/python" ]; then python3 -m venv "$DEST/contracts-venv"; fi
 "$DEST/contracts-venv/bin/pip" install -q -r "$REPO/contracts/requirements.txt"
 echo "ok  contract validator environment"
+python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else "the companion needs Python 3.11 or newer")'
+if [ ! -x "$DEST/companion-venv/bin/python" ]; then python3 -m venv "$DEST/companion-venv"; fi
+"$DEST/companion-venv/bin/pip" install -q --require-hashes -r "$REPO/companion/requirements.lock.txt"
+echo "ok  companion environment"
 "$REPO/$(field engine_linux marker)" --version
 "$DEST/dotnet/dotnet" --list-sdks

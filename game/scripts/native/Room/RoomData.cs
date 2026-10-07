@@ -45,12 +45,31 @@ public sealed class RoomData
 {
     public const int SchemaVersion = 1;
     // Same rules as contracts/common.schema.json: one spelling per file, no ".", ".." or empty segments.
-    private static readonly Regex RelativePath = new(@"^(?!.*(?:^|/)\.\.?(?:/|$))(?!.*//)(?!.*/$)[A-Za-z0-9_][A-Za-z0-9_./-]{0,199}$", RegexOptions.Compiled);
-    private static readonly Regex AssetPath = new(@"^objects/[a-z][a-z0-9_-]{0,63}/asset\.json$", RegexOptions.Compiled);
-    // Control, line-separator, zero-width and bidirectional-override characters cannot appear in display text.
-    private static readonly Regex UnsafeText = new(@"[\u0000-\u001F\u007F-\u009F\u200B-\u200F\u2028\u2029\u202A-\u202E\u2060-\u2069\uFEFF]", RegexOptions.Compiled);
+    private static readonly Regex RelativePath = new(@"^(?!.*(?:^|/)\.\.?(?:/|\z))(?!.*//)(?!.*/\z)[A-Za-z0-9_][A-Za-z0-9_./-]{0,199}\z", RegexOptions.Compiled);
+    private static readonly Regex AssetPath = new(@"^objects/[a-z][a-z0-9_-]{0,63}/asset\.json\z", RegexOptions.Compiled);
+    // Control, line-separator, zero-width, bidirectional-override and other invisible characters cannot appear in
+    // display text (contracts/common.schema.json). The four emoji markers pass this pattern and are checked in
+    // context by MisplacedEmojiMarker.
+    private static readonly Regex UnsafeText = new(@"[\u0000-\u001F\u007F-\u009F\u00AD\u034F\u061C\u115F\u1160\u180B-\u180F\u200B\u200C\u200E\u200F\u2028-\u202E\u2060-\u206F\u2800\u3164\uFE00-\uFE0D\uFEFF\uFFA0\uFFF9-\uFFFB\uDB40-\uDB7F]", RegexOptions.Compiled);
+    // Extended_Pictographic (UTS #51, Unicode 15.1 emoji-data.txt), merged ranges: the characters emoji are made of.
+    private static readonly (int Low, int High)[] ExtendedPictographic =
+    {
+        (0x00A9, 0x00A9), (0x00AE, 0x00AE), (0x203C, 0x203C), (0x2049, 0x2049), (0x2122, 0x2122), (0x2139, 0x2139),
+        (0x2194, 0x2199), (0x21A9, 0x21AA), (0x231A, 0x231B), (0x2328, 0x2328), (0x2388, 0x2388), (0x23CF, 0x23CF),
+        (0x23E9, 0x23F3), (0x23F8, 0x23FA), (0x24C2, 0x24C2), (0x25AA, 0x25AB), (0x25B6, 0x25B6), (0x25C0, 0x25C0),
+        (0x25FB, 0x25FE), (0x2600, 0x2605), (0x2607, 0x2612), (0x2614, 0x2685), (0x2690, 0x2705), (0x2708, 0x2712),
+        (0x2714, 0x2714), (0x2716, 0x2716), (0x271D, 0x271D), (0x2721, 0x2721), (0x2728, 0x2728), (0x2733, 0x2734),
+        (0x2744, 0x2744), (0x2747, 0x2747), (0x274C, 0x274C), (0x274E, 0x274E), (0x2753, 0x2755), (0x2757, 0x2757),
+        (0x2763, 0x2767), (0x2795, 0x2797), (0x27A1, 0x27A1), (0x27B0, 0x27B0), (0x27BF, 0x27BF), (0x2934, 0x2935),
+        (0x2B05, 0x2B07), (0x2B1B, 0x2B1C), (0x2B50, 0x2B50), (0x2B55, 0x2B55), (0x3030, 0x3030), (0x303D, 0x303D),
+        (0x3297, 0x3297), (0x3299, 0x3299), (0x1F000, 0x1F0FF), (0x1F10D, 0x1F10F), (0x1F12F, 0x1F12F), (0x1F16C, 0x1F171),
+        (0x1F17E, 0x1F17F), (0x1F18E, 0x1F18E), (0x1F191, 0x1F19A), (0x1F1AD, 0x1F1E5), (0x1F201, 0x1F20F), (0x1F21A, 0x1F21A),
+        (0x1F22F, 0x1F22F), (0x1F232, 0x1F23A), (0x1F23C, 0x1F23F), (0x1F249, 0x1F3FA), (0x1F400, 0x1F53D), (0x1F546, 0x1F64F),
+        (0x1F680, 0x1F6FF), (0x1F774, 0x1F77F), (0x1F7D5, 0x1F7FF), (0x1F80C, 0x1F80F), (0x1F848, 0x1F84F), (0x1F85A, 0x1F85F),
+        (0x1F888, 0x1F88F), (0x1F8AE, 0x1F8FF), (0x1F90C, 0x1F93A), (0x1F93C, 0x1F945), (0x1F947, 0x1FAFF), (0x1FC00, 0x1FFFD),
+    };
     public const float CoordinateLimitM = 1000f;
-    private static readonly Regex Token = new(@"^[a-z][a-z0-9_-]{0,63}$", RegexOptions.Compiled);
+    private static readonly Regex Token = new(@"^[a-z][a-z0-9_-]{0,63}\z", RegexOptions.Compiled);
     private static readonly JsonDocumentOptions Strict = new() { AllowTrailingCommas = false, CommentHandling = JsonCommentHandling.Disallow, MaxDepth = 64 };
 
     public string Directory { get; private init; } = "";
@@ -281,8 +300,62 @@ public sealed class RoomData
     private static string Display(JsonElement element, string name, int maxLength)
     {
         var text = Str(element, name);
-        Expect(text.Length <= maxLength && !UnsafeText.IsMatch(text), $"'{name}' must be at most {maxLength} characters without control or bidirectional characters");
+        Expect(text.Length <= maxLength && IsSafeText(text), $"'{name}' must be at most {maxLength} characters without control or bidirectional characters, invisible characters or misplaced emoji markers");
         return text;
+    }
+
+    /// <summary>The contract's untrusted-text rule: no hidden characters, and emoji markers only in place.</summary>
+    public static bool IsSafeText(string text) => !UnsafeText.IsMatch(text) && MisplacedEmojiMarker(text) == null;
+
+    /// <summary>
+    /// The first emoji marker out of place, as U+XXXX, or null. VS15 and VS16 belong directly after an
+    /// Extended_Pictographic character or a keycap base (0-9, # or *), one per base; the zero-width joiner between
+    /// two emoji (the one before may carry one VS16 or skin tone); the keycap combiner U+20E3 after a keycap base,
+    /// optionally with VS16. Anywhere else, alone or in runs, they could hide data. Same rule as
+    /// contracts/validate.py and the companion's textsafety.py.
+    /// </summary>
+    public static string? MisplacedEmojiMarker(string text)
+    {
+        var codes = new List<int>();
+        foreach (var rune in text.EnumerateRunes()) codes.Add(rune.Value);
+        for (var i = 0; i < codes.Count; i++)
+        {
+            var code = codes[i];
+            if (code is not (0xFE0E or 0xFE0F or 0x200D or 0x20E3)) continue;
+            var before = i > 0 ? codes[i - 1] : -1;
+            bool inPlace;
+            if (code is 0xFE0E or 0xFE0F)
+            {
+                inPlace = IsPictographic(before) || IsKeycapBase(before);
+            }
+            else if (code == 0x20E3)
+            {
+                inPlace = IsKeycapBase(before) || (before == 0xFE0F && i >= 2 && IsKeycapBase(codes[i - 2]));
+            }
+            else
+            {
+                var j = i - 1;
+                if (j >= 0 && (codes[j] == 0xFE0F || codes[j] is >= 0x1F3FB and <= 0x1F3FF)) j--;
+                inPlace = i + 1 < codes.Count && IsPictographic(codes[i + 1]) && j >= 0 && IsPictographic(codes[j]);
+            }
+            if (!inPlace) return $"U+{code:X4}";
+        }
+        return null;
+    }
+
+    private static bool IsKeycapBase(int code) => code is >= 0x30 and <= 0x39 or 0x23 or 0x2A;
+
+    private static bool IsPictographic(int code)
+    {
+        int low = 0, high = ExtendedPictographic.Length - 1;
+        while (low <= high)
+        {
+            var middle = (low + high) / 2;
+            if (code < ExtendedPictographic[middle].Low) high = middle - 1;
+            else if (code > ExtendedPictographic[middle].High) low = middle + 1;
+            else return true;
+        }
+        return false;
     }
 
     private static string? OptDisplay(JsonElement element, string name, int maxLength) =>

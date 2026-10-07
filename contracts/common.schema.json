@@ -272,16 +272,16 @@
       ]
     },
     "display_text": {
-      "description": "Single-line text shown to people and models: names, categories, labels, notes. Treated as untrusted data wherever it comes from. Control, line-separator, zero-width and bidirectional-override characters are forbidden so it cannot fake structure.",
+      "description": "Single-line text shown to people and models: names, categories, labels, notes. Treated as untrusted data wherever it comes from. Control, line-separator, zero-width, bidirectional-override and other invisible characters (the soft hyphen, the Arabic letter mark, Hangul fillers, variation selectors U+FE00-U+FE0D, interlinear annotation marks, the TAG block and the rest of plane 14) are forbidden so it cannot fake structure or hide text. The four emoji markers (VS15 U+FE0E, VS16 U+FE0F, the zero-width joiner U+200D and the keycap combiner U+20E3) pass the pattern but are allowed only where an emoji puts them: a selector directly after an Extended_Pictographic character or 0-9, # or *, one per base; the joiner between two emoji; the keycap after 0-9, # or *, optionally with VS16. A pattern cannot express that context, so readers check it in code (contracts/validate.py, RoomData.cs, the companion). The pattern is ECMA-262: '$' matches only at the very end. A UTF-16 reader refuses plane 14 through \\uDB40-\\uDB7F; a reader that matches code points refuses U+E0000-U+EFFFF in code (contracts/validate.py).",
       "type": "string",
       "maxLength": 500,
-      "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F\\u200B-\\u200F\\u2028\\u2029\\u202A-\\u202E\\u2060-\\u2069\\uFEFF]*$"
+      "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F\\u00AD\\u034F\\u061C\\u115F\\u1160\\u180B-\\u180F\\u200B\\u200C\\u200E\\u200F\\u2028-\\u202E\\u2060-\\u206F\\u2800\\u3164\\uFE00-\\uFE0D\\uFEFF\\uFFA0\\uFFF9-\\uFFFB\\uDB40-\\uDB7F]*$"
     },
     "long_text": {
-      "description": "Multi-line untrusted text (descriptions, review notes, prompts). Newline and tab are the only control characters allowed.",
+      "description": "Multi-line untrusted text (descriptions, review notes, prompts). Newline and tab are the only control characters allowed; the invisible characters display_text forbids are forbidden here too, and the emoji markers are allowed only in place, as there.",
       "type": "string",
       "maxLength": 4000,
-      "pattern": "^[^\\u0000-\\u0008\\u000B-\\u001F\\u007F-\\u009F\\u200B-\\u200F\\u2028\\u2029\\u202A-\\u202E\\u2060-\\u2069\\uFEFF]*$"
+      "pattern": "^[^\\u0000-\\u0008\\u000B-\\u001F\\u007F-\\u009F\\u00AD\\u034F\\u061C\\u115F\\u1160\\u180B-\\u180F\\u200B\\u200C\\u200E\\u200F\\u2028-\\u202E\\u2060-\\u206F\\u2800\\u3164\\uFE00-\\uFE0D\\uFEFF\\uFFA0\\uFFF9-\\uFFFB\\uDB40-\\uDB7F]*$"
     },
     "request_id": {
       "description": "Host-minted, unguessable identifier (at least 128 bits, lowercase hex).",
@@ -302,7 +302,7 @@
         {
           "type": "string",
           "maxLength": 64,
-          "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F\\u200B-\\u200F\\u2028\\u2029\\u202A-\\u202E\\u2060-\\u2069\\uFEFF]*$"
+          "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F\\u00AD\\u034F\\u061C\\u115F\\u1160\\u180B-\\u180F\\u200B\\u200C\\u200E\\u200F\\u2028-\\u202E\\u2060-\\u206F\\u2800\\u3164\\uFE00-\\uFE0D\\uFEFF\\uFFA0\\uFFF9-\\uFFFB\\uDB40-\\uDB7F]*$"
         }
       ]
     },

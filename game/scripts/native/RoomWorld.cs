@@ -87,6 +87,7 @@ public partial class RoomWorld : Node3D
                 Player = Player, Companion = Companion, RoomTitle = Room.DisplayName.ToUpperInvariant(),
                 // Never a silent fallback: a style pin that did not verify, or a renderer the look was not designed for.
                 LookNotice = string.Join(" ", new[] { StyleNote, Look.PlayerNotice }.Where(note => note.Length > 0)),
+                Look = Look,
             });
             Kernel.CommandHost.Attach(this);
             Navigation.RoomNavigation.Attach(this);

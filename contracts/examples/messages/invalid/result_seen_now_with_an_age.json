@@ -1,0 +1,53 @@
+{
+  "schema": "enfractal.result",
+  "version": 1,
+  "ok": true,
+  "op": "entities.list",
+  "query_id": "q-0011",
+  "principal": "companion:local",
+  "room_id": "garage_example",
+  "revision": 4,
+  "replayed": false,
+  "preview": false,
+  "at_utc": "2026-10-06T00:05:00Z",
+  "data": {
+    "items": [
+      {
+        "id": "obj:bean_bag",
+        "kind": "object",
+        "display_name": "Bean bag",
+        "revision": 2,
+        "position_m": [
+          1.0,
+          0.0,
+          0.9
+        ],
+        "bounds_m": {
+          "min_m": [
+            0.55,
+            0.0,
+            0.45
+          ],
+          "max_m": [
+            1.45,
+            0.55,
+            1.35
+          ]
+        },
+        "affordances": [
+          "walkable_top",
+          "climbable",
+          "soft",
+          "sittable"
+        ],
+        "movable": true,
+        "protected": false,
+        "provenance_kind": "captured_generated",
+        "category": "grey bean bag",
+        "category_group": "furniture",
+        "seen": "now",
+        "last_seen_ago_s": 1.5
+      }
+    ]
+  }
+}

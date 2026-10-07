@@ -20,3 +20,9 @@ game/tests/fixtures/kernel/** -text
 
 # Godot rewrites import sidecars with LF on every host; a CRLF checkout then shows them modified after each import.
 *.import text eol=lf
+
+# Companion (A1): the proposed link schema is pinned like the contracts, the canonical JSON fixture copy
+# stays byte-exact, and proposal patches must reach Windows checkouts byte-exact or git apply refuses them.
+companion/schemas/*.json text eol=lf
+companion/tests/fixtures/** -text
+docs/companion/proposals/*.diff -text

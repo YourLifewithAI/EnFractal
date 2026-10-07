@@ -65,3 +65,15 @@ foreach ($scene in @('native_kernel_canonical_json.tscn', 'native_kernel_command
     }
     Write-Output ($kernel.Stdout.Trim().Split("`n") | Select-Object -Last 1)
 }
+
+# Companion (A1): MCP surface, mock host, link and boundary tests in the pinned companion environment.
+# The first run needs network once to fill companion/.venv from companion/uv.lock.
+$uv = Get-Command uv -CommandType Application -ErrorAction SilentlyContinue
+if (-not $uv) { throw 'uv is required for the companion tests (companion/uv.lock); see docs/companion/README.md.' }
+$companionOutput = & $uv.Source run --project (Join-Path $PSScriptRoot 'companion') --locked --quiet `
+    python -m unittest discover -s (Join-Path $PSScriptRoot 'companion/tests') 2>&1 | ForEach-Object { "$_" }
+if ($LASTEXITCODE -ne 0) {
+    Write-Output $companionOutput
+    throw "Companion tests failed with exit code $LASTEXITCODE."
+}
+Write-Output ("companion: " + (($companionOutput | Select-String -Pattern '^Ran \d+ tests' | Select-Object -Last 1).Line))

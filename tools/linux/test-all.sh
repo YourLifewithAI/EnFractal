@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Headless Linux mirror of run-engine-tests.ps1 and tools/test-room.ps1, plus the contract tests.
+# Headless Linux mirror of run-engine-tests.ps1 and tools/test-room.ps1, plus the contract and companion tests.
 # Run tools/linux/setup-toolchain.sh first. Exits non-zero if anything fails; stderr output from
 # Godot counts as a failure, exactly as in the Windows runners.
 set -u
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 LINUX="$REPO/.cache/linux"
 GODOT="$LINUX/godot/Godot_v4.7.2-stable_mono_linux_x86_64/Godot_v4.7.2-stable_mono_linux.x86_64"
-[ -x "$GODOT" ] && [ -x "$LINUX/dotnet/dotnet" ] || { echo "Run tools/linux/setup-toolchain.sh first." >&2; exit 2; }
+[ -x "$GODOT" ] && [ -x "$LINUX/dotnet/dotnet" ] && [ -x "$LINUX/companion-venv/bin/python" ] || { echo "Run tools/linux/setup-toolchain.sh first." >&2; exit 2; }
 export DOTNET_ROOT="$LINUX/dotnet" PATH="$LINUX/dotnet:$PATH" DOTNET_CLI_HOME="$LINUX/dotnet-home" NUGET_PACKAGES="$LINUX/nuget" \
        DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1 DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1
 # Keep test saves away from any real player data.
@@ -58,6 +58,14 @@ else cat "$LOG/contracts.log"; failed=1; fi
 if (cd "$REPO" && "$LINUX/contracts-venv/bin/python" -I contracts/validate.py game/rooms/test_room game/styles/*/v*.json > "$LOG/validate.log" 2>&1); then
   echo "PASS shipped rooms and presets validate"
 else cat "$LOG/validate.log"; failed=1; fi
+echo "== companion"
+if (cd "$REPO" && PYTHONPATH="$REPO/companion/src" "$LINUX/companion-venv/bin/python" -m unittest discover -s companion/tests > "$LOG/companion.log" 2>&1); then
+  echo "PASS companion: $(grep -E '^Ran' "$LOG/companion.log")"
+else cat "$LOG/companion.log"; failed=1; fi
+echo "== roomscan (capture pipeline, CPU only)"
+if (cd "$REPO/pipeline/roomscan" && uv run --locked pytest -q > "$LOG/roomscan.log" 2>&1); then
+  echo "PASS roomscan: $(tail -n 1 "$LOG/roomscan.log")"
+else cat "$LOG/roomscan.log"; failed=1; fi
 
 echo "== $([ $failed -eq 0 ] && echo GREEN || echo RED)"
 exit $failed

@@ -7,6 +7,8 @@ public partial class RoomHud : CanvasLayer
 {
     public SmallPlayerController Player { get; set; } = null!;
     public CompanionAvatar Companion { get; set; } = null!;
+    /// <summary>Set by RoomWorld so the L key can switch the room's lamps; null in fixtures without a look.</summary>
+    public global::EnFractal.Native.Look.LookDirector? Look { get; set; }
     public int ViewMode { get; private set; } = 1;
     public string RoomTitle { get; set; } = "ROOM";
     /// <summary>Set by RoomWorld: what the look and the style pin need the player to know (a renderer fallback, a style that did not verify).</summary>
@@ -86,7 +88,7 @@ public partial class RoomHud : CanvasLayer
         footer.OffsetLeft = 18; footer.OffsetRight = -18; footer.OffsetTop = -140; footer.OffsetBottom = -18;
         var help = new VBoxContainer(); footer.AddChild(help);
         help.AddChild(new Label { Text = "WASD move · Shift run · Space jump · R recover · G gravity · click to look · Esc release" });
-        help.AddChild(new Label { Text = "F1 eye · F2 shoulder · F3 diorama: mouse orbits, wheel zooms, WASD follows the view · F4 isometric: Q/E turn · C customize" });
+        help.AddChild(new Label { Text = "F1 eye · F2 shoulder · F3 diorama: mouse orbits, wheel zooms, WASD follows the view · F4 isometric: Q/E turn · L lamps · C customize" });
         _notice = new Label { Text = _noticeText }; help.AddChild(_notice);
         _customization = new PanelContainer { Position = new Vector2(18, 164), Theme = theme, Visible = false };
         AddChild(_customization);
@@ -228,6 +230,7 @@ public partial class RoomHud : CanvasLayer
                 case Key.F2: SetViewMode(1); break;
                 case Key.F3: SetViewMode(2); break;
                 case Key.F4: SetViewMode(3); break;
+                case Key.L when Look != null: Look.SetLamps(!Look.LampsOn); break;
                 case Key.Q when ViewMode == 3: TurnIso(-1); break;
                 case Key.E when ViewMode == 3: TurnIso(1); break;
                 // Companion keys are goal commands from the player, on the same path as the companion's own.

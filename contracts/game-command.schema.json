@@ -855,6 +855,58 @@
               }
             }
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "ok": {
+                "const": true
+              },
+              "op": {
+                "const": "capabilities.list"
+              }
+            },
+            "required": [
+              "ok",
+              "op"
+            ]
+          },
+          "then": {
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/$defs/data/capabilities.list"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ok": {
+                "const": true
+              },
+              "op": {
+                "const": "jobs.status"
+              }
+            },
+            "required": [
+              "ok",
+              "op"
+            ]
+          },
+          "then": {
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/$defs/data/jobs.status"
+              }
+            }
+          }
         }
       ]
     },
@@ -1136,9 +1188,58 @@
           "description": "Entity revision; 0 for a captured object play has not changed. Send it back in expected_entities.",
           "type": "integer",
           "minimum": 0
+        },
+        "seen": {
+          "description": "How a companion knows this entity. 'now': in its avatar's line of sight at this moment. 'remembered': out of sight; every other field is as it was when the companion last saw it (perception memory, docs/companion/PERCEPTION.md). Results for the player leave it out: the player sees the whole room.",
+          "enum": [
+            "now",
+            "remembered"
+          ]
+        },
+        "last_seen_ago_s": {
+          "description": "Remembered entities only: seconds since the companion last saw it.",
+          "type": "number",
+          "minimum": 0
+        },
+        "last_seen_revision": {
+          "description": "Remembered entities only: the room revision when the companion last saw it.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "may_be_stale": {
+          "description": "Remembered entities only: true once the memory is older than the host's freshness limit, or once the entity has changed in any way since it was seen (moved, changed, picked up or gone). It never says which, or anything about the entity now.",
+          "type": "boolean"
         }
       },
-      "description": "Names and categories here are untrusted data from capture or players."
+      "description": "Names and categories here are untrusted data from capture or players.",
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "seen": {
+                "const": "remembered"
+              }
+            },
+            "required": [
+              "seen"
+            ]
+          },
+          "then": {
+            "required": [
+              "last_seen_ago_s",
+              "last_seen_revision",
+              "may_be_stale"
+            ]
+          },
+          "else": {
+            "properties": {
+              "last_seen_ago_s": false,
+              "last_seen_revision": false,
+              "may_be_stale": false
+            }
+          }
+        }
+      ]
     },
     "is_op": {
       "entity.grab": {
@@ -1786,8 +1887,14 @@
         "additionalProperties": false,
         "properties": {
           "label": {
-            "type": "string",
-            "maxLength": 80
+            "allOf": [
+              {
+                "$ref": "common.schema.json#/$defs/display_text"
+              },
+              {
+                "maxLength": 80
+              }
+            ]
           }
         }
       },
@@ -2031,6 +2138,14 @@
                 }
               }
             }
+          },
+          "remembered": {
+            "description": "Things the actor saw earlier in this session that are out of its sight now, within the radius of where they were last seen, nearest first. Each carries seen 'remembered'. Only what this avatar itself saw, never through another avatar.",
+            "type": "array",
+            "maxItems": 50,
+            "items": {
+              "$ref": "#/$defs/entity_summary"
+            }
           }
         }
       },
@@ -2144,6 +2259,54 @@
             "$ref": "#/$defs/result"
           }
         }
+      },
+      "capabilities.list": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/$defs/capability_summary"
+            }
+          },
+          "next_cursor": {
+            "type": "string",
+            "maxLength": 128
+          }
+        }
+      },
+      "jobs.status": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "job_id",
+          "state"
+        ],
+        "properties": {
+          "job_id": {
+            "$ref": "common.schema.json#/$defs/token"
+          },
+          "state": {
+            "enum": [
+              "queued",
+              "running",
+              "succeeded",
+              "failed",
+              "cancelled"
+            ]
+          },
+          "progress": {
+            "$ref": "common.schema.json#/$defs/unit_interval"
+          },
+          "result": {
+            "$ref": "#/$defs/result"
+          }
+        }
       }
     },
     "player_only_ops": {
@@ -2161,6 +2324,64 @@
         "protect.lock",
         "protect.unlock"
       ]
+    },
+    "capability_summary": {
+      "description": "One effect capability the host supports, with the bounds effect.start enforces.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "capability",
+        "category",
+        "params",
+        "area_radius_max_m",
+        "duration_max_s"
+      ],
+      "properties": {
+        "capability": {
+          "$ref": "common.schema.json#/$defs/token"
+        },
+        "category": {
+          "$ref": "common.schema.json#/$defs/token"
+        },
+        "params": {
+          "description": "Numeric parameters and their inclusive bounds. Names follow effect.start params.",
+          "type": "object",
+          "maxProperties": 16,
+          "propertyNames": {
+            "pattern": "^[a-z][a-z0-9_]{0,31}$"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "min",
+              "max"
+            ],
+            "properties": {
+              "min": {
+                "type": "number",
+                "minimum": -1000000,
+                "maximum": 1000000
+              },
+              "max": {
+                "type": "number",
+                "minimum": -1000000,
+                "maximum": 1000000
+              }
+            }
+          }
+        },
+        "area_radius_max_m": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 10
+        },
+        "duration_max_s": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 600
+        }
+      }
     }
   }
 }

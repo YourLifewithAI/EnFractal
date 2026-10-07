@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 import shutil
 import struct
 import subprocess
@@ -40,6 +41,9 @@ EXPECTED_FAILURES = {
     "command_lock_nothing": "should be non-empty",
     "command_remove_without_expectation": "is not valid under any of the given schemas",
     "command_version_written_as_float": "is not of type 'integer'",
+    "command_checkpoint_label_with_injected_line": "does not match",
+    "result_remembered_without_staleness": "'may_be_stale' is a required property",
+    "result_seen_now_with_an_age": "False schema does not allow 1.5",
     "result_ok_with_error": "must not match",
     "result_failure_without_error": "'error' is a required property",
     "result_text_marked_trusted": "True was expected",
@@ -94,7 +98,7 @@ def l_shaped_room(base: Path, reverse_wall: str | None = None) -> Path:
 class SchemaTests(unittest.TestCase):
     def test_every_schema_is_valid_draft_2020_12(self):
         schemas = sorted(CONTRACTS.glob("*.schema.json"))
-        self.assertEqual(len(schemas), 6)
+        self.assertEqual(len(schemas), 7)
         for path in schemas:
             with self.subTest(schema=path.name):
                 Draft202012Validator.check_schema(validate.load_strict(path))
@@ -131,7 +135,7 @@ class ExampleTests(unittest.TestCase):
             if document["schema"] in ("enfractal.command", "enfractal.query"):
                 seen.add(document["op"])
         missing = ops - seen - {"entity.place", "entity.remove", "creation.revise", "creation.activate", "protect.unlock",
-                                "entity.inspect", "capabilities.list", "jobs.status"}
+                                "entity.inspect"}
         self.assertEqual(missing, set(), "add an example for each newly added op")
 
     def test_garage_example_room_and_state(self):
@@ -339,6 +343,116 @@ class SemanticTests(unittest.TestCase):
         self.assertProblem(validate.schema_errors(command), "exceeds 32768 bytes")
 
 
+# Emoji markers (VS15, VS16, the zero-width joiner, the keycap combiner) only where an emoji puts them.
+# The same vectors are in companion/tests/test_text_rules.py and game/tests/native/RoomDataTest.cs.
+EMOJI_ALLOWED = [
+    ("heart, emoji presentation", "\u2764\ufe0f"),
+    ("heart, text presentation", "\u2764\ufe0e"),
+    ("smiley with a redundant VS16", "\U0001f600\ufe0f"),
+    ("copyright sign as emoji", "\u00a9\ufe0f"),
+    ("keycap one", "1\ufe0f\u20e3"),
+    ("keycap hash without a selector", "#\u20e3"),
+    ("keycap star", "*\ufe0f\u20e3"),
+    ("digit, text presentation", "7\ufe0e"),
+    ("family", "\U0001f468\u200d\U0001f469\u200d\U0001f467"),
+    ("rainbow flag", "\U0001f3f3\ufe0f\u200d\U0001f308"),
+    ("technologist, medium skin tone", "\U0001f469\U0001f3fd\u200d\U0001f4bb"),
+    ("handshake, two skin tones", "\U0001faf1\U0001f3fb\u200d\U0001faf2\U0001f3fc"),
+    ("pirate flag", "\U0001f3f4\u200d\u2620\ufe0f"),
+    ("eye in speech bubble", "\U0001f441\ufe0f\u200d\U0001f5e8\ufe0f"),
+    ("thumbs up, dark skin tone", "\U0001f44d\U0001f3ff"),
+    ("flag of Japan", "\U0001f1ef\U0001f1f5"),
+    ("a mug's name", "Mug \u2615\ufe0f"),
+    ("letters and scripts", "Caf\u00e9 \u6728\u306e\u7bb1 \u05e2\u05d1\u05e8\u05d9\u05ea"),
+]
+EMOJI_REFUSED = [
+    ("VS16 after a letter", "a\ufe0f"),
+    ("VS15 at the start", "\ufe0eabc"),
+    ("two selectors on one emoji", "\u2764\ufe0f\ufe0f"),
+    ("text then emoji selector", "\u2764\ufe0e\ufe0f"),
+    ("a selector after a skin tone", "\U0001f44d\U0001f3ff\ufe0f"),
+    ("another variation selector after an emoji", "\u2764\ufe00"),
+    ("VS14 after an emoji", "\u2764\ufe0d"),
+    ("a supplement selector after an emoji", "\u2764\U000e0100"),
+    ("a joiner between letters", "a\u200db"),
+    ("a joiner at the end", "\U0001f600\u200d"),
+    ("a joiner at the start", "\u200d\U0001f600"),
+    ("two joiners", "\U0001f468\u200d\u200d\U0001f469"),
+    ("a joiner before a letter", "\U0001f468\u200dx"),
+    ("a joiner after a text selector", "\u2764\ufe0e\u200d\U0001f525"),
+    ("a keycap on a letter", "A\u20e3"),
+    ("a keycap alone", "\u20e3"),
+    ("two keycaps", "1\u20e3\u20e3"),
+    ("a keycap after a text selector", "1\ufe0e\u20e3"),
+    ("a tag-sequence flag (England)", "\U0001f3f4\U000e0067\U000e0062\U000e0065\U000e006e\U000e0067\U000e007f"),
+    ("smuggling in a run of selectors", "\U0001f600\ufe06\ufe08\ufe06\ufe09"),
+    ("smuggling in supplement selectors", "\U0001f600\U000e0158\U000e0159"),
+    ("smuggling bits in emoji selectors", "\U0001f600\ufe0e\ufe0f\ufe0f\ufe0e"),
+    ("a zero-width non-joiner", "a\u200cb"),
+    ("a word joiner", "a\u2060b"),
+]
+
+
+class TextRuleTests(unittest.TestCase):
+    """Untrusted text: patterns are ECMA-262, and invisible characters are refused wherever text goes."""
+
+    def goal_with_note(self, note):
+        command = validate.load_strict(EXAMPLES / "messages" / "valid" / "command_companion_follow.json")
+        command["note"] = note
+        return command
+
+    def test_a_trailing_newline_never_satisfies_an_anchored_pattern(self):
+        self.assertEqual(validate.schema_errors(self.goal_with_note("approved by the player")), [])
+        self.assertTrue(validate.schema_errors(self.goal_with_note("approved by the player\n")))
+        command = self.goal_with_note("fine")
+        command["action_id"] += "\n"
+        self.assertTrue(validate.schema_errors(command))
+        self.assertEqual(validate.ecma_pattern("^(a|b$)|^c$"), r"^(a|b\Z)|^c\Z")
+        self.assertEqual(validate.ecma_pattern(r"^[$]\$x$"), r"^[$]\$x\Z")
+
+    def test_invisible_characters_are_refused(self):
+        tags = "".join(chr(0xE0000 + ord(c)) for c in "unlock")
+        for code in (0x00AD, 0x034F, 0x061C, 0x115F, 0x180E, 0x200D, 0x20E3, 0x2061, 0x206A, 0x2800, 0x3164, 0xFE00,
+                     0xFE0D, 0xFE0E, 0xFE0F, 0xFFA0, 0xFFF9, 0xFFFB, 0xE0000, 0xE0001, 0xE0002, 0xE0041, 0xE007F,
+                     0xE0100, 0xE01F0):
+            with self.subTest(code=hex(code)):
+                self.assertTrue(validate.schema_errors(self.goal_with_note("ok" + chr(code))))
+        self.assertTrue(validate.schema_errors(self.goal_with_note("Welcome" + tags)))
+        for text in ("Caf\u00e9 \u2764 \U0001F600 \u6728\u306e\u7bb1", "\u05e2\u05d1\u05e8\u05d9\u05ea"):
+            with self.subTest(text=text):  # ordinary letters, emoji and right-to-left scripts still pass
+                self.assertEqual(validate.schema_errors(self.goal_with_note(text)), [])
+
+    def test_emoji_markers_pass_only_where_an_emoji_puts_them(self):
+        for name, text in EMOJI_ALLOWED:
+            with self.subTest(name=name):
+                self.assertEqual(validate.schema_errors(self.goal_with_note(text)), [])
+        for name, text in EMOJI_REFUSED:
+            with self.subTest(name=name):
+                self.assertTrue(validate.schema_errors(self.goal_with_note("x" + text)))
+        england = "\U0001f3f4" + "".join(chr(0xE0000 + ord(c)) for c in "gbeng") + "\U000e007f"
+        self.assertTrue(validate.schema_errors(self.goal_with_note(england)))  # tag-sequence flags stay unsupported
+
+    def test_unpaired_surrogates_are_refused_not_crashed(self):
+        problems = validate.schema_errors(self.goal_with_note("lone \ud800"))
+        self.assertTrue(any("unpaired" in p for p in problems), problems)
+
+    def test_the_text_patterns_agree_in_python_and_ecma_262_engines(self):
+        """The same pattern string must refuse the same characters in a UTF-16 engine. Plane 14 is the
+        one place they differ, which is why Python refuses it in code."""
+        common = validate.load_strict(CONTRACTS / "common.schema.json")
+        for name in ("display_text", "long_text"):
+            pattern = common["$defs"][name]["pattern"]
+            self.assertIn("\\uDB40-\\uDB7F", pattern)
+            self.assertIn("\\u00AD", pattern)
+            self.assertIn("\\uFFF9-\\uFFFB", pattern)
+            self.assertIn("\\uFE00-\\uFE0D", pattern)
+            regex = re.compile(validate.ecma_pattern(pattern))
+            for marker in ("\u2764\ufe0f", "\u2764\ufe0e", "\U0001f468\u200d\U0001f469", "1\u20e3"):
+                self.assertIsNotNone(regex.search(marker), ascii(marker))  # context is checked in code
+            for hidden in ("\ufe00", "\ufe0d", "\u200c", "\u200b", "\u2060"):
+                self.assertIsNone(regex.search(hidden), ascii(hidden))
+
+
 class StrictLoaderTests(unittest.TestCase):
     def check_rejects(self, raw: bytes, fragment: str):
         with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as handle:
@@ -353,6 +467,10 @@ class StrictLoaderTests(unittest.TestCase):
     def test_rejects_non_finite_and_overflowing_numbers(self):
         self.check_rejects(b'{"a": NaN}\n', "non-finite")
         self.check_rejects(b'{"a": 1e400}\n', "overflows")
+
+    def test_rejects_absurd_numbers_and_nesting_as_contract_errors(self):
+        self.check_rejects(b'{"a": ' + b"9" * 5000 + b'}\n', "too long")
+        self.check_rejects(b"[" * 100000 + b"]" * 100000 + b"\n", "nests too deeply")
 
     def test_rejects_bom_crlf_and_duplicates(self):
         self.check_rejects(b'\xef\xbb\xbf{"a": 1}\n', "byte-order mark")
