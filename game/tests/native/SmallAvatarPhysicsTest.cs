@@ -151,7 +151,7 @@ public partial class SmallAvatarPhysicsTest : Node3D
         invalid = Preset("room_floaty", revision + 5);
         invalid["air_control"] = 9.0;
         Check(!_player.SetWorldPhysics(invalid), "unbounded air control is refused");
-        Check(_player.CycleWorldPhysics() == "room_floaty", "playtest key cycles from real to floaty gravity");
+        Check(_player.CycleWorldPhysics() == "room_floaty", "the next preset after real is floaty (the G key sends it through the command host in the room)");
         Check(Mathf.IsEqualApprox(_player.GravityMps2, 0.6f) && Mathf.IsEqualApprox(_player.EffectiveTerminalFallMps, 0.6f) && Mathf.IsEqualApprox(_player.AirControl, 2.0f),
             "floaty is 0.6 m/s2 with a 0.6 m/s fall limit and doubled air control");
         await Frames(2);
@@ -167,7 +167,7 @@ public partial class SmallAvatarPhysicsTest : Node3D
         for (var i = 0; i < 240 && !_player.IsOnFloor(); i++) { await Frames(1); fallFrames++; fastest = Mathf.Max(fastest, -_player.Velocity.Y); }
         Report(fastest <= 0.601f && fastest > 0.55f && fallFrames > 60, $"a floaty fall is capped at 0.6 m/s (fastest={fastest:0.000} m/s over {fallFrames} frames)");
         await Frames(10);
-        Check(_player.CycleWorldPhysics() == "room_tuned", "playtest key cycles real, floaty and tuned gravity presets");
+        Check(_player.CycleWorldPhysics() == "room_tuned", "the presets cycle real, floaty and tuned");
         Check(Mathf.IsEqualApprox(_player.GravityMps2, 3.5f) && Mathf.IsEqualApprox(_player.EffectiveTerminalFallMps, 6.0f) && Mathf.IsEqualApprox(_player.AirControl, 1.0f),
             "cycling returns to the tuned gravity, fall limit and air control");
 
