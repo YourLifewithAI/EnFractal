@@ -410,9 +410,9 @@
       "asset": "objects/rug_proxy/asset.json",
       "transform": {
         "position_m": [
-          0.2,
+          0.15,
           0.0,
-          0.7
+          0.725
         ],
         "rotation": [
           0.0,
@@ -432,7 +432,7 @@
       "transform": {
         "position_m": [
           -0.3,
-          0.0,
+          0.006,
           0.5
         ],
         "rotation": [
@@ -443,8 +443,8 @@
         ]
       },
       "support": {
-        "kind": "floor",
-        "target_id": "shell:floor"
+        "kind": "object",
+        "target_id": "obj:rug"
       }
     }
   ],
@@ -526,8 +526,8 @@
     },
     {
       "path": "objects/rug_proxy/asset.json",
-      "sha256": "51caa6272ace36ffc99195a751fc7843b43026804e2b99b31882818a13bc9aac",
-      "bytes": 1000
+      "sha256": "ca2b471891e64cbfd6103deeb8a0156c6d58885d4f9eb79728b16b74d06a5f52",
+      "bytes": 1001
     },
     {
       "path": "objects/table_proxy/asset.json",

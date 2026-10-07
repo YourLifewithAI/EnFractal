@@ -27,14 +27,41 @@ WIN_Z, WIN_W, WIN_SILL, WIN_H = 0.3, 1.2, 0.5, 1.5
 # Titl Shift 7: warm gold with light blue), so the warm light has cool and varied surfaces to land on.
 WALL_CREAM, WALL_BLUE = "#ddd5c6", "#b8c7c8"
 
+RUG_T = 0.006
 PROPS = [
-    # asset_id, instance, display, category, group, size_m (x, y, z), foot (x, y, z), role, colour, movable, mass_kg, affordances
-    ("table_proxy", "table", "Table", "low table", "furniture", (1.2, 0.75, 0.6), (-0.9, 0.0, -0.9), "wood", "#93a68a", True, 25.0, ["walkable_top", "climbable"]),
-    ("box_proxy", "box", "Cardboard box", "cardboard box", "container", (0.35, 0.30, 0.35), (1.1, 0.0, 0.2), "cardboard", "#b39c7c", True, 1.5, ["walkable_top", "climbable", "container"]),
-    ("book_proxy", "book", "Book", "book", "stationery", (0.22, 0.04, 0.15), (0.45, 0.0, 0.1), "paper", "#7d9cc0", True, 0.6, ["walkable_top", "climbable", "readable"]),
-    ("rug_proxy", "rug", "Rug", "rug", "textile", (1.6, 0.006, 1.1), (0.2, 0.0, 0.7), "fabric", "#d3a3a6", True, 2.0, ["walkable_top", "soft"]),
-    ("doorstop_proxy", "doorstop", "Doorstop", "rubber doorstop", "tool", (0.12, 0.04, 0.08), (-0.3, 0.0, 0.5), "rubber", "#b86a52", True, 0.3, ["walkable_top", "climbable"]),
+    # asset_id, instance, display, category, group, size_m (x, y, z), foot (x, y, z), role, colour, movable, mass_kg,
+    # affordances, resting on (another instance, or None for the floor)
+    ("table_proxy", "table", "Table", "low table", "furniture", (1.2, 0.75, 0.6), (-0.9, 0.0, -0.9), "wood", "#93a68a", True, 25.0, ["walkable_top", "climbable"], None),
+    ("box_proxy", "box", "Cardboard box", "cardboard box", "container", (0.35, 0.30, 0.35), (1.1, 0.0, 0.2), "cardboard", "#b39c7c", True, 1.5, ["walkable_top", "climbable", "container"], None),
+    ("book_proxy", "book", "Book", "book", "stationery", (0.22, 0.04, 0.15), (0.45, 0.0, 0.1), "paper", "#7d9cc0", True, 0.6, ["walkable_top", "climbable", "readable"], None),
+    # The rug stops 2.5 cm short of the book and the box (the second playtest saw the book sunk into its edge).
+    ("rug_proxy", "rug", "Rug", "rug", "textile", (1.5, RUG_T, 1.05), (0.15, 0.0, 0.725), "fabric", "#d3a3a6", True, 2.0, ["walkable_top", "soft"], None),
+    ("doorstop_proxy", "doorstop", "Doorstop", "rubber doorstop", "tool", (0.12, 0.04, 0.08), (-0.3, RUG_T, 0.5), "rubber", "#b86a52", True, 0.3, ["walkable_top", "climbable"], "rug"),
 ]
+
+
+def check_props() -> None:
+    """Refuse a layout where props cut into each other, or where a prop does not rest on what it names."""
+    eps = 1e-6
+    box = {p[1]: (p[5], p[6]) for p in PROPS}
+
+    def span(size, foot, axis):
+        if axis == 1:
+            return foot[1], foot[1] + size[1]
+        return foot[axis] - size[axis] / 2, foot[axis] + size[axis] / 2
+
+    for prop in PROPS:
+        name, (size, foot), on = prop[1], box[prop[1]], prop[-1]
+        floor = 0.0 if on is None else span(*box[on], 1)[1]
+        if abs(foot[1] - floor) > eps:
+            raise SystemExit(f"{name} must rest on {on or 'the floor'} at y={floor}, not y={foot[1]}")
+        if on is not None and any(span(size, foot, a)[0] < span(*box[on], a)[0] - eps or span(size, foot, a)[1] > span(*box[on], a)[1] + eps for a in (0, 2)):
+            raise SystemExit(f"{name} overhangs the {on} it rests on")
+    names = list(box)
+    for i, a in enumerate(names):
+        for b in names[i + 1:]:
+            if all(min(span(*box[a], k)[1], span(*box[b], k)[1]) - max(span(*box[a], k)[0], span(*box[b], k)[0]) > eps for k in (0, 1, 2)):
+                raise SystemExit(f"{a} and {b} cut into each other")
 
 
 def dump(document) -> bytes:
@@ -71,9 +98,10 @@ def build(out: Path) -> None:
         polygon("wall_west_south", "wall", [(-x, sill, z), (-x, sill, wz1), (-x, head, wz1), (-x, head, z)], "painted_wall", WALL_BLUE),
         polygon("wall_west_north", "wall", [(-x, sill, wz0), (-x, sill, -z), (-x, head, -z), (-x, head, wz0)], "painted_wall", WALL_BLUE),
     ]
+    check_props()
     files = []
     objects = []
-    for asset_id, instance, display, category, group, size, foot, role, colour, movable, mass, affordances in PROPS:
+    for asset_id, instance, display, category, group, size, foot, role, colour, movable, mass, affordances, on in PROPS:
         asset = {
             "schema": "enfractal.asset", "version": 1,
             "asset_id": asset_id, "display_name": display, "category": category, "category_group": group,
@@ -95,7 +123,7 @@ def build(out: Path) -> None:
         objects.append({
             "id": f"obj:{instance}", "asset": rel,
             "transform": {"position_m": list(foot), "rotation": IDENTITY},
-            "support": {"kind": "floor", "target_id": "shell:floor"},
+            "support": {"kind": "floor", "target_id": "shell:floor"} if on is None else {"kind": "object", "target_id": f"obj:{on}"},
         })
     room = {
         "schema": "enfractal.room", "version": 1,
