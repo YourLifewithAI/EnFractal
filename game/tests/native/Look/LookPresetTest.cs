@@ -15,9 +15,11 @@ namespace EnFractal.Tests.Look;
 
 /// <summary>
 /// Look track checks that run headless: the preset reader and the look numbers it carries, painterly materials
-/// per role and the shader's uniforms, the colour grade and its season tint, time of day at every minute of the
-/// day, depth of field and where it focuses, the grain and vignette effect's parameters, the VoxelGI bake
-/// stand-ins, the look director's dressing of rooms, the grade cache, and the renderer fallback notice.
+/// per role and the shader's uniforms, the colour grade, its season tint and its (small) global tint, time of day at
+/// every minute of the day, the solar model, light only from real sources (the sun only through the window, the sky
+/// fill, the lamps' switch, moonlit nights), depth of field and where it focuses, the grain and vignette effect's
+/// parameters, the VoxelGI bake stand-ins, the look director's dressing of rooms, the grade cache, and the renderer
+/// fallback notice.
 /// Rendering itself (the VoxelGI bake, the post effect's pixels, the images) needs a GPU and is checked by the
 /// capture harness (tools/look/capture-look.ps1), not here.
 /// </summary>
@@ -44,6 +46,8 @@ public partial class LookPresetTest : Node3D
             CheckClock(preset);
             CheckClockAtEveryMinute(preset);
             CheckRealClockAndSwings(preset);
+            CheckSolarModel(preset);
+            CheckReducedGlobalTint(preset, room);
             CheckReviewCameras(preset, room);
             CheckDepthOfField(preset);
             CheckPostEffectParameters(preset);
@@ -54,8 +58,11 @@ public partial class LookPresetTest : Node3D
             await CheckFocus(preset, room);
             await CheckGradeCache(preset, room);
             await CheckArtDirectionFocus(preset, room);
+            await CheckSunThroughWindow(preset, room);
+            CheckNightLevels(preset, room);
+            CheckGoldenHourCoolFill(preset, room);
             MaterialLibrary.Configure(preset);
-            GD.Print($"NATIVE_LOOK: {_checks - _failures}/{_checks} checks passed; preset reader and look numbers, role materials and shader uniforms, grade and season tint, clock at every minute, depth of field and focus, post effect parameters, bake stand-ins, room dressing, grade cache, renderer notice");
+            GD.Print($"NATIVE_LOOK: {_checks - _failures}/{_checks} checks passed; preset reader and look numbers, role materials and shader uniforms, grade, season tint and reduced global tint, clock at every minute, solar model, sun only through the window, night levels and lamps, golden-hour cool fill, depth of field and focus, post effect parameters, bake stand-ins, room dressing, grade cache, renderer notice");
             GetTree().Quit(_failures == 0 ? 0 : 1);
         }
         catch (Exception exception)
@@ -76,7 +83,7 @@ public partial class LookPresetTest : Node3D
             "VoxelGI, SSAO, glow and shadows are on");
         Check(preset.DofEnabled && preset.FocusBandM > 0 && preset.NearBlurDistanceM < 0.15f, "depth of field is on and near blur starts inside the 15 cm reach");
         Check(preset.TimeKeys.Count >= 2 && preset.SeasonGrades.Count == 4, "time-of-day keys and four season grades are read");
-        Check(preset.KeyMode == "diorama", "the experimental key mode extension is read");
+        Check(preset.KeyMode == "sun", "the key is the real sun (x_look_key_mode sun): light only from real sources");
         Check(preset.TargetFrameMs > 0 && preset.MaxShadowedLights >= 1, "budgets are read");
         Check(preset.RoleRoughness.ContainsKey("wood") && Mathf.IsEqualApprox(preset.DefaultRoughness, preset.DefaultTreatment.Roughness),
             "the roughness views RoomWorld's tests rely on still work");
@@ -93,9 +100,11 @@ public partial class LookPresetTest : Node3D
         Check(preset.Tuning.Defaulted.Count == 0, "the preset states every look number; none is left to the code's defaults: " + string.Join(", ", preset.Tuning.Defaulted.Take(12)));
         Check(LookTuning.Blocks.All(StylePreset.KnownLookExtensions.Contains), "every tuning block is a known look extension");
         // The numbers really come from the file: change a few and the parsed look follows.
-        var edited = PresetWith(Field("night_boost", "3.25"), Field("lut_size", "17"), Field("vignette_start", "0.3"), Field("tilt_pitch_gain", "0.75"));
-        Check(Mathf.IsEqualApprox(edited.Tuning.Lamps.NightBoost, 3.25f) && edited.Tuning.Grade.LutSize == 17 && Mathf.IsEqualApprox(edited.Tuning.Post.VignetteStart, 0.3f)
-            && Mathf.IsEqualApprox(edited.Tuning.Dof.TiltPitchGain, 0.75f), "edited tuning numbers in the preset reach the runtime");
+        var edited = PresetWith(Field("sky_fill_energy", "3.25"), Field("lut_size", "17"), Field("vignette_start", "0.3"), Field("tilt_pitch_gain", "0.75"),
+            Field("latitude_deg", "51.5"), Field("key_normal_bias", "0.4"));
+        Check(Mathf.IsEqualApprox(edited.Tuning.Lamps.SkyFillEnergy, 3.25f) && edited.Tuning.Grade.LutSize == 17 && Mathf.IsEqualApprox(edited.Tuning.Post.VignetteStart, 0.3f)
+            && Mathf.IsEqualApprox(edited.Tuning.Dof.TiltPitchGain, 0.75f) && Mathf.IsEqualApprox(edited.Tuning.Sun.LatitudeDeg, 51.5f)
+            && Mathf.IsEqualApprox(edited.Tuning.Shadows.KeyNormalBias, 0.4f), "edited tuning numbers in the preset reach the runtime");
         // A role's marks come from the preset, not a table in the code.
         var restyled = PresetWith(("\"wood\": { \"pattern\": \"wood\"", "\"wood\": { \"pattern\": \"stone\""));
         MaterialLibrary.Configure(restyled);
@@ -118,6 +127,10 @@ public partial class LookPresetTest : Node3D
         CheckThrows(() => PresetWith(("\"x_look_post\": {", "\"x_look_psot\": {")), "x_look_psot", "a misspelled look block is refused, naming it");
         CheckThrows(() => PresetWith(("\"default\": { \"pattern\"", "\"fallback\": { \"pattern\"")), "default", "role marks without a default entry are refused");
         CheckThrows(() => PresetWith(("\"mark_fade_end\": 0.45", "\"mark_fade_end\": 0.8")), "alias", "marks that would alias before fading are refused");
+        CheckThrows(() => PresetWith(("\"x_look_key_mode\": \"sun\"", "\"x_look_key_mode\": \"diorama\"")), "real sources", "the removed diorama key is refused, saying why");
+        CheckThrows(() => PresetWith(("\"fixed_day_of_year\": 196", "\"fixed_day_of_year\": 196, \"day_length_h\": [9.5, 13, 15, 11]")), "day_length_h",
+            "the old per-season day lengths are refused: the solar model replaced them");
+        CheckThrows(() => PresetWith(("\"latitude_deg\": 30", "\"latitude_deg\": 95")), "latitude_deg", "a latitude off the globe is refused");
         var withoutExtensions = Encoding.UTF8.GetBytes(_presetText[.._presetText.IndexOf(",\n  \"extensions\"", StringComparison.Ordinal)] + "\n}\n");
         var fallback = StylePreset.Parse(withoutExtensions, "probe.json");
         Check(fallback.KeyMode == "fixed" && !fallback.SsilEnabled && Mathf.IsEqualApprox(fallback.GlazeAmount, 0.35f)
@@ -160,7 +173,7 @@ public partial class LookPresetTest : Node3D
         var paint = preset.Tuning.Paint;
         Check(Mathf.IsEqualApprox(unknown.GetShaderParameter("tone_gain").AsSingle(), paint.ToneGain)
             && Mathf.IsEqualApprox(unknown.GetShaderParameter("mark_fade_end").AsSingle(), paint.MarkFadeEnd)
-            && Mathf.IsEqualApprox(unknown.GetShaderParameter("shadow_fill").AsSingle(), paint.ShadowFillBase + paint.ShadowFillPerSoftness * preset.ShadowSoftness),
+            && Mathf.IsEqualApprox(unknown.GetShaderParameter("cavity_darkening").AsSingle(), paint.CavityDarkening),
             "the shader's shared paint numbers come from the preset");
         var base1 = new Color("b9b4ab");
         Check(MaterialLibrary.Glaze(base1, null, 0.35f).IsEqualApprox(base1) && MaterialLibrary.Glaze(base1, new Color("c79a63"), 0f).IsEqualApprox(base1),
@@ -202,6 +215,13 @@ public partial class LookPresetTest : Node3D
         Check(names.Length == declared.Count + 3 && ignored.Length == 0, "the shader reads every uniform it declares (and the three per-instance ones): ignored " + string.Join(",", ignored));
         var instance = Regex.Matches(source, @"^\s*instance\s+uniform\s+\w+\s+(\w+)", RegexOptions.Multiline).Select(m => m.Groups[1].Value).ToHashSet();
         Check(instance.SetEquals(new[] { "box_edges", "box_half_extents", "paint_seed" }), "the per-instance uniforms are the ones the look director sets: " + string.Join(",", instance));
+        // Light only from real sources: the shader adds no light where a light is shadowed (the lid-off sky fill is
+        // gone), and its warm terminator band follows the light's own warmth, so the cool sky fill and the moon add none.
+        var lightFunction = body[body.IndexOf("void light()", StringComparison.Ordinal)..];
+        Check(!Regex.IsMatch(lightFunction, @"1\.0\s*-\s*ATTENUATION") && !lightFunction.Contains("shadow_fill"),
+            "the shader adds no light inside a cast shadow: shade is lit only by real light (the window's fill and the bounce)");
+        Check(Regex.IsMatch(lightFunction, @"light_warmth\s*=\s*clamp\(\(LIGHT_COLOR\.r\s*-\s*LIGHT_COLOR\.b\)") && Regex.IsMatch(lightFunction, @"band\s*=[^;]*\*\s*light_warmth\s*;"),
+            "the warm terminator band scales with the light's warmth (none from cool light)");
     }
 
     // ---------- grade ----------
@@ -246,17 +266,16 @@ public partial class LookPresetTest : Node3D
     private void CheckSeasonTint(StylePreset preset)
     {
         // Solar noon: the same point of the day in every season, whatever the day length.
-        var (rise, set) = LookClock.DayLimits(preset);
-        var noon = (rise + set) * 0.5f;
-        var winterMoment = LookClock.At(preset, noon, 15);
-        var summerMoment = LookClock.At(preset, noon, 196);
+        float Noon(int day) { var (r, s) = LookClock.SunTimes(preset.Tuning.Sun, day); return (r + s) * 0.5f; }
+        var winterMoment = LookClock.At(preset, Noon(15), 15);
+        var summerMoment = LookClock.At(preset, Noon(196), 196);
         var winter = GradeParams.For(preset, winterMoment);
         var summer = GradeParams.For(preset, summerMoment);
         Check(winter.SeasonTint.IsEqualApprox(winterMoment.SeasonTint) && winterMoment.SeasonTint.IsEqualApprox(preset.SeasonGrades["winter"].Tint)
             && summerMoment.SeasonTint.IsEqualApprox(preset.SeasonGrades["summer"].Tint), "mid-season days carry their season's tint into the grade");
         var neutral = new Color(0.5f, 0.5f, 0.5f);
         var grey = new Color(0.45f, 0.45f, 0.45f);
-        foreach (var (name, grade) in new[] { ("winter", winter), ("summer", summer), ("autumn", GradeParams.For(preset, LookClock.At(preset, noon, 288))) })
+        foreach (var (name, grade) in new[] { ("winter", winter), ("summer", summer), ("autumn", GradeParams.For(preset, LookClock.At(preset, Noon(288), 288))) })
         {
             var tinted = ColorGrade.Apply(grade, grey);
             var untinted = ColorGrade.Apply(grade with { SeasonTint = neutral }, grey);
@@ -264,14 +283,14 @@ public partial class LookPresetTest : Node3D
             var tint = preset.SeasonGrades[name].Tint;
             var tintLuma = ColorGrade.Luma(tint);
             var chroma = new Vector3(tint.R - tintLuma, tint.G - tintLuma, tint.B - tintLuma);
-            Check(shift.Length() > 0.01f && shift.Normalized().Dot(chroma.Normalized()) > 0.9f,
+            Check(shift.Length() > 0.006f && shift.Normalized().Dot(chroma.Normalized()) > 0.9f,
                 $"the {name} tint alone shifts a mid grey toward the tint's hue (shift {shift.Length():0.###}, alignment {shift.Normalized().Dot(chroma.Normalized()):0.##})");
         }
         // The season tint lives in the mid-tones and lights: at noon (no night grading), a dark grey stays cool in every
         // season, and the tint moves it far less than it moves a mid grey.
         foreach (var (name, day) in new[] { ("winter", 15), ("spring", 105), ("summer", 196), ("autumn", 288) })
         {
-            var grade = GradeParams.For(preset, LookClock.At(preset, noon, day));
+            var grade = GradeParams.For(preset, LookClock.At(preset, Noon(day), day));
             var dark = new Color(0.12f, 0.12f, 0.12f);
             var darkShift = Shift(grade, dark, neutral);
             var midShift = Shift(grade, grey, neutral);
@@ -317,19 +336,15 @@ public partial class LookPresetTest : Node3D
             Mathf.Max(Mathf.Abs(beforeMidnight.AmbientColor.G - afterMidnight.AmbientColor.G), Mathf.Abs(beforeMidnight.AmbientColor.B - afterMidnight.AmbientColor.B)));
         Check(Mathf.Abs(beforeMidnight.KeyEnergy - afterMidnight.KeyEnergy) < 0.01f && ambientStep < 0.01f,
             $"night interpolation is continuous across midnight (ambient step {ambientStep:0.#####})");
-        // On the keys' own reference day (no seasonal day length), the default hour puts the key exactly where the preset does.
-        var reference = PresetWith((Regex.Match(_presetText, @"""day_length_h"": \[[^\]]*\]").Value, "\"day_length_h\": []"));
-        var atDefault = LookClock.At(reference, reference.DefaultHour, 279);
-        Check(Mathf.IsEqualApprox(atDefault.KeyElevationDeg, preset.KeyElevationDeg, 0.01f) && Mathf.IsEqualApprox(atDefault.KeyAzimuthDeg, preset.KeyAzimuthDeg, 0.01f),
-            $"on the reference day, at the default hour, the key sits exactly where the preset puts it ({atDefault.KeyElevationDeg:0.##}, {atDefault.KeyAzimuthDeg:0.##})");
-        var (sunrise, sunset) = LookClock.DayLimits(preset);
-        var noon = LookClock.At(preset, (sunrise + sunset) * 0.5f, 279);
-        Check(noon.KeyElevationDeg <= Mathf.Max(preset.Tuning.Sun.MaxElevationDeg, preset.KeyElevationDeg) + 1e-3f && noon.KeyElevationDeg >= preset.KeyElevationDeg,
-            $"the noon sun is higher than the afternoon key but never overhead ({noon.KeyElevationDeg:0.#} degrees)");
+        // A preset with a fixed key (no sun) puts the key exactly where it says, at any hour, and reads the keys by the clock.
+        var fixedKey = PresetWith(("\"x_look_key_mode\": \"sun\"", "\"x_look_key_mode\": \"fixed\""));
+        var atDefault = LookClock.At(fixedKey, 9.25f, 279);
+        Check(Mathf.IsEqualApprox(atDefault.KeyElevationDeg, preset.KeyElevationDeg, 0.01f) && Mathf.IsEqualApprox(atDefault.KeyAzimuthDeg, preset.KeyAzimuthDeg, 0.01f)
+            && Mathf.IsEqualApprox(atDefault.KeyHour, 9.25f), $"a fixed key sits exactly where the preset puts it ({atDefault.KeyElevationDeg:0.##}, {atDefault.KeyAzimuthDeg:0.##})");
         var deepNight = LookClock.At(preset, 2f, 279);
         Check(deepNight.MoonWeight >= 0.999f && Mathf.IsEqualApprox(deepNight.KeyElevationDeg, preset.Tuning.Sun.MoonElevationDeg, 0.01f),
             "deep in the night the key is the moon at its preset elevation");
-        var afternoon = LookClock.At(preset, preset.DefaultHour, 279);
+        var afternoon = LookClock.At(preset, 15f, 279);
         var lateNight = LookClock.At(preset, 23f, 279);
         Check(afternoon.Season == "autumn" && afternoon.Daylight > 0.6f && lateNight.Daylight < 0.2f && lateNight.KeyEnergy < afternoon.KeyEnergy * 0.3f,
             "the afternoon is bright and late night is dark");
@@ -347,6 +362,9 @@ public partial class LookPresetTest : Node3D
     {
         var sun = preset.Tuning.Sun;
         const int minutes = 24 * 60;
+        const float bright = 0.3f;
+        // The sun crosses the sky at 15 degrees an hour at most: a quarter of a degree a minute.
+        const float sunPerMinute = 0.26f;
         foreach (var day in new[] { 15, 105, 196, 288 })
         {
             var moments = Enumerable.Range(0, minutes).Select(m => LookClock.At(preset, m / 60f, day)).ToArray();
@@ -367,18 +385,25 @@ public partial class LookPresetTest : Node3D
             var worstAny = 0f;
             var moonWhileBright = 0;
             var belowHorizon = 0;
+            var offTheSun = 0f;
             for (var m = 0; m < minutes; m++)
             {
                 var a = moments[(m + minutes - 1) % minutes];
                 var b = moments[m];
                 var step = Mathf.RadToDeg(LookClock.Direction(a.KeyElevationDeg, a.KeyAzimuthDeg).AngleTo(LookClock.Direction(b.KeyElevationDeg, b.KeyAzimuthDeg)));
                 worstAny = Mathf.Max(worstAny, step);
-                if (Mathf.Min(a.Daylight, b.Daylight) >= sun.SunDaylight) worstBright = Mathf.Max(worstBright, step);
+                if (Mathf.Min(a.Daylight, b.Daylight) >= bright) worstBright = Mathf.Max(worstBright, step);
                 if (b.Daylight >= 0.5f && b.MoonWeight > 0f) moonWhileBright++;
                 if (b.KeyElevationDeg < sun.HorizonElevationDeg - 0.01f && b.MoonWeight <= 0f) belowHorizon++;
+                // While the sun is up the key is the real sun: the solar model's direction in the room (-Z north).
+                if (b.SunElevationDeg >= sun.HorizonElevationDeg)
+                {
+                    var real = LookClock.Direction(b.SunElevationDeg, LookClock.Yaw(sun, b.SunBearingDeg));
+                    offTheSun = Mathf.Max(offTheSun, Mathf.RadToDeg(real.AngleTo(LookClock.Direction(b.KeyElevationDeg, b.KeyAzimuthDeg))));
+                }
             }
-            var sunPerMinute = (sun.DegreesPerHour + sun.MaxElevationDeg) / 60f;
-            Check(worstBright <= sunPerMinute, $"day {day}: while daylight is at least {sun.SunDaylight}, the key moves only as the sun does (at most {worstBright:0.###} degrees a minute)");
+            Check(offTheSun < 0.01f, $"day {day}: while the sun is up the key comes from the real sun's direction (worst {offTheSun:0.###} degrees off)");
+            Check(worstBright <= sunPerMinute, $"day {day}: while daylight is at least {bright}, the key moves only as the sun does (at most {worstBright:0.###} degrees a minute)");
             Check(worstAny <= 10f, $"day {day}: the key never jumps; it swings to the moon only while dim (at most {worstAny:0.##} degrees a minute)");
             Check(moonWhileBright == 0, $"day {day}: whenever daylight is at least half the key is pure sun ({moonWhileBright} minutes otherwise)");
             Check(belowHorizon == 0 && moments.All(m => m.KeyElevationDeg >= Mathf.Min(sun.HorizonElevationDeg, sun.MoonElevationDeg) - 0.01f),
@@ -426,8 +451,13 @@ public partial class LookPresetTest : Node3D
         Check(bad.Hour == null && bad.DayOfYear == null && bad.Error.Contains("25:00") && bad.Error.Contains("2026-13-01"), "an unreadable override is reported and ignored: " + bad.Error);
         var none = LookClock.ClockOverride(Array.Empty<string>(), NoEnv);
         Check(none.Hour == null && none.DayOfYear == null && none.Error.Length == 0, "without an override the look follows the preset");
+        var lampsOff = LookClock.LampsOverride(new[] { "--look-lamps=off" }, name => name == "ENFRACTAL_LOOK_LAMPS" ? "on" : null);
+        var lampsEnv = LookClock.LampsOverride(Array.Empty<string>(), name => name == "ENFRACTAL_LOOK_LAMPS" ? "On" : null);
+        var lampsBad = LookClock.LampsOverride(new[] { "--look-lamps=dim" }, NoEnv);
+        Check(lampsOff.LampsOn == false && lampsEnv.LampsOn == true && LookClock.LampsOverride(Array.Empty<string>(), NoEnv) is (null, "")
+            && lampsBad.LampsOn == null && lampsBad.Error.Contains("dim"), "--look-lamps and ENFRACTAL_LOOK_LAMPS pin the lamps on or off (the command line wins); a bad value is reported");
 
-        // Seasonal day length: a continuous, increasing map from the real hour onto the keys' reference day.
+        // The real day maps onto the keys' reference day: a continuous, increasing map, sunrise to sunrise and sunset to sunset.
         var (rise, set) = LookClock.DayLimits(preset);
         foreach (var day in new[] { 15, 105, 196, 288 })
         {
@@ -442,30 +472,31 @@ public partial class LookPresetTest : Node3D
                 if (step > 12f) backwards++;
                 previous = current;
             }
-            var length = LookClock.DayLength(preset, day);
-            var noon = (rise + set) * 0.5f;
-            Check(backwards == 0 && worst < 0.1f && Mathf.IsEqualApprox(LookClock.KeyHour(preset, noon - length * 0.5f, day), rise, 1e-3f)
-                && Mathf.IsEqualApprox(LookClock.KeyHour(preset, noon + length * 0.5f, day), set, 1e-3f),
-                $"day {day}: the real day ({length:0.#} h) maps continuously onto the reference day, sunrise to sunrise and sunset to sunset");
+            var (realRise, realSet) = LookClock.SunTimes(preset.Tuning.Sun, day);
+            Check(backwards == 0 && worst < 0.1f && Mathf.IsEqualApprox(LookClock.KeyHour(preset, realRise, day), rise, 1e-3f)
+                && Mathf.IsEqualApprox(LookClock.KeyHour(preset, realSet, day), set, 1e-3f),
+                $"day {day}: the real day ({realSet - realRise:0.##} h, {realRise:0.##} to {realSet:0.##}) maps continuously onto the reference day, sunrise to sunrise and sunset to sunset");
         }
-        int DaylightMinutes(int day) => Enumerable.Range(0, 24 * 60).Count(m => LookClock.At(preset, m / 60f, day).Daylight >= preset.Tuning.Sun.MoonDaylight);
-        var winterDay = DaylightMinutes(15) / 60f;
-        var summerDay = DaylightMinutes(196) / 60f;
-        Check(Mathf.Abs(winterDay - preset.Tuning.Seasons.DayLengthH[0]) < 0.1f && Mathf.Abs(summerDay - preset.Tuning.Seasons.DayLengthH[2]) < 0.1f && summerDay - winterDay >= 4f,
-            $"winter days are short and summer days long ({winterDay:0.##} h against {summerDay:0.##} h of daylight)");
-        GD.Print($"LOOK_INFO: daylight {winterDay:0.##} h in mid-winter, {summerDay:0.##} h in mid-summer; reference day {rise:0.##} to {set:0.##}; review moment 16:30 on 6 October reads the keys at {LookClock.KeyHour(preset, 16.5f, 279):0.##}");
-        var winterSix = LookClock.At(preset, 18f, 15);
-        var summerSix = LookClock.At(preset, 18f, 196);
-        Check(winterSix.Daylight < preset.Tuning.Sun.MoonDaylight && summerSix.Daylight > 0.5f,
-            $"at six in the evening it is night in winter and still bright in summer (daylight {winterSix.Daylight:0.##} against {summerSix.Daylight:0.##})");
+        // Daylight follows the solar model's day: the keys' daylight is up exactly from the real sunrise to the real sunset.
+        foreach (var day in new[] { 15, 172, 355 })
+        {
+            var up = Enumerable.Range(0, 24 * 60).Count(m => LookClock.At(preset, m / 60f, day).Daylight >= preset.Tuning.Sun.ReferenceDaylight) / 60f;
+            Check(Mathf.Abs(up - LookClock.DayLength(preset, day)) < 0.05f, $"day {day}: daylight lasts the solar model's day ({up:0.##} h against {LookClock.DayLength(preset, day):0.##} h)");
+        }
+        GD.Print($"LOOK_INFO: reference day {rise:0.##} to {set:0.##}; review moment 16:30 on 6 October reads the keys at {LookClock.KeyHour(preset, 16.5f, 279):0.##} with the sun at {LookClock.At(preset, 16.5f, 279).SunElevationDeg:0.#} degrees, bearing {LookClock.At(preset, 16.5f, 279).SunBearingDeg:0.#}");
+        var winterEvening = LookClock.At(preset, 17.75f, 15);
+        var summerEvening = LookClock.At(preset, 17.75f, 196);
+        Check(winterEvening.Daylight < preset.Tuning.Sun.ReferenceDaylight && summerEvening.Daylight > 0.4f && summerEvening.SunElevationDeg > 10f,
+            $"at 17:45 the winter sun has set and the summer sun is still well up (daylight {winterEvening.Daylight:0.##} against {summerEvening.Daylight:0.##})");
 
-        // Stronger swings.
+        // Nights at moonlight level: dark and blue, but not black (the founder: dark, but you can make out shapes).
         var keys = preset.TimeKeys;
         var peak = keys.Max(k => k.KeyEnergy);
         var deep = LookClock.Sample(keys, 2f);
         var midday = LookClock.Sample(keys, 13f);
-        Check(deep.KeyEnergy <= 0.05f * peak && deep.AmbientEnergy <= 0.3f * midday.AmbientEnergy && deep.AmbientColor.B > deep.AmbientColor.R + 0.1f,
-            $"nights are deep and blue (key {deep.KeyEnergy / peak:P0} of its peak, ambient {deep.AmbientEnergy / midday.AmbientEnergy:P0} of midday's)");
+        Check(deep.KeyEnergy >= 0.06f * peak && deep.KeyEnergy <= 0.1f * peak && deep.KeyEnergy / peak < preset.Tuning.Sun.ReferenceDaylight
+            && deep.AmbientEnergy <= 0.3f * midday.AmbientEnergy && deep.AmbientColor.B > deep.AmbientColor.R + 0.1f,
+            $"nights are moonlit and blue (moonlight {deep.KeyEnergy / peak:P0} of the sun's peak, ambient {deep.AmbientEnergy / midday.AmbientEnergy:P0} of midday's)");
         // The evening moment the key falls to half its peak: the sunset.
         var sunsetHour = Enumerable.Range(0, 12 * 12).Select(i => preset.DefaultHour + i / 12f).First(h => LookClock.Sample(keys, h).KeyEnergy <= 0.5f * peak);
         var dusk = LookClock.Sample(keys, sunsetHour);
@@ -475,13 +506,12 @@ public partial class LookPresetTest : Node3D
         var winterGrey = ColorGrade.Apply(GradeParams.For(preset, LookClock.At(preset, 13f, 15)), grey);
         var summerGrey = ColorGrade.Apply(GradeParams.For(preset, LookClock.At(preset, 13f, 196)), grey);
         var autumnGrey = ColorGrade.Apply(GradeParams.For(preset, LookClock.At(preset, 13f, 288)), grey);
-        Check((winterGrey.B - winterGrey.R) - (summerGrey.B - summerGrey.R) >= 0.08f && autumnGrey.R - autumnGrey.B > 0.05f,
-            $"the seasons clearly differ: winter blue, summer and autumn warm (blue minus red: winter {winterGrey.B - winterGrey.R:0.###}, summer {summerGrey.B - summerGrey.R:0.###}, autumn {autumnGrey.B - autumnGrey.R:0.###})");
-        Check(preset.Tuning.Lamps.NightBoost >= 2f, "room lamps glow at least three times as bright at night as by day");
+        Check((winterGrey.B - winterGrey.R) - (summerGrey.B - summerGrey.R) >= 0.02f && (winterGrey.B - winterGrey.R) - (autumnGrey.B - autumnGrey.R) >= 0.02f,
+            $"the seasons still differ in the grade, gently: winter cooler than summer and autumn (blue minus red: winter {winterGrey.B - winterGrey.R:0.###}, summer {summerGrey.B - summerGrey.R:0.###}, autumn {autumnGrey.B - autumnGrey.R:0.###})");
         // Twilight is not night: the golden hour keeps its warm colour, and the night look comes in only as the light goes.
         var golden = LookClock.At(preset, 16.5f, 279);
         var deepNight = LookClock.At(preset, 2f, 279);
-        Check(golden.Daylight >= preset.Tuning.Grade.NightNoneAbove && GradeParams.For(preset, golden).Night == 0f && GradeParams.For(preset, deepNight).Night == 1f,
+        Check(golden.Daylight >= preset.Tuning.Grade.NightNoneAbove && GradeParams.For(preset, golden).Night == 0f && GradeParams.For(preset, deepNight).Night >= 0.95f,
             $"the golden hour (daylight {golden.Daylight:0.##}) gets none of the night grade and deep night all of it");
         var sweep = Enumerable.Range(0, 24 * 60).Select(m => GradeParams.For(preset, LookClock.At(preset, m / 60f, 15)).Night).ToArray();
         var nightStep = Enumerable.Range(1, sweep.Length - 1).Max(i => Mathf.Abs(sweep[i] - sweep[i - 1]));
@@ -725,17 +755,27 @@ public partial class LookPresetTest : Node3D
         var hintLights = look.GetChildren().OfType<Light3D>().Where(l => l.HasMeta("light_hint_id")).ToArray();
         Check(hintLights.Length == look.RoomLightCount && hintLights.All(l => room.LightHints.Any(h => h.Id == l.GetMeta("light_hint_id").AsString()))
             && hintLights.OfType<OmniLight3D>().Any(l => l.GetMeta("light_hint_id").AsString() == "ceiling_lamp")
-            && look.Key.ShadowEnabled && (look.Key.ShadowCasterMask & LookDirector.ShellVisualLayer) == 0,
-            $"the room's light hints are lit ({look.RoomLightCount}, the ceiling lamp among them) and the diorama key casts no shadows from the shell");
+            && hintLights.OfType<SpotLight3D>().Any(l => l.GetMeta("light_hint_id").AsString() == "window_west"),
+            $"the room's light hints are lit ({look.RoomLightCount}: the ceiling lamp and the west window's sky fill)");
+        Check(look.Key.ShadowEnabled && look.SkyFills.All(f => f.ShadowEnabled) && look.Lamps.All(l => l.ShadowEnabled)
+            && look.GetChildren().OfType<Light3D>().Count(l => l.ShadowEnabled) <= preset.MaxShadowedLights && preset.MaxShadowedLights <= 3,
+            $"the sun, the window's sky fill and the lamp cast shadows, within the preset's {preset.MaxShadowedLights} shadowed lights");
+        // Round 2 finding: with the sun's shadow softened by PCSS at 2.4 degrees, the 10 cm avatars and the props cast no
+        // visible sun shadow at all (the window frame's still did). The sun's shadow is filtered instead, never softened
+        // past the sun's own size, and no light's bias is large enough to push a 10 cm body's shadow off its base.
+        Check(look.Key.LightAngularDistance <= 0.6f && look.Key.ShadowBias <= 0.05f && look.Key.ShadowNormalBias <= 1f
+            && look.SkyFills.Concat(look.Lamps).All(l => l.ShadowBias <= 0.05f && l.ShadowNormalBias <= 1f),
+            $"shadows keep 10 cm bodies grounded: the sun's is not softened past the sun's size ({look.Key.LightAngularDistance:0.##} degrees) and no bias pushes a shadow off its base");
         var lamp = hintLights.OfType<OmniLight3D>().First(l => l.GetMeta("light_hint_id").AsString() == "ceiling_lamp");
         Check(Mathf.IsEqualApprox(lamp.OmniRange, room.Bounds.Size.Length() * preset.Tuning.Lamps.RangePerDiagonal) && Mathf.IsEqualApprox(lamp.OmniAttenuation, preset.Tuning.Lamps.Attenuation),
             "the lamp's reach and falloff come from the preset");
         var meshes = built.FindChildren("*", "MeshInstance3D", true, false).OfType<MeshInstance3D>().ToArray();
         var shell = meshes.Where(m => m.GetParent().HasMeta("surface_role")).ToArray();
         var objects = meshes.Except(shell).ToArray();
-        Check(shell.Length == room.Shell.Count && shell.All(m => m.Layers == LookDirector.ShellVisualLayer), "shell visuals move to the shell layer");
-        Check(shell.All(m => m.GIMode == (m.GetParent().GetMeta("surface_role").AsString() == "floor" ? GeometryInstance3D.GIModeEnum.Static : GeometryInstance3D.GIModeEnum.Disabled)),
-            "only the floor joins the GI bake from the shell; walls and ceiling just receive it");
+        Check(shell.Length == room.Shell.Count && shell.All(m => m.CastShadow == GeometryInstance3D.ShadowCastingSetting.On && (m.Layers & look.Key.ShadowCasterMask) != 0),
+            "every shell part casts the sun's shadows, so direct sun comes in only through the openings");
+        Check(shell.All(m => m.GIMode == GeometryInstance3D.GIModeEnum.Static) && shell.Any(m => m.GetParent().GetMeta("surface_role").AsString() == "ceiling"),
+            "floor, walls and ceiling all join the GI bake: the room is a closed interior");
         Check(objects.Length == room.Objects.Count && objects.All(m => m.GIMode == GeometryInstance3D.GIModeEnum.Dynamic), "movable props are dynamic for GI");
         Check(objects.All(m => m.GetInstanceShaderParameter("box_edges").AsSingle() == 1f && m.GetInstanceShaderParameter("box_half_extents").AsVector3().X > 0f),
             "box props get softened, worn edges with their half extents");
@@ -745,11 +785,20 @@ public partial class LookPresetTest : Node3D
         Check(look.Gi == null && look.GiNote.Contains("no GI"), "without a GPU the VoxelGI bake is skipped and says so: " + look.GiNote);
         Check(LookDirector.GiVolume(room, preset.Tuning.Gi).Encloses(room.Bounds), "the GI volume encloses the room bounds");
         var afternoonEnergy = look.Key.LightEnergy;
+        Check(!look.LampsOn && !lamp.Visible, "on an October afternoon the lamp is off");
         look.SetClock(23f, 279);
         Check(look.Key.LightEnergy < afternoonEnergy * 0.3f && look.Moment.Daylight < 0.2f, "pinning the clock to night dims the key");
-        Check(lamp.LightEnergy > (float)lamp.GetMeta("base_energy").AsDouble() * 1.5f, "room lamps glow brighter at night");
+        Check(look.LampsOn && lamp.Visible && Mathf.IsEqualApprox(lamp.LightEnergy, (float)lamp.GetMeta("base_energy").AsDouble()),
+            "at night the lamp switches itself on, at its own constant brightness (a lamp is a lamp)");
+        look.SetLamps(false);
+        Check(!look.LampsOn && !lamp.Visible, "a switch can turn the lamps off at night");
         look.SetClock(16.5f, 196);
-        Check(Mathf.IsEqualApprox(lamp.LightEnergy, (float)lamp.GetMeta("base_energy").AsDouble()), "on a bright summer afternoon the lamps are at their plain daytime level");
+        Check(!look.LampsOn, "pinned off, the lamps stay off");
+        look.SetLamps(null);
+        Check(!look.LampsOn && !lamp.Visible, "on a bright summer afternoon the lamps switch themselves off");
+        look.SetLamps(true);
+        Check(look.LampsOn && lamp.Visible, "a switch can turn the lamps on by day");
+        look.SetLamps(null);
         look.SetClock(preset.DefaultHour, 279);
         Check(Mathf.IsEqualApprox(look.Key.LightEnergy, afternoonEnergy) && look.Moment.Season == "autumn", "pinning back to the default hour restores the afternoon");
         Check(look.RendererNote.Length == 0 && look.PlayerNotice.Length == 0, "no renderer mismatch is reported under Forward+");
@@ -845,7 +894,7 @@ public partial class LookPresetTest : Node3D
     {
         var meshes = built.FindChildren("*", "MeshInstance3D", true, false).OfType<MeshInstance3D>().ToArray();
         return meshes.Length == room.Shell.Count + room.Objects.Count && meshes.All(m => m.HasMeta(LookDirector.DressedMeta) && m.GetInstanceShaderParameter("paint_seed").VariantType != Variant.Type.Nil)
-            && meshes.Where(m => m.GetParent().HasMeta("surface_role")).All(m => m.Layers == LookDirector.ShellVisualLayer);
+            && meshes.Where(m => m.GetParent().HasMeta("surface_role")).All(m => m.GIMode == GeometryInstance3D.GIModeEnum.Static);
     }
 
     /// <summary>
@@ -1039,6 +1088,256 @@ public partial class LookPresetTest : Node3D
         await Frames(1);
     }
 
+    // ---------- real-source light (round 2) ----------
+
+    /// <summary>
+    /// The founder's answer: the sun follows the real clock at about 30 degrees north, with the right day length on every
+    /// date. The solar model against the almanac at 30 degrees north, through the year, at other latitudes, the defaults
+    /// in the preset, the west window facing the evening sun, and the real clock read as standard time.
+    /// </summary>
+    private void CheckSolarModel(StylePreset preset)
+    {
+        var sun = preset.Tuning.Sun;
+        Check(Mathf.IsEqualApprox(sun.LatitudeDeg, 30f) && Mathf.IsEqualApprox(sun.NegZBearingDeg, 0f)
+            && _presetText.Contains("\"latitude_deg\": 30,", StringComparison.Ordinal) && _presetText.Contains("\"neg_z_bearing_deg\": 0,", StringComparison.Ordinal),
+            "the preset's x_look_sun holds the default latitude (30 degrees north) and the room's orientation (-Z is north, so -X is west)");
+        // The founder's figures at 30 degrees north: about 10.2 h at the December solstice, 12 h at the equinoxes, 13.9 h at the June solstice.
+        var december = LookClock.DayLength(preset, 355);
+        var march = LookClock.DayLength(preset, 79);
+        var june = LookClock.DayLength(preset, 172);
+        var september = LookClock.DayLength(preset, 265);
+        GD.Print($"LOOK_INFO: day length at {sun.LatitudeDeg} degrees: {december:0.00} h on 21 December, {march:0.00} h on 20 March, {june:0.00} h on 21 June, {september:0.00} h on 22 September");
+        Check(Mathf.Abs(december - 10.2f) <= 0.15f && Mathf.Abs(march - 12f) <= 0.2f && Mathf.Abs(september - 12f) <= 0.2f && Mathf.Abs(june - 13.9f) <= 0.2f,
+            $"day lengths at 30 degrees north: {december:0.00} h at the December solstice, {march:0.00} and {september:0.00} h at the equinoxes, {june:0.00} h at the June solstice (about 10.2, 12 and 13.9)");
+        // Every date: the day grows and shrinks smoothly and is shortest and longest at the solstices.
+        var lengths = Enumerable.Range(1, 365).Select(d => LookClock.DayLength(preset, d)).ToArray();
+        var shortest = Array.IndexOf(lengths, lengths.Min()) + 1;
+        var longest = Array.IndexOf(lengths, lengths.Max()) + 1;
+        var dailyStep = Enumerable.Range(1, 364).Max(i => Mathf.Abs(lengths[i] - lengths[i - 1]));
+        Check(Math.Abs(shortest - 355) <= 4 && Math.Abs(longest - 172) <= 4 && dailyStep < 0.05f,
+            $"through the year the day is shortest on day {shortest} and longest on day {longest}, changing at most {dailyStep * 60f:0.#} minutes a day");
+        // Noon elevations (90 - latitude + declination) and where the sun rises.
+        float NoonElevation(int day) { var (r, s) = LookClock.SunTimes(sun, day); return LookClock.SolarPosition(sun, day, (r + s) * 0.5f).ElevationDeg; }
+        float RiseBearing(int day) => LookClock.SolarPosition(sun, day, LookClock.SunTimes(sun, day).Sunrise).BearingDeg;
+        Check(Mathf.Abs(NoonElevation(172) - 83.4f) < 0.5f && Mathf.Abs(NoonElevation(355) - 36.6f) < 0.5f && Mathf.Abs(NoonElevation(79) - 60f) < 0.7f,
+            $"the noon sun stands {NoonElevation(355):0.#} degrees high at the December solstice, {NoonElevation(79):0.#} at the March equinox and {NoonElevation(172):0.#} at the June solstice");
+        Check(RiseBearing(172) is > 55f and < 70f && RiseBearing(355) is > 110f and < 125f && Mathf.Abs(LookClock.SolarPosition(sun, 172, 12.1f).BearingDeg - 180f) < 30f,
+            $"the sun rises north of east in June ({RiseBearing(172):0} degrees) and south of east in December ({RiseBearing(355):0}), and stands in the south at noon");
+        // The latitude is used: farther north the June day is longer, and in the south hemisphere June is winter.
+        var north50 = LookClock.SunTimes(50f, 12f, sun.SunriseElevationDeg, 172);
+        var south30 = LookClock.SunTimes(-30f, 12f, sun.SunriseElevationDeg, 172);
+        Check(Mathf.Abs(north50.Sunset - north50.Sunrise - 16.4f) < 0.2f && Mathf.Abs(south30.Sunset - south30.Sunrise - december) < 0.1f,
+            $"latitude matters: 21 June lasts {north50.Sunset - north50.Sunrise:0.0} h at 50 degrees north and {south30.Sunset - south30.Sunrise:0.0} h at 30 degrees south");
+        // The room's west window faces the evening sun: in the late afternoon the sun is in the west and the key comes from -X.
+        foreach (var (hour, day) in new[] { (16.5f, 279), (18f, 196), (17.5f, 105) })
+        {
+            var moment = LookClock.At(preset, hour, day);
+            var from = LookClock.Direction(moment.KeyElevationDeg, moment.KeyAzimuthDeg);
+            Check(Mathf.Abs(moment.SunBearingDeg - 270f) < 35f && from.X < -0.75f * new Vector2(from.X, from.Z).Length(),
+                $"day {day} at {hour:0.##}: the sun is in the west (bearing {moment.SunBearingDeg:0}) and its light comes from the room's west, -X");
+        }
+        // The real clock is read as standard time when the preset says so, in any zone with daylight saving; pins never change.
+        var zone = TimeZoneInfo.CreateCustomTimeZone("look-test", TimeSpan.Zero, "look test", "look test standard", "look test summer",
+            new[]
+            {
+                TimeZoneInfo.AdjustmentRule.CreateAdjustmentRule(new DateTime(2000, 1, 1), new DateTime(2099, 12, 31), TimeSpan.FromHours(1),
+                    TimeZoneInfo.TransitionTime.CreateFloatingDateRule(new DateTime(1, 1, 1, 1, 0, 0), 3, 5, DayOfWeek.Sunday),
+                    TimeZoneInfo.TransitionTime.CreateFloatingDateRule(new DateTime(1, 1, 1, 2, 0, 0), 10, 5, DayOfWeek.Sunday)),
+            });
+        var summer = LookClock.StandardClock(new DateTime(2026, 7, 15, 18, 30, 0), zone, true);
+        var winter = LookClock.StandardClock(new DateTime(2026, 1, 15, 18, 30, 0), zone, true);
+        var asRead = LookClock.StandardClock(new DateTime(2026, 7, 15, 18, 30, 0), zone, false);
+        var pastMidnight = LookClock.StandardClock(new DateTime(2026, 7, 15, 0, 30, 0), zone, true);
+        Check(Mathf.IsEqualApprox(summer.Hour, 17.5f) && summer.DayOfYear == 196 && Mathf.IsEqualApprox(winter.Hour, 18.5f) && Mathf.IsEqualApprox(asRead.Hour, 18.5f)
+            && Mathf.IsEqualApprox(pastMidnight.Hour, 23.5f) && pastMidnight.DayOfYear == 195 && sun.RealClockDaylightSaving,
+            "the real clock is read as standard time: 18:30 in summer time is 17:30 on the sun, winter is unchanged, and 00:30 falls back to the day before");
+    }
+
+    /// <summary>
+    /// The founder's answer: the sun comes in through the west window only. The shell casts the sun's shadows (checked
+    /// with the director); here the geometry, with physics rays from the built room: at the review moment and on a summer
+    /// evening, every floor point whose line to the sun leaves through the window opening has a clear line, and every
+    /// floor point whose line to the sun would cross a wall or the ceiling is blocked by the shell, so it gets no direct sun.
+    /// </summary>
+    private async Task CheckSunThroughWindow(StylePreset preset, RoomData room)
+    {
+        using var document = System.Text.Json.JsonDocument.Parse(FileAccess.GetFileAsBytes(RoomWorld.DefaultRoom + "/room.json"));
+        var openings = document.RootElement.GetProperty("shell").GetProperty("openings").EnumerateArray().ToArray();
+        var window = openings.Single(o => o.GetProperty("kind").GetString() == "window");
+        Check(window.GetProperty("host_part_id").GetString() == "shell:wall_west", "the test room's only window is in the west wall");
+        var centre = window.GetProperty("center_m");
+        var size = window.GetProperty("size_m");
+        float wallX = centre[0].GetSingle(), midY = centre[1].GetSingle(), midZ = centre[2].GetSingle();
+        float halfWidth = size[0].GetSingle() * 0.5f, halfHeight = size[1].GetSingle() * 0.5f;
+        var (holder, look) = NewDirector(preset, room, "SunWindowHolder");
+        var built = RoomBuilder.Build(room);
+        holder.AddChild(built);
+        await PhysicsFrames(3);
+        var objects = built.GetNode("Objects").GetChildren().OfType<CollisionObject3D>().Select(o => o.GetRid()).ToArray();
+        var space = GetWorld3D().DirectSpaceState;
+        const float margin = 0.03f;
+        foreach (var (hour, day, label) in new[] { (16.5f, 279, "16:30 on 6 October"), (18f, 196, "18:00 on 15 July") })
+        {
+            look.SetClock(hour, day);
+            var toSun = look.Key.GlobalBasis.Z.Normalized();
+            int through = 0, throughClear = 0, walled = 0, walledBlocked = 0;
+            var bad = new List<string>();
+            var bounds = room.Bounds;
+            for (var x = bounds.Position.X + 0.05f; x < bounds.End.X - 0.04f; x += 0.1f)
+                for (var z = bounds.Position.Z + 0.05f; z < bounds.End.Z - 0.04f; z += 0.1f)
+                {
+                    var point = new Vector3(x, 0.002f, z);
+                    // Where the line to the sun crosses the west wall's inner face.
+                    var t = toSun.X < -1e-4f ? (wallX - point.X) / toSun.X : float.PositiveInfinity;
+                    var at = point + toSun * t;
+                    var inOpening = float.IsFinite(t) && Mathf.Abs(at.Y - midY) < halfHeight - margin && Mathf.Abs(at.Z - midZ) < halfWidth - margin;
+                    var offOpening = !float.IsFinite(t) || Mathf.Abs(at.Y - midY) > halfHeight + margin || Mathf.Abs(at.Z - midZ) > halfWidth + margin;
+                    var query = PhysicsRayQueryParameters3D.Create(point, point + toSun * 12f);
+                    query.Exclude = new Godot.Collections.Array<Rid>(objects);
+                    var hit = space.IntersectRay(query);
+                    var shell = hit.Count > 0 && hit["collider"].AsGodotObject() is Node node && node.HasMeta("surface_role");
+                    if (inOpening)
+                    {
+                        through++;
+                        if (hit.Count == 0) throughClear++;
+                        else if (bad.Count < 3) bad.Add($"({x:0.0}, {z:0.0}) should see the sun through the window");
+                    }
+                    else if (offOpening)
+                    {
+                        walled++;
+                        if (shell) walledBlocked++;
+                        else if (bad.Count < 3) bad.Add($"({x:0.0}, {z:0.0}) should be in the shell's shadow");
+                    }
+                }
+            GD.Print($"LOOK_INFO: {label}: sun {look.Moment.SunElevationDeg:0.#} degrees high at bearing {look.Moment.SunBearingDeg:0}; {through} floor points see it through the window, {walled} are behind the walls");
+            Check(look.Key.Visible && look.Key.LightEnergy > 0.1f && through >= 10 && throughClear == through && walled >= 100 && walledBlocked == walled,
+                $"{label}: direct sun reaches the floor only through the window ({throughClear}/{through} points in the window's patch see it, {walledBlocked}/{walled} outside it are in the shell's shadow) {string.Join("; ", bad)}");
+        }
+        holder.QueueFree();
+        await Frames(1);
+    }
+
+    /// <summary>
+    /// The founder's answer: nights at moonlight level (dark, but you can make out shapes), cool moonlight through the
+    /// window, lamps off still showing silhouettes, lamps on cozy. Measured against the golden-hour review moment.
+    /// </summary>
+    private void CheckNightLevels(StylePreset preset, RoomData room)
+    {
+        var (holder, look) = NewDirector(preset, room, "NightHolder");
+        look.SetClock(16.5f, 279);
+        var goldenSun = look.Key.LightEnergy * ColorGrade.Luma(look.Key.LightColor);
+        var goldenSky = look.SkyFills.Sum(f => f.LightEnergy);
+        var goldenGrade = GradeParams.For(preset, look.Moment);
+        look.SetClock(2f, 279);
+        look.SetLamps(false);
+        var moon = look.Key.LightEnergy * ColorGrade.Luma(look.Key.LightColor);
+        var nightSky = look.SkyFills.Sum(f => f.LightEnergy);
+        var fromMoon = look.Key.GlobalBasis.Z;
+        var moonColor = look.Key.LightColor;
+        GD.Print($"LOOK_INFO: at 2:00 the moon is {moon / goldenSun:P0} of the golden-hour sun and the window's sky {nightSky / goldenSky:P0} of its golden-hour sky; lamps {(look.LampsOn ? "on" : "off")}");
+        Check(moon >= 0.06f * goldenSun && moon <= 0.3f * goldenSun && nightSky >= 0.15f * goldenSky && nightSky <= 0.4f * goldenSky,
+            $"at night, lamps off, moonlight is {moon / goldenSun:P0} of the golden-hour sun and the sky fill {nightSky / goldenSky:P0} of its golden-hour level: dark, but light enough to make out shapes");
+        Check(look.Moment.MoonWeight >= 0.999f && fromMoon.X < -0.7f && fromMoon.Y > 0.3f && moonColor.B > moonColor.R + 0.1f && look.Lamps.All(l => !l.Visible),
+            "the moon shines in through the west window in a cool blue, and the lamps are off");
+        // The night grade keeps the dim values where silhouettes live: it cools and calms them but does not crush them.
+        var nightGrade = GradeParams.For(preset, look.Moment);
+        var dim = new Color(0.1f, 0.1f, 0.1f);
+        var kept = ColorGrade.Luma(ColorGrade.Apply(nightGrade, dim)) / ColorGrade.Luma(ColorGrade.Apply(goldenGrade, dim));
+        Check(nightGrade.Night >= 0.95f && kept >= 0.75f, $"the night grade keeps {kept:P0} of a dim grey's brightness, so silhouettes stay readable");
+        // Lamps on: the cozy main light, warm and several times the moonlight.
+        look.SetLamps(null);
+        var lamp = look.Lamps.Single();
+        Check(look.LampsOn && lamp.Visible && lamp.LightColor.R - lamp.LightColor.B >= 0.2f && lamp.LightEnergy >= 3f * look.Key.LightEnergy,
+            $"with the lamps on (they switch on by themselves at night) the warm lamp is the main light ({lamp.LightEnergy:0.##} against the moon's {look.Key.LightEnergy:0.##})");
+        holder.Free();
+    }
+
+    /// <summary>
+    /// The founder's answer: warm gold where the sun lands, cool light-blue in the sky fill, shade and shadows, as in
+    /// Tiny Glade 1 and Titl Shift 7. Through the golden hour (the 90 minutes before sunset on the review day, and at the
+    /// review moment), the sun is warm, the window's sky fill is cool light blue, and the grade keeps shade cool.
+    /// </summary>
+    private void CheckGoldenHourCoolFill(StylePreset preset, RoomData room)
+    {
+        var (holder, look) = NewDirector(preset, room, "GoldenFillHolder");
+        var sunset = LookClock.SunTimes(preset.Tuning.Sun, 279).Sunset;
+        var worstFill = float.PositiveInfinity;
+        var worstSun = float.PositiveInfinity;
+        var worstShade = float.PositiveInfinity;
+        foreach (var hour in Enumerable.Range(0, 91).Select(m => sunset - 1.5f + m / 60f).Append(16.5f))
+        {
+            look.SetClock(hour, 279);
+            var fill = look.SkyFills.Single().LightColor;
+            var sun = look.Key.LightColor;
+            var shade = ColorGrade.Apply(GradeParams.For(preset, look.Moment), new Color(0.15f, 0.15f, 0.15f));
+            worstFill = Mathf.Min(worstFill, Mathf.Min(fill.B - fill.R, fill.B - fill.G));
+            worstSun = Mathf.Min(worstSun, (sun.R - sun.B) / Mathf.Max(sun.R, 1e-3f));
+            worstShade = Mathf.Min(worstShade, shade.B - shade.R);
+        }
+        look.SetClock(16.5f, 279);
+        var reviewFill = look.SkyFills.Single().LightColor;
+        GD.Print($"LOOK_INFO: golden hour on 6 October (sunset {sunset:0.00}): sun #{look.Key.LightColor.ToHtml(false)}, sky fill #{reviewFill.ToHtml(false)} at the review moment");
+        Check(worstFill >= 0.1f && worstSun >= 0.25f && worstShade >= 0f,
+            $"through the golden hour the sky fill is cool light blue (blue leads by at least {worstFill:0.##}), the sun warm (red leads blue by at least {worstSun:P0}) and graded shade cool (blue minus red at least {worstShade:0.###})");
+        holder.Free();
+    }
+
+    /// <summary>
+    /// The founder's answer: reduce the global orange cast so the room's greens, blues, creams and pinks read as
+    /// themselves; the warmth comes from the sunlight. The grade alone barely colours a neutral grey at the golden-hour
+    /// review moment and at noon in every season, and every colour of the room keeps its hue through the material glaze
+    /// and the grade.
+    /// </summary>
+    private void CheckReducedGlobalTint(StylePreset preset, RoomData room)
+    {
+        float Noon(int day) { var (r, s) = LookClock.SunTimes(preset.Tuning.Sun, day); return (r + s) * 0.5f; }
+        var moments = new[] { ("the golden hour", LookClock.At(preset, 16.5f, 279)), ("winter noon", LookClock.At(preset, Noon(15), 15)),
+            ("spring noon", LookClock.At(preset, Noon(105), 105)), ("summer noon", LookClock.At(preset, Noon(196), 196)), ("autumn noon", LookClock.At(preset, Noon(288), 288)) };
+        foreach (var (name, moment) in moments)
+        {
+            var grade = GradeParams.For(preset, moment);
+            var warmest = float.NegativeInfinity;
+            var strongest = 0f;
+            foreach (var level in new[] { 0.25f, 0.45f, 0.65f })
+            {
+                var graded = ColorGrade.Apply(grade, new Color(level, level, level));
+                warmest = Mathf.Max(warmest, graded.R - graded.B);
+                strongest = Mathf.Max(strongest, Mathf.Max(graded.R, Mathf.Max(graded.G, graded.B)) - Mathf.Min(graded.R, Mathf.Min(graded.G, graded.B)));
+            }
+            Check(warmest <= 0.03f && strongest <= 0.06f, $"{name}: the grade barely tints a neutral grey (red over blue at most {warmest:0.###}, colour at most {strongest:0.###})");
+        }
+        // The room's own colours through the glaze and the golden-hour grade, against the same grade with only its
+        // gentle desaturation and contrast (no tint, warmth or toning): the difference is the tint the look adds.
+        var golden = GradeParams.For(preset, moments[0].Item2);
+        var neutral = new Color(0.5f, 0.5f, 0.5f);
+        var untinted = golden with { Warmth = 0f, SeasonTint = neutral, ShadowTint = neutral, HighlightTint = neutral, Night = 0f };
+        var colours = room.Shell.Select(s => (Name: s.Id, Role: s.MaterialRole, Base: s.BaseColor))
+            .Concat(room.Objects.Select(o => (Name: o.Id, Role: o.Asset.Materials[0].Role, Base: o.Asset.Materials[0].BaseColor ?? new Color("b3aea4"))))
+            .GroupBy(c => c.Base.ToHtml(false)).Select(g => g.First()).ToArray();
+        var report = new List<string>();
+        var drifted = new List<string>();
+        foreach (var (name, role, colour) in colours)
+        {
+            var albedo = MaterialLibrary.Glaze(colour, preset.TreatmentFor(role).Tint, preset.GlazeAmount);
+            var graded = ColorGrade.Apply(golden, albedo);
+            var plain = ColorGrade.Apply(untinted, colour);
+            // The tint the look adds, measured perceptually: the shift in Oklab's colour plane (about 0.02 is just noticeable).
+            var (a, b) = (Oklab(graded), Oklab(plain));
+            var tint = new Vector2(a.Y - b.Y, a.Z - b.Z).Length();
+            report.Add($"{name} #{colour.ToHtml(false)} to #{graded.ToHtml(false)} (tint {tint:0.0000})");
+            if (tint > 0.015f) drifted.Add($"{name} ({tint:0.000})");
+        }
+        GD.Print("LOOK_INFO: the room's colours at the golden hour: " + string.Join("; ", report));
+        Check(drifted.Count == 0, "every colour of the room reads as itself: the glaze and the grade tint it by less than a just-noticeable step (0.015 in Oklab): tinted " + string.Join(", ", drifted));
+        Color Of(string id) => MaterialLibrary.Glaze(colours.First(c => c.Name == id).Base, preset.TreatmentFor(colours.First(c => c.Name == id).Role).Tint, preset.GlazeAmount);
+        var sage = ColorGrade.Apply(golden, Of("obj:table"));
+        var book = ColorGrade.Apply(golden, Of("obj:book"));
+        var rug = ColorGrade.Apply(golden, Of("obj:rug"));
+        var wall = ColorGrade.Apply(golden, Of("shell:wall_east"));
+        Check(sage.G > sage.R && sage.G > sage.B && book.B > book.R && book.B > book.G && rug.R > rug.G && rug.B >= rug.G - 0.005f && wall.B >= wall.R,
+            "the sage table stays green, the book light blue, the rug pink rather than peach, and the east wall light blue");
+    }
+
     // ---------- helpers ----------
 
     private (Node3D Holder, LookDirector Look) NewDirector(StylePreset preset, RoomData room, string name)
@@ -1074,6 +1373,23 @@ public partial class LookPresetTest : Node3D
     private async Task Frames(int count)
     {
         for (var i = 0; i < count; i++) await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+    }
+
+    /// <summary>Oklab (L, a, b) of a display (sRGB) colour: a perceptual space where equal distances look about equally different.</summary>
+    private static Vector3 Oklab(Color display)
+    {
+        var c = display.SrgbToLinear();
+        var l = Mathf.Pow(0.4122214708f * c.R + 0.5363325363f * c.G + 0.0514459929f * c.B, 1f / 3f);
+        var m = Mathf.Pow(0.2119034982f * c.R + 0.6806995451f * c.G + 0.1073969566f * c.B, 1f / 3f);
+        var s = Mathf.Pow(0.0883024619f * c.R + 0.2817188376f * c.G + 0.6299787005f * c.B, 1f / 3f);
+        return new Vector3(0.2104542553f * l + 0.7936177850f * m - 0.0040720468f * s,
+            1.9779984951f * l - 2.4285922050f * m + 0.4505937099f * s,
+            0.0259040371f * l + 0.7827717662f * m - 0.8086757660f * s);
+    }
+
+    private async Task PhysicsFrames(int count)
+    {
+        for (var i = 0; i < count; i++) await ToSignal(GetTree(), SceneTree.SignalName.PhysicsFrame);
     }
 
     private void CheckThrows(Action action, string fragment, string label)

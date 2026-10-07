@@ -22,11 +22,14 @@ namespace EnFractal.Tests.Look;
 ///
 /// Needs a real window on the GPU: under --headless it reports that and exits with code 2.
 /// After the cameras it checks the grain and vignette effect in the pixels (the first camera with and without
-/// it) and writes the look's self-check (renderer fallback, missing GI bake, bake stand-ins left, post effect
-/// never ran) to timings.json as look_problems. Any problem prints LOOK_CAPTURE_PROBLEM and exits with code 3,
-/// so a capture never passes silently on a fallback renderer.
+/// it), checks light from real sources in the pixels (the sun lands only through the window; the night with the
+/// lamps off and on), saves close crops of the avatars' feet on the cameras the file names for contact shadows,
+/// and writes the look's self-check (renderer fallback, missing GI bake, bake stand-ins left, post effect never
+/// ran) to timings.json as look_problems. Any problem prints LOOK_CAPTURE_PROBLEM and exits with code 3, so a
+/// capture never passes silently on a fallback renderer.
 /// User arguments (after "--"): --cameras=PATH --out=DIR [--label=TEXT] [--warmup=N] [--frames=N]
-/// [--only=ID,ID] [--sweep] [--root-viewport] [--commit=TEXT] [--note=TEXT] [--post-check=false] [--allow-problems]
+/// [--only=ID,ID] [--sweep] [--root-viewport] [--commit=TEXT] [--note=TEXT] [--post-check=false]
+/// [--light-checks=false] [--style=PATH] [--allow-problems]
 /// </summary>
 public partial class LookCaptureHarness : Node
 {
@@ -67,6 +70,8 @@ public partial class LookCaptureHarness : Node
             DisplayServer.WindowSetVsyncMode(DisplayServer.VSyncMode.Disabled);
 
             _world = GD.Load<PackedScene>("res://scenes/room.tscn").Instantiate<RoomWorld>();
+            // A preset variant for tuning (never a review of record): the room's style is replaced by this file.
+            if (Arg("style", "").Length > 0) _world.StylePresetPath = Arg("style", "");
             AddChild(_world);
             for (var i = 0; i < 600 && !_world.WorldReady && _world.LoadError.Length == 0; i++) await NextFrame();
             if (!_world.WorldReady) throw new InvalidOperationException("room did not load: " + _world.LoadError);
@@ -99,10 +104,12 @@ public partial class LookCaptureHarness : Node
                 timing["camera"] = id;
                 timing["file"] = file;
                 timing["image_size"] = new[] { image.GetWidth(), image.GetHeight() };
+                if (ContactCameras(root).Contains(id)) timing["contact_crops"] = SaveContactCrops(image, id, outDir);
                 _results.Add(timing);
                 GD.Print($"LOOK_CAPTURE camera={id} frame_ms_p50={timing["frame_ms_p50"]} frame_ms_p95={timing["frame_ms_p95"]} gpu_ms_mean={timing["gpu_ms_mean"]} image={image.GetWidth()}x{image.GetHeight()}");
             }
             if (Arg("sweep", "false") == "true") await Sweep(root, outDir);
+            if (Arg("light-checks", "true") == "true") _lightChecks = await LightChecks(root, outDir);
             if (Arg("post-check", "true") == "true") _postCheck = await PostEffectCheck(root);
             var problems = LookProblems();
             WriteReport(outDir, camerasPath, resolution, warmup, frames, problems);
@@ -329,13 +336,16 @@ public partial class LookCaptureHarness : Node
         // Grain: the per-pixel ratio between the two images, correlated with the pattern the shader is known to
         // multiply in (LookPostEffect.Factor, found by reflection so this file still builds against older commits).
         // Tone mapping, 8-bit output and TAA shrink a 5% grain to well under one 8-bit level, so its spread alone
-        // cannot be told from frame-to-frame noise; the correlation can (noise alone gives about 1/sqrt(pixels)).
+        // cannot be told from frame-to-frame noise; the correlation can (noise alone gives about 1/sqrt(pixels)). The
+        // grain is sampled over a centre patch a fifth of the frame tall, so a darker room (fewer pixels bright enough
+        // to carry the grain past 8-bit rounding) still leaves the correlation well above the noise level.
         var factor = post.GetType().GetMethod("Factor", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
         var pushConstants = post.GetType().GetMethod("PushConstants")?.Invoke(post, new object[] { new Vector2I(w, h) }) as float[];
         var measured = new List<double>();
         var expected = new List<double>();
-        for (var y = h / 2 - patch / 2; y < h / 2 + patch / 2; y++)
-            for (var x = w / 2 - patch / 2; x < w / 2 + patch / 2; x++)
+        var grainPatch = Math.Max(8, h / 5);
+        for (var y = h / 2 - grainPatch / 2; y < h / 2 + grainPatch / 2; y++)
+            for (var x = w / 2 - grainPatch / 2; x < w / 2 + grainPatch / 2; x++)
             {
                 var a = with.GetPixel(x, y);
                 var b = without.GetPixel(x, y);
@@ -360,6 +370,204 @@ public partial class LookCaptureHarness : Node
     }
 
     private Dictionary<string, object>? _postCheck;
+    private Dictionary<string, object>? _lightChecks;
+
+    private static JsonElement CameraEntry(JsonElement root, string id) =>
+        root.GetProperty("cameras").EnumerateArray().First(c => c.GetProperty("id").GetString() == id);
+
+    private static JsonElement LightConfig(JsonElement root) => root.TryGetProperty("light_checks", out var c) && c.ValueKind == JsonValueKind.Object ? c : default;
+
+    private static HashSet<string> ContactCameras(JsonElement root)
+    {
+        var config = LightConfig(root);
+        return config.ValueKind == JsonValueKind.Object && config.TryGetProperty("contact_cameras", out var list)
+            ? list.EnumerateArray().Select(e => e.GetString()!).ToHashSet() : new HashSet<string>();
+    }
+
+    private static double Luma(Color c) => 0.2126 * c.R + 0.7152 * c.G + 0.0722 * c.B;
+
+    /// <summary>
+    /// Close crops of each avatar's feet from a review image, to judge contact shadows (a 10 cm body must look grounded):
+    /// the avatar's base projected into the camera, cropped about two body heights tall and upscaled to 480 px.
+    /// </summary>
+    private List<string> SaveContactCrops(Image image, string cameraId, string outDir)
+    {
+        var files = new List<string>();
+        foreach (var (name, body) in new (string, Node3D?)[] { ("player", _world.Player), ("companion", _world.Companion) })
+        {
+            if (body == null || _camera.IsPositionBehind(body.GlobalPosition)) continue;
+            var heightVariant = body.Get("BodyHeightM");
+            var height = heightVariant.VariantType == Variant.Type.Nil ? 0.1f : (float)heightVariant.AsDouble();
+            var foot = _camera.UnprojectPosition(body.GlobalPosition);
+            var head = _camera.UnprojectPosition(body.GlobalPosition + Vector3.Up * height);
+            var tall = Mathf.Clamp(Mathf.Abs(foot.Y - head.Y) * 2.2f, 48f, image.GetHeight() * 0.8f);
+            var wide = tall * 1.6f;
+            var rect = new Rect2I((int)(foot.X - wide * 0.5f), (int)(foot.Y - tall * 0.7f), (int)wide, (int)tall)
+                .Intersection(new Rect2I(0, 0, image.GetWidth(), image.GetHeight()));
+            if (rect.Size.X < 16 || rect.Size.Y < 16) continue;
+            var crop = image.GetRegion(rect);
+            var scale = 480f / crop.GetHeight();
+            crop.Resize(Mathf.Max(1, (int)(crop.GetWidth() * scale)), 480, Image.Interpolation.Lanczos);
+            var file = $"contact_{cameraId}_{name}.png";
+            crop.SavePng(System.IO.Path.Combine(outDir, file));
+            files.Add(file);
+        }
+        return files;
+    }
+
+    /// <summary>
+    /// Light from real sources, checked in the pixels. The sun: at the review clock, from light_checks.sun_camera, floor
+    /// points the physics says see the sun (no wall, ceiling or object on the line to it) must get clearly brighter
+    /// when the sun is on, and floor points the shell hides from it must barely change (only by the sun's bounce). The
+    /// night: at 02:00 on the review date, from each of light_checks.night_cameras, with the lamps off and on, saved as
+    /// night_{camera}_lamps_off.png and night_{camera}_lamps_on.png with their brightness. Builds without a sun key or
+    /// a lamp switch report that and are not judged.
+    /// </summary>
+    private async Task<Dictionary<string, object>> LightChecks(JsonElement root, string outDir)
+    {
+        var result = new Dictionary<string, object>();
+        var key = _look?.Get("Key").AsGodotObject() as DirectionalLight3D;
+        var setLamps = _look?.GetType().GetMethod("SetLamps");
+        if (_look == null || key == null || setLamps == null || !_look.HasMethod("SetClock"))
+        {
+            result["ran"] = false;
+            result["note"] = "this build has no sun key or lamp switch to check";
+            return result;
+        }
+        var config = LightConfig(root);
+        var clock = root.GetProperty("clock");
+        var reviewHour = clock.GetProperty("hour").GetDouble();
+        var reviewDay = DayOfYear(clock.GetProperty("date").GetString()!);
+        string Field(string name, string fallback) => config.ValueKind == JsonValueKind.Object && config.TryGetProperty(name, out var v) ? v.GetString()! : fallback;
+
+        // The sun through the window.
+        SetClock(reviewHour, reviewDay);
+        Frame(CameraEntry(root, Field("sun_camera", "ceiling_corner")));
+        for (var i = 0; i < 30; i++) await NextFrame();
+        var toSun = key.GlobalBasis.Z.Normalized();
+        var space = _world.GetWorld3D().DirectSpaceState;
+        var visible = GetViewport().GetVisibleRect().Size;
+        var size = _target != null ? _target.Size : new Vector2I((int)visible.X, (int)visible.Y);
+        var bounds = _world.Room.Bounds;
+        var classes = new Dictionary<(int, int), int>();
+        var screens = new Dictionary<(int, int), Vector2>();
+        var nx = (int)(bounds.Size.X / 0.1f);
+        var nz = (int)(bounds.Size.Z / 0.1f);
+        for (var ix = 0; ix < nx; ix++)
+            for (var iz = 0; iz < nz; iz++)
+            {
+                var point = new Vector3(bounds.Position.X + 0.05f + ix * 0.1f, 0.002f, bounds.Position.Z + 0.05f + iz * 0.1f);
+                var hit = space.IntersectRay(PhysicsRayQueryParameters3D.Create(point, point + toSun * 12f));
+                var shell = hit.Count > 0 && hit["collider"].AsGodotObject() is Node node && node.HasMeta("surface_role");
+                classes[(ix, iz)] = hit.Count == 0 ? 1 : shell ? -1 : 0;
+                if (_camera.IsPositionBehind(point)) continue;
+                var screen = _camera.UnprojectPosition(point);
+                if (screen.X < 8 || screen.Y < 8 || screen.X > size.X - 8 || screen.Y > size.Y - 8) continue;
+                var toCamera = (_camera.GlobalPosition - point).Normalized();
+                if (space.IntersectRay(PhysicsRayQueryParameters3D.Create(_camera.GlobalPosition, point + toCamera * 0.01f)).Count > 0) continue;
+                screens[(ix, iz)] = screen;
+            }
+        // Only points well inside the sun patch or well inside the shell's shadow (all eight neighbours alike).
+        bool Interior((int X, int Z) cell, int kind) =>
+            Enumerable.Range(-1, 3).All(dx => Enumerable.Range(-1, 3).All(dz => classes.TryGetValue((cell.X + dx, cell.Z + dz), out var k) && k == kind));
+        var litPoints = screens.Where(s => Interior(s.Key, 1)).Select(s => s.Value).ToArray();
+        var shadePoints = screens.Where(s => Interior(s.Key, -1)).Select(s => s.Value).ToArray();
+        key.Visible = true;
+        for (var i = 0; i < 40; i++) await NextFrame();
+        var on = Grab();
+        key.Visible = false;
+        for (var i = 0; i < 40; i++) await NextFrame();
+        var off = Grab();
+        key.Visible = true;
+        double Patch(Image image, Vector2 at)
+        {
+            double sum = 0;
+            for (var y = -2; y <= 2; y++)
+                for (var x = -2; x <= 2; x++)
+                    sum += Luma(image.GetPixel((int)at.X + x, (int)at.Y + y));
+            return sum / 25.0;
+        }
+        double Median(IEnumerable<double> values)
+        {
+            var sorted = values.OrderBy(v => v).ToArray();
+            return sorted.Length == 0 ? 0.0 : sorted[sorted.Length / 2];
+        }
+        var litGain = Median(litPoints.Select(s => Patch(on, s) - Patch(off, s)));
+        var shadeGain = Median(shadePoints.Select(s => Patch(on, s) - Patch(off, s)));
+        var sun = new Dictionary<string, object>
+        {
+            ["camera"] = Field("sun_camera", "ceiling_corner"),
+            ["sun_elevation_deg"] = Round(Mathf.RadToDeg(Mathf.Asin(toSun.Y))),
+            ["lit_points"] = litPoints.Length,
+            ["shaded_points"] = shadePoints.Length,
+            ["lit_gain"] = Round(litGain),
+            ["shaded_gain"] = Round(shadeGain),
+        };
+        // The sun must land in its patch and the shell must hold it back elsewhere (what remains there is its bounce).
+        sun["passed"] = litPoints.Length >= 5 && shadePoints.Length >= 20 && litGain > 0.06 && shadeGain < 0.3 * litGain;
+        result["sun_through_window"] = sun;
+
+        // The night, lamps off and on.
+        var nights = new List<Dictionary<string, object>>();
+        var cameras = config.ValueKind == JsonValueKind.Object && config.TryGetProperty("night_cameras", out var list)
+            ? list.EnumerateArray().Select(e => e.GetString()!).ToArray() : new[] { "ceiling_corner" };
+        var nightHour = config.ValueKind == JsonValueKind.Object && config.TryGetProperty("night_hour", out var h) ? h.GetDouble() : 2.0;
+        SetClock(nightHour, reviewDay);
+        foreach (var cameraId in cameras)
+        {
+            Frame(CameraEntry(root, cameraId));
+            foreach (var lampsOn in new[] { false, true })
+            {
+                setLamps.Invoke(_look, new object?[] { lampsOn });
+                for (var i = 0; i < 40; i++) await NextFrame();
+                var image = Grab();
+                var file = $"night_{cameraId}_lamps_{(lampsOn ? "on" : "off")}.png";
+                image.SavePng(System.IO.Path.Combine(outDir, file));
+                var lumas = new List<double>();
+                for (var y = 0; y < image.GetHeight(); y += 6)
+                    for (var x = 0; x < image.GetWidth(); x += 6)
+                        lumas.Add(Luma(image.GetPixel(x, y)));
+                lumas.Sort();
+                nights.Add(new Dictionary<string, object>
+                {
+                    ["camera"] = cameraId, ["lamps"] = lampsOn ? "on" : "off", ["file"] = file,
+                    ["mean_luma"] = Round(lumas.Average()), ["p05_luma"] = Round(lumas[lumas.Count / 20]), ["p50_luma"] = Round(lumas[lumas.Count / 2]),
+                    ["p95_luma"] = Round(lumas[lumas.Count * 19 / 20]),
+                });
+            }
+        }
+        setLamps.Invoke(_look, new object?[] { null });
+        result["night"] = nights;
+
+        // Contact shadows under each real source: the contact cameras at moments the config names (the sun on the
+        // avatars on a summer evening, the lamp at night), each saved whole and as close crops of the avatars' feet.
+        var moments = new List<Dictionary<string, object>>();
+        if (config.ValueKind == JsonValueKind.Object && config.TryGetProperty("contact_moments", out var momentList))
+            foreach (var moment in momentList.EnumerateArray())
+            {
+                var label = moment.GetProperty("label").GetString()!;
+                SetClock(moment.GetProperty("hour").GetDouble(), DayOfYear(moment.GetProperty("date").GetString()!));
+                setLamps.Invoke(_look, new object?[] { moment.TryGetProperty("lamps", out var lamps) ? lamps.GetString() == "on" : null });
+                foreach (var cameraId in ContactCameras(root))
+                {
+                    Frame(CameraEntry(root, cameraId));
+                    for (var i = 0; i < 40; i++) await NextFrame();
+                    var image = Grab();
+                    var file = $"{label}_{cameraId}.png";
+                    image.SavePng(System.IO.Path.Combine(outDir, file));
+                    moments.Add(new Dictionary<string, object> { ["label"] = label, ["camera"] = cameraId, ["file"] = file, ["contact_crops"] = SaveContactCrops(image, $"{label}_{cameraId}", outDir) });
+                }
+            }
+        setLamps.Invoke(_look, new object?[] { null });
+        result["contact_moments"] = moments;
+        // Lamps off at night: dark, but shapes must still read (some of the frame is clearly above black).
+        var offFrames = nights.Where(n => (string)n["lamps"] == "off").ToArray();
+        result["night_passed"] = offFrames.All(n => (double)n["p95_luma"] > 0.08) && nights.Where(n => (string)n["lamps"] == "on")
+            .All(on => (double)on["mean_luma"] > (double)offFrames.First(off => (string)off["camera"] == (string)on["camera"])["mean_luma"]);
+        SetClock(reviewHour, reviewDay);
+        result["ran"] = true;
+        return result;
+    }
 
     private static double Spread(List<double> values)
     {
@@ -390,6 +598,10 @@ public partial class LookCaptureHarness : Node
         if (_look != null && _look.HasMethod("SelfCheck")) problems.AddRange(_look.Call("SelfCheck").AsStringArray());
         if (_postCheck != null && _postCheck.TryGetValue("passed", out var passed) && passed is false)
             problems.Add($"the grain and vignette effect did not show in the pixels (corner darkening {_postCheck["corner_to_centre_darkening"]}, grain correlation {_postCheck["grain_correlation"]} against a noise scale of {_postCheck["noise_correlation_scale"]})");
+        if (_lightChecks != null && _lightChecks.TryGetValue("sun_through_window", out var sunCheck) && sunCheck is Dictionary<string, object> sun && sun["passed"] is false)
+            problems.Add($"the sun did not land only through the window in the pixels (lit gain {sun["lit_gain"]} over {sun["lit_points"]} points, shaded gain {sun["shaded_gain"]} over {sun["shaded_points"]})");
+        if (_lightChecks != null && _lightChecks.TryGetValue("night_passed", out var night) && night is false)
+            problems.Add("at night with the lamps off the frame was black (no shapes), or the lamps did not brighten it");
         return problems;
     }
 
@@ -423,6 +635,8 @@ public partial class LookCaptureHarness : Node
         if (_look != null && _look.HasMethod("DescribeLook")) report["look"] = _look.Call("DescribeLook").AsString();
         report["look_problems"] = problems;
         if (_postCheck != null) report["post_effect_check"] = _postCheck;
+        if (_lightChecks != null) report["light_checks"] = _lightChecks;
+        if (Arg("style", "").Length > 0) report["style_override"] = Arg("style", "");
         if (_look != null && _look.HasMethod("SelfCheck")) report["player_notice"] = _look.Get("PlayerNotice").AsString();
         var json = JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true });
         System.IO.File.WriteAllBytes(System.IO.Path.Combine(outDir, "timings.json"), new UTF8Encoding(false).GetBytes(json.Replace("\r\n", "\n") + "\n"));

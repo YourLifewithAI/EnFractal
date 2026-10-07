@@ -7,34 +7,39 @@ using System.Runtime.CompilerServices;
 namespace EnFractal.Native.Look;
 
 /// <summary>
-/// The light and grade a preset calls for at one hour on one day of the year. KeyHour is the hour on the time
-/// keys' reference day that this hour maps to once the season has lengthened or shortened the day.
+/// The light and grade a preset calls for at one hour on one day of the year. KeyHour is the hour on the time keys'
+/// reference day this moment maps to. SunElevationDeg and SunBearingDeg are where the real sun is (bearing clockwise
+/// from north), up or not. The key's own direction (KeyElevationDeg, and KeyAzimuthDeg as Godot's yaw in the room)
+/// is the sun's while the sun is up, the moon's at night, and a cross-fade in twilight (MoonWeight).
 /// </summary>
 public sealed record LookMoment(
     float Hour, int DayOfYear, string Season, Color KeyColor, float KeyEnergy, Color AmbientColor, float AmbientEnergy,
     float KeyElevationDeg, float KeyAzimuthDeg, float Daylight, float MoonWeight, float SeasonSaturation, float SeasonWarmth, Color SeasonTint,
-    float KeyHour);
+    float KeyHour, float SunElevationDeg, float SunBearingDeg);
 
 /// <summary>
 /// Time of day and season for a preset. Pure functions, so the review harness can pin a moment and tests can
-/// check the interpolation without a renderer.
+/// check them without a renderer.
 ///
-/// Energy and colour come from the preset's time-of-day keys. Daylight is the key energy over the brightest
-/// key. The key's direction follows from daylight, so light and direction can never disagree: the sun rises
-/// and sets where daylight crosses x_look_sun.moon_daylight, sits at the preset's elevation and azimuth at the
-/// default hour, and turns degrees_per_hour; the moon is a fixed direction; and the direction cross-fades
-/// from sun to moon only while daylight is between moon_daylight and sun_daylight, when the light is dim.
+/// The sun follows a solar model (x_look_sun): its elevation and bearing come from the latitude, the date and the
+/// local standard clock hour, so the day is as long as it really is on every date (at 30 degrees north about 10.2 h
+/// at the December solstice, 12.1 h at the equinoxes and 14.1 h at the June solstice). Colour and brightness come
+/// from the preset's time keys, which describe one reference day: the real sunrise and sunset are mapped onto the
+/// keys' sunrise and sunset (where their daylight crosses reference_daylight), linearly through the day and through
+/// the night, so the keys' golden hour always falls just before the real sunset. Daylight is the key energy over the
+/// brightest key.
 ///
-/// The keys describe one reference day. When x_look_seasons.day_length_h is set, the season stretches or
-/// shrinks that day around its noon (short winter days, long summer ones) and the night takes the rest, so the
-/// real clock at 18:00 is dusk in winter and golden light in summer.
+/// In "sun" key mode the key is the sun while the sun is above the horizon, the moon once the sun is below
+/// twilight_elevation_deg, and turns from one to the other only in that twilight, while the light is dim.
 /// </summary>
 public static class LookClock
 {
     private const int SampleSteps = 24 * 60;
+    private const double DegToRad = Math.PI / 180.0;
     private static readonly ConditionalWeakTable<StylePreset, Tuple<float, float>> LimitsCache = new();
 
-    public static LookMoment At(StylePreset preset, float hour, int dayOfYear)
+    /// <summary>The look at an hour (local standard time) on a day of the year. moonYawDeg places the moon (Godot yaw in the room); null takes the preset's moon bearing.</summary>
+    public static LookMoment At(StylePreset preset, float hour, int dayOfYear, float? moonYawDeg = null)
     {
         hour = Mathf.PosMod(hour, 24f);
         var sun = preset.Tuning.Sun;
@@ -44,49 +49,113 @@ public static class LookClock
             : new TimeKey(hour, preset.KeyColor, preset.KeyEnergy, preset.AmbientColor, preset.AmbientEnergy);
         var maxEnergy = MaxEnergy(preset);
         var daylight = preset.TimeOfDayEnabled && maxEnergy > 0 ? Mathf.Clamp(key.KeyEnergy / maxEnergy, 0f, 1f) : 1f;
+        var (sunElevation, sunBearing) = SolarPosition(sun, dayOfYear, hour);
         float elevation = preset.KeyElevationDeg, azimuth = preset.KeyAzimuthDeg, moonWeight = 0f;
-        if (preset.TimeOfDayEnabled && preset.KeyMode == "diorama" && preset.TimeKeys.Count > 1)
+        if (preset.KeyMode == "sun")
         {
-            var (sunrise, sunset) = DayLimits(preset);
-            var sunDirection = SunDirection(keyHour, sunrise, sunset, preset.DefaultHour, preset.KeyElevationDeg, preset.KeyAzimuthDeg, sun);
-            moonWeight = 1f - Mathf.SmoothStep(sun.MoonDaylight, sun.SunDaylight, daylight);
-            var moon = Direction(sun.MoonElevationDeg, preset.KeyAzimuthDeg + sun.MoonAzimuthOffsetDeg);
-            (elevation, azimuth) = Angles(Slerp(Direction(sunDirection.Elevation, sunDirection.Azimuth), moon, moonWeight));
+            moonWeight = 1f - Mathf.SmoothStep(sun.TwilightElevationDeg, 0f, sunElevation);
+            var sunDirection = Direction(Mathf.Max(sunElevation, sun.HorizonElevationDeg), Yaw(sun, sunBearing));
+            var moon = Direction(sun.MoonElevationDeg, moonYawDeg ?? Yaw(sun, sun.MoonBearingDeg));
+            (elevation, azimuth) = Angles(Slerp(sunDirection, moon, moonWeight));
         }
         var (season, saturation, warmth, tint) = preset.SeasonsEnabled
             ? Grade(preset, dayOfYear)
             : ("none", 1f, 0f, new Color(0.5f, 0.5f, 0.5f));
         // The preset's key energy is the reference; time-of-day keys scale it relative to the brightest key.
         var keyEnergy = preset.TimeOfDayEnabled && maxEnergy > 0 ? preset.KeyEnergy * key.KeyEnergy / maxEnergy : preset.KeyEnergy;
-        // The season colours the sunlight as well as the grade: paler in winter, golden in summer.
+        // The season colours the sunlight: paler in winter, golden in summer. The grade itself stays nearly neutral.
         var keyColor = preset.SeasonsEnabled ? key.KeyColor * SeasonLight(tint, preset.Tuning.Seasons.LightStrength) : key.KeyColor;
         return new LookMoment(hour, dayOfYear, season, keyColor, keyEnergy, key.AmbientColor, key.AmbientEnergy,
-            elevation, azimuth, daylight, moonWeight, saturation, warmth, tint, keyHour);
+            elevation, azimuth, daylight, moonWeight, saturation, warmth, tint, keyHour, sunElevation, sunBearing);
     }
 
+    // ---------- the solar model ----------
+
     /// <summary>
-    /// The hour on the keys' reference day that a real hour maps to. The reference day runs from the keys'
-    /// sunrise to their sunset around its noon; the season's day length (x_look_seasons.day_length_h, blended like
-    /// the season grades) keeps that noon and maps its own sunrise and sunset onto the reference ones, linearly
-    /// through the day and through the night. Continuous and increasing; the identity without day lengths.
+    /// The sun's declination (radians) and the equation of time (minutes) on a day of the year at a clock hour:
+    /// NOAA's Fourier series (Spencer 1971), good to about a minute of time and a few hundredths of a degree.
+    /// </summary>
+    public static (double Declination, double EquationOfTimeMin) SolarTerms(int dayOfYear, double hour)
+    {
+        var g = 2.0 * Math.PI / 365.0 * (dayOfYear - 1 + (hour - 12.0) / 24.0);
+        var equation = 229.18 * (0.000075 + 0.001868 * Math.Cos(g) - 0.032077 * Math.Sin(g) - 0.014615 * Math.Cos(2 * g) - 0.040849 * Math.Sin(2 * g));
+        var declination = 0.006918 - 0.399912 * Math.Cos(g) + 0.070257 * Math.Sin(g) - 0.006758 * Math.Cos(2 * g) + 0.000907 * Math.Sin(2 * g)
+            - 0.002697 * Math.Cos(3 * g) + 0.00148 * Math.Sin(3 * g);
+        return (declination, equation);
+    }
+
+    public static (float ElevationDeg, float BearingDeg) SolarPosition(SunTuning sun, int dayOfYear, float hour) =>
+        SolarPosition(sun.LatitudeDeg, sun.SolarNoonH, dayOfYear, hour);
+
+    /// <summary>
+    /// Where the sun is, seen from a latitude at a local standard clock hour: its elevation above the horizon and its
+    /// compass bearing (clockwise from north: 90 east, 180 south, 270 west). Mean solar noon falls at solarNoonH on
+    /// the clock; the equation of time moves true noon by up to a quarter of an hour through the year.
+    /// </summary>
+    public static (float ElevationDeg, float BearingDeg) SolarPosition(float latitudeDeg, float solarNoonH, int dayOfYear, float hour)
+    {
+        var (declination, equation) = SolarTerms(dayOfYear, hour);
+        var solarTime = hour - (solarNoonH - 12.0) + equation / 60.0;
+        var hourAngle = (solarTime - 12.0) * 15.0 * DegToRad;
+        var latitude = latitudeDeg * DegToRad;
+        // The direction to the sun in east, north and up components.
+        var east = -Math.Cos(declination) * Math.Sin(hourAngle);
+        var north = Math.Sin(declination) * Math.Cos(latitude) - Math.Cos(declination) * Math.Cos(hourAngle) * Math.Sin(latitude);
+        var up = Math.Sin(declination) * Math.Sin(latitude) + Math.Cos(declination) * Math.Cos(hourAngle) * Math.Cos(latitude);
+        var elevation = Math.Asin(Math.Clamp(up, -1.0, 1.0)) / DegToRad;
+        var bearing = Math.Atan2(east, north) / DegToRad;
+        return ((float)elevation, (float)((bearing % 360.0 + 360.0) % 360.0));
+    }
+
+    public static (float Sunrise, float Sunset) SunTimes(SunTuning sun, int dayOfYear) =>
+        SunTimes(sun.LatitudeDeg, sun.SolarNoonH, sun.SunriseElevationDeg, dayOfYear);
+
+    /// <summary>
+    /// Sunrise and sunset on the clock (local standard time): when the sun's centre crosses sunriseElevationDeg. In a
+    /// polar day the sun never sets (sunrise is 12 h before true noon, sunset 12 h after); in a polar night it never rises.
+    /// </summary>
+    public static (float Sunrise, float Sunset) SunTimes(float latitudeDeg, float solarNoonH, float sunriseElevationDeg, int dayOfYear)
+    {
+        var (declination, equation) = SolarTerms(dayOfYear, 12.0);
+        var latitude = latitudeDeg * DegToRad;
+        var cosHalfDay = (Math.Sin(sunriseElevationDeg * DegToRad) - Math.Sin(latitude) * Math.Sin(declination)) / (Math.Cos(latitude) * Math.Cos(declination));
+        var halfDayH = cosHalfDay <= -1.0 ? 12.0 : cosHalfDay >= 1.0 ? 0.0 : Math.Acos(cosHalfDay) / DegToRad / 15.0;
+        var noon = solarNoonH - equation / 60.0;
+        return ((float)(noon - halfDayH), (float)(noon + halfDayH));
+    }
+
+    /// <summary>Hours from sunrise to sunset on a day of the year, from the solar model.</summary>
+    public static float DayLength(StylePreset preset, int dayOfYear)
+    {
+        var (rise, set) = SunTimes(preset.Tuning.Sun, dayOfYear);
+        return set - rise;
+    }
+
+    /// <summary>Godot's yaw for a compass bearing in a room whose -Z axis faces negZBearingDeg (yaw 0 is light from +Z, yaw -90 from -X).</summary>
+    public static float Yaw(SunTuning sun, float bearingDeg) => WrapDegrees(180f - (bearingDeg - sun.NegZBearingDeg));
+
+    /// <summary>
+    /// The hour on the keys' reference day that a real hour maps to: the real sunrise onto the keys' sunrise, the real
+    /// sunset onto the keys' sunset, linearly through the day and through the night. Continuous and increasing. In
+    /// "fixed" key mode (no sun) the keys are read by the clock directly.
     /// </summary>
     public static float KeyHour(StylePreset preset, float hour, int dayOfYear)
     {
         hour = Mathf.PosMod(hour, 24f);
-        if (!preset.TimeOfDayEnabled || !preset.SeasonsEnabled || preset.TimeKeys.Count < 2 || preset.Tuning.Seasons.DayLengthH.Count != 4) return hour;
+        if (!preset.TimeOfDayEnabled || preset.KeyMode != "sun" || preset.TimeKeys.Count < 2) return hour;
         var (rise, set) = DayLimits(preset);
         var reference = set - rise;
-        var length = Mathf.Clamp(DayLength(preset, dayOfYear), 1f, 23f);
-        var realRise = (rise + set) * 0.5f - length * 0.5f;
-        var sinceRise = Mathf.PosMod(hour - realRise, 24f);
+        var (realRise, realSet) = SunTimes(preset.Tuning.Sun, dayOfYear);
+        var length = Mathf.Clamp(realSet - realRise, 1f, 23f);
+        var start = (realRise + realSet) * 0.5f - length * 0.5f;
+        var sinceRise = Mathf.PosMod(hour - start, 24f);
         if (sinceRise <= length) return Mathf.PosMod(rise + sinceRise * reference / length, 24f);
         return Mathf.PosMod(set + (sinceRise - length) * (24f - reference) / (24f - length), 24f);
     }
 
     /// <summary>
     /// How much of the night look applies at a daylight level: none at or above x_look_grade.night_none_above (the
-    /// golden hour stays warm), all of it at or below night_full_below, linear between. The colour grade's night and
-    /// the lamps' night glow both follow it. The defaults (0 and 1) give 1 - daylight.
+    /// golden hour stays warm), all of it at or below night_full_below, linear between.
     /// </summary>
     public static float NightAmount(StylePreset preset, float daylight)
     {
@@ -94,37 +163,19 @@ public static class LookClock
         return Mathf.Clamp((g.NightNoneAbove - daylight) / (g.NightNoneAbove - g.NightFullBelow), 0f, 1f);
     }
 
-    /// <summary>Hours from sunrise to sunset on a day of the year: the season day lengths blended like the season grades.</summary>
-    public static float DayLength(StylePreset preset, int dayOfYear)
-    {
-        var seasons = preset.Tuning.Seasons;
-        if (seasons.DayLengthH.Count != 4)
-        {
-            var (rise, set) = DayLimits(preset);
-            return set - rise;
-        }
-        var (from, to, t) = Blend(dayOfYear, preset.Hemisphere, seasons);
-        var s = Mathf.SmoothStep(seasons.Hold, 1f - seasons.Hold, t);
-        return Mathf.Lerp(seasons.DayLengthH[Array.IndexOf(SeasonNames, from)], seasons.DayLengthH[Array.IndexOf(SeasonNames, to)], s);
-    }
+    // ---------- the clock ----------
 
     /// <summary>
     /// A deterministic clock for reviews and playtests: --look-clock=HH:MM and --look-date=YYYY-MM-DD after "--" on
     /// the command line, or the ENFRACTAL_LOOK_CLOCK and ENFRACTAL_LOOK_DATE environment variables. Either may be
-    /// given alone; the other then follows the preset (the real clock or calendar). Returns null when neither is
-    /// set, and an error message for a value it cannot read (the look then warns and follows the preset).
+    /// given alone; the other then follows the preset (the real clock or calendar). A pinned clock is local standard
+    /// time, so a pin means the same sun on every machine. Returns null when neither is set, and an error message for
+    /// a value it cannot read (the look then warns and follows the preset).
     /// </summary>
     public static (float? Hour, int? DayOfYear, string Error) ClockOverride(IReadOnlyList<string> userArgs, Func<string, string?> environment)
     {
-        string? Find(string flag, string variable)
-        {
-            foreach (var argument in userArgs)
-                if (argument.StartsWith("--" + flag + "=", StringComparison.Ordinal)) return argument[(flag.Length + 3)..];
-            var value = environment(variable);
-            return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
-        }
-        var clock = Find("look-clock", "ENFRACTAL_LOOK_CLOCK");
-        var date = Find("look-date", "ENFRACTAL_LOOK_DATE");
+        var clock = Find(userArgs, environment, "look-clock", "ENFRACTAL_LOOK_CLOCK");
+        var date = Find(userArgs, environment, "look-date", "ENFRACTAL_LOOK_DATE");
         float? hour = null;
         int? day = null;
         var errors = new List<string>();
@@ -141,6 +192,47 @@ public static class LookClock
         }
         return (hour, day, string.Join("; ", errors));
     }
+
+    /// <summary>
+    /// Room lamps pinned on or off for reviews and playtests: --look-lamps=on|off|auto after "--", or ENFRACTAL_LOOK_LAMPS.
+    /// Null (with no error) means the lamps switch themselves; an unreadable value is reported and ignored.
+    /// </summary>
+    public static (bool? LampsOn, string Error) LampsOverride(IReadOnlyList<string> userArgs, Func<string, string?> environment)
+    {
+        var value = Find(userArgs, environment, "look-lamps", "ENFRACTAL_LOOK_LAMPS");
+        return value?.ToLowerInvariant() switch
+        {
+            null or "auto" => (null, ""),
+            "on" => (true, ""),
+            "off" => (false, ""),
+            _ => (null, $"look lamps '{value}' is not on, off or auto"),
+        };
+    }
+
+    private static string? Find(IReadOnlyList<string> userArgs, Func<string, string?> environment, string flag, string variable)
+    {
+        foreach (var argument in userArgs)
+            if (argument.StartsWith("--" + flag + "=", StringComparison.Ordinal)) return argument[(flag.Length + 3)..];
+        var value = environment(variable);
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
+    /// <summary>The real clock now, read as the preset asks: local standard time when it removes daylight saving.</summary>
+    public static (float Hour, int DayOfYear) Now(StylePreset preset) => StandardClock(DateTime.Now, TimeZoneInfo.Local, preset.Tuning.Sun.RealClockDaylightSaving);
+
+    /// <summary>
+    /// A local clock reading as the solar model wants it: with removeDaylightSaving, an hour (the zone's saving) earlier
+    /// while the zone is in daylight saving, so the sun stays on standard time; otherwise as it reads.
+    /// </summary>
+    public static (float Hour, int DayOfYear) StandardClock(DateTime local, TimeZoneInfo zone, bool removeDaylightSaving)
+    {
+        var reading = DateTime.SpecifyKind(local, DateTimeKind.Unspecified);
+        if (removeDaylightSaving && zone.IsDaylightSavingTime(reading))
+            reading -= zone.GetUtcOffset(reading) - zone.BaseUtcOffset;
+        return ((float)reading.TimeOfDay.TotalHours, reading.DayOfYear);
+    }
+
+    // ---------- the time keys ----------
 
     private static float MaxEnergy(StylePreset preset)
     {
@@ -176,8 +268,8 @@ public static class LookClock
     }
 
     /// <summary>
-    /// Sunrise and sunset: where daylight from the time keys rises through and falls back through
-    /// moon_daylight, found by sampling each minute. Without a clear day (keys never cross), 06:00 to 18:00.
+    /// The keys' own sunrise and sunset: where their daylight rises through and falls back through
+    /// x_look_sun.reference_daylight, found by sampling each minute. Without a clear day (keys never cross), 06:00 to 18:00.
     /// </summary>
     public static (float Sunrise, float Sunset) DayLimits(StylePreset preset)
     {
@@ -188,7 +280,7 @@ public static class LookClock
     private static (float Sunrise, float Sunset) ComputeDayLimits(StylePreset preset)
     {
         var max = MaxEnergy(preset);
-        var threshold = preset.Tuning.Sun.MoonDaylight;
+        var threshold = preset.Tuning.Sun.ReferenceDaylight;
         if (max <= 0f) return (6f, 18f);
         float? rise = null, set = null;
         var previous = Sample(preset.TimeKeys, 0f).KeyEnergy / max;
@@ -203,32 +295,15 @@ public static class LookClock
         return rise is { } r && set is { } s && s > r ? (r, s) : (6f, 18f);
     }
 
-    /// <summary>
-    /// The sun on its day arc: at the default hour exactly the preset's elevation and azimuth, rising from the
-    /// horizon at sunrise and setting at sunset, never above max_elevation_deg (or the preset's elevation if
-    /// higher), turning degrees_per_hour. Below the horizon it stays at horizon_elevation_deg.
-    /// </summary>
-    public static (float Elevation, float Azimuth) SunDirection(float hour, float sunrise, float sunset, float defaultHour, float elevation, float azimuth, SunTuning sun)
-    {
-        var length = sunset - sunrise;
-        var arc = Mathf.Sin(Mathf.Pi * Mathf.Clamp((hour - sunrise) / length, 0f, 1f));
-        var reference = Mathf.Sin(Mathf.Pi * Mathf.Clamp((defaultHour - sunrise) / length, 0f, 1f));
-        var raised = reference > 0.05f ? elevation * arc / reference : elevation * arc;
-        var ceiling = Mathf.Max(sun.MaxElevationDeg, elevation);
-        var hourOffset = hour - defaultHour;
-        if (hourOffset > 12f) hourOffset -= 24f;
-        if (hourOffset < -12f) hourOffset += 24f;
-        return (Mathf.Clamp(raised, sun.HorizonElevationDeg, ceiling), WrapDegrees(azimuth + hourOffset * sun.DegreesPerHour));
-    }
-
-    /// <summary>Unit vector the light comes from, for an elevation and azimuth in degrees (Godot: -Z forward, +Y up).</summary>
+    /// <summary>Unit vector the light comes from, for an elevation and a Godot yaw in degrees (-Z forward, +Y up).</summary>
     public static Vector3 Direction(float elevationDeg, float azimuthDeg)
     {
         var basis = Basis.FromEuler(new Vector3(Mathf.DegToRad(-elevationDeg), Mathf.DegToRad(azimuthDeg), 0f));
         return basis.Z.Normalized();
     }
 
-    private static (float Elevation, float Azimuth) Angles(Vector3 from)
+    /// <summary>Elevation and Godot yaw of a direction the light comes from.</summary>
+    public static (float Elevation, float Azimuth) Angles(Vector3 from)
     {
         var elevation = Mathf.RadToDeg(Mathf.Asin(Mathf.Clamp(from.Y, -1f, 1f)));
         var azimuth = Mathf.RadToDeg(Mathf.Atan2(from.X, from.Z));
@@ -247,6 +322,8 @@ public static class LookClock
     }
 
     private static float WrapDegrees(float degrees) => Mathf.PosMod(degrees + 180f, 360f) - 180f;
+
+    // ---------- seasons ----------
 
     /// <summary>The season whose mid-point is nearest the day, with the default season centres.</summary>
     public static string SeasonAt(int dayOfYear, string hemisphere) => SeasonAt(dayOfYear, hemisphere, LookTuning.Default.Seasons);
@@ -294,13 +371,5 @@ public static class LookClock
         var luma = Mathf.Max(ColorGrade.Luma(seasonTint), 1e-3f);
         var normalized = new Color(seasonTint.R / luma, seasonTint.G / luma, seasonTint.B / luma);
         return new Color(1f, 1f, 1f).Lerp(normalized, strength);
-    }
-
-    public static int TodayDayOfYear() => DateTime.Now.DayOfYear;
-
-    public static float NowHour()
-    {
-        var now = DateTime.Now;
-        return now.Hour + now.Minute / 60f;
     }
 }

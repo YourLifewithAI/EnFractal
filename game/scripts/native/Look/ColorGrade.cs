@@ -11,15 +11,15 @@ public sealed record GradeParams(
     /// <summary>A grade that changes nothing: grey tints carry no colour.</summary>
     public static GradeParams Identity { get; } = new(1f, 1f, 0f, new Color(0.5f, 0.5f, 0.5f), new Color(0.5f, 0.5f, 0.5f), new Color(0.5f, 0.5f, 0.5f), 0f, LookTuning.Default.Grade);
 
-    /// <summary>The palette grade for a preset at a moment: palette times season, plus night.</summary>
-    public static GradeParams For(StylePreset preset, LookMoment moment) => new(
+    /// <summary>The palette grade for a preset at a moment: palette times season, plus night (less of it while the lamps are on).</summary>
+    public static GradeParams For(StylePreset preset, LookMoment moment, bool lampsOn = false) => new(
         preset.Saturation * moment.SeasonSaturation,
         preset.Contrast,
         Mathf.Clamp(preset.Warmth + moment.SeasonWarmth, -1f, 1f),
         preset.PaletteShadowTint,
         preset.HighlightTint,
         moment.SeasonTint,
-        LookClock.NightAmount(preset, moment.Daylight),
+        LookClock.NightAmount(preset, moment.Daylight) * (lampsOn ? preset.Tuning.Grade.NightWithLamps : 1f),
         preset.Tuning.Grade);
 
     /// <summary>

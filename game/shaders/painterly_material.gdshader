@@ -39,8 +39,6 @@ group_uniforms light;
 uniform float wrap_light : hint_range(0.0, 1.0) = 0.25;
 uniform float terminator_warmth : hint_range(0.0, 1.0) = 0.25;
 uniform float sheen : hint_range(0.0, 1.0) = 0.0;
-uniform vec3 shadow_tint : source_color = vec3(0.29, 0.25, 0.38);
-uniform float shadow_fill : hint_range(0.0, 1.0) = 0.25;
 
 group_uniforms texture;
 uniform sampler2D paint_texture : source_color, filter_linear_mipmap_anisotropic, repeat_enable, hint_default_white;
@@ -349,16 +347,14 @@ void light() {
 	vec3 radiance = LIGHT_COLOR * ATTENUATION / PI;
 	// Wrapped diffuse: a softer terminator than Lambert.
 	float wrapped = clamp((ndl + wrap_light) / (1.0 + wrap_light), 0.0, 1.0);
-	// A narrow warm band where light turns into shade, as a painter would mix it.
-	float band = exp(-pow((ndl - 0.05) / 0.22, 2.0)) * terminator_warmth;
+	// A narrow warm band where warm light (sun, lamp) turns into shade, as a painter would mix it. Cool light (the
+	// sky through a window, the moon) gets none, so shade stays cool. Light in a cast shadow adds nothing: light
+	// comes only from real sources, and what a shaded patch sees is the window's fill and the bounce (VoxelGI).
+	float light_warmth = clamp((LIGHT_COLOR.r - LIGHT_COLOR.b) / max(max(LIGHT_COLOR.r, LIGHT_COLOR.b), 1e-4), 0.0, 1.0);
+	float band = exp(-pow((ndl - 0.05) / 0.22, 2.0)) * terminator_warmth * light_warmth;
 	vec3 diffuse = radiance * (wrapped + band * vec3(0.30, 0.12, 0.02));
 	float ndv = clamp(dot(NORMAL, VIEW), 0.0, 1.0);
 	diffuse += radiance * sheen * pow(1.0 - ndv, 4.0) * clamp(ndl + 0.3, 0.0, 1.0) * 0.8;
-	// What a patch in the key light's cast shadow still sees: cool fill, not black.
-	if (LIGHT_IS_DIRECTIONAL) {
-		float occluded = (1.0 - ATTENUATION) * clamp(ndl * 2.0 + 0.4, 0.0, 1.0);
-		diffuse += shadow_tint * (LIGHT_COLOR / PI) * occluded * shadow_fill;
-	}
 	DIFFUSE_LIGHT += diffuse;
 	// Soft GGX highlight, kept small: painted surfaces, not lacquer.
 	float ndl_c = clamp(ndl, 0.0, 1.0);

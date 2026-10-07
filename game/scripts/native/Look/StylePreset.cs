@@ -119,7 +119,11 @@ public sealed class StylePreset
     public string ReferenceGpu { get; private init; } = "";
 
     // experimental extensions (x_look_*), with defaults
-    /// <summary>"diorama": the key light shines into the room as if the ceiling were lifted off (shell parts cast no key shadows) and follows the hour. "fixed": an ordinary directional light.</summary>
+    /// <summary>
+    /// "sun": the key is the real sun on the solar model's path (and the moon at night), and the room's shell casts its
+    /// shadows, so direct light comes in only through openings; a room without a sun light hint gets none.
+    /// "fixed": an ordinary directional light at the preset's elevation and azimuth.
+    /// </summary>
     public string KeyMode { get; private init; } = "fixed";
     public bool SsilEnabled { get; private init; }
     public float SsilIntensity { get; private init; } = 1f;
@@ -212,7 +216,8 @@ public sealed class StylePreset
                 if (name.StartsWith("x_look_", StringComparison.Ordinal) && !KnownLookExtensions.Contains(name))
                     throw new InvalidOperationException($"unknown look extension '{name}'");
         var keyMode = extensions.ValueKind == JsonValueKind.Object && extensions.TryGetProperty("x_look_key_mode", out var mode) ? mode.GetString()! : "fixed";
-        if (keyMode is not ("fixed" or "diorama")) throw new InvalidOperationException($"x_look_key_mode '{keyMode}' is not fixed or diorama");
+        if (keyMode is not ("fixed" or "sun"))
+            throw new InvalidOperationException($"x_look_key_mode '{keyMode}' is not fixed or sun" + (keyMode == "diorama" ? " (the diorama key was removed: light comes only from real sources)" : ""));
         var tuning = LookTuning.Parse(extensions);
         var defaulted = tuning.Defaulted.ToList();
         foreach (var name in new[] { "x_look_key_mode", "x_look_glaze_amount" })

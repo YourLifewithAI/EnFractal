@@ -13,20 +13,21 @@ namespace EnFractal.Native.Look;
 public readonly record struct DepthOfField(bool FarEnabled, float FarDistance, float FarTransition, bool NearEnabled, float NearDistance, float NearTransition, float Amount);
 
 /// <summary>
-/// Applies a style preset to a room (Track L, L2): environment and tone mapping, a warm key against a cool
-/// ambient, the room's captured lights, VoxelGI baked to the room bounds, soft shadows, SSAO, restrained
-/// glow, depth of field that keeps the player's reach crisp, and a colour grade driven by the preset's
-/// palette, the hour and the season. Visual only: it never changes room data, collision or protection.
+/// Applies a style preset to a room (Track L, L2) with light only from real sources: the sun on the solar model's
+/// path (the moon at night), shadowed by the room's shell so it comes in only through the windows; a soft sky fill
+/// through each window in the sky colour of the hour; the room's lamps, which switch on as the light goes; and VoxelGI
+/// baked over the whole shell as a closed interior, so what comes through the window bounces around the room.
+/// Also environment and tone mapping, soft shadows, SSAO, restrained glow, depth of field that keeps the player's
+/// reach crisp, and a colour grade driven by the preset's palette, the hour and the season. Visual only: it never
+/// changes room data, collision or protection.
 ///
 /// It dresses every mesh that enters the tree under its parent (the room, later rebuilds, creations): paint
-/// seeds and box edges for painterly materials, the shell's visual layer and GI modes for room entities, and
-/// a VoxelGI (re)bake whenever new shell geometry arrives. RoomWorld may also call Dress(room) directly.
+/// seeds and box edges for painterly materials, GI modes for room entities, and a VoxelGI (re)bake whenever new
+/// shell geometry arrives. RoomWorld may also call Dress(room) directly.
 /// The renderer is a project setting; when the machine renders with something else, the look says so.
 /// </summary>
 public partial class LookDirector : Node3D
 {
-    /// <summary>Visual layer for the room shell. The diorama key casts no shadows from it.</summary>
-    public const uint ShellVisualLayer = 1u << 1;
     /// <summary>Meta marking a VoxelGI bake stand-in material; none may remain after a bake.</summary>
     public const string BakeStandInMeta = "look_bake_stand_in";
     /// <summary>Meta marking a mesh the look has already dressed.</summary>
@@ -46,7 +47,16 @@ public partial class LookDirector : Node3D
     public bool Dressed { get; private set; }
     public VoxelGI? Gi { get; private set; }
     public Godot.Environment Environment { get; private set; } = null!;
+    /// <summary>The sun by day and the moon by night. Hidden in a room without a sun light hint (no window lets the sun in).</summary>
     public DirectionalLight3D Key { get; private set; } = null!;
+    /// <summary>How strongly the sun reaches this room: the room's sun light hint's relative intensity in "sun" key mode, 0 without one.</summary>
+    public float SunScale { get; private set; } = 1f;
+    /// <summary>The soft sky fill outside each window, aimed in through the opening.</summary>
+    public IReadOnlyList<SpotLight3D> SkyFills => _skyFills;
+    /// <summary>The room's lamps (ceiling lamps, lamps, screens).</summary>
+    public IReadOnlyList<Light3D> Lamps => _lamps;
+    /// <summary>Whether the lamps are on now: pinned by SetLamps or --look-lamps, or switched on by themselves as the light goes.</summary>
+    public bool LampsOn { get; private set; }
     /// <summary>Grain and vignette (Forward+ compositor effect), when the preset asks for them.</summary>
     public LookPostEffect? Post { get; private set; }
     /// <summary>Whether the running renderer supports depth of field; without it no camera attributes are set.</summary>
@@ -86,6 +96,10 @@ public partial class LookDirector : Node3D
     private readonly Dictionary<ulong, CameraAttributesPractical> _attributes = new();
     private readonly HashSet<ulong> _framed = new();
     private readonly List<Light3D> _roomLights = new();
+    private readonly List<SpotLight3D> _skyFills = new();
+    private readonly List<Light3D> _lamps = new();
+    private bool? _lampsPinned;
+    private float? _moonYaw;
     private readonly List<string> _warnings = new();
     private readonly HashSet<string> _warned = new();
     private readonly List<MeshInstance3D> _pending = new();
@@ -122,6 +136,9 @@ public partial class LookDirector : Node3D
         _pinnedHour = hour;
         _pinnedDay = day is { } d ? Math.Clamp(d, 1, 366) : null;
         _clockSource = hour != null || day != null ? "pinned by --look-clock/--look-date or ENFRACTAL_LOOK_CLOCK/ENFRACTAL_LOOK_DATE" : "";
+        var (lampsOn, lampsError) = LookClock.LampsOverride(OS.GetCmdlineUserArgs(), OS.GetEnvironment);
+        if (lampsError.Length > 0) Warn(lampsError + "; the lamps switch themselves instead");
+        _lampsPinned = lampsOn;
         ApplyMoment(synchronous: true);
         _framesSinceApply = 0;
         QueueExisting();
@@ -210,9 +227,12 @@ public partial class LookDirector : Node3D
     private void BuildKey(StylePreset preset, RoomData room)
     {
         var diagonal = room.Bounds.Size.Length();
-        var diorama = preset.KeyMode == "diorama";
         var softness = preset.ShadowSoftness;
         var s = preset.Tuning.Shadows;
+        // Light only from real sources: the sun reaches the room only when the room says it can (a sun light hint),
+        // and then only through the openings, because the shell casts its shadows like everything else.
+        var sunHint = room.LightHints.FirstOrDefault(h => h.Kind == "sun");
+        SunScale = preset.KeyMode == "sun" ? sunHint?.RelativeIntensity ?? 0f : 1f;
         Key = new DirectionalLight3D
         {
             Name = "Key",
@@ -226,54 +246,103 @@ public partial class LookDirector : Node3D
                 _ => DirectionalLight3D.ShadowMode.Parallel2Splits,
             },
             DirectionalShadowMaxDistance = Mathf.Max(s.KeyMinDistanceM, diagonal * s.KeyDistancePerDiagonal),
+            DirectionalShadowSplit1 = s.KeySplit1,
             DirectionalShadowBlendSplits = true,
-            ShadowBias = s.Bias,
-            ShadowNormalBias = s.NormalBias,
+            ShadowBias = s.KeyBias,
+            ShadowNormalBias = s.KeyNormalBias,
             LightBakeMode = Light3D.BakeMode.Dynamic,
+            Visible = SunScale > 0f,
         };
-        // In diorama mode the key lights the room as if the ceiling were lifted off: the shell casts no key
-        // shadows, and walls and ceilings stay out of the VoxelGI bake (see DressMesh), so the bounce follows.
-        if (diorama) Key.ShadowCasterMask = 0xFFFFFu & ~ShellVisualLayer;
         AddChild(Key);
+        // The moon stands outside the room's brightest window, so moonlight falls in through it.
+        var window = room.LightHints
+            .Where(h => h.Kind == "window" && h.Direction is { } d && new Vector2(d.X, d.Z).LengthSquared() > 1e-6f)
+            .OrderByDescending(h => h.RelativeIntensity).FirstOrDefault();
+        _moonYaw = window?.Direction is { } inward ? Mathf.RadToDeg(Mathf.Atan2(-inward.X, -inward.Z)) : null;
     }
 
+    /// <summary>
+    /// The room's light hints as lights: each window a soft, shadowed sky fill standing outside the opening and aimed in;
+    /// each lamp an omni light. Windows take the shadow budget first (with the sun, the daylight), then lamps.
+    /// </summary>
     private void BuildRoomLights(StylePreset preset, RoomData room)
     {
         var diagonal = room.Bounds.Size.Length();
         var s = preset.Tuning.Shadows;
-        var shadowBudget = Math.Max(0, preset.MaxShadowedLights - (Key.ShadowEnabled ? 1 : 0));
-        foreach (var hint in room.LightHints.Where(h => h.PositionM != null))
+        var lamps = preset.Tuning.Lamps;
+        var shadowBudget = Math.Max(0, preset.MaxShadowedLights - (Key.ShadowEnabled && Key.Visible ? 1 : 0));
+        foreach (var hint in room.LightHints.Where(h => h.PositionM != null).OrderBy(h => h.Kind == "window" ? 0 : 1))
         {
-            var energy = hint.RelativeIntensity * preset.RoomLightEnergyScale * preset.HonorRoomLights;
-            if (energy <= 0) continue;
             Light3D light;
-            var lamps = preset.Tuning.Lamps;
+            float energy;
             if (hint.Kind is "ceiling_lamp" or "lamp" or "screen")
-                light = new OmniLight3D { OmniRange = diagonal * lamps.RangePerDiagonal, OmniAttenuation = lamps.Attenuation };
+            {
+                energy = hint.RelativeIntensity * preset.RoomLightEnergyScale * preset.HonorRoomLights;
+                if (energy <= 0) continue;
+                light = new OmniLight3D { OmniRange = diagonal * lamps.RangePerDiagonal, OmniAttenuation = lamps.Attenuation, Position = hint.PositionM!.Value };
+                light.LightSize = s.LampSizeBaseM + s.LampSizePerSoftnessM * preset.ShadowSoftness;
+                light.LightColor = hint.Color.Lerp(lamps.LampTint, lamps.LampTintAmount);
+                _lamps.Add(light);
+            }
             else if (hint.Kind == "window" && hint.Direction is { } direction && direction.LengthSquared() > 1e-6f)
             {
-                var spot = new SpotLight3D { SpotRange = diagonal * lamps.RangePerDiagonal, SpotAngle = lamps.WindowSpotAngleDeg };
-                spot.Position = hint.PositionM!.Value;
-                var up = Mathf.Abs(direction.Normalized().Dot(Vector3.Up)) > 0.99f ? Vector3.Right : Vector3.Up;
-                spot.Basis = Basis.LookingAt(direction.Normalized(), up);
+                energy = hint.RelativeIntensity * lamps.SkyFillEnergy * preset.HonorRoomLights;
+                if (energy <= 0) continue;
+                var inward = direction.Normalized();
+                var spot = new SpotLight3D { SpotRange = diagonal * lamps.RangePerDiagonal + lamps.WindowStandoffM, SpotAngle = lamps.WindowSpotAngleDeg };
+                spot.Position = hint.PositionM!.Value - inward * lamps.WindowStandoffM;
+                var up = Mathf.Abs(inward.Dot(Vector3.Up)) > 0.99f ? Vector3.Right : Vector3.Up;
+                spot.Basis = Basis.LookingAt(inward, up);
+                spot.LightSize = lamps.WindowLightSizeM;
+                spot.SetMeta("window_color", hint.Color);
                 light = spot;
+                _skyFills.Add(spot);
             }
             else continue;
             light.Name = "RoomLight_" + hint.Id;
-            if (light is OmniLight3D) light.Position = hint.PositionM!.Value;
-            light.LightColor = hint.Color;
             light.LightEnergy = energy;
             light.ShadowEnabled = preset.ShadowsEnabled && shadowBudget-- > 0;
-            light.LightSize = s.LampSizeBaseM + s.LampSizePerSoftnessM * preset.ShadowSoftness;
             light.ShadowBlur = s.BlurBase + s.BlurPerSoftness * preset.ShadowSoftness;
-            light.ShadowBias = s.Bias;
-            light.ShadowNormalBias = s.NormalBias;
+            light.ShadowBias = s.LampBias;
+            light.ShadowNormalBias = s.LampNormalBias;
             light.SetMeta("light_hint_id", hint.Id);
             light.SetMeta("base_energy", energy);
             AddChild(light);
             _roomLights.Add(light);
             RoomLightCount++;
         }
+    }
+
+    /// <summary>The sky's brightness at a moment, relative to the brightest sky of the keys (1 at the brightest).</summary>
+    public static float SkyLevel(StylePreset preset, LookMoment moment)
+    {
+        var brightest = preset.TimeOfDayEnabled && preset.TimeKeys.Count > 0 ? preset.TimeKeys.Max(k => k.AmbientEnergy) : preset.AmbientEnergy;
+        return brightest > 0f ? Mathf.Clamp(moment.AmbientEnergy / brightest, 0f, 1f) : 0f;
+    }
+
+    /// <summary>
+    /// The colour of the sky seen through a window: the hour's sky colour through the window's own colour, at full
+    /// brightness (the energy carries the level), keeping `saturation` of its hue (0 white, 1 the full sky colour).
+    /// </summary>
+    public static Color SkyColor(Color window, Color sky, float saturation)
+    {
+        var c = new Color(window.R * sky.R, window.G * sky.G, window.B * sky.B);
+        var max = Mathf.Max(c.R, Mathf.Max(c.G, c.B));
+        return max > 1e-4f ? new Color(1f, 1f, 1f).Lerp(new Color(c.R / max, c.G / max, c.B / max), saturation) : new Color(0f, 0f, 0f);
+    }
+
+    /// <summary>Pin the room's lamps on or off (true, false), or let them switch themselves as the light goes (null).</summary>
+    public void SetLamps(bool? on)
+    {
+        _lampsPinned = on;
+        if (Moment != null) ApplyMoment(synchronous: true);
+    }
+
+    private void ApplyLamps()
+    {
+        if (Moment == null) return;
+        LampsOn = _lampsPinned ?? Moment.Daylight < Preset.Tuning.Lamps.SwitchOnBelowDaylight;
+        foreach (var lamp in _lamps) lamp.Visible = LampsOn;
     }
 
     // ---------- time of day and season ----------
@@ -310,20 +379,28 @@ public partial class LookDirector : Node3D
 
     private void ApplyMoment(bool synchronous)
     {
-        var hour = _pinnedHour ?? (Preset.FollowClock ? LookClock.NowHour() : Preset.DefaultHour);
-        var day = _pinnedDay ?? (Preset.FollowCalendar ? LookClock.TodayDayOfYear() : Preset.Tuning.Seasons.FixedDayOfYear);
+        var now = LookClock.Now(Preset);
+        var hour = _pinnedHour ?? (Preset.FollowClock ? now.Hour : Preset.DefaultHour);
+        var day = _pinnedDay ?? (Preset.FollowCalendar ? now.DayOfYear : Preset.Tuning.Seasons.FixedDayOfYear);
+        var realClock = (_pinnedHour == null && Preset.FollowClock) || (_pinnedDay == null && Preset.FollowCalendar);
         ClockNote = (_pinnedHour != null ? "hour pinned" : Preset.FollowClock ? "real clock" : "preset hour")
             + (_pinnedDay != null ? ", day pinned" : Preset.FollowCalendar ? ", real calendar" : ", preset day")
-            + (_clockSource.Length > 0 ? " (" + _clockSource + ")" : "");
-        Moment = LookClock.At(Preset, hour, day);
+            + (_clockSource.Length > 0 ? " (" + _clockSource + ")" : "")
+            + (realClock && Preset.Tuning.Sun.RealClockDaylightSaving ? "; read as standard time" : "");
+        Moment = LookClock.At(Preset, hour, day, _moonYaw);
         Key.LightColor = Moment.KeyColor;
-        Key.LightEnergy = Moment.KeyEnergy;
+        Key.LightEnergy = Moment.KeyEnergy * SunScale;
         Key.RotationDegrees = new Vector3(-Moment.KeyElevationDeg, Moment.KeyAzimuthDeg, 0);
-        foreach (var lamp in _roomLights)
-            lamp.LightEnergy = (float)lamp.GetMeta("base_energy").AsDouble() * (1f + Preset.Tuning.Lamps.NightBoost * LookClock.NightAmount(Preset, Moment.Daylight));
+        var sky = SkyLevel(Preset, Moment);
+        foreach (var fill in _skyFills)
+        {
+            fill.LightColor = SkyColor(fill.GetMeta("window_color").AsColor(), Moment.AmbientColor, Preset.Tuning.Lamps.SkyFillSaturation);
+            fill.LightEnergy = (float)fill.GetMeta("base_energy").AsDouble() * sky;
+        }
+        ApplyLamps();
         Environment.AmbientLightColor = Moment.AmbientColor;
-        Environment.AmbientLightEnergy = Moment.AmbientEnergy;
-        ApplyGrade(GradeParams.For(Preset, Moment).Quantized(), synchronous);
+        Environment.AmbientLightEnergy = Moment.AmbientEnergy * Preset.Tuning.Gi.EnvironmentAmbientScale;
+        ApplyGrade(GradeParams.For(Preset, Moment, LampsOn).Quantized(), synchronous);
     }
 
     private void ApplyGrade(GradeParams grade, bool synchronous)
@@ -430,7 +507,6 @@ public partial class LookDirector : Node3D
         mesh.SetMeta(DressedMeta, true);
         var owner = OwnerEntity(mesh);
         if (owner == null) return false; // not room data (an avatar, a gizmo): left alone
-        var diorama = Preset.KeyMode == "diorama";
         if (MaterialLibrary.IsPainterly(mesh.MaterialOverride))
         {
             mesh.SetInstanceShaderParameter("paint_seed", Seed(owner.GetMeta("entity_id").AsString()));
@@ -440,13 +516,11 @@ public partial class LookDirector : Node3D
                 mesh.SetInstanceShaderParameter("box_half_extents", box.Size * 0.5f);
             }
         }
+        // The whole shell (floor, walls, ceiling) is baked: a closed interior that bounces what comes through the window.
         var isShell = owner.HasMeta("surface_role");
-        if (isShell && diorama) mesh.Layers = ShellVisualLayer;
         var movable = owner.HasMeta("movable") && owner.GetMeta("movable").AsBool();
-        var surface = isShell ? owner.GetMeta("surface_role").AsString() : "";
-        mesh.GIMode = isShell
-            ? (diorama && surface != "floor" ? GeometryInstance3D.GIModeEnum.Disabled : GeometryInstance3D.GIModeEnum.Static)
-            : (movable ? GeometryInstance3D.GIModeEnum.Dynamic : GeometryInstance3D.GIModeEnum.Static);
+        mesh.GIMode = isShell || !movable ? GeometryInstance3D.GIModeEnum.Static : GeometryInstance3D.GIModeEnum.Dynamic;
+        mesh.CastShadow = GeometryInstance3D.ShadowCastingSetting.On;
         return isShell;
     }
 
@@ -544,9 +618,8 @@ public partial class LookDirector : Node3D
             data.Energy = Preset.GiEnergy;
             data.Propagation = Mathf.Clamp(Preset.GiBounceFeedback, 0f, 1f);
             data.UseTwoBounces = Preset.GiBounceFeedback > tuning.TwoBouncesAbove;
-            // Inside the volume VoxelGI replaces the environment's ambient light. A diorama has its lid off,
-            // so cones that leave the room see the sky (the ambient colour); a fixed-key room is closed.
-            data.Interior = Preset.KeyMode != "diorama";
+            // A closed room: cones that leave the volume see nothing, so sky light enters only as the window's fill.
+            data.Interior = true;
             data.NormalBias = tuning.NormalBias;
             data.Bias = tuning.Bias;
         }
@@ -708,10 +781,13 @@ public partial class LookDirector : Node3D
 
     /// <summary>A one-line description of what the look applied, for review reports.</summary>
     public string DescribeLook() => string.Format(CultureInfo.InvariantCulture,
-        "{0}@{1} ({2}) sha256={3}; renderer={4}{5}; key={6} elevation {7:0.#} azimuth {8:0.#} energy {9:0.##}; hour {10:0.##} day {11} season {12} ({22}); {13}; ssao={14} ssil={15} glow={16} dof={17} tilt={18}; grain {19} vignette {20} post effect {21}",
+        "{0}@{1} ({2}) sha256={3}; renderer={4}{5}; key={6} elevation {7:0.#} yaw {8:0.#} energy {9:0.##} (sun at {23:0.#} degrees, bearing {24:0.#}; moon weight {25:0.##}; sun scale {26:0.##}); sky fill {27}; lamps {28}; hour {10:0.##} day {11} season {12} ({22}); {13}; ssao={14} ssil={15} glow={16} dof={17} tilt={18}; grain {19} vignette {20} post effect {21}",
         Preset.PresetId, Preset.PresetVersion, Preset.Status, Preset.Sha256, RenderingServer.GetCurrentRenderingMethod(),
-        RendererNote.Length > 0 ? " (" + RendererNote + ")" : "", Preset.KeyMode, Moment.KeyElevationDeg, Moment.KeyAzimuthDeg, Moment.KeyEnergy,
+        RendererNote.Length > 0 ? " (" + RendererNote + ")" : "", Preset.KeyMode, Moment.KeyElevationDeg, Moment.KeyAzimuthDeg, Key.LightEnergy,
         Moment.Hour, Moment.DayOfYear, Moment.Season, GiNote, Preset.AoEnabled, Preset.SsilEnabled, Preset.GlowEnabled, Preset.DofEnabled && DofSupported,
         Preset.TiltShiftEnabled ? Preset.TiltShiftStrength : 0f, Preset.Grain, Preset.Vignette,
-        Post == null ? "off" : Post.Ran ? "ran" : Post.Error.Length > 0 ? "failed: " + Post.Error : "not run (no GPU device)", ClockNote);
+        Post == null ? "off" : Post.Ran ? "ran" : Post.Error.Length > 0 ? "failed: " + Post.Error : "not run (no GPU device)", ClockNote,
+        Moment.SunElevationDeg, Moment.SunBearingDeg, Moment.MoonWeight, SunScale,
+        _skyFills.Count == 0 ? "none" : string.Join(", ", _skyFills.Select(f => string.Format(CultureInfo.InvariantCulture, "energy {0:0.###} colour #{1}", f.LightEnergy, f.LightColor.ToHtml(false)))),
+        _lamps.Count == 0 ? "none" : (LampsOn ? "on" : "off") + (_lampsPinned == null ? " (switched by the light)" : " (pinned)"));
 }
