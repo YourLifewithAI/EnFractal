@@ -14,9 +14,13 @@ playing on this GPU; pass -AllowOpenGame to override), waits until nvidia-smi sh
 seconds, samples GPU memory during the capture, records both in timings.json, and retries (twice by default)
 if another job (for example pose estimation) used the GPU meanwhile, so timings are not taken under contention.
 
-The harness writes the look's self-check and a pixel check of the grain and vignette effect to timings.json
-(look_problems, post_effect_check). A problem, such as a renderer fallback, fails the capture after the files
-are written; pass -AllowProblems to keep the exit code at zero.
+The harness writes the look's self-check, a pixel check of the grain and vignette effect, and pixel checks of
+light from real sources (the sun lands only through the window; the night with the lamps off and on, saved as
+night_*.png) to timings.json (look_problems, post_effect_check, light_checks), and saves close crops of the
+avatars' feet (contact_*.png) for the cameras the cameras file names. A problem, such as a renderer fallback,
+fails the capture after the files are written; pass -AllowProblems to keep the exit code at zero.
+
+-Style PATH renders with a preset variant instead of the room's style (for tuning; never a review of record).
 
 .EXAMPLE
 pwsh -NoProfile -File tools/look/capture-look.ps1 -Label after -OutDir docs/look/reviews/run1/after -Sweep
@@ -37,7 +41,9 @@ param(
     [int]$ContentionRetries = 2,
     [int]$TimeoutSeconds = 300,
     [switch]$AllowOpenGame,
-    [switch]$AllowProblems
+    [switch]$AllowProblems,
+    [switch]$NoLightChecks,
+    [string]$Style = ''
 )
 $ErrorActionPreference = 'Stop'
 
@@ -50,7 +56,7 @@ $repository = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
 . (Join-Path $repository 'tools/native-toolchain.ps1')
 $toolchain = Get-EnfractalNativeToolchain
 $camerasPath = (Resolve-Path -LiteralPath (Join-Path $repository $Cameras)).Path
-$outPath = [System.IO.Path]::GetFullPath((Join-Path $repository $OutDir))
+$outPath = [System.IO.Path]::GetFullPath($OutDir, $repository)
 New-Item -ItemType Directory -Force $outPath | Out-Null
 
 $env:DOTNET_ROOT = Split-Path -Parent $toolchain.DotnetPath
@@ -125,6 +131,8 @@ if ($Only) { $userArgs += "--only=$Only" }
 if ($Sweep) { $userArgs += '--sweep' }
 if ($RootViewport) { $userArgs += '--root-viewport' }
 if ($AllowProblems) { $userArgs += '--allow-problems' }
+if ($NoLightChecks) { $userArgs += '--light-checks=false' }
+if ($Style) { $userArgs += "--style=$(([System.IO.Path]::GetFullPath($Style, $repository)) -replace '\\', '/')" }
 $engineArgs = @('--path', $projectPath, '--disable-vsync')
 if ($RootViewport) { $engineArgs += @('--resolution', '1920x1080', '--position', '0,0') }
 else { $engineArgs += @('--resolution', '960x540', '--position', '40,40') }

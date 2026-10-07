@@ -83,8 +83,19 @@
   ],
   "sweep": {
     "camera": "diorama_high",
-    "hours": [7, 12, 16.5, 18, 21],
+    "hours": [7, 12, 15, 16.5, 18, 21],
     "dates": ["2026-01-15", "2026-04-15", "2026-07-15", "2026-10-15"],
-    "note": "The -Sweep contact sheet: one camera, rows winter, spring, summer and autumn (mid-season days), columns through the day. 18:00 shows the seasonal swing at the same clock time: night in winter, sunset light in autumn, golden afternoon in summer."
+    "note": "The -Sweep contact sheet: one camera, rows winter, spring, summer and autumn (mid-season days), columns through the day on the solar model at 30 degrees north (standard time). The sun comes in through the west window only in the afternoon; 18:00 shows the seasonal swing at one clock time: night in winter and autumn, low sun in spring and summer."
+  },
+  "light_checks": {
+    "sun_camera": "ceiling_corner",
+    "night_cameras": ["ceiling_corner", "over_shoulder"],
+    "night_hour": 2,
+    "contact_cameras": ["over_shoulder", "low_corner", "companion"],
+    "contact_moments": [
+      { "label": "summer_sun", "hour": 17.5, "date": "2026-07-15" },
+      { "label": "lamp_night", "hour": 2, "date": "2026-10-06", "lamps": "on" }
+    ],
+    "note": "Pixel checks of light from real sources: at the review clock, floor points the physics says see the sun must brighten with it and points behind the walls must not; at 02:00 on the review date each night camera is saved with the lamps off and on. Contact crops of the avatars' feet judge whether 10 cm bodies look grounded under each source: the window's sky fill at the review clock, the low sun across the spawns on a summer evening (summer_sun) and the lamp at night (lamp_night)."
   }
 }
