@@ -2,10 +2,6 @@
 
 from __future__ import annotations
 
-import io
-import subprocess
-from types import SimpleNamespace
-
 import numpy as np
 import pytest
 from PIL import Image
@@ -125,16 +121,19 @@ def test_draft_decoding_keeps_enough_pixels(tmp_path):
     assert be.load_model_input(path).size == be.TARGET_SIZE
 
 
-def test_game_window_check_reads_tasklist(monkeypatch):
-    if not be.sys.platform.startswith("win"):
-        assert be.game_window_open() is False
-        return
-    rows = ('"Godot.exe","1234","Console","1","500,000 K","Running","PC\\\\me","0:01:00","EnFractal (DEBUG)"\n'
-            '"code.exe","99","Console","1","9 K","Running","PC\\\\me","0:00:01","N/A"\n')
-    monkeypatch.setattr(subprocess, "run", lambda *a, **k: SimpleNamespace(stdout=rows))
-    assert be.game_window_open() is True
-    monkeypatch.setattr(subprocess, "run", lambda *a, **k: SimpleNamespace(stdout=rows.replace("EnFractal", "Other")))
-    assert be.game_window_open() is False
+def test_game_window_check_needs_the_game_program():
+    playing = [("EnFractal (DEBUG)", "Godot_v4.7.2-stable_mono_win64.exe"), ("Inbox", "outlook.exe")]
+    assert be.game_window_open(playing) is True
+    assert be.game_window_open([("EnFractal", "EnFractal.exe")]) is True
+    # A folder or an editor named after the project is not the game.
+    assert be.game_window_open([("EnFractal", "explorer.exe"), ("EnFractal - VS Code", "Code.exe")]) is False
+    if be.sys.platform.startswith("win"):
+        import time
+
+        t0 = time.perf_counter()
+        windows = be.visible_windows()  # the real call: fast, and returns (title, program) pairs
+        assert time.perf_counter() - t0 < 2.0
+        assert all(isinstance(t, str) and isinstance(e, str) for t, e in windows)
 
 
 def test_torch_hub_is_pinned_to_a_commit():

@@ -89,25 +89,65 @@ def nvidia_smi_memory() -> tuple[int, int] | None:
 
 
 GAME_WINDOW_PREFIX = "EnFractal"
+GAME_PROGRAMS = ("godot", "enfractal")  # the editor/runner, or an exported build
 
 
-def game_window_open() -> bool:
-    """Whether a window titled EnFractal... is open (the founder may be playing on this GPU).
+def visible_windows() -> list[tuple[str, str]]:
+    """(title, program file name) of every visible top-level window. Windows only, in milliseconds.
 
-    Windows only (``tasklist /v``); elsewhere, or when the check itself fails, returns False.
+    ``tasklist /v`` gives the same answer but takes about 14 s per call on the founder's machine.
     """
-    if not sys.platform.startswith("win"):
-        return False
-    try:
-        out = subprocess.run(["tasklist", "/v", "/fo", "csv", "/nh"], capture_output=True, text=True,
-                             timeout=30, check=True, errors="replace").stdout
-    except (subprocess.SubprocessError, OSError):
-        return False
-    for line in out.splitlines():
-        fields = [f.strip('"') for f in line.split('","')]
-        if fields and fields[-1].startswith(GAME_WINDOW_PREFIX):
-            return True
-    return False
+    import ctypes
+    from ctypes import wintypes
+
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    out: list[tuple[str, str]] = []
+
+    def program(hwnd) -> str:
+        pid = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        handle = kernel32.OpenProcess(0x1000, False, pid.value)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return ""
+        try:
+            buf = ctypes.create_unicode_buffer(1024)
+            size = wintypes.DWORD(len(buf))
+            ok = kernel32.QueryFullProcessImageNameW(handle, 0, buf, ctypes.byref(size))
+            return buf.value.replace("\\", "/").rsplit("/", 1)[-1] if ok else ""
+        finally:
+            kernel32.CloseHandle(handle)
+
+    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    def each(hwnd, _):
+        if user32.IsWindowVisible(hwnd):
+            n = user32.GetWindowTextLengthW(hwnd)
+            if n:
+                buf = ctypes.create_unicode_buffer(n + 1)
+                user32.GetWindowTextW(hwnd, buf, n + 1)
+                out.append((buf.value, program(hwnd)))
+        return True
+
+    user32.EnumWindows(each, 0)
+    return out
+
+
+def game_window_open(windows: list[tuple[str, str]] | None = None) -> bool:
+    """Whether the game is open (the founder may be playing on this GPU).
+
+    A window titled EnFractal... owned by Godot or an EnFractal build counts; a folder or an editor
+    tab named EnFractal does not. Windows only; elsewhere, or if the check fails, False.
+    """
+    if windows is None:
+        if not sys.platform.startswith("win"):
+            return False
+        try:
+            windows = visible_windows()
+        except (OSError, AttributeError, ValueError):
+            return False
+    return any(title.startswith(GAME_WINDOW_PREFIX) and any(p in exe.lower() for p in GAME_PROGRAMS)
+               for title, exe in windows)
 
 
 def wait_while_game_runs(*, retries: int = 240, delay_s: float = 30.0, log=print) -> float:

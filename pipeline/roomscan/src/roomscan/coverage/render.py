@@ -197,7 +197,7 @@ def render_map(guard: OutputGuard, rel: Path, context: dict[str, Any]) -> Path:
     handles = [Patch(color=COLOURS["good"], label=f"{GOOD_VIEWS}+ photos, different spots"),
                Patch(color=COLOURS["thin"], label="1-2 photos, or all from one spot"),
                Patch(color=COLOURS["unseen"], label="no photo"),
-               Patch(color=COLOURS["blocked"], label="hidden by furniture"),
+               Patch(color=COLOURS["blocked"], label="furniture stands there"),
                Patch(color=COLOURS["opening"], label="photos see through (door, window)"),
                Line2D([], [], marker="o", ls="", color=COLOURS["camera"], label="photo taken standing"),
                Line2D([], [], marker="o", ls="", color=COLOURS["camera_low"], label="photo taken low (<0.7 m)"),
@@ -263,7 +263,7 @@ def render_walls(guard: OutputGuard, rel: Path, context: dict[str, Any]) -> Path
         ax.tick_params(labelsize=7)
     handles = [Patch(color=COLOURS["good"], label=f"{GOOD_VIEWS}+ photos, different spots"),
                Patch(color=COLOURS["thin"], label="1-2 photos, or one spot"),
-               Patch(color=COLOURS["unseen"], label="no photo"), Patch(color=COLOURS["blocked"], label="hidden by furniture"),
+               Patch(color=COLOURS["unseen"], label="no photo"), Patch(color=COLOURS["blocked"], label="furniture stands there"),
                Patch(color=COLOURS["opening"], label="photos see through (door, window)")]
     fig.legend(handles=handles, loc="lower center", ncol=5, fontsize=8, frameon=False)
     fig.tight_layout(rect=(0, 0.03, 1, 1))

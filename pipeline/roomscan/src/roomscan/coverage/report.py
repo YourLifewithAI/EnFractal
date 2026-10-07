@@ -21,6 +21,12 @@ from ..paths import OutputGuard
 from .grid import GOOD_VIEWS
 from .objects import sector_of
 
+MAP_LEGEND = ("Blue: in three or more photos taken from different spots. Amber: in one or two, or only from "
+              "one spot. Red: in none. Grey: furniture stands there (floor under it, wall behind it), so I do "
+              "not ask for it. Lilac: photos see past the wall there (a doorway, a window, the garage door). "
+              "The three lanes around the edge are the walls: the inner lane is the bottom of the wall, the "
+              "outer lane the top. Small dots are where you stood (green dots are low shots), with a tick for "
+              "the way the phone faced.")
 KIND_TITLES = {"wall": "Wall", "low_wall": "Wall, from low down", "floor": "Floor", "under": "Under furniture",
                "ceiling": "Ceiling", "object": "Furniture", "object_low": "Furniture, from low down",
                "low_lap": "Low lap", "bridge": "Reconnect"}
@@ -182,10 +188,7 @@ def render_markdown(context: dict[str, Any]) -> str:
         out += ["", f"Smaller gaps, if you have time ({len(g['more'])}):", ""]
         out += [f"- {it['text']}" for it in g["more"][:15]]
     out += ["", "## The map", "", "![Coverage map, seen from above](coverage-map.png)", "",
-            "Blue: in three or more photos. Amber: in one or two. Red: in none. Grey: hidden behind furniture, "
-            "so no photo could show it and I do not ask for it. The three lanes around the edge are the walls: "
-            "the inner lane is the bottom of the wall, the outer lane the top. Small dots are where you stood "
-            "(green dots are low shots), with a tick for the direction the phone faced.", "",
+            MAP_LEGEND, "",
             "![The walls unfolded](walls.png)", ""]
     out += ["## Photos with problems", ""]
     for note in g["notes"]:
@@ -221,8 +224,9 @@ def confidence_lines(n: dict[str, Any], context: dict[str, Any]) -> list[str]:
     if n["standing_height"] is not None:
         lines.append(f"Your standing photos come out about {n['standing_height']:.1f} m above the floor, which is "
                      f"about where people hold a phone, so the overall size is in the right range.")
-    lines.append("A wall stretch counts as covered when at least three photos show it. The map cannot see behind "
-                 "furniture; those areas are grey and are not counted against you.")
+    lines.append("A patch counts as covered when at least three photos taken from different spots show it. Floor "
+                 "under furniture and wall behind it are grey and not counted against you; floor that clutter only "
+                 "hides from where you stood still counts as a gap, because a photo from closer would show it.")
     lines.append("Furniture names come from an automatic detector with a fixed word list, never from text in "
                  "the photos.")
     return lines
@@ -233,7 +237,8 @@ def technical_lines(context: dict[str, Any]) -> list[str]:
     pose = context.get("pose_info") or {}
     gpu = pose.get("gpu", {})
     det = context.get("detection") or {}
-    lines = [f"Stage times (s): {run.get('timing_s', {})}"]
+    times = ", ".join(f"{k.replace('_', ' ')} {v:.0f} s" for k, v in (run.get("timing_s") or {}).items())
+    lines = [f"Stage times: {times}."]
     if gpu:
         lines.append(f"Poses: {pose.get('model')} in {len(pose.get('batches', []))} batches of up to "
                      f"{pose.get('batch_size')} photos; GPU inference {gpu.get('inference_seconds')} s, model load "
@@ -339,10 +344,7 @@ def render_html(context: dict[str, Any]) -> str:
         parts += [f"<li>{_esc(it['text'])}</li>" for it in g["more"]]
         parts.append("</ul></details>")
     parts += ["<h2>The map</h2>", f"<img class='map' src='{_png_uri(context['map_path'])}' alt='Coverage map seen from above'>",
-              "<p class='legend'>Blue: in three or more photos. Amber: in one or two. Red: in none. Grey: hidden behind "
-              "furniture, so no photo could show it and I do not ask for it. The three lanes around the edge are the "
-              "walls: the inner lane is the bottom of the wall, the outer lane the top. Small dots are where you "
-              "stood (green dots are low shots), with a tick for the way the phone faced.</p>",
+              f"<p class='legend'>{_esc(MAP_LEGEND)}</p>",
               f"<details open><summary>The walls unfolded, as you face each one</summary>"
               f"<img class='map' src='{_png_uri(context['walls_path'])}' alt='The four walls unfolded'></details>",
               "<h2>Photos with problems</h2>"]
