@@ -83,6 +83,7 @@ public partial class RoomWorld : Node3D
             Companion.Follow();
             AddChild(new RoomHud { Player = Player, Companion = Companion, RoomTitle = Room.DisplayName.ToUpperInvariant() });
             Kernel.CommandHost.Attach(this);
+            Navigation.RoomNavigation.Attach(this);
             SetMeta("room_id", Room.RoomId);
             SetMeta("room_manifest_sha256", Room.ManifestSha256);
             SetMeta("style", $"{preset.PresetId}@{preset.PresetVersion}");

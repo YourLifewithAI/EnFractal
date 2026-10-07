@@ -1,4 +1,5 @@
 using Godot;
+using EnFractal.Native.Navigation;
 
 namespace EnFractal.Native;
 
@@ -7,6 +8,8 @@ namespace EnFractal.Native;
 /// goal.stop through Kernel/CommandHost; this is not an AI adapter or an authorization service.
 /// It keeps its own body profile (WorldScaleProfile.Companion, 0.24 m), separate from the 10 cm
 /// player; the original geometric appearance and size do not settle final companion art.
+/// With the room's navigation bound (Navigation/RoomNavigation) follow and come plan routes round
+/// furniture; local steering still handles the last stretch and anything the mesh does not hold.
 /// </summary>
 [GlobalClass]
 public partial class CompanionAvatar : SmallPlayerController
@@ -34,11 +37,24 @@ public partial class CompanionAvatar : SmallPlayerController
     /// <summary>Speed per metre of distance to its place; the player's own velocity is added while it moves.</summary>
     public const float FollowGainPerS = 3.0f;
     public const float CompanionTurnRateRadPerS = 8.0f;
+    /// <summary>A route is planned again at least this often while it is in use.</summary>
+    public const double RouteRefreshS = 0.1;
+    /// <summary>A route corner closer than this counts as reached.</summary>
+    public const float CornerReachedM = 0.05f;
+    /// <summary>Trying to move for this long without covering StuckDistanceM reports the goal blocked.</summary>
+    public const double StuckAfterS = 1.0;
+    public const float StuckDistanceM = 0.03f;
 
     /// <summary>Whether follow is moving the body (false while it rests inside its band).</summary>
     public bool FollowMoving => _following;
     /// <summary>+1 when the companion keeps to the right of the player's line of travel, -1 for the left.</summary>
     public float FollowSide => _followSide;
+    /// <summary>The room's walkable map, or null for local steering only.</summary>
+    public RoomNavigation? Navigation { get; private set; }
+    /// <summary>True on a tick the companion steered along a planned route round something in its way.</summary>
+    public bool FollowingRoute { get; private set; }
+    /// <summary>The corners of the route last planned (empty when none).</summary>
+    public Vector3[] RoutePoints => _route.Points;
 
     private SmallPlayerController? _player;
     private Node3D _pointer = null!;
@@ -49,6 +65,14 @@ public partial class CompanionAvatar : SmallPlayerController
     private bool _following;
     private float _followSide = 1.0f;
     private Vector3 _travel = Vector3.Forward;
+    private RoomNavigation.Route _route = RoomNavigation.Route.None;
+    private int _routeIndex;
+    private Vector3 _routeGoal;
+    private double _routeAge;
+    private int _routeRevision = -1;
+    private Vector3 _progressAnchor;
+    private double _progressTime;
+    private bool _stuck;
 
     public override void _Ready()
     {
@@ -111,6 +135,13 @@ public partial class CompanionAvatar : SmallPlayerController
     }
 
     public void BindPlayer(SmallPlayerController player) => _player = player;
+
+    /// <summary>Give the companion the room's navigation (or none): follow and come then route round obstacles.</summary>
+    public void BindNavigation(RoomNavigation? navigation)
+    {
+        Navigation = navigation;
+        _route = RoomNavigation.Route.None;
+    }
     public void Follow() => BeginIntent("follow");
     public void Stay() => BeginIntent("stay");
     public void Come() => BeginIntent("come");
@@ -122,6 +153,9 @@ public partial class CompanionAvatar : SmallPlayerController
         GoalBlocked = false;
         _hasLookTarget = false;
         _following = false;
+        _route = RoomNavigation.Route.None;
+        _stuck = false;
+        _progressTime = 0;
         if (_pointer != null) _pointer.Visible = false;
         SetControlInput(Vector2.Zero);
         Velocity = new Vector3(0, Velocity.Y, 0);
@@ -158,6 +192,7 @@ public partial class CompanionAvatar : SmallPlayerController
         if (!_entered) return;
         var dt = Mathf.Clamp((float)delta, 0, 0.05f);
         GoalBlocked = false;
+        FollowingRoute = false;
         var desired = Vector3.Zero;
         var hasPlayer = HasPlayer();
         // Gravity is a world property: the companion lives under the same profile the player was given.
@@ -165,13 +200,14 @@ public partial class CompanionAvatar : SmallPlayerController
         if (InputEnabled && hasPlayer)
         {
             var playerOffset = Planar(GlobalPosition - _player!.GlobalPosition);
-            if (CurrentIntent == "follow") desired = FollowVelocity(playerOffset);
+            if (CurrentIntent == "follow") desired = FollowVelocity(playerOffset, dt);
             // Stay may yield, but an explicit Stop cancels navigation. The player
             // can still pass because its collision mask excludes the companion.
             else if (CurrentIntent != "stop" && playerOffset.Length() < 0.20f)
                 desired = (playerOffset.LengthSquared() < 0.0001f ? GlobalBasis.X : playerOffset.Normalized()) * WalkSpeedMps;
-            else if (CurrentIntent == "come") desired = ComeVelocity(playerOffset);
+            else if (CurrentIntent == "come") desired = ComeVelocity(playerOffset, dt);
         }
+        var trying = desired.LengthSquared() > 0.0025f;
         if (desired.LengthSquared() > 0.0004f) MoveWith(desired, dt);
         else
         {
@@ -183,6 +219,8 @@ public partial class CompanionAvatar : SmallPlayerController
                 if (toPlayer.LengthSquared() > 0.0001f) TurnToward(toPlayer, 0.5f * CompanionTurnRateRadPerS * dt, 0.6f);
             }
         }
+        WatchProgress(dt, trying);
+        if (_stuck) GoalBlocked = true;
         if (_hasLookTarget)
         {
             var direction = _lookTarget - GlobalPosition;
@@ -204,7 +242,7 @@ public partial class CompanionAvatar : SmallPlayerController
     /// player's velocity so it neither lags nor oscillates. The line of travel changes only when the player
     /// moves, so turning on the spot never re-targets the companion.
     /// </summary>
-    private Vector3 FollowVelocity(Vector3 playerOffset)
+    private Vector3 FollowVelocity(Vector3 playerOffset, float dt)
     {
         var distance = playerOffset.Length();
         var playerVelocity = Planar(_player!.Velocity);
@@ -214,30 +252,114 @@ public partial class CompanionAvatar : SmallPlayerController
         var right = _travel.Cross(Vector3.Up);
         var lateral = playerOffset.Dot(right);
         if (Mathf.Abs(lateral) > 0.06f) _followSide = Mathf.Sign(lateral);
-        var place = Planar(_player.GlobalPosition) + right * (_followSide * FollowSideM) + _travel * FollowLeadM;
+        var place = FollowPlace(right);
         var toPlace = Planar(place - GlobalPosition);
         var placeDistance = toPlace.Length();
+        // Something between the companion and its place (it is behind the box): that is out of the band too.
+        var routed = PlanRoute(place, 0.10f, dt);
+        var detour = routed && !_route.Direct && _route.LengthM > placeDistance + 0.05f;
+        // In a narrow gap the walkable place can be nearer than the band's edge; never chase away from it.
+        var near = Mathf.Min(FollowNearM, Planar(place - _player.GlobalPosition).Length() - 0.05f);
         if (!_following)
-            _following = distance > FollowFarM || distance < FollowNearM || (moving && placeDistance > 0.15f);
-        else if (!moving && (placeDistance < 0.05f || (distance > FollowNearM + 0.04f && distance < FollowFarM - 0.15f)))
+            _following = distance > FollowFarM || distance < near || detour || (moving && placeDistance > 0.15f);
+        else if (!moving && !detour && (placeDistance < 0.05f || (distance > near + 0.04f && distance < FollowFarM - 0.15f)))
             _following = false;
         if (!_following) return Vector3.Zero;
+        // Honest about a place it cannot reach: it goes as near as the floor allows and says blocked.
+        if (routed && !_route.Reaches) GoalBlocked = true;
+        if (detour || (routed && !_route.Reaches))
+            return RouteVelocity(Mathf.Clamp(_route.LengthM * FollowGainPerS + playerSpeed, 0.15f, RunSpeedMps));
         var desired = (moving ? playerVelocity : Vector3.Zero) + toPlace * FollowGainPerS;
         // Finish the last few centimetres briskly instead of creeping.
         if (!moving && desired.Length() < 0.12f && placeDistance > 0.01f) desired = desired.Normalized() * 0.12f;
         return desired.LimitLength(RunSpeedMps);
     }
 
-    private Vector3 ComeVelocity(Vector3 playerOffset)
+    /// <summary>The place beside the player on the walkable side: when a wall or furniture covers that side, the other one.</summary>
+    private Vector3 FollowPlace(Vector3 right)
+    {
+        Vector3 At(float side) => _player!.GlobalPosition + right * (side * FollowSideM) + _travel * FollowLeadM;
+        var place = At(_followSide);
+        if (!NavigationReady) return place;
+        var snapped = Navigation!.ClosestPoint(place);
+        var offMesh = Planar(snapped - place).Length();
+        if (offMesh <= 0.08f) return snapped;
+        var other = At(-_followSide);
+        var otherSnapped = Navigation.ClosestPoint(other);
+        if (Planar(otherSnapped - other).Length() >= offMesh - 0.04f) return snapped;
+        _followSide = -_followSide;
+        return otherSnapped;
+    }
+
+    private Vector3 ComeVelocity(Vector3 playerOffset, float dt)
     {
         var distance = playerOffset.Length();
-        if (distance <= ComeArrivalM)
+        var routed = PlanRoute(_player!.GlobalPosition, ComeArrivalM + 0.05f, dt);
+        // Close in a straight line but with a wall or box between does not count as arrived.
+        var detour = routed && !_route.Direct && _route.LengthM > distance + 0.05f;
+        if (distance <= ComeArrivalM && !detour)
         {
             Stay();
             return Vector3.Zero;
         }
+        if (routed && !_route.Reaches) GoalBlocked = true;
+        if (detour || (routed && !_route.Reaches))
+            return RouteVelocity(Mathf.Clamp((_route.LengthM - ComeArrivalM + 0.05f) * FollowGainPerS, 0.15f, RunSpeedMps));
         var speed = Mathf.Clamp((distance - ComeArrivalM + 0.05f) * FollowGainPerS, 0.15f, RunSpeedMps);
         return -playerOffset / distance * speed;
+    }
+
+    private bool NavigationReady => Navigation != null && GodotObject.IsInstanceValid(Navigation) && Navigation.IsReady;
+
+    /// <summary>Plan a route to the goal, or keep the current one while it is fresh. False when there is no navigation to plan on.</summary>
+    private bool PlanRoute(Vector3 goal, float toleranceM, float dt)
+    {
+        if (!NavigationReady)
+        {
+            _route = RoomNavigation.Route.None;
+            return false;
+        }
+        _routeAge += dt;
+        if (_route.IsEmpty || _routeAge >= RouteRefreshS || _routeRevision != Navigation!.Revision || Planar(goal - _routeGoal).Length() > 0.05f)
+        {
+            _route = Navigation!.FindRoute(GlobalPosition, goal, toleranceM);
+            _routeIndex = 1;
+            _routeGoal = goal;
+            _routeAge = 0;
+            _routeRevision = Navigation.Revision;
+        }
+        while (_routeIndex < _route.Points.Length - 1 && Planar(_route.Points[_routeIndex] - GlobalPosition).Length() < CornerReachedM) _routeIndex++;
+        return !_route.IsEmpty;
+    }
+
+    /// <summary>Steer for the next corner of the planned route; zero at its end.</summary>
+    private Vector3 RouteVelocity(float speed)
+    {
+        var points = _route.Points;
+        if (points.Length == 0) return Vector3.Zero;
+        var last = _routeIndex >= points.Length - 1;
+        var toCorner = Planar(points[Mathf.Min(_routeIndex, points.Length - 1)] - GlobalPosition);
+        if (last && toCorner.Length() < CornerReachedM) return Vector3.Zero;
+        FollowingRoute = true;
+        return toCorner.Normalized() * (last ? Mathf.Min(speed, Mathf.Max(0.15f, toCorner.Length() * FollowGainPerS)) : speed);
+    }
+
+    /// <summary>Report blocked when trying to move has covered almost nothing for a second, and plan again.</summary>
+    private void WatchProgress(float dt, bool trying)
+    {
+        if (!trying)
+        {
+            _progressTime = 0;
+            _progressAnchor = GlobalPosition;
+            _stuck = false;
+            return;
+        }
+        _progressTime += dt;
+        if (_progressTime < StuckAfterS) return;
+        _stuck = Planar(GlobalPosition - _progressAnchor).Length() < StuckDistanceM;
+        if (_stuck) _routeAge = RouteRefreshS;
+        _progressTime = 0;
+        _progressAnchor = GlobalPosition;
     }
 
     /// <summary>Move along a world-space velocity: the motion is exact through body-relative input while the body turns smoothly to face it.</summary>
@@ -268,8 +390,8 @@ public partial class CompanionAvatar : SmallPlayerController
 
     private Vector3 ChooseClearDirection(Vector3 desired)
     {
-        // Local steering only: blocked routes report blocked rather than teleport.
-        // A future navigation system can replace this without moving inference into physics.
+        // Local steering for the last stretch, round the player and round anything the navigation mesh does
+        // not hold; routes round furniture come from RoomNavigation. Blocked reports blocked, never teleports.
         foreach (var angle in new[] { 0.0f, -0.65f, 0.65f, -1.15f, 1.15f })
         {
             var candidate = desired.Rotated(Vector3.Up, angle);

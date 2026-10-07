@@ -35,6 +35,7 @@ done
 echo "== native fixtures and room boot"
 run native_contract_probe "Native release probe passed" --headless --path "$P" res://scenes/native_contract_probe.tscn
 run native_small_avatar "checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_small_avatar.tscn
+run native_room_navigation "checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_room_navigation.tscn
 run native_room_data "checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_room_data.tscn
 run native_look_preset "checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_look_preset.tscn
 run room_boot "ROOM_WORLD_READY" --headless --path "$P" --fixed-fps 60 --quit-after 240 res://scenes/room.tscn

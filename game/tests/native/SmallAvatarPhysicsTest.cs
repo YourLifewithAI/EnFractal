@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using EnFractal.Native;
+using EnFractal.Native.Navigation;
 
 namespace EnFractal.Tests;
 
@@ -18,6 +19,7 @@ public partial class SmallAvatarPhysicsTest : Node3D
     private int _failures;
     private SmallPlayerController _player = null!;
     private CompanionAvatar _companion = null!;
+    private RoomNavigation _navigation = null!;
     private static readonly GDScript Physics = GD.Load<GDScript>(SmallPlayerController.WorldPhysicsScript);
 
     public override async void _Ready()
@@ -31,6 +33,10 @@ public partial class SmallAvatarPhysicsTest : Node3D
             Check(_companion.ConfigureIdentity("test_companion"), "identity configurable before scene entry");
             AddChild(_companion);
             _companion.BindPlayer(_player);
+            // The companion's walkable map over the test floor, baked from its static collision as in the room.
+            _navigation = RoomNavigation.Create(this, this, new Aabb(new Vector3(-5, 0, -6), new Vector3(10, 0.6f, 12)),
+                WorldScaleProfile.Companion, _companion.StepHeightM * 0.75f);
+            _companion.BindNavigation(_navigation);
             await Frames(30);
 
             Check(Mathf.Abs(_player.BodyHeightM - 0.10f) < 0.00001f, "player collision height is exactly 0.10 m");
@@ -62,6 +68,7 @@ public partial class SmallAvatarPhysicsTest : Node3D
             await TestObstacles();
             await TestDioramaCamera();
             await TestCompanion();
+            await TestNavigation();
             var metrics = await RunJitterSuite(1.0f, new Vector3(0, 0, 30));
             CheckJitter(metrics);
             if (OS.GetCmdlineUserArgs().Contains("--jitter-spike"))
@@ -441,6 +448,108 @@ public partial class SmallAvatarPhysicsTest : Node3D
             $"companion catches up during sustained player running instead of falling farther behind (max gap={maximumGap:0.00}, final gap={runningGap:0.00})");
         _companion.Stop();
     }
+
+    /// <summary>
+    /// Founder playtest: "If I walk behind the big box and summon my comp, it gets stuck on the other side of the
+    /// box. It can't work its way around." The companion now routes round furniture on a navigation mesh baked from
+    /// the static collision; an unreachable goal is reported as blocked and never crossed.
+    /// </summary>
+    private async Task TestNavigation()
+    {
+        Check(_navigation.IsReady && _navigation.PolygonCount > 0,
+            $"a navigation mesh is baked from the static collision ({_navigation.PolygonCount} polygons, last bake {_navigation.LastBakeMs:0} ms)");
+        // The test room's big box, 35 x 30 x 35 cm, on open floor.
+        var boxCentre = new Vector3(-3.5f, 0.15f, -1.5f);
+        const float half = 0.175f;
+        var revision = _navigation.Revision;
+        Box(boxCentre, new Vector3(0.35f, 0.30f, 0.35f));
+        var waited = 0;
+        for (; waited < 120 && _navigation.Revision == revision; waited++) await Frames(1);
+        Report(_navigation.Revision > revision, $"adding the box re-bakes the navigation mesh by itself (after {waited} frames, {_navigation.LastBakeMs:0} ms)");
+        var playerSpot = new Vector3(-3.5f, 0.003f, -2.15f);
+        var behind = new Vector3(-3.5f, 0.01f, -0.95f);
+        var route = _navigation.FindRoute(behind, playerSpot, 0.05f);
+        Report(route.Reaches && !route.Direct && route.LengthM > 1.25f, $"the route from behind the box goes round it (length={route.LengthM:0.00} m, points={route.Points.Length})");
+        Check(_player.TryTeleportTo(playerSpot) && _companion.TryTeleportTo(behind), "player in front of the box, companion behind it");
+        _player.Rotation = Vector3.Zero;
+
+        // The founder's report, reproduced: local steering alone stays stuck behind the box.
+        _companion.BindNavigation(null);
+        _companion.Come();
+        var reported = false;
+        for (var i = 0; i < 240; i++) { await Frames(1); reported |= _companion.GoalBlocked; }
+        var gap = PlanarDistance(_companion.GlobalPosition, _player.GlobalPosition);
+        Report(_companion.CurrentIntent == "come" && gap > CompanionAvatar.ComeArrivalM + 0.2f,
+            $"without navigation come stays stuck behind the box, as the founder saw (gap={gap:0.00} m, reported blocked={reported})");
+
+        // With navigation it walks round the box and arrives, never entering the box.
+        _companion.Stop();
+        Check(_companion.TryTeleportTo(behind), "companion back behind the box");
+        _companion.BindNavigation(_navigation);
+        _companion.Come();
+        var routed = false;
+        var blockedFrames = 0;
+        var frames = 0;
+        var entered = false;
+        for (; frames < 360 && _companion.CurrentIntent == "come"; frames++)
+        {
+            await Frames(1);
+            routed |= _companion.FollowingRoute;
+            if (_companion.GoalBlocked) blockedFrames++;
+            entered |= ClearanceFromSquare(_companion.GlobalPosition, boxCentre, half) < _companion.BodyRadiusM - 0.005f;
+        }
+        gap = PlanarDistance(_companion.GlobalPosition, _player.GlobalPosition);
+        Report(_companion.CurrentIntent == "stay" && gap <= CompanionAvatar.ComeArrivalM + 0.02f && routed && blockedFrames == 0 && !entered,
+            $"with navigation come walks round the box and arrives (frames={frames}, gap={gap:0.00} m, blocked frames={blockedFrames})");
+
+        // Follow from behind the box: the box in the way counts as outside the band, so it comes round.
+        Check(_companion.TryTeleportTo(behind), "companion behind the box again");
+        _companion.Follow();
+        routed = false;
+        entered = false;
+        for (var i = 0; i < 300; i++)
+        {
+            await Frames(1);
+            routed |= _companion.FollowingRoute;
+            entered |= ClearanceFromSquare(_companion.GlobalPosition, boxCentre, half) < _companion.BodyRadiusM - 0.005f;
+        }
+        gap = PlanarDistance(_companion.GlobalPosition, _player.GlobalPosition);
+        var way = _navigation.FindRoute(_companion.GlobalPosition, _player.GlobalPosition, 0.05f);
+        var clear = way.Reaches && way.LengthM <= gap + 0.05f;
+        Report(routed && !entered && !_companion.FollowMoving && clear &&
+            gap >= CompanionAvatar.FollowNearM - 0.01f && gap <= CompanionAvatar.FollowFarM + 0.01f,
+            $"follow from behind the box comes round and rests in view of the player (gap={gap:0.00} m, walk={way.LengthM:0.00} m)");
+
+        // A goal it cannot reach (a closed pen) is reported, and the companion stays inside rather than crossing a wall.
+        var pen = new Vector3(-3.5f, 0, 1.0f);
+        Box(pen + new Vector3(0, 0.20f, 0.325f), new Vector3(0.65f, 0.4f, 0.08f));
+        Box(pen + new Vector3(0, 0.20f, -0.325f), new Vector3(0.65f, 0.4f, 0.08f));
+        Box(pen + new Vector3(-0.325f, 0.20f, 0), new Vector3(0.08f, 0.4f, 0.65f));
+        Box(pen + new Vector3(0.325f, 0.20f, 0), new Vector3(0.08f, 0.4f, 0.65f));
+        revision = _navigation.Revision;
+        for (var i = 0; i < 120 && _navigation.Revision == revision; i++) await Frames(1);
+        Check(_companion.TryTeleportTo(pen + new Vector3(0, 0.01f, 0)), "companion inside the closed pen");
+        Check(!_navigation.FindRoute(_companion.GlobalPosition, _player.GlobalPosition, 0.37f).Reaches, "the navigation finds no way out of the closed pen");
+        _companion.Come();
+        reported = false;
+        var escaped = false;
+        for (var i = 0; i < 180; i++)
+        {
+            await Frames(1);
+            reported |= _companion.GoalBlocked;
+            escaped |= !Overlaps(_companion.GlobalPosition, pen, 0.285f);
+        }
+        Report(reported && !escaped && _companion.CurrentIntent == "come",
+            $"an unreachable come reports blocked and never crosses the pen walls (blocked={reported}, escaped={escaped})");
+        _companion.Stop();
+    }
+
+    private static bool Overlaps(Vector3 position, Vector3 centre, float half) =>
+        Mathf.Abs(position.X - centre.X) < half && Mathf.Abs(position.Z - centre.Z) < half;
+
+    /// <summary>Planar distance from a point to a square footprint (zero inside it).</summary>
+    private static float ClearanceFromSquare(Vector3 point, Vector3 centre, float half) =>
+        new Vector2(Mathf.Max(Mathf.Abs(point.X - centre.X) - half, 0), Mathf.Max(Mathf.Abs(point.Z - centre.Z) - half, 0)).Length();
 
     /// <summary>The companion's planar offset from the player, along a direction of travel and to its right.</summary>
     private (float Along, float Lateral) Offset(Vector3 travel)
