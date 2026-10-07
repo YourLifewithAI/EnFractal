@@ -107,11 +107,10 @@ Memory is cleared when a link session starts or ends (`LinkServer` tells the hos
 and when the room changes (`load_room`); entries from another room are never used. It lives only in
 the host's memory: never in a snapshot, a receipt, room state or a save.
 
-**Today's contract.** The result fields above are a proposed contract change
-(`proposals/contracts-run1.diff`). Until it is applied the host emits no memory fields: queries stay in
-sight only, while goals may already aim at remembered things (command `data` is free-form). The tests
-run every memory path on a copy of `contracts/` with the proposed fields merged
-(`companion/tests/fixtures/contract_memory_v1.json`), and check that the fields match once applied.
+**The contract.** `contracts/` carries the result fields above since `72e9015`. The tests still check
+that they match the proposal (`companion/tests/fixtures/contract_memory_v1.json`). Lane P's kernel host
+does not have memory yet; [proposals/kernel-host-gaps.md](proposals/kernel-host-gaps.md) (P6) lists what
+it needs.
 
 ## What the companion still learns
 

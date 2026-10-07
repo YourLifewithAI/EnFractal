@@ -29,9 +29,9 @@ any MCP client or harness --stdio--> enfractal-companion --loopback link--> game
 | `.../lockdown.py` | Environment scrub and audit-hook sandbox for the server process |
 | `.../refusals.py`, `.../textsafety.py` | One mapping from contract violations to error codes; untrusted-text rules, emoji markers in place |
 | `companion/schemas/companion-link.schema.json` | The link's session file and frames, proposed for `contracts/` |
-| `companion/tests/` | Boundary tests (host, link, MCP surface, perception, perception memory, text rules, no holds, sandbox, profile) and the stdio acceptance test |
-| `companion/tests/fixtures/contract_memory_v1.json` | The proposed perception-memory result fields, merged into a copy of `contracts/` so the memory paths are tested before the contract carries them |
-| `docs/companion/proposals/` | Changes for files this lane does not own, as patches (below) |
+| `companion/tests/` | Boundary tests (host, link, MCP surface, perception, perception memory, text rules, no holds, sandbox, profile), the stdio acceptance test, and `test_kernel_alignment.py`, which reads the kernel host's constants and fails when the mock's policy drifts from them |
+| `companion/tests/fixtures/contract_memory_v1.json` | The perception-memory result fields as proposed; `contracts/` has carried them since `72e9015`, and a test checks the two still match |
+| `docs/companion/proposals/` | Changes for files this lane does not own, as patches, and the kernel host's change requests (below) |
 
 ## Tools
 
@@ -70,8 +70,8 @@ uv sync --project companion --frozen                       # once: creates compa
 uv run --project companion --locked python -m unittest discover -s companion/tests
 ```
 
-Expected: `Ran 469 tests ... OK (skipped=1)` in about 40 seconds. The skipped test checks the memory fields
-against `contracts/` once the contract carries them; with today's contract its counterpart runs instead.
+Expected: `Ran 492 tests ... OK (skipped=1)` in about 50 seconds. The skipped test is the stand-in for a
+`contracts/` without the memory fields; today's contract carries them, so its counterpart runs instead.
 The canonical JSON test uses the kernel's golden fixture in `game/tests/fixtures/kernel/` when the
 checkout has it (or the folder `ENFRACTAL_KERNEL_FIXTURE_DIR` names), and this lane's byte-identical copy
 otherwise. `ENFRACTAL_CONTRACTS_DIR` points the whole suite, the stdio server included, at another copy of
@@ -134,10 +134,7 @@ it on his machine.
    the world to try prompt injection. To try perception memory: ask the companion to observe, type
    `walk 1.6 0 0.2` (behind the box), ask where the book is (it answers from memory), type
    `move obj:book -1.7 0 -1.2`, ask again (now `may_be_stale`), ask it to fetch the book, then type
-   `walk 0.45 0 0.2` and `arrive`: the fetch fails honestly, and `jobs_status` says why. Until the contract
-   carries the memory fields, queries show only what is in sight (goals still aim at memory); to see the
-   remembered answers now, start both the stand-in game and the server with `--contracts-dir` pointing at a
-   copy of `contracts/` with `proposals/contracts-run1.diff` applied.
+   `walk 0.45 0 0.2` and `arrive`: the fetch fails honestly, and `jobs_status` says why.
 
 Without `--mock` or `--session-file`, the server reads the real game's session file from
 `%APPDATA%\Godot\app_userdata\EnFractal\companion\session.json` (Godot's `user://`). Until Run 2 wires
@@ -145,8 +142,15 @@ the kernel host, nothing writes it and every tool answers `not_ready`.
 
 ## Proposals for files this lane does not own
 
-Kept as patches, applied from the stored blob so line-ending conversion cannot touch them
-(`git show run1/companion:<path> | git apply`):
+The four Run 1 patches were applied on `run1/integration` (`72e9015` and earlier); they stay as the record.
+They are applied from the stored blob so line-ending conversion cannot touch them
+(`git show run1/companion:<path> | git apply`).
+
+**Before the Run 2 swap:** [proposals/kernel-host-gaps.md](proposals/kernel-host-gaps.md) lists what the
+mock now shares with Lane P's kernel host (ledger, rate limit, pending approvals, `"preview": false`,
+lapses) and the kernel host's change requests: `capabilities.list` answers a payload the contract
+refuses, a reused stop id hides a durable receipt, the player's avatar is nameable out of sight,
+`observe`'s 3 m default and its shell parts, perception memory, goal jobs and `entity.release`.
 
 | Patch | What it does | Checked by |
 |---|---|---|
@@ -179,6 +183,12 @@ Kept as patches, applied from the stored blob so line-ending conversion cannot t
   keycap combiner only where an emoji puts them; every other invisible character stays blocked.
 - **The companion has the player's 10 cm body** (founder, 6 October 2026): eye 0.087 m, reach 0.15 m.
 - **Canonical frames, no lockout** on the link (TRANSPORT.md).
+- **The mock follows the kernel host** wherever the kernel fixes a number or a rule that the contract
+  allows (6 October 2026, night): its ledger, rate limit and approval limit, and the fingerprint over the
+  command exactly as received, so `"preview": false` on the wire is other content. The MCP tools treat
+  `preview: false` as their default and never send it, so a model that spells the default out still
+  replays rather than conflicts. The adapter keeps its tighter per-kind rate buckets in front of the
+  host's limit.
 - **No in-game bridge yet.** `game/scripts/native/Companion/` is untouched. In Run 2 the bridge is a
   `LinkServer` equivalent in C# in front of P1's `CommandHost`, implementing [TRANSPORT.md](TRANSPORT.md)
   and passing `companion/tests/test_link.py`'s cases.

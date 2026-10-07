@@ -7,15 +7,20 @@ It loads a real room (`game/rooms/test_room` by default) through the room contra
 - every message is validated against the contract (with ECMA-262 patterns), plus the value rules
   (int64, finite numbers, no hidden characters) and the semantic rules a schema cannot express;
 - commands are idempotent per principal and action_id, fingerprinted over the canonical command
-  JSON as received (an explicit `"preview": false` is the same as none); same content replays the
-  receipt, different content is `action_id_conflict`;
+  JSON exactly as received, as the contract and the kernel host do: a retry that only adds
+  `"preview": false` is another command. Same content replays the receipt, different content is
+  `action_id_conflict`;
+- a companion may send at most 30 messages in any one second, commands and queries together,
+  counted before parsing so invalid messages count too; stops are exempt and the player is never
+  limited (the kernel host's limit);
 - `goal.stop` and `effect.stop` always apply: they never fail on revisions, rate limits, a full
   receipt ledger or a reused action_id, and the player's stop also stops the companion;
 - `expected_revision` and `expected_entities` are checked here, never by the sender;
 - goals, effects and grabs get transient receipts (bounded per principal, oldest dropped first);
-  everything else gets a durable receipt (at most 4,096 per room, like room state, of which the
-  last 256 only the player's commands may use), and a checkpoint compacts the durable ones, after
-  which `receipt.lookup` answers `compacted: true`;
+  everything else gets a durable receipt (at most 2,048 per room, as in the kernel host, of which
+  the last 256 only the player's commands may use), and a checkpoint compacts the durable ones to
+  their revision and a 64-bit fingerprint prefix, after which `receipt.lookup` answers
+  `compacted: true`;
 - a companion perceives only what is in line of sight of its avatar (perception.py), and
   `observe`, `entities.list`, `entity.inspect`, the counts in `room.describe` and command targets
   all use that perception;
@@ -27,8 +32,8 @@ It loads a real room (`game/rooms/test_room` by default) through the room contra
 - commands in the policy's held set wait for the player: the host mints a 128-bit `request_id`, the
   player approves or denies through `player_decide` (the game UI, never the companion's
   connection), and an approved command commits under its original principal and action_id with
-  `approved_by`; approvals expire, and lapse if the entities they touch change. Every safety
-  property also holds with an empty held set;
+  `approved_by`; approvals expire, and lapse as soon as the entities they touch change (at most 8
+  wait per principal). Every safety property also holds with an empty held set;
 - protection is the player's: `protect.unlock` (every op in `$defs/player_only_ops`) is refused
   from companion principals, and no companion command (including `room.undo`) changes a protected
   entity or any protection state except adding a lock;
@@ -50,7 +55,7 @@ import math
 import secrets
 import threading
 import time
-from collections import OrderedDict
+from collections import OrderedDict, deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -107,18 +112,22 @@ RECOMMENDED_HELD_OPS = frozenset({"entity.remove", "entity.transform", "creation
 
 @dataclass
 class HostPolicy:
-    """The one policy table. Values the founder decides are marked; see docs/companion/SECURITY.md."""
+    """The one policy table. Values the founder decides are marked; see docs/companion/SECURITY.md.
+
+    Where the kernel host (game/scripts/native/Kernel/CommandHost.cs and creation_authority.gd) fixes a
+    number, the default here is that number, and test_kernel_alignment.py fails if the two drift apart.
+    """
 
     # Companion commands the host holds for the player's click. The founder's goal is none
     # (live play by conversation); every safety property is tested with this set empty.
     companion_approval_ops: frozenset[str] = RECOMMENDED_HELD_OPS
-    approval_ttl_s: float = 300.0
-    max_pending_approvals: int = 3
-    # Token buckets per principal. Stop ops are never limited. (Founder decision; recommended values.)
-    command_rate_per_s: float = 2.0
-    command_burst: int = 10
-    query_rate_per_s: float = 10.0
-    query_burst: int = 30
+    approval_ttl_s: float = 300.0  # kernel: ApprovalLifetime, 5 minutes
+    max_pending_approvals: int = 8  # per principal; kernel: MaxPendingApprovals
+    # The companion's rate limit, as the kernel host's (CompanionMessagesPerSecond): at most this many
+    # messages from one companion principal in any one-second window, commands and queries together,
+    # counted before parsing, so invalid messages count too. Stops are exempt; the player is never limited.
+    # The MCP adapter keeps its own, tighter per-kind buckets in front of this (server.py).
+    companion_messages_per_s: int = 30
     # Perception (founder decision 1: line of sight). See docs/companion/PERCEPTION.md.
     observe_max_radius_m: float = 20.0
     companion_targets_need_perception: bool = True  # commands may only name entities in sight now
@@ -135,13 +144,16 @@ class HostPolicy:
     max_creations: int = 32
     carry_limit_kg: dict[str, float] = field(default_factory=lambda: {"avatar:player": 0.5, "avatar:companion": 2.0})
     history_depth: int = 64
-    max_checkpoints: int = 64  # room-state keeps at most 64
-    max_durable_receipts: int = 4096  # per room, across principals, like room-state receipts
+    max_checkpoints: int = 16  # kernel: MAX_CHECKPOINTS (room-state allows up to 64)
+    # Durable receipts per room, across principals. kernel: MAX_RECEIPTS (room-state allows up to 4,096).
+    max_durable_receipts: int = 2048
     # The last slots of the ledger are the player's: a companion that fills the ledger can never block
-    # the player's own commands (a lock, above all) until a checkpoint compacts it.
+    # the player's own commands (a lock, above all) until a checkpoint compacts it. kernel: PLAYER_RECEIPT_RESERVE
     player_receipt_reserve: int = 256
-    max_transient_receipts_per_principal: int = 1024
-    max_compacted_receipts: int = 16384
+    max_transient_receipts_per_principal: int = 1024  # kernel: MaxTransientPerPrincipal
+    # Compacted receipts keep their revision and a 64-bit fingerprint prefix; the oldest are forgotten
+    # first. kernel: MAX_COMPACTED
+    max_compacted_receipts: int = 4096
 
 
 NO_HOLDS = HostPolicy(companion_approval_ops=frozenset())
@@ -252,9 +264,12 @@ class Receipt:
 
 @dataclass
 class Compacted:
-    fingerprint: str
+    fingerprint_prefix: str  # the first 16 hex digits (64 bits), all the kernel's save keeps
     op: str
     revision: int
+
+
+COMPACTED_PREFIX_HEX = 16
 
 
 @dataclass
@@ -291,17 +306,14 @@ class PerceptionMemory:
     entries: OrderedDict = field(default_factory=OrderedDict)  # entity id -> Remembered
 
 
-class _Bucket:
-    def __init__(self, rate: float, burst: int, now: float):
-        self.rate, self.burst, self.tokens, self.t = rate, float(burst), float(burst), now
+def _is_stop(message: Any) -> bool:
+    return isinstance(message, dict) and message.get("schema") == COMMAND_SCHEMA and message.get("op") in STOP_OPS
 
-    def take(self, now: float) -> bool:
-        self.tokens = min(self.burst, self.tokens + (now - self.t) * self.rate)
-        self.t = now
-        if self.tokens >= 1.0:
-            self.tokens -= 1.0
-            return True
-        return False
+
+def _might_be_stop(raw: bytes) -> bool:
+    """Whether raw text could be a goal.stop or effect.stop. JSON spells a letter or '.' only literally or
+    with a \\u escape, so text with neither op name and no \\u escape is never a stop (the kernel's MightBeStop)."""
+    return b"goal.stop" in raw or b"effect.stop" in raw or b"\\u" in raw
 
 
 class MockHost:
@@ -320,7 +332,7 @@ class MockHost:
         self.avatars: dict[str, str] = dict(OWN_AVATAR)
         self.avatars.update(extra_companions or {})
         self.text = contracts.text_rules  # the untrusted-text rule this contract can carry
-        self.buckets: dict[tuple[str, str], _Bucket] = {}
+        self._calls: dict[str, deque] = {}  # companion principal -> times of its counted messages, oldest first
         self._view: set[str] | None = None  # what the current requester may name; None means everything
         self.listeners: list[Callable[[str, dict], None]] = []
         self._known_ops = frozenset(contracts.command_ops) | frozenset(contracts.query_ops)
@@ -590,6 +602,9 @@ class MockHost:
         if principal not in self.avatars:
             raise ValueError(f"the transport passed an unknown principal {principal!r}")
         with self._lock:
+            # The rate limit comes before every other check, so a flood of invalid messages is limited too.
+            if not _is_stop(message) and not self._take_token(principal):
+                return self._rate_limited(principal)
             self._expire()
             try:
                 result = self._handle(principal, message)
@@ -611,15 +626,47 @@ class MockHost:
             return result
 
     def handle_bytes(self, principal: str, raw: bytes) -> dict:
-        """Parse strictly (no duplicate keys, NaN or overflow), then answer."""
+        """Parse strictly (no duplicate keys, NaN or overflow), then answer. As in the kernel host, a
+        companion's message counts against its rate limit before it is parsed, and with no budget left
+        only text that may be a stop is parsed at all."""
+        if principal not in self.avatars:
+            raise ValueError(f"the transport passed an unknown principal {principal!r}")
+        with self._lock:
+            if not self._tokens_left(principal) and not _might_be_stop(raw):
+                return self._rate_limited(principal)
         try:
             message = self.contracts.loads_strict(raw.decode("utf-8"))
         except (UnicodeDecodeError, self.contracts.ContractError, ValueError, RecursionError):
             # ValueError: an integer literal longer than Python converts; RecursionError: absurd nesting.
             with self._lock:
+                if not self._take_token(principal):
+                    return self._rate_limited(principal)
                 return self._fail(principal, None, HostError(
                     "request_invalid", "The request is not valid JSON (duplicate keys and non-finite numbers are refused)."))
         return self.handle(principal, message)
+
+    # ------------------------------------------------------------------ the companion's rate limit
+
+    def _tokens_left(self, principal: str) -> bool:
+        if principal.startswith("player:"):
+            return True  # the player's own controls are never limited
+        calls = self._calls.setdefault(principal, deque())
+        now = self.clock.now()
+        while calls and now - calls[0] > 1.0:
+            calls.popleft()
+        return len(calls) < self.policy.companion_messages_per_s
+
+    def _take_token(self, principal: str) -> bool:
+        if not self._tokens_left(principal):
+            return False
+        if not principal.startswith("player:"):
+            self._calls[principal].append(self.clock.now())
+        return True
+
+    def _rate_limited(self, principal: str) -> dict:
+        # Refused before parsing, so nothing of the message is echoed (op "invalid", no action or query id).
+        return self._fail(principal, None, HostError("rate_limited", "Too many messages; wait a moment and try again.",
+                                                     retryable=True))
 
     # ------------------------------------------------------------------ dispatch
 
@@ -628,10 +675,6 @@ class MockHost:
             raise HostError("request_invalid", "Send an enfractal.command or enfractal.query.")
         is_command = message["schema"] == COMMAND_SCHEMA
         op = message.get("op") if isinstance(message.get("op"), str) else None
-        if not (is_command and op in STOP_OPS):
-            bucket_kind = "command" if is_command else "query"
-            if not self._take(principal, bucket_kind):
-                raise HostError("rate_limited", "Too many requests; wait a moment and try again.", retryable=True)
         self._check_schema(message)
         if message["room_id"] != self.room_id:
             raise HostError("room_mismatch", "That room is not the one loaded in the game.", field_path="$.room_id")
@@ -645,15 +688,6 @@ class MockHost:
             return self._command(principal, message)
         self._view = self._view_for(principal, for_command=False)
         return self._query(principal, message)
-
-    def _take(self, principal: str, kind: str) -> bool:
-        now = self.clock.now()
-        key = (principal, kind)
-        if key not in self.buckets:
-            rate, burst = ((self.policy.command_rate_per_s, self.policy.command_burst) if kind == "command"
-                           else (self.policy.query_rate_per_s, self.policy.query_burst))
-            self.buckets[key] = _Bucket(rate, burst, now)
-        return self.buckets[key].take(now)
 
     def _check_schema(self, message: dict) -> None:
         problems = value_problems(message)
@@ -699,10 +733,9 @@ class MockHost:
     # ------------------------------------------------------------------ commands
 
     def _fingerprint(self, message: dict) -> str:
-        """SHA-256 of the command as received in canonical JSON v1 (the kernel host's form, see
-        canonical.py); an explicit `"preview": false` equals none."""
-        if message.get("preview") is False:
-            message = {k: v for k, v in message.items() if k != "preview"}
+        """SHA-256 of the command exactly as received, in canonical JSON v1 (the contract's rule and the
+        kernel host's form, see canonical.py). Nothing is normalised first: `"preview": false` or
+        `"preview": true` is part of the content, so a retry that only adds either is another command."""
         return hashlib.sha256(self.contracts.canonical_bytes(message)).hexdigest()
 
     def _command(self, principal: str, message: dict) -> dict:
@@ -711,16 +744,19 @@ class MockHost:
         key = (principal, action_id)
         handler = getattr(self, "_op_" + op.replace(".", "_"))
         preview = message.get("preview") is True
-        if op in STOP_OPS and not preview:
-            # A stop always applies, whatever the ledger or an earlier use of this action id says.
-            result = self._commit(principal, message, handler)
-            self._store_receipt(key, self._fingerprint(message), result)
-            return result
-        fingerprint = self._fingerprint({k: v for k, v in message.items() if k != "preview"} if preview else message)
-        earlier = self._earlier(key, fingerprint, message)
-        if earlier is not None:
-            return earlier
-        self._check_revisions(principal, message)
+        fingerprint = self._fingerprint(message)
+        if op in STOP_OPS:
+            # A stop always applies (or, as a preview, predicts), whatever the ledger or an earlier use of
+            # this action id says: it never replays and never conflicts.
+            if not preview:
+                result = self._commit(principal, message, handler)
+                self._store_receipt(key, fingerprint, result)
+                return result
+        else:
+            earlier = self._earlier(key, fingerprint, message)
+            if earlier is not None:
+                return earlier
+            self._check_revisions(principal, message)
         prediction = handler(principal, message, False, None)
         if preview:
             result = self._base(principal, message)
@@ -743,7 +779,7 @@ class MockHost:
                 return self._replay(store[key], fingerprint, message)
         if key in self.compacted:
             entry = self.compacted[key]
-            if entry.fingerprint != fingerprint:
+            if entry.fingerprint_prefix != fingerprint[:COMPACTED_PREFIX_HEX]:
                 raise HostError("action_id_conflict", "That action id was already used for a different command.",
                                 field_path="$.action_id")
             replay = self._base(key[0], message)
@@ -964,12 +1000,26 @@ class MockHost:
         return False
 
     def _expire(self) -> None:
+        """Expiry, and a lapse as soon as what a request touches changes (as the kernel host's Refresh): the
+        player is never offered, and approval.status never reports pending for, a request that is stale."""
         now = self.clock.now()
-        for approval in list(self.approvals.values()):
-            if approval.state == "pending" and now >= approval.expires_at:
-                self._finish(approval, "expired", HostError(
-                    "approval_expired", "The player did not answer in time. To ask again, use a new action_id."))
+        view, self._view = self._view, None
+        try:
+            for approval in list(self.approvals.values()):
+                if approval.state != "pending":
+                    continue
+                if now >= approval.expires_at:
+                    self._finish(approval, "expired", HostError(
+                        "approval_expired", "The player did not answer in time. To ask again, use a new action_id."))
+                elif self._lapsed(approval):
+                    self._finish(approval, "expired", HostError(
+                        "approval_mismatch", "The room changed before the player approved. To ask again, use a new action_id."))
+                else:
+                    continue
                 self.approval_by_action.pop((approval.principal, approval.action_id), None)
+                self._emit("approval_decided", {"request_id": approval.request_id, "state": approval.state})
+        finally:
+            self._view = view
         for entity in list(self.entities.values()):
             if entity.kind == "effect" and not entity.removed and entity.expires_at is not None and now >= entity.expires_at:
                 entity.removed = True
@@ -1433,11 +1483,13 @@ class MockHost:
         del self.checkpoints[:max(0, len(self.checkpoints) - self.policy.max_checkpoints)]
         for key, receipt in list(self.receipts.items()):
             if receipt.result["revision"] <= self.revision:
-                self.compacted[key] = Compacted(receipt.fingerprint, receipt.result["op"], receipt.result["revision"])
+                self.compacted[key] = Compacted(receipt.fingerprint[:COMPACTED_PREFIX_HEX], receipt.result["op"],
+                                                receipt.result["revision"])
                 del self.receipts[key]
         while len(self.compacted) > self.policy.max_compacted_receipts:
             self.compacted.popitem(last=False)
-        return {"data": {"checkpoint_id": checkpoint["id"], "checkpoint_revision": self.revision}}
+        # What the kernel host answers (and replays from the durable receipt): the revision, nothing else.
+        return {"data": {"checkpoint_revision": self.revision}}
 
     def _op_room_undo(self, principal, message, apply, new_revision):
         to_revision = message["args"]["to_revision"]
@@ -1594,8 +1646,8 @@ class MockHost:
                 result["data"] = {"found": False}
         elif op == "approval.status":
             approval = self.approvals.get(args["request_id"])
-            if approval is None or approval.principal != principal:
-                # Unknown and other principals' requests look identical.
+            if approval is None or (approval.principal != principal and not principal.startswith("player:")):
+                # Unknown and other principals' requests look identical. The player sees every request.
                 raise HostError("target_not_found", "No approval request with that id is yours.",
                                 field_path="$.args.request_id")
             data = {"request_id": approval.request_id, "state": approval.state}

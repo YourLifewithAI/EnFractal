@@ -113,7 +113,7 @@ class LineOfSight(PerceptionCase):
 class EverySurface(PerceptionCase):
     """Founder decision 1 holds for every companion query and every command, not only observe."""
 
-    policy = HostPolicy(command_rate_per_s=1000.0, command_burst=1000, query_rate_per_s=1000.0, query_burst=1000)
+    policy = HostPolicy(companion_messages_per_s=1_000_000)
     HIDDEN = ("obj:book", "obj:doorstop", "avatar:player")  # behind the box, seen from BEHIND_THE_BOX
 
     def test_room_describe_counts_only_what_is_in_sight(self):

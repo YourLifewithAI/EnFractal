@@ -367,12 +367,28 @@ class ReviewFixes(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(effects["ok"], effects)
         self.assertEqual(contract_problems(stop) + contract_problems(effects), [])
 
-    @harness_test()
-    async def test_an_explicit_preview_false_is_the_same_command(self, h):
-        args = {"action_id": "lock-1", "targets": ["obj:box"], "expected_entities": {"obj:box": 0}}
-        first = await h.call("protect_lock", args)
-        again = await h.call("protect_lock", dict(args, preview=False))
-        self.assertTrue(first["ok"] and again["replayed"])
+    async def test_a_tool_call_with_preview_false_is_the_same_command_because_it_is_never_sent(self):
+        """The game fingerprints the command as received, so "preview": false on the wire is other content
+        (test_host_review_fixes). The tool's preview flag defaults to false, and models often spell the
+        default out, so the adapter sends the flag only when it is true: both tool calls send one message."""
+        host = new_host()
+        received = []
+
+        def handler(principal, message):
+            received.append(copy.deepcopy(message))
+            return host.handle(principal, message)
+
+        async with McpHarness(host=host, handler=handler) as h:
+            args = {"action_id": "lock-1", "targets": ["obj:box"], "expected_entities": {"obj:box": 0}}
+            first = await h.call("protect_lock", args)
+            again = await h.call("protect_lock", dict(args, preview=False))
+            self.assertTrue(first["ok"] and again["replayed"])
+            self.assertEqual(received[0], received[1])
+            self.assertNotIn("preview", received[1])
+            previewed = await h.call("protect_lock", {"action_id": "lock-2", "targets": ["obj:book"],
+                                                      "expected_entities": {"obj:book": 0}, "preview": True})
+            self.assertTrue(previewed["preview"])
+            self.assertIs(received[2]["preview"], True)
 
 
 class Acceptance(unittest.IsolatedAsyncioTestCase):

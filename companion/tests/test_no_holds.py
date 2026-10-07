@@ -237,19 +237,19 @@ class StopsAndTheLedgerWithNothingHeld(NoHoldsCase):
         self.assertTrue(self.lock("obj:doorstop", "p-lock-2", PLAYER)["ok"])
         self.assertRefused(self.lock("obj:table", "p-lock-3", PLAYER), "receipt_limit")
 
-    def test_stops_apply_with_the_ledger_full_and_every_rate_bucket_empty(self):
+    def test_stops_apply_with_the_ledger_full_and_the_rate_budget_spent(self):
         self.assertTrue(self.wind("wind-1")["ok"])
         self.send(command("goal.set", {"actor": "avatar:companion", "goal": "wander"}, "g-1"))
         self.lock("obj:box", "lock-1")
         self.lock("obj:book", "lock-2")
         self.lock("obj:rug", "p-lock-1", PLAYER)
         self.lock("obj:doorstop", "p-lock-2", PLAYER)
-        for i in range(40):  # empty the command buckets of both principals
+        for i in range(40):  # spend the companion's budget; the player has none to spend
             self.send(command("goal.set", {"actor": "avatar:companion", "goal": "stay"}, f"flood-{i}"))
             self.host.player_command(command("goal.set", {"actor": "avatar:player", "goal": "stay"}, f"p-flood-{i}"))
         self.assertRefused(self.send(command("goal.set", {"actor": "avatar:companion", "goal": "stay"}, "late")),
                            "rate_limited")
-        self.assertRefused(self.lock("obj:table", "p-lock-3", PLAYER), "rate_limited")
+        self.assertRefused(self.lock("obj:table", "p-lock-3", PLAYER), "receipt_limit")  # never rate limited
         stop = self.host.player_command(command("goal.stop", {}, "p-stop"))
         self.assertTrue(stop["ok"], stop)
         self.assertNotIn("avatar:companion", self.host.goals)
