@@ -51,6 +51,16 @@ func _initialize() -> void:
 			["9007199254740993", 9007199254740992.0], ["2.2250738585072014e-308", _double(0x0010000000000000)], ["4.9406564584124654e-324", _double(1)], ["1e-400", 0.0]]:
 		var result: Dictionary = JSON_KERNEL.parse(good[0])
 		_check(result.ok and result.value == good[1], "strict parser reads %s as the nearest double" % good[0])
+	# The same limits as C# and Python: 64 nested containers and 800 significant digits (Lane P review).
+	_check(JSON_KERNEL.parse("[".repeat(64) + "]".repeat(64)).ok and JSON_KERNEL.parse("{\"a\":".repeat(64) + "1" + "}".repeat(64)).ok, "64 nested containers are read")
+	for deep in ["[".repeat(65) + "]".repeat(65), "{\"a\":".repeat(65) + "1" + "}".repeat(65), "[".repeat(64) + "{}" + "]".repeat(64)]:
+		_check(not JSON_KERNEL.parse(deep).ok, "65 nested containers are refused")
+	var nested: Variant = []
+	for _level in range(63):
+		nested = [nested]
+	_check(JSON_KERNEL.canonical(nested) == "[".repeat(64) + "]".repeat(64) and JSON_KERNEL.canonical([nested]).is_empty(), "64 nested containers are written, 65 are not")
+	_check(JSON_KERNEL.parse("[0." + "1".repeat(800) + "]").ok and JSON_KERNEL.parse("[1" + "0".repeat(300) + "]").ok, "800 significant digits are read; trailing zeros do not count")
+	_check(not JSON_KERNEL.parse("[0." + "1".repeat(801) + "]").ok and not JSON_KERNEL.parse("[" + "9".repeat(5000) + "]").ok, "801 significant digits are refused")
 	print("Kernel canonical JSON: golden fixture reproduced by GDScript, sha256 %s; %d checks, %d failures" % [digest, checks, failures])
 	quit(guard.exit_code(failures != 0))
 

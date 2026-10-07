@@ -24,9 +24,12 @@ public static class CanonicalJson
 {
     public const int Version = 1;
     public const double SafeInteger = 9007199254740992.0;
+    /// <summary>At most this many nested arrays and objects (the root container is level 1), as in GDScript and Python.</summary>
     public const int MaxDepth = 64;
+    /// <summary>A number literal with more significant digits than this is refused, as in GDScript and Python.</summary>
+    public const int MaxNumberDigits = 800;
     private static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
-    private static readonly JsonDocumentOptions Options = new() { AllowTrailingCommas = false, CommentHandling = JsonCommentHandling.Disallow, MaxDepth = MaxDepth };
+    private static readonly JsonDocumentOptions Options = new() { AllowTrailingCommas = false, CommentHandling = JsonCommentHandling.Disallow, MaxDepth = MaxDepth + 1 };
 
     /// <summary>Orders keys by Unicode code point (UTF-16 order differs for astral characters).</summary>
     public static readonly IComparer<string> KeyOrder = Comparer<string>.Create(CompareCodePoints);
@@ -39,12 +42,15 @@ public static class CanonicalJson
         return Parse(bytes);
     }
 
-    /// <summary>Strict parse: no byte-order mark, duplicate key, comment, trailing comma, non-finite number or unpaired surrogate.</summary>
+    /// <summary>
+    /// Strict parse: no byte-order mark, duplicate key, comment, trailing comma, non-finite number, number with
+    /// more than 800 significant digits, nesting deeper than 64 or unpaired surrogate.
+    /// </summary>
     public static JsonDocument Parse(byte[] utf8)
     {
         if (utf8.Length >= 3 && utf8[0] == 0xEF && utf8[1] == 0xBB && utf8[2] == 0xBF)
             throw new CanonicalJsonException("JSON must not start with a byte-order mark");
-        RejectDuplicateKeys(utf8);
+        Prescan(utf8);
         JsonDocument document;
         try { document = JsonDocument.Parse(utf8, Options); }
         catch (JsonException error) { throw new CanonicalJsonException("not valid JSON: " + error.Message); }
@@ -191,7 +197,8 @@ public static class CanonicalJson
 
     private static void Write(JsonElement element, StringBuilder output, int depth)
     {
-        if (depth > MaxDepth) throw new CanonicalJsonException($"JSON nests deeper than {MaxDepth} levels");
+        if (depth >= MaxDepth && element.ValueKind is JsonValueKind.Object or JsonValueKind.Array)
+            throw new CanonicalJsonException($"JSON nests deeper than {MaxDepth} levels");
         switch (element.ValueKind)
         {
             case JsonValueKind.Object:
@@ -229,7 +236,8 @@ public static class CanonicalJson
 
     private static void Write(JsonNode? node, StringBuilder output, int depth)
     {
-        if (depth > MaxDepth) throw new CanonicalJsonException($"JSON nests deeper than {MaxDepth} levels");
+        if (depth >= MaxDepth && node is JsonObject or JsonArray)
+            throw new CanonicalJsonException($"JSON nests deeper than {MaxDepth} levels");
         switch (node)
         {
             case null: output.Append("null"); break;
@@ -268,19 +276,32 @@ public static class CanonicalJson
         }
     }
 
-    /// <summary>JsonDocument keeps the last of duplicate keys; the contracts refuse them, so scan first.</summary>
-    private static void RejectDuplicateKeys(byte[] utf8)
+    /// <summary>
+    /// JsonDocument keeps the last of duplicate keys and accepts any number of digits; the contracts refuse
+    /// duplicates, and the three runtimes refuse the same overlong numbers and the same nesting, so scan first.
+    /// </summary>
+    private static void Prescan(byte[] utf8)
     {
-        var reader = new Utf8JsonReader(utf8, new JsonReaderOptions { CommentHandling = JsonCommentHandling.Disallow, MaxDepth = MaxDepth });
+        // The reader's own limit is one level deeper than the containers it allows, so count containers here.
+        var reader = new Utf8JsonReader(utf8, new JsonReaderOptions { CommentHandling = JsonCommentHandling.Disallow, MaxDepth = MaxDepth + 1 });
         var scopes = new Stack<HashSet<string>>();
+        var containers = 0;
         try
         {
             while (reader.Read())
             {
                 switch (reader.TokenType)
                 {
-                    case JsonTokenType.StartObject: scopes.Push(new HashSet<string>(StringComparer.Ordinal)); break;
-                    case JsonTokenType.EndObject: scopes.Pop(); break;
+                    case JsonTokenType.StartObject or JsonTokenType.StartArray:
+                        if (++containers > MaxDepth) throw new CanonicalJsonException($"JSON nests deeper than {MaxDepth} levels");
+                        if (reader.TokenType == JsonTokenType.StartObject) scopes.Push(new HashSet<string>(StringComparer.Ordinal));
+                        break;
+                    case JsonTokenType.EndObject: containers--; scopes.Pop(); break;
+                    case JsonTokenType.EndArray: containers--; break;
+                    case JsonTokenType.Number:
+                        if (SignificantDigits(reader.ValueSpan) > MaxNumberDigits)
+                            throw new CanonicalJsonException($"a number has more than {MaxNumberDigits} significant digits");
+                        break;
                     case JsonTokenType.PropertyName:
                         string name;
                         try { name = reader.GetString()!; }
@@ -291,5 +312,23 @@ public static class CanonicalJson
             }
         }
         catch (JsonException error) { throw new CanonicalJsonException("not valid JSON: " + error.Message); }
+    }
+
+    /// <summary>Digits of the mantissa (integer and fraction parts) without leading and trailing zeros, as GDScript counts them.</summary>
+    public static int SignificantDigits(ReadOnlySpan<byte> literal)
+    {
+        int first = -1, last = -1, count = 0;
+        foreach (var b in literal)
+        {
+            if (b is (byte)'e' or (byte)'E') break;
+            if (b is < (byte)'0' or > (byte)'9') continue;
+            if (b != (byte)'0')
+            {
+                if (first < 0) first = count;
+                last = count;
+            }
+            count++;
+        }
+        return first < 0 ? 0 : last - first + 1;
     }
 }

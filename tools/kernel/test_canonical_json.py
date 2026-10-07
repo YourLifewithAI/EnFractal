@@ -66,6 +66,36 @@ class Strictness(unittest.TestCase):
         with self.assertRaises(cj.CanonicalJsonError):
             cj.canonical_bytes({1: "integer key"})
 
+    def test_absurd_inputs_are_refused_never_raised(self):
+        # Review: a 5,000-digit integer leaked ValueError and deep nesting leaked RecursionError.
+        for bad in ["[" + "9" * 5000 + "]", "[" * 100000 + "]" * 100000, "[1" + "0" * 400 + "]", "[-1" + "0" * 400 + "]"]:
+            with self.assertRaises(cj.CanonicalJsonError):
+                cj.loads_strict(bad)
+
+    def test_nesting_limit_is_64_as_in_gdscript_and_csharp(self):
+        self.assertEqual(cj.canonical_text(cj.loads_strict("[" * 64 + "]" * 64)), "[" * 64 + "]" * 64)
+        self.assertEqual(cj.loads_strict('{"a":' * 64 + "1" + "}" * 64)["a"]["a"]["a"] is not None, True)
+        for bad in ["[" * 65 + "]" * 65, '{"a":' * 65 + "1" + "}" * 65, "[" * 64 + "{}" + "]" * 64]:
+            with self.assertRaises(cj.CanonicalJsonError):
+                cj.loads_strict(bad)
+        deep: list = []
+        for _ in range(64):
+            deep = [deep]
+        with self.assertRaises(cj.CanonicalJsonError):
+            cj.canonical_bytes(deep)
+        self.assertTrue(cj.canonical_bytes(deep[0]).startswith(b"[" * 64))
+        # Brackets inside strings do not count.
+        self.assertEqual(cj.loads_strict('["' + "[" * 100 + '"]'), ["[" * 100])
+
+    def test_number_digit_limit_is_800_significant_digits_as_in_gdscript_and_csharp(self):
+        self.assertEqual(cj.loads_strict("[0." + "1" * 800 + "]"), [float("0." + "1" * 800)])
+        self.assertEqual(cj.loads_strict("[1" + "0" * 300 + "]"), [10 ** 300])
+        self.assertEqual(cj.loads_strict("[0.000" + "1" * 800 + "000e5]"), [float("0.000" + "1" * 800 + "e5")])
+        for bad in ["[0." + "1" * 801 + "]", "[1" + "1" * 800 + "]", "[-1." + "2" * 800 + "e-5]"]:
+            with self.assertRaises(cj.CanonicalJsonError):
+                cj.loads_strict(bad)
+        self.assertEqual(cj.significant_digits("-000123.4500e+7"), 5)
+
     def test_escapes_and_key_order(self):
         value = {"b": 1, "a": ["x\u0001\"\\/", "\u007f "], "": 0, "\U0001F600": 0}
         self.assertEqual(cj.canonical_bytes(value).decode("utf-8"),

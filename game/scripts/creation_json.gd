@@ -79,7 +79,7 @@ static func quote(text: String) -> String:
 
 
 static func _emit(value: Variant, parts: PackedStringArray, depth: int) -> bool:
-	if depth > MAX_DEPTH:
+	if depth >= MAX_DEPTH and typeof(value) in [TYPE_ARRAY, TYPE_DICTIONARY]:
 		return false
 	match typeof(value):
 		TYPE_NIL:
@@ -576,12 +576,13 @@ class _Cursor:
 
 
 static func _read_value(cursor: _Cursor, depth: int) -> Variant:
-	if depth > MAX_DEPTH:
-		return cursor.fail("JSON nests deeper than %d levels" % MAX_DEPTH)
 	cursor.skip_space()
 	if cursor.at >= cursor.size:
 		return cursor.fail("unexpected end of JSON")
 	var code := cursor.text.unicode_at(cursor.at)
+	# At most MAX_DEPTH nested arrays and objects, as in C# and Python: the root container is level 1.
+	if (code == 0x7B or code == 0x5B) and depth >= MAX_DEPTH:
+		return cursor.fail("JSON nests deeper than %d levels" % MAX_DEPTH)
 	if code == 0x7B:
 		return _read_object(cursor, depth)
 	if code == 0x5B:
