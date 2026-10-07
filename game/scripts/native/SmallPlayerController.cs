@@ -40,6 +40,14 @@ public partial class SmallPlayerController : CharacterBody3D
     [Export] public float MaxCreationSpeedMps { get; set; } = 1.2f;
     public const float MaxCreationAccelerationMps2 = 4.0f;
     public const float MaxGlideLimitMps = 7.0f;
+    /// <summary>
+    /// The largest gap under the capsule that the visual body closes. Jolt rests a CharacterBody3D's capsule 0 to
+    /// 1.5 mm above its support (measured: 0.50 to 1.44 mm on the floor, the rug and the book), because its motion cast finds
+    /// contact only to a fraction of the motion; on a 10 cm figure that reads as hovering.
+    /// </summary>
+    public const float MaxSeatGapM = 0.0025f;
+    /// <summary>The gap under the capsule that the visual body closed on the last physics tick (0 in the air).</summary>
+    public float SeatGapM { get; private set; }
 
     public float GravityMps2 { get; private set; } = 3.5f;
     /// <summary>The world's fall limit (thick floaty air falls slower); the body's own TerminalFallMps still caps it.</summary>
@@ -139,11 +147,14 @@ public partial class SmallPlayerController : CharacterBody3D
         VisualRoot = new Node3D { Name = "OriginalPrototypeBody" };
         AddChild(VisualRoot);
         BodyMaterial = new StandardMaterial3D { AlbedoColor = AppearanceColor, Roughness = 0.9f };
+        // The pill reaches down to the feet, where the collision capsule's lowest point is. It used to start 3 %
+        // of the body height up (3 mm on the 10 cm body, 7.2 mm on the old 0.24 m companion), so both avatars
+        // hovered over the rug in the look captures.
         AddMesh(VisualRoot, new CapsuleMesh
         {
-            Radius = BodyRadiusM * 0.82f, Height = BodyHeightM * 0.72f,
+            Radius = BodyRadiusM * 0.82f, Height = BodyHeightM * 0.75f,
             RadialSegments = 12, Rings = 4
-        }, new Vector3(0, BodyHeightM * 0.39f, 0), BodyMaterial);
+        }, new Vector3(0, BodyHeightM * 0.375f, 0), BodyMaterial);
         var face = new StandardMaterial3D { AlbedoColor = new Color("eed5a3"), Roughness = 1 };
         AddMesh(VisualRoot, new SphereMesh
         {
@@ -426,7 +437,35 @@ public partial class SmallPlayerController : CharacterBody3D
             HasSafePosition = true;
         }
         if (!GlobalPosition.IsFinite() || GlobalPosition.Y < _spawnPoint.Y - 12.0f) Recover();
+        SeatVisual();
         VisualRoot.Visible = !EyeCamera.Current;
+    }
+
+    /// <summary>
+    /// Seat the visual body on what the capsule stands on (see MaxSeatGapM). The physics body is left exactly where
+    /// Jolt put it, so steps, snapping and the jitter measurements are unchanged; only the visual closes the gap.
+    /// </summary>
+    private void SeatVisual()
+    {
+        var gap = 0.0f;
+        var normal = IsOnFloor() ? GetFloorNormal() : Vector3.Zero;
+        if (normal.Y >= Mathf.Cos(FloorMaxAngle))
+        {
+            // The capsule's nearest point to its support plane: the bottom sphere's centre, less a radius along the
+            // floor normal. A ray from just above it along the normal measures the gap exactly on flat ground.
+            var nearest = GlobalPosition + Vector3.Up * BodyRadiusM - normal * BodyRadiusM;
+            var query = PhysicsRayQueryParameters3D.Create(nearest + normal * 0.001f, nearest - normal * (MaxSeatGapM + 0.0005f), CollisionMask);
+            query.Exclude = new Array<Rid> { GetRid() };
+            var hit = GetWorld3D().DirectSpaceState.IntersectRay(query);
+            if (hit.Count > 0)
+            {
+                var along = (nearest - hit["position"].AsVector3()).Dot(normal);
+                // Farther than the largest resting gap is not a resting gap (an edge, a step): leave the visual alone.
+                if (along <= MaxSeatGapM) gap = Mathf.Clamp(along / normal.Y, 0.0f, MaxSeatGapM);
+            }
+        }
+        SeatGapM = gap;
+        VisualRoot.Position = Vector3.Down * gap;
     }
 
     protected bool HasSupportNear(Vector3 position, float maximumDrop = -1)

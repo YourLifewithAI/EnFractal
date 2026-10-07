@@ -79,6 +79,7 @@ public partial class SmallAvatarPhysicsTest : Node3D
             await TestDioramaCamera();
             await TestCompanion();
             await TestNavigation();
+            await TestGroundContact();
             var metrics = await RunJitterSuite(1.0f, new Vector3(0, 0, 30));
             CheckJitter(metrics);
             if (OS.GetCmdlineUserArgs().Contains("--jitter-spike"))
@@ -554,6 +555,75 @@ public partial class SmallAvatarPhysicsTest : Node3D
         Report(reported && !escaped && _companion.CurrentIntent == "come",
             $"an unreachable come reports blocked and never crosses the pen walls (blocked={reported}, escaped={escaped})");
         _companion.Stop();
+    }
+
+    /// <summary>
+    /// Look captures showed both avatars hovering over the rug. Measured cause: the visual pill started 3 % of the
+    /// body height above the feet (3 mm; 7.2 mm on the old 0.24 m companion), and Jolt rests the capsule 0 to 1.5 mm
+    /// above its support. For both bodies on the floor, the 6 mm rug and the 4 cm book top, after a teleport and after
+    /// a short drop: the collider's lowest point is the feet, and the visual's lowest point is within 1 mm of the
+    /// surface the ray finds under the body, never sunk into it.
+    /// </summary>
+    private async Task TestGroundContact()
+    {
+        _companion.Stop();
+        _player.SetControlInput(Vector2.Zero);
+        var spots = new (string Name, Vector3 Player, Vector3 Companion)[]
+        {
+            ("floor", new Vector3(-3.0f, 0, 4.0f), new Vector3(-2.8f, 0, 4.0f)),
+            ("6 mm rug", new Vector3(-0.2f, 0.006f, -2.2f), new Vector3(0.2f, 0.006f, -2.2f)),
+            ("4 cm book top", new Vector3(-0.05f, 0.04f, -1.4f), new Vector3(0.05f, 0.04f, -1.4f)),
+        };
+        foreach (var (name, playerSpot, companionSpot) in spots)
+            foreach (var drop in new[] { false, true })
+            {
+                if (drop)
+                {
+                    // As the room spawns them: 8 mm up, then a fall onto the surface.
+                    _player.GlobalPosition = playerSpot + Vector3.Up * 0.008f;
+                    _companion.GlobalPosition = companionSpot + Vector3.Up * 0.008f;
+                    _player.Velocity = Vector3.Zero;
+                    _companion.Velocity = Vector3.Zero;
+                }
+                else Check(_player.TryTeleportTo(playerSpot) && _companion.TryTeleportTo(companionSpot), $"both bodies stand on the {name}");
+                await Frames(45);
+                foreach (var body in new SmallPlayerController[] { _player, _companion })
+                {
+                    var (shapeBottom, meshBottom, contact) = GroundContact(body);
+                    var how = drop ? "after an 8 mm drop" : "after a teleport";
+                    var label = string.Create(CultureInfo.InvariantCulture,
+                        $"{body.Name} on the {name} {how}: capsule {(shapeBottom - contact) * 1000:0.00} mm above the surface, visual {(meshBottom - contact) * 1000:0.00} mm (seat {body.SeatGapM * 1000:0.00} mm)");
+                    Report(body.IsOnFloor() && Mathf.Abs(shapeBottom - body.GlobalPosition.Y) < 0.00001f &&
+                        shapeBottom - contact >= -0.0002f && shapeBottom - contact <= SmallPlayerController.MaxSeatGapM &&
+                        meshBottom - contact < 0.001f && meshBottom - contact > -0.0002f, label);
+                }
+            }
+        // In the air the visual stays on the body: no seat is applied off the ground.
+        _player.GlobalPosition += Vector3.Up * 0.03f;
+        await Frames(2);
+        Check(!_player.IsOnFloor() && _player.SeatGapM == 0 && _player.GetNode<Node3D>("OriginalPrototypeBody").Position == Vector3.Zero,
+            "in the air the visual body is not pulled down");
+        await Frames(30);
+        Check(_player.TryTeleportTo(new Vector3(-2, 0.003f, 3.2f)), "back to open floor after the contact fixture");
+        await Frames(10);
+    }
+
+    /// <summary>The collision capsule's lowest point, the visual meshes' lowest point (world AABB) and the surface a ray finds under the body.</summary>
+    private (float ShapeBottom, float MeshBottom, float Contact) GroundContact(SmallPlayerController body)
+    {
+        var shapeNode = body.GetNode<CollisionShape3D>("SmallBodyCollision");
+        var capsule = (CapsuleShape3D)shapeNode.Shape;
+        var shapeBottom = shapeNode.GlobalPosition.Y - capsule.Height * 0.5f;
+        var meshBottom = float.MaxValue;
+        foreach (var node in body.GetNode<Node3D>("OriginalPrototypeBody").FindChildren("*", "MeshInstance3D", true, false))
+        {
+            var mesh = (MeshInstance3D)node;
+            meshBottom = Mathf.Min(meshBottom, (mesh.GlobalTransform * mesh.GetAabb()).Position.Y);
+        }
+        var ray = PhysicsRayQueryParameters3D.Create(body.GlobalPosition + Vector3.Up * 0.05f, body.GlobalPosition + Vector3.Down * 0.1f, 1);
+        ray.Exclude = new Godot.Collections.Array<Rid> { body.GetRid() };
+        var hit = GetWorld3D().DirectSpaceState.IntersectRay(ray);
+        return (shapeBottom, meshBottom, hit.Count > 0 ? hit["position"].AsVector3().Y : float.NaN);
     }
 
     private static bool Overlaps(Vector3 position, Vector3 centre, float half) =>
