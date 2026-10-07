@@ -4,6 +4,7 @@ from __future__ import annotations
 import copy
 import dataclasses
 import json
+import re
 import shutil
 import tempfile
 from pathlib import Path
@@ -27,7 +28,7 @@ class FixCase(base.HostCase):
 
 
 class Receipts(FixCase):
-    policy = HostPolicy(max_durable_receipts=2, max_transient_receipts_per_principal=3, **FAST)
+    policy = HostPolicy(max_durable_receipts=2, player_receipt_reserve=0, max_transient_receipts_per_principal=3, **FAST)
 
     def lock(self, target, action_id):
         return self.send(command("protect.lock", {"targets": [target]}, action_id,
@@ -159,6 +160,22 @@ class Numbers(FixCase):
         self.assertNotIn("actual", result["error"])
         self.assertEqual(result["error"]["allowed"], 0)
 
+    def test_raw_requests_with_absurd_numbers_or_nesting_are_refused_not_raised(self):
+        message = command("goal.set", {"actor": "avatar:companion", "goal": "stay"}, "g-1")
+        text = json.dumps(message)
+        for raw in (text.replace('"version": 1', '"version": ' + "9" * 5000),  # past Python's int conversion limit
+                    text.replace('"version": 1', '"version": 1e400'),
+                    text.replace('"version": 1', '"version": NaN'),
+                    text.replace('"args": {', '"args": {"deep": ' + "[" * 100_000 + "]" * 100_000 + ", ")):
+            with self.subTest(raw=raw[:80]):
+                result = self.host.handle_bytes(COMPANION, raw.encode("utf-8"))
+                self.assertRefused(result, "request_invalid")
+                self.host.emitted.append(result)
+        from enfractal_companion import canonical
+        for raw in ('{"a": ' + "9" * 5000 + "}", "[" * 100_000 + "]" * 100_000):
+            with self.subTest(canonical=raw[:20]), self.assertRaises(canonical.CanonicalJsonError):
+                canonical.loads_strict(raw)
+
     def test_refuses_nesting_deeper_than_canonical_json_allows(self):
         deep: dict = {}
         node = deep
@@ -198,6 +215,50 @@ class Text(FixCase):
         self.assertEqual(hidden_characters(box["display_name"]), [])
         self.assertEqual(hidden_characters(observed["texts"][0]["text"], allow_newlines=True), [])
         self.assertTrue(observed["texts"][0]["text"].startswith("Welcome!"))
+
+    def test_refuses_and_strips_the_whole_special_purpose_plane(self):
+        # U+E0000 and U+E0002-U+E001F sit in the TAG block but are unassigned, so they are not category Cf;
+        # U+E0100 is a variation selector (Mn); U+E01F0 and U+EFFFD are unassigned. All render as nothing.
+        for code in (0xE0000, 0xE0002, 0xE001F, 0xE0041, 0xE007F, 0xE0100, 0xE01F0, 0xEFFFD):
+            with self.subTest(code=hex(code)):
+                result = self.send(command("goal.set", {"actor": "avatar:companion", "goal": "stay"}, f"g-{code}",
+                                           note="ok" + chr(code)))
+                self.assertRefused(result, "request_invalid", "$.note")
+                self.assertEqual(hidden_characters("a" + chr(code) + "b"), [f"U+{code:04X}"])
+        hidden = "".join(chr(c) for c in (0xE0000, 0xE0002, 0xE0100, 0xE01F0))
+        self.host.add_world_text("obj:box", "Sign" + hidden + "end")
+        self.host.rename_entity("obj:box", "Box" + hidden)
+        observed = self.send(query("observe", {"actor": "avatar:companion"}))["data"]
+        box = next(v for v in observed["visible"] if v["id"] == "obj:box")
+        self.assertEqual(box["display_name"], "Box")
+        self.assertEqual(observed["texts"][0]["text"], "Sign    end")
+
+    def test_a_trailing_newline_never_satisfies_an_anchored_pattern(self):
+        for message, path in ((command("goal.set", {"actor": "avatar:companion", "goal": "stay"}, "g-1", room_id="test_room\n"),
+                               "$.room_id"),
+                              (command("effect.stop", {"effect": "effect:0001\n"}, "s-1"), "$.args.effect"),
+                              (command("entity.grab", {"target": "obj:box\n"}, "g-2"), "$.args.target"),
+                              (command("goal.set", {"actor": "avatar:companion\n", "goal": "stay"}, "g-3"), "$.args.actor")):
+            with self.subTest(path=path):
+                result = self.send(message)
+                self.assertFalse(result["ok"], result)
+                self.assertIn(result["error"]["code"], ("request_invalid", "invalid_args"))
+                self.assertEqual(result["error"]["field_path"], path)
+        self.assertRefused(self.send(command("goal.set", {"actor": "avatar:companion", "goal": "stay"}, "g-4\n")),
+                           "action_id_invalid", "$.action_id")
+
+    def test_ecma_dollar_means_end_of_input_wherever_it_appears(self):
+        from enfractal_companion.contract import ecma_to_python
+        self.assertEqual(ecma_to_python("^a$"), r"^a\Z")
+        self.assertEqual(ecma_to_python("^(a|b$)|^c$"), r"^(a|b\Z)|^c\Z")
+        self.assertEqual(ecma_to_python("(?!.*(?:^|/)x(?:/|$))y$"), r"(?!.*(?:^|/)x(?:/|\Z))y\Z")
+        self.assertEqual(ecma_to_python(r"^[$]\$x$"), r"^[$]\$x\Z")
+        self.assertEqual(ecma_to_python(r"^[]$]+$"), r"^[]$]+\Z")
+        self.assertEqual(ecma_to_python(r"^[^\]$]$"), r"^[^\]$]\Z")
+        rel_path = contracts().common_schema["$defs"]["rel_path"]["pattern"]
+        self.assertIsNotNone(re.search(ecma_to_python(rel_path), "objects/box/asset.json"))
+        self.assertIsNone(re.search(ecma_to_python(rel_path), "objects/box/asset.json\n"))
+        self.assertIsNone(re.search(ecma_to_python(rel_path), "objects/../asset.json"))
 
     def test_refuses_look_alike_and_variant_authority_keys(self):
         for i, key in enumerate([chr(0xFF50) + "rincipal", "pr" + chr(0x0456) + "ncipal", "principal ", "on_behalf_of",
@@ -239,8 +300,9 @@ class Approvals(FixCase):
         transform = self.hold(command("entity.transform", {"target": "obj:book", "into": source}, "tf-1",
                                       expected_entities={"obj:book": 0}))
         self.assertIn('turn obj:book ("Book", revision 0) into "Storm glider"', transform["approval_needed"]["reason"])
-        self.host.player_command(command("entity.place", {"target": "obj:rug", "placement": {"position_m": [0.1, 0, 0.6]}},
-                                         "p-move"))
+        moved = self.send(command("entity.place", {"target": "obj:rug", "placement": {"position_m": [0.1, 0, 0.6]}},
+                                  "move-1"))
+        self.assertTrue(moved["ok"], moved)  # the companion's own change: the only kind its undo may step back over
         undo = self.hold(command("room.undo", {"to_revision": 0}, "undo-1", expected_revision=1))
         self.assertIn("from revision 1 to revision 0, changing 1 entities: obj:rug", undo["approval_needed"]["reason"])
 

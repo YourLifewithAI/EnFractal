@@ -54,6 +54,12 @@ def loads_strict(text: str):
         return json.loads(text, object_pairs_hook=unique_pairs, parse_constant=reject_constant, parse_float=finite_float)
     except json.JSONDecodeError as error:
         raise CanonicalJsonError(f"invalid JSON: {error}") from None
+    except CanonicalJsonError:
+        raise
+    except ValueError:  # an integer literal longer than Python converts (4,300 digits by default)
+        raise CanonicalJsonError("a number is too long to read") from None
+    except RecursionError:
+        raise CanonicalJsonError("the value nests too deeply to read") from None
 
 
 def normalize(value, depth: int = 0):

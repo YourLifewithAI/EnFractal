@@ -333,6 +333,41 @@ class ReviewFixes(unittest.IsolatedAsyncioTestCase):
         self.assertIn("action_id", tools["goal_set"].input_schema["required"])
 
     @harness_test()
+    async def test_refuses_unassigned_tag_and_special_plane_characters_before_sending(self, h):
+        for code in (0xE0000, 0xE0002, 0xE0100, 0xE01F0):
+            with self.subTest(code=hex(code)):
+                result = await h.call("goal_set", {"action_id": f"g-{code}", "goal": "stay", "note": "fine" + chr(code)})
+                self.assertRefused(result, "request_invalid", "$.note")
+        self.assertEqual(h.host.emitted, [])
+
+    @harness_test()
+    async def test_whole_number_floats_are_sent_as_the_integers_canonical_json_writes(self, h):
+        first = await h.call("protect_lock", {"action_id": "lock-1", "targets": ["obj:box"],
+                                              "expected_entities": {"obj:box": 0.0}})
+        self.assertTrue(first["ok"], first)
+        again = await h.call("protect_lock", {"action_id": "lock-1", "targets": ["obj:box"],
+                                              "expected_entities": {"obj:box": 0}})
+        self.assertTrue(again["replayed"], again)
+
+    @harness_test()
+    async def test_the_adapter_judges_integers_beyond_double_precision_as_the_game_does(self, h):
+        result = await h.call("protect_lock", {"action_id": "lock-1", "targets": ["obj:box"],
+                                               "expected_revision": 2 ** 60})
+        self.assertRefused(result, "request_invalid", "$.expected_revision")
+        self.assertEqual(h.host.emitted, [])
+
+    @harness_test()
+    async def test_a_stop_applies_whatever_expectations_come_with_it(self, h):
+        await h.call("goal_set", {"action_id": "g-1", "goal": "follow"})
+        # Straight to the adapter: values like these may not survive a client's JSON-RPC encoding.
+        stop = await h.adapter.call("goal_stop", {"expected_revision": 2 ** 70, "expected_entities": {"obj:box": 2 ** 70}})
+        self.assertTrue(stop["ok"], stop)
+        self.assertNotIn("avatar:companion", h.host.goals)
+        effects = await h.adapter.call("effect_stop", {"effect": "all", "expected_revision": float("nan")})
+        self.assertTrue(effects["ok"], effects)
+        self.assertEqual(contract_problems(stop) + contract_problems(effects), [])
+
+    @harness_test()
     async def test_an_explicit_preview_false_is_the_same_command(self, h):
         args = {"action_id": "lock-1", "targets": ["obj:box"], "expected_entities": {"obj:box": 0}}
         first = await h.call("protect_lock", args)

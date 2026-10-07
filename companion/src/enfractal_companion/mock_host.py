@@ -13,10 +13,12 @@ It loads a real room (`game/rooms/test_room` by default) through the room contra
   receipt ledger or a reused action_id, and the player's stop also stops the companion;
 - `expected_revision` and `expected_entities` are checked here, never by the sender;
 - goals, effects and grabs get transient receipts (bounded per principal, oldest dropped first);
-  everything else gets a durable receipt (at most 4,096 per room, like room state), and a
-  checkpoint compacts the durable ones, after which `receipt.lookup` answers `compacted: true`;
+  everything else gets a durable receipt (at most 4,096 per room, like room state, of which the
+  last 256 only the player's commands may use), and a checkpoint compacts the durable ones, after
+  which `receipt.lookup` answers `compacted: true`;
 - a companion perceives only what is in line of sight of its avatar (perception.py), and
-  `observe`, `entities.list`, `entity.inspect` and command targets all use that perception;
+  `observe`, `entities.list`, `entity.inspect`, the counts in `room.describe` and command targets
+  all use that perception;
 - commands in the policy's held set wait for the player: the host mints a 128-bit `request_id`, the
   player approves or denies through `player_decide` (the game UI, never the companion's
   connection), and an approved command commits under its original principal and action_id with
@@ -25,6 +27,8 @@ It loads a real room (`game/rooms/test_room` by default) through the room contra
 - protection is the player's: `protect.unlock` (every op in `$defs/player_only_ops`) is refused
   from companion principals, and no companion command (including `room.undo`) changes a protected
   entity or any protection state except adding a lock;
+- a companion's `room.undo` steps back only over revisions its own commands made: undoing the
+  player's changes is the player's alone;
 - unknown, removed, foreign and unperceived entity ids all fail with the same `target_not_found`;
 - world text is emitted only in contract fields and sanitised (textsafety.py);
 - every result is validated before it leaves; one that would not validate becomes `internal_error`.
@@ -116,6 +120,9 @@ class HostPolicy:
     history_depth: int = 64
     max_checkpoints: int = 64  # room-state keeps at most 64
     max_durable_receipts: int = 4096  # per room, across principals, like room-state receipts
+    # The last slots of the ledger are the player's: a companion that fills the ledger can never block
+    # the player's own commands (a lock, above all) until a checkpoint compacts it.
+    player_receipt_reserve: int = 256
     max_transient_receipts_per_principal: int = 1024
     max_compacted_receipts: int = 16384
 
@@ -288,6 +295,7 @@ class MockHost:
         self.holding: dict[str, str] = {}
         self.checkpoints: list[dict] = []
         self.history: dict[int, dict] = {}
+        self.committed_by: dict[int, str] = {}  # revision -> the principal whose command made it
         self.buckets: dict[tuple[str, str], _Bucket] = {}
         self.last_seen: dict[str, dict[str, float]] = {}
         self._view: set[str] | None = None  # what the current requester may name; None means everything
@@ -466,7 +474,8 @@ class MockHost:
         """Parse strictly (no duplicate keys, NaN or overflow), then answer."""
         try:
             message = self.contracts.loads_strict(raw.decode("utf-8"))
-        except (UnicodeDecodeError, self.contracts.ContractError):
+        except (UnicodeDecodeError, self.contracts.ContractError, ValueError, RecursionError):
+            # ValueError: an integer literal longer than Python converts; RecursionError: absurd nesting.
             with self._lock:
                 return self._fail(principal, None, HostError(
                     "request_invalid", "The request is not valid JSON (duplicate keys and non-finite numbers are refused)."))
@@ -621,8 +630,10 @@ class MockHost:
         if moves_revision:
             self.revision = new_revision
             self.history[new_revision] = self._snapshot()
+            self.committed_by[new_revision] = principal
             for old in [r for r in self.history if r < new_revision - self.policy.history_depth]:
                 del self.history[old]
+                self.committed_by.pop(old, None)
         result = self._base(principal, message)
         result.update(outcome)
         result["transient"] = not durable
@@ -632,8 +643,10 @@ class MockHost:
         return result
 
     def _check_receipt_room(self, principal: str) -> None:
-        count = len(self.receipts)
-        if count >= self.policy.max_durable_receipts:
+        limit = self.policy.max_durable_receipts
+        if not principal.startswith("player:"):
+            limit = max(0, limit - self.policy.player_receipt_reserve)
+        if len(self.receipts) >= limit:
             raise HostError("receipt_limit", "The receipt ledger is full. A checkpoint compacts it.", retryable=True)
 
     def _store_receipt(self, key: tuple[str, str], fingerprint: str, result: dict) -> None:
@@ -1221,6 +1234,12 @@ class MockHost:
                     raise HostError("target_protected",
                                     "Undoing to that revision would change something protected. Only the player can do that.",
                                     field_path="$.args.to_revision")
+            # Undoing the player's edits is never the companion's (docs/companion/LIVE-VOICE.md, "never
+            # exposed"): a companion's undo may only step back over revisions its own commands made.
+            if any(self.committed_by.get(r) != principal for r in range(to_revision + 1, self.revision + 1)):
+                raise HostError("permission_denied",
+                                "A companion can undo only its own changes. Undoing the player's changes is the player's.",
+                                field_path="$.args.to_revision")
         if not apply:
             return {"affected": [entity_id for entity_id, _state in changes][:256]}
         snapshot = self.history[to_revision]
@@ -1249,9 +1268,11 @@ class MockHost:
         args = message["args"]
         result = self._base(principal, message)
         if op == "room.describe":
+            # Counts cover what the requester perceives: a count of everything would tell a
+            # companion how many things are hidden from it.
             counts = {"objects": 0, "creations": 0, "shell_parts": 0}
             for entity in self.entities.values():
-                if entity.removed:
+                if self._entity(entity.id) is None:
                     continue
                 if entity.kind == "object":
                     counts["objects"] += 1

@@ -9,7 +9,9 @@ from __future__ import annotations
 import dataclasses
 
 import test_host_boundary as base
-from support import COMPANION, NO_HOLDS, PLAYER, command, example, query, retarget, GARAGE_TO_TEST_ROOM
+import test_host_review_fixes as fixes
+import test_perception as perception_tests
+from support import COMPANION, NO_HOLDS, PLAYER, HostPolicy, command, example, query, retarget, GARAGE_TO_TEST_ROOM
 
 
 class NoHoldsCase(base.HostCase):
@@ -157,6 +159,139 @@ class NothingHeld(NoHoldsCase):
     def test_style_set_still_refuses_an_unpinnable_preset(self):
         result = self.send(command("style.set", {"preset_id": "storybook_painterly", "preset_version": 1}, "style-1"))
         self.assertRefused(result, "invalid_args", "$.args.preset_version")
+
+
+class UndoIsOnlyForTheCompanionsOwnChanges(NoHoldsCase):
+    """Review finding 1 and LIVE-VOICE's "never exposed" list: with nothing held, a companion's room.undo
+    may neither touch protection nor step back over the player's changes."""
+
+    def place_as_player(self, target, position, action_id):
+        result = self.host.player_command(command("entity.place", {"target": target, "placement": {"position_m": position}},
+                                                  action_id))
+        self.assertTrue(result["ok"], result)
+
+    def test_companion_undo_cannot_undo_the_players_changes(self):
+        self.place_as_player("obj:book", [0.3, 0, 0.3], "p-move")
+        before = self.world()
+        result = self.send(command("room.undo", {"to_revision": 0}, "undo-1", expected_revision=1))
+        self.assertRefused(result, "permission_denied", "$.args.to_revision")
+        self.assertEqual(self.world(), before)
+        self.assertEqual(self.host.entities["obj:book"].position, [0.3, 0, 0.3])
+
+    def test_companion_undo_cannot_take_away_the_players_creation(self):
+        spinner = example("command_creation_place_spinner")["args"]["source"]
+        placed = self.host.player_command(command("creation.place", {"source": spinner,
+                                                                     "placement": {"position_m": [0.5, 0, 0.5]}}, "p-place"))
+        self.send(command("entity.place", {"target": "obj:book", "placement": {"position_m": [0.3, 0, 0.3]}}, "move-1"))
+        result = self.send(command("room.undo", {"to_revision": 0}, "undo-1", expected_revision=2))
+        self.assertRefused(result, "permission_denied")
+        self.assertFalse(self.host.entities[placed["created"][0]].removed)
+
+    def test_companion_undo_steps_back_over_its_own_changes_only(self):
+        self.place_as_player("obj:rug", [0.1, 0, 0.6], "p-move")
+        self.send(command("entity.place", {"target": "obj:book", "placement": {"position_m": [0.3, 0, 0.3]}}, "move-1"))
+        self.send(command("entity.place", {"target": "obj:box", "placement": {"position_m": [1.2, 0, 0.3]}}, "move-2"))
+        self.assertRefused(self.send(command("room.undo", {"to_revision": 0}, "undo-0", expected_revision=3)),
+                           "permission_denied")
+        result = self.send(command("room.undo", {"to_revision": 1}, "undo-1", expected_revision=3))
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["affected"], ["obj:book", "obj:box"])
+        self.assertEqual(self.host.entities["obj:rug"].position, [0.1, 0, 0.6])
+
+    def test_companion_undo_cannot_remove_even_its_own_lock(self):
+        locked = self.send(command("protect.lock", {"targets": ["obj:box"]}, "lock-1", expected_entities={"obj:box": 0}))
+        self.assertTrue(locked["ok"])
+        result = self.send(command("room.undo", {"to_revision": 0}, "undo-1", expected_revision=1))
+        self.assertRefused(result, "target_protected")
+        self.assertTrue(self.host.entities["obj:box"].protected)
+
+    def test_the_players_own_undo_is_unrestricted(self):
+        self.send(command("protect.lock", {"targets": ["obj:box"]}, "lock-1", expected_entities={"obj:box": 0}))
+        self.place_as_player("obj:book", [0.3, 0, 0.3], "p-move")
+        result = self.host.player_command(command("room.undo", {"to_revision": 0}, "p-undo", expected_revision=2))
+        self.assertTrue(result["ok"], result)
+        self.assertFalse(self.host.entities["obj:box"].protected)
+
+
+class StopsAndTheLedgerWithNothingHeld(NoHoldsCase):
+    """Review findings 2 and 3 with nothing held: stops apply whatever the ledger and the rate limits say,
+    the player's stop reaches the companion, and the companion cannot spend the player's share of the ledger."""
+
+    policy = dataclasses.replace(NO_HOLDS, max_durable_receipts=4, player_receipt_reserve=2)
+
+    def lock(self, target, action_id, principal=COMPANION):
+        return self.host.handle(principal, command("protect.lock", {"targets": [target]}, action_id,
+                                                   expected_entities={target: self.host.entities[target].revision}))
+
+    def wind(self, action_id):
+        return self.send(command("effect.start", {"capability": "wind_field", "params": {"speed_mps": 5},
+                                                  "area": {"center_m": [0, 0.3, 0], "radius_m": 3}, "duration_s": 600},
+                                 action_id))
+
+    def test_the_companion_cannot_spend_the_players_share_of_the_ledger(self):
+        self.assertTrue(self.lock("obj:box", "lock-1")["ok"])
+        self.assertTrue(self.lock("obj:book", "lock-2")["ok"])
+        self.assertRefused(self.lock("obj:rug", "lock-3"), "receipt_limit")
+        self.assertTrue(self.lock("obj:rug", "p-lock-1", PLAYER)["ok"])  # the player's own lock still lands
+        self.assertTrue(self.lock("obj:doorstop", "p-lock-2", PLAYER)["ok"])
+        self.assertRefused(self.lock("obj:table", "p-lock-3", PLAYER), "receipt_limit")
+
+    def test_stops_apply_with_the_ledger_full_and_every_rate_bucket_empty(self):
+        self.assertTrue(self.wind("wind-1")["ok"])
+        self.send(command("goal.set", {"actor": "avatar:companion", "goal": "wander"}, "g-1"))
+        self.lock("obj:box", "lock-1")
+        self.lock("obj:book", "lock-2")
+        self.lock("obj:rug", "p-lock-1", PLAYER)
+        self.lock("obj:doorstop", "p-lock-2", PLAYER)
+        for i in range(40):  # empty the command buckets of both principals
+            self.send(command("goal.set", {"actor": "avatar:companion", "goal": "stay"}, f"flood-{i}"))
+            self.host.player_command(command("goal.set", {"actor": "avatar:player", "goal": "stay"}, f"p-flood-{i}"))
+        self.assertRefused(self.send(command("goal.set", {"actor": "avatar:companion", "goal": "stay"}, "late")),
+                           "rate_limited")
+        self.assertRefused(self.lock("obj:table", "p-lock-3", PLAYER), "rate_limited")
+        stop = self.host.player_command(command("goal.stop", {}, "p-stop"))
+        self.assertTrue(stop["ok"], stop)
+        self.assertNotIn("avatar:companion", self.host.goals)
+        self.assertTrue(self.host.entities["effect:0001"].removed)
+        for message in (command("goal.stop", {}, "stop-1"), command("effect.stop", {"effect": "all"}, "stop-2"),
+                        command("goal.stop", {}, "lock-1"), command("effect.stop", {"effect": "all"}, "stop-2")):
+            with self.subTest(action_id=message["action_id"]):
+                self.assertTrue(self.send(message)["ok"])
+
+    def test_the_players_stop_naming_the_companion_stops_its_goals_and_effects(self):
+        self.wind("wind-1")
+        self.send(command("goal.set", {"actor": "avatar:companion", "goal": "wander"}, "g-1"))
+        stop = self.host.player_command(command("goal.stop", {"actor": "avatar:companion"}, "p-stop"))
+        self.assertEqual(stop["affected"], ["avatar:companion", "effect:0001"])
+        self.assertTrue(self.host.entities["effect:0001"].removed)
+        self.assertNotIn("avatar:companion", self.host.goals)
+
+    def test_the_players_stop_of_their_own_avatar_leaves_the_companion_alone(self):
+        self.wind("wind-1")
+        stop = self.host.player_command(command("goal.stop", {"actor": "avatar:player"}, "p-stop"))
+        self.assertEqual(stop["affected"], ["avatar:player"])
+        self.assertFalse(self.host.entities["effect:0001"].removed)
+
+
+# Every other host suite whose protections do not depend on holding, again with nothing held. (The
+# approval suites need holds by definition; the style suite builds its own hosts.)
+class _NothingHeld:
+    def tearDown(self):
+        super().tearDown()
+        self.assertEqual(self.host.approvals, {}, "nothing may be held with an empty held set")
+
+
+def _without_holds(suite):
+    policy = dataclasses.replace(suite.policy or HostPolicy(), companion_approval_ops=frozenset())
+    return type(f"{suite.__name__}WithNothingHeld", (_NothingHeld, suite), {"policy": policy, "__module__": __name__})
+
+
+for _suite in (base.RateLimits, base.ContractShape, fixes.Receipts, fixes.Stops, fixes.Checkpoints, fixes.Locks,
+               fixes.Previews, fixes.Numbers, fixes.Text, fixes.Budgets, perception_tests.LineOfSight,
+               perception_tests.EdgeCasePolicies, perception_tests.EverySurface):
+    _variant = _without_holds(_suite)
+    globals()[_variant.__name__] = _variant
+del _suite, _variant
 
 
 if __name__ == "__main__":

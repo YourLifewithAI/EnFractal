@@ -128,16 +128,48 @@ def value_problems(value: Any, path: list | None = None) -> list[tuple[list, str
     return found
 
 
+def ecma_to_python(pattern: str) -> str:
+    """Translate an ECMA-262 pattern (no flags) so Python's re matches the same strings.
+
+    Without the m flag, ECMA-262's '$' matches only at the very end of the input; Python's '$' also
+    matches just before a final newline. Every '$' that is neither escaped nor inside a character
+    class therefore becomes '\\Z', wherever it appears (end of pattern, inside a group, in a
+    lookahead). The contract's patterns use no other construct whose meaning differs.
+    """
+    out: list[str] = []
+    in_class = False
+    i = 0
+    while i < len(pattern):
+        ch = pattern[i]
+        if ch == "\\" and i + 1 < len(pattern):
+            out.append(pattern[i:i + 2])
+            i += 2
+            continue
+        if in_class:
+            if ch == "]":
+                in_class = False
+        elif ch == "[":
+            in_class = True
+            # A ']' right after '[' or '[^' is a literal member of the class, not its end.
+            prefix = "[^" if pattern.startswith("[^", i) else "["
+            out.append(prefix)
+            i += len(prefix)
+            if i < len(pattern) and pattern[i] == "]":
+                out.append("]")
+                i += 1
+            continue
+        elif ch == "$":
+            out.append(r"\Z")
+            i += 1
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
 @functools.lru_cache(maxsize=512)
 def _ecma_regex(pattern: str) -> re.Pattern:
-    # ECMA-262 without the m flag: '$' matches only at the end of the input. Python's '$' also
-    # matches just before a final newline, so a trailing unescaped '$' becomes '\Z'.
-    if pattern.endswith("$"):
-        body = pattern[:-1]
-        backslashes = len(body) - len(body.rstrip("\\"))
-        if backslashes % 2 == 0:
-            pattern = body + r"\Z"
-    return re.compile(pattern)
+    return re.compile(ecma_to_python(pattern))
 
 
 def _ecma_pattern(validator, pattern, instance, schema):
@@ -412,9 +444,9 @@ def _merge_all_of(schema: dict) -> dict:
 
 
 _OP_DESCRIPTIONS = {
-    "room.describe": "Describe the current room: name, revision, bounds, style and counts.",
-    "entities.list": "List entities in the room (paged). Filter by kind, category group, affordance, provenance or distance.",
-    "entity.inspect": "Inspect one entity by id: summary, parts and who protected it.",
+    "room.describe": "Describe the current room: name, revision, bounds, style and counts of what the companion can see.",
+    "entities.list": "List the entities the companion's avatar can see (paged). Filter by kind, category group, affordance, provenance or distance.",
+    "entity.inspect": "Inspect one entity the companion's avatar can see, by id: summary, parts and who protected it.",
     "capabilities.list": "List the effect capabilities the game supports and their parameter bounds.",
     "observe": "What the companion's own avatar can perceive within a radius: visible entities and words seen in the world.",
     "jobs.status": "Status of a long-running job by job_id.",
@@ -424,19 +456,19 @@ _OP_DESCRIPTIONS = {
     "entity.release": "Put down what the companion holds, optionally at a placement.",
     "entity.place": "Move an entity to a placement.",
     "entity.set_part": "Set a part of an entity (a door, a lid) to a value from 0 to 1.",
-    "entity.remove": "Remove an entity from the room. Destructive: name expected_entities or expected_revision. Needs the player's approval.",
-    "entity.transform": "Turn an entity into a creation while keeping its identity. Destructive: name expected_entities or expected_revision. Needs the player's approval.",
+    "entity.remove": "Remove an entity from the room. Destructive: name expected_entities or expected_revision. The game may hold it for the player's approval.",
+    "entity.transform": "Turn an entity into a creation while keeping its identity. Destructive: name expected_entities or expected_revision. The game may hold it for the player's approval.",
     "creation.place": "Place a new creation from an enfractal.creation manifest.",
-    "creation.revise": "Change a creation's manifest or placement. Destructive: name expected_entities or expected_revision. Needs the player's approval.",
+    "creation.revise": "Change a creation's manifest or placement. Destructive: name expected_entities or expected_revision. The game may hold it for the player's approval.",
     "creation.activate": "Trigger a creation's interact behaviour.",
     "protect.lock": "Protect entities so they resist changes. Only the player can unlock them. Destructive: name expected_entities or expected_revision.",
     "goal.set": "Give the companion's own avatar a goal: follow, stay, come, look_at, point_at, go_to, fetch or wander. look_at, point_at and go_to need a target or position_m; fetch needs a target.",
     "goal.stop": "Stop the companion's goals and effects. Always permitted.",
     "effect.start": "Start a bounded effect from a supported capability in an area for a duration.",
     "effect.stop": "Stop one of your effects, or 'all' of them. Always permitted.",
-    "style.set": "Switch the room to another style preset version. Needs the player's approval.",
+    "style.set": "Switch the room to another style preset version. The game may hold it for the player's approval.",
     "room.checkpoint": "Record a checkpoint of the room.",
-    "room.undo": "Undo the room to an earlier revision. Requires expected_revision. Needs the player's approval.",
+    "room.undo": "Undo your own recent changes, back to an earlier revision. Requires expected_revision. Refused if it would undo the player's changes or change anything protected. The game may hold it for the player's approval.",
 }
 
 

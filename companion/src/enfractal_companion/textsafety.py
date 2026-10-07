@@ -4,12 +4,15 @@ Names, categories, labels and sign text come from captures and players, so they 
 things. The contract forbids control, line-separator, zero-width and bidirectional-override
 characters in single-line `display_text`, and allows only newline and tab in multi-line
 `long_text`. That list misses other characters that render as nothing: every Unicode format
-character (category Cf, which includes the TAG block U+E0000-U+E007F that can spell a hidden
-message, the Arabic letter mark U+061C, the soft hyphen U+00AD and the interlinear annotation
-marks U+FFF9-U+FFFB), the Hangul fillers and the variation selectors. The host replaces all of
-these with a space and truncates, so an emitted string can never fake a new line, carry invisible
-text or reorder what a reader sees, whichever view of the result (escaped text or structured
-JSON) a client hands its model.
+character (category Cf, which includes the Arabic letter mark U+061C, the soft hyphen U+00AD and
+the interlinear annotation marks U+FFF9-U+FFFB), the Hangul fillers (U+3164 and its kin), the
+variation selectors, and the whole Supplementary Special-purpose Plane U+E0000-U+EFFFF: the TAG
+block U+E0000-U+E007F that can spell a hidden message, including its unassigned code points
+U+E0000 and U+E0002-U+E001F, and the variation selector supplement. No visible text lives in that
+plane. The host replaces all of these with a space and truncates, so an emitted string can never
+fake a new line, carry invisible text or reorder what a reader sees, whichever view of the result
+(escaped text or structured JSON) a client hands its model. Requests that carry them are refused
+(contract.value_problems).
 
 Code points are written as numbers on purpose: the source file stays plain ASCII and no invisible
 character can hide in it.
@@ -22,9 +25,10 @@ import unicodedata
 # Letters and symbols outside the format category that still render as nothing: Hangul fillers
 # (U+115F, U+1160, U+3164, U+FFA0), the braille blank (U+2800) and the combining grapheme joiner (U+034F).
 _BLANK_CODE_POINTS = frozenset({0x115F, 0x1160, 0x3164, 0xFFA0, 0x2800, 0x034F})
-# Variation selectors, including the supplement used to smuggle bytes after an emoji, and the
-# Mongolian free variation selectors.
-_SELECTOR_RANGES = ((0xFE00, 0xFE0F), (0xE0100, 0xE01EF), (0x180B, 0x180F))
+# Variation selectors (used to smuggle bytes after an emoji) and the Mongolian free variation
+# selectors, plus the whole Supplementary Special-purpose Plane: the TAG block (assigned or not)
+# and the variation selector supplement live there, and nothing in it is visible text.
+_INVISIBLE_RANGES = ((0xFE00, 0xFE0F), (0x180B, 0x180F), (0xE0000, 0xEFFFF))
 # Controls, format characters, surrogates, line and paragraph separators.
 _HIDDEN_CATEGORIES = frozenset({"Cc", "Cf", "Cs", "Zl", "Zp"})
 _NEWLINE_AND_TAB = frozenset({10, 9})
@@ -33,7 +37,7 @@ _NEWLINE_AND_TAB = frozenset({10, 9})
 def is_hidden(ch: str) -> bool:
     """True for a character a reader cannot see that could still change meaning or layout."""
     code = ord(ch)
-    if code in _BLANK_CODE_POINTS or any(low <= code <= high for low, high in _SELECTOR_RANGES):
+    if code in _BLANK_CODE_POINTS or any(low <= code <= high for low, high in _INVISIBLE_RANGES):
         return True
     return unicodedata.category(ch) in _HIDDEN_CATEGORIES
 

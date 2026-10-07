@@ -7,11 +7,14 @@ player's position included, leaks through any route.
 from __future__ import annotations
 
 import dataclasses
+import json
 import unittest
 
-from support import COMPANION, PLAYER, HostPolicy, command, contract_problems, contracts, new_host, query
+from support import COMPANION, PLAYER, HostPolicy, command, contract_problems, contracts, example, new_host, query
 
 from enfractal_companion import perception
+
+SPINNER = example("command_creation_place_spinner")["args"]["source"]
 
 BEHIND_THE_TABLE = [-0.9, 0.0, -1.4]  # the 75 cm table stands between the companion and the rest of the room
 BEHIND_THE_BOX = [1.6, 0.0, 0.2]  # the box hides the book, the doorstop and the player
@@ -107,6 +110,90 @@ class LineOfSight(PerceptionCase):
         self.assertIn("avatar:companion", items)
 
 
+class EverySurface(PerceptionCase):
+    """Founder decision 1 holds for every companion query and every command, not only observe."""
+
+    policy = HostPolicy(command_rate_per_s=1000.0, command_burst=1000, query_rate_per_s=1000.0, query_burst=1000)
+    HIDDEN = ("obj:book", "obj:doorstop", "avatar:player")  # behind the box, seen from BEHIND_THE_BOX
+
+    def test_room_describe_counts_only_what_is_in_sight(self):
+        everything = self.host.player_command(query("room.describe", {}))["data"]["counts"]
+        self.hide_behind(BEHIND_THE_BOX)
+        seen = self.send(query("room.describe", {}))["data"]["counts"]
+        listed = self.send(query("entities.list", {"filter": {"kind": "object"}}, "q-2"))["data"]["items"]
+        self.assertEqual(seen["objects"], len(listed))
+        self.assertLess(seen["objects"], everything["objects"])
+
+    def test_no_query_result_mentions_anything_out_of_sight(self):
+        self.host.add_world_text("obj:book", "a sign nobody can see from here")
+        self.hide_behind(BEHIND_THE_BOX)
+        for hidden in self.HIDDEN:
+            self.assertNotIn(hidden, self.host.perceived(COMPANION))
+        queries = [query("room.describe", {}), query("entities.list", {}),
+                   query("entities.list", {"filter": {"near": {"center_m": [1.0, 0, 0.5], "radius_m": 20}}}),
+                   query("capabilities.list", {}), query("observe", {"actor": "avatar:companion", "radius_m": 20}),
+                   query("jobs.status", {"job_id": "job_1"}), query("receipt.lookup", {"action_id": "a-1"}),
+                   query("approval.status", {"request_id": "0" * 32})]
+        queries += [query("entity.inspect", {"target": hidden}) for hidden in self.HIDDEN]
+        self.assertEqual({q["op"] for q in queries}, set(contracts().query_ops))
+        for i, message in enumerate(queries):
+            message["query_id"] = f"q-{i}"
+            with self.subTest(op=message["op"], args=message["args"]):
+                published = json.dumps(self.send(message))
+                for hidden in self.HIDDEN:
+                    self.assertNotIn(hidden, published)
+                self.assertNotIn("nobody can see", published)
+
+    def test_no_command_can_name_anything_out_of_sight(self):
+        placed = self.host.player_command(command("creation.place", {"source": SPINNER,
+                                                                     "placement": {"position_m": [0.5, 0, 0.5]}}, "p-place"))
+        creation = placed["created"][0]
+        self.hide_behind(BEHIND_THE_TABLE)  # from here only the table is in sight
+        for hidden in self.HIDDEN + ("obj:box", creation):
+            self.assertNotIn(hidden, self.host.perceived(COMPANION))
+        into = {"source": dict(SPINNER, name="Glider")}
+        glow = {"capability": "glow", "params": {"intensity": 1}, "area": {"center_m": [0, 0.3, 0], "radius_m": 1},
+                "duration_s": 5}
+        attempts = [
+            command("entity.grab", {"target": "obj:book"}, "c-1"),
+            command("entity.place", {"target": "obj:book", "placement": {"position_m": [1, 0, 1]}}, "c-2"),
+            command("entity.place", {"target": "obj:box", "placement": {"position_m": [1, 0, 1], "on": "obj:doorstop"}}, "c-3"),
+            command("entity.set_part", {"target": "obj:book", "part_id": "cover", "value": 1}, "c-4"),
+            command("entity.remove", {"target": "obj:book"}, "c-5", expected_entities={"obj:book": 0}),
+            command("entity.transform", {"target": "obj:book", "into": into}, "c-6", expected_entities={"obj:book": 0}),
+            command("creation.revise", {"target": creation, "placement": {"position_m": [1, 0, 1]}}, "c-7",
+                    expected_entities={creation: 1}),
+            command("creation.activate", {"target": creation}, "c-8"),
+            command("protect.lock", {"targets": ["obj:doorstop"]}, "c-9", expected_entities={"obj:doorstop": 0}),
+            command("goal.set", {"actor": "avatar:companion", "goal": "fetch", "target": "obj:book"}, "c-10"),
+            command("goal.set", {"actor": "avatar:companion", "goal": "look_at", "target": "avatar:player"}, "c-11"),
+            command("effect.start", dict(glow, targets=["avatar:player"]), "c-12"),
+            command("goal.set", {"actor": "avatar:companion", "goal": "stay"}, "c-13", expected_entities={"obj:book": 0}),
+        ]
+        for message in attempts:
+            with self.subTest(op=message["op"], action_id=message["action_id"]):
+                before = (self.host.revision, dict(self.host.goals))
+                result = self.send(message)
+                self.assertEqual(result["error"]["code"], "target_not_found", result)
+                self.assertEqual(result["error"]["message"], "No entity with that id is in this room.")
+                self.assertEqual((self.host.revision, dict(self.host.goals)), before)
+        self.assertEqual(self.host.approvals, {})
+
+    def test_the_companion_never_acts_or_perceives_through_the_players_avatar(self):
+        attempts = [query("observe", {"actor": "avatar:player"}),
+                    command("entity.grab", {"target": "obj:book", "actor": "avatar:player"}, "a-1"),
+                    command("entity.release", {"actor": "avatar:player"}, "a-2"),
+                    command("goal.set", {"actor": "avatar:player", "goal": "stay"}, "a-3"),
+                    command("goal.stop", {"actor": "avatar:player"}, "a-4")]
+        with_actor = {spec.op for spec in contracts().tool_specs() if spec.actor_field}
+        self.assertEqual({m["op"] for m in attempts}, with_actor)
+        for message in attempts:
+            with self.subTest(op=message["op"]):
+                result = self.send(message)
+                self.assertEqual(result["error"]["code"], "actor_denied", result)
+                self.assertNotIn("data", result)
+
+
 class EdgeCasePolicies(PerceptionCase):
     """The three open founder questions, each behind a policy flag. Defaults are the recommendations."""
 
@@ -137,6 +224,13 @@ class EdgeCasePolicies(PerceptionCase):
         self.host.clock.advance(31)
         late = self.send(command("goal.set", {"actor": "avatar:companion", "goal": "fetch", "target": "obj:book"}, "f-2"))
         self.assertEqual(late["error"]["code"], "target_not_found")
+
+    def test_the_policy_radius_caps_whatever_radius_observe_asks_for(self):
+        self.host.policy = dataclasses.replace(self.host.policy, observe_max_radius_m=0.5)
+        self.host.move_avatar("avatar:companion", [-1.9, 0, 1.4])  # nothing within 0.5 m of this corner
+        for args in ({"actor": "avatar:companion"}, {"actor": "avatar:companion", "radius_m": 20}):
+            with self.subTest(args=args):
+                self.assertEqual(self.send(query("observe", args))["data"]["visible"], [])
 
     def test_commands_can_be_allowed_room_wide(self):
         self.host.policy = dataclasses.replace(self.host.policy, companion_targets_need_perception=False)
