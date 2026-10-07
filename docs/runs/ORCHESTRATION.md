@@ -78,5 +78,6 @@ Add one row per agent run.
 | 2026-10-06 | P review fix round (1 blocker, 6 majors, minors) | Opus | 704k | Clean; every finding fixed with a test |
 | 2026-10-07 | Independent review of C | Opus | 363k | 0 blockers, 2 majors, 10 minors; 4 of 5 mutations survived; caught the integrator's inverted reading of the scale |
 | 2026-10-07 | A: align the mock with the real host | Opus | 357k | Clean; 492 tests; 8 change requests for P and 2 for the contracts |
+| 2026-10-07 | Independent review of L | Opus | 398k | 0 blockers, 8 majors (7 about rooms other than the test room, 1 latent crash), 7 minors; 5 of 5 mutations survived; clean worktrees |
 
 The early runs were all on Opus, with long prompts and mutation sweeps. Use them as the baseline when trying Sonnet on the task types above.

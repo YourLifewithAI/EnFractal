@@ -53,7 +53,23 @@ Evidence on `run1/integration` at `72e9015`, from the second Windows machine (RT
   - reframe the companion review camera for the 10 cm body.
 - **Reviews:**
   - **Lane C was reviewed on 7 October** (Opus): no blockers, two majors and ten minors. The majors: the scale factor is recorded but never applied, and two guidance rules (the viewer's left and right; "covered" needing different spots) are unprotected by tests. 4 of 5 mutations survived. A C fix round is under way.
-  - Lane L's whole-lane review is under way.
+  - **Lane L was reviewed on 7 October** (Opus).
+    - **What holds:** no blockers. Look 274/274, the solar model, sun only through the west window (proved in pixels), readable moonlit nights, lamps at dusk, and frame time inside budget (p95 at or under 12.2 ms).
+    - **Eight majors** (evidence in the session scratchpad `review-l\`). Seven of them bite when rooms other than the test room arrive in Run 2:
+      - M1: a captured room is black by day. The contract's `garage_example` at noon reads 0.06 brightness against 0.58. The sun needs a `sun` hint, a window needs a real hole, and `RoomBuilder` never cuts `shell.openings`.
+      - M2: seen from inside, the window is a dark slate square, even with the sun through it.
+      - M3: a third window's sky fill gets no shadow and shines through the wall.
+      - M4: single-sided walls (likely in photo captures) let the sun through.
+      - M5: latitude, bearing and solar noon live in the shared preset instead of a room `site` key.
+      - M6: the `x_look_*` keys (already tracked).
+      - M7: all 5 mutations survived, two of them breaking "the clock follows real time".
+      - M8: a latent crash when a viewport that used the grain and vignette effect is freed.
+    - **Seven minors,** among them:
+      - depth-of-field focus snaps instead of easing;
+      - captured mesh assets get no painterly treatment;
+      - round 2's captures show the 0.24 m companion;
+      - 59 MB of review PNGs in Git.
+    - **The L fix round is for the next session,** after the founder's look verdict. Its report would land after this session's handoff.
 - **Lane C: fit the room's scale to the tape.** The founder's tape measurements (below) show the reconstruction runs large. Roomscan should take known lengths as an input, fit one uniform scale before the room box is fitted, and report the residuals.
 - The reviewer's temporary worktree `C:\dev\EnFractal-run1\review-play` holds only three untracked scratch probes from the Lane P review, whose findings are all fixed and tested. The founder approved removing it and removes it by hand: the automatic safety check blocks agents from deleting it. Its `.cache\dotnet` and `.cache\godot` are junctions into the integrator's checkout, so unlink those first.
 
