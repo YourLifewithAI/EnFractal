@@ -1,4 +1,6 @@
 using Godot;
+using System.Globalization;
+using EnFractal.Native.Look;
 
 namespace EnFractal.Native;
 
@@ -47,6 +49,76 @@ public partial class RoomHud : CanvasLayer
     /// <summary>The wanted distance from the player; walls and the ceiling may hold the camera closer.</summary>
     public float DioramaDistanceM { get; private set; } = DioramaDefaultDistanceM;
     public Camera3D DioramaCamera => _diorama;
+
+    // Playtest clock keys (founder, second playtest: the clock follows real time, so a 3 a.m. playtest only showed
+    // night). T steps the hour through the day's own light; Shift+T steps the date through the solstices and equinoxes.
+    // Each steps round and ends back on the real clock (the real calendar for Shift+T).
+    /// <summary>The steps of the T key. Their hours come from the sun's real rise and set on the day shown (TimeStopHour).</summary>
+    public static readonly string[] TimeStopNames = { "dawn", "morning", "noon", "late afternoon", "sunset", "dusk", "night" };
+    /// <summary>The steps of the Shift+T key, by day of the year (a 365-day year). Named for the astronomy, so they hold in either hemisphere.</summary>
+    public static readonly (string Name, int DayOfYear)[] SeasonStops =
+    {
+        ("March equinox", 79), ("June solstice", 172), ("September equinox", 265), ("December solstice", 355),
+    };
+    /// <summary>The T step now (an index into TimeStopNames), or -1 while the hour follows the real clock.</summary>
+    public int TimeStop { get; private set; } = -1;
+    /// <summary>The Shift+T step now (an index into SeasonStops), or -1 while the date follows the real calendar.</summary>
+    public int SeasonStop { get; private set; } = -1;
+    private double _clockTimer;
+    private Label _clock = null!;
+
+    /// <summary>
+    /// The hour (local standard time) of a T step on a day of the year. Dawn is a quarter of an hour before the sun's
+    /// centre crosses the horizon, sunset a quarter of an hour before it sets (the golden hour), dusk half an hour
+    /// after (the sun six degrees down, where the moon takes over), night two and a half hours after sunset.
+    /// </summary>
+    public static float TimeStopHour(StylePreset preset, int stop, int dayOfYear)
+    {
+        var (rise, set) = LookClock.SunTimes(preset.Tuning.Sun, dayOfYear);
+        var hour = stop switch
+        {
+            0 => rise - 0.25f, 1 => rise + 2.5f, 2 => (rise + set) * 0.5f, 3 => set - 2.0f, 4 => set - 0.25f, 5 => set + 0.5f, _ => set + 2.5f,
+        };
+        return Mathf.PosMod(hour, 24f);
+    }
+
+    /// <summary>T: the next time of day, then back to the real clock after night. Does nothing in a room without a look.</summary>
+    public void StepTimeOfDay()
+    {
+        if (Look == null) return;
+        TimeStop = TimeStop + 1 >= TimeStopNames.Length ? -1 : TimeStop + 1;
+        ApplyClock();
+    }
+
+    /// <summary>Shift+T: the next solstice or equinox, then back to the real calendar after the December solstice.</summary>
+    public void StepSeason()
+    {
+        if (Look == null) return;
+        SeasonStop = SeasonStop + 1 >= SeasonStops.Length ? -1 : SeasonStop + 1;
+        ApplyClock();
+    }
+
+    /// <summary>Pin the look to what the two steps ask, each part falling back to the real clock or calendar; release the pin when both do.</summary>
+    private void ApplyClock()
+    {
+        if (Look == null) return;
+        _clockTimer = 0;
+        if (TimeStop < 0 && SeasonStop < 0) { Look.ReleaseClock(); return; }
+        var real = LookClock.Now(Look.Preset);
+        var day = SeasonStop >= 0 ? SeasonStops[SeasonStop].DayOfYear : real.DayOfYear;
+        Look.SetClock(TimeStop >= 0 ? TimeStopHour(Look.Preset, TimeStop, day) : real.Hour, day);
+    }
+
+    /// <summary>The clock line of the top panel: the hour and where it comes from, then the season and date likewise.</summary>
+    public string ClockText()
+    {
+        if (Look?.Moment is not { } moment) return "";
+        var minutes = Mathf.PosMod(Mathf.RoundToInt(moment.Hour * 60f), 24 * 60);
+        var hour = $"{minutes / 60:00}:{minutes % 60:00} " + (TimeStop >= 0 ? TimeStopNames[TimeStop] + " (T)" : "real clock (T)");
+        var date = new System.DateTime(2026, 1, 1).AddDays(moment.DayOfYear - 1).ToString("d MMM", CultureInfo.InvariantCulture);
+        return $"{hour}  ·  {moment.Season}, {date}, " + (SeasonStop >= 0 ? SeasonStops[SeasonStop].Name + " (Shift+T)" : "real date (Shift+T)");
+    }
+
     private Node3D _dioramaPivot = null!;
     private SpringArm3D _dioramaArm = null!;
     private Camera3D _diorama = null!;
@@ -75,6 +147,7 @@ public partial class RoomHud : CanvasLayer
         var column = new VBoxContainer(); top.AddChild(column);
         column.AddChild(new Label { Text = RoomTitle });
         _state = new Label(); column.AddChild(_state);
+        _clock = new Label { Visible = false }; column.AddChild(_clock);
         var actions = new HBoxContainer(); column.AddChild(actions);
         AddButton(actions, "1 Follow", () => Goal("follow"));
         AddButton(actions, "2 Wait", () => Goal("stay"));
@@ -85,12 +158,13 @@ public partial class RoomHud : CanvasLayer
         var footer = new PanelContainer { Theme = theme };
         AddChild(footer);
         footer.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.BottomWide);
-        footer.OffsetLeft = 18; footer.OffsetRight = -18; footer.OffsetTop = -140; footer.OffsetBottom = -18;
+        footer.OffsetLeft = 18; footer.OffsetRight = -18; footer.OffsetTop = -170; footer.OffsetBottom = -18;
         var help = new VBoxContainer(); footer.AddChild(help);
         help.AddChild(new Label { Text = "WASD move · Shift run · Space jump · R recover · G gravity · click to look · Esc release" });
-        help.AddChild(new Label { Text = "F1 eye · F2 shoulder · F3 diorama: mouse orbits, wheel zooms, WASD follows the view · F4 isometric: Q/E turn · L lamps · C customize" });
+        help.AddChild(new Label { Text = "F1 eye · F2 shoulder · F3 diorama: mouse orbits, wheel zooms, WASD follows the view · F4 isometric: Q/E turn the view" });
+        help.AddChild(new Label { Text = "T time of day · Shift+T season (each steps round to the real clock) · L lamps · C customize" });
         _notice = new Label { Text = _noticeText }; help.AddChild(_notice);
-        _customization = new PanelContainer { Position = new Vector2(18, 164), Theme = theme, Visible = false };
+        _customization = new PanelContainer { Position = new Vector2(18, 190), Theme = theme, Visible = false };
         AddChild(_customization);
         var options = new VBoxContainer(); _customization.AddChild(options);
         options.AddChild(new Label { Text = "YOUR TWO AVATARS" });
@@ -124,7 +198,9 @@ public partial class RoomHud : CanvasLayer
         _arm.AddChild(_shoulder);
         // The diorama rig is not a child of the body, so it orbits independently of the body's facing. The arm's
         // sphere keeps the lens out of walls, furniture and the ceiling; only world geometry (layer 1) stops it.
-        _dioramaPivot = new Node3D { Name = "DioramaPivot" };
+        // The rig is moved every rendered frame, not every physics tick, so it must not be interpolated; it follows the
+        // player's interpolated position instead (PlaceDioramaRig). Without physics interpolation the two are the same.
+        _dioramaPivot = new Node3D { Name = "DioramaPivot", PhysicsInterpolationMode = PhysicsInterpolationModeEnum.Off };
         Player.GetParent().AddChild(_dioramaPivot);
         _dioramaArm = new SpringArm3D
         {
@@ -189,12 +265,15 @@ public partial class RoomHud : CanvasLayer
     /// </summary>
     private void PlaceDioramaRig(bool snap, float delta = 0)
     {
-        var centre = Player.GlobalPosition + Vector3.Up * (Player.BodyHeightM * 0.5f);
+        // Where the bodies are drawn this frame: the interpolated position when physics interpolation is on, else the physics one.
+        var playerAt = Player.GetGlobalTransformInterpolated().Origin;
+        var centre = playerAt + Vector3.Up * (Player.BodyHeightM * 0.5f);
         if (Companion != null)
         {
-            var apart = Companion.GlobalPosition.DistanceTo(Player.GlobalPosition);
+            var companionAt = Companion.GetGlobalTransformInterpolated().Origin;
+            var apart = companionAt.DistanceTo(playerAt);
             var share = 0.5f * (1f - Mathf.SmoothStep(0.7f * FrameCompanionWithinM, FrameCompanionWithinM, apart));
-            centre = centre.Lerp(Companion.GlobalPosition + Vector3.Up * (Companion.BodyHeightM * 0.5f), share);
+            centre = centre.Lerp(companionAt + Vector3.Up * (Companion.BodyHeightM * 0.5f), share);
         }
         var weight = snap ? 1.0f : 1.0f - Mathf.Exp(-12.0f * delta);
         var position = _dioramaPivot.GlobalPosition.Lerp(centre, weight);
@@ -210,6 +289,11 @@ public partial class RoomHud : CanvasLayer
         _arm.Rotation = new Vector3(Mathf.Clamp(Player.EyeCamera.Rotation.X - 0.18f, -1.1f, 0.8f), 0, 0);
         _state.Text = $"{Player.BodyHeightM * 100:0} cm player  ·  gravity {Player.WorldPhysicsId} (G)  ·  {Companion.CompanionName}: {Companion.CurrentIntent}" + (Companion.GoalBlocked ? " · path blocked" : "");
         _notice.Text = _noticeText;
+        var clock = ClockText();
+        _clock.Visible = clock.Length > 0;
+        _clock.Text = clock;
+        // With the date pinned and the hour left on the real clock, the pin follows real time as the look itself would.
+        if (Look != null && TimeStop < 0 && SeasonStop >= 0 && (_clockTimer += delta) > LookDirector.ClockUpdateSeconds) ApplyClock();
     }
 
     public override void _UnhandledInput(InputEvent input)
@@ -231,6 +315,9 @@ public partial class RoomHud : CanvasLayer
                 case Key.F3: SetViewMode(2); break;
                 case Key.F4: SetViewMode(3); break;
                 case Key.L when Look != null: Look.SetLamps(!Look.LampsOn); break;
+                case Key.T when key.ShiftPressed: StepSeason(); break;
+                case Key.T: StepTimeOfDay(); break;
+                // Q and E belong to the view: the invention workshop that also bound them is retired (CommandHost).
                 case Key.Q when ViewMode == 3: TurnIso(-1); break;
                 case Key.E when ViewMode == 3: TurnIso(1); break;
                 // Companion keys are goal commands from the player, on the same path as the companion's own.
