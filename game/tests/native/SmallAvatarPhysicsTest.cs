@@ -48,7 +48,17 @@ public partial class SmallAvatarPhysicsTest : Node3D
             Check(_player.IsOnFloor() && Mathf.Abs(_player.GlobalPosition.Y) < 0.004f, "small capsule rests on actual floor");
             Check(_player.WorldPhysicsId == "room_tuned" && Mathf.IsEqualApprox(_player.GravityMps2, 3.5f), "body starts with the tuned room gravity profile");
             Check(!_companion.ConfigureIdentity("replacement"), "identity cannot reset after scene entry");
-            Check(Mathf.Abs(_companion.BodyHeightM - 0.24f) < 0.00001f, "companion keeps its own 0.24 m profile");
+            // Founder decision, 6 October: the companion shrinks to match the player, but keeps its own profile object.
+            var companionProfile = WorldScaleProfile.Companion;
+            Check(Mathf.Abs(_companion.BodyHeightM - 0.10f) < 0.00001f && Mathf.Abs(_companion.BodyRadiusM - 0.02f) < 0.00001f &&
+                Mathf.Abs(_companion.EyeCamera.Position.Y - 0.087f) < 0.00001f && Mathf.Abs(_companion.ReachM - 0.15f) < 0.00001f,
+                "the companion is a 10 cm body like the player's: radius 2 cm, eye 8.7 cm, reach 15 cm");
+            Check(companionProfile.IsValid && !ReferenceEquals(companionProfile, WorldScaleProfile.SmallPlayer),
+                "the companion keeps a profile object of its own, separate from the player's");
+            Check(Mathf.IsEqualApprox(_companion.StepHeightM, _player.StepHeightM) && Mathf.IsEqualApprox(_companion.FloorSnapM, _player.FloorSnapM) &&
+                Mathf.IsEqualApprox(_companion.JumpApexM, _player.JumpApexM) && Mathf.IsEqualApprox(_companion.FloorSnapLength, _player.FloorSnapLength),
+                "the companion steps, snaps and jumps like the player");
+            Check(_companion.RunSpeedMps >= 1.2f * _player.RunSpeedMps, $"the companion's run outpaces the player's so follow can catch up ({_companion.RunSpeedMps:0.00} against {_player.RunSpeedMps:0.00} m/s)");
             var visualFits = true;
             foreach (var child in _companion.GetNode<Node3D>("OriginalPrototypeBody").GetChildren())
             {
@@ -341,21 +351,21 @@ public partial class SmallAvatarPhysicsTest : Node3D
         {
             await Frames(1);
             (along, lateral) = Offset(Vector3.Forward);
-            if (along < -0.2f && Mathf.Abs(lateral) < 0.15f) behind++;
+            if (along < -0.08f && Mathf.Abs(lateral) < 0.06f) behind++;
         }
         (along, lateral) = Offset(Vector3.Forward);
-        Report(behind == 0 && lateral * side > 0.25f && along > -0.2f, $"follow walks beside the player, not behind (behind frames={behind}, along={along:0.000}, lateral={lateral:0.000})");
+        Report(behind == 0 && lateral * side > 0.10f && along > -0.08f, $"follow walks beside the player, not behind (behind frames={behind}, along={along:0.000}, lateral={lateral:0.000})");
         // Turning round and walking back: it keeps its side instead of swinging through behind the player.
         var crossed = 0;
         _player.Rotation = new Vector3(0, Mathf.Pi, 0);
         for (var i = 0; i < 120; i++)
         {
             await Frames(1);
-            if (Offset(Vector3.Forward).Lateral * side < 0.10f) crossed++;
+            if (Offset(Vector3.Forward).Lateral * side < 0.04f) crossed++;
         }
         _player.SetControlInput(Vector2.Zero);
         (along, lateral) = Offset(Vector3.Back);
-        Report(crossed == 0 && along > -0.25f, $"after the player turns back, follow stays on its side and alongside (crossing frames={crossed}, along={along:0.000})");
+        Report(crossed == 0 && along > -0.10f, $"after the player turns back, follow stays on its side and alongside (crossing frames={crossed}, along={along:0.000})");
         // Settling: it comes to rest smoothly, without oscillating back and forth.
         var reversals = 0;
         var previous = Vector3.Zero;
@@ -373,8 +383,9 @@ public partial class SmallAvatarPhysicsTest : Node3D
         _player.Rotation = Vector3.Zero;
         _companion.Come();
         await Frames(80);
-        Check(_companion.CurrentIntent == "stay" && PlanarDistance(_companion.GlobalPosition, _player.GlobalPosition) < 0.39f,
-            "come arrives near player then stays");
+        var cameGap = PlanarDistance(_companion.GlobalPosition, _player.GlobalPosition);
+        Report(_companion.CurrentIntent == "stay" && cameGap < CompanionAvatar.ComeArrivalM + 0.04f,
+            $"come arrives near the player then stays (gap={cameGap:0.000} m)");
         _companion.Follow();
         await Frames(5);
         _companion.Stop();
@@ -382,7 +393,7 @@ public partial class SmallAvatarPhysicsTest : Node3D
         await Frames(35);
         Check(PlanarDistance(_companion.GlobalPosition, start) < 0.005f && _companion.CurrentIntent == "stop",
             "stop removes ongoing navigation immediately");
-        Check(_companion.TryTeleportTo(_player.GlobalPosition + Vector3.Right * 0.15f), "stop fixture places companion within yielding distance");
+        Check(_companion.TryTeleportTo(_player.GlobalPosition + Vector3.Right * (CompanionAvatar.YieldM - 0.02f)), "stop fixture places companion within yielding distance");
         _companion.Stop();
         start = _companion.GlobalPosition;
         await Frames(35);
@@ -423,7 +434,7 @@ public partial class SmallAvatarPhysicsTest : Node3D
         Check(_companion.CompanionId == "test_companion", "all commands preserve identity");
 
         Check(_player.TryTeleportTo(new Vector3(2, 0.003f, -4.5f)), "low-passage destination admits player outside the roof");
-        Check(_companion.TryTeleportTo(new Vector3(-1, 0.01f, -4.5f)), "0.26 m passage admits the 0.24 m companion body");
+        Check(_companion.TryTeleportTo(new Vector3(-1, 0.01f, -4.5f)), "an 11 cm passage admits the 10 cm companion body");
         await Frames(5);
         _companion.Come();
         blocked = false;
@@ -444,7 +455,8 @@ public partial class SmallAvatarPhysicsTest : Node3D
         }
         var runningGap = PlanarDistance(_player.Position, _companion.Position);
         _player.SetControlInput(Vector2.Zero);
-        Report(maximumGap < 1.2f && runningGap < 0.75f,
+        // It starts 0.83 m behind: the gap must never grow past that, and it ends in its band beside the player.
+        Report(maximumGap < 0.9f && runningGap < CompanionAvatar.FollowFarM,
             $"companion catches up during sustained player running instead of falling farther behind (max gap={maximumGap:0.00}, final gap={runningGap:0.00})");
         _companion.Stop();
     }
@@ -529,7 +541,7 @@ public partial class SmallAvatarPhysicsTest : Node3D
         revision = _navigation.Revision;
         for (var i = 0; i < 120 && _navigation.Revision == revision; i++) await Frames(1);
         Check(_companion.TryTeleportTo(pen + new Vector3(0, 0.01f, 0)), "companion inside the closed pen");
-        Check(!_navigation.FindRoute(_companion.GlobalPosition, _player.GlobalPosition, 0.37f).Reaches, "the navigation finds no way out of the closed pen");
+        Check(!_navigation.FindRoute(_companion.GlobalPosition, _player.GlobalPosition, CompanionAvatar.ComeArrivalM + 0.05f).Reaches, "the navigation finds no way out of the closed pen");
         _companion.Come();
         reported = false;
         var escaped = false;
@@ -856,7 +868,7 @@ public partial class SmallAvatarPhysicsTest : Node3D
         Box(new Vector3(0, 0.14f, 1.2f), new Vector3(0.8f, 0.04f, 0.7f));             // deck, 12 cm clearance
         Box(new Vector3(0, 0.09f, -2.8f), new Vector3(0.8f, 0.02f, 0.5f));            // roof, 8 cm clearance
         Box(new Vector3(12, 0, 0), new Vector3(8, 0.1f, 8), Mathf.DegToRad(30));
-        Box(new Vector3(0, 0.27f, -4.5f), new Vector3(3, 0.02f, 0.7f));               // companion's 0.26 m passage
+        Box(new Vector3(0, 0.12f, -4.5f), new Vector3(3, 0.02f, 0.7f));               // companion's 11 cm passage: no room for a 2 cm step
     }
 
     private void Box(Vector3 position, Vector3 size, float slope = 0)
