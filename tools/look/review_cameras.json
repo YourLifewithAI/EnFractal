@@ -7,6 +7,7 @@
   "clock": {
     "hour": 17.0,
     "date": "2026-04-15",
+    "lamps": "on",
     "note": "Review captures pin the hour and date so time of day and season do not drift between rounds. 17:00 on 15 April (standard time, 30 degrees north): the sun stands 18 degrees up in the west, low enough to be golden and high enough to come through the west window (its sill is 0.5 m up) onto both avatars at the spawns, which the earlier 16:30 on 6 October (sun 14 degrees up, 256 degrees) never did. Spring, so the vibrant palette is what the frames show. Rounds before the fix round of 7 October used 16:30 on 6 October."
   },
   "cameras": [
@@ -33,10 +34,10 @@
     {
       "id": "companion",
       "label": "Companion",
-      "purpose": "In front of the two 10 cm avatars, at their head height and about 0.4 m away, looking back at them (they face north; the camera looks south). Judges both characters in one frame, their contact shadows, the west window's sun on them and the rug and doorstop up close. Reframed in the 7 October fix round: the old camera was placed for a 0.24 m companion and showed two specks.",
-      "position_m": [0.18, 0.1, 0.2],
-      "look_at_m": [0.225, 0.065, 0.6],
-      "fov_deg": 52,
+      "purpose": "In front of the two 10 cm avatars, at their head height, a little to their right and 0.4 to 0.7 m away, looking back at them across the book (a near blur in the corner) (they face north; the camera looks south). Judges both characters in one frame, their contact shadows, the west window's sun on them and the rug and doorstop up close. Reframed in the 7 October fix round: the old camera was placed for a 0.24 m companion and showed two specks.",
+      "position_m": [0.62, 0.095, 0.2],
+      "look_at_m": [0.2, 0.07, 0.6],
+      "fov_deg": 36,
       "focus_m": [0.225, 0.06, 0.6],
       "hide_player_body": false
     },
@@ -84,9 +85,9 @@
       "id": "window_view",
       "label": "Window view",
       "purpose": "7 October direction (golden window light, creamy bokeh) and review M2: from the floor by the east wall looking up at the west window with the two avatars crisp in the foreground. The pane must show the sky of the hour (it was a dark slate), the window must glow and light the room gold, and the bright window and lamp must melt into creamy bokeh behind the figures.",
-      "position_m": [1.5, 0.14, 0.95],
-      "look_at_m": [-1.7, 0.85, 0.15],
-      "fov_deg": 58,
+      "position_m": [1.75, 0.13, 1.2],
+      "look_at_m": [-1.6, 0.9, 0.2],
+      "fov_deg": 55,
       "focus_m": [0.22, 0.06, 0.6],
       "hide_player_body": false
     },

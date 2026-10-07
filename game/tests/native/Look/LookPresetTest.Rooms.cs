@@ -348,7 +348,7 @@ public partial class LookPresetTest
         var blurred = LookPostEffect.FocusColor(constants, terracotta, 1f);
         Check(Chroma(inFocus).R > Chroma(terracotta).R && Chroma(blurred).R < Chroma(terracotta).R && Mathf.Abs(ColorGrade.Luma(inFocus) - ColorGrade.Luma(terracotta)) < 0.001f,
             $"in focus a colour is lifted, out of focus drawn back, and its brightness is kept (red over grey {Chroma(terracotta).R:0.000} to {Chroma(inFocus).R:0.000} in focus, {Chroma(blurred).R:0.000} out)");
-        var lamp = new Color(2.5f, 2.2f, 1.6f);
+        var lamp = new Color(3.2f, 2.9f, 2.1f); // a lit bulb: emission well above white
         var highlight = LookPostEffect.FocusColor(constants, lamp, 1f);
         var dim = LookPostEffect.FocusColor(constants, new Color(0.3f, 0.3f, 0.3f), 1f);
         Check(ColorGrade.Luma(highlight) > 1.4f * ColorGrade.Luma(lamp) && ColorGrade.Luma(dim) <= 0.301f && ColorGrade.Luma(LookPostEffect.FocusColor(constants, lamp, 0f)) <= ColorGrade.Luma(lamp) * 1.2f,

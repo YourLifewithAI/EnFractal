@@ -43,7 +43,10 @@ public sealed record SsaoTuning(float Power, float Detail, float Horizon, float 
 public sealed record GlowTuning(float Strength, string BlendMode, float HdrThreshold, IReadOnlyList<float> Levels);
 
 /// <summary>
-/// VoxelGI: resolution, margin, biases and when to use two bounces. The whole shell is baked as a closed interior.
+/// VoxelGI: resolution, margin, biases and when to use two bounces. The whole shell is baked as a closed interior. MarginM
+/// is how far the volume reaches beyond the room's bounds: just enough for the shell's inner face. A margin that takes in
+/// the whole slab takes in its outer face too, which the sun lights, and VoxelGI's cones carry that light through the wall
+/// into the room (measured: a closed room brightened by 0.1 to 0.44 in luma when the sun was switched on, with no way in).
 /// EnvironmentAmbientScale is how much of the time keys' ambient the environment keeps where VoxelGI does not reach.
 /// </summary>
 public sealed record GiTuning(int Subdiv, float MarginM, float Bias, float NormalBias, float TwoBouncesAbove, float EnvironmentAmbientScale);

@@ -133,17 +133,20 @@ public partial class LookCaptureHarness
     {
         var resolution = new Vector2I(960, 540);
         var results = new List<Dictionary<string, object?>>();
-        var fixtures = new List<(string Label, string Directory, double Hour, int Day, Vector3 Camera, Vector3 Target, string Note)>
+        // Each case is a moment the sun reaches (or should be held back from) the floor: the review moment, 17:00 on 15 April
+        // (the sun 18 degrees up in the west), or noon in July.
+        var fixtures = new List<(string Label, string Directory, double Hour, int Day, string Note)>
         {
-            ("test_room", RoomWorld.DefaultRoom, 12, 196, new Vector3(-1.84f, 2.26f, 1.36f), new Vector3(0.15f, 0.05f, 0.25f), "the shipped room at noon in July, from the ceiling corner (the reference the review compared a captured room with)"),
-            ("window_no_sun_hint", LookFixtureRooms.WindowWithoutSunHint(), 12, 196, new Vector3(-1.84f, 2.26f, 1.36f), new Vector3(0.15f, 0.05f, 0.25f), "the test room with its sun hint taken away: a window is still a way in for the sun (M1)"),
-            ("captured_like", LookFixtureRooms.CapturedLike(), 12, 196, new Vector3(-1.84f, 2.26f, 1.36f), new Vector3(0.15f, 0.05f, 0.25f), "no sun hint, the window only an opening in a solid wall: a captured room's shape (M1 needs the builder to cut the opening too)"),
-            ("single_sided_wall", LookFixtureRooms.SingleSidedWestWall(), 16.5, 105, new Vector3(1.8f, 2.0f, 1.2f), new Vector3(-1.0f, 0.1f, 0.0f), "the west wall one single-sided quad and no window, the sun outside at 16:30 on 15 April: it must stay out (M4)"),
-            ("three_windows", LookFixtureRooms.ThreeWindows(), 12, 196, new Vector3(-1.84f, 2.26f, 1.36f), new Vector3(0.15f, 0.05f, 0.25f), "three windows against a budget of three shadowed lights (M3)"),
+            ("test_room", RoomWorld.DefaultRoom, 17, 105, "the shipped room at the review moment: the sun through the west window onto the rug"),
+            ("test_room_noon", RoomWorld.DefaultRoom, 12, 196, "the shipped room at noon in July, the sun nearly overhead: no direct sun can reach the floor, so every bit of gain is light that got through the shell"),
+            ("window_no_sun_hint", LookFixtureRooms.WindowWithoutSunHint(), 17, 105, "the test room with its sun hint taken away: a window is still a way in for the sun (M1)"),
+            ("captured_like", LookFixtureRooms.CapturedLike(), 17, 105, "no sun hint and the window only an opening in a solid wall, a captured room's shape: with no hole in the wall the sun stays out (M1 needs the builder to cut the opening too)"),
+            ("single_sided_wall", LookFixtureRooms.SingleSidedWestWall(), 17, 105, "the west wall one single-sided quad and no window, the sun outside: it must stay out (M4)"),
+            ("three_windows", LookFixtureRooms.ThreeWindows(), 17, 105, "three windows against a budget of three shadowed lights (M3)"),
         };
         var garage = Arg("garage", "");
         if (garage.Length > 0)
-            fixtures.Add(("garage_example", garage, 12, 196, new Vector3(-2.6f, 2.0f, 2.3f), new Vector3(0f, 0.6f, 0f), "the contract's captured-room example at noon in July (review M1: 0.06 against 0.58)"));
+            fixtures.Add(("garage_example", garage, 12, 196, "the contract's captured-room example at noon in July (review M1: 0.06 against 0.58)"));
         foreach (var f in fixtures)
         {
             var world = await LoadWorld(f.Directory);
@@ -151,42 +154,69 @@ public partial class LookCaptureHarness
             SetClock(f.Hour, f.Day);
             BuildTarget(resolution);
             for (var i = 0; i < 20; i++) await NextFrame();
-            var image = await Shot(f.Camera, f.Target, 65f, f.Target);
-            entry["mean_luma"] = Math.Round(MeanLuma(image), 4);
-            entry["lights"] = Lights(world);
-            // The sun's own share of the frame: the same view with the sun off.
+            var bounds = world.Room.Bounds;
+            var centre = bounds.GetCenter();
+            // Straight down on the floor from just under the ceiling, the whole floor in frame.
+            var height = bounds.End.Y - 0.12f;
+            var half = Mathf.Max(bounds.Size.Z, bounds.Size.X * 9f / 16f) * 1.05f * 0.5f;
+            var fov = Mathf.RadToDeg(2f * Mathf.Atan(half / height));
+            var floorFocus = new Vector3(centre.X, 0f, centre.Z);
             var key = (Light3D)_look!.Get("Key").AsGodotObject();
-            var wasVisible = key.Visible;
+            var sunWasVisible = key.Visible;
+            key.Visible = sunWasVisible;
+            var on = await Shot(new Vector3(centre.X, height, centre.Z), floorFocus, fov, floorFocus, 40);
+            var space = _world.GetWorld3D().DirectSpaceState;
+            var toSun = key.GlobalBasis.Z.Normalized();
+            var excluded = new Godot.Collections.Array<Rid>();
+            foreach (var body in world.Built.GetNode("Objects").GetChildren().OfType<CollisionObject3D>()) excluded.Add(body.GetRid());
+            excluded.Add(world.Player.GetRid());
+            excluded.Add(world.Companion.GetRid());
+            var open = new List<Vector2>();
+            var blocked = new List<Vector2>();
+            for (var x = bounds.Position.X + 0.1f; x < bounds.End.X - 0.1f; x += 0.1f)
+                for (var z = bounds.Position.Z + 0.1f; z < bounds.End.Z - 0.1f; z += 0.1f)
+                {
+                    var point = new Vector3(x, 0.002f, z);
+                    var query = PhysicsRayQueryParameters3D.Create(point, point + toSun * 20f);
+                    query.Exclude = excluded;
+                    var hit = space.IntersectRay(query);
+                    var screen = _camera.UnprojectPosition(point);
+                    if (screen.X < 8 || screen.Y < 8 || screen.X > resolution.X - 8 || screen.Y > resolution.Y - 8) continue;
+                    if (hit.Count == 0) open.Add(screen);
+                    else if (hit["collider"].AsGodotObject() is Node node && node.HasMeta("surface_role")) blocked.Add(screen);
+                }
             key.Visible = false;
             for (var i = 0; i < 30; i++) await NextFrame();
-            var withoutSun = Grab();
-            key.Visible = wasVisible;
-            entry["mean_luma_without_sun"] = Math.Round(MeanLuma(withoutSun), 4);
-            entry["sun_share_of_frame"] = Math.Round(MeanLuma(image) - MeanLuma(withoutSun), 4);
-            // The sun on the floor: floor points whose line to the sun is open (by physics) against how much brighter the sun makes them.
-            await NextFrame();
-            if (key.Visible)
+            var off = Grab();
+            key.Visible = sunWasVisible;
+            double Patch(Image image, Vector2 at)
             {
-                var toSun = key.GlobalBasis.Z.Normalized();
-                var space = _world.GetWorld3D().DirectSpaceState;
-                var bounds = world.Room.Bounds;
-                var floorOpen = 0;
-                var floorTotal = 0;
-                for (var x = bounds.Position.X + 0.1f; x < bounds.End.X - 0.1f; x += 0.2f)
-                    for (var z = bounds.Position.Z + 0.1f; z < bounds.End.Z - 0.1f; z += 0.2f)
-                    {
-                        floorTotal++;
-                        var hit = space.IntersectRay(PhysicsRayQueryParameters3D.Create(new Vector3(x, 0.01f, z), new Vector3(x, 0.01f, z) + toSun * 20f));
-                        if (hit.Count == 0) floorOpen++;
-                    }
-                entry["floor_points_with_open_line_to_sun"] = floorOpen;
-                entry["floor_points_total"] = floorTotal;
+                double sum = 0;
+                for (var y = -2; y <= 2; y++)
+                    for (var x = -2; x <= 2; x++)
+                        sum += Luma(image.GetPixel(Mathf.Clamp((int)at.X + x, 0, image.GetWidth() - 1), Mathf.Clamp((int)at.Y + y, 0, image.GetHeight() - 1)));
+                return sum / 25.0;
             }
-            image.SavePng(System.IO.Path.Combine(Arg("out", "."), $"probe_room_{f.Label}.png"));
+            double MedianGain(List<Vector2> points)
+            {
+                if (points.Count == 0) return 0;
+                var gains = points.Select(p => Patch(on, p) - Patch(off, p)).OrderBy(g => g).ToArray();
+                return gains[gains.Length / 2];
+            }
+            entry["moment"] = $"{f.Hour:0.##} h, day {f.Day}";
+            entry["sun_elevation_deg"] = Math.Round(Mathf.RadToDeg(Mathf.Asin(toSun.Y)), 1);
+            entry["mean_luma"] = Math.Round(MeanLuma(on), 4);
+            entry["mean_luma_without_sun"] = Math.Round(MeanLuma(off), 4);
+            entry["lights"] = Lights(world);
+            entry["floor_points_open_to_the_sun"] = open.Count;
+            entry["floor_points_behind_the_shell"] = blocked.Count;
+            entry["gain_where_the_sun_is_open"] = Math.Round(MedianGain(open), 4);
+            entry["gain_behind_the_shell"] = Math.Round(MedianGain(blocked), 4);
+            on.SavePng(System.IO.Path.Combine(Arg("out", "."), $"probe_room_{f.Label}.png"));
             FreeTarget();
             await UnloadWorld();
             results.Add(entry);
-            GD.Print($"LOOK_PROBE rooms {f.Label} mean_luma={entry["mean_luma"]} sun_share={entry["sun_share_of_frame"]}");
+            GD.Print($"LOOK_PROBE rooms {f.Label} mean_luma={entry["mean_luma"]} without_sun={entry["mean_luma_without_sun"]} open={open.Count} gain_open={entry["gain_where_the_sun_is_open"]} behind={blocked.Count} gain_behind={entry["gain_behind_the_shell"]}");
         }
         return results;
     }
@@ -329,36 +359,28 @@ public partial class LookCaptureHarness
     private async Task<List<Dictionary<string, object?>>> ProbeShimmer(string outDir)
     {
         await LoadWorld(RoomWorld.DefaultRoom);
-        var window = GetViewport();
         var results = new List<Dictionary<string, object?>>();
-        var configurations = new (string Label, Viewport.ScreenSpaceAAEnum Aa, bool Taa, Viewport.Msaa Msaa, double Glide)[]
-        {
-            ("no anti-aliasing", Viewport.ScreenSpaceAAEnum.Disabled, false, Viewport.Msaa.Disabled, 0.0006),
-            ("FXAA (the project's setting)", Viewport.ScreenSpaceAAEnum.Fxaa, false, Viewport.Msaa.Disabled, 0.0006),
-            ("TAA (the old setting)", Viewport.ScreenSpaceAAEnum.Disabled, true, Viewport.Msaa.Disabled, 0.0006),
-            ("MSAA 4x", Viewport.ScreenSpaceAAEnum.Disabled, false, Viewport.Msaa.Msaa4X, 0.0006),
-            ("FXAA, camera still (the noise floor)", Viewport.ScreenSpaceAAEnum.Fxaa, false, Viewport.Msaa.Disabled, 0.0),
-            ("FXAA, a faster glide (3 px a frame)", Viewport.ScreenSpaceAAEnum.Fxaa, false, Viewport.Msaa.Disabled, 0.0026),
-        };
-        SetClock(16.5, 279);
-        // The grain is fixed to the screen (so anti-aliasing keeps it) and the floor moves under it, so with the grain on a
-        // moving pattern never matches its last frame; the measurement is of the floor's own flicker, so the effect is off.
+        SetClock(17.0, 105);
+        // The grain is fixed to the screen (so anti-aliasing keeps it) and the floor moves under it; the measurement is of the
+        // floor's own flicker, so the effect is off.
         if (_look?.Get("Post").AsGodotObject() is CompositorEffect post) post.Enabled = false;
-        foreach (var (label, aa, taa, msaa, glide) in configurations)
+        const int poses = 60;
+        const int patch = 200;
+        var origin = new Vector3(-0.4f, 0.55f, 1.1f);
+        var focus = new Vector3(0f, 0.0f, 0.2f);
+
+        // One pass over the poses: a camera gliding sideways over the floor, the planks in the crisp band. Returns the luma of a
+        // patch (at the 1920 x 1080 scale) per pose; a supersampled pass is averaged down to that scale.
+        async Task<List<float[]>> Pass(Vector2I size, Viewport.ScreenSpaceAAEnum aa, bool taa, Viewport.Msaa msaa, double glide, int scale, string label)
         {
-            BuildTarget(new Vector2I(1920, 1080));
+            BuildTarget(size);
             _target!.ScreenSpaceAA = aa;
             _target.UseTaa = taa;
             _target.Msaa3D = msaa;
             for (var i = 0; i < 30; i++) await NextFrame();
-            // A camera gliding sideways over the floor at 0.6 mm a frame (a little under a pixel), the planks in the crisp band.
-            var origin = new Vector3(-0.4f, 0.55f, 1.1f);
-            var focus = new Vector3(0f, 0.0f, 0.2f);
             var frames = new List<float[]>();
-            var patch = 200;
             Vector2I? centre = null;
-            var steps = 90;
-            for (var step = 0; step < steps; step++)
+            for (var step = 0; step < poses; step++)
             {
                 _camera.GlobalPosition = origin + new Vector3((float)(glide * step), 0f, 0f);
                 _camera.LookAt(focus + new Vector3((float)(glide * step), 0f, 0f), Vector3.Up);
@@ -369,76 +391,83 @@ public partial class LookCaptureHarness
                 await NextFrame();
                 await NextFrame();
                 var image = Grab();
-                centre ??= new Vector2I((int)_camera.UnprojectPosition(focus).X, (int)_camera.UnprojectPosition(focus).Y);
-                if (step < 6) continue;
+                var projected = _camera.UnprojectPosition(focus);
+                centre ??= new Vector2I((int)(projected.X / scale), (int)(projected.Y / scale));
                 var data = new float[patch * patch];
                 for (var y = 0; y < patch; y++)
                     for (var x = 0; x < patch; x++)
-                        data[y * patch + x] = (float)Luma(image.GetPixel(Mathf.Clamp(centre.Value.X - patch / 2 + x, 0, image.GetWidth() - 1), Mathf.Clamp(centre.Value.Y - patch / 2 + y, 0, image.GetHeight() - 1)));
+                    {
+                        double sum = 0;
+                        for (var sy = 0; sy < scale; sy++)
+                            for (var sx = 0; sx < scale; sx++)
+                                sum += Luma(image.GetPixel(Mathf.Clamp((centre.Value.X - patch / 2 + x) * scale + sx, 0, image.GetWidth() - 1), Mathf.Clamp((centre.Value.Y - patch / 2 + y) * scale + sy, 0, image.GetHeight() - 1)));
+                        data[y * patch + x] = (float)(sum / (scale * scale));
+                    }
                 frames.Add(data);
-                if (step == 6 && glide > 0.0005 && glide < 0.001) image.SavePng(System.IO.Path.Combine(outDir, $"probe_shimmer_{label.Split(' ')[0].ToLowerInvariant()}.png"));
+                if (step == 0) image.SavePng(System.IO.Path.Combine(outDir, $"probe_shimmer_{label}.png"));
             }
-            var (mean, p95, contrast) = ShimmerScore(frames, patch);
-            results.Add(new Dictionary<string, object?>
-            {
-                ["configuration"] = label, ["glide_m_per_frame"] = glide, ["frames"] = frames.Count, ["residual_rms_mean"] = Math.Round(mean, 5), ["residual_rms_p95"] = Math.Round(p95, 5),
-                ["patch_contrast_std"] = Math.Round(contrast, 4), ["residual_over_contrast"] = Math.Round(mean / Math.Max(contrast, 1e-6), 4),
-            });
-            GD.Print($"LOOK_PROBE shimmer {label}: residual {mean:0.00000} (over contrast {mean / Math.Max(contrast, 1e-6):0.0000})");
             FreeTarget();
             await NextFrame();
             await NextFrame();
+            return frames;
         }
-        window.Disable3D = false;
+
+        // The reference: the same poses rendered at four times the pixels with 4x MSAA, averaged down.
+        var reference = await Pass(new Vector2I(3840, 2160), Viewport.ScreenSpaceAAEnum.Disabled, false, Viewport.Msaa.Msaa4X, 0.0006, 2, "reference");
+        var configurations = new (string Label, string File, Viewport.ScreenSpaceAAEnum Aa, bool Taa, Viewport.Msaa Msaa, double Glide)[]
+        {
+            ("no anti-aliasing", "none", Viewport.ScreenSpaceAAEnum.Disabled, false, Viewport.Msaa.Disabled, 0.0006),
+            ("FXAA (the project's setting)", "fxaa", Viewport.ScreenSpaceAAEnum.Fxaa, false, Viewport.Msaa.Disabled, 0.0006),
+            ("TAA (the old setting)", "taa", Viewport.ScreenSpaceAAEnum.Disabled, true, Viewport.Msaa.Disabled, 0.0006),
+            ("MSAA 4x", "msaa4", Viewport.ScreenSpaceAAEnum.Disabled, false, Viewport.Msaa.Msaa4X, 0.0006),
+        };
+        foreach (var (label, file, aa, taa, msaa, glide) in configurations)
+        {
+            var frames = await Pass(new Vector2I(1920, 1080), aa, taa, msaa, glide, 1, file);
+            var (flicker, bias, contrast) = ShimmerScore(frames, reference);
+            results.Add(new Dictionary<string, object?>
+            {
+                ["configuration"] = label, ["poses"] = frames.Count, ["glide_m_per_pose"] = glide, ["flicker"] = Math.Round(flicker, 5), ["flicker_over_contrast"] = Math.Round(flicker / Math.Max(contrast, 1e-6), 4),
+                ["static_error"] = Math.Round(bias, 5), ["patch_contrast_std"] = Math.Round(contrast, 4),
+            });
+            GD.Print($"LOOK_PROBE shimmer {label}: flicker {flicker:0.00000} (over contrast {flicker / Math.Max(contrast, 1e-6):0.0000}), static error {bias:0.00000}");
+        }
+        // The same pose rendered again must give the same pixels: the measurement has no noise of its own.
+        var again = await Pass(new Vector2I(1920, 1080), Viewport.ScreenSpaceAAEnum.Fxaa, false, Viewport.Msaa.Disabled, 0.0006, 1, "fxaa_again");
+        var firstFxaa = await Pass(new Vector2I(1920, 1080), Viewport.ScreenSpaceAAEnum.Fxaa, false, Viewport.Msaa.Disabled, 0.0006, 1, "fxaa_repeat");
+        double repeat = 0;
+        for (var f = 0; f < again.Count; f++) repeat = Math.Max(repeat, again[f].Zip(firstFxaa[f]).Max(p => Math.Abs(p.First - p.Second)));
+        results.Add(new Dictionary<string, object?> { ["configuration"] = "repeatability: the largest luma difference between two renders of the same FXAA pose", ["max_difference"] = Math.Round(repeat, 5) });
+        GD.Print($"LOOK_PROBE shimmer repeatability: two renders of the same poses differ by at most {repeat:0.00000}");
         return results;
     }
 
     /// <summary>
-    /// How much a gliding pattern flickers instead of just moving. For each pair of frames the second is compared with the
-    /// first shifted by the best sub-pixel offset (found by search); what no shift explains is flicker. Returns the mean and
-    /// 95th percentile of the residual's RMS over the frame pairs, and the patch's own contrast for scale.
+    /// How much a pattern flickers as the camera glides, against a supersampled reference of the same poses. At every pixel
+    /// of the patch the error is the frame minus the reference; its change from pose to pose is the flicker (a steady blur or
+    /// bias is not flicker, a jagged edge that crawls is). Returns the mean over the patch of the error's standard deviation
+    /// across poses, the mean steady error, and the patch's own contrast for scale.
     /// </summary>
-    private static (double Mean, double P95, double Contrast) ShimmerScore(List<float[]> frames, int size)
+    private static (double Flicker, double Bias, double Contrast) ShimmerScore(List<float[]> frames, List<float[]> reference)
     {
-        double Sample(float[] data, double x, double y)
+        var size = frames[0].Length;
+        double flicker = 0, bias = 0;
+        for (var i = 0; i < size; i++)
         {
-            var x0 = (int)Math.Floor(x); var y0 = (int)Math.Floor(y);
-            var fx = x - x0; var fy = y - y0;
-            double At(int px, int py) => data[Math.Clamp(py, 0, size - 1) * size + Math.Clamp(px, 0, size - 1)];
-            return (At(x0, y0) * (1 - fx) + At(x0 + 1, y0) * fx) * (1 - fy) + (At(x0, y0 + 1) * (1 - fx) + At(x0 + 1, y0 + 1) * fx) * fy;
+            double sum = 0, squares = 0;
+            for (var f = 0; f < frames.Count; f++)
+            {
+                var error = frames[f][i] - reference[f][i];
+                sum += error;
+                squares += error * error;
+            }
+            var mean = sum / frames.Count;
+            flicker += Math.Sqrt(Math.Max(squares / frames.Count - mean * mean, 0));
+            bias += Math.Abs(mean);
         }
-        double Rms(float[] a, float[] b, double dx, double dy)
-        {
-            double sum = 0;
-            var count = 0;
-            for (var y = 24; y < size - 24; y += 2)
-                for (var x = 24; x < size - 24; x += 2)
-                {
-                    var d = b[y * size + x] - Sample(a, x - dx, y - dy);
-                    sum += d * d;
-                    count++;
-                }
-            return Math.Sqrt(sum / count);
-        }
-        var residuals = new List<double>();
-        for (var t = 1; t < frames.Count; t++)
-        {
-            double best = double.MaxValue, bx = 0, by = 0;
-            for (var dx = -3.0; dx <= 3.0; dx += 0.25)
-                for (var dy = -3.0; dy <= 3.0; dy += 0.25)
-                {
-                    var r = Rms(frames[t - 1], frames[t], dx, dy);
-                    if (r < best) { best = r; bx = dx; by = dy; }
-                }
-            for (var dx = bx - 0.25; dx <= bx + 0.25; dx += 0.05)
-                for (var dy = by - 0.25; dy <= by + 0.25; dy += 0.05)
-                    best = Math.Min(best, Rms(frames[t - 1], frames[t], dx, dy));
-            residuals.Add(best);
-        }
-        residuals.Sort();
-        var all = frames[0];
-        var mean = all.Average();
-        var contrast = Math.Sqrt(all.Average(v => (v - mean) * (v - mean)));
-        return (residuals.Average(), residuals[(int)(residuals.Count * 0.95)], contrast);
+        var all = reference[0];
+        var average = all.Average();
+        var contrast = Math.Sqrt(all.Average(v => (v - average) * (v - average)));
+        return (flicker / size, bias / size, contrast);
     }
 }

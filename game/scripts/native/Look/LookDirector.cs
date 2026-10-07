@@ -949,7 +949,10 @@ public partial class LookDirector : Node3D
     }
 
     /// <summary>A one-line description of what the look applied, for review reports.</summary>
-    public string DescribeLook() => string.Format(CultureInfo.InvariantCulture,
+    public string DescribeLook() => DescribeCore() + string.Format(CultureInfo.InvariantCulture, "; site {0} ({1:0} degrees latitude, -Z facing {2:0}, solar noon {3:0.##} h){4}",
+        Preset.Site.Source, Preset.Site.LatitudeDeg, Preset.Site.NegZBearingDeg, Preset.Site.SolarNoonH, SiteNote.Length > 0 ? ": " + SiteNote : "");
+
+    private string DescribeCore() => string.Format(CultureInfo.InvariantCulture,
         "{0}@{1} ({2}) sha256={3}; renderer={4}{5}; key={6} elevation {7:0.#} yaw {8:0.#} energy {9:0.##} (sun at {23:0.#} degrees, bearing {24:0.#}; moon weight {25:0.##}; sun scale {26:0.##}); sky fill {27}; lamps {28}; hour {10:0.##} day {11} season {12} ({22}); {13}; ssao={14} ssil={15} glow={16} dof={17} tilt={18}; grain {19} vignette {20} post effect {21}",
         Preset.PresetId, Preset.PresetVersion, Preset.Status, Preset.Sha256, RenderingServer.GetCurrentRenderingMethod(),
         RendererNote.Length > 0 ? " (" + RendererNote + ")" : "", Preset.KeyMode, Moment.KeyElevationDeg, Moment.KeyAzimuthDeg, Key.LightEnergy,

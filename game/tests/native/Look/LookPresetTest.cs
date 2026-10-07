@@ -555,7 +555,7 @@ public partial class LookPresetTest : Node3D
             ["player_eye"] = (new Vector3(0f, 0.087f, 0.6f), new Vector3(-0.25f, 0.14f, -0.6f), 70f),
             ["over_shoulder"] = (new Vector3(-0.15f, 0.22f, 1.12f), new Vector3(0.12f, 0.06f, 0.1f), 68f),
             // Reframed in the 7 October fix round for the 10 cm companion (the old camera was placed for a 0.24 m one).
-            ["companion"] = (new Vector3(0.18f, 0.1f, 0.2f), new Vector3(0.225f, 0.065f, 0.6f), 52f),
+            ["companion"] = (new Vector3(0.62f, 0.095f, 0.2f), new Vector3(0.2f, 0.07f, 0.6f), 36f),
             ["low_corner"] = (new Vector3(1.84f, 0.05f, -1.34f), new Vector3(-0.2f, 0.5f, 0.8f), 65f),
             ["ceiling_corner"] = (new Vector3(-1.84f, 2.26f, 1.36f), new Vector3(0.15f, 0.05f, 0.25f), 60f),
         };
@@ -852,6 +852,9 @@ public partial class LookPresetTest : Node3D
             "each entity gets its own stable paint seed");
         Check(look.Gi == null && look.GiNote.Contains("no GI"), "without a GPU the VoxelGI bake is skipped and says so: " + look.GiNote);
         Check(LookDirector.GiVolume(room, preset.Tuning.Gi).Encloses(room.Bounds), "the GI volume encloses the room bounds");
+        var thinnest = room.Shell.Where(p => p.MeshPath == null).Min(p => p.ThicknessM);
+        Check(preset.Tuning.Gi.MarginM > 0f && preset.Tuning.Gi.MarginM < 0.75f * thinnest,
+            $"the GI volume reaches {preset.Tuning.Gi.MarginM * 100f:0} cm past the room, less than the shell's {thinnest * 100f:0} cm thickness, so the slabs' outer faces (which the sun lights) stay outside it and no light is carried through the walls");
         var afternoonEnergy = look.Key.LightEnergy;
         Check(!look.LampsOn && !lamp.Visible, "on an October afternoon the lamp is off");
         look.SetClock(23f, 279);

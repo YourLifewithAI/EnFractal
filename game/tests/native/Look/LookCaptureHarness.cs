@@ -91,7 +91,11 @@ public partial class LookCaptureHarness : Node
             foreach (var mesh in _world.Player.GetNode("OriginalPrototypeBody").FindChildren("*", "GeometryInstance3D", true, false).OfType<GeometryInstance3D>())
                 mesh.Layers = HiddenBodyLayer;
 
-            if (root.TryGetProperty("clock", out var clock)) SetClock(clock.GetProperty("hour").GetDouble(), DayOfYear(clock.GetProperty("date").GetString()!));
+            if (root.TryGetProperty("clock", out var clock))
+            {
+                SetClock(clock.GetProperty("hour").GetDouble(), DayOfYear(clock.GetProperty("date").GetString()!));
+                ReviewLamps(clock);
+            }
             BuildTarget(resolution);
             // Let the avatars settle on the floor and the companion come to rest.
             for (var i = 0; i < 45; i++) await NextFrame();
@@ -138,6 +142,15 @@ public partial class LookCaptureHarness : Node
 
     private static int DayOfYear(string isoDate) =>
         DateTime.ParseExact(isoDate, "yyyy-MM-dd", CultureInfo.InvariantCulture).DayOfYear;
+
+    /// <summary>The review clock may pin the lamps ("lamps": "on" or "off"); otherwise they switch themselves with the light.</summary>
+    private void ReviewLamps(JsonElement clock)
+    {
+        var setLamps = _look?.GetType().GetMethod("SetLamps");
+        if (_look == null || setLamps == null) return;
+        bool? pinned = clock.TryGetProperty("lamps", out var lamps) ? lamps.GetString() switch { "on" => true, "off" => false, _ => null } : null;
+        setLamps.Invoke(_look, new object?[] { pinned });
+    }
 
     private bool SetClock(double hour, int dayOfYear)
     {
@@ -277,6 +290,8 @@ public partial class LookCaptureHarness : Node
         var cameraId = Arg("sweep-camera", sweep.ValueKind == JsonValueKind.Object && sweep.TryGetProperty("camera", out var named) ? named.GetString()! : "ceiling_corner");
         var entry = root.GetProperty("cameras").EnumerateArray().First(c => c.GetProperty("id").GetString() == cameraId);
         Frame(entry);
+        // The sweep shows the day as it goes: the lamps switch themselves with the light.
+        _look.GetType().GetMethod("SetLamps")?.Invoke(_look, new object?[] { null });
         var dates = sweep.ValueKind == JsonValueKind.Object && sweep.TryGetProperty("dates", out var dateList)
             ? dateList.EnumerateArray().Select(d => (d.GetString()!, d.GetString()!)).ToArray()
             : new[] { ("winter", "2026-01-15"), ("spring", "2026-04-15"), ("summer", "2026-07-15"), ("autumn", "2026-10-15") };
@@ -297,6 +312,7 @@ public partial class LookCaptureHarness : Node
         sheet.SavePng(System.IO.Path.Combine(outDir, $"sweep_{cameraId}.png"));
         var clock = root.GetProperty("clock");
         SetClock(clock.GetProperty("hour").GetDouble(), DayOfYear(clock.GetProperty("date").GetString()!));
+        ReviewLamps(clock);
         GD.Print($"LOOK_CAPTURE sweep={cameraId} rows={string.Join(",", dates.Select(d => d.Item1))} columns={string.Join(",", hours.Select(h => $"{(int)h:00}:{(int)Math.Round(h % 1 * 60):00}"))}");
     }
 
