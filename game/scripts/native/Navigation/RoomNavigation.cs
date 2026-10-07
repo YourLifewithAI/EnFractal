@@ -26,6 +26,12 @@ public partial class RoomNavigation : Node
     /// <summary>How often the source geometry is checked for changes, and how long it must hold still before a re-bake.</summary>
     public const double PollIntervalS = 0.25;
     public const double SettleS = 0.2;
+    /// <summary>
+    /// A route reaches its goal only when it ends this close to the goal's own nearest walkable point (2.5 cells): a
+    /// body hugging a wall stands up to 2 cm inside the eroded margin, while across even a 1 cm wall the two points
+    /// are at least 7 cm apart.
+    /// </summary>
+    public const float SameIslandM = 0.05f;
 
     /// <summary>A walkable route: corner points from the start's projection onto the mesh to the end.</summary>
     public readonly record struct Route(Vector3[] Points, bool Reaches, bool Direct, float LengthM)
@@ -50,6 +56,8 @@ public partial class RoomNavigation : Node
 
     private Rid _region;
     private int _signature;
+    /// <summary>Change counts of shapes whose data is too large to hash each poll (concave meshes, height maps), from their changed signal.</summary>
+    private readonly System.Collections.Generic.Dictionary<ulong, int> _shapeVersions = new();
     private bool _changed;
     private double _sincePoll;
     private double _sinceChange;
@@ -160,14 +168,20 @@ public partial class RoomNavigation : Node
             $"ROOM_NAVIGATION bake {Revision}: {PolygonCount} polygons in {LastBakeMs:0.0} ms (agent radius {AgentRadiusM:0.000} m, height {AgentHeightM:0.00} m, climb {AgentMaxClimbM:0.000} m)"));
     }
 
-    /// <summary>The walkable route from one point to another. Reaches is false when the goal is not on the start's walkable island (within the planar tolerance).</summary>
+    /// <summary>
+    /// The walkable route from one point to another. Reaches is false when the goal is not on the start's walkable
+    /// island: the route must end at the goal's own nearest walkable point, and within the planar tolerance of the goal.
+    /// (Within the tolerance alone was not enough: across a thin wall the route's end can be a few centimetres from a
+    /// goal it can never reach. Lane P review.)
+    /// </summary>
     public Route FindRoute(Vector3 from, Vector3 to, float toleranceM)
     {
         if (!IsReady || !from.IsFinite() || !to.IsFinite()) return Route.None;
         var points = NavigationServer3D.MapGetPath(Map, from, to, true);
         if (points.Length == 0) return Route.None;
         var end = points[^1];
-        var reaches = Planar(end - to).Length() <= toleranceM;
+        var island = NavigationServer3D.MapGetClosestPoint(Map, to);
+        var reaches = Planar(end - to).Length() <= toleranceM && end.DistanceTo(island) <= SameIslandM;
         var length = Planar(points[0] - from).Length();
         for (var i = 1; i < points.Length; i++) length += Planar(points[i] - points[i - 1]).Length();
         return new Route(points, reaches, points.Length <= 2, length);
@@ -181,7 +195,10 @@ public partial class RoomNavigation : Node
     private static float Cells(float metres, float cell, bool up) =>
         (up ? Mathf.Ceil(metres / cell - 0.001f) : Mathf.Floor(metres / cell + 0.001f)) * cell;
 
-    /// <summary>A cheap fingerprint of the static collision the mesh is baked from: which bodies and shapes, and where.</summary>
+    /// <summary>
+    /// A cheap fingerprint of the static collision the mesh is baked from: which bodies and shapes, where, and what each
+    /// shape is. A shape resized in place keeps its instance id, so its dimensions are hashed too (Lane P review).
+    /// </summary>
     private int Signature()
     {
         var hash = new HashCode();
@@ -189,7 +206,7 @@ public partial class RoomNavigation : Node
         return hash.ToHashCode();
     }
 
-    private static void Accumulate(Node node, ref HashCode hash)
+    private void Accumulate(Node node, ref HashCode hash)
     {
         if (node is StaticBody3D body && (body.CollisionLayer & RoomBuilder.WorldLayer) != 0)
         {
@@ -201,11 +218,43 @@ public partial class RoomNavigation : Node
                     hash.Add(shape.GetInstanceId());
                     hash.Add(shape.Disabled);
                     hash.Add(shape.Shape?.GetInstanceId() ?? 0);
+                    hash.Add(ShapeContent(shape.Shape));
                     hash.Add(Quantize(shape.Transform));
                 }
         }
         foreach (var child in node.GetChildren()) Accumulate(child, ref hash);
     }
+
+    /// <summary>The shape's dimensions to the millimetre; for mesh-sized data, a count of its changed signals instead.</summary>
+    private int ShapeContent(Shape3D? shape)
+    {
+        var hash = new HashCode();
+        switch (shape)
+        {
+            case null: return 0;
+            case BoxShape3D box: hash.Add(Millimetres(box.Size)); break;
+            case SphereShape3D sphere: hash.Add(Millimetres(sphere.Radius)); break;
+            case CapsuleShape3D capsule: hash.Add(Millimetres(capsule.Radius)); hash.Add(Millimetres(capsule.Height)); break;
+            case CylinderShape3D cylinder: hash.Add(Millimetres(cylinder.Radius)); hash.Add(Millimetres(cylinder.Height)); break;
+            case ConvexPolygonShape3D convex:
+                foreach (var point in convex.Points) hash.Add(Millimetres(point));
+                break;
+            default:
+                var id = shape.GetInstanceId();
+                if (!_shapeVersions.ContainsKey(id))
+                {
+                    _shapeVersions[id] = 0;
+                    shape.Changed += () => _shapeVersions[id] = _shapeVersions.GetValueOrDefault(id) + 1;
+                }
+                hash.Add(_shapeVersions[id]);
+                break;
+        }
+        return hash.ToHashCode();
+    }
+
+    private static int Millimetres(float value) => Mathf.RoundToInt(value * 1000);
+
+    private static int Millimetres(Vector3 value) => HashCode.Combine(Millimetres(value.X), Millimetres(value.Y), Millimetres(value.Z));
 
     /// <summary>Millimetre and milliradian resolution, so float noise never triggers a re-bake.</summary>
     private static int Quantize(Transform3D transform)

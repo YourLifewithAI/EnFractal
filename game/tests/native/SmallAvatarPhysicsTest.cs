@@ -555,6 +555,49 @@ public partial class SmallAvatarPhysicsTest : Node3D
         Report(reported && !escaped && _companion.CurrentIntent == "come",
             $"an unreachable come reports blocked and never crosses the pen walls (blocked={reported}, escaped={escaped})");
         _companion.Stop();
+
+        // Lane P review: across a thin wall the player can be inside the come distance yet unreachable. That is
+        // blocked, not arrived. A pen of 1 cm walls with the player inside it and the companion 7 cm away outside.
+        var thin = new Vector3(3.0f, 0, -3.0f);
+        Box(thin + new Vector3(0, 0.15f, 0.25f), new Vector3(0.51f, 0.3f, 0.01f));
+        Box(thin + new Vector3(0, 0.15f, -0.25f), new Vector3(0.51f, 0.3f, 0.01f));
+        Box(thin + new Vector3(-0.25f, 0.15f, 0), new Vector3(0.01f, 0.3f, 0.51f));
+        Box(thin + new Vector3(0.25f, 0.15f, 0), new Vector3(0.01f, 0.3f, 0.51f));
+        revision = _navigation.Revision;
+        for (var i = 0; i < 120 && _navigation.Revision == revision; i++) await Frames(1);
+        Check(_player.TryTeleportTo(thin + new Vector3(0.215f, 0.003f, 0)) && _companion.TryTeleportTo(thin + new Vector3(0.285f, 0.01f, 0)),
+            "the player inside a thin-walled pen, the companion just outside it");
+        await Frames(5);
+        var across = PlanarDistance(_companion.GlobalPosition, _player.GlobalPosition);
+        Check(!_navigation.FindRoute(_companion.GlobalPosition, _player.GlobalPosition, CompanionAvatar.ComeArrivalM + 0.05f).Reaches,
+            "the route ending beside the thin wall does not count as reaching the player behind it");
+        _companion.Come();
+        reported = false;
+        for (var i = 0; i < 60; i++) { await Frames(1); reported |= _companion.GoalBlocked; }
+        Report(across <= CompanionAvatar.ComeArrivalM && _companion.CurrentIntent == "come" && reported,
+            $"come across a thin wall reports blocked instead of arrived (distance={across:0.000} m, intent={_companion.CurrentIntent}, blocked={reported})");
+        _companion.Stop();
+
+        // Lane P review: the re-bake fingerprint hashed shape instance ids, so a shape resized in place went unnoticed.
+        var grown = new BoxShape3D { Size = new Vector3(0.2f, 0.2f, 0.2f) };
+        var post = new StaticBody3D { Position = new Vector3(3.0f, 0.1f, 3.5f), CollisionLayer = 1, CollisionMask = 0 };
+        post.AddChild(new CollisionShape3D { Shape = grown });
+        AddChild(post);
+        revision = _navigation.Revision;
+        for (var i = 0; i < 120 && _navigation.Revision == revision; i++) await Frames(1);
+        await Frames(2); // the map holds a bake from the next physics frame
+        float Across() => _navigation.FindRoute(new Vector3(3.0f, 0.01f, 2.8f), new Vector3(3.0f, 0.01f, 4.2f), 0.05f).LengthM;
+        var before = Across();
+        revision = _navigation.Revision;
+        grown.Size = new Vector3(0.8f, 0.2f, 0.8f);
+        var waitedForResize = 0;
+        for (; waitedForResize < 120 && _navigation.Revision == revision; waitedForResize++) await Frames(1);
+        await Frames(2);
+        var after = Across();
+        // A route past the post goes round it: 1.4 m straight, longer round the grown post.
+        Report(_navigation.Revision > revision && after > before + 0.2f,
+            $"resizing a collision shape in place re-bakes the navigation mesh (after {waitedForResize} frames; the route past it grew from {before:0.00} to {after:0.00} m)");
+        _player.TryTeleportTo(new Vector3(-2, 0.003f, 2));
     }
 
     /// <summary>

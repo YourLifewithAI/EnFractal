@@ -321,9 +321,10 @@ public partial class CompanionAvatar : SmallPlayerController
     {
         var distance = playerOffset.Length();
         var routed = PlanRoute(_player!.GlobalPosition, ComeArrivalM + 0.05f, dt);
-        // Close in a straight line but with a wall or box between does not count as arrived.
+        // Close in a straight line but with a wall or box between does not count as arrived, and neither does a
+        // player it cannot reach at all (across a thin wall): that is blocked, honestly (Lane P review).
         var detour = routed && !_route.Direct && _route.LengthM > distance + DetourM;
-        if (distance <= ComeArrivalM && !detour)
+        if (distance <= ComeArrivalM && !detour && (!routed || _route.Reaches))
         {
             Stay();
             return Vector3.Zero;
