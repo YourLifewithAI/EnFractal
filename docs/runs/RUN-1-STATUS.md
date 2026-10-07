@@ -276,7 +276,7 @@ The source is the Google Doc `Look and Art Style direction`, with ten frames fro
 |---|---|---|
 | The key-help boxes are huge and get in the way of the visuals (the founder knows they are temporary) | — | **Fixed (Codex brief 06, merged):** the help folds behind H, and the top panel is compact |
 | (In the screenshot) the companion's name tag filled half the screen in F2 | A world-sized billboard grows without limit near the camera | **Fixed (brief 06):** at most 2.5% of the screen height, and hidden within 0.25 m |
-| O (observe) is out of focus in F3 and F4; it should hold the player clearly in focus | Codex brief 07 found three causes: focus on the orbit pivot, not the player; a 6 cm band, narrower than the player's 7 cm of depth at those pitches; and possibly Godot's near blur read the wrong way round (a follow-up is checking the renderer source) | **Next L round,** in a v2 preset (v1 is locked). The exact diffs are in [the report](../codex/reports/07-observe-focus.md) |
+| O (observe) is out of focus in F3 and F4; it should hold the player clearly in focus | Codex brief 07 found three causes: focus on the orbit pivot, not the player; and a 6 cm band, narrower than the player's 7 cm of depth at those pitches. A follow-up checked Godot 4.7.2's renderer source: the game reads the near blur correctly, so the report's conditional diffs B1 to B3 are not needed | **Next L round,** in a v2 preset (v1 is locked). The exact diffs are in [the report](../codex/reports/07-observe-focus.md) |
 
 ## The founder's verdict on the garage coverage report (later on 6 October)
 

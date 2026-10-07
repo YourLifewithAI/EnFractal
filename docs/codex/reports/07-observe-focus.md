@@ -1,5 +1,7 @@
 # Brief 07 — Observe focus diagnosis
 
+> **Follow-up, same evening (Codex, checked against the source):** in Godot 4.7.2 `dof_blur_near_distance` is the sharp edge, with full near blur at distance minus transition (`bokeh_dof.cpp`: `blur_near_end = dof_near_begin - dof_near_size`; `bokeh_dof.glsl`: `1.0 - smoothstep(blur_near_end, blur_near_begin, depth)`). The game's adapter matches the renderer. **Omit the conditional diffs B1–B3 and C2;** the player-centred focus (A1, A2), the 14 cm v2 band (A3) and checks C1 stand.
+
 Branch: `codex/07-observe-focus`. Inspected HEAD: `1ce4744225b33e388ae481939831777d9fcd49f6`. Diagnosis only; the only written file is this report. No commit, push, Godot execution, capture, GPU use, installation, or paid API call. Cost: $0; GPU time: 0.
 
 ## Finding and confidence
