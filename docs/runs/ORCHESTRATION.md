@@ -76,5 +76,7 @@ Add one row per agent run.
 | 2026-10-06 | L round 2: real-source lighting | Opus | 642k | Clean |
 | 2026-10-06 | C1 and C2 ingest, coverage and the garage report | Opus | 556k | Clean; chose Apache-2.0 weights unprompted; 5.5 GB downloads |
 | 2026-10-06 | P review fix round (1 blocker, 6 majors, minors) | Opus | 704k | Clean; every finding fixed with a test |
+| 2026-10-07 | Independent review of C | Opus | 363k | 0 blockers, 2 majors, 10 minors; 4 of 5 mutations survived; caught the integrator's inverted reading of the scale |
+| 2026-10-07 | A: align the mock with the real host | Opus | 357k | Clean; 492 tests; 8 change requests for P and 2 for the contracts |
 
 The early runs were all on Opus, with long prompts and mutation sweeps. Use them as the baseline when trying Sonnet on the task types above.

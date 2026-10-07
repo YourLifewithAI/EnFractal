@@ -8,7 +8,7 @@ Run 1 is **in progress**. This page is the handoff: where every lane stands, wha
 |---|---|
 | `run1/integration` | All four lanes merged. Lane A's contract proposals are applied: text rules with emoji markers, perception-memory fields, canonical link frames. Also in: the west window and new palette in the test room, the F3 diorama and F4 isometric cameras, and the L lamp key. **All Windows suites pass** (below). |
 | `run1/play` | `1a50485`: P1, P2, the first-playtest fixes, the 10 cm companion, the hover fix, and the fix round for the independent review. Every review finding is fixed and tested. Merged. |
-| `run1/companion` | `518e31d`: A1 and two fix rounds. Every review finding is fixed. Also: perception memory, emoji markers in context, the play-only profile, the 10 cm mock companion. 469 tests. Merged. |
+| `run1/companion` | `5453e9c` (7 October): the mock is aligned with the real host, 492 tests; merged. Before that, `518e31d`: A1 and two fix rounds. Every review finding is fixed. Also: perception memory, emoji markers in context, the play-only profile, the 10 cm mock companion. 469 tests. Merged. |
 | `run1/look` | `9390e2f`: L1–L3 and two art rounds. Light comes only from real sources: the sun through the west window on a 30°N solar model, a sky fill, moonlit nights, lamps at dusk. The orange cast is gone, and there are high-angle and isometric review cameras. The preset is still `draft`. Merged. |
 | `run1/capture` | `65539b5`: C1 and C2 run end to end on the garage set with Apache-2.0 weights only; 43 tests. The coverage report is local only, in the capture worktree's `captures/garage/`. Merged. **The founder judged the guidance useful (below), which meets C2's acceptance.** |
 
@@ -26,9 +26,21 @@ Evidence on `run1/integration` at `72e9015`, from the second Windows machine (RT
 ## Still open
 
 - **Real host against the mock (before the Run 2 swap).**
-  - Perception memory exists in Lane A's mock and in the contract, but not yet in Lane P's real host; `docs/engine/phase3/command-host.md` says what remains.
-  - Align the policy differences: ledger size, rate limiting, the number of pending approvals.
-  - Decide `"preview": false`. The real host fingerprints the command as received, per the contract; align the mock with it.
+  - **The mock side is done:** Lane A `5453e9c`, merged on 7 October.
+    - The mock now matches the real host's ledger (2,048 receipts, 256 reserved for the player), its rate limit (30 a second per companion), its 8 pending approvals and its as-received fingerprint (`"preview": false`).
+    - `test_kernel_alignment.py` reads the host's constants, so drift between the two fails a test.
+  - **The real host's gaps go to the next P round (Opus).** The exact diffs are in `docs/companion/proposals/kernel-host-gaps.md`:
+    - **P1, which blocks the swap:** `capabilities.list` returns a shape the contract refuses.
+    - **P2:** a stop that reuses an action id hides that command's receipt.
+    - **P3:** `CheckPerceived` exempts every `avatar:` id, so the companion can name the player out of sight.
+    - **P4 and P5:** `observe` defaults to 3 m, and the shell parts eat into its 100-item cap.
+    - **P6:** perception memory.
+    - **P7:** goal jobs and `jobs.status`.
+    - **P8:** `entity.release` is marked transient.
+  - **Contract requests for the integrator:**
+    - C1: state the `observe` default. Lane A proposes 20 m, the maximum, per the founder's line-of-sight rule.
+    - C2: the `"preview": false` sentence in the README.
+    - Also proposed: keep the adapter's tighter rate limits in front of the host's, and 60 s staleness for the host's memory.
 - **Lane P's remaining contract requests:**
   - `room.checkpoint` result data;
   - README wording on receipts and stops;
@@ -39,8 +51,10 @@ Evidence on `run1/integration` at `72e9015`, from the second Windows machine (RT
   - the proposed room `site` key (latitude, bearing, solar noon; never longitude);
   - move the review clock so the review frames catch sun on the avatars;
   - reframe the companion review camera for the 10 cm body.
-- **Reviews not yet done:** Lane C has never been independently reviewed. Lane L has not been reviewed since `7b664e7`. Per ORCHESTRATION.md, both are due as whole-lane reviews at Run 1 exit, since both lanes completed their Run 1 packets.
-- **Lane C: fit the room's scale to the tape.** The founder's tape measurements (below) show the reconstruction runs large and unevenly so. Roomscan should take known lengths as an input, fit the scale to them, and report what is left over.
+- **Reviews:**
+  - **Lane C was reviewed on 7 October** (Opus): no blockers, two majors and ten minors. The majors: the scale factor is recorded but never applied, and two guidance rules (the viewer's left and right; "covered" needing different spots) are unprotected by tests. 4 of 5 mutations survived. A C fix round is under way.
+  - Lane L's whole-lane review is under way.
+- **Lane C: fit the room's scale to the tape.** The founder's tape measurements (below) show the reconstruction runs large. Roomscan should take known lengths as an input, fit one uniform scale before the room box is fitted, and report the residuals.
 - The reviewer's temporary worktree `C:\dev\EnFractal-run1\review-play` holds only three untracked scratch probes from the Lane P review, whose findings are all fixed and tested. The founder approved removing it and removes it by hand: the automatic safety check blocks agents from deleting it. Its `.cache\dotnet` and `.cache\godot` are junctions into the integrator's checkout, so unlink those first.
 
 ## Founder decisions, 6 October 2026
@@ -165,10 +179,12 @@ The images stay in Google Drive (`Enfractal/Art inspiration`) and are cited by f
 - **The guidance is useful.** C2's acceptance is met.
 - **Product decision:** the game should give every player the same guidance as it stitches their rooms into game sets. Capture guidance becomes a player-facing feature; plan it in Run 2 or later.
 - **Tape measurements** of the inside length, the width across the garage-door end, the ceiling height and the rear entry door's opening. They are kept with the capture data in the capture worktree's `captures/garage/tape-measurements.json`, never committed. Compared with session `s-27647e23c354`:
-  - the room came out about 4% too long, 11% too wide and 7% too tall. All three are inside the report's stated ±13%, so the error bar held;
-  - the cause is metric scale. The 7 pose batches disagree on scale by 12.8%, and the merged room was rescaled by 1.1385 to the median batch. One uniform shrink of about 7% would leave about ±3% on each axis;
-  - the gap between the length (+4%) and the width (+11%) is not explained yet: a wall-plane fit or the batch joins are the suspects;
-  - the 0.5x photos are not clearly to blame. The two batches that hold them (the seed and batch 1) would make the room about 6% small, four of the others about 7% large, and batch 6, which holds none, agrees with the seed. The truth lies between the two groups, which looks like ordinary scale noise in the model.
+  - the room came out about 4% too long, 11% too wide and 7% too tall: 7.4% too big overall;
+  - **corrected by the Lane C review.** The integrator's first reading here had it inverted. The 1.1385 "factor" in `coverage-run.json` is recorded but never applied, so the room is in the seed batch's scale. **Every one of the 7 batches makes the room too big,** by 6% to 36% (size over tape: 1.07, 1.10, 1.25, 1.27, 1.36, 1.22, 1.06). The overestimate grows with close-up content. The report's ±13% happened to cover the truth only because the seed is the second-best batch;
+  - **the 0.5x photos are not to blame.** Batches 0 and 1, which hold them, are among the most accurate;
+  - one uniform shrink of 0.931 leaves the length −3.2%, the width +3.5% and the ceiling −0.3%;
+  - **the length-versus-width gap** appears inside each full batch on its own, so it is not the batch joins or the wall-plane pick. The remaining suspects are where the width was taped (the garage-door end, where jambs or walls that are not parallel could narrow it), or distortion in the model. A second width at the rear-door end and one diagonal would tell them apart;
+  - the review confirms the wall mapping: the walls B to D are the 5.84 m length and the walls A to C the 4.55 m width, with the rear door on wall B.
 - **Duplicates:** confirmed. Many photos were uploaded twice. The 165 exact copies are skipped and do no harm.
 - **The 0.5x ultra-wide shots were intentional,** to see more of the room at once. The selfie-camera shots are not yet explained.
 - **The founder offered to reshoot the whole set.** The integrator's recommendation: not needed. 180 of 205 photos already join into one model. A top-up of the report's nine steps (about 41 photos on the 1x back camera) closes the gaps, and it tests the guidance end to end: follow it, rerun, and see the coverage rise.
