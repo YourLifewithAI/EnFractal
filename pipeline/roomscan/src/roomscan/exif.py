@@ -114,6 +114,22 @@ def read_fields(img: Image.Image) -> dict[str, Any]:
     return fields
 
 
+def lens_kind(fields: dict[str, Any] | None) -> str:
+    """'front' (selfie camera), 'ultra_wide' (under 20 mm equivalent), 'main', 'zoom' or 'unknown'."""
+    fields = fields or {}
+    lens = (fields.get("lens_model") or "").lower()
+    f35 = fields.get("focal_length_35mm")
+    if "front" in lens:
+        return "front"
+    if not f35:
+        return "unknown"
+    if f35 < 20:
+        return "ultra_wide"
+    if f35 > 35:
+        return "zoom"
+    return "main"
+
+
 def had_location(img: Image.Image) -> bool:
     """Whether the source carried any GPS data (reported as a yes/no, never the values)."""
     exif = img.getexif()

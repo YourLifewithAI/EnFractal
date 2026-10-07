@@ -13,6 +13,7 @@ from PIL import Image
 
 import synth
 from roomscan import exif as exifmod
+from roomscan import quality
 from roomscan.ingest import ingest, photo_sort_key, resolve_session, scan_source
 from roomscan.paths import OutputGuard, PathPolicyError
 
@@ -205,3 +206,35 @@ def test_scan_order_and_names(tmp_path):
     assert names == ["IMG_2670.HEIC", "IMG_2671.jpg", "IMG_2671 (1).jpg", "sub dir/IMG_9.heic"]
     assert photo_sort_key("IMG_2671 (2).jpg") > photo_sort_key("IMG_2671 (1).jpg")
     assert os.sep not in "".join(names) or os.sep == "/"
+
+
+def test_lens_kind():
+    assert exifmod.lens_kind({"lens_model": "iPhone 17 front camera 2.7mm", "focal_length_35mm": 30}) == "front"
+    assert exifmod.lens_kind({"lens_model": "back dual wide 2.22mm", "focal_length_35mm": 14}) == "ultra_wide"
+    assert exifmod.lens_kind({"focal_length_35mm": 26}) == "main"
+    assert exifmod.lens_kind({"focal_length_35mm": 52}) == "zoom"
+    assert exifmod.lens_kind({}) == "unknown"
+
+
+def test_edge_sharpness_separates_blur_from_plain_surfaces():
+    sharp = quality.analysis_gray(synth.view(5, (0, 0), (1024, 768)))
+    blurry = quality.analysis_gray(synth.blurred(synth.view(5, (0, 0), (1024, 768)), 4))
+    # A plain wall with one faint, crisp-edged panel on it: little detail, but nothing smeared.
+    wall = Image.new("RGB", (1024, 768), (200, 198, 190))
+    wall.paste((170, 168, 160), (400, 250, 640, 520))
+    plain = quality.analysis_gray(wall)
+    assert quality.edge_sharpness(blurry) < quality.Thresholds().blur_edge_max < quality.edge_sharpness(sharp)
+    assert quality.edge_sharpness(plain) > quality.Thresholds().blur_edge_max
+    records = [{"quality": {**quality.sharpness(g), "edge_sharpness": quality.edge_sharpness(g), **quality.exposure(g)}}
+               for g in (sharp, sharp, sharp, blurry, plain)]
+    quality.flag_photos(records)
+    assert "blurry" in records[3]["quality"]["flags"]
+    assert "blurry" not in records[4]["quality"]["flags"] and "low_detail" in records[4]["quality"]["flags"]
+
+
+def test_manifest_counts_lenses(layout):
+    source, captures = layout
+    make_set(source)
+    manifest = run(source, captures)["manifest"]
+    assert manifest["summary"]["lens_counts"] == {"main": 7}  # every file except the exact copy
+    assert {p.get("lens_kind") for p in manifest["photos"] if p["status"] == "ok"} == {"main"}

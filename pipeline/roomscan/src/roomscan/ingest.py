@@ -37,7 +37,7 @@ from .imageio import register_heif
 from .jsonio import canonical_bytes, json_bytes, sha256_hex, text_bytes
 from .paths import OutputGuard, check_source_and_output, room_root
 
-INGEST_VERSION = 1
+INGEST_VERSION = 2  # 2: adds edge_sharpness
 PHOTO_EXTENSIONS = {".heic", ".heif", ".jpg", ".jpeg", ".png"}
 JPEG_QUALITY = 92
 THUMB_LONG_SIDE = 384
@@ -137,7 +137,7 @@ def analyse_photo(job: dict[str, Any]) -> dict[str, Any]:
         "source_had_location": had_location,
         "source_orientation": source_orientation,
         "image": {"width": img.width, "height": img.height},
-        "quality": {**quality.sharpness(gray), **quality.exposure(gray)},
+        "quality": {**quality.sharpness(gray), "edge_sharpness": quality.edge_sharpness(gray), **quality.exposure(gray)},
         "phash": f"{quality.phash(gray):016x}",
         "thumb_vector": [round(float(v), 4) for v in quality.thumb_vector(gray).flatten()],
         "thumb_shape": list(quality.thumb_vector(gray).shape),
@@ -296,6 +296,7 @@ def ingest(
         if a is not None:
             rec.update({
                 "exif": a["exif"],
+                "lens_kind": exifmod.lens_kind(a["exif"]),
                 "source_had_location": a["source_had_location"],
                 "image": a["image"],
                 "quality": dict(a["quality"]),
@@ -337,7 +338,7 @@ def ingest(
     for r in records:
         counts[r["status"]] = counts.get(r["status"], 0) + 1
     flagged = {flag: sorted((r["name"] for r in primary if flag in r["quality"].get("flags", [])), key=photo_sort_key)
-               for flag in ("blurry", "highlights_clipped", "shadows_crushed", "underexposed", "overexposed")}
+               for flag in ("blurry", "low_detail", "highlights_clipped", "shadows_crushed", "underexposed", "overexposed")}
     usable = [r["name"] for r in records if r["status"] == "ok" and "blurry" not in r["quality"].get("flags", [])]
 
     manifest = {
@@ -355,6 +356,7 @@ def ingest(
             "session_median_sharpness": session_median,
             "flag_counts": {k: len(v) for k, v in flagged.items()},
             "sources_with_location": sum(1 for r in records if r.get("source_had_location")),
+            "lens_counts": dict(sorted(_count(r.get("lens_kind") for r in primary).items())),
         },
         "duplicates": {"exact": exact_report, "near": near_report},
         "flags": flagged,
@@ -431,7 +433,9 @@ def render_report(m: dict[str, Any]) -> str:
     lines += [f"- {', '.join(g)}" for g in m["duplicates"]["exact"]] or ["- none"]
     lines += ["", "## Near-duplicates (kept the sharpest of each group)", ""]
     lines += [f"- keep {g['keep']}; skip {', '.join(g['others'])}" for g in m["duplicates"]["near"]] or ["- none"]
-    lines += ["", "## Quality flags", ""]
+    lines += ["", "## Quality flags", "",
+              "blurry: low detail and soft edges (left out of pose estimation). low_detail: a plain surface "
+              "whose edges are crisp (kept). Clipping and exposure flags are reported only.", ""]
     for flag, names in m["flags"].items():
         lines.append(f"- {flag}: {len(names)}" + (f" ({', '.join(names)})" if names else ""))
     lenses: dict[str, int] = {}
@@ -442,3 +446,11 @@ def render_report(m: dict[str, Any]) -> str:
     lines += ["", "## Lenses used (unique photos)", ""]
     lines += [f"- {k}: {v}" for k, v in sorted(lenses.items(), key=lambda kv: -kv[1])]
     return "\n".join(lines)
+
+
+def _count(values) -> dict[str, int]:
+    out: dict[str, int] = {}
+    for v in values:
+        key = v or "unknown"
+        out[key] = out.get(key, 0) + 1
+    return out

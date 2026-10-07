@@ -22,6 +22,10 @@ class Thresholds:
 
     blur_abs_min: float = 25.0  # tile sharpness below this is blurry whatever the session
     blur_rel_min: float = 0.35  # ... or below this fraction of the session median
+    # ... and only when the strongest edges are soft too. Low sharpness alone also catches crisp
+    # photos of plain walls, doors and floors. Calibrated by eye on the October 2026 garage set:
+    # every motion-blurred photo checked scored 0.351 or less, every crisp plain one 0.353 or more.
+    blur_edge_max: float = 0.352
     highlight_level: int = 250
     shadow_level: int = 5
     highlight_clip_max: float = 0.04  # share of pixels at or above highlight_level
@@ -65,6 +69,41 @@ def sharpness(gray: np.ndarray) -> dict[str, float]:
     tiles.sort(reverse=True)
     top = tiles[: max(1, len(tiles) // 4)]
     return {"laplacian_var": round(whole, 3), "sharpness": round(float(np.mean(top)), 3)}
+
+
+def edge_sharpness(gray: np.ndarray, grid: int = TILE_GRID, top: float = 0.25) -> float:
+    """Contrast-independent crispness of the strongest edges (about 0.2 smeared to 0.5 crisp).
+
+    For an edge of contrast c spread over w pixels the gradient peaks near c/w and the Laplacian
+    near c/w^2, so their ratio falls as 1/w whatever the contrast. A plain wall with a few crisp
+    edges keeps a high ratio although its Laplacian variance is low; motion blur lowers both.
+    Measured per tile on the strongest gradients, then the median over the quarter of tiles with
+    the strongest edges.
+    """
+    g = cv2.GaussianBlur(gray, (0, 0), 0.8)
+    gx = cv2.Sobel(g, cv2.CV_32F, 1, 0, ksize=3)
+    gy = cv2.Sobel(g, cv2.CV_32F, 0, 1, ksize=3)
+    mag = cv2.magnitude(gx, gy)
+    lap = np.abs(cv2.Laplacian(g, cv2.CV_32F, ksize=3))
+    h, w = g.shape
+    th, tw = max(1, h // grid), max(1, w // grid)
+    rows: list[tuple[float, float]] = []
+    for r in range(grid):
+        for c in range(grid):
+            m = mag[r * th : (r + 1) * th, c * tw : (c + 1) * tw]
+            lp = lap[r * th : (r + 1) * th, c * tw : (c + 1) * tw]
+            if m.size == 0:
+                continue
+            strong = m >= max(float(np.percentile(m, 95)), 20.0)
+            if strong.sum() < 30:
+                continue  # no real edge in this tile
+            ratio = float(np.percentile(lp, 99) / (np.percentile(m, 99) + 1e-6))
+            rows.append((float(m[strong].mean()), ratio))
+    if not rows:
+        return 0.0
+    rows.sort(key=lambda x: -x[0])
+    best = rows[: max(1, int(len(rows) * top))]
+    return round(float(np.median([ratio for _, ratio in best])), 4)
 
 
 def exposure(gray: np.ndarray, t: Thresholds = Thresholds()) -> dict[str, float]:
@@ -119,8 +158,11 @@ def flag_photos(records: list[dict], t: Thresholds = Thresholds()) -> float:
         if not q:
             continue
         flags = []
-        if q["sharpness"] < blur_floor:
+        soft_edges = q.get("edge_sharpness") is None or q["edge_sharpness"] < t.blur_edge_max
+        if q["sharpness"] < blur_floor and soft_edges:
             flags.append("blurry")
+        elif q["sharpness"] < blur_floor:
+            flags.append("low_detail")  # plain surface with crisp edges: kept, not blurry
         if q["highlight_clip"] > t.highlight_clip_max:
             flags.append("highlights_clipped")
         if q["shadow_clip"] > t.shadow_clip_max:
