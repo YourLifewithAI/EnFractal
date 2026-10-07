@@ -1,0 +1,67 @@
+{
+  "entity_summary": {
+    "properties": {
+      "seen": {
+        "description": "How a companion knows this entity. 'now': in its avatar's line of sight at this moment. 'remembered': out of sight; every other field is as it was when the companion last saw it (perception memory, docs/companion/PERCEPTION.md). Results for the player leave it out: the player sees the whole room.",
+        "enum": [
+          "now",
+          "remembered"
+        ]
+      },
+      "last_seen_ago_s": {
+        "description": "Remembered entities only: seconds since the companion last saw it.",
+        "type": "number",
+        "minimum": 0
+      },
+      "last_seen_revision": {
+        "description": "Remembered entities only: the room revision when the companion last saw it.",
+        "type": "integer",
+        "minimum": 0
+      },
+      "may_be_stale": {
+        "description": "Remembered entities only: true once the memory is older than the host's freshness limit, or once the entity has changed in any way since it was seen (moved, changed, picked up or gone). It never says which, or anything about the entity now.",
+        "type": "boolean"
+      }
+    },
+    "allOf": [
+      {
+        "if": {
+          "properties": {
+            "seen": {
+              "const": "remembered"
+            }
+          },
+          "required": [
+            "seen"
+          ]
+        },
+        "then": {
+          "required": [
+            "last_seen_ago_s",
+            "last_seen_revision",
+            "may_be_stale"
+          ]
+        },
+        "else": {
+          "properties": {
+            "last_seen_ago_s": false,
+            "last_seen_revision": false,
+            "may_be_stale": false
+          }
+        }
+      }
+    ]
+  },
+  "observe": {
+    "properties": {
+      "remembered": {
+        "description": "Things the actor saw earlier in this session that are out of its sight now, within the radius of where they were last seen, nearest first. Each carries seen 'remembered'. Only what this avatar itself saw, never through another avatar.",
+        "type": "array",
+        "maxItems": 50,
+        "items": {
+          "$ref": "#/$defs/entity_summary"
+        }
+      }
+    }
+  }
+}

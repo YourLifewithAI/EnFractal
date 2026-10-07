@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import asyncio
+import atexit
 import copy
 import json
 import logging
 import os
+import shutil
 import sys
 import tempfile
 import threading
@@ -24,11 +26,14 @@ for path in (str(SRC), str(CONTRACTS)):
 
 import validate as contract_validate  # noqa: E402  (contracts/validate.py, the integrator's validator)
 
-from enfractal_companion.contract import Contracts  # noqa: E402
+from enfractal_companion.contract import MEMORY_SUMMARY_FIELDS, Contracts  # noqa: E402
 from enfractal_companion.link import LinkServer  # noqa: E402
 from enfractal_companion.mock_host import COMPANION, NO_HOLDS, PLAYER, FakeClock, HostPolicy, MockHost  # noqa: E402
 
 _CONTRACTS: Contracts | None = None
+_MEMORY_CONTRACTS: Contracts | None = None
+# The perception-memory result fields proposed in docs/companion/proposals/contracts-run1.diff.
+MEMORY_EXTENSION = COMPANION_DIR / "tests" / "fixtures" / "contract_memory_v1.json"
 contract_validate.validator_for("enfractal.result")  # warm the validator once, off any event loop
 logging.getLogger("enfractal").setLevel(logging.CRITICAL)  # refusals are asserted, not logged
 
@@ -45,6 +50,50 @@ def contract_problems(document) -> list[str]:
     return contract_validate.schema_errors(document)
 
 
+def has_memory_fields(command_schema: dict) -> bool:
+    properties = command_schema["$defs"]["entity_summary"].get("properties", {})
+    return all(key in properties for key in MEMORY_SUMMARY_FIELDS)
+
+
+def merge_memory_fields(command_schema: dict) -> dict:
+    """game-command.schema.json with the proposed perception-memory fields (the same change as the patch)."""
+    extension = json.loads(MEMORY_EXTENSION.read_bytes())
+    schema = copy.deepcopy(command_schema)
+    summary = schema["$defs"]["entity_summary"]
+    summary["properties"].update(extension["entity_summary"]["properties"])
+    summary["allOf"] = summary.get("allOf", []) + extension["entity_summary"]["allOf"]
+    schema["$defs"]["data"]["observe"]["properties"].update(extension["observe"]["properties"])
+    return schema
+
+
+def memory_contracts_dir() -> Path:
+    """contracts/ itself once it has the perception-memory fields; until then a temporary copy of its
+    schemas and validator with them merged in, so the memory paths are tested on every run."""
+    command_schema = json.loads((CONTRACTS / "game-command.schema.json").read_bytes())
+    if has_memory_fields(command_schema):
+        return CONTRACTS
+    copy_dir = Path(tempfile.mkdtemp(prefix="enfractal-memory-contracts-"))
+    atexit.register(shutil.rmtree, copy_dir, True)
+    for path in list(CONTRACTS.glob("*.schema.json")) + [CONTRACTS / "validate.py"]:
+        shutil.copyfile(path, copy_dir / path.name)
+    text = json.dumps(merge_memory_fields(command_schema), indent=2, ensure_ascii=False) + "\n"
+    (copy_dir / "game-command.schema.json").write_bytes(text.encode("utf-8"))
+    return copy_dir
+
+
+def memory_contracts() -> Contracts:
+    """The contracts with the perception-memory result fields (see memory_contracts_dir)."""
+    global _MEMORY_CONTRACTS
+    if _MEMORY_CONTRACTS is None:
+        _MEMORY_CONTRACTS = Contracts(memory_contracts_dir())
+    return _MEMORY_CONTRACTS
+
+
+def memory_contract_problems(document) -> list[str]:
+    """Problems according to the integrator's validate.py, loaded from the memory contracts."""
+    return memory_contracts().validate.schema_errors(document)
+
+
 class RecordingHost(MockHost):
     """A mock host that keeps every result it emits, so tests can prove all of them are contract-valid."""
 
@@ -58,8 +107,10 @@ class RecordingHost(MockHost):
         return result
 
 
-def new_host(policy: HostPolicy | None = None, clock: FakeClock | None = None, **kwargs) -> RecordingHost:
-    return RecordingHost(contracts(), policy=policy, clock=clock or FakeClock(), **kwargs)
+def new_host(policy: HostPolicy | None = None, clock: FakeClock | None = None, *, using: Contracts | None = None,
+             **kwargs) -> RecordingHost:
+    """A recording mock host on today's contracts, or on `using` (for example memory_contracts())."""
+    return RecordingHost(using or contracts(), policy=policy, clock=clock or FakeClock(), **kwargs)
 
 
 def command(op: str, args: dict, action_id: str, room_id: str = "test_room", **extra) -> dict:
@@ -105,7 +156,7 @@ class ThreadedGame:
 
     def __enter__(self) -> "ThreadedGame":
         self._thread.start()
-        self.server = LinkServer(self.host.handle, self.host.room_id)
+        self.server = LinkServer(self.host.handle, self.host.room_id, on_session=self.host.session_event)
         asyncio.run_coroutine_threadsafe(self.server.start(self.session_path), self.loop).result(10)
         return self
 

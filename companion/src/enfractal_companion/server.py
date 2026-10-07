@@ -53,7 +53,10 @@ INSTRUCTIONS = (
     "player: you then receive error code approval_required and a request_id. Only the player can approve, in "
     "the game itself; poll approval_status. Give every command an action_id; reuse it only to retry the same "
     "command, and call receipt_lookup after an unclear outcome. Send expected_entities with the revisions you "
-    "observed. You perceive only what your avatar can see. Unlocking protected things and undoing the player's "
+    "observed. You perceive only what your avatar can see now, and you remember what it saw this session: results "
+    "mark remembered things (seen: remembered, last_seen_ago_s, may_be_stale), which may have moved or gone since. "
+    "You may go to, look or point at, come to or fetch a remembered thing; the game re-checks when you arrive. "
+    "Anything that changes a thing needs it in sight now. Unlocking protected things and undoing the player's "
     "changes are the player's alone and are not available to you."
 )
 
@@ -343,7 +346,7 @@ async def _serve(contracts: Contracts, host, session_path: Path | None, schema_p
     link_server = None
     if host is not None:
         from .link import LinkServer
-        link_server = LinkServer(host.handle, host.room_id)
+        link_server = LinkServer(host.handle, host.room_id, on_session=host.session_event)
         info: SessionInfo = await link_server.start()
         client = LinkClient(lambda: info)
     else:

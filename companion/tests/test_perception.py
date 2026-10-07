@@ -195,7 +195,8 @@ class EverySurface(PerceptionCase):
 
 
 class EdgeCasePolicies(PerceptionCase):
-    """The three open founder questions, each behind a policy flag. Defaults are the recommendations."""
+    """The perception policy flags (docs/companion/PERCEPTION.md). Defaults are the founder's answers or
+    the recommendations. Perception memory has its own suite, test_perception_memory.py."""
 
     def test_default_follow_keeps_working_when_the_player_is_out_of_sight(self):
         self.hide_behind(BEHIND_THE_BOX)
@@ -207,23 +208,21 @@ class EdgeCasePolicies(PerceptionCase):
         result = self.send(command("goal.set", {"actor": "avatar:companion", "goal": "follow"}, "f-1"))
         self.assertEqual(result["error"]["code"], "target_not_found")
 
-    def test_default_has_no_memory_of_things_seen_before(self):
+    def test_by_default_a_goal_may_aim_at_something_seen_earlier(self):
         self.send(query("observe", {"actor": "avatar:companion"}))  # sees the book from the spawn point
-        self.hide_behind(BEHIND_THE_BOX)
-        result = self.send(command("goal.set", {"actor": "avatar:companion", "goal": "fetch", "target": "obj:book"}, "f-1"))
-        self.assertEqual(result["error"]["code"], "target_not_found")
-
-    def test_memory_lets_commands_name_recently_seen_things_but_never_shows_them(self):
-        self.host.policy = dataclasses.replace(self.host.policy, perception_memory_s=30.0)
-        self.send(query("observe", {"actor": "avatar:companion"}))
         self.hide_behind(BEHIND_THE_BOX)
         fetch = self.send(command("goal.set", {"actor": "avatar:companion", "goal": "fetch", "target": "obj:book"}, "f-1"))
         self.assertTrue(fetch["ok"], fetch)
-        listed = [i["id"] for i in self.send(query("entities.list", {}, "q-2"))["data"]["items"]]
-        self.assertNotIn("obj:book", listed)
-        self.host.clock.advance(31)
-        late = self.send(command("goal.set", {"actor": "avatar:companion", "goal": "fetch", "target": "obj:book"}, "f-2"))
-        self.assertEqual(late["error"]["code"], "target_not_found")
+        self.assertEqual(fetch["data"]["target_seen"], "remembered")
+        grab = self.send(command("entity.grab", {"target": "obj:book"}, "g-1"))
+        self.assertEqual(grab["error"]["code"], "target_not_found")  # changing it needs it in sight
+
+    def test_memory_can_be_turned_off(self):
+        self.host.policy = dataclasses.replace(self.host.policy, perception_memory_entries=0)
+        self.send(query("observe", {"actor": "avatar:companion"}))
+        self.hide_behind(BEHIND_THE_BOX)
+        result = self.send(command("goal.set", {"actor": "avatar:companion", "goal": "fetch", "target": "obj:book"}, "f-1"))
+        self.assertEqual(result["error"]["code"], "target_not_found")
 
     def test_the_policy_radius_caps_whatever_radius_observe_asks_for(self):
         self.host.policy = dataclasses.replace(self.host.policy, observe_max_radius_m=0.5)

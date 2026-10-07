@@ -13,8 +13,13 @@ from enfractal_companion.server import RESULT_PREAMBLE, Adapter, build_server
 
 
 class McpHarness:
-    def __init__(self, *, host=None, handler=None, mode: str = "auto", start_game: bool = True, **adapter_kwargs):
-        self.host = host if host is not None else new_host()
+    def __init__(self, *, host=None, handler=None, mode: str = "auto", start_game: bool = True, using=None,
+                 problems=contract_problems, **adapter_kwargs):
+        """`using` and `problems` put the adapter on other contracts (and their validator), as a host built
+        with new_host(using=...) is."""
+        self.host = host if host is not None else new_host(using=using)
+        self.contracts = using or contracts()
+        self.problems = problems
         self.handler = handler
         self.mode = mode
         self.start_game = start_game
@@ -27,11 +32,12 @@ class McpHarness:
         self._stack = AsyncExitStack()
         tmp = self._stack.enter_context(tempfile.TemporaryDirectory(prefix="enfractal-mcp-"))
         self.session_path = Path(tmp) / "session.json"
-        self.game = LinkServer(self.handler or self.host.handle, self.host.room_id)
+        self.game = LinkServer(self.handler or self.host.handle, self.host.room_id,
+                               on_session=None if self.handler else self.host.session_event)
         if self.start_game:
             await self.game.start(self.session_path)
         self.link = LinkClient.from_file(self.session_path)
-        self.adapter = Adapter(contracts(), self.link, **self.adapter_kwargs)
+        self.adapter = Adapter(self.contracts, self.link, **self.adapter_kwargs)
         self.server = build_server(self.adapter)
         self.client = await self._stack.enter_async_context(Client(self.server, mode=self.mode))
         return self
@@ -51,7 +57,7 @@ class McpHarness:
         parsed = json.loads(line)
         assert parsed == response.structured_content, "text and structured content differ"
         assert response.is_error == (not parsed["ok"])
-        problems = contract_problems(parsed)
+        problems = self.problems(parsed)
         assert not problems, problems
         self.results.append(parsed)
         return parsed
