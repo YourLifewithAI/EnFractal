@@ -12,6 +12,7 @@ dependencies = [
     "pillow-heif>=1.0",
     "opencv-python-headless>=4.10",
     "matplotlib>=3.9",
+    "scipy>=1.13",  # KD-tree for the batch refinement (C2); already pinned in uv.lock
 ]
 
 [project.optional-dependencies]

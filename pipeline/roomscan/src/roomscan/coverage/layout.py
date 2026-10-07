@@ -95,13 +95,56 @@ def _outer_peak(values: np.ndarray, side: int, *, bin_m: float = 0.02, min_frac:
     return float(np.median(near)) if len(near) else float(centre)
 
 
+def wall_plane(facing: np.ndarray, everything: np.ndarray, side: int, *, bin_m: float = 0.05,
+               min_frac: float = 0.08, max_beyond: float = 0.05) -> tuple[float, str] | None:
+    """Where a wall stands along one axis, and why.
+
+    Candidates are the peaks of the positions of points facing into the room. Shelf fronts and
+    furniture make peaks inside the room; the wall is the strongest peak with almost nothing
+    (``max_beyond`` of all points at wall height) seen behind it. Openings let a little through,
+    which is why the limit is not zero. Without such a peak, the outermost one is used.
+    """
+    if len(facing) < 50:
+        return None
+    lo, hi = np.quantile(facing, [0.001, 0.999])
+    edges = np.arange(lo - bin_m, hi + 2 * bin_m, bin_m)
+    hist, edges = np.histogram(facing, bins=edges)
+    smooth = np.convolve(hist, np.ones(3) / 3, mode="same")
+    peaks = [i for i in range(len(smooth))
+             if (i == 0 or smooth[i] >= smooth[i - 1]) and (i == len(smooth) - 1 or smooth[i] >= smooth[i + 1])
+             and smooth[i] >= min_frac * smooth.max()]
+    if not peaks:
+        return None
+    cands = []
+    for i in peaks:
+        centre = (edges[i] + edges[i + 1]) / 2
+        near = facing[np.abs(facing - centre) < 1.5 * bin_m]
+        pos = float(np.median(near)) if len(near) else float(centre)
+        beyond = float(((everything - pos) * side > 0.10).mean()) if len(everything) else 0.0
+        cands.append((pos, float(smooth[i]), beyond))
+    closed = [c for c in cands if c[2] <= max_beyond]
+    if closed:
+        pos, _, beyond = max(closed, key=lambda c: c[1])
+        return pos, f"strongest wall plane with {100 * beyond:.1f}% of points behind it"
+    pos, _, beyond = max(cands, key=lambda c: c[0] * side)
+    return pos, f"outermost wall plane ({100 * beyond:.1f}% of points behind it)"
+
+
+def camera_forward(preds: dict[int, dict[str, np.ndarray]], view: int) -> np.ndarray:
+    """World direction a photo looks along (+Z of the OpenCV camera)."""
+    return preds[view]["c2w"][:3, :3] @ np.array([0.0, 0.0, 1.0])
+
+
 def camera_up(preds: dict[int, dict[str, np.ndarray]], views: list[int]) -> np.ndarray:
     """Mean camera 'up' (-y in OpenCV) in world: people hold phones roughly level."""
     ups = np.stack([preds[v]["c2w"][:3, :3] @ np.array([0.0, -1.0, 0.0]) for v in views])
     return normalize(ups.mean(0))
 
 
-def fit_room(points: PointSet, up0: np.ndarray) -> RoomFrame:
+def fit_room(points: PointSet, up0: np.ndarray, forward: np.ndarray | None = None) -> RoomFrame:
+    """Box room fitted to the points. ``forward`` (a world direction, usually the first photo's
+    view) is turned to point up the map (-Z), which fixes the otherwise arbitrary choice among the
+    four wall directions, so the walls keep their letters from run to run."""
     sources: dict[str, str] = {}
     h = points.xyz @ up0
     low = (h < np.quantile(h, 0.3)) & ((points.normal @ up0) > np.cos(np.radians(35)))
@@ -120,27 +163,28 @@ def fit_room(points: PointSet, up0: np.ndarray) -> RoomFrame:
     horiz = np.abs(nor[:, 1]) < 0.2
     yaw = dominant_wall_yaw(nor[horiz][:, [0, 2]]) if horiz.sum() > 100 else 0.0
     R2 = yaw_rotation(yaw)
+    if forward is not None:
+        f = R2 @ R1 @ np.asarray(forward, float)
+        best = max(range(4), key=lambda k: float((yaw_rotation(k * np.pi / 2) @ f) @ np.array([0.0, 0.0, -1.0])))
+        R2 = yaw_rotation(best * np.pi / 2) @ R2
+        sources["orientation"] = "first photo looks up the map (toward wall A)"
     xyz = xyz @ R2.T
     nor = nor @ R2.T
     R = R2 @ R1
 
     bounds = {}
+    band = (xyz[:, 1] > 0.3) & (xyz[:, 1] < 2.2)  # wall height, above skirting clutter
     for axis, key_lo, key_hi in ((0, "x_min", "x_max"), (2, "z_min", "z_max")):
-        facing_pos = nor[:, axis] > 0.8  # a wall on the low side faces +axis into the room
-        facing_neg = nor[:, axis] < -0.8
-        lo = _outer_peak(xyz[facing_pos, axis], -1)
-        hi = _outer_peak(xyz[facing_neg, axis], +1)
-        if lo is None:
-            lo = float(np.quantile(xyz[:, axis], 0.02))
-            sources[key_lo] = "2nd percentile of all points (wall not seen face-on)"
-        else:
-            sources[key_lo] = "outermost wall plane"
-        if hi is None:
-            hi = float(np.quantile(xyz[:, axis], 0.98))
-            sources[key_hi] = "98th percentile of all points (wall not seen face-on)"
-        else:
-            sources[key_hi] = "outermost wall plane"
-        bounds[key_lo], bounds[key_hi] = lo, hi
+        facing_pos = band & (nor[:, axis] > 0.8)  # a wall on the low side faces +axis into the room
+        facing_neg = band & (nor[:, axis] < -0.8)
+        everything = xyz[band, axis]
+        for key, facing, side, q in ((key_lo, facing_pos, -1, 0.02), (key_hi, facing_neg, +1, 0.98)):
+            found = wall_plane(xyz[facing, axis], everything, side)
+            if found is None:
+                bounds[key] = float(np.quantile(xyz[:, axis], q))
+                sources[key] = f"{round(q * 100)}th percentile of all points (wall not seen face-on)"
+            else:
+                bounds[key], sources[key] = found
 
     down = (nor[:, 1] < -0.85) & (xyz[:, 1] > 1.5)
     ceiling = _outer_peak(xyz[down, 1], +1, min_frac=0.3)

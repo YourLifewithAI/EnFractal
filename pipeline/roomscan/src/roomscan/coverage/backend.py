@@ -7,9 +7,11 @@ C1 and the unit tests never need the GPU stack.
 
 from __future__ import annotations
 
+import contextlib
 import math
 import shutil
 import subprocess
+import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -35,6 +37,16 @@ MODEL_REGISTRY = {
         "download_bytes": 619918824,
     },
 }
+# Code (not weights) fetched by torch.hub when MapAnything builds its DINOv2 encoder. Uniception
+# asks for the repository's moving main branch; ``pinned_torch_hub`` pins it to this commit.
+# The weights come from the MapAnything checkpoint above, so no DINOv2 weights are downloaded.
+TORCH_HUB_PINS = {
+    "facebookresearch/dinov2": {
+        "ref": "7764ea0f912e53c92e82eb78a2a1631e92725fc8",
+        "licence": "Apache-2.0 (code)",
+        "role": "DINOv2 encoder definition used by MapAnything",
+    },
+}
 # Considered and not used, recorded so the founder can decide later:
 REJECTED_MODELS = {
     "facebook/VGGT-1B": "CC BY-NC 4.0 (non-commercial only)",
@@ -54,6 +66,7 @@ NO_CUDNN_MODULES = ("ray_dirs_encoder", "depth_encoder")
 @dataclass
 class GpuStats:
     seconds: float = 0.0
+    prepare_seconds: float = 0.0  # decoding and resizing photos for the model (CPU)
     peak_allocated_mib: float = 0.0
     peak_reserved_mib: float = 0.0
     batches: list[dict[str, Any]] = field(default_factory=list)
@@ -75,8 +88,44 @@ def nvidia_smi_memory() -> tuple[int, int] | None:
         return None
 
 
+GAME_WINDOW_PREFIX = "EnFractal"
+
+
+def game_window_open() -> bool:
+    """Whether a window titled EnFractal... is open (the founder may be playing on this GPU).
+
+    Windows only (``tasklist /v``); elsewhere, or when the check itself fails, returns False.
+    """
+    if not sys.platform.startswith("win"):
+        return False
+    try:
+        out = subprocess.run(["tasklist", "/v", "/fo", "csv", "/nh"], capture_output=True, text=True,
+                             timeout=30, check=True, errors="replace").stdout
+    except (subprocess.SubprocessError, OSError):
+        return False
+    for line in out.splitlines():
+        fields = [f.strip('"') for f in line.split('","')]
+        if fields and fields[-1].startswith(GAME_WINDOW_PREFIX):
+            return True
+    return False
+
+
+def wait_while_game_runs(*, retries: int = 240, delay_s: float = 30.0, log=print) -> float:
+    """Pause GPU work while the game is open; returns the seconds waited."""
+    waited = 0.0
+    for attempt in range(retries):
+        if not game_window_open():
+            return waited
+        if attempt == 0:
+            log("The EnFractal game is open on this GPU; pausing GPU work until it closes...")
+        time.sleep(delay_s)
+        waited += delay_s
+    raise RuntimeError("The game stayed open; GPU work was not started. Run the coverage step again later.")
+
+
 def wait_for_vram(need_mib: int, *, retries: int = 20, delay_s: float = 30.0, log=print) -> int:
     """Wait (politely) until ``need_mib`` is free; other lanes may be capturing on this GPU."""
+    wait_while_game_runs(log=log)
     for attempt in range(retries + 1):
         mem = nvidia_smi_memory()
         if mem is None:
@@ -98,8 +147,20 @@ def processed_geometry(width: int, height: int, target: tuple[int, int] = TARGET
     return scale, (rw - tw) // 2, (rh - th) // 2
 
 
+def open_reduced(path: Path, min_size: tuple[int, int]) -> Image.Image:
+    """Open an image, letting the JPEG decoder skip detail beyond twice ``min_size``.
+
+    Draft mode decodes a 24 MP photo at 1/2, 1/4 or 1/8 scale directly from the DCT, several
+    times faster than decoding it whole and resizing. The aspect ratio is kept.
+    """
+    im = Image.open(path)
+    if im.format == "JPEG":
+        im.draft("RGB", (2 * min_size[0], 2 * min_size[1]))
+    return im
+
+
 def load_model_input(path: Path, target: tuple[int, int] = TARGET_SIZE, mirror: bool = False) -> Image.Image:
-    with Image.open(path) as im:
+    with open_reduced(path, target) as im:
         im = im.convert("RGB")
         if mirror:
             im = im.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
@@ -153,6 +214,34 @@ def _without_cudnn(module) -> None:
     module.register_forward_hook(on)
 
 
+@contextlib.contextmanager
+def pinned_torch_hub():
+    """Route torch.hub loads of known repositories to a pinned commit of the official repository.
+
+    The default would download whatever is on ``main`` today and run its ``hubconf.py``.
+    ``skip_validation`` only skips torch's check that the ref is a branch or tag head; the
+    download still comes from the official repository named in ``TORCH_HUB_PINS``.
+    """
+    import torch
+
+    real = torch.hub.load
+
+    def load(repo_or_dir, model, *args, **kwargs):
+        pin = TORCH_HUB_PINS.get(repo_or_dir) if isinstance(repo_or_dir, str) else None
+        if pin is not None:
+            repo_or_dir = f"{repo_or_dir}:{pin['ref']}"
+            kwargs["skip_validation"] = True
+            kwargs["trust_repo"] = True
+            kwargs["force_reload"] = False
+        return real(repo_or_dir, model, *args, **kwargs)
+
+    torch.hub.load = load
+    try:
+        yield
+    finally:
+        torch.hub.load = real
+
+
 FULL_FRAME_DIAGONAL_MM = 43.2666
 
 
@@ -175,9 +264,14 @@ def exif_intrinsics(photo: dict[str, Any], target: tuple[int, int] = TARGET_SIZE
                      [0.0, 0.0, 1.0]])
 
 
-def batch_size_for(free_mib: int, *, headroom_mib: int = 1000, fixed_mib: int = 3700, per_view_mib: int = 90,
+def batch_size_for(free_mib: int, *, headroom_mib: int = 1000, fixed_mib: int = 3800, per_view_mib: int = 85,
                    lo: int = 8, hi: int = 32) -> int:
-    """Views per batch that fit in free VRAM (measured on the RTX 2070 SUPER, fp16 trunk)."""
+    """Views per batch that fit in free VRAM (fp16 trunk).
+
+    Measured on the RTX 2070 SUPER (8 GB), 6 October 2026: peak reserved 4472 MiB at 8 views,
+    5826 at 24 and 6462 at 32 (about 3.8 GB fixed plus 83 MiB per view). 32 is the largest
+    batch measured, so it is the ceiling.
+    """
     n = (free_mib - headroom_mib - fixed_mib) // per_view_mib
     return int(max(lo, min(hi, n)))
 
@@ -204,7 +298,8 @@ class MapAnythingBackend:
 
         info = MODEL_REGISTRY[self.model_id]
         t0 = time.perf_counter()
-        model = MapAnything.from_pretrained(self.model_id, revision=info["revision"])
+        with pinned_torch_hub():
+            model = MapAnything.from_pretrained(self.model_id, revision=info["revision"])
         if self.half:
             # The image encoder and the multi-view transformer hold ~92% of the weights and run
             # under autocast; the small geometric encoders and heads stay fp32 because parts of them
@@ -252,7 +347,9 @@ class MapAnythingBackend:
         torch = self.torch
         if self.model is None:
             self.load()
+        t_prep = time.perf_counter()
         views = self._views(paths, intrinsics, mirror)
+        self.stats.prepare_seconds += time.perf_counter() - t_prep
         torch.cuda.reset_peak_memory_stats()
         torch.cuda.synchronize()
         t0 = time.perf_counter()

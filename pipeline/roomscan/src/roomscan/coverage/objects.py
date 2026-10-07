@@ -18,7 +18,7 @@ from typing import Any
 import numpy as np
 from PIL import Image
 
-from .backend import MODEL_REGISTRY, STORE_STRIDE, TARGET_SIZE, processed_geometry
+from .backend import MODEL_REGISTRY, STORE_STRIDE, TARGET_SIZE, open_reduced, processed_geometry
 
 DETECTOR = "google/owlv2-base-patch16-ensemble"
 
@@ -116,7 +116,7 @@ class Detector:
         self.peak_mib = 0.0
         self.log = log
 
-    def detect(self, image: Image.Image) -> list[tuple[str, float, tuple[float, float, float, float]]]:
+    def detect(self, image: Image.Image, photo: dict | None = None) -> list[tuple[str, float, tuple[float, float, float, float]]]:
         torch = self.torch
         side = max(image.size)  # OWLv2 pads to a square at the bottom and right
         inputs = self.processor(text=[self.queries], images=image, return_tensors="pt").to("cuda")
@@ -161,12 +161,20 @@ def _nms(found, iou_max: float):
     return kept
 
 
-def detection_image(path: Path, long_side: int = 768) -> tuple[Image.Image, float]:
+DETECTION_LONG_SIDE = 768
+
+
+def detection_factor(long_side: int = DETECTION_LONG_SIDE) -> float:
+    """Detection-image pixels to stored point-map pixels."""
+    return 1.0 / (long_side / max(TARGET_SIZE) * STORE_STRIDE)
+
+
+def detection_image(path: Path, long_side: int = DETECTION_LONG_SIDE) -> tuple[Image.Image, float]:
     """The photo cropped exactly like the pose model's input, at a size the detector likes.
 
     Returns the image and the factor from its pixels to the stored point-map pixels.
     """
-    with Image.open(path) as im:
+    with open_reduced(path, (long_side // 2, long_side // 2)) as im:  # decodes at least long_side
         im = im.convert("RGB")
         scale, left, top = processed_geometry(im.width, im.height)
         tw, th = TARGET_SIZE
@@ -174,7 +182,7 @@ def detection_image(path: Path, long_side: int = 768) -> tuple[Image.Image, floa
         im = im.crop(tuple(round(c) for c in crop))
         k = long_side / max(tw, th)
         im = im.resize((round(tw * k), round(th * k)), Image.Resampling.LANCZOS)
-    return im, 1.0 / (k * STORE_STRIDE)
+    return im, detection_factor(long_side)
 
 
 def lift(det: Detection, pts_room: np.ndarray, valid: np.ndarray, *, shrink: float = 0.25) -> bool:
@@ -207,8 +215,12 @@ def _footprint_overlap(a_lo, a_hi, b_lo, b_hi) -> float:
     return ix * iz / min(area_a, area_b)
 
 
-def cluster(dets: list[Detection], *, link_m: float = 0.45, overlap_min: float = 0.35) -> list[list[Detection]]:
-    """Same-label detections that overlap in the floor plane or sit close together are one object."""
+def cluster(dets: list[Detection], *, link_m: float = 0.35, overlap_min: float | None = None) -> list[list[Detection]]:
+    """Same-label detections whose centres sit close together are one object.
+
+    Linking by footprint overlap as well (``overlap_min``, off by default) lets one large box chain
+    a whole side of a cluttered room into a single object.
+    """
     groups: list[list[Detection]] = []
     by_label: dict[str, list[Detection]] = {}
     for d in dets:
@@ -227,7 +239,7 @@ def cluster(dets: list[Detection], *, link_m: float = 0.45, overlap_min: float =
             for j in range(i + 1, len(items)):
                 a, b = items[i], items[j]
                 close = np.linalg.norm((a.centre - b.centre)[[0, 2]]) < link_m and abs(a.centre[1] - b.centre[1]) < 0.6
-                if close or _footprint_overlap(a.lo, a.hi, b.lo, b.hi) > overlap_min:
+                if close or (overlap_min is not None and _footprint_overlap(a.lo, a.hi, b.lo, b.hi) > overlap_min):
                     parent[find(j)] = find(i)
         sets: dict[int, list[Detection]] = {}
         for i, d in enumerate(items):
@@ -236,20 +248,48 @@ def cluster(dets: list[Detection], *, link_m: float = 0.45, overlap_min: float =
     return groups
 
 
-def build_instances(groups: list[list[Detection]], *, min_detections: int = 2) -> list[ObjectInstance]:
-    out = []
-    counters: dict[str, int] = {}
-    groups = sorted(groups, key=lambda g: (-len({d.view for d in g}), g[0].label))
-    for g in groups:
+MAX_SIZE_M = 4.0
+MAX_OBJECTS = 25
+
+
+def evidence(g: list[Detection]) -> float:
+    """How sure we are a group of detections is one real object: photos times mean score."""
+    return len({d.view for d in g}) * float(np.mean([d.score for d in g]))
+
+
+def _overlap_of_smaller(a_lo, a_hi, b_lo, b_hi) -> float:
+    inter = np.clip(np.minimum(a_hi, b_hi) - np.maximum(a_lo, b_lo), 0, None)
+    vol = lambda lo, hi: float(np.prod(np.clip(hi - lo, 0.05, None)))  # noqa: E731
+    return float(np.prod(inter)) / min(vol(a_lo, a_hi), vol(b_lo, b_hi))
+
+
+def build_instances(groups: list[list[Detection]], *, min_views: int = 3, min_detections: int = 4,
+                    strong_score: float = 0.5, max_objects: int = MAX_OBJECTS) -> list[ObjectInstance]:
+    """Objects from clusters of detections, keeping only well-evidenced ones.
+
+    A cluster needs ``min_detections`` sightings in ``min_views`` photos, or two photos when the
+    detector was confident (``strong_score``). Clusters that share most of their volume are one
+    object called two names: the better-evidenced name wins and the other is kept as an alias.
+    """
+    kept: list[tuple[list[Detection], np.ndarray, np.ndarray]] = []
+    for g in sorted(groups, key=lambda g: (-evidence(g), g[0].label)):
         views = {d.view for d in g}
         best = max(d.score for d in g)
-        if len(views) < min_detections and best < 0.4:
-            continue  # one weak sighting: more likely a false detection than an object
+        if not ((len(views) >= min_views and len(g) >= min_detections) or (len(views) >= 2 and best >= strong_score)):
+            continue  # a few weak sightings: more likely false detections than an object
         lo = np.percentile(np.stack([d.lo for d in g]), 25, axis=0)
         hi = np.percentile(np.stack([d.hi for d in g]), 75, axis=0)
         size = hi - lo
-        if max(size[0], size[2], size[1]) < MIN_SIZE_M:
+        if max(size) < MIN_SIZE_M or max(size) > MAX_SIZE_M:
             continue
+        if any(_overlap_of_smaller(lo, hi, k_lo, k_hi) > 0.5 for _, k_lo, k_hi in kept):
+            continue
+        kept.append((g, lo, hi))
+        if len(kept) >= max_objects:
+            break
+    out = []
+    counters: dict[str, int] = {}
+    for g, lo, hi in sorted(kept, key=lambda k: (-len({d.view for d in k[0]}), k[0][0].label)):
         label = g[0].label
         counters[label] = counters.get(label, 0) + 1
         out.append(ObjectInstance(f"{label.replace(' ', '_')}_{counters[label]}", label, g, lo, hi))

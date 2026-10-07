@@ -1,8 +1,9 @@
-"""Coverage grids over the floor, the four walls and the ceiling.
+"""Coverage grids over the floor, the four walls and the ceiling (25 cm cells).
 
-A cell counts as *seen by a photo* when that photo contributes at least ``min_points`` of its
-sampled surface points to the cell. Cells hidden behind furniture are marked *blocked* rather than
-missing: no photo can see the wall behind a shelving unit, and the guidance must not ask for one.
+Each cell's state comes from ``visibility``: how many fitted photos see it, how many see something
+in front of it, and how many see past it. Cells hidden behind furniture are *blocked* rather than
+missing (no photo can see the wall behind a shelving unit, and the guidance must not ask for one),
+and cells photos keep looking through are an *opening* (a doorway, a window, an open garage door).
 """
 
 from __future__ import annotations
@@ -11,6 +12,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
+
+from .visibility import Views, cell_samples, classify
 
 GOOD_VIEWS = 3
 CELL_M = 0.25
@@ -23,6 +26,14 @@ WALLS = {
     "C": ("z", "max", (0.0, -1.0), "bottom edge of the map"),
     "D": ("x", "min", (1.0, 0.0), "left edge of the map"),
 }
+# How far in front of / behind the fitted plane a photo's depth may land and still be "this surface",
+# and how close an obstruction must be to count as furniture on the cell rather than clutter between.
+# Floors get more room behind the plane: garage floors slope toward the door for drainage.
+TOLERANCE = {"floor": (0.08, 0.15, 0.45), "wall": (0.25, 0.15, 0.8), "ceiling": (0.15, 0.15, 0.45)}
+# Three photos all taken from one spot do not let a surface be rebuilt: the directions they see a
+# cell from must spread a little. 0.985 is the mean resultant length of directions about 10 degrees
+# apart on average (three photos a step apart, two to three metres away).
+SPREAD_MAX = 0.985
 
 
 @dataclass
@@ -32,22 +43,49 @@ class SurfaceGrid:
     blocked: np.ndarray  # (rows, cols) bool: hidden behind something nearer
     extent: tuple[float, float, float, float]  # u0, u1, v0, v1 in metres
     view_sets: list[list[set[int]]] = field(default_factory=list)
+    opening: np.ndarray | None = None  # (rows, cols) bool: photos see past the surface here
+    hidden_by: np.ndarray | None = None  # (rows, cols) photos that saw furniture on or against it
+    blocked_far: np.ndarray | None = None  # (rows, cols) photos blocked by clutter further away
+    seen_through: np.ndarray | None = None  # (rows, cols) photos that saw past it
+    low_views: np.ndarray | None = None  # (rows, cols) photos from below knee height that see it
+    spread: np.ndarray | None = None  # (rows, cols) 1 = every photo from the same direction
     # Floor only: blocked cells with open space underneath (a desk, the bottom of a shelf), where a
     # knee-height photo could see the floor.
     open_below: np.ndarray | None = None
 
+    def __post_init__(self) -> None:
+        if self.opening is None:
+            self.opening = np.zeros_like(self.blocked, bool)
+        if self.spread is None:
+            self.spread = np.zeros(self.views.shape)
+        if self.low_views is None:
+            self.low_views = np.zeros_like(self.views)
+        if self.blocked_far is None:
+            self.blocked_far = np.zeros_like(self.views)
+
+    @property
+    def visible(self) -> np.ndarray:
+        return ~self.blocked & ~self.opening
+
+    @property
+    def good(self) -> np.ndarray:
+        """Seen by enough photos, from more than one direction."""
+        return (self.views >= GOOD_VIEWS) & (self.spread <= SPREAD_MAX)
+
     def stats(self) -> dict[str, Any]:
         total = self.views.size
         blocked = int(self.blocked.sum())
-        visible = ~self.blocked
-        good = int(((self.views >= GOOD_VIEWS) & visible).sum())
-        thin = int(((self.views > 0) & (self.views < GOOD_VIEWS) & visible).sum())
+        opening = int(self.opening.sum())
+        visible = self.visible
+        good = int((self.good & visible).sum())
+        thin = int(((self.views > 0) & ~self.good & visible).sum())
         unseen = int(((self.views == 0) & visible).sum())
-        seeable = max(1, total - blocked)
+        seeable = max(1, total - blocked - opening)
         return {
             "cells": total,
             "cell_m": CELL_M,
             "blocked": blocked,
+            "opening": opening,
             "good": good,
             "thin": thin,
             "unseen": unseen,
@@ -55,44 +93,42 @@ class SurfaceGrid:
             "thin_pct": round(100 * thin / seeable, 1),
             "unseen_pct": round(100 * unseen / seeable, 1),
             "median_views": float(np.median(self.views[visible])) if visible.any() else 0.0,
+            "low_seen_pct": round(100 * int(((self.low_views > 0) & visible).sum()) / seeable, 1),
+            "blocked_from_afar": int(((self.blocked_far >= 2) & ~self.good & visible).sum()),
         }
 
     def state(self) -> np.ndarray:
-        """0 unseen, 1 thin, 2 good, 3 blocked."""
-        s = np.where(self.views >= GOOD_VIEWS, 2, np.where(self.views > 0, 1, 0))
-        return np.where(self.blocked & (self.views < GOOD_VIEWS), 3, s)
+        """0 unseen, 1 thin, 2 good, 3 blocked, 4 opening."""
+        s = np.where(self.good, 2, np.where(self.views > 0, 1, 0))
+        s = np.where(self.blocked, 3, s)
+        return np.where(self.opening, 4, s)
 
 
-def _count_views(u: np.ndarray, v: np.ndarray, owner: np.ndarray, extent, cell: float,
-                 min_points: int) -> tuple[np.ndarray, list[list[set[int]]]]:
+def _states(vis, extent, name: str, *, openings: bool = True) -> SurfaceGrid:
+    """Blocked only by furniture on or against the cell; clutter further away leaves a gap.
+
+    ``openings`` is off for the floor: nothing is seen through a floor, so depth beyond it means
+    the floor is not quite flat there, not a doorway.
+    """
+    seen, covered, through = vis.seen, vis.covered, vis.through
+    weak = seen < GOOD_VIEWS
+    blocked = weak & (covered >= 2) & (covered >= 2 * seen + 1) & (covered >= through)
+    opening = weak & ~blocked & (through >= 2) & (through >= 2 * seen + 1) & (through > covered)
+    if not openings:
+        opening = np.zeros_like(opening)
+    return SurfaceGrid(name, seen, blocked, extent, vis.view_sets, opening=opening, hidden_by=covered,
+                       blocked_far=vis.blocked_far, seen_through=through, low_views=vis.low_seen,
+                       spread=vis.spread)
+
+
+def _shape(extent, cell: float) -> tuple[int, int]:
     u0, u1, v0, v1 = extent
-    cols = max(1, int(np.ceil((u1 - u0) / cell)))
-    rows = max(1, int(np.ceil((v1 - v0) / cell)))
-    ci = np.floor((u - u0) / cell).astype(int)
-    ri = np.floor((v - v0) / cell).astype(int)
-    inside = (ci >= 0) & (ci < cols) & (ri >= 0) & (ri < rows)
-    ci, ri, ow = ci[inside], ri[inside], owner[inside]
-    sets: list[list[set[int]]] = [[set() for _ in range(cols)] for _ in range(rows)]
-    counts = np.zeros((rows, cols), int)
-    if len(ci):
-        key = (ri * cols + ci).astype(np.int64) * 100000 + ow.astype(np.int64)
-        uniq, n = np.unique(key, return_counts=True)
-        for k, c in zip(uniq, n):
-            if c < min_points:
-                continue
-            cell_id, view = divmod(int(k), 100000)
-            r, cc = divmod(cell_id, cols)
-            sets[r][cc].add(view)
-    for r in range(rows):
-        for c in range(cols):
-            counts[r, c] = len(sets[r][c])
-    return counts, sets
+    return max(1, int(np.ceil((v1 - v0) / cell - 1e-9))), max(1, int(np.ceil((u1 - u0) / cell - 1e-9)))
 
 
 def _occupancy(u: np.ndarray, v: np.ndarray, extent, cell: float, min_points: int) -> np.ndarray:
     u0, u1, v0, v1 = extent
-    cols = max(1, int(np.ceil((u1 - u0) / cell)))
-    rows = max(1, int(np.ceil((v1 - v0) / cell)))
+    rows, cols = _shape(extent, cell)
     ci = np.floor((u - u0) / cell).astype(int)
     ri = np.floor((v - v0) / cell).astype(int)
     inside = (ci >= 0) & (ci < cols) & (ri >= 0) & (ri < rows)
@@ -101,24 +137,32 @@ def _occupancy(u: np.ndarray, v: np.ndarray, extent, cell: float, min_points: in
     return grid >= min_points
 
 
-def floor_grid(xyz: np.ndarray, nor: np.ndarray, owner: np.ndarray, bounds, *, cell: float = CELL_M,
-               min_points: int = 8) -> SurfaceGrid:
+def floor_grid(views: Views, xyz: np.ndarray, bounds, *, cell: float = CELL_M) -> SurfaceGrid:
     x0, x1, z0, z1 = bounds
-    on_floor = (np.abs(xyz[:, 1]) < 0.06) & (nor[:, 1] > 0.7)
-    counts, sets = _count_views(xyz[on_floor, 0], xyz[on_floor, 2], owner[on_floor], (x0, x1, z0, z1), cell, min_points)
-    above = (xyz[:, 1] > 0.10) & (xyz[:, 1] < 1.9)
-    blocked = _occupancy(xyz[above, 0], xyz[above, 2], (x0, x1, z0, z1), cell, 40)
+    extent = (x0, x1, z0, z1)
+    rows, cols = _shape(extent, cell)
+    samples = cell_samples(np.array([x0, 0.0, z0]), np.array([1.0, 0, 0]), np.array([0, 0, 1.0]), rows, cols, cell)
+    front, back, near = TOLERANCE["floor"]
+    grid = _states(classify(samples, np.array([0.0, 1.0, 0.0]), views, front_slack=front, back_tol=back,
+                            near_m=near), extent, "floor", openings=False)
+    # Blocked cells with a surface above them but nothing low: the space under a desk or a shelf.
     low = (xyz[:, 1] > 0.10) & (xyz[:, 1] < 0.35)
-    low_occ = _occupancy(xyz[low, 0], xyz[low, 2], (x0, x1, z0, z1), cell, 15)
-    return SurfaceGrid("floor", counts, blocked, (x0, x1, z0, z1), sets, open_below=blocked & ~low_occ)
+    low_occ = _occupancy(xyz[low, 0], xyz[low, 2], extent, cell, 15)
+    above = (xyz[:, 1] >= 0.35) & (xyz[:, 1] < 1.2)
+    high_occ = _occupancy(xyz[above, 0], xyz[above, 2], extent, cell, 15)
+    grid.open_below = grid.blocked & high_occ & ~low_occ
+    return grid
 
 
-def ceiling_grid(xyz: np.ndarray, nor: np.ndarray, owner: np.ndarray, bounds, ceiling_y: float, *,
-                 cell: float = CELL_M, min_points: int = 8) -> SurfaceGrid:
+def ceiling_grid(views: Views, bounds, ceiling_y: float, *, cell: float = CELL_M) -> SurfaceGrid:
     x0, x1, z0, z1 = bounds
-    near = (np.abs(xyz[:, 1] - ceiling_y) < 0.08) & (nor[:, 1] < -0.6)
-    counts, sets = _count_views(xyz[near, 0], xyz[near, 2], owner[near], (x0, x1, z0, z1), cell, min_points)
-    return SurfaceGrid("ceiling", counts, np.zeros_like(counts, bool), (x0, x1, z0, z1), sets)
+    extent = (x0, x1, z0, z1)
+    rows, cols = _shape(extent, cell)
+    samples = cell_samples(np.array([x0, ceiling_y, z0]), np.array([1.0, 0, 0]), np.array([0, 0, 1.0]), rows, cols,
+                           cell)
+    front, back, near = TOLERANCE["ceiling"]
+    return _states(classify(samples, np.array([0.0, -1.0, 0.0]), views, front_slack=front, back_tol=back,
+                            near_m=near), extent, "ceiling")
 
 
 def wall_axes(key: str, bounds) -> dict[str, Any]:
@@ -146,21 +190,17 @@ def wall_axes(key: str, bounds) -> dict[str, Any]:
             "left_end": ends[0], "right_end": ends[1], "length": length, "label": label}
 
 
-def wall_grid(key: str, xyz: np.ndarray, nor: np.ndarray, owner: np.ndarray, bounds, height: float, *,
-              cell: float = CELL_M, min_points: int = 8) -> SurfaceGrid:
+def wall_grid(key: str, views: Views, bounds, height: float, *, cell: float = CELL_M) -> SurfaceGrid:
     w = wall_axes(key, bounds)
-    a = 0 if w["axis"] == "x" else 2
-    inward_n = w["inward"][0] if a == 0 else w["inward"][1]
-    dist = (xyz[:, a] - w["plane"]) * np.sign(inward_n)  # distance into the room
-    rel = xyz[:, [0, 2]] - w["left_end"]
-    u = rel @ w["right"]
-    v = xyz[:, 1]
-    on_wall = (np.abs(dist) < 0.10) & (nor[:, a] * np.sign(inward_n) > 0.6)
     extent = (0.0, w["length"], 0.0, height)
-    counts, sets = _count_views(u[on_wall], v[on_wall], owner[on_wall], extent, cell, min_points)
-    front = (dist > 0.12) & (dist < 0.9)
-    blocked = _occupancy(u[front], v[front], extent, cell, 40)
-    return SurfaceGrid(f"wall {key}", counts, blocked, extent, sets)
+    rows, cols = _shape(extent, cell)
+    origin = np.array([w["left_end"][0], 0.0, w["left_end"][1]])
+    u_dir = np.array([w["right"][0], 0.0, w["right"][1]])
+    normal = np.array([w["inward"][0], 0.0, w["inward"][1]])
+    front, back, near = TOLERANCE["wall"]
+    vis = classify(cell_samples(origin, u_dir, np.array([0.0, 1.0, 0.0]), rows, cols, cell), normal, views,
+                   front_slack=front, back_tol=back, near_m=near)
+    return _states(vis, extent, f"wall {key}")
 
 
 def runs(mask: np.ndarray) -> list[tuple[int, int]]:
