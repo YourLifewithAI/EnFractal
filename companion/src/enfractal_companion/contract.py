@@ -8,8 +8,8 @@ On top of that it applies the rules the contract means but Python does not enfor
 - `pattern` follows ECMA-262 like the C# and GDScript readers: `$` matches only at the very end,
   so "approved" plus a final newline no longer passes `^[^...]*$` (Python's `$` also matches before
   a final newline);
-- no string anywhere in a message hides characters (see textsafety.is_hidden; newline and tab
-  are left to the per-field patterns);
+- no string anywhere in a message hides characters (see textsafety: emoji markers are allowed only
+  in place; newline and tab are left to the per-field patterns);
 - integers fit a signed 64-bit integer, and every number is finite.
 
 The tool catalogue is derived, not hand-written: every command and query op in the contract
@@ -52,6 +52,13 @@ TOOL_NAME_PATTERN = re.compile(r"[a-z][a-z0-9_]{0,63}")
 # (schema, version, room_id, op) is filled by the adapter; the principal never exists in a request.
 COMMAND_ENVELOPE_FIELDS = ("action_id", "expected_revision", "expected_entities", "preview", "note")
 STOP_OPS = frozenset({"goal.stop", "effect.stop"})
+# One ordinary use of each emoji marker, to ask the contract's text patterns whether they accept it.
+MARKER_PROBES = {
+    textsafety.VS16: "\u2764\ufe0f",  # red heart, emoji presentation
+    textsafety.VS15: "\u2764\ufe0e",  # red heart, text presentation
+    textsafety.ZWJ: "\U0001f468\u200d\U0001f469",  # man, joiner, woman
+    textsafety.KEYCAP: "1\u20e3",  # keycap one
+}
 
 # Keys that name identity or authority are never accepted anywhere in a request, by the adapter
 # or the mock host: only the trusted side assigns them. A key is refused when its folded form
@@ -227,6 +234,8 @@ class Contracts:
         self.message_limits: dict[str, int] = dict(self.validate.MESSAGE_LIMITS)
         self.creation_source_limit: int = int(self.validate.CREATION_SOURCE_LIMIT)
         self._args_def_for_op = self._map_args_defs()
+        # The emoji markers the contract's text patterns accept, so the host never emits one it refuses.
+        self.text_rules = textsafety.TextRules(self._markers_the_text_patterns_accept())
         # The integrator's strict validator (integers without a fraction), with ECMA-262 patterns.
         ecma = validators.extend(self.validate.StrictValidator, {"pattern": _ecma_pattern})
         message_schema = self.validate.load_strict(self.dir / self.validate.SCHEMA_FILES[COMMAND_SCHEMA])
@@ -235,6 +244,12 @@ class Contracts:
         for name in (COMMAND_SCHEMA, QUERY_SCHEMA, RESULT_SCHEMA):
             self.validate.validator_for(name)
         list(self._validator.iter_errors({"schema": RESULT_SCHEMA}))
+
+    def _markers_the_text_patterns_accept(self) -> frozenset[int]:
+        defs = self.common_schema["$defs"]
+        patterns = [defs[name]["pattern"] for name in ("display_text", "long_text") if "pattern" in defs.get(name, {})]
+        return frozenset(marker for marker, probe in MARKER_PROBES.items()
+                         if all(_ecma_regex(pattern).search(probe) for pattern in patterns))
 
     # ----- validation -----
 

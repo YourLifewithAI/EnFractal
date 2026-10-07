@@ -191,11 +191,11 @@ class Entity:
         hx, height, hz = self.half_extents
         return {"min_m": [_r(x - hx), _r(y), _r(z - hz)], "max_m": [_r(x + hx), _r(y + height), _r(z + hz)]}
 
-    def summary(self) -> dict:
+    def summary(self, text: textsafety.TextRules) -> dict:
         out = {
             "id": self.id,
             "kind": self.kind,
-            "display_name": textsafety.display_text(self.display_name, 80),
+            "display_name": text.display_text(self.display_name, 80),
             "position_m": [_r(v) for v in self.position],
             "bounds_m": self.bounds(),
             "affordances": list(dict.fromkeys(self.affordances)),
@@ -205,7 +205,7 @@ class Entity:
             "revision": self.revision,
         }
         if self.category:
-            out["category"] = textsafety.display_text(self.category, 60)
+            out["category"] = text.display_text(self.category, 60)
         if self.category_group:
             out["category_group"] = self.category_group
         if self.held_by:
@@ -286,6 +286,7 @@ class MockHost:
         # principal -> its own avatar. Tests add a second companion to prove principals stay apart.
         self.avatars: dict[str, str] = dict(OWN_AVATAR)
         self.avatars.update(extra_companions or {})
+        self.text = contracts.text_rules  # the untrusted-text rule this contract can carry
         self.entities: dict[str, Entity] = {}
         self.revision = 0
         self.receipts: dict[tuple[str, str], Receipt] = {}  # durable, at most max_durable_receipts
@@ -729,19 +730,19 @@ class MockHost:
 
         def named(entity_id: str) -> str:
             entity = self.entities.get(entity_id)
-            name = textsafety.display_text(entity.display_name, 40) if entity else "unknown"
+            name = self.text.display_text(entity.display_name, 40) if entity else "unknown"
             revision = entity.revision if entity else 0
             return f'{entity_id} ("{name}", revision {revision})'
 
         if op == "entity.remove":
             what = f"remove {named(args['target'])} from the room"
         elif op == "entity.transform":
-            new_name = textsafety.display_text(args["into"]["source"]["name"], 40)
+            new_name = self.text.display_text(args["into"]["source"]["name"], 40)
             what = f'turn {named(args["target"])} into "{new_name}"'
         elif op == "creation.revise":
             parts = []
             if "source" in args:
-                parts.append(f'rebuild it as "{textsafety.display_text(args["source"]["name"], 40)}"')
+                parts.append(f'rebuild it as "{self.text.display_text(args["source"]["name"], 40)}"')
             if "placement" in args:
                 x, y, z = (round(v, 2) for v in args["placement"]["position_m"])
                 parts.append(f"move it to ({x}, {y}, {z})")
@@ -1206,7 +1207,7 @@ class MockHost:
         if not apply:
             return {}
         self._checkpoint_counter += 1
-        label = textsafety.display_text(message["args"]["label"], 80) if message["args"].get("label") else None
+        label = self.text.display_text(message["args"]["label"], 80) if message["args"].get("label") else None
         checkpoint = {"id": f"cp{self._checkpoint_counter:04d}", "revision": self.revision}
         if label:
             checkpoint["label"] = label
@@ -1284,7 +1285,7 @@ class MockHost:
                 elif entity.kind == "shell":
                     counts["shell_parts"] += 1
             result["data"] = {
-                "room_id": self.room_id, "display_name": textsafety.display_text(self.room["display_name"], 80),
+                "room_id": self.room_id, "display_name": self.text.display_text(self.room["display_name"], 80),
                 "revision": self.revision, "source_kind": self.room["source"]["kind"], "bounds_m": self.room_bounds,
                 "style": dict(self.style), "counts": counts,
             }
@@ -1294,12 +1295,12 @@ class MockHost:
             offset = _cursor(args.get("cursor"))
             limit = args.get("limit", 50)
             page = items[offset:offset + limit]
-            result["data"] = {"items": [e.summary() for e in page]}
+            result["data"] = {"items": [e.summary(self.text) for e in page]}
             if offset + limit < len(items):
                 result["data"]["next_cursor"] = str(offset + limit)
         elif op == "entity.inspect":
             entity = self._require(args["target"], "$.args.target")
-            data: dict = {"entity": entity.summary()}
+            data: dict = {"entity": entity.summary(self.text)}
             if entity.parts:
                 data["parts"] = dict(entity.parts)
             if entity.protected_by:
@@ -1335,8 +1336,8 @@ class MockHost:
             for _d, _id, entity in visible:
                 for text in entity.texts:
                     if len(texts) < 50:
-                        texts.append({"source": entity.id, "text": textsafety.long_text(text, 500), "untrusted": True})
-            result["data"] = {"actor": actor, "visible": [e.summary() for _d, _i, e in visible], "texts": texts}
+                        texts.append({"source": entity.id, "text": self.text.long_text(text, 500), "untrusted": True})
+            result["data"] = {"actor": actor, "visible": [e.summary(self.text) for _d, _i, e in visible], "texts": texts}
         elif op == "jobs.status":
             raise HostError("target_not_found", "No job with that id is running.", field_path="$.args.job_id")
         elif op == "receipt.lookup":
