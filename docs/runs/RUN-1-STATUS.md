@@ -1,4 +1,4 @@
-# Run 1 status: handoff at the end of the evening session, 6 October 2026
+# Run 1 status: handoff at the end of the session of 7 October 2026 (early morning)
 
 Run 1 is **in progress**. This page is the handoff: where every lane stands, what the founder decided, and what happens next. An integrating session also reads [ORCHESTRATION.md](ORCHESTRATION.md) (session budget, model routing, testing and reviews). The final record will be `RUN-1-REPORT.md`.
 
@@ -10,7 +10,7 @@ Run 1 is **in progress**. This page is the handoff: where every lane stands, wha
 | `run1/play` | `0ff45a3` (7 October): the second-playtest fix round. It retires the workshop from the room, so Q and E turn F4. It adds T and Shift+T for the clock, makes the name tag solid, and diagnoses the running blur as TAA. Merged. Before that, `1a50485`: P1, P2, the first-playtest fixes, the 10 cm companion, the hover fix, and the fix round for the independent review. Every review finding is fixed and tested. Merged. |
 | `run1/companion` | `5453e9c` (7 October): the mock is aligned with the real host, 492 tests; merged. Before that, `518e31d`: A1 and two fix rounds. Every review finding is fixed. Also: perception memory, emoji markers in context, the play-only profile, the 10 cm mock companion. 469 tests. Merged. |
 | `run1/look` | `9390e2f`: L1–L3 and two art rounds. Light comes only from real sources: the sun through the west window on a 30°N solar model, a sky fill, moonlit nights, lamps at dusk. The orange cast is gone, and there are high-angle and isometric review cameras. The preset is still `draft`. Merged. |
-| `run1/capture` | `65539b5`: C1 and C2 run end to end on the garage set with Apache-2.0 weights only; 43 tests. The coverage report is local only, in the capture worktree's `captures/garage/`. Merged. **The founder judged the guidance useful (below), which meets C2's acceptance.** |
+| `run1/capture` | `36b71c5` (7 October): every review finding is fixed, and the room's scale is fitted to the founder's tape. 84 tests. Merged. Before that, `65539b5`: C1 and C2 run end to end on the garage set with Apache-2.0 weights only; 43 tests. The coverage report is local only, in the capture worktree's `captures/garage/`. Merged. **The founder judged the guidance useful (below), which meets C2's acceptance.** |
 
 Evidence on `run1/integration` after the 7 October merges (Lane A `5453e9c`, Lane P `0ff45a3`, the rug fix and FXAA), from the second Windows machine (RTX 2070 SUPER):
 
@@ -19,7 +19,7 @@ Evidence on `run1/integration` after the 7 October merges (Lane A `5453e9c`, Lan
 | `run-engine-tests.ps1` | Exit 0, 0 warnings. Authority 266, canonical JSON 31/31, command host 201/201, play HUD 51/51, companion 492 tests; release probe at 0.10 m, with the room and style hashes verified |
 | `tools/test-room.ps1` | Exit 0. Small avatar 160/160, room navigation 10/10, room data 46/46, look 274/274; the room boots `shell=9 lights=2` |
 | Contract tests and validator | 40 OK; 0 problems |
-| roomscan | 43 passed in the Lane C review (CPU only); the C fix round is in progress |
+| roomscan | 84 passed in 40 s in the C fix round (`36b71c5`); not rerun at integration, which changed no Lane C file |
 
 `tools/linux/test-all.sh` has not been run on this head; a cloud session should run it.
 
@@ -52,7 +52,7 @@ Evidence on `run1/integration` after the 7 October merges (Lane A `5453e9c`, Lan
   - move the review clock so the review frames catch sun on the avatars;
   - reframe the companion review camera for the 10 cm body.
 - **Reviews:**
-  - **Lane C was reviewed on 7 October** (Opus): no blockers, two majors and ten minors. The majors: the scale factor is recorded but never applied, and two guidance rules (the viewer's left and right; "covered" needing different spots) are unprotected by tests. 4 of 5 mutations survived. A C fix round is under way.
+  - **Lane C was reviewed on 7 October** (Opus): no blockers, two majors and ten minors. The majors: the scale factor is recorded but never applied, and two guidance rules (the viewer's left and right; "covered" needing different spots) are unprotected by tests. 4 of 5 mutations survived. **All fixed in `36b71c5`** (Sonnet); the five mutations are now caught.
   - **Lane L was reviewed on 7 October** (Opus).
     - **What holds:** no blockers. Look 274/274, the solar model, sun only through the west window (proved in pixels), readable moonlit nights, lamps at dusk, and frame time inside budget (p95 at or under 12.2 ms).
     - **Eight majors** (evidence in the session scratchpad `review-l\`). Seven of them bite when rooms other than the test room arrive in Run 2:
@@ -70,7 +70,6 @@ Evidence on `run1/integration` after the 7 October merges (Lane A `5453e9c`, Lan
       - round 2's captures show the 0.24 m companion;
       - 59 MB of review PNGs in Git.
     - **The L fix round is for the next session,** after the founder's look verdict. Its report would land after this session's handoff.
-- **Lane C: fit the room's scale to the tape.** The founder's tape measurements (below) show the reconstruction runs large. Roomscan should take known lengths as an input, fit one uniform scale before the room box is fitted, and report the residuals.
 - The reviewer's temporary worktree `C:\dev\EnFractal-run1\review-play` holds only three untracked scratch probes from the Lane P review, whose findings are all fixed and tested. The founder approved removing it and removes it by hand: the automatic safety check blocks agents from deleting it. Its `.cache\dotnet` and `.cache\godot` are junctions into the integrator's checkout, so unlink those first.
 
 ## Founder decisions, 6 October 2026
@@ -203,6 +202,12 @@ The images stay in Google Drive (`Enfractal/Art inspiration`) and are cited by f
   - the review confirms the wall mapping: the walls B to D are the 5.84 m length and the walls A to C the 4.55 m width, with the rear door on wall B.
 - **Duplicates:** confirmed. Many photos were uploaded twice. The 165 exact copies are skipped and do no harm.
 - **The 0.5x ultra-wide shots were intentional,** to see more of the room at once. The selfie-camera shots are not yet explained.
+- **The tape fit (C `36b71c5`):**
+  - roomscan reads a local `captures/<room>/measurements.json` and fits one uniform scale. The garage's scale is 0.926, about ±1.3%, and the room is now 5.72 × 4.71 × 2.46 m;
+  - residuals: the length is 12 cm short (−2.1%), the width 17 cm long (+3.6%, flagged above the 13 cm limit), the ceiling within 1 cm;
+  - the zoom and padding fixes forced new poses (94 s on the GPU, $0);
+  - photos taken at about 1.4x digital zoom no longer trust their EXIF lens data, and the report asks for 1x;
+  - the integrator accepts the lane's choice to scale the fitted box with the poses rather than refit it. A refit moved the ceiling 8–10 cm with the fifth digit of the factor.
 - **The founder offered to reshoot the whole set.** The integrator's recommendation: not needed. 180 of 205 photos already join into one model. A top-up of the report's nine steps (about 41 photos on the 1x back camera) closes the gaps, and it tests the guidance end to end: follow it, rerun, and see the coverage rise.
 
 ## What changes for the lanes
@@ -221,18 +226,33 @@ The images stay in Google Drive (`Enfractal/Art inspiration`) and are cited by f
 
 ## Next steps when work resumes
 
-1. **Founder:**
-   - **The second playtest:** done (above). After the P fix round: check F4 with Q and E, the name tag, the running blur and the window light at other times (T and Shift+T).
-   - **The garage coverage report:** the verdict and the measurements are in (above). Still open: whether the selfie-camera shots were intentional, and, whenever convenient, the top-up photos from the report's nine steps.
-   - The remaining art reference notes, and the look verdict.
-   - Connect a real AI when ready (the live MCP client check).
+1. **Founder (no rush):**
+   - **A short third playtest** of the 7 October fixes:
+     - F4 with Q and E;
+     - T and Shift+T, and the window light at other times of day;
+     - the name tag;
+     - running without blur;
+     - **whether the floorboards shimmer** now that FXAA replaces TAA.
+   - **The garage:**
+     - a second width at the rear-door end, and one corner-to-corner diagonal, to settle the 17 cm width gap;
+     - whether the selfie-camera shots were intentional;
+     - when convenient, the top-up photos from the report's steps, on the 1x back camera.
+   - **The remaining art reference notes and the look verdict.** The L fix round folds them in.
+   - **Remove `C:\dev\EnFractal-run1\review-play`.** Unlink its two `.cache` junctions first: the commands are in the 7 October chat, and the automatic safety check blocks agents from deleting it.
+   - **Connecting a real AI waits for the P kernel round:** P1 below makes every `capabilities.list` fail today.
 2. **Integrator, in a fresh session:**
    - Read ORCHESTRATION.md and this page.
-   - Apply Lane P's remaining contract requests, and align Lane A's mock with the real host.
-   - Act on the founder's playtest and coverage verdicts.
-   - Run the whole-lane reviews for C and L.
+   - **One contract change for the integrator to apply:**
+     - Lane A's C1 (the `observe` default, proposed 20 m) and C2 (the `"preview": false` sentence);
+     - Lane P's earlier requests: `room.checkpoint` result data, the README on receipts and stops, and a player-only `world.set_physics` op;
+     - and, before the preset becomes `candidate`, the `x_look_*` keys and a room `site` key (the L review's M5 and M6).
+   - **The P kernel round (Opus):** Lane A's gaps P1 to P8 (in `docs/companion/proposals/kernel-host-gaps.md`), and the G key through `world.set_physics`.
+   - **The L fix round,** after the founder's look verdict:
+     - the review's eight majors and the minors;
+     - M1 also needs `RoomBuilder` to cut `shell.openings`, which is a change to the room builder in P's code (`game/scripts/native/Room/**`);
+     - check the floorboard shimmer under FXAA.
    - Write `RUN-1-REPORT.md`.
-   - Plan Run 2: building ([BUILDING.md](../companion/BUILDING.md)), the sandbox verbs (grab and carry), modes, and voice v0.
+   - Plan Run 2: building ([BUILDING.md](../companion/BUILDING.md)), the sandbox verbs (grab and carry), modes, voice v0, the first captured room, and the capture guidance as a player-facing feature.
 3. **A cloud session** runs `tools/linux/test-all.sh` on the merged head.
 
 ## Picking this up
