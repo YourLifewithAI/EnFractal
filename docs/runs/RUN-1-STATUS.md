@@ -1,88 +1,46 @@
-# Run 1 status: interim handoff, 6 October 2026
+# Run 1 status: handoff at the end of the evening session, 6 October 2026
 
-Run 1 is **in progress**. This page records where every lane stands, what the founder decided today, and what happens next, so work can resume from any machine. The final record will be `RUN-1-REPORT.md` at the end of the run.
+Run 1 is **in progress**. This page is the handoff: where every lane stands, what the founder decided, and what happens next. An integrating session also reads [ORCHESTRATION.md](ORCHESTRATION.md) (session budget, model routing, testing and reviews). The final record will be `RUN-1-REPORT.md`.
 
-## Branches
+## Branches (integration head `72e9015` and later)
 
 | Branch | State |
 |---|---|
-| `run1/integration` | Run 0 head `28fc364`, plus three lane merges, plus the change requests in `3629545`: P at `d0fb843`, A at its reviewed commit `497bfae`, L at its reviewed commit `7b664e7`. **All Windows suites pass** (below). Lane C is not merged yet. |
-| `run1/play` | P1 and P2 complete (`d0fb843`). After the founder's first playtest (evening of 6 October, on the second machine): faster run, floatier floaty, the F3 diorama orbit camera, loose follow, and companion navigation round furniture (`a0b62af`). Merged. The independent review must still be rerun. |
-| `run1/companion` | A1 reviewed at `497bfae`. The fix round is finished (`12d39b3`): every review finding is fixed and tested with nothing held, the play-only profile exists, and frames are canonical. 375 tests; 84 of 84 mutations caught. Merged. Its contract and `RoomData.cs` text-rule proposals are in `docs/companion/proposals/` and not yet applied. |
-| `run1/look` | The fix round is finished, and the first art-direction pass is done (`7107938`): look checks 90 to 233, the real clock by default, stronger season and hour swings, high-angle and isometric review cameras with tilt-shift, and captures in `docs/look/reviews/run1/step3/`. Merged. Its window and camera change requests wait on founder answers. |
+| `run1/integration` | All four lanes merged. Lane A's contract proposals are applied: text rules with emoji markers, perception-memory fields, canonical link frames. Also in: the west window and new palette in the test room, the F3 diorama and F4 isometric cameras, and the L lamp key. **All Windows suites pass** (below). |
+| `run1/play` | `1a50485`: P1, P2, the first-playtest fixes, the 10 cm companion, the hover fix, and the fix round for the independent review. Every review finding is fixed and tested. Merged. |
+| `run1/companion` | `518e31d`: A1 and two fix rounds. Every review finding is fixed. Also: perception memory, emoji markers in context, the play-only profile, the 10 cm mock companion. 469 tests. Merged. |
+| `run1/look` | `9390e2f`: L1–L3 and two art rounds. Light comes only from real sources: the sun through the west window on a 30°N solar model, a sky fill, moonlit nights, lamps at dusk. The orange cast is gone, and there are high-angle and isometric review cameras. The preset is still `draft`. Merged. |
+| `run1/capture` | `65539b5`: C1 and C2 run end to end on the garage set with Apache-2.0 weights only; 43 tests. The coverage report is local only, in the capture worktree's `captures/garage/`. Merged. Waiting on the founder's verdict. |
 
-**Integration head after the evening session:** `5686bbd` and later. All Windows suites pass: engine, small avatar 136/136, room navigation 10/10, room data 41/41, look 233/233, contracts 34, companion 375.
-
-**Seen in captures, not yet diagnosed:** both avatars appear to hover slightly above the rug (`step3/over_shoulder.png`). The cause is either a body-to-mesh offset (P) or shadow bias too large for 10 cm objects (L).
-| `run1/capture` | C1 and C2 in progress, saved as WIP `6c869c3`, **untested**. Photos and everything derived from them stay in the lane's ignored `captures/` folder on the desktop; none of it is in Git. |
-
-Evidence on `run1/integration`, Windows 11 desktop, 6 October 2026:
+Evidence on `run1/integration` at `72e9015`, from the second Windows machine (RTX 2070 SUPER):
 
 | Command | Result |
 |---|---|
-| `dotnet build game/EnFractal.csproj -warnaserror` | 0 warnings, 0 errors |
-| `run-engine-tests.ps1` | Exit 0. All kernel suites pass: authority 230 checks, runtime 77, editor 40. Canonical JSON golden fixture reproduced by GDScript and C#; command host 95/95; release probe at the 0.10 m profile. |
-| `tools/test-room.ps1` | Exit 0. Small avatar 99/99, room data 41/41, look 90/90; the room boots. |
-| `contracts/tests` and `contracts/validate.py` | 34 tests OK; the test room and preset validate. |
-| `tools/kernel/canonical_json.py --check` and its unit tests | PASS; OK |
-| Companion suite (`uv run --project companion --locked`) | OK |
+| `run-engine-tests.ps1` | Exit 0, 0 warnings. Authority 266, runtime 77, editor 40, durable 19, canonical JSON 67 and 31/31, command host 195/195; release probe at 0.10 m. The companion suite now runs inside this runner |
+| `tools/test-room.ps1` | Exit 0. Small avatar 160/160, room navigation 10/10, room data 46/46, look 274/274; the room boots `shell=9 lights=2` |
+| Contract tests and validator | 40 OK; 0 problems |
+| roomscan | 43 passed in the lane; not rerun at integration |
 
-`tools/linux/test-all.sh` has not been run on this head. A cloud session should run it.
+`tools/linux/test-all.sh` has not been run on this head; a cloud session should run it.
 
-## What each lane delivered
+## Still open
 
-- **P, Play.**
-  - Canonical JSON v1, byte-identical in Python, C# and GDScript, with a golden fixture.
-  - The authority works on room bounds and locks, with a physics surface query and the principals `player:local` and `companion:local`.
-  - A C# command host (`Kernel/CommandHost.cs`) handles `enfractal.command` and `enfractal.query`: receipts, idempotent replay, revisions and held approvals. The HUD's companion keys now go through it.
-  - A 10 cm body: radius 2 cm, eye 8.7 cm, reach 15 cm, jump 6.5 cm. Gravity has three presets, cycled with G: tuned 3.5, real 9.8 and floaty 0.6 m/s² (0.6 m/s fall limit, 2× air control; changed after the founder's first playtest).
-  - A jitter spike showed **no need for a ×10 world scale**.
-  - **Jolt Physics.**
-  - Records are in `docs/engine/phase3/`. The playtest script is in `docs/engine/phase3/body-and-physics.md`.
-- **A, AI companion.** A model-neutral MCP server (25 tools, no player-only ops), a mock game host, a loopback link with a per-session token, a process lockdown, and 141 tests. A scripted MCP client completed `observe`, then `goal.set`. Claude Code, configured as a play-only profile (`--strict-mcp-config --tools ""`), loaded exactly the 25 game tools. Its model call failed because the `claude` CLI login on the desktop had expired.
-- **L, Look.**
-  - Forward+ with VoxelGI, soft shadows, SSAO and TAA.
-  - Per-camera depth of field focused on the player.
-  - A colour grade driven by palette, hour and the real-calendar season.
-  - Painterly material roles.
-  - Five fixed review cameras and a capture harness.
-  - Before and after captures in `docs/look/reviews/run1/`.
-  - Frame time about 10.6 ms p50 at 1920×1080 on the RTX 2070 SUPER, against a 16.7 ms budget.
-  - A draft look bible, `docs/look/LOOK-BIBLE.md`, with the reference choice pending.
-- **C, Capture.**
-  - Ingest: HEIC to JPEG, EXIF without GPS, duplicates, blur and exposure scores, and a session manifest of names, sizes and SHA-256.
-  - Coverage modules (in progress) over the 370-photo garage set.
-  - Model weights are cached in the lane's ignored `.cache/` (about 4.7 GB).
-
-## Open review findings
-
-These are reproduced or verified by the integrator, and the fix rounds were in progress.
-
-**Lane A, mock host and link.**
-- (1) A companion `room.undo` could remove the player's locks.
-- (2) The player's stop-all did not stop companion effects.
-- (3) The receipt ledger could fill until stop ops failed.
-- (4) Frames escaped as ASCII could exceed the frame limit.
-- (5) Invisible Unicode format characters passed the text rules (a contract gap, below).
-- (6) The lockdown claimed more than it blocks.
-- Minor items: link robustness, int64 and NaN handling, a trailing newline matching anchored patterns, and mutation-test gaps.
-- **Founder requirement:** every protection must hold with zero approval holds.
-
-**Lane L, look code.**
-- (1) The 90 checks pass with headline features removed: bake materials not restored, focus, the post effect, the season tint, and an ignored uniform.
-- (2) The key light flips at dusk and dawn near full energy, and 2 a.m. is brighter than 9 p.m.
-- Minor items: an unreported renderer fallback, fragile room dressing, look constants that live in C# instead of the preset, and a 15 ms LUT rebuild.
-- **Integrator decision:** review rounds happen while the preset is `draft`. It becomes `candidate` only when the founder accepts the look.
-
-**Contracts.**
-- The `display_text` and `long_text` patterns must reject Unicode format characters: TAG characters U+E0000–E007F, U+061C, U+00AD, U+3164 and U+FFF9–FFFB. The same change goes into `RoomData.cs`'s `UnsafeText`.
-- Python `$` matches before a trailing newline in `validate.py`.
-
-**Lane P.** The review was interrupted. Rerun it before Run 1 exits. It checks:
-- the command host against the same failure classes as Lane A;
-- canonical JSON edge cases;
-- persistence;
-- the jitter-spike methodology.
+- **Real host against the mock (before the Run 2 swap).**
+  - Perception memory exists in Lane A's mock and in the contract, but not yet in Lane P's real host; `docs/engine/phase3/command-host.md` says what remains.
+  - Align the policy differences: ledger size, rate limiting, the number of pending approvals.
+  - Decide `"preview": false`. The real host fingerprints the command as received, per the contract; align the mock with it.
+- **Lane P's remaining contract requests:**
+  - `room.checkpoint` result data;
+  - README wording on receipts and stops;
+  - a player-only `world.set_physics` op, so the G key goes through the command path. For now G is a recorded playtest exception.
+- **Save migration between room manifests:** today the player only gets a notice. A proposal is in `command-host.md`.
+- **Lane L:**
+  - promote the `x_look_*` keys to the contracts before the preset becomes `candidate`;
+  - the proposed room `site` key (latitude, bearing, solar noon; never longitude);
+  - move the review clock so the review frames catch sun on the avatars;
+  - reframe the companion review camera for the 10 cm body.
+- **Reviews not yet done:** Lane C has never been independently reviewed. Lane L has not been reviewed since `7b664e7`. Per ORCHESTRATION.md, both are due as whole-lane reviews at Run 1 exit, since both lanes completed their Run 1 packets.
+- The reviewer's temporary worktree `C:\dev\EnFractal-run1\review-play` still holds three untracked scratch files. The founder decides whether to remove it.
 
 ## Founder decisions, 6 October 2026
 
@@ -204,28 +162,26 @@ The images stay in Google Drive (`Enfractal/Art inspiration`) and are cited by f
 
 ## Next steps when work resumes
 
-0. **Waiting on the founder (evening of 6 October):**
-   - the eight building-design questions (interiors, how builds happen, who confirms, physics, editing, saving designs, the first kit and styles, the companion's size);
-   - Lane A's questions (undo limited to the companion's own changes, perception memory, emoji in names);
-   - Lane L's questions (the golden-hour palette, day lengths, south or west window, how dark night is, F4 quarter turns or free orbit);
-   - Lane P's question (should floaty also raise the jump?);
-   - whether to run the live MCP client check with a real model.
-   - **Then:** write the building design doc for Lane A, apply the window and camera change requests, and diagnose the hover.
-1. ~~Resume the A and L fix rounds~~ Done on the evening of 6 October; see the branch table.
-2. Resume C: finish C1 and C2, commit a tested state, and produce the garage coverage report (local only) for the founder.
-3. Rerun the independent review of P.
-4. Integrator:
-   - add a window to the test room;
-   - apply the contract changes (A's proposals after its fixes, L's extension keys promoted before `candidate`, P's canonical JSON text in `contracts/README.md`, the invisible-character rule in the schemas, `validate.py` and `RoomData.cs`);
-   - update `docs/NATIVE-BUILD.md` for the 0.10 m body and new keys, and `OWNERSHIP.md` for the retired `player_controller.gd`.
-5. Founder:
-   - the ten-minute 10 cm playtest on `run1/integration` (`pwsh -NoProfile -File run-room.ps1`; controls and checklist in `docs/engine/phase3/body-and-physics.md`);
-   - `claude`, then `/login`, so the live companion check can run;
-   - the remaining reference notes and the look verdict.
-6. Run the look reviewer's scoring once the reference notes are complete.
-7. A cloud session runs `tools/linux/test-all.sh` on the merged head.
+1. **Founder:**
+   - **The second playtest:** the Desktop shortcut "EnFractal Playtest", or `pwsh -NoProfile -File run-room.ps1`. Check:
+     - run speed, and floaty (G);
+     - the F3 orbit, F4 with Q and E, and the L lamps;
+     - the companion following beside you at 10 cm, and walking round the big box with come (3);
+     - both avatars standing on the rug and the book;
+     - the window light at different times of day.
+   - **The garage coverage report:** the verdict, plus a tape measurement of one wall or the door, whether the photos were uploaded twice, and whether the 0.5x and selfie shots were intentional.
+   - The remaining art reference notes, and the look verdict.
+   - Connect a real AI when ready (the live MCP client check).
+2. **Integrator, in a fresh session:**
+   - Read ORCHESTRATION.md and this page.
+   - Apply Lane P's remaining contract requests, and align Lane A's mock with the real host.
+   - Act on the founder's playtest and coverage verdicts.
+   - Run the whole-lane reviews for C and L.
+   - Write `RUN-1-REPORT.md`.
+   - Plan Run 2: building ([BUILDING.md](../companion/BUILDING.md)), the sandbox verbs (grab and carry), modes, and voice v0.
+3. **A cloud session** runs `tools/linux/test-all.sh` on the merged head.
 
-## Picking this up on another machine
+## Picking this up
 
 ```powershell
 git clone https://github.com/YourLifewithAI/EnFractal.git   # or: git fetch origin
@@ -234,4 +190,9 @@ pwsh -NoProfile -File tools/bootstrap-native.ps1
 pwsh -NoProfile -File run-room.ps1
 ```
 
-The lane worktrees (`C:\dev\EnFractal-run1\*`), the agents' working context and the Capture lane's local `captures/` data are on the Windows desktop, and the integrating session continues there.
+On the second Windows machine:
+- the integrator's checkout is `C:\dev\EnFractal`;
+- the lane worktrees are `C:\dev\EnFractal-run1\{play,companion,look,capture}`, each at its pushed branch;
+- the capture worktree also holds the local garage data and about 5.5 GB of model weights, all ignored by Git.
+
+The first Windows machine (the original desktop) still has its own lane worktrees and Capture data from earlier in the day.

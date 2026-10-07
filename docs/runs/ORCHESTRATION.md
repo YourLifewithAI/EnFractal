@@ -74,5 +74,7 @@ Add one row per agent run.
 | 2026-10-06 | Independent review of P | Opus | 434k | Found 1 blocker and 6 majors; wrote one file outside its worktree (path trap) |
 | 2026-10-06 | A memory and emoji | Opus | 517k | Clean |
 | 2026-10-06 | L round 2: real-source lighting | Opus | 642k | Clean |
+| 2026-10-06 | C1 and C2 ingest, coverage and the garage report | Opus | 556k | Clean; chose Apache-2.0 weights unprompted; 5.5 GB downloads |
+| 2026-10-06 | P review fix round (1 blocker, 6 majors, minors) | Opus | 704k | Clean; every finding fixed with a test |
 
 The early runs were all on Opus, with long prompts and mutation sweeps. Use them as the baseline when trying Sonnet on the task types above.
