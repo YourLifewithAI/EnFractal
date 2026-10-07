@@ -34,6 +34,7 @@ Choose by **capability for the task, then cost.** A cheap agent whose work needs
 | Design docs and cross-lane architecture | **Opus** (often the integrator directly) | Judgement-heavy |
 | Look passes (tuning, captures, critique), body and feel tuning, the capture pipeline | **Sonnet**, then promote to Opus if the log shows rework | Bounded, well-tested, visual or numeric |
 | Mechanical work: regenerating files, applying a known patch, running a checklist, collecting results | **Haiku** or the integrator | No judgement needed |
+| Second-opinion reviews, research surveys, docs audits and fixes, small scoped code changes | **Codex** (GPT-6.1 Sol, the founder's ChatGPT plan) through `tools/codex/run.ps1` | Another vendor's model catches what Claude misses, and it saves Claude tokens. Its own worktree and branch, the Windows sandbox, a scope block per brief; the integrator checks scope, verifies claims and merges. Never on a file a running lane owns |
 
 ## Testing
 
@@ -90,6 +91,15 @@ Add one row per agent run.
 | 2026-10-07 | P kernel round: Lane A's gaps P1–P8 and `world.set_physics` | Opus | 515k | Clean; command host 201 to 419 checks; 5 of 5 mutations caught; dump validates with 0 problems; found two mock bugs and sent exact diffs. About 37 min |
 | 2026-10-07 | Codex brief 02: non-Claude MCP client and red team against the mock | GPT-6.1 Sol (Codex CLI, locked down) | about 0.2M (estimated) | Clean; honest about gaps; did not bypass a blocked approval. 3.9 min. Integrator setup took longer than the run (the SYSTEMROOT and code-mode findings, now in the brief) |
 | 2026-10-07 | L fix round and art pass (8 majors, minors, the founder's 7 October direction) | **Sonnet** | 971k | Clean, in scope; 5 of 5 mutations caught; found the GI wall leak itself. **The most tokens of any round** (the Opus L rounds took 642k to 734k), and 80 min. 37 Godot launches and about 350 images, about 10 of them avoidable (a broken shader, a hang, an extra GI variant); the capture budget came mid-round. Next L round: Sonnet with the budget from the start, and compare |
+
+| 2026-10-07 | Codex: review of `729858a` (the Lane L change requests) | GPT-6.1 Sol, high effort | 102k | 4 findings: 2 real (fixed that night), 1 by design, 1 minor. Source-traced, honest about not running Godot |
+| 2026-10-07 | Codex brief 03: image-to-3D survey | GPT-6.1 Sol, web search | 215k | Clean; 10 candidates, corrected 6 pipeline assumptions; spot-checked claims held |
+| 2026-10-07 | Codex brief 04: BYOAI connection survey | GPT-6.1 Sol, web search | 175k | Clean; 10 clients, a one-page "Connect your AI" proposal |
+| 2026-10-07 | Codex brief 05: docs audit | GPT-6.1 Sol | not shown | 42 findings with sources |
+| 2026-10-07 | Codex brief 06: HUD declutter and name tag (third playtest) | GPT-6.1 Sol, high effort | 77k | Clean; compiled in its sandbox; play HUD 51 to 72 checks, all passing on the integrator's run |
+| 2026-10-07 | Codex brief 08: docs fixes | GPT-6.1 Sol | 80k | 29 fixed, 1 correctly left; small edits in each file's voice |
+
+The first Codex launches failed at once, "blocked by policy". They had skipped the founder's config, which also turned off the Windows sandbox, and the sandbox then could not start the Store-packaged PowerShell 7. Codex stopped and reported, as its rules say. `tools/codex/run.ps1` now handles both.
 
 The early runs were all on Opus, with long prompts and mutation sweeps. Use them as the baseline when trying Sonnet on the task types above.
 

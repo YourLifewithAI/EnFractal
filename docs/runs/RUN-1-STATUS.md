@@ -1,4 +1,4 @@
-# Run 1 status: handoff, 7 October 2026 (evening, after the P kernel round and the L fix round)
+# Run 1 status: handoff, 7 October 2026 (late evening, second machine: the look locked, Codex in, the Run 1 report and the Run 2 draft)
 
 Run 1 is **in progress**. This page is the handoff: where every lane stands, what the founder decided, and what happens next. An integrating session also reads [ORCHESTRATION.md](ORCHESTRATION.md) (session budget, model routing, testing and reviews). The final record will be `RUN-1-REPORT.md`.
 
@@ -6,7 +6,14 @@ Run 1 is **in progress**. This page is the handoff: where every lane stands, wha
 
 | Branch | State |
 |---|---|
-| `run1/integration` | All four lanes merged. Lane A's contract proposals are applied: text rules with emoji markers, perception-memory fields, canonical link frames. Also in: the west window and new palette in the test room, the F3 diorama and F4 isometric cameras, and the L lamp key. On 7 October: Lane A's alignment, Lane P's second-playtest round, the rug trimmed clear of the book and box, TAA swapped for FXAA, and the HUD test added to the runner. Later on 7 October: the A and P contract requests (`7e2c779`), the P kernel round (`d61e811`), and two mock fixes it found (`0fc905b`). **Late on 7 October, on the second machine: Lane L's six change requests**, in one contract commit with tests (see "Still open"). **All Windows suites pass** (below). |
+| `run1/integration` | All four lanes merged. Lane A's contract proposals are applied: text rules with emoji markers, perception-memory fields, canonical link frames. Also in: the west window and new palette in the test room, the F3 diorama and F4 isometric cameras, and the L lamp key. On 7 October: Lane A's alignment, Lane P's second-playtest round, the rug trimmed clear of the book and box, TAA swapped for FXAA, and the HUD test added to the runner. Later on 7 October: the A and P contract requests (`7e2c779`), the P kernel round (`d61e811`), and two mock fixes it found (`0fc905b`). **Late on 7 October, on the second machine:**
+- Lane L's six change requests, in one contract commit with tests (see "Still open").
+- The preset locked as `candidate`.
+- The opening edge cases from Codex's review fixed.
+- Codex briefs 03, 04, 05, 06 and 08 merged.
+- [RUN-1-REPORT.md](RUN-1-REPORT.md) and the draft [RUN-2.md](RUN-2.md).
+
+**All Windows suites pass** (below). |
 | `run1/play` | `d61e811` (7 October, later): the kernel round. The real host closes Lane A's gaps P1 to P8: `capabilities.list` in the contract's shape, durable receipts before transient ones, no naming the player out of sight, `observe` at 20 m without the shell, perception memory and goal jobs as in the mock, and `entity.release` durable. `world.set_physics` carries the G key, so G is no longer an exception to the command path. Command host 419 checks; 5 of 5 mutations caught. Merged. Before that, `0ff45a3` (7 October): the second-playtest fix round. It retires the workshop from the room, so Q and E turn F4. It adds T and Shift+T for the clock, makes the name tag solid, and diagnoses the running blur as TAA. Merged. Before that, `1a50485`: P1, P2, the first-playtest fixes, the 10 cm companion, the hover fix, and the fix round for the independent review. Every review finding is fixed and tested. Merged. |
 | `run1/companion` | `5453e9c` (7 October): the mock is aligned with the real host, 492 tests; merged. Before that, `518e31d`: A1 and two fix rounds. Every review finding is fixed. Also: perception memory, emoji markers in context, the play-only profile, the 10 cm mock companion. 469 tests. Merged. |
 | `run1/look` | `96aa30f` (7 October, Sonnet): the L review's fix round and the art pass on the founder's 7 October direction. All eight majors are fixed with tests (5 of 5 mutations caught), including the crash when a grain-and-vignette viewport is freed. A probe found VoxelGI carrying the sun through closed walls; a 5 cm GI margin stops it. The room's `site` replaces the preset's, read from the manifest. The art pass: season grades, calm roles with a focus pass, warm-white lamps, bokeh, a painterly window sky, and an observe depth-of-field profile. The review images in Git went from 58 MB to 17 MB, keeping one set. Merged. Before that, `9390e2f`: L1–L3 and two art rounds. Light comes only from real sources: the sun through the west window on a 30°N solar model, a sky fill, moonlit nights, lamps at dusk. The orange cast is gone, and there are high-angle and isometric review cameras. The preset is still `draft`. Merged. |
@@ -16,10 +23,10 @@ Evidence on `run1/integration` after Lane L's change requests (late on 7 October
 
 | Command | Result |
 |---|---|
-| `run-engine-tests.ps1` | Exit 0, 0 warnings. Authority 266, canonical JSON 31/31, command host 419/419, play HUD 51/51, companion 501 tests; release probe at 0.10 m, with the room and style hashes verified |
-| `tools/test-room.ps1` | Exit 0. Small avatar 160/160, room navigation 10/10, room data 54/54 (8 new, for openings), look 367/367; the room boots `shell=9 lights=2`. `validate.py` on the test room, the preset and the garage example: 0 problems |
-| Contract tests and validator | 43 OK (3 new: the site, the typed look blocks, the generator check); 0 problems. The command host's `--dump` (891 files, on `run1/play`) validated with 0 problems in the kernel round |
-| Mutations | 2 of 2 caught: a reveal on every hole, and a window a body can pass |
+| `run-engine-tests.ps1` | 0 warnings. Authority 266, canonical JSON 31/31, command host 419/419, play HUD 72/72 (Codex's brief 06), release probe at 0.10 m with the room and style hashes verified. Companion 501 OK after two tests stopped using the now-locked preset as their draft |
+| `tools/test-room.ps1` | Exit 0. Small avatar 160/160, room navigation 10/10, room data 56/56 (10 new, for openings), look 367/367; the room boots `shell=9 lights=2`. `validate.py` on the test room, the preset and the garage example: 0 problems |
+| Contract tests and validator | 44 OK (4 new: the site, the typed look blocks, the generator check, the locked preset); 0 problems |
+| Mutations | 3 of 3 caught: a reveal on every hole, a window a body can pass, a changed byte in the locked preset |
 | roomscan | 84 passed in 40 s in the C fix round (`36b71c5`); not rerun at integration, which changed no Lane C file |
 
 `tools/linux/test-all.sh` has not been run on this head; a cloud session should run it. Before the kernel round its dump check would have failed on `capabilities.list`.
@@ -261,6 +268,16 @@ The source is the Google Doc `Look and Art Style direction`, with ten frames fro
 | The book sinks into the rug. | The rug overlapped the book by 2.5 cm and the box by 7.5 cm, and the doorstop sat inside the 6 mm rug. | Integrator, fixed in `6e8a41d`: the rug is trimmed, the doorstop rests on it, and the room builder now refuses props that cut into each other. |
 | Other times of day cannot be seen: the clock follows real time, and the playtest was at 3 a.m. | — | **Fixed (P `0ff45a3`):** T steps dawn to night, from that date's real sunrise and sunset, then back to the real clock. Shift+T steps the equinoxes and solstices. Both show in the top panel. Known quirk: Shift+T pressed while running steps the season. |
 
+## Founder playtest notes, late 7 October (third pass)
+
+**Works:** F4 with Q and E ("those views are solid"), and seeing out of the window.
+
+| Note | Cause found | Owner |
+|---|---|---|
+| The key-help boxes are huge and get in the way of the visuals (the founder knows they are temporary) | — | **Fixed (Codex brief 06, merged):** the help folds behind H, and the top panel is compact |
+| (In the screenshot) the companion's name tag filled half the screen in F2 | A world-sized billboard grows without limit near the camera | **Fixed (brief 06):** at most 2.5% of the screen height, and hidden within 0.25 m |
+| O (observe) is out of focus in F3 and F4; it should hold the player clearly in focus | Codex brief 07 found three causes: focus on the orbit pivot, not the player; a 6 cm band, narrower than the player's 7 cm of depth at those pitches; and possibly Godot's near blur read the wrong way round (a follow-up is checking the renderer source) | **Next L round,** in a v2 preset (v1 is locked). The exact diffs are in [the report](../codex/reports/07-observe-focus.md) |
+
 ## The founder's verdict on the garage coverage report (later on 6 October)
 
 - **The guidance is useful.** C2's acceptance is met.
@@ -299,12 +316,13 @@ The source is the Google Doc `Look and Art Style direction`, with ten frames fro
 ## Next steps when work resumes
 
 1. **Founder (no rush):**
-   - **A short third playtest** of the 7 October fixes:
-     - F4 with Q and E;
-     - T and Shift+T, and the window light at other times of day;
-     - the name tag;
-     - running without blur;
-     - **whether the floorboards shimmer** now that FXAA replaces TAA.
+   - **Answer the four questions at the top of [RUN-2.md](RUN-2.md):**
+     - the five objects;
+     - up to $5 for hosted image-to-3D, and uploading those photos;
+     - Stability's license for SPAR3D;
+     - whether the journal's data work goes in Run 2.
+   - **The Linux suite:** allow installing `unzip` and `uv` in WSL Ubuntu on the second machine, where the default user is root, or create a Codex cloud environment for `YourLifewithAI/EnFractal` at chatgpt.com/codex. Either lets the suite run.
+   - **The third playtest: done late on 7 October** (notes above). Still unchecked: the T and Shift+T light at other times of day, running without blur, and whether the floorboards shimmer under FXAA.
    - **The garage (optional; the integrator judged the estimates close enough on 7 October).** The tape fit is within 2 to 4% on each axis, which is invisible in play, and Run 2's five objects do not need better. The measurements only explain the width gap for the pipeline's sake:
      - a second width at the rear-door end, and one corner-to-corner diagonal, to settle the 17 cm width gap;
      - whether the selfie-camera shots were intentional;
@@ -316,7 +334,16 @@ The source is the Google Doc `Look and Art Style direction`, with ten frames fro
 2. **Integrator, in a fresh session:**
    - Read ORCHESTRATION.md and this page.
    - Done on 7 October: the A and P contract change (`7e2c779`), the P kernel round (`d61e811`), the L fix round (`96aa30f`), and Lane L's change requests (late, on the second machine).
-   - **Decide with the founder whether the preset becomes `candidate` now** (it passes the look gate) or after one more L round on the frame budget.
+   - **Done late on 7 October:**
+     - the preset locked as `candidate` (the founder's call);
+     - [RUN-1-REPORT.md](RUN-1-REPORT.md);
+     - the draft [RUN-2.md](RUN-2.md);
+     - Codex briefs 03 to 08.
+   - **Next: the L round for the v2 preset:**
+     - the observe view's focus, from Codex brief 07 and its follow-up on Godot's near blur;
+     - the observe frame budget.
+     - It suits a Sonnet L agent under the capture budget, with only `observe_view` captures before and after. The founder judges the result.
+   - **Codex** runs through `tools/codex/run.ps1`; each job gets `C:\dev\EnFractal-codex\<brief>`. Remove a merged job's worktree with `git worktree remove` (no junctions inside, so it is safe).
    - **Then the next L round, if the founder's verdict asks for one:** the observe view's frame budget, the midday shade, and whatever the verdict says. It follows the capture budget in ORCHESTRATION.md.
    - **Offered to the founder, not yet answered:**
      - start the journal, memory and minimap design doc;
@@ -328,8 +355,8 @@ The source is the Google Doc `Look and Art Style direction`, with ten frames fro
        - 05: a docs audit.
 
        Before merging any `codex/` branch, run `python tools/codex/check_scope.py codex/<brief>` and verify the report's claims.
-   - Write `RUN-1-REPORT.md`.
-   - **Plan Run 2. Its spine is decided: real objects first** (the founder, 7 October), as in the original plan.
+   - `RUN-1-REPORT.md`: written late on 7 October.
+   - **Run 2: drafted as [RUN-2.md](RUN-2.md),** awaiting the founder's four answers. Its spine is decided: real objects first (the founder, 7 October), as in the original plan.
      - The plan: five garage objects captured, styled and standing in the room with collision; picked up and carried; the companion fetches one; the room rebuilt from data; the switch from the mock host to the real one (A2).
      - Also: opaque `job_id` handles.
      - **Three design docs during Run 2,** written by the integrator with the founder, so Run 3 starts from decisions:
