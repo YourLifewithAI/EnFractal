@@ -302,11 +302,11 @@ The source is the Google Doc `Look and Art Style direction`, with ten frames fro
      - the name tag;
      - running without blur;
      - **whether the floorboards shimmer** now that FXAA replaces TAA.
-   - **The garage:**
+   - **The garage (optional; the integrator judged the estimates close enough on 7 October).** The tape fit is within 2 to 4% on each axis, which is invisible in play, and Run 2's five objects do not need better. The measurements only explain the width gap for the pipeline's sake:
      - a second width at the rear-door end, and one corner-to-corner diagonal, to settle the 17 cm width gap;
      - whether the selfie-camera shots were intentional;
      - when convenient, the top-up photos from the report's steps, on the 1x back camera.
-   - **The look verdict** on the after-captures in `docs/look/reviews/run1/after/`. Start with `companion`, `window_view`, `iso_room`, `observe_view` and the 17:00 column of `sweep_diorama_high.jpg`. Then: lift the midday shade or not.
+   - **The look verdict: given on 7 October.** "The captures are fine. No big changes necessary." The midday shade stays as it is. **The look gate passes once the preset becomes `candidate`, after Lane L's `x_look_*` keys are in the contract** (the parked change requests).
    - **Remove `C:\dev\EnFractal-run1\review-play`.** Unlink its two `.cache` junctions first: the commands are in the 7 October chat, and the automatic safety check blocks agents from deleting it.
    - **Connecting a real AI:** the kernel round fixed `capabilities.list` (P1), which blocked it. A real AI talks to the mock host today (A1's live check, after `claude` /login); the real game host joins with A2 in Run 2.
    - **Test builds:** a desktop shortcut, `EnFractal (test build)`, builds and runs `C:\dev\EnFractal` (the integration branch) through `run-room.ps1`. On a failed build, its console stays open with the error.
@@ -317,7 +317,14 @@ The source is the Google Doc `Look and Art Style direction`, with ten frames fro
    - **Then the next L round, if the founder's verdict asks for one:** the observe view's frame budget, the midday shade, and whatever the verdict says. It follows the capture budget in ORCHESTRATION.md.
    - **Offered to the founder, not yet answered:**
      - start the journal, memory and minimap design doc;
-     - write Codex briefs for GPT-6.1 Sol: the companion as a non-Claude MCP client and red team against the mock, the Linux suite in Codex's cloud, and research for the design docs. It works on `codex/` branches only; the integrator reviews everything.
+     - **Codex (GPT-6.1 Sol): set up on 7 October.** Its rules are `docs/codex/README.md` (pointed to from `AGENTS.md`), and five briefs are in `docs/codex/briefs/`:
+       - 01: the Linux suite in Codex's cloud;
+       - 02: a non-Claude MCP client and red team against the mock, run locally in `C:\dev\EnFractal-codex`;
+       - 03: an image-to-3D survey for the C0 pilot;
+       - 04: how players' AI harnesses connect;
+       - 05: a docs audit.
+
+       Before merging any `codex/` branch, run `python tools/codex/check_scope.py codex/<brief>` and verify the report's claims.
    - Write `RUN-1-REPORT.md`.
    - **Plan Run 2. Its spine is decided: real objects first** (the founder, 7 October), as in the original plan.
      - The plan: five garage objects captured, styled and standing in the room with collision; picked up and carried; the companion fetches one; the room rebuilt from data; the switch from the mock host to the real one (A2).

@@ -10,6 +10,8 @@ EnFractal is a single-player sandbox set inside a real room the player photograp
 
 `docs/history/` and `docs/research/` are context written for an earlier geography-based plan. Use their technical findings; never take scope, locations, scale or phase names from them. Code and data from that era are on the `geography-era-final` branch, not in this tree.
 
+**Codex or another GPT agent?** Read [docs/codex/README.md](docs/codex/README.md) first. You work only on the brief the founder names, on a `codex/` branch, inside that brief's scope.
+
 ## Rules
 
 - **Edit only the paths your lane owns.** Read anything. For any other file, put the exact diff and the reason in your report; the integrator applies it.
