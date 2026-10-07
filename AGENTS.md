@@ -5,7 +5,7 @@ EnFractal is a single-player sandbox set inside a real room the player photograp
 ## Start here
 
 1. [docs/ROOM-SCALE-DIRECTION.md](docs/ROOM-SCALE-DIRECTION.md): the concept, the four tracks (Look, Capture, Play, AI companion) and the runs.
-2. The current run brief in [docs/runs/](docs/runs/) and the [ownership map](docs/runs/OWNERSHIP.md).
+2. The current run brief in [docs/runs/](docs/runs/) and the [ownership map](docs/runs/OWNERSHIP.md). An integrating session also reads [ORCHESTRATION.md](docs/runs/ORCHESTRATION.md): session budget, model routing, testing and review policy.
 3. [contracts/README.md](contracts/README.md): the schemas every track builds against.
 
 `docs/history/` and `docs/research/` are context written for an earlier geography-based plan. Use their technical findings; never take scope, locations, scale or phase names from them. Code and data from that era are on the `geography-era-final` branch, not in this tree.
