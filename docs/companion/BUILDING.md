@@ -1,6 +1,6 @@
 # Building with your AI: design
 
-**Status:** the direction was agreed with the founder on 6 October 2026. This is the design input for Lane A (the MCP surface), with the host work in Lane P and the kit art in Lane L. Nothing here is implemented yet. Numbers marked *start* are first guesses, to be tuned in playtests.
+**Status:** the direction was agreed with the founder on 6 October 2026, and the open questions were answered on 7 October. This is the design input for Lane A (the MCP surface), with the host work in Lane P and the kit art in Lane L. Nothing here is implemented yet. Numbers marked *start* are first guesses, to be tuned in playtests.
 
 ## The idea
 
@@ -18,7 +18,7 @@ That is free-form creative triage. The risk is that it overwhelms weaker models.
 ## Principles
 
 1. **The rules live in the host.** Skills and guides are advice, and with bring-your-own-AI some harnesses ignore them. A weak model may produce a clumsy conversation, but never a broken world.
-2. **One draft at a time, shown as a ghost.** Nothing in the world changes until the player confirms "build it".
+2. **One draft in focus, shown as a ghost.** The companion may offer a few options, and the player toggles between them. Nothing in the world changes until the player confirms "build it".
 3. **Kit pieces, not geometry.** The AI picks pieces and settings. The host turns them into meshes, collision and walkable surfaces.
 4. **Place by relation, not coordinates.** "On top of the big box", "against that wall", "where I'm pointing". The host resolves, snaps and fit-checks the placement, and explains any problem in words.
 5. **Every result says where we are and what makes sense next,** so a model can follow a short menu instead of planning.
@@ -35,7 +35,7 @@ Each class has its own rule set. The host knows the class of every draft and che
 | **Addition** | A room or wing, porch, balcony, turret, dormer, chimney | Attaches to a building's sockets. It inherits the building's style and becomes part of it (one structure, one undo step) |
 | **Connector** | Ladder, stairs, ramp, bridge | Joins two surfaces. The host computes length and angle from its ends. Must be usable by the 10 cm body (see sizes) |
 | **Boundary** | Fences, low walls, hedges | Laid along a path. Gaps and gates by rule |
-| **Garden** | Plant beds and plants that grow | Rests on a surface. Has growth state over time |
+| **Garden** | Plant beds and plants that grow | Rests on a surface. Has growth state over time. Plants grow faster than the real clock, so the player never waits what feels like forever; the rates are tuned in playtests (the founder, 7 October) |
 | **Water** | Ponds, pools | Needs a basin, which it can make. Its surface is not walkable unless a piece says so |
 | **Furniture** | Chairs, tables, beds at figurine scale | Placeable inside buildings or outside. Has affordances such as sit and lie |
 | **Decoration** | Lamps, statues, signs, potted flowers | Small, rests on a surface, not enterable. A lamp is a real light source, which ties in with "light only from real sources" |
@@ -77,7 +77,7 @@ The companion shrinks to match the player, so one set of sizes serves both.
 | Stair step | 2 cm rise, 2.5 cm tread | Within the body's 2 cm step height |
 | Example | A 4 × 3 module footprint (32 × 24 cm), two storeys and a steep roof: about 52 cm tall | Taller than the 30 cm box, smaller than the table |
 
-**Engineering note:** walkable stairs at this scale take about 23 cm of run per storey, which is most of a small footprint. The options are a compact spiral stair module, a ladder (which needs a climb verb the body does not have yet; see P3), or a bigger minimum footprint. That is decided in the kit packet.
+**Engineering note:** walkable stairs at this scale take about 23 cm of run per storey, which is most of a small footprint. **Decided (the founder, 7 October): a compact spiral stair module for now.** Ladders wait for the climb verb (P3), and footprints keep their sizes.
 
 ## The draft
 
@@ -92,6 +92,8 @@ The host owns the draft. It holds:
 
 Further rules:
 - **One active draft per conversation.** The player and the companion both see it and can both edit it.
+- **Options (the founder, 7 October).** The companion may suggest one draft or several options ("show me three"). A draft then holds up to three options (*start*). One is shown at a time, and the player toggles between them with a key, a button or a word. Each option keeps its own edits. "Build it" builds the option on show and drops the others.
+- **The companion may start a draft to suggest an idea, after asking the player first** (the founder, 7 October). It never starts one unasked.
 - The ghost is translucent. A problem is highlighted on the piece that causes it, for example an unsupported overhang.
 - **Drafts change nothing in the world and record no receipts** (contracts: previews record no receipt). A draft survives the session, but it is not part of the room until it is built.
 
@@ -124,7 +126,12 @@ The contract needs new ops for these. Drafts behave like goals: transient, with 
 
 - **Targets** come from the player's crosshair at the moment the words are spoken, the companion's pointing, or something the companion can see or remembers seeing (see [PERCEPTION.md](PERCEPTION.md)). Ambiguity shows numbered tags.
 - **Fit:** the host checks the footprint against the surface, overhangs, collisions with other objects, and whether every door can be reached. It answers in words with options, for example: "The house is 32 cm wide and the box top is 30 cm. Shrink it, or let it overhang 1 cm on each side?"
-- **Grounded by default.** A grounded structure must rest on something physical: most of its footprint supported, with its centre over the support (*start*: 60% supported). It is fixed once built; toppling comes later, if ever.
+- **Grounded by default.** A grounded structure must rest on something physical: most of its footprint supported, with its centre over the support (*start*: 60% supported).
+- **Moving what a building stands on** (the founder, 7 October).
+  - In every mode, moving a support under a built structure first flashes a warning. The player chooses whether to go ahead, or to have the companion do it.
+  - If the support moves, the structure falls and breaks apart.
+  - **Exception: in a competitive mode, an opponent's structure gives no warning.** Knocking it down is part of play.
+  - The host decides what counts as a support: anything inside the footprint's support test.
 - **Untethered** structures float. The player turns this on with one key or a word, and the companion confirms it. The ghost shows the difference.
 - `against` with `flush` merges the structure's back with the wall visually, without cutting the room's shell.
 
@@ -203,10 +210,12 @@ The same moves serve every mode. A mode only changes host rules; for example, `d
 
 **Acceptance test:** the founder's house conversation, scripted, run against several models and harnesses. The host checks the final structure: Victorian, two storeys, on the box, enterable, with a ladder that reaches the top. The results become a "works well with" list for players.
 
-## Open questions
+## Answered by the founder, 7 October
 
-1. A grounded house rests on a box, and someone moves the box. Is the box blocked from moving, or does the house become untethered with a notice?
-2. Plants that grow: on the real clock (like the light), or faster?
-3. May the companion start drafts unprompted, to suggest ideas?
-4. Should the companion be able to show two or three alternatives side by side ("show me three options"), or strictly one draft at a time?
-5. Interior stairs: a spiral module, ladders, or bigger footprints (see sizes)?
+1. **Moving a box under a house:** a warning in every mode, except for an opponent's structure in competitive play. The player chooses. If the box moves, the house falls and breaks apart. See "Placement, fit and support".
+2. **Plants:** they grow faster than the real clock, at rates found in playtests.
+3. **Unprompted drafts:** yes, after asking the player first.
+4. **Options:** the companion may suggest one draft or several, and the player toggles between them. See "The draft".
+5. **Interior stairs:** a spiral stair module for now.
+
+The moves for options (for example `draft.option_add` and `draft.option_show`) are Lane A's to design with the other moves. Breaking apart needs physics for built structures, a P packet after the sandbox verbs.
