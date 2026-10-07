@@ -1,6 +1,6 @@
 # The journal, memory and map: design
 
-**Status: draft, 7 October 2026, for the founder's review.** It turns the founder's decisions of 7 October into rules the host can enforce. It is design input for Lane A (the MCP surface and the mock), Lane P (the host's stores, saves and later the UI) and Lane L (the look of the notepad and the map), with contract changes by the integrator. Nothing here is implemented yet. Numbers marked *start* are first guesses for playtests.
+**Status: draft, 7 October 2026. The founder answered its three questions the same day.** It turns the founder's decisions of 7 October into rules the host can enforce. It is design input for Lane A (the MCP surface and the mock), Lane P (the host's stores, saves and later the UI) and Lane L (the look of the notepad and the map), with contract changes by the integrator. Nothing here is implemented yet. Numbers marked *start* are first guesses for playtests.
 
 ## The founder's decisions this rests on
 
@@ -51,15 +51,16 @@ It also holds **discovered space**, as a grid of cells on each level (*start*: 5
 
 **Levels.** A level is a walkable surface patch at one height: the floor, the top of the big box, a shelf. Levels come from the room data (shell parts and object tops the body can stand on), so a captured room gets them for free.
 
-**How it fills.** Only the host fills the map, from:
-- what the companion's avatar sees, using the line-of-sight ray casts the host already has;
-- what the player's avatar sees, by the same test;
-- **what is on the player's screen.** The AI sees what the player sees, so a thing visible in the player's view counts as seen. In a challenge mode the cameras are locked to first person and over-the-shoulder (founder, 7 October), so this cannot give a search away. In creative mode, a high view fills the map quickly, which is fine.
+**How it fills.** Only the host fills the map, and **only from the two avatars' eyes** (the founder, 7 October):
+- what the player's avatar sees;
+- what the companion's avatar sees.
+
+Both use the line-of-sight ray casts the host already has. The camera does not count: a high or free view on the player's screen adds nothing to the map. That keeps the rule simple, and it lets the pair divide and conquer, exploring in two places at once.
 
 Nothing the AI says adds to the map. It cannot claim to have found something.
 
 **Live or as last seen.**
-- In sight now, of either avatar or on the player's screen: live.
+- In sight of either avatar now: live.
 - Out of sight: as last seen, with the one-bit "may be stale" flag when it has changed since. This is the same contract field as today's perception memory.
 - A thing seen gone (its last-seen place is in sight and it is not there) drops from the map.
 
@@ -94,6 +95,12 @@ What the player said to their AI outside the game (in their harness) is not some
 | **Found** | Modes with resources only: a needed resource is seen while its task's search is active | "Found buttons (3) under the shelf" |
 | **Gathered** | Modes with resources: progress on a task's needs | "Wood: 6 of 10 gathered" |
 
+**The companion's own notes** (the founder, 7 October). The companion may write notes in its own words, for example "you prefer Victorian" or "the shelf is a good spot for a garden". Notes make it feel like a buddy you play with, not rote AI.
+- **Marked as its own words,** in the companion's hand on the page, never presented as a fact the game verified. The facts in the table above stay host-written.
+- **Untrusted text:** the contract's display-text rules, at most 280 characters (*start*). The AI reads its notes back as data, like every name in the world.
+- **The player may remove any note.** At most 100 notes per room (*start*), the oldest dropped first. Saved with the room.
+- **Simple now, richer later.** The game is designed for AI that grows more capable over the next couple of years (the founder), so notes start as plain text and gain structure when models can use it.
+
 **Not journaled:** movement, follow, stay, look, point, each command, scenery, and every observation.
 
 A **follow** or **come** shows only as the current state in "Working on" ("following you"). It leaves no history.
@@ -108,6 +115,7 @@ A **follow** or **come** shows only as the current state in "Working on" ("follo
 
 | Surface | What it answers |
 |---|---|
+| **`journal.note`** (new command, the companion's) | Writes one of its notes. A durable receipt; it changes no world state |
 | **`journal.read`** (new query) | By default, every open task plus the last 20 entries (*start*), newest first. Filters: kind, a subject, since a time. This is the short context a model should read at the start of a session or after a pause |
 | **The journal as an MCP resource** | The same view, for harnesses that subscribe to resources. It is updated when an entry changes |
 | `entities.list`, `entity.inspect` | Anything the team knows: live if in sight now, otherwise as last seen, with the existing `seen`, `last_seen_ago_s`, `last_seen_revision` and `may_be_stale` fields. `seen: "remembered"` comes to mean "known to the team, not in sight now" |
@@ -117,7 +125,7 @@ A **follow** or **come** shows only as the current state in "Working on" ("follo
 
 **Commands.**
 - A command may name anything the team knows.
-- Anything that **changes** a thing still needs it in sight now, of either avatar or on the player's screen. Goals that only move or turn the companion may aim at a thing known from the map, and the host re-checks on arrival.
+- Anything that **changes** a thing still needs it in sight of either avatar now. Goals that only move or turn the companion may aim at a thing known from the map, and the host re-checks on arrival.
 - The player's avatar is always known to the team. The kernel's check that stops the companion naming the player out of its own sight (P3, merged 7 October) goes away.
 
 ## The player's view (UI; P5 with Lane L)
@@ -166,7 +174,7 @@ This design only marks the seams; the modes doc decides the rules:
 | Room state: no journal, nothing discovered | New `journal` and `discovered` blocks (a contract change with a migration note) |
 
 **Contract additions (the integrator):**
-- `journal.read`, with its entry shape;
+- `journal.read`, with its entry shape, and `journal.note`;
 - `map.find`;
 - room state's `journal` and `discovered`;
 - the meaning of `seen: "remembered"`.
@@ -180,8 +188,8 @@ Run 2's switch to the real host (A2) and its sandbox verbs build on what the com
   - the contract additions (the integrator).
 - **Run 3: the notepad and the minimap,** alongside building. "Built" and "Changed" entries are the journal's best content (P5 and L).
 
-## Questions for the founder
+## Answered by the founder, 7 October
 
-1. **The map remembers the layout; the journal is the companion's memory.** The AI looks the map up when it needs to ("where did we see the screws?") rather than carrying it. Is that the right split?
-2. **"What the player sees" means the player's screen,** including the high cameras in creative mode, so one look from above fills in the map there. Right, or should only the avatars' eyes count?
-3. **May the companion write its own notes in the journal,** marked as its words (for example "you prefer Victorian")? Or only facts the game verifies?
+1. **The split is right:** the map remembers the layout, and the journal is the companion's memory.
+2. **Only the avatars' eyes fill the map,** the player's and the companion's, so they can divide and conquer. The camera does not count. It is the easier rule.
+3. **The companion writes its own notes,** marked as its words. It feels like a buddy rather than rote AI, and it gets better as AI improves. Simple design for now, more complex later.

@@ -172,7 +172,8 @@ Details and the founder's reference notes are in [the Run 1 status page](runs/RU
 
 Details are in [the Run 1 status page](runs/RUN-1-STATUS.md).
 
-- **The player and their companion share one knowledge of the world.** This replaces "the companion sees what is in its line of sight". Either avatar's discoveries go on one shared map; the AI sees what the player sees. Things out of view show as last seen. In multiplayer, knowledge is per team.
+- **The player and their companion share one knowledge of the world.** This replaces "the companion sees what is in its line of sight". What either avatar's eyes see goes on one shared map; the camera adds nothing, so the pair can divide and conquer. Things out of view show as last seen. In multiplayer, knowledge is per team. See [the journal design](companion/JOURNAL.md).
+- **Design for AI that keeps improving.** The game is built for AI systems as they grow more capable over the next couple of years: simple designs now, more complex later. The companion writes its own notes in the journal, so it feels like a buddy rather than rote AI.
 - **Memory is selective.** The companion keeps important, game-relevant things: actions completed and at whose direction, how the things it made were later changed, and, in challenge modes, where it saw resources a build in progress needs. It keeps no log of every step or sight.
 - **A journal and a minimap.**
   - The journal is old tan drafting paper in a leather-bound notepad. It shows what the player and companion are working on, as descriptions, never numbers. It also shows what has been built, and, where resources matter, where they are and how many remain.
