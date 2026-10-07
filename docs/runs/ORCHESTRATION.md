@@ -45,7 +45,7 @@ Choose by **capability for the task, then cost.** A cheap agent whose work needs
   - targeted tests while iterating, and the full runners once at the end;
   - mutation checks capped at five key protections per round;
   - failing-before evidence for blockers and majors only.
-- **GPU captures (Look), a budget per round.** Each capture launch opens a game window on the founder's screen. A full set cycles about 36 shots: 7 cameras, repeated under the summer sun, at night with the lamps and with the lamps on and off, plus foot close-ups and a time-of-day sweep. On 7 October the founder saw the same views over and over.
+- **GPU captures (Look), a budget per round.** A full set is about 36 shots: 7 cameras, repeated under the summer sun, at night with the lamps and with the lamps on and off, plus foot close-ups and a time-of-day sweep. **Duplicated work slows progress and costs tokens** (the founder, 7 October). The window on screen is fine. On 7 October one round took two full `before` sets and whole-set renders to compare one tuning number.
   - **One full `before` set and one full `after` set per round.** Change the cameras or the harness first, then take `before` once.
   - **Probes and tuning variants render only the views in question:** `-Only <camera>`, with `-NoLightChecks` unless the light is what is being probed.
   - **Tune by numbers first** with the headless look suite and pixel metrics; render only to confirm.
