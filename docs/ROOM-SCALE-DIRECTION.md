@@ -168,6 +168,25 @@ Details and the founder's reference notes are in [the Run 1 status page](runs/RU
   - a "build only with what you see" mode in a captured room.
 - **Physics:** the 10 cm body runs at 1 unit = 1 metre with no ×10 import scale, on Jolt Physics. The room renders with Forward+.
 
+## Founder decisions during Run 1, 7 October 2026
+
+Details are in [the Run 1 status page](runs/RUN-1-STATUS.md).
+
+- **The player and their companion share one knowledge of the world.** This replaces "the companion sees what is in its line of sight". Either avatar's discoveries go on one shared map; the AI sees what the player sees. Things out of view show as last seen. In multiplayer, knowledge is per team.
+- **Memory is selective.** The companion keeps important, game-relevant things: actions completed and at whose direction, how the things it made were later changed, and, in challenge modes, where it saw resources a build in progress needs. It keeps no log of every step or sight.
+- **A journal and a minimap.**
+  - The journal is old tan drafting paper in a leather-bound notepad. It shows what the player and companion are working on, as descriptions, never numbers. It also shows what has been built, and, where resources matter, where they are and how many remain.
+  - The minimap is a small circle in an upper corner. With the journal open, the journal takes one side of the screen and an expanded map the other.
+  - The map is drawn from room data, fades the levels the player is not on, and starts blank, filling in as the pair explores.
+- **Cameras in challenge modes:**
+  - only over-the-shoulder and first person;
+  - the overview unlocks when the objective is met, or, in an open-ended challenge, at 75% of the map discovered;
+  - creative modes are unrestricted.
+- **The game refuses what the companion cannot do yet,** with a reason. More freedom for the AI is a later challenge.
+- **Voice is deferred** until the baseline game is fully designed and working; it is a UI extension. The UI comes first: keyboard, fixed commands and symbolic buttons.
+- **Run 2 keeps its spine: real objects first.** Building comes after the sandbox verbs and the real host.
+- **The Look direction** is the founder's Google Doc `Art inspiration/Look and Art Style direction`: details make a scene, consistency within a theme, colour contrast as focus, palettes by season, and tight tilt-shift for an observe view.
+
 ## Pointers
 
 - [Capture-to-Godot pipeline design](pipeline/ROOM-CAPTURE-PIPELINE.md): the MCP/skill, method recommendations, and the garage test case.

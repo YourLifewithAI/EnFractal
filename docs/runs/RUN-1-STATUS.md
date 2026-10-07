@@ -109,6 +109,7 @@ Evidence on `run1/integration` at `0fc905b` (after the contract change, the P ke
 - **Fast layer:** fixed commands, not an AI model. Players can learn the commands from **a help tab or panel** in the game.
 - **Development budget:** $10 a month is approved for testing hosted models as the actor, from Run 3. Speech recognition and synthesis run locally. If voice ever drives scaled costs, park it in favour of symbolic communication (buttons for build, place and action types). The appeal of speech is that it keeps the screen uncluttered.
 - **Voice language at launch:** English voice; typed commands in every supported language.
+- **Voice is deferred (the founder, 7 October).** Build the most robust UI possible without voice. Voice adds cost and substantial complexity. It is essentially a UI extension, added only after the baseline game is fully designed and working. Until then the keyboard, the fixed commands and symbolic buttons are the way to talk to the companion. The tiers that replace approval clicks stand, with a keyed "yes". `LIVE-VOICE.md` stays as the design for later.
 - **Release model: bring your own AI (BYOAI)** (decided later the same evening).
   - Players bring their own AI, including their own harnessed agents (for example Hermes Agent, OpenClaw or a homebrew harness), and connect it to the game's MCP surface.
   - The audience is people who already use AI well and want to give their AI a malleable sandbox to create and experiment in. Multiplayer, with players and their AIs playing with and against each other, comes later.
@@ -312,7 +313,14 @@ The source is the Google Doc `Look and Art Style direction`, with ten frames fro
      - M1 also needs `RoomBuilder` to cut `shell.openings`, which is a change to the room builder in P's code (`game/scripts/native/Room/**`);
      - check the floorboard shimmer under FXAA.
    - Write `RUN-1-REPORT.md`.
-   - Plan Run 2: building ([BUILDING.md](../companion/BUILDING.md)), the sandbox verbs (grab and carry), modes, voice v0, the first captured room, the capture guidance as a player-facing feature, **the companion's selective memory, the journal and the minimap** (a design doc for Lane A, the notepad and minimap UI for P5, their look for L), and opaque `job_id` handles.
+   - **Plan Run 2. Its spine is decided: real objects first** (the founder, 7 October), as in the original plan.
+     - The plan: five garage objects captured, styled and standing in the room with collision; picked up and carried; the companion fetches one; the room rebuilt from data; the switch from the mock host to the real one (A2).
+     - Also: opaque `job_id` handles.
+     - **Three design docs during Run 2,** written by the integrator with the founder, so Run 3 starts from decisions:
+       - **the journal, memory and minimap, first,** because it changes the perception rules that A2 and the sandbox verbs build on;
+       - **building:** answering `BUILDING.md`'s five open questions and folding in the later decisions;
+       - **modes.**
+     - **Proposed and not yet decided:** Run 3 "build with your companion" (the Victorian kit, the journal and minimap, selective memory, felt avatars); Run 4 the whole garage (the old Run 3 milestone). Voice waits until the baseline game works.
 3. **A cloud session** runs `tools/linux/test-all.sh` on the merged head.
 
 ## Picking this up
