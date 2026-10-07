@@ -148,6 +148,18 @@ The images stay in Google Drive (`Enfractal/Art inspiration`) and are cited by f
 
 **The founder on the look:** the high-angle view reads almost entirely orange largely because the room's own objects are orange-hued (the boxes, the book, the rug and the floor), not only because of the light. Vary the test room's object colours (the integrator's room builder) as well as the preset's palette.
 
+## Founder playtest notes, early 7 October (second pass)
+
+**Works:** the faster run, the floatier floaty (G), the F3 orbit, the F4 view itself, the companion following, including round the big box, the lamps off (L), which works well, and the window light at night.
+
+| Note | Cause found | Owner |
+|---|---|---|
+| In F4, Q and E do not turn the view. | The invention workshop also binds Q (revise the worn design) and E (use the worn design). | P fix round: retire the invention panel and its keys from the room, as the founder already retired the workshop. Q and E then turn the view. |
+| The companion's name tag is blurred. | The tag is a see-through `Label3D`. Depth of field reads the depth behind it, and TAA smears it while the camera moves. | P fix round |
+| The player blurs while running. | Not depth of field: the companion at the same distance is sharp. Suspects: TAA, or the body moving only on physics ticks. | P fix round |
+| The book sinks into the rug. | The rug overlapped the book by 2.5 cm and the box by 7.5 cm, and the doorstop sat inside the 6 mm rug. | Integrator, fixed in `6e8a41d`: the rug is trimmed, the doorstop rests on it, and the room builder now refuses props that cut into each other. |
+| Other times of day cannot be seen: the clock follows real time, and the playtest was at 3 a.m. | — | P fix round: T steps the time of day, Shift+T the season |
+
 ## The founder's verdict on the garage coverage report (later on 6 October)
 
 - **The guidance is useful.** C2's acceptance is met.
@@ -178,12 +190,7 @@ The images stay in Google Drive (`Enfractal/Art inspiration`) and are cited by f
 ## Next steps when work resumes
 
 1. **Founder:**
-   - **The second playtest:** the Desktop shortcut "EnFractal Playtest", or `pwsh -NoProfile -File run-room.ps1`. Check:
-     - run speed, and floaty (G);
-     - the F3 orbit, F4 with Q and E, and the L lamps;
-     - the companion following beside you at 10 cm, and walking round the big box with come (3);
-     - both avatars standing on the rug and the book;
-     - the window light at different times of day.
+   - **The second playtest:** done (above). After the P fix round: check F4 with Q and E, the name tag, the running blur and the window light at other times (T and Shift+T).
    - **The garage coverage report:** the verdict and the measurements are in (above). Still open: whether the selfie-camera shots were intentional, and, whenever convenient, the top-up photos from the report's nine steps.
    - The remaining art reference notes, and the look verdict.
    - Connect a real AI when ready (the live MCP client check).
