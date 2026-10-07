@@ -9,6 +9,8 @@ public partial class RoomHud : CanvasLayer
     public CompanionAvatar Companion { get; set; } = null!;
     public int ViewMode { get; private set; } = 1;
     public string RoomTitle { get; set; } = "ROOM";
+    /// <summary>Set by RoomWorld: what the look and the style pin need the player to know (a renderer fallback, a style that did not verify).</summary>
+    public string LookNotice { get; set; } = "";
     public bool Customizing => _customization.Visible;
     private const string ProfilePath = "user://single_player/room/avatar_profile_v1.cfg";
     private static readonly Color[] Palette = { new("d28f63"), new("65b9b0"), new("d7b765"), new("a18cc3"), new("75965c") };
@@ -21,10 +23,20 @@ public partial class RoomHud : CanvasLayer
     // Framed for the 10 cm body; a narrow lens and the look's depth of field make the room read as a miniature.
     public const float DioramaMinPitchDeg = 20.0f;
     public const float DioramaMaxPitchDeg = 80.0f;
-    public const float DioramaDefaultPitchDeg = 50.0f;
+    public const float DioramaDefaultPitchDeg = 45.0f;
     public const float DioramaMinDistanceM = 0.30f;
     public const float DioramaMaxDistanceM = 2.4f;
-    public const float DioramaDefaultDistanceM = 0.9f;
+    public const float DioramaDefaultDistanceM = 1.4f;
+    public const float DioramaFovDeg = 40.0f;
+    // F4, the isometric view (Look lane, 6 October art direction): the isometric angle, a long narrow lens, and a
+    // heading that turns in quarter turns with Q and E, so the room reads as a diorama from above.
+    public const float IsoPitchDeg = 35.26f;
+    public const float IsoDistanceM = 2.7f;
+    public const float IsoFovDeg = 30.0f;
+    /// <summary>While the companion is this close, the high views frame both avatars, centred between them.</summary>
+    public const float FrameCompanionWithinM = 0.8f;
+    /// <summary>The isometric heading: 45 degrees off the room's axes plus whole quarter turns.</summary>
+    public float IsoYaw { get; private set; } = Mathf.Pi / 4;
     public const float MouseRadiansPerPixel = 0.0025f;
     /// <summary>The orbit's heading (radians about +Y; 0 looks along -Z). Movement follows it in F3.</summary>
     public float DioramaYaw { get; private set; }
@@ -74,7 +86,7 @@ public partial class RoomHud : CanvasLayer
         footer.OffsetLeft = 18; footer.OffsetRight = -18; footer.OffsetTop = -140; footer.OffsetBottom = -18;
         var help = new VBoxContainer(); footer.AddChild(help);
         help.AddChild(new Label { Text = "WASD move · Shift run · Space jump · R recover · G gravity · click to look · Esc release" });
-        help.AddChild(new Label { Text = "F1 eye · F2 shoulder · F3 diorama: mouse orbits, wheel zooms, WASD follows the view · C customize" });
+        help.AddChild(new Label { Text = "F1 eye · F2 shoulder · F3 diorama: mouse orbits, wheel zooms, WASD follows the view · F4 isometric: Q/E turn · C customize" });
         _notice = new Label { Text = _noticeText }; help.AddChild(_notice);
         _customization = new PanelContainer { Position = new Vector2(18, 164), Theme = theme, Visible = false };
         AddChild(_customization);
@@ -88,6 +100,7 @@ public partial class RoomHud : CanvasLayer
         options.AddChild(new Label { Text = $"Player height: {Player.BodyHeightM * 100:0} cm. Appearance keeps each avatar's identity." });
         AddButton(options, "Save appearance and return", () => { SavePreferences(); ToggleCustomization(); });
         SetViewMode(1);
+        if (LookNotice.Length > 0) _noticeText = LookNotice;
         Input.MouseMode = Input.MouseModeEnum.Visible;
     }
 
@@ -119,15 +132,17 @@ public partial class RoomHud : CanvasLayer
         _dioramaPivot.AddChild(_dioramaArm);
         _dioramaArm.AddExcludedObject(Player.GetRid());
         if (Companion != null) _dioramaArm.AddExcludedObject(Companion.GetRid());
-        _diorama = new Camera3D { Name = "DioramaCamera", Near = 0.01f, Far = 100, Fov = 38 };
+        _diorama = new Camera3D { Name = "DioramaCamera", Near = 0.01f, Far = 100, Fov = DioramaFovDeg };
         _dioramaArm.AddChild(_diorama);
         PlaceDioramaRig(snap: true);
     }
 
     public void SetViewMode(int mode)
     {
-        if (mode is < 0 or > 2 || _shoulder == null) return;
+        if (mode is < 0 or > 3 || _shoulder == null) return;
         var entering = mode == 2 && ViewMode != 2;
+        // Enter the isometric view at the quarter-turn heading nearest the player's facing.
+        if (mode == 3 && ViewMode != 3) IsoYaw = Mathf.Wrap(Mathf.Snapped(Player.GlobalRotation.Y - Mathf.Pi / 4, Mathf.Pi / 2) + Mathf.Pi / 4, -Mathf.Pi, Mathf.Pi);
         ViewMode = mode;
         Player.GetNode<Node3D>("OriginalPrototypeBody").Visible = mode != 0;
         if (mode == 0) Player.EyeCamera.MakeCurrent();
@@ -136,10 +151,11 @@ public partial class RoomHud : CanvasLayer
         {
             // Enter behind the player, at the last pitch and zoom the player chose.
             if (entering) DioramaYaw = Player.GlobalRotation.Y;
+            _diorama.Fov = mode == 3 ? IsoFovDeg : DioramaFovDeg;
             PlaceDioramaRig(snap: true);
             _diorama.MakeCurrent();
         }
-        Player.SetMovementFrame(mode == 2 ? DioramaYaw : null);
+        Player.SetMovementFrame(mode switch { 2 => DioramaYaw, 3 => IsoYaw, _ => null });
     }
 
     /// <summary>Orbit the diorama camera by a mouse movement in pixels: sideways turns around the player, up and down tilts.</summary>
@@ -158,19 +174,37 @@ public partial class RoomHud : CanvasLayer
         DioramaDistanceM = Mathf.Clamp(DioramaDistanceM * Mathf.Pow(0.88f, steps), DioramaMinDistanceM, DioramaMaxDistanceM);
     }
 
-    /// <summary>Centre the rig on the player's middle, eased so a jump or a step does not jolt the view.</summary>
+    /// <summary>Turn the isometric view a quarter turn (Q: -1, E: +1).</summary>
+    public void TurnIso(int quarterTurns)
+    {
+        IsoYaw = Mathf.Wrap(IsoYaw + quarterTurns * Mathf.Pi / 2, -Mathf.Pi, Mathf.Pi);
+        if (ViewMode == 3) Player.SetMovementFrame(IsoYaw);
+    }
+
+    /// <summary>
+    /// Centre the rig on the player's middle, or between the two avatars while the companion is near (fading over the
+    /// last 30% of FrameCompanionWithinM so the view never jumps), eased so a jump or a step does not jolt the view.
+    /// </summary>
     private void PlaceDioramaRig(bool snap, float delta = 0)
     {
         var centre = Player.GlobalPosition + Vector3.Up * (Player.BodyHeightM * 0.5f);
+        if (Companion != null)
+        {
+            var apart = Companion.GlobalPosition.DistanceTo(Player.GlobalPosition);
+            var share = 0.5f * (1f - Mathf.SmoothStep(0.7f * FrameCompanionWithinM, FrameCompanionWithinM, apart));
+            centre = centre.Lerp(Companion.GlobalPosition + Vector3.Up * (Companion.BodyHeightM * 0.5f), share);
+        }
         var weight = snap ? 1.0f : 1.0f - Mathf.Exp(-12.0f * delta);
         var position = _dioramaPivot.GlobalPosition.Lerp(centre, weight);
-        _dioramaPivot.GlobalTransform = new Transform3D(Basis.FromEuler(new Vector3(-Mathf.DegToRad(DioramaPitchDeg), DioramaYaw, 0), EulerOrder.Yxz), position);
-        _dioramaArm.SpringLength = DioramaDistanceM;
+        var iso = ViewMode == 3;
+        var pitch = iso ? IsoPitchDeg : DioramaPitchDeg;
+        _dioramaPivot.GlobalTransform = new Transform3D(Basis.FromEuler(new Vector3(-Mathf.DegToRad(pitch), iso ? IsoYaw : DioramaYaw, 0), EulerOrder.Yxz), position);
+        _dioramaArm.SpringLength = iso ? IsoDistanceM : DioramaDistanceM;
     }
 
     public override void _Process(double delta)
     {
-        if (ViewMode == 2) PlaceDioramaRig(snap: false, (float)delta);
+        if (ViewMode >= 2) PlaceDioramaRig(snap: false, (float)delta);
         _arm.Rotation = new Vector3(Mathf.Clamp(Player.EyeCamera.Rotation.X - 0.18f, -1.1f, 0.8f), 0, 0);
         _state.Text = $"{Player.BodyHeightM * 100:0} cm player  ·  gravity {Player.WorldPhysicsId} (G)  ·  {Companion.CompanionName}: {Companion.CurrentIntent}" + (Companion.GoalBlocked ? " · path blocked" : "");
         _notice.Text = _noticeText;
@@ -193,6 +227,9 @@ public partial class RoomHud : CanvasLayer
                 case Key.F1: SetViewMode(0); break;
                 case Key.F2: SetViewMode(1); break;
                 case Key.F3: SetViewMode(2); break;
+                case Key.F4: SetViewMode(3); break;
+                case Key.Q when ViewMode == 3: TurnIso(-1); break;
+                case Key.E when ViewMode == 3: TurnIso(1); break;
                 // Companion keys are goal commands from the player, on the same path as the companion's own.
                 case Key.Key1: Goal("follow"); break;
                 case Key.Key2: Goal("stay"); break;

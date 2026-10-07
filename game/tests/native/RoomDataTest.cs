@@ -22,7 +22,7 @@ public partial class RoomDataTest : Node3D
         {
             var room = RoomData.Load(RoomWorld.DefaultRoom);
             Check(room.RoomId == "test_room" && room.SourceKind == "hand_built", "test room loads with its identity");
-            Check(room.Shell.Count == 6 && room.Objects.Count == 5 && room.Spawns.Count == 2, "test room has 6 shell parts, 5 objects and 2 spawns");
+            Check(room.Shell.Count == 9 && room.Objects.Count == 5 && room.Spawns.Count == 2, "test room has 9 shell parts, 5 objects and 2 spawns");
             Check(room.ManifestSha256 == FileAccess.GetSha256(RoomWorld.DefaultRoom + "/room.json"), "manifest pin is the SHA-256 of the file bytes");
             Check(room.SpawnFor("player").Id == "player_start" && room.SpawnFor("companion", room.SpawnFor("player")).Id == "companion_start", "spawns resolve by role");
             Check(room.Bounds.Size.IsEqualApprox(new Vector3(4, 2.4f, 3)), "bounds match the 4 x 2.4 x 3 m interior");
@@ -31,7 +31,7 @@ public partial class RoomDataTest : Node3D
             AddChild(built);
             var shell = built.GetNode("Shell").GetChildren().OfType<Node3D>().ToArray();
             var objects = built.GetNode("Objects").GetChildren().OfType<Node3D>().ToArray();
-            Check(shell.Length == 6 && shell.All(n => n.HasMeta("entity_id") && n.GetChildren().OfType<CollisionShape3D>().Any()), "every shell part is a collidable body with its entity id");
+            Check(shell.Length == 9 && shell.All(n => n.HasMeta("entity_id") && n.GetChildren().OfType<CollisionShape3D>().Any()), "every shell part is a collidable body with its entity id");
             Check(objects.Length == 5 && objects.All(n => n.GetMeta("entity_id").AsString().StartsWith("obj:") && n.HasMeta("material_roles") && n.HasMeta("affordances")), "every object carries entity id, material roles and affordances");
             Check(objects.All(n => n.GetMeta("movable").AsBool() && n.GetMeta("mass_kg").AsSingle() > 0), "object physics metadata survives the build");
             var floorMesh = (ArrayMesh)shell.First(n => n.GetMeta("surface_role").AsString() == "floor").GetNode<MeshInstance3D>("Visual").Mesh;
@@ -83,7 +83,7 @@ public partial class RoomDataTest : Node3D
             var look = new LookDirector();
             AddChild(look);
             look.Apply(preset, room);
-            Check(look.RoomLightCount == 1 && look.GetChildren().OfType<WorldEnvironment>().Any(), "the look applies environment and the room's lamp");
+            Check(look.RoomLightCount == 2 && look.GetChildren().OfType<WorldEnvironment>().Any(), "the look applies environment and the room's lamp and window light");
             look.QueueFree();
 
             var world = GD.Load<PackedScene>("res://scenes/room.tscn").Instantiate<RoomWorld>();
