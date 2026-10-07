@@ -61,7 +61,12 @@ Evidence on `run1/integration` at `0fc905b` (after the contract change, the P ke
         - **This replaces the 6 October rule** (the companion perceives only its avatar's line of sight, for every query). Perception becomes the pair's, per player: what either avatar has seen, plus what is on the player's screen now. Things out of everyone's view show as last seen, and may be stale.
         - **Code to revisit:** `PERCEPTION.md`, the host's perception checks (P3, merged today, stops the companion naming the player out of its own sight), and the perception memory.
         - **Multiplayer:** knowledge is per team (a player and their AI). Another team's AI sees only what its own team has discovered, which suits competitive modes.
-        - **The camera:** in modes with a blank map, a high or free camera must not reveal undiscovered areas, or it gives the search away. Undiscovered areas could stay hidden under fog on screen too. This is for P and L when the modes are designed.
+        - **The camera in challenge modes (the founder, 7 October).** No fog on screen is needed; the camera is restricted instead.
+          - A challenge mode allows only the over-the-shoulder and first-person views. Today those are F2 and F1; F3's diorama orbit, F4's isometric view and the observe view are locked.
+          - A mode with a clear objective unlocks the overview when the objective is met. Examples: "build this thing", "defeat this thing", "defeat this other player", "work with this player to do X".
+          - An open-ended challenge mode unlocks the overview once 75% of the map is discovered. How that fraction is measured (walkable area, say) is a design detail.
+          - Creative modes are unrestricted.
+          - For P (cameras) when the modes are designed.
         - **Saves:** what has been discovered must be saved with the room, so room state needs a field for it (a contract change, later).
         - It lands with the journal: UI (P5, pulled into Run 2 if the plan allows), look (L), and the journal's queries and contract (A, with the integrator).
   - **Contract requests: applied on 7 October in `7e2c779`.** Lane A's C1 (`observe` defaults to 20 m, the maximum) and C2 (`"preview": false` is part of the content). Lane P's `room.checkpoint` result data (`checkpoint_revision`, required on a committed checkpoint), the README on receipts and stops, and a player-only `world.set_physics` op (a preset id; transient; the revision does not move). The mock handles it for the player and refuses it from the companion; the adapter never lists it.
