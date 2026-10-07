@@ -8,8 +8,8 @@ On top of that it applies the rules the contract means but Python does not enfor
 - `pattern` follows ECMA-262 like the C# and GDScript readers: `$` matches only at the very end,
   so "approved" plus a final newline no longer passes `^[^...]*$` (Python's `$` also matches before
   a final newline);
-- no string anywhere in a message hides characters (see textsafety.is_hidden; newline and tab
-  are left to the per-field patterns);
+- no string anywhere in a message hides characters (see textsafety: emoji markers are allowed only
+  in place; newline and tab are left to the per-field patterns);
 - integers fit a signed 64-bit integer, and every number is finite.
 
 The tool catalogue is derived, not hand-written: every command and query op in the contract
@@ -52,6 +52,15 @@ TOOL_NAME_PATTERN = re.compile(r"[a-z][a-z0-9_]{0,63}")
 # (schema, version, room_id, op) is filled by the adapter; the principal never exists in a request.
 COMMAND_ENVELOPE_FIELDS = ("action_id", "expected_revision", "expected_entities", "preview", "note")
 STOP_OPS = frozenset({"goal.stop", "effect.stop"})
+# One ordinary use of each emoji marker, to ask the contract's text patterns whether they accept it.
+MARKER_PROBES = {
+    textsafety.VS16: "❤️",  # red heart, emoji presentation
+    textsafety.VS15: "❤︎",  # red heart, text presentation
+    textsafety.ZWJ: "👨‍👩",  # man, joiner, woman
+    textsafety.KEYCAP: "1⃣",  # keycap one
+}
+# The entity_summary fields a remembered entity carries (docs/companion/PERCEPTION.md).
+MEMORY_SUMMARY_FIELDS = ("seen", "last_seen_ago_s", "last_seen_revision", "may_be_stale")
 
 # Keys that name identity or authority are never accepted anywhere in a request, by the adapter
 # or the mock host: only the trusted side assigns them. A key is refused when its folded form
@@ -227,6 +236,12 @@ class Contracts:
         self.message_limits: dict[str, int] = dict(self.validate.MESSAGE_LIMITS)
         self.creation_source_limit: int = int(self.validate.CREATION_SOURCE_LIMIT)
         self._args_def_for_op = self._map_args_defs()
+        # The emoji markers the contract's text patterns accept, so the host never emits one it refuses.
+        self.text_rules = textsafety.TextRules(self._markers_the_text_patterns_accept())
+        # Perception memory (docs/companion/PERCEPTION.md) needs the result fields that say a summary
+        # is remembered. A contract without them gets in-sight-only query results.
+        summary = self.command_schema["$defs"]["entity_summary"].get("properties", {})
+        self.memory_fields = all(key in summary for key in MEMORY_SUMMARY_FIELDS)
         # The integrator's strict validator (integers without a fraction), with ECMA-262 patterns.
         ecma = validators.extend(self.validate.StrictValidator, {"pattern": _ecma_pattern})
         message_schema = self.validate.load_strict(self.dir / self.validate.SCHEMA_FILES[COMMAND_SCHEMA])
@@ -235,6 +250,12 @@ class Contracts:
         for name in (COMMAND_SCHEMA, QUERY_SCHEMA, RESULT_SCHEMA):
             self.validate.validator_for(name)
         list(self._validator.iter_errors({"schema": RESULT_SCHEMA}))
+
+    def _markers_the_text_patterns_accept(self) -> frozenset[int]:
+        defs = self.common_schema["$defs"]
+        patterns = [defs[name]["pattern"] for name in ("display_text", "long_text") if "pattern" in defs.get(name, {})]
+        return frozenset(marker for marker, probe in MARKER_PROBES.items()
+                         if all(_ecma_regex(pattern).search(probe) for pattern in patterns))
 
     # ----- validation -----
 
@@ -393,7 +414,7 @@ class Contracts:
                 name=name,
                 op=op,
                 kind=kind,
-                description=_describe(op, kind, self.destructive_ops),
+                description=_describe(op, kind, self.destructive_ops, self.memory_fields),
                 input_schema=schema,
                 read_only=kind == "query",
                 destructive=op in self.destructive_ops or op in ("room.undo", "style.set"),
@@ -444,12 +465,12 @@ def _merge_all_of(schema: dict) -> dict:
 
 
 _OP_DESCRIPTIONS = {
-    "room.describe": "Describe the current room: name, revision, bounds, style and counts of what the companion can see.",
+    "room.describe": "Describe the current room: name, revision, bounds, style and counts of what the companion can see now.",
     "entities.list": "List the entities the companion's avatar can see (paged). Filter by kind, category group, affordance, provenance or distance.",
     "entity.inspect": "Inspect one entity the companion's avatar can see, by id: summary, parts and who protected it.",
     "capabilities.list": "List the effect capabilities the game supports and their parameter bounds.",
     "observe": "What the companion's own avatar can perceive within a radius: visible entities and words seen in the world.",
-    "jobs.status": "Status of a long-running job by job_id.",
+    "jobs.status": "Status of a job by job_id, such as a goal with a target (goal_set returns its job_id): running, succeeded, failed with the reason, or cancelled.",
     "receipt.lookup": "Ask whether one of your earlier actions committed, by its action_id. Use this before retrying.",
     "approval.status": "Poll a held command by the request_id the game returned. The player approves or denies it in the game; you cannot.",
     "entity.grab": "Pick up a movable entity with the companion's avatar.",
@@ -462,7 +483,7 @@ _OP_DESCRIPTIONS = {
     "creation.revise": "Change a creation's manifest or placement. Destructive: name expected_entities or expected_revision. The game may hold it for the player's approval.",
     "creation.activate": "Trigger a creation's interact behaviour.",
     "protect.lock": "Protect entities so they resist changes. Only the player can unlock them. Destructive: name expected_entities or expected_revision.",
-    "goal.set": "Give the companion's own avatar a goal: follow, stay, come, look_at, point_at, go_to, fetch or wander. look_at, point_at and go_to need a target or position_m; fetch needs a target.",
+    "goal.set": "Give the companion's own avatar a goal: follow, stay, come, look_at, point_at, go_to, fetch or wander. look_at, point_at and go_to need a target or position_m; fetch needs a target. go_to, look_at, point_at, come and fetch may aim at something the companion remembers seeing but cannot see now: the result says target_seen 'remembered', and the game re-checks when the avatar arrives (poll jobs_status with the job_id). Other goals, and every command that changes a thing, need it in sight now.",
     "goal.stop": "Stop the companion's goals and effects. Always permitted.",
     "effect.start": "Start a bounded effect from a supported capability in an area for a duration.",
     "effect.stop": "Stop one of your effects, or 'all' of them. Always permitted.",
@@ -472,8 +493,17 @@ _OP_DESCRIPTIONS = {
 }
 
 
-def _describe(op: str, kind: str, destructive: frozenset[str]) -> str:
-    base = _OP_DESCRIPTIONS.get(op, f"The contract operation {op}.")
+# With the contract's perception-memory fields, the queries also answer from what the companion
+# remembers seeing this session (docs/companion/PERCEPTION.md).
+_MEMORY_DESCRIPTIONS = {
+    "entities.list": "List the entities the companion's avatar can see now, and those it remembers seeing this session, marked seen 'remembered' with last_seen_ago_s and may_be_stale (it may have moved or gone since). Paged. Filter by kind, category group, affordance, provenance or distance; filters apply to what was seen.",
+    "entity.inspect": "Inspect one entity by id that the companion's avatar can see now or remembers seeing (then marked seen 'remembered', with last_seen_ago_s and may_be_stale): summary, parts and who protected it.",
+    "observe": "What the companion's own avatar can perceive now within a radius: visible entities and words seen in the world, plus 'remembered': things it saw earlier this session that are out of sight now, with last_seen_ago_s and may_be_stale.",
+}
+
+
+def _describe(op: str, kind: str, destructive: frozenset[str], memory: bool = False) -> str:
+    base = (_MEMORY_DESCRIPTIONS.get(op) if memory else None) or _OP_DESCRIPTIONS.get(op, f"The contract operation {op}.")
     if kind == "query":
         return f"{base} Read-only. Maps to the game query '{op}'."
     return f"{base} Maps to the game command '{op}'."

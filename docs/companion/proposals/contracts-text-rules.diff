@@ -1,5 +1,5 @@
 diff --git a/contracts/README.md b/contracts/README.md
-index eb83f67..53f66cf 100644
+index eb83f67..7a5a25c 100644
 --- a/contracts/README.md
 +++ b/contracts/README.md
 @@ -35,7 +35,7 @@ python -m unittest discover -s contracts/tests -v
@@ -7,12 +7,12 @@ index eb83f67..53f66cf 100644
  - **Principals never travel in requests.** The trusted adapter assigns the principal; a request that carries one is invalid. Results echo it for audit. This is the rule that keeps a persuaded AI, or later a guest's AI, from claiming the player's authority.
  - **Approvals are clicks, not tokens.** A command never carries an approval. When the host wants the player's consent, it holds the exact command and answers `approval_required` with `approval_needed.request_id`, a host-minted 128-bit identifier. The player approves or denies in the game UI. On approval the host commits the held command under its original principal and `action_id`, and the receipt records `approved_by`. Nobody resends anything; the requester polls `approval.status` or `receipt.lookup`. An approval expires, and it lapses if the entities it touches change before the click.
 -- **World text is untrusted, everywhere.** Every string that names or describes something in the world (display names, categories, labels, notes, room descriptions, sign text) is untrusted data, however it arrived. Single-line fields use `display_text`, which forbids control, line-separator, zero-width and bidirectional-override characters, so a name cannot fake a new line or hide text. Free text seen in the world travels in `observe` results as `texts` entries carrying the constant `untrusted: true`. The companion adapter presents all result data to a model as data, never as instructions; A1's tests prove it.
-+- **World text is untrusted, everywhere.** Every string that names or describes something in the world (display names, categories, labels, notes, room descriptions, sign text) is untrusted data, however it arrived. Single-line fields use `display_text`, which forbids control, line-separator, zero-width, bidirectional-override and other invisible characters (the soft hyphen, the Arabic letter mark, Hangul fillers, variation selectors, interlinear annotation marks, and plane 14 with its TAG block), so a name cannot fake a new line or hide text. Patterns are ECMA-262: `$` matches only at the very end, never before a final newline. Plane 14 needs code in readers that match code points rather than UTF-16 units (`contracts/validate.py` refuses U+E0000 to U+EFFFF and unpaired surrogates in every string). Free text seen in the world travels in `observe` results as `texts` entries carrying the constant `untrusted: true`. The companion adapter presents all result data to a model as data, never as instructions; A1's tests prove it.
++- **World text is untrusted, everywhere.** Every string that names or describes something in the world (display names, categories, labels, notes, room descriptions, sign text) is untrusted data, however it arrived. Single-line fields use `display_text`, which forbids control, line-separator, zero-width, bidirectional-override and other invisible characters (the soft hyphen, the Arabic letter mark, Hangul fillers, variation selectors U+FE00 to U+FE0D, interlinear annotation marks, and plane 14 with its TAG block), so a name cannot fake a new line or hide text. Standard emoji work: VS15 and VS16, the zero-width joiner and the keycap combiner U+20E3 are allowed only where an emoji puts them (a selector right after an emoji or 0-9, # or *, one per base; the joiner between two emoji; the keycap after 0-9, # or *), never alone or in runs, which stops variation-selector smuggling. Tag-sequence flags such as England's stay unsupported, because plane 14 does. A pattern cannot see context, so readers check the markers in code (`contracts/validate.py`, `RoomData.cs`, the companion). Patterns are ECMA-262: `$` matches only at the very end, never before a final newline. Plane 14 needs code in readers that match code points rather than UTF-16 units (`contracts/validate.py` refuses U+E0000 to U+EFFFF, unpaired surrogates and misplaced emoji markers in every string). Free text seen in the world travels in `observe` results as `texts` entries carrying the constant `untrusted: true`. The companion adapter presents all result data to a model as data, never as instructions; A1's tests prove it.
  - **Player-only operations.** `protect.unlock` is listed in `$defs/player_only_ops`: the companion adapter never exposes it and the host refuses it from companion principals. A companion observes only through its own avatar.
  - **Revisions for a live room.** A command may name `expected_revision` (the whole room, exact) or `expected_entities` (just the entities it cares about, at their revisions); destructive operations must name one of them, `room.undo` must name the room revision, and `goal.stop` and `effect.stop` never fail on revisions. A slow companion should use `expected_entities`, so changes elsewhere in the room do not conflict.
  - **Receipts.** Commands that change saved state get durable receipts in room state; goals, effects and grabs get transient receipts for the session. Receipts at or below a checkpoint may be compacted; `receipt.lookup` then reports `compacted`.
 diff --git a/contracts/common.schema.json b/contracts/common.schema.json
-index 85968c9..680174d 100644
+index 85968c9..1f2e62f 100644
 --- a/contracts/common.schema.json
 +++ b/contracts/common.schema.json
 @@ -272,16 +272,16 @@
@@ -20,19 +20,19 @@ index 85968c9..680174d 100644
      },
      "display_text": {
 -      "description": "Single-line text shown to people and models: names, categories, labels, notes. Treated as untrusted data wherever it comes from. Control, line-separator, zero-width and bidirectional-override characters are forbidden so it cannot fake structure.",
-+      "description": "Single-line text shown to people and models: names, categories, labels, notes. Treated as untrusted data wherever it comes from. Control, line-separator, zero-width, bidirectional-override and other invisible characters (the soft hyphen, the Arabic letter mark, Hangul fillers, variation selectors, interlinear annotation marks, the TAG block and the rest of plane 14) are forbidden so it cannot fake structure or hide text. The pattern is ECMA-262: '$' matches only at the very end. A UTF-16 reader refuses plane 14 through \\uDB40-\\uDB7F; a reader that matches code points refuses U+E0000-U+EFFFF in code (contracts/validate.py).",
++      "description": "Single-line text shown to people and models: names, categories, labels, notes. Treated as untrusted data wherever it comes from. Control, line-separator, zero-width, bidirectional-override and other invisible characters (the soft hyphen, the Arabic letter mark, Hangul fillers, variation selectors U+FE00-U+FE0D, interlinear annotation marks, the TAG block and the rest of plane 14) are forbidden so it cannot fake structure or hide text. The four emoji markers (VS15 U+FE0E, VS16 U+FE0F, the zero-width joiner U+200D and the keycap combiner U+20E3) pass the pattern but are allowed only where an emoji puts them: a selector directly after an Extended_Pictographic character or 0-9, # or *, one per base; the joiner between two emoji; the keycap after 0-9, # or *, optionally with VS16. A pattern cannot express that context, so readers check it in code (contracts/validate.py, RoomData.cs, the companion). The pattern is ECMA-262: '$' matches only at the very end. A UTF-16 reader refuses plane 14 through \\uDB40-\\uDB7F; a reader that matches code points refuses U+E0000-U+EFFFF in code (contracts/validate.py).",
        "type": "string",
        "maxLength": 500,
 -      "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F\\u200B-\\u200F\\u2028\\u2029\\u202A-\\u202E\\u2060-\\u2069\\uFEFF]*$"
-+      "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F\\u00AD\\u034F\\u061C\\u115F\\u1160\\u180B-\\u180F\\u200B-\\u200F\\u2028-\\u202E\\u2060-\\u206F\\u2800\\u3164\\uFE00-\\uFE0F\\uFEFF\\uFFA0\\uFFF9-\\uFFFB\\uDB40-\\uDB7F]*$"
++      "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F\\u00AD\\u034F\\u061C\\u115F\\u1160\\u180B-\\u180F\\u200B\\u200C\\u200E\\u200F\\u2028-\\u202E\\u2060-\\u206F\\u2800\\u3164\\uFE00-\\uFE0D\\uFEFF\\uFFA0\\uFFF9-\\uFFFB\\uDB40-\\uDB7F]*$"
      },
      "long_text": {
 -      "description": "Multi-line untrusted text (descriptions, review notes, prompts). Newline and tab are the only control characters allowed.",
-+      "description": "Multi-line untrusted text (descriptions, review notes, prompts). Newline and tab are the only control characters allowed; the invisible characters display_text forbids are forbidden here too.",
++      "description": "Multi-line untrusted text (descriptions, review notes, prompts). Newline and tab are the only control characters allowed; the invisible characters display_text forbids are forbidden here too, and the emoji markers are allowed only in place, as there.",
        "type": "string",
        "maxLength": 4000,
 -      "pattern": "^[^\\u0000-\\u0008\\u000B-\\u001F\\u007F-\\u009F\\u200B-\\u200F\\u2028\\u2029\\u202A-\\u202E\\u2060-\\u2069\\uFEFF]*$"
-+      "pattern": "^[^\\u0000-\\u0008\\u000B-\\u001F\\u007F-\\u009F\\u00AD\\u034F\\u061C\\u115F\\u1160\\u180B-\\u180F\\u200B-\\u200F\\u2028-\\u202E\\u2060-\\u206F\\u2800\\u3164\\uFE00-\\uFE0F\\uFEFF\\uFFA0\\uFFF9-\\uFFFB\\uDB40-\\uDB7F]*$"
++      "pattern": "^[^\\u0000-\\u0008\\u000B-\\u001F\\u007F-\\u009F\\u00AD\\u034F\\u061C\\u115F\\u1160\\u180B-\\u180F\\u200B\\u200C\\u200E\\u200F\\u2028-\\u202E\\u2060-\\u206F\\u2800\\u3164\\uFE00-\\uFE0D\\uFEFF\\uFFA0\\uFFF9-\\uFFFB\\uDB40-\\uDB7F]*$"
      },
      "request_id": {
        "description": "Host-minted, unguessable identifier (at least 128 bits, lowercase hex).",
@@ -41,18 +41,76 @@ index 85968c9..680174d 100644
            "type": "string",
            "maxLength": 64,
 -          "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F\\u200B-\\u200F\\u2028\\u2029\\u202A-\\u202E\\u2060-\\u2069\\uFEFF]*$"
-+          "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F\\u00AD\\u034F\\u061C\\u115F\\u1160\\u180B-\\u180F\\u200B-\\u200F\\u2028-\\u202E\\u2060-\\u206F\\u2800\\u3164\\uFE00-\\uFE0F\\uFEFF\\uFFA0\\uFFF9-\\uFFFB\\uDB40-\\uDB7F]*$"
++          "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F\\u00AD\\u034F\\u061C\\u115F\\u1160\\u180B-\\u180F\\u200B\\u200C\\u200E\\u200F\\u2028-\\u202E\\u2060-\\u206F\\u2800\\u3164\\uFE00-\\uFE0D\\uFEFF\\uFFA0\\uFFF9-\\uFFFB\\uDB40-\\uDB7F]*$"
          }
        ]
      },
 diff --git a/contracts/tests/test_contracts.py b/contracts/tests/test_contracts.py
-index be7a59c..90ec24a 100644
+index be7a59c..9fe424f 100644
 --- a/contracts/tests/test_contracts.py
 +++ b/contracts/tests/test_contracts.py
-@@ -339,6 +339,49 @@ class SemanticTests(unittest.TestCase):
+@@ -6,6 +6,7 @@ from __future__ import annotations
+ 
+ import copy
+ import json
++import re
+ import shutil
+ import struct
+ import subprocess
+@@ -339,6 +340,116 @@ class SemanticTests(unittest.TestCase):
          self.assertProblem(validate.schema_errors(command), "exceeds 32768 bytes")
  
  
++# Emoji markers (VS15, VS16, the zero-width joiner, the keycap combiner) only where an emoji puts them.
++# The same vectors are in companion/tests/test_text_rules.py and game/tests/native/RoomDataTest.cs.
++EMOJI_ALLOWED = [
++    ("heart, emoji presentation", "\u2764\ufe0f"),
++    ("heart, text presentation", "\u2764\ufe0e"),
++    ("smiley with a redundant VS16", "\U0001f600\ufe0f"),
++    ("copyright sign as emoji", "\u00a9\ufe0f"),
++    ("keycap one", "1\ufe0f\u20e3"),
++    ("keycap hash without a selector", "#\u20e3"),
++    ("keycap star", "*\ufe0f\u20e3"),
++    ("digit, text presentation", "7\ufe0e"),
++    ("family", "\U0001f468\u200d\U0001f469\u200d\U0001f467"),
++    ("rainbow flag", "\U0001f3f3\ufe0f\u200d\U0001f308"),
++    ("technologist, medium skin tone", "\U0001f469\U0001f3fd\u200d\U0001f4bb"),
++    ("handshake, two skin tones", "\U0001faf1\U0001f3fb\u200d\U0001faf2\U0001f3fc"),
++    ("pirate flag", "\U0001f3f4\u200d\u2620\ufe0f"),
++    ("eye in speech bubble", "\U0001f441\ufe0f\u200d\U0001f5e8\ufe0f"),
++    ("thumbs up, dark skin tone", "\U0001f44d\U0001f3ff"),
++    ("flag of Japan", "\U0001f1ef\U0001f1f5"),
++    ("a mug's name", "Mug \u2615\ufe0f"),
++    ("letters and scripts", "Caf\u00e9 \u6728\u306e\u7bb1 \u05e2\u05d1\u05e8\u05d9\u05ea"),
++]
++EMOJI_REFUSED = [
++    ("VS16 after a letter", "a\ufe0f"),
++    ("VS15 at the start", "\ufe0eabc"),
++    ("two selectors on one emoji", "\u2764\ufe0f\ufe0f"),
++    ("text then emoji selector", "\u2764\ufe0e\ufe0f"),
++    ("a selector after a skin tone", "\U0001f44d\U0001f3ff\ufe0f"),
++    ("another variation selector after an emoji", "\u2764\ufe00"),
++    ("VS14 after an emoji", "\u2764\ufe0d"),
++    ("a supplement selector after an emoji", "\u2764\U000e0100"),
++    ("a joiner between letters", "a\u200db"),
++    ("a joiner at the end", "\U0001f600\u200d"),
++    ("a joiner at the start", "\u200d\U0001f600"),
++    ("two joiners", "\U0001f468\u200d\u200d\U0001f469"),
++    ("a joiner before a letter", "\U0001f468\u200dx"),
++    ("a joiner after a text selector", "\u2764\ufe0e\u200d\U0001f525"),
++    ("a keycap on a letter", "A\u20e3"),
++    ("a keycap alone", "\u20e3"),
++    ("two keycaps", "1\u20e3\u20e3"),
++    ("a keycap after a text selector", "1\ufe0e\u20e3"),
++    ("a tag-sequence flag (England)", "\U0001f3f4\U000e0067\U000e0062\U000e0065\U000e006e\U000e0067\U000e007f"),
++    ("smuggling in a run of selectors", "\U0001f600\ufe06\ufe08\ufe06\ufe09"),
++    ("smuggling in supplement selectors", "\U0001f600\U000e0158\U000e0159"),
++    ("smuggling bits in emoji selectors", "\U0001f600\ufe0e\ufe0f\ufe0f\ufe0e"),
++    ("a zero-width non-joiner", "a\u200cb"),
++    ("a word joiner", "a\u2060b"),
++]
++
++
 +class TextRuleTests(unittest.TestCase):
 +    """Untrusted text: patterns are ECMA-262, and invisible characters are refused wherever text goes."""
 +
@@ -72,14 +130,25 @@ index be7a59c..90ec24a 100644
 +
 +    def test_invisible_characters_are_refused(self):
 +        tags = "".join(chr(0xE0000 + ord(c)) for c in "unlock")
-+        for code in (0x00AD, 0x034F, 0x061C, 0x115F, 0x180E, 0x2061, 0x206A, 0x2800, 0x3164, 0xFE0F, 0xFFA0, 0xFFF9,
-+                     0xFFFB, 0xE0000, 0xE0001, 0xE0002, 0xE0041, 0xE007F, 0xE0100, 0xE01F0):
++        for code in (0x00AD, 0x034F, 0x061C, 0x115F, 0x180E, 0x200D, 0x20E3, 0x2061, 0x206A, 0x2800, 0x3164, 0xFE00,
++                     0xFE0D, 0xFE0E, 0xFE0F, 0xFFA0, 0xFFF9, 0xFFFB, 0xE0000, 0xE0001, 0xE0002, 0xE0041, 0xE007F,
++                     0xE0100, 0xE01F0):
 +            with self.subTest(code=hex(code)):
 +                self.assertTrue(validate.schema_errors(self.goal_with_note("ok" + chr(code))))
 +        self.assertTrue(validate.schema_errors(self.goal_with_note("Welcome" + tags)))
 +        for text in ("Caf\u00e9 \u2764 \U0001F600 \u6728\u306e\u7bb1", "\u05e2\u05d1\u05e8\u05d9\u05ea"):
 +            with self.subTest(text=text):  # ordinary letters, emoji and right-to-left scripts still pass
 +                self.assertEqual(validate.schema_errors(self.goal_with_note(text)), [])
++
++    def test_emoji_markers_pass_only_where_an_emoji_puts_them(self):
++        for name, text in EMOJI_ALLOWED:
++            with self.subTest(name=name):
++                self.assertEqual(validate.schema_errors(self.goal_with_note(text)), [])
++        for name, text in EMOJI_REFUSED:
++            with self.subTest(name=name):
++                self.assertTrue(validate.schema_errors(self.goal_with_note("x" + text)))
++        england = "\U0001f3f4" + "".join(chr(0xE0000 + ord(c)) for c in "gbeng") + "\U000e007f"
++        self.assertTrue(validate.schema_errors(self.goal_with_note(england)))  # tag-sequence flags stay unsupported
 +
 +    def test_unpaired_surrogates_are_refused_not_crashed(self):
 +        problems = validate.schema_errors(self.goal_with_note("lone \ud800"))
@@ -94,12 +163,18 @@ index be7a59c..90ec24a 100644
 +            self.assertIn("\\uDB40-\\uDB7F", pattern)
 +            self.assertIn("\\u00AD", pattern)
 +            self.assertIn("\\uFFF9-\\uFFFB", pattern)
++            self.assertIn("\\uFE00-\\uFE0D", pattern)
++            regex = re.compile(validate.ecma_pattern(pattern))
++            for marker in ("\u2764\ufe0f", "\u2764\ufe0e", "\U0001f468\u200d\U0001f469", "1\u20e3"):
++                self.assertIsNotNone(regex.search(marker), ascii(marker))  # context is checked in code
++            for hidden in ("\ufe00", "\ufe0d", "\u200c", "\u200b", "\u2060"):
++                self.assertIsNone(regex.search(hidden), ascii(hidden))
 +
 +
  class StrictLoaderTests(unittest.TestCase):
      def check_rejects(self, raw: bytes, fragment: str):
          with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as handle:
-@@ -354,6 +397,10 @@ class StrictLoaderTests(unittest.TestCase):
+@@ -354,6 +465,10 @@ class StrictLoaderTests(unittest.TestCase):
          self.check_rejects(b'{"a": NaN}\n', "non-finite")
          self.check_rejects(b'{"a": 1e400}\n', "overflows")
  
@@ -111,13 +186,14 @@ index be7a59c..90ec24a 100644
          self.check_rejects(b'\xef\xbb\xbf{"a": 1}\n', "byte-order mark")
          self.check_rejects(b'{"a": 1}\r\n', "CR line endings")
 diff --git a/contracts/validate.py b/contracts/validate.py
-index d872e2c..29e8200 100644
+index d872e2c..ea56f25 100644
 --- a/contracts/validate.py
 +++ b/contracts/validate.py
-@@ -20,11 +20,12 @@ import hashlib
+@@ -20,11 +20,13 @@ import hashlib
  import json
  import math
  import re
++import bisect
 +import functools
  import struct
  import sys
@@ -128,7 +204,7 @@ index d872e2c..29e8200 100644
  from jsonschema.exceptions import best_match
  from referencing import Registry, Resource
  from referencing.jsonschema import DRAFT202012
-@@ -98,12 +99,92 @@ def loads_strict(text: str):
+@@ -98,12 +100,146 @@ def loads_strict(text: str):
          return json.loads(text, object_pairs_hook=unique_pairs, parse_constant=reject_constant, parse_float=finite_float)
      except json.JSONDecodeError as error:
          raise ContractError(f"invalid JSON: {error}") from None
@@ -193,27 +269,81 @@ index d872e2c..29e8200 100644
 +StrictValidator = validators.extend(Draft202012Validator, {"pattern": _ecma_pattern_keyword}, type_checker=_STRICT_TYPES)
 +
 +
++# Extended_Pictographic (UTS #51, Unicode 15.1 emoji-data.txt), merged into ranges. It reserves whole
++# blocks for future emoji, so new emoji need no table update.
++_EXTENDED_PICTOGRAPHIC = (
++    (0x00A9, 0x00A9), (0x00AE, 0x00AE), (0x203C, 0x203C), (0x2049, 0x2049), (0x2122, 0x2122), (0x2139, 0x2139),
++    (0x2194, 0x2199), (0x21A9, 0x21AA), (0x231A, 0x231B), (0x2328, 0x2328), (0x2388, 0x2388), (0x23CF, 0x23CF),
++    (0x23E9, 0x23F3), (0x23F8, 0x23FA), (0x24C2, 0x24C2), (0x25AA, 0x25AB), (0x25B6, 0x25B6), (0x25C0, 0x25C0),
++    (0x25FB, 0x25FE), (0x2600, 0x2605), (0x2607, 0x2612), (0x2614, 0x2685), (0x2690, 0x2705), (0x2708, 0x2712),
++    (0x2714, 0x2714), (0x2716, 0x2716), (0x271D, 0x271D), (0x2721, 0x2721), (0x2728, 0x2728), (0x2733, 0x2734),
++    (0x2744, 0x2744), (0x2747, 0x2747), (0x274C, 0x274C), (0x274E, 0x274E), (0x2753, 0x2755), (0x2757, 0x2757),
++    (0x2763, 0x2767), (0x2795, 0x2797), (0x27A1, 0x27A1), (0x27B0, 0x27B0), (0x27BF, 0x27BF), (0x2934, 0x2935),
++    (0x2B05, 0x2B07), (0x2B1B, 0x2B1C), (0x2B50, 0x2B50), (0x2B55, 0x2B55), (0x3030, 0x3030), (0x303D, 0x303D),
++    (0x3297, 0x3297), (0x3299, 0x3299), (0x1F000, 0x1F0FF), (0x1F10D, 0x1F10F), (0x1F12F, 0x1F12F), (0x1F16C, 0x1F171),
++    (0x1F17E, 0x1F17F), (0x1F18E, 0x1F18E), (0x1F191, 0x1F19A), (0x1F1AD, 0x1F1E5), (0x1F201, 0x1F20F), (0x1F21A, 0x1F21A),
++    (0x1F22F, 0x1F22F), (0x1F232, 0x1F23A), (0x1F23C, 0x1F23F), (0x1F249, 0x1F3FA), (0x1F400, 0x1F53D), (0x1F546, 0x1F64F),
++    (0x1F680, 0x1F6FF), (0x1F774, 0x1F77F), (0x1F7D5, 0x1F7FF), (0x1F80C, 0x1F80F), (0x1F848, 0x1F84F), (0x1F85A, 0x1F85F),
++    (0x1F888, 0x1F88F), (0x1F8AE, 0x1F8FF), (0x1F90C, 0x1F93A), (0x1F93C, 0x1F945), (0x1F947, 0x1FAFF), (0x1FC00, 0x1FFFD),
++)
++_PICTOGRAPHIC_STARTS = tuple(low for low, _high in _EXTENDED_PICTOGRAPHIC)
++_KEYCAP_BASES = frozenset(map(ord, "0123456789#*"))
++_VS15, _VS16, _ZWJ, _KEYCAP = 0xFE0E, 0xFE0F, 0x200D, 0x20E3
++
++
++def _pictographic(code: int) -> bool:
++    index = bisect.bisect_right(_PICTOGRAPHIC_STARTS, code) - 1
++    return index >= 0 and code <= _EXTENDED_PICTOGRAPHIC[index][1]
++
++
++def _misplaced_marker(text: str) -> str | None:
++    """The first emoji marker out of place. The text patterns let VS15, VS16, the zero-width joiner and
++    the keycap combiner through because emoji use them; they are allowed only where an emoji puts them:
++    a selector right after an Extended_Pictographic character or a keycap base (0-9, # or *), so at most
++    one per base; the joiner between two emoji (the one before may carry one VS16 or skin tone); the
++    keycap after a keycap base, optionally with VS16. Alone or in runs they could carry hidden data."""
++    for i, ch in enumerate(text):
++        code = ord(ch)
++        if code not in (_VS15, _VS16, _ZWJ, _KEYCAP):
++            continue
++        before = ord(text[i - 1]) if i else -1
++        if code in (_VS15, _VS16):
++            in_place = _pictographic(before) or before in _KEYCAP_BASES
++        elif code == _KEYCAP:
++            in_place = before in _KEYCAP_BASES or (before == _VS16 and i >= 2 and ord(text[i - 2]) in _KEYCAP_BASES)
++        else:
++            j = i - 1
++            if j >= 0 and (ord(text[j]) == _VS16 or 0x1F3FB <= ord(text[j]) <= 0x1F3FF):
++                j -= 1
++            in_place = (i + 1 < len(text) and _pictographic(ord(text[i + 1])) and j >= 0
++                        and _pictographic(ord(text[j])))
++        if not in_place:
++            return f"U+{code:04X}"
++    return None
++
++
 +def _hidden_code_point(text: str) -> str | None:
 +    """Plane 14 (U+E0000-U+EFFFF: the TAG block, which can spell a hidden message, and the variation
-+    selector supplement) and unpaired surrogates. The text patterns refuse plane 14 only in UTF-16
-+    readers, through \\uDB40-\\uDB7F; Python matches code points, so it checks here, in every string."""
++    selector supplement), unpaired surrogates and misplaced emoji markers. The text patterns refuse
++    plane 14 only in UTF-16 readers, through \\uDB40-\\uDB7F, and cannot see a marker's context;
++    Python matches code points, so it checks here, in every string."""
 +    for ch in text:
 +        code = ord(ch)
 +        if 0xE0000 <= code <= 0xEFFFF or 0xD800 <= code <= 0xDFFF:
 +            return f"U+{code:04X}"
-+    return None
++    return _misplaced_marker(text)
 +
 +
 +def _text_problems(value, path: str = "$") -> list[str]:
 +    if isinstance(value, str):
 +        found = _hidden_code_point(value)
-+        return [f"{path}: contains the invisible or unpaired character {found}"] if found else []
++        return [f"{path}: contains the invisible, unpaired or misplaced character {found}"] if found else []
 +    problems = []
 +    if isinstance(value, dict):
 +        for key, item in value.items():
 +            found = _hidden_code_point(key) if isinstance(key, str) else None
 +            if found:
-+                problems.append(f"{path}: a field name contains the invisible or unpaired character {found}")
++                problems.append(f"{path}: a field name contains the invisible, unpaired or misplaced character {found}")
 +            problems += _text_problems(item, f"{path}.{key}")
 +    elif isinstance(value, list):
 +        for index, item in enumerate(value):
@@ -222,7 +352,7 @@ index d872e2c..29e8200 100644
  
  
  def _registry() -> Registry:
-@@ -154,6 +235,9 @@ def schema_errors(document, expected: str | None = None) -> list[str]:
+@@ -154,6 +290,9 @@ def schema_errors(document, expected: str | None = None) -> list[str]:
              deepest = best_match(error.context)
              detail = f"{detail} (closest: {_json_path(deepest)}: {deepest.message})"
          messages.append(f"{_json_path(error)}: {detail}")

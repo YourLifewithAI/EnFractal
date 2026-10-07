@@ -3,7 +3,8 @@
 The founder's rule (6 October 2026): a companion perceives anything within line of sight of its
 avatar. The mock tests it geometrically against the room manifest:
 
-- the eye is the avatar's position raised to its eye height (companion 0.205 m, player 0.087 m);
+- the eye is the avatar's position raised to its eye height: 0.087 m for both avatars, since the
+  companion shrank to the player's 10 cm body (game/native/WorldScaleProfile.cs, SmallPlayer);
 - each candidate entity is sampled at 15 points on its bounds: the centre, the eight corners and the
   six face centres, each pulled 1 cm (or a quarter of the size, whichever is smaller) inside the box;
 - a sample is seen when the segment from the eye to it crosses no occluder: the room's shell parts
@@ -20,13 +21,18 @@ from __future__ import annotations
 from typing import Iterable, Sequence
 
 Vec = Sequence[float]
-EYE_HEIGHT_M = {"companion": 0.205, "player": 0.087}
+# The 10 cm body (WorldScaleProfile.SmallPlayer): 0.10 m tall, radius 0.02 m, eye 0.087 m, reach 0.15 m.
+# The founder shrank the companion to the player's size on 6 October 2026; it was 0.24 m with its eye at 0.205 m.
+BODY_HEIGHT_M = 0.10
+BODY_RADIUS_M = 0.02
+EYE_HEIGHT_M = {"companion": 0.087, "player": 0.087}
+REACH_M = 0.15
 SAMPLE_INSET_M = 0.01
 DEGENERATE_PAD_M = 0.001
 
 
 def eye_point(position: Vec, kind: str) -> list[float]:
-    return [position[0], position[1] + EYE_HEIGHT_M.get(kind, 0.205), position[2]]
+    return [position[0], position[1] + EYE_HEIGHT_M.get(kind, EYE_HEIGHT_M["companion"]), position[2]]
 
 
 def sample_points(box_min: Vec, box_max: Vec) -> list[list[float]]:

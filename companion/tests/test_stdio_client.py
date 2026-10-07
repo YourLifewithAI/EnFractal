@@ -12,7 +12,7 @@ import unittest
 
 from mcp import Client, StdioServerParameters
 from mcp.shared.exceptions import MCPError
-from support import COMPANION, PLAYER, SRC, ThreadedGame, contract_problems, new_host
+from support import CONTRACTS, COMPANION, PLAYER, SRC, ThreadedGame, contract_problems, new_host
 from support import contracts as load_contracts
 
 from enfractal_companion.server import RESULT_PREAMBLE
@@ -20,8 +20,10 @@ from enfractal_companion.server import RESULT_PREAMBLE
 
 def server_parameters(*extra: str) -> StdioServerParameters:
     env = {"PYTHONPATH": str(SRC)}
-    return StdioServerParameters(command=sys.executable, args=["-m", "enfractal_companion", "--log-level", "ERROR", *extra],
-                                 env=env)
+    # The server reads the same contracts as the in-process game (ENFRACTAL_CONTRACTS_DIR may point at a
+    # patched copy), so the two sides agree on what a valid result is.
+    return StdioServerParameters(command=sys.executable, args=["-m", "enfractal_companion", "--log-level", "ERROR",
+                                                               "--contracts-dir", str(CONTRACTS), *extra], env=env)
 
 
 class StdioAcceptance(unittest.IsolatedAsyncioTestCase):

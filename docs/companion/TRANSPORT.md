@@ -106,6 +106,10 @@ game:      {"type": "response", "seq": 1, "message": <enfractal.result>}
 - If the connection drops or a response does not arrive within 10 seconds, the companion closes the
   connection and reports an unknown outcome; the model is told to call `receipt_lookup` before
   retrying, which the contract's idempotency rules make safe.
+- The game's end tells its host when an authenticated session starts and when it ends
+  (`LinkServer(on_session=...)`, called with the principal and `"start"` or `"end"`). The host clears
+  that companion's perception memory on both, so nothing it remembers outlives a session
+  (PERCEPTION.md). Nothing about this crosses the wire.
 
 ## Contract proposal
 

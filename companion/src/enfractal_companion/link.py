@@ -229,7 +229,8 @@ class LinkServer:
     def __init__(self, handler: Handler, room_id: str, *, host: str = "127.0.0.1", token: str | None = None,
                  principal: str = COMPANION_PRINCIPAL, avatar: str = COMPANION_AVATAR,
                  max_request_frame: int = MAX_REQUEST_FRAME, handshake_timeout_s: float = HANDSHAKE_TIMEOUT_S,
-                 max_pending_handshakes: int = MAX_PENDING_HANDSHAKES):
+                 max_pending_handshakes: int = MAX_PENDING_HANDSHAKES,
+                 on_session: Callable[[str, str], None] | None = None):
         if host not in LOOPBACK_HOSTS:
             raise ValueError("the companion link listens on 127.0.0.1 or ::1 only")
         self.handler = handler
@@ -241,6 +242,9 @@ class LinkServer:
         self.max_request_frame = max_request_frame
         self.handshake_timeout_s = handshake_timeout_s
         self.max_pending_handshakes = max_pending_handshakes
+        # Told (principal, "start" | "end") around each authenticated session, so the host can keep
+        # per-session state, such as perception memory, from outliving it.
+        self.on_session = on_session
         self.port = 0
         self._server: asyncio.base_events.Server | None = None
         self._active: asyncio.StreamWriter | None = None
@@ -304,6 +308,7 @@ class LinkServer:
         if not authenticated:
             return
         self._active = writer
+        self._session_event("start")
         try:
             await self._requests(reader, writer)
         except Exception as error:  # a broken connection or a bug: close this connection, keep listening
@@ -313,6 +318,15 @@ class LinkServer:
             if self._active is writer:
                 self._active = None
             writer.close()
+            self._session_event("end")
+
+    def _session_event(self, event: str) -> None:
+        if self.on_session is None:
+            return
+        try:
+            self.on_session(self.principal, event)
+        except Exception:  # the host's bookkeeping never breaks the link
+            log.exception("session %s hook failed", event)
 
     async def _handshake(self, reader, writer) -> bool:
         hello = await read_frame(reader, MAX_HANDSHAKE_FRAME)

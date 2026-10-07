@@ -11,6 +11,7 @@ import dataclasses
 import test_host_boundary as base
 import test_host_review_fixes as fixes
 import test_perception as perception_tests
+import test_perception_memory as memory_tests
 from support import COMPANION, NO_HOLDS, PLAYER, HostPolicy, command, example, query, retarget, GARAGE_TO_TEST_ROOM
 
 
@@ -288,7 +289,9 @@ def _without_holds(suite):
 
 for _suite in (base.RateLimits, base.ContractShape, fixes.Receipts, fixes.Stops, fixes.Checkpoints, fixes.Locks,
                fixes.Previews, fixes.Numbers, fixes.Text, fixes.Budgets, perception_tests.LineOfSight,
-               perception_tests.EdgeCasePolicies, perception_tests.EverySurface):
+               perception_tests.EdgeCasePolicies, perception_tests.EverySurface, memory_tests.Remembering,
+               memory_tests.Staleness, memory_tests.LookingAgain, memory_tests.Commands, memory_tests.Arrival,
+               memory_tests.NeverThroughOthers, memory_tests.Bounds, memory_tests.NothingHiddenLeaks):
     _variant = _without_holds(_suite)
     globals()[_variant.__name__] = _variant
 del _suite, _variant

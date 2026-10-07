@@ -4,8 +4,8 @@ Players bring their own AI. Any MCP client or agent harness reaches the game thr
 MCP server, whose tools map one to one onto the command contract in
 [contracts/game-command.schema.json](../../contracts/game-command.schema.json). The server talks to the
 running game over a loopback link with a per-session token ([TRANSPORT.md](TRANSPORT.md)). The security
-boundary and the tests that prove it are in [SECURITY.md](SECURITY.md); what the companion can see is in
-[PERCEPTION.md](PERCEPTION.md).
+boundary and the tests that prove it are in [SECURITY.md](SECURITY.md); what the companion can see and
+remember is in [PERCEPTION.md](PERCEPTION.md).
 
 ```
 any MCP client or harness --stdio--> enfractal-companion --loopback link--> game host
@@ -24,12 +24,13 @@ any MCP client or harness --stdio--> enfractal-companion --loopback link--> game
 | `.../profile.py` | Prints the play-only client profile |
 | `.../link.py` | The loopback link: session file, mutual HMAC handshake, canonical frames |
 | `.../canonical.py` | Canonical JSON v1, byte for byte as Lane P defined it: fingerprints, size limits, frames |
-| `.../mock_host.py`, `.../mock_game.py` | The mock game host, and a console that runs it as a stand-in game |
-| `.../perception.py` | Line of sight for the mock host |
+| `.../mock_host.py`, `.../mock_game.py` | The mock game host (with perception memory and goal jobs), and a console that runs it as a stand-in game |
+| `.../perception.py` | Line of sight and the 10 cm body for the mock host |
 | `.../lockdown.py` | Environment scrub and audit-hook sandbox for the server process |
-| `.../refusals.py`, `.../textsafety.py` | One mapping from contract violations to error codes; untrusted-text rules |
+| `.../refusals.py`, `.../textsafety.py` | One mapping from contract violations to error codes; untrusted-text rules, emoji markers in place |
 | `companion/schemas/companion-link.schema.json` | The link's session file and frames, proposed for `contracts/` |
-| `companion/tests/` | Boundary tests (host, link, MCP surface, perception, no holds, sandbox, profile) and the stdio acceptance test |
+| `companion/tests/` | Boundary tests (host, link, MCP surface, perception, perception memory, text rules, no holds, sandbox, profile) and the stdio acceptance test |
+| `companion/tests/fixtures/contract_memory_v1.json` | The proposed perception-memory result fields, merged into a copy of `contracts/` so the memory paths are tested before the contract carries them |
 | `docs/companion/proposals/` | Changes for files this lane does not own, as patches (below) |
 
 ## Tools
@@ -69,9 +70,12 @@ uv sync --project companion --frozen                       # once: creates compa
 uv run --project companion --locked python -m unittest discover -s companion/tests
 ```
 
-Expected: `Ran 375 tests ... OK` in about 30 seconds. The canonical JSON test uses the kernel's golden
-fixture in `game/tests/fixtures/kernel/` when the checkout has it (or the folder
-`ENFRACTAL_KERNEL_FIXTURE_DIR` names), and this lane's byte-identical copy otherwise.
+Expected: `Ran 469 tests ... OK (skipped=1)` in about 40 seconds. The skipped test checks the memory fields
+against `contracts/` once the contract carries them; with today's contract its counterpart runs instead.
+The canonical JSON test uses the kernel's golden fixture in `game/tests/fixtures/kernel/` when the
+checkout has it (or the folder `ENFRACTAL_KERNEL_FIXTURE_DIR` names), and this lane's byte-identical copy
+otherwise. `ENFRACTAL_CONTRACTS_DIR` points the whole suite, the stdio server included, at another copy of
+`contracts/`, to check a proposed change.
 
 ## Connect an MCP client or agent harness
 
@@ -127,7 +131,13 @@ it on his machine.
    With the recommended policy, ask the companion to remove the book. The console prints
    `[held] <request id> entity.remove ...`; type `approve <first characters of the id>` there, as the
    player, then ask the companion to check `approval_status`. Typing `say obj:box <text>` puts a sign in
-   the world to try prompt injection.
+   the world to try prompt injection. To try perception memory: ask the companion to observe, type
+   `walk 1.6 0 0.2` (behind the box), ask where the book is (it answers from memory), type
+   `move obj:book -1.7 0 -1.2`, ask again (now `may_be_stale`), ask it to fetch the book, then type
+   `walk 0.45 0 0.2` and `arrive`: the fetch fails honestly, and `jobs_status` says why. Until the contract
+   carries the memory fields, queries show only what is in sight (goals still aim at memory); to see the
+   remembered answers now, start both the stand-in game and the server with `--contracts-dir` pointing at a
+   copy of `contracts/` with `proposals/contracts-run1.diff` applied.
 
 Without `--mock` or `--session-file`, the server reads the real game's session file from
 `%APPDATA%\Godot\app_userdata\EnFractal\companion\session.json` (Godot's `user://`). Until Run 2 wires
@@ -140,10 +150,10 @@ Kept as patches, applied from the stored blob so line-ending conversion cannot t
 
 | Patch | What it does | Checked by |
 |---|---|---|
-| `proposals/runners-run1.diff` | Adds this suite to `run-engine-tests.ps1` and `tools/linux/test-all.sh` (with its environment from `tools/linux/setup-toolchain.sh`), and pins line endings for the link schema, the fixture copy and these patches in `.gitattributes`. Rebuilt on `run1/integration` as of 2e58c7a | Applies there with `git apply --check`; the bash scripts pass `bash -n` and the PowerShell runner parses. Not run: the runners belong to the integrator |
-| `proposals/contracts-run1.diff` | Promotes the link schema, adds `capabilities.list` payloads and a display-text checkpoint label | 34 contract tests and this suite against a patched copy |
-| `proposals/contracts-text-rules.diff` | Review finding 5 and the trailing-newline item: the invisible characters and plane 14 in `display_text`, `long_text` and scalar strings; ECMA-262 patterns, plane 14, unpaired surrogates and unreadable numbers in `contracts/validate.py`; five contract tests | 39 contract tests (both contract patches, either order) and this suite against a patched copy; the five new tests fail on today's contracts |
-| `proposals/roomdata-text-rules.diff` | The same text rule in the C# room loader, and `\z` for its anchored patterns (.NET's `$` also matches before a final newline) | Not built or run: no C# toolchain in this lane's worktree |
+| `proposals/runners-run1.diff` | Adds this suite to `run-engine-tests.ps1` and `tools/linux/test-all.sh` (with its environment from `tools/linux/setup-toolchain.sh`), and pins line endings for the link schema, the fixture copy and these patches in `.gitattributes`. Unchanged this round | Applies on `0ea09ff` with `git apply --check`, alone and after the three patches below; the bash scripts pass `bash -n` and the PowerShell runner parses. Not run: the runners belong to the integrator |
+| `proposals/contracts-run1.diff` | Promotes the link schema; adds `capabilities.list` and `jobs.status` payloads and a display-text checkpoint label; adds the perception-memory fields to `entity_summary` (`seen`, `last_seen_ago_s`, `last_seen_revision`, `may_be_stale`, the last three only on remembered summaries) and `remembered` to `observe`; examples for memory, a goal job and `jobs.status`, and two invalid memory examples. Rebuilt on `0ea09ff` | Applies there with `git apply --check`; 34 contract tests alone, 40 with the text-rules patch (either order), the validator on the test room, its style pins, the garage and all 34 valid messages; this suite against the patched copy (469 tests) |
+| `proposals/contracts-text-rules.diff` | Review finding 5, the trailing-newline item and the emoji answer: the invisible characters and plane 14 refused in `display_text`, `long_text` and scalar strings, VS15, VS16 and the joiner let through by the patterns; ECMA-262 patterns, plane 14, unpaired surrogates, misplaced emoji markers and unreadable numbers in `contracts/validate.py`; six contract tests with the shared emoji vectors. Rebuilt on `0ea09ff` | Applies there; 40 contract tests with both contract patches, either order; this suite against the patched copy |
+| `proposals/roomdata-text-rules.diff` | The same text rule in the C# room loader (`IsSafeText`, `MisplacedEmojiMarker` with the Extended_Pictographic table), `\z` for its anchored patterns (.NET's `$` also matches before a final newline), and the shared emoji vectors plus a room-name load test in `RoomDataTest.cs`. Rebuilt on `0ea09ff` | Applies there. **Not built or run**: no C# toolchain in this lane's worktree |
 
 ## Decisions taken in this lane
 
@@ -161,7 +171,13 @@ Kept as patches, applied from the stored blob so line-ending conversion cannot t
   characters; the text block is ASCII-escaped and one line long, so a sign cannot start a new line,
   hide characters or close a tag.
 - **A companion undoes only its own changes**, and never anything protected; undoing the player's
-  changes is the player's.
+  changes is the player's. The founder confirmed this on 6 October 2026.
+- **The companion remembers what its own avatar saw** (founder, 6 October 2026): per session and room,
+  bounded, never saved, with a one-bit `may_be_stale`; only goals that move or turn it may aim at a
+  remembered thing, re-checked on arrival ([PERCEPTION.md](PERCEPTION.md)).
+- **Standard emoji are allowed in world text** (founder, 6 October 2026): VS15, VS16, the joiner and the
+  keycap combiner only where an emoji puts them; every other invisible character stays blocked.
+- **The companion has the player's 10 cm body** (founder, 6 October 2026): eye 0.087 m, reach 0.15 m.
 - **Canonical frames, no lockout** on the link (TRANSPORT.md).
 - **No in-game bridge yet.** `game/scripts/native/Companion/` is untouched. In Run 2 the bridge is a
   `LinkServer` equivalent in C# in front of P1's `CommandHost`, implementing [TRANSPORT.md](TRANSPORT.md)

@@ -19,6 +19,11 @@ It loads a real room (`game/rooms/test_room` by default) through the room contra
 - a companion perceives only what is in line of sight of its avatar (perception.py), and
   `observe`, `entities.list`, `entity.inspect`, the counts in `room.describe` and command targets
   all use that perception;
+- a companion remembers what its own avatar saw this session (perception memory): queries show
+  remembered things marked `seen: "remembered"` with their age and `may_be_stale`, and goals that
+  only move or turn the companion may aim at them, re-checked on arrival; anything that changes an
+  entity still needs it in sight now. Memory is per companion, bounded, cleared with the session
+  or the room, never saved, and never filled through another avatar;
 - commands in the policy's held set wait for the player: the host mints a 128-bit `request_id`, the
   player approves or denies through `player_decide` (the game UI, never the companion's
   connection), and an approved command commits under its original principal and action_id with
@@ -79,6 +84,14 @@ LOCKABLE_KINDS = frozenset({"object", "creation"})
 # "Styles are versioned files"); a retired preset stays loadable for old saves but is not offered for new pins.
 PINNABLE_STATUSES = frozenset({"candidate", "approved"})
 OCCLUDING_KINDS = frozenset({"shell", "object", "creation"})
+# What perception memory keeps: everything but the shell, which is always in sight.
+REMEMBERED_KINDS = frozenset({"object", "creation", "avatar", "effect"})
+# Goals that only move or turn the companion's own avatar may aim at something it remembers but
+# cannot see now (founder decision, 6 October 2026). The host re-checks when the avatar arrives.
+REMEMBERED_TARGET_GOALS = frozenset({"go_to", "look_at", "point_at", "come", "fetch"})
+
+# Both avatars have the 10 cm body (perception.py): radius 0.02 m, height 0.10 m, as Entity half_extents.
+_BODY = [perception.BODY_RADIUS_M, perception.BODY_HEIGHT_M, perception.BODY_RADIUS_M]
 
 DEFAULT_ROOM_DIR = DEFAULT_REPO_ROOT / "game" / "rooms" / "test_room"
 DEFAULT_STYLES_DIR = DEFAULT_REPO_ROOT / "game" / "styles"
@@ -106,12 +119,16 @@ class HostPolicy:
     command_burst: int = 10
     query_rate_per_s: float = 10.0
     query_burst: int = 30
-    # Perception (founder decision 1: line of sight). The three flags are open founder questions;
-    # the defaults are the recommendations in docs/companion/PERCEPTION.md.
+    # Perception (founder decision 1: line of sight). See docs/companion/PERCEPTION.md.
     observe_max_radius_m: float = 20.0
     companion_targets_need_perception: bool = True  # commands may only name entities in sight now
-    perception_memory_s: float = 0.0  # how long a seen entity stays nameable once out of sight
     follow_player_out_of_sight: bool = True  # follow/come keep working when the player is not in sight
+    # Perception memory (founder decision, 6 October 2026: the companion remembers what it saw).
+    # At most this many entities per companion, least recently seen forgotten first; 0 turns it off.
+    perception_memory_entries: int = 256
+    # A remembered entity is flagged may_be_stale after this long, or as soon as it changes.
+    perception_memory_stale_after_s: float = 60.0
+    max_jobs_per_principal: int = 256  # goal jobs kept for jobs.status, oldest finished dropped first
     # Effects (open founder question: may companion effects touch the player's avatar?).
     companion_effects_may_target_player: bool = True
     max_effects_per_principal: int = 4
@@ -188,11 +205,11 @@ class Entity:
         hx, height, hz = self.half_extents
         return {"min_m": [_r(x - hx), _r(y), _r(z - hz)], "max_m": [_r(x + hx), _r(y + height), _r(z + hz)]}
 
-    def summary(self) -> dict:
+    def summary(self, text: textsafety.TextRules) -> dict:
         out = {
             "id": self.id,
             "kind": self.kind,
-            "display_name": textsafety.display_text(self.display_name, 80),
+            "display_name": text.display_text(self.display_name, 80),
             "position_m": [_r(v) for v in self.position],
             "bounds_m": self.bounds(),
             "affordances": list(dict.fromkeys(self.affordances)),
@@ -202,7 +219,7 @@ class Entity:
             "revision": self.revision,
         }
         if self.category:
-            out["category"] = textsafety.display_text(self.category, 60)
+            out["category"] = text.display_text(self.category, 60)
         if self.category_group:
             out["category_group"] = self.category_group
         if self.held_by:
@@ -255,6 +272,25 @@ class Approval:
     result: dict | None = None
 
 
+@dataclass
+class Remembered:
+    """One entity as a companion last saw it. Only `view` and the timing ever reach the companion."""
+
+    view: dict  # {"summary", "parts", "protected_by"}: what was perceivable, sanitised, at the last sighting
+    seen_at: float
+    seen_revision: int  # the room revision at the last sighting
+    mass_kg: float | None  # static asset data for the fetch check; never emitted
+    changed: bool = False  # it changed in some way since (sticky until seen again); emitted only as may_be_stale
+
+
+@dataclass
+class PerceptionMemory:
+    """What one companion has seen in this session and room, least recently seen first."""
+
+    room_id: str
+    entries: OrderedDict = field(default_factory=OrderedDict)  # entity id -> Remembered
+
+
 class _Bucket:
     def __init__(self, rate: float, burst: int, now: float):
         self.rate, self.burst, self.tokens, self.t = rate, float(burst), float(burst), now
@@ -283,6 +319,15 @@ class MockHost:
         # principal -> its own avatar. Tests add a second companion to prove principals stay apart.
         self.avatars: dict[str, str] = dict(OWN_AVATAR)
         self.avatars.update(extra_companions or {})
+        self.text = contracts.text_rules  # the untrusted-text rule this contract can carry
+        self.buckets: dict[tuple[str, str], _Bucket] = {}
+        self._view: set[str] | None = None  # what the current requester may name; None means everything
+        self.listeners: list[Callable[[str, dict], None]] = []
+        self._known_ops = frozenset(contracts.command_ops) | frozenset(contracts.query_ops)
+        self._reset_room()
+
+    def _reset_room(self) -> None:
+        """Everything that belongs to one loaded room, perception memory included."""
         self.entities: dict[str, Entity] = {}
         self.revision = 0
         self.receipts: dict[tuple[str, str], Receipt] = {}  # durable, at most max_durable_receipts
@@ -292,20 +337,19 @@ class MockHost:
         self.approvals: dict[str, Approval] = {}
         self.approval_by_action: dict[tuple[str, str], str] = {}
         self.goals: dict[str, dict] = {}
+        self.jobs: OrderedDict[str, dict] = OrderedDict()  # goal jobs for jobs.status, oldest first
         self.holding: dict[str, str] = {}
         self.checkpoints: list[dict] = []
         self.history: dict[int, dict] = {}
         self.committed_by: dict[int, str] = {}  # revision -> the principal whose command made it
-        self.buckets: dict[tuple[str, str], _Bucket] = {}
-        self.last_seen: dict[str, dict[str, float]] = {}
-        self._view: set[str] | None = None  # what the current requester may name; None means everything
+        # Perception memory, per companion principal. In memory only: never in a snapshot, a receipt or a save.
+        self.memory: dict[str, PerceptionMemory] = {}
         self._creation_counter = 0
         self._effect_counter = 0
         self._checkpoint_counter = 0
+        self._job_counter = 0
         self._load_room()
         self.history[0] = self._snapshot()
-        self.listeners: list[Callable[[str, dict], None]] = []
-        self._known_ops = frozenset(contracts.command_ops) | frozenset(contracts.query_ops)
 
     # ------------------------------------------------------------------ room loading
 
@@ -368,14 +412,14 @@ class MockHost:
         companion_spawn = spawns.get("companion", player_spawn)
         self.entities["avatar:player"] = Entity(
             id="avatar:player", kind="avatar", display_name="Player", position=list(player_spawn["position_m"]),
-            half_extents=[0.02, 0.10, 0.02], affordances=[], movable=False, provenance_kind="hand_authored")
+            half_extents=list(_BODY), affordances=[], movable=False, provenance_kind="hand_authored")
         for offset, (principal, avatar) in enumerate(sorted((p, a) for p, a in self.avatars.items() if p != PLAYER)):
             position = list(companion_spawn["position_m"])
             position[0] += 0.15 * offset
             name = "Wisp" if avatar == "avatar:companion" else avatar.split(":", 1)[1].capitalize()
             self.entities[avatar] = Entity(
                 id=avatar, kind="avatar", display_name=name, position=position,
-                half_extents=[0.055, 0.24, 0.055], affordances=[], movable=False, provenance_kind="hand_authored")
+                half_extents=list(_BODY), affordances=[], movable=False, provenance_kind="hand_authored")
         style = room.get("default_style")
         if style is None:
             key = next(iter(sorted(self.styles)), ("storybook_painterly", 1))
@@ -403,17 +447,28 @@ class MockHost:
         with self._lock:
             self.entities[entity_id].position = list(position)
 
+    def load_room(self, room_dir: Path) -> None:
+        """The game switches rooms: a fresh room state, and every companion's perception memory goes."""
+        with self._lock:
+            self.room_dir = Path(room_dir)
+            self._reset_room()
+
+    def session_event(self, principal: str, event: str) -> None:
+        """The link reports a companion session starting or ending ("start", "end"). Perception memory
+        never outlives a session: either event clears that companion's memory."""
+        with self._lock:
+            self.memory.pop(principal, None)
+
     # ------------------------------------------------------------------ perception
 
     def perceived(self, principal: str) -> set[str]:
         """Ids the principal's avatar perceives now: line of sight from its eye, plus the room shell
-        (it stands inside it), its own avatar and whatever it holds."""
+        (it stands inside it), its own avatar and whatever it holds. Pure: it remembers nothing."""
         with self._lock:
             avatar_id = self.avatars[principal]
             avatar = self.entities[avatar_id]
             eye = perception.eye_point(avatar.position, "player" if principal.startswith("player:") else "companion")
-            occluders = [(e.id, *perception.padded(e.bounds()["min_m"], e.bounds()["max_m"]))
-                         for e in self.entities.values() if not e.removed and e.kind in OCCLUDING_KINDS]
+            occluders = self._occluders()
             seen = {avatar_id}
             for entity in self.entities.values():
                 if entity.removed:
@@ -424,24 +479,109 @@ class MockHost:
                     box = entity.bounds()
                     if perception.visible(eye, entity.id, box["min_m"], box["max_m"], occluders):
                         seen.add(entity.id)
-            now = self.clock.now()
-            memory = self.last_seen.setdefault(principal, {})
-            for entity_id in seen:
-                memory[entity_id] = now
             return seen
 
     def _view_for(self, principal: str, *, for_command: bool) -> set[str] | None:
         if principal.startswith("player:"):
             return None  # the player's own controls and UI see the whole room
         seen = self.perceived(principal)
-        if not for_command:
-            return seen
-        if not self.policy.companion_targets_need_perception:
+        self._look(principal, seen)
+        if for_command and not self.policy.companion_targets_need_perception:
             return None
-        if self.policy.perception_memory_s > 0:
-            cutoff = self.clock.now() - self.policy.perception_memory_s
-            seen |= {e for e, t in self.last_seen.get(principal, {}).items() if t >= cutoff}
         return seen
+
+    # ------------------------------------------------------------------ perception memory
+
+    def _perceivable(self, entity: Entity) -> dict:
+        """What a look at the entity shows: its summary, parts and who protected it, sanitised."""
+        return {"summary": entity.summary(self.text), "parts": dict(entity.parts), "protected_by": entity.protected_by}
+
+    def _memory(self, principal: str) -> PerceptionMemory:
+        memory = self.memory.get(principal)
+        if memory is None or memory.room_id != self.room_id:
+            memory = self.memory[principal] = PerceptionMemory(self.room_id)
+        return memory
+
+    def _look(self, principal: str, seen: set[str]) -> None:
+        """Update a companion's memory from what its own avatar sees now. Only this fills memory, and
+        only from that avatar's line of sight: never through the player's avatar or another companion's.
+
+        - What it remembers but cannot see is checked against the room: any change at all (moved,
+          edited, picked up, locked or gone) marks it changed, which the companion learns only as
+          may_be_stale.
+        - If the place it was last seen is in sight now and it is not there, the companion has looked
+          again: the memory is dropped. Until then, a thing removed out of sight is remembered as it was.
+        - What it sees now is remembered afresh, nearest last, and the least recently seen are
+          forgotten beyond the size bound.
+        """
+        limit = self.policy.perception_memory_entries
+        memory = self._memory(principal)
+        if limit <= 0:
+            memory.entries.clear()
+            return
+        avatar = self.entities[self.avatars[principal]]
+        eye = perception.eye_point(avatar.position, "companion")
+        occluders = None
+        for entity_id, entry in list(memory.entries.items()):
+            if entity_id in seen:
+                continue
+            entity = self.entities.get(entity_id)
+            if not entry.changed and (entity is None or entity.removed or self._perceivable(entity) != entry.view):
+                entry.changed = True
+            if occluders is None:
+                occluders = self._occluders()
+            box = entry.view["summary"]["bounds_m"]
+            if perception.visible(eye, entity_id, box["min_m"], box["max_m"], occluders):
+                del memory.entries[entity_id]
+        now = self.clock.now()
+        fresh = sorted((self.entities[e] for e in seen
+                        if e != avatar.id and self.entities[e].kind in REMEMBERED_KINDS),
+                       key=lambda e: (-_distance_to_box(eye, e.bounds()), e.id))
+        for entity in fresh:
+            memory.entries.pop(entity.id, None)
+            memory.entries[entity.id] = Remembered(self._perceivable(entity), now, self.revision, entity.mass_kg)
+        while len(memory.entries) > limit:
+            memory.entries.popitem(last=False)
+
+    def _occluders(self) -> list:
+        return [(e.id, *perception.padded(e.bounds()["min_m"], e.bounds()["max_m"]))
+                for e in self.entities.values() if not e.removed and e.kind in OCCLUDING_KINDS]
+
+    def _recall(self, principal: str, entity_id: str) -> Remembered | None:
+        """The companion's memory of an entity it cannot see now; None for the player, for anything in
+        sight and for anything it never saw (or has seen is gone)."""
+        if principal.startswith("player:") or self._view is None or entity_id in self._view:
+            return None
+        memory = self.memory.get(principal)
+        if memory is None or memory.room_id != self.room_id:
+            return None
+        return memory.entries.get(entity_id)
+
+    def _remembered(self, principal: str) -> dict[str, Remembered]:
+        """Every remembered entity out of sight now, when the contract can say so in results."""
+        if not self.contracts.memory_fields or principal.startswith("player:") or self._view is None:
+            return {}
+        memory = self.memory.get(principal)
+        if memory is None or memory.room_id != self.room_id:
+            return {}
+        return {entity_id: entry for entity_id, entry in memory.entries.items() if entity_id not in self._view}
+
+    def _memory_fields(self, entry: Remembered) -> dict:
+        """How a remembered entity is marked. may_be_stale is one bit: old, or changed in any way. It
+        never says which, or anything about the entity now."""
+        age = max(0.0, self.clock.now() - entry.seen_at)
+        return {"seen": "remembered", "last_seen_ago_s": round(age, 1), "last_seen_revision": entry.seen_revision,
+                "may_be_stale": entry.changed or age >= self.policy.perception_memory_stale_after_s}
+
+    def _summary(self, principal: str, entity: Entity) -> dict:
+        """An entity in sight now, as the requester sees it."""
+        summary = entity.summary(self.text)
+        if self.contracts.memory_fields and not principal.startswith("player:"):
+            summary["seen"] = "now"
+        return summary
+
+    def _remembered_summary(self, entry: Remembered) -> dict:
+        return {**copy.deepcopy(entry.view["summary"]), **self._memory_fields(entry)}
 
     # ------------------------------------------------------------------ the wire
 
@@ -726,19 +866,19 @@ class MockHost:
 
         def named(entity_id: str) -> str:
             entity = self.entities.get(entity_id)
-            name = textsafety.display_text(entity.display_name, 40) if entity else "unknown"
+            name = self.text.display_text(entity.display_name, 40) if entity else "unknown"
             revision = entity.revision if entity else 0
             return f'{entity_id} ("{name}", revision {revision})'
 
         if op == "entity.remove":
             what = f"remove {named(args['target'])} from the room"
         elif op == "entity.transform":
-            new_name = textsafety.display_text(args["into"]["source"]["name"], 40)
+            new_name = self.text.display_text(args["into"]["source"]["name"], 40)
             what = f'turn {named(args["target"])} into "{new_name}"'
         elif op == "creation.revise":
             parts = []
             if "source" in args:
-                parts.append(f'rebuild it as "{textsafety.display_text(args["source"]["name"], 40)}"')
+                parts.append(f'rebuild it as "{self.text.display_text(args["source"]["name"], 40)}"')
             if "placement" in args:
                 x, y, z = (round(v, 2) for v in args["placement"]["position_m"])
                 parts.append(f"move it to ({x}, {y}, {z})")
@@ -1088,31 +1228,112 @@ class MockHost:
         if args["goal"] in ("follow", "come") and "target" not in args and not principal.startswith("player:") \
                 and not self.policy.follow_player_out_of_sight and "avatar:player" not in (self._view or {"avatar:player"}):
             raise HostError("target_not_found", "The player is not in sight.", field_path="$.args.goal")
+        data = {"actor": actor, "goal": args["goal"]}
+        aim = None
         if "target" in args:
-            target = self._require(args["target"], "$.args.target")
+            target = self._entity(args["target"])
+            if target is not None:
+                kind, movable, protected, mass, aim = (target.kind, target.movable, target.protected, target.mass_kg,
+                                                       target.bounds())
+                if not principal.startswith("player:"):
+                    data["target_seen"] = "now"
+            else:
+                # Out of sight: only a goal that moves or turns the companion's own avatar may aim at a
+                # remembered thing, and it is judged on the memory alone, so the answer cannot reveal
+                # what became of it (moved, locked, removed). Changing things needs them in sight now.
+                entry = self._recall(principal, args["target"]) if args["goal"] in REMEMBERED_TARGET_GOALS else None
+                if entry is None:
+                    raise _not_found("$.args.target")
+                summary = entry.view["summary"]
+                kind, movable, protected, mass, aim = (summary["kind"], summary["movable"], summary["protected"],
+                                                       entry.mass_kg, summary["bounds_m"])
+                data["target_seen"] = "remembered"
+                fields = self._memory_fields(entry)
+                data["last_seen_ago_s"], data["may_be_stale"] = fields["last_seen_ago_s"], fields["may_be_stale"]
             if args["goal"] == "fetch":
-                if target.kind not in ("object", "creation") or not target.movable:
+                if kind not in ("object", "creation") or not movable:
                     raise HostError("permission_denied", "That cannot be fetched.", field_path="$.args.target")
-                if target.protected:
+                if protected:
                     raise HostError("target_protected", "That is protected. Only the player can unlock it.",
                                     field_path="$.args.target")
                 limit = self.policy.carry_limit_kg.get(actor, 0.0)
-                if target.mass_kg is not None and target.mass_kg > limit:
+                if mass is not None and mass > limit:
                     raise HostError("target_too_heavy", "That is too heavy for this avatar.", field_path="$.args.target",
-                                    allowed=limit, actual=target.mass_kg)
+                                    allowed=limit, actual=mass)
         if "position_m" in args and not _inside(args["position_m"], self.room_bounds):
             raise HostError("out_of_bounds", "That position is outside the room.", field_path="$.args.position_m")
         if "area" in args:
             for corner in ("min_m", "max_m"):
                 if not _inside(args["area"][corner], self.room_bounds):
                     raise HostError("out_of_bounds", "That area is outside the room.", field_path=f"$.args.area.{corner}")
-        outcome = {"affected": [actor], "data": {"actor": actor, "goal": args["goal"]}}
+        outcome = {"affected": [actor], "data": data}
         if apply:
+            self._cancel_job(actor)
             goal = {k: copy.deepcopy(v) for k, v in args.items() if k != "actor"}
             goal["started_utc"] = utc(self.clock.now())
             goal["set_by"] = principal
+            if aim is not None:
+                # A goal with a target runs as a job: the host re-checks the target when the avatar arrives.
+                outcome["job_id"] = goal["job_id"] = self._start_job(principal, actor, message["action_id"])
+                goal["aim_bounds"] = copy.deepcopy(aim)
             self.goals[actor] = goal
         return outcome
+
+    # ------------------------------------------------------------------ goal jobs (the goal runner's side)
+
+    def _start_job(self, principal: str, actor: str, action_id: str) -> str:
+        self._job_counter += 1
+        job_id = f"goal-{self._job_counter:06d}"
+        self.jobs[job_id] = {"principal": principal, "actor": actor, "action_id": action_id, "state": "running"}
+        mine = [k for k, job in self.jobs.items() if job["principal"] == principal and job["state"] != "running"]
+        excess = sum(1 for job in self.jobs.values() if job["principal"] == principal) - self.policy.max_jobs_per_principal
+        for old in mine[:max(0, excess)]:
+            del self.jobs[old]
+        return job_id
+
+    def _cancel_job(self, actor: str) -> None:
+        goal = self.goals.get(actor)
+        job = self.jobs.get(goal.get("job_id", "")) if goal else None
+        if job is not None and job["state"] == "running":
+            job["state"] = "cancelled"
+
+    def goal_arrived(self, actor_id: str) -> str:
+        """The game's goal runner: the avatar has reached its goal (walked there, or turned to look or
+        point). The host re-checks the target from where the avatar is now, with the avatar's own line
+        of sight, and finishes the goal's job honestly. Returns the job's state.
+
+        - succeeded: the target is in sight and within reach (0.15 m) of where the goal aimed;
+        - failed, revision_conflict: it is in sight, but has moved since (the companion sees where);
+        - failed, target_not_found: it is not in sight. Moved out of sight and gone give the same answer.
+
+        The mock models the arrival check only; carrying a fetched thing back is the Run 2 goal runner's.
+        """
+        with self._lock:
+            goal = self.goals.get(actor_id)
+            job = self.jobs.get(goal.get("job_id", "")) if goal else None
+            if job is None or job["state"] != "running":
+                raise KeyError("that avatar has no goal with a target running")
+            principal = self._principal_of(actor_id) or job["principal"]
+            seen = self.perceived(principal)
+            if not principal.startswith("player:"):
+                self._look(principal, seen)  # arriving is looking: memory is refreshed or dropped
+            target = self.entities.get(goal["target"])
+            error = None
+            if target is None or target.removed or goal["target"] not in seen:
+                error = HostError("target_not_found", "The target is not where it was seen. Observe and try again.",
+                                  field_path="$.args.target")
+            elif _box_gap(target.bounds(), goal["aim_bounds"]) > perception.REACH_M:
+                error = HostError("revision_conflict", "The target has moved since it was seen. Observe and try again.",
+                                  field_path="$.args.target", retryable=True)
+            del self.goals[actor_id]
+            if error is None:
+                job["state"] = "succeeded"
+            else:
+                job["state"] = "failed"
+                message = {"schema": COMMAND_SCHEMA, "op": "goal.set", "action_id": job["action_id"]}
+                job["result"] = self._fail(job["principal"], message, error)
+            self._emit("goal_finished", {"actor": actor_id, "job_id": goal["job_id"], "state": job["state"]})
+            return job["state"]
 
     def _op_goal_stop(self, principal, message, apply, new_revision):
         # Always permitted. Without an actor it stops every actor the principal may direct, their
@@ -1124,6 +1345,7 @@ class MockHost:
                                  if e.kind == "effect" and not e.removed and e.created_by in owners)
         if apply:
             for actor in actors:
+                self._cancel_job(actor)
                 self.goals.pop(actor, None)
             for effect_id in stopped_effects:
                 self.entities[effect_id].removed = True
@@ -1203,7 +1425,7 @@ class MockHost:
         if not apply:
             return {}
         self._checkpoint_counter += 1
-        label = textsafety.display_text(message["args"]["label"], 80) if message["args"].get("label") else None
+        label = self.text.display_text(message["args"]["label"], 80) if message["args"].get("label") else None
         checkpoint = {"id": f"cp{self._checkpoint_counter:04d}", "revision": self.revision}
         if label:
             checkpoint["label"] = label
@@ -1281,26 +1503,37 @@ class MockHost:
                 elif entity.kind == "shell":
                     counts["shell_parts"] += 1
             result["data"] = {
-                "room_id": self.room_id, "display_name": textsafety.display_text(self.room["display_name"], 80),
+                "room_id": self.room_id, "display_name": self.text.display_text(self.room["display_name"], 80),
                 "revision": self.revision, "source_kind": self.room["source"]["kind"], "bounds_m": self.room_bounds,
                 "style": dict(self.style), "counts": counts,
             }
         elif op == "entities.list":
-            items = [e for e in sorted(self.entities.values(), key=lambda e: e.id)
-                     if self._entity(e.id) is not None and _matches(e, args.get("filter", {}))]
+            # In sight now, plus what the companion remembers (marked seen: remembered); filters apply
+            # to what it saw, never to the entity's true state.
+            summaries = {e.id: self._summary(principal, e) for e in self.entities.values() if self._entity(e.id) is not None}
+            for entity_id, entry in self._remembered(principal).items():
+                summaries[entity_id] = self._remembered_summary(entry)
+            items = [summaries[k] for k in sorted(summaries) if _matches(summaries[k], args.get("filter", {}))]
             offset = _cursor(args.get("cursor"))
             limit = args.get("limit", 50)
-            page = items[offset:offset + limit]
-            result["data"] = {"items": [e.summary() for e in page]}
+            result["data"] = {"items": items[offset:offset + limit]}
             if offset + limit < len(items):
                 result["data"]["next_cursor"] = str(offset + limit)
         elif op == "entity.inspect":
-            entity = self._require(args["target"], "$.args.target")
-            data: dict = {"entity": entity.summary()}
-            if entity.parts:
-                data["parts"] = dict(entity.parts)
-            if entity.protected_by:
-                data["protected_by"] = entity.protected_by
+            entity = self._entity(args["target"])
+            entry = self._remembered(principal).get(args["target"]) if entity is None else None
+            if entity is not None:
+                data: dict = {"entity": self._summary(principal, entity)}
+                parts, protected_by = entity.parts, entity.protected_by
+            elif entry is not None:
+                data = {"entity": self._remembered_summary(entry)}
+                parts, protected_by = entry.view["parts"], entry.view["protected_by"]
+            else:
+                raise _not_found("$.args.target")
+            if parts:
+                data["parts"] = dict(parts)
+            if protected_by:
+                data["protected_by"] = protected_by
             result["data"] = data
         elif op == "capabilities.list":
             names = sorted(n for n, (cat, _p) in CAPABILITIES.items() if args.get("category") in (None, cat))
@@ -1316,7 +1549,9 @@ class MockHost:
         elif op == "observe":
             actor = self._actor(principal, args)
             radius = min(float(args.get("radius_m", self.policy.observe_max_radius_m)), self.policy.observe_max_radius_m)
-            seen = self.perceived(self._principal_of(actor) or principal)
+            # A companion's own view was taken for this request (and remembered); the player may look
+            # through a companion's eyes too, which never touches that companion's memory.
+            seen = self._view if self._view is not None else self.perceived(self._principal_of(actor) or principal)
             origin = self.entities[actor].position
             visible = []
             for entity_id in seen:
@@ -1332,10 +1567,22 @@ class MockHost:
             for _d, _id, entity in visible:
                 for text in entity.texts:
                     if len(texts) < 50:
-                        texts.append({"source": entity.id, "text": textsafety.long_text(text, 500), "untrusted": True})
-            result["data"] = {"actor": actor, "visible": [e.summary() for _d, _i, e in visible], "texts": texts}
+                        texts.append({"source": entity.id, "text": self.text.long_text(text, 500), "untrusted": True})
+            result["data"] = {"actor": actor, "visible": [self._summary(principal, e) for _d, _i, e in visible],
+                              "texts": texts}
+            remembered = sorted((_distance_to_box(origin, entry.view["summary"]["bounds_m"]), entity_id, entry)
+                                for entity_id, entry in self._remembered(principal).items())
+            remembered = [(d, i, entry) for d, i, entry in remembered if d <= radius][:50]
+            if remembered:
+                result["data"]["remembered"] = [self._remembered_summary(entry) for _d, _i, entry in remembered]
         elif op == "jobs.status":
-            raise HostError("target_not_found", "No job with that id is running.", field_path="$.args.job_id")
+            job = self.jobs.get(args["job_id"])
+            if job is None or job["principal"] != principal:
+                # Unknown and other principals' jobs look identical.
+                raise HostError("target_not_found", "No job with that id is running.", field_path="$.args.job_id")
+            result["data"] = {"job_id": args["job_id"], "state": job["state"]}
+            if "result" in job:
+                result["data"]["result"] = copy.deepcopy(job["result"])
         elif op == "receipt.lookup":
             key = (principal, args["action_id"])
             receipt = self.receipts.get(key) or self.transient.get(key)
@@ -1384,6 +1631,15 @@ def _clamp(value: float) -> float:
     return _r(max(-1000.0, min(1000.0, value)))
 
 
+def _box_gap(a, b) -> float:
+    """The distance between two boxes (0 when they touch or overlap)."""
+    total = 0.0
+    for i in range(3):
+        gap = max(a["min_m"][i] - b["max_m"][i], b["min_m"][i] - a["max_m"][i], 0.0)
+        total += gap * gap
+    return math.sqrt(total)
+
+
 def _distance_to_box(point, box) -> float:
     total = 0.0
     for i in range(3):
@@ -1393,16 +1649,17 @@ def _distance_to_box(point, box) -> float:
     return math.sqrt(total)
 
 
-def _matches(entity: Entity, flt: dict) -> bool:
-    if "kind" in flt and entity.kind != flt["kind"]:
+def _matches(summary: dict, flt: dict) -> bool:
+    """An entities.list filter against a summary: what is in sight now, or what was seen."""
+    if "kind" in flt and summary["kind"] != flt["kind"]:
         return False
-    if "category_group" in flt and entity.category_group != flt["category_group"]:
+    if "category_group" in flt and summary.get("category_group") != flt["category_group"]:
         return False
-    if "affordance" in flt and flt["affordance"] not in entity.affordances:
+    if "affordance" in flt and flt["affordance"] not in summary["affordances"]:
         return False
-    if "provenance_kind" in flt and entity.provenance_kind != flt["provenance_kind"]:
+    if "provenance_kind" in flt and summary["provenance_kind"] != flt["provenance_kind"]:
         return False
-    if "near" in flt and _distance_to_box(flt["near"]["center_m"], entity.bounds()) > flt["near"]["radius_m"]:
+    if "near" in flt and _distance_to_box(flt["near"]["center_m"], summary["bounds_m"]) > flt["near"]["radius_m"]:
         return False
     return True
 
