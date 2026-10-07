@@ -60,6 +60,7 @@ public partial class SmallAvatarPhysicsTest : Node3D
 
             await TestMovementAndJump();
             await TestObstacles();
+            await TestDioramaCamera();
             await TestCompanion();
             var metrics = await RunJitterSuite(1.0f, new Vector3(0, 0, 30));
             CheckJitter(metrics);
@@ -85,29 +86,40 @@ public partial class SmallAvatarPhysicsTest : Node3D
         await Frames(60);
         _player.SetControlInput(Vector2.Zero);
         var walked = _player.GlobalPosition.X - start.X;
-        Check(walked > 0.27f && walked < 0.34f, $"walking covers about 0.31 m in one second (walked={walked:0.000})");
+        Report(walked > 0.27f && walked < 0.34f, $"walking covers about 0.31 m in one second (walked={walked:0.000})");
         await Frames(15);
         start = _player.GlobalPosition;
         _player.SetControlInput(Vector2.Left, sprint: true);
         await Frames(60);
         _player.SetControlInput(Vector2.Zero);
         var ran = start.X - _player.GlobalPosition.X;
-        Check(ran > 0.50f && ran < 0.61f, $"running covers about 0.55 m in one second (ran={ran:0.000})");
+        Check(_player.RunSpeedMps >= 2.8f * _player.WalkSpeedMps, $"the run is about three times the walk ({_player.RunSpeedMps / _player.WalkSpeedMps:0.00}x)");
+        Report(ran > 0.84f && ran < 0.97f, $"running covers about 0.88 m in one second from a standstill (ran={ran:0.000})");
+        // Crisp: full run speed within 0.2 s, and a stop from a run within 0.2 s.
+        await Frames(20);
+        _player.SetControlInput(Vector2.Right, sprint: true);
+        var rampFrames = 0;
+        for (var i = 0; i < 60 && _player.Velocity.Length() < _player.RunSpeedMps * 0.99f; i++) { await Frames(1); rampFrames++; }
+        await Frames(10);
+        _player.SetControlInput(Vector2.Zero);
+        var stopFrames = 0;
+        for (var i = 0; i < 60 && new Vector2(_player.Velocity.X, _player.Velocity.Z).Length() > 0.001f; i++) { await Frames(1); stopFrames++; }
+        Report(rampFrames >= 6 && rampFrames <= 12 && stopFrames >= 6 && stopFrames <= 12, $"the run reaches speed and stops within 0.2 s (ramp={rampFrames} frames, stop={stopFrames} frames)");
         await Frames(20);
 
         var (apex, airtime) = await MeasureJump();
         Check(apex > 0.058f && apex < 0.072f, $"tuned jump rises about 6.5 cm, clearing a 4 cm book (apex={apex:0.0000})");
-        Check(airtime >= 19 && airtime <= 27, $"tuned jump lasts about 0.38 s (airborne frames={airtime})");
+        Report(airtime >= 19 && airtime <= 27, $"tuned jump lasts about 0.38 s (airborne frames={airtime})");
         Check(_player.IsOnFloor(), "jump returns to stable floor");
 
         var revision = _player.WorldPhysicsRevision;
         Check(_player.SetWorldPhysics(Preset("room_real", revision + 1)) && Mathf.IsEqualApprox(_player.GravityMps2, 9.8f), "real gravity profile accepted with a newer revision");
         (apex, airtime) = await MeasureJump();
         Check(apex > 0.058f && apex < 0.072f, $"real gravity keeps the jump height (apex={apex:0.0000})");
-        Check(airtime >= 11 && airtime <= 17, $"real gravity makes the same jump last about 0.23 s (airborne frames={airtime})");
+        Report(airtime >= 11 && airtime <= 17, $"real gravity makes the same jump last about 0.23 s (airborne frames={airtime})");
         Check(!_player.SetWorldPhysics(Preset("room_floaty", revision + 1)), "a stale physics revision is refused");
         var invalid = Preset("room_tuned", revision + 5);
-        invalid["gravity_mps2"] = 0.5;
+        invalid["gravity_mps2"] = 0.3;
         Check(!_player.SetWorldPhysics(invalid), "gravity below the room bound is refused");
         invalid = Preset("room_tuned", revision + 5);
         invalid["gravity_mps2"] = double.NaN;
@@ -115,8 +127,31 @@ public partial class SmallAvatarPhysicsTest : Node3D
         invalid = Preset("room_breeze_test", revision + 5);
         invalid["wind_x_mps"] = 3.0;
         Check(!_player.SetWorldPhysics(invalid), "unbounded wind is refused");
-        Check(_player.CycleWorldPhysics() == "room_floaty" && _player.CycleWorldPhysics() == "room_tuned", "playtest key cycles real, floaty and tuned gravity presets");
-        Check(Mathf.IsEqualApprox(_player.GravityMps2, 3.5f), "cycling returns to the tuned gravity");
+        invalid = Preset("room_floaty", revision + 5);
+        invalid["terminal_fall_mps"] = 0.1;
+        Check(!_player.SetWorldPhysics(invalid), "a fall limit below the room bound is refused");
+        invalid = Preset("room_floaty", revision + 5);
+        invalid["air_control"] = 9.0;
+        Check(!_player.SetWorldPhysics(invalid), "unbounded air control is refused");
+        Check(_player.CycleWorldPhysics() == "room_floaty", "playtest key cycles from real to floaty gravity");
+        Check(Mathf.IsEqualApprox(_player.GravityMps2, 0.6f) && Mathf.IsEqualApprox(_player.EffectiveTerminalFallMps, 0.6f) && Mathf.IsEqualApprox(_player.AirControl, 2.0f),
+            "floaty is 0.6 m/s2 with a 0.6 m/s fall limit and doubled air control");
+        await Frames(2);
+        Check(_companion.WorldPhysicsId == "room_floaty" && Mathf.IsEqualApprox(_companion.GravityMps2, 0.6f), "the companion lives under the same world gravity as the player");
+        (apex, airtime) = await MeasureJump();
+        Check(apex > 0.058f && apex < 0.072f, $"floaty gravity keeps the jump height (apex={apex:0.0000})");
+        Report(airtime >= 50 && airtime <= 62, $"floaty gravity makes the same jump last about 0.93 s (airborne frames={airtime})");
+        // A fall from 40 cm drifts down at the floaty fall limit instead of accelerating.
+        _player.GlobalPosition += Vector3.Up * 0.40f;
+        var fastest = 0.0f;
+        var fallFrames = 0;
+        await Frames(1);
+        for (var i = 0; i < 240 && !_player.IsOnFloor(); i++) { await Frames(1); fallFrames++; fastest = Mathf.Max(fastest, -_player.Velocity.Y); }
+        Report(fastest <= 0.601f && fastest > 0.55f && fallFrames > 60, $"a floaty fall is capped at 0.6 m/s (fastest={fastest:0.000} m/s over {fallFrames} frames)");
+        await Frames(10);
+        Check(_player.CycleWorldPhysics() == "room_tuned", "playtest key cycles real, floaty and tuned gravity presets");
+        Check(Mathf.IsEqualApprox(_player.GravityMps2, 3.5f) && Mathf.IsEqualApprox(_player.EffectiveTerminalFallMps, 6.0f) && Mathf.IsEqualApprox(_player.AirControl, 1.0f),
+            "cycling returns to the tuned gravity, fall limit and air control");
 
         // A jump pressed just before landing still happens; one pressed after walking off an edge too.
         _player.GlobalPosition += Vector3.Up * 0.05f;
@@ -275,11 +310,60 @@ public partial class SmallAvatarPhysicsTest : Node3D
     private async Task TestCompanion()
     {
         Check(_companion.TryTeleportTo(new Vector3(0.5f, 0.01f, 3.2f)), "companion gets its own clear spawn");
+        _player.Rotation = Vector3.Zero;
         _companion.Follow();
         await Frames(240);
-        var followTarget = _player.GlobalPosition + _player.GlobalBasis.Z * 0.55f + _player.GlobalBasis.X * 0.22f;
-        Check(PlanarDistance(_companion.GlobalPosition, followTarget) < 0.25f, "follow reaches offset without occupying the player");
-        Check(PlanarDistance(_companion.GlobalPosition, _player.GlobalPosition) > 0.22f, "follow retains personal space");
+        var gap = PlanarDistance(_companion.GlobalPosition, _player.GlobalPosition);
+        Report(gap >= CompanionAvatar.FollowNearM - 0.01f && gap <= CompanionAvatar.FollowFarM + 0.01f && !_companion.FollowMoving,
+            $"follow comes to rest inside the comfortable band (gap={gap:0.000} m)");
+        var (along, lateral) = Offset(-_player.GlobalBasis.Z);
+        Check(Mathf.Abs(lateral) > Mathf.Abs(along), $"follow rests beside the player, not behind (along={along:0.000}, lateral={lateral:0.000})");
+
+        // Founder playtest: "it always moves directly behind me". Turning on the spot must not re-target follow.
+        var rest = _companion.GlobalPosition;
+        for (var i = 0; i < 90; i++) { _player.Rotation = new Vector3(0, _player.Rotation.Y + Mathf.Pi / 60, 0); await Frames(1); }
+        await Frames(30);
+        Check(PlanarDistance(_companion.GlobalPosition, rest) < 0.01f, $"turning on the spot does not move the companion (moved={PlanarDistance(_companion.GlobalPosition, rest):0.0000} m)");
+
+        // Walking: it keeps beside the line of travel and never trails directly behind.
+        _player.Rotation = Vector3.Zero;
+        var side = Mathf.Sign(Offset(Vector3.Forward).Lateral);
+        var behind = 0;
+        _player.SetControlInput(new Vector2(0, 1));
+        for (var i = 0; i < 120; i++)
+        {
+            await Frames(1);
+            (along, lateral) = Offset(Vector3.Forward);
+            if (along < -0.2f && Mathf.Abs(lateral) < 0.15f) behind++;
+        }
+        (along, lateral) = Offset(Vector3.Forward);
+        Report(behind == 0 && lateral * side > 0.25f && along > -0.2f, $"follow walks beside the player, not behind (behind frames={behind}, along={along:0.000}, lateral={lateral:0.000})");
+        // Turning round and walking back: it keeps its side instead of swinging through behind the player.
+        var crossed = 0;
+        _player.Rotation = new Vector3(0, Mathf.Pi, 0);
+        for (var i = 0; i < 120; i++)
+        {
+            await Frames(1);
+            if (Offset(Vector3.Forward).Lateral * side < 0.10f) crossed++;
+        }
+        _player.SetControlInput(Vector2.Zero);
+        (along, lateral) = Offset(Vector3.Back);
+        Report(crossed == 0 && along > -0.25f, $"after the player turns back, follow stays on its side and alongside (crossing frames={crossed}, along={along:0.000})");
+        // Settling: it comes to rest smoothly, without oscillating back and forth.
+        var reversals = 0;
+        var previous = Vector3.Zero;
+        for (var i = 0; i < 180; i++)
+        {
+            await Frames(1);
+            var velocity = new Vector3(_companion.Velocity.X, 0, _companion.Velocity.Z);
+            if (velocity.Length() > 0.02f && previous.Length() > 0.02f && velocity.Dot(previous) < 0) reversals++;
+            if (velocity.Length() > 0.02f) previous = velocity;
+        }
+        gap = PlanarDistance(_companion.GlobalPosition, _player.GlobalPosition);
+        Report(reversals == 0 && !_companion.FollowMoving && new Vector2(_companion.Velocity.X, _companion.Velocity.Z).Length() < 0.01f &&
+            gap >= CompanionAvatar.FollowNearM - 0.01f && gap <= CompanionAvatar.FollowFarM + 0.01f,
+            $"follow settles in the band without oscillating (reversals={reversals}, gap={gap:0.000})");
+        _player.Rotation = Vector3.Zero;
         _companion.Come();
         await Frames(80);
         Check(_companion.CurrentIntent == "stay" && PlanarDistance(_companion.GlobalPosition, _player.GlobalPosition) < 0.39f,
@@ -346,15 +430,89 @@ public partial class SmallAvatarPhysicsTest : Node3D
         _companion.Follow();
         _player.SetControlInput(new Vector2(0, 1), sprint: true);
         var maximumGap = 0.0f;
-        for (var i = 0; i < 500; i++)
+        for (var i = 0; i < 380; i++)
         {
             await Frames(1);
             maximumGap = Mathf.Max(maximumGap, PlanarDistance(_player.Position, _companion.Position));
         }
+        var runningGap = PlanarDistance(_player.Position, _companion.Position);
         _player.SetControlInput(Vector2.Zero);
-        Check(maximumGap < 1.5f && PlanarDistance(_player.Position, _companion.Position) < 1.45f,
-            "companion catches up during sustained player running instead of falling farther behind");
+        Report(maximumGap < 1.2f && runningGap < 0.75f,
+            $"companion catches up during sustained player running instead of falling farther behind (max gap={maximumGap:0.00}, final gap={runningGap:0.00})");
         _companion.Stop();
+    }
+
+    /// <summary>The companion's planar offset from the player, along a direction of travel and to its right.</summary>
+    private (float Along, float Lateral) Offset(Vector3 travel)
+    {
+        var offset = _companion.GlobalPosition - _player.GlobalPosition;
+        offset.Y = 0;
+        return (offset.Dot(travel), offset.Dot(travel.Cross(Vector3.Up)));
+    }
+
+    /// <summary>F3: a high-angle camera that orbits and zooms around the player, stays centred and keeps out of geometry.</summary>
+    private async Task TestDioramaCamera()
+    {
+        Check(_player.TryTeleportTo(new Vector3(-2, 0.003f, 3.2f)), "diorama fixture admits the player");
+        _player.Rotation = new Vector3(0, 0.4f, 0);
+        var hud = new RoomHud { Player = _player, Companion = _companion, RoomTitle = "TEST" };
+        AddChild(hud);
+        await Frames(2);
+        hud.SetViewMode(2);
+        await Frames(3);
+        var camera = hud.DioramaCamera;
+        Check(camera.Current && Mathf.IsEqualApprox(hud.DioramaYaw, 0.4f) && _player.MovementFrameYaw == hud.DioramaYaw,
+            "F3 makes the diorama camera current, starting behind the player, and movement follows the view");
+        bool Centred() => (_player.GlobalPosition + Vector3.Up * (_player.BodyHeightM * 0.5f) - camera.GlobalPosition).Normalized().Dot(-camera.GlobalBasis.Z) > 0.999f;
+        float LooksDown() => Mathf.RadToDeg(Mathf.Asin(Mathf.Clamp(camera.GlobalBasis.Z.Y, -1, 1)));
+        var reach = camera.GlobalPosition.DistanceTo(_player.GlobalPosition + Vector3.Up * (_player.BodyHeightM * 0.5f));
+        Check(Centred() && Mathf.Abs(LooksDown() - RoomHud.DioramaDefaultPitchDeg) < 1.0f && Mathf.Abs(reach - RoomHud.DioramaDefaultDistanceM) < 0.03f,
+            $"the diorama camera looks down on the player from a high angle (pitch={LooksDown():0.0} deg, distance={reach:0.000} m)");
+        var before = new Vector2(camera.GlobalPosition.X - _player.GlobalPosition.X, camera.GlobalPosition.Z - _player.GlobalPosition.Z).Angle();
+        hud.OrbitDiorama(new Vector2(400, 0));
+        await Frames(3);
+        var after = new Vector2(camera.GlobalPosition.X - _player.GlobalPosition.X, camera.GlobalPosition.Z - _player.GlobalPosition.Z).Angle();
+        Check(Mathf.Abs(Mathf.AngleDifference(before, after)) > 0.9f && Centred() && Mathf.IsEqualApprox(_player.Rotation.Y, 0.4f),
+            "moving the mouse sideways orbits the camera round the player without turning the body");
+        hud.OrbitDiorama(new Vector2(0, 100000));
+        await Frames(3);
+        var steepest = LooksDown();
+        hud.OrbitDiorama(new Vector2(0, -100000));
+        await Frames(3);
+        Check(Mathf.Abs(steepest - RoomHud.DioramaMaxPitchDeg) < 1.0f && Mathf.Abs(LooksDown() - RoomHud.DioramaMinPitchDeg) < 1.0f && Centred(),
+            $"orbit pitch stays between {RoomHud.DioramaMinPitchDeg} and {RoomHud.DioramaMaxPitchDeg} degrees (got {steepest:0.0} and {LooksDown():0.0})");
+        hud.ZoomDiorama(50);
+        await Frames(3);
+        var near = camera.GlobalPosition.DistanceTo(_player.GlobalPosition + Vector3.Up * (_player.BodyHeightM * 0.5f));
+        hud.ZoomDiorama(-50);
+        await Frames(3);
+        var far = camera.GlobalPosition.DistanceTo(_player.GlobalPosition + Vector3.Up * (_player.BodyHeightM * 0.5f));
+        Check(Mathf.Abs(near - RoomHud.DioramaMinDistanceM) < 0.02f && Mathf.Abs(far - RoomHud.DioramaMaxDistanceM) < 0.03f,
+            $"the wheel zooms between {RoomHud.DioramaMinDistanceM} and {RoomHud.DioramaMaxDistanceM} m (got {near:0.000} and {far:0.000})");
+        // Movement follows the view: forward walks away from the camera and the body turns to face its motion.
+        hud.ZoomDiorama(Mathf.Log(RoomHud.DioramaMaxDistanceM / RoomHud.DioramaDefaultDistanceM) / Mathf.Log(1 / 0.88f));
+        hud.OrbitDiorama(new Vector2(0, (RoomHud.DioramaDefaultPitchDeg - RoomHud.DioramaMinPitchDeg) / Mathf.RadToDeg(RoomHud.MouseRadiansPerPixel)));
+        var viewForward = new Vector3(-camera.GlobalBasis.Z.X, 0, -camera.GlobalBasis.Z.Z).Normalized();
+        var start = _player.GlobalPosition;
+        _player.SetControlInput(new Vector2(0, 1));
+        await Frames(45);
+        _player.SetControlInput(Vector2.Zero);
+        var moved = _player.GlobalPosition - start;
+        moved.Y = 0;
+        Check(moved.Length() > 0.15f && moved.Normalized().Dot(viewForward) > 0.98f && (-_player.GlobalBasis.Z).Dot(viewForward) > 0.97f,
+            $"in F3 forward moves away from the camera and the body turns to face its motion (moved={moved.Length():0.000} m)");
+        // Under the 12 cm deck the camera is held below the deck instead of passing through it.
+        Check(_player.TryTeleportTo(new Vector3(0, 0.003f, 1.2f)), "the player can stand under the deck");
+        await Frames(60);
+        Check(camera.GlobalPosition.Y < 0.12f && Centred(), $"the camera stays under a low ceiling instead of clipping through it (camera y={camera.GlobalPosition.Y:0.000})");
+        hud.SetViewMode(1);
+        Check(_player.MovementFrameYaw == null && !camera.Current, "leaving F3 returns the body to its own heading and mouse look");
+        hud.QueueFree();
+        _player.GetNodeOrNull("FollowCameraArm")?.QueueFree();
+        camera.GetParent().GetParent().QueueFree();
+        _player.Rotation = Vector3.Zero;
+        Check(_player.TryTeleportTo(new Vector3(-2, 0.003f, 3.2f)), "back to the companion route after the camera fixture");
+        await Frames(10);
     }
 
     // ---- Jitter: the spike's scenarios, measured on a separate probe body ----
@@ -378,7 +536,7 @@ public partial class SmallAvatarPhysicsTest : Node3D
             JumpApexM *= WorldScale; StepHeightM *= WorldScale; FloorSnapM *= WorldScale; SafeMarginM *= WorldScale;
             TerminalFallMps *= WorldScale; MaxCreationSpeedMps *= WorldScale;
             base._Ready();
-            SetGravityForScaleProbe(GravityMps2 * WorldScale);
+            ScaleWorldPhysicsForProbe(WorldScale);
         }
     }
 
@@ -560,6 +718,13 @@ public partial class SmallAvatarPhysicsTest : Node3D
     private async Task Frames(int count)
     {
         for (var i = 0; i < count; i++) await ToSignal(GetTree(), SceneTree.SignalName.PhysicsFrame);
+    }
+
+    /// <summary>A check whose label carries a measured value worth keeping in the run's evidence.</summary>
+    private void Report(bool condition, string label)
+    {
+        GD.Print("SMALL_AVATAR_MEASURED " + label);
+        Check(condition, label);
     }
 
     private void Check(bool condition, string label)

@@ -18,9 +18,14 @@ public partial class SmallPlayerController : CharacterBody3D
 
     [Export] public bool ReadKeyboard { get; set; } = true;
     [Export] public float WalkSpeedMps { get; set; } = 0.32f;
-    [Export] public float RunSpeedMps { get; set; } = 0.60f;
-    [Export] public float GroundAccelerationMps2 { get; set; } = 4.0f;
-    [Export] public float AirAccelerationMps2 { get; set; } = 1.4f;
+    /// <summary>Three times the walk (founder playtest, 6 October: 0.60 m/s did not feel like a change of pace).</summary>
+    [Export] public float RunSpeedMps { get; set; } = 0.96f;
+    /// <summary>Walk speed in about 0.05 s, the run in 0.16 s, and a stop from a run in 0.16 s (7.7 cm).</summary>
+    [Export] public float GroundAccelerationMps2 { get; set; } = 6.0f;
+    /// <summary>Scaled by the world profile's air_control (more in floaty gravity).</summary>
+    [Export] public float AirAccelerationMps2 { get; set; } = 2.0f;
+    /// <summary>How fast the body turns to face its motion when movement follows a free camera (F3).</summary>
+    [Export] public float TurnRateRadPerS { get; set; } = 10.0f;
     /// <summary>Jump apex above the take-off floor. Clears the 4 cm book with room to spare.</summary>
     [Export] public float JumpApexM { get; set; } = 0.065f;
     [Export] public float StepHeightM { get; set; } = 0.02f;
@@ -37,6 +42,11 @@ public partial class SmallPlayerController : CharacterBody3D
     public const float MaxGlideLimitMps = 7.0f;
 
     public float GravityMps2 { get; private set; } = 3.5f;
+    /// <summary>The world's fall limit (thick floaty air falls slower); the body's own TerminalFallMps still caps it.</summary>
+    public float WorldTerminalFallMps { get; private set; } = 6.0f;
+    /// <summary>The world's multiplier on the body's air acceleration.</summary>
+    public float AirControl { get; private set; } = 1.0f;
+    public float EffectiveTerminalFallMps => Mathf.Min(TerminalFallMps, WorldTerminalFallMps);
     public Vector2 WindMps { get; private set; }
     public string WorldPhysicsId { get; private set; } = "room_tuned";
     public int WorldPhysicsRevision { get; private set; } = -1;
@@ -54,6 +64,11 @@ public partial class SmallPlayerController : CharacterBody3D
     }
 
     public bool InputEnabled { get; private set; } = true;
+    /// <summary>
+    /// Set while a free camera (the F3 diorama view) owns the mouse: movement input is relative to this
+    /// heading instead of the body's, the body turns to face where it moves, and mouse look is off.
+    /// </summary>
+    public float? MovementFrameYaw { get; private set; }
     public Camera3D EyeCamera { get; private set; } = null!;
     public float BodyHeightM => (float)Profile.HeightMeters;
     public float BodyRadiusM => (float)Profile.RadiusMeters;
@@ -85,6 +100,7 @@ public partial class SmallPlayerController : CharacterBody3D
     private Vector3 _creationApplied;
     private float _creationGlideLimit;
     private Callable _creationGuard;
+    private Dictionary _worldPhysics = new();
 
     public override void _Ready()
     {
@@ -195,21 +211,38 @@ public partial class SmallPlayerController : CharacterBody3D
             if (ids[index].AsString() == WorldPhysicsId) next = (index + 1) % ids.Count;
         var profile = script.Call("preset", ids[next], WorldPhysicsRevision + 1).AsGodotDictionary();
         SetWorldPhysics(profile);
-        GD.Print($"PHYSICS_PROFILE {WorldPhysicsId} gravity={GravityMps2:0.##} m/s2 jump={JumpApexM * 100:0.#} cm airtime={2 * JumpSpeedMps / GravityMps2:0.00} s");
+        GD.Print($"PHYSICS_PROFILE {WorldPhysicsId} gravity={GravityMps2:0.##} m/s2 jump={JumpApexM * 100:0.#} cm airtime={2 * JumpSpeedMps / GravityMps2:0.00} s terminal_fall={EffectiveTerminalFallMps:0.##} m/s air_control={AirControl:0.##}");
         return WorldPhysicsId;
     }
 
-    /// <summary>Test seam for the ×10 import-scale measurement only: it bypasses the room gravity bounds.</summary>
-    internal void SetGravityForScaleProbe(float gravity) => GravityMps2 = gravity;
+    /// <summary>The active world profile, as the validated dictionary it was accepted from (a copy).</summary>
+    public Dictionary WorldPhysicsProfile => _worldPhysics.Duplicate(true);
+
+    /// <summary>
+    /// Free-camera movement (F3): movement input is relative to <paramref name="yaw"/> and the body turns to face
+    /// its motion. Null returns to body-relative movement and mouse look (F1, F2).
+    /// </summary>
+    public void SetMovementFrame(float? yaw) =>
+        MovementFrameYaw = yaw is { } value && float.IsFinite(value) ? value : null;
+
+    /// <summary>Test seam for the ×10 import-scale measurement only: it bypasses the room physics bounds.</summary>
+    internal void ScaleWorldPhysicsForProbe(float scale)
+    {
+        GravityMps2 *= scale;
+        WorldTerminalFallMps *= scale;
+    }
 
     private static Dictionary DefaultWorldPhysics() =>
         GD.Load<GDScript>(WorldPhysicsScript).GetScriptConstantMap()["DEFAULT"].AsGodotDictionary();
 
     private void ApplyWorldPhysics(Dictionary profile)
     {
+        _worldPhysics = profile.Duplicate(true);
         WorldPhysicsId = profile["id"].AsString();
         WorldPhysicsRevision = profile["revision"].AsInt32();
         GravityMps2 = (float)profile["gravity_mps2"].AsDouble();
+        WorldTerminalFallMps = (float)profile["terminal_fall_mps"].AsDouble();
+        AirControl = (float)profile["air_control"].AsDouble();
         WindMps = new Vector2((float)profile["wind_x_mps"].AsDouble(), (float)profile["wind_z_mps"].AsDouble());
     }
 
@@ -287,7 +320,7 @@ public partial class SmallPlayerController : CharacterBody3D
     public override void _UnhandledInput(InputEvent input)
     {
         if (!InputEnabled || !ReadKeyboard) return;
-        if (input is InputEventMouseMotion mouse && Input.MouseMode == Input.MouseModeEnum.Captured)
+        if (input is InputEventMouseMotion mouse && Input.MouseMode == Input.MouseModeEnum.Captured && MovementFrameYaw == null)
         {
             RotateY(-mouse.Relative.X * 0.0025f);
             _pitch = Mathf.Clamp(_pitch - mouse.Relative.Y * 0.0025f, -1.35f, 1.35f);
@@ -321,14 +354,25 @@ public partial class SmallPlayerController : CharacterBody3D
         var onFloor = IsOnFloor();
         _coyote = onFloor ? CoyoteTimeS : Mathf.Max(0, _coyote - dt);
         var local = new Vector3(control.X, 0, -control.Y);
-        var wish = GlobalBasis * local;
+        Vector3 wish;
+        if (MovementFrameYaw is { } frameYaw)
+        {
+            // Free camera: input is relative to the view, and the body turns to face where it goes.
+            wish = new Basis(Vector3.Up, frameYaw) * local;
+            if (wish.LengthSquared() > 0.0025f)
+            {
+                var facing = Mathf.Atan2(-wish.X, -wish.Z);
+                Rotation = new Vector3(Rotation.X, Mathf.RotateToward(Rotation.Y, facing, TurnRateRadPerS * dt), Rotation.Z);
+            }
+        }
+        else wish = GlobalBasis * local;
         wish.Y = 0;
         var desired = wish * (sprint ? RunSpeedMps : WalkSpeedMps);
         if (!onFloor && WindMps != Vector2.Zero)
             desired = (desired + new Vector3(WindMps.X, 0, WindMps.Y)).LimitLength(RunSpeedMps + WindMps.Length());
-        var acceleration = onFloor ? GroundAccelerationMps2 : AirAccelerationMps2;
+        var acceleration = onFloor ? GroundAccelerationMps2 : AirAccelerationMps2 * AirControl;
         var horizontal = new Vector3(Velocity.X, 0, Velocity.Z).MoveToward(desired, acceleration * dt);
-        var vertical = onFloor ? Mathf.Min(0, Velocity.Y) : Mathf.Max(Velocity.Y - GravityMps2 * dt, -TerminalFallMps);
+        var vertical = onFloor ? Mathf.Min(0, Velocity.Y) : Mathf.Max(Velocity.Y - GravityMps2 * dt, -EffectiveTerminalFallMps);
         var jumped = false;
         if (_jumpBuffer > 0 && InputEnabled && _coyote > 0)
         {

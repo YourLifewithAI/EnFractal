@@ -18,12 +18,37 @@ public partial class CompanionAvatar : SmallPlayerController
     public bool IsPointing => _pointer != null && _pointer.Visible;
     protected override WorldScaleProfile Profile => WorldScaleProfile.Companion;
 
+    // Loose follow (founder playtest, 6 October: "it always moves directly behind me"). Distances are planar,
+    // centre to centre: the companion (0.24 m tall, 5.5 cm radius) keeps a comfortable band beside the 10 cm
+    // player's line of travel instead of a point rigidly attached behind it, which swung behind on every turn.
+    /// <summary>Closer than this and the companion eases out to its place.</summary>
+    public const float FollowNearM = 0.30f;
+    /// <summary>Farther than this and it closes in.</summary>
+    public const float FollowFarM = 0.65f;
+    /// <summary>Its place: this far to the side of the player's line of travel ...</summary>
+    public const float FollowSideM = 0.40f;
+    /// <summary>... and this far ahead, so it stays in view of the over-the-shoulder camera.</summary>
+    public const float FollowLeadM = 0.08f;
+    /// <summary>Come stops this far from the player.</summary>
+    public const float ComeArrivalM = 0.32f;
+    /// <summary>Speed per metre of distance to its place; the player's own velocity is added while it moves.</summary>
+    public const float FollowGainPerS = 3.0f;
+    public const float CompanionTurnRateRadPerS = 8.0f;
+
+    /// <summary>Whether follow is moving the body (false while it rests inside its band).</summary>
+    public bool FollowMoving => _following;
+    /// <summary>+1 when the companion keeps to the right of the player's line of travel, -1 for the left.</summary>
+    public float FollowSide => _followSide;
+
     private SmallPlayerController? _player;
     private Node3D _pointer = null!;
     private Label3D _label = null!;
     private Vector3 _lookTarget;
     private bool _hasLookTarget;
     private bool _entered;
+    private bool _following;
+    private float _followSide = 1.0f;
+    private Vector3 _travel = Vector3.Forward;
 
     public override void _Ready()
     {
@@ -96,10 +121,21 @@ public partial class CompanionAvatar : SmallPlayerController
         CurrentIntent = intent;
         GoalBlocked = false;
         _hasLookTarget = false;
+        _following = false;
         if (_pointer != null) _pointer.Visible = false;
         SetControlInput(Vector2.Zero);
         Velocity = new Vector3(0, Velocity.Y, 0);
+        if (intent == "follow" && HasPlayer())
+        {
+            // Start from the player's facing and keep whichever side the companion is already on.
+            _travel = Planar(-_player!.GlobalBasis.Z);
+            _travel = _travel.LengthSquared() < 0.0001f ? Vector3.Forward : _travel.Normalized();
+            var lateral = Planar(GlobalPosition - _player.GlobalPosition).Dot(_travel.Cross(Vector3.Up));
+            _followSide = lateral < 0 ? -1.0f : 1.0f;
+        }
     }
+
+    private bool HasPlayer() => _player != null && GodotObject.IsInstanceValid(_player) && _player.IsInsideTree() && IsInsideTree();
 
     public void LookAtPoint(Vector3 point)
     {
@@ -120,52 +156,33 @@ public partial class CompanionAvatar : SmallPlayerController
     public override void _PhysicsProcess(double delta)
     {
         if (!_entered) return;
+        var dt = Mathf.Clamp((float)delta, 0, 0.05f);
         GoalBlocked = false;
-        var heading = Vector3.Zero;
-        var catchUp = false;
-        if (InputEnabled && _player != null && GodotObject.IsInstanceValid(_player))
+        var desired = Vector3.Zero;
+        var hasPlayer = HasPlayer();
+        // Gravity is a world property: the companion lives under the same profile the player was given.
+        if (hasPlayer && _player!.WorldPhysicsRevision > WorldPhysicsRevision) SetWorldPhysics(_player.WorldPhysicsProfile);
+        if (InputEnabled && hasPlayer)
         {
-            var playerOffset = GlobalPosition - _player.GlobalPosition;
-            playerOffset.Y = 0;
+            var playerOffset = Planar(GlobalPosition - _player!.GlobalPosition);
+            if (CurrentIntent == "follow") desired = FollowVelocity(playerOffset);
             // Stay may yield, but an explicit Stop cancels navigation. The player
             // can still pass because its collision mask excludes the companion.
-            if (CurrentIntent != "stop" && playerOffset.Length() < 0.20f)
-            {
-                heading = playerOffset.LengthSquared() < 0.0001f ? GlobalBasis.X : playerOffset.Normalized();
-            }
-            else if (CurrentIntent is "follow" or "come")
-            {
-                var target = _player.GlobalPosition;
-                if (CurrentIntent == "follow")
-                    target += _player.GlobalBasis.Z * 0.55f + _player.GlobalBasis.X * 0.22f;
-                var difference = target - GlobalPosition;
-                difference.Y = 0;
-                var arrival = CurrentIntent == "come" ? 0.32f : 0.10f;
-                if (difference.Length() > arrival)
-                {
-                    heading = difference.Normalized();
-                    catchUp = difference.Length() > 0.65f;
-                }
-                else if (CurrentIntent == "come") Stay();
-            }
+            else if (CurrentIntent != "stop" && playerOffset.Length() < 0.20f)
+                desired = (playerOffset.LengthSquared() < 0.0001f ? GlobalBasis.X : playerOffset.Normalized()) * WalkSpeedMps;
+            else if (CurrentIntent == "come") desired = ComeVelocity(playerOffset);
         }
-        if (heading.LengthSquared() > 0)
+        if (desired.LengthSquared() > 0.0004f) MoveWith(desired, dt);
+        else
         {
-            heading = ChooseClearDirection(heading);
-            if (heading.LengthSquared() > 0)
+            SetControlInput(Vector2.Zero);
+            // At rest beside the player, turn to face them; the player turning on the spot never moves the companion.
+            if (CurrentIntent == "follow" && hasPlayer)
             {
-                var yaw = Mathf.Atan2(-heading.X, -heading.Z);
-                Rotation = new Vector3(0, yaw, 0);
-                SetControlInput(new Vector2(0, 1), sprint: catchUp);
-            }
-            else
-            {
-                GoalBlocked = true;
-                SetControlInput(Vector2.Zero);
-                Velocity = new Vector3(0, Velocity.Y, 0);
+                var toPlayer = Planar(_player!.GlobalPosition - GlobalPosition);
+                if (toPlayer.LengthSquared() > 0.0001f) TurnToward(toPlayer, 0.5f * CompanionTurnRateRadPerS * dt, 0.6f);
             }
         }
-        else SetControlInput(Vector2.Zero);
         if (_hasLookTarget)
         {
             var direction = _lookTarget - GlobalPosition;
@@ -180,6 +197,74 @@ public partial class CompanionAvatar : SmallPlayerController
         }
         base._PhysicsProcess(delta);
     }
+
+    /// <summary>
+    /// Loose follow: rest anywhere inside the band. When the player walks off, or the companion is outside the
+    /// band, steer to a place beside the player's line of travel on the side it is already on, adding the
+    /// player's velocity so it neither lags nor oscillates. The line of travel changes only when the player
+    /// moves, so turning on the spot never re-targets the companion.
+    /// </summary>
+    private Vector3 FollowVelocity(Vector3 playerOffset)
+    {
+        var distance = playerOffset.Length();
+        var playerVelocity = Planar(_player!.Velocity);
+        var playerSpeed = playerVelocity.Length();
+        var moving = playerSpeed > 0.05f;
+        if (moving) _travel = playerVelocity / playerSpeed;
+        var right = _travel.Cross(Vector3.Up);
+        var lateral = playerOffset.Dot(right);
+        if (Mathf.Abs(lateral) > 0.06f) _followSide = Mathf.Sign(lateral);
+        var place = Planar(_player.GlobalPosition) + right * (_followSide * FollowSideM) + _travel * FollowLeadM;
+        var toPlace = Planar(place - GlobalPosition);
+        var placeDistance = toPlace.Length();
+        if (!_following)
+            _following = distance > FollowFarM || distance < FollowNearM || (moving && placeDistance > 0.15f);
+        else if (!moving && (placeDistance < 0.05f || (distance > FollowNearM + 0.04f && distance < FollowFarM - 0.15f)))
+            _following = false;
+        if (!_following) return Vector3.Zero;
+        var desired = (moving ? playerVelocity : Vector3.Zero) + toPlace * FollowGainPerS;
+        // Finish the last few centimetres briskly instead of creeping.
+        if (!moving && desired.Length() < 0.12f && placeDistance > 0.01f) desired = desired.Normalized() * 0.12f;
+        return desired.LimitLength(RunSpeedMps);
+    }
+
+    private Vector3 ComeVelocity(Vector3 playerOffset)
+    {
+        var distance = playerOffset.Length();
+        if (distance <= ComeArrivalM)
+        {
+            Stay();
+            return Vector3.Zero;
+        }
+        var speed = Mathf.Clamp((distance - ComeArrivalM + 0.05f) * FollowGainPerS, 0.15f, RunSpeedMps);
+        return -playerOffset / distance * speed;
+    }
+
+    /// <summary>Move along a world-space velocity: the motion is exact through body-relative input while the body turns smoothly to face it.</summary>
+    private void MoveWith(Vector3 desired, float dt)
+    {
+        var speed = desired.Length();
+        var heading = ChooseClearDirection(desired / speed);
+        if (heading.LengthSquared() == 0)
+        {
+            GoalBlocked = true;
+            SetControlInput(Vector2.Zero);
+            Velocity = new Vector3(0, Velocity.Y, 0);
+            return;
+        }
+        if (!_hasLookTarget) TurnToward(heading, CompanionTurnRateRadPerS * dt, 0);
+        var local = GlobalBasis.Inverse() * heading;
+        SetControlInput(new Vector2(local.X, -local.Z) * Mathf.Min(1, speed / RunSpeedMps), sprint: true);
+    }
+
+    private void TurnToward(Vector3 direction, float maximumStep, float deadZone)
+    {
+        var yaw = Mathf.Atan2(-direction.X, -direction.Z);
+        if (Mathf.Abs(Mathf.AngleDifference(Rotation.Y, yaw)) <= deadZone) return;
+        Rotation = new Vector3(0, Mathf.RotateToward(Rotation.Y, yaw, maximumStep), 0);
+    }
+
+    private static Vector3 Planar(Vector3 value) => new(value.X, 0, value.Z);
 
     private Vector3 ChooseClearDirection(Vector3 desired)
     {

@@ -17,7 +17,25 @@ public partial class RoomHud : CanvasLayer
     private PanelContainer _customization = null!;
     private SpringArm3D _arm = null!;
     private Camera3D _shoulder = null!;
-    private Camera3D _reference = null!;
+    // F3, the diorama view: a high-angle camera orbiting the player (founder playtest, 6 October: F3 froze).
+    // Framed for the 10 cm body; a narrow lens and the look's depth of field make the room read as a miniature.
+    public const float DioramaMinPitchDeg = 20.0f;
+    public const float DioramaMaxPitchDeg = 80.0f;
+    public const float DioramaDefaultPitchDeg = 50.0f;
+    public const float DioramaMinDistanceM = 0.30f;
+    public const float DioramaMaxDistanceM = 2.4f;
+    public const float DioramaDefaultDistanceM = 0.9f;
+    public const float MouseRadiansPerPixel = 0.0025f;
+    /// <summary>The orbit's heading (radians about +Y; 0 looks along -Z). Movement follows it in F3.</summary>
+    public float DioramaYaw { get; private set; }
+    /// <summary>How far the diorama camera looks down, in degrees.</summary>
+    public float DioramaPitchDeg { get; private set; } = DioramaDefaultPitchDeg;
+    /// <summary>The wanted distance from the player; walls and the ceiling may hold the camera closer.</summary>
+    public float DioramaDistanceM { get; private set; } = DioramaDefaultDistanceM;
+    public Camera3D DioramaCamera => _diorama;
+    private Node3D _dioramaPivot = null!;
+    private SpringArm3D _dioramaArm = null!;
+    private Camera3D _diorama = null!;
     private int _playerColor;
     private int _companionColor = 1;
     private string _noticeText = "Placeholder room · captured rooms and the AI connection come next";
@@ -55,8 +73,8 @@ public partial class RoomHud : CanvasLayer
         footer.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.BottomWide);
         footer.OffsetLeft = 18; footer.OffsetRight = -18; footer.OffsetTop = -140; footer.OffsetBottom = -18;
         var help = new VBoxContainer(); footer.AddChild(help);
-        help.AddChild(new Label { Text = "WASD move · Shift run · Space jump · R recover · click to look · Esc release" });
-        help.AddChild(new Label { Text = "F1 eye · F2 follow camera · F3 reference · C customize" });
+        help.AddChild(new Label { Text = "WASD move · Shift run · Space jump · R recover · G gravity · click to look · Esc release" });
+        help.AddChild(new Label { Text = "F1 eye · F2 shoulder · F3 diorama: mouse orbits, wheel zooms, WASD follows the view · C customize" });
         _notice = new Label { Text = _noticeText }; help.AddChild(_notice);
         _customization = new PanelContainer { Position = new Vector2(18, 164), Theme = theme, Visible = false };
         AddChild(_customization);
@@ -89,28 +107,70 @@ public partial class RoomHud : CanvasLayer
         _arm.AddExcludedObject(Player.GetRid());
         _shoulder = new Camera3D { Name = "FollowCamera", Near = 0.005f, Far = 100, Fov = 68 };
         _arm.AddChild(_shoulder);
-        _reference = new Camera3D { Name = "ReferenceCamera", Near = 0.01f, Far = 100, Fov = 65 };
-        Player.GetParent().AddChild(_reference);
+        // The diorama rig is not a child of the body, so it orbits independently of the body's facing. The arm's
+        // sphere keeps the lens out of walls, furniture and the ceiling; only world geometry (layer 1) stops it.
+        _dioramaPivot = new Node3D { Name = "DioramaPivot" };
+        Player.GetParent().AddChild(_dioramaPivot);
+        _dioramaArm = new SpringArm3D
+        {
+            Name = "DioramaArm", SpringLength = DioramaDistanceM, Margin = 0.01f, CollisionMask = 1,
+            Shape = new SphereShape3D { Radius = 0.02f }
+        };
+        _dioramaPivot.AddChild(_dioramaArm);
+        _dioramaArm.AddExcludedObject(Player.GetRid());
+        if (Companion != null) _dioramaArm.AddExcludedObject(Companion.GetRid());
+        _diorama = new Camera3D { Name = "DioramaCamera", Near = 0.01f, Far = 100, Fov = 38 };
+        _dioramaArm.AddChild(_diorama);
+        PlaceDioramaRig(snap: true);
     }
 
     public void SetViewMode(int mode)
     {
         if (mode is < 0 or > 2 || _shoulder == null) return;
+        var entering = mode == 2 && ViewMode != 2;
         ViewMode = mode;
         Player.GetNode<Node3D>("OriginalPrototypeBody").Visible = mode != 0;
         if (mode == 0) Player.EyeCamera.MakeCurrent();
         else if (mode == 1) _shoulder.MakeCurrent();
         else
         {
-            // Stay inside a small room: a metre behind and above the player, looking down at it.
-            _reference.GlobalPosition = Player.GlobalPosition + Player.GlobalBasis.Z * 0.9f + Vector3.Up * 0.6f;
-            _reference.LookAt(Player.GlobalPosition + Vector3.Up * (Player.BodyHeightM * 0.6f));
-            _reference.MakeCurrent();
+            // Enter behind the player, at the last pitch and zoom the player chose.
+            if (entering) DioramaYaw = Player.GlobalRotation.Y;
+            PlaceDioramaRig(snap: true);
+            _diorama.MakeCurrent();
         }
+        Player.SetMovementFrame(mode == 2 ? DioramaYaw : null);
+    }
+
+    /// <summary>Orbit the diorama camera by a mouse movement in pixels: sideways turns around the player, up and down tilts.</summary>
+    public void OrbitDiorama(Vector2 mouseRelative)
+    {
+        if (!mouseRelative.IsFinite()) return;
+        DioramaYaw = Mathf.Wrap(DioramaYaw - mouseRelative.X * MouseRadiansPerPixel, -Mathf.Pi, Mathf.Pi);
+        DioramaPitchDeg = Mathf.Clamp(DioramaPitchDeg + Mathf.RadToDeg(mouseRelative.Y * MouseRadiansPerPixel), DioramaMinPitchDeg, DioramaMaxPitchDeg);
+        if (ViewMode == 2) Player.SetMovementFrame(DioramaYaw);
+    }
+
+    /// <summary>Zoom by wheel steps: positive moves in, negative out. Each step is about 12 %.</summary>
+    public void ZoomDiorama(float steps)
+    {
+        if (!float.IsFinite(steps)) return;
+        DioramaDistanceM = Mathf.Clamp(DioramaDistanceM * Mathf.Pow(0.88f, steps), DioramaMinDistanceM, DioramaMaxDistanceM);
+    }
+
+    /// <summary>Centre the rig on the player's middle, eased so a jump or a step does not jolt the view.</summary>
+    private void PlaceDioramaRig(bool snap, float delta = 0)
+    {
+        var centre = Player.GlobalPosition + Vector3.Up * (Player.BodyHeightM * 0.5f);
+        var weight = snap ? 1.0f : 1.0f - Mathf.Exp(-12.0f * delta);
+        var position = _dioramaPivot.GlobalPosition.Lerp(centre, weight);
+        _dioramaPivot.GlobalTransform = new Transform3D(Basis.FromEuler(new Vector3(-Mathf.DegToRad(DioramaPitchDeg), DioramaYaw, 0), EulerOrder.Yxz), position);
+        _dioramaArm.SpringLength = DioramaDistanceM;
     }
 
     public override void _Process(double delta)
     {
+        if (ViewMode == 2) PlaceDioramaRig(snap: false, (float)delta);
         _arm.Rotation = new Vector3(Mathf.Clamp(Player.EyeCamera.Rotation.X - 0.18f, -1.1f, 0.8f), 0, 0);
         _state.Text = $"{Player.BodyHeightM * 100:0} cm player  ·  gravity {Player.WorldPhysicsId} (G)  ·  {Companion.CompanionName}: {Companion.CurrentIntent}" + (Companion.GoalBlocked ? " · path blocked" : "");
         _notice.Text = _noticeText;
@@ -143,6 +203,21 @@ public partial class RoomHud : CanvasLayer
         }
         if (!Customizing && input is InputEventMouseButton click && click.Pressed && click.ButtonIndex == MouseButton.Left)
             Input.MouseMode = Input.MouseModeEnum.Captured;
+        if (ViewMode == 2 && !Customizing)
+        {
+            // The diorama camera owns the mouse in F3; the body does not turn with it (SetMovementFrame).
+            if (input is InputEventMouseMotion motion && Input.MouseMode == Input.MouseModeEnum.Captured)
+            {
+                OrbitDiorama(motion.Relative);
+                GetViewport().SetInputAsHandled();
+            }
+            else if (input is InputEventMouseButton wheel && wheel.Pressed &&
+                wheel.ButtonIndex is MouseButton.WheelUp or MouseButton.WheelDown)
+            {
+                ZoomDiorama(wheel.ButtonIndex == MouseButton.WheelUp ? 1 : -1);
+                GetViewport().SetInputAsHandled();
+            }
+        }
     }
 
     private void PointAhead() => Goal("point_at", Player.GlobalPosition - Player.GlobalBasis.Z * 0.6f + Vector3.Up * 0.05f);
