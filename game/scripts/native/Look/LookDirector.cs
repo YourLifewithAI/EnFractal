@@ -31,7 +31,8 @@ public partial class LookDirector : Node3D
     public const string BakeStandInMeta = "look_bake_stand_in";
     /// <summary>Meta marking a mesh the look has already dressed.</summary>
     public const string DressedMeta = "look_dressed";
-    private const int LutCacheSize = 12;
+    /// <summary>How many grade LUTs stay cached (about 110 KB each at 33 cubed).</summary>
+    public const int GradeCacheSize = 12;
 
     public StylePreset Preset { get; private set; } = null!;
     public int RoomLightCount { get; private set; }
@@ -56,6 +57,15 @@ public partial class LookDirector : Node3D
     public IReadOnlyList<string> Warnings => _warnings;
     /// <summary>LUTs built so far (cache misses), for tests and reports.</summary>
     public int GradeBuilds { get; private set; }
+    /// <summary>LUTs currently cached.</summary>
+    public int CachedGrades => _luts.Count;
+    /// <summary>GI bakes started so far (one per new shell geometry), for tests and reports.</summary>
+    public int Bakes { get; private set; }
+    /// <summary>
+    /// What the player should be told about the look, or empty: today the renderer fallback, which makes the room
+    /// look flatter. The HUD shows it; the log and the review harness get every warning.
+    /// </summary>
+    public string PlayerNotice => RendererNote.Length > 0 ? "The room is drawn with a simpler renderer on this machine, so the look is flatter: " + RendererNote : "";
 
     private RoomData _room = null!;
     private float? _pinnedHour;
@@ -69,7 +79,6 @@ public partial class LookDirector : Node3D
     private readonly HashSet<string> _warned = new();
     private readonly List<MeshInstance3D> _pending = new();
     private bool _flushQueued;
-    private Node3D? _bakeQueuedRoot;
     private readonly Dictionary<GradeParams, ImageTexture3D> _luts = new();
     private readonly LinkedList<GradeParams> _lutOrder = new();
     private GradeParams? _wantedGrade;
@@ -101,9 +110,14 @@ public partial class LookDirector : Node3D
             Warn("depth-of-field focus 'cursor' is not implemented yet; focusing a fixed distance ahead instead");
         ApplyMoment(synchronous: true);
         _framesSinceApply = 0;
-        // Meshes already under the parent (a room built before the look) are dressed too.
-        if (GetParent() is { } parent)
-            foreach (var mesh in parent.FindChildren("*", "MeshInstance3D", true, false).OfType<MeshInstance3D>()) Queue(mesh);
+        QueueExisting();
+    }
+
+    /// <summary>Meshes already under the parent (a room built before the look, or before the look entered the tree) are dressed too.</summary>
+    private void QueueExisting()
+    {
+        if (Preset == null || !IsInsideTree() || GetParent() is not { } parent) return;
+        foreach (var mesh in parent.FindChildren("*", "MeshInstance3D", true, false).OfType<MeshInstance3D>()) Queue(mesh);
     }
 
     /// <summary>What the room loses when the machine does not render with the renderer the preset is designed for.</summary>
@@ -219,11 +233,12 @@ public partial class LookDirector : Node3D
             var energy = hint.RelativeIntensity * preset.RoomLightEnergyScale * preset.HonorRoomLights;
             if (energy <= 0) continue;
             Light3D light;
+            var lamps = preset.Tuning.Lamps;
             if (hint.Kind is "ceiling_lamp" or "lamp" or "screen")
-                light = new OmniLight3D { OmniRange = diagonal, OmniAttenuation = preset.Tuning.Lamps.Attenuation };
+                light = new OmniLight3D { OmniRange = diagonal * lamps.RangePerDiagonal, OmniAttenuation = lamps.Attenuation };
             else if (hint.Kind == "window" && hint.Direction is { } direction && direction.LengthSquared() > 1e-6f)
             {
-                var spot = new SpotLight3D { SpotRange = diagonal, SpotAngle = 60f };
+                var spot = new SpotLight3D { SpotRange = diagonal * lamps.RangePerDiagonal, SpotAngle = lamps.WindowSpotAngleDeg };
                 spot.Position = hint.PositionM!.Value;
                 var up = Mathf.Abs(direction.Normalized().Dot(Vector3.Up)) > 0.99f ? Vector3.Right : Vector3.Up;
                 spot.Basis = Basis.LookingAt(direction.Normalized(), up);
@@ -278,7 +293,7 @@ public partial class LookDirector : Node3D
     private void ApplyMoment(bool synchronous)
     {
         var hour = _pinnedHour ?? (Preset.FollowClock ? LookClock.NowHour() : Preset.DefaultHour);
-        var day = _pinnedDay ?? (Preset.FollowCalendar ? LookClock.TodayDayOfYear() : 196);
+        var day = _pinnedDay ?? (Preset.FollowCalendar ? LookClock.TodayDayOfYear() : Preset.Tuning.Seasons.FixedDayOfYear);
         Moment = LookClock.At(Preset, hour, day);
         Key.LightColor = Moment.KeyColor;
         Key.LightEnergy = Moment.KeyEnergy;
@@ -315,8 +330,9 @@ public partial class LookDirector : Node3D
     {
         GradeBuilds++;
         _luts[grade] = texture;
+        _lutOrder.Remove(grade);
         _lutOrder.AddFirst(grade);
-        while (_lutOrder.Count > LutCacheSize)
+        while (_lutOrder.Count > GradeCacheSize)
         {
             _luts.Remove(_lutOrder.Last!.Value);
             _lutOrder.RemoveLast();
@@ -336,7 +352,11 @@ public partial class LookDirector : Node3D
 
     // ---------- dressing ----------
 
-    public override void _EnterTree() => GetTree().NodeAdded += OnNodeAdded;
+    public override void _EnterTree()
+    {
+        GetTree().NodeAdded += OnNodeAdded;
+        QueueExisting();
+    }
 
     public override void _ExitTree()
     {
@@ -438,6 +458,7 @@ public partial class LookDirector : Node3D
     private void Bake(Node3D root)
     {
         Dressed = true;
+        Bakes++;
         if (Preset.GiMode != "voxelgi") GiNote = $"gi mode {Preset.GiMode}: no global illumination node";
         else BakeVoxelGi(root);
         if (GiNote.Length > 0) GD.Print("LOOK: " + GiNote);
@@ -519,8 +540,9 @@ public partial class LookDirector : Node3D
     /// around the focus; far blur ramps over a distance that grows with the focus distance; near blur covers
     /// what is closer than near_blur_distance_m (or the band). Tilt-shift narrows the band and strengthens
     /// the blur as the camera looks down on the room, which is what makes a high view read as a miniature.
+    /// crispFromM keeps everything from there to the focus crisp (the player's reach, seen from its eye).
     /// </summary>
-    public static DepthOfField DepthOfFieldFor(StylePreset preset, float focusDistance, float lookingDown)
+    public static DepthOfField DepthOfFieldFor(StylePreset preset, float focusDistance, float lookingDown, float crispFromM = float.PositiveInfinity)
     {
         var t = preset.Tuning.Dof;
         var d = Mathf.Max(focusDistance, 0.05f);
@@ -528,7 +550,7 @@ public partial class LookDirector : Node3D
         var halfBand = 0.5f * preset.FocusBandM * (1f - t.TiltBandNarrowing * tilt);
         var farDistance = d + halfBand;
         var farTransition = (t.FarTransitionBaseM + t.FarTransitionPerM * d) * (t.FarBlurReference - preset.FarBlur);
-        var nearDistance = Mathf.Max(preset.NearBlurDistanceM, d - halfBand);
+        var nearDistance = Mathf.Min(Mathf.Max(preset.NearBlurDistanceM, d - halfBand), Mathf.Max(preset.NearBlurDistanceM, crispFromM));
         var nearTransition = nearDistance * (t.NearTransitionBase - t.NearTransitionPerBlur * preset.NearBlur);
         var amount = (t.AmountBase + t.AmountPerBlur * Mathf.Max(preset.FarBlur, preset.NearBlur)) * (1f + tilt);
         return new DepthOfField(preset.DofEnabled && preset.FarBlur > 0f, farDistance, Mathf.Max(farTransition, 0.05f),
@@ -545,7 +567,7 @@ public partial class LookDirector : Node3D
     /// <summary>The depth-of-field attributes the look gave a camera, if any.</summary>
     public CameraAttributesPractical? AttributesFor(Camera3D camera) => _attributes.TryGetValue(camera.GetInstanceId(), out var a) ? a : null;
 
-    private void Focus(Camera3D camera, Vector3 focusPoint)
+    private void Focus(Camera3D camera, Vector3 focusPoint, float crispFromM = float.PositiveInfinity)
     {
         if (!DofSupported) return;
         if (!_attributes.TryGetValue(camera.GetInstanceId(), out var attributes))
@@ -555,7 +577,7 @@ public partial class LookDirector : Node3D
         }
         var forward = -camera.GlobalBasis.Z;
         var distance = (focusPoint - camera.GlobalPosition).Dot(forward);
-        var dof = DepthOfFieldFor(Preset, distance, Mathf.Max(0f, -forward.Y));
+        var dof = DepthOfFieldFor(Preset, distance, Mathf.Max(0f, -forward.Y), crispFromM);
         attributes.DofBlurFarEnabled = dof.FarEnabled;
         attributes.DofBlurFarDistance = dof.FarDistance;
         attributes.DofBlurFarTransition = dof.FarTransition;
@@ -565,6 +587,19 @@ public partial class LookDirector : Node3D
         attributes.DofBlurAmount = dof.Amount;
         if (camera.Attributes != attributes) camera.Attributes = attributes;
     }
+
+    private Node3D? FocusBody() => Preset.DofFocus switch
+    {
+        "player" => FocusTarget ?? GetParent()?.GetChildren().OfType<SmallPlayerController>().FirstOrDefault(c => c is not CompanionAvatar),
+        "companion" => FocusCompanion ?? GetParent()?.GetChildren().OfType<CompanionAvatar>().FirstOrDefault(),
+        _ => null,
+    };
+
+    /// <summary>From the focus body's own eye, everything out to eye_crisp_body_heights body heights (its reach) stays crisp.</summary>
+    public float CrispFromFor(Camera3D camera) =>
+        FocusBody() is SmallPlayerController controller && IsInstanceValid(controller) && camera == controller.EyeCamera
+            ? Preset.Tuning.Dof.EyeCrispBodyHeights * controller.BodyHeightM
+            : float.PositiveInfinity;
 
     /// <summary>
     /// Where a camera should focus under the preset's focus mode. "player": a third-person camera focuses on
@@ -576,12 +611,7 @@ public partial class LookDirector : Node3D
     {
         var forward = -camera.GlobalBasis.Z;
         var dof = Preset.Tuning.Dof;
-        var body = Preset.DofFocus switch
-        {
-            "player" => FocusTarget ?? GetParent()?.GetChildren().OfType<SmallPlayerController>().FirstOrDefault(c => c is not CompanionAvatar),
-            "companion" => FocusCompanion ?? GetParent()?.GetChildren().OfType<CompanionAvatar>().FirstOrDefault(),
-            _ => null,
-        };
+        var body = FocusBody();
         if (body != null && IsInstanceValid(body))
         {
             if (body is SmallPlayerController controller)
@@ -608,7 +638,7 @@ public partial class LookDirector : Node3D
         if (!Preset.DofEnabled || !DofSupported) return;
         var camera = GetViewport()?.GetCamera3D();
         if (camera == null || _framed.Contains(camera.GetInstanceId())) return;
-        Focus(camera, FocusPointFor(camera));
+        Focus(camera, FocusPointFor(camera), CrispFromFor(camera));
     }
 
     /// <summary>

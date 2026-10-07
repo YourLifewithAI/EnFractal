@@ -28,7 +28,8 @@ public sealed record SeasonGrade(float Saturation, float Warmth, Color Tint);
 /// <summary>
 /// An enfractal.style preset as the runtime reads it. contracts/validate.py is the full validator; this
 /// reader fails closed on every field the look uses. Experimental x_look_* extension keys are read with
-/// defaults, so a preset without them still loads.
+/// defaults, so a preset without them still loads; Tuning.Defaulted lists every look number such a preset
+/// left to the code, and the shipped preset leaves none.
 /// </summary>
 public sealed class StylePreset
 {
@@ -207,11 +208,15 @@ public sealed class StylePreset
             if (keys[i].Hour <= keys[i - 1].Hour) throw new InvalidOperationException("time_of_day keys must be in strictly increasing hour order");
         var ssil = Extension(extensions, "x_look_ssil");
         if (extensions.ValueKind == JsonValueKind.Object)
-            foreach (var key in extensions.EnumerateObject().Select(e => e.Name))
-                if (key.StartsWith("x_look_", StringComparison.Ordinal) && !KnownLookExtensions.Contains(key))
-                    throw new InvalidOperationException($"unknown look extension '{key}'");
+            foreach (var name in extensions.EnumerateObject().Select(e => e.Name))
+                if (name.StartsWith("x_look_", StringComparison.Ordinal) && !KnownLookExtensions.Contains(name))
+                    throw new InvalidOperationException($"unknown look extension '{name}'");
         var keyMode = extensions.ValueKind == JsonValueKind.Object && extensions.TryGetProperty("x_look_key_mode", out var mode) ? mode.GetString()! : "fixed";
         if (keyMode is not ("fixed" or "diorama")) throw new InvalidOperationException($"x_look_key_mode '{keyMode}' is not fixed or diorama");
+        var tuning = LookTuning.Parse(extensions);
+        var defaulted = tuning.Defaulted.ToList();
+        foreach (var name in new[] { "x_look_key_mode", "x_look_glaze_amount" })
+            if (extensions.ValueKind != JsonValueKind.Object || !extensions.TryGetProperty(name, out _)) defaulted.Add(name);
 
         return new StylePreset
         {
@@ -287,7 +292,7 @@ public sealed class StylePreset
             SsilIntensity = ssil.ValueKind == JsonValueKind.Object ? Opt(ssil, "intensity", 1f) : 1f,
             SsilRadiusM = ssil.ValueKind == JsonValueKind.Object ? Opt(ssil, "radius_m", 0.3f) : 0.3f,
             GlazeAmount = extensions.ValueKind == JsonValueKind.Object && extensions.TryGetProperty("x_look_glaze_amount", out var glaze) ? glaze.GetSingle() : 0.35f,
-            Tuning = LookTuning.Parse(extensions),
+            Tuning = tuning with { Defaulted = defaulted },
         };
     }
 
