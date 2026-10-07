@@ -10,8 +10,15 @@ Specified in docs/companion/TRANSPORT.md; the frame shapes are in `schemas/compa
   pointing at someone else's listener is detected before any request is sent.
 - The game assigns the principal to the authenticated connection (`companion:local`). Requests
   carry no principal, no approval and no token.
-- Frames are a 4-byte big-endian length and one UTF-8 JSON object. Oversized frames, unknown frame
+- Frames are a 4-byte big-endian length and one JSON object, written as canonical JSON v1
+  (canonical.py: UTF-8, not ASCII-escaped, numbers in their shortest canonical form). A frame is
+  therefore exactly a short envelope plus the canonical bytes of the message it carries, so the
+  contract's size limits bound the frame size whatever characters or number spellings the
+  message holds. Readers accept any strict JSON within the limit. Oversized frames, unknown frame
   types, duplicate keys and non-finite numbers close the connection.
+- There is no lockout: a wrong proof only closes that connection, so no local process can lock the
+  real companion out, and guessing a 256-bit token is hopeless anyway. At most a few handshakes
+  may be pending at once.
 """
 from __future__ import annotations
 
@@ -25,31 +32,37 @@ import os
 import re
 import secrets
 import struct
-import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
+
+from . import canonical
 
 log = logging.getLogger("enfractal.link")
 
 PROTOCOL = "enfractal.companion_link"
 LINK_VERSION = 1
 SESSION_SCHEMA = "enfractal.companion_session"
+LOOPBACK_HOSTS = ("127.0.0.1", "::1")  # the only spellings a session file or a listener may use
 MAX_HANDSHAKE_FRAME = 1024
-MAX_REQUEST_FRAME = 131_072  # a command is at most 65,536 bytes of canonical JSON; room for an honest envelope
-MAX_RESPONSE_FRAME = 266_240  # a result is at most 262,144 bytes
+# A command or query is at most 65,536 bytes of canonical JSON, and a frame is that plus an envelope
+# of under 64 bytes. The request limit leaves room for the game to answer an oversized message with
+# request_invalid instead of closing the connection.
+MAX_REQUEST_FRAME = 131_072
+# A result is at most 262,144 bytes of canonical JSON; the envelope adds under 64.
+MAX_RESPONSE_FRAME = 262_144 + 4_096
+MAX_SESSION_FILE = 4_096  # a real session file is about 300 bytes
 HANDSHAKE_TIMEOUT_S = 5.0
 CONNECT_TIMEOUT_S = 3.0
 REQUEST_TIMEOUT_S = 10.0
-FAILED_AUTH_LIMIT = 5
-FAILED_AUTH_WINDOW_S = 60.0
-LOCKOUT_S = 60.0
+MAX_PENDING_HANDSHAKES = 8
 COMPANION_PRINCIPAL = "companion:local"
 COMPANION_AVATAR = "avatar:companion"
 
-_HEX64 = re.compile(r"^[0-9a-f]{64}$")
-_TOKEN = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
+_HEX64 = re.compile(r"[0-9a-f]{64}")
+_TOKEN = re.compile(r"[a-z][a-z0-9_-]{0,63}")
+_CODE = re.compile(r"[a-z_]{1,32}")
 _SERVER_LABEL = f"{PROTOCOL}/{LINK_VERSION}|server|".encode("ascii")
 _CLIENT_LABEL = f"{PROTOCOL}/{LINK_VERSION}|client|".encode("ascii")
 
@@ -72,7 +85,20 @@ def default_session_path() -> Path:
 # ---------------------------------------------------------------------------- framing
 
 def encode_frame(document: dict) -> bytes:
-    body = json.dumps(document, ensure_ascii=True, separators=(",", ":"), allow_nan=False).encode("ascii")
+    """4-byte big-endian length, then the frame object as canonical JSON v1.
+
+    Each value (the message included) is written exactly as canonical.canonical_bytes writes it, so
+    the body is the canonical message plus the envelope keys. ASCII escapes (6 or 12 bytes for one
+    character) and number spellings such as -0.0 or 1.0e0 can no longer make a frame several times
+    larger than the message the contract limits. Raises ValueError (CanonicalJsonError) for
+    non-finite numbers, unpaired surrogates and nesting deeper than canonical JSON allows.
+    """
+    normalized = {key: canonical.normalize(value) for key, value in document.items()}
+    text = json.dumps(normalized, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+    try:
+        body = text.encode("utf-8")
+    except UnicodeEncodeError:
+        raise canonical.CanonicalJsonError("strings must not contain unpaired surrogates") from None
     return struct.pack(">I", len(body)) + body
 
 
@@ -112,16 +138,25 @@ async def read_frame(reader: asyncio.StreamReader, limit: int) -> dict:
         raise LinkError(f"frame is not a strict JSON object: {error}") from None
 
 
+def _is_hex64(value: Any) -> bool:
+    return isinstance(value, str) and _HEX64.fullmatch(value) is not None
+
+
 def _proof(token_hex: str, label: bytes, client_nonce: str, server_nonce: str) -> str:
     message = label + client_nonce.encode("ascii") + b"|" + server_nonce.encode("ascii")
     return hmac.new(bytes.fromhex(token_hex), message, hashlib.sha256).hexdigest()
 
 
 def _is_loopback(host: str) -> bool:
+    """Any loopback address: used for the peer of an accepted connection."""
     try:
         return ipaddress.ip_address(host).is_loopback
     except ValueError:
         return False
+
+
+def _safe_code(code: Any) -> str:
+    return code if isinstance(code, str) and _CODE.fullmatch(code) else "unknown"
 
 
 # ---------------------------------------------------------------------------- session file
@@ -141,7 +176,7 @@ def parse_session(raw: bytes) -> SessionInfo:
     """Read a session file, refusing anything that is not a loopback endpoint with a well-formed token."""
     try:
         document = _strict_object(raw)
-    except (UnicodeDecodeError, ValueError) as error:
+    except (UnicodeDecodeError, ValueError, RecursionError) as error:
         raise LinkError(f"session file is not valid JSON: {error}") from None
     expected = {"schema", "version", "host", "port", "token", "room_id", "pid", "created_utc"}
     if set(document) - expected:
@@ -149,13 +184,17 @@ def parse_session(raw: bytes) -> SessionInfo:
     if document.get("schema") != SESSION_SCHEMA or document.get("version") != LINK_VERSION:
         raise LinkError("session file is not an enfractal.companion_session version 1")
     host, port, token, room_id = (document.get(k) for k in ("host", "port", "token", "room_id"))
-    if not isinstance(host, str) or host not in ("127.0.0.1", "::1"):
+    pid, created = document.get("pid"), document.get("created_utc")
+    if (pid is not None and (not isinstance(pid, int) or isinstance(pid, bool) or not 0 < pid < 2 ** 32)) \
+            or (created is not None and (not isinstance(created, str) or len(created) > 64)):
+        raise LinkError("session file pid or created_utc is malformed")
+    if host not in LOOPBACK_HOSTS:
         raise LinkError("session file names a host that is not loopback; the companion only connects to this computer")
     if not isinstance(port, int) or isinstance(port, bool) or not 1 <= port <= 65535:
         raise LinkError("session file port is invalid")
-    if not isinstance(token, str) or not _HEX64.match(token):
+    if not _is_hex64(token):
         raise LinkError("session file token is malformed")
-    if not isinstance(room_id, str) or not _TOKEN.match(room_id):
+    if not isinstance(room_id, str) or not _TOKEN.fullmatch(room_id):
         raise LinkError("session file room_id is malformed")
     return SessionInfo(host, port, token, room_id)
 
@@ -189,9 +228,10 @@ class LinkServer:
 
     def __init__(self, handler: Handler, room_id: str, *, host: str = "127.0.0.1", token: str | None = None,
                  principal: str = COMPANION_PRINCIPAL, avatar: str = COMPANION_AVATAR,
-                 max_request_frame: int = MAX_REQUEST_FRAME, handshake_timeout_s: float = HANDSHAKE_TIMEOUT_S):
-        if not _is_loopback(host):
-            raise ValueError("the companion link listens on loopback only")
+                 max_request_frame: int = MAX_REQUEST_FRAME, handshake_timeout_s: float = HANDSHAKE_TIMEOUT_S,
+                 max_pending_handshakes: int = MAX_PENDING_HANDSHAKES):
+        if host not in LOOPBACK_HOSTS:
+            raise ValueError("the companion link listens on 127.0.0.1 or ::1 only")
         self.handler = handler
         self.room_id = room_id
         self.host = host
@@ -200,11 +240,11 @@ class LinkServer:
         self.avatar = avatar
         self.max_request_frame = max_request_frame
         self.handshake_timeout_s = handshake_timeout_s
+        self.max_pending_handshakes = max_pending_handshakes
         self.port = 0
         self._server: asyncio.base_events.Server | None = None
         self._active: asyncio.StreamWriter | None = None
-        self._failures: list[float] = []
-        self._locked_until = 0.0
+        self._pending = 0
         self.events: list[tuple[str, str]] = []  # (event, detail) for tests and the console; never the token
 
     @property
@@ -246,34 +286,39 @@ class LinkServer:
         if not peer or not _is_loopback(peer[0]):
             writer.close()
             return
+        if self._pending >= self.max_pending_handshakes:
+            await self._refuse(writer, "busy")
+            return
+        self._pending += 1
         try:
             authenticated = await asyncio.wait_for(self._handshake(reader, writer), self.handshake_timeout_s)
         except asyncio.TimeoutError:
             await self._refuse(writer, "handshake_timeout")
             return
-        except (LinkError, asyncio.IncompleteReadError, ConnectionError, OSError) as error:
+        except Exception as error:  # any malformed handshake is answered, never left hanging
             self._note("handshake_failed", type(error).__name__)
             await self._refuse(writer, "handshake_invalid")
             return
+        finally:
+            self._pending -= 1
         if not authenticated:
             return
         self._active = writer
         try:
             await self._requests(reader, writer)
+        except Exception as error:  # a broken connection or a bug: close this connection, keep listening
+            self._note("connection_failed", type(error).__name__)
+            await self._refuse(writer, "frame_invalid")
         finally:
             if self._active is writer:
                 self._active = None
             writer.close()
 
     async def _handshake(self, reader, writer) -> bool:
-        now = time.monotonic()
-        if now < self._locked_until:
-            await self._refuse(writer, "locked")
-            return False
         hello = await read_frame(reader, MAX_HANDSHAKE_FRAME)
         if (set(hello) != {"type", "protocol", "version", "client_nonce"} or hello.get("type") != "hello"
                 or hello.get("protocol") != PROTOCOL or hello.get("version") != LINK_VERSION
-                or not isinstance(hello.get("client_nonce"), str) or not _HEX64.match(hello["client_nonce"])):
+                or not _is_hex64(hello.get("client_nonce"))):
             await self._refuse(writer, "hello_invalid")
             return False
         client_nonce = hello["client_nonce"]
@@ -284,12 +329,8 @@ class LinkServer:
         })
         auth = await read_frame(reader, MAX_HANDSHAKE_FRAME)
         proof = auth.get("client_proof")
-        if set(auth) != {"type", "client_proof"} or auth.get("type") != "auth" or not isinstance(proof, str) \
+        if set(auth) != {"type", "client_proof"} or auth.get("type") != "auth" or not _is_hex64(proof) \
                 or not hmac.compare_digest(proof, _proof(self.token, _CLIENT_LABEL, client_nonce, server_nonce)):
-            self._failures = [t for t in self._failures if now - t < FAILED_AUTH_WINDOW_S] + [now]
-            if len(self._failures) >= FAILED_AUTH_LIMIT:
-                self._locked_until = now + LOCKOUT_S
-                self._failures.clear()
             await self._refuse(writer, "auth_failed")
             return False
         if self._active is not None and not self._active.is_closing():
@@ -307,7 +348,7 @@ class LinkServer:
         while True:
             try:
                 frame = await read_frame(reader, self.max_request_frame)
-            except asyncio.IncompleteReadError:
+            except (asyncio.IncompleteReadError, ConnectionError, OSError):
                 return
             except LinkError as error:
                 self._note("frame_invalid", str(error)[:120])
@@ -322,10 +363,24 @@ class LinkServer:
                 return
             # The principal is the connection's, assigned at authentication. Nothing in the frame sets it.
             result = self.handler(self.principal, frame["message"])
+            response = encode_frame({"type": "response", "seq": seq, "message": result})
+            if len(response) - 4 > MAX_RESPONSE_FRAME:
+                # The host never sends a frame the companion would have to refuse.
+                response = encode_frame({"type": "response", "seq": seq, "message": _too_large(result)})
             try:
-                await self._send(writer, {"type": "response", "seq": seq, "message": result})
+                writer.write(response)
+                await writer.drain()
             except (ConnectionError, OSError):
                 return
+
+
+def _too_large(result: dict) -> dict:
+    keep = ("schema", "version", "op", "action_id", "query_id", "principal", "room_id", "revision", "replayed",
+            "preview", "at_utc")
+    smaller = {k: result[k] for k in keep if k in result}
+    smaller["ok"] = False
+    smaller["error"] = {"code": "internal_error", "message": "The answer was too large to send.", "retryable": False}
+    return smaller
 
 
 # ---------------------------------------------------------------------------- companion side
@@ -350,11 +405,14 @@ class LinkClient:
 
         def load() -> SessionInfo:
             try:
-                raw = path.read_bytes()
+                with path.open("rb") as handle:
+                    raw = handle.read(MAX_SESSION_FILE + 1)
             except FileNotFoundError:
                 raise LinkError("the game is not running (no session file yet)") from None
             except OSError:
                 raise LinkError("the game's session file cannot be read") from None
+            if len(raw) > MAX_SESSION_FILE:
+                raise LinkError("the game's session file is too large to be one")
             return parse_session(raw)
 
         return LinkClient(load, **kwargs)
@@ -376,6 +434,10 @@ class LinkClient:
     async def connect(self) -> dict:
         await self.close()
         info = self._load()
+        # Connect only to a loopback literal, whatever the loader returned (defence in depth: the
+        # server process's sandbox does not see connects made through the Windows event loop).
+        if info.host not in LOOPBACK_HOSTS:
+            raise LinkError("refusing to connect anywhere but this computer")
         try:
             reader, writer = await asyncio.wait_for(
                 asyncio.open_connection(info.host, info.port, limit=MAX_RESPONSE_FRAME), CONNECT_TIMEOUT_S)
@@ -386,12 +448,15 @@ class LinkClient:
         except asyncio.TimeoutError:
             writer.close()
             raise LinkError("the game did not finish the handshake") from None
-        except (asyncio.IncompleteReadError, ConnectionError, OSError):
-            writer.close()
-            raise LinkError("the game closed the connection during the handshake") from None
         except LinkError:
             writer.close()
             raise
+        except (asyncio.IncompleteReadError, ConnectionError, OSError):
+            writer.close()
+            raise LinkError("the game closed the connection during the handshake") from None
+        except Exception:  # anything malformed from the listener is a failed handshake, never a crash
+            writer.close()
+            raise LinkError("the listener sent a malformed handshake; refusing to continue") from None
         self._reader, self._writer, self.ready = reader, writer, ready
         return ready
 
@@ -406,8 +471,8 @@ class LinkClient:
         server_nonce = challenge.get("server_nonce")
         server_proof = challenge.get("server_proof")
         if (challenge.get("type") != "challenge" or challenge.get("protocol") != PROTOCOL
-                or challenge.get("version") != LINK_VERSION or not isinstance(server_nonce, str)
-                or not _HEX64.match(server_nonce) or not isinstance(server_proof, str)
+                or challenge.get("version") != LINK_VERSION or not _is_hex64(server_nonce)
+                or not _is_hex64(server_proof)
                 or not hmac.compare_digest(server_proof, _proof(info.token, _SERVER_LABEL, client_nonce, server_nonce))):
             raise LinkError("the listener could not prove it is this game session; refusing to send anything")
         writer.write(encode_frame({"type": "auth",
@@ -424,16 +489,19 @@ class LinkClient:
     async def request(self, message: dict) -> dict:
         """Send one command or query and return the game's result. Reconnects once if needed."""
         async with self._lock:
+            self._seq += 1
+            seq = self._seq
+            try:
+                frame_bytes = encode_frame({"type": "request", "seq": seq, "message": message})
+            except (TypeError, ValueError):
+                raise LinkError("the request cannot be encoded as strict JSON") from None
+            if len(frame_bytes) - 4 > self.max_request_frame:
+                raise LinkError("the request is too large to send")
             if not self.connected:
                 await self.connect()
             assert self._reader is not None and self._writer is not None
-            self._seq += 1
-            seq = self._seq
-            frame = encode_frame({"type": "request", "seq": seq, "message": message})
-            if len(frame) - 4 > self.max_request_frame:
-                raise LinkError("the request is too large to send")
             try:
-                self._writer.write(frame)
+                self._writer.write(frame_bytes)
                 await self._writer.drain()
                 reply = await asyncio.wait_for(read_frame(self._reader, MAX_RESPONSE_FRAME), self.request_timeout_s)
             except asyncio.TimeoutError:
@@ -446,7 +514,3 @@ class LinkClient:
                 await self.close()
                 raise LinkError("the game sent an unexpected reply; the outcome is unknown")
             return reply["message"]
-
-
-def _safe_code(code: Any) -> str:
-    return code if isinstance(code, str) and re.fullmatch(r"[a-z_]{1,32}", code) else "unknown"

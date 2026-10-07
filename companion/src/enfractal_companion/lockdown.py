@@ -1,20 +1,40 @@
-"""Process lockdown for the companion MCP server: nothing outside the game, enforced, not just omitted.
+"""Process lockdown for the companion MCP server: defence in depth, not an operating-system sandbox.
 
-Having no file, shell or URL tools is the first boundary. This is the second: once the server has
-loaded the contracts and knows where the session file is, it
+Having no file, shell or URL tools is the boundary. This is a second layer, for the case where the
+server's own code or a dependency is tricked by input into calling something it should not. Once
+the server has loaded the contracts and knows where the session file is, it
 
 1. clears its own environment down to what Windows sockets need, so no inherited developer
-   secret (API keys, tokens, cloud credentials) exists in the process to leak, and
-2. installs a Python audit hook (PEP 578) that refuses, for the rest of the process's life,
-   - writing, creating, deleting or renaming any file,
-   - reading any file except the session file and the Python installation's own modules,
-   - starting processes (subprocess, os.system, exec, spawn, startfile),
-   - network connections, binds and name lookups to anything but loopback,
-   - URL fetching, the browser, the registry and sqlite.
+   secret (API keys, tokens, cloud credentials) exists in the process to leak;
+2. installs a Python audit hook (PEP 578) that refuses, for the rest of the process's life, these
+   audited standard-library routes to the outside world:
+   - `open` for writing anything, and for reading anything except the session file, the Python
+     installation (with its site-packages), the package and the contracts; listing directories
+     outside those; deleting, renaming, copying, linking, creating directories, changing modes;
+   - starting or signalling processes (subprocess, os.system, exec, spawn, startfile, kill);
+   - every audited `_winapi` call (CreateFile, CreateProcess, OpenProcess, TerminateProcess, pipes,
+     junctions, file mappings) and every audited `ctypes` call (loading a library, calling a
+     foreign function);
+   - socket connects, binds and sends to anything but a loopback IP literal (127.0.0.0/8, ::1),
+     name lookups of anything but such a literal ("localhost" included: no name is resolved), and
+     URL fetching, the browser, the registry, sqlite and environment changes;
+3. wraps the Windows event loop's connect, sendto and named-pipe connect, which go through
+   `_overlapped` without an audit event, so asyncio cannot reach a non-loopback address or a named
+   pipe either.
 
-Audit hooks cannot be removed once installed. This is defence in depth inside one Python process,
-not an OS sandbox: native code could bypass it. The MCP client should still launch the server
-under the player's normal account with no extra privileges (docs/companion/SECURITY.md).
+What it does not do, and the tests in companion/tests/test_lockdown.py pin both lists:
+- An audit hook sees only what Python audits. Calls with no audit event are not covered: os.stat
+  and os.path.exists still tell whether a path exists anywhere. Native extension modules already
+  loaded in the process are not covered either: on Windows the MCP SDK's stdio transport imports
+  pywin32 (win32api, win32job), whose functions raise no audit events.
+- Paths are compared as text after normalising case and '..'. A symbolic link or junction that
+  already exists inside an allowed folder is followed. Nothing in the process can create one.
+- It cannot be undone, but code running in the process with the intent to escape (rather than
+  being tricked into one call) can get around it; that is outside what an audit hook can stop.
+- The process still runs with the player's full account rights. The MCP client should launch the
+  server as the player's ordinary account with no extra privileges; an operating-system sandbox
+  (a restricted token, an AppContainer, a separate account) is the step that would make this a
+  containment boundary (docs/companion/SECURITY.md).
 """
 from __future__ import annotations
 
@@ -38,7 +58,8 @@ _DENIED_EVENTS = (
     "ftplib.connect", "smtplib.connect", "imaplib.open", "poplib.connect", "nntplib.connect",
     "telnetlib.Telnet.open", "os.putenv", "os.unsetenv",
 )
-_DENIED_PREFIXES = ("winreg.", "_winapi.CreateProcess", "_winapi.CreateNamedPipe")
+# Every audited _winapi and ctypes call: the server needs none of them once it is running.
+_DENIED_PREFIXES = ("winreg.", "_winapi.", "ctypes.", "msvcrt.open_osfhandle", "os.posix_spawn", "os.spawn")
 _NETWORK_HOST_EVENTS = ("socket.connect", "socket.bind", "socket.sendto", "socket.sendmsg")
 _LOOKUP_EVENTS = ("socket.getaddrinfo", "socket.gethostbyname", "socket.gethostbyname_ex", "socket.gethostbyaddr",
                   "socket.getnameinfo")
@@ -75,14 +96,16 @@ def _under(path: str, roots: tuple[str, ...]) -> bool:
 
 
 def _host_is_loopback(host) -> bool:
+    """True only for a loopback IP literal (or None: a lookup with no host resolves nothing remote).
+
+    Names are refused, "localhost" included: whatever a name resolves to is decided outside this
+    process, so the hook could not vouch for it."""
     if host is None:
         return True
     if isinstance(host, bytes):
         host = host.decode("ascii", "replace")
     if not isinstance(host, str):
         return False
-    if host in ("localhost", ""):
-        return host == "localhost"
     try:
         return ipaddress.ip_address(host.split("%", 1)[0]).is_loopback
     except ValueError:
@@ -143,4 +166,34 @@ def install(read_files: list[Path] = (), read_roots: list[Path] = ()) -> None:
 
     sys.dont_write_bytecode = True
     sys.addaudithook(hook)
+    _guard_event_loop()
     _installed = True
+
+
+def _guard_event_loop() -> None:
+    """The Windows proactor connects, sends and opens named pipes through _overlapped, which raises
+    no audit event."""
+    try:
+        from asyncio import windows_events
+    except ImportError:  # POSIX: the selector loop calls socket.connect, which the hook sees
+        return
+    proactor = windows_events.IocpProactor
+    original_connect, original_sendto = proactor.connect, proactor.sendto
+
+    def connect(self, conn, address):
+        if not _address_is_loopback(address):
+            raise SandboxViolation("blocked by the EnFractal companion sandbox: event loop connect")
+        return original_connect(self, conn, address)
+
+    def sendto(self, conn, buf, flags=0, addr=None):
+        if addr is not None and not _address_is_loopback(addr):
+            raise SandboxViolation("blocked by the EnFractal companion sandbox: event loop sendto")
+        return original_sendto(self, conn, buf, flags, addr)
+
+    def connect_pipe(self, address):
+        # A named pipe reaches other local services (agents, engines); the server needs none.
+        raise SandboxViolation("blocked by the EnFractal companion sandbox: event loop named pipe")
+
+    proactor.connect = connect
+    proactor.sendto = sendto
+    proactor.connect_pipe = connect_pipe

@@ -1,0 +1,30 @@
+diff --git a/game/scripts/native/Room/RoomData.cs b/game/scripts/native/Room/RoomData.cs
+index d76ab28..44914de 100644
+--- a/game/scripts/native/Room/RoomData.cs
++++ b/game/scripts/native/Room/RoomData.cs
+@@ -45,12 +45,12 @@ public sealed class RoomData
+ {
+     public const int SchemaVersion = 1;
+     // Same rules as contracts/common.schema.json: one spelling per file, no ".", ".." or empty segments.
+-    private static readonly Regex RelativePath = new(@"^(?!.*(?:^|/)\.\.?(?:/|$))(?!.*//)(?!.*/$)[A-Za-z0-9_][A-Za-z0-9_./-]{0,199}$", RegexOptions.Compiled);
+-    private static readonly Regex AssetPath = new(@"^objects/[a-z][a-z0-9_-]{0,63}/asset\.json$", RegexOptions.Compiled);
++    private static readonly Regex RelativePath = new(@"^(?!.*(?:^|/)\.\.?(?:/|\z))(?!.*//)(?!.*/\z)[A-Za-z0-9_][A-Za-z0-9_./-]{0,199}\z", RegexOptions.Compiled);
++    private static readonly Regex AssetPath = new(@"^objects/[a-z][a-z0-9_-]{0,63}/asset\.json\z", RegexOptions.Compiled);
+     // Control, line-separator, zero-width and bidirectional-override characters cannot appear in display text.
+-    private static readonly Regex UnsafeText = new(@"[\u0000-\u001F\u007F-\u009F\u200B-\u200F\u2028\u2029\u202A-\u202E\u2060-\u2069\uFEFF]", RegexOptions.Compiled);
++    private static readonly Regex UnsafeText = new(@"[\u0000-\u001F\u007F-\u009F\u00AD\u034F\u061C\u115F\u1160\u180B-\u180F\u200B-\u200F\u2028-\u202E\u2060-\u206F\u2800\u3164\uFE00-\uFE0F\uFEFF\uFFA0\uFFF9-\uFFFB\uDB40-\uDB7F]", RegexOptions.Compiled);
+     public const float CoordinateLimitM = 1000f;
+-    private static readonly Regex Token = new(@"^[a-z][a-z0-9_-]{0,63}$", RegexOptions.Compiled);
++    private static readonly Regex Token = new(@"^[a-z][a-z0-9_-]{0,63}\z", RegexOptions.Compiled);
+     private static readonly JsonDocumentOptions Strict = new() { AllowTrailingCommas = false, CommentHandling = JsonCommentHandling.Disallow, MaxDepth = 64 };
+ 
+     public string Directory { get; private init; } = "";
+@@ -281,7 +281,7 @@ public sealed class RoomData
+     private static string Display(JsonElement element, string name, int maxLength)
+     {
+         var text = Str(element, name);
+-        Expect(text.Length <= maxLength && !UnsafeText.IsMatch(text), $"'{name}' must be at most {maxLength} characters without control or bidirectional characters");
++        Expect(text.Length <= maxLength && !UnsafeText.IsMatch(text), $"'{name}' must be at most {maxLength} characters without control, bidirectional or invisible characters");
+         return text;
+     }
+ 

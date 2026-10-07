@@ -1,24 +1,25 @@
 diff --git a/.gitattributes b/.gitattributes
-index ea7c40f..610fb20 100644
+index 03c4242..e56f13f 100644
 --- a/.gitattributes
 +++ b/.gitattributes
-@@ -18,3 +18,8 @@ game/styles/**/*.json text eol=lf
+@@ -20,3 +20,9 @@ game/tests/fixtures/kernel/** -text
  
  # Godot rewrites import sidecars with LF on every host; a CRLF checkout then shows them modified after each import.
  *.import text eol=lf
 +
-+# Companion (A1): the proposed link schema is pinned like the contracts, and proposal patches must
-+# reach Windows checkouts byte-exact or git apply refuses them.
++# Companion (A1): the proposed link schema is pinned like the contracts, the canonical JSON fixture copy
++# stays byte-exact, and proposal patches must reach Windows checkouts byte-exact or git apply refuses them.
 +companion/schemas/*.json text eol=lf
++companion/tests/fixtures/** -text
 +docs/companion/proposals/*.diff -text
 diff --git a/run-engine-tests.ps1 b/run-engine-tests.ps1
-index a86649e..29225b3 100644
+index d77cfa2..d6f153e 100644
 --- a/run-engine-tests.ps1
 +++ b/run-engine-tests.ps1
-@@ -54,3 +54,15 @@ if ($probe.Stderr -or $probe.Stdout -notmatch 'Native release probe passed:') {
-     throw "Native compiler probe failed:`n$($probe.Stdout)`n$($probe.Stderr)"
+@@ -65,3 +65,15 @@ foreach ($scene in @('native_kernel_canonical_json.tscn', 'native_kernel_command
+     }
+     Write-Output ($kernel.Stdout.Trim().Split("`n") | Select-Object -Last 1)
  }
- Write-Output ($probe.Stdout.Trim().Split("`n") | Select-Object -Last 1)
 +
 +# Companion (A1): MCP surface, mock host, link and boundary tests in the pinned companion environment.
 +# The first run needs network once to fill companion/.venv from companion/uv.lock.
@@ -46,7 +47,7 @@ index 4108918..0b3afc6 100644
  "$REPO/$(field engine_linux marker)" --version
  "$DEST/dotnet/dotnet" --list-sdks
 diff --git a/tools/linux/test-all.sh b/tools/linux/test-all.sh
-index 2e72b54..cf378bc 100644
+index e3f2706..53828a1 100644
 --- a/tools/linux/test-all.sh
 +++ b/tools/linux/test-all.sh
 @@ -1,12 +1,12 @@
@@ -64,7 +65,7 @@ index 2e72b54..cf378bc 100644
  export DOTNET_ROOT="$LINUX/dotnet" PATH="$LINUX/dotnet:$PATH" DOTNET_CLI_HOME="$LINUX/dotnet-home" NUGET_PACKAGES="$LINUX/nuget" \
         DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1 DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1
  # Keep test saves away from any real player data.
-@@ -44,6 +44,10 @@ else cat "$LOG/contracts.log"; failed=1; fi
+@@ -57,6 +57,10 @@ else cat "$LOG/contracts.log"; failed=1; fi
  if (cd "$REPO" && "$LINUX/contracts-venv/bin/python" -I contracts/validate.py game/rooms/test_room game/styles/*/v*.json > "$LOG/validate.log" 2>&1); then
    echo "PASS shipped rooms and presets validate"
  else cat "$LOG/validate.log"; failed=1; fi

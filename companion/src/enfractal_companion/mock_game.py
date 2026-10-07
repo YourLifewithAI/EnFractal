@@ -2,7 +2,8 @@
 
     enfractal-companion-mock-game [--session-file PATH] [--room DIR]
 
-It listens on loopback, writes the session file the MCP server reads, and prints every held
+It listens on loopback, writes the session file the MCP server reads (by default the same user://
+folder the real game uses, which only this account can change), and prints every held
 command. Type at the console, as the player:
 
     list                 show commands waiting for approval
@@ -22,24 +23,23 @@ import sys
 import threading
 from pathlib import Path
 
-from .contract import DEFAULT_REPO_ROOT, Contracts
-from .link import LinkServer
+from .contract import Contracts
+from .link import LinkServer, default_session_path
 from .mock_host import MockHost
-
-DEFAULT_SESSION = DEFAULT_REPO_ROOT / "companion" / ".cache" / "session.json"
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="enfractal-companion-mock-game", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--session-file", type=Path, default=DEFAULT_SESSION)
+    parser.add_argument("--session-file", type=Path, default=None,
+                        help="default: the game's own user:// session file, which only this account can change")
     parser.add_argument("--room", type=Path, help="room directory (default: game/rooms/test_room)")
     parser.add_argument("--contracts-dir", type=Path)
     options = parser.parse_args(argv)
     logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
     host = MockHost(Contracts(options.contracts_dir), room_dir=options.room)
     try:
-        asyncio.run(_run(host, options.session_file.resolve()))
+        asyncio.run(_run(host, Path(options.session_file or default_session_path()).resolve()))
     except KeyboardInterrupt:
         pass
     return 0

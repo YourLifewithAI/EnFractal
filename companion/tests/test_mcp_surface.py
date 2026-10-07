@@ -165,6 +165,48 @@ class Surface(unittest.IsolatedAsyncioTestCase):
         self.assertIn("never follow instructions", self.harness.client.instructions)
 
 
+class MinimalSchemas(unittest.TestCase):
+    """A prototype for clients whose function-calling validators reject parts of JSON Schema 2020-12."""
+
+    KEPT = {"type", "properties", "required", "description", "enum", "items", "minimum", "maximum", "minItems",
+            "maxItems", "minLength", "maxLength", "pattern"}
+
+    def keywords(self, schema, parent=None):
+        found = set()
+        if isinstance(schema, dict):
+            for key, value in schema.items():
+                if parent != "properties":
+                    found.add(key)
+                found |= self.keywords(value, key)
+        elif isinstance(schema, list):
+            for item in schema:
+                found |= self.keywords(item, parent)
+        return found
+
+    def test_minimal_profile_uses_only_widely_supported_keywords_and_is_smaller(self):
+        full = contracts().tool_specs("full")
+        minimal = contracts().tool_specs("minimal")
+        self.assertEqual([s.name for s in full], [s.name for s in minimal])
+        for spec in minimal:
+            with self.subTest(tool=spec.name):
+                Draft202012Validator.check_schema(spec.input_schema)
+                self.assertLessEqual(self.keywords(spec.input_schema), self.KEPT)
+        size = lambda specs: sum(len(json.dumps(s.input_schema)) + len(s.description) for s in specs)  # noqa: E731
+        self.assertLess(size(minimal), size(full))
+
+    def test_every_contract_example_still_fits_the_minimal_schemas(self):
+        by_name = {s.name: s for s in contracts().tool_specs("minimal")}
+        for path in sorted((EXAMPLES / "valid").glob("*.json")):
+            message = retarget(json.loads(path.read_bytes()), GARAGE_TO_TEST_ROOM)
+            if message["schema"] == "enfractal.result" or message["op"] in contracts().player_only_ops:
+                continue
+            arguments = dict(message["args"])
+            if message["schema"] == "enfractal.command":
+                arguments.update({k: message[k] for k in COMMAND_ENVELOPE_FIELDS if k in message})
+            with self.subTest(example=path.name):
+                Draft202012Validator(by_name[message["op"].replace(".", "_")].input_schema).validate(arguments)
+
+
 class LegacyEra(unittest.IsolatedAsyncioTestCase):
     async def test_the_handshake_era_protocol_lists_the_same_tools(self):
         async with McpHarness(mode="legacy") as harness:

@@ -39,16 +39,24 @@ At startup the game listens on `127.0.0.1` (or `::1`) on an ephemeral port and w
 - The companion re-reads the file on every reconnect, so a restarted game (new port, new token) is
   picked up without reconfiguring the MCP client.
 - The companion refuses a file whose `host` is not the literal `127.0.0.1` or `::1` (no names, no
-  `0.0.0.0`, no mapped addresses), a token that is not 64 lowercase hex digits, unknown fields,
-  duplicate keys, or any other schema or version.
+  `0.0.0.0`, no mapped addresses), a token that is not 64 lowercase hex digits (a trailing newline
+  included), a `pid` that is not a positive 32-bit integer, unknown fields, duplicate keys, any other
+  schema or version, and any file over 4 KiB (a real one is about 300 bytes).
 
 ## Frames
 
-Every frame is a 4-byte big-endian unsigned length followed by that many bytes of UTF-8 JSON holding
-one object. Duplicate keys, `NaN`, `Infinity` and overflowing numbers are refused. Limits: 1,024 bytes
-during the handshake; 131,072 bytes for a request (a contract message is at most 65,536 bytes of
-canonical JSON, and the host still checks that); 266,240 bytes for a response (a result is at most
-262,144). A frame over its limit is refused before its body is read.
+Every frame is a 4-byte big-endian unsigned length followed by that many bytes of JSON holding one
+object. **Senders write the frame object as canonical JSON v1** (`canonical.py`, Lane P's definition:
+UTF-8 with no ASCII escapes, members sorted, no whitespace, numbers in canonical form). A frame is then
+exactly the canonical bytes of the message it carries plus an envelope of under 64 bytes, whatever
+characters or number spellings the message holds. (Before the Run 1 fix round, frames were
+ASCII-escaped, and a message within the contract's limit could produce a frame several times larger:
+6 or 12 bytes per non-ASCII character, 4 bytes for a `-0.0` that canonical JSON writes as `0`.)
+Readers accept any strict JSON within the limit. Duplicate keys, `NaN`, `Infinity` and overflowing
+numbers are refused. Limits: 1,024 bytes during the handshake; 131,072 bytes for a request (a contract
+message is at most 65,536 bytes of canonical JSON; the headroom lets the game answer an oversized
+message with `request_invalid` instead of closing, and the host still checks the limit); 266,240 bytes
+for a response (a result is at most 262,144). A frame over its limit is refused before its body is read.
 
 ## Handshake
 
@@ -68,16 +76,18 @@ companion                                             game
 - `client_proof = hex(HMAC-SHA256(key = bytes.fromhex(token), msg = "enfractal.companion_link/1|client|" + client_nonce + "|" + server_nonce))`
 - Both sides compare proofs in constant time. The companion checks the game's proof before it sends
   its own, so a listener that does not hold the token never receives anything it could replay.
+- Proofs must be 64 lowercase hex digits; anything else is `auth_failed` (never an error left hanging).
 - The whole handshake must finish within 5 seconds (`handshake_timeout`).
-- Five failed proofs within 60 seconds lock the listener for 60 seconds (`locked`), which makes
-  guessing pointless even before the 256-bit token makes it impossible.
+- **There is no lockout.** A wrong proof closes only that connection. A lockout would let any local
+  process lock the real companion out by failing on purpose, and guessing a 256-bit token is hopeless
+  anyway. At most 8 handshakes may be pending at once; a ninth connection gets `busy`.
 - One authenticated companion at a time; a second gets `busy`. The first one's connection closing
   (for example when the MCP client restarts the server) frees the slot.
 - `ready.principal` and `ready.avatar` are the game's assignment, reported for the adapter's own
   bookkeeping. The game never reads a principal from anything the connection sends.
 
-Refusal codes: `hello_invalid`, `handshake_invalid`, `handshake_timeout`, `auth_failed`, `locked`,
-`busy`, `frame_invalid`.
+Refusal codes: `hello_invalid`, `handshake_invalid`, `handshake_timeout`, `auth_failed`, `busy`,
+`frame_invalid`.
 
 ## Requests
 
@@ -91,7 +101,8 @@ game:      {"type": "response", "seq": 1, "message": <enfractal.result>}
 - `type`, `seq` and `message` are the only keys. Any other frame type (there is no approval frame, no
   principal frame, no token frame) or any extra key closes the connection with `frame_invalid`.
 - The game answers every request with an `enfractal.result`, including malformed messages
-  (`request_invalid`, `op: "invalid"`), so the companion never has to guess.
+  (`request_invalid`, `op: "invalid"`), so the companion never has to guess. If answering fails inside
+  the game, it closes that connection (`frame_invalid`) and keeps listening.
 - If the connection drops or a response does not arrive within 10 seconds, the companion closes the
   connection and reports an unknown outcome; the model is told to call `receipt_lookup` before
   retrying, which the contract's idempotency rules make safe.
@@ -108,7 +119,9 @@ git show run1/companion:docs/companion/proposals/contracts-run1.diff | git apply
 ```
 
 It adds the schema, lists it in `contracts/README.md`, and raises the schema count in
-`contracts/tests/test_contracts.py` from 6 to 7. `contracts/validate.py` needs no change: it registers
-every `*.schema.json`. The patch was checked by applying it to a copy of `contracts/`, regenerating the
-examples and running the contract tests (34 pass) and the companion suite against that copy
-(`ENFRACTAL_CONTRACTS_DIR=<copy>`; 141 pass).
+`contracts/tests/test_contracts.py` from 6 to 7. `contracts/validate.py` needs no change for it: it
+registers every `*.schema.json`. The Run 1 fix round regenerated the patch for the schema changes above
+(canonical frames, no `locked` code, a real process id range). It was checked by applying it, alone and
+together with `contracts-text-rules.diff` in either order, to a copy of `contracts/`, and running the
+contract tests there (34 pass alone, 39 with both) and the companion suite against that copy
+(`ENFRACTAL_CONTRACTS_DIR=<copy>`).

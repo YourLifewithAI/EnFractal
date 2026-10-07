@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import secrets
 import struct
@@ -9,9 +10,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from support import COMPANION, command, contract_problems, new_host, query
+from support import COMPANION, command, contract_problems, example, new_host, query
 
-from enfractal_companion import link
+from enfractal_companion import canonical, link
 from enfractal_companion.link import (
     LinkClient, LinkError, LinkServer, SessionInfo, encode_frame, parse_session, read_frame, write_session_file,
 )
@@ -154,14 +155,13 @@ class Handshake(LinkCase):
             await second.connect()
         self.assertTrue((await first.request(query("room.describe", {})))["ok"])
 
-    async def test_locks_out_after_repeated_failed_handshakes(self):
-        for _ in range(link.FAILED_AUTH_LIMIT):
+    async def test_failed_proofs_never_lock_out_the_real_companion(self):
+        for _ in range(20):
             reader, writer, reply = await raw_connect(self.info, client_proof="f" * 64)
             self.assertEqual(reply["code"], "auth_failed")
             writer.close()
-        client = self.client()
-        with self.assertRaisesRegex(LinkError, r"\(locked\)"):
-            await client.connect()
+        ready = await self.client().connect()
+        self.assertEqual(ready["type"], "ready")
 
     async def test_refuses_a_malformed_hello(self):
         for hello in ({"type": "hello", "protocol": "other", "version": 1, "client_nonce": "0" * 64},
@@ -321,6 +321,187 @@ class Reconnect(LinkCase):
         for message in messages:
             self.assertNotIn(self.info.token, message)
             self.assertNotIn("cd" * 32, message)
+
+
+class ReviewFixes(LinkCase):
+    async def test_a_proof_that_is_not_hex_is_refused_not_left_hanging(self):
+        for proof in (chr(0xE9), "g" * 64, "A" * 64, "a" * 63):
+            with self.subTest(proof=ascii(proof)):
+                reader, writer, reply = await raw_connect(self.info, client_proof=proof)
+                self.assertEqual(reply, {"type": "refused", "code": "auth_failed"})
+                writer.close()
+
+    async def test_client_refuses_a_listener_whose_proof_is_malformed(self):
+        async def squatter(reader, writer):
+            await read_frame(reader, 4096)
+            body = ('{"type":"challenge","protocol":"enfractal.companion_link","version":1,'
+                    '"server_nonce":"%s","server_proof":"%s"}' % (secrets.token_hex(32), chr(0xE9))).encode("utf-8")
+            writer.write(struct.pack(">I", len(body)) + body)
+            await writer.drain()
+            await asyncio.sleep(0.2)
+            writer.close()
+
+        fake = await asyncio.start_server(squatter, "127.0.0.1", 0)
+        info = SessionInfo("127.0.0.1", fake.sockets[0].getsockname()[1], self.info.token, "test_room")
+        with self.assertRaises(LinkError):
+            await LinkClient(lambda: info).connect()
+        fake.close()
+        await fake.wait_closed()
+
+    async def test_a_large_non_ascii_result_fits_its_frame(self):
+        for _ in range(50):
+            self.host.add_world_text("obj:box", chr(0x1F600) * 500)
+        result = await self.client().request(query("observe", {"actor": "avatar:companion"}))
+        self.assertTrue(result["ok"])
+        self.assertEqual(len(result["data"]["texts"]), 50)
+
+    async def test_frames_are_utf8_so_their_size_tracks_canonical_json(self):
+        frame = encode_frame({"text": "caf" + chr(0xE9) + " " + chr(0x1F600)})
+        self.assertIn(("caf" + chr(0xE9)).encode("utf-8"), frame)
+        self.assertNotIn(b"\\u", frame)
+
+    async def test_client_refuses_to_send_non_finite_numbers(self):
+        with self.assertRaisesRegex(LinkError, "cannot be encoded"):
+            await self.client().request(query("observe", {"actor": "avatar:companion", "radius_m": float("nan")}))
+        self.assertEqual(self.host.emitted, [])
+
+    async def test_client_never_connects_anywhere_but_a_loopback_literal(self):
+        for host in ("10.0.0.1", "127.0.0.2", "localhost"):
+            with self.subTest(host=host), self.assertRaisesRegex(LinkError, "this computer"):
+                await LinkClient(lambda: SessionInfo(host, self.info.port, self.info.token, "test_room")).connect()
+
+    async def test_a_handler_failure_closes_only_that_connection(self):
+        def broken(principal, message):
+            raise RuntimeError("bug")
+
+        server = LinkServer(broken, "test_room")
+        info = await server.start()
+        with self.assertRaises(LinkError):
+            await LinkClient(lambda: info).request(query("room.describe", {}))
+        client = LinkClient(lambda: info)
+        ready = await client.connect()
+        self.assertEqual(ready["type"], "ready")
+        await client.close()
+        await server.close()
+
+
+class PendingHandshakes(LinkCase):
+    async def test_caps_unauthenticated_connections(self):
+        server = LinkServer(self.host.handle, "test_room", max_pending_handshakes=2, handshake_timeout_s=5)
+        info = await server.start()
+        idle = [await asyncio.open_connection(info.host, info.port) for _ in range(2)]
+        await asyncio.sleep(0.05)
+        reader, writer = await asyncio.open_connection(info.host, info.port)
+        self.assertEqual(await read_frame(reader, 4096), {"type": "refused", "code": "busy"})
+        writer.close()
+        for _r, w in idle:
+            w.close()
+        await server.close()
+
+
+class Loopback(unittest.IsolatedAsyncioTestCase):
+    async def test_the_two_loopback_literals_are_the_only_hosts(self):
+        host = new_host()
+        for literal in ("127.0.0.2", "::ffff:127.0.0.1", "0:0:0:0:0:0:0:1", "localhost"):
+            with self.subTest(host=literal):
+                with self.assertRaises(ValueError):
+                    LinkServer(host.handle, "test_room", host=literal)
+                document = {"schema": "enfractal.companion_session", "version": 1, "host": literal, "port": 4000,
+                            "token": "ab" * 32, "room_id": "test_room", "pid": 1, "created_utc": "2026-10-06T00:00:00Z"}
+                with self.assertRaises(LinkError):
+                    parse_session(json.dumps(document).encode())
+
+    async def test_ipv6_loopback_works_end_to_end(self):
+        host = new_host()
+        server = LinkServer(host.handle, host.room_id, host="::1")
+        try:
+            info = await server.start()
+        except OSError:
+            self.skipTest("IPv6 loopback is not available here")
+        client = LinkClient(lambda: info)
+        result = await client.request(query("room.describe", {}))
+        self.assertTrue(result["ok"])
+        await client.close()
+        await server.close()
+
+    def test_a_session_token_with_a_trailing_newline_is_refused(self):
+        document = {"schema": "enfractal.companion_session", "version": 1, "host": "127.0.0.1", "port": 4000,
+                    "token": "ab" * 32 + "\n", "room_id": "test_room", "pid": 1, "created_utc": "2026-10-06T00:00:00Z"}
+        with self.assertRaisesRegex(LinkError, "token"):
+            parse_session(json.dumps(document).encode())
+        document["token"] = "ab" * 32
+        document["room_id"] = "test_room\n"
+        with self.assertRaisesRegex(LinkError, "room_id"):
+            parse_session(json.dumps(document).encode())
+
+
+SPINNER = example("command_creation_place_spinner")["args"]["source"]
+
+
+class CanonicalFrames(LinkCase):
+    """Review finding 4: a frame must never be much larger than the canonical message it carries.
+
+    The contract limits messages in canonical JSON v1. ASCII escapes (6 or 12 bytes for one
+    character) and number spellings (-0.0 is 4 bytes, canonical 0 is 1) used to make the frame
+    several times larger, so a contract-valid message could exceed the frame limit."""
+
+    @staticmethod
+    def spelled_out(count: int) -> dict:
+        source = copy.deepcopy(SPINNER)
+        source["parts"][0]["profile_m"] = [-0.0] * count  # canonical: 0
+        return command("creation.place", {"source": source, "placement": {"position_m": [0.5, 0, 0.5]}}, "c-1")
+
+    def test_a_frame_is_the_canonical_message_plus_a_short_envelope(self):
+        tags = "".join(chr(0x1F600 + i % 50) for i in range(400))
+        messages = [self.spelled_out(2000),
+                    command("goal.set", {"actor": "avatar:companion", "goal": "stay"}, "g-1",
+                            note="caf" + chr(0xE9) + " " + tags[:100]),
+                    query("observe", {"actor": "avatar:companion", "radius_m": 2.0}),
+                    {"schema": "enfractal.result", "version": 1, "ok": True, "op": "observe", "principal": COMPANION,
+                     "room_id": "test_room", "revision": 3, "replayed": False, "preview": False,
+                     "at_utc": "2026-10-06T00:00:00Z", "data": {"bounds": [[1.0, -0.0, 2.5]] * 500, "text": tags}}]
+        for message in messages:
+            with self.subTest(op=message.get("op")):
+                for kind in ("request", "response"):
+                    body = encode_frame({"type": kind, "seq": 2 ** 53 - 1, "message": message})[4:]
+                    self.assertLessEqual(len(body) - len(canonical.canonical_bytes(message)), 64)
+                    self.assertEqual(json.loads(body)["message"], canonical.loads_strict(
+                        canonical.canonical_bytes(message).decode("utf-8")))
+
+    async def test_a_contract_sized_message_crosses_a_link_sized_to_the_contract(self):
+        message = self.spelled_out(15_000)
+        self.assertLessEqual(len(canonical.canonical_bytes(message["args"]["source"])), 32_768)
+        self.assertLessEqual(len(canonical.canonical_bytes(message)), 65_536)
+        client = self.client(max_request_frame=65_536 + 64)  # the bound canonical frames guarantee
+        result = await client.request(message)
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["created"], ["creation:00000001"])
+
+
+class SessionFileLimits(unittest.TestCase):
+    TOKEN = "ab" * 32
+
+    def document(self, **changes) -> dict:
+        document = {"schema": "enfractal.companion_session", "version": 1, "host": "127.0.0.1", "port": 40000,
+                    "token": self.TOKEN, "room_id": "test_room", "pid": 1, "created_utc": "2026-10-06T00:00:00Z"}
+        document.update(changes)
+        return document
+
+    def test_refuses_an_oversized_session_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "session.json"
+            path.write_bytes(json.dumps(self.document(), indent=4000).encode("utf-8"))
+            self.assertGreater(path.stat().st_size, link.MAX_SESSION_FILE)
+            with self.assertRaisesRegex(LinkError, "too large"):
+                LinkClient.from_file(path)._load()
+            path.write_bytes(json.dumps(self.document()).encode("utf-8"))
+            self.assertEqual(LinkClient.from_file(path)._load().port, 40000)
+
+    def test_refuses_a_malformed_pid_or_creation_time(self):
+        for changes in ({"pid": "1"}, {"pid": True}, {"pid": -1}, {"pid": 2 ** 40}, {"created_utc": 5},
+                        {"created_utc": "x" * 65}):
+            with self.subTest(changes=changes), self.assertRaisesRegex(LinkError, "pid or created_utc"):
+                parse_session(json.dumps(self.document(**changes)).encode())
 
 
 if __name__ == "__main__":

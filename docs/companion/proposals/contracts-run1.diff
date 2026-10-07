@@ -1,5 +1,5 @@
 diff --git a/contracts/README.md b/contracts/README.md
-index eb83f67..a87d3c6 100644
+index eb83f67..e99f6c8 100644
 --- a/contracts/README.md
 +++ b/contracts/README.md
 @@ -10,6 +10,7 @@ Run 0 output, 6 October 2026. These schemas are the agreements between the four
@@ -15,12 +15,12 @@ index eb83f67..a87d3c6 100644
  
  - Canonical JSON for command fingerprints and creation `source_sha256` must be byte-identical across GDScript, C# and Python. Run 1's P1 packet owns a shared golden fixture before any cross-language hash is compared.
 -- `observe` field-of-view rules, `capabilities.list` payloads and `jobs.status` payloads are A1 deliverables; their result `data` is free-form until then.
-+- `observe` field-of-view rules are in `docs/companion/SECURITY.md` (radius only in Run 1; line of sight arrives with the kernel host). `capabilities.list` and `jobs.status` result payloads are fixed by `$defs/data`.
++- What a companion perceives (line of sight from its avatar, for every query and command) is in `docs/companion/PERCEPTION.md`; the kernel host replaces the mock's box geometry with ray casts. `capabilities.list` and `jobs.status` result payloads are fixed by `$defs/data`.
  - Health, damage and hit primitives for the dragon scenario arrive with A4 as a version 2 command vocabulary.
  - Shared room libraries (an asset referenced by many rooms) and room-to-room portals need path forms the current `rel_path` rule forbids; they are deliberately out of version 1.
 diff --git a/contracts/companion-link.schema.json b/contracts/companion-link.schema.json
 new file mode 100644
-index 0000000..c0b6e28
+index 0000000..db7f5e8
 --- /dev/null
 +++ b/contracts/companion-link.schema.json
 @@ -0,0 +1,281 @@
@@ -28,7 +28,7 @@ index 0000000..c0b6e28
 +  "$schema": "https://json-schema.org/draft/2020-12/schema",
 +  "$id": "https://contracts.enfractal.invalid/v1/companion-link.schema.json",
 +  "title": "EnFractal companion link: session file and frames",
-+  "description": "PROPOSED for contracts/ by Lane A (Run 1). The loopback connection between the companion MCP server and the running game. The game listens on 127.0.0.1 or ::1 only and writes the session file to user://companion/session.json with a fresh 256-bit token per launch. Both sides prove knowledge of the token with HMAC-SHA256 over two fresh nonces, so the token never crosses the socket. Each frame is a 4-byte big-endian length followed by one UTF-8 JSON object; duplicate keys and non-finite numbers are refused. The game binds the principal to the authenticated connection; no frame carries a principal, an approval or the token. Request and response frames carry enfractal.command / enfractal.query and enfractal.result messages from game-command.schema.json.",
++  "description": "PROPOSED for contracts/ by Lane A (Run 1). The loopback connection between the companion MCP server and the running game. The game listens on 127.0.0.1 or ::1 only and writes the session file to user://companion/session.json with a fresh 256-bit token per launch. Both sides prove knowledge of the token with HMAC-SHA256 over two fresh nonces, so the token never crosses the socket. Each frame is a 4-byte big-endian length followed by one JSON object, which the sender writes as canonical JSON v1 (UTF-8, numbers in canonical form) so that a frame is the canonical message plus a short envelope; readers accept any strict JSON within the limit, and duplicate keys and non-finite numbers are refused. A wrong proof closes only that connection: there is no lockout. The game binds the principal to the authenticated connection; no frame carries a principal, an approval or the token. Request and response frames carry enfractal.command / enfractal.query and enfractal.result messages from game-command.schema.json.",
 +  "oneOf": [
 +    {
 +      "$ref": "#/$defs/session_file"
@@ -102,7 +102,8 @@ index 0000000..c0b6e28
 +        },
 +        "pid": {
 +          "type": "integer",
-+          "minimum": 0
++          "minimum": 1,
++          "maximum": 4294967295
 +        },
 +        "created_utc": {
 +          "$ref": "common.schema.json#/$defs/utc_timestamp"
@@ -250,7 +251,6 @@ index 0000000..c0b6e28
 +            "handshake_invalid",
 +            "handshake_timeout",
 +            "auth_failed",
-+            "locked",
 +            "busy",
 +            "frame_invalid"
 +          ]

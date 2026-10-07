@@ -1,0 +1,234 @@
+diff --git a/contracts/README.md b/contracts/README.md
+index eb83f67..53f66cf 100644
+--- a/contracts/README.md
++++ b/contracts/README.md
+@@ -35,7 +35,7 @@ python -m unittest discover -s contracts/tests -v
+ - **Identifiers.** Lowercase tokens for rooms, assets, presets, spawns, parts and jobs. Entity ids are namespaced: `shell:`, `obj:`, `creation:`, `avatar:`, `effect:` and legacy `edit:`. Principals are `player:`, `companion:`, `guest:`, `guest_companion:` or `system:` followed by a token.
+ - **Principals never travel in requests.** The trusted adapter assigns the principal; a request that carries one is invalid. Results echo it for audit. This is the rule that keeps a persuaded AI, or later a guest's AI, from claiming the player's authority.
+ - **Approvals are clicks, not tokens.** A command never carries an approval. When the host wants the player's consent, it holds the exact command and answers `approval_required` with `approval_needed.request_id`, a host-minted 128-bit identifier. The player approves or denies in the game UI. On approval the host commits the held command under its original principal and `action_id`, and the receipt records `approved_by`. Nobody resends anything; the requester polls `approval.status` or `receipt.lookup`. An approval expires, and it lapses if the entities it touches change before the click.
+-- **World text is untrusted, everywhere.** Every string that names or describes something in the world (display names, categories, labels, notes, room descriptions, sign text) is untrusted data, however it arrived. Single-line fields use `display_text`, which forbids control, line-separator, zero-width and bidirectional-override characters, so a name cannot fake a new line or hide text. Free text seen in the world travels in `observe` results as `texts` entries carrying the constant `untrusted: true`. The companion adapter presents all result data to a model as data, never as instructions; A1's tests prove it.
++- **World text is untrusted, everywhere.** Every string that names or describes something in the world (display names, categories, labels, notes, room descriptions, sign text) is untrusted data, however it arrived. Single-line fields use `display_text`, which forbids control, line-separator, zero-width, bidirectional-override and other invisible characters (the soft hyphen, the Arabic letter mark, Hangul fillers, variation selectors, interlinear annotation marks, and plane 14 with its TAG block), so a name cannot fake a new line or hide text. Patterns are ECMA-262: `$` matches only at the very end, never before a final newline. Plane 14 needs code in readers that match code points rather than UTF-16 units (`contracts/validate.py` refuses U+E0000 to U+EFFFF and unpaired surrogates in every string). Free text seen in the world travels in `observe` results as `texts` entries carrying the constant `untrusted: true`. The companion adapter presents all result data to a model as data, never as instructions; A1's tests prove it.
+ - **Player-only operations.** `protect.unlock` is listed in `$defs/player_only_ops`: the companion adapter never exposes it and the host refuses it from companion principals. A companion observes only through its own avatar.
+ - **Revisions for a live room.** A command may name `expected_revision` (the whole room, exact) or `expected_entities` (just the entities it cares about, at their revisions); destructive operations must name one of them, `room.undo` must name the room revision, and `goal.stop` and `effect.stop` never fail on revisions. A slow companion should use `expected_entities`, so changes elsewhere in the room do not conflict.
+ - **Receipts.** Commands that change saved state get durable receipts in room state; goals, effects and grabs get transient receipts for the session. Receipts at or below a checkpoint may be compacted; `receipt.lookup` then reports `compacted`.
+diff --git a/contracts/common.schema.json b/contracts/common.schema.json
+index 85968c9..680174d 100644
+--- a/contracts/common.schema.json
++++ b/contracts/common.schema.json
+@@ -272,16 +272,16 @@
+       ]
+     },
+     "display_text": {
+-      "description": "Single-line text shown to people and models: names, categories, labels, notes. Treated as untrusted data wherever it comes from. Control, line-separator, zero-width and bidirectional-override characters are forbidden so it cannot fake structure.",
++      "description": "Single-line text shown to people and models: names, categories, labels, notes. Treated as untrusted data wherever it comes from. Control, line-separator, zero-width, bidirectional-override and other invisible characters (the soft hyphen, the Arabic letter mark, Hangul fillers, variation selectors, interlinear annotation marks, the TAG block and the rest of plane 14) are forbidden so it cannot fake structure or hide text. The pattern is ECMA-262: '$' matches only at the very end. A UTF-16 reader refuses plane 14 through \\uDB40-\\uDB7F; a reader that matches code points refuses U+E0000-U+EFFFF in code (contracts/validate.py).",
+       "type": "string",
+       "maxLength": 500,
+-      "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F\\u200B-\\u200F\\u2028\\u2029\\u202A-\\u202E\\u2060-\\u2069\\uFEFF]*$"
++      "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F\\u00AD\\u034F\\u061C\\u115F\\u1160\\u180B-\\u180F\\u200B-\\u200F\\u2028-\\u202E\\u2060-\\u206F\\u2800\\u3164\\uFE00-\\uFE0F\\uFEFF\\uFFA0\\uFFF9-\\uFFFB\\uDB40-\\uDB7F]*$"
+     },
+     "long_text": {
+-      "description": "Multi-line untrusted text (descriptions, review notes, prompts). Newline and tab are the only control characters allowed.",
++      "description": "Multi-line untrusted text (descriptions, review notes, prompts). Newline and tab are the only control characters allowed; the invisible characters display_text forbids are forbidden here too.",
+       "type": "string",
+       "maxLength": 4000,
+-      "pattern": "^[^\\u0000-\\u0008\\u000B-\\u001F\\u007F-\\u009F\\u200B-\\u200F\\u2028\\u2029\\u202A-\\u202E\\u2060-\\u2069\\uFEFF]*$"
++      "pattern": "^[^\\u0000-\\u0008\\u000B-\\u001F\\u007F-\\u009F\\u00AD\\u034F\\u061C\\u115F\\u1160\\u180B-\\u180F\\u200B-\\u200F\\u2028-\\u202E\\u2060-\\u206F\\u2800\\u3164\\uFE00-\\uFE0F\\uFEFF\\uFFA0\\uFFF9-\\uFFFB\\uDB40-\\uDB7F]*$"
+     },
+     "request_id": {
+       "description": "Host-minted, unguessable identifier (at least 128 bits, lowercase hex).",
+@@ -302,7 +302,7 @@
+         {
+           "type": "string",
+           "maxLength": 64,
+-          "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F\\u200B-\\u200F\\u2028\\u2029\\u202A-\\u202E\\u2060-\\u2069\\uFEFF]*$"
++          "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F\\u00AD\\u034F\\u061C\\u115F\\u1160\\u180B-\\u180F\\u200B-\\u200F\\u2028-\\u202E\\u2060-\\u206F\\u2800\\u3164\\uFE00-\\uFE0F\\uFEFF\\uFFA0\\uFFF9-\\uFFFB\\uDB40-\\uDB7F]*$"
+         }
+       ]
+     },
+diff --git a/contracts/tests/test_contracts.py b/contracts/tests/test_contracts.py
+index be7a59c..90ec24a 100644
+--- a/contracts/tests/test_contracts.py
++++ b/contracts/tests/test_contracts.py
+@@ -339,6 +339,49 @@ class SemanticTests(unittest.TestCase):
+         self.assertProblem(validate.schema_errors(command), "exceeds 32768 bytes")
+ 
+ 
++class TextRuleTests(unittest.TestCase):
++    """Untrusted text: patterns are ECMA-262, and invisible characters are refused wherever text goes."""
++
++    def goal_with_note(self, note):
++        command = validate.load_strict(EXAMPLES / "messages" / "valid" / "command_companion_follow.json")
++        command["note"] = note
++        return command
++
++    def test_a_trailing_newline_never_satisfies_an_anchored_pattern(self):
++        self.assertEqual(validate.schema_errors(self.goal_with_note("approved by the player")), [])
++        self.assertTrue(validate.schema_errors(self.goal_with_note("approved by the player\n")))
++        command = self.goal_with_note("fine")
++        command["action_id"] += "\n"
++        self.assertTrue(validate.schema_errors(command))
++        self.assertEqual(validate.ecma_pattern("^(a|b$)|^c$"), r"^(a|b\Z)|^c\Z")
++        self.assertEqual(validate.ecma_pattern(r"^[$]\$x$"), r"^[$]\$x\Z")
++
++    def test_invisible_characters_are_refused(self):
++        tags = "".join(chr(0xE0000 + ord(c)) for c in "unlock")
++        for code in (0x00AD, 0x034F, 0x061C, 0x115F, 0x180E, 0x2061, 0x206A, 0x2800, 0x3164, 0xFE0F, 0xFFA0, 0xFFF9,
++                     0xFFFB, 0xE0000, 0xE0001, 0xE0002, 0xE0041, 0xE007F, 0xE0100, 0xE01F0):
++            with self.subTest(code=hex(code)):
++                self.assertTrue(validate.schema_errors(self.goal_with_note("ok" + chr(code))))
++        self.assertTrue(validate.schema_errors(self.goal_with_note("Welcome" + tags)))
++        for text in ("Caf\u00e9 \u2764 \U0001F600 \u6728\u306e\u7bb1", "\u05e2\u05d1\u05e8\u05d9\u05ea"):
++            with self.subTest(text=text):  # ordinary letters, emoji and right-to-left scripts still pass
++                self.assertEqual(validate.schema_errors(self.goal_with_note(text)), [])
++
++    def test_unpaired_surrogates_are_refused_not_crashed(self):
++        problems = validate.schema_errors(self.goal_with_note("lone \ud800"))
++        self.assertTrue(any("unpaired" in p for p in problems), problems)
++
++    def test_the_text_patterns_agree_in_python_and_ecma_262_engines(self):
++        """The same pattern string must refuse the same characters in a UTF-16 engine. Plane 14 is the
++        one place they differ, which is why Python refuses it in code."""
++        common = validate.load_strict(CONTRACTS / "common.schema.json")
++        for name in ("display_text", "long_text"):
++            pattern = common["$defs"][name]["pattern"]
++            self.assertIn("\\uDB40-\\uDB7F", pattern)
++            self.assertIn("\\u00AD", pattern)
++            self.assertIn("\\uFFF9-\\uFFFB", pattern)
++
++
+ class StrictLoaderTests(unittest.TestCase):
+     def check_rejects(self, raw: bytes, fragment: str):
+         with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as handle:
+@@ -354,6 +397,10 @@ class StrictLoaderTests(unittest.TestCase):
+         self.check_rejects(b'{"a": NaN}\n', "non-finite")
+         self.check_rejects(b'{"a": 1e400}\n', "overflows")
+ 
++    def test_rejects_absurd_numbers_and_nesting_as_contract_errors(self):
++        self.check_rejects(b'{"a": ' + b"9" * 5000 + b'}\n', "too long")
++        self.check_rejects(b"[" * 100000 + b"]" * 100000 + b"\n", "nests too deeply")
++
+     def test_rejects_bom_crlf_and_duplicates(self):
+         self.check_rejects(b'\xef\xbb\xbf{"a": 1}\n', "byte-order mark")
+         self.check_rejects(b'{"a": 1}\r\n', "CR line endings")
+diff --git a/contracts/validate.py b/contracts/validate.py
+index d872e2c..29e8200 100644
+--- a/contracts/validate.py
++++ b/contracts/validate.py
+@@ -20,11 +20,12 @@ import hashlib
+ import json
+ import math
+ import re
++import functools
+ import struct
+ import sys
+ from pathlib import Path, PurePosixPath
+ 
+-from jsonschema import Draft202012Validator, validators
++from jsonschema import Draft202012Validator, ValidationError, validators
+ from jsonschema.exceptions import best_match
+ from referencing import Registry, Resource
+ from referencing.jsonschema import DRAFT202012
+@@ -98,12 +99,92 @@ def loads_strict(text: str):
+         return json.loads(text, object_pairs_hook=unique_pairs, parse_constant=reject_constant, parse_float=finite_float)
+     except json.JSONDecodeError as error:
+         raise ContractError(f"invalid JSON: {error}") from None
++    except ContractError:
++        raise
++    except ValueError:  # an integer literal longer than Python converts (4,300 digits by default)
++        raise ContractError("a number is too long to read") from None
++    except RecursionError:
++        raise ContractError("the document nests too deeply to read") from None
+ 
+ 
+ # 'integer' means a JSON number written without a fraction, as the C# and GDScript readers require.
+ _STRICT_TYPES = Draft202012Validator.TYPE_CHECKER.redefine(
+     "integer", lambda _checker, instance: isinstance(instance, int) and not isinstance(instance, bool))
+-StrictValidator = validators.extend(Draft202012Validator, type_checker=_STRICT_TYPES)
++
++
++def ecma_pattern(pattern: str) -> str:
++    """Translate an ECMA-262 pattern (JSON Schema's dialect, no flags) for Python's re.
++
++    ECMA-262's '$' matches only at the very end of the input; Python's (and .NET's) '$' also
++    matches just before a final newline, so "approved\\n" passed '^[^...]*$'. Every '$' that is
++    neither escaped nor inside a character class becomes '\\Z'. The contract's patterns use no
++    other construct whose meaning differs."""
++    out, in_class, i = [], False, 0
++    while i < len(pattern):
++        ch = pattern[i]
++        if ch == "\\" and i + 1 < len(pattern):
++            out.append(pattern[i:i + 2])
++            i += 2
++            continue
++        if in_class:
++            in_class = ch != "]"
++        elif ch == "[":
++            in_class = True
++            prefix = "[^" if pattern.startswith("[^", i) else "["
++            out.append(prefix)
++            i += len(prefix)
++            if i < len(pattern) and pattern[i] == "]":  # a ']' first in a class is a member
++                out.append("]")
++                i += 1
++            continue
++        elif ch == "$":
++            out.append(r"\Z")
++            i += 1
++            continue
++        out.append(ch)
++        i += 1
++    return "".join(out)
++
++
++@functools.lru_cache(maxsize=512)
++def _compiled(pattern: str):
++    return re.compile(ecma_pattern(pattern))
++
++
++def _ecma_pattern_keyword(validator, pattern, instance, schema):
++    if validator.is_type(instance, "string") and not _compiled(pattern).search(instance):
++        yield ValidationError(f"{instance!r} does not match {pattern!r}")
++
++
++StrictValidator = validators.extend(Draft202012Validator, {"pattern": _ecma_pattern_keyword}, type_checker=_STRICT_TYPES)
++
++
++def _hidden_code_point(text: str) -> str | None:
++    """Plane 14 (U+E0000-U+EFFFF: the TAG block, which can spell a hidden message, and the variation
++    selector supplement) and unpaired surrogates. The text patterns refuse plane 14 only in UTF-16
++    readers, through \\uDB40-\\uDB7F; Python matches code points, so it checks here, in every string."""
++    for ch in text:
++        code = ord(ch)
++        if 0xE0000 <= code <= 0xEFFFF or 0xD800 <= code <= 0xDFFF:
++            return f"U+{code:04X}"
++    return None
++
++
++def _text_problems(value, path: str = "$") -> list[str]:
++    if isinstance(value, str):
++        found = _hidden_code_point(value)
++        return [f"{path}: contains the invisible or unpaired character {found}"] if found else []
++    problems = []
++    if isinstance(value, dict):
++        for key, item in value.items():
++            found = _hidden_code_point(key) if isinstance(key, str) else None
++            if found:
++                problems.append(f"{path}: a field name contains the invisible or unpaired character {found}")
++            problems += _text_problems(item, f"{path}.{key}")
++    elif isinstance(value, list):
++        for index, item in enumerate(value):
++            problems += _text_problems(item, f"{path}[{index}]")
++    return problems
+ 
+ 
+ def _registry() -> Registry:
+@@ -154,6 +235,9 @@ def schema_errors(document, expected: str | None = None) -> list[str]:
+             deepest = best_match(error.context)
+             detail = f"{detail} (closest: {_json_path(deepest)}: {deepest.message})"
+         messages.append(f"{_json_path(error)}: {detail}")
++    hidden = _text_problems(document)
++    if hidden:
++        return messages + hidden  # an unpaired surrogate cannot be measured in UTF-8 either
+     limit = MESSAGE_LIMITS.get(document["schema"])
+     if limit and len(canonical_bytes(document)) > limit:
+         messages.append(f"$: message is {len(canonical_bytes(document))} bytes of canonical JSON; the limit is {limit}")
