@@ -7,7 +7,9 @@ must agree byte for byte; the golden fixture in game/tests/fixtures/kernel/ prov
 
 The rules:
   * The input is strict JSON: no duplicate keys, no NaN or Infinity, no number that overflows
-    a double, no unpaired surrogate. Anything else is refused, never repaired.
+    a double, no number with more than 800 significant digits, no more than 64 nested arrays and
+    objects, no unpaired surrogate. Anything else is refused, never repaired. GDScript and C# refuse
+    exactly the same inputs.
   * Every number is read as the nearest IEEE-754 double. A double that is a whole number with
     magnitude at most 2**53 is written as an integer (so 1, 1.0 and 1e0 are all written 1, and
     -0 is written 0). Any other double is written as Python's repr(float): the shortest digits
@@ -39,6 +41,8 @@ from pathlib import Path
 
 VERSION = 1
 SAFE_INTEGER = 2 ** 53
+MAX_DEPTH = 64
+MAX_NUMBER_DIGITS = 800
 INPUT_NAME = "canonical_input.json"
 EXPECTED_NAME = "canonical_expected.json"
 DIGEST_NAME = "canonical_expected.sha256"
@@ -50,8 +54,39 @@ class CanonicalJsonError(ValueError):
     """The value cannot be written as canonical JSON."""
 
 
+def significant_digits(literal: str) -> int:
+    """Digits of the mantissa (integer and fraction parts) without leading and trailing zeros, as GDScript counts them."""
+    mantissa = literal.lstrip("-").split("e")[0].split("E")[0].replace(".", "")
+    return len(mantissa.strip("0"))
+
+
+def _nesting_problem(text: str) -> str | None:
+    """Refuse more than MAX_DEPTH nested containers before the recursive parser can overflow the stack."""
+    depth = 0
+    in_string = False
+    escaped = False
+    for character in text:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == '"':
+                in_string = False
+        elif character == '"':
+            in_string = True
+        elif character in "[{":
+            depth += 1
+            if depth > MAX_DEPTH:
+                return f"JSON nests deeper than {MAX_DEPTH} levels"
+        elif character in "]}":
+            depth -= 1
+    return None
+
+
 def loads_strict(text: str):
-    """Parse JSON the way the kernel does: duplicate keys, NaN and overflowing numbers are refused."""
+    """Parse JSON the way the kernel does: duplicate keys, NaN, overflowing or overlong numbers and nesting
+    deeper than 64 are refused with CanonicalJsonError, never another exception."""
 
     def unique_pairs(pairs):
         result = {}
@@ -65,21 +100,36 @@ def loads_strict(text: str):
         raise CanonicalJsonError(f"non-finite number {name} is not JSON")
 
     def finite_float(literal):
+        if significant_digits(literal) > MAX_NUMBER_DIGITS:
+            raise CanonicalJsonError(f"a number has more than {MAX_NUMBER_DIGITS} significant digits")
         number = float(literal)
         if not math.isfinite(number):
-            raise CanonicalJsonError(f"number {literal} overflows a double")
+            raise CanonicalJsonError(f"number {literal[:40]} overflows a double")
         return number
 
+    def finite_int(literal):
+        # float() of the text has no digit limit, so an integer beyond a double is refused before int() could fail.
+        finite_float(literal)
+        return int(literal)
+
+    problem = _nesting_problem(text)
+    if problem:
+        raise CanonicalJsonError(problem)
     try:
-        return json.loads(text, object_pairs_hook=unique_pairs, parse_constant=reject_constant, parse_float=finite_float)
+        return json.loads(text, object_pairs_hook=unique_pairs, parse_constant=reject_constant, parse_float=finite_float,
+                          parse_int=finite_int)
     except json.JSONDecodeError as error:
         raise CanonicalJsonError(f"invalid JSON: {error}") from None
+    except (ValueError, RecursionError) as error:
+        if isinstance(error, CanonicalJsonError):
+            raise
+        raise CanonicalJsonError(f"invalid JSON: {type(error).__name__}") from None
 
 
 def normalize(value, depth: int = 0):
     """Return a copy in which every number is the int or float the canonical form writes."""
-    if depth > 128:
-        raise CanonicalJsonError("value nests deeper than 128 levels")
+    if depth >= MAX_DEPTH and isinstance(value, (list, tuple, dict)):
+        raise CanonicalJsonError(f"value nests deeper than {MAX_DEPTH} levels")
     if value is None or isinstance(value, (bool, str)):
         return value
     if isinstance(value, (int, float)):

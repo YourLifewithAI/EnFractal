@@ -96,9 +96,9 @@ The founder walked behind the big box, summoned the companion, and it stuck on t
 
 - **Baked at runtime from the room's static collision.** At room load a Recast navigation mesh is baked from the `StaticBody3D` colliders on the world layer under the built room, inside the room bounds. Cells are 2 cm across and 1 cm high. The agent is the companion: radius **4 cm** (its 2 cm body plus 2 cm clearance, exactly two cells; it was 8 cm for the 0.24 m body), height **10 cm** (was 24 cm), climb **1 cm** (three quarters of the 2 cm step, rounded down to whole layers; was 3 cm), slope 45°, with low ceilings and ledges filtered out. The climb sits below the body's 2 cm step, so a route never asks for a climb the body might fail: the 6 mm rug is walkable, and the 4 cm book and doorstop are walked round. The test room bakes to **64 polygons in about 24 ms** (69 in 22 ms with the old agent). The cells stay 2 cm: 1 cm cells would allow a 3 cm agent radius but cost about four times the bake.
 - **Its own navigation map** (2 cm cells, synchronous updates at the end of each physics frame), so it never conflicts with the default map's cell size.
-- **Re-baked when the room changes.** Every 0.25 s the source collision is fingerprinted (which static bodies and shapes, and where, to the millimetre). A change re-bakes once it has held still for 0.2 s, so a carried object is baked where it is put down, not on every frame. Measured: a box added to the test floor was in the mesh 17 ticks later. `MarkDirty()` forces a bake.
+- **Re-baked when the room changes.** Every 0.25 s the source collision is fingerprinted (which static bodies and shapes, where, and each shape's dimensions to the millimetre; mesh-sized shapes by their `changed` signal). Before the Lane P review only shape instance ids were hashed, so a shape resized in place was missed; measured now: an in-place resize re-bakes about 30 ticks later. A change re-bakes once it has held still for 0.2 s, so a carried object is baked where it is put down, not on every frame. Measured: a box added to the test floor was in the mesh 17 ticks later. `MarkDirty()` forces a bake.
 - **Used by follow and come.** Routes are re-planned every 0.1 s, or sooner when the goal moves 3 cm or the mesh is re-baked. Where the walkable line to the goal is straight, the companion keeps its local behaviour: velocity matching, the final approach, and local steering round the player's body. Where the route is a real detour (more than 3 cm longer than the straight line), it steers corner to corner. For follow, a detour to its place counts as outside the band, so a companion resting behind the box comes round. If a wall or furniture covers its side (its place is more than an agent radius off the walkable mesh), its place moves to the other side.
-- **Blocked is reported honestly.** When the goal is not on the companion's walkable island, the route ends at the nearest point it can reach. The companion walks there and reports blocked, and the HUD shows "path blocked". It never teleports or crosses a wall. Trying to move for a second without covering 1.5 cm also reports blocked, and the route is planned again.
+- **Blocked is reported honestly.** When the goal is not on the companion's walkable island, the route ends at the nearest point it can reach. A route reaches its goal only when it ends at the goal's own nearest walkable point (within 5 cm), not merely near the goal: across a thin wall the player can be inside the 14 cm come distance yet unreachable, which used to count as arrived. Measured now: with the player inside a pen of 1 cm walls and the companion 7 cm away outside, come reports blocked. The companion walks there and reports blocked, and the HUD shows "path blocked". It never teleports or crosses a wall. Trying to move for a second without covering 1.5 cm also reports blocked, and the route is planned again.
 
 Measured headless (Godot 4.7.2, Jolt, 60 Hz). The first column is the 0.24 m companion with local steering only, as the founder played it; the others are with navigation, first for the 0.24 m body and now for the 10 cm one.
 
@@ -159,29 +159,46 @@ Removing both biases leaves the contact as it was and only adds acne, so today's
 - **Roughness**: the second difference of height between ticks (largest and RMS). It is zero for smooth motion on a plane, so it catches bobbing that height spread hides.
 - **Drift**: horizontal motion while standing or pushing into a wall.
 
-Measured on the founder's machine (Godot 4.7.2, 60 Hz, headless):
+Rerun after the Lane P review at `93d07bc` on the founder's machine (Godot 4.7.2, 60 Hz, headless), once per engine: the project as committed (Jolt) and the same worktree switched to Godot Physics for the run and switched back. The table that stood here was measured before the playtest retune and is replaced. Each cell is the RMS of the tick-to-tick second difference of body height in body-scale millimetres, with the largest single value in brackets. Every walking scenario stayed on the floor on every tick (floor ratio 1.000, no transitions) on both engines and both scales.
 
 | Scenario | Godot Physics ×1 | Godot Physics ×10 | Jolt ×1 | Jolt ×10 |
 |---|---|---|---|---|
-| Standing: floor, 6 mm rug, 4 cm book top, half over the book edge, 10/20/30/40° slopes | 0 drift, 0 spread, 0 transitions | same | same | same |
-| Pushing into the book's side for 2 s | 0 drift, 0 spread | same | same | same |
-| Walking over the rug (on and off) | floor 1.000, RMS 0.30 mm | 0.32 mm | RMS 0.24 mm | 0.28 mm |
-| Walking up 10° (on the ramp) | RMS 0.046 mm | 0.032 | 0.16 | 0.032 |
-| Walking up 20° | **RMS 0.81 mm** | 0.80 | 0.21 | 0.20 |
-| Walking up 30° | **RMS 0.57 mm** | 0.15 | 0.28 | 0.28 |
-| Walking up 40° | RMS 0.29 mm | 0.28 | 0.27 | 0.27 |
-| Walking down 10/20/30/40° | RMS 0.05 to 0.17 mm | 0.04 to 0.35 | 0.05 to 0.17 | 0.04 to 0.17 |
-| Floor-to-ramp crease (one-off) | max 1.8 to 2.7 mm | 1.5 to 3.0 | max 1.0 to 3.6 | 1.0 to 2.4 |
+| Standing: floor, 6 mm rug, 4 cm book top, half over the book edge, 10/20/30/40° slopes | 0, no drift | 0 | 0 | 0 |
+| Pushing into the book's side for 2 s | 0, no drift | 0 | 0 | 0 |
+| Walking over the rug (on and off) | 0.27 (3.6) | 0.24 (3.3) | 0.23 (3.2) | 0.25 (3.8) |
+| Floor onto a 10° ramp (crease) | 0.17 (1.6) | 0.18 (1.7) | 0.09 (0.9) | 0.09 (0.9) |
+| Up 10° | 0.05 (0.19) | 0.02 (0.18) | 0.03 (0.25) | 0.03 (0.19) |
+| Down 10° | 0.04 (0.30) | 0.04 (0.29) | 0.04 (0.30) | 0.04 (0.29) |
+| Floor onto 20° (crease) | 0.44 (2.2) | 0.29 (2.2) | 0.20 (2.0) | 0.20 (2.0) |
+| Up 20° | **0.73** (2.0) | **0.65** (1.9) | 0.13 (1.0) | 0.25 (1.7) |
+| Down 20° | 0.08 (0.57) | 0.35 (2.0) | 0.08 (0.58) | 0.08 (0.58) |
+| Floor onto 30° (crease) | 0.49 (3.8) | 0.41 (4.0) | 0.31 (3.1) | 0.30 (3.0) |
+| Up 30° | 0.07 (0.48) | 0.07 (0.50) | **0.33** (2.5) | **0.32** (2.5) |
+| Down 30° | 0.12 (0.84) | 0.32 (1.7) | 0.12 (0.84) | 0.12 (0.80) |
+| Floor onto 40° (crease) | 0.59 (**5.6**) | 0.34 (3.0) | 0.39 (3.8) | 0.36 (3.5) |
+| Up 40° | **0.64** (4.1) | 0.06 (0.38) | 0.09 (0.65) | 0.05 (0.36) |
+| Down 40° | 0.16 (1.09) | 0.16 (1.09) | 0.16 (1.09) | 0.16 (1.14) |
 
-Every walking scenario stays on the floor for every tick on both engines and both scales.
+The Jolt column reproduces the independent reviewer's run on the same head to the last digit: the simulation is deterministic.
 
-**Decisions.**
+**Decisions, confirmed.**
 
-1. **No ×10 import scale.** The 0.02 m capsule shows no scale-specific jitter: standing is perfectly still at 1×, and the walking numbers at 10× are not consistently better (some better, some worse). Rooms stay at one unit per metre.
-2. **Jolt Physics** (`[physics] 3d/physics_engine="Jolt Physics"`, previously unset, which measured identical to Godot Physics). The difference that matters is the engine, not the scale: Godot Physics stutters walking up 20° and 30° ramps by 0.6 to 0.8 mm per tick at an 8.7 cm eye height, Jolt by 0.2 to 0.3. All kernel suites, the room boot and the room-data fixture pass on Jolt.
-3. The floor-to-ramp crease produces a few ticks of 1 to 3 mm bump on both engines and scales. It is controller behaviour at a concave edge, not precision. A camera height smoother is the usual fix if the playtest notices it.
+1. **Jolt Physics stays.** It is not better everywhere: Godot Physics walks up the 30° ramp more smoothly (0.07 against 0.33 mm). But Jolt's worst walking case is 0.39 mm RMS (onto the 40° ramp) and its worst single tick 3.8 mm, where Godot Physics reaches 0.73 mm RMS walking up 20°, 0.64 mm up 40° and a 5.6 mm single tick. The old table's figures moved with the retune (Godot Physics up 30° was 0.57 mm and is now 0.07; Jolt up 20° was 0.21 and is now 0.13); the comparison still favours Jolt.
+2. **No ×10 import scale.** At ×10 neither engine is consistently smoother: Godot Physics is better on six rows and worse on five, and Jolt's ×10 column is within 0.02 mm of its ×1 column except up 20°, where ×10 is worse (0.25 against 0.13). Nothing in the numbers is a precision problem that scale would fix.
+3. The floor-to-ramp crease gives a few ticks of 1 to 6 mm bump on both engines and both scales: controller behaviour at a concave edge, not precision. A camera height smoother remains the fix if the playtest notices it.
+
+**What this spike does not establish** (the reviewer's methodology notes):
+
+- **One deterministic run.** Rerunning gives the same numbers, so repetition adds nothing; real variation would come from start positions, speeds, frame pacing and input timing, which the spike does not sample.
+- **Body height, not the eye camera.** The eye camera is a rigid child of the body, so its height roughness is the body's exactly; but camera pitch, the over-the-shoulder spring arm and the F3/F4 rigs (which ease after the body) are not measured.
+- **No measured noticeability threshold.** A rough screen estimate only: at the 72° eye lens on a 1080-pixel-tall view, a vertical eye shift of d moves features 0.3 m away by about d × 2,500 pixels per metre. So 0.33 mm RMS is about 0.8 pixel per tick (at the edge of visible), 0.73 mm about 1.8 pixels, and a one-tick crease bump of 3 to 6 mm about 7 to 14 pixels, likely visible on both engines. Only the founder's playtest certifies feel.
+- **The ×10 descents cover more distance.** The scaled probe accelerates differently going down, so on Jolt the ×10 descents travelled further (234 against 208 mm body-scale on 40°, 257 against 235 mm on 30°); those rows compare slightly different walks.
 
 Not measured: physics at 120 Hz ticks and physics interpolation. Both change all frame-counted tests and the mouse-look path, so they are left for the playtest to motivate.
+
+## G is a playtest-only exception to the single command path
+
+Key **G** cycles world gravity directly on the player's body (`SmallPlayerController.CycleWorldPhysics`), not through an `enfractal.command`. The contract has no world-physics operation, so routing it through the command host needs a contract change first. It is recorded here as a **playtest-only exception**: gravity is not saved in room state, the companion adopts the player's profile, and nothing but the local keyboard can change it. Before gravity becomes a game feature (a creation, a magic, a saved room rule), it gets a contract op (proposed: `world.set_physics` with a preset id, player-only for now) and the key sends that command.
 
 ## Founder playtest (ten minutes)
 

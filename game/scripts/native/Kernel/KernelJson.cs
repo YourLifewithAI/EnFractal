@@ -89,18 +89,11 @@ public static class KernelJson
         ["min_m"] = VariantVector(box.Position), ["max_m"] = VariantVector(box.End)
     };
 
-    /// <summary>Plain text that satisfies the contract's display_text rule and length.</summary>
-    public static string DisplayText(string text, int maxLength)
-    {
-        var clean = new string(text.Select(c => Unsafe(c) ? ' ' : c).ToArray()).Trim();
-        if (clean.Length == 0) clean = "Refused.";
-        return clean.Length <= maxLength ? clean : clean[..maxLength];
-    }
-
-    /// <summary>Control, zero-width, line-separator, bidirectional-override and byte-order-mark characters.</summary>
-    private static bool Unsafe(char c) =>
-        char.IsControl(c) || (c >= 0x200B && c <= 0x200F) || c == 0x2028 || c == 0x2029 ||
-        (c >= 0x202A && c <= 0x202E) || (c >= 0x2060 && c <= 0x2069) || c == 0xFEFF;
+    /// <summary>
+    /// Plain text that satisfies the contract's display_text rule and length: every hidden character (the
+    /// project's invisible-character rule, KernelText) becomes a space, and the cut falls on a code point.
+    /// </summary>
+    public static string DisplayText(string text, int maxLength) => KernelText.DisplayText(text, maxLength);
 
     public static string Utc(DateTime time) => time.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture);
 }

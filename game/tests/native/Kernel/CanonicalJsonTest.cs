@@ -51,6 +51,18 @@ public partial class CanonicalJsonTest : Node
                 catch (CanonicalJsonException) { refused = true; }
                 Check(refused, $"strict parser refuses {bad[..System.Math.Min(20, bad.Length)]}");
             }
+            // The same limits as GDScript and Python: 64 nested containers and 800 significant digits (Lane P review).
+            Check(Accepts(new string('[', 64) + new string(']', 64)) && Accepts(string.Concat(Enumerable.Repeat("{\"a\":", 64)) + "1" + new string('}', 64)), "64 nested containers are read");
+            Check(!Accepts(new string('[', 65) + new string(']', 65)) && !Accepts(string.Concat(Enumerable.Repeat("{\"a\":", 65)) + "1" + new string('}', 65)) &&
+                !Accepts(new string('[', 64) + "{}" + new string(']', 64)), "65 nested containers are refused");
+            System.Text.Json.Nodes.JsonNode nested = new System.Text.Json.Nodes.JsonArray();
+            for (var level = 0; level < 63; level++) nested = new System.Text.Json.Nodes.JsonArray(nested);
+            var writes = CanonicalJson.Text(nested) == new string('[', 64) + new string(']', 64);
+            try { CanonicalJson.Text(new System.Text.Json.Nodes.JsonArray(nested)); writes = false; }
+            catch (CanonicalJsonException) { }
+            Check(writes, "64 nested containers are written, 65 are not");
+            Check(Accepts("[0." + new string('1', 800) + "]") && Accepts("[1" + new string('0', 300) + "]"), "800 significant digits are read; trailing zeros do not count");
+            Check(!Accepts("[0." + new string('1', 801) + "]") && !Accepts("[" + new string('9', 5000) + "]") && !Accepts("[-1." + new string('2', 800) + "e-5]"), "801 significant digits are refused");
             GD.Print($"NATIVE_KERNEL_CANONICAL_JSON: {_checks - _failures}/{_checks} checks passed; golden fixture sha256 {digest} reproduced by C# and by GDScript");
             GetTree().Quit(_failures == 0 ? 0 : 1);
         }
@@ -59,6 +71,12 @@ public partial class CanonicalJsonTest : Node
             GD.PushError("Canonical JSON test exception: " + error);
             GetTree().Quit(1);
         }
+    }
+
+    private static bool Accepts(string text)
+    {
+        try { using var _ = CanonicalJson.Parse(text); return true; }
+        catch (CanonicalJsonException) { return false; }
     }
 
     private void Check(bool condition, string label)

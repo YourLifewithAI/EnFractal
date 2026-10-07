@@ -360,38 +360,71 @@ func activate_creation(id: String, principal := PLAYER) -> Dictionary:
 
 
 ## The one place an activation is admitted and run: the authority admits it (transient receipt),
-## then the reachable graph fires. A replayed receipt never runs the graph again.
+## then the reachable graph fires. A replayed receipt never runs the graph again. When the graph cannot
+## fire (no Use trigger, a busy budget), the receipt is dropped again, so a retry runs instead of
+## replaying a success that never happened.
 func execute_activation(principal: String, request: Dictionary, receipt_meta: Dictionary = {}) -> Dictionary:
 	var result: Dictionary = authority.submit(principal, request, receipt_meta)
 	if not result.ok or result.get("replayed", false):
 		return result
 	var id: String = result.instance_id
-	for node in instances[id].source.nodes:
+	var fired := {"ok": false, "code": "activation_context", "path": "instance_id", "message": "This design uses a timer, sensor or passive glide. It has no Use trigger."}
+	for node in instances[id].source.nodes if instances.has(id) else []:
 		if node.op == "interact":
-			var fired := _fire(id, node.id, principal)
-			if not fired.ok:
-				return fired
-			return result
-	return {"ok": false, "code": "activation_context", "path": "instance_id", "message": "This design uses a timer, sensor or passive glide. It has no Use trigger."}
+			fired = _fire(id, node.id, principal, principal)
+			break
+	if not fired.ok:
+		authority.forget_activation(principal, String(request.get("action_id", "")))
+		return fired
+	return result
 
 
-## Stops every running creation effect (fields and animations): effect.stop "all".
-func stop_effects() -> int:
-	var stopped := fields.size() + animations.size()
-	fields.clear()
+## Stops running creation effects (fields and animations) for effect.stop and goal.stop: every effect for
+## "", otherwise only the effects owner started. An effect belongs to whoever started it: the principal who
+## used the creation, or for timers and sensors the creation's owner. The command host passes "" for the
+## player's stop-all, which covers everything the player directs, and the companion's own principal for
+## the companion's stops.
+func stop_effects(owner := "") -> int:
+	var all := owner.is_empty()
+	var principal := owner
+	var kept_fields: Array = []
+	var kept_animations: Array = []
+	var stopped := 0
+	for field in fields:
+		if all or field.by == principal:
+			stopped += 1
+		else:
+			kept_fields.append(field)
 	for animation in animations:
-		if is_instance_valid(animation.part) and animation.op == "light":
-			var lamp = animation.part.get_node_or_null("Light_" + animation.node_id)
-			if lamp:
-				lamp.light_energy = 0.0
-	animations.clear()
-	_clear_body_motion()
+		if all or animation.by == principal:
+			stopped += 1
+			if is_instance_valid(animation.part) and animation.op == "light":
+				var lamp = animation.part.get_node_or_null("Light_" + animation.node_id)
+				if lamp:
+					lamp.light_energy = 0.0
+		else:
+			kept_animations.append(animation)
+	fields = kept_fields
+	animations = kept_animations
+	if stopped > 0:
+		_clear_body_motion()
 	return stopped
 
 
-func _fire(id: String, trigger: String, principal: String) -> Dictionary:
+## How many running effects principal started (all of them for "").
+func effect_count(principal := "") -> int:
+	var count := 0
+	for effect in fields + animations:
+		if principal.is_empty() or effect.by == principal:
+			count += 1
+	return count
+
+
+func _fire(id: String, trigger: String, principal: String, by := "") -> Dictionary:
+	if by.is_empty():
+		by = principal
 	if not instances.has(id):
-		return {"ok": false, "message": "That invention no longer exists."}
+		return {"ok": false, "code": "instance_not_found", "path": "instance_id", "message": "That invention no longer exists."}
 	var item: Dictionary = instances[id]
 	var ordered: Array = EXECUTION.plan(item.artifact, trigger)
 	var field_count := 0
@@ -400,7 +433,7 @@ func _fire(id: String, trigger: String, principal: String) -> Dictionary:
 			field_count += 1
 	if fields.size() + field_count > MAX_FIELDS:
 		rejected_activations += 1
-		return {"ok": false, "message": "The room's wind capacity is busy. Try again shortly."}
+		return {"ok": false, "code": "runtime_budget", "path": "runtime", "message": "The room's wind capacity is busy. Try again shortly."}
 	var admitted: Dictionary = authority.consume_runtime_budget(id, principal, field_count, ordered.size(), clock_s)
 	if not admitted.ok:
 		rejected_activations += 1
@@ -412,11 +445,11 @@ func _fire(id: String, trigger: String, principal: String) -> Dictionary:
 		var part: Node3D = parts[node.part_id]
 		var params: Dictionary = node.params
 		if node.op == "wind":
-			fields.append({"instance_id": id, "owner": item.owner_id, "part": part, "direction": VISUALS.vector(params.direction), "acceleration": float(params.acceleration_mps2), "radius": float(params.radius_m), "until": clock_s + float(params.duration_s)})
+			fields.append({"instance_id": id, "owner": item.owner_id, "by": by, "part": part, "direction": VISUALS.vector(params.direction), "acceleration": float(params.acceleration_mps2), "radius": float(params.radius_m), "until": clock_s + float(params.duration_s)})
 		elif node.op in ["spin", "light"]:
 			# Same node replaces its earlier animation; no growing duplicate jobs.
 			animations = animations.filter(func(a): return not (a.instance_id == id and a.node_id == node.id))
-			animations.append({"instance_id": id, "node_id": node.id, "part": part, "op": node.op, "params": params, "until": clock_s + float(params.duration_s), "angle": 0.0, "base": part.get_meta("authored_basis")})
+			animations.append({"instance_id": id, "node_id": node.id, "by": by, "part": part, "op": node.op, "params": params, "until": clock_s + float(params.duration_s), "angle": 0.0, "base": part.get_meta("authored_basis")})
 	return {"ok": true}
 
 
@@ -457,7 +490,7 @@ func _physics_process(delta: float) -> void:
 						actor = target
 						break
 			if not actor.is_empty():
-				_fire(id, node.id, actor)
+				_fire(id, node.id, actor, item.owner_id)
 	_step_animations(delta)
 	if field_display:
 		field_display.multimesh.visible_instance_count = fields.size()

@@ -1,5 +1,8 @@
 extends SceneTree
 ## Checks generated geometry against admitted bounds and exercises real graph/timer code.
+const GUARD = preload("res://tests/kernel_test_guard.gd")
+## Fails the suite on any script or engine error (kernel_test_guard.gd).
+var guard = GUARD.new()
 const COMPILER = preload("res://scripts/creation_compiler.gd")
 const VISUALS = preload("res://scripts/creation_visuals.gd")
 const RUNTIME = preload("res://scripts/invention_runtime.gd")
@@ -35,6 +38,7 @@ class TestActor extends CharacterBody3D:
 
 
 func _initialize() -> void:
+	OS.add_logger(guard)
 	call_deferred("_run")
 
 
@@ -54,11 +58,11 @@ func _run() -> void:
 	_graph_checks()
 	if failures.is_empty():
 		print("Creation visuals smoke passed: %d assemblies, %d mesh-bound corners, %d outward clockwise triangles; full rotor sweeps, graph deduplication, budget rejection and no timer catch-up." % [assemblies_checked,corners_checked,triangles_checked])
-		quit(0)
+		quit(guard.exit_code(false))
 	else:
 		for failure in failures:
 			push_error(failure)
-		quit(1)
+		quit(guard.exit_code(true))
 
 
 func _geometry(source: Dictionary) -> void:

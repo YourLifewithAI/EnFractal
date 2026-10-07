@@ -10,7 +10,7 @@
 
 ## Rules
 
-1. The input is strict JSON: no duplicate keys, NaN, Infinity, number that overflows a double, or unpaired surrogate. These are refused, never repaired.
+1. The input is strict JSON: no duplicate keys, NaN, Infinity, number that overflows a double, number with more than **800 significant digits** (digits of the integer and fraction parts without leading and trailing zeros), more than **64 nested arrays and objects** (the root container is level 1), or unpaired surrogate. These are refused, never repaired, and all three runtimes refuse exactly the same inputs (Lane P review: C# allowed 64 levels, GDScript 65 and Python 70 and up; GDScript alone refused 801 digits; Python leaked `ValueError` for a 5,000-digit integer and `RecursionError` for deep nesting, where it now raises `CanonicalJsonError`). Writing refuses the same nesting.
 2. Every number is read as the nearest IEEE-754 double (ties to even). A double that is a whole number with magnitude at most 2^53 is written as an integer: `1`, `1.0`, `1e0` and `100.000E-2` are all written `1`, and `-0` is written `0`. Any other double is written as Python's `repr(float)`: the shortest digits that read back to the same double, positional from 1e-4 up to (not including) 1e16, with at least one digit after the point, otherwise exponent form with a sign and at least two exponent digits (`1e+16`, `1.5e-07`, `9007199254740994.0`).
 3. Strings escape only `"`, `\` and U+0000 to U+001F (`\b \t \n \f \r`, otherwise `\u00xx` in lower case). Everything else, including `/`, U+007F, U+2028 and characters beyond U+FFFF, is written as literal UTF-8.
 4. Object members are sorted by key in Unicode code point order, which is UTF-8 byte order (UTF-16 order differs for characters beyond U+FFFF).

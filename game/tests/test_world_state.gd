@@ -1,5 +1,8 @@
 extends SceneTree
 ## Sparse world edits pinned to the shipped test room's manifest hash.
+const GUARD = preload("res://tests/kernel_test_guard.gd")
+## Fails the suite on any script or engine error (kernel_test_guard.gd).
+var guard = GUARD.new()
 
 const WorldState = preload("res://scripts/world_state.gd")
 const ROOM := "res://rooms/test_room"
@@ -10,6 +13,7 @@ var failures := 0
 
 
 func _initialize() -> void:
+	OS.add_logger(guard)
 	call_deferred("_run")
 
 
@@ -84,7 +88,7 @@ func _run() -> void:
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(SAVE_PATH))
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(BROKEN_PATH))
 	print("World state tests: ", "PASS" if failures == 0 else "%d failure(s)" % failures)
-	quit(0 if failures == 0 else 1)
+	quit(guard.exit_code(failures != 0))
 
 
 func _expect(condition: bool, description: String) -> void:

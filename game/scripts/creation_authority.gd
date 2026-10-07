@@ -7,13 +7,30 @@ extends RefCounted
 
 const COMPILER = preload("res://scripts/creation_compiler.gd")
 const JSON_KERNEL = preload("res://scripts/creation_json.gd")
+const TEXT = preload("res://scripts/creation_text.gd")
 const SCHEMA := "enfractal.creation-world"
-## Version 2 pins a room manifest instead of a map, uses contract principals and adds locks.
-const VERSION := 2
+## Version 2 pins a room manifest instead of a map, uses contract principals and adds locks. Version 3 adds
+## the compacted receipt index and the checkpoints; version 2 saves still load (with neither).
+const VERSION := 3
+const LOADABLE_VERSIONS := [2, 3]
 const STYLE_VERSION := "painterly_v1"
 const MAX_SAVE_BYTES := 4 * 1024 * 1024
+## Durable receipts in the ledger. The last PLAYER_RECEIPT_RESERVE slots are the player's alone, so a
+## companion that fills the ledger can never block the player's own lock, placement or moderation; a
+## room.checkpoint compacts the ledger.
 const MAX_RECEIPTS := 2048
+const PLAYER_RECEIPT_RESERVE := 256
+## Compacted receipts keep only their revision and a 64-bit fingerprint prefix, enough to replay and to
+## refuse a conflicting reuse; the oldest are forgotten first.
+const MAX_COMPACTED := 4096
+const MAX_CHECKPOINTS := 16
+## Transient activation receipts per principal for the session; the oldest are forgotten first, so an
+## activation never fails for capacity.
+const MAX_TRANSIENT_PER_PRINCIPAL := 1024
+const MAX_LOCKS := 256
 const MAX_REQUEST_BYTES := 65536
+## A room lists at most 4,096 lockable entities of about nine JSON values each.
+const MAX_ROOM_NODES := 65536
 const MAX_TARGETS := 64
 const PLAYER := "player:local"
 const COMPANION := "companion:local"
@@ -41,6 +58,8 @@ var _roles := DEFAULT_ROLES.duplicate()
 var _consent := {PLAYER: false, COMPANION: false}
 var _instances: Dictionary = {}
 var _receipts: Dictionary = {}
+var _compacted: Dictionary = {}
+var _checkpoints: Array = []
 var _activation_receipts: Dictionary = {}
 var _locks: Dictionary = {}
 var _entity_revisions: Dictionary = {}
@@ -64,6 +83,8 @@ func configure(room: Dictionary, surface_query: Callable, save_path: String) -> 
 	_configured = false
 	_instances.clear()
 	_receipts.clear()
+	_compacted.clear()
+	_checkpoints.clear()
 	_activation_receipts.clear()
 	_locks.clear()
 	_entity_revisions.clear()
@@ -99,7 +120,7 @@ func submit(principal: String, request: Dictionary, receipt_meta: Dictionary = {
 		return _failure("save_not_ready", "", "Load the saved room successfully before changing it.")
 	if not _roles.has(principal):
 		return _failure("principal_unknown", "principal", "The host did not admit this principal.")
-	if not _json_safe(request) or COMPILER.canonical_json(request).to_utf8_buffer().size() > MAX_REQUEST_BYTES:
+	if not _json_safe(request, MAX_REQUEST_BYTES) or COMPILER.canonical_json(request).to_utf8_buffer().size() > MAX_REQUEST_BYTES:
 		return _failure("request_invalid", "", "The command must contain bounded finite JSON data.")
 	var action: Variant = request.get("action_id")
 	if not _token(action):
@@ -119,9 +140,13 @@ func submit(principal: String, request: Dictionary, receipt_meta: Dictionary = {
 			var receipt: Dictionary = prior.receipt.duplicate(true)
 			receipt.replayed = true
 			return receipt
+	if _compacted.has(key):
+		if String(_compacted[key][1]) != fingerprint.left(16):
+			return _failure("action_id_conflict", "action_id", "This action ID was already used for different content.")
+		return {"ok": true, "instance_id": "", "revision": int(_compacted[key][0]), "permission_revision": permission_revision, "replayed": true, "compacted": true, "affected": [], "created": []}
 	var op: Variant = request.get("op")
-	if op not in ["place", "revise", "remove", "activate", "lock", "unlock"]:
-		return _failure("operation_invalid", "op", "Choose place, revise, remove, activate, lock or unlock.")
+	if op not in ["place", "revise", "remove", "activate", "lock", "unlock", "checkpoint"]:
+		return _failure("operation_invalid", "op", "Choose place, revise, remove, activate, lock, unlock or checkpoint.")
 	var allowed := ["op", "action_id", "expected_revision", "expected_permission_revision"]
 	if op in ["place", "revise"]:
 		allowed.append_array(["source", "x_m", "z_m", "yaw_deg", "y_m", "on"])
@@ -129,6 +154,8 @@ func submit(principal: String, request: Dictionary, receipt_meta: Dictionary = {
 		allowed.append("instance_id")
 	if op in ["lock", "unlock"]:
 		allowed.append("targets")
+	if op == "checkpoint":
+		allowed.append("label")
 	for field in request:
 		if field not in allowed:
 			return _failure("field_unknown", String(field), "Identity, ownership, height, approval and compiled costs are assigned by the host.")
@@ -139,6 +166,8 @@ func submit(principal: String, request: Dictionary, receipt_meta: Dictionary = {
 	meta = _complete_meta(meta, op)
 	if op in ["lock", "unlock"]:
 		return _submit_lock(principal, op, request.get("targets"), key, fingerprint, meta)
+	if op == "checkpoint":
+		return _submit_checkpoint(principal, request.get("label", ""), key, fingerprint, meta)
 	var instance_id := ""
 	if op != "place":
 		if not request.get("instance_id") is String or not _instances.has(request.instance_id):
@@ -153,10 +182,8 @@ func submit(principal: String, request: Dictionary, receipt_meta: Dictionary = {
 			var context: Variant = activation_query.call(principal, _instances[instance_id].duplicate(true))
 			if not context is Dictionary or not context.get("ok", false):
 				return _failure("activation_context", "instance_id", str(context.get("message", "This invention cannot be used from here.")) if context is Dictionary else "The host could not validate this activation.")
-		if _activation_receipts.size() >= MAX_RECEIPTS:
-			return _failure("activation_receipt_limit", "action_id", "Restart the local session to clear transient activation receipts.")
 		var transient := {"ok": true, "instance_id": instance_id, "revision": revision, "permission_revision": permission_revision, "replayed": false, "transient": true, "affected": [instance_id], "created": []}
-		_activation_receipts[key] = {"fingerprint": fingerprint, "receipt": transient.duplicate(true)}
+		_store_activation(principal, key, {"fingerprint": fingerprint, "receipt": transient.duplicate(true)})
 		return transient
 	var next := _state()
 	next.instances = _instances.duplicate(true)
@@ -172,8 +199,8 @@ func submit(principal: String, request: Dictionary, receipt_meta: Dictionary = {
 			return _failure("build_denied", "principal", "Only an owner or editor may change inventions.")
 		if not _may_change(principal, _instances[instance_id].owner_id, meta.approved_by, true):
 			return _failure("ownership_denied", "instance_id", "Only its creator or the room owner can remove this invention.")
-		if _receipts.size() >= MAX_RECEIPTS:
-			return _failure("receipt_limit", "action_id", "The local creation receipt limit has been reached.")
+		if not _receipt_room(principal):
+			return _receipt_limit()
 		next.instances.erase(instance_id)
 	var created := [instance_id] if op == "place" else []
 	var receipt := {"ok": true, "instance_id": instance_id, "revision": revision + 1, "permission_revision": permission_revision, "replayed": false, "affected": [] if op == "place" else [instance_id], "created": created}
@@ -206,8 +233,10 @@ func _submit_lock(principal: String, op: String, targets: Variant, key: String, 
 			return _failure("already_locked", "targets", "That is already protected.")
 		if op == "unlock" and not _locks.has(target):
 			return _failure("not_locked", "targets", "That is not protected.")
-	if _receipts.size() >= MAX_RECEIPTS:
-		return _failure("receipt_limit", "action_id", "The local creation receipt limit has been reached.")
+	if op == "lock" and _locks.size() + targets.size() > MAX_LOCKS:
+		return _failure("state_limit", "targets", "At most 256 things can be protected at once.")
+	if not _receipt_room(principal):
+		return _receipt_limit()
 	var next := _state()
 	next.instances = _instances.duplicate(true)
 	next.locks = _locks.duplicate(true)
@@ -229,6 +258,73 @@ func _submit_lock(principal: String, op: String, targets: Variant, key: String, 
 	if not committed.ok:
 		return committed
 	return receipt
+
+
+## room.checkpoint: every durable receipt so far is compacted to its revision and a fingerprint prefix,
+## which still replays and still refuses a conflicting reuse; receipt.lookup then reports compacted. It
+## changes no world state and does not move the revision, and it never fails for a full ledger.
+func _submit_checkpoint(principal: String, label: Variant, key: String, fingerprint: String, meta: Dictionary) -> Dictionary:
+	if not label is String or label.length() > 80 or TEXT.has_hidden(label):
+		return _failure("label_invalid", "label", "A checkpoint label is one line of at most 80 visible characters.")
+	var next := _state()
+	var compacted := _compacted.duplicate(true)
+	for existing in _receipts:
+		compacted[existing] = [int(_receipts[existing].receipt.revision), String(_receipts[existing].fingerprint).left(16)]
+	var keys := compacted.keys()
+	for index in range(maxi(0, keys.size() - MAX_COMPACTED)):
+		compacted.erase(keys[index])
+	var checkpoints := _checkpoints.duplicate(true)
+	var number := 1 if checkpoints.is_empty() else int(String(checkpoints.back().id).trim_prefix("cp")) + 1
+	checkpoints.append({"id": "cp%04d" % number, "revision": revision, "label": label})
+	while checkpoints.size() > MAX_CHECKPOINTS:
+		checkpoints.pop_front()
+	var receipt := {"ok": true, "instance_id": "", "revision": revision, "permission_revision": permission_revision, "replayed": false, "affected": [], "created": []}
+	next.compacted = compacted
+	next.checkpoints = checkpoints
+	next.receipts = {key: {"principal": principal, "action_id": key.get_slice("|", 1), "fingerprint": fingerprint, "receipt": receipt.duplicate(true), "meta": meta}}
+	var committed := _commit(next)
+	if not committed.ok:
+		return committed
+	var answer := receipt.duplicate(true)
+	answer.checkpoint_id = checkpoints.back().id
+	answer.compacted_count = compacted.size()
+	return answer
+
+
+## Whether principal may add a durable receipt: the companion may fill the ledger up to the player's reserve.
+func _receipt_room(principal: String) -> bool:
+	var limit := MAX_RECEIPTS if principal == PLAYER else MAX_RECEIPTS - PLAYER_RECEIPT_RESERVE
+	return _receipts.size() < limit
+
+
+func _receipt_limit() -> Dictionary:
+	return _failure("receipt_limit", "action_id", "The receipt ledger is full. A room.checkpoint compacts it.")
+
+
+## Session receipts for activations, bounded per principal: the oldest is forgotten first.
+func _store_activation(principal: String, key: String, entry: Dictionary) -> void:
+	_activation_receipts.erase(key)
+	_activation_receipts[key] = entry
+	var mine: Array = []
+	for existing in _activation_receipts:
+		if String(existing).begins_with(principal + "|"):
+			mine.append(existing)
+	for index in range(maxi(0, mine.size() - MAX_TRANSIENT_PER_PRINCIPAL)):
+		_activation_receipts.erase(mine[index])
+
+
+## The runtime calls this when an admitted activation could not fire, so a retry runs again instead of
+## replaying a success that never happened.
+func forget_activation(principal: String, action_id: String) -> void:
+	_activation_receipts.erase(principal + "|" + action_id)
+
+
+func activation_receipt_count(principal: String) -> int:
+	var count := 0
+	for existing in _activation_receipts:
+		if String(existing).begins_with(principal + "|"):
+			count += 1
+	return count
 
 
 func preflight(principal: String, source: Dictionary, x_m: Variant, z_m: Variant, yaw_deg: Variant, instance_id: String = "", y_m: Variant = null, on: Variant = "", approved_by := "") -> Dictionary:
@@ -258,8 +354,8 @@ func _prepare_candidate(principal: String, source: Variant, x_m: Variant, z_m: V
 			return _failure("ownership_denied", "instance_id", "You can revise only your own invention.")
 	if not on is String or (not String(on).is_empty() and entity_revision(on) < 0):
 		return _failure("surface_target_invalid", "on", "Place things on something in this room.")
-	if _receipts.size() >= MAX_RECEIPTS:
-		return _failure("receipt_limit", "action_id", "The local creation receipt limit has been reached.")
+	if not _receipt_room(principal):
+		return _receipt_limit()
 	var compiled: Dictionary = COMPILER.compile(source)
 	if not compiled.ok:
 		return compiled
@@ -322,10 +418,24 @@ func is_locked(entity_id: String) -> bool:
 	return _locks.has(entity_id)
 
 
-## The durable receipt record for (principal, action_id), or {} when none was committed.
+## The durable receipt record for (principal, action_id), or {} when none was committed or it was compacted.
 func receipt_for(principal: String, action_id: String) -> Dictionary:
 	var key := principal + "|" + action_id
 	return _receipts[key].duplicate(true) if _receipts.has(key) else {}
+
+
+## {revision, fingerprint_prefix} for an action a checkpoint compacted, or {}.
+func compacted_receipt(principal: String, action_id: String) -> Dictionary:
+	var key := principal + "|" + action_id
+	return {"revision": int(_compacted[key][0]), "fingerprint_prefix": String(_compacted[key][1])} if _compacted.has(key) else {}
+
+
+func receipt_count() -> int:
+	return _receipts.size()
+
+
+func checkpoints() -> Array:
+	return _checkpoints.duplicate(true)
 
 
 func room_bounds() -> AABB:
@@ -429,7 +539,7 @@ func load_saved() -> Dictionary:
 	file.close()
 	# Exact strict JSON: Godot's own parser can read a saved number back one ulp off.
 	var parsed: Dictionary = JSON_KERNEL.parse(text)
-	if not parsed.ok or not parsed.value is Dictionary or not _json_safe(parsed.value):
+	if not parsed.ok or not parsed.value is Dictionary or not _json_safe(parsed.value, MAX_SAVE_BYTES):
 		return _failure("save_invalid", "save", "The save contains invalid JSON; it has not been overwritten.")
 	return load_envelope(parsed.value)
 
@@ -443,6 +553,12 @@ func load_envelope(data: Dictionary) -> Dictionary:
 		return checked
 	_instances = checked.instances
 	_receipts = data.receipts.duplicate(true)
+	_compacted = {}
+	for key in data.get("compacted", {}):
+		_compacted[key] = [int(data.compacted[key][0]), String(data.compacted[key][1])]
+	_checkpoints = []
+	for checkpoint in data.get("checkpoints", []):
+		_checkpoints.append({"id": checkpoint.id, "revision": int(checkpoint.revision), "label": checkpoint.label})
 	_roles = data.roles.duplicate()
 	_locks = data.locks.duplicate(true)
 	_entity_revisions = {}
@@ -468,7 +584,7 @@ func export_envelope() -> Dictionary:
 
 
 func _state() -> Dictionary:
-	return {"instances": _instances, "receipts": _receipts, "revision": revision, "permission_revision": permission_revision, "roles": _roles, "consent": _consent, "next_id": _next_id, "locks": _locks, "entity_revisions": _entity_revisions}
+	return {"instances": _instances, "receipts": _receipts, "compacted": _compacted, "checkpoints": _checkpoints, "revision": revision, "permission_revision": permission_revision, "roles": _roles, "consent": _consent, "next_id": _next_id, "locks": _locks, "entity_revisions": _entity_revisions}
 
 
 ## Persists the complete next state, then publishes it. A failed write publishes nothing.
@@ -478,6 +594,8 @@ func _commit(next: Dictionary) -> Dictionary:
 		return persisted
 	_instances = next.instances
 	_receipts = next.receipts
+	_compacted = next.compacted
+	_checkpoints = next.checkpoints
 	_roles = next.roles
 	_consent = next.consent
 	_next_id = int(next.next_id)
@@ -647,11 +765,15 @@ func _envelope(state: Dictionary) -> Dictionary:
 		stored.erase("artifact")
 		stored.erase("active")
 		stored_instances.append(stored)
-	return {"schema": SCHEMA, "version": VERSION, "compiler_version": 1, "style_version": STYLE_VERSION, "room_pin": _room_pin(), "revision": state.revision, "permission_revision": state.permission_revision, "next_id": state.next_id, "roles": state.roles.duplicate(true), "consent": state.consent.duplicate(true), "instances": stored_instances, "receipts": state.receipts.duplicate(true), "locks": state.locks.duplicate(true), "entity_revisions": state.entity_revisions.duplicate(true)}
+	return {"schema": SCHEMA, "version": VERSION, "compiler_version": 1, "style_version": STYLE_VERSION, "room_pin": _room_pin(), "revision": state.revision, "permission_revision": state.permission_revision, "next_id": state.next_id, "roles": state.roles.duplicate(true), "consent": state.consent.duplicate(true), "instances": stored_instances, "receipts": state.receipts.duplicate(true), "compacted": state.compacted.duplicate(true), "checkpoints": state.checkpoints.duplicate(true), "locks": state.locks.duplicate(true), "entity_revisions": state.entity_revisions.duplicate(true)}
 
 
 func _persist(state: Dictionary) -> Dictionary:
 	var envelope := _envelope(state)
+	# A save is never written unless load_saved could read it back: the same node budget and bounds.
+	var problem := _envelope_bounds_problem(envelope)
+	if not problem.is_empty():
+		return problem
 	var serialized := COMPILER.canonical_json(envelope)
 	if serialized.is_empty() or serialized.to_utf8_buffer().size() > MAX_SAVE_BYTES:
 		return _failure("save_size", "save", "The creation save exceeds the local size limit.")
@@ -680,17 +802,34 @@ func _persist(state: Dictionary) -> Dictionary:
 	return {"ok": true}
 
 
+## The structural bounds a save must meet to load: the JSON node budget, and every collection's size.
+## _persist checks them before writing and _validate_saved on loading, so a written save always loads.
+func _envelope_bounds_problem(data: Dictionary) -> Dictionary:
+	if not _json_safe(data, MAX_SAVE_BYTES):
+		return _failure("save_size", "save", "The creation save exceeds its structural limits.")
+	if not data.get("instances") is Array or data.instances.size() > int(WORLD_LIMITS.instances) or not data.get("receipts") is Dictionary or data.receipts.size() > MAX_RECEIPTS:
+		return _failure("save_size", "save", "Saved instances or receipts exceed their bounds.")
+	if not data.get("locks") is Dictionary or data.locks.size() > MAX_LOCKS or not data.get("compacted", {}) is Dictionary or data.get("compacted", {}).size() > MAX_COMPACTED or not data.get("checkpoints", []) is Array or data.get("checkpoints", []).size() > MAX_CHECKPOINTS:
+		return _failure("save_size", "save", "Saved locks, compacted receipts or checkpoints exceed their bounds.")
+	return {}
+
+
 func _validate_saved(data: Dictionary) -> Dictionary:
 	var expected := ["schema", "version", "compiler_version", "style_version", "room_pin", "revision", "permission_revision", "next_id", "roles", "consent", "instances", "receipts", "locks", "entity_revisions"]
-	if not _exact_keys(data, expected) or data.get("schema") != SCHEMA or not _whole(data.get("version")) or int(data.version) != VERSION or not _whole(data.get("compiler_version")) or int(data.compiler_version) != 1 or data.get("style_version") != STYLE_VERSION or data.get("room_pin") != _room_pin():
+	if _whole(data.get("version")) and int(data.version) == 3:
+		expected.append_array(["compacted", "checkpoints"])
+	if not _exact_keys(data, expected) or data.get("schema") != SCHEMA or not _whole(data.get("version")) or int(data.version) not in LOADABLE_VERSIONS or not _whole(data.get("compiler_version")) or int(data.compiler_version) != 1 or data.get("style_version") != STYLE_VERSION or data.get("room_pin") != _room_pin():
 		return _failure("save_incompatible", "save", "The save's room, compiler or style version does not match this room.")
+	var bounded := _envelope_bounds_problem(data)
+	if not bounded.is_empty():
+		return _failure("save_invalid", "save", bounded.message)
 	if not _whole(data.revision) or int(data.revision) < 0 or not _whole(data.permission_revision) or int(data.permission_revision) < 0 or not _whole(data.next_id) or int(data.next_id) < 1:
 		return _failure("save_invalid", "revision", "Saved revisions or identity counters are invalid.")
 	if not data.roles is Dictionary or not _exact_keys(data.roles, PRINCIPALS) or data.roles[PLAYER] != "owner" or data.roles[COMPANION] not in ["editor", "visitor"]:
 		return _failure("save_invalid", "roles", "Saved roles are invalid.")
 	if not data.consent is Dictionary or not _exact_keys(data.consent, PRINCIPALS) or not data.consent[PLAYER] is bool or not data.consent[COMPANION] is bool:
 		return _failure("save_invalid", "consent", "Saved consent is invalid.")
-	if not data.instances is Array or data.instances.size() > 16 or not data.receipts is Dictionary or data.receipts.size() > MAX_RECEIPTS:
+	if not data.instances is Array or data.instances.size() > int(WORLD_LIMITS.instances) or not data.receipts is Dictionary or data.receipts.size() > MAX_RECEIPTS:
 		return _failure("save_invalid", "instances", "Saved instances or receipts exceed their bounds.")
 	var rebuilt: Dictionary = {}
 	for item in data.instances:
@@ -724,13 +863,21 @@ func _validate_saved(data: Dictionary) -> Dictionary:
 		if not entry is Dictionary or not _exact_keys(entry, ["principal", "action_id", "fingerprint", "receipt", "meta"]) or entry.principal not in PRINCIPALS or not _token(entry.action_id) or key != entry.principal + "|" + entry.action_id or not _hash(entry.fingerprint):
 			return _failure("save_receipt_invalid", "receipts", "Saved action identity or fingerprint is invalid.")
 		var receipt: Variant = entry.receipt
-		if not receipt is Dictionary or not _exact_keys(receipt, ["ok", "instance_id", "revision", "permission_revision", "replayed", "affected", "created"]) or receipt.ok != true or receipt.replayed != false or not receipt.instance_id is String or (not receipt.instance_id.is_empty() and not receipt.instance_id.begins_with("creation:")) or not _whole(receipt.revision) or int(receipt.revision) < 1 or int(receipt.revision) > int(data.revision) or not _whole(receipt.permission_revision) or int(receipt.permission_revision) < 0 or int(receipt.permission_revision) > int(data.permission_revision) or not _entity_list(receipt.affected) or not _entity_list(receipt.created):
+		if not receipt is Dictionary or not _exact_keys(receipt, ["ok", "instance_id", "revision", "permission_revision", "replayed", "affected", "created"]) or receipt.ok != true or receipt.replayed != false or not receipt.instance_id is String or (not receipt.instance_id.is_empty() and not receipt.instance_id.begins_with("creation:")) or not _whole(receipt.revision) or int(receipt.revision) < 0 or int(receipt.revision) > int(data.revision) or not _whole(receipt.permission_revision) or int(receipt.permission_revision) < 0 or int(receipt.permission_revision) > int(data.permission_revision) or not _entity_list(receipt.affected) or not _entity_list(receipt.created):
 			return _failure("save_receipt_invalid", "receipts.receipt", "Saved receipt revisions are invalid.")
 		if _receipt_meta(entry.principal, entry.meta).is_empty() or not _exact_keys(entry.meta, ["op", "at_utc", "approved_by"]):
 			return _failure("save_receipt_invalid", "receipts.meta", "Saved receipt metadata is invalid.")
 		receipt.revision = int(receipt.revision)
 		receipt.permission_revision = int(receipt.permission_revision)
-	if not data.locks is Dictionary or data.locks.size() > 256:
+	for key in data.get("compacted", {}):
+		var entry: Variant = data.compacted[key]
+		var parts := String(key).split("|")
+		if data.receipts.has(key) or parts.size() != 2 or parts[0] not in PRINCIPALS or not _token(parts[1]) or not entry is Array or entry.size() != 2 or not _whole(entry[0]) or int(entry[0]) < 0 or int(entry[0]) > int(data.revision) or not entry[1] is String or String(entry[1]).length() != 16 or not _hash(String(entry[1]) + "0".repeat(48)):
+			return _failure("save_receipt_invalid", "compacted", "A saved compacted receipt is invalid.")
+	for checkpoint in data.get("checkpoints", []):
+		if not checkpoint is Dictionary or not _exact_keys(checkpoint, ["id", "revision", "label"]) or not checkpoint.id is String or not _pattern(CHECKPOINT_ID).search(checkpoint.id) or not _whole(checkpoint.revision) or int(checkpoint.revision) < 0 or int(checkpoint.revision) > int(data.revision) or not checkpoint.label is String or checkpoint.label.length() > 80 or TEXT.has_hidden(checkpoint.label):
+			return _failure("save_invalid", "checkpoints", "A saved checkpoint is invalid.")
+	if not data.locks is Dictionary or data.locks.size() > MAX_LOCKS:
 		return _failure("save_invalid", "locks", "Saved locks are invalid.")
 	for entity_id in data.locks:
 		var lock: Variant = data.locks[entity_id]
@@ -750,7 +897,7 @@ func _validate_saved(data: Dictionary) -> Dictionary:
 func _complete_meta(meta: Dictionary, op: String) -> Dictionary:
 	var complete := meta.duplicate()
 	if String(complete.op).is_empty():
-		complete.op = {"place": "creation.place", "revise": "creation.revise", "remove": "entity.remove", "lock": "protect.lock", "unlock": "protect.unlock", "activate": "creation.activate"}[op]
+		complete.op = {"place": "creation.place", "revise": "creation.revise", "remove": "entity.remove", "lock": "protect.lock", "unlock": "protect.unlock", "activate": "creation.activate", "checkpoint": "room.checkpoint"}[op]
 	if String(complete.at_utc).is_empty():
 		complete.at_utc = Time.get_datetime_string_from_system(true) + "Z"
 	return complete
@@ -769,17 +916,17 @@ func _receipt_meta(principal: String, supplied: Variant) -> Dictionary:
 	if not approved.is_empty() and (approved != PLAYER or principal == PLAYER):
 		return {}
 	var op: String = supplied.get("op", "")
-	if not op.is_empty() and not RegEx.create_from_string("^[a-z]+\\.[a-z_]+$").search(op):
+	if not op.is_empty() and not _pattern(META_OP).search(op):
 		return {}
 	var at: String = supplied.get("at_utc", "")
-	if not at.is_empty() and not RegEx.create_from_string("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,6})?Z$").search(at):
+	if not at.is_empty() and not _pattern(META_AT).search(at):
 		return {}
 	return {"op": op, "at_utc": at, "approved_by": approved}
 
 
 func _check_room(room: Dictionary) -> Dictionary:
 	var invalid := {"ok": false}
-	if not _json_safe(room) or not room.get("room_id") is String or not RegEx.create_from_string("^[a-z][a-z0-9_-]{0,63}$").search(room.room_id) or not _hash(room.get("manifest_sha256")):
+	if not _json_safe(room, MAX_ROOM_NODES) or not room.get("room_id") is String or not _pattern(ROOM_ID).search(room.room_id) or not _hash(room.get("manifest_sha256")):
 		return invalid
 	var bounds := _bounds(room.get("bounds"))
 	if bounds.is_empty():
@@ -788,7 +935,7 @@ func _check_room(room: Dictionary) -> Dictionary:
 	var listed: Variant = room.get("entities", {})
 	if not listed is Dictionary or listed.size() > 4096:
 		return invalid
-	var pattern := RegEx.create_from_string("^(shell|obj):[A-Za-z0-9_-]{1,64}$")
+	var pattern := _pattern(ROOM_ENTITY_ID)
 	for entity_id in listed:
 		var entity: Variant = listed[entity_id]
 		if not entity_id is String or not pattern.search(entity_id) or not entity is Dictionary:
@@ -837,7 +984,7 @@ static func _entity_list(value: Variant) -> bool:
 	if not value is Array or value.size() > MAX_TARGETS:
 		return false
 	for item in value:
-		if not item is String or not RegEx.create_from_string("^(shell|obj|creation|avatar|effect|edit):[A-Za-z0-9_-]{1,64}$").search(item):
+		if not item is String or not _pattern(ENTITY_ID).search(item):
 			return false
 	return true
 
@@ -877,11 +1024,14 @@ static func _exact_keys(value: Dictionary, keys: Array) -> bool:
 	return true
 
 
-static func _json_safe(value: Variant, depth := 0, visited: Array = []) -> bool:
+## JSON-shaped, finite, at most 24 levels deep and at most max_nodes values. Every JSON value takes at least
+## one byte of its text, so a budget equal to a byte limit never refuses what fits that limit: requests use
+## MAX_REQUEST_BYTES, saves MAX_SAVE_BYTES (review: a fixed 32,768 refused saves past about 1,930 receipts).
+static func _json_safe(value: Variant, max_nodes: int, depth := 0, visited: Array = []) -> bool:
 	if visited.is_empty():
 		visited.append(0)
 	visited[0] += 1
-	if depth > 24 or int(visited[0]) > 32768:
+	if depth > 24 or int(visited[0]) > max_nodes:
 		return false
 	if value == null or value is bool or value is String:
 		return true
@@ -889,12 +1039,28 @@ static func _json_safe(value: Variant, depth := 0, visited: Array = []) -> bool:
 		return is_finite(float(value))
 	if value is Array:
 		for item in value:
-			if not _json_safe(item, depth + 1, visited):
+			if not _json_safe(item, max_nodes, depth + 1, visited):
 				return false
 		return true
 	if value is Dictionary:
 		for key in value:
-			if not key is String or not _json_safe(value[key], depth + 1, visited):
+			if not key is String or not _json_safe(value[key], max_nodes, depth + 1, visited):
 				return false
 		return true
 	return false
+
+
+const META_OP := "\\A[a-z]+\\.[a-z_]+\\z"
+const META_AT := "\\A[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,6})?Z\\z"
+const ROOM_ID := "\\A[a-z][a-z0-9_-]{0,63}\\z"
+const ROOM_ENTITY_ID := "\\A(shell|obj):[A-Za-z0-9_-]{1,64}\\z"
+const ENTITY_ID := "\\A(shell|obj|creation|avatar|effect|edit):[A-Za-z0-9_-]{1,64}\\z"
+const CHECKPOINT_ID := "\\Acp[0-9]{4,9}\\z"
+static var _patterns: Dictionary = {}
+
+
+## Anchored patterns use \A and \z, never ^ and $: PCRE's $ also matches before a final newline.
+static func _pattern(source: String) -> RegEx:
+	if not _patterns.has(source):
+		_patterns[source] = RegEx.create_from_string(source)
+	return _patterns[source]

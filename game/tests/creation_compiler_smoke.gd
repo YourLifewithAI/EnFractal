@@ -1,5 +1,8 @@
 extends SceneTree
 ## Exercises portable recipes, graph semantics and hostile manifest admission.
+const GUARD = preload("res://tests/kernel_test_guard.gd")
+## Fails the suite on any script or engine error (kernel_test_guard.gd).
+var guard = GUARD.new()
 
 const COMPILER := preload("res://scripts/creation_compiler.gd")
 var failed: Array[String] = []
@@ -8,6 +11,7 @@ var invalid_count := 0
 
 
 func _initialize() -> void:
+	OS.add_logger(guard)
 	call_deferred("_run")
 
 
@@ -84,6 +88,23 @@ func _run() -> void:
 	_invalid(_changed(minimal, "script", "res://unsafe.gd"), "unknown_field", "$.script", "arbitrary script")
 	_invalid(_changed(minimal, "name", "x".repeat(65)), "name", "$.name", "long name")
 	_invalid(_changed(minimal, "name", "bad\nname"), "name", "$.name", "control character")
+	var newline_id := minimal.duplicate(true)
+	newline_id.parts[0].id = "base\n"
+	_invalid(newline_id, "id", "$.parts[0].id", "a part id with a trailing newline (PCRE's $ matches before it)")
+	# The invisible-character rule (creation_text.gd; Lane P review finding 7): names are untrusted world text.
+	for code in [0x00AD, 0x034F, 0x061C, 0x115F, 0x1160, 0x180B, 0x180E, 0x180F, 0x200B, 0x200E, 0x2028, 0x2029, 0x202A, 0x202E,
+			0x2060, 0x2065, 0x2066, 0x206F, 0x2800, 0x3164, 0xFE00, 0xFE0D, 0xFEFF, 0xFFA0, 0xFFF9, 0xFFFB, 0x110BD, 0x1D173,
+			0xE0000, 0xE0001, 0xE0041, 0xE007F, 0xE0100, 0xEFFFF, 0x0085]:
+		_invalid(_changed(minimal, "name", "Lamp" + char(code) + "post"), "name", "$.name", "hidden U+%04X in a name" % code)
+	# Emoji markers only where an emoji puts them (founder decision, 6 October 2026).
+	for bad in ["Lamp" + char(0xFE0F), char(0x2764) + char(0xFE0F) + char(0xFE0F), "a" + char(0xFE0E), char(0x200D) + char(0x1F468),
+			char(0x1F468) + char(0x200D), char(0x1F468) + char(0x200D) + char(0x200D) + char(0x1F469), "x" + char(0x200D) + char(0x1F469),
+			"x" + char(0x20E3), "1" + char(0x20E3) + char(0x20E3), char(0x2764) + char(0xFE0E) + char(0xFE0F)]:
+		_invalid(_changed(minimal, "name", bad), "name", "$.name", "misplaced emoji marker in %s" % bad.to_utf8_buffer().hex_encode())
+	for good in [char(0x2764) + char(0xFE0F) + " lamp", "Robot " + char(0x1F916), char(0x1F468) + char(0x200D) + char(0x1F469) + char(0x200D) + char(0x1F467),
+			char(0x1F469) + char(0x1F3FD) + char(0x200D) + char(0x1F680), "1" + char(0xFE0F) + char(0x20E3) + " step", "#" + char(0x20E3), char(0x2601) + char(0xFE0E) + " cloud",
+			char(0x2764) + char(0xFE0F) + char(0x200D) + char(0x1F525)]:
+		_valid(_changed(minimal, "name", good), "emoji name %s" % good.to_utf8_buffer().hex_encode())
 	_invalid(_changed(minimal, "seed", true), "seed", "$.seed", "boolean seed")
 	_invalid(_changed(minimal, "seed", 1.5), "seed", "$.seed", "fractional seed")
 	_invalid(_changed(minimal, "mount", "world"), "mount", "$.mount", "unknown mount")
@@ -202,11 +223,11 @@ func _run() -> void:
 	_check(valid_count >= 10 and invalid_count >= 20, "required fixture coverage")
 	if failed.is_empty():
 		print("Creation compiler smoke passed: %d valid, %d invalid fixtures; stable hashes, rotated bounds, exact schemas and DAG order." % [valid_count, invalid_count])
-		quit(0)
+		quit(guard.exit_code(false))
 	else:
 		for failure in failed:
 			push_error(failure)
-		quit(1)
+		quit(guard.exit_code(true))
 
 
 func _valid(source: Variant, label: String) -> Dictionary:

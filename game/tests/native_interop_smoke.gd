@@ -1,8 +1,12 @@
 extends SceneTree
 ## Exercises the compiled C# boundary using real GDScript Variants.
+const GUARD = preload("res://tests/kernel_test_guard.gd")
+## Fails the suite on any script or engine error (kernel_test_guard.gd).
+var guard = GUARD.new()
 
 
 func _initialize() -> void:
+	OS.add_logger(guard)
 	var contract_script = load("res://native/NativeWorldContract.cs")
 	if contract_script == null or not contract_script.can_instantiate():
 		_fail("C# assembly missing; run tools/build-native.ps1 with Godot .NET")
@@ -47,9 +51,9 @@ func _initialize() -> void:
 		_fail("caller mutation changed the canonical profile")
 		return
 	print("Native interop smoke passed: C# 0.10 m profile, meter units, Variant validation, and caller isolation")
-	quit(0)
+	quit(guard.exit_code(false))
 
 
 func _fail(message: String) -> void:
 	push_error("Native interop smoke: " + message)
-	quit(1)
+	quit(guard.exit_code(true))

@@ -1,4 +1,7 @@
 extends SceneTree
+const GUARD = preload("res://tests/kernel_test_guard.gd")
+## Fails the suite on any script or engine error (kernel_test_guard.gd).
+var guard = GUARD.new()
 const AUTHORITY = preload("res://scripts/creation_authority.gd")
 const COMPILER = preload("res://scripts/creation_compiler.gd")
 const PLAYER := "player:local"
@@ -14,6 +17,7 @@ var permit := true
 var calls := 0
 
 func _initialize() -> void:
+	OS.add_logger(guard)
 	call_deferred("_run")
 
 func check(value: bool, label: String) -> void:
@@ -77,4 +81,4 @@ func _run() -> void:
 	check(authority.load_envelope(blank.export_envelope()).ok,"empty sandbox source accepted")
 	check(authority.snapshot(PLAYER).instances.is_empty(),"switching world drops old creations and receipts")
 	print("Durable creation adapter: %d checks, %d failures" % [checks,failures])
-	quit(0 if failures == 0 else 1)
+	quit(guard.exit_code(failures != 0))

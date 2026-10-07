@@ -2,6 +2,9 @@ extends SceneTree
 ## The creation authority against room bounds, locks, a surface query and the contract principals.
 ## The fixture room is a 120 x 40 x 120 m workshop whose floor surface is at 10 m; obj:garden is the
 ## old protected garden, now protected only while it is locked.
+const GUARD = preload("res://tests/kernel_test_guard.gd")
+## Fails the suite on any script or engine error (kernel_test_guard.gd).
+var guard = GUARD.new()
 
 const Authority = preload("res://scripts/creation_authority.gd")
 const Compiler = preload("res://scripts/creation_compiler.gd")
@@ -23,6 +26,7 @@ var paths: Array[String] = []
 
 
 func _initialize() -> void:
+	OS.add_logger(guard)
 	call_deferred("_run")
 
 
@@ -36,7 +40,7 @@ func _run() -> void:
 	_expect(first.get("ok", false), "valid source compiles and persists")
 	if not first.get("ok", false):
 		print(first)
-		quit(1)
+		quit(guard.exit_code(true))
 		return
 	var id: String = first.instance_id
 	var snapshot: Dictionary = host.snapshot(PLAYER)
@@ -97,11 +101,15 @@ func _run() -> void:
 	_test_persist_failure()
 	_test_occupancy()
 	_test_preflight()
+	_test_ledger_bound()
+	_test_ledger_reserve_and_checkpoint()
+	_test_transient_receipts()
+	_test_version_two_saves()
 	for path in paths:
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(path + ".pending"))
-	print("Creation authority: %d checks, %d failures" % [checks, failures])
-	quit(1 if failures else 0)
+	print("Creation authority: %d checks, %d failures, %d script or engine errors" % [checks, failures, guard.errors])
+	quit(guard.exit_code(failures != 0))
 
 
 func _test_locks() -> void:
@@ -317,6 +325,12 @@ func _test_approval_and_meta() -> void:
 	_expect_code(host.submit(COMPANION, _command(host, "remove", "bad_meta", {}, second.instance_id), {"approved_by": "companion:local"}), "request_invalid", "only the player can approve")
 	_expect_code(host.submit(COMPANION, _command(host, "remove", "bad_meta2", {}, second.instance_id), {"fingerprint": "nothex"}), "request_invalid", "a malformed fingerprint is refused")
 	_expect_code(host.submit(COMPANION, _command(host, "remove", "bad_meta3", {}, second.instance_id), {"op": "entity.remove", "trust_me": "yes"}), "request_invalid", "unknown metadata is refused")
+	# PCRE's $ also matches before a final newline; the authority's patterns use \A and \z (Lane P review).
+	_expect_code(host.submit(COMPANION, _command(host, "remove", "bad_meta4", {}, second.instance_id), {"op": "entity.remove\n"}), "request_invalid", "a receipt op with a trailing newline is refused")
+	_expect_code(host.submit(COMPANION, _command(host, "remove", "bad_meta5", {}, second.instance_id), {"at_utc": "2026-10-06T00:05:00Z\n"}), "request_invalid", "a receipt time with a trailing newline is refused")
+	var newline_room := ROOM.duplicate(true)
+	newline_room.room_id = "authority_fixture\n"
+	_expect_code(Authority.new().configure(newline_room, Callable(self, "_flat"), _test_path("newline_room")), "configuration_invalid", "a room id with a trailing newline is refused")
 	var revise := _command(host, "revise", "approved_revision", _source(), second.instance_id)
 	revise.source.name = "Approved rename"
 	var revised: Dictionary = host.submit(COMPANION, revise, {"approved_by": PLAYER})
@@ -451,6 +465,107 @@ func _test_preflight() -> void:
 	_expect_code(host.preflight(PLAYER, source, 0.0, 350.0, 0.0), "owner_capacity", "preflight enforces aggregate capacity")
 	_expect(host.preflight(PLAYER, source, 0.0, 350.0, 0.0, committed.instance_id).ok, "revision preflight subtracts replaced reservation")
 	_expect(FileAccess.get_file_as_string(path) == before_file and Compiler.canonical_json(host.snapshot(PLAYER)) == before_full_state, "preflight does not rewrite an existing save or alter its state")
+
+
+## Review blocker: a save stopped loading at about 1,930 durable receipts (the JSON node budget was a fixed
+## 32,768 while 2,048 receipts of about 17 values each were allowed), and _persist wrote it anyway.
+func _test_ledger_bound() -> void:
+	var host = _fresh("ledger_bound")
+	var seeded := _seeded(host, PLAYER, Authority.MAX_RECEIPTS - 1)
+	_expect(host.load_envelope(seeded).ok and host.receipt_count() == Authority.MAX_RECEIPTS - 1, "an envelope with 2,047 durable receipts loads")
+	var last := _lock(host, "lock", "lock_at_the_bound", ["obj:table"])
+	var committed: Dictionary = host.submit(PLAYER, last)
+	_expect(committed.get("ok", false) and host.receipt_count() == Authority.MAX_RECEIPTS, "the 2,048th durable receipt commits and is saved: " + str(committed))
+	var reloaded = Authority.new()
+	reloaded.configure(ROOM, Callable(self, "_flat"), paths.back())
+	var loaded: Dictionary = reloaded.load_saved()
+	_expect(loaded.ok and reloaded.receipt_count() == Authority.MAX_RECEIPTS and reloaded.is_locked("obj:table"), "a save holding 2,048 durable receipts loads again: " + str(loaded))
+	_expect(reloaded.submit(PLAYER, last).get("replayed", false), "the last receipt replays after the reload")
+	var before := FileAccess.get_file_as_string(paths.back())
+	_expect_code(reloaded.submit(PLAYER, _lock(reloaded, "lock", "one_too_many", ["obj:garden"])), "receipt_limit", "a full ledger refuses the next durable receipt")
+	var state: Dictionary = reloaded._state()
+	var locks: Dictionary = {}
+	for index in range(Authority.MAX_LOCKS + 1):
+		locks["obj:extra%d" % index] = {"locked_by": PLAYER, "locked_revision": 1}
+	state.locks = locks
+	_expect_code(reloaded._persist(state), "save_size", "a state the loader would refuse (257 locks) is never written")
+	_expect(FileAccess.get_file_as_string(paths.back()) == before, "neither refusal touched the saved file")
+
+
+## Review finding 2: one shared ledger let 2,047 companion revisions block the player's lock, placement and
+## moderation, and room.checkpoint was unsupported.
+func _test_ledger_reserve_and_checkpoint() -> void:
+	var host = _fresh("ledger_reserve")
+	var quota: int = Authority.MAX_RECEIPTS - Authority.PLAYER_RECEIPT_RESERVE
+	_expect(host.load_envelope(_seeded(host, COMPANION, quota - 1)).ok, "an envelope with the companion's 1,791 receipts loads")
+	var own := _command(host, "place", "companion_last", _source())
+	own.x_m = 5.0
+	var placed: Dictionary = host.submit(COMPANION, own)
+	_expect(placed.get("ok", false) and host.receipt_count() == quota, "the companion fills the ledger up to the player's reserve: " + str(placed))
+	var refused := _command(host, "place", "companion_over", _source())
+	refused.x_m = -5.0
+	_expect_code(host.submit(COMPANION, refused), "receipt_limit", "past its share the companion gets receipt_limit")
+	_expect(host.submit(PLAYER, _lock(host, "lock", "player_lock", ["obj:table"])).get("ok", false), "the player's protect.lock still commits from the reserve")
+	_expect(host.submit(PLAYER, _command(host, "place", "player_place", _source())).get("ok", false), "the player's creation.place still commits from the reserve")
+	_expect(host.submit(PLAYER, _command(host, "remove", "player_moderates", {}, placed.instance_id)).get("ok", false), "the player's moderation entity.remove still commits from the reserve")
+	var bad_label := {"op": "checkpoint", "action_id": "bad_checkpoint", "label": "line" + char(0x2028), "expected_revision": host.revision, "expected_permission_revision": host.permission_revision}
+	_expect_code(host.submit(COMPANION, bad_label), "label_invalid", "a checkpoint label follows the invisible-character rule")
+	var revision: int = host.revision
+	var checkpoint := {"op": "checkpoint", "action_id": "checkpoint_one", "label": "Before the house", "expected_revision": revision, "expected_permission_revision": host.permission_revision}
+	var compacted: Dictionary = host.submit(COMPANION, checkpoint)
+	_expect(compacted.get("ok", false) and host.receipt_count() == 1 and host.revision == revision and compacted.get("checkpoint_id") == "cp0001", "room.checkpoint compacts the ledger, even when it is full, without moving the revision: " + str(compacted))
+	_expect(not host.compacted_receipt(COMPANION, "seed_0").is_empty() and host.receipt_for(COMPANION, "seed_0").is_empty(), "a compacted receipt keeps only its revision and fingerprint prefix")
+	var replay: Dictionary = host.submit(COMPANION, own)
+	_expect(replay.get("ok", false) and replay.get("replayed", false) and replay.get("compacted", false) and host.snapshot(PLAYER).instances.size() == 1, "a compacted action replays and never runs twice")
+	var reused := own.duplicate(true)
+	reused.x_m = 6.0
+	_expect_code(host.submit(COMPANION, reused), "action_id_conflict", "a compacted action id still refuses different content")
+	var retried := _command(host, "place", "companion_over", _source())
+	retried.x_m = -5.0
+	_expect(host.submit(COMPANION, retried).get("ok", false), "after the checkpoint the companion commits again (its refused action id recorded nothing)")
+	_expect(host.submit(COMPANION, checkpoint).get("replayed", false), "the checkpoint itself replays")
+	var reloaded = Authority.new()
+	reloaded.configure(ROOM, Callable(self, "_flat"), paths.back())
+	_expect(reloaded.load_saved().ok and not reloaded.compacted_receipt(COMPANION, "seed_0").is_empty() and reloaded.checkpoints().size() == 1, "compacted receipts and checkpoints survive a reload")
+
+
+## Activations keep session receipts, bounded per principal: the oldest is forgotten and nothing fails.
+func _test_transient_receipts() -> void:
+	var host = _fresh("transient_receipts")
+	host.set_consent(PLAYER, true)
+	var id: String = host.submit(PLAYER, _command(host, "place", "lamp", _source())).instance_id
+	var first := _command(host, "activate", "use_0", {}, id)
+	var all_ok := true
+	for index in range(Authority.MAX_TRANSIENT_PER_PRINCIPAL + 6):
+		all_ok = all_ok and host.submit(PLAYER, _command(host, "activate", "use_%d" % index, {}, id)).get("ok", false)
+	_expect(all_ok and host.activation_receipt_count(PLAYER) == Authority.MAX_TRANSIENT_PER_PRINCIPAL, "activation receipts stay bounded per principal and never fail for capacity")
+	_expect(not host.submit(PLAYER, first).get("replayed", true), "the oldest activation receipt was forgotten first")
+	host.forget_activation(PLAYER, "use_7")
+	_expect(not host.submit(PLAYER, _command(host, "activate", "use_7", {}, id)).get("replayed", true), "a forgotten activation runs again rather than replaying")
+
+
+func _test_version_two_saves() -> void:
+	var host = _fresh("version_two")
+	var request := _command(host, "place", "before_upgrade", _source())
+	host.submit(PLAYER, request)
+	var old: Dictionary = host.export_envelope()
+	old.version = 2
+	old.erase("compacted")
+	old.erase("checkpoints")
+	var upgraded = Authority.new()
+	upgraded.configure(ROOM, Callable(self, "_flat"), _test_path("version_two_upgraded"))
+	_expect(upgraded.load_envelope(old).ok and upgraded.submit(PLAYER, request).get("replayed", false), "a version 2 save still loads, with its receipts")
+
+
+## An envelope from host with count synthetic durable receipts of principal (revisions 1..count).
+func _seeded(host, principal: String, count: int) -> Dictionary:
+	var data: Dictionary = host.export_envelope()
+	for index in range(count):
+		var action := "seed_%d" % index
+		data.receipts[principal + "|" + action] = {"principal": principal, "action_id": action, "fingerprint": ("%064x" % index), "meta": {"op": "creation.revise", "at_utc": "2026-10-06T12:00:00Z", "approved_by": ""},
+			"receipt": {"ok": true, "instance_id": "creation:00000001", "revision": index + 1, "permission_revision": 0, "replayed": false, "affected": ["creation:00000001"], "created": []}}
+	data.revision = count
+	return data
 
 
 func _fresh(label: String):
