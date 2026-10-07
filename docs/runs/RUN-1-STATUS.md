@@ -37,14 +37,9 @@ Evidence on `run1/integration` after the 7 October merges (Lane A `5453e9c`, Lan
     - **P6:** perception memory.
     - **P7:** goal jobs and `jobs.status`.
     - **P8:** `entity.release` is marked transient.
-  - **Contract requests for the integrator:**
-    - C1: state the `observe` default. Lane A proposes 20 m, the maximum, per the founder's line-of-sight rule.
-    - C2: the `"preview": false` sentence in the README.
-    - Also proposed: keep the adapter's tighter rate limits in front of the host's, and 60 s staleness for the host's memory.
-- **Lane P's remaining contract requests:**
-  - `room.checkpoint` result data;
-  - README wording on receipts and stops;
-  - a player-only `world.set_physics` op, so the G key goes through the command path. For now G is a recorded playtest exception.
+  - **Contract requests: applied on 7 October in `7e2c779`.** Lane A's C1 (`observe` defaults to 20 m, the maximum) and C2 (`"preview": false` is part of the content). Lane P's `room.checkpoint` result data (`checkpoint_revision`, required on a committed checkpoint), the README on receipts and stops, and a player-only `world.set_physics` op (a preset id; transient; the revision does not move). The mock handles it for the player and refuses it from the companion; the adapter never lists it.
+    - Still only proposed: keep the adapter's tighter rate limits in front of the host's, and 60 s staleness for the host's memory.
+- **The P kernel round is running (Opus, 7 October):** gaps P1 to P8, and the G key through `world.set_physics`.
 - **Save migration between room manifests:** today the player only gets a notice. A proposal is in `command-host.md`.
 - **Lane L:**
   - promote the `x_look_*` keys to the contracts before the preset becomes `candidate`;
@@ -242,10 +237,7 @@ The images stay in Google Drive (`Enfractal/Art inspiration`) and are cited by f
    - **Connecting a real AI waits for the P kernel round:** P1 below makes every `capabilities.list` fail today.
 2. **Integrator, in a fresh session:**
    - Read ORCHESTRATION.md and this page.
-   - **One contract change for the integrator to apply:**
-     - Lane A's C1 (the `observe` default, proposed 20 m) and C2 (the `"preview": false` sentence);
-     - Lane P's earlier requests: `room.checkpoint` result data, the README on receipts and stops, and a player-only `world.set_physics` op;
-     - and, before the preset becomes `candidate`, the `x_look_*` keys and a room `site` key (the L review's M5 and M6).
+   - **Contract change: done for A and P in `7e2c779`.** Still to come, with the L fix round and its consumers, before the preset becomes `candidate`: the `x_look_*` keys and a room `site` key (the L review's M5 and M6).
    - **The P kernel round (Opus):** Lane A's gaps P1 to P8 (in `docs/companion/proposals/kernel-host-gaps.md`), and the G key through `world.set_physics`.
    - **The L fix round,** after the founder's look verdict:
      - the review's eight majors and the minors;
