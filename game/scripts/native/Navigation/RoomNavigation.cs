@@ -15,10 +15,13 @@ namespace EnFractal.Native.Navigation;
 /// </summary>
 public partial class RoomNavigation : Node
 {
-    /// <summary>2 cm cells resolve gaps a 5.5 cm-radius companion can use; 1 cm layers resolve the 6 mm rug.</summary>
+    /// <summary>
+    /// 2 cm cells: the 10 cm companion's 2 cm radius plus clearance is exactly two cells, so the agent radius needs no
+    /// rounding, and a bake of the test room stays near 20 ms. 1 cm layers resolve the 6 mm rug and the 1 cm climb.
+    /// </summary>
     public const float CellSizeM = 0.02f;
     public const float CellHeightM = 0.01f;
-    /// <summary>Added to the body radius so routes keep the body a couple of centimetres off walls and corners.</summary>
+    /// <summary>Added to the body radius so routes keep the body a body-width (2 cm) off walls and corners.</summary>
     public const float ClearanceM = 0.02f;
     /// <summary>How often the source geometry is checked for changes, and how long it must hold still before a re-bake.</summary>
     public const double PollIntervalS = 0.25;
@@ -67,8 +70,9 @@ public partial class RoomNavigation : Node
         {
             Name = "RoomNavigation", SourceRoot = sourceRoot,
             BakeBounds = new Aabb(bounds.Position - new Vector3(0, 0.1f, 0), bounds.Size + new Vector3(0, 0.2f, 0)),
-            // Whole cells, as the baker rounds them anyway (and warns when it has to): 5.5 + 2 cm clearance
-            // becomes 8 cm, the 24 cm height stays 24 cm, and a 3 cm climb stays 3 cm.
+            // Whole cells, as the baker rounds them anyway (and warns when it has to). For the 10 cm companion:
+            // 2 + 2 cm clearance is 4 cm, the height 10 cm, and three quarters of its 2 cm step (1.5 cm) rounds
+            // down to a 1 cm climb (the 0.24 m body had 8 cm, 24 cm and 3 cm).
             AgentRadiusM = Cells((float)agent.RadiusMeters + ClearanceM, CellSizeM, up: true),
             AgentHeightM = Cells((float)agent.HeightMeters, CellHeightM, up: true),
             AgentMaxClimbM = Mathf.Max(CellHeightM, Cells(maxClimbM, CellHeightM, up: false))

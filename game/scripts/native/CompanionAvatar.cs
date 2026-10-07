@@ -6,8 +6,9 @@ namespace EnFractal.Native;
 /// <summary>
 /// Deterministic, game-only companion body. Its goals arrive as enfractal.command goal.set /
 /// goal.stop through Kernel/CommandHost; this is not an AI adapter or an authorization service.
-/// It keeps its own body profile (WorldScaleProfile.Companion, 0.24 m), separate from the 10 cm
-/// player; the original geometric appearance and size do not settle final companion art.
+/// It keeps its own body profile (WorldScaleProfile.Companion), a 10 cm body like the player's since the
+/// founder's decision of 6 October, but a separate object so companion upgrades can change it later; the
+/// original geometric appearance does not settle final companion art.
 /// With the room's navigation bound (Navigation/RoomNavigation) follow and come plan routes round
 /// furniture; local steering still handles the last stretch and anything the mesh does not hold.
 /// </summary>
@@ -22,28 +23,48 @@ public partial class CompanionAvatar : SmallPlayerController
     protected override WorldScaleProfile Profile => WorldScaleProfile.Companion;
 
     // Loose follow (founder playtest, 6 October: "it always moves directly behind me"). Distances are planar,
-    // centre to centre: the companion (0.24 m tall, 5.5 cm radius) keeps a comfortable band beside the 10 cm
-    // player's line of travel instead of a point rigidly attached behind it, which swung behind on every turn.
-    /// <summary>Closer than this and the companion eases out to its place.</summary>
-    public const float FollowNearM = 0.30f;
-    /// <summary>Farther than this and it closes in.</summary>
-    public const float FollowFarM = 0.65f;
-    /// <summary>Its place: this far to the side of the player's line of travel ...</summary>
-    public const float FollowSideM = 0.40f;
-    /// <summary>... and this far ahead, so it stays in view of the over-the-shoulder camera.</summary>
-    public const float FollowLeadM = 0.08f;
-    /// <summary>Come stops this far from the player.</summary>
-    public const float ComeArrivalM = 0.32f;
+    // centre to centre: the 10 cm companion (2 cm radius) keeps a comfortable band beside the 10 cm player's line
+    // of travel instead of a point rigidly attached behind it, which swung behind on every turn. Every distance
+    // below was scaled from the 0.24 m body (about ×0.42) when the companion shrank to the player's size.
+    /// <summary>Closer than this and the companion eases out to its place (was 0.30 m for the 0.24 m body).</summary>
+    public const float FollowNearM = 0.12f;
+    /// <summary>Farther than this and it closes in (was 0.65 m).</summary>
+    public const float FollowFarM = 0.30f;
+    /// <summary>Its place: this far to the side of the player's line of travel (was 0.40 m) ...</summary>
+    public const float FollowSideM = 0.16f;
+    /// <summary>... and this far ahead, so it stays in view of the over-the-shoulder camera (was 0.08 m).</summary>
+    public const float FollowLeadM = 0.04f;
+    /// <summary>Come stops this far from the player (was 0.32 m).</summary>
+    public const float ComeArrivalM = 0.14f;
+    /// <summary>Outside follow and stop, the companion steps aside when the player comes this close (was 0.20 m).</summary>
+    public const float YieldM = 0.08f;
     /// <summary>Speed per metre of distance to its place; the player's own velocity is added while it moves.</summary>
     public const float FollowGainPerS = 3.0f;
+    /// <summary>The slowest purposeful approach, so the last centimetres never creep (was 0.15 m/s).</summary>
+    public const float MinApproachMps = 0.08f;
     public const float CompanionTurnRateRadPerS = 8.0f;
     /// <summary>A route is planned again at least this often while it is in use.</summary>
     public const double RouteRefreshS = 0.1;
-    /// <summary>A route corner closer than this counts as reached.</summary>
-    public const float CornerReachedM = 0.05f;
+    /// <summary>A route corner closer than this counts as reached (was 0.05 m).</summary>
+    public const float CornerReachedM = 0.025f;
+    /// <summary>A planned route this much longer than the straight line is a real detour round something (was 0.05 m).</summary>
+    public const float DetourM = 0.03f;
     /// <summary>Trying to move for this long without covering StuckDistanceM reports the goal blocked.</summary>
     public const double StuckAfterS = 1.0;
-    public const float StuckDistanceM = 0.03f;
+    /// <summary>Was 0.03 m for the 0.24 m body.</summary>
+    public const float StuckDistanceM = 0.015f;
+    /// <summary>How far ahead local steering probes for support and collisions (was 0.14 m).</summary>
+    public const float SteeringProbeM = 0.06f;
+
+    /// <summary>
+    /// Body speeds. The run must outpace the player's 0.96 m/s run so follow can close a gap while the player runs:
+    /// 1.20 m/s is 1.25× (the 0.24 m body ran at 1.65 m/s). Accelerations keep the player's 0.16 s ramp to full run.
+    /// Step, floor snap and jump are the player's (the 0.24 m body stepped 4 cm and snapped 2.5 cm).
+    /// </summary>
+    public const float CompanionWalkMps = 0.32f;
+    public const float CompanionRunMps = 1.20f;
+    public const float CompanionGroundAccelerationMps2 = 7.5f;
+    public const float CompanionAirAccelerationMps2 = 2.5f;
 
     /// <summary>Whether follow is moving the body (false while it rests inside its band).</summary>
     public bool FollowMoving => _following;
@@ -77,44 +98,47 @@ public partial class CompanionAvatar : SmallPlayerController
     public override void _Ready()
     {
         ReadKeyboard = false;
-        WalkSpeedMps = 0.80f;
-        RunSpeedMps = 1.65f;
-        GroundAccelerationMps2 = 9.0f;
-        AirAccelerationMps2 = 3.0f;
-        StepHeightM = 0.04f;
-        FloorSnapM = 0.025f;
+        WalkSpeedMps = CompanionWalkMps;
+        RunSpeedMps = CompanionRunMps;
+        GroundAccelerationMps2 = CompanionGroundAccelerationMps2;
+        AirAccelerationMps2 = CompanionAirAccelerationMps2;
         SetAppearance(new Color("65b9b0"));
         base._Ready();
         CollisionLayer = 4;
         CollisionMask = 1 | 2;
         _entered = true;
+        // The label floats a little above the body; the pointing cue comes from chest height. Both are sized
+        // from the body, so they shrank with it (the 0.24 m body had its label at 0.33 m, 36 mm text).
+        var h = BodyHeightM;
         _label = new Label3D
         {
             Name = "CompanionLabel", Text = CompanionName + " · companion",
-            Position = Vector3.Up * 0.33f, FontSize = 30, PixelSize = 0.0012f,
+            Position = Vector3.Up * (h * 1.35f), FontSize = 30, PixelSize = h * 0.006f,
             Modulate = new Color("f6dfab"), OutlineModulate = new Color("18332d"),
             Billboard = BaseMaterial3D.BillboardModeEnum.Enabled, NoDepthTest = false
         };
         AddChild(_label);
-        _pointer = new Node3D { Name = "PointingCue", Position = Vector3.Up * 0.16f, Visible = false };
+        _pointer = new Node3D { Name = "PointingCue", Position = Vector3.Up * (h * 0.667f), Visible = false };
         AddChild(_pointer);
         var gold = new StandardMaterial3D { AlbedoColor = new Color("edc06e"), Roughness = 0.8f };
-        var shaft = AddMesh(_pointer, new CylinderMesh { TopRadius = 0.005f, BottomRadius = 0.005f, Height = 0.17f, RadialSegments = 8 },
-            new Vector3(0, 0, -0.09f), gold);
+        var shaft = AddMesh(_pointer, new CylinderMesh { TopRadius = h * 0.021f, BottomRadius = h * 0.021f, Height = h * 0.71f, RadialSegments = 8 },
+            new Vector3(0, 0, -h * 0.375f), gold);
         shaft.Rotation = new Vector3(-Mathf.Pi * 0.5f, 0, 0);
-        var tip = AddMesh(_pointer, new CylinderMesh { TopRadius = 0, BottomRadius = 0.019f, Height = 0.04f, RadialSegments = 8 },
-            new Vector3(0, 0, -0.195f), gold);
+        var tip = AddMesh(_pointer, new CylinderMesh { TopRadius = 0, BottomRadius = h * 0.079f, Height = h * 0.167f, RadialSegments = 8 },
+            new Vector3(0, 0, -h * 0.8125f), gold);
         tip.Rotation = new Vector3(-Mathf.Pi * 0.5f, 0, 0);
     }
 
     protected override void BuildVisual()
     {
         base.BuildVisual();
+        // The hat: a cone as wide as the body on top of the head, a third of the body's height (0.075 m on 0.24 m).
         var trim = new StandardMaterial3D { AlbedoColor = new Color("eec471"), Roughness = 0.9f };
+        var hat = BodyHeightM * 0.3125f;
         AddMesh(VisualRoot, new CylinderMesh
         {
-            TopRadius = 0, BottomRadius = BodyRadiusM, Height = 0.075f, RadialSegments = 12
-        }, new Vector3(0, BodyHeightM - 0.0375f, 0), trim);
+            TopRadius = 0, BottomRadius = BodyRadiusM, Height = hat, RadialSegments = 12
+        }, new Vector3(0, BodyHeightM - hat * 0.5f, 0), trim);
     }
 
     public bool ConfigureIdentity(string id)
@@ -203,7 +227,7 @@ public partial class CompanionAvatar : SmallPlayerController
             if (CurrentIntent == "follow") desired = FollowVelocity(playerOffset, dt);
             // Stay may yield, but an explicit Stop cancels navigation. The player
             // can still pass because its collision mask excludes the companion.
-            else if (CurrentIntent != "stop" && playerOffset.Length() < 0.20f)
+            else if (CurrentIntent != "stop" && playerOffset.Length() < YieldM)
                 desired = (playerOffset.LengthSquared() < 0.0001f ? GlobalBasis.X : playerOffset.Normalized()) * WalkSpeedMps;
             else if (CurrentIntent == "come") desired = ComeVelocity(playerOffset, dt);
         }
@@ -251,27 +275,28 @@ public partial class CompanionAvatar : SmallPlayerController
         if (moving) _travel = playerVelocity / playerSpeed;
         var right = _travel.Cross(Vector3.Up);
         var lateral = playerOffset.Dot(right);
-        if (Mathf.Abs(lateral) > 0.06f) _followSide = Mathf.Sign(lateral);
+        // It changes side only when it is clearly on the other one (1.5 body radii off the line; was 6 cm).
+        if (Mathf.Abs(lateral) > 0.03f) _followSide = Mathf.Sign(lateral);
         var place = FollowPlace(right);
         var toPlace = Planar(place - GlobalPosition);
         var placeDistance = toPlace.Length();
         // Something between the companion and its place (it is behind the box): that is out of the band too.
-        var routed = PlanRoute(place, 0.10f, dt);
-        var detour = routed && !_route.Direct && _route.LengthM > placeDistance + 0.05f;
+        var routed = PlanRoute(place, 0.05f, dt);
+        var detour = routed && !_route.Direct && _route.LengthM > placeDistance + DetourM;
         // In a narrow gap the walkable place can be nearer than the band's edge; never chase away from it.
-        var near = Mathf.Min(FollowNearM, Planar(place - _player.GlobalPosition).Length() - 0.05f);
+        var near = Mathf.Min(FollowNearM, Planar(place - _player.GlobalPosition).Length() - 0.02f);
         if (!_following)
-            _following = distance > FollowFarM || distance < near || detour || (moving && placeDistance > 0.15f);
-        else if (!moving && !detour && (placeDistance < 0.05f || (distance > near + 0.04f && distance < FollowFarM - 0.15f)))
+            _following = distance > FollowFarM || distance < near || detour || (moving && placeDistance > 0.06f);
+        else if (!moving && !detour && (placeDistance < 0.02f || (distance > near + 0.02f && distance < FollowFarM - 0.06f)))
             _following = false;
         if (!_following) return Vector3.Zero;
         // Honest about a place it cannot reach: it goes as near as the floor allows and says blocked.
         if (routed && !_route.Reaches) GoalBlocked = true;
         if (detour || (routed && !_route.Reaches))
-            return RouteVelocity(Mathf.Clamp(_route.LengthM * FollowGainPerS + playerSpeed, 0.15f, RunSpeedMps));
+            return RouteVelocity(Mathf.Clamp(_route.LengthM * FollowGainPerS + playerSpeed, MinApproachMps, RunSpeedMps));
         var desired = (moving ? playerVelocity : Vector3.Zero) + toPlace * FollowGainPerS;
         // Finish the last few centimetres briskly instead of creeping.
-        if (!moving && desired.Length() < 0.12f && placeDistance > 0.01f) desired = desired.Normalized() * 0.12f;
+        if (!moving && desired.Length() < MinApproachMps && placeDistance > 0.005f) desired = desired.Normalized() * MinApproachMps;
         return desired.LimitLength(RunSpeedMps);
     }
 
@@ -283,10 +308,11 @@ public partial class CompanionAvatar : SmallPlayerController
         if (!NavigationReady) return place;
         var snapped = Navigation!.ClosestPoint(place);
         var offMesh = Planar(snapped - place).Length();
-        if (offMesh <= 0.08f) return snapped;
+        // Within an agent radius of the walkable mesh, the place is only nudged off a wall (was 8 cm, the old agent radius).
+        if (offMesh <= Navigation.AgentRadiusM) return snapped;
         var other = At(-_followSide);
         var otherSnapped = Navigation.ClosestPoint(other);
-        if (Planar(otherSnapped - other).Length() >= offMesh - 0.04f) return snapped;
+        if (Planar(otherSnapped - other).Length() >= offMesh - 0.5f * Navigation.AgentRadiusM) return snapped;
         _followSide = -_followSide;
         return otherSnapped;
     }
@@ -296,7 +322,7 @@ public partial class CompanionAvatar : SmallPlayerController
         var distance = playerOffset.Length();
         var routed = PlanRoute(_player!.GlobalPosition, ComeArrivalM + 0.05f, dt);
         // Close in a straight line but with a wall or box between does not count as arrived.
-        var detour = routed && !_route.Direct && _route.LengthM > distance + 0.05f;
+        var detour = routed && !_route.Direct && _route.LengthM > distance + DetourM;
         if (distance <= ComeArrivalM && !detour)
         {
             Stay();
@@ -304,8 +330,8 @@ public partial class CompanionAvatar : SmallPlayerController
         }
         if (routed && !_route.Reaches) GoalBlocked = true;
         if (detour || (routed && !_route.Reaches))
-            return RouteVelocity(Mathf.Clamp((_route.LengthM - ComeArrivalM + 0.05f) * FollowGainPerS, 0.15f, RunSpeedMps));
-        var speed = Mathf.Clamp((distance - ComeArrivalM + 0.05f) * FollowGainPerS, 0.15f, RunSpeedMps);
+            return RouteVelocity(Mathf.Clamp((_route.LengthM - ComeArrivalM + 0.02f) * FollowGainPerS, MinApproachMps, RunSpeedMps));
+        var speed = Mathf.Clamp((distance - ComeArrivalM + 0.02f) * FollowGainPerS, MinApproachMps, RunSpeedMps);
         return -playerOffset / distance * speed;
     }
 
@@ -320,7 +346,7 @@ public partial class CompanionAvatar : SmallPlayerController
             return false;
         }
         _routeAge += dt;
-        if (_route.IsEmpty || _routeAge >= RouteRefreshS || _routeRevision != Navigation!.Revision || Planar(goal - _routeGoal).Length() > 0.05f)
+        if (_route.IsEmpty || _routeAge >= RouteRefreshS || _routeRevision != Navigation!.Revision || Planar(goal - _routeGoal).Length() > 0.03f)
         {
             _route = Navigation!.FindRoute(GlobalPosition, goal, toleranceM);
             _routeIndex = 1;
@@ -341,7 +367,7 @@ public partial class CompanionAvatar : SmallPlayerController
         var toCorner = Planar(points[Mathf.Min(_routeIndex, points.Length - 1)] - GlobalPosition);
         if (last && toCorner.Length() < CornerReachedM) return Vector3.Zero;
         FollowingRoute = true;
-        return toCorner.Normalized() * (last ? Mathf.Min(speed, Mathf.Max(0.15f, toCorner.Length() * FollowGainPerS)) : speed);
+        return toCorner.Normalized() * (last ? Mathf.Min(speed, Mathf.Max(MinApproachMps, toCorner.Length() * FollowGainPerS)) : speed);
     }
 
     /// <summary>Report blocked when trying to move has covered almost nothing for a second, and plan again.</summary>
@@ -395,7 +421,7 @@ public partial class CompanionAvatar : SmallPlayerController
         foreach (var angle in new[] { 0.0f, -0.65f, 0.65f, -1.15f, 1.15f })
         {
             var candidate = desired.Rotated(Vector3.Up, angle);
-            var probe = candidate * 0.14f;
+            var probe = candidate * SteeringProbeM;
             if (!HasSupportNear(GlobalPosition + probe)) continue;
             // Flat travel does not require the extra headroom used for a step.
             if (!TestMove(GlobalTransform, probe, null, SafeMargin)) return candidate;

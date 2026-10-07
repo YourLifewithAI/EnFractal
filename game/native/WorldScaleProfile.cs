@@ -16,8 +16,11 @@ public sealed record WorldScaleProfile(
     /// <summary>The player: a 10 cm body in a real-size room (Run 1, P2).</summary>
     public static WorldScaleProfile SmallPlayer { get; } = new(0.10, 0.02, 0.087, 0.15);
 
-    /// <summary>The companion keeps its own body, separate from the player's. Not final companion size.</summary>
-    public static WorldScaleProfile Companion { get; } = new(0.24, 0.055, 0.205, 0.40);
+    /// <summary>
+    /// The companion: a 10 cm body like the player's (founder decision, 6 October: "the companion shrinks to match
+    /// the player"). It stays a separate profile object because companion upgrades may later change its abilities.
+    /// </summary>
+    public static WorldScaleProfile Companion { get; } = new(0.10, 0.02, 0.087, 0.15);
 
     public bool IsValid =>
         double.IsFinite(HeightMeters) && HeightMeters is >= 0.05 and <= 3.0 &&
