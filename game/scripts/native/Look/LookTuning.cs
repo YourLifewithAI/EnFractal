@@ -22,40 +22,70 @@ public sealed record PaintTuning(
     float ToneWash, float ToneStrokes, float ToneBristle, float ToneGain, float SofteningCalm, float TemperatureVariation,
     float PastelMix, float PastelChroma, float PastelScale, float PastelLift, float WearBrightness, float WearLift,
     float CavityDarkening, float StrokeNormalGain, float MarkFadeStart, float MarkFadeEnd, float BevelFraction, float BevelMaxM,
-    float AccentMix, float AccentDarken, float ShadowFillBase, float ShadowFillPerSoftness);
+    float AccentMix, float AccentDarken);
 
+/// <summary>
+/// Shadows. The key (sun and moon) and the positional lights (window sky fill, lamps) have their own biases, because
+/// Godot measures them differently (directional normal bias in texels of the split, positional in texels of the
+/// atlas slot). Both stay small enough that a 10 cm body's shadow stays attached to its base. KeySplit1 is the
+/// fraction of the key's shadow distance the first split covers.
+/// </summary>
 public sealed record ShadowTuning(
     int KeySplits, float KeyAngularBaseDeg, float KeyAngularPerSoftnessDeg, float BlurBase, float BlurPerSoftness,
-    float KeyMinDistanceM, float KeyDistancePerDiagonal, float Bias, float NormalBias, float LampSizeBaseM, float LampSizePerSoftnessM);
+    float KeyMinDistanceM, float KeyDistancePerDiagonal, float KeySplit1, float KeyBias, float KeyNormalBias,
+    float LampBias, float LampNormalBias, float LampSizeBaseM, float LampSizePerSoftnessM);
 
 public sealed record SsaoTuning(float Power, float Detail, float Horizon, float Sharpness, float LightAffect, float AoChannelAffect);
 
 public sealed record GlowTuning(float Strength, string BlendMode, float HdrThreshold, IReadOnlyList<float> Levels);
 
-public sealed record GiTuning(int Subdiv, float MarginM, float Bias, float NormalBias, float TwoBouncesAbove);
-
-/// <summary>Room lights from the manifest's light hints: falloff, reach, the window spot's cone, and how much brighter lamps glow at night.</summary>
-public sealed record LampTuning(float Attenuation, float NightBoost, float RangePerDiagonal, float WindowSpotAngleDeg);
+/// <summary>
+/// VoxelGI: resolution, margin, biases and when to use two bounces. The whole shell is baked as a closed interior.
+/// EnvironmentAmbientScale is how much of the time keys' ambient the environment keeps where VoxelGI does not reach.
+/// </summary>
+public sealed record GiTuning(int Subdiv, float MarginM, float Bias, float NormalBias, float TwoBouncesAbove, float EnvironmentAmbientScale);
 
 /// <summary>
-/// The key light's path. The sun rises and sets where daylight (key energy over the brightest key) crosses
-/// MoonDaylight; the key is the sun at or above SunDaylight, a fixed moon at or below MoonDaylight, and its
-/// direction cross-fades only in between, while the light is dim.
+/// Room lights from the manifest's light hints. Lamps: falloff and reach, when they switch on by themselves
+/// (daylight below SwitchOnBelowDaylight) until room state carries switches, and how far the style warms their
+/// captured colour toward LampTint (storybook lamps glow warmer than life). Windows: a soft sky fill, a spot light
+/// WindowStandoffM behind the window hint (outside the room) and WindowLightSizeM across, aimed in along the hint's
+/// direction through the opening, in the sky colour of the hour (SkyFillSaturation of its hue: a light blue, not a
+/// saturated one) and its brightness scaled by SkyFillEnergy.
+/// </summary>
+public sealed record LampTuning(
+    float Attenuation, float RangePerDiagonal, float WindowSpotAngleDeg, float SwitchOnBelowDaylight,
+    float WindowStandoffM, float WindowLightSizeM, float SkyFillEnergy, float SkyFillSaturation, Color LampTint, float LampTintAmount);
+
+/// <summary>
+/// The sun and the moon. The sun follows a solar model: elevation and bearing from the latitude, the date and the
+/// local standard clock hour, with mean solar noon at SolarNoonH on the clock (time zone and longitude) and the
+/// equation of time. NegZBearingDeg is the compass bearing of the room's -Z axis (0: -Z is north, so -X is west).
+/// Sunrise and sunset are where the sun's centre crosses SunriseElevationDeg (-0.833: the almanac's upper limb with
+/// refraction). The key is the sun while the sun is above the horizon (drawn no lower than HorizonElevationDeg), the
+/// moon once the sun is below TwilightElevationDeg, and cross-fades between, while the light is dim. The moon stands
+/// MoonElevationDeg high outside the room's brightest window (at MoonBearingDeg in a room without one).
+/// ReferenceDaylight is where the time keys' daylight rises and falls on their reference day: the keys' sunrise and
+/// sunset, onto which the real ones are mapped. With RealClockDaylightSaving the real clock is read as standard time
+/// while the machine's time zone is in daylight saving; pinned clocks are always standard time, the same everywhere.
 /// </summary>
 public sealed record SunTuning(
-    float DegreesPerHour, float MaxElevationDeg, float HorizonElevationDeg, float MoonElevationDeg, float MoonAzimuthOffsetDeg,
-    float SunDaylight, float MoonDaylight);
+    float LatitudeDeg, float NegZBearingDeg, float SolarNoonH, bool RealClockDaylightSaving, float SunriseElevationDeg,
+    float TwilightElevationDeg, float HorizonElevationDeg, float MoonElevationDeg, float MoonBearingDeg, float ReferenceDaylight);
 
 /// <summary>
 /// Season centres (winter, spring, summer, autumn), how long each holds its grade, how strongly the season colours
-/// the key, the day used when the preset does not follow the calendar, and each season's hours of daylight (empty:
-/// every day is the time keys' own day).
+/// the sunlight, and the day used when the preset does not follow the calendar. Day length comes from the solar model.
 /// </summary>
-public sealed record SeasonTuning(IReadOnlyList<int> CentreDays, float Hold, float LightStrength, int FixedDayOfYear, IReadOnlyList<float> DayLengthH);
+public sealed record SeasonTuning(IReadOnlyList<int> CentreDays, float Hold, float LightStrength, int FixedDayOfYear);
 
+/// <summary>
+/// The colour grade's strengths. NightWithLamps is how much of the night grade applies while the room's lamps are on:
+/// the night grade cools and calms a moonlit room, but warm lamplight keeps its colour (the eye adapts to it).
+/// </summary>
 public sealed record GradeTuning(
     float ShadowTone, float HighlightTone, float SeasonTint, Vector3 WarmthRgb, float NightDesaturate, Vector3 NightTintRgb,
-    float NightDeepen, int LutSize, float SeasonTintShadowFade, float NightFullBelow, float NightNoneAbove);
+    float NightDeepen, int LutSize, float SeasonTintShadowFade, float NightFullBelow, float NightNoneAbove, float NightWithLamps);
 
 public sealed record DofTuning(
     float TiltPitchGain, float TiltBandNarrowing, float FarTransitionBaseM, float FarTransitionPerM, float FarBlurReference,
@@ -124,15 +154,15 @@ public sealed record LookTuning(
     public static readonly LookTuning Default = new(
         DefaultRoles, DefaultRoleMarks,
         new PaintTuning(0.9f, 0.6f, 0.35f, 0.42f, 0.7f, 0.03f, 0.45f, 0.82f, 0.94f, 0.03f, 1.32f, 0.035f, 0.35f, 0.2f,
-            0.15f, 0.45f, 0.08f, 0.025f, 0.55f, 0.12f, 0.25f, 0.3f),
-        new ShadowTuning(2, 0.5f, 3.5f, 1f, 1f, 6f, 1.6f, 0.03f, 1.0f, 0.05f, 0.25f),
+            0.15f, 0.45f, 0.08f, 0.025f, 0.55f, 0.12f),
+        new ShadowTuning(2, 0.5f, 3.5f, 1f, 1f, 6f, 1.6f, 0.1f, 0.03f, 1.0f, 0.03f, 1.0f, 0.05f, 0.25f),
         new SsaoTuning(1.4f, 0.6f, 0.06f, 0.98f, 0.15f, 0.5f),
         new GlowTuning(1.0f, "softlight", 0.9f, new[] { 0f, 0f, 1f, 1f, 1f, 0f, 0f }),
-        new GiTuning(128, 0.3f, 1.5f, 0f, 0.2f),
-        new LampTuning(1.2f, 1.5f, 1f, 60f),
-        new SunTuning(15f, 60f, 6f, 35f, 180f, 0.3f, 0.12f),
-        new SeasonTuning(new[] { 15, 105, 196, 288 }, 0.25f, 0.25f, 196, Array.Empty<float>()),
-        new GradeTuning(0.8f, 0.35f, 0.24f, new Vector3(0.08f, 0.015f, -0.10f), 0.3f, new Vector3(-0.14f, -0.06f, 0.10f), 0.25f, 33, 0f, 0f, 1f),
+        new GiTuning(128, 0.3f, 1.5f, 0f, 0.2f, 1f),
+        new LampTuning(1.2f, 1f, 60f, 0.25f, 0f, 0.1f, 1f, 1f, new Color(1f, 1f, 1f), 0f),
+        new SunTuning(30f, 0f, 12f, false, -0.833f, -6f, 1f, 35f, 270f, 0.12f),
+        new SeasonTuning(new[] { 15, 105, 196, 288 }, 0.25f, 0.25f, 196),
+        new GradeTuning(0.8f, 0.35f, 0.24f, new Vector3(0.08f, 0.015f, -0.10f), 0.3f, new Vector3(-0.14f, -0.06f, 0.10f), 0.25f, 33, 0f, 0f, 1f, 1f),
         new DofTuning(1.5f, 0.4f, 0.25f, 0.35f, 1.3f, 0.9f, 0.5f, 0.02f, 0.10f, 3f, 0.5f, 1.5f, 0f, 1f, 0f),
         new PostTuning(0.45f, 1.05f, 1.2f, 0.8f, 3f));
 
@@ -168,8 +198,7 @@ public sealed record LookTuning(
             p.F("cavity_darkening", d.Paint.CavityDarkening), p.F("stroke_normal_gain", d.Paint.StrokeNormalGain),
             p.F("mark_fade_start", d.Paint.MarkFadeStart), p.F("mark_fade_end", d.Paint.MarkFadeEnd),
             p.F("bevel_fraction", d.Paint.BevelFraction), p.F("bevel_max_m", d.Paint.BevelMaxM),
-            p.F("accent_mix", d.Paint.AccentMix), p.F("accent_darken", d.Paint.AccentDarken),
-            p.F("shadow_fill_base", d.Paint.ShadowFillBase), p.F("shadow_fill_per_softness", d.Paint.ShadowFillPerSoftness));
+            p.F("accent_mix", d.Paint.AccentMix), p.F("accent_darken", d.Paint.AccentDarken));
         p.Done();
         if (!(paint.MarkFadeStart > 0f && paint.MarkFadeEnd > paint.MarkFadeStart && paint.MarkFadeEnd <= 0.5f))
             throw new InvalidOperationException("x_look_paint: mark_fade_start and mark_fade_end must satisfy 0 < start < end <= 0.5, so marks are gone before they alias");
@@ -178,10 +207,14 @@ public sealed record LookTuning(
         var shadows = new ShadowTuning(
             s.I("key_splits", d.Shadows.KeySplits), s.F("key_angular_base_deg", d.Shadows.KeyAngularBaseDeg), s.F("key_angular_per_softness_deg", d.Shadows.KeyAngularPerSoftnessDeg),
             s.F("blur_base", d.Shadows.BlurBase), s.F("blur_per_softness", d.Shadows.BlurPerSoftness), s.F("key_min_distance_m", d.Shadows.KeyMinDistanceM),
-            s.F("key_distance_per_diagonal", d.Shadows.KeyDistancePerDiagonal), s.F("bias", d.Shadows.Bias), s.F("normal_bias", d.Shadows.NormalBias),
+            s.F("key_distance_per_diagonal", d.Shadows.KeyDistancePerDiagonal), s.F("key_split_1", d.Shadows.KeySplit1),
+            s.F("key_bias", d.Shadows.KeyBias), s.F("key_normal_bias", d.Shadows.KeyNormalBias),
+            s.F("lamp_bias", d.Shadows.LampBias), s.F("lamp_normal_bias", d.Shadows.LampNormalBias),
             s.F("lamp_size_base_m", d.Shadows.LampSizeBaseM), s.F("lamp_size_per_softness_m", d.Shadows.LampSizePerSoftnessM));
         s.Done();
         if (shadows.KeySplits is not (1 or 2 or 4)) throw new InvalidOperationException("x_look_shadows.key_splits must be 1, 2 or 4");
+        if (shadows.KeySplit1 is <= 0f or >= 1f || shadows.KeyBias < 0f || shadows.KeyNormalBias < 0f || shadows.LampBias < 0f || shadows.LampNormalBias < 0f)
+            throw new InvalidOperationException("x_look_shadows: key_split_1 must be between 0 and 1, and no bias may be negative");
 
         var a = new Fields(Block("x_look_ssao"), "x_look_ssao", defaulted);
         var ssao = new SsaoTuning(a.F("power", d.Ssao.Power), a.F("detail", d.Ssao.Detail), a.F("horizon", d.Ssao.Horizon),
@@ -198,31 +231,37 @@ public sealed record LookTuning(
 
         var v = new Fields(Block("x_look_gi"), "x_look_gi", defaulted);
         var gi = new GiTuning(v.I("subdiv", d.Gi.Subdiv), v.F("margin_m", d.Gi.MarginM), v.F("bias", d.Gi.Bias), v.F("normal_bias", d.Gi.NormalBias),
-            v.F("two_bounces_above", d.Gi.TwoBouncesAbove));
+            v.F("two_bounces_above", d.Gi.TwoBouncesAbove), v.F("environment_ambient_scale", d.Gi.EnvironmentAmbientScale));
         v.Done();
         if (gi.Subdiv is not (64 or 128 or 256 or 512)) throw new InvalidOperationException("x_look_gi.subdiv must be 64, 128, 256 or 512");
+        if (gi.EnvironmentAmbientScale is < 0f or > 1f) throw new InvalidOperationException("x_look_gi.environment_ambient_scale must be between 0 and 1");
 
         var l = new Fields(Block("x_look_lamps"), "x_look_lamps", defaulted);
-        var lamps = new LampTuning(l.F("attenuation", d.Lamps.Attenuation), l.F("night_boost", d.Lamps.NightBoost),
-            l.F("range_per_diagonal", d.Lamps.RangePerDiagonal), l.F("window_spot_angle_deg", d.Lamps.WindowSpotAngleDeg));
+        var lamps = new LampTuning(l.F("attenuation", d.Lamps.Attenuation), l.F("range_per_diagonal", d.Lamps.RangePerDiagonal),
+            l.F("window_spot_angle_deg", d.Lamps.WindowSpotAngleDeg), l.F("switch_on_below_daylight", d.Lamps.SwitchOnBelowDaylight),
+            l.F("window_standoff_m", d.Lamps.WindowStandoffM), l.F("window_light_size_m", d.Lamps.WindowLightSizeM), l.F("sky_fill_energy", d.Lamps.SkyFillEnergy),
+            l.F("sky_fill_saturation", d.Lamps.SkyFillSaturation), l.C("lamp_tint", d.Lamps.LampTint), l.F("lamp_tint_amount", d.Lamps.LampTintAmount));
         l.Done();
-        if (!(lamps.RangePerDiagonal > 0f && lamps.WindowSpotAngleDeg is > 0f and < 90f))
-            throw new InvalidOperationException("x_look_lamps: range_per_diagonal must be positive and window_spot_angle_deg between 0 and 90");
+        if (!(lamps.RangePerDiagonal > 0f && lamps.WindowSpotAngleDeg is > 0f and < 90f && lamps.SwitchOnBelowDaylight is >= 0f and <= 1f
+              && lamps.WindowStandoffM >= 0f && lamps.WindowLightSizeM >= 0f && lamps.SkyFillEnergy >= 0f && lamps.SkyFillSaturation is >= 0f and <= 1f && lamps.LampTintAmount is >= 0f and <= 1f))
+            throw new InvalidOperationException("x_look_lamps: range_per_diagonal must be positive, window_spot_angle_deg between 0 and 90, switch_on_below_daylight between 0 and 1, and the window numbers not negative");
 
         var u = new Fields(Block("x_look_sun"), "x_look_sun", defaulted);
-        var sun = new SunTuning(u.F("degrees_per_hour", d.Sun.DegreesPerHour), u.F("max_elevation_deg", d.Sun.MaxElevationDeg),
-            u.F("horizon_elevation_deg", d.Sun.HorizonElevationDeg), u.F("moon_elevation_deg", d.Sun.MoonElevationDeg),
-            u.F("moon_azimuth_offset_deg", d.Sun.MoonAzimuthOffsetDeg), u.F("sun_daylight", d.Sun.SunDaylight), u.F("moon_daylight", d.Sun.MoonDaylight));
+        var sun = new SunTuning(u.F("latitude_deg", d.Sun.LatitudeDeg), u.F("neg_z_bearing_deg", d.Sun.NegZBearingDeg), u.F("solar_noon_h", d.Sun.SolarNoonH),
+            u.B("real_clock_daylight_saving", d.Sun.RealClockDaylightSaving), u.F("sunrise_elevation_deg", d.Sun.SunriseElevationDeg),
+            u.F("twilight_elevation_deg", d.Sun.TwilightElevationDeg), u.F("horizon_elevation_deg", d.Sun.HorizonElevationDeg),
+            u.F("moon_elevation_deg", d.Sun.MoonElevationDeg), u.F("moon_bearing_deg", d.Sun.MoonBearingDeg), u.F("reference_daylight", d.Sun.ReferenceDaylight));
         u.Done();
-        if (!(sun.MoonDaylight >= 0f && sun.SunDaylight > sun.MoonDaylight && sun.SunDaylight <= 1f))
-            throw new InvalidOperationException("x_look_sun: 0 <= moon_daylight < sun_daylight <= 1");
+        if (sun.LatitudeDeg is < -80f or > 80f || sun.NegZBearingDeg is < 0f or >= 360f || sun.MoonBearingDeg is < 0f or >= 360f || sun.SolarNoonH is < 10f or > 14f)
+            throw new InvalidOperationException("x_look_sun: latitude_deg must be within 80 degrees of the equator, bearings from 0 to under 360, and solar_noon_h between 10 and 14");
+        if (!(sun.TwilightElevationDeg < sun.SunriseElevationDeg && sun.SunriseElevationDeg <= 0f && sun.HorizonElevationDeg is >= 0f and <= 10f
+              && sun.MoonElevationDeg is > 5f and <= 85f && sun.ReferenceDaylight is > 0f and < 1f))
+            throw new InvalidOperationException("x_look_sun: twilight_elevation_deg < sunrise_elevation_deg <= 0, horizon_elevation_deg from 0 to 10, moon_elevation_deg above 5 and at most 85, and reference_daylight between 0 and 1");
 
         var e = new Fields(Block("x_look_seasons"), "x_look_seasons", defaulted);
         var seasons = new SeasonTuning(e.Ints("centre_days", d.Seasons.CentreDays), e.F("hold", d.Seasons.Hold), e.F("light_strength", d.Seasons.LightStrength),
-            e.I("fixed_day_of_year", d.Seasons.FixedDayOfYear), e.Floats("day_length_h", d.Seasons.DayLengthH));
+            e.I("fixed_day_of_year", d.Seasons.FixedDayOfYear));
         e.Done();
-        if (seasons.DayLengthH.Count is not (0 or 4) || seasons.DayLengthH.Any(h => h is < 1f or > 23f))
-            throw new InvalidOperationException("x_look_seasons.day_length_h must list four day lengths (winter, spring, summer, autumn) between 1 and 23 hours, or none");
         if (seasons.FixedDayOfYear is < 1 or > 366 || seasons.Hold is < 0f or >= 0.5f)
             throw new InvalidOperationException("x_look_seasons: fixed_day_of_year must be 1 to 366 and hold at least 0 and under 0.5");
         if (seasons.CentreDays.Count != 4 || seasons.CentreDays.Zip(seasons.CentreDays.Skip(1)).Any(t => t.Second <= t.First) || seasons.CentreDays[0] < 1 || seasons.CentreDays[3] > 365)
@@ -232,7 +271,8 @@ public sealed record LookTuning(
         var grade = new GradeTuning(r.F("shadow_tone", d.Grade.ShadowTone), r.F("highlight_tone", d.Grade.HighlightTone), r.F("season_tint", d.Grade.SeasonTint),
             r.Vec("warmth_rgb", d.Grade.WarmthRgb), r.F("night_desaturate", d.Grade.NightDesaturate), r.Vec("night_tint_rgb", d.Grade.NightTintRgb),
             r.F("night_deepen", d.Grade.NightDeepen), r.I("lut_size", d.Grade.LutSize), r.F("season_tint_shadow_fade", d.Grade.SeasonTintShadowFade),
-            r.F("night_full_below", d.Grade.NightFullBelow), r.F("night_none_above", d.Grade.NightNoneAbove));
+            r.F("night_full_below", d.Grade.NightFullBelow), r.F("night_none_above", d.Grade.NightNoneAbove), r.F("night_with_lamps", d.Grade.NightWithLamps));
+        if (grade.NightWithLamps is < 0f or > 1f) throw new InvalidOperationException("x_look_grade.night_with_lamps must be between 0 and 1");
         if (!(grade.NightFullBelow >= 0f && grade.NightNoneAbove > grade.NightFullBelow && grade.NightNoneAbove <= 1f))
             throw new InvalidOperationException("x_look_grade: 0 <= night_full_below < night_none_above <= 1");
         if (grade.SeasonTintShadowFade is < 0f or > 1f) throw new InvalidOperationException("x_look_grade.season_tint_shadow_fade must be between 0 and 1");
@@ -311,6 +351,10 @@ public sealed record LookTuning(
         }
 
         public int I(string name, int fallback) => Get(name, out var value) ? value.GetInt32() : fallback;
+
+        public bool B(string name, bool fallback) => Get(name, out var value) ? value.GetBoolean() : fallback;
+
+        public Color C(string name, Color fallback) => Get(name, out var value) ? new Color(value.GetString()!) : fallback;
 
         public string S(string name, string fallback) => Get(name, out var value) ? value.GetString()! : fallback;
 

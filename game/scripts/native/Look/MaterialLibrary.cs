@@ -73,8 +73,6 @@ public static class MaterialLibrary
         Set(material, "wrap_light", look.Wrap);
         Set(material, "terminator_warmth", look.TerminatorWarmth);
         Set(material, "sheen", look.Sheen);
-        Set(material, "shadow_tint", _preset.ShadowTint);
-        Set(material, "shadow_fill", _preset.ShadowsEnabled ? paint.ShadowFillBase + paint.ShadowFillPerSoftness * _preset.ShadowSoftness : 0f);
         Set(material, "bevel_min_m", _preset.BevelM);
         Set(material, "bevel_fraction", paint.BevelFraction);
         Set(material, "bevel_max_m", paint.BevelMaxM);
