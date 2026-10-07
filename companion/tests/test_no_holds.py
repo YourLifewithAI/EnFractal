@@ -7,12 +7,14 @@ outspend the budgets or slip past revisions. After every test, nothing may have 
 from __future__ import annotations
 
 import dataclasses
+import tempfile
+from pathlib import Path
 
 import test_host_boundary as base
 import test_host_review_fixes as fixes
 import test_perception as perception_tests
 import test_perception_memory as memory_tests
-from support import COMPANION, NO_HOLDS, PLAYER, HostPolicy, command, example, query, retarget, GARAGE_TO_TEST_ROOM
+from support import COMPANION, NO_HOLDS, PLAYER, HostPolicy, command, example, new_host, query, retarget, GARAGE_TO_TEST_ROOM
 
 
 class NoHoldsCase(base.HostCase):
@@ -158,8 +160,10 @@ class NothingHeld(NoHoldsCase):
                                              "c-2")), "budget_exceeded")
 
     def test_style_set_still_refuses_an_unpinnable_preset(self):
-        result = self.send(command("style.set", {"preset_id": "storybook_painterly", "preset_version": 1}, "style-1"))
-        self.assertRefused(result, "invalid_args", "$.args.preset_version")
+        with tempfile.TemporaryDirectory() as tmp:
+            self.host = new_host(self.policy, styles_dir=fixes.candidate_styles(Path(tmp)))
+            result = self.send(command("style.set", {"preset_id": "sketchbook", "preset_version": 1}, "style-1"))
+            self.assertRefused(result, "invalid_args", "$.args.preset_version")
 
 
 class UndoIsOnlyForTheCompanionsOwnChanges(NoHoldsCase):

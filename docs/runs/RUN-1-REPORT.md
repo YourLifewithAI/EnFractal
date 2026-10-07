@@ -22,7 +22,7 @@ Three items remain:
 
 | # | Evidence | State |
 |---|---|---|
-| 1 | `tools/linux/test-all.sh` and the Windows runners pass on the merged head | **Windows: pass** (authority 266, canonical JSON 31/31, command host 419/419, play HUD 51/51, companion 501, small avatar 160/160, room navigation 10/10, room data 54/54, look 367/367, contracts 44, release probe). **Linux: not yet run;** given to Codex |
+| 1 | `tools/linux/test-all.sh` and the Windows runners pass on the merged head | **Windows: pass** (authority 266, canonical JSON 31/31, command host 419/419, play HUD 72/72, companion 501, small avatar 160/160, room navigation 10/10, room data 56/56, look 367/367, contracts 44, release probe). **Linux: not yet run.** WSL Ubuntu on the second machine lacks `unzip` and `uv`, so it can run there once the founder agrees to install them. A Codex cloud task would need an EnFractal environment first |
 | 2 | Look captures and scores in `docs/look/reviews/run1/`, with the founder's verdict | Captures: one before and one after set of the final round, at 1920 × 1080 on the RTX 2070 SUPER. Verdict: recorded. **No rubric scores:** the two Lane L reviews were for correctness and tests, not the look rubric |
 | 3 | The garage coverage report and the founder's verdict, with photos kept out of Git | Done. The report and its map stay in the capture worktree's `captures/garage/` on the first machine, never committed |
 | 4 | The A1 boundary-test report and the real-client transcript summary | Done: the companion suite, and [the Codex brief 02 report](../codex/reports/02-mcp-client-red-team.md) |
@@ -87,10 +87,23 @@ They are recorded in full in [RUN-1-STATUS.md](RUN-1-STATUS.md) and summarised i
 ## What did not go to plan
 
 - **The look rubric was never scored** by an independent reviewer. The founder judged the captures directly. Run 3's L7 review harness should restore scoring if the founder wants it.
-- **The Linux suite** waited all run for a cloud session. Codex now has the job.
+- **The Linux suite** waited all run for a cloud session. It still waits, on a small install in WSL or a Codex cloud environment.
 - **The path trap:** PowerShell's `cd` does not move .NET's working directory. An agent in a worktree corrupted the integrator's `project.godot` through it. The trap is now in `AGENTS.md`.
 - **Duplicated GPU work** in look rounds: 10 or so avoidable captures in the last round. The capture budget in ORCHESTRATION.md came mid-run.
 - **The integrator's inverted reading** of the garage scale was caught by the Lane C reviewer. This argues for independent review of the integrator's own analysis, which Codex now provides.
+
+## Codex joins (late on 7 October)
+
+At the founder's request, Codex (GPT-6.1 Sol, on the founder's ChatGPT plan) became the integrator's assistant. It runs through `tools/codex/run.ps1`, in its own worktree, inside the Windows sandbox. In its first evening:
+- **A review of `729858a`** found four issues. Two were fixed the same night: stray faces where an opening meets a wall's edge, and `2.0` accepted where the reader wants `2`. One was by design (the schema requires every field). One minor finding was noted (very large numbers). It took about 100k tokens.
+- **Surveys:** image-to-3D generators (brief 03) and connecting players' AI clients (brief 04). Both feed the Run 2 plan. The integrator spot-checked key claims against the sources.
+- **The docs audit** (brief 05) found 42 stale statements. Codex fixed 29 of them in brief 08, and the integrator fixed the rest in the files it owns.
+- **The third playtest's HUD notes** (brief 06): the key help folds away behind H, the top panel is compact, and the name tag is bounded to 2.5% of the screen and hides near the camera. Play HUD went from 51 to 72 checks.
+- **A diagnosis of the observe view's focus** (brief 07), for the v2 preset.
+
+Setup lessons, now in the launcher:
+- The founder's Codex defaults are full access with no approvals, so every job ignores the user config.
+- The sandbox cannot start PowerShell 7 when it is a Store package, so the launcher hides those folders from Codex's PATH.
 
 ## What carries into Run 2
 

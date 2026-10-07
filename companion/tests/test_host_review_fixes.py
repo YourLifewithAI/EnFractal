@@ -450,17 +450,23 @@ class Budgets(FixCase):
 
 
 class Styles(FixCase):
-    def test_refuses_pinning_a_seed_or_draft_preset(self):
+    def test_refuses_pinning_a_draft_preset_and_pins_the_shipped_candidate(self):
+        # storybook_painterly v1 was locked as the look-gate candidate on 7 October, so it may be pinned now; the draft
+        # fixture (sketchbook) stands in for a preset nothing may pin.
         status = json.loads((REPO / "game" / "styles" / "storybook_painterly" / "v1.json").read_bytes())["status"]
-        self.assertIn(status, ("seed", "draft"))
-        before = dict(self.host.style)
-        self.host.policy = dataclasses.replace(self.host.policy, companion_approval_ops=frozenset())
-        result = self.send(command("style.set", {"preset_id": "storybook_painterly", "preset_version": 1}, "style-1"))
-        self.assertRefused(result, "invalid_args", "$.args.preset_version")
-        self.assertEqual(self.host.style, before)
-        player = self.host.player_command(command("style.set", {"preset_id": "storybook_painterly", "preset_version": 1},
-                                                  "p-style"))
-        self.assertRefused(player, "invalid_args")
+        self.assertEqual(status, "candidate")
+        with tempfile.TemporaryDirectory() as tmp:
+            self.host = new_host(clock=self.clock, styles_dir=candidate_styles(Path(tmp)))
+            before = dict(self.host.style)
+            self.host.policy = dataclasses.replace(self.host.policy, companion_approval_ops=frozenset())
+            result = self.send(command("style.set", {"preset_id": "sketchbook", "preset_version": 1}, "style-1"))
+            self.assertRefused(result, "invalid_args", "$.args.preset_version")
+            self.assertEqual(self.host.style, before)
+            player = self.host.player_command(command("style.set", {"preset_id": "sketchbook", "preset_version": 1}, "p-style"))
+            self.assertRefused(player, "invalid_args")
+            shipped = self.host.player_command(command("style.set", {"preset_id": "storybook_painterly", "preset_version": 1},
+                                                       "p-shipped"))
+            self.assertTrue(shipped["ok"], shipped)
 
     def test_pins_a_candidate_preset_and_refuses_draft_and_retired_ones(self):
         with tempfile.TemporaryDirectory() as tmp:
