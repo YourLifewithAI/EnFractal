@@ -107,6 +107,8 @@ public partial class CompanionAvatar : SmallPlayerController
     private SmallPlayerController? _player;
     private Node3D _pointer = null!;
     private Label3D _label = null!;
+    private const float NameTagHeightFraction = 0.025f;
+    private const float NameTagHideWithinM = 0.25f;
     private Vector3 _lookTarget;
     private bool _hasLookTarget;
     private bool _entered;
@@ -134,8 +136,7 @@ public partial class CompanionAvatar : SmallPlayerController
         CollisionLayer = 4;
         CollisionMask = 1 | 2;
         _entered = true;
-        // The label floats a little above the body; the pointing cue comes from chest height. Both are sized
-        // from the body, so they shrank with it (the 0.24 m body had its label at 0.33 m, 36 mm text).
+        // The label floats a little above the body; the pointing cue comes from chest height.
         // The name tag is drawn solid, with an alpha cut (founder playtest, 6 October): a see-through tag writes no
         // depth, so depth of field read the wall behind it and blurred it in F2, and writes no motion, so temporal
         // anti-aliasing smeared and doubled it while the camera moved in F3. Cut out, it is an object like the body.
@@ -143,7 +144,7 @@ public partial class CompanionAvatar : SmallPlayerController
         _label = new Label3D
         {
             Name = "CompanionLabel", Text = CompanionName + " · companion",
-            Position = Vector3.Up * (h * 1.35f), FontSize = 30, PixelSize = h * 0.006f,
+            Position = Vector3.Up * (h * 1.35f), FontSize = 30, OutlineSize = 4, PixelSize = 0.0003f, FixedSize = true,
             Modulate = new Color("f6dfab"), OutlineModulate = new Color("18332d"),
             Billboard = BaseMaterial3D.BillboardModeEnum.Enabled, NoDepthTest = false,
             AlphaCut = Label3D.AlphaCutMode.Discard, AlphaScissorThreshold = 0.5f
@@ -158,6 +159,25 @@ public partial class CompanionAvatar : SmallPlayerController
         var tip = AddMesh(_pointer, new CylinderMesh { TopRadius = 0, BottomRadius = h * 0.079f, Height = h * 0.167f, RadialSegments = 8 },
             new Vector3(0, 0, -h * 0.8125f), gold);
         tip.Rotation = new Vector3(-Mathf.Pi * 0.5f, 0, 0);
+    }
+
+    public override void _Process(double delta)
+    {
+        var camera = GetViewport().GetCamera3D();
+        if (camera == null) { _label.Visible = false; return; }
+        var cameraTransform = camera.GetCameraTransform();
+        _label.Visible = GetGlobalTransformInterpolated().Origin.DistanceTo(cameraTransform.Origin) >= NameTagHideWithinM;
+        if (!_label.Visible) return;
+
+        // FixedSize draws as though the tag were one metre away, but FOV still changes its size.
+        // Project a 2.5%-high screen segment at that depth to keep F2, F3 and F4 equally readable.
+        var screen = GetViewport().GetVisibleRect();
+        var centre = screen.GetCenter();
+        var halfHeight = Vector2.Down * (screen.Size.Y * NameTagHeightFraction * 0.5f);
+        var heightM = camera.ProjectPosition(centre - halfHeight, 1).DistanceTo(camera.ProjectPosition(centre + halfHeight, 1));
+        // Include the outline in the budget, including after a display-name change.
+        var labelHeightM = _label.GetAabb().Size.Y + 2 * _label.OutlineSize * _label.PixelSize;
+        if (labelHeightM > 0) _label.Scale = Vector3.One * (heightM / labelHeightM);
     }
 
     protected override void BuildVisual()

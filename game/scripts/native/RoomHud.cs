@@ -20,6 +20,9 @@ public partial class RoomHud : CanvasLayer
     private static readonly Color[] Palette = { new("d28f63"), new("65b9b0"), new("d7b765"), new("a18cc3"), new("75965c") };
     private Label _state = null!;
     private Label _notice = null!;
+    private PanelContainer _footer = null!;
+    private VBoxContainer _keyHelp = null!;
+    private Label _helpHint = null!;
     private PanelContainer _customization = null!;
     private SpringArm3D _arm = null!;
     private Camera3D _shoulder = null!;
@@ -143,28 +146,39 @@ public partial class RoomHud : CanvasLayer
         };
         theme.SetStylebox("panel", "PanelContainer", shade);
         theme.SetColor("font_color", "Label", new Color("f0e6cf"));
-        var top = new PanelContainer { Position = new Vector2(18, 18), Theme = theme };
+        var compactTheme = (Theme)theme.Duplicate();
+        compactTheme.DefaultFontSize = 14;
+        var compactShade = (StyleBoxFlat)shade.Duplicate();
+        compactShade.ContentMarginLeft = compactShade.ContentMarginRight = 8;
+        compactShade.ContentMarginTop = compactShade.ContentMarginBottom = 6;
+        compactTheme.SetStylebox("panel", "PanelContainer", compactShade);
+        compactTheme.SetConstant("separation", "VBoxContainer", 2);
+        compactTheme.SetConstant("separation", "HBoxContainer", 3);
+        var top = new PanelContainer { Position = new Vector2(18, 18), Theme = compactTheme };
         AddChild(top);
         var column = new VBoxContainer(); top.AddChild(column);
         column.AddChild(new Label { Text = RoomTitle });
         _state = new Label(); column.AddChild(_state);
         _clock = new Label { Visible = false }; column.AddChild(_clock);
-        var actions = new HBoxContainer(); column.AddChild(actions);
-        AddButton(actions, "1 Follow", () => Goal("follow"));
-        AddButton(actions, "2 Wait", () => Goal("stay"));
-        AddButton(actions, "3 Come", () => Goal("come"));
-        AddButton(actions, "4 Stop", () => Goal("stop"));
-        AddButton(actions, "5 Point", PointAhead);
-        AddButton(actions, "Customize", ToggleCustomization);
-        var footer = new PanelContainer { Theme = theme };
-        AddChild(footer);
-        footer.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.BottomWide);
-        footer.OffsetLeft = 18; footer.OffsetRight = -18; footer.OffsetTop = -170; footer.OffsetBottom = -18;
-        var help = new VBoxContainer(); footer.AddChild(help);
-        help.AddChild(new Label { Text = "WASD move · Shift run · Space jump · R recover · G gravity · click to look · Esc release" });
-        help.AddChild(new Label { Text = "F1 eye · F2 shoulder · F3 diorama: mouse orbits, wheel zooms, WASD follows the view · F4 isometric: Q/E turn the view" });
-        help.AddChild(new Label { Text = "T time of day · Shift+T season (each steps round to the real clock) · L lamps · O observe (a very tight tilt-shift view, best from F3 or F4) · C customize" });
-        _notice = new Label { Text = _noticeText }; help.AddChild(_notice);
+        var actions = new HBoxContainer { Name = "CompanionActions" }; column.AddChild(actions);
+        AddButton(actions, "1 Follow", () => Goal("follow"), 26);
+        AddButton(actions, "2 Wait", () => Goal("stay"), 26);
+        AddButton(actions, "3 Come", () => Goal("come"), 26);
+        AddButton(actions, "4 Stop", () => Goal("stop"), 26);
+        AddButton(actions, "5 Point", PointAhead, 26);
+        AddButton(actions, "Customize", ToggleCustomization, 26);
+        _footer = new PanelContainer { Name = "HelpFooter", Theme = compactTheme, GrowVertical = Control.GrowDirection.Begin };
+        AddChild(_footer);
+        _footer.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.BottomWide);
+        _footer.OffsetLeft = 18; _footer.OffsetRight = -18; _footer.OffsetTop = _footer.OffsetBottom = -18;
+        var help = new VBoxContainer(); _footer.AddChild(help);
+        _helpHint = new Label { Text = "H keys" }; help.AddChild(_helpHint);
+        _keyHelp = new VBoxContainer { Name = "KeyHelp", Visible = false }; help.AddChild(_keyHelp);
+        _keyHelp.AddChild(new Label { Text = "WASD move · Shift run · Space jump · R recover · G gravity · click to look · Esc release" });
+        _keyHelp.AddChild(new Label { Text = "F1 eye · F2 shoulder · F3 diorama: mouse orbits, wheel zooms, WASD follows the view · F4 isometric: Q/E turn the view" });
+        _keyHelp.AddChild(new Label { Text = "T time of day · Shift+T season (each steps round to the real clock) · L lamps · O observe (a very tight tilt-shift view, best from F3 or F4) · C customize" });
+        _notice = new Label { Name = "Notice", Text = _noticeText }; help.AddChild(_notice);
+        help.MinimumSizeChanged += () => _footer.Size = new Vector2(_footer.Size.X, 0);
         _customization = new PanelContainer { Position = new Vector2(18, 190), Theme = theme, Visible = false };
         AddChild(_customization);
         var options = new VBoxContainer(); _customization.AddChild(options);
@@ -181,9 +195,9 @@ public partial class RoomHud : CanvasLayer
         Input.MouseMode = Input.MouseModeEnum.Visible;
     }
 
-    private static void AddButton(Node parent, string text, System.Action action)
+    private static void AddButton(Node parent, string text, System.Action action, int minimumHeight = 38)
     {
-        var button = new Button { Text = text, CustomMinimumSize = new Vector2(0, 38), FocusMode = Control.FocusModeEnum.All };
+        var button = new Button { Text = text, CustomMinimumSize = new Vector2(0, minimumHeight), FocusMode = Control.FocusModeEnum.All };
         button.Pressed += action;
         parent.AddChild(button);
     }
@@ -314,6 +328,10 @@ public partial class RoomHud : CanvasLayer
             if (Customizing) return;
             switch (code)
             {
+                case Key.H:
+                    _keyHelp.Visible = !_keyHelp.Visible;
+                    _helpHint.Text = _keyHelp.Visible ? "H hide keys" : "H keys";
+                    break;
                 case Key.F1: SetViewMode(0); break;
                 case Key.F2: SetViewMode(1); break;
                 case Key.F3: SetViewMode(2); break;

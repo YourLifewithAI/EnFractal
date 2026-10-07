@@ -33,6 +33,7 @@ public partial class PlayHudTest : Node
             await Frames(10);
             GD.Print($"PLAY_HUD_INFO: physics interpolation {GetTree().PhysicsInterpolation}, TAA {GetViewport().UseTaa}, screen-space AA {GetViewport().ScreenSpaceAA}");
 
+            await TestFoldedHelp();
             TestViewKeys();
             TestWorkshopGone();
             await TestTimeOfDay();
@@ -40,8 +41,9 @@ public partial class PlayHudTest : Node
             await TestClockCombined();
             await TestNoLookNoClock();
             TestNameTag();
+            await TestNameTagSize();
 
-            GD.Print($"NATIVE_KERNEL_PLAY_HUD: {_checks - _failures}/{_checks} checks passed; Q and E turn the isometric view, T and Shift+T step the time of day and the season back to the real clock, and the companion's name tag draws solid");
+            GD.Print($"NATIVE_KERNEL_PLAY_HUD: {_checks - _failures}/{_checks} checks passed; H folds the help, Q and E turn the isometric view, T and Shift+T step the time of day and the season back to the real clock, and the companion's solid name tag stays small and hides near the camera");
             GetTree().Quit(_failures == 0 ? 0 : 1);
         }
         catch (Exception error)
@@ -52,6 +54,32 @@ public partial class PlayHudTest : Node
     }
 
     private static InputEventKey Press(Key key, bool shift = false) => new() { PhysicalKeycode = key, Pressed = true, ShiftPressed = shift };
+
+    private async Task TestFoldedHelp()
+    {
+        var footer = _hud.GetNode<PanelContainer>("HelpFooter");
+        var column = footer.GetChild<VBoxContainer>(0);
+        var help = column.GetNode<VBoxContainer>("KeyHelp");
+        var notice = column.GetNode<Label>("Notice");
+        var hint = column.GetChild<Label>(0);
+        var foldedHeight = footer.Size.Y;
+        var noticeText = notice.Text;
+        Check(!help.Visible && hint.Text == "H keys", "key help starts folded with one short H hint");
+        Check(notice.IsVisibleInTree() && noticeText.Length > 0, "the notice is visible with the help folded");
+        _hud._UnhandledInput(Press(Key.H));
+        await Frames(3);
+        Check(help.IsVisibleInTree() && help.GetChildren().OfType<Label>().All(l => l.IsVisibleInTree()), "H unfolds every key-help line");
+        Check(footer.Size.Y > foldedHeight, "the footer grows to fit the unfolded help");
+        Check(notice.IsVisibleInTree() && notice.Text == noticeText, "unfolding the help keeps the same notice visible");
+        var repeat = Press(Key.H); repeat.Echo = true;
+        _hud._UnhandledInput(repeat);
+        Check(help.Visible, "holding H does not repeatedly toggle the help");
+        _hud._UnhandledInput(Press(Key.H));
+        await Frames(3);
+        Check(!help.Visible && hint.Text == "H keys", "H refolds the key help");
+        Check(Mathf.Abs(footer.Size.Y - foldedHeight) < 1, "the folded footer releases the space used by the full help");
+        Check(notice.IsVisibleInTree() && notice.Text == noticeText, "refolding the help keeps the notice visible");
+    }
 
     private void TestViewKeys()
     {
@@ -187,6 +215,67 @@ public partial class PlayHudTest : Node
         var label = _world.Companion.GetNode<Label3D>("CompanionLabel");
         Check(label.AlphaCut != Label3D.AlphaCutMode.Disabled, $"the name tag is drawn solid (alpha cut {label.AlphaCut}), not as see-through blending");
         Check(!label.NoDepthTest && label.Billboard == BaseMaterial3D.BillboardModeEnum.Enabled, "it still faces the camera and hides behind what is in front of it");
+    }
+
+    private async Task TestNameTagSize()
+    {
+        // An isolated, stationary fixture avoids moving the room's avatars or changing its cameras.
+        var fixture = new Node3D();
+        AddChild(fixture);
+        var companion = new CompanionAvatar();
+        fixture.AddChild(companion);
+        companion.SetPhysicsProcess(false);
+        var camera = new Camera3D { Near = 0.005f };
+        fixture.AddChild(camera);
+        camera.MakeCurrent();
+        var label = companion.GetNode<Label3D>("CompanionLabel");
+        Check(label.FixedSize, "the tag uses distance-independent rendering");
+        foreach (var (view, distance, fov) in new[]
+        {
+            ("F2 close", 0.26f, 68f), ("F2", 0.5f, 68f),
+            ("F3 near", RoomHud.DioramaMinDistanceM, RoomHud.DioramaFovDeg),
+            ("F3", RoomHud.DioramaDefaultDistanceM, RoomHud.DioramaFovDeg),
+            ("F3 far", RoomHud.DioramaMaxDistanceM, RoomHud.DioramaFovDeg),
+            ("F4", RoomHud.IsoDistanceM, RoomHud.IsoFovDeg)
+        })
+        {
+            camera.Position = Vector3.Back * distance;
+            camera.Fov = fov;
+            await Frames(3);
+            var fraction = ProjectedTagHeight(label, camera);
+            Check(label.Visible && fraction > 0.015f && fraction <= 0.03f,
+                $"{view}: tag is readable and below 3% screen height at {distance:0.00} m ({fraction * 100:0.00}%)");
+        }
+        // Include the maximum allowed name length so its new glyph bounds are also sized.
+        companion.SetDisplayName(new string('W', 40));
+        await Frames(3);
+        Check(ProjectedTagHeight(label, camera) <= 0.03f, "a renamed tag stays below 3% screen height");
+        foreach (var distance in new[] { 0.249f, 0.1f, 0.01f })
+        {
+            camera.Position = Vector3.Back * distance;
+            await Frames(2);
+            Check(!label.Visible, $"the tag hides inside 0.25 m ({distance:0.000} m)");
+        }
+        camera.Position = Vector3.Back * 0.251f;
+        await Frames(2);
+        Check(label.Visible && ProjectedTagHeight(label, camera) <= 0.03f, "the tag reappears small just outside 0.25 m");
+        _hud.SetViewMode(1);
+        fixture.QueueFree();
+    }
+
+    // Label3D.FixedSize renders its geometry as if its origin were one metre into the view.
+    // Project its actual bounds (with an outline allowance) using the camera's billboard axes;
+    // this checks projected size without needing GPU pixels in the headless suite.
+    private static float ProjectedTagHeight(Label3D label, Camera3D camera)
+    {
+        var screen = camera.GetViewport().GetVisibleRect();
+        var origin = camera.ProjectPosition(screen.GetCenter(), 1);
+        var bounds = label.GetAabb();
+        var outline = label.OutlineSize * label.PixelSize;
+        var up = camera.GetCameraTransform().Basis.Y.Normalized() * label.GlobalBasis.Scale.Y;
+        var top = camera.UnprojectPosition(origin + up * (bounds.End.Y + outline));
+        var bottom = camera.UnprojectPosition(origin + up * (bounds.Position.Y - outline));
+        return Mathf.Abs(top.Y - bottom.Y) / screen.Size.Y;
     }
 
     private async Task Frames(int count)
