@@ -11,8 +11,9 @@ physics ray casts against the real colliders. The rule and the tests carry over;
 
 ## What counts as in sight
 
-- The eye is the avatar's position raised to its eye height: 0.205 m for the companion, 0.087 m for
-  the player.
+- The eye is the avatar's position raised to its eye height: 0.087 m for both avatars. The companion
+  shrank to the player's 10 cm body (radius 0.02 m, eye 0.087 m, reach 0.15 m;
+  `WorldScaleProfile.SmallPlayer`); until 6 October 2026 it was 0.24 m tall with its eye at 0.205 m.
 - Each candidate entity is sampled at 15 points on its bounding box: the centre, the eight corners and
   the six face centres, each pulled 1 cm (or a quarter of the box, whichever is smaller) inside.
 - A sample is seen when the segment from the eye to it crosses no occluder. Occluders are the room

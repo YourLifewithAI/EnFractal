@@ -80,6 +80,9 @@ LOCKABLE_KINDS = frozenset({"object", "creation"})
 PINNABLE_STATUSES = frozenset({"candidate", "approved"})
 OCCLUDING_KINDS = frozenset({"shell", "object", "creation"})
 
+# Both avatars have the 10 cm body (perception.py): radius 0.02 m, height 0.10 m, as Entity half_extents.
+_BODY = [perception.BODY_RADIUS_M, perception.BODY_HEIGHT_M, perception.BODY_RADIUS_M]
+
 DEFAULT_ROOM_DIR = DEFAULT_REPO_ROOT / "game" / "rooms" / "test_room"
 DEFAULT_STYLES_DIR = DEFAULT_REPO_ROOT / "game" / "styles"
 
@@ -368,14 +371,14 @@ class MockHost:
         companion_spawn = spawns.get("companion", player_spawn)
         self.entities["avatar:player"] = Entity(
             id="avatar:player", kind="avatar", display_name="Player", position=list(player_spawn["position_m"]),
-            half_extents=[0.02, 0.10, 0.02], affordances=[], movable=False, provenance_kind="hand_authored")
+            half_extents=list(_BODY), affordances=[], movable=False, provenance_kind="hand_authored")
         for offset, (principal, avatar) in enumerate(sorted((p, a) for p, a in self.avatars.items() if p != PLAYER)):
             position = list(companion_spawn["position_m"])
             position[0] += 0.15 * offset
             name = "Wisp" if avatar == "avatar:companion" else avatar.split(":", 1)[1].capitalize()
             self.entities[avatar] = Entity(
                 id=avatar, kind="avatar", display_name=name, position=position,
-                half_extents=[0.055, 0.24, 0.055], affordances=[], movable=False, provenance_kind="hand_authored")
+                half_extents=list(_BODY), affordances=[], movable=False, provenance_kind="hand_authored")
         style = room.get("default_style")
         if style is None:
             key = next(iter(sorted(self.styles)), ("storybook_painterly", 1))
