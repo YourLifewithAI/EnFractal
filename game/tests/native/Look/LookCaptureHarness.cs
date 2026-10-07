@@ -257,11 +257,17 @@ public partial class LookCaptureHarness : Node
             GD.Print("LOOK_CAPTURE: this build has no SetClock hook; skipping the time and season sweep.");
             return;
         }
-        var cameraId = Arg("sweep-camera", "ceiling_corner");
+        // The cameras file may name the sweep's camera, hours and dates ("sweep"); --sweep-camera overrides the camera.
+        var sweep = root.TryGetProperty("sweep", out var configured) ? configured : default;
+        var cameraId = Arg("sweep-camera", sweep.ValueKind == JsonValueKind.Object && sweep.TryGetProperty("camera", out var named) ? named.GetString()! : "ceiling_corner");
         var entry = root.GetProperty("cameras").EnumerateArray().First(c => c.GetProperty("id").GetString() == cameraId);
         Frame(entry);
-        var dates = new[] { ("winter", "2026-01-15"), ("spring", "2026-04-15"), ("summer", "2026-07-15"), ("autumn", "2026-10-15") };
-        var hours = new[] { 7.0, 12.0, 16.5, 21.0 };
+        var dates = sweep.ValueKind == JsonValueKind.Object && sweep.TryGetProperty("dates", out var dateList)
+            ? dateList.EnumerateArray().Select(d => (d.GetString()!, d.GetString()!)).ToArray()
+            : new[] { ("winter", "2026-01-15"), ("spring", "2026-04-15"), ("summer", "2026-07-15"), ("autumn", "2026-10-15") };
+        var hours = sweep.ValueKind == JsonValueKind.Object && sweep.TryGetProperty("hours", out var hourList)
+            ? hourList.EnumerateArray().Select(h => h.GetDouble()).ToArray()
+            : new[] { 7.0, 12.0, 16.5, 21.0 };
         var cell = new Vector2I(480, 270);
         var sheet = Image.CreateEmpty(cell.X * hours.Length, cell.Y * dates.Length, false, Image.Format.Rgb8);
         for (var row = 0; row < dates.Length; row++)
@@ -276,7 +282,7 @@ public partial class LookCaptureHarness : Node
         sheet.SavePng(System.IO.Path.Combine(outDir, $"sweep_{cameraId}.png"));
         var clock = root.GetProperty("clock");
         SetClock(clock.GetProperty("hour").GetDouble(), DayOfYear(clock.GetProperty("date").GetString()!));
-        GD.Print($"LOOK_CAPTURE sweep={cameraId} rows=winter,spring,summer,autumn columns=07:00,12:00,16:30,21:00");
+        GD.Print($"LOOK_CAPTURE sweep={cameraId} rows={string.Join(",", dates.Select(d => d.Item1))} columns={string.Join(",", hours.Select(h => $"{(int)h:00}:{(int)Math.Round(h % 1 * 60):00}"))}");
     }
 
     /// <summary>
