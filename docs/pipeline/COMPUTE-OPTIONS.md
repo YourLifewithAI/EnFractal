@@ -19,6 +19,17 @@ Estimates for the garage test case: about 150 photos at 24 MP, one bounded room,
 
 So the only stage that does not fit comfortably on the local card is **object generation with textures**. Everything else is free apart from electricity and time.
 
+### Measured in Run 1 (RTX 2070 SUPER, 8 GB, garage set)
+
+| Stage | Measured | Notes |
+|---|---|---|
+| Ingest, 370 HEIC files (911 MB) | 50 s, CPU | 205 unique photos, 180 usable |
+| Poses, MapAnything (Apache-2.0 weights), 180 photos | 96 s GPU in 7 batches of up to 32; 34 s model load | Peak 5.8 GB allocated, 6.6 GB reserved. VGGT and MASt3R weights are non-commercial, so MapAnything's Apache-2.0 variant is used |
+| Furniture detection, OWLv2 base (Apache-2.0) | 17 s GPU | Peak 0.9 GB |
+| Everything else (merging, view graph, coverage grids, report) | about 2 min, CPU | |
+| Downloads | 4.9 GB MapAnything + 0.62 GB OWLv2 + 4 MB DINOv2 code | Kept in the checkout's ignored `.cache/` |
+| Money | $0 | |
+
 ## Image-to-3D models on the local card
 
 | Model | VRAM reported | Verdict for 8 GB |
