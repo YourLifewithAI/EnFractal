@@ -214,9 +214,11 @@ public partial class LookPresetTest
         // Objects: the slot named like the glTF material, else the first role.
         var body = new Node3D();
         body.SetMeta("material_roles", new Godot.Collections.Dictionary { ["legs"] = "metal", ["top"] = "wood" });
-        Check(LookDirector.RoleFor(body, "top") == "wood" && LookDirector.RoleFor(body, "unknown") == "metal" && LookDirector.RoleFor(new Node3D(), "x") == "default",
+        var plain = new Node3D();
+        Check(LookDirector.RoleFor(body, "top") == "wood" && LookDirector.RoleFor(body, "unknown") == "metal" && LookDirector.RoleFor(plain, "x") == "default",
             "an object's surface takes the role of the slot named like its glTF material, else the asset's first role");
         body.Free();
+        plain.Free();
         holder.QueueFree();
         await Frames(1);
     }
