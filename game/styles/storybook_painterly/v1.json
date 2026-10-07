@@ -35,8 +35,8 @@
     "default_hour": 16.5,
     "follow_clock": true,
     "keys": [
-      { "hour": 1.0, "key_color": "#7585c4", "key_energy": 0.058, "ambient_color": "#3c4878", "ambient_energy": 0.13 },
-      { "hour": 5.0, "key_color": "#8a98d0", "key_energy": 0.062, "ambient_color": "#4f5b8e", "ambient_energy": 0.16 },
+      { "hour": 1.0, "key_color": "#7585c4", "key_energy": 0.058, "ambient_color": "#3c4878", "ambient_energy": 0.16 },
+      { "hour": 5.0, "key_color": "#8a98d0", "key_energy": 0.062, "ambient_color": "#4f5b8e", "ambient_energy": 0.2 },
       { "hour": 6.5, "key_color": "#ffc9a0", "key_energy": 0.3, "ambient_color": "#a2b2da", "ambient_energy": 0.34 },
       { "hour": 8.5, "key_color": "#ffe6c8", "key_energy": 0.7, "ambient_color": "#aabbdc", "ambient_energy": 0.5 },
       { "hour": 12.5, "key_color": "#fff4e4", "key_energy": 0.85, "ambient_color": "#b2c4e0", "ambient_energy": 0.58 },
@@ -44,8 +44,8 @@
       { "hour": 17.5, "key_color": "#ffc77e", "key_energy": 0.7, "ambient_color": "#a2b4dc", "ambient_energy": 0.5 },
       { "hour": 18.5, "key_color": "#ffaa6c", "key_energy": 0.3, "ambient_color": "#94aade", "ambient_energy": 0.42 },
       { "hour": 19.2, "key_color": "#ff9266", "key_energy": 0.12, "ambient_color": "#8a9cd8", "ambient_energy": 0.32 },
-      { "hour": 20.0, "key_color": "#8494d4", "key_energy": 0.07, "ambient_color": "#5a6aa8", "ambient_energy": 0.24 },
-      { "hour": 21.5, "key_color": "#7686c8", "key_energy": 0.064, "ambient_color": "#44508a", "ambient_energy": 0.17 }
+      { "hour": 20.0, "key_color": "#8494d4", "key_energy": 0.07, "ambient_color": "#5a6aa8", "ambient_energy": 0.27 },
+      { "hour": 21.5, "key_color": "#7686c8", "key_energy": 0.064, "ambient_color": "#44508a", "ambient_energy": 0.21 }
     ]
   },
   "seasons": {
