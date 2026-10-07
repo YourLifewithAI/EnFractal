@@ -83,6 +83,17 @@ public static class LookClock
         return Mathf.PosMod(set + (sinceRise - length) * (24f - reference) / (24f - length), 24f);
     }
 
+    /// <summary>
+    /// How much of the night look applies at a daylight level: none at or above x_look_grade.night_none_above (the
+    /// golden hour stays warm), all of it at or below night_full_below, linear between. The colour grade's night and
+    /// the lamps' night glow both follow it. The defaults (0 and 1) give 1 - daylight.
+    /// </summary>
+    public static float NightAmount(StylePreset preset, float daylight)
+    {
+        var g = preset.Tuning.Grade;
+        return Mathf.Clamp((g.NightNoneAbove - daylight) / (g.NightNoneAbove - g.NightFullBelow), 0f, 1f);
+    }
+
     /// <summary>Hours from sunrise to sunset on a day of the year: the season day lengths blended like the season grades.</summary>
     public static float DayLength(StylePreset preset, int dayOfYear)
     {

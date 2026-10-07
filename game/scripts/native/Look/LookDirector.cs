@@ -320,7 +320,7 @@ public partial class LookDirector : Node3D
         Key.LightEnergy = Moment.KeyEnergy;
         Key.RotationDegrees = new Vector3(-Moment.KeyElevationDeg, Moment.KeyAzimuthDeg, 0);
         foreach (var lamp in _roomLights)
-            lamp.LightEnergy = (float)lamp.GetMeta("base_energy").AsDouble() * (1f + Preset.Tuning.Lamps.NightBoost * (1f - Moment.Daylight));
+            lamp.LightEnergy = (float)lamp.GetMeta("base_energy").AsDouble() * (1f + Preset.Tuning.Lamps.NightBoost * LookClock.NightAmount(Preset, Moment.Daylight));
         Environment.AmbientLightColor = Moment.AmbientColor;
         Environment.AmbientLightEnergy = Moment.AmbientEnergy;
         ApplyGrade(GradeParams.For(Preset, Moment).Quantized(), synchronous);

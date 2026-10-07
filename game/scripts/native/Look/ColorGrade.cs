@@ -19,7 +19,7 @@ public sealed record GradeParams(
         preset.PaletteShadowTint,
         preset.HighlightTint,
         moment.SeasonTint,
-        1f - moment.Daylight,
+        LookClock.NightAmount(preset, moment.Daylight),
         preset.Tuning.Grade);
 
     /// <summary>

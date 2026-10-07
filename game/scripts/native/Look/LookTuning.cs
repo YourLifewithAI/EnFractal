@@ -55,7 +55,7 @@ public sealed record SeasonTuning(IReadOnlyList<int> CentreDays, float Hold, flo
 
 public sealed record GradeTuning(
     float ShadowTone, float HighlightTone, float SeasonTint, Vector3 WarmthRgb, float NightDesaturate, Vector3 NightTintRgb,
-    float NightDeepen, int LutSize, float SeasonTintShadowFade);
+    float NightDeepen, int LutSize, float SeasonTintShadowFade, float NightFullBelow, float NightNoneAbove);
 
 public sealed record DofTuning(
     float TiltPitchGain, float TiltBandNarrowing, float FarTransitionBaseM, float FarTransitionPerM, float FarBlurReference,
@@ -132,7 +132,7 @@ public sealed record LookTuning(
         new LampTuning(1.2f, 1.5f, 1f, 60f),
         new SunTuning(15f, 60f, 6f, 35f, 180f, 0.3f, 0.12f),
         new SeasonTuning(new[] { 15, 105, 196, 288 }, 0.25f, 0.25f, 196, Array.Empty<float>()),
-        new GradeTuning(0.8f, 0.35f, 0.24f, new Vector3(0.08f, 0.015f, -0.10f), 0.3f, new Vector3(-0.14f, -0.06f, 0.10f), 0.25f, 33, 0f),
+        new GradeTuning(0.8f, 0.35f, 0.24f, new Vector3(0.08f, 0.015f, -0.10f), 0.3f, new Vector3(-0.14f, -0.06f, 0.10f), 0.25f, 33, 0f, 0f, 1f),
         new DofTuning(1.5f, 0.4f, 0.25f, 0.35f, 1.3f, 0.9f, 0.5f, 0.02f, 0.10f, 3f, 0.5f, 1.5f, 0f, 1f, 0f),
         new PostTuning(0.45f, 1.05f, 1.2f, 0.8f, 3f));
 
@@ -231,7 +231,10 @@ public sealed record LookTuning(
         var r = new Fields(Block("x_look_grade"), "x_look_grade", defaulted);
         var grade = new GradeTuning(r.F("shadow_tone", d.Grade.ShadowTone), r.F("highlight_tone", d.Grade.HighlightTone), r.F("season_tint", d.Grade.SeasonTint),
             r.Vec("warmth_rgb", d.Grade.WarmthRgb), r.F("night_desaturate", d.Grade.NightDesaturate), r.Vec("night_tint_rgb", d.Grade.NightTintRgb),
-            r.F("night_deepen", d.Grade.NightDeepen), r.I("lut_size", d.Grade.LutSize), r.F("season_tint_shadow_fade", d.Grade.SeasonTintShadowFade));
+            r.F("night_deepen", d.Grade.NightDeepen), r.I("lut_size", d.Grade.LutSize), r.F("season_tint_shadow_fade", d.Grade.SeasonTintShadowFade),
+            r.F("night_full_below", d.Grade.NightFullBelow), r.F("night_none_above", d.Grade.NightNoneAbove));
+        if (!(grade.NightFullBelow >= 0f && grade.NightNoneAbove > grade.NightFullBelow && grade.NightNoneAbove <= 1f))
+            throw new InvalidOperationException("x_look_grade: 0 <= night_full_below < night_none_above <= 1");
         if (grade.SeasonTintShadowFade is < 0f or > 1f) throw new InvalidOperationException("x_look_grade.season_tint_shadow_fade must be between 0 and 1");
         r.Done();
         if (grade.LutSize is < 8 or > 65) throw new InvalidOperationException("x_look_grade.lut_size must be between 8 and 65");

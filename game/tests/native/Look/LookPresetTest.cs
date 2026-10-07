@@ -478,6 +478,14 @@ public partial class LookPresetTest : Node3D
         Check((winterGrey.B - winterGrey.R) - (summerGrey.B - summerGrey.R) >= 0.08f && autumnGrey.R - autumnGrey.B > 0.05f,
             $"the seasons clearly differ: winter blue, summer and autumn warm (blue minus red: winter {winterGrey.B - winterGrey.R:0.###}, summer {summerGrey.B - summerGrey.R:0.###}, autumn {autumnGrey.B - autumnGrey.R:0.###})");
         Check(preset.Tuning.Lamps.NightBoost >= 2f, "room lamps glow at least three times as bright at night as by day");
+        // Twilight is not night: the golden hour keeps its warm colour, and the night look comes in only as the light goes.
+        var golden = LookClock.At(preset, 16.5f, 279);
+        var deepNight = LookClock.At(preset, 2f, 279);
+        Check(golden.Daylight >= preset.Tuning.Grade.NightNoneAbove && GradeParams.For(preset, golden).Night == 0f && GradeParams.For(preset, deepNight).Night == 1f,
+            $"the golden hour (daylight {golden.Daylight:0.##}) gets none of the night grade and deep night all of it");
+        var sweep = Enumerable.Range(0, 24 * 60).Select(m => GradeParams.For(preset, LookClock.At(preset, m / 60f, 15)).Night).ToArray();
+        var nightStep = Enumerable.Range(1, sweep.Length - 1).Max(i => Mathf.Abs(sweep[i] - sweep[i - 1]));
+        Check(nightStep < 0.05f, $"the night grade comes and goes smoothly (largest step {nightStep:0.###} a minute in mid-winter)");
     }
 
     /// <summary>
@@ -740,6 +748,8 @@ public partial class LookPresetTest : Node3D
         look.SetClock(23f, 279);
         Check(look.Key.LightEnergy < afternoonEnergy * 0.3f && look.Moment.Daylight < 0.2f, "pinning the clock to night dims the key");
         Check(lamp.LightEnergy > (float)lamp.GetMeta("base_energy").AsDouble() * 1.5f, "room lamps glow brighter at night");
+        look.SetClock(16.5f, 196);
+        Check(Mathf.IsEqualApprox(lamp.LightEnergy, (float)lamp.GetMeta("base_energy").AsDouble()), "on a bright summer afternoon the lamps are at their plain daytime level");
         look.SetClock(preset.DefaultHour, 279);
         Check(Mathf.IsEqualApprox(look.Key.LightEnergy, afternoonEnergy) && look.Moment.Season == "autumn", "pinning back to the default hour restores the afternoon");
         Check(look.RendererNote.Length == 0 && look.PlayerNotice.Length == 0, "no renderer mismatch is reported under Forward+");
