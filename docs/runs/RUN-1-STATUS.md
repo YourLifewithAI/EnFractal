@@ -7,9 +7,13 @@ Run 1 is **in progress**. This page records where every lane stands, what the fo
 | Branch | State |
 |---|---|
 | `run1/integration` | Run 0 head `28fc364`, plus three lane merges, plus the change requests in `3629545`: P at `d0fb843`, A at its reviewed commit `497bfae`, L at its reviewed commit `7b664e7`. **All Windows suites pass** (below). Lane C is not merged yet. |
-| `run1/play` | P1 and P2 complete (`d0fb843`). The independent review was cut off by a usage limit and must be rerun. |
-| `run1/companion` | A1 at `497bfae`, reviewed. The review fix round was interrupted; WIP is saved as `9d7d28d`, **untested**. |
-| `run1/look` | L1 (draft), L2 and L3 at `7b664e7`, reviewed. The review fix round was interrupted; WIP is saved as `a0be771`, **untested**. |
+| `run1/play` | P1 and P2 complete (`d0fb843`). After the founder's first playtest (evening of 6 October, on the second machine): faster run, floatier floaty, the F3 diorama orbit camera, loose follow, and companion navigation round furniture (`a0b62af`). Merged. The independent review must still be rerun. |
+| `run1/companion` | A1 reviewed at `497bfae`. The fix round is finished (`12d39b3`): every review finding is fixed and tested with nothing held, the play-only profile exists, and frames are canonical. 375 tests; 84 of 84 mutations caught. Merged. Its contract and `RoomData.cs` text-rule proposals are in `docs/companion/proposals/` and not yet applied. |
+| `run1/look` | The fix round is finished, and the first art-direction pass is done (`7107938`): look checks 90 to 233, the real clock by default, stronger season and hour swings, high-angle and isometric review cameras with tilt-shift, and captures in `docs/look/reviews/run1/step3/`. Merged. Its window and camera change requests wait on founder answers. |
+
+**Integration head after the evening session:** `5686bbd` and later. All Windows suites pass: engine, small avatar 136/136, room navigation 10/10, room data 41/41, look 233/233, contracts 34, companion 375.
+
+**Seen in captures, not yet diagnosed:** both avatars appear to hover slightly above the rug (`step3/over_shoulder.png`). The cause is either a body-to-mesh offset (P) or shadow bias too large for 10 cm objects (L).
 | `run1/capture` | C1 and C2 in progress, saved as WIP `6c869c3`, **untested**. Photos and everything derived from them stay in the lane's ignored `captures/` folder on the desktop; none of it is in Git. |
 
 Evidence on `run1/integration`, Windows 11 desktop, 6 October 2026:
@@ -174,7 +178,14 @@ The images stay in Google Drive (`Enfractal/Art inspiration`) and are cited by f
 
 ## Next steps when work resumes
 
-1. Resume the A and L fix rounds from their WIP commits: run their tests first, then finish. Relay the founder's look notes and decisions to L.
+0. **Waiting on the founder (evening of 6 October):**
+   - the eight building-design questions (interiors, how builds happen, who confirms, physics, editing, saving designs, the first kit and styles, the companion's size);
+   - Lane A's questions (undo limited to the companion's own changes, perception memory, emoji in names);
+   - Lane L's questions (the golden-hour palette, day lengths, south or west window, how dark night is, F4 quarter turns or free orbit);
+   - Lane P's question (should floaty also raise the jump?);
+   - whether to run the live MCP client check with a real model.
+   - **Then:** write the building design doc for Lane A, apply the window and camera change requests, and diagnose the hover.
+1. ~~Resume the A and L fix rounds~~ Done on the evening of 6 October; see the branch table.
 2. Resume C: finish C1 and C2, commit a tested state, and produce the garage coverage report (local only) for the founder.
 3. Rerun the independent review of P.
 4. Integrator:
