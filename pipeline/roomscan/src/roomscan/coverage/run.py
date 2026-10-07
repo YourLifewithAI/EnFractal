@@ -4,7 +4,7 @@ Outputs under ``<captures>/<room>/sessions/<session>/coverage/``:
 
     poses.npz, poses.json        merged poses and point maps (cache; recomputed with --recompute)
     detections.json              detector output per photo (cache)
-    coverage.json                every number in the report
+    coverage.json                every number in the report (including the scale and the tape fit)
     coverage-map.png             the top-down map with wall bands, cameras, objects and guidance
     walls.png                    the four walls and the ceiling unfolded
     coverage-report.md / .html   the report and guidance for the founder
@@ -20,12 +20,14 @@ import io
 import json
 import platform
 import time
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable
 
 import numpy as np
 
 from .. import __version__
+from .. import exif as exifmod
 from ..ingest import resolve_session
 from ..jsonio import json_bytes, sha256_hex
 from ..paths import OutputGuard
@@ -36,9 +38,12 @@ from .graph import build_view_graph, overlap_matrix
 from .grid import WALLS, ceiling_grid, floor_grid, wall_axes, wall_grid
 from .visibility import Views
 from .layout import camera_forward, camera_up, collect_points, fit_room
-from .refine import consensus_scale, refine_batches
+from .refine import refine_batches
+from .scale import (MEASUREMENTS_FILE, batch_scale_summary, check_measurements, load_measurements, plan_scale,
+                    scale_frame, scale_prediction, scale_record, wall_copy_spread)
 
-POSE_SETTINGS_VERSION = 3  # 3: draft-mode decoding, batch refinement
+# 4: digitally zoomed photos get no EXIF intrinsics; photos that are not near 3:4 are padded, not cropped.
+POSE_SETTINGS_VERSION = 4
 
 
 def select_views(manifest: dict[str, Any], max_views: int | None = None) -> list[dict[str, Any]]:
@@ -110,10 +115,14 @@ def compute_poses(room_dir: Path, views: list[dict[str, Any]], *, chunk_size: in
         "batches": [{"views": b.views, "anchors": b.anchors} for b in batches],
         "fits": fits,
         "refinement": refinement,
-        # The room keeps the reference batch's metric scale; the spread of the other batches'
-        # scales is the honest error bar on every distance in the report.
-        "scale": {"batch_scales": {str(k): round(v, 4) for k, v in sorted(scales.items())},
-                  **{k: round(v, 4) for k, v in consensus_scale(scales).items()}},
+        "intrinsics": {
+            "from_exif": sum(K is not None for K in Ks),
+            "left_to_the_model": [p["name"] for p, K in zip(views, Ks) if K is None],
+            "digitally_zoomed": [p["name"] for p in views if exifmod.digitally_zoomed(p.get("exif"))],
+        },
+        # The merged room is in the reference batch's scale (batch 0). What the other batches'
+        # scales say about that is an error bar, not a correction: see ``scale``.
+        "scale": batch_scale_summary(scales),
         "merged_views": len(merged),
         "gpu": {
             "load_seconds": round(load_s, 2),
@@ -162,8 +171,8 @@ def load_poses(path: Path) -> dict[int, dict[str, np.ndarray]]:
 
 def run_coverage(captures_root: Path, room: str, *, session: str | None = "latest", max_views: int | None = None,
                  chunk_size: int | None = None, anchors: int = 6, skip_detection: bool = False,
-                 reuse_poses: bool = True, exif_intrinsics: bool = True,
-                 backend_factory: Callable[[], Any] | None = None, detector_factory: Callable[[], Any] | None = None,
+                 reuse_poses: bool = True, exif_intrinsics: bool = True, measurements: Path | None = None,
+                 use_measurements: bool = True, backend_factory: Callable[[], Any] | None = None, detector_factory: Callable[[], Any] | None = None,
                  log=print) -> dict[str, Any]:
     t_all = time.perf_counter()
     timings: dict[str, float] = {}
@@ -177,9 +186,21 @@ def run_coverage(captures_root: Path, room: str, *, session: str | None = "lates
     views = select_views(manifest, max_views)
     if len(views) < 2:
         raise ValueError("Need at least two usable photos for coverage.")
+    # The founder's tape measurements, checked before any heavy work so a typo costs nothing.
+    meas_path = None
+    if use_measurements:
+        meas_path = Path(measurements) if measurements else room_dir / MEASUREMENTS_FILE
+        if not meas_path.is_file():
+            if measurements:
+                raise FileNotFoundError(f"Measurements file not found: {meas_path}")
+            meas_path = None
+    tape = load_measurements(meas_path, manifest["room"]) if meas_path else None
+    if tape:
+        log(f"Tape measurements: {len(tape)} from {meas_path.name}")
 
     settings = {"version": POSE_SETTINGS_VERSION, "anchors": anchors, "chunk_size": chunk_size,
-                "exif_intrinsics": exif_intrinsics, "stride": be.STORE_STRIDE,
+                "exif_intrinsics": exif_intrinsics, "digital_zoom_limit": exifmod.DIGITAL_ZOOM_LIMIT,
+                "max_crop": be.MAX_CROP_FRACTION, "stride": be.STORE_STRIDE,
                 "backend": "mapanything" if backend_factory is None else "injected"}
     if backend_factory is None:
         settings.update({"model": be.POSE_MODEL, "revision": be.MODEL_REGISTRY[be.POSE_MODEL]["revision"]})
@@ -218,11 +239,26 @@ def run_coverage(captures_root: Path, room: str, *, session: str | None = "lates
     if len(registered) < 2:
         raise RuntimeError("Fewer than two photos fit together; nothing to map.")
 
-    # Room frame and coverage grids.
+    # Room frame in the model's own units, then the scale. The tape fit scales the merged poses, the points
+    # and the box together, before any grid is built, so the 25 cm cells, the low-photo threshold and every
+    # distance in the guidance mean what they say.
     t0 = time.perf_counter()
+    batch_summary = batch_scale_summary(pose_info["scale"]["batch_scales"])
+    pose_info["scale"] = batch_summary
     pts = collect_points(preds, registered)
     up0 = camera_up(preds, registered)
-    frame = fit_room(pts, up0, forward=camera_forward(preds, registered[0]))
+    forward = camera_forward(preds, registered[0])
+    frame_model = fit_room(pts, up0, forward=forward)
+    plan = plan_scale(tape, sid, frame_model)
+    if plan.source == "tape":
+        preds = {v: scale_prediction(p, plan.factor) for v, p in preds.items()}
+        pts = replace(pts, xyz=pts.xyz * plan.factor)
+        frame = scale_frame(frame_model, plan.factor)
+        log(f"Room scaled by {plan.factor:.4f} to fit {len(plan.fit['used'])} tape measurements")
+    else:
+        frame = frame_model
+    for note in plan.notes:
+        log(f"Tape measurements: {note}")
     T = frame.world_to_room
     xyz = transform_points(T, pts.xyz)
     nor = pts.normal @ T[:3, :3].T
@@ -234,6 +270,10 @@ def run_coverage(captures_root: Path, room: str, *, session: str | None = "lates
     floor = floor_grid(seen_by, xyz, bounds)
     walls = {k: wall_grid(k, seen_by, bounds, height) for k in WALLS}
     ceiling = ceiling_grid(seen_by, bounds, frame.ceiling_y) if frame.ceiling_y else None
+    batch_of_view = np.array([preds[i].get("batch", 0) if i in preds else -1 for i in range(len(views))])
+    copies = wall_copy_spread(xyz, nor, batch_of_view[pts.view], bounds)
+    checks = check_measurements(plan, frame_model, frame, walls, copies) if plan.measurements else None
+    scale = scale_record(plan, batch_summary, checks, frame_model, frame)
     timings["layout_and_grids"] = time.perf_counter() - t0
 
     # Objects.
@@ -262,7 +302,7 @@ def run_coverage(captures_root: Path, room: str, *, session: str | None = "lates
         "floor": floor, "walls": walls, "ceiling": ceiling, "cams": cams, "looks": looks,
         "objects": objects, "xyz": xyz, "nor": nor, "owner": pts.view, "pose_info": pose_info,
         "wall_axes": {k: wall_axes(k, bounds) for k in WALLS}, "overlap": O, "detection": det_info,
-        "room_dir": room_dir,
+        "room_dir": room_dir, "scale": scale,
     }
     guidance = build_guidance(context)
     context["guidance"] = guidance
@@ -288,6 +328,7 @@ def run_coverage(captures_root: Path, room: str, *, session: str | None = "lates
         "finished_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "timing_s": {k: round(v, 2) for k, v in timings.items()},
         "poses": pose_info,
+        "scale": scale,
         "detection": det_info,
         "models": models,
         "money_spent_usd": 0,
@@ -302,5 +343,5 @@ def run_coverage(captures_root: Path, room: str, *, session: str | None = "lates
     guard.write_bytes("walls.png", Path(walls_path).read_bytes())
     log(f"Coverage done in {timings['total']:.1f}s")
     return {"report": report_paths["html"], "markdown": report_paths["md"], "map": map_path, "walls": walls_path,
-            "run": run, "guidance": guidance, "room_report": guard.path("coverage-report.html"),
+            "run": run, "scale": scale, "guidance": guidance, "room_report": guard.path("coverage-report.html"),
             "room_map": guard.path("coverage-map.png")}

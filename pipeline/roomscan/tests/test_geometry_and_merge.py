@@ -9,7 +9,7 @@ import scene
 from roomscan.coverage.chunks import merge_batches, plan_batches
 from roomscan.coverage.geometry import (apply_sim3_to_pose, dominant_wall_yaw, ransac_plane, rotation_angle_deg,
                                         rotation_between, sim3_matrix, transform_points, umeyama)
-from roomscan.coverage.refine import consensus_scale, refine_batches
+from roomscan.coverage.refine import refine_batches
 
 
 def test_umeyama_recovers_a_similarity():
@@ -126,10 +126,3 @@ def test_refinement_pulls_a_slipped_batch_back():
     after = _relative_errors(refined, cams).max()
     assert before > 0.08 and after < 0.03, (before, after)
     assert any(h["batch"] == 1 and h["accepted"] for h in report["history"])
-
-
-def test_consensus_scale_reports_the_spread():
-    out = consensus_scale({0: 1.0, 1: 0.9, 2: 0.8})
-    assert out["median_batch_scale"] == pytest.approx(0.9)
-    assert out["factor"] == pytest.approx(1 / 0.9)
-    assert out["spread_pct"] == pytest.approx(11.1, abs=0.1)

@@ -49,58 +49,6 @@ def plan_batches(n: int, batch_size: int, anchors: int) -> list[Batch]:
     return batches
 
 
-def _grow(seed: int, pool: set[int], size: int, W: np.ndarray, extra: set[int] | None = None) -> list[int]:
-    """Greedy: keep adding the pool photo most strongly linked to the group (and to ``extra``)."""
-    group = [seed]
-    linked_to = set(group) | (extra or set())
-    candidates = set(pool) - {seed}
-    while len(group) < size and candidates:
-        cand = sorted(candidates)
-        scores = W[np.ix_(cand, sorted(linked_to))].sum(1)
-        best = int(np.argmax(scores))
-        if scores[best] <= 0:
-            break
-        pick = cand[best]
-        group.append(pick)
-        linked_to.add(pick)
-        candidates.remove(pick)
-    return group
-
-
-def plan_graph_batches(W: np.ndarray, nodes: list[int], batch_size: int, anchors: int) -> list[Batch]:
-    """Batches that follow the feature graph, so every photo in a batch overlaps others in it.
-
-    ``W`` is a symmetric matrix of verified match counts (zero where photos are not linked).
-    The first batch grows from the best-connected photo; each later batch starts at the remaining
-    photo most linked to what is already done, grows through remaining photos, and takes as anchors
-    the done photos most linked to its new photos.
-    """
-    pool = set(nodes)
-    if not pool:
-        return []
-    order = sorted(pool)
-    seed = max(order, key=lambda n: (W[n, order].sum(), -n))
-    first = _grow(seed, pool, batch_size, W)
-    batches = [Batch(sorted(first))]
-    done = set(first)
-    while pool - done:
-        rem = pool - done
-        rem_list, done_list = sorted(rem), sorted(done)
-        link = W[np.ix_(rem_list, done_list)].sum(1)
-        if link.max() <= 0:
-            break  # the rest is not linked to what is done (cannot happen inside one component)
-        start = rem_list[int(np.argmax(link))]
-        new = _grow(start, rem, batch_size - anchors, W, extra=done)
-        weight_to_new = W[np.ix_(done_list, new)].sum(1)
-        ranked = [done_list[i] for i in np.argsort(-weight_to_new, kind="stable") if weight_to_new[i] > 0]
-        anc = sorted(ranked[:anchors])
-        if len(anc) < 2:  # too few links: still try, with the strongest done photos
-            anc = sorted(done_list[i] for i in np.argsort(-weight_to_new, kind="stable")[:anchors])
-        batches.append(Batch(anc + sorted(new), anchors=anc))
-        done |= set(new)
-    return batches
-
-
 def _world_points(pred: dict[str, np.ndarray], scale: float = 1.0) -> tuple[np.ndarray, np.ndarray]:
     pts = pred["pts_cam"].astype(np.float64) * scale
     return transform_points(pred["c2w"], pts), pred["conf"].astype(np.float64)

@@ -20,6 +20,8 @@ from typing import Any
 import numpy as np
 from PIL import Image
 
+from ..exif import digitally_zoomed
+
 # Every model the pipeline downloads, with its licence. Checked 6 October 2026 on Hugging Face.
 MODEL_REGISTRY = {
     "facebook/map-anything-apache": {
@@ -45,6 +47,12 @@ TORCH_HUB_PINS = {
         "ref": "7764ea0f912e53c92e82eb78a2a1631e92725fc8",
         "licence": "Apache-2.0 (code)",
         "role": "DINOv2 encoder definition used by MapAnything",
+        # Checked in the downloaded checkout, 6 October 2026: the repository is Apache-2.0 as a
+        # whole, but this commit's hubconf.py imports dinov2.hub.cell_dino and dinov2.hub.xray_dino
+        # (LICENSE_CELL_DINO_CODE: CC BY 4.0 code; LICENSE_CELL_DINO_MODELS and LICENSE_XRAY_DINO_MODEL:
+        # non-commercial research licences for their weights). Importing hubconf.py runs that code.
+        "note": ("this commit's hubconf.py also imports the Cell-DINO (CC BY 4.0 code) and X-Ray-DINO modules, "
+                 "whose weights are non-commercial research only; no weights are fetched and none are used"),
     },
 }
 # Considered and not used, recorded so the founder can decide later:
@@ -179,12 +187,40 @@ def wait_for_vram(need_mib: int, *, retries: int = 20, delay_s: float = 30.0, lo
     raise RuntimeError(f"GPU never had {need_mib} MiB free after {retries} retries; try again later.")
 
 
-def processed_geometry(width: int, height: int, target: tuple[int, int] = TARGET_SIZE) -> tuple[float, int, int]:
-    """Scale and crop offsets taking an original image to the model input (cover, then centre crop)."""
+MAX_CROP_FRACTION = 0.08  # a photo may lose this much of its width or height to fit the model's frame
+PAD_COLOUR = (124, 116, 104)  # close to the image-normalisation mean, so padding reads as "nothing"
+
+
+@dataclass(frozen=True)
+class InputLayout:
+    """Where a photo's pixels land in the model's fixed-size input."""
+
+    scale: float  # original pixels to model pixels
+    left: int  # columns cut from the left of the scaled photo (a near-3:4 photo is cropped)
+    top: int
+    pad_x: int  # columns of padding left of the scaled photo (any other shape is padded, never cropped)
+    pad_y: int
+    content_w: int  # size of the photo's own pixels inside the input
+    content_h: int
+
+
+def input_layout(width: int, height: int, target: tuple[int, int] = TARGET_SIZE) -> InputLayout:
+    """How a photo is fitted to the model input.
+
+    MapAnything wants every photo in a batch at one size, here the 3:4 portrait ``target``. A photo
+    close to that shape (an iPhone's 3:4 portrait, off by about 1%) is scaled to cover the frame
+    and centre-cropped, as before. A photo of any other shape is scaled to fit inside the frame and
+    padded: a landscape photo cropped to portrait would lose 43% of its width, a 9:16 one 26% of its
+    height, and the walls beside the lost strip would go uncovered in the report.
+    """
     tw, th = target
-    scale = max(tw / width, th / height)
-    rw, rh = math.ceil(width * scale), math.ceil(height * scale)
-    return scale, (rw - tw) // 2, (rh - th) // 2
+    cover = max(tw / width, th / height)
+    rw, rh = math.ceil(width * cover), math.ceil(height * cover)
+    if max(1 - tw / rw, 1 - th / rh) <= MAX_CROP_FRACTION:
+        return InputLayout(cover, (rw - tw) // 2, (rh - th) // 2, 0, 0, tw, th)
+    fit = min(tw / width, th / height)
+    cw, ch = min(tw, round(width * fit)), min(th, round(height * fit))
+    return InputLayout(fit, 0, 0, (tw - cw) // 2, (th - ch) // 2, cw, ch)
 
 
 def open_reduced(path: Path, min_size: tuple[int, int]) -> Image.Image:
@@ -199,15 +235,32 @@ def open_reduced(path: Path, min_size: tuple[int, int]) -> Image.Image:
     return im
 
 
-def load_model_input(path: Path, target: tuple[int, int] = TARGET_SIZE, mirror: bool = False) -> Image.Image:
+def fit_to_canvas(im: Image.Image, target: tuple[int, int] = TARGET_SIZE) -> tuple[Image.Image, InputLayout]:
+    """An RGB image fitted to a ``target``-sized canvas as ``input_layout`` says."""
+    tw, th = target
+    layout = input_layout(im.width, im.height, target)
+    if (layout.content_w, layout.content_h) != (tw, th):
+        canvas = Image.new("RGB", target, PAD_COLOUR)
+        canvas.paste(im.resize((layout.content_w, layout.content_h), Image.Resampling.LANCZOS),
+                     (layout.pad_x, layout.pad_y))
+        return canvas, layout
+    rw, rh = math.ceil(im.width * layout.scale), math.ceil(im.height * layout.scale)
+    im = im.resize((rw, rh), Image.Resampling.LANCZOS)
+    return im.crop((layout.left, layout.top, layout.left + tw, layout.top + th)), layout
+
+
+def load_model_view(path: Path, target: tuple[int, int] = TARGET_SIZE) -> tuple[Image.Image, InputLayout]:
+    """A photo as the model sees it, and where its pixels are in that picture."""
     with open_reduced(path, target) as im:
-        im = im.convert("RGB")
-        if mirror:
-            im = im.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
-        scale, left, top = processed_geometry(im.width, im.height, target)
-        rw, rh = math.ceil(im.width * scale), math.ceil(im.height * scale)
-        im = im.resize((rw, rh), Image.Resampling.LANCZOS)
-        return im.crop((left, top, left + target[0], top + target[1]))
+        return fit_to_canvas(im.convert("RGB"), target)
+
+
+def content_mask(layout: InputLayout, target: tuple[int, int] = TARGET_SIZE, stride: int = STORE_STRIDE) -> np.ndarray:
+    """True where a stored point-map pixel comes from the photo itself and not from padding."""
+    tw, th = target
+    mask = np.zeros((th, tw), bool)
+    mask[layout.pad_y:layout.pad_y + layout.content_h, layout.pad_x:layout.pad_x + layout.content_w] = True
+    return mask[::stride, ::stride]
 
 
 def _cast(obj: Any, dtype) -> Any:
@@ -290,17 +343,23 @@ def exif_intrinsics(photo: dict[str, Any], target: tuple[int, int] = TARGET_SIZE
 
     Phone photos are distortion-corrected and the principal point is close to the centre, so the
     35 mm equivalent (defined on the frame diagonal) gives the focal length in pixels.
+
+    None for a digitally zoomed photo, which is then left to the model's own estimate. The garage
+    set shows why: iPhone 17 photos with DigitalZoomRatio 1.42 (eight of them, pixel size
+    unchanged) keep a 26 mm equivalent, while the one at 1.71 records 44 mm, which is 26 mm times
+    the zoom. EXIF does not say consistently whether the equivalent includes the zoom, and a wrong
+    focal length bends the whole batch it is in. See ``exif.digitally_zoomed``.
     """
     exif = photo.get("exif") or {}
     f35 = exif.get("focal_length_35mm")
     size = photo.get("image") or {}
     W, H = size.get("width"), size.get("height")
-    if not f35 or not W or not H:
+    if not f35 or not W or not H or digitally_zoomed(exif):
         return None
     f_px = f35 / FULL_FRAME_DIAGONAL_MM * math.hypot(W, H)
-    scale, left, top = processed_geometry(W, H, target)
-    return np.array([[f_px * scale, 0.0, W * scale / 2 - left],
-                     [0.0, f_px * scale, H * scale / 2 - top],
+    lay = input_layout(W, H, target)
+    return np.array([[f_px * lay.scale, 0.0, W * lay.scale / 2 - lay.left + lay.pad_x],
+                     [0.0, f_px * lay.scale, H * lay.scale / 2 - lay.top + lay.pad_y],
                      [0.0, 0.0, 1.0]])
 
 
@@ -358,15 +417,16 @@ class MapAnythingBackend:
         self.torch.cuda.empty_cache()
 
     def _views(self, paths: list[Path], intrinsics: list[np.ndarray | None] | None = None,
-               mirror: list[bool] | None = None) -> list[dict[str, Any]]:
+               ) -> tuple[list[dict[str, Any]], list[InputLayout]]:
         import torchvision.transforms as tvf
         from uniception.models.encoders.image_normalizations import IMAGE_NORMALIZATION_DICT
 
         norm = IMAGE_NORMALIZATION_DICT["dinov2"]
         to_tensor = tvf.Compose([tvf.ToTensor(), tvf.Normalize(mean=norm.mean, std=norm.std)])
-        views = []
+        views, layouts = [], []
         for i, path in enumerate(paths):
-            img = load_model_input(path, mirror=bool(mirror and mirror[i]))
+            img, layout = load_model_view(path)
+            layouts.append(layout)
             view = {
                 "img": to_tensor(img)[None],
                 "true_shape": np.int32([img.size[::-1]]),
@@ -379,16 +439,16 @@ class MapAnythingBackend:
 
                 view["intrinsics"] = torch.from_numpy(np.asarray(intrinsics[i], np.float32))[None]
             views.append(view)
-        return views
+        return views, layouts
 
     def predict(self, paths: list[Path], intrinsics: list[np.ndarray | None] | None = None,
-                mirror: list[bool] | None = None) -> list[dict[str, np.ndarray]]:
+                ) -> list[dict[str, np.ndarray]]:
         """Poses, intrinsics and point maps for one batch, all in the batch's own metric frame."""
         torch = self.torch
         if self.model is None:
             self.load()
         t_prep = time.perf_counter()
-        views = self._views(paths, intrinsics, mirror)
+        views, layouts = self._views(paths, intrinsics)
         self.stats.prepare_seconds += time.perf_counter() - t_prep
         torch.cuda.reset_peak_memory_stats()
         torch.cuda.synchronize()
@@ -416,7 +476,7 @@ class MapAnythingBackend:
                                    "peak_allocated_mib": round(peak_a), "peak_reserved_mib": round(peak_r)})
         s = STORE_STRIDE
         out = []
-        for pred in preds:
+        for pred, layout in zip(preds, layouts):
             pts = pred["pts3d_cam"][0].float().cpu().numpy()
             conf = pred["conf"][0].float().cpu().numpy()
             mask = pred["mask"][0, ..., 0].bool().cpu().numpy() if pred["mask"].ndim == 4 else pred["mask"][0].bool().cpu().numpy()
@@ -429,7 +489,7 @@ class MapAnythingBackend:
                 "K_model": K_model,
                 "pts_cam": pts[::s, ::s].astype(np.float16),
                 "conf": conf[::s, ::s].astype(np.float16),
-                "mask": mask[::s, ::s],
+                "mask": mask[::s, ::s] & content_mask(layout),  # padding is not a surface
             })
         del preds
         torch.cuda.empty_cache()

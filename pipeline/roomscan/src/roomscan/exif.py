@@ -130,6 +130,23 @@ def lens_kind(fields: dict[str, Any] | None) -> str:
     return "main"
 
 
+# A photo is "digitally zoomed" above this DigitalZoomRatio. iPhones write 1.001 for an unzoomed
+# photo, so 1.05 is clear of rounding and below the smallest real zoom in the garage set (1.09).
+DIGITAL_ZOOM_LIMIT = 1.05
+
+
+def digitally_zoomed(fields: dict[str, Any] | None) -> bool:
+    """Whether the camera zoomed in (a crop of the sensor) when the photo was taken.
+
+    What an iPhone records is not consistent. In the October 2026 garage set (iPhone 17, main
+    camera, 5.96 mm lens) eight photos have DigitalZoomRatio 1.42 yet keep a 35 mm equivalent of
+    26 mm, the same as unzoomed ones, while the one photo at 1.71 records 44 mm, which is 26 mm times
+    the zoom. So the equivalent focal length cannot be trusted to include the zoom, and a photo that
+    has one is not given EXIF intrinsics (see ``coverage.backend.exif_intrinsics``).
+    """
+    return float((fields or {}).get("digital_zoom") or 1.0) > DIGITAL_ZOOM_LIMIT
+
+
 def had_location(img: Image.Image) -> bool:
     """Whether the source carried any GPS data (reported as a yes/no, never the values)."""
     exif = img.getexif()

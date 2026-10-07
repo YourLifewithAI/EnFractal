@@ -35,6 +35,8 @@ def cmd_coverage(args: argparse.Namespace) -> int:
         chunk_size=args.chunk_size,
         skip_detection=args.skip_detection,
         reuse_poses=not args.recompute,
+        measurements=Path(args.measurements) if args.measurements else None,
+        use_measurements=not args.no_measurements,
     )
     print(f"report: {result['report']}")
     print(f"map:    {result['map']}")
@@ -72,6 +74,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--chunk-size", type=int, default=None, help="Photos per GPU batch (default: from free VRAM)")
     p.add_argument("--skip-detection", action="store_true", help="No object detection (no per-object counts)")
     p.add_argument("--recompute", action="store_true", help="Recompute poses even if cached for this session")
+    p.add_argument("--measurements", help="Tape measurements (default: captures/<room>/measurements.json if it exists)")
+    p.add_argument("--no-measurements", action="store_true", help="Ignore tape measurements: keep the model's own scale")
     p.set_defaults(func=cmd_coverage)
 
     p = sub.add_parser("sessions", help="List ingested sessions for a room")

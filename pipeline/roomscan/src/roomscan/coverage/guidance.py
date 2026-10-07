@@ -15,8 +15,9 @@ from typing import Any
 
 import numpy as np
 
+from ..exif import digitally_zoomed
 from .grid import CELL_M, regions, runs
-from .visibility import LOW_CAMERA_M as LOW_VIEW_M
+from .visibility import LOW_CAMERA_M
 from .objects import ObjectInstance, sector_of
 
 # Height bands on walls: (key, from m, to m, how to hold the phone)
@@ -28,7 +29,6 @@ BANDS = (
 BAND_WEIGHT = {"low": 1.6, "middle": 1.0, "high": 0.6}
 NUMBER_WORDS = {1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six", 7: "seven", 8: "eight",
                 9: "nine", 10: "ten", 11: "eleven", 12: "twelve"}
-LOW_CAMERA_M = 0.7
 # Furniture that stands on legs or has a gap under its lowest shelf: room for a 10 cm player.
 LEGGED = {"desk", "table", "workbench", "shelving unit", "chair", "office chair", "easel", "sofa", "cabinet",
           "chest of drawers", "ladder"}
@@ -141,48 +141,66 @@ def wall_hint(prof: dict[str, Any]) -> str:
 
 
 def span_phrase(u0: float, u1: float, prof: dict[str, Any], axes: dict[str, Any]) -> str:
-    """Where a stretch of wall is, by the objects on it, or by its corners."""
+    """Where a stretch of wall is, by the objects on it, or by its corners.
+
+    "Around the X" is said only of an object that covers the middle of the stretch. An object that
+    only touches one end is a neighbour: the stretch is to the right or left of it.
+    """
     length = axes["length"]
-    left_of, right_of, over = [], [], []
+    mid = (u0 + u1) / 2
+    on_left, on_right, over = [], [], []  # objects over the middle, and the nearest ones either side of it
     for o in prof["objects"]:
         a, b = object_u_range(o, axes)
-        if b <= u0 + 0.1:
-            right_of.append((u0 - b, o))
-        elif a >= u1 - 0.1:
-            left_of.append((a - u1, o))
-        else:
+        if a <= mid <= b:
             over.append(o)
-    near_l = min(right_of, key=lambda x: x[0])[1] if right_of else None
-    near_r = min(left_of, key=lambda x: x[0])[1] if left_of else None
+        elif b < mid:
+            on_left.append((max(0.0, u0 - b), o))
+        else:
+            on_right.append((max(0.0, a - u1), o))
+    near_l = min(on_left, key=lambda x: x[0])[1] if on_left else None
+    near_r = min(on_right, key=lambda x: x[0])[1] if on_right else None
     where = f"from {u0:.1f} m to {u1:.1f} m along it, counting from its left corner as you face it"
-    if u0 < 0.3 and u1 > length - 0.3:
+    to_left_corner = u0 < 0.3
+    to_right_corner = u1 > length - 0.3
+    if to_left_corner and to_right_corner:
         return "along its whole length"
     if over:
         return f"around the {over[0].label} ({where})"
     if near_l is not None and near_r is not None:
         return f"between the {near_l.label} and the {near_r.label} ({where})"
     if near_r is not None:
-        return f"to the left of the {near_r.label} ({where})"
+        corner = ", up to the left-hand corner" if to_left_corner else ""
+        return f"to the left of the {near_r.label}{corner} ({where})"
     if near_l is not None:
-        return f"to the right of the {near_l.label} ({where})"
-    if u0 < 0.3:
+        corner = ", up to the right-hand corner" if to_right_corner else ""
+        return f"to the right of the {near_l.label}{corner} ({where})"
+    if to_left_corner:
         return f"at its left end ({where})"
-    if u1 > length - 0.3:
+    if to_right_corner:
         return f"at its right end ({where})"
     return f"in its middle ({where})"
 
 
+MIN_HORIZONTAL_LOOK = 0.5  # a photo points at a wall or a piece of furniture only if this much of its look is level
+
+
 def nearest_photo(context: dict[str, Any], stand_xz: np.ndarray, face_xz: np.ndarray | None = None) -> str | None:
-    """The fitted photo taken closest to a spot (preferring one that faced the same way)."""
+    """The fitted photo taken closest to a spot, among those that faced the same way.
+
+    When a direction is given, a photo whose view is mostly up or down (its level part is under
+    ``MIN_HORIZONTAL_LOOK`` of a unit view) is not a candidate: its tiny level component says nothing
+    about which wall it faced, and a photo of the floor is no help in finding a wall.
+    """
     best, best_score = None, math.inf
     for v in context["registered"]:
         c = context["cams"][v]
         d = float(np.linalg.norm(c[[0, 2]] - stand_xz))
         if face_xz is not None:
             look = context["looks"][v][[0, 2]]
-            n = np.linalg.norm(look)
-            if n > 1e-6:
-                d += 0.8 * (1 - float(look @ face_xz) / n)
+            n = float(np.linalg.norm(look))
+            if n < MIN_HORIZONTAL_LOOK:
+                continue
+            d += 0.8 * (1 - float(look @ face_xz) / n)
         if d < best_score:
             best, best_score = v, d
     return context["views"][best]["name"] if best is not None and best_score < 2.0 else None
@@ -339,7 +357,7 @@ def low_wall_items(context: dict[str, Any], profiles: dict[str, dict[str, Any]],
                     f"{span_phrase(u0, u1, prof, axes)}: crouch so the phone is about 40 cm off the floor, "
                     f"pointing straight at the wall from about one metre away (closer where furniture is in "
                     f"the way), one step sideways between photos.")
-            why = (f"None of your photos of the bottom of this stretch was taken from below {LOW_VIEW_M:.1f} m. "
+            why = (f"None of your photos of the bottom of this stretch was taken from below {LOW_CAMERA_M:.1f} m. "
                    f"The player is 10 cm tall and sees it from the floor. {wall_hint(prof)}").strip()
             items.append(_item("low_wall", 0.8 * (u1 - u0), n, text, why, target=target, stand=stand,
                                near_photo=nearest_photo(context, stand, -axes["inward"]), wall=key,
@@ -484,7 +502,7 @@ def object_items(context: dict[str, Any], profiles: dict[str, dict[str, Any]]) -
             wanted = ["front", "left side", "right side", "back"]
         missing = [s for s in wanted if counts.get(s, 0) == 0]
         n_views = len(o.views)
-        low = [h for h in o.view_heights_m if h < LOW_VIEW_M]
+        low = [h for h in o.view_heights_m if h < LOW_CAMERA_M]
         if n_views >= 3 and (not missing or len(counts) >= 3):
             if not low and float(np.max(o.size)) >= 0.5:
                 low_object.append(o)  # well covered, but never from the player's height
@@ -522,7 +540,7 @@ def object_items(context: dict[str, Any], profiles: dict[str, dict[str, Any]]) -
         stand = inside_room(context, c + f * (1.0 + float(np.max(o.size[[0, 2]])) / 2))
         text = (f"Two photos of {names[o.id]} from knee height (about 40 cm), one from the front and one from "
                 f"a side, about one metre away.")
-        why = (f"It is in {len(o.views)} photos, all taken from above {LOW_VIEW_M:.1f} m. From 10 cm tall, its "
+        why = (f"It is in {len(o.views)} photos, all taken from above {LOW_CAMERA_M:.1f} m. From 10 cm tall, its "
                f"lower edges and underside are what the player sees.")
         items.append(_item("object_low", 0.6 + 0.2 * min(3.0, float(np.max(o.size))), 2, text, why, target=c,
                            stand=stand, near_photo=nearest_photo(context, stand, -f), object=o.id, label=o.label,
@@ -609,6 +627,13 @@ def notes(context: dict[str, Any]) -> list[dict[str, Any]]:
         out.append({"kind": "lens", "photos_named": wide,
                     "text": (f"{len(wide)} {plural(len(wide), 'photo was', 'photos were')} taken with the 0.5x "
                              f"ultra-wide lens. Please stay on the normal 1x lens: it bends the picture less.")})
+    zoomed = [p["name"] for p in m["photos"] if p["status"] == "ok" and digitally_zoomed(p.get("exif"))
+              and "blurry" not in (p.get("quality") or {}).get("flags", [])]  # only photos that were used
+    if zoomed:
+        out.append({"kind": "zoom", "photos_named": zoomed,
+                    "text": (f"{len(zoomed)} {plural(len(zoomed), 'photo was', 'photos were')} taken zoomed in with the "
+                             f"camera's own zoom. They were used, but without their lens data, because a phone does not "
+                             f"say reliably how much the zoom narrowed the view. Stay on 1x and step closer instead.")})
     exact = m["duplicates"]["exact"]
     if exact:
         copies = sum(len(g) - 1 for g in exact)

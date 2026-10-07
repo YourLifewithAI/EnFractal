@@ -11,6 +11,7 @@ import numpy as np
 
 from ..paths import OutputGuard
 from .grid import CELL_M, GOOD_VIEWS, WALLS
+from .visibility import LOW_CAMERA_M
 
 COLOURS = {
     "good": "#3f7fbf",  # three or more photos
@@ -28,6 +29,11 @@ COLOURS = {
 STATE_ORDER = ("unseen", "thin", "good", "blocked", "opening")  # grid.state() values 0 to 4
 LANE_M = 0.16
 DPI = 110
+# The ceiling grid is drawn like the floor map: +x to the right, wall A at the top. That is the room
+# as seen from above, not as seen by someone lying on the floor looking up (which is mirrored).
+CEILING_TITLE = "Ceiling, drawn like the map: as if seen from above, wall A at the top"
+# Where on a wall's strip a numbered step is marked, by height band (metres up the wall).
+BAND_MARK_M = {"low": 0.3, "middle": 1.1, "high": 1.9}
 
 
 def _plt():
@@ -159,7 +165,7 @@ def render_map(guard: OutputGuard, rel: Path, context: dict[str, Any]) -> Path:
     looks = context["looks"]
     for v in context["registered"]:
         c, lk = cams[v], looks[v]
-        colour = COLOURS["camera_low"] if c[1] < 0.7 else COLOURS["camera"]
+        colour = COLOURS["camera_low"] if c[1] < LOW_CAMERA_M else COLOURS["camera"]
         ax.plot(c[0], c[2], "o", ms=2.6, color=colour, zorder=7)
         n = math.hypot(lk[0], lk[2])
         if n > 0.2:
@@ -200,7 +206,7 @@ def render_map(guard: OutputGuard, rel: Path, context: dict[str, Any]) -> Path:
                Patch(color=COLOURS["blocked"], label="furniture stands there"),
                Patch(color=COLOURS["opening"], label="photos see through (door, window)"),
                Line2D([], [], marker="o", ls="", color=COLOURS["camera"], label="photo taken standing"),
-               Line2D([], [], marker="o", ls="", color=COLOURS["camera_low"], label="photo taken low (<0.7 m)"),
+               Line2D([], [], marker="o", ls="", color=COLOURS["camera_low"], label=f"photo taken low (<{LOW_CAMERA_M:.1f} m)"),
                Patch(fill=False, edgecolor=COLOURS["object"], label="furniture found"),
                Line2D([], [], marker="o", ls="", ms=10, color=COLOURS["marker"], label="next photos (see list)")]
     ax.legend(handles=handles, loc="upper center", bbox_to_anchor=(0.5, -0.01), ncol=3, fontsize=8, frameon=False)
@@ -208,6 +214,21 @@ def render_map(guard: OutputGuard, rel: Path, context: dict[str, Any]) -> Path:
              ha="center", fontsize=8, color=COLOURS["ink"])
     fig.tight_layout()
     return _save(fig, guard, rel)
+
+
+def wall_markers(guidance: dict[str, Any], wall: str, height_m: float) -> list[tuple[float, float, int]]:
+    """(metres along the wall, metres up, step number) for every step that points at this wall.
+
+    Both kinds of wall step are marked: the ordinary ones and the ones for the bottom of a wall
+    that no photo saw from low down.
+    """
+    marks = []
+    for it in guidance.get("items", []):
+        if it.get("kind") in ("wall", "low_wall") and it.get("wall") == wall:
+            u0, u1 = it["span_m"]
+            v = float(np.mean([min(BAND_MARK_M[b], height_m - 0.2) for b in it["bands"]]))
+            marks.append(((u0 + u1) / 2, v, it["number"]))
+    return marks
 
 
 def render_walls(guard: OutputGuard, rel: Path, context: dict[str, Any]) -> Path:
@@ -228,7 +249,7 @@ def render_walls(guard: OutputGuard, rel: Path, context: dict[str, Any]) -> Path
             rows, cols = g.views.shape
             ax.imshow(state_image(g.state()), extent=(u0, u0 + cols * CELL_M, v0 + rows * CELL_M, v0),
                       interpolation="nearest")
-            ax.set_title("Ceiling, seen from below as on the map (wall A at the top)", fontsize=9, loc="left")
+            ax.set_title(CEILING_TITLE, fontsize=9, loc="left")
             ax.set_aspect("equal")
             ax.set_xticks([])
             ax.set_yticks([])
@@ -247,14 +268,9 @@ def render_walls(guard: OutputGuard, rel: Path, context: dict[str, Any]) -> Path
                                    edgecolor=COLOURS["object"], lw=1.3))
             ax.text((u.min() + u.max()) / 2, o.hi[1] + 0.05, o.label, ha="center", va="bottom", fontsize=7,
                     color=COLOURS["object"])
-        for it in guidance.get("items", []):
-            if it.get("kind") == "wall" and it.get("wall") == key:
-                su0, su1 = it["span_m"]
-                mids = {"low": 0.3, "middle": 1.1, "high": min(rows * CELL_M - 0.2, 1.9)}
-                band_mid = float(np.mean([mids[b] for b in it["bands"]]))
-                ax.plot((su0 + su1) / 2, band_mid, "o", ms=14, color=COLOURS["marker"])
-                ax.text((su0 + su1) / 2, band_mid, str(it["number"]), ha="center", va="center", color="white",
-                        fontsize=8, fontweight="bold")
+        for u, v, number in wall_markers(guidance, key, rows * CELL_M):
+            ax.plot(u, v, "o", ms=14, color=COLOURS["marker"])
+            ax.text(u, v, str(number), ha="center", va="center", color="white", fontsize=8, fontweight="bold")
         prof = guidance.get("walls", {}).get(key, {})
         ax.set_title(f"Wall {key} ({axes['label']}), as you face it: {prof.get('name', '')}", fontsize=9, loc="left")
         ax.set_xlabel("metres from the left corner", fontsize=8)
