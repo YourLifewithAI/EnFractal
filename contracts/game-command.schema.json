@@ -83,7 +83,8 @@
         "effect.stop",
         "style.set",
         "room.checkpoint",
-        "room.undo"
+        "room.undo",
+        "world.set_physics"
       ]
     },
     "query_op": {
@@ -391,6 +392,18 @@
         },
         {
           "if": {
+            "$ref": "#/$defs/is_op/world.set_physics"
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/$defs/args/world.set_physics"
+              }
+            }
+          }
+        },
+        {
+          "if": {
             "properties": {
               "op": {
                 "$ref": "#/$defs/destructive_ops"
@@ -671,7 +684,7 @@
           "$ref": "common.schema.json#/$defs/principal_id"
         },
         "transient": {
-          "description": "True for commands that change no saved state (goals, effects, grabs). Their receipts live for the session only.",
+          "description": "True for commands that change no saved state: goals, stops, effects, grabs, activations and the world's physics. Their receipts live for the session only.",
           "type": "boolean"
         }
       },
@@ -904,6 +917,36 @@
             "properties": {
               "data": {
                 "$ref": "#/$defs/data/jobs.status"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ok": {
+                "const": true
+              },
+              "op": {
+                "const": "room.checkpoint"
+              },
+              "preview": {
+                "const": false
+              }
+            },
+            "required": [
+              "ok",
+              "op",
+              "preview"
+            ]
+          },
+          "then": {
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/$defs/data/room.checkpoint"
               }
             }
           }
@@ -1501,6 +1544,16 @@
         "required": [
           "op"
         ]
+      },
+      "world.set_physics": {
+        "properties": {
+          "op": {
+            "const": "world.set_physics"
+          }
+        },
+        "required": [
+          "op"
+        ]
       }
     },
     "args": {
@@ -1911,6 +1964,19 @@
           }
         }
       },
+      "world.set_physics": {
+        "description": "Switch the room's world physics (gravity, how fast things fall at most, air control and wind) to a preset the game defines; an unknown preset is invalid_args. Player-only. The world's physics is not saved in room state yet, so the receipt is transient and the revision does not move.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "preset"
+        ],
+        "properties": {
+          "preset": {
+            "$ref": "common.schema.json#/$defs/token"
+          }
+        }
+      },
       "entities.list": {
         "type": "object",
         "additionalProperties": false,
@@ -1998,6 +2064,7 @@
             "$ref": "#/$defs/avatar_id"
           },
           "radius_m": {
+            "description": "Defaults to 20, the maximum: an avatar perceives everything in its line of sight.",
             "type": "number",
             "exclusiveMinimum": 0,
             "maximum": 20
@@ -2307,12 +2374,27 @@
             "$ref": "#/$defs/result"
           }
         }
+      },
+      "room.checkpoint": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "checkpoint_revision"
+        ],
+        "properties": {
+          "checkpoint_revision": {
+            "description": "The room revision the checkpoint compacted the durable ledger at. A checkpoint does not move the revision.",
+            "type": "integer",
+            "minimum": 0
+          }
+        }
       }
     },
     "player_only_ops": {
-      "description": "Ops a companion principal can never perform. The companion adapter must not expose them and the host rejects them from companion principals. Unlocking is always a direct player action.",
+      "description": "Ops a companion principal can never perform. The companion adapter must not expose them and the host rejects them from companion principals. Unlocking is always a direct player action, and so is changing the world's physics.",
       "enum": [
-        "protect.unlock"
+        "protect.unlock",
+        "world.set_physics"
       ]
     },
     "destructive_ops": {

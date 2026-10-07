@@ -42,6 +42,8 @@ EXPECTED_FAILURES = {
     "command_remove_without_expectation": "is not valid under any of the given schemas",
     "command_version_written_as_float": "is not of type 'integer'",
     "command_checkpoint_label_with_injected_line": "does not match",
+    "command_physics_without_preset": "'preset' is a required property",
+    "result_checkpoint_without_its_revision": "'data' is a required property",
     "result_remembered_without_staleness": "'may_be_stale' is a required property",
     "result_seen_now_with_an_age": "False schema does not allow 1.5",
     "result_ok_with_error": "must not match",

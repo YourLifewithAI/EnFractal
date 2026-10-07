@@ -53,7 +53,9 @@ class Surface(unittest.IsolatedAsyncioTestCase):
     @with_harness
     async def test_lists_one_tool_per_contract_op_except_player_only_ops(self):
         self.assertEqual({t.name for t in self.tools}, expected_tool_names())
-        self.assertEqual(len(self.tools), len(contracts().command_ops) + len(contracts().query_ops) - 1)
+        c = contracts()
+        self.assertEqual(len(self.tools), len(c.command_ops) + len(c.query_ops) - len(c.player_only_ops))
+        self.assertEqual(c.player_only_ops, {"protect.unlock", "world.set_physics"})
 
     @with_harness
     async def test_protect_unlock_is_not_listed(self):
@@ -68,6 +70,16 @@ class Surface(unittest.IsolatedAsyncioTestCase):
             with self.subTest(name=name), self.assertRaises(MCPError):
                 await self.harness.client.call_tool(name, {"action_id": "u-1", "targets": ["obj:box"],
                                                            "expected_revision": 0})
+        self.assertEqual(self.harness.host.emitted, [])
+
+    @with_harness
+    async def test_world_physics_is_not_listed_and_cannot_be_called(self):
+        names = {t.name for t in self.tools}
+        for name in ("world_set_physics", "world.set_physics"):
+            self.assertNotIn(name, names)
+            with self.subTest(name=name), self.assertRaises(MCPError):
+                await self.harness.client.call_tool(name, {"action_id": "g-1", "preset": "room_floaty"})
+        self.assertNotIn("physics", json.dumps([t.name for t in self.tools]))
         self.assertEqual(self.harness.host.emitted, [])
 
     @with_harness

@@ -488,6 +488,22 @@ class PlayerOnly(HostCase):
             with self.subTest(op=message["op"]):
                 self.assertRefused(self.send(message), "target_protected")
 
+    def test_refuses_world_physics_from_the_companion(self):
+        for preview in (False, True):
+            with self.subTest(preview=preview):
+                result = self.send(command("world.set_physics", {"preset": "room_floaty"}, f"physics-{preview}", preview=preview))
+                self.assertRefused(result, "permission_denied", "$.op")
+        self.assertEqual(self.host.physics_preset, "room_tuned")
+
+    def test_the_player_sets_world_physics_with_a_transient_receipt(self):
+        before = self.host.revision
+        result = self.host.player_command(command("world.set_physics", {"preset": "room_floaty"}, "p-physics"))
+        self.assertTrue(result["ok"], result)
+        self.assertTrue(result["transient"])
+        self.assertEqual((self.host.physics_preset, self.host.revision), ("room_floaty", before))
+        unknown = self.host.player_command(command("world.set_physics", {"preset": "room_moon"}, "p-physics-2"))
+        self.assertRefused(unknown, "invalid_args", "$.args.preset")
+
     def test_the_player_can_unlock(self):
         self.host.player_command(command("protect.lock", {"targets": ["obj:box"]}, "p-lock", expected_entities={"obj:box": 0}))
         result = self.host.player_command(command("protect.unlock", {"targets": ["obj:box"]}, "p-unlock",

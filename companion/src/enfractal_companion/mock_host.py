@@ -81,9 +81,12 @@ PLAYER = "player:local"
 COMPANION = "companion:local"
 OWN_AVATAR = {PLAYER: "avatar:player", COMPANION: "avatar:companion"}
 STOP_OPS = frozenset({"goal.stop", "effect.stop"})
-TRANSIENT_OPS = frozenset({"entity.grab", "creation.activate", "goal.set", "goal.stop", "effect.start", "effect.stop"})
+TRANSIENT_OPS = frozenset({"entity.grab", "creation.activate", "goal.set", "goal.stop", "effect.start", "effect.stop",
+                           "world.set_physics"})
 # Durable, but they change no world state, so they do not move the room revision.
 NO_REVISION_OPS = frozenset({"room.checkpoint"})
+# The game's world physics presets (game/scripts/world_physics_profile.gd PRESET_IDS). Player-only, not saved.
+PHYSICS_PRESETS = frozenset({"room_tuned", "room_real", "room_floaty"})
 LOCKABLE_KINDS = frozenset({"object", "creation"})
 # A new style.set may pin only a reviewed preset. Seed and draft files still change (contracts/README.md
 # "Styles are versioned files"); a retired preset stays loadable for old saves but is not offered for new pins.
@@ -437,6 +440,7 @@ class MockHost:
             key = next(iter(sorted(self.styles)), ("storybook_painterly", 1))
             style = {"preset_id": key[0], "preset_version": key[1], "preset_sha256": self.styles.get(key, "0" * 64)}
         self.style = dict(style)
+        self.physics_preset = "room_tuned"
 
     # ------------------------------------------------------------------ world fixtures (game side, not the wire)
 
@@ -1490,6 +1494,16 @@ class MockHost:
             self.compacted.popitem(last=False)
         # What the kernel host answers (and replays from the durable receipt): the revision, nothing else.
         return {"data": {"checkpoint_revision": self.revision}}
+
+    def _op_world_set_physics(self, principal, message, apply, new_revision):
+        # Player-only: a companion is refused before any handler runs. Not saved in room state, so transient.
+        preset = message["args"]["preset"]
+        if preset not in PHYSICS_PRESETS:
+            raise HostError("invalid_args", "The game has no world physics preset by that name.", field_path="$.args.preset",
+                            allowed=sorted(PHYSICS_PRESETS))
+        if apply:
+            self.physics_preset = preset
+        return {}
 
     def _op_room_undo(self, principal, message, apply, new_revision):
         to_revision = message["args"]["to_revision"]
