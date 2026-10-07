@@ -11,18 +11,21 @@ public enum PaintPattern { None = 0, Wood = 1, Fabric = 2, Plaster = 3, Paper = 
 
 /// <summary>
 /// How a material role is painted beyond the preset's per-role treatment: the pattern, the size and direction
-/// of brush marks, and how the role takes light. Sizes are metres in the real-scale room.
+/// of brush marks, and how the role takes light. Sizes are metres in the real-scale room. Calm is how far the role's
+/// colour is drawn toward its own grey, so the large quiet surfaces of a room (walls, floor, ceiling) can sit back and
+/// let the small accents and the figures carry the colour: colour contrast as a way to focus (the founder, 7 October).
 /// </summary>
 public sealed record RoleLook(
     PaintPattern Pattern, float StrokeScaleM, float StrokeStretch, Vector3 StrokeAxis, float PatternScaleM,
-    float Variation, float Wrap, float TerminatorWarmth, float Sheen, float Specular, float TextureStrength, float TextureScaleM);
+    float Variation, float Wrap, float TerminatorWarmth, float Sheen, float Specular, float TextureStrength, float TextureScaleM,
+    float Calm = 0f);
 
 /// <summary>Painterly shader multipliers shared by every role.</summary>
 public sealed record PaintTuning(
     float ToneWash, float ToneStrokes, float ToneBristle, float ToneGain, float SofteningCalm, float TemperatureVariation,
     float PastelMix, float PastelChroma, float PastelScale, float PastelLift, float WearBrightness, float WearLift,
     float CavityDarkening, float StrokeNormalGain, float MarkFadeStart, float MarkFadeEnd, float BevelFraction, float BevelMaxM,
-    float AccentMix, float AccentDarken);
+    float AccentMix, float AccentDarken, float PhotoBlurLod = 2.5f);
 
 /// <summary>
 /// Shadows. The key (sun and moon) and the positional lights (window sky fill, lamps) have their own biases, because
@@ -40,7 +43,10 @@ public sealed record SsaoTuning(float Power, float Detail, float Horizon, float 
 public sealed record GlowTuning(float Strength, string BlendMode, float HdrThreshold, IReadOnlyList<float> Levels);
 
 /// <summary>
-/// VoxelGI: resolution, margin, biases and when to use two bounces. The whole shell is baked as a closed interior.
+/// VoxelGI: resolution, margin, biases and when to use two bounces. The whole shell is baked as a closed interior. MarginM
+/// is how far the volume reaches beyond the room's bounds: just enough for the shell's inner face. A margin that takes in
+/// the whole slab takes in its outer face too, which the sun lights, and VoxelGI's cones carry that light through the wall
+/// into the room (measured: a closed room brightened by 0.1 to 0.44 in luma when the sun was switched on, with no way in).
 /// EnvironmentAmbientScale is how much of the time keys' ambient the environment keeps where VoxelGI does not reach.
 /// </summary>
 public sealed record GiTuning(int Subdiv, float MarginM, float Bias, float NormalBias, float TwoBouncesAbove, float EnvironmentAmbientScale);
@@ -51,16 +57,21 @@ public sealed record GiTuning(int Subdiv, float MarginM, float Bias, float Norma
 /// captured colour toward LampTint (storybook lamps glow warmer than life). Windows: a soft sky fill, a spot light
 /// WindowStandoffM behind the window hint (outside the room) and WindowLightSizeM across, aimed in along the hint's
 /// direction through the opening, in the sky colour of the hour (SkyFillSaturation of its hue: a light blue, not a
-/// saturated one) and its brightness scaled by SkyFillEnergy.
+/// saturated one) and its brightness scaled by SkyFillEnergy. A lit lamp also shows its bulb, a small emissive sphere
+/// GlowRadiusM across glowing at GlowEnergy (0 for none): a warm-white point of light that blooms close to the camera and
+/// melts into a creamy bokeh disc in the blurred distance.
 /// </summary>
 public sealed record LampTuning(
     float Attenuation, float RangePerDiagonal, float WindowSpotAngleDeg, float SwitchOnBelowDaylight,
-    float WindowStandoffM, float WindowLightSizeM, float SkyFillEnergy, float SkyFillSaturation, Color LampTint, float LampTintAmount);
+    float WindowStandoffM, float WindowLightSizeM, float SkyFillEnergy, float SkyFillSaturation, Color LampTint, float LampTintAmount,
+    float GlowRadiusM = 0f, float GlowEnergy = 0f);
 
 /// <summary>
 /// The sun and the moon. The sun follows a solar model: elevation and bearing from the latitude, the date and the
 /// local standard clock hour, with mean solar noon at SolarNoonH on the clock (time zone and longitude) and the
 /// equation of time. NegZBearingDeg is the compass bearing of the room's -Z axis (0: -Z is north, so -X is west).
+/// The first three numbers are the room's site (RoomSite), not the preset's: a preset on its own carries the fallback
+/// site, and StylePreset.WithSite puts a room's own in.
 /// Sunrise and sunset are where the sun's centre crosses SunriseElevationDeg (-0.833: the almanac's upper limb with
 /// refraction). The key is the sun while the sun is above the horizon (drawn no lower than HorizonElevationDeg), the
 /// moon once the sun is below TwilightElevationDeg, and cross-fades between, while the light is dim. The moon stands
@@ -77,7 +88,28 @@ public sealed record SunTuning(
 /// Season centres (winter, spring, summer, autumn), how long each holds its grade, how strongly the season colours
 /// the sunlight, and the day used when the preset does not follow the calendar. Day length comes from the solar model.
 /// </summary>
-public sealed record SeasonTuning(IReadOnlyList<int> CentreDays, float Hold, float LightStrength, int FixedDayOfYear);
+public sealed record SeasonTuning(IReadOnlyList<int> CentreDays, float Hold, float LightStrength, int FixedDayOfYear, IReadOnlyDictionary<string, SeasonLook> Looks);
+
+/// <summary>
+/// What a season does beyond its colour grade: how strong the sun is (summer harder, winter weaker), how soft its
+/// shadow edge is (a lower ShadowBlur is a harder, brighter-day shadow), how saturated and bright the sky is, and
+/// how much cloud it carries. Each is a multiplier, or for cloud an amount from 0 (clear) to 1 (overcast).
+/// </summary>
+public sealed record SeasonLook(float SunEnergy, float SunBlur, float SkySaturation, float SkyBrightness, float CloudAmount)
+{
+    public static readonly SeasonLook Neutral = new(1f, 1f, 1f, 1f, 0.5f);
+}
+
+/// <summary>
+/// The sky seen through a window (review M2: the window was a dark slate square). Zenith and horizon colours for
+/// day, dusk and night (the look mixes them by the sun's height and the moon's weight), the clouds' lit and shaded
+/// colours, a brightness (the sky is the brightest thing a window shows, so it glows), the sun's disc and its halo,
+/// the moon's disc and the stars at night.
+/// </summary>
+public sealed record SkyTuning(
+    Color DayZenith, Color DayHorizon, Color DuskZenith, Color DuskHorizon, Color NightZenith, Color NightHorizon,
+    Color CloudLight, Color CloudShade, float Brightness, float SunDiscDeg, float SunHalo, float MoonDiscDeg, float StarStrength,
+    float DuskStartDeg, float DuskEndDeg, Color Ground, float GroundSeasonTint);
 
 /// <summary>
 /// The colour grade's strengths. NightWithLamps is how much of the night grade applies while the room's lamps are on:
@@ -91,9 +123,18 @@ public sealed record DofTuning(
     float TiltPitchGain, float TiltBandNarrowing, float FarTransitionBaseM, float FarTransitionPerM, float FarBlurReference,
     float NearTransitionBase, float NearTransitionPerBlur, float AmountBase, float AmountPerBlur,
     float EyeFocusBodyHeights, float BodyFocusHeightFraction, float EyeCrispBodyHeights,
-    float TiltTransitionShortening, float TiltAmountGain, float CompanionFollowM);
+    float TiltTransitionShortening, float TiltAmountGain, float CompanionFollowM,
+    float FocusEaseS = 0.12f, float ObserveBandM = 0.08f, float ObserveFarTransitionM = 0.12f, float ObserveNearTransitionM = 0.1f, float ObserveAmount = 1f);
 
-public sealed record PostTuning(float VignetteStart, float VignetteEnd, float GrainFine, float GrainSoft, float GrainSoftPx);
+/// <summary>
+/// Grain and vignette, and the focus pass of the same post effect: colour contrast as a way to focus. Inside the
+/// depth-of-field band colour is lifted (FocusSaturation) and out of it drawn back (DefocusSaturation, DefocusDarken),
+/// so the avatars and accents in focus carry the colour against a calmer room. Highlights in the blurred distance are
+/// pushed up (BokehGain above BokehThreshold) so they melt into the creamy discs of a miniature photograph.
+/// </summary>
+public sealed record PostTuning(
+    float VignetteStart, float VignetteEnd, float GrainFine, float GrainSoft, float GrainSoftPx,
+    float FocusSaturation = 1f, float DefocusSaturation = 1f, float DefocusDarken = 0f, float BokehThreshold = 4f, float BokehGain = 0f);
 
 /// <summary>
 /// Every look-defining number that is not a schema field, read from the preset's x_look_* extension blocks so a
@@ -108,7 +149,7 @@ public sealed record PostTuning(float VignetteStart, float VignetteEnd, float Gr
 public sealed record LookTuning(
     IReadOnlyDictionary<string, RoleLook> RoleMarks, RoleLook DefaultMarks, PaintTuning Paint, ShadowTuning Shadows,
     SsaoTuning Ssao, GlowTuning Glow, GiTuning Gi, LampTuning Lamps, SunTuning Sun, SeasonTuning Seasons,
-    GradeTuning Grade, DofTuning Dof, PostTuning Post)
+    GradeTuning Grade, DofTuning Dof, PostTuning Post, SkyTuning Sky)
 {
     /// <summary>"block.field" for every look number the preset left to the code's defaults (empty for the shipped preset).</summary>
     public IReadOnlyList<string> Defaulted { get; init; } = Array.Empty<string>();
@@ -119,8 +160,11 @@ public sealed record LookTuning(
     public static readonly IReadOnlyList<string> Blocks = new[]
     {
         "x_look_role_marks", "x_look_paint", "x_look_shadows", "x_look_ssao", "x_look_glow", "x_look_gi", "x_look_lamps",
-        "x_look_sun", "x_look_seasons", "x_look_grade", "x_look_dof", "x_look_post",
+        "x_look_sun", "x_look_seasons", "x_look_grade", "x_look_dof", "x_look_post", "x_look_sky",
     };
+
+    /// <summary>The four seasons in calendar order from midwinter, which is the order of x_look_seasons.centre_days.</summary>
+    public static readonly string[] SeasonNames = { "winter", "spring", "summer", "autumn" };
 
     public static readonly RoleLook DefaultRoleMarks = new(PaintPattern.None, 0.05f, 2f, Vector3.Up, 0.1f, 0.4f, 0.25f, 0.2f, 0f, 0.35f, 0.35f, 0.6f);
 
@@ -154,17 +198,19 @@ public sealed record LookTuning(
     public static readonly LookTuning Default = new(
         DefaultRoles, DefaultRoleMarks,
         new PaintTuning(0.9f, 0.6f, 0.35f, 0.42f, 0.7f, 0.03f, 0.45f, 0.82f, 0.94f, 0.03f, 1.32f, 0.035f, 0.35f, 0.2f,
-            0.15f, 0.45f, 0.08f, 0.025f, 0.55f, 0.12f),
+            0.15f, 0.45f, 0.08f, 0.025f, 0.55f, 0.12f, 2.5f),
         new ShadowTuning(2, 0.5f, 3.5f, 1f, 1f, 6f, 1.6f, 0.1f, 0.03f, 1.0f, 0.03f, 1.0f, 0.05f, 0.25f),
         new SsaoTuning(1.4f, 0.6f, 0.06f, 0.98f, 0.15f, 0.5f),
         new GlowTuning(1.0f, "softlight", 0.9f, new[] { 0f, 0f, 1f, 1f, 1f, 0f, 0f }),
         new GiTuning(128, 0.3f, 1.5f, 0f, 0.2f, 1f),
-        new LampTuning(1.2f, 1f, 60f, 0.25f, 0f, 0.1f, 1f, 1f, new Color(1f, 1f, 1f), 0f),
-        new SunTuning(30f, 0f, 12f, false, -0.833f, -6f, 1f, 35f, 270f, 0.12f),
-        new SeasonTuning(new[] { 15, 105, 196, 288 }, 0.25f, 0.25f, 196),
+        new LampTuning(1.2f, 1f, 60f, 0.25f, 0f, 0.1f, 1f, 1f, new Color(1f, 1f, 1f), 0f, 0f, 0f),
+        new SunTuning(RoomSite.Fallback.LatitudeDeg, RoomSite.Fallback.NegZBearingDeg, RoomSite.Fallback.SolarNoonH, false, -0.833f, -6f, 1f, 35f, 270f, 0.12f),
+        new SeasonTuning(new[] { 15, 105, 196, 288 }, 0.25f, 0.25f, 196, SeasonNames.ToDictionary(n => n, _ => SeasonLook.Neutral)),
         new GradeTuning(0.8f, 0.35f, 0.24f, new Vector3(0.08f, 0.015f, -0.10f), 0.3f, new Vector3(-0.14f, -0.06f, 0.10f), 0.25f, 33, 0f, 0f, 1f, 1f),
         new DofTuning(1.5f, 0.4f, 0.25f, 0.35f, 1.3f, 0.9f, 0.5f, 0.02f, 0.10f, 3f, 0.5f, 1.5f, 0f, 1f, 0f),
-        new PostTuning(0.45f, 1.05f, 1.2f, 0.8f, 3f));
+        new PostTuning(0.45f, 1.05f, 1.2f, 0.8f, 3f),
+        new SkyTuning(new Color("4f8fd6"), new Color("bfd9ee"), new Color("7a86c8"), new Color("ffb98a"), new Color("0f1730"), new Color("2b3a66"),
+            new Color("fff4e6"), new Color("b7c4dc"), 1.6f, 3f, 0.5f, 3f, 0.6f, 4f, 24f, new Color("7d9a63"), 0.35f));
 
     private static readonly Dictionary<string, PaintPattern> PatternNames = Enum.GetValues<PaintPattern>().ToDictionary(p => p.ToString().ToLowerInvariant());
 
@@ -198,7 +244,7 @@ public sealed record LookTuning(
             p.F("cavity_darkening", d.Paint.CavityDarkening), p.F("stroke_normal_gain", d.Paint.StrokeNormalGain),
             p.F("mark_fade_start", d.Paint.MarkFadeStart), p.F("mark_fade_end", d.Paint.MarkFadeEnd),
             p.F("bevel_fraction", d.Paint.BevelFraction), p.F("bevel_max_m", d.Paint.BevelMaxM),
-            p.F("accent_mix", d.Paint.AccentMix), p.F("accent_darken", d.Paint.AccentDarken));
+            p.F("accent_mix", d.Paint.AccentMix), p.F("accent_darken", d.Paint.AccentDarken), p.F("photo_blur_lod", d.Paint.PhotoBlurLod));
         p.Done();
         if (!(paint.MarkFadeStart > 0f && paint.MarkFadeEnd > paint.MarkFadeStart && paint.MarkFadeEnd <= 0.5f))
             throw new InvalidOperationException("x_look_paint: mark_fade_start and mark_fade_end must satisfy 0 < start < end <= 0.5, so marks are gone before they alias");
@@ -240,32 +286,53 @@ public sealed record LookTuning(
         var lamps = new LampTuning(l.F("attenuation", d.Lamps.Attenuation), l.F("range_per_diagonal", d.Lamps.RangePerDiagonal),
             l.F("window_spot_angle_deg", d.Lamps.WindowSpotAngleDeg), l.F("switch_on_below_daylight", d.Lamps.SwitchOnBelowDaylight),
             l.F("window_standoff_m", d.Lamps.WindowStandoffM), l.F("window_light_size_m", d.Lamps.WindowLightSizeM), l.F("sky_fill_energy", d.Lamps.SkyFillEnergy),
-            l.F("sky_fill_saturation", d.Lamps.SkyFillSaturation), l.C("lamp_tint", d.Lamps.LampTint), l.F("lamp_tint_amount", d.Lamps.LampTintAmount));
+            l.F("sky_fill_saturation", d.Lamps.SkyFillSaturation), l.C("lamp_tint", d.Lamps.LampTint), l.F("lamp_tint_amount", d.Lamps.LampTintAmount),
+            l.F("glow_radius_m", d.Lamps.GlowRadiusM), l.F("glow_energy", d.Lamps.GlowEnergy));
         l.Done();
         if (!(lamps.RangePerDiagonal > 0f && lamps.WindowSpotAngleDeg is > 0f and < 90f && lamps.SwitchOnBelowDaylight is >= 0f and <= 1f
-              && lamps.WindowStandoffM >= 0f && lamps.WindowLightSizeM >= 0f && lamps.SkyFillEnergy >= 0f && lamps.SkyFillSaturation is >= 0f and <= 1f && lamps.LampTintAmount is >= 0f and <= 1f))
+              && lamps.WindowStandoffM >= 0f && lamps.WindowLightSizeM >= 0f && lamps.SkyFillEnergy >= 0f && lamps.SkyFillSaturation is >= 0f and <= 1f && lamps.LampTintAmount is >= 0f and <= 1f
+              && lamps.GlowRadiusM >= 0f && lamps.GlowEnergy >= 0f))
             throw new InvalidOperationException("x_look_lamps: range_per_diagonal must be positive, window_spot_angle_deg between 0 and 90, switch_on_below_daylight between 0 and 1, and the window numbers not negative");
 
+        // The site (latitude, which way -Z faces, solar noon) is a fact about a room, not a look number: it comes from the
+        // room's manifest (RoomSite), and StylePreset.WithSite puts it into the Sun tuning. A preset on its own carries the
+        // fallback site, and an x_look_sun block that still names a site field is refused so it cannot linger (review M5).
         var u = new Fields(Block("x_look_sun"), "x_look_sun", defaulted);
-        var sun = new SunTuning(u.F("latitude_deg", d.Sun.LatitudeDeg), u.F("neg_z_bearing_deg", d.Sun.NegZBearingDeg), u.F("solar_noon_h", d.Sun.SolarNoonH),
+        var sun = new SunTuning(RoomSite.Fallback.LatitudeDeg, RoomSite.Fallback.NegZBearingDeg, RoomSite.Fallback.SolarNoonH,
             u.B("real_clock_daylight_saving", d.Sun.RealClockDaylightSaving), u.F("sunrise_elevation_deg", d.Sun.SunriseElevationDeg),
             u.F("twilight_elevation_deg", d.Sun.TwilightElevationDeg), u.F("horizon_elevation_deg", d.Sun.HorizonElevationDeg),
             u.F("moon_elevation_deg", d.Sun.MoonElevationDeg), u.F("moon_bearing_deg", d.Sun.MoonBearingDeg), u.F("reference_daylight", d.Sun.ReferenceDaylight));
         u.Done();
-        if (sun.LatitudeDeg is < -80f or > 80f || sun.NegZBearingDeg is < 0f or >= 360f || sun.MoonBearingDeg is < 0f or >= 360f || sun.SolarNoonH is < 10f or > 14f)
-            throw new InvalidOperationException("x_look_sun: latitude_deg must be within 80 degrees of the equator, bearings from 0 to under 360, and solar_noon_h between 10 and 14");
+        if (sun.MoonBearingDeg is < 0f or >= 360f)
+            throw new InvalidOperationException("x_look_sun: moon_bearing_deg must be from 0 up to (not including) 360");
         if (!(sun.TwilightElevationDeg < sun.SunriseElevationDeg && sun.SunriseElevationDeg <= 0f && sun.HorizonElevationDeg is >= 0f and <= 10f
               && sun.MoonElevationDeg is > 5f and <= 85f && sun.ReferenceDaylight is > 0f and < 1f))
             throw new InvalidOperationException("x_look_sun: twilight_elevation_deg < sunrise_elevation_deg <= 0, horizon_elevation_deg from 0 to 10, moon_elevation_deg above 5 and at most 85, and reference_daylight between 0 and 1");
 
         var e = new Fields(Block("x_look_seasons"), "x_look_seasons", defaulted);
+        var looks = new Dictionary<string, SeasonLook>();
+        var looksBlock = e.Object("looks");
+        if (looksBlock.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var name in looksBlock.EnumerateObject().Select(l => l.Name).Where(n => !SeasonNames.Contains(n)))
+                throw new InvalidOperationException($"x_look_seasons.looks.{name} is not winter, spring, summer or autumn");
+            foreach (var name in SeasonNames)
+            {
+                var lf = new Fields(looksBlock.TryGetProperty(name, out var one) ? one : default, "x_look_seasons.looks." + name, defaulted);
+                looks[name] = new SeasonLook(lf.F("sun_energy", 1f), lf.F("sun_blur", 1f), lf.F("sky_saturation", 1f), lf.F("sky_brightness", 1f), lf.F("cloud_amount", 0.5f));
+                lf.Done();
+            }
+        }
+        else foreach (var name in SeasonNames) looks[name] = SeasonLook.Neutral;
         var seasons = new SeasonTuning(e.Ints("centre_days", d.Seasons.CentreDays), e.F("hold", d.Seasons.Hold), e.F("light_strength", d.Seasons.LightStrength),
-            e.I("fixed_day_of_year", d.Seasons.FixedDayOfYear));
+            e.I("fixed_day_of_year", d.Seasons.FixedDayOfYear), looks);
         e.Done();
         if (seasons.FixedDayOfYear is < 1 or > 366 || seasons.Hold is < 0f or >= 0.5f)
             throw new InvalidOperationException("x_look_seasons: fixed_day_of_year must be 1 to 366 and hold at least 0 and under 0.5");
         if (seasons.CentreDays.Count != 4 || seasons.CentreDays.Zip(seasons.CentreDays.Skip(1)).Any(t => t.Second <= t.First) || seasons.CentreDays[0] < 1 || seasons.CentreDays[3] > 365)
             throw new InvalidOperationException("x_look_seasons.centre_days must be four increasing days of the year (winter, spring, summer, autumn)");
+        if (seasons.Looks.Values.Any(l => l.SunEnergy < 0f || l.SunBlur < 0f || l.SkySaturation < 0f || l.SkyBrightness < 0f || l.CloudAmount is < 0f or > 1f))
+            throw new InvalidOperationException("x_look_seasons.looks: sun_energy, sun_blur, sky_saturation and sky_brightness must not be negative, and cloud_amount must be between 0 and 1");
 
         var r = new Fields(Block("x_look_grade"), "x_look_grade", defaulted);
         var grade = new GradeTuning(r.F("shadow_tone", d.Grade.ShadowTone), r.F("highlight_tone", d.Grade.HighlightTone), r.F("season_tint", d.Grade.SeasonTint),
@@ -286,17 +353,35 @@ public sealed record LookTuning(
             f.F("amount_base", d.Dof.AmountBase), f.F("amount_per_blur", d.Dof.AmountPerBlur),
             f.F("eye_focus_body_heights", d.Dof.EyeFocusBodyHeights), f.F("body_focus_height_fraction", d.Dof.BodyFocusHeightFraction),
             f.F("eye_crisp_body_heights", d.Dof.EyeCrispBodyHeights), f.F("tilt_transition_shortening", d.Dof.TiltTransitionShortening),
-            f.F("tilt_amount_gain", d.Dof.TiltAmountGain), f.F("companion_follow_m", d.Dof.CompanionFollowM));
+            f.F("tilt_amount_gain", d.Dof.TiltAmountGain), f.F("companion_follow_m", d.Dof.CompanionFollowM),
+            f.F("focus_ease_s", d.Dof.FocusEaseS), f.F("observe_band_m", d.Dof.ObserveBandM), f.F("observe_far_transition_m", d.Dof.ObserveFarTransitionM),
+            f.F("observe_near_transition_m", d.Dof.ObserveNearTransitionM), f.F("observe_amount", d.Dof.ObserveAmount));
         if (dof.TiltTransitionShortening is < 0f or >= 1f || dof.TiltBandNarrowing is < 0f or >= 1f || dof.CompanionFollowM < 0f)
             throw new InvalidOperationException("x_look_dof: tilt_transition_shortening and tilt_band_narrowing must be at least 0 and under 1, companion_follow_m not negative");
+        if (dof.FocusEaseS < 0f || dof.ObserveBandM <= 0f || dof.ObserveFarTransitionM <= 0f || dof.ObserveNearTransitionM <= 0f || dof.ObserveAmount is < 0f or > 1f)
+            throw new InvalidOperationException("x_look_dof: focus_ease_s must not be negative, the observe band and transitions must be positive, and observe_amount between 0 and 1");
         f.Done();
 
         var o = new Fields(Block("x_look_post"), "x_look_post", defaulted);
         var post = new PostTuning(o.F("vignette_start", d.Post.VignetteStart), o.F("vignette_end", d.Post.VignetteEnd),
-            o.F("grain_fine", d.Post.GrainFine), o.F("grain_soft", d.Post.GrainSoft), o.F("grain_soft_px", d.Post.GrainSoftPx));
+            o.F("grain_fine", d.Post.GrainFine), o.F("grain_soft", d.Post.GrainSoft), o.F("grain_soft_px", d.Post.GrainSoftPx),
+            o.F("focus_saturation", d.Post.FocusSaturation), o.F("defocus_saturation", d.Post.DefocusSaturation), o.F("defocus_darken", d.Post.DefocusDarken),
+            o.F("bokeh_threshold", d.Post.BokehThreshold), o.F("bokeh_gain", d.Post.BokehGain));
         o.Done();
+        if (post.FocusSaturation < 0f || post.DefocusSaturation < 0f || post.DefocusDarken is < 0f or >= 1f || post.BokehThreshold < 0f || post.BokehGain < 0f)
+            throw new InvalidOperationException("x_look_post: saturations, bokeh_threshold and bokeh_gain must not be negative, and defocus_darken must be at least 0 and under 1");
 
-        return new LookTuning(roles, defaultMarks, paint, shadows, ssao, glow, gi, lamps, sun, seasons, grade, dof, post) { Defaulted = defaulted };
+        var k = new Fields(Block("x_look_sky"), "x_look_sky", defaulted);
+        var sky = new SkyTuning(k.C("day_zenith", d.Sky.DayZenith), k.C("day_horizon", d.Sky.DayHorizon), k.C("dusk_zenith", d.Sky.DuskZenith), k.C("dusk_horizon", d.Sky.DuskHorizon),
+            k.C("night_zenith", d.Sky.NightZenith), k.C("night_horizon", d.Sky.NightHorizon), k.C("cloud_light", d.Sky.CloudLight), k.C("cloud_shade", d.Sky.CloudShade),
+            k.F("brightness", d.Sky.Brightness), k.F("sun_disc_deg", d.Sky.SunDiscDeg), k.F("sun_halo", d.Sky.SunHalo), k.F("moon_disc_deg", d.Sky.MoonDiscDeg),
+            k.F("star_strength", d.Sky.StarStrength), k.F("dusk_start_deg", d.Sky.DuskStartDeg), k.F("dusk_end_deg", d.Sky.DuskEndDeg),
+            k.C("ground", d.Sky.Ground), k.F("ground_season_tint", d.Sky.GroundSeasonTint));
+        k.Done();
+        if (sky.Brightness < 0f || sky.SunDiscDeg < 0f || sky.MoonDiscDeg < 0f || sky.StarStrength < 0f || sky.SunHalo < 0f || !(sky.DuskStartDeg >= 0f && sky.DuskEndDeg > sky.DuskStartDeg) || sky.GroundSeasonTint is < 0f or > 1f)
+            throw new InvalidOperationException("x_look_sky: brightness, disc sizes, halo and star strength must not be negative, and dusk_start_deg < dusk_end_deg with dusk_start_deg at least 0, and ground_season_tint between 0 and 1");
+
+        return new LookTuning(roles, defaultMarks, paint, shadows, ssao, glow, gi, lamps, sun, seasons, grade, dof, post, sky) { Defaulted = defaulted };
     }
 
     private static RoleLook Role(JsonElement element, RoleLook fallback, string label, List<string> defaulted)
@@ -309,10 +394,11 @@ public sealed record LookTuning(
         var look = new RoleLook(pattern, f.F("stroke_scale_m", fallback.StrokeScaleM), f.F("stroke_stretch", fallback.StrokeStretch), axis,
             f.F("pattern_scale_m", fallback.PatternScaleM), f.F("variation", fallback.Variation), f.F("wrap", fallback.Wrap),
             f.F("terminator_warmth", fallback.TerminatorWarmth), f.F("sheen", fallback.Sheen), f.F("specular", fallback.Specular),
-            f.F("texture_strength", fallback.TextureStrength), f.F("texture_scale_m", fallback.TextureScaleM));
+            f.F("texture_strength", fallback.TextureStrength), f.F("texture_scale_m", fallback.TextureScaleM), f.F("calm", fallback.Calm));
         f.Done();
         if (look.StrokeScaleM <= 0f || look.PatternScaleM <= 0f || look.StrokeStretch < 1f || look.TextureScaleM <= 0f)
             throw new InvalidOperationException($"{label}: scales must be positive and stroke_stretch at least 1");
+        if (look.Calm is < 0f or > 1f) throw new InvalidOperationException($"{label}: calm must be between 0 and 1");
         return look;
     }
 
@@ -353,6 +439,14 @@ public sealed record LookTuning(
         public int I(string name, int fallback) => Get(name, out var value) ? value.GetInt32() : fallback;
 
         public bool B(string name, bool fallback) => Get(name, out var value) ? value.GetBoolean() : fallback;
+
+        /// <summary>A nested object (read by the caller with its own Fields), or default when absent.</summary>
+        public JsonElement Object(string name)
+        {
+            if (!Get(name, out var value)) return default;
+            if (value.ValueKind != JsonValueKind.Object) throw new InvalidOperationException($"{_label}.{name} must be an object");
+            return value;
+        }
 
         public Color C(string name, Color fallback) => Get(name, out var value) ? new Color(value.GetString()!) : fallback;
 

@@ -1,0 +1,9 @@
+diff --git a/.gitattributes b/.gitattributes
+index e56f13f..9c5daf2 100644
+--- a/.gitattributes
++++ b/.gitattributes
+@@ -26,3 +26,4 @@ game/tests/fixtures/kernel/** -text
+ companion/schemas/*.json text eol=lf
+ companion/tests/fixtures/** -text
+ docs/companion/proposals/*.diff -text
++docs/look/proposals/*.diff -text

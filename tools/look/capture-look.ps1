@@ -22,6 +22,10 @@ fails the capture after the files are written; pass -AllowProblems to keep the e
 
 -Style PATH renders with a preset variant instead of the room's style (for tuning; never a review of record).
 
+-Probe NAME runs a GPU probe instead of the review captures (rooms, window, free-viewport, shimmer: see
+LookCaptureHarness.Probes.cs) and writes probe_NAME.json (and a few images) into -OutDir. With -Baseline the same probe code
+runs against that commit, which is how before and after evidence is made.
+
 .EXAMPLE
 pwsh -NoProfile -File tools/look/capture-look.ps1 -Label after -OutDir docs/look/reviews/run1/after -Sweep
 pwsh -NoProfile -File tools/look/capture-look.ps1 -Label before -OutDir docs/look/reviews/run1/before -Baseline 28fc364
@@ -43,7 +47,8 @@ param(
     [switch]$AllowOpenGame,
     [switch]$AllowProblems,
     [switch]$NoLightChecks,
-    [string]$Style = ''
+    [string]$Style = '',
+    [string]$Probe = ''
 )
 $ErrorActionPreference = 'Stop'
 
@@ -91,7 +96,9 @@ if ($Baseline) {
     $projectPath = Join-Path $exportRoot 'game'
     # The harness only uses RoomWorld's public surface, so the current file runs against older commits.
     New-Item -ItemType Directory -Force (Join-Path $projectPath 'tests/native/Look') | Out-Null
-    Copy-Item -LiteralPath (Join-Path $repository 'game/tests/native/Look/LookCaptureHarness.cs') -Destination (Join-Path $projectPath 'tests/native/Look/')
+    foreach ($file in @('LookCaptureHarness.cs', 'LookCaptureHarness.Probes.cs', 'LookFixtureRooms.cs')) {
+        Copy-Item -LiteralPath (Join-Path $repository "game/tests/native/Look/$file") -Destination (Join-Path $projectPath 'tests/native/Look/')
+    }
     Copy-Item -LiteralPath (Join-Path $repository 'game/tests/native_look_capture.tscn') -Destination (Join-Path $projectPath 'tests/')
     Write-Output "Exported $commit to $projectPath"
 }
@@ -129,6 +136,10 @@ $userArgs = @("--cameras=$camerasPath", "--out=$outPath", "--label=$Label", "--c
     "--warmup=$WarmupFrames", "--frames=$MeasureFrames")
 if ($Only) { $userArgs += "--only=$Only" }
 if ($Sweep) { $userArgs += '--sweep' }
+if ($Probe) {
+    $userArgs += "--probe=$Probe"
+    $userArgs += "--garage=$((Join-Path $repository 'contracts/examples/rooms/garage_example') -replace '\\', '/')"
+}
 if ($RootViewport) { $userArgs += '--root-viewport' }
 if ($AllowProblems) { $userArgs += '--allow-problems' }
 if ($NoLightChecks) { $userArgs += '--light-checks=false' }
@@ -172,6 +183,13 @@ for ($attempt = 1; ; $attempt++) {
     $stderr = $stderrRead.Result
     Set-Content -LiteralPath (Join-Path $repository ".cache/look-capture-$Label.log") -Value "$stdout`n--- stderr`n$stderr"
     $problems = ($stdout.Split("`n") | Where-Object { $_ -match '^LOOK_CAPTURE_PROBLEM ' }) -join "`n"
+    if ($Probe) {
+        if ($stdout -notmatch 'LOOK_PROBE_DONE' -or $process.ExitCode -ne 0) { throw "Look probe $Probe failed (exit $($process.ExitCode)):`n$stdout`n$stderr" }
+        $stdout.Split("`n") | Where-Object { $_ -match '^LOOK_PROBE' } | ForEach-Object { Write-Output $_.TrimEnd() }
+        if ($stderr.Trim()) { Write-Output "--- engine stderr (warnings) ---"; Write-Output $stderr.Trim() }
+        Write-Output "Probe written to $outPath"
+        return
+    }
     if ($stdout -notmatch 'LOOK_CAPTURE_DONE' -or ($process.ExitCode -ne 0 -and -not ($process.ExitCode -eq 3 -and $problems))) {
         throw "Look capture failed (exit $($process.ExitCode)):`n$stdout`n$stderr"
     }

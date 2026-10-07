@@ -36,6 +36,10 @@ public partial class LookDirector : Node3D
     public const double ClockUpdateSeconds = 10.0;
     /// <summary>How many grade LUTs stay cached (about 110 KB each at 33 cubed).</summary>
     public const int GradeCacheSize = 12;
+    /// <summary>The shader that draws the sky a window shows.</summary>
+    public const string SkyShaderPath = "res://shaders/painterly_window_sky.gdshader";
+    /// <summary>Meta marking a mesh whose captured materials the look has made painterly (their originals are kept for the GI bake).</summary>
+    public const string CapturedPaintedMeta = "look_captured_painted";
 
     public StylePreset Preset { get; private set; } = null!;
     public int RoomLightCount { get; private set; }
@@ -55,6 +59,8 @@ public partial class LookDirector : Node3D
     public IReadOnlyList<SpotLight3D> SkyFills => _skyFills;
     /// <summary>The room's lamps (ceiling lamps, lamps, screens).</summary>
     public IReadOnlyList<Light3D> Lamps => _lamps;
+    /// <summary>The glowing bulb of each lamp, shown while the lamp is on (none when the preset sets no glow).</summary>
+    public IReadOnlyList<MeshInstance3D> LampGlows => _lampGlows;
     /// <summary>Whether the lamps are on now: pinned by SetLamps or --look-lamps, or switched on by themselves as the light goes.</summary>
     public bool LampsOn { get; private set; }
     /// <summary>Grain and vignette (Forward+ compositor effect), when the preset asks for them.</summary>
@@ -71,8 +77,18 @@ public partial class LookDirector : Node3D
     /// focus_band_m ahead.
     /// </summary>
     public Vector3? FocusOverride { get; set; }
+    /// <summary>
+    /// The observe view (the founder, 7 October: "the player should be able to switch to a view like that to look at what
+    /// they built with their companion"): a very tight tilt-shift band, a sliver of the room crisp around the focus point
+    /// with everything nearer and farther melting away, like looking at a model on a table. Focus follows
+    /// FocusOverride (the mouse or a free camera) or else the avatar; the band does not stretch to keep the companion in.
+    /// Eases in and out like every focus change. Off by default; the key that switches it is the HUD's.
+    /// </summary>
+    public bool Observe { get; set; }
     /// <summary>Where the clock comes from: the real clock and calendar, the preset's fixed hour and day, or a pin (and who pinned it).</summary>
     public string ClockNote { get; private set; } = "";
+    /// <summary>Empty when the room declared its own site; otherwise why the sun uses the look's fallback site.</summary>
+    public string SiteNote { get; private set; } = "";
     /// <summary>Things that went wrong with the look but did not stop the room: shown in reports and the review harness.</summary>
     public IReadOnlyList<string> Warnings => _warnings;
     /// <summary>LUTs built so far (cache misses), for tests and reports.</summary>
@@ -98,6 +114,7 @@ public partial class LookDirector : Node3D
     private readonly List<Light3D> _roomLights = new();
     private readonly List<SpotLight3D> _skyFills = new();
     private readonly List<Light3D> _lamps = new();
+    private readonly List<MeshInstance3D> _lampGlows = new();
     private bool? _lampsPinned;
     private float? _moonYaw;
     private readonly List<string> _warnings = new();
@@ -110,12 +127,28 @@ public partial class LookDirector : Node3D
     private Task<byte[]>? _lutTask;
     private GradeParams? _lutTaskKey;
 
+    /// <summary>Apply a preset to a room, working the sun out for the site the room's manifest declares (or the fallback, said in SiteNote).</summary>
     public void Apply(StylePreset preset, RoomData room)
     {
-        Preset = preset;
+        var site = RoomSite.For(room, out var siteWarning);
+        Apply(preset, room, site, siteWarning);
+    }
+
+    /// <summary>
+    /// Apply a preset to a room standing at a site. The look keeps the preset with that site worked in (Preset), so the
+    /// shared preset file never carries one. A site note is information, not a warning: a room without a site is common
+    /// until rooms declare one, and the look says so in DescribeLook and the log.
+    /// </summary>
+    public void Apply(StylePreset preset, RoomData room, RoomSite site, string siteNote = "")
+    {
+        Preset = preset.WithSite(site);
+        preset = Preset;
         _room = room;
+        SiteNote = siteNote;
+        if (siteNote.Length > 0) GD.Print("LOOK: " + siteNote);
         MaterialLibrary.Configure(preset);
         Environment = BuildEnvironment(preset);
+        BuildSky();
         var world = new WorldEnvironment { Name = "Environment", Environment = Environment };
         if (preset.Grain > 0f || preset.Vignette > 0f)
         {
@@ -169,6 +202,21 @@ public partial class LookDirector : Node3D
     }
 
     // ---------- environment ----------
+
+    private ShaderMaterial? _skyMaterial;
+
+    /// <summary>
+    /// The background becomes the sky of the hour (review M2): a window shows it from inside, so it must be the sky and not
+    /// the preset's dark slate. It lights nothing (ambient and reflections stay off), so the room's exposure is unchanged.
+    /// </summary>
+    private void BuildSky()
+    {
+        var shader = GD.Load<Shader>(SkyShaderPath);
+        if (shader == null) { Warn($"the window sky shader {SkyShaderPath} could not be loaded, so windows show the preset's flat background"); return; }
+        _skyMaterial = new ShaderMaterial { Shader = shader, ResourceName = "window sky" };
+        Environment.BackgroundMode = Godot.Environment.BGMode.Sky;
+        Environment.Sky = new Sky { SkyMaterial = _skyMaterial, ProcessMode = Sky.ProcessModeEnum.Automatic, RadianceSize = Sky.RadianceSizeEnum.Size32 };
+    }
 
     private static Godot.Environment BuildEnvironment(StylePreset preset)
     {
@@ -229,10 +277,14 @@ public partial class LookDirector : Node3D
         var diagonal = room.Bounds.Size.Length();
         var softness = preset.ShadowSoftness;
         var s = preset.Tuning.Shadows;
-        // Light only from real sources: the sun reaches the room only when the room says it can (a sun light hint),
-        // and then only through the openings, because the shell casts its shadows like everything else.
+        // Light only from real sources: the sun reaches a room through its openings, and the shell casts its shadows like
+        // everything else, so direct sun lands only where an opening lets it. A room says the sun can come in with a sun
+        // hint; a room with a window but no sun hint (a captured room usually has the window, rarely the sun) gets the sun
+        // at full strength through that window, because a window is the sun's way in (review M1). A room with neither is
+        // a closed box lit by its lamps.
         var sunHint = room.LightHints.FirstOrDefault(h => h.Kind == "sun");
-        SunScale = preset.KeyMode == "sun" ? sunHint?.RelativeIntensity ?? 0f : 1f;
+        var hasWindow = room.LightHints.Any(h => h.Kind == "window");
+        SunScale = preset.KeyMode == "sun" ? sunHint?.RelativeIntensity ?? (hasWindow ? 1f : 0f) : 1f;
         Key = new DirectionalLight3D
         {
             Name = "Key",
@@ -262,8 +314,11 @@ public partial class LookDirector : Node3D
     }
 
     /// <summary>
-    /// The room's light hints as lights: each window a soft, shadowed sky fill standing outside the opening and aimed in;
-    /// each lamp an omni light. Windows take the shadow budget first (with the sun, the daylight), then lamps.
+    /// The room's light hints as lights: each window a soft sky fill standing outside the opening and aimed in; each lamp
+    /// an omni light. The shadow budget (max_shadowed_lights, the sun taking one) goes first to the brightest windows,
+    /// then to lamps. A sky fill that gets no shadow would shine straight through the wall it stands behind, so it stands
+    /// inside the room, at the opening, instead (review M3): its light then starts where the window is and never from
+    /// outside the shell.
     /// </summary>
     private void BuildRoomLights(StylePreset preset, RoomData room)
     {
@@ -271,10 +326,12 @@ public partial class LookDirector : Node3D
         var s = preset.Tuning.Shadows;
         var lamps = preset.Tuning.Lamps;
         var shadowBudget = Math.Max(0, preset.MaxShadowedLights - (Key.ShadowEnabled && Key.Visible ? 1 : 0));
-        foreach (var hint in room.LightHints.Where(h => h.PositionM != null).OrderBy(h => h.Kind == "window" ? 0 : 1))
+        foreach (var hint in room.LightHints.Where(h => h.PositionM != null)
+                     .OrderBy(h => h.Kind == "window" ? 0 : 1).ThenByDescending(h => h.RelativeIntensity))
         {
             Light3D light;
             float energy;
+            var shadowed = preset.ShadowsEnabled && shadowBudget > 0;
             if (hint.Kind is "ceiling_lamp" or "lamp" or "screen")
             {
                 energy = hint.RelativeIntensity * preset.RoomLightEnergyScale * preset.HonorRoomLights;
@@ -283,6 +340,7 @@ public partial class LookDirector : Node3D
                 light.LightSize = s.LampSizeBaseM + s.LampSizePerSoftnessM * preset.ShadowSoftness;
                 light.LightColor = hint.Color.Lerp(lamps.LampTint, lamps.LampTintAmount);
                 _lamps.Add(light);
+                if (lamps.GlowRadiusM > 0f && lamps.GlowEnergy > 0f) _lampGlows.Add(BuildLampGlow(hint, light.LightColor, lamps));
             }
             else if (hint.Kind == "window" && hint.Direction is { } direction && direction.LengthSquared() > 1e-6f)
             {
@@ -290,7 +348,7 @@ public partial class LookDirector : Node3D
                 if (energy <= 0) continue;
                 var inward = direction.Normalized();
                 var spot = new SpotLight3D { SpotRange = diagonal * lamps.RangePerDiagonal + lamps.WindowStandoffM, SpotAngle = lamps.WindowSpotAngleDeg };
-                spot.Position = hint.PositionM!.Value - inward * lamps.WindowStandoffM;
+                spot.Position = SkyFillPosition(room.Bounds, hint.PositionM!.Value, inward, lamps.WindowStandoffM, shadowed);
                 var up = Mathf.Abs(inward.Dot(Vector3.Up)) > 0.99f ? Vector3.Right : Vector3.Up;
                 spot.Basis = Basis.LookingAt(inward, up);
                 spot.LightSize = lamps.WindowLightSizeM;
@@ -301,7 +359,8 @@ public partial class LookDirector : Node3D
             else continue;
             light.Name = "RoomLight_" + hint.Id;
             light.LightEnergy = energy;
-            light.ShadowEnabled = preset.ShadowsEnabled && shadowBudget-- > 0;
+            light.ShadowEnabled = shadowed;
+            if (shadowed) shadowBudget--;
             light.ShadowBlur = s.BlurBase + s.BlurPerSoftness * preset.ShadowSoftness;
             light.ShadowBias = s.LampBias;
             light.ShadowNormalBias = s.LampNormalBias;
@@ -311,6 +370,39 @@ public partial class LookDirector : Node3D
             _roomLights.Add(light);
             RoomLightCount++;
         }
+    }
+
+    /// <summary>The bulb of a lamp: a small emissive sphere in the lamp's own colour, which casts no shadow and takes no part in GI.</summary>
+    private MeshInstance3D BuildLampGlow(LightHint hint, Color colour, LampTuning lamps)
+    {
+        var material = new StandardMaterial3D
+        {
+            ResourceName = "lamp glow " + hint.Id, AlbedoColor = new Color(0f, 0f, 0f), ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+            EmissionEnabled = true, Emission = colour, EmissionEnergyMultiplier = lamps.GlowEnergy,
+        };
+        var glow = new MeshInstance3D
+        {
+            Name = "LampGlow_" + hint.Id, Mesh = new SphereMesh { Radius = lamps.GlowRadiusM, Height = lamps.GlowRadiusM * 2f, RadialSegments = 24, Rings = 12 },
+            MaterialOverride = material, Position = hint.PositionM!.Value, CastShadow = GeometryInstance3D.ShadowCastingSetting.Off, GIMode = GeometryInstance3D.GIModeEnum.Disabled,
+            Visible = false,
+        };
+        AddChild(glow);
+        return glow;
+    }
+
+    /// <summary>
+    /// Where a window's sky fill stands. With a shadow it stands standoff metres outside the opening, so the shell between
+    /// it and the room blocks it everywhere but through the opening. Without one it must not stand behind any wall, so it
+    /// takes the opening's place but inside the room (at least 2 cm inside the bounds), looking in.
+    /// </summary>
+    public static Vector3 SkyFillPosition(Aabb bounds, Vector3 hintPosition, Vector3 inward, float standoffM, bool shadowed)
+    {
+        if (shadowed) return hintPosition - inward * standoffM;
+        var inner = bounds.Grow(-0.02f);
+        return new Vector3(
+            Mathf.Clamp(hintPosition.X, inner.Position.X, inner.End.X),
+            Mathf.Clamp(hintPosition.Y, inner.Position.Y, inner.End.Y),
+            Mathf.Clamp(hintPosition.Z, inner.Position.Z, inner.End.Z));
     }
 
     /// <summary>The sky's brightness at a moment, relative to the brightest sky of the keys (1 at the brightest).</summary>
@@ -343,6 +435,7 @@ public partial class LookDirector : Node3D
         if (Moment == null) return;
         LampsOn = _lampsPinned ?? Moment.Daylight < Preset.Tuning.Lamps.SwitchOnBelowDaylight;
         foreach (var lamp in _lamps) lamp.Visible = LampsOn;
+        foreach (var glow in _lampGlows) glow.Visible = LampsOn;
     }
 
     // ---------- time of day and season ----------
@@ -390,6 +483,9 @@ public partial class LookDirector : Node3D
         Moment = LookClock.At(Preset, hour, day, _moonYaw);
         Key.LightColor = Moment.KeyColor;
         Key.LightEnergy = Moment.KeyEnergy * SunScale;
+        // A summer sun casts a harder shadow than a winter one: the season sets how soft the shadow edge is.
+        Key.ShadowBlur = (Preset.Tuning.Shadows.BlurBase + Preset.Tuning.Shadows.BlurPerSoftness * Preset.ShadowSoftness) * Mathf.Lerp(Moment.Look.SunBlur, 1f, Moment.MoonWeight);
+        if (_skyMaterial != null) LookSky.Apply(_skyMaterial, LookSky.At(Preset, Moment, _moonYaw));
         Key.RotationDegrees = new Vector3(-Moment.KeyElevationDeg, Moment.KeyAzimuthDeg, 0);
         var sky = SkyLevel(Preset, Moment);
         foreach (var fill in _skyFills)
@@ -507,7 +603,9 @@ public partial class LookDirector : Node3D
         mesh.SetMeta(DressedMeta, true);
         var owner = OwnerEntity(mesh);
         if (owner == null) return false; // not room data (an avatar, a gizmo): left alone
-        if (MaterialLibrary.IsPainterly(mesh.MaterialOverride))
+        // A captured mesh arrives with the materials its file gave it (plain glTF materials); they become painterly too.
+        if (mesh.MaterialOverride == null) PaintCaptured(mesh, owner);
+        if (MaterialLibrary.IsPainterly(mesh.MaterialOverride) || mesh.HasMeta(CapturedPaintedMeta))
         {
             mesh.SetInstanceShaderParameter("paint_seed", Seed(owner.GetMeta("entity_id").AsString()));
             if (mesh.Mesh is BoxMesh box)
@@ -520,8 +618,41 @@ public partial class LookDirector : Node3D
         var isShell = owner.HasMeta("surface_role");
         var movable = owner.HasMeta("movable") && owner.GetMeta("movable").AsBool();
         mesh.GIMode = isShell || !movable ? GeometryInstance3D.GIModeEnum.Static : GeometryInstance3D.GIModeEnum.Dynamic;
-        mesh.CastShadow = GeometryInstance3D.ShadowCastingSetting.On;
+        // The shell casts double-sided shadows: a photographed room's walls are single surfaces, and a single-sided wall
+        // casts no shadow on the side it faces away from, so the sun would pass straight through it (review M4). A closed
+        // slab loses nothing.
+        mesh.CastShadow = isShell ? GeometryInstance3D.ShadowCastingSetting.DoubleSided : GeometryInstance3D.ShadowCastingSetting.On;
         return isShell;
+    }
+
+    /// <summary>
+    /// Give a captured mesh's plain materials the painterly treatment of their role (review minor: captured assets got none),
+    /// keeping each surface's own colour and colour texture. The instance's surface overrides carry the painterly
+    /// materials, so the mesh's own materials stay as they were and the GI bake can still voxelize them.
+    /// </summary>
+    private static void PaintCaptured(MeshInstance3D mesh, Node3D owner)
+    {
+        if (mesh.Mesh == null) return;
+        var painted = false;
+        for (var surface = 0; surface < mesh.Mesh.GetSurfaceCount(); surface++)
+        {
+            if (mesh.GetActiveMaterial(surface) is not BaseMaterial3D source) continue;
+            var role = RoleFor(owner, source.ResourceName);
+            mesh.SetSurfaceOverrideMaterial(surface, MaterialLibrary.ForCaptured(role, source.AlbedoColor, source.AlbedoTexture));
+            painted = true;
+        }
+        if (painted) mesh.SetMeta(CapturedPaintedMeta, true);
+    }
+
+    /// <summary>The material role of a captured surface: a shell part's own role, or the asset slot named like the surface's material (else the asset's first role).</summary>
+    public static string RoleFor(Node3D owner, string materialName)
+    {
+        if (owner.HasMeta("surface_role") && owner.HasMeta("material_role")) return owner.GetMeta("material_role").AsString();
+        if (!owner.HasMeta("material_roles")) return "default";
+        var roles = owner.GetMeta("material_roles").AsGodotDictionary();
+        if (roles.Count == 0) return "default";
+        if (materialName.Length > 0 && roles.TryGetValue(materialName, out var named)) return named.AsString();
+        return roles.Values.First().AsString();
     }
 
     private Node3D? SubtreeRoot(Node node)
@@ -567,9 +698,20 @@ public partial class LookDirector : Node3D
     public static void WithBakeStandIns(IEnumerable<GeometryInstance3D> meshes, Action bake)
     {
         var swaps = new List<(GeometryInstance3D Mesh, Material? Original)>();
+        var surfaces = new List<(MeshInstance3D Mesh, int Surface, Material Painted)>();
         try
         {
             foreach (var mesh in meshes)
+            {
+                // A captured mesh's painterly materials sit on its instance; VoxelGI voxelizes the mesh's own glTF materials
+                // (colour and texture) when they are lifted off for the bake.
+                if (mesh is MeshInstance3D { Mesh: not null } captured && captured.HasMeta(CapturedPaintedMeta))
+                    for (var surface = 0; surface < captured.Mesh.GetSurfaceCount(); surface++)
+                        if (captured.GetSurfaceOverrideMaterial(surface) is { } painted && MaterialLibrary.IsPainterly(painted))
+                        {
+                            surfaces.Add((captured, surface, painted));
+                            captured.SetSurfaceOverrideMaterial(surface, null);
+                        }
                 if (MaterialLibrary.BakeAlbedo(mesh.MaterialOverride) is { } albedo)
                 {
                     var standIn = new StandardMaterial3D { AlbedoColor = albedo };
@@ -577,11 +719,13 @@ public partial class LookDirector : Node3D
                     swaps.Add((mesh, mesh.MaterialOverride));
                     mesh.MaterialOverride = standIn;
                 }
+            }
             bake();
         }
         finally
         {
             foreach (var (mesh, original) in swaps) mesh.MaterialOverride = original;
+            foreach (var (mesh, surface, painted) in surfaces) mesh.SetSurfaceOverrideMaterial(surface, painted);
         }
     }
 
@@ -638,10 +782,17 @@ public partial class LookDirector : Node3D
     /// crispFromM keeps everything from there to the focus crisp (the player's reach, seen from its eye), and
     /// alsoM is a second distance the band stretches to keep crisp (the companion beside the player).
     /// </summary>
-    public static DepthOfField DepthOfFieldFor(StylePreset preset, float focusDistance, float lookingDown, float crispFromM = float.PositiveInfinity, float alsoM = float.NaN)
+    public static DepthOfField DepthOfFieldFor(StylePreset preset, float focusDistance, float lookingDown, float crispFromM = float.PositiveInfinity, float alsoM = float.NaN, bool observe = false)
     {
         var t = preset.Tuning.Dof;
         var d = Mathf.Max(focusDistance, 0.05f);
+        if (observe)
+        {
+            // A sliver of crisp depth, short ramps and full blur outside it: the tightest tilt-shift the look makes.
+            var half = 0.5f * t.ObserveBandM;
+            var nearEdge = Mathf.Max(preset.NearBlurDistanceM, d - half);
+            return new DepthOfField(preset.DofEnabled, d + half, t.ObserveFarTransitionM, preset.DofEnabled && nearEdge > 0.01f, nearEdge, t.ObserveNearTransitionM, t.ObserveAmount);
+        }
         var nearest = float.IsFinite(alsoM) && alsoM > 0.05f ? Mathf.Min(d, alsoM) : d;
         var farthest = float.IsFinite(alsoM) && alsoM > 0.05f ? Mathf.Max(d, alsoM) : d;
         var tilt = preset.TiltShiftEnabled ? preset.TiltShiftStrength * Mathf.Clamp(lookingDown * t.TiltPitchGain, 0f, 1f) : 0f;
@@ -663,10 +814,21 @@ public partial class LookDirector : Node3D
         Focus(camera, focusPoint);
     }
 
+    /// <summary>
+    /// Move one band toward another by the fraction t (0 stays, 1 arrives): distances, transitions and amount blend; which
+    /// blurs are on follows the target at once. Depth-of-field focus eases like an eye refocusing, it never snaps.
+    /// </summary>
+    public static DepthOfField Ease(DepthOfField from, DepthOfField to, float t) => new(
+        to.FarEnabled, Mathf.Lerp(from.FarDistance, to.FarDistance, t), Mathf.Lerp(from.FarTransition, to.FarTransition, t),
+        to.NearEnabled, Mathf.Lerp(from.NearDistance, to.NearDistance, t), Mathf.Lerp(from.NearTransition, to.NearTransition, t),
+        Mathf.Lerp(from.Amount, to.Amount, t));
+
     /// <summary>The depth-of-field attributes the look gave a camera, if any.</summary>
     public CameraAttributesPractical? AttributesFor(Camera3D camera) => _attributes.TryGetValue(camera.GetInstanceId(), out var a) ? a : null;
 
-    private void Focus(Camera3D camera, Vector3 focusPoint, float crispFromM = float.PositiveInfinity, Vector3? alsoPoint = null)
+    private readonly Dictionary<ulong, DepthOfField> _eased = new();
+
+    private void Focus(Camera3D camera, Vector3 focusPoint, float crispFromM = float.PositiveInfinity, Vector3? alsoPoint = null, double delta = 0)
     {
         if (!DofSupported) return;
         if (!_attributes.TryGetValue(camera.GetInstanceId(), out var attributes))
@@ -677,7 +839,14 @@ public partial class LookDirector : Node3D
         var forward = -camera.GlobalBasis.Z;
         var distance = (focusPoint - camera.GlobalPosition).Dot(forward);
         var also = alsoPoint is { } point ? (point - camera.GlobalPosition).Dot(forward) : float.NaN;
-        var dof = DepthOfFieldFor(Preset, distance, Mathf.Max(0f, -forward.Y), crispFromM, also);
+        var dof = DepthOfFieldFor(Preset, distance, Mathf.Max(0f, -forward.Y), crispFromM, also, Observe);
+        // Ease toward the wanted band (a moving player, a cursor jumping across the room, the observe view switching on);
+        // a camera the look has not focused before, and a framed review camera (delta 0), take it at once.
+        var ease = Preset.Tuning.Dof.FocusEaseS;
+        var id = camera.GetInstanceId();
+        if (delta > 0 && ease > 0f && _eased.TryGetValue(id, out var previous)) dof = Ease(previous, dof, 1f - Mathf.Exp((float)(-delta / ease)));
+        _eased[id] = dof;
+        Post?.SetFocus(dof);
         attributes.DofBlurFarEnabled = dof.FarEnabled;
         attributes.DofBlurFarDistance = dof.FarDistance;
         attributes.DofBlurFarTransition = dof.FarTransition;
@@ -705,7 +874,7 @@ public partial class LookDirector : Node3D
     public Vector3? AlsoInFocusFor(Camera3D camera)
     {
         var follow = Preset.Tuning.Dof.CompanionFollowM;
-        if (FocusOverride != null || Preset.DofFocus != "player" || follow <= 0f || CrispFromFor(camera) < float.PositiveInfinity) return null;
+        if (Observe || FocusOverride != null || Preset.DofFocus != "player" || follow <= 0f || CrispFromFor(camera) < float.PositiveInfinity) return null;
         if (FocusBody() is not { } player || !IsInstanceValid(player) || CompanionBody() is not { } companion || !IsInstanceValid(companion) || companion == player) return null;
         var separation = companion.GlobalPosition.DistanceTo(player.GlobalPosition);
         if (separation >= follow) return null;
@@ -716,7 +885,7 @@ public partial class LookDirector : Node3D
 
     /// <summary>From the focus body's own eye, everything out to eye_crisp_body_heights body heights (its reach) stays crisp.</summary>
     public float CrispFromFor(Camera3D camera) =>
-        FocusOverride == null && FocusBody() is SmallPlayerController controller && IsInstanceValid(controller) && camera == controller.EyeCamera
+        !Observe && FocusOverride == null && FocusBody() is SmallPlayerController controller && IsInstanceValid(controller) && camera == controller.EyeCamera
             ? Preset.Tuning.Dof.EyeCrispBodyHeights * controller.BodyHeightM
             : float.PositiveInfinity;
 
@@ -758,7 +927,7 @@ public partial class LookDirector : Node3D
         if (!Preset.DofEnabled || !DofSupported) return;
         var camera = GetViewport()?.GetCamera3D();
         if (camera == null || _framed.Contains(camera.GetInstanceId())) return;
-        Focus(camera, FocusPointFor(camera), CrispFromFor(camera), AlsoInFocusFor(camera));
+        Focus(camera, FocusPointFor(camera), CrispFromFor(camera), AlsoInFocusFor(camera), delta);
     }
 
     /// <summary>
@@ -780,7 +949,10 @@ public partial class LookDirector : Node3D
     }
 
     /// <summary>A one-line description of what the look applied, for review reports.</summary>
-    public string DescribeLook() => string.Format(CultureInfo.InvariantCulture,
+    public string DescribeLook() => DescribeCore() + string.Format(CultureInfo.InvariantCulture, "; site {0} ({1:0} degrees latitude, -Z facing {2:0}, solar noon {3:0.##} h){4}",
+        Preset.Site.Source, Preset.Site.LatitudeDeg, Preset.Site.NegZBearingDeg, Preset.Site.SolarNoonH, SiteNote.Length > 0 ? ": " + SiteNote : "");
+
+    private string DescribeCore() => string.Format(CultureInfo.InvariantCulture,
         "{0}@{1} ({2}) sha256={3}; renderer={4}{5}; key={6} elevation {7:0.#} yaw {8:0.#} energy {9:0.##} (sun at {23:0.#} degrees, bearing {24:0.#}; moon weight {25:0.##}; sun scale {26:0.##}); sky fill {27}; lamps {28}; hour {10:0.##} day {11} season {12} ({22}); {13}; ssao={14} ssil={15} glow={16} dof={17} tilt={18}; grain {19} vignette {20} post effect {21}",
         Preset.PresetId, Preset.PresetVersion, Preset.Status, Preset.Sha256, RenderingServer.GetCurrentRenderingMethod(),
         RendererNote.Length > 0 ? " (" + RendererNote + ")" : "", Preset.KeyMode, Moment.KeyElevationDeg, Moment.KeyAzimuthDeg, Key.LightEnergy,

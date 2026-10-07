@@ -10,12 +10,13 @@ namespace EnFractal.Native.Look;
 /// The light and grade a preset calls for at one hour on one day of the year. KeyHour is the hour on the time keys'
 /// reference day this moment maps to. SunElevationDeg and SunBearingDeg are where the real sun is (bearing clockwise
 /// from north), up or not. The key's own direction (KeyElevationDeg, and KeyAzimuthDeg as Godot's yaw in the room)
-/// is the sun's while the sun is up, the moon's at night, and a cross-fade in twilight (MoonWeight).
+/// is the sun's while the sun is up, the moon's at night, and a cross-fade in twilight (MoonWeight). Look is what the
+/// season does to the sun and sky beyond its colour grade (a harder summer sun, a paler winter sky).
 /// </summary>
 public sealed record LookMoment(
     float Hour, int DayOfYear, string Season, Color KeyColor, float KeyEnergy, Color AmbientColor, float AmbientEnergy,
     float KeyElevationDeg, float KeyAzimuthDeg, float Daylight, float MoonWeight, float SeasonSaturation, float SeasonWarmth, Color SeasonTint,
-    float KeyHour, float SunElevationDeg, float SunBearingDeg);
+    float KeyHour, float SunElevationDeg, float SunBearingDeg, SeasonLook Look);
 
 /// <summary>
 /// Time of day and season for a preset. Pure functions, so the review harness can pin a moment and tests can
@@ -61,12 +62,18 @@ public static class LookClock
         var (season, saturation, warmth, tint) = preset.SeasonsEnabled
             ? Grade(preset, dayOfYear)
             : ("none", 1f, 0f, new Color(0.5f, 0.5f, 0.5f));
-        // The preset's key energy is the reference; time-of-day keys scale it relative to the brightest key.
-        var keyEnergy = preset.TimeOfDayEnabled && maxEnergy > 0 ? preset.KeyEnergy * key.KeyEnergy / maxEnergy : preset.KeyEnergy;
+        var seasonLook = preset.SeasonsEnabled ? SeasonLookAt(preset, dayOfYear) : SeasonLook.Neutral;
+        // The preset's key energy is the reference; time-of-day keys scale it relative to the brightest key. The season
+        // sets the sun's strength (summer harder, winter weaker), not the moon's.
+        var scaled = preset.TimeOfDayEnabled && maxEnergy > 0 ? preset.KeyEnergy * key.KeyEnergy / maxEnergy : preset.KeyEnergy;
+        // Only the sunlight above the keys' night floor is the season's to scale (the moon's light is not), which keeps the
+        // key's rise and fall through the day a single hump whatever the season's strength.
+        var floor = preset.TimeOfDayEnabled && maxEnergy > 0 ? preset.KeyEnergy * MinEnergy(preset) / maxEnergy : 0f;
+        var keyEnergy = floor + (scaled - floor) * seasonLook.SunEnergy;
         // The season colours the sunlight: paler in winter, golden in summer. The grade itself stays nearly neutral.
         var keyColor = preset.SeasonsEnabled ? key.KeyColor * SeasonLight(tint, preset.Tuning.Seasons.LightStrength) : key.KeyColor;
         return new LookMoment(hour, dayOfYear, season, keyColor, keyEnergy, key.AmbientColor, key.AmbientEnergy,
-            elevation, azimuth, daylight, moonWeight, saturation, warmth, tint, keyHour, sunElevation, sunBearing);
+            elevation, azimuth, daylight, moonWeight, saturation, warmth, tint, keyHour, sunElevation, sunBearing, seasonLook);
     }
 
     // ---------- the solar model ----------
@@ -217,8 +224,11 @@ public static class LookClock
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
 
+    /// <summary>Where "now" comes from: the machine's clock. Tests replace it to prove the look follows real time, and put it back.</summary>
+    public static Func<DateTime> Clock { get; set; } = () => DateTime.Now;
+
     /// <summary>The real clock now, read as the preset asks: local standard time when it removes daylight saving.</summary>
-    public static (float Hour, int DayOfYear) Now(StylePreset preset) => StandardClock(DateTime.Now, TimeZoneInfo.Local, preset.Tuning.Sun.RealClockDaylightSaving);
+    public static (float Hour, int DayOfYear) Now(StylePreset preset) => StandardClock(Clock(), TimeZoneInfo.Local, preset.Tuning.Sun.RealClockDaylightSaving);
 
     /// <summary>
     /// A local clock reading as the solar model wants it: with removeDaylightSaving, an hour (the zone's saving) earlier
@@ -239,6 +249,13 @@ public static class LookClock
         var max = 0f;
         foreach (var k in preset.TimeKeys) max = Mathf.Max(max, k.KeyEnergy);
         return max;
+    }
+
+    private static float MinEnergy(StylePreset preset)
+    {
+        var min = float.PositiveInfinity;
+        foreach (var k in preset.TimeKeys) min = Mathf.Min(min, k.KeyEnergy);
+        return float.IsFinite(min) ? min : 0f;
     }
 
     /// <summary>Interpolate time-of-day keys, wrapping from the last key of the evening to the first of the morning.</summary>
@@ -336,7 +353,7 @@ public static class LookClock
 
     public static (string From, string To, float T) Blend(int dayOfYear, string hemisphere) => Blend(dayOfYear, hemisphere, LookTuning.Default.Seasons);
 
-    private static readonly string[] SeasonNames = { "winter", "spring", "summer", "autumn" };
+    private static string[] SeasonNames => LookTuning.SeasonNames;
 
     /// <summary>The two seasons a day sits between and how far it is from the first towards the second.</summary>
     public static (string From, string To, float T) Blend(int dayOfYear, string hemisphere, SeasonTuning seasons)
@@ -363,6 +380,18 @@ public static class LookClock
         var a = preset.SeasonGrades[from];
         var b = preset.SeasonGrades[to];
         return (t < 0.5f ? from : to, Mathf.Lerp(a.Saturation, b.Saturation, s), Mathf.Lerp(a.Warmth, b.Warmth, s), a.Tint.Lerp(b.Tint, s));
+    }
+
+    /// <summary>What the season does to the sun and sky on a day: its look, held around the season's middle and cross-faded between seasons like the grade.</summary>
+    public static SeasonLook SeasonLookAt(StylePreset preset, int dayOfYear)
+    {
+        var seasons = preset.Tuning.Seasons;
+        var (from, to, t) = Blend(dayOfYear, preset.Hemisphere, seasons);
+        var s = Mathf.SmoothStep(seasons.Hold, 1f - seasons.Hold, t);
+        var a = seasons.Looks[from];
+        var b = seasons.Looks[to];
+        return new SeasonLook(Mathf.Lerp(a.SunEnergy, b.SunEnergy, s), Mathf.Lerp(a.SunBlur, b.SunBlur, s), Mathf.Lerp(a.SkySaturation, b.SkySaturation, s),
+            Mathf.Lerp(a.SkyBrightness, b.SkyBrightness, s), Mathf.Lerp(a.CloudAmount, b.CloudAmount, s));
     }
 
     /// <summary>How a season's tint colours the key light: its hue at the given strength, lightness kept.</summary>
