@@ -81,6 +81,7 @@ Add one row per agent run.
 | 2026-10-07 | P second-playtest fix round (keys, clock, name tag, running blur) | **Sonnet** (first trial) | 486k | Clean; every fix measured before and after; 5 mutations killed; diffs for the integrator were exact. More tokens than the Opus P rounds (374k to 433k), at a lower price per token |
 | 2026-10-07 | C review fix round and tape scale fit | **Sonnet** | 528k | Clean; all 12 findings fixed; 84 tests; the 4 surviving mutations now caught; GPU rerun at $0. Slow (54 min) |
 | 2026-10-07 | Independent review of L | Opus | 398k | 0 blockers, 8 majors (7 about rooms other than the test room, 1 latent crash), 7 minors; 5 of 5 mutations survived; clean worktrees |
+| 2026-10-07 | P kernel round: Lane A's gaps P1–P8 and `world.set_physics` | Opus | 515k | Clean; command host 201 to 419 checks; 5 of 5 mutations caught; dump validates with 0 problems; found two mock bugs and sent exact diffs. About 37 min |
 
 The early runs were all on Opus, with long prompts and mutation sweeps. Use them as the baseline when trying Sonnet on the task types above.
 

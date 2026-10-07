@@ -1,4 +1,4 @@
-# Run 1 status: handoff at the end of the session of 7 October 2026 (early morning)
+# Run 1 status: handoff, 7 October 2026 (updated after the P kernel round)
 
 Run 1 is **in progress**. This page is the handoff: where every lane stands, what the founder decided, and what happens next. An integrating session also reads [ORCHESTRATION.md](ORCHESTRATION.md) (session budget, model routing, testing and reviews). The final record will be `RUN-1-REPORT.md`.
 
@@ -6,22 +6,22 @@ Run 1 is **in progress**. This page is the handoff: where every lane stands, wha
 
 | Branch | State |
 |---|---|
-| `run1/integration` | All four lanes merged. Lane A's contract proposals are applied: text rules with emoji markers, perception-memory fields, canonical link frames. Also in: the west window and new palette in the test room, the F3 diorama and F4 isometric cameras, and the L lamp key. On 7 October: Lane A's alignment, Lane P's second-playtest round, the rug trimmed clear of the book and box, TAA swapped for FXAA, and the HUD test added to the runner. **All Windows suites pass** (below). |
-| `run1/play` | `0ff45a3` (7 October): the second-playtest fix round. It retires the workshop from the room, so Q and E turn F4. It adds T and Shift+T for the clock, makes the name tag solid, and diagnoses the running blur as TAA. Merged. Before that, `1a50485`: P1, P2, the first-playtest fixes, the 10 cm companion, the hover fix, and the fix round for the independent review. Every review finding is fixed and tested. Merged. |
+| `run1/integration` | All four lanes merged. Lane A's contract proposals are applied: text rules with emoji markers, perception-memory fields, canonical link frames. Also in: the west window and new palette in the test room, the F3 diorama and F4 isometric cameras, and the L lamp key. On 7 October: Lane A's alignment, Lane P's second-playtest round, the rug trimmed clear of the book and box, TAA swapped for FXAA, and the HUD test added to the runner. Later on 7 October: the A and P contract requests (`7e2c779`), the P kernel round (`d61e811`), and two mock fixes it found (`0fc905b`). **All Windows suites pass** (below). |
+| `run1/play` | `d61e811` (7 October, later): the kernel round. The real host closes Lane A's gaps P1 to P8: `capabilities.list` in the contract's shape, durable receipts before transient ones, no naming the player out of sight, `observe` at 20 m without the shell, perception memory and goal jobs as in the mock, and `entity.release` durable. `world.set_physics` carries the G key, so G is no longer an exception to the command path. Command host 419 checks; 5 of 5 mutations caught. Merged. Before that, `0ff45a3` (7 October): the second-playtest fix round. It retires the workshop from the room, so Q and E turn F4. It adds T and Shift+T for the clock, makes the name tag solid, and diagnoses the running blur as TAA. Merged. Before that, `1a50485`: P1, P2, the first-playtest fixes, the 10 cm companion, the hover fix, and the fix round for the independent review. Every review finding is fixed and tested. Merged. |
 | `run1/companion` | `5453e9c` (7 October): the mock is aligned with the real host, 492 tests; merged. Before that, `518e31d`: A1 and two fix rounds. Every review finding is fixed. Also: perception memory, emoji markers in context, the play-only profile, the 10 cm mock companion. 469 tests. Merged. |
 | `run1/look` | `9390e2f`: L1–L3 and two art rounds. Light comes only from real sources: the sun through the west window on a 30°N solar model, a sky fill, moonlit nights, lamps at dusk. The orange cast is gone, and there are high-angle and isometric review cameras. The preset is still `draft`. Merged. |
 | `run1/capture` | `36b71c5` (7 October): every review finding is fixed, and the room's scale is fitted to the founder's tape. 84 tests. Merged. Before that, `65539b5`: C1 and C2 run end to end on the garage set with Apache-2.0 weights only; 43 tests. The coverage report is local only, in the capture worktree's `captures/garage/`. Merged. **The founder judged the guidance useful (below), which meets C2's acceptance.** |
 
-Evidence on `run1/integration` after the 7 October merges (Lane A `5453e9c`, Lane P `0ff45a3`, the rug fix and FXAA), from the second Windows machine (RTX 2070 SUPER):
+Evidence on `run1/integration` at `0fc905b` (after the contract change, the P kernel round and the mock fixes), from the first Windows machine:
 
 | Command | Result |
 |---|---|
-| `run-engine-tests.ps1` | Exit 0, 0 warnings. Authority 266, canonical JSON 31/31, command host 201/201, play HUD 51/51, companion 492 tests; release probe at 0.10 m, with the room and style hashes verified |
+| `run-engine-tests.ps1` | Exit 0, 0 warnings. Authority 266, canonical JSON 31/31, command host 419/419, play HUD 51/51, companion 501 tests; release probe at 0.10 m, with the room and style hashes verified |
 | `tools/test-room.ps1` | Exit 0. Small avatar 160/160, room navigation 10/10, room data 46/46, look 274/274; the room boots `shell=9 lights=2` |
-| Contract tests and validator | 40 OK; 0 problems |
+| Contract tests and validator | 40 OK; 0 problems. The command host's `--dump` (891 files, on `run1/play`) validates with 0 problems; before the kernel round, `capabilities.list` failed it |
 | roomscan | 84 passed in 40 s in the C fix round (`36b71c5`); not rerun at integration, which changed no Lane C file |
 
-`tools/linux/test-all.sh` has not been run on this head; a cloud session should run it.
+`tools/linux/test-all.sh` has not been run on this head; a cloud session should run it. Before the kernel round its dump check would have failed on `capabilities.list`.
 
 ## Still open
 
@@ -29,17 +29,14 @@ Evidence on `run1/integration` after the 7 October merges (Lane A `5453e9c`, Lan
   - **The mock side is done:** Lane A `5453e9c`, merged on 7 October.
     - The mock now matches the real host's ledger (2,048 receipts, 256 reserved for the player), its rate limit (30 a second per companion), its 8 pending approvals and its as-received fingerprint (`"preview": false`).
     - `test_kernel_alignment.py` reads the host's constants, so drift between the two fails a test.
-  - **The real host's gaps go to the next P round (Opus).** The exact diffs are in `docs/companion/proposals/kernel-host-gaps.md`:
-    - **P1, which blocks the swap:** `capabilities.list` returns a shape the contract refuses.
-    - **P2:** a stop that reuses an action id hides that command's receipt.
-    - **P3:** `CheckPerceived` exempts every `avatar:` id, so the companion can name the player out of sight.
-    - **P4 and P5:** `observe` defaults to 3 m, and the shell parts eat into its 100-item cap.
-    - **P6:** perception memory.
-    - **P7:** goal jobs and `jobs.status`.
-    - **P8:** `entity.release` is marked transient.
+  - **The real host's side is done:** Lane P `d61e811`, merged on 7 October. All eight gaps in `docs/companion/proposals/kernel-host-gaps.md` are closed with tests, including P1, which blocked the swap. The swap itself is A2 in Run 2. `RunningGoal`, `ReportArrival` and the `GoalFinished` event are the seams for the A2 goal runner.
+    - The round also found two mock bugs (a stop under a compacted action id hid that receipt; a compacted checkpoint replayed as `internal_error`). Fixed in `0fc905b`, with tests that fail before the fix. The alignment test now also pins the memory and job limits.
+  - **Decisions for the founder from the kernel round** (no rush; the current behaviour stands until you say otherwise):
+    - **Job ids are numbered per principal,** not across the room as in the mock, so the companion cannot learn how many goals the player set.
+    - **The host refuses goals the companion cannot carry out yet:** `follow` or `come` toward anything but the player, and `stay` with a target, are `unsupported_capability` until A2. Before, the host ignored the target and followed the player. The mock still accepts them.
+    - **The companion remembers only what it sees when it sends a message,** as in the mock. Should it also remember what it walks past between messages?
   - **Contract requests: applied on 7 October in `7e2c779`.** Lane A's C1 (`observe` defaults to 20 m, the maximum) and C2 (`"preview": false` is part of the content). Lane P's `room.checkpoint` result data (`checkpoint_revision`, required on a committed checkpoint), the README on receipts and stops, and a player-only `world.set_physics` op (a preset id; transient; the revision does not move). The mock handles it for the player and refuses it from the companion; the adapter never lists it.
-    - Still only proposed: keep the adapter's tighter rate limits in front of the host's, and 60 s staleness for the host's memory.
-- **The P kernel round is running (Opus, 7 October):** gaps P1 to P8, and the G key through `world.set_physics`.
+    - The host's memory goes stale after 60 s, as proposed. Still only proposed: keep the adapter's tighter rate limits in front of the host's.
 - **Save migration between room manifests:** today the player only gets a notice. A proposal is in `command-host.md`.
 - **Lane L:**
   - promote the `x_look_*` keys to the contracts before the preset becomes `candidate`;
@@ -234,11 +231,12 @@ The images stay in Google Drive (`Enfractal/Art inspiration`) and are cited by f
      - when convenient, the top-up photos from the report's steps, on the 1x back camera.
    - **The remaining art reference notes and the look verdict.** The L fix round folds them in.
    - **Remove `C:\dev\EnFractal-run1\review-play`.** Unlink its two `.cache` junctions first: the commands are in the 7 October chat, and the automatic safety check blocks agents from deleting it.
-   - **Connecting a real AI waits for the P kernel round:** P1 below makes every `capabilities.list` fail today.
+   - **Connecting a real AI:** the kernel round fixed `capabilities.list` (P1), which blocked it. A real AI talks to the mock host today (A1's live check, after `claude` /login); the real game host joins with A2 in Run 2.
+   - **The three kernel-round decisions** under "Still open" (job ids, goals the companion cannot carry out yet, what the companion remembers).
 2. **Integrator, in a fresh session:**
    - Read ORCHESTRATION.md and this page.
    - **Contract change: done for A and P in `7e2c779`.** Still to come, with the L fix round and its consumers, before the preset becomes `candidate`: the `x_look_*` keys and a room `site` key (the L review's M5 and M6).
-   - **The P kernel round (Opus):** Lane A's gaps P1 to P8 (in `docs/companion/proposals/kernel-host-gaps.md`), and the G key through `world.set_physics`.
+   - **The P kernel round: done** (`d61e811`, merged).
    - **The L fix round,** after the founder's look verdict:
      - the review's eight majors and the minors;
      - M1 also needs `RoomBuilder` to cut `shell.openings`, which is a change to the room builder in P's code (`game/scripts/native/Room/**`);
@@ -261,4 +259,4 @@ On the second Windows machine:
 - the lane worktrees are `C:\dev\EnFractal-run1\{play,companion,look,capture}`, each at its pushed branch;
 - the capture worktree also holds the local garage data and about 5.5 GB of model weights, all ignored by Git.
 
-The first Windows machine (the original desktop) still has its own lane worktrees and Capture data from earlier in the day.
+The first Windows machine (the original desktop) has the same layout. On 7 October its checkout and lane worktrees were fast-forwarded to GitHub (they were 45 to 84 commits behind), and the later 7 October work above was done there. Its capture worktree keeps its own local capture data. **Whichever machine you are on, fetch and fast-forward every checkout first.**
