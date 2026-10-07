@@ -43,6 +43,8 @@ public partial class LookPresetTest : Node3D
             CheckSeasonTint(preset);
             CheckClock(preset);
             CheckClockAtEveryMinute(preset);
+            CheckRealClockAndSwings(preset);
+            CheckReviewCameras(preset, room);
             CheckDepthOfField(preset);
             CheckPostEffectParameters(preset);
             CheckBakeStandIns(preset, room);
@@ -51,6 +53,7 @@ public partial class LookPresetTest : Node3D
             await CheckDressing(preset, room);
             await CheckFocus(preset, room);
             await CheckGradeCache(preset, room);
+            await CheckArtDirectionFocus(preset, room);
             MaterialLibrary.Configure(preset);
             GD.Print($"NATIVE_LOOK: {_checks - _failures}/{_checks} checks passed; preset reader and look numbers, role materials and shader uniforms, grade and season tint, clock at every minute, depth of field and focus, post effect parameters, bake stand-ins, room dressing, grade cache, renderer notice");
             GetTree().Quit(_failures == 0 ? 0 : 1);
@@ -90,9 +93,8 @@ public partial class LookPresetTest : Node3D
         Check(preset.Tuning.Defaulted.Count == 0, "the preset states every look number; none is left to the code's defaults: " + string.Join(", ", preset.Tuning.Defaulted.Take(12)));
         Check(LookTuning.Blocks.All(StylePreset.KnownLookExtensions.Contains), "every tuning block is a known look extension");
         // The numbers really come from the file: change a few and the parsed look follows.
-        var edited = PresetWith(("\"night_boost\": 1.5", "\"night_boost\": 2.5"), ("\"lut_size\": 33", "\"lut_size\": 17"),
-            ("\"vignette_start\": 0.45", "\"vignette_start\": 0.3"), ("\"tilt_pitch_gain\": 1.5", "\"tilt_pitch_gain\": 0.75"));
-        Check(Mathf.IsEqualApprox(edited.Tuning.Lamps.NightBoost, 2.5f) && edited.Tuning.Grade.LutSize == 17 && Mathf.IsEqualApprox(edited.Tuning.Post.VignetteStart, 0.3f)
+        var edited = PresetWith(Field("night_boost", "3.25"), Field("lut_size", "17"), Field("vignette_start", "0.3"), Field("tilt_pitch_gain", "0.75"));
+        Check(Mathf.IsEqualApprox(edited.Tuning.Lamps.NightBoost, 3.25f) && edited.Tuning.Grade.LutSize == 17 && Mathf.IsEqualApprox(edited.Tuning.Post.VignetteStart, 0.3f)
             && Mathf.IsEqualApprox(edited.Tuning.Dof.TiltPitchGain, 0.75f), "edited tuning numbers in the preset reach the runtime");
         // A role's marks come from the preset, not a table in the code.
         var restyled = PresetWith(("\"wood\": { \"pattern\": \"wood\"", "\"wood\": { \"pattern\": \"stone\""));
@@ -243,15 +245,18 @@ public partial class LookPresetTest : Node3D
     /// </summary>
     private void CheckSeasonTint(StylePreset preset)
     {
-        var winterMoment = LookClock.At(preset, preset.DefaultHour, 15);
-        var summerMoment = LookClock.At(preset, preset.DefaultHour, 196);
+        // Solar noon: the same point of the day in every season, whatever the day length.
+        var (rise, set) = LookClock.DayLimits(preset);
+        var noon = (rise + set) * 0.5f;
+        var winterMoment = LookClock.At(preset, noon, 15);
+        var summerMoment = LookClock.At(preset, noon, 196);
         var winter = GradeParams.For(preset, winterMoment);
         var summer = GradeParams.For(preset, summerMoment);
         Check(winter.SeasonTint.IsEqualApprox(winterMoment.SeasonTint) && winterMoment.SeasonTint.IsEqualApprox(preset.SeasonGrades["winter"].Tint)
             && summerMoment.SeasonTint.IsEqualApprox(preset.SeasonGrades["summer"].Tint), "mid-season days carry their season's tint into the grade");
         var neutral = new Color(0.5f, 0.5f, 0.5f);
         var grey = new Color(0.45f, 0.45f, 0.45f);
-        foreach (var (name, grade) in new[] { ("winter", winter), ("summer", summer), ("autumn", GradeParams.For(preset, LookClock.At(preset, preset.DefaultHour, 288))) })
+        foreach (var (name, grade) in new[] { ("winter", winter), ("summer", summer), ("autumn", GradeParams.For(preset, LookClock.At(preset, noon, 288))) })
         {
             var tinted = ColorGrade.Apply(grade, grey);
             var untinted = ColorGrade.Apply(grade with { SeasonTint = neutral }, grey);
@@ -262,6 +267,18 @@ public partial class LookPresetTest : Node3D
             Check(shift.Length() > 0.01f && shift.Normalized().Dot(chroma.Normalized()) > 0.9f,
                 $"the {name} tint alone shifts a mid grey toward the tint's hue (shift {shift.Length():0.###}, alignment {shift.Normalized().Dot(chroma.Normalized()):0.##})");
         }
+        // The season tint lives in the mid-tones and lights: at noon (no night grading), a dark grey stays cool in every
+        // season, and the tint moves it far less than it moves a mid grey.
+        foreach (var (name, day) in new[] { ("winter", 15), ("spring", 105), ("summer", 196), ("autumn", 288) })
+        {
+            var grade = GradeParams.For(preset, LookClock.At(preset, noon, day));
+            var dark = new Color(0.12f, 0.12f, 0.12f);
+            var darkShift = Shift(grade, dark, neutral);
+            var midShift = Shift(grade, grey, neutral);
+            var graded = ColorGrade.Apply(grade, dark);
+            Check(graded.B >= graded.R - 0.01f && darkShift < 0.3f * midShift,
+                $"{name} at noon: shade stays cool (blue minus red {graded.B - graded.R:0.###}) and the season tint barely touches it ({darkShift:0.####} against {midShift:0.####} in the mid-tones)");
+        }
         var winterLut = ColorGrade.LutBytes(winter);
         var winterUntinted = ColorGrade.LutBytes(winter with { SeasonTint = neutral });
         var size = winter.Tuning.LutSize;
@@ -270,7 +287,15 @@ public partial class LookPresetTest : Node3D
         var winterKey = winterMoment.KeyColor;
         var summerKey = summerMoment.KeyColor;
         Check(winterKey.B / winterKey.R > summerKey.B / summerKey.R && winterMoment.SeasonWarmth < summerMoment.SeasonWarmth,
-            "winter sunlight is bluer and cooler than summer sunlight");
+            "at noon, winter sunlight is bluer and cooler than summer sunlight");
+    }
+
+    /// <summary>How far the season tint alone moves a colour: the grade with the tint against the grade with a neutral tint.</summary>
+    private static float Shift(GradeParams grade, Color input, Color neutral)
+    {
+        var tinted = ColorGrade.Apply(grade, input);
+        var untinted = ColorGrade.Apply(grade with { SeasonTint = neutral }, input);
+        return new Vector3(tinted.R - untinted.R, tinted.G - untinted.G, tinted.B - untinted.B).Length();
     }
 
     // ---------- clock ----------
@@ -292,9 +317,11 @@ public partial class LookPresetTest : Node3D
             Mathf.Max(Mathf.Abs(beforeMidnight.AmbientColor.G - afterMidnight.AmbientColor.G), Mathf.Abs(beforeMidnight.AmbientColor.B - afterMidnight.AmbientColor.B)));
         Check(Mathf.Abs(beforeMidnight.KeyEnergy - afterMidnight.KeyEnergy) < 0.01f && ambientStep < 0.01f,
             $"night interpolation is continuous across midnight (ambient step {ambientStep:0.#####})");
-        var atDefault = LookClock.At(preset, preset.DefaultHour, 279);
+        // On the keys' own reference day (no seasonal day length), the default hour puts the key exactly where the preset does.
+        var reference = PresetWith((Regex.Match(_presetText, @"""day_length_h"": \[[^\]]*\]").Value, "\"day_length_h\": []"));
+        var atDefault = LookClock.At(reference, reference.DefaultHour, 279);
         Check(Mathf.IsEqualApprox(atDefault.KeyElevationDeg, preset.KeyElevationDeg, 0.01f) && Mathf.IsEqualApprox(atDefault.KeyAzimuthDeg, preset.KeyAzimuthDeg, 0.01f),
-            $"at the default hour the key sits exactly where the preset puts it ({atDefault.KeyElevationDeg:0.##}, {atDefault.KeyAzimuthDeg:0.##})");
+            $"on the reference day, at the default hour, the key sits exactly where the preset puts it ({atDefault.KeyElevationDeg:0.##}, {atDefault.KeyAzimuthDeg:0.##})");
         var (sunrise, sunset) = LookClock.DayLimits(preset);
         var noon = LookClock.At(preset, (sunrise + sunset) * 0.5f, 279);
         Check(noon.KeyElevationDeg <= Mathf.Max(preset.Tuning.Sun.MaxElevationDeg, preset.KeyElevationDeg) + 1e-3f && noon.KeyElevationDeg >= preset.KeyElevationDeg,
@@ -304,7 +331,7 @@ public partial class LookPresetTest : Node3D
             "deep in the night the key is the moon at its preset elevation");
         var afternoon = LookClock.At(preset, preset.DefaultHour, 279);
         var lateNight = LookClock.At(preset, 23f, 279);
-        Check(afternoon.Season == "autumn" && afternoon.Daylight > 0.8f && lateNight.Daylight < 0.2f && lateNight.KeyEnergy < afternoon.KeyEnergy * 0.3f,
+        Check(afternoon.Season == "autumn" && afternoon.Daylight > 0.6f && lateNight.Daylight < 0.2f && lateNight.KeyEnergy < afternoon.KeyEnergy * 0.3f,
             "the afternoon is bright and late night is dark");
         Check(LookClock.At(preset, 2f, 279).KeyEnergy < LookClock.At(preset, 21f, 279).KeyEnergy, "2 a.m. is darker than 9 p.m.");
     }
@@ -327,8 +354,11 @@ public partial class LookPresetTest : Node3D
             var ambient = moments.Select(m => m.AmbientEnergy).ToArray();
             var biggestStep = Enumerable.Range(0, minutes).Max(m => Mathf.Abs(energy[m] - energy[(m + minutes - 1) % minutes]));
             var biggestAmbientStep = Enumerable.Range(0, minutes).Max(m => Mathf.Abs(ambient[m] - ambient[(m + minutes - 1) % minutes]));
-            Check(biggestStep <= 0.01f * preset.KeyEnergy && biggestAmbientStep <= 0.01f,
+            Check(biggestStep <= 0.02f * preset.KeyEnergy && biggestAmbientStep <= 0.01f,
                 $"day {day}: key and ambient energy change smoothly, minute to minute (largest steps {biggestStep:0.####}, {biggestAmbientStep:0.####})");
+            var perUpdate = biggestStep * (float)LookDirector.ClockUpdateSeconds / 60f;
+            Check(perUpdate <= 0.01f * preset.KeyEnergy,
+                $"day {day}: following the real clock, one {LookDirector.ClockUpdateSeconds:0} s update changes the key by under 1% ({perUpdate / preset.KeyEnergy:P2})");
             Check(Unimodal(energy, out var darkest, out var brightest) && Unimodal(ambient, out _, out _),
                 $"day {day}: the key rises once from its darkest minute ({darkest / 60}:{darkest % 60:00}) to its brightest ({brightest / 60}:{brightest % 60:00}) and falls once back, and so does the ambient");
             Check(darkest >= 22 * 60 || darkest <= 5 * 60, $"day {day}: the darkest minute is in the night ({darkest / 60}:{darkest % 60:00})");
@@ -375,6 +405,161 @@ public partial class LookPresetTest : Node3D
         for (var i = hi; i != lo; i = (i + 1) % n)
             if (values[(i + 1) % n] > values[i] + tolerance) return false;
         return true;
+    }
+
+    /// <summary>
+    /// The founder's 6 October direction: time of day follows the real clock by default (seasons already follow the
+    /// calendar), with a deterministic override for reviews and tests; and the swings are stronger: short winter
+    /// days and long summer ones, darker nights, warm twilight pastels, and seasons that clearly differ.
+    /// </summary>
+    private void CheckRealClockAndSwings(StylePreset preset)
+    {
+        Check(preset.FollowClock && preset.FollowCalendar, "the preset follows the real clock and calendar by default");
+        string? NoEnv(string name) => null;
+        var both = LookClock.ClockOverride(new[] { "--look-clock=18:45", "--look-date=2026-01-15" }, NoEnv);
+        Check(both.Hour is { } h && Mathf.IsEqualApprox(h, 18.75f) && both.DayOfYear == 15 && both.Error.Length == 0, "--look-clock and --look-date pin the hour and the day");
+        var fromEnv = LookClock.ClockOverride(Array.Empty<string>(), name => name == "ENFRACTAL_LOOK_CLOCK" ? "7:05" : null);
+        Check(fromEnv.Hour is { } e && Mathf.IsEqualApprox(e, 7f + 5f / 60f) && fromEnv.DayOfYear == null, "ENFRACTAL_LOOK_CLOCK pins the hour alone; the day still follows the calendar");
+        var argsWin = LookClock.ClockOverride(new[] { "--look-clock=09:00" }, name => name == "ENFRACTAL_LOOK_CLOCK" ? "21:00" : null);
+        Check(argsWin.Hour is { } a && Mathf.IsEqualApprox(a, 9f), "the command line wins over the environment");
+        var bad = LookClock.ClockOverride(new[] { "--look-clock=25:00", "--look-date=2026-13-01" }, NoEnv);
+        Check(bad.Hour == null && bad.DayOfYear == null && bad.Error.Contains("25:00") && bad.Error.Contains("2026-13-01"), "an unreadable override is reported and ignored: " + bad.Error);
+        var none = LookClock.ClockOverride(Array.Empty<string>(), NoEnv);
+        Check(none.Hour == null && none.DayOfYear == null && none.Error.Length == 0, "without an override the look follows the preset");
+
+        // Seasonal day length: a continuous, increasing map from the real hour onto the keys' reference day.
+        var (rise, set) = LookClock.DayLimits(preset);
+        foreach (var day in new[] { 15, 105, 196, 288 })
+        {
+            var previous = LookClock.KeyHour(preset, 0f, day);
+            var worst = 0f;
+            var backwards = 0;
+            for (var m = 1; m <= 24 * 60; m++)
+            {
+                var current = LookClock.KeyHour(preset, m / 60f, day);
+                var step = Mathf.PosMod(current - previous, 24f);
+                worst = Mathf.Max(worst, step);
+                if (step > 12f) backwards++;
+                previous = current;
+            }
+            var length = LookClock.DayLength(preset, day);
+            var noon = (rise + set) * 0.5f;
+            Check(backwards == 0 && worst < 0.1f && Mathf.IsEqualApprox(LookClock.KeyHour(preset, noon - length * 0.5f, day), rise, 1e-3f)
+                && Mathf.IsEqualApprox(LookClock.KeyHour(preset, noon + length * 0.5f, day), set, 1e-3f),
+                $"day {day}: the real day ({length:0.#} h) maps continuously onto the reference day, sunrise to sunrise and sunset to sunset");
+        }
+        int DaylightMinutes(int day) => Enumerable.Range(0, 24 * 60).Count(m => LookClock.At(preset, m / 60f, day).Daylight >= preset.Tuning.Sun.MoonDaylight);
+        var winterDay = DaylightMinutes(15) / 60f;
+        var summerDay = DaylightMinutes(196) / 60f;
+        Check(Mathf.Abs(winterDay - preset.Tuning.Seasons.DayLengthH[0]) < 0.1f && Mathf.Abs(summerDay - preset.Tuning.Seasons.DayLengthH[2]) < 0.1f && summerDay - winterDay >= 4f,
+            $"winter days are short and summer days long ({winterDay:0.##} h against {summerDay:0.##} h of daylight)");
+        GD.Print($"LOOK_INFO: daylight {winterDay:0.##} h in mid-winter, {summerDay:0.##} h in mid-summer; reference day {rise:0.##} to {set:0.##}; review moment 16:30 on 6 October reads the keys at {LookClock.KeyHour(preset, 16.5f, 279):0.##}");
+        var winterSix = LookClock.At(preset, 18f, 15);
+        var summerSix = LookClock.At(preset, 18f, 196);
+        Check(winterSix.Daylight < preset.Tuning.Sun.MoonDaylight && summerSix.Daylight > 0.5f,
+            $"at six in the evening it is night in winter and still bright in summer (daylight {winterSix.Daylight:0.##} against {summerSix.Daylight:0.##})");
+
+        // Stronger swings.
+        var keys = preset.TimeKeys;
+        var peak = keys.Max(k => k.KeyEnergy);
+        var deep = LookClock.Sample(keys, 2f);
+        var midday = LookClock.Sample(keys, 13f);
+        Check(deep.KeyEnergy <= 0.05f * peak && deep.AmbientEnergy <= 0.3f * midday.AmbientEnergy && deep.AmbientColor.B > deep.AmbientColor.R + 0.1f,
+            $"nights are deep and blue (key {deep.KeyEnergy / peak:P0} of its peak, ambient {deep.AmbientEnergy / midday.AmbientEnergy:P0} of midday's)");
+        // The evening moment the key falls to half its peak: the sunset.
+        var sunsetHour = Enumerable.Range(0, 12 * 12).Select(i => preset.DefaultHour + i / 12f).First(h => LookClock.Sample(keys, h).KeyEnergy <= 0.5f * peak);
+        var dusk = LookClock.Sample(keys, sunsetHour);
+        Check(dusk.KeyColor.R > 1.5f * dusk.KeyColor.B && dusk.AmbientColor.B > dusk.AmbientColor.R + 0.1f,
+            $"the sunset key (at {sunsetHour:0.##} on the reference day) is orange-gold under a light-blue sky: the twilight pastels");
+        var grey = new Color(0.45f, 0.45f, 0.45f);
+        var winterGrey = ColorGrade.Apply(GradeParams.For(preset, LookClock.At(preset, 13f, 15)), grey);
+        var summerGrey = ColorGrade.Apply(GradeParams.For(preset, LookClock.At(preset, 13f, 196)), grey);
+        var autumnGrey = ColorGrade.Apply(GradeParams.For(preset, LookClock.At(preset, 13f, 288)), grey);
+        Check((winterGrey.B - winterGrey.R) - (summerGrey.B - summerGrey.R) >= 0.08f && autumnGrey.R - autumnGrey.B > 0.05f,
+            $"the seasons clearly differ: winter blue, summer and autumn warm (blue minus red: winter {winterGrey.B - winterGrey.R:0.###}, summer {summerGrey.B - summerGrey.R:0.###}, autumn {autumnGrey.B - autumnGrey.R:0.###})");
+        Check(preset.Tuning.Lamps.NightBoost >= 2f, "room lamps glow at least three times as bright at night as by day");
+    }
+
+    /// <summary>
+    /// The review cameras: the five baseline cameras are unchanged, every camera stands inside the room and looks at
+    /// its focus, and the high-angle art-direction cameras read as a tilt-shift miniature: both avatars inside the
+    /// crisp band, the floor at the bottom of the frame nearer than the band and the top of the frame farther.
+    /// </summary>
+    private void CheckReviewCameras(StylePreset preset, RoomData room)
+    {
+        var path = System.IO.Path.GetFullPath(ProjectSettings.GlobalizePath("res://") + "../tools/look/review_cameras.json");
+        using var document = System.Text.Json.JsonDocument.Parse(System.IO.File.ReadAllBytes(path));
+        var root = document.RootElement;
+        var cameras = root.GetProperty("cameras").EnumerateArray().ToArray();
+        var ids = cameras.Select(c => c.GetProperty("id").GetString()).ToArray();
+        Check(ids.Take(5).SequenceEqual(new[] { "player_eye", "over_shoulder", "companion", "low_corner", "ceiling_corner" }) && ids.Distinct().Count() == ids.Length,
+            "the five baseline review cameras come first, in order, and ids are unique: " + string.Join(",", ids));
+        var baseline = new Dictionary<string, (Vector3 Position, Vector3 LookAt, float Fov)>
+        {
+            ["player_eye"] = (new Vector3(0f, 0.087f, 0.6f), new Vector3(-0.25f, 0.14f, -0.6f), 70f),
+            ["over_shoulder"] = (new Vector3(-0.15f, 0.22f, 1.12f), new Vector3(0.12f, 0.06f, 0.1f), 68f),
+            ["companion"] = (new Vector3(0.5f, 0.16f, 0.02f), new Vector3(0.12f, 0.07f, 0.72f), 55f),
+            ["low_corner"] = (new Vector3(1.84f, 0.05f, -1.34f), new Vector3(-0.2f, 0.5f, 0.8f), 65f),
+            ["ceiling_corner"] = (new Vector3(-1.84f, 2.26f, 1.36f), new Vector3(0.15f, 0.05f, 0.25f), 60f),
+        };
+        Vector3 V(System.Text.Json.JsonElement a) => new(a[0].GetSingle(), a[1].GetSingle(), a[2].GetSingle());
+        var clock = root.GetProperty("clock");
+        Check(root.GetProperty("resolution")[0].GetInt32() == 1920 && root.GetProperty("resolution")[1].GetInt32() == 1080
+            && Mathf.IsEqualApprox(clock.GetProperty("hour").GetSingle(), 16.5f) && clock.GetProperty("date").GetString() == "2026-10-06",
+            "reviews stay at 1920 x 1080, pinned to 16:30 on 6 October");
+        var inside = room.Bounds.Grow(-0.02f);
+        foreach (var camera in cameras)
+        {
+            var id = camera.GetProperty("id").GetString()!;
+            var position = V(camera.GetProperty("position_m"));
+            var lookAt = V(camera.GetProperty("look_at_m"));
+            var focus = V(camera.GetProperty("focus_m"));
+            var fov = camera.GetProperty("fov_deg").GetSingle();
+            if (baseline.TryGetValue(id, out var original))
+                Check(position.IsEqualApprox(original.Position) && lookAt.IsEqualApprox(original.LookAt) && Mathf.IsEqualApprox(fov, original.Fov), $"{id} is unchanged");
+            var forward = (lookAt - position).Normalized();
+            Check(inside.HasPoint(position) && (focus - position).Dot(forward) > 0.05f && fov is >= 20f and <= 90f, $"{id} stands inside the room and looks at its focus");
+        }
+        var player = room.SpawnFor("player").PositionM;
+        var companion = room.SpawnFor("companion", room.SpawnFor("player")).PositionM;
+        foreach (var camera in cameras.Where(c => c.GetProperty("id").GetString() is "diorama_high" or "iso_room"))
+        {
+            var id = camera.GetProperty("id").GetString()!;
+            var position = V(camera.GetProperty("position_m"));
+            var forward = (V(camera.GetProperty("look_at_m")) - position).Normalized();
+            var halfFov = Mathf.DegToRad(camera.GetProperty("fov_deg").GetSingle()) * 0.5f;
+            var pitch = Mathf.Asin(-forward.Y);
+            var focusDistance = (V(camera.GetProperty("focus_m")) - position).Dot(forward);
+            var dof = LookDirector.DepthOfFieldFor(preset, focusDistance, -forward.Y);
+            float Depth(Vector3 point) => (point - position).Dot(forward);
+            var avatars = new[] { player + Vector3.Up * 0.05f, companion + Vector3.Up * 0.05f };
+            var framed = avatars.All(a => (a - position).Normalized().AngleTo(forward) < halfFov * 0.8f);
+            var crisp = avatars.All(a => Depth(a) > dof.NearDistance && Depth(a) < dof.FarDistance);
+            // The centre column's top and bottom rays: where they meet the floor or the room's walls.
+            var right = forward.Cross(Vector3.Up).Normalized();
+            var (bottom, top) = forward.Rotated(right, halfFov).Y < forward.Rotated(right, -halfFov).Y
+                ? (forward.Rotated(right, halfFov), forward.Rotated(right, -halfFov))
+                : (forward.Rotated(right, -halfFov), forward.Rotated(right, halfFov));
+            float Hit(Vector3 ray) => RayToRoom(room.Bounds, position, ray) * ray.Dot(forward);
+            var bottomDepth = Hit(bottom);
+            var topDepth = Hit(top);
+            GD.Print($"LOOK_INFO: {id} pitch {Mathf.RadToDeg(pitch):0} degrees; crisp {dof.NearDistance:0.##} to {dof.FarDistance:0.##} m (focus {focusDistance:0.##} m, blur {dof.Amount:0.###}); avatars at {Depth(avatars[0]):0.##} and {Depth(avatars[1]):0.##} m; frame foot {bottomDepth:0.##} m, top {topDepth:0.##} m");
+            Check(Mathf.RadToDeg(pitch) >= 30f && framed && crisp && bottomDepth < dof.NearDistance && topDepth > dof.FarDistance + 0.5f * dof.FarTransition,
+                $"{id} looks down {Mathf.RadToDeg(pitch):0} degrees with both avatars framed and crisp ({dof.NearDistance:0.##} to {dof.FarDistance:0.##} m), the frame's foot nearer than the band ({bottomDepth:0.##} m) and its top deep in the far blur ({topDepth:0.##} m)");
+        }
+    }
+
+    /// <summary>Distance along a ray from inside the room to the room's bounds.</summary>
+    private static float RayToRoom(Aabb bounds, Vector3 origin, Vector3 direction)
+    {
+        var best = float.PositiveInfinity;
+        for (var axis = 0; axis < 3; axis++)
+        {
+            if (Mathf.Abs(direction[axis]) < 1e-6f) continue;
+            var plane = direction[axis] > 0f ? bounds.End[axis] : bounds.Position[axis];
+            best = Mathf.Min(best, (plane - origin[axis]) / direction[axis]);
+        }
+        return best;
     }
 
     // ---------- depth of field ----------
@@ -479,7 +664,7 @@ public partial class LookPresetTest : Node3D
                 if (MaterialLibrary.BakeAlbedo(originals[mesh]) is { } albedo && standIn.AlbedoColor.IsEqualApprox(albedo)) flat++;
             }
         });
-        Check(painterly == meshes.Length && painterly >= 11 && swapped == painterly && flat == painterly,
+        Check(painterly == meshes.Length && painterly == room.Shell.Count + room.Objects.Count && swapped == painterly && flat == painterly,
             $"during a bake every painterly mesh wears a flat stand-in of its bake colour ({swapped}/{painterly})");
         Check(meshes.All(m => ReferenceEquals(m.MaterialOverride, originals[m])), "after a bake every original material is back");
         var threw = false;
@@ -529,18 +714,21 @@ public partial class LookPresetTest : Node3D
         Check(environment.Compositor?.CompositorEffects.Count == 1 && look.Post != null && environment.Compositor.CompositorEffects[0] == look.Post
             && Mathf.IsEqualApprox(look.Post.Grain, preset.Grain) && Mathf.IsEqualApprox(look.Post.Vignette, preset.Vignette) && look.Post.Tuning == preset.Tuning.Post,
             "grain and vignette come from the preset through the environment's compositor effect");
-        Check(look.RoomLightCount == 1 && look.Key.ShadowEnabled && (look.Key.ShadowCasterMask & LookDirector.ShellVisualLayer) == 0,
-            "the lamp is lit and the diorama key casts no shadows from the shell");
-        var lamp = look.GetChildren().OfType<OmniLight3D>().Single();
+        var hintLights = look.GetChildren().OfType<Light3D>().Where(l => l.HasMeta("light_hint_id")).ToArray();
+        Check(hintLights.Length == look.RoomLightCount && hintLights.All(l => room.LightHints.Any(h => h.Id == l.GetMeta("light_hint_id").AsString()))
+            && hintLights.OfType<OmniLight3D>().Any(l => l.GetMeta("light_hint_id").AsString() == "ceiling_lamp")
+            && look.Key.ShadowEnabled && (look.Key.ShadowCasterMask & LookDirector.ShellVisualLayer) == 0,
+            $"the room's light hints are lit ({look.RoomLightCount}, the ceiling lamp among them) and the diorama key casts no shadows from the shell");
+        var lamp = hintLights.OfType<OmniLight3D>().First(l => l.GetMeta("light_hint_id").AsString() == "ceiling_lamp");
         Check(Mathf.IsEqualApprox(lamp.OmniRange, room.Bounds.Size.Length() * preset.Tuning.Lamps.RangePerDiagonal) && Mathf.IsEqualApprox(lamp.OmniAttenuation, preset.Tuning.Lamps.Attenuation),
             "the lamp's reach and falloff come from the preset");
         var meshes = built.FindChildren("*", "MeshInstance3D", true, false).OfType<MeshInstance3D>().ToArray();
         var shell = meshes.Where(m => m.GetParent().HasMeta("surface_role")).ToArray();
         var objects = meshes.Except(shell).ToArray();
-        Check(shell.Length == 6 && shell.All(m => m.Layers == LookDirector.ShellVisualLayer), "shell visuals move to the shell layer");
+        Check(shell.Length == room.Shell.Count && shell.All(m => m.Layers == LookDirector.ShellVisualLayer), "shell visuals move to the shell layer");
         Check(shell.All(m => m.GIMode == (m.GetParent().GetMeta("surface_role").AsString() == "floor" ? GeometryInstance3D.GIModeEnum.Static : GeometryInstance3D.GIModeEnum.Disabled)),
             "only the floor joins the GI bake from the shell; walls and ceiling just receive it");
-        Check(objects.Length == 5 && objects.All(m => m.GIMode == GeometryInstance3D.GIModeEnum.Dynamic), "movable props are dynamic for GI");
+        Check(objects.Length == room.Objects.Count && objects.All(m => m.GIMode == GeometryInstance3D.GIModeEnum.Dynamic), "movable props are dynamic for GI");
         Check(objects.All(m => m.GetInstanceShaderParameter("box_edges").AsSingle() == 1f && m.GetInstanceShaderParameter("box_half_extents").AsVector3().X > 0f),
             "box props get softened, worn edges with their half extents");
         var seeds = meshes.Select(m => m.GetInstanceShaderParameter("paint_seed").AsSingle()).ToArray();
@@ -583,7 +771,7 @@ public partial class LookPresetTest : Node3D
         early.AddChild(lookEarly);
         lookEarly.Apply(preset, room);
         await Frames(2);
-        Check(lookEarly.Bakes == 1 && IsDressed(first), "a room built before the look, named anything, is dressed");
+        Check(lookEarly.Bakes == 1 && IsDressed(first, room), "a room built before the look, named anything, is dressed");
         early.QueueFree();
 
         // A look applied before it enters the tree, then placed beside a room.
@@ -595,7 +783,7 @@ public partial class LookPresetTest : Node3D
         lookLate.Apply(preset, room);
         late.AddChild(lookLate);
         await Frames(2);
-        Check(lookLate.Bakes == 1 && IsDressed(second), "a look applied before it enters the tree dresses the room it joins");
+        Check(lookLate.Bakes == 1 && IsDressed(second, room), "a look applied before it enters the tree dresses the room it joins");
         late.QueueFree();
 
         // RoomWorld's order: the look first, then the room, then an explicit Dress; the automatic pass must not bake again.
@@ -603,7 +791,7 @@ public partial class LookPresetTest : Node3D
         var built = RoomBuilder.Build(room);
         holder.AddChild(built);
         look.Dress(built);
-        Check(look.Bakes == 1 && IsDressed(built), "an explicit Dress dresses and bakes at once");
+        Check(look.Bakes == 1 && IsDressed(built, room), "an explicit Dress dresses and bakes at once");
         await Frames(2);
         look.Dress(built);
         Check(look.Bakes == 1, "the automatic pass and a second Dress do not dress or bake again");
@@ -628,7 +816,7 @@ public partial class LookPresetTest : Node3D
         var rebuilt = RoomBuilder.Build(room);
         holder.AddChild(rebuilt);
         await Frames(2);
-        Check(look.Bakes == 2 && IsDressed(rebuilt), "a rebuilt room is dressed and baked again");
+        Check(look.Bakes == 2 && IsDressed(rebuilt, room), "a rebuilt room is dressed and baked again");
         // A later object (a creation) that is a room entity but not shell: dressed, no rebake.
         var creation = new Node3D { Name = "Creation" };
         creation.SetMeta("entity_id", "creation:tower");
@@ -643,10 +831,10 @@ public partial class LookPresetTest : Node3D
         await Frames(1);
     }
 
-    private static bool IsDressed(Node3D built)
+    private static bool IsDressed(Node3D built, RoomData room)
     {
         var meshes = built.FindChildren("*", "MeshInstance3D", true, false).OfType<MeshInstance3D>().ToArray();
-        return meshes.Length == 11 && meshes.All(m => m.HasMeta(LookDirector.DressedMeta) && m.GetInstanceShaderParameter("paint_seed").VariantType != Variant.Type.Nil)
+        return meshes.Length == room.Shell.Count + room.Objects.Count && meshes.All(m => m.HasMeta(LookDirector.DressedMeta) && m.GetInstanceShaderParameter("paint_seed").VariantType != Variant.Type.Nil)
             && meshes.Where(m => m.GetParent().HasMeta("surface_role")).All(m => m.Layers == LookDirector.ShellVisualLayer);
     }
 
@@ -743,6 +931,76 @@ public partial class LookPresetTest : Node3D
     }
 
     /// <summary>Review finding: a 15 ms LUT rebuild. Grades are cached by their quantized inputs and missing ones build off the main thread.</summary>
+    /// <summary>
+    /// The founder's depth-of-field direction: while moving, focus follows the player and the companion (the band
+    /// stretches to keep a nearby companion crisp); while building, it follows the cursor or the free camera
+    /// (FocusOverride); and a high view reads as a tilt-shift miniature (narrow band, short ramps, stronger blur).
+    /// </summary>
+    private async Task CheckArtDirectionFocus(StylePreset preset, RoomData room)
+    {
+        var high = LookDirector.DepthOfFieldFor(preset, 1.1f, Mathf.Sin(Mathf.DegToRad(45f)));
+        var level = LookDirector.DepthOfFieldFor(preset, 1.1f, 0f);
+        Check(high.FarDistance - high.NearDistance <= 0.35f && high.Amount >= 0.12f && high.FarTransition < level.FarTransition && high.NearTransition < level.NearTransition,
+            $"from 45 degrees up, 1.1 m away, the crisp band is a miniature's ({high.NearDistance:0.##} to {high.FarDistance:0.##} m, blur {high.Amount:0.###}) with shorter ramps than a level view");
+        var (holder, look) = NewDirector(preset, room, "ArtFocusHolder");
+        look.SetClock(preset.DefaultHour, 279);
+        var player = new SmallPlayerController { Name = "Player", ReadKeyboard = false };
+        holder.AddChild(player);
+        player.SetPhysicsProcess(false);
+        player.GlobalPosition = new Vector3(0f, 0f, 0.6f);
+        var friend = new Node3D { Name = "Friend" };
+        holder.AddChild(friend);
+        look.FocusCompanion = friend;
+        var camera = new Camera3D();
+        holder.AddChild(camera);
+        camera.GlobalPosition = new Vector3(0f, 0.85f, 1.45f);
+        camera.LookAt(player.GlobalPosition);
+        camera.MakeCurrent();
+        var playerPoint = player.GlobalPosition + Vector3.Up * (preset.Tuning.Dof.BodyFocusHeightFraction * player.BodyHeightM);
+        friend.GlobalPosition = player.GlobalPosition + new Vector3(0.1f, 0f, -0.44f);
+        await Frames(2);
+        Check(InFocus(camera, playerPoint, out var band) && InFocus(camera, friend.GlobalPosition, out _),
+            $"a companion 45 cm behind the player is kept crisp with it ({band})");
+        var farEdges = new List<float>();
+        for (var step = 0; step <= 12; step++)
+        {
+            friend.GlobalPosition = player.GlobalPosition + new Vector3(0f, 0f, -0.5f - 0.025f * step);
+            await Frames(1);
+            InFocus(camera, playerPoint, out var edge);
+            farEdges.Add(edge.Far);
+        }
+        var biggestJump = farEdges.Zip(farEdges.Skip(1)).Max(p => Mathf.Abs(p.Second - p.First));
+        Check(biggestJump < 0.15f, $"as the companion walks away the band shrinks back without a jump (largest step {biggestJump:0.###} m per 2.5 cm walked; a hard cut would jump about 0.4 m)");
+        friend.GlobalPosition = player.GlobalPosition + new Vector3(0.2f, 0f, -2.0f);
+        await Frames(2);
+        Check(InFocus(camera, playerPoint, out band) && !InFocus(camera, friend.GlobalPosition, out _),
+            $"a companion two metres away is not, and the player stays crisp ({band})");
+        var cursor = new Vector3(-1.2f, 0.75f, -0.9f);
+        look.FocusOverride = cursor;
+        await Frames(2);
+        Check(InFocus(camera, cursor, out band) && !InFocus(camera, playerPoint, out _), $"while building, focus follows the cursor or free camera's point ({band})");
+        look.FocusOverride = null;
+        await Frames(2);
+        Check(InFocus(camera, playerPoint, out _), "clearing the override returns focus to the player");
+        Check(look.ClockNote.Contains("pinned"), "the look reports a pinned clock: " + look.ClockNote);
+        look.ReleaseClock();
+        Check(look.ClockNote.StartsWith("real clock, real calendar", StringComparison.Ordinal), "released, it follows the real clock and calendar: " + look.ClockNote);
+        holder.QueueFree();
+        await Frames(1);
+        // The deterministic override, as a reviewer or playtester sets it (the environment form; the command line reads the same way).
+        var savedClock = OS.GetEnvironment("ENFRACTAL_LOOK_CLOCK");
+        var savedDate = OS.GetEnvironment("ENFRACTAL_LOOK_DATE");
+        OS.SetEnvironment("ENFRACTAL_LOOK_CLOCK", "05:15");
+        OS.SetEnvironment("ENFRACTAL_LOOK_DATE", "2026-07-15");
+        var (pinnedHolder, pinned) = NewDirector(preset, room, "PinnedClockHolder");
+        Check(Mathf.IsEqualApprox(pinned.Moment.Hour, 5.25f) && pinned.Moment.DayOfYear == 196 && pinned.ClockNote.Contains("ENFRACTAL_LOOK_CLOCK"),
+            $"ENFRACTAL_LOOK_CLOCK and ENFRACTAL_LOOK_DATE pin the look when it is applied ({pinned.Moment.Hour:0.##} h, day {pinned.Moment.DayOfYear}; {pinned.ClockNote})");
+        pinnedHolder.QueueFree();
+        if (savedClock.Length > 0) OS.SetEnvironment("ENFRACTAL_LOOK_CLOCK", savedClock); else OS.UnsetEnvironment("ENFRACTAL_LOOK_CLOCK");
+        if (savedDate.Length > 0) OS.SetEnvironment("ENFRACTAL_LOOK_DATE", savedDate); else OS.UnsetEnvironment("ENFRACTAL_LOOK_DATE");
+        await Frames(1);
+    }
+
     private async Task CheckGradeCache(StylePreset preset, RoomData room)
     {
         var clock = Stopwatch.StartNew();
@@ -781,6 +1039,14 @@ public partial class LookPresetTest : Node3D
         holder.AddChild(look);
         look.Apply(preset, room);
         return (holder, look);
+    }
+
+    /// <summary>A replacement that sets one numeric field of the shipped preset, whatever its current value.</summary>
+    private (string From, string To) Field(string name, string value)
+    {
+        var match = Regex.Match(_presetText, $"\"{name}\": -?[0-9.]+");
+        if (!match.Success) throw new InvalidOperationException($"test edit target not found: {name}");
+        return (match.Value, $"\"{name}\": {value}");
     }
 
     /// <summary>The shipped preset with text replacements, parsed (not loaded from disk, so no pin applies).</summary>

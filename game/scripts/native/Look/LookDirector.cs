@@ -31,6 +31,8 @@ public partial class LookDirector : Node3D
     public const string BakeStandInMeta = "look_bake_stand_in";
     /// <summary>Meta marking a mesh the look has already dressed.</summary>
     public const string DressedMeta = "look_dressed";
+    /// <summary>How often the look re-reads the real clock, in seconds: often enough that a winter sunset changes the light in steps under 1%.</summary>
+    public const double ClockUpdateSeconds = 10.0;
     /// <summary>How many grade LUTs stay cached (about 110 KB each at 33 cubed).</summary>
     public const int GradeCacheSize = 12;
 
@@ -51,8 +53,16 @@ public partial class LookDirector : Node3D
     public bool DofSupported { get; private set; }
     /// <summary>The player body depth of field focuses on. If unset, the parent's first SmallPlayerController that is not a companion.</summary>
     public Node3D? FocusTarget { get; set; }
-    /// <summary>The companion body, for presets that focus on the companion. If unset, the parent's first CompanionAvatar.</summary>
+    /// <summary>The companion body: what "companion" focus follows, and what "player" focus keeps crisp too when it is near. If unset, the parent's first CompanionAvatar.</summary>
     public Node3D? FocusCompanion { get; set; }
+    /// <summary>
+    /// A world point every unframed camera focuses on while set: the build camera's cursor hit or free-camera
+    /// target. Clear it (null) to return to the preset's focus mode. "cursor" focus uses it and otherwise looks
+    /// focus_band_m ahead.
+    /// </summary>
+    public Vector3? FocusOverride { get; set; }
+    /// <summary>Where the clock comes from: the real clock and calendar, the preset's fixed hour and day, or a pin (and who pinned it).</summary>
+    public string ClockNote { get; private set; } = "";
     /// <summary>Things that went wrong with the look but did not stop the room: shown in reports and the review harness.</summary>
     public IReadOnlyList<string> Warnings => _warnings;
     /// <summary>LUTs built so far (cache misses), for tests and reports.</summary>
@@ -70,6 +80,7 @@ public partial class LookDirector : Node3D
     private RoomData _room = null!;
     private float? _pinnedHour;
     private int? _pinnedDay;
+    private string _clockSource = "";
     private double _clockTimer;
     private int _framesSinceApply;
     private readonly Dictionary<ulong, CameraAttributesPractical> _attributes = new();
@@ -106,8 +117,11 @@ public partial class LookDirector : Node3D
         if (RendererNote.Length > 0) Warn(RendererNote);
         if (preset.KuwaharaEnabled || preset.OutlineEnabled)
             Warn("the preset enables kuwahara or outline post effects, which this runtime does not implement yet");
-        if (preset.DofEnabled && preset.DofFocus == "cursor")
-            Warn("depth-of-field focus 'cursor' is not implemented yet; focusing a fixed distance ahead instead");
+        var (hour, day, error) = LookClock.ClockOverride(OS.GetCmdlineUserArgs(), OS.GetEnvironment);
+        if (error.Length > 0) Warn(error + "; following the preset's clock instead");
+        _pinnedHour = hour;
+        _pinnedDay = day is { } d ? Math.Clamp(d, 1, 366) : null;
+        _clockSource = hour != null || day != null ? "pinned by --look-clock/--look-date or ENFRACTAL_LOOK_CLOCK/ENFRACTAL_LOOK_DATE" : "";
         ApplyMoment(synchronous: true);
         _framesSinceApply = 0;
         QueueExisting();
@@ -269,6 +283,7 @@ public partial class LookDirector : Node3D
     {
         _pinnedHour = hour;
         _pinnedDay = Math.Clamp(dayOfYear, 1, 366);
+        _clockSource = "pinned by SetClock";
         ApplyMoment(synchronous: true);
     }
 
@@ -277,13 +292,16 @@ public partial class LookDirector : Node3D
     {
         _pinnedHour = hour;
         _pinnedDay = Math.Clamp(dayOfYear, 1, 366);
+        _clockSource = "pinned by SetClock";
         ApplyMoment(synchronous: false);
     }
 
+    /// <summary>Follow the preset again: the real clock and calendar when it says so, else its default hour and fixed day.</summary>
     public void ReleaseClock()
     {
         _pinnedHour = null;
         _pinnedDay = null;
+        _clockSource = "";
         ApplyMoment(synchronous: true);
     }
 
@@ -294,6 +312,9 @@ public partial class LookDirector : Node3D
     {
         var hour = _pinnedHour ?? (Preset.FollowClock ? LookClock.NowHour() : Preset.DefaultHour);
         var day = _pinnedDay ?? (Preset.FollowCalendar ? LookClock.TodayDayOfYear() : Preset.Tuning.Seasons.FixedDayOfYear);
+        ClockNote = (_pinnedHour != null ? "hour pinned" : Preset.FollowClock ? "real clock" : "preset hour")
+            + (_pinnedDay != null ? ", day pinned" : Preset.FollowCalendar ? ", real calendar" : ", preset day")
+            + (_clockSource.Length > 0 ? " (" + _clockSource + ")" : "");
         Moment = LookClock.At(Preset, hour, day);
         Key.LightColor = Moment.KeyColor;
         Key.LightEnergy = Moment.KeyEnergy;
@@ -540,19 +561,24 @@ public partial class LookDirector : Node3D
     /// around the focus; far blur ramps over a distance that grows with the focus distance; near blur covers
     /// what is closer than near_blur_distance_m (or the band). Tilt-shift narrows the band and strengthens
     /// the blur as the camera looks down on the room, which is what makes a high view read as a miniature.
-    /// crispFromM keeps everything from there to the focus crisp (the player's reach, seen from its eye).
+    /// Tilt-shift also shortens the blur ramps, so the crisp band ends sooner and the frame's top and bottom melt.
+    /// crispFromM keeps everything from there to the focus crisp (the player's reach, seen from its eye), and
+    /// alsoM is a second distance the band stretches to keep crisp (the companion beside the player).
     /// </summary>
-    public static DepthOfField DepthOfFieldFor(StylePreset preset, float focusDistance, float lookingDown, float crispFromM = float.PositiveInfinity)
+    public static DepthOfField DepthOfFieldFor(StylePreset preset, float focusDistance, float lookingDown, float crispFromM = float.PositiveInfinity, float alsoM = float.NaN)
     {
         var t = preset.Tuning.Dof;
         var d = Mathf.Max(focusDistance, 0.05f);
+        var nearest = float.IsFinite(alsoM) && alsoM > 0.05f ? Mathf.Min(d, alsoM) : d;
+        var farthest = float.IsFinite(alsoM) && alsoM > 0.05f ? Mathf.Max(d, alsoM) : d;
         var tilt = preset.TiltShiftEnabled ? preset.TiltShiftStrength * Mathf.Clamp(lookingDown * t.TiltPitchGain, 0f, 1f) : 0f;
         var halfBand = 0.5f * preset.FocusBandM * (1f - t.TiltBandNarrowing * tilt);
-        var farDistance = d + halfBand;
-        var farTransition = (t.FarTransitionBaseM + t.FarTransitionPerM * d) * (t.FarBlurReference - preset.FarBlur);
-        var nearDistance = Mathf.Min(Mathf.Max(preset.NearBlurDistanceM, d - halfBand), Mathf.Max(preset.NearBlurDistanceM, crispFromM));
-        var nearTransition = nearDistance * (t.NearTransitionBase - t.NearTransitionPerBlur * preset.NearBlur);
-        var amount = (t.AmountBase + t.AmountPerBlur * Mathf.Max(preset.FarBlur, preset.NearBlur)) * (1f + tilt);
+        var shorten = 1f - t.TiltTransitionShortening * tilt;
+        var farDistance = farthest + halfBand;
+        var farTransition = (t.FarTransitionBaseM + t.FarTransitionPerM * farthest) * (t.FarBlurReference - preset.FarBlur) * shorten;
+        var nearDistance = Mathf.Min(Mathf.Max(preset.NearBlurDistanceM, nearest - halfBand), Mathf.Max(preset.NearBlurDistanceM, crispFromM));
+        var nearTransition = nearDistance * (t.NearTransitionBase - t.NearTransitionPerBlur * preset.NearBlur) * shorten;
+        var amount = Mathf.Min(1f, (t.AmountBase + t.AmountPerBlur * Mathf.Max(preset.FarBlur, preset.NearBlur)) * (1f + t.TiltAmountGain * tilt));
         return new DepthOfField(preset.DofEnabled && preset.FarBlur > 0f, farDistance, Mathf.Max(farTransition, 0.05f),
             preset.DofEnabled && preset.NearBlur > 0f && nearDistance > 0.01f, nearDistance, Mathf.Max(nearTransition, 0.01f), amount);
     }
@@ -567,7 +593,7 @@ public partial class LookDirector : Node3D
     /// <summary>The depth-of-field attributes the look gave a camera, if any.</summary>
     public CameraAttributesPractical? AttributesFor(Camera3D camera) => _attributes.TryGetValue(camera.GetInstanceId(), out var a) ? a : null;
 
-    private void Focus(Camera3D camera, Vector3 focusPoint, float crispFromM = float.PositiveInfinity)
+    private void Focus(Camera3D camera, Vector3 focusPoint, float crispFromM = float.PositiveInfinity, Vector3? alsoPoint = null)
     {
         if (!DofSupported) return;
         if (!_attributes.TryGetValue(camera.GetInstanceId(), out var attributes))
@@ -577,7 +603,8 @@ public partial class LookDirector : Node3D
         }
         var forward = -camera.GlobalBasis.Z;
         var distance = (focusPoint - camera.GlobalPosition).Dot(forward);
-        var dof = DepthOfFieldFor(Preset, distance, Mathf.Max(0f, -forward.Y), crispFromM);
+        var also = alsoPoint is { } point ? (point - camera.GlobalPosition).Dot(forward) : float.NaN;
+        var dof = DepthOfFieldFor(Preset, distance, Mathf.Max(0f, -forward.Y), crispFromM, also);
         attributes.DofBlurFarEnabled = dof.FarEnabled;
         attributes.DofBlurFarDistance = dof.FarDistance;
         attributes.DofBlurFarTransition = dof.FarTransition;
@@ -591,13 +618,32 @@ public partial class LookDirector : Node3D
     private Node3D? FocusBody() => Preset.DofFocus switch
     {
         "player" => FocusTarget ?? GetParent()?.GetChildren().OfType<SmallPlayerController>().FirstOrDefault(c => c is not CompanionAvatar),
-        "companion" => FocusCompanion ?? GetParent()?.GetChildren().OfType<CompanionAvatar>().FirstOrDefault(),
+        "companion" => CompanionBody(),
         _ => null,
     };
 
+    private Node3D? CompanionBody() => FocusCompanion ?? GetParent()?.GetChildren().OfType<CompanionAvatar>().FirstOrDefault();
+
+    /// <summary>
+    /// A second point to keep crisp: with "player" focus, the companion's body while it is within
+    /// companion_follow_m of the player (the two avatars read as one subject), seen from any camera but the eye.
+    /// Over the last 30% of that distance the point slides to the player's own focus, so the band never jumps.
+    /// </summary>
+    public Vector3? AlsoInFocusFor(Camera3D camera)
+    {
+        var follow = Preset.Tuning.Dof.CompanionFollowM;
+        if (FocusOverride != null || Preset.DofFocus != "player" || follow <= 0f || CrispFromFor(camera) < float.PositiveInfinity) return null;
+        if (FocusBody() is not { } player || !IsInstanceValid(player) || CompanionBody() is not { } companion || !IsInstanceValid(companion) || companion == player) return null;
+        var separation = companion.GlobalPosition.DistanceTo(player.GlobalPosition);
+        if (separation >= follow) return null;
+        var height = companion is SmallPlayerController body ? body.BodyHeightM : 0f;
+        var point = companion.GlobalPosition + Vector3.Up * (Preset.Tuning.Dof.BodyFocusHeightFraction * height);
+        return point.Lerp(FocusPointFor(camera), Mathf.SmoothStep(0.7f * follow, follow, separation));
+    }
+
     /// <summary>From the focus body's own eye, everything out to eye_crisp_body_heights body heights (its reach) stays crisp.</summary>
     public float CrispFromFor(Camera3D camera) =>
-        FocusBody() is SmallPlayerController controller && IsInstanceValid(controller) && camera == controller.EyeCamera
+        FocusOverride == null && FocusBody() is SmallPlayerController controller && IsInstanceValid(controller) && camera == controller.EyeCamera
             ? Preset.Tuning.Dof.EyeCrispBodyHeights * controller.BodyHeightM
             : float.PositiveInfinity;
 
@@ -609,6 +655,7 @@ public partial class LookDirector : Node3D
     /// </summary>
     public Vector3 FocusPointFor(Camera3D camera)
     {
+        if (FocusOverride is { } target) return target;
         var forward = -camera.GlobalBasis.Z;
         var dof = Preset.Tuning.Dof;
         var body = FocusBody();
@@ -630,15 +677,15 @@ public partial class LookDirector : Node3D
         CollectLut();
         if (_framesSinceApply++ == 2 && !Dressed)
             Warn("no room geometry with a shell was dressed after the first frames; the look has no GI bake and no shell layer");
-        if (_pinnedHour == null && Preset.FollowClock)
+        if ((_pinnedHour == null && Preset.FollowClock) || (_pinnedDay == null && Preset.FollowCalendar))
         {
             _clockTimer += delta;
-            if (_clockTimer > 60.0) { _clockTimer = 0; ApplyMoment(synchronous: false); }
+            if (_clockTimer > ClockUpdateSeconds) { _clockTimer = 0; ApplyMoment(synchronous: false); }
         }
         if (!Preset.DofEnabled || !DofSupported) return;
         var camera = GetViewport()?.GetCamera3D();
         if (camera == null || _framed.Contains(camera.GetInstanceId())) return;
-        Focus(camera, FocusPointFor(camera), CrispFromFor(camera));
+        Focus(camera, FocusPointFor(camera), CrispFromFor(camera), AlsoInFocusFor(camera));
     }
 
     /// <summary>
@@ -661,10 +708,10 @@ public partial class LookDirector : Node3D
 
     /// <summary>A one-line description of what the look applied, for review reports.</summary>
     public string DescribeLook() => string.Format(CultureInfo.InvariantCulture,
-        "{0}@{1} ({2}) sha256={3}; renderer={4}{5}; key={6} elevation {7:0.#} azimuth {8:0.#} energy {9:0.##}; hour {10:0.##} day {11} season {12}; {13}; ssao={14} ssil={15} glow={16} dof={17} tilt={18}; grain {19} vignette {20} post effect {21}",
+        "{0}@{1} ({2}) sha256={3}; renderer={4}{5}; key={6} elevation {7:0.#} azimuth {8:0.#} energy {9:0.##}; hour {10:0.##} day {11} season {12} ({22}); {13}; ssao={14} ssil={15} glow={16} dof={17} tilt={18}; grain {19} vignette {20} post effect {21}",
         Preset.PresetId, Preset.PresetVersion, Preset.Status, Preset.Sha256, RenderingServer.GetCurrentRenderingMethod(),
         RendererNote.Length > 0 ? " (" + RendererNote + ")" : "", Preset.KeyMode, Moment.KeyElevationDeg, Moment.KeyAzimuthDeg, Moment.KeyEnergy,
         Moment.Hour, Moment.DayOfYear, Moment.Season, GiNote, Preset.AoEnabled, Preset.SsilEnabled, Preset.GlowEnabled, Preset.DofEnabled && DofSupported,
         Preset.TiltShiftEnabled ? Preset.TiltShiftStrength : 0f, Preset.Grain, Preset.Vignette,
-        Post == null ? "off" : Post.Ran ? "ran" : Post.Error.Length > 0 ? "failed: " + Post.Error : "not run (no GPU device)");
+        Post == null ? "off" : Post.Ran ? "ran" : Post.Error.Length > 0 ? "failed: " + Post.Error : "not run (no GPU device)", ClockNote);
 }

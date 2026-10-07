@@ -59,10 +59,12 @@ public static class ColorGrade
         var c = input;
         // White balance: warmth lifts red, trims blue.
         c = new Color(c.R * (1f + t.WarmthRgb.X * g.Warmth), c.G * (1f + t.WarmthRgb.Y * g.Warmth), c.B * (1f + t.WarmthRgb.Z * g.Warmth));
-        // Season tint as a gentle colour cast, strongest in the mid-tones.
+        // Season tint as a gentle colour cast, strongest in the mid-tones and faded out of the shadows below
+        // season_tint_shadow_fade, so shade stays cool against a warm season (warm key against cool shadow).
         var luma = Luma(c);
         var mid = 4f * luma * (1f - luma);
-        c += Chroma(g.SeasonTint) * (t.SeasonTint * mid);
+        var lit = t.SeasonTintShadowFade > 0f ? Mathf.SmoothStep(0f, t.SeasonTintShadowFade, luma) : 1f;
+        c += Chroma(g.SeasonTint) * (t.SeasonTint * mid * lit);
         // Split toning: colour the shadows and the highlights.
         luma = Mathf.Clamp(Luma(c), 0f, 1f);
         var shade = (1f - luma) * (1f - luma);

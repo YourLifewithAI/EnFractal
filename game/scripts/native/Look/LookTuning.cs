@@ -46,17 +46,22 @@ public sealed record SunTuning(
     float DegreesPerHour, float MaxElevationDeg, float HorizonElevationDeg, float MoonElevationDeg, float MoonAzimuthOffsetDeg,
     float SunDaylight, float MoonDaylight);
 
-/// <summary>Season centres (winter, spring, summer, autumn), how long each holds its grade, how strongly the season colours the key, and the day used when the preset does not follow the calendar.</summary>
-public sealed record SeasonTuning(IReadOnlyList<int> CentreDays, float Hold, float LightStrength, int FixedDayOfYear);
+/// <summary>
+/// Season centres (winter, spring, summer, autumn), how long each holds its grade, how strongly the season colours
+/// the key, the day used when the preset does not follow the calendar, and each season's hours of daylight (empty:
+/// every day is the time keys' own day).
+/// </summary>
+public sealed record SeasonTuning(IReadOnlyList<int> CentreDays, float Hold, float LightStrength, int FixedDayOfYear, IReadOnlyList<float> DayLengthH);
 
 public sealed record GradeTuning(
     float ShadowTone, float HighlightTone, float SeasonTint, Vector3 WarmthRgb, float NightDesaturate, Vector3 NightTintRgb,
-    float NightDeepen, int LutSize);
+    float NightDeepen, int LutSize, float SeasonTintShadowFade);
 
 public sealed record DofTuning(
     float TiltPitchGain, float TiltBandNarrowing, float FarTransitionBaseM, float FarTransitionPerM, float FarBlurReference,
     float NearTransitionBase, float NearTransitionPerBlur, float AmountBase, float AmountPerBlur,
-    float EyeFocusBodyHeights, float BodyFocusHeightFraction, float EyeCrispBodyHeights);
+    float EyeFocusBodyHeights, float BodyFocusHeightFraction, float EyeCrispBodyHeights,
+    float TiltTransitionShortening, float TiltAmountGain, float CompanionFollowM);
 
 public sealed record PostTuning(float VignetteStart, float VignetteEnd, float GrainFine, float GrainSoft, float GrainSoftPx);
 
@@ -126,9 +131,9 @@ public sealed record LookTuning(
         new GiTuning(128, 0.3f, 1.5f, 0f, 0.2f),
         new LampTuning(1.2f, 1.5f, 1f, 60f),
         new SunTuning(15f, 60f, 6f, 35f, 180f, 0.3f, 0.12f),
-        new SeasonTuning(new[] { 15, 105, 196, 288 }, 0.25f, 0.25f, 196),
-        new GradeTuning(0.8f, 0.35f, 0.24f, new Vector3(0.08f, 0.015f, -0.10f), 0.3f, new Vector3(-0.14f, -0.06f, 0.10f), 0.25f, 33),
-        new DofTuning(1.5f, 0.4f, 0.25f, 0.35f, 1.3f, 0.9f, 0.5f, 0.02f, 0.10f, 3f, 0.5f, 1.5f),
+        new SeasonTuning(new[] { 15, 105, 196, 288 }, 0.25f, 0.25f, 196, Array.Empty<float>()),
+        new GradeTuning(0.8f, 0.35f, 0.24f, new Vector3(0.08f, 0.015f, -0.10f), 0.3f, new Vector3(-0.14f, -0.06f, 0.10f), 0.25f, 33, 0f),
+        new DofTuning(1.5f, 0.4f, 0.25f, 0.35f, 1.3f, 0.9f, 0.5f, 0.02f, 0.10f, 3f, 0.5f, 1.5f, 0f, 1f, 0f),
         new PostTuning(0.45f, 1.05f, 1.2f, 0.8f, 3f));
 
     private static readonly Dictionary<string, PaintPattern> PatternNames = Enum.GetValues<PaintPattern>().ToDictionary(p => p.ToString().ToLowerInvariant());
@@ -214,8 +219,10 @@ public sealed record LookTuning(
 
         var e = new Fields(Block("x_look_seasons"), "x_look_seasons", defaulted);
         var seasons = new SeasonTuning(e.Ints("centre_days", d.Seasons.CentreDays), e.F("hold", d.Seasons.Hold), e.F("light_strength", d.Seasons.LightStrength),
-            e.I("fixed_day_of_year", d.Seasons.FixedDayOfYear));
+            e.I("fixed_day_of_year", d.Seasons.FixedDayOfYear), e.Floats("day_length_h", d.Seasons.DayLengthH));
         e.Done();
+        if (seasons.DayLengthH.Count is not (0 or 4) || seasons.DayLengthH.Any(h => h is < 1f or > 23f))
+            throw new InvalidOperationException("x_look_seasons.day_length_h must list four day lengths (winter, spring, summer, autumn) between 1 and 23 hours, or none");
         if (seasons.FixedDayOfYear is < 1 or > 366 || seasons.Hold is < 0f or >= 0.5f)
             throw new InvalidOperationException("x_look_seasons: fixed_day_of_year must be 1 to 366 and hold at least 0 and under 0.5");
         if (seasons.CentreDays.Count != 4 || seasons.CentreDays.Zip(seasons.CentreDays.Skip(1)).Any(t => t.Second <= t.First) || seasons.CentreDays[0] < 1 || seasons.CentreDays[3] > 365)
@@ -224,7 +231,8 @@ public sealed record LookTuning(
         var r = new Fields(Block("x_look_grade"), "x_look_grade", defaulted);
         var grade = new GradeTuning(r.F("shadow_tone", d.Grade.ShadowTone), r.F("highlight_tone", d.Grade.HighlightTone), r.F("season_tint", d.Grade.SeasonTint),
             r.Vec("warmth_rgb", d.Grade.WarmthRgb), r.F("night_desaturate", d.Grade.NightDesaturate), r.Vec("night_tint_rgb", d.Grade.NightTintRgb),
-            r.F("night_deepen", d.Grade.NightDeepen), r.I("lut_size", d.Grade.LutSize));
+            r.F("night_deepen", d.Grade.NightDeepen), r.I("lut_size", d.Grade.LutSize), r.F("season_tint_shadow_fade", d.Grade.SeasonTintShadowFade));
+        if (grade.SeasonTintShadowFade is < 0f or > 1f) throw new InvalidOperationException("x_look_grade.season_tint_shadow_fade must be between 0 and 1");
         r.Done();
         if (grade.LutSize is < 8 or > 65) throw new InvalidOperationException("x_look_grade.lut_size must be between 8 and 65");
 
@@ -234,7 +242,10 @@ public sealed record LookTuning(
             f.F("near_transition_base", d.Dof.NearTransitionBase), f.F("near_transition_per_blur", d.Dof.NearTransitionPerBlur),
             f.F("amount_base", d.Dof.AmountBase), f.F("amount_per_blur", d.Dof.AmountPerBlur),
             f.F("eye_focus_body_heights", d.Dof.EyeFocusBodyHeights), f.F("body_focus_height_fraction", d.Dof.BodyFocusHeightFraction),
-            f.F("eye_crisp_body_heights", d.Dof.EyeCrispBodyHeights));
+            f.F("eye_crisp_body_heights", d.Dof.EyeCrispBodyHeights), f.F("tilt_transition_shortening", d.Dof.TiltTransitionShortening),
+            f.F("tilt_amount_gain", d.Dof.TiltAmountGain), f.F("companion_follow_m", d.Dof.CompanionFollowM));
+        if (dof.TiltTransitionShortening is < 0f or >= 1f || dof.TiltBandNarrowing is < 0f or >= 1f || dof.CompanionFollowM < 0f)
+            throw new InvalidOperationException("x_look_dof: tilt_transition_shortening and tilt_band_narrowing must be at least 0 and under 1, companion_follow_m not negative");
         f.Done();
 
         var o = new Fields(Block("x_look_post"), "x_look_post", defaulted);

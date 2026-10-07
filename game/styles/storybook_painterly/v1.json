@@ -4,7 +4,7 @@
   "preset_id": "storybook_painterly",
   "preset_version": 1,
   "display_name": "Storybook painterly",
-  "description": "First preset: a warm, handmade toy diorama. Soft bounced light, gently desaturated colour that shifts with the hour and the season, crisp detail within the player's reach and a soft far room. DRAFT (Run 1, Look lane): tuned on the placeholder room against docs/look/LOOK-BIBLE.md; not yet submitted for the look gate, so it may still change in place.",
+  "description": "First preset: one stylized storybook style in the spirit of Tiny Glade, a cozy and fanciful handmade diorama, never photorealistic. Soft bounced light; gently desaturated colour that follows the real clock and calendar, from deep blue nights through warm twilight pastels to golden afternoons, with short winter days and long summer ones; crisp detail within the player's reach, and a tilt-shift miniature blur from high views. DRAFT (Run 1, Look lane): tuned on the placeholder room against docs/look/LOOK-BIBLE.md; not yet submitted for the look gate, so it may still change in place.",
   "status": "draft",
   "look_bible": "docs/look/LOOK-BIBLE.md",
   "renderer": {
@@ -33,15 +33,18 @@
   "time_of_day": {
     "enabled": true,
     "default_hour": 16.5,
-    "follow_clock": false,
+    "follow_clock": true,
     "keys": [
-      { "hour": 2.0, "key_color": "#7f8fc8", "key_energy": 0.04, "ambient_color": "#4c5885", "ambient_energy": 0.24 },
-      { "hour": 5.0, "key_color": "#8f9fd2", "key_energy": 0.06, "ambient_color": "#5d6a99", "ambient_energy": 0.3 },
-      { "hour": 6.5, "key_color": "#ffc9a0", "key_energy": 0.4, "ambient_color": "#94a2cc", "ambient_energy": 0.42 },
-      { "hour": 12.0, "key_color": "#fff6e4", "key_energy": 0.85, "ambient_color": "#a6b6d4", "ambient_energy": 0.55 },
-      { "hour": 17.5, "key_color": "#ffd29a", "key_energy": 0.95, "ambient_color": "#9aaccf", "ambient_energy": 0.58 },
-      { "hour": 20.0, "key_color": "#f2a884", "key_energy": 0.4, "ambient_color": "#8a90c0", "ambient_energy": 0.45 },
-      { "hour": 21.5, "key_color": "#8fa0d8", "key_energy": 0.1, "ambient_color": "#56628f", "ambient_energy": 0.3 }
+      { "hour": 1.0, "key_color": "#6f7fc0", "key_energy": 0.02, "ambient_color": "#3c4878", "ambient_energy": 0.12 },
+      { "hour": 5.0, "key_color": "#8a98d0", "key_energy": 0.03, "ambient_color": "#4f5b8e", "ambient_energy": 0.16 },
+      { "hour": 6.5, "key_color": "#ffbf9a", "key_energy": 0.3, "ambient_color": "#9ca8d8", "ambient_energy": 0.34 },
+      { "hour": 8.5, "key_color": "#ffe4c4", "key_energy": 0.7, "ambient_color": "#aab9dc", "ambient_energy": 0.5 },
+      { "hour": 12.5, "key_color": "#fff3e0", "key_energy": 0.85, "ambient_color": "#b2c2de", "ambient_energy": 0.58 },
+      { "hour": 16.5, "key_color": "#ffd9a8", "key_energy": 0.95, "ambient_color": "#a4b4dc", "ambient_energy": 0.58 },
+      { "hour": 17.5, "key_color": "#ffb070", "key_energy": 0.7, "ambient_color": "#a9a6d8", "ambient_energy": 0.5 },
+      { "hour": 18.5, "key_color": "#ff9078", "key_energy": 0.22, "ambient_color": "#8fa8e0", "ambient_energy": 0.42 },
+      { "hour": 19.5, "key_color": "#7e8ed0", "key_energy": 0.06, "ambient_color": "#5a6aa8", "ambient_energy": 0.26 },
+      { "hour": 21.5, "key_color": "#7080c4", "key_energy": 0.03, "ambient_color": "#44508a", "ambient_energy": 0.16 }
     ]
   },
   "seasons": {
@@ -49,10 +52,10 @@
     "follow_calendar": true,
     "hemisphere": "north",
     "grades": {
-      "spring": { "saturation": 0.95, "warmth": 0.05, "tint": "#dbe8c4" },
-      "summer": { "saturation": 0.9, "warmth": 0.15, "tint": "#f3d9a4" },
-      "autumn": { "saturation": 0.92, "warmth": 0.1, "tint": "#dcb898" },
-      "winter": { "saturation": 0.75, "warmth": -0.35, "tint": "#bcd3e8" }
+      "spring": { "saturation": 0.98, "warmth": 0.02, "tint": "#d2e8b8" },
+      "summer": { "saturation": 0.95, "warmth": 0.2, "tint": "#f6d48c" },
+      "autumn": { "saturation": 0.95, "warmth": 0.2, "tint": "#eaa676" },
+      "winter": { "saturation": 0.72, "warmth": -0.45, "tint": "#b0c8ea" }
     }
   },
   "camera": {
@@ -65,7 +68,7 @@
       "near_blur": 0.5,
       "near_blur_distance_m": 0.08
     },
-    "tilt_shift": { "enabled": true, "strength": 0.35 }
+    "tilt_shift": { "enabled": true, "strength": 0.8 }
   },
   "post": {
     "kuwahara": { "enabled": false, "radius_px": 4, "sharpness": 8, "world_space_orientation": true },
@@ -141,11 +144,11 @@
     "x_look_ssao": { "power": 1.4, "detail": 0.6, "horizon": 0.06, "sharpness": 0.98, "light_affect": 0.15, "ao_channel_affect": 0.5 },
     "x_look_glow": { "strength": 1, "blend_mode": "softlight", "hdr_threshold": 0.9, "levels": [0, 0, 1, 1, 1, 0, 0] },
     "x_look_gi": { "subdiv": 128, "margin_m": 0.3, "bias": 1.5, "normal_bias": 0, "two_bounces_above": 0.2 },
-    "x_look_lamps": { "attenuation": 1.2, "night_boost": 1.5, "range_per_diagonal": 1, "window_spot_angle_deg": 60 },
+    "x_look_lamps": { "attenuation": 1.2, "night_boost": 2.5, "range_per_diagonal": 1, "window_spot_angle_deg": 60 },
     "x_look_sun": { "degrees_per_hour": 15, "max_elevation_deg": 60, "horizon_elevation_deg": 6, "moon_elevation_deg": 35, "moon_azimuth_offset_deg": 180, "sun_daylight": 0.3, "moon_daylight": 0.12 },
-    "x_look_seasons": { "centre_days": [15, 105, 196, 288], "hold": 0.25, "light_strength": 0.25, "fixed_day_of_year": 196 },
-    "x_look_grade": { "shadow_tone": 0.8, "highlight_tone": 0.35, "season_tint": 0.24, "warmth_rgb": [0.08, 0.015, -0.1], "night_desaturate": 0.3, "night_tint_rgb": [-0.14, -0.06, 0.1], "night_deepen": 0.25, "lut_size": 33 },
-    "x_look_dof": { "tilt_pitch_gain": 1.5, "tilt_band_narrowing": 0.4, "far_transition_base_m": 0.25, "far_transition_per_m": 0.35, "far_blur_reference": 1.3, "near_transition_base": 0.9, "near_transition_per_blur": 0.5, "amount_base": 0.02, "amount_per_blur": 0.1, "eye_focus_body_heights": 3, "body_focus_height_fraction": 0.5, "eye_crisp_body_heights": 1.5 },
+    "x_look_seasons": { "centre_days": [15, 105, 196, 288], "hold": 0.3, "light_strength": 0.4, "fixed_day_of_year": 196, "day_length_h": [9.5, 13, 15, 11] },
+    "x_look_grade": { "shadow_tone": 0.8, "highlight_tone": 0.35, "season_tint": 0.36, "warmth_rgb": [0.08, 0.015, -0.1], "night_desaturate": 0.4, "night_tint_rgb": [-0.18, -0.07, 0.14], "night_deepen": 0.35, "lut_size": 33, "season_tint_shadow_fade": 0.45 },
+    "x_look_dof": { "tilt_pitch_gain": 1.5, "tilt_band_narrowing": 0.6, "far_transition_base_m": 0.25, "far_transition_per_m": 0.35, "far_blur_reference": 1.3, "near_transition_base": 0.9, "near_transition_per_blur": 0.5, "amount_base": 0.02, "amount_per_blur": 0.1, "eye_focus_body_heights": 3, "body_focus_height_fraction": 0.5, "eye_crisp_body_heights": 1.5, "tilt_transition_shortening": 0.5, "tilt_amount_gain": 1.5, "companion_follow_m": 0.8 },
     "x_look_post": { "vignette_start": 0.45, "vignette_end": 1.05, "grain_fine": 1.2, "grain_soft": 0.8, "grain_soft_px": 3 }
   }
 }
