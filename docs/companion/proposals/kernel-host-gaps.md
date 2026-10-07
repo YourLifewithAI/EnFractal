@@ -2,8 +2,10 @@
 
 Written 6 October 2026 (night), against `run1/integration` at `6cb502c`. In Run 2 the companion's link
 serves Lane P's `game/scripts/native/Kernel/CommandHost.cs` instead of Lane A's mock host. This page
-lists what was aligned on the mock's side and what the kernel host still needs. Line numbers are at
+records what was aligned on the mock's side and what the kernel host needed then. Line numbers are at
 `6cb502c`. Lane A does not edit `game/**` or `contracts/**`; the integrator applies or hands these on.
+
+> **Status, 7 October 2026:** P1-P8 are closed on the real host, and C1-C2 are integrated in the contracts. The requests and diffs below are the 6 October record, not outstanding work. See [the Run 1 status](../../runs/RUN-1-STATUS.md#still-open) and [the host record](../../engine/phase3/command-host.md). The transport swap remains Run 2 A2 work.
 
 ## Aligned on the mock's side (Lane A, this round)
 
@@ -22,6 +24,8 @@ revision of the player's creations), and the approval reason (the mock quotes sa
 concrete effect, a Run 1 review fix; the kernel names entity ids only).
 
 ## Change requests for Lane P
+
+> **7 October 2026, closed:** `Capabilities` returns only `items`, currently empty.
 
 **P1. `capabilities.list` answers a payload the contract refuses (blocks the swap).**
 `CommandHost.cs` `Capabilities()` (lines 824-831) returns `commands`, `queries`, `goals`, `player_only`
@@ -53,6 +57,8 @@ Test, `CommandHostTest.cs` line 121:
 
 and run the `--dump` output through `contracts/validate.py` with a `capabilities.list` in it.
 
+> **7 October 2026, closed:** `Replay` and `Lookup` read durable, then compacted, then transient records.
+
 **P2. A stop that reuses a durable command's action id hides that command's receipt.**
 `Replay` (line 605) and `Lookup` (line 866) look in `_transient` before the authority's durable record,
 and `Transient()` stores a stop under the reused key. After `goal.stop` reuses `lock-1`, resending the
@@ -61,6 +67,8 @@ says to look a receipt up before retrying. Check `Authority.receipt_for` and `co
 then `_transient`, in both. Test: lock under `lock-1`, `goal.stop` under `lock-1`, resend the lock:
 `replayed: true` with the lock's revision; `receipt.lookup` returns the lock (the mock's
 `test_a_stop_reusing_a_durable_action_id_leaves_that_receipt_replayable`).
+
+> **7 October 2026, closed:** no blanket avatar exemption in `CheckPerceived`; only the documented remembered-goal targets are exempt.
 
 **P3. Commands may name the player's avatar out of sight.**
 `CheckPerceived` (line 1031) skips every `avatar:` id. PERCEPTION.md and the mock exempt only the
@@ -76,10 +84,14 @@ Test: companion behind `obj:box`, player out of its sight: `goal.set look_at` wi
 `avatar:player` is `target_not_found`, byte-identical to target `avatar:nobody`. With memory (P6) a
 remembered player becomes a valid target for the goals that only move or turn the companion.
 
+> **7 October 2026, closed:** omitted `radius_m` defaults to `20.0f`.
+
 **P4. `observe` defaults to 3 m.** `Observe` (line 840) uses `3.0f` when `radius_m` is absent. The
 founder's rule is everything in line of sight, and PERCEPTION.md gives 20 m as both default and
 maximum, so a model that omits the radius misses what it can see. Proposed: `: 20.0f`. Test: a
 creation in clear sight more than 3 m from the companion is in `visible` with no `radius_m`.
+
+> **7 October 2026, closed:** `Observe` skips shell entities.
 
 **P5. `observe` lists shell parts.** `Observe` (line 848) skips only the actor, so the always-perceived
 floor, walls and ceiling fill `visible` and count against its 100 items, which a captured room with many
@@ -92,6 +104,8 @@ shell parts will exhaust. The mock leaves them out (`room.describe` and `entitie
 
 Test: no `visible` item has kind `shell`.
 
+> **7 October 2026, closed:** the host has bounded perception memory, remembered results and clearing hooks. It remains interim code; [shared knowledge and selective memory](../JOURNAL.md) are chosen but not implemented.
+
 **P6. Perception memory** (known; `command-host.md` lists the parts). From the mock, precisely:
 `seen: "now"` on a companion's in-sight summaries; remembered summaries as last seen plus
 `last_seen_ago_s`, `last_seen_revision`, `may_be_stale` (60 s, proposed, or any change, sticky until
@@ -103,6 +117,8 @@ calls (the mock's `session_event`). Tests: port `companion/tests/test_perception
 `Remembering`, `Staleness`, `LookingAgain`, `Commands`, `Arrival`, `NeverThroughOthers`, `Bounds`,
 `NothingHiddenLeaks`).
 
+> **7 October 2026, closed:** targeted goals return `job_id`, and `JobStatus` reports the actual job state. The A2 goal runner remains later work.
+
 **P7. Goal jobs.** `goal.set` with a target returns no `job_id`, and `jobs.status` is always
 `target_not_found`. The mock: a goal with a target returns `job_id`; the job is `running` until the goal
 runner reports arrival, then `succeeded`, or `failed` with `target_not_found` (out of sight, moved or
@@ -111,12 +127,16 @@ most 256 jobs per principal; another principal's job id looks unknown. The goal 
 (`game/scripts/native/Companion/`); the job store and the query are the host's. Tests: the mock's
 `Arrival` suite and its `jobs.status` cases.
 
+> **7 October 2026, closed:** `entity.release` is absent from `TransientOps`. The sandbox release operation itself is not implemented yet.
+
 **P8. `entity.release` is listed as transient** (`TransientOps`, line 84). A release puts an object
 down, which is saved state; the contract gives transient receipts to goals, effects and grabs only. When
 the sandbox verbs land, remove it from `TransientOps`. Test: a release answers `transient: false` and
 moves the revision.
 
 ## Contract requests
+
+> **7 October 2026, integrated:** the schema states the default of 20 m.
 
 **C1. State the `observe` default** (with P4), in `game-command.schema.json` `$defs/args/observe`
 (line 2000):
@@ -126,6 +146,8 @@ moves the revision.
 +            "description": "Defaults to 20, the maximum: an avatar perceives everything in its line of sight.",
              "type": "number",
 ```
+
+> **7 October 2026, integrated:** the Idempotency paragraph explains `"preview": false` as different content.
 
 **C2. Say what `"preview": false` is**, in `contracts/README.md` line 44 (Idempotency):
 

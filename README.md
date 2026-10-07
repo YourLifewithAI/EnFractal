@@ -13,8 +13,8 @@ The geography era is cleaned out. The repository previously built a real-place w
 What carries forward from the earlier work:
 
 - **Native Godot .NET 4.7.2 with C#** and a pinned, checksum-verified toolchain. See [native build](docs/NATIVE-BUILD.md) and [ADR 0001](docs/engine/decisions/0001-native-godot-csharp.md).
-- **Small-body controllers**: a metric player controller with stepping, recovery and camera, and a separate deterministic companion body with follow/stay/come/look/point/stop. Both are scale parameters away from 10 cm.
-- **The creation kernel**: data-only creation manifests, one compiler, a host-owned authority with budgets, receipts and protection, a world-state store, and an in-game invention editor. This becomes the baseline ruleset every wish composes from.
+- **Small-body controllers**: a metric player controller with stepping, recovery and camera, and a separate deterministic companion body with follow/stay/come/look/point/stop. Both default profiles are already 10 cm.
+- **The creation kernel**: data-only creation manifests, one compiler, a host-owned authority with budgets, receipts and protection, a world-state store, and an invention editor retained in kernel fixtures. The player-facing workshop is disabled in the room (see [the editor record](docs/engine/phase3/editor.md)). This becomes the baseline ruleset every wish composes from.
 - **Painterly shaders and original art sources** for the style pass.
 - **Research** on AI/MCP security, physics and creation runtime, structured world and style, and platform choice.
 
