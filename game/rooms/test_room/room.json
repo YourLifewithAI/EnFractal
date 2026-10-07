@@ -470,6 +470,11 @@
       "yaw_deg": 0.0
     }
   ],
+  "site": {
+    "latitude_deg": 30,
+    "neg_z_bearing_deg": 0,
+    "solar_noon_h": 12
+  },
   "light_hints": [
     {
       "id": "ceiling_lamp",

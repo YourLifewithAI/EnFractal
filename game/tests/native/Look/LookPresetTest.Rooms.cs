@@ -41,10 +41,15 @@ public partial class LookPresetTest
         })
             CheckThrows(() => RoomSite.FromManifest(Encoding.UTF8.GetBytes(text)), fragment, label);
 
+        // The test room declares the site the look used to assume, so its sun is unchanged and nothing is said about it.
+        var declared = RoomSite.For(room, out var declaredNote);
+        Check(declared.Declared && declared is { LatitudeDeg: 30f, NegZBearingDeg: 0f, SolarNoonH: 12f } && declaredNote.Length == 0,
+            "the test room declares its site: 30 degrees north, -Z facing north, solar noon at 12");
         // A room without a site gets the fallback and says so; the shared preset never carries one.
-        var plain = RoomSite.For(room, out var warning);
-        Check(!plain.Declared && plain == RoomSite.Fallback && warning.Contains("declares no site"), "the test room declares no site yet: the look says so and uses its fallback");
-        var (holder, look) = NewDirector(preset, room, "SiteFallbackHolder");
+        var siteless = RoomData.Load(LookFixtureRooms.Write("site_none", r => r.Remove("site")));
+        var plain = RoomSite.For(siteless, out var warning);
+        Check(!plain.Declared && plain == RoomSite.Fallback && warning.Contains("declares no site"), "a room without a site: the look says so and uses its fallback");
+        var (holder, look) = NewDirector(preset, siteless, "SiteFallbackHolder");
         Check(look.SiteNote.Contains("declares no site") && !look.Warnings.Any(w => w.Contains("site")) && look.DescribeLook().Contains("storybook_painterly@1"),
             "a missing site is information, not a warning: the review capture does not fail on it");
         Check(look.Preset != preset && look.Preset.Sha256 == preset.Sha256 && preset.Tuning.Sun.LatitudeDeg == 30f, "the look works with the preset plus the site; the shared preset object is not changed");

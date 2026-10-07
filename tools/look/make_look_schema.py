@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""Write the typed schema for a preset's x_look_* extension blocks, from the preset itself.
+"""Write the typed schema for a preset's x_look_* extension blocks into the style preset contract, from the preset itself.
 
 The look keeps every number it uses in the preset's `extensions` as `x_look_*` blocks (the integrator promotes or removes
-extension keys; review M6 asked for this before the preset becomes a candidate). This tool reads a preset and prints the
-JSON Schema that describes those blocks exactly as the preset states them: every block and every field required, no
-unknown field allowed, numbers finite, colours `#rrggbb`, and the ranges the C# reader enforces. Wiring it in takes one
-change to contracts/style-preset.schema.json: the `extensions` property becomes the shared extensions definition plus the
-typed `properties` below, and the `$defs` below are added. docs/look/proposals/style-preset-look-tuning.diff is that change.
+extension keys; the Look review's M6 asked for this before the preset becomes a candidate). This tool reads a preset and
+writes the JSON Schema that describes those blocks exactly as the preset states them: every block and every field
+required, no unknown field allowed, colours `#rrggbb`, and the ranges and allowed values the C# reader (LookTuning.Parse)
+enforces wherever a schema can say them. In contracts/style-preset.schema.json, `extensions` is the shared extensions
+definition plus these typed `properties`, and the two `$defs` named below sit beside the contract's own.
 
-  python tools/look/make_look_schema.py [PRESET] [--defs]     print the typed pieces (default preset: storybook_painterly v1)
-  python tools/look/make_look_schema.py --check               fail unless the proposal in docs/look/proposals is current
+  python tools/look/make_look_schema.py [PRESET]      print the typed pieces (default preset: storybook_painterly v1)
+  python tools/look/make_look_schema.py --write       write them into contracts/style-preset.schema.json
+  python tools/look/make_look_schema.py --check       fail unless the contract matches what --write would write
 
 Standard library only.
 """
@@ -22,7 +23,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_PRESET = ROOT / "game" / "styles" / "storybook_painterly" / "v1.json"
-PROPOSAL = ROOT / "docs" / "look" / "proposals" / "style-preset-look-tuning.schema.json"
+CONTRACT = ROOT / "contracts" / "style-preset.schema.json"
+DEFS = ("look_role_marks_entry", "look_season_look")
+TYPED = ("The Look lane's x_look_* blocks are typed (review M6): every field of every block is required and checked, and an "
+         "unknown field in one of them is refused. Other x_ keys stay free, as in every extensions object.")
 COLOUR = {"$ref": "common.schema.json#/$defs/color_hex"}
 
 # Ranges the C# reader (LookTuning.Parse) enforces, as (minimum, maximum) by "block.field"; a missing side is open.
@@ -50,11 +54,42 @@ RANGES = {
     "x_look_paint.mark_fade_end": (0, 0.5),
     "x_look_sky.ground_season_tint": (0, 1),
     "x_look_seasons.looks.cloud_amount": (0, 1),
+    "x_look_seasons.fixed_day_of_year": (1, 366),
+    "x_look_seasons.centre_days[]": (1, 365),
+    "x_look_shadows.key_split_1": (0, 1),
+    "x_look_sun.horizon_elevation_deg": (0, 10),
+    "x_look_sun.moon_elevation_deg": (0, 85),
+    "x_look_sun.sunrise_elevation_deg": (None, 0),
+    "x_look_sun.twilight_elevation_deg": (None, 0),
+    "x_look_role_marks.stroke_stretch": (1, None),
+}
+# Bounds the reader excludes, as (exclusive minimum, exclusive maximum) by "block.field"; None leaves that side to RANGES.
+# Relations between two fields (twilight below sunrise, fade start below fade end) stay with the reader alone.
+EXCLUSIVE = {
+    "x_look_shadows.key_split_1": (0, 1),
+    "x_look_lamps.range_per_diagonal": (0, None),
+    "x_look_lamps.window_spot_angle_deg": (0, 90),
+    "x_look_sun.moon_bearing_deg": (None, 360),
+    "x_look_sun.moon_elevation_deg": (5, None),
+    "x_look_sun.reference_daylight": (0, 1),
+    "x_look_seasons.hold": (None, 0.5),
+    "x_look_dof.tilt_transition_shortening": (None, 1),
+    "x_look_dof.tilt_band_narrowing": (None, 1),
+    "x_look_dof.observe_band_m": (0, None),
+    "x_look_dof.observe_far_transition_m": (0, None),
+    "x_look_dof.observe_near_transition_m": (0, None),
+    "x_look_post.defocus_darken": (None, 1),
+    "x_look_paint.mark_fade_start": (0, None),
+    "x_look_role_marks.stroke_scale_m": (0, None),
+    "x_look_role_marks.pattern_scale_m": (0, None),
+    "x_look_role_marks.texture_scale_m": (0, None),
 }
 # Numbers that may be negative: every other number must not be.
 INTEGERS = {"x_look_shadows.key_splits", "x_look_gi.subdiv", "x_look_grade.lut_size", "x_look_seasons.centre_days", "x_look_seasons.fixed_day_of_year"}
 SIGNED = {"x_look_sun.sunrise_elevation_deg", "x_look_sun.twilight_elevation_deg", "x_look_grade.warmth_rgb", "x_look_grade.night_tint_rgb"}
 ENUMS = {
+    "x_look_shadows.key_splits": [1, 2, 4],
+    "x_look_gi.subdiv": [64, 128, 256, 512],
     "x_look_glow.blend_mode": ["additive", "screen", "softlight", "replace", "mix"],
     "x_look_role_marks.pattern": ["none", "wood", "fabric", "plaster", "paper", "cardboard", "brushed", "speckle", "smooth", "stone"],
     "x_look_role_marks.stroke_axis": ["x", "y", "z"],
@@ -65,6 +100,8 @@ def leaf(path: str, value):
     if isinstance(value, bool):
         return {"type": "boolean"}
     if isinstance(value, (int, float)):
+        if path in ENUMS:
+            return {"enum": ENUMS[path]}
         # A number is a number whatever the file happens to write (1 or 1.0); only counts and sizes are integers.
         schema = {"type": "integer" if path in INTEGERS or path.rstrip("[]") in INTEGERS else "number"}
     elif isinstance(value, str):
@@ -83,9 +120,14 @@ def leaf(path: str, value):
     low, high = RANGES.get(path, (None, None))
     if low is None and path not in SIGNED:
         low = 0
-    if low is not None:
+    open_low, open_high = EXCLUSIVE.get(path, (None, None))
+    if open_low is not None:
+        schema["exclusiveMinimum"] = open_low
+    elif low is not None:
         schema["minimum"] = low
-    if high is not None:
+    if open_high is not None:
+        schema["exclusiveMaximum"] = open_high
+    elif high is not None:
         schema["maximum"] = high
     return schema
 
@@ -150,25 +192,43 @@ def render(preset_path: Path) -> dict:
     }
 
 
+def wire(contract: dict, pieces: dict) -> dict:
+    """The contract with the typed pieces in place: extensions is the shared definition plus the typed properties."""
+    wired = json.loads(json.dumps(contract))
+    wired["properties"]["extensions"] = {"allOf": [
+        {"$ref": "common.schema.json#/$defs/extensions"},
+        {"description": TYPED, "properties": pieces["extensions_properties"]},
+    ]}
+    for name in DEFS:
+        wired["$defs"].pop(name, None)
+    wired["$defs"].update(pieces["defs"])
+    return wired
+
+
+def dump(document) -> bytes:
+    return (json.dumps(document, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("preset", nargs="?", type=Path, default=DEFAULT_PRESET)
-    parser.add_argument("--check", action="store_true", help="exit 1 unless docs/look/proposals/style-preset-look-tuning.schema.json matches the preset")
-    parser.add_argument("--write", action="store_true", help="write the proposal file")
+    parser.add_argument("--check", action="store_true", help="exit 1 unless contracts/style-preset.schema.json matches the preset")
+    parser.add_argument("--write", action="store_true", help="write the typed pieces into contracts/style-preset.schema.json")
     args = parser.parse_args()
-    text = json.dumps(render(args.preset), indent=2, ensure_ascii=False) + "\n"
+    pieces = render(args.preset)
+    if not (args.write or args.check):
+        sys.stdout.buffer.write(dump(pieces))
+        return 0
+    current = CONTRACT.read_bytes()
+    wired = dump(wire(json.loads(current), pieces))
     if args.write:
-        PROPOSAL.parent.mkdir(parents=True, exist_ok=True)
-        PROPOSAL.write_bytes(text.encode("utf-8"))
-        print(f"wrote {PROPOSAL}")
+        CONTRACT.write_bytes(wired)
+        print(f"wrote {CONTRACT}")
         return 0
-    if args.check:
-        if not PROPOSAL.exists() or PROPOSAL.read_bytes().decode("utf-8") != text:
-            print("the typed look schema in docs/look/proposals is out of date: run tools/look/make_look_schema.py --write")
-            return 1
-        print("the typed look schema matches the preset")
-        return 0
-    sys.stdout.write(text)
+    if current != wired:
+        print("the typed look schema in contracts/style-preset.schema.json is out of date: run tools/look/make_look_schema.py --write")
+        return 1
+    print("the typed look schema matches the preset")
     return 0
 
 

@@ -1,5 +1,10 @@
 # Look lane change requests, 7 October fix round
 
+**Applied late on 7 October by the integrator,** in one contract commit with tests. The diffs stay here as the record. What changed in applying them:
+- `style-preset-look-tuning`: the typed schema is tighter than proposed. It now refuses what the C# reader refuses wherever a schema can say it: `key_splits` 1, 2 or 4; `subdiv` 64 to 512; the reader's "under 1" and "above 0" limits; positive scales; `stroke_stretch` at least 1; the day-of-year ranges; the sun's elevation limits. `tools/look/make_look_schema.py --write` now writes straight into `contracts/style-preset.schema.json`, and `--check` (run by the contract tests) compares against it, so the proposal copy `style-preset-look-tuning.schema.json` is gone.
+- `roombuilder-openings`: a hole that removes nothing from its host wall gets no reveal. The test room's west wall is already built round its window, and the window's host is the piece below the sill, so the reveal doubled its neighbours' edges. Room data gained 8 checks: a window in a solid wall is a hole in the face with a reveal and stays glass to a body, an open archway is a hole a body passes, and the test room's pre-cut wall gets no reveal.
+- `build-test-room-site`: the look test that expected the test room to have no site now uses a siteless fixture room.
+
 Exact diffs for files the Look lane does not own. Each applies cleanly to the index at the commit it was made against (`git apply --check --cached FILE`) and was tried in a scratch copy first; the evidence is next to each one. `.gitattributes` does not yet keep these files byte-exact on Windows checkouts (see the last one), so apply them with `git -c core.autocrlf=false apply FILE` until it does.
 
 | Diff | For | What and why | Tried |

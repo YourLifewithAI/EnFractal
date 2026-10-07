@@ -6,19 +6,20 @@ Run 1 is **in progress**. This page is the handoff: where every lane stands, wha
 
 | Branch | State |
 |---|---|
-| `run1/integration` | All four lanes merged. Lane A's contract proposals are applied: text rules with emoji markers, perception-memory fields, canonical link frames. Also in: the west window and new palette in the test room, the F3 diorama and F4 isometric cameras, and the L lamp key. On 7 October: Lane A's alignment, Lane P's second-playtest round, the rug trimmed clear of the book and box, TAA swapped for FXAA, and the HUD test added to the runner. Later on 7 October: the A and P contract requests (`7e2c779`), the P kernel round (`d61e811`), and two mock fixes it found (`0fc905b`). **All Windows suites pass** (below). |
+| `run1/integration` | All four lanes merged. Lane A's contract proposals are applied: text rules with emoji markers, perception-memory fields, canonical link frames. Also in: the west window and new palette in the test room, the F3 diorama and F4 isometric cameras, and the L lamp key. On 7 October: Lane A's alignment, Lane P's second-playtest round, the rug trimmed clear of the book and box, TAA swapped for FXAA, and the HUD test added to the runner. Later on 7 October: the A and P contract requests (`7e2c779`), the P kernel round (`d61e811`), and two mock fixes it found (`0fc905b`). **Late on 7 October, on the second machine: Lane L's six change requests**, in one contract commit with tests (see "Still open"). **All Windows suites pass** (below). |
 | `run1/play` | `d61e811` (7 October, later): the kernel round. The real host closes Lane A's gaps P1 to P8: `capabilities.list` in the contract's shape, durable receipts before transient ones, no naming the player out of sight, `observe` at 20 m without the shell, perception memory and goal jobs as in the mock, and `entity.release` durable. `world.set_physics` carries the G key, so G is no longer an exception to the command path. Command host 419 checks; 5 of 5 mutations caught. Merged. Before that, `0ff45a3` (7 October): the second-playtest fix round. It retires the workshop from the room, so Q and E turn F4. It adds T and Shift+T for the clock, makes the name tag solid, and diagnoses the running blur as TAA. Merged. Before that, `1a50485`: P1, P2, the first-playtest fixes, the 10 cm companion, the hover fix, and the fix round for the independent review. Every review finding is fixed and tested. Merged. |
 | `run1/companion` | `5453e9c` (7 October): the mock is aligned with the real host, 492 tests; merged. Before that, `518e31d`: A1 and two fix rounds. Every review finding is fixed. Also: perception memory, emoji markers in context, the play-only profile, the 10 cm mock companion. 469 tests. Merged. |
 | `run1/look` | `96aa30f` (7 October, Sonnet): the L review's fix round and the art pass on the founder's 7 October direction. All eight majors are fixed with tests (5 of 5 mutations caught), including the crash when a grain-and-vignette viewport is freed. A probe found VoxelGI carrying the sun through closed walls; a 5 cm GI margin stops it. The room's `site` replaces the preset's, read from the manifest. The art pass: season grades, calm roles with a focus pass, warm-white lamps, bokeh, a painterly window sky, and an observe depth-of-field profile. The review images in Git went from 58 MB to 17 MB, keeping one set. Merged. Before that, `9390e2f`: L1–L3 and two art rounds. Light comes only from real sources: the sun through the west window on a 30°N solar model, a sky fill, moonlit nights, lamps at dusk. The orange cast is gone, and there are high-angle and isometric review cameras. The preset is still `draft`. Merged. |
 | `run1/capture` | `36b71c5` (7 October): every review finding is fixed, and the room's scale is fitted to the founder's tape. 84 tests. Merged. Before that, `65539b5`: C1 and C2 run end to end on the garage set with Apache-2.0 weights only; 43 tests. The coverage report is local only, in the capture worktree's `captures/garage/`. Merged. **The founder judged the guidance useful (below), which meets C2's acceptance.** |
 
-Evidence on `run1/integration` at `10c9b9e` (after the contract change, the P kernel round, the mock fixes and the L fix round), from the first Windows machine:
+Evidence on `run1/integration` after Lane L's change requests (late on 7 October), from the second Windows machine:
 
 | Command | Result |
 |---|---|
 | `run-engine-tests.ps1` | Exit 0, 0 warnings. Authority 266, canonical JSON 31/31, command host 419/419, play HUD 51/51, companion 501 tests; release probe at 0.10 m, with the room and style hashes verified |
-| `tools/test-room.ps1` | Exit 0. Small avatar 160/160, room navigation 10/10, room data 46/46, look 366/366; the room boots `shell=9 lights=2`. `validate.py` on the test room and the preset: 0 problems |
-| Contract tests and validator | 40 OK; 0 problems. The command host's `--dump` (891 files, on `run1/play`) validates with 0 problems; before the kernel round, `capabilities.list` failed it |
+| `tools/test-room.ps1` | Exit 0. Small avatar 160/160, room navigation 10/10, room data 54/54 (8 new, for openings), look 367/367; the room boots `shell=9 lights=2`. `validate.py` on the test room, the preset and the garage example: 0 problems |
+| Contract tests and validator | 43 OK (3 new: the site, the typed look blocks, the generator check); 0 problems. The command host's `--dump` (891 files, on `run1/play`) validated with 0 problems in the kernel round |
+| Mutations | 2 of 2 caught: a reveal on every hole, and a window a body can pass |
 | roomscan | 84 passed in 40 s in the C fix round (`36b71c5`); not rerun at integration, which changed no Lane C file |
 
 `tools/linux/test-all.sh` has not been run on this head; a cloud session should run it. Before the kernel round its dump check would have failed on `capabilities.list`.
@@ -72,13 +73,15 @@ Evidence on `run1/integration` at `10c9b9e` (after the contract change, the P ke
   - **Contract requests: applied on 7 October in `7e2c779`.** Lane A's C1 (`observe` defaults to 20 m, the maximum) and C2 (`"preview": false` is part of the content). Lane P's `room.checkpoint` result data (`checkpoint_revision`, required on a committed checkpoint), the README on receipts and stops, and a player-only `world.set_physics` op (a preset id; transient; the revision does not move). The mock handles it for the player and refuses it from the companion; the adapter never lists it.
     - The host's memory goes stale after 60 s, as proposed. Still only proposed: keep the adapter's tighter rate limits in front of the host's.
 - **Save migration between room manifests:** today the player only gets a notice. A proposal is in `command-host.md`.
-- **Lane L's change requests are parked for the next session.** They are in `docs/look/proposals/` (start with its README). Apply them in one contract commit with their consumers, examples and tests:
-  - `room-manifest-site.diff`: the room `site` key in the contract (latitude, bearing, solar noon; never longitude);
-  - `style-preset-look-tuning.diff`: the `x_look_*` keys promoted as a typed schema, about 990 lines generated by `tools/look/make_look_schema.py`. **Review it carefully;** it is needed before the preset becomes `candidate`;
-  - `build-test-room-site.diff`, then regenerate the test room;
-  - `roombuilder-openings.diff`: M1's opening cut in Lane P's `RoomBuilder`. It needs a test;
-  - `roomhud-observe.diff`: the key that switches to the observe view, in Lane P's `RoomHud.cs`;
-  - `gitattributes-proposals.diff`.
+- **Lane L's change requests: applied late on 7 October,** in one contract commit with tests. Details are in `docs/look/proposals/README.md`.
+  - **What landed:** the room `site` key (the test room and the garage example carry one); the typed `x_look_*` schema; window and door holes cut by `RoomBuilder`; the O key for the observe view; `.gitattributes` for the proposal diffs.
+  - **What the integrator changed while applying:**
+    - the typed schema is tighter than proposed, so the contract refuses what the game's reader refuses (for example `key_splits` 1, 2 or 4);
+    - the generator now writes straight into the contract, and the contract tests run its `--check`;
+    - a hole that cuts nothing from its host wall gets no reveal (the test room's west wall is already built round its window);
+    - 8 room data checks and 3 contract tests are new.
+  - **Not done:** the preset is still `draft`. Making it `candidate` freezes v1, so any later look tuning (the frame budget below) becomes v2. That is the founder's call.
+  - **For the founder:** the garage example's site says 40 degrees north, a number the Look lane chose. If that is near the founder's real latitude, it should change; the test room uses 30.
 - **Look, open after the fix round:**
   - **Frame time rose:** p50 from 11.6–12.6 to 12.7–14.0 ms. `observe_view` p95 is 17.3 ms, over budget; run-to-run noise is about 2 ms.
   - **Midday shade is dimmer** now that the light leak is closed. Raising `exposure` or `sky_fill_energy` would lift it, if the founder wants.
@@ -306,14 +309,14 @@ The source is the Google Doc `Look and Art Style direction`, with ten frames fro
      - a second width at the rear-door end, and one corner-to-corner diagonal, to settle the 17 cm width gap;
      - whether the selfie-camera shots were intentional;
      - when convenient, the top-up photos from the report's steps, on the 1x back camera.
-   - **The look verdict: given on 7 October.** "The captures are fine. No big changes necessary." The midday shade stays as it is. **The look gate passes once the preset becomes `candidate`, after Lane L's `x_look_*` keys are in the contract** (the parked change requests).
+   - **The look verdict: given on 7 October.** "The captures are fine. No big changes necessary." The midday shade stays as it is. **The look gate passes once the preset becomes `candidate`.** Lane L's `x_look_*` keys are now in the contract (late on 7 October), so only the founder's word on timing remains.
    - **Remove `C:\dev\EnFractal-run1\review-play`.** Unlink its two `.cache` junctions first: the commands are in the 7 October chat, and the automatic safety check blocks agents from deleting it.
    - **Connecting a real AI: done on 7 October, by a non-Claude client.** GPT-6.1 Sol, through Codex brief 02, listed the 25 tools and completed `observe` and `goal.set` against the mock; its red team found no breaks ([report](../codex/reports/02-mcp-client-red-team.md)). That is A1's live-client acceptance, and it shows the surface is vendor-neutral. `claude` /login is no longer needed for it. The real game host joins with A2 in Run 2.
    - **Test builds:** a desktop shortcut, `EnFractal (test build)`, builds and runs `C:\dev\EnFractal` (the integration branch) through `run-room.ps1`. On a failed build, its console stays open with the error.
 2. **Integrator, in a fresh session:**
    - Read ORCHESTRATION.md and this page.
-   - **First: apply Lane L's parked change requests** (under "Still open"), with one full suite run.
-   - Done on 7 October: the A and P contract change (`7e2c779`), the P kernel round (`d61e811`), the L fix round (`96aa30f`).
+   - Done on 7 October: the A and P contract change (`7e2c779`), the P kernel round (`d61e811`), the L fix round (`96aa30f`), and Lane L's change requests (late, on the second machine).
+   - **Decide with the founder whether the preset becomes `candidate` now** (it passes the look gate) or after one more L round on the frame budget.
    - **Then the next L round, if the founder's verdict asks for one:** the observe view's frame budget, the midday shade, and whatever the verdict says. It follows the capture budget in ORCHESTRATION.md.
    - **Offered to the founder, not yet answered:**
      - start the journal, memory and minimap design doc;

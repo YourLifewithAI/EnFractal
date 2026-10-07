@@ -219,6 +219,7 @@ def build_garage(out: Path) -> Path:
             {"id": "player_start", "role": "player", "position_m": [-0.5, 0.0, 0.4], "yaw_deg": 0.0},
             {"id": "companion_start", "role": "companion", "position_m": [-0.1, 0.0, 0.4], "yaw_deg": 0.0},
         ],
+        "site": {"latitude_deg": 40, "neg_z_bearing_deg": 0, "solar_noon_h": 12},
         "light_hints": [
             {"id": "ceiling_light", "kind": "ceiling_lamp", "position_m": [0.0, H - 0.05, 0.0], "color": "#f4f1e8", "relative_intensity": 0.7, "estimated": True},
             {"id": "house_door_daylight", "kind": "window", "position_m": [-1.9, 1.2, -z], "direction": [0.0, -0.3, 1.0], "color": "#fff4e0", "relative_intensity": 0.4, "estimated": True},

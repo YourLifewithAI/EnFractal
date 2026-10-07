@@ -43,7 +43,15 @@ public partial class RoomDataTest : Node3D
             Check(Entity(tableHit) == "obj:table" && Mathf.Abs(tableHit["position"].AsVector3().Y - 0.75f) < 0.002f, "the table proxy collides at its 0.75 m top");
             var wallHit = Ray(new Vector3(0, 1, 0), new Vector3(0, 1, -3));
             Check(Entity(wallHit) == "shell:wall_north" && Mathf.Abs(wallHit["position"].AsVector3().Z + 1.5f) < 0.002f, "the north wall collides on its inner face at z = -1.5");
+            // Openings (the Look review's M1). The test room's west wall is built round its window already, so the window cuts
+            // nothing from its host (the piece below the sill) and adds no reveal there.
+            var westWindow = room.Openings.Single();
+            Check(westWindow.Id == "window_west" && westWindow.CutsVisual && !westWindow.CutsCollision, "the test room's window is read: open to light, glass to a body");
+            var sill = westWindow.CenterM.Y - westWindow.SizeM.Y * 0.5f;
+            var westWall = shell.First(n => n.GetMeta("entity_id").AsString() == "shell:wall_west").GetNode<MeshInstance3D>("Visual").Mesh;
+            Check(westWall.GetAabb().End.Y < sill + 0.001f, "a window that cuts nothing from its host wall adds no reveal to it");
             built.QueueFree();
+            await CheckOpeningsCutSolidWalls();
 
             CheckRejected(() => LoadCopy("box_proxy", b => Replace(b, "\"mass_kg\": 1.5", "\"mass_kg\": 9.5")), "hash does not match", "a same-size tampered asset fails the hash check");
             CheckRejected(() => LoadCopy("box_proxy", b => Replace(b, "\"mass_kg\": 1.5", "\"mass_kg\": 150.0")), "bytes, files list says", "a resized asset fails the size check");
@@ -242,6 +250,65 @@ public partial class RoomDataTest : Node3D
     {
         try { action(); Check(false, label + " (it loaded)"); }
         catch (RoomLoadException error) { Check(error.Message.Contains(fragment), $"{label} ({error.Message})"); }
+    }
+
+    /// <summary>
+    /// A photographed room's wall is one solid polygon with its window only listed. The window must be a hole for light and
+    /// sight but glass to a body; an open archway must be a hole for both.
+    /// </summary>
+    private async Task CheckOpeningsCutSolidWalls()
+    {
+        // A 2 x 2 m wall facing +Z, 100 m away from everything else, with a 0.6 x 0.8 m opening centred at (1, 1).
+        var origin = new Vector3(100, 0, 0);
+        var wall = new[] { origin, origin + new Vector3(2, 0, 0), origin + new Vector3(2, 2, 0), origin + new Vector3(0, 2, 0) };
+        var centre = origin + new Vector3(1, 1, 0);
+        var size = new Vector2(0.6f, 0.8f);
+        var window = new ShellOpening("window", "window", "shell:probe", centre, size, "fixed", false);
+        var (windowMesh, windowShape) = RoomBuilder.ExtrudePolygon(wall, 0.1f, new[] { window }, Array.Empty<ShellOpening>());
+        Check(Mathf.Abs(FacingArea(windowMesh, Vector3.Back) - (4f - 0.48f)) < 0.001f, $"the window is a hole in the wall's face ({FacingArea(windowMesh, Vector3.Back):0.000} m² of 3.520)");
+        Check(HasFaceAt(windowMesh, Vector3.Down, centre.Y + size.Y * 0.5f), "the opening has a reveal: its head faces down into it");
+
+        // The same wall 10 m further on, with an open archway in place of the window.
+        var archOrigin = new Vector3(0, 0, 10);
+        var archCentre = centre + archOrigin;
+        var archway = new ShellOpening("archway", "archway", "shell:probe", archCentre, size, "open", true);
+        var (archMesh, archShape) = RoomBuilder.ExtrudePolygon(wall.Select(p => p + archOrigin).ToArray(), 0.1f, new[] { archway }, new[] { archway });
+        Check(Mathf.Abs(FacingArea(archMesh, Vector3.Back) - (4f - 0.48f)) < 0.001f, "the archway is a hole in the wall's face");
+        var bodies = new[] { windowShape, archShape }.Select(shape =>
+        {
+            var body = new StaticBody3D { CollisionLayer = RoomBuilder.WorldLayer, CollisionMask = 0 };
+            body.AddChild(new CollisionShape3D { Shape = shape });
+            AddChild(body);
+            return body;
+        }).ToArray();
+        await Frames(3);
+        var throughWindow = Ray(centre + new Vector3(0, 0, 1), centre + new Vector3(0, 0, -1));
+        Check(throughWindow.Count > 0, "a body cannot pass the window: its collision is the whole wall");
+        Check(Ray(archCentre + new Vector3(0, 0, 1), archCentre + new Vector3(0, 0, -1)).Count == 0, "a body passes through the open archway");
+        Check(Ray(archCentre + new Vector3(-0.6f, 0, 1), archCentre + new Vector3(-0.6f, 0, -1)).Count > 0, "the wall beside the archway still collides");
+        foreach (var body in bodies) body.QueueFree();
+    }
+
+    /// <summary>Total area of the triangles that face <paramref name="facing"/>.</summary>
+    private static float FacingArea(ArrayMesh mesh, Vector3 facing)
+    {
+        var arrays = mesh.SurfaceGetArrays(0);
+        var vertices = arrays[(int)Mesh.ArrayType.Vertex].AsVector3Array();
+        var normals = arrays[(int)Mesh.ArrayType.Normal].AsVector3Array();
+        var area = 0f;
+        for (var i = 0; i < vertices.Length; i += 3)
+            if (normals[i].Dot(facing) > 0.99f) area += (vertices[i + 1] - vertices[i]).Cross(vertices[i + 2] - vertices[i]).Length() * 0.5f;
+        return area;
+    }
+
+    private static bool HasFaceAt(ArrayMesh mesh, Vector3 facing, float height)
+    {
+        var arrays = mesh.SurfaceGetArrays(0);
+        var vertices = arrays[(int)Mesh.ArrayType.Vertex].AsVector3Array();
+        var normals = arrays[(int)Mesh.ArrayType.Normal].AsVector3Array();
+        for (var i = 0; i < vertices.Length; i += 3)
+            if (normals[i].Dot(facing) > 0.99f && Mathf.Abs((vertices[i].Y + vertices[i + 1].Y + vertices[i + 2].Y) / 3f - height) < 0.001f) return true;
+        return false;
     }
 
     private static bool UpFacingTrianglesAreClockwise(ArrayMesh mesh)

@@ -36,6 +36,19 @@ public sealed record LightHint(string Id, string Kind, Vector3? PositionM, Vecto
 public sealed record StylePin(string PresetId, int PresetVersion, string PresetSha256);
 
 /// <summary>
+/// An opening listed in shell.openings: a window, door, archway or vent in a host shell part. The builder cuts the hole
+/// the opening describes through the host slab (CutsVisual) and, when a body can pass (Traversable), through its
+/// collision too; a window the player cannot pass is still a hole to light and to the eye, with glass in it.
+/// </summary>
+public sealed record ShellOpening(string Id, string Kind, string HostPartId, Vector3 CenterM, Vector2 SizeM, string State, bool Traversable)
+{
+    /// <summary>Windows, archways, vents and pet doors are always open to light; a door or portal is a hole only while open.</summary>
+    public bool CutsVisual => Kind is "window" or "archway" or "vent" or "pet_door" || State == "open";
+    /// <summary>Only a hole a body can go through is a hole in the collision.</summary>
+    public bool CutsCollision => CutsVisual && Traversable;
+}
+
+/// <summary>
 /// Loads contracts/room-manifest.schema.json documents with integrity checks: every referenced file
 /// must be listed with a matching SHA-256 and size, paths stay inside the room, and pinned bytes are
 /// UTF-8 with LF line endings. Full schema validation is contracts/validate.py; this loader enforces
@@ -82,6 +95,7 @@ public sealed class RoomData
     public IReadOnlyList<ObjectInstance> Objects { get; private init; } = Array.Empty<ObjectInstance>();
     public IReadOnlyList<SpawnPoint> Spawns { get; private init; } = Array.Empty<SpawnPoint>();
     public IReadOnlyList<LightHint> LightHints { get; private init; } = Array.Empty<LightHint>();
+    public IReadOnlyList<ShellOpening> Openings { get; private init; } = Array.Empty<ShellOpening>();
     public StylePin? DefaultStyle { get; private init; }
     /// <summary>Mesh bytes exactly as hash-verified, keyed by full path; the builder never reads them from disk again.</summary>
     public IReadOnlyDictionary<string, byte[]> VerifiedMeshes { get; private init; } = new Dictionary<string, byte[]>();
@@ -139,6 +153,14 @@ public sealed class RoomData
             l.TryGetProperty("position_m", out var position) ? Vec3(position) : null,
             l.TryGetProperty("direction", out var direction) ? Vec3(direction) : null,
             new Color(Str(l, "color")), l.GetProperty("relative_intensity").GetSingle())).ToArray() : Array.Empty<LightHint>();
+        var openings = root.GetProperty("shell").TryGetProperty("openings", out var openingList) ? openingList.EnumerateArray().Select(o =>
+        {
+            var size = o.GetProperty("size_m");
+            return new ShellOpening(Str(o, "id"), Str(o, "kind"), Str(o, "host_part_id"), Vec3(o.GetProperty("center_m")),
+                new Vector2(size[0].GetSingle(), size[1].GetSingle()), Str(o, "state"), o.GetProperty("traversable").GetBoolean());
+        }).ToArray() : Array.Empty<ShellOpening>();
+        foreach (var opening in openings)
+            Expect(shell.Any(part => part.Id == opening.HostPartId), $"opening {opening.Id} is hosted by {opening.HostPartId}, which is not a shell part");
         var bounds = root.GetProperty("bounds");
         var min = Vec3(bounds.GetProperty("min_m"));
         var max = Vec3(bounds.GetProperty("max_m"));
@@ -154,7 +176,7 @@ public sealed class RoomData
         {
             Directory = directory, RoomId = roomId, DisplayName = Display(root, "display_name", 80), DefaultStyle = style, VerifiedMeshes = meshes,
             SourceKind = Str(root.GetProperty("source"), "kind"), ManifestSha256 = Sha256Hex(manifestBytes),
-            Bounds = new Aabb(min, max - min), Shell = shell, Objects = objects, Spawns = spawns, LightHints = hints,
+            Bounds = new Aabb(min, max - min), Shell = shell, Objects = objects, Spawns = spawns, LightHints = hints, Openings = openings,
         };
     }
 

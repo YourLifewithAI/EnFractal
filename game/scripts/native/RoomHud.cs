@@ -119,6 +119,7 @@ public partial class RoomHud : CanvasLayer
         return $"{hour}  ·  {moment.Season}, {date}, " + (SeasonStop >= 0 ? SeasonStops[SeasonStop].Name + " (Shift+T)" : "real date (Shift+T)");
     }
 
+    private bool _observeFocus;
     private Node3D _dioramaPivot = null!;
     private SpringArm3D _dioramaArm = null!;
     private Camera3D _diorama = null!;
@@ -162,7 +163,7 @@ public partial class RoomHud : CanvasLayer
         var help = new VBoxContainer(); footer.AddChild(help);
         help.AddChild(new Label { Text = "WASD move · Shift run · Space jump · R recover · G gravity · click to look · Esc release" });
         help.AddChild(new Label { Text = "F1 eye · F2 shoulder · F3 diorama: mouse orbits, wheel zooms, WASD follows the view · F4 isometric: Q/E turn the view" });
-        help.AddChild(new Label { Text = "T time of day · Shift+T season (each steps round to the real clock) · L lamps · C customize" });
+        help.AddChild(new Label { Text = "T time of day · Shift+T season (each steps round to the real clock) · L lamps · O observe (a very tight tilt-shift view, best from F3 or F4) · C customize" });
         _notice = new Label { Text = _noticeText }; help.AddChild(_notice);
         _customization = new PanelContainer { Position = new Vector2(18, 190), Theme = theme, Visible = false };
         AddChild(_customization);
@@ -287,8 +288,11 @@ public partial class RoomHud : CanvasLayer
     {
         if (ViewMode >= 2) PlaceDioramaRig(snap: false, (float)delta);
         _arm.Rotation = new Vector3(Mathf.Clamp(Player.EyeCamera.Rotation.X - 0.18f, -1.1f, 0.8f), 0, 0);
-        _state.Text = $"{Player.BodyHeightM * 100:0} cm player  ·  gravity {Player.WorldPhysicsId} (G)  ·  {Companion.CompanionName}: {Companion.CurrentIntent}" + (Companion.GoalBlocked ? " · path blocked" : "");
+        _state.Text = $"{Player.BodyHeightM * 100:0} cm player  ·  gravity {Player.WorldPhysicsId} (G)  ·  {Companion.CompanionName}: {Companion.CurrentIntent}" + (Companion.GoalBlocked ? " · path blocked" : "") + (Look?.Observe == true ? "  ·  observe view (O)" : "");
         _notice.Text = _noticeText;
+        // The observe view looks at what the free camera orbits: focus follows its target, and lets go when the view does.
+        if (Look != null && Look.Observe && ViewMode >= 2) { Look.FocusOverride = _dioramaPivot.GlobalPosition; _observeFocus = true; }
+        else if (_observeFocus) { Look!.FocusOverride = null; _observeFocus = false; }
         var clock = ClockText();
         _clock.Visible = clock.Length > 0;
         _clock.Text = clock;
@@ -315,6 +319,7 @@ public partial class RoomHud : CanvasLayer
                 case Key.F3: SetViewMode(2); break;
                 case Key.F4: SetViewMode(3); break;
                 case Key.L when Look != null: Look.SetLamps(!Look.LampsOn); break;
+                case Key.O when Look != null: Look.Observe = !Look.Observe; break;
                 case Key.T when key.ShiftPressed: StepSeason(); break;
                 case Key.T: StepTimeOfDay(); break;
                 // Q and E belong to the view: the invention workshop that also bound them is retired (CommandHost).

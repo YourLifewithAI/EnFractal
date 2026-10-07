@@ -480,5 +480,76 @@ class StrictLoaderTests(unittest.TestCase):
         self.check_rejects(b'{"a": 1, "a": 2}\n', "duplicate key")
 
 
+class SiteAndLookTuningTests(unittest.TestCase):
+    """The room `site` and the typed x_look_* blocks (Look review M5 and M6)."""
+
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.room = Path(self.temporary.name) / "test_room"
+        shutil.copytree(TEST_ROOM, self.room)
+        self.manifest = validate.load_strict(self.room / "room.json")
+        self.preset = validate.load_strict(SEED_PRESET)
+
+    def tearDown(self):
+        self.temporary.cleanup()
+
+    def site_problems(self, site):
+        document = copy.deepcopy(self.manifest)
+        document["site"] = site
+        write_json(self.room / "room.json", document)
+        return validate.check_room(self.room)
+
+    def preset_problems(self, mutate):
+        document = copy.deepcopy(self.preset)
+        mutate(document["extensions"])
+        path = Path(self.temporary.name) / "styles" / "storybook_painterly" / "v1.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        write_json(path, document)
+        return validate.check_document(path)
+
+    def test_site_carries_no_location(self):
+        self.assertEqual(self.manifest["site"], {"latitude_deg": 30, "neg_z_bearing_deg": 0, "solar_noon_h": 12})
+        refused = {
+            "a longitude": ({"longitude_deg": -3}, "was unexpected"),
+            "a place name": ({"place": "anywhere"}, "was unexpected"),
+            "a finer latitude": ({"latitude_deg": 45.5}, "is not of type 'integer'"),
+            "a polar latitude": ({"latitude_deg": 70}, "greater than the maximum of 66"),
+            "a solar noon off the quarter hour": ({"solar_noon_h": 12.1}, "is not a multiple of 0.25"),
+        }
+        for label, (change, fragment) in refused.items():
+            with self.subTest(label):
+                site = {**self.manifest["site"], **change}
+                problems = self.site_problems(site)
+                self.assertTrue(any(fragment in p for p in problems), problems)
+        self.assertEqual(self.site_problems({"latitude_deg": -41, "neg_z_bearing_deg": 270, "solar_noon_h": 12.75}), [])
+
+    def test_look_blocks_are_typed(self):
+        def remove_hold(e):
+            del e["x_look_seasons"]["hold"]
+
+        def drop_summer(e):
+            del e["x_look_seasons"]["looks"]["summer"]
+
+        refused = {
+            "an unknown field": (lambda e: e["x_look_gi"].__setitem__("glossiness", 1), "was unexpected"),
+            "a missing field": (remove_hold, "'hold' is a required property"),
+            "a bad colour": (lambda e: e["x_look_sky"].__setitem__("ground", "#12345"), "does not match"),
+            "a calm of 3": (lambda e: e["x_look_role_marks"]["default"].__setitem__("calm", 3), "greater than the maximum of 1"),
+            "a site field left in x_look_sun": (lambda e: e["x_look_sun"].__setitem__("latitude_deg", 30), "was unexpected"),
+            "a missing season": (drop_summer, "'summer' is a required property"),
+            "three shadow splits": (lambda e: e["x_look_shadows"].__setitem__("key_splits", 3), "is not one of [1, 2, 4]"),
+            "a window cone of 90 degrees": (lambda e: e["x_look_lamps"].__setitem__("window_spot_angle_deg", 90), "greater than or equal to the maximum of 90"),
+        }
+        for label, (mutate, fragment) in refused.items():
+            with self.subTest(label):
+                problems = self.preset_problems(mutate)
+                self.assertTrue(any(fragment in p for p in problems), problems)
+        self.assertEqual(self.preset_problems(lambda e: e.__setitem__("x_other_experiment", {"anything": True})), [], "other x_ keys stay free")
+
+    def test_typed_look_schema_matches_its_generator(self):
+        result = subprocess.run([sys.executable, str(ROOT / "tools" / "look" / "make_look_schema.py"), "--check"], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()
