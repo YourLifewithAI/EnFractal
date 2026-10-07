@@ -212,19 +212,37 @@ public partial class SmallPlayerController : CharacterBody3D
         return true;
     }
 
-    /// <summary>Playtest seam: switch to the next gravity preset (G key). Returns the new preset id.</summary>
-    public string CycleWorldPhysics()
+    /// <summary>
+    /// Where the G key sends the next world physics preset: the command host sets this to its world.set_physics path
+    /// (Kernel/CommandHost.PlayerPhysics), so the key travels the single command path as the player. Unset, G does nothing.
+    /// </summary>
+    public System.Func<string, bool>? WorldPhysicsRequest { get; set; }
+
+    /// <summary>The preset after the current one in world_physics_profile.gd PRESET_IDS (tuned, real, floaty, then tuned again).</summary>
+    public string NextWorldPhysicsPreset()
     {
-        var script = GD.Load<GDScript>(WorldPhysicsScript);
-        var ids = script.GetScriptConstantMap()["PRESET_IDS"].AsGodotArray();
+        var ids = GD.Load<GDScript>(WorldPhysicsScript).GetScriptConstantMap()["PRESET_IDS"].AsGodotArray();
         var next = 0;
         for (var index = 0; index < ids.Count; index++)
             if (ids[index].AsString() == WorldPhysicsId) next = (index + 1) % ids.Count;
-        var profile = script.Call("preset", ids[next], WorldPhysicsRevision + 1).AsGodotDictionary();
+        return ids[next].AsString();
+    }
+
+    /// <summary>The G key: ask the command host for the next preset. False when no host is attached or it refused.</summary>
+    public bool RequestNextWorldPhysics() => WorldPhysicsRequest?.Invoke(NextWorldPhysicsPreset()) ?? false;
+
+    /// <summary>Test seam for the body suites, which run without a command host: apply the next preset directly.</summary>
+    internal string CycleWorldPhysics()
+    {
+        var profile = GD.Load<GDScript>(WorldPhysicsScript).Call("preset", NextWorldPhysicsPreset(), WorldPhysicsRevision + 1).AsGodotDictionary();
         SetWorldPhysics(profile);
-        GD.Print($"PHYSICS_PROFILE {WorldPhysicsId} gravity={GravityMps2:0.##} m/s2 jump={JumpApexM * 100:0.#} cm airtime={2 * JumpSpeedMps / GravityMps2:0.00} s terminal_fall={EffectiveTerminalFallMps:0.##} m/s air_control={AirControl:0.##}");
+        PrintWorldPhysics();
         return WorldPhysicsId;
     }
+
+    /// <summary>The playtest's console line for the active world physics.</summary>
+    public void PrintWorldPhysics() =>
+        GD.Print($"PHYSICS_PROFILE {WorldPhysicsId} gravity={GravityMps2:0.##} m/s2 jump={JumpApexM * 100:0.#} cm airtime={2 * JumpSpeedMps / GravityMps2:0.00} s terminal_fall={EffectiveTerminalFallMps:0.##} m/s air_control={AirControl:0.##}");
 
     /// <summary>The active world profile, as the validated dictionary it was accepted from (a copy).</summary>
     public Dictionary WorldPhysicsProfile => _worldPhysics.Duplicate(true);
@@ -344,7 +362,8 @@ public partial class SmallPlayerController : CharacterBody3D
             var code = key.PhysicalKeycode != Key.None ? key.PhysicalKeycode : key.Keycode;
             if (code == Key.Space) _jumpBuffer = JumpBufferS;
             if (code == Key.R) Recover();
-            if (code == Key.G) CycleWorldPhysics();
+            // World physics is a world change: G sends world.set_physics through the command host as the player.
+            if (code == Key.G) RequestNextWorldPhysics();
         }
     }
 

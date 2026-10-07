@@ -20,6 +20,33 @@ public partial class CompanionAvatar : SmallPlayerController
     public string CurrentIntent { get; private set; } = "stay";
     public bool GoalBlocked { get; private set; }
     public bool IsPointing => _pointer != null && _pointer.Visible;
+    /// <summary>
+    /// Counts every change of goal (follow, stay, come, stop, look, point), so the command host can tell the goal it
+    /// set from a newer one and finish or cancel that goal's job honestly.
+    /// </summary>
+    public int IntentSerial { get; private set; }
+    /// <summary>The IntentSerial of the last come that arrived beside the player (the body then stays); -1 before any.</summary>
+    public int ComeArrivedSerial { get; private set; } = -1;
+    /// <summary>Whether the body is turned toward a look or point target.</summary>
+    public bool HasLookTarget => _hasLookTarget;
+    /// <summary>The point the body looks or points at (meaningful while HasLookTarget).</summary>
+    public Vector3 LookTarget => _lookTarget;
+    /// <summary>How closely a look or point must face its target to count as arrived (about 3 degrees).</summary>
+    public const float FacingToleranceRad = 0.05f;
+    /// <summary>
+    /// True while looking or pointing and turned to face the target within FacingToleranceRad, or standing so close
+    /// that there is nothing to turn to: the arrival of a look_at or point_at goal.
+    /// </summary>
+    public bool FacesLookTarget
+    {
+        get
+        {
+            if (!_hasLookTarget) return false;
+            var direction = Planar(_lookTarget - GlobalPosition);
+            if (direction.LengthSquared() <= 0.001f) return true;
+            return Mathf.Abs(Mathf.AngleDifference(Rotation.Y, Mathf.Atan2(-direction.X, -direction.Z))) <= FacingToleranceRad;
+        }
+    }
     protected override WorldScaleProfile Profile => WorldScaleProfile.Companion;
 
     // Loose follow (founder playtest, 6 October: "it always moves directly behind me"). Distances are planar,
@@ -177,6 +204,7 @@ public partial class CompanionAvatar : SmallPlayerController
 
     private void BeginIntent(string intent)
     {
+        IntentSerial++;
         CurrentIntent = intent;
         GoalBlocked = false;
         _hasLookTarget = false;
@@ -330,6 +358,8 @@ public partial class CompanionAvatar : SmallPlayerController
         var detour = routed && !_route.Direct && _route.LengthM > distance + DetourM;
         if (distance <= ComeArrivalM && !detour && (!routed || _route.Reaches))
         {
+            // Arrived: the command host finishes this come's job (the serial tells it which come it was).
+            ComeArrivedSerial = IntentSerial;
             Stay();
             return Vector3.Zero;
         }
