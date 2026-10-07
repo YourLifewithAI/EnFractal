@@ -58,7 +58,7 @@ The companion's tests were rescaled with it; the low passage it must cross witho
 | `room_floaty`, first pass | 1.6 m/s² | 6 m/s | ×1 | 0.55 s | 0.97 s |
 | **`room_floaty`, now** | **0.6 m/s²** | **0.6 m/s** | **×2** | **0.93 s (measured 56 ticks)** | **1.75 s** (1 s to reach 0.6 m/s, then a steady drift) |
 
-Real gravity at 10 cm reads as a hopping insect: a jump is over in a quarter of a second. The tuned preset gives a game-like 0.37 s jump while keeping falls brisk. **Recommendation: `room_tuned`**, confirmed or replaced by the founder in the playtest (key **G** cycles the presets live and prints the active one to the console).
+Real gravity at 10 cm reads as a hopping insect: a jump is over in a quarter of a second. The tuned preset gives a game-like 0.37 s jump while keeping falls brisk. **Recommendation: `room_tuned`**, confirmed or replaced by the founder in the playtest (key **G** cycles the presets live, through the command host, and prints the active one to the console).
 
 **Floaty, after the first playtest.** The founder found the gravity shifts fun and asked for floaty to be more pronounced. It now hangs for almost a second on the same 6.5 cm jump, a fall drifts down at no more than 0.6 m/s (measured: a 40 cm drop caps at 0.600 m/s and takes 70 ticks), and air steering is doubled, so the body can be guided while it floats. A jump's take-off is 0.27 m/s, below the fall limit, so the limit slows long falls without changing the jump. Tuned and real are unchanged.
 
@@ -196,9 +196,9 @@ The Jolt column reproduces the independent reviewer's run on the same head to th
 
 Not measured here: physics at 120 Hz ticks. Physics interpolation was measured in the second playtest's fix round (see [Founder playtest 2](#founder-playtest-2-6-october-second-pass-what-was-said-and-what-changed)).
 
-## G is a playtest-only exception to the single command path
+## G goes through the single command path
 
-Key **G** cycles world gravity directly on the player's body (`SmallPlayerController.CycleWorldPhysics`), not through an `enfractal.command`. The contract has no world-physics operation, so routing it through the command host needs a contract change first. It is recorded here as a **playtest-only exception**: gravity is not saved in room state, the companion adopts the player's profile, and nothing but the local keyboard can change it. Before gravity becomes a game feature (a creation, a magic, a saved room rule), it gets a contract op (proposed: `world.set_physics` with a preset id, player-only for now) and the key sends that command.
+Since 7 October, key **G** sends `world.set_physics` (contract `7e2c779`) through the command host as the player, the same path as every other world change: `SmallPlayerController.RequestNextWorldPhysics` asks the host (`WorldPhysicsRequest`, which the host sets when it attaches) for the next preset in `PRESET_IDS`. The op is player-only, so a companion gets `permission_denied` and is never held; its receipt is transient and the room revision does not move, because gravity is not yet saved in room state. Both bodies adopt the preset at once, and the console still prints the `PHYSICS_PROFILE` line. Without a command host (the body suites), G does nothing; those suites call the internal `CycleWorldPhysics` seam directly. The playtest-only exception recorded here before is retired; see [command-host.md](command-host.md). Saving the world's physics in room state (a creation, a magic, a saved room rule) is still open, and then the receipt becomes durable.
 
 ## Founder playtest (ten minutes)
 
