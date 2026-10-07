@@ -120,6 +120,26 @@ class Stops(FixCase):
         lookup = self.send(query("receipt.lookup", {"action_id": "lock-1"}))["data"]
         self.assertEqual(lookup["receipt"]["op"], "protect.lock")
 
+    def test_a_stop_reusing_a_compacted_action_id_leaves_that_receipt_replayable(self):
+        # Found by the kernel round (7 October): the transient stop used to hide the compacted lock.
+        lock = command("protect.lock", {"targets": ["obj:box"]}, "lock-1", expected_entities={"obj:box": 0})
+        first = self.send(lock)
+        self.send(command("room.checkpoint", {}, "cp-1"))
+        self.assertTrue(self.send(command("goal.stop", {}, "lock-1"))["ok"])
+        replay = self.send(lock)
+        self.assertTrue(replay["ok"] and replay["replayed"], replay)
+        self.assertEqual(replay["revision"], first["revision"])
+        self.assertEqual(self.send(query("receipt.lookup", {"action_id": "lock-1"}))["data"], {"found": True, "compacted": True})
+
+    def test_a_compacted_checkpoint_replays_with_its_revision(self):
+        # Found by the kernel round (7 October): this replay used to answer internal_error.
+        self.send(command("protect.lock", {"targets": ["obj:box"]}, "lock-1", expected_entities={"obj:box": 0}))
+        first = self.send(command("room.checkpoint", {}, "cp-1"))
+        self.send(command("room.checkpoint", {}, "cp-2"))
+        again = self.send(command("room.checkpoint", {}, "cp-1"))
+        self.assertTrue(again["ok"] and again["replayed"], again)
+        self.assertEqual(again["data"], first["data"])
+
 
 class Checkpoints(FixCase):
     policy = HostPolicy(max_checkpoints=3, **FAST)

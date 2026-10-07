@@ -778,9 +778,10 @@ class MockHost:
 
     def _earlier(self, key: tuple[str, str], fingerprint: str, message: dict) -> dict | None:
         """The answer for an action id this principal already used, or None if it is new."""
-        for store in (self.receipts, self.transient, self.terminal):
-            if key in store:
-                return self._replay(store[key], fingerprint, message)
+        # Durable first, then compacted, then transient: a stop under a used action id keeps a transient
+        # receipt there, which must never hide the durable one, compacted or not (the kernel host's P2).
+        if key in self.receipts:
+            return self._replay(self.receipts[key], fingerprint, message)
         if key in self.compacted:
             entry = self.compacted[key]
             if entry.fingerprint_prefix != fingerprint[:COMPACTED_PREFIX_HEX]:
@@ -788,7 +789,12 @@ class MockHost:
                                 field_path="$.action_id")
             replay = self._base(key[0], message)
             replay.update({"replayed": True, "revision": entry.revision, "transient": False})
+            if message["op"] == "room.checkpoint":
+                replay["data"] = {"checkpoint_revision": entry.revision}  # required on every committed answer
             return replay
+        for store in (self.transient, self.terminal):
+            if key in store:
+                return self._replay(store[key], fingerprint, message)
         request_id = self.approval_by_action.get(key)
         if request_id is not None:
             approval = self.approvals[request_id]
@@ -1651,7 +1657,7 @@ class MockHost:
                 result["data"]["result"] = copy.deepcopy(job["result"])
         elif op == "receipt.lookup":
             key = (principal, args["action_id"])
-            receipt = self.receipts.get(key) or self.transient.get(key)
+            receipt = self.receipts.get(key) or (self.transient.get(key) if key not in self.compacted else None)
             if receipt is not None:
                 result["data"] = {"found": True, "receipt": copy.deepcopy(receipt.result)}
             elif key in self.compacted:
