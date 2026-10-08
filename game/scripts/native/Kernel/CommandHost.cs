@@ -59,7 +59,7 @@ public partial class CommandHost : Node
     public const int MaxPendingApprovals = 8;
     public const int CompanionMessagesPerSecond = 30;
     /// <summary>The team's map: at most this many entities (the contract's bound); routine out-of-sight entries go first, never what the team built or an open task's target.</summary>
-    public const int PerceptionMemoryEntries = MaxDiscoveredEntities;
+    public const int PerceptionMemoryEntries = 1024;
     /// <summary>A remembered entity is marked may_be_stale once its memory is this old (or as soon as it changed).</summary>
     public const int PerceptionMemoryStaleAfterS = 60;
     /// <summary>Goal jobs kept per principal for jobs.status; the oldest finished is dropped first.</summary>

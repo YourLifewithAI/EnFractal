@@ -28,7 +28,7 @@ public partial class CommandHost
     public const int MaxOpenTasks = 32;
     public const int MaxHistory = 500;
     public const int MaxNotes = 100;
-    public const int MaxDiscoveredEntities = 1024;
+    public const int MaxDiscoveredEntities = PerceptionMemoryEntries;
     public const int MaxLevels = 64;
     public const double DiscoverCellM = 0.05;
     /// <summary>Space is discovered within this horizontal distance of an avatar's eye.</summary>
