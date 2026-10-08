@@ -65,7 +65,8 @@ def fresh_id(prefix: str) -> str:
 
 
 class RealHostCase(unittest.IsolatedAsyncioTestCase):
-    """A fresh link session per test (the host clears the companion's perception memory with each one)."""
+    """A fresh link session per test. A session no longer clears the team's map or journal (they belong to the room),
+    so a test never assumes it starts with nothing known."""
 
     def setUp(self):
         if GAME is None:

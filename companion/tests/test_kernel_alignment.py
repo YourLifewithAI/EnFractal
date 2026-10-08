@@ -44,6 +44,18 @@ class PolicyMatchesTheKernel(unittest.TestCase):
             "approval_ttl_s": 60 * _constant(COMMAND_HOST, r"ApprovalLifetime = TimeSpan\.FromMinutes\((\d+)\)"),
         }
         self.assertEqual({name: getattr(policy, name) for name in expected}, expected)
+        # Run 2: the walking goals' timeout, the team's shared sight and the journal's bounds.
+        journal = REPO / "game" / "scripts" / "native" / "Kernel" / "CommandHostJournal.cs"
+        self.assertEqual(policy.unreachable_after_s,
+                         float(_constant(COMMAND_HOST, r"\bconst double UnreachableAfterS = (\d+)\.0;")))
+        self.assertIn("public static bool DefaultSharedSight { get; set; } = true;", COMMAND_HOST.read_text(encoding="utf-8"))
+        self.assertTrue(policy.shared_sight)
+        from enfractal_companion import mock_journal
+        self.assertEqual((mock_journal.MAX_OPEN_TASKS, mock_journal.MAX_HISTORY, mock_journal.MAX_NOTES),
+                         tuple(_constant(journal, rf"\bconst int {name} = (\d+);") for name in ("MaxOpenTasks", "MaxHistory", "MaxNotes")))
+        from enfractal_companion.mock_host import WALKING_GOALS
+        self.assertIn('WalkingGoals = new() { "come", "go_to", "fetch" }', COMMAND_HOST.read_text(encoding="utf-8"))
+        self.assertEqual(WALKING_GOALS, {"come", "go_to", "fetch"})
         # The activation receipts the authority keeps are bounded the same way as the host's transient ones.
         self.assertEqual(gd("MAX_TRANSIENT_PER_PRINCIPAL"), policy.max_transient_receipts_per_principal)
 

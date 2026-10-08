@@ -101,7 +101,13 @@ class Lifecycle(FetchCase):
         self.assertNotIn("data", released)
         self.assertEqual(self.host.holding, {})
         self.assertIsNone(self.held_by("obj:book"))
-        self.assertEqual(self.position("obj:book"), companion)
+        # The player stands in front of the companion it came back to, so the book goes down beside it, never
+        # on the player (SandboxPhysics.Drop; test_team_knowledge.py pins the turns).
+        book = self.host.entities["obj:book"].bounds()
+        player = self.host.entities["avatar:player"].bounds()
+        self.assertGreater(max(book["min_m"][0] - player["max_m"][0], player["min_m"][0] - book["max_m"][0],
+                               book["min_m"][2] - player["max_m"][2], player["min_m"][2] - book["max_m"][2]), 0)
+        self.assertLess(math.dist(self.position("obj:book"), companion), 0.3)
 
     def test_the_player_can_send_the_companion_and_set_the_thing_down_with_it(self):
         started = self.player("goal.set", {"actor": "avatar:companion", "goal": "fetch", "target": "obj:doorstop"})

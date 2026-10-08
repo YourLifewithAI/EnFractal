@@ -20,8 +20,13 @@ BEHIND_THE_TABLE = [-0.9, 0.0, -1.4]  # the 75 cm table stands between the compa
 BEHIND_THE_BOX = [1.6, 0.0, 0.2]  # the box hides the book, the doorstop and the player
 
 
+# These suites test one avatar's line of sight, so they turn the team's shared sight off, as the kernel host's own
+# perception tests do (SharedSight); test_team_knowledge.py covers the team's sight.
+ONE_AVATAR = HostPolicy(shared_sight=False)
+
+
 class PerceptionCase(unittest.TestCase):
-    policy: HostPolicy | None = None
+    policy: HostPolicy | None = ONE_AVATAR
 
     def setUp(self):
         self.host = new_host(policy=self.policy)
@@ -113,7 +118,7 @@ class LineOfSight(PerceptionCase):
 class EverySurface(PerceptionCase):
     """Founder decision 1 holds for every companion query and every command, not only observe."""
 
-    policy = HostPolicy(companion_messages_per_s=1_000_000)
+    policy = HostPolicy(companion_messages_per_s=1_000_000, shared_sight=False)
     HIDDEN = ("obj:book", "obj:doorstop", "avatar:player")  # behind the box, seen from BEHIND_THE_BOX
 
     def test_room_describe_counts_only_what_is_in_sight(self):
