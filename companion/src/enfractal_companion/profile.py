@@ -34,7 +34,7 @@ import json
 import os
 import sys
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 SERVER_KEY = "enfractal-companion"
 CATALOGUE = Path(__file__).resolve().parent / "clients.json"
@@ -55,21 +55,31 @@ def server_launch(*, mock: bool = False, session_file: Path | None = None, pytho
     """This package as a stdio server. On Windows the environment is SYSTEMROOT alone, with this machine's value."""
     if mock and session_file is not None:
         raise ValueError("choose --mock or --session-file, not both")
+    windows = os.name == "nt" if windows is None else windows
     args = ["-m", "enfractal_companion"]
     if mock:
         args.append("--mock")
     elif session_file is not None:
-        args += ["--session-file", str(Path(session_file).resolve())]
+        args += ["--session-file", _for_target(session_file, windows, follow_links=True)]
     if schema_profile != "full":
         args += ["--schema-profile", schema_profile]
-    # absolute(), not resolve(): a POSIX virtual environment's python is a symlink, and following it
-    # would launch the base interpreter without the companion's packages.
-    command = str(Path(python or sys.executable).absolute())
-    windows = os.name == "nt" if windows is None else windows
+    # Never following links: a POSIX virtual environment's python is a symlink, and following it would
+    # launch the base interpreter without the companion's packages.
+    command = _for_target(python or sys.executable, windows, follow_links=False)
     env = {}
     if windows:
         env["SYSTEMROOT"] = systemroot or os.environ.get("SYSTEMROOT") or os.environ.get("SystemRoot") or DEFAULT_SYSTEMROOT
     return ServerLaunch(command, args, env)
+
+
+def _for_target(path, windows: bool, *, follow_links: bool) -> str:
+    """A path as the target platform reads it. One that is absolute there (a drive or UNC path for Windows, one from / for POSIX) is
+    kept exactly as given, whatever this machine is: a Windows profile written on Linux keeps its Windows path. A
+    relative one is made absolute against this machine's working directory."""
+    text = str(path)
+    if (PureWindowsPath if windows else PurePosixPath)(text).is_absolute():
+        return text
+    return str(Path(text).resolve() if follow_links else Path(text).absolute())
 
 
 def play_only_profile(*, mock: bool = False, session_file: Path | None = None, python: str | None = None,

@@ -77,7 +77,7 @@ uv sync --project companion --frozen                       # once: creates compa
 uv run --project companion --locked python -m unittest discover -s companion/tests
 ```
 
-Expected: `Ran 573 tests ... OK (skipped=3)` in two to three minutes. Skipped: the stand-in for a `contracts/` without
+Expected: `Ran 574 tests ... OK (skipped=3)` in two to three minutes. Skipped: the stand-in for a `contracts/` without
 the memory fields (today's contract carries them, so its counterpart runs instead), and the real host's go_to and
 fetch, which run once the host walks to things and fetches. `test_real_host.py` starts one headless game; it needs the
 pinned Godot .NET and .NET SDK and the C# project built (the runners build it first), and skips with the reason

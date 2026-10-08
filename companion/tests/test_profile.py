@@ -198,6 +198,7 @@ class SystemRoot(unittest.TestCase):
         process = subprocess.Popen([launch.command, *launch.args], env=env, stdin=subprocess.PIPE,
                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         replies: list[dict] = []
+        ended: list[bool] = []
         arrived = threading.Condition()
 
         def read() -> None:
@@ -207,6 +208,7 @@ class SystemRoot(unittest.TestCase):
                         replies.append(json.loads(line))
                         arrived.notify_all()
             with arrived:
+                ended.append(True)  # the server closed its output: nothing more will come
                 arrived.notify_all()
 
         reader = threading.Thread(target=read, daemon=True)
@@ -222,8 +224,7 @@ class SystemRoot(unittest.TestCase):
 
         def answer(request_id: int) -> bool:
             with arrived:
-                arrived.wait_for(lambda: any(r.get("id") == request_id for r in replies)
-                                 or (process.poll() is not None and not reader.is_alive()), 60)
+                arrived.wait_for(lambda: bool(ended) or any(r.get("id") == request_id for r in replies), 60)
                 return any(r.get("id") == request_id for r in replies)
 
         initialize = {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
@@ -295,6 +296,21 @@ class ClientFormats(unittest.TestCase):
                 self.assertNotIn("--no-lockdown", text)
                 for word in ("token", "secret", "password", "api_key", "apikey"):
                     self.assertNotIn(word, text.lower())
+
+    def test_a_path_is_read_as_the_target_platform_reads_it_on_any_host(self):
+        # A Windows profile keeps its Windows paths on a Linux host, and a POSIX one its POSIX paths on Windows;
+        # only a path relative on the target is made absolute, against this machine's working directory.
+        self.assertEqual(profile.server_launch(python=AWKWARD, windows=True).command, AWKWARD)
+        session = "D:\\Play\\companion\\session.json"
+        self.assertEqual(profile.server_launch(session_file=session, windows=True).args[-1], session)
+        posix = "/opt/enfractal/companion/.venv/bin/python"
+        self.assertEqual(profile.server_launch(python=posix, windows=False).command, posix)
+        self.assertEqual(profile.server_launch(python="venv/python", windows=ON_WINDOWS).command,
+                         str(Path("venv/python").absolute()))
+        for entry in profile.clients():
+            with self.subTest(client=entry["id"]):
+                text = profile.render_text(entry["format"], profile.server_launch(python=AWKWARD, windows=True), entry)
+                self.assertEqual(server_in(entry["format"], parse(entry["format"], text))["command"], AWKWARD)
 
     def test_the_documented_shapes_hold(self):
         codex = profile.render_text("mcp_servers-toml", self.launch, profile.client("codex"))
