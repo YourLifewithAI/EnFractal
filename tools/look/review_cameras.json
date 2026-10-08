@@ -101,6 +101,20 @@
       "focus_m": [0.225, 0.06, 0.6],
       "observe": true,
       "hide_player_body": false
+    },
+    {
+      "id": "observe_f3",
+      "label": "Observe view, F3 rig",
+      "purpose": "Run 2, brief 07: what the founder saw in the third playtest. The real HUD's F3 view (the orbit camera 1.4 m out at 45 degrees, a 40-degree lens, the pivot on the player, shared with the companion while it is near) with the observe switch (O) on, and the focus the look gives that camera. The player must stand clearly in focus, whole.",
+      "hud_view": 2,
+      "observe": true
+    },
+    {
+      "id": "observe_f4",
+      "label": "Observe view, F4 rig",
+      "purpose": "Run 2, brief 07: the same for the HUD's F4 view (2.7 m out at 35.26 degrees, a 30-degree lens), observe switch on.",
+      "hud_view": 3,
+      "observe": true
     }
   ],
   "sweep": {

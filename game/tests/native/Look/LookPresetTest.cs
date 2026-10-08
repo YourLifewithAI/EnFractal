@@ -551,8 +551,14 @@ public partial class LookPresetTest : Node3D
         var root = document.RootElement;
         var cameras = root.GetProperty("cameras").EnumerateArray().ToArray();
         var ids = cameras.Select(c => c.GetProperty("id").GetString()).ToArray();
-        Check(ids.Take(7).SequenceEqual(new[] { "player_eye", "over_shoulder", "companion", "low_corner", "ceiling_corner", "diorama_high", "iso_room" }) && ids.Skip(7).SequenceEqual(new[] { "window_view", "observe_view" })
-            && ids.Distinct().Count() == ids.Length, "the five baseline review cameras come first, then the two art-direction cameras and the window and observe views, in order, and ids are unique: " + string.Join(",", ids));
+        Check(ids.Take(7).SequenceEqual(new[] { "player_eye", "over_shoulder", "companion", "low_corner", "ceiling_corner", "diorama_high", "iso_room" }) && ids.Skip(7).SequenceEqual(new[] { "window_view", "observe_view", "observe_f3", "observe_f4" })
+            && ids.Distinct().Count() == ids.Length, "the five baseline review cameras come first, then the two art-direction cameras, the window and observe views and the two observe rigs, in order, and ids are unique: " + string.Join(",", ids));
+        // The two observe rigs are the real HUD's F3 and F4 views (placed by the HUD, not by a pose in this file) with the observe switch on.
+        var rigs = cameras.Where(c => c.TryGetProperty("hud_view", out _)).ToArray();
+        Check(rigs.Select(c => c.GetProperty("id").GetString()).SequenceEqual(new[] { "observe_f3", "observe_f4" })
+            && rigs.Select(c => c.GetProperty("hud_view").GetInt32()).SequenceEqual(new[] { 2, 3 }) && rigs.All(c => c.TryGetProperty("observe", out var o) && o.GetBoolean()),
+            "observe_f3 and observe_f4 mirror the HUD's F3 and F4 views with the observe switch on");
+        cameras = cameras.Where(c => !c.TryGetProperty("hud_view", out _)).ToArray();
         var baseline = new Dictionary<string, (Vector3 Position, Vector3 LookAt, float Fov)>
         {
             ["player_eye"] = (new Vector3(0f, 0.087f, 0.6f), new Vector3(-0.25f, 0.14f, -0.6f), 70f),
@@ -714,7 +720,7 @@ public partial class LookPresetTest : Node3D
                 Check(Mathf.IsEqualApprox(dof.FarDistance - dof.NearDistance, 0.14f)
                     && Mathf.IsEqualApprox(dof.NearTransition, 0.08f)
                     && Mathf.IsEqualApprox(dof.FarTransition, 0.10f)
-                    && Mathf.IsEqualApprox(dof.Amount, 0.30f), "Observe retains its tight width, ramps and amount");
+                    && Mathf.IsEqualApprox(dof.Amount, preset.Tuning.Dof.ObserveAmount), "Observe retains its tight width, ramps and the preset's amount");
             }
         var close = LookDirector.DepthOfFieldFor(preset, 0.05f, 0.7f, observe: true);
         Check(!close.NearEnabled && close.NearDistance <= 0.05f && close.FarDistance > 0.05f,
