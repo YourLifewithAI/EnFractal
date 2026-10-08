@@ -1,5 +1,6 @@
 using Godot;
 using System.Linq;
+using EnFractal.Native.Look;
 
 namespace EnFractal.Native;
 
@@ -18,6 +19,10 @@ public partial class NativeGameBoot : Node
         var world = GD.Load<PackedScene>("res://scenes/room.tscn").Instantiate<RoomWorld>();
         var room = arguments.FirstOrDefault(a => a.StartsWith("--room="))?["--room=".Length..];
         if (!string.IsNullOrWhiteSpace(room)) world.RoomDirectory = RoomWorld.ResolveRoom(room);
+        // A look preview: --style=v2 (the default style's version) or --style=<preset_id>/v<N>, overriding the room's pin.
+        var style = arguments.FirstOrDefault(a => a.StartsWith("--style="))?["--style=".Length..];
+        if (!string.IsNullOrWhiteSpace(style))
+            world.StylePresetPath = $"{StylePreset.StylesRoot}/{(style.Contains('/') ? style : $"{RoomWorld.DefaultStyleId}/{style}")}.json";
         DisplayServer.WindowSetTitle("EnFractal");
         AddChild(world);
     }
