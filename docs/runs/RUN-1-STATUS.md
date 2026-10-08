@@ -1,5 +1,7 @@
 # Run 1 status: handoff, 7 October 2026 (late evening, second machine: the look locked, Codex in, the Run 1 report and the Run 2 draft)
 
+> **Run 1 is complete** (the founder signed off the 10 cm body on the night of 7 October). **The live handoff is now [RUN-2-STATUS.md](RUN-2-STATUS.md).** This page stays as Run 1's record.
+
 Run 1 is **in progress**. This page is the handoff: where every lane stands, what the founder decided, and what happens next. An integrating session also reads [ORCHESTRATION.md](ORCHESTRATION.md) (session budget, model routing, testing and reviews). The final record will be `RUN-1-REPORT.md`.
 
 ## Branches (integration as pushed on 7 October)

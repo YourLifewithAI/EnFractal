@@ -4,16 +4,14 @@
 
 ## Outcome
 
-Run 1 met its goal. The founder accepted the look of the placeholder room and the garage capture guidance. The command surface passes its boundary tests against the mock, and a non-Claude client completed the live check. The body was tuned through two playtests.
+Run 1 met its goal, and the founder closed it on the night of 7 October. The founder accepted the look of the placeholder room and the garage capture guidance, and signed off the 10 cm body after three playtests. The command surface passes its boundary tests against the mock, and a non-Claude client completed the live check. The Windows and Linux suites pass.
 
-Two items remain:
-- the founder's word that the body feels right comes with the third playtest;
-- no reviewer scored the look against the bible's rubric. The founder's verdict passed the look instead.
+One gap remains: no reviewer scored the look against the bible's rubric. The founder's verdict passed the look instead.
 
 | Goal (RUN-1.md) | Result |
 |---|---|
 | The placeholder room reads as a charming handmade toy diorama from fixed review cameras | **Passed by the founder,** 7 October: "The captures are fine. No big changes necessary." The preset `storybook_painterly` v1 is locked as `candidate`, and `contracts/tests` pins its bytes |
-| The player is a 10 cm body that feels right | **Built and tuned through two playtests.** The 0.10 m profile, faster run, floatier gravity, the companion at 10 cm, and loose follow with routing round the big box. The founder's word on feel is pending the third playtest |
+| The player is a 10 cm body that feels right | **Signed off by the founder,** 7 October (night), after three playtests. The 0.10 m profile, faster run, floatier gravity, the companion at 10 cm, and loose follow with routing round the big box. Smaller bodies (1 cm, say) are worth trying once a fully rendered room exists |
 | The garage photo set yields a coverage report with specific capture guidance | **Passed by the founder,** 6 October: "the guidance is useful". The room's scale is fitted to the founder's tape measurements, within 2 to 4% on each axis |
 | The AI command surface passes its boundary tests against a mock game host | **Passed.** The companion suite is at 501 tests. Codex (GPT-6.1 Sol) listed the 25 tools, completed `observe` and `goal.set` against the mock, and its red team found no breaks |
 

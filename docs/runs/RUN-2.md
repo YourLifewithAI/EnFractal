@@ -1,6 +1,6 @@
 # Run 2: five real objects (draft plan, for the founder's approval)
 
-**Status:** draft, 7 October 2026, revised the same night after the founder's corrections (below). It starts when the founder approves it.
+**Status:** **approved by the founder, late on 7 October 2026,** after the founder's corrections (below). The live handoff is [RUN-2-STATUS.md](RUN-2-STATUS.md).
 
 **Goal:** the garage, scanned from the founder's existing photos, becomes a generally faithful, stylised, playable space in the game: its shell and five of its objects as stand-ins at their scanned sizes and places. The player picks one up and carries it. The companion fetches one, through the real game host instead of the mock. The room rebuilds from data. The journal's data layer exists. This is the roadmap's Run 2 ([ROOM-SCALE-DIRECTION.md](../ROOM-SCALE-DIRECTION.md#the-runs)) with the garage's shell pulled forward from Run 3, because scanning a room into a playable space is the product. The test room stays as the regression room.
 
@@ -109,11 +109,23 @@ Codex works as the integrator's assistant. The integrator writes the briefs and 
 
 They don't overlap: a Codex brief's scope never names a file a running lane owns.
 
-Planned Codex work:
-- **A second-opinion review** of each lane's branch before it merges, alongside the Opus whole-lane reviews (first trial: commit `729858a`, four real findings in about 100k tokens).
-- **The Linux suite** on the merged head, in WSL or a Codex cloud task.
-- **Research** (generator licences, client config formats) and docs upkeep.
-- **Mechanical, well-scoped code,** such as the HUD change in brief 06.
+**Who does what (decided by the integrator, 7 October).** The rule: Codex takes work that is bounded, checkable and owned by no running lane. Claude lanes keep the kernel, the command host, the companion's security boundary, the contracts and anything needing the GPU.
+
+| Work | Who | Why |
+|---|---|---|
+| Contract changes: sandbox verbs, opaque `job_id`, `journal.read`, `journal.note`, `map.find`, room state's `journal` and `discovered` | **The integrator** | Contracts are the integration point |
+| P3 sandbox verbs, P6 world as data, the map store and journal writer | **Claude, Lane P (Opus)** | Kernel and host: reviews keep finding majors here |
+| A2 swap to the real host, fetch, the journal's queries, `job_id`, per-client profiles | **Claude, Lane A (Opus)** | The security boundary |
+| C3 shell and C4 inventory from the garage poses | **Claude, Lane C (Sonnet)** | Needs the GPU and the local capture data |
+| **The recipe library:** the five founder-named recipes, then one per kind of object C4 finds | **Codex** | Bounded and checkable, and it tests "the player's AI makes it". Brief 09 showed it works |
+| **The stand-ins:** building the five garage objects from C4's inventory, with the recipes or TripoSR | **Codex,** with Lane C's fitting, collision and asset code | Codex plays the player's AI |
+| **C7 guidance:** the skill text and the MCP tool sketch, written from what Codex did | **Codex drafts, the integrator edits** | The guidance should come from real use |
+| **The cold test:** a fresh Codex session adds one object using only the guidance | **Codex** | A non-Claude AI is the honest test |
+| TripoSR's local install and a trial on the RTX 2070 SUPER | **Claude, Lane C** | GPU, with the courtesy rules |
+| The v2 preset: the observe focus (brief 07's diffs A1–A3 and C1) and its frame budget; then L4 and L6 | **Claude, Lane L (Sonnet)** under the capture budget | GPU captures; the diffs are already exact |
+| A second-opinion review of every lane branch before it merges | **Codex** | Another vendor catches what Claude misses |
+| Research (open-license detection and segmentation models for C4) and docs upkeep | **Codex** | Cheap and checkable |
+| The Linux suite on each merged head | **The integrator** (one command in WSL) | Codex's sandbox has no network and cannot start WSL |
 
 The routing log records every Codex run, so later runs can move more work to it if it stays clean.
 
