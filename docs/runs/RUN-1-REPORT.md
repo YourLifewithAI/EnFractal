@@ -6,8 +6,7 @@
 
 Run 1 met its goal. The founder accepted the look of the placeholder room and the garage capture guidance. The command surface passes its boundary tests against the mock, and a non-Claude client completed the live check. The body was tuned through two playtests.
 
-Three items remain:
-- the Linux suite has not yet run on the merged head;
+Two items remain:
 - the founder's word that the body feels right comes with the third playtest;
 - no reviewer scored the look against the bible's rubric. The founder's verdict passed the look instead.
 
@@ -22,7 +21,7 @@ Three items remain:
 
 | # | Evidence | State |
 |---|---|---|
-| 1 | `tools/linux/test-all.sh` and the Windows runners pass on the merged head | **Windows: pass** (authority 266, canonical JSON 31/31, command host 419/419, play HUD 72/72, companion 501, small avatar 160/160, room navigation 10/10, room data 56/56, look 367/367, contracts 44, release probe). **Linux: not yet run.** WSL Ubuntu on the second machine lacks `unzip` and `uv`, so it can run there once the founder agrees to install them. A Codex cloud task would need an EnFractal environment first |
+| 1 | `tools/linux/test-all.sh` and the Windows runners pass on the merged head | **Windows: pass** (authority 266, canonical JSON 31/31, command host 419/419, play HUD 72/72, companion 501, small avatar 160/160, room navigation 10/10, room data 56/56, look 367/367, contracts 44, release probe). **Linux: pass** (late on 7 October, WSL Ubuntu on the second machine, at `2cbefcf` plus two script fixes): `test-all.sh` exit 0, 26 checks passed, including contracts 44, companion 501 and roomscan 83. The fixes: Godot's root warning is silenced, and the companion package is registered in its Linux environment so a client launched from the profile finds it |
 | 2 | Look captures and scores in `docs/look/reviews/run1/`, with the founder's verdict | Captures: one before and one after set of the final round, at 1920 × 1080 on the RTX 2070 SUPER. Verdict: recorded. **No rubric scores:** the two Lane L reviews were for correctness and tests, not the look rubric |
 | 3 | The garage coverage report and the founder's verdict, with photos kept out of Git | Done. The report and its map stay in the capture worktree's `captures/garage/` on the first machine, never committed |
 | 4 | The A1 boundary-test report and the real-client transcript summary | Done: the companion suite, and [the Codex brief 02 report](../codex/reports/02-mcp-client-red-team.md) |
@@ -87,7 +86,7 @@ They are recorded in full in [RUN-1-STATUS.md](RUN-1-STATUS.md) and summarised i
 ## What did not go to plan
 
 - **The look rubric was never scored** by an independent reviewer. The founder judged the captures directly. Run 3's L7 review harness should restore scoring if the founder wants it.
-- **The Linux suite** waited all run for a cloud session. It still waits, on a small install in WSL or a Codex cloud environment.
+- **The Linux suite** waited all run for a cloud session. It ran at the very end, in WSL. It found that the Linux setup never installed the companion package, so the profile-launch test could not pass there, and that Godot's root warning failed every suite in a root container.
 - **The path trap:** PowerShell's `cd` does not move .NET's working directory. An agent in a worktree corrupted the integrator's `project.godot` through it. The trap is now in `AGENTS.md`.
 - **Duplicated GPU work** in look rounds: 10 or so avoidable captures in the last round. The capture budget in ORCHESTRATION.md came mid-run.
 - **The integrator's inverted reading** of the garage scale was caught by the Lane C reviewer. This argues for independent review of the integrator's own analysis, which Codex now provides.

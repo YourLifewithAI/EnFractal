@@ -13,6 +13,8 @@ export DOTNET_ROOT="$LINUX/dotnet" PATH="$LINUX/dotnet:$PATH" DOTNET_CLI_HOME="$
 export XDG_DATA_HOME="$LINUX/test-data" XDG_CONFIG_HOME="$LINUX/test-config"
 mkdir -p "$DOTNET_CLI_HOME" "$NUGET_PACKAGES" "$XDG_DATA_HOME" "$XDG_CONFIG_HOME"
 P="$REPO/game"; LOG="$LINUX/test-logs"; mkdir -p "$LOG"; failed=0
+# Containers and WSL often run as root, and Godot then warns on stderr, which every check here treats as a failure.
+export GODOT_SILENCE_ROOT_WARNING=1
 
 echo "== C# build"
 if ! dotnet build "$P/EnFractal.csproj" -nologo -v:q -warnaserror > "$LOG/build.log" 2>&1; then cat "$LOG/build.log"; failed=1; else echo "PASS build (warnings are errors)"; fi

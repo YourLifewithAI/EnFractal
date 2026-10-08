@@ -33,6 +33,9 @@ echo "ok  contract validator environment"
 python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else "the companion needs Python 3.11 or newer")'
 if [ ! -x "$DEST/companion-venv/bin/python" ]; then python3 -m venv "$DEST/companion-venv"; fi
 "$DEST/companion-venv/bin/pip" install -q --require-hashes -r "$REPO/companion/requirements.lock.txt"
+# The package itself goes on the environment's own path, as uv installs it on Windows: a client launched from the
+# play-only profile starts the server with a clean environment, so PYTHONPATH alone would not reach it.
+"$DEST/companion-venv/bin/python" -I -c 'import sys, sysconfig, pathlib; pathlib.Path(sysconfig.get_paths()["purelib"], "enfractal_companion_src.pth").write_text(sys.argv[1])' "$REPO/companion/src"
 echo "ok  companion environment"
 "$REPO/$(field engine_linux marker)" --version
 "$DEST/dotnet/dotnet" --list-sdks

@@ -29,7 +29,7 @@ Evidence on `run1/integration` after Lane L's change requests (late on 7 October
 | Mutations | 3 of 3 caught: a reveal on every hole, a window a body can pass, a changed byte in the locked preset |
 | roomscan | 84 passed in 40 s in the C fix round (`36b71c5`); not rerun at integration, which changed no Lane C file |
 
-`tools/linux/test-all.sh` has not been run on this head; a cloud session should run it. Before the kernel round its dump check would have failed on `capabilities.list`.
+**`tools/linux/test-all.sh`: pass,** late on 7 October in WSL Ubuntu on the second machine. Exit 0, 26 checks passed, including contracts 44, companion 501 and roomscan 83. That needed two script fixes, now committed: the root warning is silenced, and the companion package is registered in its Linux environment.
 
 ## Still open
 
@@ -370,7 +370,7 @@ The source is the Google Doc `Look and Art Style direction`, with ten frames fro
        - **building: the founder answered `BUILDING.md`'s five open questions on 7 October** (`96c4326`). A warning before a support moves, except for an opponent's building; buildings fall when their support goes. Plants grow faster than the real clock. Companion drafts after asking. Several options, toggled. Spiral stairs;
        - **modes: deferred** by the founder ("Run 3 or 4 maybe?"). Integrator's proposal: write the modes design in Run 3, so building and the journal fit it, and build the first challenge mode in the scenarios run after the garage milestone.
      - **Proposed and not yet decided:** Run 3 "build with your companion" (the Victorian kit, the journal and minimap, selective memory, felt avatars); Run 4 the whole garage (the old Run 3 milestone). Voice waits until the baseline game works.
-3. **A cloud session** runs `tools/linux/test-all.sh` on the merged head.
+3. ~~A cloud session runs `tools/linux/test-all.sh`~~: done in WSL late on 7 October. To rerun on the second machine, use `wsl -d Ubuntu`, then `cd /root/enfractal-linux`, `git pull`, and `tools/linux/test-all.sh`. The clone's origin is `C:\dev\EnFractal` through `/mnt/c`.
 
 ## Picking this up
 
