@@ -1,0 +1,12 @@
+SPIKE_UNION vertices=14065 triangles=28110
+00:34.438  render           | Saved: 'C:\dev\EnFractal-codex\12-room-to-landscape\docs\codex\spikes\12-room-to-landscape\hybrid_overview.png'
+SPIKE_RENDER route=hybrid view=overview engine=CYCLES device=CPU denoise=OIDN_CPU pixels=960x540 samples=48 threads=4 seconds=19.004 bytes=374821
+01:26.094  render           | Saved: 'C:\dev\EnFractal-codex\12-room-to-landscape\docs\codex\spikes\12-room-to-landscape\hybrid_low.png'
+SPIKE_RENDER route=hybrid view=low engine=CYCLES device=CPU denoise=OIDN_CPU pixels=960x540 samples=48 threads=4 seconds=51.665 bytes=383568
+SPIKE_BOUNDS route=hybrid objects=7 max_error_m=0.000000200
+Blender 5.2.2 LTS (hash d13f752e3b9c built 2026-09-15 01:37:04)
+
+Blender quit
+
+C:\dev\EnFractal-codex\12-room-to-landscape\docs\codex\spikes\12-room-to-landscape\render_worker.py:465: DeprecationWarning: 'World.use_nodes' is expected to be removed in Blender 6.0
+  scene.world.use_nodes=True

@@ -1,0 +1,625 @@
+{
+  "route": "hybrid",
+  "blender": "5.2.2 LTS",
+  "cpu_only": true,
+  "denoising": "OPENIMAGEDENOISE_CPU",
+  "objects": [
+    {
+      "id": "couch",
+      "expected": {
+        "min_m": [
+          -2.1,
+          0,
+          -2.835
+        ],
+        "max_m": [
+          0.0,
+          0.83,
+          -1.8849999999999998
+        ]
+      },
+      "measured": {
+        "min_m": [
+          -2.0999999046325684,
+          0.0,
+          -2.8349997997283936
+        ],
+        "max_m": [
+          0.0,
+          0.8299999833106995,
+          -1.8849998712539673
+        ]
+      },
+      "delta_m": {
+        "min_m": [
+          9.536743172944284e-08,
+          0.0,
+          2.0027160640978536e-07
+        ],
+        "max_m": [
+          0.0,
+          -1.6689300497141346e-08,
+          1.2874603250168093e-07
+        ]
+      },
+      "max_error_m": 2.0027160640978536e-07,
+      "source_colours": {
+        "upholstery": "#50757b",
+        "legs": "#775035"
+      },
+      "slopes": {
+        "upward_area_m2": 4.696721825946952,
+        "walk_candidate_fraction": 0.15440983729333022,
+        "climb_candidate_fraction": 0.11828924495612701,
+        "too_steep_fraction": 0.7273009177505427,
+        "assumed_thresholds_degrees": [
+          35,
+          55
+        ],
+        "note": "Area only, no connectivity, clearance, collision or jump certification."
+      },
+      "parts": 9,
+      "checked_closed_parts": 9,
+      "measurement_stage": "fitted donor geometry before CSG union"
+    },
+    {
+      "id": "cardboard_box",
+      "expected": {
+        "min_m": [
+          -0.55,
+          0,
+          0.05000000000000002
+        ],
+        "max_m": [
+          -0.14999999999999997,
+          0.25,
+          0.35
+        ]
+      },
+      "measured": {
+        "min_m": [
+          -0.550000011920929,
+          0.0,
+          0.04999999701976776
+        ],
+        "max_m": [
+          -0.14999999105930328,
+          0.25,
+          0.3500000238418579
+        ]
+      },
+      "delta_m": {
+        "min_m": [
+          -1.1920928910669204e-08,
+          0.0,
+          -2.9802322554228766e-09
+        ],
+        "max_m": [
+          8.940696683001903e-09,
+          0.0,
+          2.384185793236071e-08
+        ]
+      },
+      "max_error_m": 2.384185793236071e-08,
+      "source_colours": {
+        "cardboard": "#ad804e",
+        "edges": "#c49b68"
+      },
+      "slopes": {
+        "upward_area_m2": 0.28664514431511634,
+        "walk_candidate_fraction": 0.21732455092367597,
+        "climb_candidate_fraction": 0.12042627946379643,
+        "too_steep_fraction": 0.6622491696125276,
+        "assumed_thresholds_degrees": [
+          35,
+          55
+        ],
+        "note": "Area only, no connectivity, clearance, collision or jump certification."
+      },
+      "parts": 1,
+      "checked_closed_parts": 1,
+      "measurement_stage": "fitted donor geometry before CSG union"
+    },
+    {
+      "id": "gaming_laptop",
+      "expected": {
+        "min_m": [
+          -0.5289999999999999,
+          0.25,
+          0.061
+        ],
+        "max_m": [
+          -0.17099999999999999,
+          0.49,
+          0.339
+        ]
+      },
+      "measured": {
+        "min_m": [
+          -0.5289999842643738,
+          0.25,
+          0.06100000441074371
+        ],
+        "max_m": [
+          -0.17099998891353607,
+          0.49000000953674316,
+          0.33899998664855957
+        ]
+      },
+      "delta_m": {
+        "min_m": [
+          1.5735626135437997e-08,
+          0.0,
+          4.410743714711174e-09
+        ],
+        "max_m": [
+          1.1086463913567712e-08,
+          9.536743172944284e-09,
+          -1.3351440453224228e-08
+        ]
+      },
+      "max_error_m": 1.5735626135437997e-08,
+      "source_colours": {
+        "shell": "#30343c",
+        "keyboard": "#161922",
+        "screen": "#497488"
+      },
+      "slopes": {
+        "upward_area_m2": 0.19603415520799672,
+        "walk_candidate_fraction": 0.3768762606955572,
+        "climb_candidate_fraction": 0.22346597818597638,
+        "too_steep_fraction": 0.39965776111846646,
+        "assumed_thresholds_degrees": [
+          35,
+          55
+        ],
+        "note": "Area only, no connectivity, clearance, collision or jump certification."
+      },
+      "parts": 5,
+      "checked_closed_parts": 5,
+      "measurement_stage": "fitted donor geometry before CSG union"
+    },
+    {
+      "id": "shelves",
+      "expected": {
+        "min_m": [
+          2.2,
+          0,
+          -1.6
+        ],
+        "max_m": [
+          2.7,
+          1.7,
+          0.20000000000000007
+        ]
+      },
+      "measured": {
+        "min_m": [
+          2.200000047683716,
+          0.0,
+          -1.5999999046325684
+        ],
+        "max_m": [
+          2.700000047683716,
+          1.7000000476837158,
+          0.19999998807907104
+        ]
+      },
+      "delta_m": {
+        "min_m": [
+          4.7683715642676816e-08,
+          0.0,
+          9.536743172944284e-08
+        ],
+        "max_m": [
+          4.7683715642676816e-08,
+          4.768371586472142e-08,
+          -1.1920929021691506e-08
+        ]
+      },
+      "max_error_m": 9.536743172944284e-08,
+      "source_colours": {
+        "body": "#775035"
+      },
+      "slopes": {
+        "upward_area_m2": 4.04191664924879,
+        "walk_candidate_fraction": 0.10667871077567655,
+        "climb_candidate_fraction": 0.049932009724133204,
+        "too_steep_fraction": 0.8433892795001903,
+        "assumed_thresholds_degrees": [
+          35,
+          55
+        ],
+        "note": "Area only, no connectivity, clearance, collision or jump certification."
+      },
+      "parts": 10,
+      "checked_closed_parts": 10,
+      "measurement_stage": "fitted donor geometry before CSG union"
+    },
+    {
+      "id": "jam_jar",
+      "expected": {
+        "min_m": [
+          2.5580000000000003,
+          1.7,
+          -0.40199999999999997
+        ],
+        "max_m": [
+          2.642,
+          1.795,
+          -0.318
+        ]
+      },
+      "measured": {
+        "min_m": [
+          2.557999849319458,
+          1.7000000476837158,
+          -0.4020000100135803
+        ],
+        "max_m": [
+          2.6419999599456787,
+          1.7950000762939453,
+          -0.31800001859664917
+        ]
+      },
+      "delta_m": {
+        "min_m": [
+          -1.5068054226574645e-07,
+          4.768371586472142e-08,
+          -1.0013580353795959e-08
+        ],
+        "max_m": [
+          -4.005432119313923e-08,
+          7.629394538355427e-08,
+          -1.8596649165036894e-08
+        ]
+      },
+      "max_error_m": 1.5068054226574645e-07,
+      "source_colours": {
+        "glass": "#f3fafb",
+        "lid": "#bb2939"
+      },
+      "slopes": {
+        "upward_area_m2": 0.02421720603479116,
+        "walk_candidate_fraction": 0.20341191356816693,
+        "climb_candidate_fraction": 0.07746133204909082,
+        "too_steep_fraction": 0.7191267543827422,
+        "assumed_thresholds_degrees": [
+          35,
+          55
+        ],
+        "note": "Area only, no connectivity, clearance, collision or jump certification."
+      },
+      "parts": 3,
+      "checked_closed_parts": 3,
+      "measurement_stage": "fitted donor geometry before CSG union"
+    },
+    {
+      "id": "french_press",
+      "expected": {
+        "min_m": [
+          2.495,
+          1.7,
+          -0.9335
+        ],
+        "max_m": [
+          2.665,
+          1.9449999999999998,
+          -0.8265
+        ]
+      },
+      "measured": {
+        "min_m": [
+          2.494999885559082,
+          1.7000000476837158,
+          -0.9334999918937683
+        ],
+        "max_m": [
+          2.6649999618530273,
+          1.9450000524520874,
+          -0.8264999985694885
+        ]
+      },
+      "delta_m": {
+        "min_m": [
+          -1.1444091807533141e-07,
+          4.768371586472142e-08,
+          8.106231685900411e-09
+        ],
+        "max_m": [
+          -3.814697269177714e-08,
+          5.2452087562215866e-08,
+          1.4305114870438729e-09
+        ]
+      },
+      "max_error_m": 1.1444091807533141e-07,
+      "source_colours": {
+        "beaker": "#e8f4f5",
+        "frame": "#aeb5bd",
+        "handle": "#272b30"
+      },
+      "slopes": {
+        "upward_area_m2": 0.09889501093612552,
+        "walk_candidate_fraction": 0.23842853330739683,
+        "climb_candidate_fraction": 0.09522730775831284,
+        "too_steep_fraction": 0.6663441589342903,
+        "assumed_thresholds_degrees": [
+          35,
+          55
+        ],
+        "note": "Area only, no connectivity, clearance, collision or jump certification."
+      },
+      "parts": 5,
+      "checked_closed_parts": 5,
+      "measurement_stage": "fitted donor geometry before CSG union"
+    },
+    {
+      "id": "rug",
+      "expected": {
+        "min_m": [
+          -1.4249999999999998,
+          0,
+          0.575
+        ],
+        "max_m": [
+          0.22499999999999998,
+          0.008,
+          1.7249999999999999
+        ]
+      },
+      "measured": {
+        "min_m": [
+          -1.4249999523162842,
+          0.0,
+          0.574999988079071
+        ],
+        "max_m": [
+          0.22499996423721313,
+          0.00800000037997961,
+          1.7249999046325684
+        ]
+      },
+      "delta_m": {
+        "min_m": [
+          4.7683715642676816e-08,
+          0.0,
+          -1.1920928910669204e-08
+        ],
+        "max_m": [
+          -3.5762786843029915e-08,
+          3.799796102765818e-10,
+          -9.536743150739824e-08
+        ]
+      },
+      "max_error_m": 9.536743150739824e-08,
+      "source_colours": {
+        "body": "#b68c98"
+      },
+      "slopes": {
+        "upward_area_m2": 1.8982277155737393,
+        "walk_candidate_fraction": 1.0,
+        "climb_candidate_fraction": 0.0,
+        "too_steep_fraction": 0.0,
+        "assumed_thresholds_degrees": [
+          35,
+          55
+        ],
+        "note": "Area only, no connectivity, clearance, collision or jump certification."
+      },
+      "parts": 1,
+      "checked_closed_parts": 1,
+      "measurement_stage": "fitted donor geometry before CSG union"
+    }
+  ],
+  "renders": [
+    {
+      "path": "hybrid_overview.png",
+      "seconds": 19.00389570000698,
+      "raw_bytes": 374821,
+      "camera_m_blender": [
+        4.599999904632568,
+        -8.800000190734863,
+        10.699999809265137
+      ],
+      "ceiling_hidden": true,
+      "final_bytes": 370959,
+      "metadata_stripped": true
+    },
+    {
+      "path": "hybrid_low.png",
+      "seconds": 51.66480389999924,
+      "raw_bytes": 383568,
+      "camera_m_blender": [
+        -0.8199999928474426,
+        -1.090000033378601,
+        0.10000000149011612
+      ],
+      "ceiling_hidden": false,
+      "final_bytes": 377673,
+      "metadata_stripped": true
+    }
+  ],
+  "avatar_height_m": 0.1,
+  "union": {
+    "algorithm": "EXACT Boolean union of fitted donors with floor",
+    "vertices": 14065,
+    "slopes": {
+      "upward_area_m2": 39.345424620796116,
+      "walk_candidate_fraction": 0.7925301048624075,
+      "climb_candidate_fraction": 0.021367087980605156,
+      "too_steep_fraction": 0.18610280715698715,
+      "assumed_thresholds_degrees": [
+        35,
+        55
+      ],
+      "note": "Area only, no connectivity, clearance, collision or jump certification."
+    },
+    "bounds_blender_m": [
+      [
+        -2.75,
+        -3.0,
+        -0.07999999821186066
+      ],
+      [
+        2.75,
+        3.0,
+        1.9450000524520874
+      ]
+    ],
+    "nonmanifold_edges": 0,
+    "degenerate_triangles": 13,
+    "used_materials": [
+      {
+        "name": "ground",
+        "base_srgb": "#a7aa95",
+        "source_srgb": null
+      },
+      {
+        "name": "couch_hybrid_grass",
+        "base_srgb": "#587b73",
+        "source_srgb": "#50757b"
+      },
+      {
+        "name": "couch_hybrid_rock",
+        "base_srgb": "#5a7980",
+        "source_srgb": "#50757b"
+      },
+      {
+        "name": "couch_hybrid_scree",
+        "base_srgb": "#7c8a7d",
+        "source_srgb": "#50757b"
+      },
+      {
+        "name": "couch_hybrid_shadow",
+        "base_srgb": "#557581",
+        "source_srgb": "#50757b"
+      },
+      {
+        "name": "leaf",
+        "base_srgb": "#6e9473",
+        "source_srgb": null
+      },
+      {
+        "name": "dark",
+        "base_srgb": "#3e5660",
+        "source_srgb": null
+      },
+      {
+        "name": "cardboard_box_hybrid_grass",
+        "base_srgb": "#9b8352",
+        "source_srgb": "#ad804e"
+      },
+      {
+        "name": "cardboard_box_hybrid_rock",
+        "base_srgb": "#a4825c",
+        "source_srgb": "#ad804e"
+      },
+      {
+        "name": "cardboard_box_hybrid_scree",
+        "base_srgb": "#b89260",
+        "source_srgb": "#ad804e"
+      },
+      {
+        "name": "cardboard_box_hybrid_shadow",
+        "base_srgb": "#9a7e60",
+        "source_srgb": "#ad804e"
+      },
+      {
+        "name": "gaming_laptop_hybrid_grass",
+        "base_srgb": "#414c45",
+        "source_srgb": "#30343c"
+      },
+      {
+        "name": "gaming_laptop_hybrid_rock",
+        "base_srgb": "#40454d",
+        "source_srgb": "#30343c"
+      },
+      {
+        "name": "gaming_laptop_hybrid_scree",
+        "base_srgb": "#676054",
+        "source_srgb": "#30343c"
+      },
+      {
+        "name": "gaming_laptop_hybrid_shadow",
+        "base_srgb": "#3d4452",
+        "source_srgb": "#30343c"
+      },
+      {
+        "name": "shelves_hybrid_grass",
+        "base_srgb": "#746140",
+        "source_srgb": "#775035"
+      },
+      {
+        "name": "shelves_hybrid_rock",
+        "base_srgb": "#795c48",
+        "source_srgb": "#775035"
+      },
+      {
+        "name": "shelves_hybrid_scree",
+        "base_srgb": "#957250",
+        "source_srgb": "#775035"
+      },
+      {
+        "name": "shelves_hybrid_shadow",
+        "base_srgb": "#725a4d",
+        "source_srgb": "#775035"
+      },
+      {
+        "name": "cream",
+        "base_srgb": "#e8dfc3",
+        "source_srgb": null
+      },
+      {
+        "name": "rose",
+        "base_srgb": "#b75e72",
+        "source_srgb": null
+      },
+      {
+        "name": "jam_jar_source_tint",
+        "base_srgb": "#f3fafb",
+        "source_srgb": null
+      },
+      {
+        "name": "jar_lid_ruby",
+        "base_srgb": "#bb2939",
+        "source_srgb": null
+      },
+      {
+        "name": "jam_jar_hybrid_grass",
+        "base_srgb": "#cddbcf",
+        "source_srgb": "#f3fafb"
+      },
+      {
+        "name": "french_press_source_tint",
+        "base_srgb": "#e8f4f5",
+        "source_srgb": null
+      },
+      {
+        "name": "glow",
+        "base_srgb": "#fff1ce",
+        "source_srgb": null
+      },
+      {
+        "name": "french_press_hybrid_grass",
+        "base_srgb": "#c6d7ca",
+        "source_srgb": "#e8f4f5"
+      },
+      {
+        "name": "rug_grass",
+        "base_srgb": "#a28c87",
+        "source_srgb": "#b68c98"
+      },
+      {
+        "name": "rug_scree",
+        "base_srgb": "#be9990",
+        "source_srgb": "#b68c98"
+      }
+    ]
+  },
+  "limits": [
+    "Source box fidelity is not occupied-shape fidelity.",
+    "Donor AABBs measured before union; contact interiors removed by CSG.",
+    "Shell and ceiling remain separate solids to preserve apertures and cutaway.",
+    "Slope candidates are not tested avatar routes; shelf interiors are filled."
+  ]
+}

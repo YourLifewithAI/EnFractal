@@ -1,0 +1,45 @@
+{
+  "schema": "enfractal.asset",
+  "version": 1,
+  "asset_id": "shelves",
+  "display_name": "Shelves",
+  "category": "shelves",
+  "category_group": "other",
+  "tier": "proxy",
+  "provenance": {
+    "kind": "placeholder",
+    "license": "Original EnFractal placeholder; CC0-1.0",
+    "created_utc": "2026-10-06T00:00:00Z",
+    "notes": "Assumed synthetic bounds. Recipe defaults for five recognised objects; no scan."
+  },
+  "pivot": "bottom_center",
+  "dimensions_m": [
+    0.5,
+    1.7,
+    1.8
+  ],
+  "geometry": {
+    "kind": "primitive",
+    "primitive": "box"
+  },
+  "collision": {
+    "kind": "primitive"
+  },
+  "physics": {
+    "movable": true,
+    "mass_kg": 1.5
+  },
+  "materials": [
+    {
+      "slot": "body",
+      "role": "wood",
+      "base_color": "#775035"
+    }
+  ],
+  "affordances": [],
+  "review": {
+    "status": "draft",
+    "notes": "Synthetic source box only; not a landscape approval."
+  },
+  "files": []
+}
