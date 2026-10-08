@@ -1,6 +1,6 @@
 """Check that a codex/ branch changed only the files its brief allows.
 
-Usage: python tools/codex/check_scope.py codex/<brief> [--base origin/run1/integration]
+Usage: python tools/codex/check_scope.py codex/<brief> [--base origin/run2/integration]
 
 The brief is docs/codex/briefs/<brief>.md; its ```scope fenced block lists globs (fnmatch, where * also
 matches /). Exits 1 and lists the offending paths if the branch touched anything else.
@@ -24,7 +24,7 @@ def git(*args: str) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("branch")
-    parser.add_argument("--base", default="origin/run1/integration")
+    parser.add_argument("--base", default="origin/run2/integration")
     parser.add_argument("--ref", help="check this ref instead of origin/<branch> (for a local branch)")
     args = parser.parse_args()
     name = args.branch.removeprefix("origin/").removeprefix("codex/")

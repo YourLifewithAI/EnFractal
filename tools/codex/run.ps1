@@ -26,7 +26,7 @@ param(
     [Parameter(Mandatory)] [string]$Out,
     # Default: C:\dev\EnFractal-codex\<brief>; a -Prompt job gets C:\dev\EnFractal-codex\scratch, detached at -Base.
     [string]$Checkout,
-    [string]$Base = 'origin/run1/integration',
+    [string]$Base = 'origin/run2/integration',
     [string]$Model = 'gpt-6.1-sol',
     [ValidateSet('low', 'medium', 'high', 'xhigh')] [string]$Effort = 'medium',
     [switch]$Search,

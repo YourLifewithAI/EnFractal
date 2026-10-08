@@ -5,7 +5,7 @@ You are a contractor on EnFractal, working for the integrator: the Claude sessio
 ## How a job works
 
 1. **The founder gives you one brief** from `docs/codex/briefs/`. Do that brief and nothing else. If no brief was named, stop and ask.
-2. **Branch.** Start from `run1/integration` (or the base the brief names) and work on `codex/<brief file name without .md>`, for example `codex/01-linux-suite`. Never commit to or push `main`, `run1/*` or anyone else's branch.
+2. **Branch.** Start from the current run's integration branch, `run2/integration` (or the base the brief names) and work on `codex/<brief file name without .md>`, for example `codex/01-linux-suite`. Never commit to or push `main`, a `run<n>/` branch or anyone else's branch.
 3. **Write only inside the brief's `scope` block.** Its globs list every file you may create or change. Everything else is read-only, however small the fix looks. If the job seems to need a change outside the scope, describe it, with the exact diff, in your report instead. The integrator checks every `codex/` branch with `tools/codex/check_scope.py`, and a branch that touches anything outside its scope is not merged.
 4. **Deliver a report** at the path the brief gives, normally `docs/codex/reports/<brief name>.md`, with the evidence the brief asks for.
 
