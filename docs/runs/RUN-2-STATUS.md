@@ -1,6 +1,21 @@
-# Run 2 status: handoff, 7 October 2026 (night), before Run 2 starts
+# Run 2 status
 
-Run 2 has **not started**. This page is the handoff for the next integrating session. Read it with [ORCHESTRATION.md](ORCHESTRATION.md) (session budget, model routing, testing, reviews), the approved plan [RUN-2.md](RUN-2.md) and [AGENTS.md](../../AGENTS.md). Run 1's record is [RUN-1-REPORT.md](RUN-1-REPORT.md), with the day-by-day detail in [RUN-1-STATUS.md](RUN-1-STATUS.md).
+**Run 2 started on 7 October 2026 (evening, local).** This page is the handoff for the next integrating session.
+
+## Now (7 October, evening)
+
+- **PR #7 is merged** (the founder's approval): Run 1 is on `main` at `b0ecf18`. `run2/integration` starts there.
+- **Lane worktrees:** `C:\dev\EnFractal-run2\{play,companion,capture,look}` on `run2/<lane>`, plus `contracts` on `run2/contracts` for the contract round; each has the `.cache` junctions.
+- **Run 1's garage capture data was on this machine** after all, in `C:\dev\EnFractal-run1\capture\captures` (774 MB, session `s-27647e23c354`). It is copied into `C:\dev\EnFractal-run2\capture\captures`, so Lane C runs here and the poses need no rerun. Keep the Run 1 copy until Run 2's capture work is merged.
+- **Running:**
+  - the contract round (step 3 below), an Opus agent for the integrator in `run2/contracts`;
+  - Codex brief 10, the recipe library (`codex/10-recipe-library`, `pipeline/recipes/**`, now in OWNERSHIP.md);
+  - Lane C (Sonnet): C3 shell and C4 inventory.
+- **Waiting:** Lanes P and A start when the contract round merges; Lane L when Lane C's GPU work is done.
+
+## The handoff from Run 1 (7 October, night)
+
+The rest of this page is the handoff written when Run 1 closed. Read it with [ORCHESTRATION.md](ORCHESTRATION.md) (session budget, model routing, testing, reviews), the approved plan [RUN-2.md](RUN-2.md) and [AGENTS.md](../../AGENTS.md). Run 1's record is [RUN-1-REPORT.md](RUN-1-REPORT.md), with the day-by-day detail in [RUN-1-STATUS.md](RUN-1-STATUS.md).
 
 ## Where things stand
 
