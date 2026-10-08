@@ -36,6 +36,8 @@ Choose by **capability for the task, then cost.** A cheap agent whose work needs
 | Mechanical work: regenerating files, applying a known patch, running a checklist, collecting results | **Haiku** or the integrator | No judgement needed |
 | Second-opinion reviews, research surveys, docs audits and fixes, small scoped code changes | **Codex** (GPT-6.1 Sol, the founder's ChatGPT plan) through `tools/codex/run.ps1` | Another vendor's model catches what Claude misses, and it saves Claude tokens. Its own worktree and branch, the Windows sandbox, a scope block per brief; the integrator checks scope, verifies claims and merges. Never on a file a running lane owns |
 
+**The founder, 7 October: lean on Codex more ("They can be more help").** Codex is the default for anything bounded that does not touch the kernel and command host, the contracts, the companion's security boundary or the GPU: research and surveys, design drafts (the integrator edits), pipeline and tooling code (recipes, the landscape generator's prototypes, test corpora), docs, second-opinion reviews, and fix rounds on its own work. Claude lanes keep those four areas. Run independent Codex jobs in parallel, each in its own checkout. Claude lane rounds have been the costly ones (Lane C's C3 and C4 took 905k tokens with its fix round); Codex jobs have taken 44k to 200k.
+
 ## Testing
 
 - **Integrator:**

@@ -61,6 +61,8 @@ Every run is built by parallel agent lanes. A lane **edits only the paths it own
 | `codex/<brief>` branches only | Never `main`, a `run<n>/` branch or a lane branch |
 | The files in its brief's `scope` block, normally `docs/codex/reports/<brief>.md` | `tools/codex/check_scope.py` checks every branch before the integrator merges it |
 | `pipeline/recipes/**` (parametric Blender recipes for stand-ins, their runner and tests; from Run 2, brief 10) | The integrator owns it and Codex briefs build it. Lane C reads and runs the recipes for C5 and requests changes |
+| `pipeline/landscape/**` (the room-to-landscape conversion: its synthetic room corpus from brief 14, later the generator) | The integrator owns it and Codex briefs build it, until the revised Run 2 plan assigns it |
+| `docs/ROOM-TO-LANDSCAPE.md` | Integrator-owned design; Codex drafts it in brief 13 |
 
 The integrator owns `docs/codex/README.md`, `docs/codex/briefs/**` and `tools/codex/**`. Codex works on research, test runs and audits, never on contracts, the kernel, the companion's server or the Look lane's GPU work. See [docs/codex/README.md](../codex/README.md).
 
