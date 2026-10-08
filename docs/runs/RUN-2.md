@@ -1,60 +1,56 @@
 # Run 2: five real objects (draft plan, for the founder's approval)
 
-**Status:** draft, 7 October 2026. The founder answered its questions late on 7 October (below). It starts when the founder approves this plan; one question remains open (SPAR3D or TripoSR).
+**Status:** draft, 7 October 2026, revised the same night after the founder's corrections (below). It starts when the founder approves it.
 
-**Goal:** five real household objects stand in the styled test room with collision. The player picks one up, carries it and puts it down. The companion fetches one, through the real game host instead of the mock. The room rebuilds from data. The journal's data layer exists. This is the roadmap's Run 2 ([ROOM-SCALE-DIRECTION.md](../ROOM-SCALE-DIRECTION.md#the-runs)), and the founder kept its spine on 7 October: real objects first, with building after the sandbox verbs and the real host.
+**Goal:** the garage, scanned from the founder's existing photos, becomes a generally faithful, stylised, playable space in the game: its shell and five of its objects as stand-ins at their scanned sizes and places. The player picks one up and carries it. The companion fetches one, through the real game host instead of the mock. The room rebuilds from data. The journal's data layer exists. This is the roadmap's Run 2 ([ROOM-SCALE-DIRECTION.md](../ROOM-SCALE-DIRECTION.md#the-runs)) with the garage's shell pulled forward from Run 3, because scanning a room into a playable space is the product. The test room stays as the regression room.
 
 Read first: [AGENTS.md](../../AGENTS.md), [ORCHESTRATION.md](ORCHESTRATION.md), [OWNERSHIP.md](OWNERSHIP.md), [the Run 1 report](RUN-1-REPORT.md).
 
 ## The founder's decisions (late on 7 October)
 
-1. **The five objects:**
-   - a cardboard box;
-   - a couch with wooden legs;
-   - a gaming laptop;
-   - an empty Bonne Maman jam jar;
-   - a metal French press.
-
-   They are household objects, not garage objects.
-2. **No online spending on 3D generation.**
-   - Everything runs on the founder's machine: Blender, which is installed, and local models. Downloading free software is fine.
-   - Hosted generators are out: TRELLIS.2 and SAM 3D Objects on fal.ai, and any paid service.
-3. **The principle behind it: the player's own AI makes the objects.**
+1. **The objective: scan a room, get a generally faithful space, stylise it.**
+   - Exact replicas of real objects are out of scope ("overkill and a different objective").
+   - So there is **no photography of single objects.** Everything comes from the room scan: the garage set already in Drive.
+   - An object is faithful in kind, size, place and broad colour, and stylised in its detail.
+2. **The player's own AI makes the objects.**
    - It uses software on the player's computer, or its own connectors and tools, guided by the game's MCP.
-   - The game never requires a hosted service.
-   - So the capture guidance (C7: MCP tools and a skill) is the product, and Run 2's pilot is run by an AI following written guidance, as a player's AI would.
-4. **The journal's data work is in Run 2** (see Lanes P and A).
-5. **Still open: SPAR3D (Stability Community License) or TripoSR (MIT)** for local image-to-3D.
-   - Both are free for EnFractal now. Stability's license asks for free registration for commercial use, a "Powered by Stability AI" credit, and no training of other models on its outputs. It ends above $1M a year in revenue unless a paid licence is agreed.
-   - TripoSR is MIT with no strings, but older and rougher.
-   - The integrator proposes trying both in the pilot. Neither is bundled with the game: if the guidance recommends one, the player's AI downloads it on the player's machine.
-
-**Photos needed (the founder):** for each object, 8 to 12 photos taken all round it on the 1x back camera, plus one tape measurement (its height or width). They go in Google Drive under `Enfractal/Photos for space generation/Objects/<object>/`, beside the garage set. The Drive folder stays their only home, as with the garage.
+   - No hosted or paid service is ever required, and Run 2 spends nothing online.
+   - The capture guidance (C7: MCP tools and a skill) is therefore part of the product.
+3. **The toolchain has no strings attached, so anyone can use it.**
+   - **Blender first.** A Blender script per kind of object is a recipe (Codex built a box and a jar this way on 7 October: [brief 09](../codex/reports/09-blender-spike.md)).
+   - **TripoSR (MIT) is the image-to-3D tool** for shapes a recipe cannot make well.
+   - **Tools under Stability's Community License (SPAR3D, SF3D) are out.**
+4. **The first recipes:** a cardboard box, a couch with wooden legs, a gaming laptop, an empty Bonne Maman jam jar and a metal French press. They are generic recipes, sized and coloured from whatever the scan finds; the garage's own contents decide which recipes come next.
+5. **The journal's data work is in Run 2** (see Lanes P and A).
 
 ## Lanes
 
 Four lanes, as in Run 1. Each builder agent owns its files ([OWNERSHIP.md](OWNERSHIP.md)) and reports in about 250 words. Codex runs alongside as the integrator's assistant (below).
 
-### Lane C: Capture (C0, C5, and the start of C7)
+### Lane C: Capture (C3, C4, C5, and the start of C7)
 
-- **C0 pilot, local only.** The five objects, from photos and measurements to assets in the room. There are two routes, compared object by object:
-  - **an AI-built model in Blender:** the AI writes a parametric Blender Python script from the photos and measurements, run headless (`blender --background`). This suits boxes, jars, laptops and presses, and handles glass and metal, which defeat image-to-3D. [Codex brief 09](../codex/reports/09-blender-spike.md) built the box and the jar this way on 7 October: headless, about 4 minutes of authoring, $0, both right first time, with the jar's lid sized from Bonne Maman's published specification;
-  - **local image-to-3D:** TripoSR, and SPAR3D if the founder agrees, on the RTX 2070 SUPER (SPAR3D's low-memory mode needs about 7 GB of the 8). Best for soft or irregular shapes, such as the couch's cushions.
+**The pipeline:** room photos, then the shell and an inventory of objects (kind, size, place, broad colour), then a stand-in for each object built by the AI from a recipe, then the room as data.
 
-  Each result then goes through the same chain: fitted to the measured size, collision, mass and affordances, the asset contract, and Godot import. The founder judges the results side by side.
-- **C5 assets.** Generation behind one interface (Blender script or local model), plus:
-  - fitting to the measured box;
-  - collision (a convex hull, or a decomposition for the couch);
-  - mass and affordances;
-  - the five `asset.json` files, validated.
-- **C7, started: the guidance an AI follows.** The steps, the measurements to take, the checks before export, and which route suits which object, written as a skill and sketched as MCP tools. The pilot is run from this guidance, so it is tested by use. **Codex runs the Blender route as the stand-in for a player's AI.**
-- **Moved to Run 3, with the garage:** C3 (the garage shell) and C4 (finding objects in room photos). The five objects are photographed one by one, so Run 2 needs only to cut each object out of its own photos.
+- **C3 shell.** The garage's floor, walls, ceiling and openings as planes, from the poses Run 1 already computed:
+  - `shell.openings` included, which the builder now cuts as real holes;
+  - a `site`, coarse as the contract requires;
+  - the room at the tape-fitted scale (0.926);
+  - exported as a room manifest that validates.
+- **C4 inventory.** Find the garage's objects across its photos: each one's kind, a 3D box (size and place in room coordinates), and its broad colours. Pick five varied objects for Run 2. An annotated top-down review image stays local.
+- **C5 stand-ins.** For each of the five:
+  - choose a recipe, or TripoSR when no recipe fits;
+  - build it at the scanned size, in the scanned colours;
+  - then collision, mass and affordances, an `asset.json` that validates, and placement in the room manifest.
+- **C7, started: the guidance an AI follows.**
+  - The recipe library (the five founder-named recipes, plus any the garage needs), the order of steps, and the checks before export.
+  - It is written as a skill and sketched as MCP tools.
+  - **Codex builds the recipes and stand-ins as the stand-in for a player's AI,** working from this guidance, so the guidance is tested by use.
 - **Acceptance:**
-  - the five assets validate with `contracts/validate.py`;
-  - they load in the test room at the right size;
-  - the founder judges them recognisable and in keeping;
-  - an AI that had not seen the pilot can follow the written guidance for one object.
-- **Photos and derived data stay local** (`captures/`, `user://rooms/`). Only code, tests, guidance and synthetic fixtures are committed.
+  - the garage loads in the game from data, at its fitted scale, with its openings;
+  - five stand-ins stand at their scanned places, and the founder judges them generally faithful and charming;
+  - an AI that had not seen the work can follow the guidance to add one more object.
+- **Photos and derived data stay local** (`captures/`, `user://rooms/`). The founder's photos are read in place. Only code, recipes, guidance and synthetic fixtures are committed.
+- **Machine:** the poses and Run 1's capture data are on the first machine (`captures/garage/`). Either work there, or rerun the poses here from the Drive photos (about 94 s of GPU).
 
 ### Lane P: Play (P3, P6, and the journal's map store)
 
@@ -132,12 +128,12 @@ Merge order:
 
 Exit evidence:
 1. The Windows runners and `tools/linux/test-all.sh` pass on the merged head.
-2. The five assets validate, and the founder's verdict on them is recorded.
+2. The garage loads from data with its five stand-ins; the assets validate; the founder's verdict on them is recorded.
 3. The carry playtest and the companion fetch, the fetch shown by a real-client transcript summary.
 4. The room rebuild test, with the journal and the discovered map surviving it.
 5. The journal's boundary tests (no forged facts, no leaks about undiscovered things), and a real client reading the journal after a fetch.
-6. Look captures of the five objects, and the founder's verdict.
-7. The capture guidance (C7's start), and one object built by an AI that followed it cold.
+6. Look captures of the garage and its stand-ins, and the founder's verdict.
+7. The capture guidance (C7's start) with its recipe library, and one more object added by an AI that followed it cold.
 8. `RUN-2-REPORT.md`.
 
 **Design docs during Run 2,** written by the integrator with the founder:
@@ -146,6 +142,6 @@ Exit evidence:
 - **Modes:** deferred to Run 3 or 4.
 
 **Proposed for later, not decided:**
-- **Run 3, "build with your companion":** the Victorian kit, the journal's notepad and the minimap, felt avatars, and "Connect your AI"; plus C3 and C4 with the garage, if it comes before Run 4.
+- **Run 3, "build with your companion":** the Victorian kit, the journal's notepad and the minimap, felt avatars, and "Connect your AI"; plus the rest of the garage's objects, and saves.
 - **Run 4, the whole garage.**
 - Voice waits until the baseline game works.

@@ -321,7 +321,12 @@ The source is the Google Doc `Look and Art Style direction`, with ten frames fro
      - no online spending; the player's own AI makes the objects with local software, guided by the game's MCP;
      - the journal's data in Run 2.
 
-     Still open: SPAR3D or TripoSR. **Photos of the five objects** go to Drive under `Objects/<object>/`: 8 to 12 each, all round, on the 1x camera, with one tape measurement.
+     **Corrected the same night:**
+     - no photos of single objects: everything comes from the room scan, and a stand-in need only be generally faithful;
+     - TripoSR (MIT) only: no Stability-licensed tools;
+     - the five objects are the first Blender recipes.
+
+     Run 2 now builds the garage's shell and five of its objects. **The founder's approval of the revised plan is pending.**
    - **The Linux suite:** the founder approved the install. `unzip`, `python3-venv` and uv 0.12.23 are in WSL Ubuntu on the second machine, which runs as root, so set `GODOT_SILENCE_ROOT_WARNING=1`. The founder also published a Codex cloud environment, "EnFractal". Its default branch is `main`, so cloud tasks must pass `--branch run1/integration`, and `codex cloud exec` needs its ID from the founder.
    - **The third playtest: done late on 7 October** (notes above). The founder also confirmed:
      - T and Shift+T step the light through the day "just fine";
