@@ -36,11 +36,16 @@ Choose by **capability for the task, then cost.** A cheap agent whose work needs
 | Mechanical work: regenerating files, applying a known patch, running a checklist, collecting results | **Haiku** or the integrator | No judgement needed |
 | Second-opinion reviews, research surveys, docs audits and fixes, small scoped code changes | **Codex** (GPT-6.1 Sol, the founder's ChatGPT plan) through `tools/codex/run.ps1` | Another vendor's model catches what Claude misses, and it saves Claude tokens. Its own worktree and branch, the Windows sandbox, a scope block per brief; the integrator checks scope, verifies claims and merges. Never on a file a running lane owns |
 
-**The founder, 7 October: Claude and Codex as work partners, each leaning into what it does best.** "I think you and Codex can do more together. [...] the quality of your work, especially in the artistic space interestingly enough, is better than Codex's 3D rendering. That's the kind of thing we'll see from one model to the next. So it's more about figuring out who's better at what and leaning into that." Token cost is not the reason. Route by strength, and let the routing log keep deciding:
-- **Codex has been strong at:** second-opinion reviews (every review this run found real majors the builders missed), research and surveys with sources, docs audits and fixes, bounded tooling and test infrastructure (the recipe runner and checks, synthetic corpora), diagnosis with exact diffs, and fix rounds on its own work. Give it more of these, in parallel, each in its own checkout.
-- **Claude has been stronger at:** visual and artistic work (the look, art direction, how a landscape or object should feel; Codex's Blender renders in briefs 10 to 12 were judged basic or blockouts), design synthesis with the founder, and the kernel, contracts, the companion's security boundary and GPU work.
-- **Split mixed work along that line:** for the landscape generator, a Claude lane (with the look) owns how it looks and the art direction; Codex builds the data plumbing, validators, corpora and tests around it, and reviews it.
-- **When unsure who is better at a task type, try a small head-to-head** on the same bounded task and record the result here.
+**The founder, 7 October: Claude and Codex as work partners, each leaning into what it does best.** "I think you and Codex can do more together. [...] the quality of your work, especially in the artistic space interestingly enough, is better than Codex's 3D rendering. That's the kind of thing we'll see from one model to the next. So it's more about figuring out who's better at what and leaning into that." Token cost is not the reason. And then: "Let's not assume you or Codex are better or worse at this. We can do A/B tests and find out." So:
+- **Decide by A/B tests, not assumptions.** For a task type that matters (the landscape's look, design drafts, kernel work, reviews), give the same bounded task to two models, judge the results blind where possible (the founder judges anything visual), and record the outcome in the A/B log below. Route that task type to the winner until a new model is worth retrying.
+- **Evidence so far, not a verdict:** Codex's reviews found real majors in every lane branch this run; its research, docs and test tooling were clean. Its Blender renders (briefs 10 to 12) were judged basic or blockouts, but no Claude render was made to compare, so that is untested.
+- **Models to try, through `tools/codex/run.ps1 -Model <slug>`** (the ChatGPT plan; no spend): `gpt-6.1-sol` (used so far), `gpt-6-astra` (the founder's default), `gpt-6-sol`, `gpt-6-luna`, `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`. List the current catalogue with `codex debug models`. OpenRouter models (DeepSeek V4.1 Flash, and hidden ones such as Gemini 3.8 Flash, GLM-5.3, Qwen3.8 Flash) go through the founder's local Codex router, which the launcher deliberately bypasses (it ignores the founder's config). They need a launcher option for the router and the founder's approval, because OpenRouter bills per token. Claude's models (Opus, Sonnet, Haiku) are the other side of each test.
+- **Mixed work:** split it where the A/B log says, and until it says, keep the integrator's judgement and say why.
+
+### A/B log
+
+| Date | Task | Contenders | Judged by | Result |
+|---|---|---|---|---|
 
 ## Testing
 
