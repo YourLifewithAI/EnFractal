@@ -66,6 +66,8 @@ public partial class CommandHost : Node
     public const int MaxJobsPerPrincipal = 256;
     /// <summary>On arrival, a target farther than this from where the goal aimed has moved (an avatar's reach).</summary>
     public const float ArrivalReachM = 0.15f;
+    /// <summary>A go_to stops with the body's centre this close to the target's footprint (within the 10 cm body's reach).</summary>
+    public const float GoToStopM = 0.08f;
     public static readonly TimeSpan ApprovalLifetime = TimeSpan.FromMinutes(5);
     public const string RuntimeScript = "res://scripts/invention_runtime.gd";
 
@@ -83,7 +85,7 @@ public partial class CommandHost : Node
     private static readonly Regex ManifestPrefix = new(@"\A[0-9a-f]{16}\z", RegexOptions.Compiled);
     private static readonly HashSet<string> CommandOps = new()
     {
-        "entity.grab", "entity.release", "entity.place", "entity.set_part", "entity.remove", "entity.transform",
+        "entity.grab", "entity.release", "entity.place", "entity.push", "entity.set_part", "entity.remove", "entity.transform",
         "creation.place", "creation.revise", "creation.activate", "protect.lock", "protect.unlock",
         "goal.set", "goal.stop", "effect.start", "effect.stop", "style.set", "room.checkpoint", "room.undo", "world.set_physics",
     };
@@ -106,7 +108,7 @@ public partial class CommandHost : Node
     /// <summary>What perception memory keeps: everything but the shell, which is always in sight.</summary>
     private static readonly HashSet<string> RememberedKinds = new() { "object", "creation", "avatar", "effect" };
     /// <summary>The goals whose arrival the host watches on the companion's body itself; go_to and fetch arrive through ReportArrival (A2).</summary>
-    private static readonly HashSet<string> HostDrivenGoals = new() { "follow", "come", "look_at", "point_at" };
+    private static readonly HashSet<string> HostDrivenGoals = new() { "follow", "come", "look_at", "point_at", "go_to" };
     private static readonly HashSet<string> Affordances = new()
     {
         "walkable_top", "climbable", "sittable", "openable", "container", "soft", "breakable", "light_source", "switchable", "screen", "readable", "rideable", "hazard",
@@ -172,7 +174,7 @@ public partial class CommandHost : Node
     }
 
     /// <summary>Saves are per room and per manifest: a re-exported room starts a fresh file instead of failing to load the old one.</summary>
-    public static string SavePathFor(RoomData room) => $"user://saves/rooms/{room.RoomId}/{room.ManifestSha256[..16]}/inventions.json";
+    public static string SavePathFor(RoomData room) => $"{SaveRoot}/{room.RoomId}/{room.ManifestSha256[..16]}/inventions.json";
 
     /// <summary>The host attached under a room world, if any.</summary>
     public static CommandHost? Of(Node world) => world.GetNodeOrNull<CommandHost>("CommandHost");
@@ -187,8 +189,14 @@ public partial class CommandHost : Node
         // playtest found its Q and E blocking the isometric view's turn keys. The runtime still renders and runs creations.
         Runtime.Set("workshop_enabled", false);
         Runtime.Call("configure", RoomDictionary(Room), Player!, Companion!);
+        // The scene is derived: the authority hands every saved object pose to the room's nodes, while a save loads too.
+        Runtime.Set("object_pose_sink", new Callable(this, MethodName.ApplyObjectPoses));
+        // A save's object poses are checked against the room as it is before they are believed (asset size, collision, support).
+        Runtime.Set("object_pose_check", new Callable(this, MethodName.CheckObjectPoses));
         AddChild(Runtime);
         Authority = Runtime.Get("authority").AsGodotObject();
+        // Whatever the load did, the scene shows the authority's state: a save that failed to load leaves the manifest's places.
+        ApplyObjectPoses(ObjectPoses());
         Runtime.Set("command_sink", new Callable(this, MethodName.RuntimeCommand));
         SaveNotice = OtherManifestNotice(SavePath);
         if (SaveNotice.Length > 0)
@@ -204,6 +212,7 @@ public partial class CommandHost : Node
             Player.WorldPhysicsRequest = _physicsSink;
         }
         BuildPrompt();
+        AddChild(new Sandbox.Carrying { Name = "Carrying", Carried = CarriedNow });
     }
 
     public override void _ExitTree()
@@ -453,6 +462,10 @@ public partial class CommandHost : Node
                 "effect.stop" => EffectStop(args, principal, actionId, fingerprint, preview),
                 "room.checkpoint" => Checkpoint(args, principal, actionId, meta, preview),
                 "world.set_physics" => SetPhysics(args, principal, actionId, fingerprint, preview),
+                "entity.grab" => Grab(args, principal, actionId, fingerprint, preview),
+                "entity.release" => Release(args, principal, actionId, meta, preview),
+                "entity.place" => PlaceObject(args, principal, actionId, meta, preview),
+                "entity.push" => PushObject(args, principal, actionId, meta, preview),
                 _ => throw new Refusal("unsupported_capability", "This operation is not available yet.", "$.op"),
             };
         }
@@ -525,6 +538,9 @@ public partial class CommandHost : Node
         var targets = args.GetProperty("targets").EnumerateArray().Select(t => t.GetString()!).ToArray();
         foreach (var target in targets)
             if (EntityRevision(target) < 0) throw new Refusal("target_not_found", "That is not in this room.", "$.args.targets");
+        // A held thing could be carried off and put down elsewhere after the lock: put it down first (as the mock).
+        if (op == "protect.lock" && targets.Any(t => _held.Values.Any(h => h.Target == t)))
+            throw new Refusal("target_busy", "Someone is holding that; it can be protected once it is put down.", "$.args.targets");
         if (preview)
         {
             foreach (var target in targets)
@@ -602,6 +618,9 @@ public partial class CommandHost : Node
             case "come": Companion.Come(); break;
             case "look_at": Companion.LookAtPoint(point!.Value); break;
             case "point_at": Companion.PointAt(point!.Value); break;
+            case "go_to":
+                Companion.GoTo(target != null ? aim : new Aabb(KernelJson.ReadVector(args.GetProperty("position_m")), Vector3.Zero), GoToStopM);
+                break;
         }
         // A goal with a target runs as a job: the host re-checks the target when the avatar arrives.
         var job = target != null ? StartJob(principal, actor, actionId, goal, target, aim, Companion.IntentSerial) : null;
@@ -680,6 +699,9 @@ public partial class CommandHost : Node
     {
         var outcome = Authority.Call("submit", principal, request, meta).AsGodotDictionary();
         if (!outcome["ok"].AsBool()) throw Translate(outcome);
+        // The scene is derived at once: a placed, revised or removed creation's colliders are where the state says before
+        // the next command looks (object poses reach the scene through the authority's pose seam during the commit).
+        Runtime.Call("refresh_now");
         // The first answer is rebuilt from the durable receipt, exactly as every replay will be.
         var record = Authority.Call("receipt_for", principal, actionId).AsGodotDictionary();
         return Durable(record, replayed: false);
@@ -1066,11 +1088,16 @@ public partial class CommandHost : Node
             list.Add(Summary(part.Id, "shell", Readable(part.Id), null, null, box.GetCenter(), box,
                 part.Role == "floor" ? new[] { "walkable_top" } : Array.Empty<string>(), false, false, shellProvenance, EntityRevision(part.Id)));
         }
+        // Objects stand where play last put them (the authority's poses), ride over their holder while carried, and
+        // otherwise stand where the manifest puts them.
+        var poses = snapshot.ContainsKey("object_poses") ? snapshot["object_poses"].AsGodotDictionary() : new Godot.Collections.Dictionary();
         foreach (var item in Room.Objects)
         {
-            var box = ObjectBounds(item);
-            list.Add(Summary(item.Id, "object", item.DisplayName ?? item.Asset.DisplayName, item.Asset.Category, item.Asset.CategoryGroup, item.PositionM, box,
-                item.Asset.Affordances, item.Asset.Movable, locks.ContainsKey(item.Id), item.Asset.ProvenanceKind, EntityRevision(item.Id)));
+            var (position, rotation) = PoseOf(item, poses);
+            var box = Sandbox.SandboxPhysics.Bounds(position, rotation, item.Asset.DimensionsM * item.Scale);
+            var holder = _held.FirstOrDefault(h => h.Value.Target == item.Id).Key;
+            list.Add(Summary(item.Id, "object", item.DisplayName ?? item.Asset.DisplayName, item.Asset.Category, item.Asset.CategoryGroup, position, box,
+                item.Asset.Affordances, item.Asset.Movable, locks.ContainsKey(item.Id), item.Asset.ProvenanceKind, EntityRevision(item.Id), holder));
         }
         if (snapshot.ContainsKey("instances"))
             foreach (var (key, value) in snapshot["instances"].AsGodotDictionary())
@@ -1095,7 +1122,7 @@ public partial class CommandHost : Node
     }
 
     private static JsonObject Summary(string id, string kind, string name, string? category, string? group, Vector3 position, Aabb bounds,
-        IEnumerable<string> affordances, bool movable, bool locked, string provenance, int revision)
+        IEnumerable<string> affordances, bool movable, bool locked, string provenance, int revision, string? heldBy = null)
     {
         var summary = new JsonObject
         {
@@ -1106,6 +1133,7 @@ public partial class CommandHost : Node
         };
         if (category != null) summary["category"] = KernelJson.DisplayText(category, 60);
         if (group != null) summary["category_group"] = group;
+        if (heldBy != null) summary["held_by"] = heldBy;
         return summary;
     }
 
@@ -1147,7 +1175,8 @@ public partial class CommandHost : Node
         foreach (var entity in entities)
         {
             var id = entity["id"]!.GetValue<string>();
-            if (id == ownAvatar || entity["kind"]!.GetValue<string>() == "shell" || SeesBox(body, BoundsOf(entity)))
+            // Its own avatar, the shell it stands in and whatever it holds are always perceived.
+            if (id == ownAvatar || entity["kind"]!.GetValue<string>() == "shell" || entity["held_by"]?.GetValue<string>() == ownAvatar || SeesBox(body, BoundsOf(entity)))
                 seen.Add(id);
         }
         return seen;
@@ -1493,7 +1522,7 @@ public partial class CommandHost : Node
     public override void _PhysicsProcess(double delta)
     {
         if (Companion == null || !IsInstanceValid(Companion) || !_runningGoals.TryGetValue(CompanionAvatarId, out var job) || !HostDrivenGoals.Contains(job.Goal)) return;
-        if (job.Goal == "come" && Companion.ComeArrivedSerial == job.Serial)
+        if ((job.Goal == "come" && Companion.ComeArrivedSerial == job.Serial) || (job.Goal == "go_to" && Companion.GoToArrivedSerial == job.Serial))
         {
             ReportArrival(CompanionAvatarId);
             return;
@@ -1705,6 +1734,7 @@ public partial class CommandHost : Node
             "entity.grab" => new[] { "target", "actor" },
             "entity.release" => new[] { "actor", "placement" },
             "entity.place" => new[] { "target", "placement" },
+            "entity.push" => new[] { "target", "actor", "toward_m", "distance_m" },
             "entity.set_part" => new[] { "target", "part_id", "value" },
             "entity.remove" or "creation.activate" => new[] { "target" },
             "entity.transform" => new[] { "target", "into" },
@@ -1728,6 +1758,7 @@ public partial class CommandHost : Node
         {
             "entity.grab" or "entity.remove" or "creation.activate" or "creation.revise" => new[] { "target" },
             "entity.place" => new[] { "target", "placement" },
+            "entity.push" => new[] { "target", "distance_m" },
             "entity.set_part" => new[] { "target", "part_id", "value" },
             "entity.transform" => new[] { "target", "into" },
             "creation.place" => new[] { "source", "placement" },
@@ -1761,6 +1792,13 @@ public partial class CommandHost : Node
         if (args.TryGetProperty("source", out var source)) CheckSource(source);
         if (args.TryGetProperty("placement", out var placement)) CheckPlacement(placement);
         if (args.TryGetProperty("position_m", out var position)) CheckVector(position, "$.args.position_m");
+        if (args.TryGetProperty("toward_m", out var toward)) CheckVector(toward, "$.args.toward_m");
+        if (op == "entity.push")
+        {
+            var distance = args.GetProperty("distance_m");
+            if (distance.ValueKind != JsonValueKind.Number || distance.GetDouble() is <= 0 or > 1)
+                throw new Refusal("request_invalid", "distance_m is more than 0 and at most 1 metre.", "$.args.distance_m");
+        }
         if (op == "goal.set")
         {
             var goal = args.GetProperty("goal");
@@ -1901,13 +1939,13 @@ public partial class CommandHost : Node
 
     private static string? Unsupported(string op, JsonElement args, string principal) => op switch
     {
-        "entity.grab" or "entity.release" or "entity.place" => "Picking up, carrying and placing room objects arrive with the sandbox verbs (Run 2).",
-        "entity.set_part" => "Moving parts of objects arrives with the sandbox verbs (Run 2).",
+        "entity.set_part" => "Moving parts of objects (a lid, a door) is not available yet.",
         "entity.transform" => "Transforming objects arrives with the first magic (Run 3).",
         "effect.start" => "Free-standing effects arrive with the first magic (Run 3).",
         "style.set" => "Restyling the room from a command arrives with the look runtime.",
         "room.undo" => "Undo arrives with room saves (Run 3).",
-        "goal.set" when Str(args, "goal") is "go_to" or "fetch" or "wander" => "That goal arrives with the companion's embodiment (Run 2).",
+        "goal.set" when Str(args, "goal") is "fetch" => "Fetching arrives with the sandbox verbs (Run 2, P3).",
+        "goal.set" when Str(args, "goal") is "wander" => "Wandering is not available yet.",
         // Today the body follows and comes to the player only; staying by something waits for the goal runner too.
         "goal.set" when Str(args, "goal") is "follow" or "stay" or "come" && Str(args, "target") is { } target && (target != PlayerAvatar || Str(args, "goal") == "stay") =>
             "Following, coming to or staying by anything but the player arrives with the companion's embodiment (Run 2).",

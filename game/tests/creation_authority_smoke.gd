@@ -105,6 +105,7 @@ func _run() -> void:
 	_test_ledger_reserve_and_checkpoint()
 	_test_transient_receipts()
 	_test_version_two_saves()
+	_test_object_moves()
 	for path in paths:
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(path + ".pending"))
@@ -549,12 +550,96 @@ func _test_version_two_saves() -> void:
 	var request := _command(host, "place", "before_upgrade", _source())
 	host.submit(PLAYER, request)
 	var old: Dictionary = host.export_envelope()
+	_expect(old.version == 4 and old.object_poses == {}, "saves are version 4 and carry the object poses")
+	var three: Dictionary = old.duplicate(true)
+	three.version = 3
+	three.erase("object_poses")
+	var upgraded_three = Authority.new()
+	upgraded_three.configure(ROOM, Callable(self, "_flat"), _test_path("version_three_upgraded"))
+	_expect(upgraded_three.load_envelope(three).ok and upgraded_three.submit(PLAYER, request).get("replayed", false) and upgraded_three.snapshot(PLAYER).object_poses == {},
+		"a version 3 save still loads, with its receipts and no moved objects")
 	old.version = 2
 	old.erase("compacted")
 	old.erase("checkpoints")
+	old.erase("object_poses")
 	var upgraded = Authority.new()
 	upgraded.configure(ROOM, Callable(self, "_flat"), _test_path("version_two_upgraded"))
 	_expect(upgraded.load_envelope(old).ok and upgraded.submit(PLAYER, request).get("replayed", false), "a version 2 save still loads, with its receipts")
+
+
+## The sandbox verbs' durable half: a move records an object's pose with its receipt, moves its revision, keeps
+## its lock zone with it, survives a reload, and refuses what is not a room object, protected or outside the room.
+func _test_object_moves() -> void:
+	var host = _fresh("moves")
+	var published: Array = []
+	host.pose_sink = func(poses: Dictionary) -> void: published.append(poses)
+	var meta := {"op": "entity.release", "at_utc": "2026-10-08T12:00:00Z"}
+	var move := _move(host, "move_table", "obj:table", Vector3(30, 10, 330))
+	var moved: Dictionary = host.submit(COMPANION, move, meta)
+	_expect(moved.ok and moved.affected == ["obj:table"] and moved.created.is_empty() and moved.instance_id == "", "a move commits with the moved object in its receipt")
+	_expect(host.revision == 1 and host.entity_revision("obj:table") == 1, "a move advances the room's and the object's revision")
+	_expect(host.object_pose("obj:table").position_m == [30.0, 10.0, 330.0] and host.snapshot(PLAYER).object_poses.has("obj:table"), "the pose is the authority's state")
+	_expect(published.size() == 1 and published[0].has("obj:table"), "the host's scene seam hears the new pose once")
+	_expect(host.receipt_for(COMPANION, "move_table").meta.op == "entity.release", "the receipt names the contract verb")
+	_expect(host.submit(COMPANION, move, meta).replayed and host.revision == 1, "a move retry replays its receipt")
+	_expect_code(host.submit(PLAYER, _move(host, "move_floor", "shell:floor", Vector3(0, 10, 330))), "target_invalid", "the shell does not move")
+	_expect_code(host.submit(PLAYER, _move(host, "move_missing", "obj:missing", Vector3(0, 10, 330))), "target_invalid", "an object not in the room does not move")
+	_expect_code(host.submit(PLAYER, _move(host, "move_out", "obj:table", Vector3(70, 10, 330))), "room_bounds", "an object stays inside the room")
+	var tilted := _move(host, "move_tilted", "obj:table", Vector3(30, 10, 330))
+	tilted.rotation = [0.5, 0.0, 0.0, 0.5]
+	_expect_code(host.submit(PLAYER, tilted), "placement_invalid", "a rotation is a unit quaternion")
+	var forged := _move(host, "move_forged", "obj:table", Vector3(30, 10, 330))
+	forged["owner_id"] = PLAYER
+	_expect_code(host.submit(COMPANION, forged), "field_unknown", "a move carries no identity")
+	_expect(host.submit(PLAYER, _lock(host, "lock", "lock_table", ["obj:table"])).ok, "the moved table can be protected")
+	_expect_code(host.preflight(PLAYER, _source(), 30.0, 330.0, 0.0), "protected_zone", "its lock zone moved with it")
+	_expect(host.preflight(PLAYER, _source(), 21.0, 301.0, 0.0).ok, "and left the place it came from")
+	_expect_code(host.submit(PLAYER, _move(host, "move_locked", "obj:table", Vector3(32, 10, 330))), "target_locked", "a protected object does not move")
+	_expect(host.set_role(PLAYER, COMPANION, "visitor").ok, "the companion becomes a visitor")
+	_expect_code(host.submit(COMPANION, _move(host, "move_visitor", "obj:garden", Vector3(0, 10, 300))), "build_denied", "a visitor moves nothing")
+	var restored = Authority.new()
+	var restored_published: Array = []
+	restored.pose_sink = func(poses: Dictionary) -> void: restored_published.append(poses)
+	restored.configure(ROOM, Callable(self, "_flat"), host._save_path)
+	_expect(restored.load_saved().ok and restored.object_pose("obj:table").position_m == [30.0, 10.0, 330.0] and restored.entity_revision("obj:table") == 2,
+		"the pose and the object's revision survive a reload")
+	_expect(restored_published.size() == 1 and restored_published[0].has("obj:table"), "the scene hears the loaded poses before the save's creations are checked")
+	var envelope: Dictionary = restored.export_envelope()
+	envelope.object_poses["obj:table"].position_m = [90.0, 10.0, 330.0]
+	var refused = Authority.new()
+	var refused_published: Array = []
+	refused.pose_sink = func(poses: Dictionary) -> void: refused_published.append(poses)
+	refused.configure(ROOM, Callable(self, "_flat"), _test_path("moves_refused"))
+	_expect_code(refused.load_envelope(envelope), "save_invalid", "a saved pose outside the room is refused")
+	_expect(refused_published.is_empty(), "and never reaches the scene")
+	var orphan: Dictionary = restored.export_envelope()
+	orphan.entity_revisions.erase("obj:table")
+	orphan.locks.erase("obj:table")
+	_expect_code(refused.load_envelope(orphan), "save_invalid", "a saved pose without its object's revision is refused")
+	_expect(refused_published.size() == 2 and refused_published[1].is_empty(), "a save that fails after its poses reached the scene puts the scene back")
+	var checked = Authority.new()
+	var checked_published: Array = []
+	checked.pose_sink = func(poses: Dictionary) -> void: checked_published.append(poses)
+	checked.pose_check = func(poses: Dictionary) -> Dictionary: return {"ok": false, "message": "The saved place of %s is not resting on anything." % poses.keys()[0]}
+	checked.configure(ROOM, Callable(self, "_flat"), host._save_path)
+	var refusal: Dictionary = checked.load_saved()
+	_expect(refusal.get("code") == "save_invalid" and String(refusal.get("message")).contains("obj:table") and not checked.is_ready(), "the host's check of the poses can refuse the save, saying which")
+	_expect(checked_published.size() == 2 and checked_published[1].is_empty(), "and the scene goes back to the manifest's places")
+	var accepted = Authority.new()
+	accepted.pose_check = func(_poses: Dictionary) -> Dictionary: return {"ok": true}
+	accepted.configure(ROOM, Callable(self, "_flat"), host._save_path)
+	_expect(accepted.load_saved().ok and accepted.object_pose("obj:table").position_m == [30.0, 10.0, 330.0], "a pose the check accepts loads")
+	_expect(accepted.may_change(PLAYER) and not accepted.may_change(COMPANION) and not accepted.may_change("intruder"), "only a principal whose role builds may change the room (the companion is a visitor in this save)")
+	_expect(not checked.may_change(PLAYER), "and nobody may while the save is not loaded")
+	var stranger: Dictionary = restored.export_envelope()
+	stranger.object_poses["shell:floor"] = stranger.object_poses["obj:table"].duplicate(true)
+	stranger.entity_revisions["shell:floor"] = 1
+	_expect_code(refused.load_envelope(stranger), "save_invalid", "only objects have saved poses")
+
+
+func _move(host, action_id: String, target: String, at: Vector3) -> Dictionary:
+	return {"op": "move", "action_id": action_id, "expected_revision": host.revision, "expected_permission_revision": host.permission_revision, "target": target,
+		"position_m": [at.x, at.y, at.z], "rotation": [0.0, 0.0, 0.0, 1.0], "bounds": {"min_m": [at.x - 1.0, at.y, at.z - 1.0], "max_m": [at.x + 1.0, at.y + 1.0, at.z + 1.0]}}
 
 
 ## An envelope from host with count synthetic durable receipts of principal (revisions 1..count).
