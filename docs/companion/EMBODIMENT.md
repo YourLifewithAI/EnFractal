@@ -17,8 +17,9 @@ any MCP client --stdio--> enfractal-companion --loopback link--> CompanionLinkSe
 - **`CompanionBridge.cs`** starts the link, writes `user://companion/session.json` (and deletes it on exit if it is
   still this game's), and answers every request on Godot's main thread through `CommandHost.HandleObject` as
   `companion:local`. It tells the host when a link session starts and ends (`CommandHost.SessionEvent`), so the
-  companion's perception memory never outlives a session. A second game window does not take the link from the
-  first: a session file whose process is still running keeps it. `--no-companion-link` runs the room without it.
+  companion's perception memory never outlives a session. One game per account owns the link: it holds an
+  ownership lock beside the session file for the link's life, so a second window runs without it, and a crash frees
+  it ([TRANSPORT.md](TRANSPORT.md#session-file)). `--no-companion-link` runs the room without it.
 - **Wiring.** `RoomWorld` attaches the bridge after the command host: the one-line change is the integrator's
   ([proposals/a2-real-host.md](proposals/a2-real-host.md)). Until it lands,
   `game/scripts/native/Companion/companion_room.tscn` runs the room as the game builds it and attaches the bridge

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import secrets
 import struct
 import sys
@@ -247,7 +248,8 @@ class LinkSessionFile(RealHostCase):
         self.assertEqual((document["schema"], document["version"], document["host"], document["room_id"]),
                          ("enfractal.companion_session", 1, "127.0.0.1", "test_room"))
         self.assertEqual(parse_session(raw).port, self.info.port)
-        self.assertEqual(sorted(p.name for p in GAME.session_path.parent.iterdir()), ["session.json"])  # no temp file left
+        # No temporary file left; the ownership lock lives beside the session file.
+        self.assertEqual(sorted(p.name for p in GAME.session_path.parent.iterdir()), ["session.json", "session.lock"])
 
     def test_the_game_never_prints_its_token(self):
         self.assertFalse(any(self.info.token in line for line in GAME.lines))
@@ -325,6 +327,58 @@ class LinkFrames(RealHostCase):
     async def test_the_client_still_refuses_to_send_a_frame_over_the_limit(self):
         with self.assertRaisesRegex(LinkError, "too large"):
             await self.client().request(query("entities.list", {"cursor": "1" * 200_000}))
+
+
+class LinkFlood(RealHostCase):
+    """A2 security review, finding 2: traffic that needs no token must not cost the game's main thread anything
+    per connection. Refusals are counted off the main thread and summarised at most once a second."""
+
+    async def test_a_flood_of_refused_connections_is_summarised_and_the_companion_keeps_working(self):
+        await self.settle_rate()
+        marker = len(GAME.lines)
+        total = 1500
+
+        def flood() -> float:
+            """1,500 connections that know no token, 32 at a time, on their own event loop in another thread."""
+            async def refused_once(gate):
+                async with gate:
+                    reader, writer = await asyncio.open_connection(self.info.host, self.info.port)
+                    try:
+                        writer.write(encode_frame({"type": "hello", "protocol": "other", "version": 1,
+                                                   "client_nonce": "0" * 64}))
+                        await writer.drain()
+                        await asyncio.wait_for(read_frame(reader, 4096), 10)
+                    except (ConnectionError, OSError, asyncio.IncompleteReadError, link.LinkError):
+                        pass  # refused and closed at once; the game counts it either way
+                    finally:
+                        writer.close()
+
+            async def all_of_them():
+                gate = asyncio.Semaphore(32)
+                await asyncio.gather(*(refused_once(gate) for _ in range(total)))
+
+            started = time.monotonic()
+            asyncio.run(all_of_them())
+            return time.monotonic() - started
+
+        client = self.client()
+        await client.connect()
+        flooding = asyncio.ensure_future(asyncio.to_thread(flood))
+        slowest = 0.0
+        while not flooding.done():
+            started = time.monotonic()
+            self.assertTrue((await self.ask(client, query("room.describe", {}, fresh_id("q"))))["ok"])
+            slowest = max(slowest, time.monotonic() - started)
+            await asyncio.sleep(0.1)
+        seconds = await flooding
+        await asyncio.sleep(1.5)  # the game prints its counts at most once a second
+        lines = [line for line in GAME.lines[marker:] if re.search(r"COMPANION_LINK (refused|dropped)", line)]
+        counted = sum(int(m.group(1)) if (m := re.search(r"\(x(\d+)\)", line)) else 1 for line in lines)
+        self.assertEqual(counted, total, lines)  # every connection accounted for, in counts
+        # One line per kind of refusal per second at most, never one per connection.
+        self.assertLessEqual(len(lines), 3 * (int(seconds) + 3), lines)
+        self.assertLess(len(lines), total // 10)
+        self.assertLess(slowest, 1.0)
 
 
 # ---------------------------------------------------------------------------- the boundary, at the real host

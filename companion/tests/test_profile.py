@@ -17,6 +17,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import threading
 import tomllib
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
@@ -191,23 +192,60 @@ class SystemRoot(unittest.TestCase):
         self.assertNotIn("env", posix)
 
     def run_server(self, env: dict) -> tuple[int | None, list[dict], str]:
-        """Start the server exactly as a client would with this environment, and speak MCP to it over stdio."""
+        """Start the server exactly as a client would with this environment, and speak MCP to it over stdio. Each
+        answer is awaited before the next message, and stdin stays open until the last one, as a client keeps it."""
         launch = profile.server_launch(mock=True)
         process = subprocess.Popen([launch.command, *launch.args], env=env, stdin=subprocess.PIPE,
                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        requests = [
-            {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
-                "protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "profile-test", "version": "1"}}},
-            {"jsonrpc": "2.0", "method": "notifications/initialized"},
-            {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
-        ]
+        replies: list[dict] = []
+        arrived = threading.Condition()
+
+        def read() -> None:
+            for line in process.stdout:
+                if line.strip():
+                    with arrived:
+                        replies.append(json.loads(line))
+                        arrived.notify_all()
+            with arrived:
+                arrived.notify_all()
+
+        reader = threading.Thread(target=read, daemon=True)
+        reader.start()
+
+        def send(message: dict) -> bool:
+            try:
+                process.stdin.write((json.dumps(message) + "\n").encode("utf-8"))
+                process.stdin.flush()
+                return True
+            except OSError:  # the server has already gone
+                return False
+
+        def answer(request_id: int) -> bool:
+            with arrived:
+                arrived.wait_for(lambda: any(r.get("id") == request_id for r in replies)
+                                 or (process.poll() is not None and not reader.is_alive()), 60)
+                return any(r.get("id") == request_id for r in replies)
+
+        initialize = {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+            "protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "profile-test", "version": "1"}}}
+        if send(initialize) and answer(1):
+            send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+            if send({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}):
+                answer(2)
         try:
-            out, err = process.communicate("".join(json.dumps(r) + "\n" for r in requests).encode(), timeout=60)
+            process.stdin.close()
+        except OSError:
+            pass
+        try:
+            process.wait(30)
         except subprocess.TimeoutExpired:
             process.kill()
-            out, err = process.communicate()
-        replies = [json.loads(line) for line in out.decode("utf-8").splitlines() if line.strip()]
-        return process.returncode, replies, err.decode("utf-8", errors="replace")
+            process.wait()
+        reader.join(10)
+        err = process.stderr.read().decode("utf-8", errors="replace")
+        process.stdout.close()
+        process.stderr.close()
+        return process.returncode, replies, err
 
     @unittest.skipUnless(ON_WINDOWS, "SYSTEMROOT is a Windows variable")
     def test_the_server_serves_with_only_the_environment_the_profile_gives_it(self):

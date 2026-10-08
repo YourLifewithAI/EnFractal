@@ -81,11 +81,18 @@ class RealGame:
     """
 
     def __init__(self, *, room: str | None = None, isolated: bool = True, window: bool = False,
-                 repo: Path = DEFAULT_REPO_ROOT, extra_args: list[str] | None = None, ready_timeout_s: float = 90.0):
+                 repo: Path = DEFAULT_REPO_ROOT, extra_args: list[str] | None = None, ready_timeout_s: float = 90.0,
+                 user_root: Path | None = None, expect_link: bool = True):
+        """user_root: a user folder the caller owns (kept afterwards), so several games can share one, as two
+        windows of the game share the player's. expect_link: start() waits for the room with the link on; False
+        accepts a room that runs without it (`link` then says which)."""
         self.engine, self.dotnet_root = toolchain(repo)
         self.repo = repo
         self.room = room
-        self.isolated = isolated
+        self.isolated = isolated or user_root is not None
+        self.shared_root = user_root
+        self.expect_link = expect_link
+        self.link: str | None = None
         self.window = window
         self.extra_args = list(extra_args or [])
         self.ready_timeout_s = ready_timeout_s
@@ -116,11 +123,13 @@ class RealGame:
         env["DOTNET_NOLOGO"] = "1"
         env.setdefault("GODOT_SILENCE_ROOT_WARNING", "1")
         if self.isolated:
-            self._user_root = Path(tempfile.mkdtemp(prefix="enfractal-real-game-"))
+            root = self.shared_root or Path(tempfile.mkdtemp(prefix="enfractal-real-game-"))
+            self._user_root = None if self.shared_root else root
             for name in ("APPDATA", "LOCALAPPDATA", "XDG_DATA_HOME", "XDG_CONFIG_HOME"):
-                env[name] = str(self._user_root)
-            self.session_path = session_file_under(self._user_root)
-            self.quit_file = self._user_root / "quit"
+                env[name] = str(root)
+            self.session_path = session_file_under(root)
+            self.quit_file = root / f"quit-{os.getpid()}-{id(self)}"
+            self.quit_file.unlink(missing_ok=True)
         else:
             base = Path(env.get("APPDATA") or Path.home() / "AppData" / "Roaming") if os.name == "nt" \
                 else Path(env.get("XDG_DATA_HOME") or Path.home() / ".local" / "share")
@@ -143,7 +152,10 @@ class RealGame:
             thread.start()
             self._threads.append(thread)
         try:
-            self.wait_for(r"COMPANION_ROOM_READY .* link=on", self.ready_timeout_s)
+            ready = self.wait_for(r"COMPANION_ROOM_READY .* link=(on|off)", self.ready_timeout_s)
+            self.link = ready.rsplit("link=", 1)[1].strip()
+            if self.expect_link and self.link != "on":
+                raise RuntimeError("the game started without the companion link:\n" + "\n".join(self.lines[-20:]))
         except Exception:
             self.stop()
             raise
@@ -169,10 +181,17 @@ class RealGame:
         for stream in (process.stdout, process.stderr):
             if stream is not None:
                 stream.close()
-        if self.quit_file is not None and not self.isolated:
+        if self.quit_file is not None and (self.shared_root is not None or not self.isolated):
             self.quit_file.unlink(missing_ok=True)
         if self._user_root is not None:
             shutil.rmtree(self._user_root, ignore_errors=True)
+
+    def kill(self) -> None:
+        """End the game the way a crash would: no clean exit, so nothing it holds is cleaned up by the game."""
+        process = self._process
+        if process is not None and process.poll() is None:
+            _kill_tree(process)
+        self.stop()
 
     @property
     def running(self) -> bool:

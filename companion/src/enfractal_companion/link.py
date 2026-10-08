@@ -218,6 +218,55 @@ def write_session_file(path: Path, info: SessionInfo) -> None:
     os.replace(temp, path)
 
 
+class SessionLock:
+    """The account's ownership of the companion link: `session.lock` beside the session file, held exclusively by the
+    one game that serves the link, from before it checks or writes the session file until after it removes it.
+
+    The game (C#, CompanionBridge) holds it open with no sharing; this side takes a byte-range lock on Windows and a
+    flock elsewhere, which conflict with the game's hold either way. The operating system frees it when its holder
+    ends, a crash included, so a stale session file never decides who owns the link. The mock game takes it too.
+    """
+
+    def __init__(self, session_path: Path):
+        self.path = Path(session_path).with_name("session.lock")
+        self._fd: int | None = None
+
+    def acquire(self) -> bool:
+        if self._fd is not None:
+            return True
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            fd = os.open(self.path, os.O_RDWR | os.O_CREAT | getattr(os, "O_BINARY", 0), 0o600)
+        except OSError:  # on Windows: the game holds it with no sharing
+            return False
+        try:
+            if os.name == "nt":
+                import msvcrt
+                msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            os.close(fd)
+            return False
+        self._fd = fd
+        return True
+
+    def release(self) -> None:
+        if self._fd is None:
+            return
+        fd, self._fd = self._fd, None
+        try:
+            if os.name == "nt":
+                import msvcrt
+                os.lseek(fd, 0, os.SEEK_SET)
+                msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+        except OSError:
+            pass
+        finally:
+            os.close(fd)
+
+
 # ---------------------------------------------------------------------------- game side
 
 Handler = Callable[[str, dict], dict]

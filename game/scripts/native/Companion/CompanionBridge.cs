@@ -1,12 +1,13 @@
 using Godot;
 using System;
 using System.Collections.Concurrent;
-using System.Diagnostics;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using EnFractal.Native.Kernel;
 
@@ -14,8 +15,14 @@ namespace EnFractal.Native.Companion;
 
 /// <summary>
 /// The in-game end of the player's AI (A2): the companion link in front of the kernel's command host.
-/// - Starts <see cref="CompanionLinkServer"/> on loopback and writes the session file the MCP server reads
-///   (user://companion/session.json; docs/companion/TRANSPORT.md), deleting it on exit if it is still this game's.
+/// - Owns the link for the player's account first: it holds the ownership lock (session.lock beside the session
+///   file, opened with no sharing) before it checks or writes anything, for the link's whole life. Only then does it
+///   start <see cref="CompanionLinkServer"/> on loopback and write the session file the MCP server reads
+///   (user://companion/session.json; docs/companion/TRANSPORT.md), and it removes that file on exit under the same
+///   lock. A second window, or a stale file left by a crash, can never take or keep the link from the lock's holder.
+/// - Keeps the main thread safe from traffic that needs no token: the link's diagnostics are counted off the main
+///   thread and summarised at most once a second, and the main thread runs a bounded number of requests and session
+///   events each frame.
 /// - Answers every request on Godot's main thread through <see cref="CommandHost.HandleObject"/> as
 ///   companion:local. Nothing a connection sends chooses the principal.
 /// - Tells the host when a link session starts and ends (<see cref="CommandHost.SessionEvent"/>), so the companion's
@@ -32,6 +39,16 @@ public partial class CompanionBridge : Node
     public const double PlanningHoldS = 3.0;
     /// <summary>A command-line switch for the player: run the room without the companion link.</summary>
     public const string DisableArgument = "--no-companion-link";
+    /// <summary>The account's ownership of the link, beside the session file. Its holder is the one game serving the link.</summary>
+    public const string LockFileName = "session.lock";
+    /// <summary>The link's diagnostics reach the console at most this often, as counts.</summary>
+    public const double NoteSummaryS = 1.0;
+    /// <summary>Distinct kinds of diagnostic counted between summaries; any more are counted together.</summary>
+    public const int MaxNoteKinds = 32;
+    /// <summary>Requests and session events the main thread handles per frame; the rest wait for the next frame.</summary>
+    public const int MaxWorkPerFrame = 32;
+    /// <summary>Requests waiting for the main thread at once. The link sends one at a time, so this is never reached by the real companion.</summary>
+    public const int MaxQueuedRequests = 64;
 
     public CommandHost Host { get; private set; } = null!;
     public CompanionAvatar? Companion { get; private set; }
@@ -47,6 +64,12 @@ public partial class CompanionBridge : Node
     public int Answered { get; private set; }
 
     private readonly ConcurrentQueue<Action> _work = new();
+    private readonly object _noteGate = new();
+    private Dictionary<string, int> _notes = new(StringComparer.Ordinal);
+    private int _otherNotes;
+    private double _lastNotesS = double.NegativeInfinity;
+    private int _queuedRequests;
+    private FileStream? _ownership;
     private int _sessions;
     private double _lastRequestS = double.NegativeInfinity;
     private bool _closed;
@@ -81,14 +104,16 @@ public partial class CompanionBridge : Node
             return;
         }
         var sessionFile = Globalize(SessionPath);
-        if (HeldByAnotherGame(sessionFile, out var otherPid))
+        // Ownership first, before the session file is read or written: whichever game holds the lock serves the link.
+        _ownership = TakeOwnership(sessionFile);
+        if (_ownership == null)
         {
             LinkNotice = "Another EnFractal window holds the companion link; this one runs without it.";
-            GD.Print($"COMPANION_LINK not started: another game (process {otherPid}) holds {SessionPath}");
+            GD.Print("COMPANION_LINK not started: another game holds the companion link");
             return;
         }
         Link = new CompanionLinkServer(Host.Room.RoomId, Dispatch, name => _work.Enqueue(() => OnSession(name)));
-        Link.Note += (name, detail) => _work.Enqueue(() => GD.Print($"COMPANION_LINK {name} {detail}".TrimEnd()));
+        Link.Note += Noted;
         try
         {
             Link.Start();
@@ -98,6 +123,7 @@ public partial class CompanionBridge : Node
         {
             Link.Stop();
             Link = null;
+            ReleaseOwnership();
             LinkNotice = "The companion link could not start.";
             GD.Print("COMPANION_LINK not started: " + error.GetType().Name);
             return;
@@ -108,7 +134,9 @@ public partial class CompanionBridge : Node
 
     public override void _Process(double delta)
     {
-        while (_work.TryDequeue(out var work)) work();
+        // A bounded share of each frame: the rest waits for the next one, so nothing on the link can hold the frame.
+        for (var done = 0; done < MaxWorkPerFrame && _work.TryDequeue(out var work); done++) work();
+        PrintNotes();
         UpdateState();
     }
 
@@ -118,16 +146,81 @@ public partial class CompanionBridge : Node
         Link?.Stop();
         // Anything still queued is refused, so no connection waits on a host that is gone.
         while (_work.TryDequeue(out var work)) work();
+        // Still holding the lock: no other game can write a session file between the check and the delete.
         if (Link != null) DeleteSessionFileIfOurs(Globalize(SessionPath), Link.Token);
+        ReleaseOwnership();
+    }
+
+    /// <summary>
+    /// The account's ownership of the link: the lock file beside the session file, opened with no sharing (on POSIX
+    /// .NET takes an exclusive flock). Held for the link's lifetime; the operating system frees it when this game
+    /// ends, a crash included. Null when another game (or the mock game, through link.py's SessionLock) holds it.
+    /// </summary>
+    public static FileStream? TakeOwnership(string sessionFile)
+    {
+        var folder = Path.GetDirectoryName(sessionFile) ?? throw new IOException("The session file needs a folder.");
+        try
+        {
+            Directory.CreateDirectory(folder);
+            var options = new FileStreamOptions { Mode = FileMode.OpenOrCreate, Access = System.IO.FileAccess.ReadWrite, Share = FileShare.None };
+            if (!OperatingSystem.IsWindows()) options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+            return new FileStream(Path.Combine(folder, LockFileName), options);
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { return null; }
+    }
+
+    private void ReleaseOwnership()
+    {
+        _ownership?.Dispose();
+        _ownership = null;
+    }
+
+    // ---- the link's diagnostics, counted off the main thread ----
+
+    /// <summary>Called on the link's threads for every event, refusals included: a count, never a queued print.</summary>
+    private void Noted(string name, string detail)
+    {
+        var key = detail.Length > 0 ? name + " " + detail : name;
+        lock (_noteGate)
+        {
+            if (_notes.TryGetValue(key, out var count)) _notes[key] = count + 1;
+            else if (_notes.Count < MaxNoteKinds) _notes[key] = 1;
+            else _otherNotes++;
+        }
+    }
+
+    /// <summary>At most once a second, one console line per kind of event, with its count.</summary>
+    private void PrintNotes()
+    {
+        if (Seconds() - _lastNotesS < NoteSummaryS) return;
+        Dictionary<string, int> notes;
+        int other;
+        lock (_noteGate)
+        {
+            if (_notes.Count == 0 && _otherNotes == 0) return;
+            (notes, _notes) = (_notes, new Dictionary<string, int>(StringComparer.Ordinal));
+            (other, _otherNotes) = (_otherNotes, 0);
+        }
+        _lastNotesS = Seconds();
+        foreach (var (key, count) in notes) GD.Print(count == 1 ? $"COMPANION_LINK {key}" : $"COMPANION_LINK {key} (x{count})");
+        if (other > 0) GD.Print($"COMPANION_LINK other events (x{other})");
     }
 
     // ---- requests, on the main thread ----
 
     private Task<string> Dispatch(string message)
     {
+        // Only an authenticated companion reaches here, one request at a time; a backlog means something is wrong,
+        // and that connection is closed rather than queued.
+        if (Interlocked.Increment(ref _queuedRequests) > MaxQueuedRequests)
+        {
+            Interlocked.Decrement(ref _queuedRequests);
+            throw new InvalidOperationException("Too many requests are waiting for the game.");
+        }
         var answer = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         _work.Enqueue(() =>
         {
+            Interlocked.Decrement(ref _queuedRequests);
             if (_closed || !IsInstanceValid(Host))
             {
                 answer.TrySetException(new ObjectDisposedException(nameof(CompanionBridge)));
@@ -230,7 +323,7 @@ public partial class CompanionBridge : Node
         }
     }
 
-    /// <summary>On exit the file goes, unless a newer game has written its own since.</summary>
+    /// <summary>On exit the file goes if it still holds this game's token. Called under the ownership lock, which every writer holds.</summary>
     public static void DeleteSessionFileIfOurs(string path, string token)
     {
         try
@@ -238,26 +331,6 @@ public partial class CompanionBridge : Node
             if (ReadSessionField(path, "token") == token) File.Delete(path);
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
-    }
-
-    /// <summary>
-    /// True when the session file belongs to another EnFractal process that is still running (two windows at once):
-    /// that one keeps the link. A file left by a game that has ended, or by a process id since reused, is stale.
-    /// </summary>
-    public static bool HeldByAnotherGame(string path, out int pid)
-    {
-        pid = 0;
-        try
-        {
-            if (!int.TryParse(ReadSessionField(path, "pid"), NumberStyles.None, CultureInfo.InvariantCulture, out pid) || pid <= 0 || pid == System.Environment.ProcessId) return false;
-            var written = DateTime.TryParse(ReadSessionField(path, "created_utc"), CultureInfo.InvariantCulture,
-                DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var created) ? created : (DateTime?)null;
-            using var process = Process.GetProcessById(pid);
-            if (process.HasExited) return false;
-            // A process started after the file was written is a reused process id, not the game that wrote it.
-            return written == null || process.StartTime.ToUniversalTime() <= written.Value.AddSeconds(5);
-        }
-        catch (Exception) { return false; }
     }
 
     private static string? ReadSessionField(string path, string name)

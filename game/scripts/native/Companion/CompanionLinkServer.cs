@@ -41,6 +41,8 @@ public sealed class CompanionLinkServer : IDisposable
     /// <summary>A result is at most 262,144 bytes of canonical JSON, plus an envelope of under 64.</summary>
     public const int MaxResponseFrame = 262_144 + 4_096;
     public const int MaxPendingHandshakes = 8;
+    /// <summary>Connections served at once, handshakes and refusals included; any more are closed unanswered.</summary>
+    public const int MaxConnections = 64;
     /// <summary>Frame nesting this reader accepts; the host refuses a message nested deeper than canonical JSON allows with request_invalid.</summary>
     public const int FrameNestingLimit = 256;
     public static readonly TimeSpan HandshakeTimeout = TimeSpan.FromSeconds(5);
@@ -60,6 +62,7 @@ public sealed class CompanionLinkServer : IDisposable
     private TcpListener? _listener;
     private Connection? _active;
     private int _pending;
+    private int _live;
     private bool _stopped;
 
     public string RoomId { get; }
@@ -72,7 +75,10 @@ public sealed class CompanionLinkServer : IDisposable
     public string Token { get; }
     /// <summary>Whether an authenticated companion is connected now.</summary>
     public bool HasSession { get { lock (_gate) return _active != null; } }
-    /// <summary>(event, detail) for the console and tests. Never carries the token.</summary>
+    /// <summary>
+    /// (event, detail) for the console and tests, raised on the link's threads, refusals included, so a handler must
+    /// only count. Details come from a small fixed set (codes, exception type names). Never carries the token.
+    /// </summary>
     public event Action<string, string>? Note;
 
     /// <param name="handle">Answers one enfractal.command or enfractal.query (JSON text) with enfractal.result text.</param>
@@ -157,6 +163,20 @@ public sealed class CompanionLinkServer : IDisposable
     }
 
     private async Task Serve(TcpClient client)
+    {
+        // A flood of connections costs a bounded amount of work: past the cap they are closed unanswered.
+        if (Interlocked.Increment(ref _live) > MaxConnections)
+        {
+            Interlocked.Decrement(ref _live);
+            Log("dropped", "too many connections");
+            client.Close();
+            return;
+        }
+        try { await ServeOne(client); }
+        finally { Interlocked.Decrement(ref _live); }
+    }
+
+    private async Task ServeOne(TcpClient client)
     {
         try
         {
@@ -305,9 +325,9 @@ public sealed class CompanionLinkServer : IDisposable
         {
             JsonDocument frame;
             try { frame = await ReadFrame(connection.Stream, MaxRequestFrame); }
-            catch (LinkFrameException error)
+            catch (LinkFrameException)
             {
-                Log("frame_invalid", Truncate(error.Message, 120));
+                Log("frame_invalid", "unreadable");
                 await Refuse(connection, "frame_invalid");
                 return;
             }
@@ -470,8 +490,6 @@ public sealed class CompanionLinkServer : IDisposable
 
     private static string? Str(JsonElement root, string name) =>
         root.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
-
-    private static string Truncate(string text, int length) => text.Length <= length ? text : text[..length];
 
     // ---- proofs ----
 

@@ -37,9 +37,14 @@ At startup the game listens on `127.0.0.1` (or `::1`) on an ephemeral port and w
 - Written atomically (temporary file in the same folder, then rename), UTF-8, LF, no byte-order mark;
   on POSIX with mode `0600`. On Windows the user's `AppData\Roaming` ACL already limits it to the
   player's account. The game deletes it on exit, if it still holds that game's token.
-- A second game window finds a session file whose process is still running and runs without the link (the first
-  keeps it); a file left by a game that has ended, or naming a process id since reused, is overwritten.
-  `--no-companion-link` runs a room without the link.
+- **One game owns the link per account.** Before it reads or writes the session file, a game takes the ownership
+  lock, `session.lock` in the same folder, and holds it for the link's whole life: the game opens it with no sharing
+  (on POSIX .NET takes an exclusive `flock`), and the mock game takes the same lock through `link.py`'s
+  `SessionLock`. A second window (or two started together) cannot take it and runs without the link. The operating
+  system frees the lock when its holder ends, a crash included, so a stale session file, whatever it says, is simply
+  replaced by the next owner; nothing about who owns the link is read from the file. The owner removes the file on
+  exit while still holding the lock, so no other writer can replace it between the check and the delete
+  (A2 security review, findings 1 and 3). `--no-companion-link` runs a room without the link.
 - The companion re-reads the file on every reconnect, so a restarted game (new port, new token) is
   picked up without reconfiguring the MCP client.
 - The companion refuses a file whose `host` is not the literal `127.0.0.1` or `::1` (no names, no
@@ -124,8 +129,13 @@ game:      {"type": "response", "seq": 1, "message": <enfractal.result>}
   any depth, a number that overflows a double, nesting deeper than 256, or any shape but the request frame. What is
   wrong inside a well-formed frame's message (a lone surrogate escape, nesting deeper than canonical JSON allows, a
   missing schema) is the host's to answer, with `request_invalid`.
-- The game prints `COMPANION_LINK` events (listening, authenticated, refused with its code, session start and end)
-  and `COMPANION_STATE` changes to its console. Never the token.
+- **Traffic that needs no token costs the main thread nothing per connection** (A2 security review, finding 2). The
+  link's events (authenticated, closed, refused with its code, dropped) are counted on the link's threads and
+  printed at most once a second, one line per kind with its count (`COMPANION_LINK refused busy (x212)`); at most 32
+  kinds are kept between summaries. At most 64 connections are served at once; more are closed unanswered. The
+  main thread handles at most 32 requests and session events a frame, and at most 64 requests may wait for it (the
+  link sends one at a time, so the real companion never meets that bound).
+- The game prints `listening`, the session's start and end, and `COMPANION_STATE` changes at once. Never the token.
 
 ## Contract proposal
 

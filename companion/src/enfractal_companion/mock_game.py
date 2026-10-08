@@ -28,7 +28,7 @@ import threading
 from pathlib import Path
 
 from .contract import Contracts
-from .link import LinkServer, default_session_path
+from .link import LinkServer, SessionLock, default_session_path
 from .mock_host import MockHost
 
 
@@ -50,6 +50,18 @@ def main(argv: list[str] | None = None) -> int:
 
 
 async def _run(host: MockHost, session_path: Path) -> None:
+    # The account's ownership of the link, as the game takes it: never two games publishing one session file.
+    ownership = SessionLock(session_path)
+    if not ownership.acquire():
+        print("mock game: another game holds the companion link; stop it first", flush=True)
+        return
+    try:
+        await _serve(host, session_path)
+    finally:
+        ownership.release()
+
+
+async def _serve(host: MockHost, session_path: Path) -> None:
     server = LinkServer(host.handle, host.room_id, on_session=host.session_event)
     info = await server.start(session_path)
     print(f"mock game: room {host.room_id} on {info.host}:{info.port}", flush=True)

@@ -32,7 +32,7 @@ any MCP client or harness --stdio--> enfractal-companion --loopback link--> game
 | `.../lockdown.py` | Environment scrub and audit-hook sandbox for the server process |
 | `.../refusals.py`, `.../textsafety.py` | One mapping from contract violations to error codes; untrusted-text rules, emoji markers in place |
 | `companion/schemas/companion-link.schema.json` | The link's session file and frames, proposed for `contracts/` |
-| `companion/tests/` | Boundary tests (host, link, MCP surface, perception, perception memory, text rules, no holds, sandbox, profile), the stdio acceptance test, `test_kernel_alignment.py` (it reads the kernel host's constants and fails when the mock's policy drifts from them), `test_fetch.py` (fetch on the mock) and `test_real_host.py` (the link and boundary cases, the goals and the visible state against the real game host) |
+| `companion/tests/` | Boundary tests (host, link, MCP surface, perception, perception memory, text rules, no holds, sandbox, profile), the stdio acceptance test, `test_kernel_alignment.py` (it reads the kernel host's constants and fails when the mock's policy drifts from them), `test_fetch.py` (fetch on the mock), `test_real_host.py` (the link and boundary cases, a refused-connection flood, the goals and the visible state against the real game host) and `test_link_ownership.py` (two games sharing one user folder) |
 | `game/scripts/native/Companion/` | The game's end (A2): `CompanionLinkServer.cs` (the link), `CompanionBridge.cs` (the link in front of the command host, the session file, the visible state), `CompanionStatusCue.cs` (the state on the avatar), `CompanionRoom.cs` with `companion_room.tscn` (the room with the link, until `RoomWorld` attaches the bridge itself) |
 | `companion/tests/fixtures/contract_memory_v1.json` | The perception-memory result fields as proposed; `contracts/` has carried them since `72e9015`, and a test checks the two still match |
 | `docs/companion/proposals/` | Changes for files this lane does not own, as patches, and the kernel host's change requests (below) |
@@ -77,7 +77,7 @@ uv sync --project companion --frozen                       # once: creates compa
 uv run --project companion --locked python -m unittest discover -s companion/tests
 ```
 
-Expected: `Ran 566 tests ... OK (skipped=3)` in about 100 seconds. Skipped: the stand-in for a `contracts/` without
+Expected: `Ran 573 tests ... OK (skipped=3)` in two to three minutes. Skipped: the stand-in for a `contracts/` without
 the memory fields (today's contract carries them, so its counterpart runs instead), and the real host's go_to and
 fetch, which run once the host walks to things and fetches. `test_real_host.py` starts one headless game; it needs the
 pinned Godot .NET and .NET SDK and the C# project built (the runners build it first), and skips with the reason
@@ -234,7 +234,9 @@ warnings and were run here with the patches applied.
   main thread, because the host casts rays and touches the scene.
 - **The avatar shows the AI's state** (listening, planning, acting, waiting for the player's yes) only while an AI is
   linked, inferred from the link and the body: the game cannot see the model think. First-pass words and colours.
-- **A second game window does not take the link** from the first; `--no-companion-link` turns it off.
+- **One game per account owns the link**, by an ownership lock held for the link's life, never by what a session
+  file says; a second window runs without it, and `--no-companion-link` turns it off. The link's diagnostics are
+  counted and summarised, so traffic without the token cannot load the game's main thread (A2 security review).
 - **Fetch is built to the merged contract on the mock first** (pick up on arrival, succeed beside the player still
   holding); the real host gets it with Lane P's verbs and the body's go-to ([EMBODIMENT.md](EMBODIMENT.md#fetch)).
 - **Per-client configurations are data, not code.** The client catalogue (`clients.json`) names the clients; the
