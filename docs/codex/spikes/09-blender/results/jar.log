@@ -1,0 +1,18 @@
+INFO Draco is available, use library at C:\Users\blues\AppData\Local\Programs\Blender\blender-5.2.2-windows-x64\5.2\scripts\addons_core\io_scene_gltf2\bf_intern_draco_bridge.dll
+INFO MeshOptimizer is available, use library at C:\Users\blues\AppData\Local\Programs\Blender\blender-5.2.2-windows-x64\5.2\scripts\addons_core\io_scene_gltf2\bf_intern_meshopt_bridge.dll
+19:02:12 | INFO: Starting glTF 2.0 export
+19:02:12 | INFO: Extracting primitive: gingham_metal_lid
+19:02:12 | INFO: Primitives created: 1
+19:02:12 | INFO: Extracting primitive: hollow_faceted_glass_body
+19:02:12 | INFO: Primitives created: 1
+19:02:12 | INFO: Extracting primitive: neck_thread_visual_approximation
+19:02:12 | INFO: Primitives created: 1
+19:02:12 | INFO: Finished glTF 2.0 export in 0.06287455558776855 s
+
+RENDER engine=CYCLES device=CPU threads=4 samples=96 size=512x384
+00:21.593  render           | Saved: 'C:\Users\blues\AppData\Local\Temp\enfractal-09-blender-spike\artifacts\bonne_maman_jar.png'
+RESULT {"triangle_count": 7308, "dimensions_m_y_up": [0.08399999886751175, 0.0949999988079071, 0.08399999886751175], "glb_bytes": 175652, "export_seconds": 0.4791668999969261, "render_seconds": 20.145334399989224, "script_seconds": 21.033493399998406, "checks": "PASS: embedded resources, triangle indices, finite Y-up bounds, bottom-centre identity root"}
+Blender 5.2.2 LTS (hash d13f752e3b9c built 2026-09-15 01:37:04)
+
+Blender quit
+PROCESS object=jar exit=0 wall_seconds=21.812

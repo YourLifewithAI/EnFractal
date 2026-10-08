@@ -1,0 +1,991 @@
+diff --git a/contracts/style-preset.schema.json b/contracts/style-preset.schema.json
+index e55cf9d..2ccdce7 100644
+--- a/contracts/style-preset.schema.json
++++ b/contracts/style-preset.schema.json
+@@ -788,7 +788,857 @@
+       }
+     },
+     "extensions": {
+-      "$ref": "common.schema.json#/$defs/extensions"
++      "allOf": [
++        {
++          "$ref": "common.schema.json#/$defs/extensions"
++        },
++        {
++          "description": "The Look lane's x_look_* blocks are typed (review M6): every field of every block is required and checked, and an unknown field in one of them is refused. Other x_ keys stay free, as in every extensions object.",
++          "properties": {
++        "x_look_key_mode": {
++          "enum": [
++            "fixed",
++            "sun"
++          ]
++        },
++        "x_look_glaze_amount": {
++          "type": "number",
++          "minimum": 0,
++          "maximum": 1
++        },
++        "x_look_role_marks": {
++          "description": "How each material role is painted: the pattern, the brush marks and how the role takes light and colour. `default` covers every role not listed.",
++          "type": "object",
++          "required": [
++            "default"
++          ],
++          "propertyNames": {
++            "pattern": "^[a-z][a-z0-9_]{0,63}$"
++          },
++          "additionalProperties": {
++            "$ref": "#/$defs/look_role_marks_entry"
++          }
++        },
++        "x_look_paint": {
++          "type": "object",
++          "additionalProperties": false,
++          "required": [
++            "tone_wash",
++            "tone_strokes",
++            "tone_bristle",
++            "tone_gain",
++            "softening_calm",
++            "temperature_variation",
++            "pastel_mix",
++            "pastel_chroma",
++            "pastel_scale",
++            "pastel_lift",
++            "wear_brightness",
++            "wear_lift",
++            "cavity_darkening",
++            "stroke_normal_gain",
++            "mark_fade_start",
++            "mark_fade_end",
++            "bevel_fraction",
++            "bevel_max_m",
++            "accent_mix",
++            "accent_darken",
++            "photo_blur_lod"
++          ],
++          "properties": {
++            "tone_wash": {
++              "type": "number",
++              "minimum": 0
++            },
++            "tone_strokes": {
++              "type": "number",
++              "minimum": 0
++            },
++            "tone_bristle": {
++              "type": "number",
++              "minimum": 0
++            },
++            "tone_gain": {
++              "type": "number",
++              "minimum": 0
++            },
++            "softening_calm": {
++              "type": "number",
++              "minimum": 0
++            },
++            "temperature_variation": {
++              "type": "number",
++              "minimum": 0
++            },
++            "pastel_mix": {
++              "type": "number",
++              "minimum": 0
++            },
++            "pastel_chroma": {
++              "type": "number",
++              "minimum": 0
++            },
++            "pastel_scale": {
++              "type": "number",
++              "minimum": 0
++            },
++            "pastel_lift": {
++              "type": "number",
++              "minimum": 0
++            },
++            "wear_brightness": {
++              "type": "number",
++              "minimum": 0
++            },
++            "wear_lift": {
++              "type": "number",
++              "minimum": 0
++            },
++            "cavity_darkening": {
++              "type": "number",
++              "minimum": 0
++            },
++            "stroke_normal_gain": {
++              "type": "number",
++              "minimum": 0
++            },
++            "mark_fade_start": {
++              "type": "number",
++              "minimum": 0,
++              "maximum": 0.5
++            },
++            "mark_fade_end": {
++              "type": "number",
++              "minimum": 0,
++              "maximum": 0.5
++            },
++            "bevel_fraction": {
++              "type": "number",
++              "minimum": 0
++            },
++            "bevel_max_m": {
++              "type": "number",
++              "minimum": 0
++            },
++            "accent_mix": {
++              "type": "number",
++              "minimum": 0
++            },
++            "accent_darken": {
++              "type": "number",
++              "minimum": 0
++            },
++            "photo_blur_lod": {
++              "type": "number",
++              "minimum": 0
++            }
++          }
++        },
++        "x_look_shadows": {
++          "type": "object",
++          "additionalProperties": false,
++          "required": [
++            "key_splits",
++            "key_angular_base_deg",
++            "key_angular_per_softness_deg",
++            "blur_base",
++            "blur_per_softness",
++            "key_min_distance_m",
++            "key_distance_per_diagonal",
++            "key_split_1",
++            "key_bias",
++            "key_normal_bias",
++            "lamp_bias",
++            "lamp_normal_bias",
++            "lamp_size_base_m",
++            "lamp_size_per_softness_m"
++          ],
++          "properties": {
++            "key_splits": {
++              "type": "integer",
++              "minimum": 0
++            },
++            "key_angular_base_deg": {
++              "type": "number",
++              "minimum": 0
++            },
++            "key_angular_per_softness_deg": {
++              "type": "number",
++              "minimum": 0
++            },
++            "blur_base": {
++              "type": "number",
++              "minimum": 0
++            },
++            "blur_per_softness": {
++              "type": "number",
++              "minimum": 0
++            },
++            "key_min_distance_m": {
++              "type": "number",
++              "minimum": 0
++            },
++            "key_distance_per_diagonal": {
++              "type": "number",
++              "minimum": 0
++            },
++            "key_split_1": {
++              "type": "number",
++              "minimum": 0
++            },
++            "key_bias": {
++              "type": "number",
++              "minimum": 0
++            },
++            "key_normal_bias": {
++              "type": "number",
++              "minimum": 0
++            },
++            "lamp_bias": {
++              "type": "number",
++              "minimum": 0
++            },
++            "lamp_normal_bias": {
++              "type": "number",
++              "minimum": 0
++            },
++            "lamp_size_base_m": {
++              "type": "number",
++              "minimum": 0
++            },
++            "lamp_size_per_softness_m": {
++              "type": "number",
++              "minimum": 0
++            }
++          }
++        },
++        "x_look_ssao": {
++          "type": "object",
++          "additionalProperties": false,
++          "required": [
++            "power",
++            "detail",
++            "horizon",
++            "sharpness",
++            "light_affect",
++            "ao_channel_affect"
++          ],
++          "properties": {
++            "power": {
++              "type": "number",
++              "minimum": 0
++            },
++            "detail": {
++              "type": "number",
++              "minimum": 0
++            },
++            "horizon": {
++              "type": "number",
++              "minimum": 0
++            },
++            "sharpness": {
++              "type": "number",
++              "minimum": 0
++            },
++            "light_affect": {
++              "type": "number",
++              "minimum": 0
++            },
++            "ao_channel_affect": {
++              "type": "number",
++              "minimum": 0
++            }
++          }
++        },
++        "x_look_glow": {
++          "type": "object",
++          "additionalProperties": false,
++          "required": [
++            "strength",
++            "blend_mode",
++            "hdr_threshold",
++            "levels"
++          ],
++          "properties": {
++            "strength": {
++              "type": "number",
++              "minimum": 0
++            },
++            "blend_mode": {
++              "enum": [
++                "additive",
++                "screen",
++                "softlight",
++                "replace",
++                "mix"
++              ]
++            },
++            "hdr_threshold": {
++              "type": "number",
++              "minimum": 0
++            },
++            "levels": {
++              "type": "array",
++              "minItems": 7,
++              "maxItems": 7,
++              "items": {
++                "type": "number",
++                "minimum": 0
++              }
++            }
++          }
++        },
++        "x_look_gi": {
++          "type": "object",
++          "additionalProperties": false,
++          "required": [
++            "subdiv",
++            "margin_m",
++            "bias",
++            "normal_bias",
++            "two_bounces_above",
++            "environment_ambient_scale"
++          ],
++          "properties": {
++            "subdiv": {
++              "type": "integer",
++              "minimum": 0
++            },
++            "margin_m": {
++              "type": "number",
++              "minimum": 0
++            },
++            "bias": {
++              "type": "number",
++              "minimum": 0
++            },
++            "normal_bias": {
++              "type": "number",
++              "minimum": 0
++            },
++            "two_bounces_above": {
++              "type": "number",
++              "minimum": 0,
++              "maximum": 1
++            },
++            "environment_ambient_scale": {
++              "type": "number",
++              "minimum": 0,
++              "maximum": 1
++            }
++          }
++        },
++        "x_look_lamps": {
++          "type": "object",
++          "additionalProperties": false,
++          "required": [
++            "attenuation",
++            "range_per_diagonal",
++            "window_spot_angle_deg",
++            "switch_on_below_daylight",
++            "window_standoff_m",
++            "window_light_size_m",
++            "sky_fill_energy",
++            "sky_fill_saturation",
++            "lamp_tint",
++            "lamp_tint_amount",
++            "glow_radius_m",
++            "glow_energy"
++          ],
++          "properties": {
++            "attenuation": {
++              "type": "number",
++              "minimum": 0
++            },
++            "range_per_diagonal": {
++              "type": "number",
++              "minimum": 0
++            },
++            "window_spot_angle_deg": {
++              "type": "number",
++              "minimum": 0,
++              "maximum": 90
++            },
++            "switch_on_below_daylight": {
++              "type": "number",
++              "minimum": 0,
++              "maximum": 1
++            },
++            "window_standoff_m": {
++              "type": "number",
++              "minimum": 0
++            },
++            "window_light_size_m": {
++              "type": "number",
++              "minimum": 0
++            },
++            "sky_fill_energy": {
++              "type": "number",
++              "minimum": 0
++            },
++            "sky_fill_saturation": {
++              "type": "number",
++              "minimum": 0,
++              "maximum": 1
++            },
++            "lamp_tint": {
++              "$ref": "common.schema.json#/$defs/color_hex"
++            },
++            "lamp_tint_amount": {
++              "type": "number",
++              "minimum": 0,
++              "maximum": 1
++            },
++            "glow_radius_m": {
++              "type": "number",
++              "minimum": 0
++            },
++            "glow_energy": {
++              "type": "number",
++              "minimum": 0
++            }
++          }
++        },
++        "x_look_sun": {
++          "type": "object",
++          "additionalProperties": false,
++          "required": [
++            "real_clock_daylight_saving",
++            "sunrise_elevation_deg",
++            "twilight_elevation_deg",
++            "horizon_elevation_deg",
++            "moon_elevation_deg",
++            "moon_bearing_deg",
++            "reference_daylight"
++          ],
++          "properties": {
++            "real_clock_daylight_saving": {
++              "type": "boolean"
++            },
++            "sunrise_elevation_deg": {
++              "type": "number"
++            },
++            "twilight_elevation_deg": {
++              "type": "number"
++            },
++            "horizon_elevation_deg": {
++              "type": "number",
++              "minimum": 0
++            },
++            "moon_elevation_deg": {
++              "type": "number",
++              "minimum": 0
++            },
++            "moon_bearing_deg": {
++              "type": "number",
++              "minimum": 0,
++              "maximum": 360
++            },
++            "reference_daylight": {
++              "type": "number",
++              "minimum": 0,
++              "maximum": 1
++            }
++          }
++        },
++        "x_look_seasons": {
++          "type": "object",
++          "additionalProperties": false,
++          "required": [
++            "centre_days",
++            "hold",
++            "light_strength",
++            "fixed_day_of_year",
++            "looks"
++          ],
++          "properties": {
++            "centre_days": {
++              "type": "array",
++              "minItems": 4,
++              "maxItems": 4,
++              "items": {
++                "type": "integer",
++                "minimum": 0
++              }
++            },
++            "hold": {
++              "type": "number",
++              "minimum": 0,
++              "maximum": 0.5
++            },
++            "light_strength": {
++              "type": "number",
++              "minimum": 0
++            },
++            "fixed_day_of_year": {
++              "type": "integer",
++              "minimum": 0
++            },
++            "looks": {
++              "type": "object",
++              "additionalProperties": false,
++              "required": [
++                "winter",
++                "spring",
++                "summer",
++                "autumn"
++              ],
++              "properties": {
++                "winter": {
++                  "$ref": "#/$defs/look_season_look"
++                },
++                "spring": {
++                  "$ref": "#/$defs/look_season_look"
++                },
++                "summer": {
++                  "$ref": "#/$defs/look_season_look"
++                },
++                "autumn": {
++                  "$ref": "#/$defs/look_season_look"
++                }
++              }
++            }
++          }
++        },
++        "x_look_grade": {
++          "type": "object",
++          "additionalProperties": false,
++          "required": [
++            "shadow_tone",
++            "highlight_tone",
++            "season_tint",
++            "warmth_rgb",
++            "night_desaturate",
++            "night_tint_rgb",
++            "night_deepen",
++            "lut_size",
++            "night_full_below",
++            "night_none_above",
++            "season_tint_shadow_fade",
++            "night_with_lamps"
++          ],
++          "properties": {
++            "shadow_tone": {
++              "type": "number",
++              "minimum": 0
++            },
++            "highlight_tone": {
++              "type": "number",
++              "minimum": 0
++            },
++            "season_tint": {
++              "type": "number",
++              "minimum": 0
++            },
++            "warmth_rgb": {
++              "type": "array",
++              "minItems": 3,
++              "maxItems": 3,
++              "items": {
++                "type": "number"
++              }
++            },
++            "night_desaturate": {
++              "type": "number",
++              "minimum": 0
++            },
++            "night_tint_rgb": {
++              "type": "array",
++              "minItems": 3,
++              "maxItems": 3,
++              "items": {
++                "type": "number"
++              }
++            },
++            "night_deepen": {
++              "type": "number",
++              "minimum": 0
++            },
++            "lut_size": {
++              "type": "integer",
++              "minimum": 8,
++              "maximum": 65
++            },
++            "night_full_below": {
++              "type": "number",
++              "minimum": 0,
++              "maximum": 1
++            },
++            "night_none_above": {
++              "type": "number",
++              "minimum": 0,
++              "maximum": 1
++            },
++            "season_tint_shadow_fade": {
++              "type": "number",
++              "minimum": 0,
++              "maximum": 1
++            },
++            "night_with_lamps": {
++              "type": "number",
++              "minimum": 0,
++              "maximum": 1
++            }
++          }
++        },
++        "x_look_dof": {
++          "type": "object",
++          "additionalProperties": false,
++          "required": [
++            "tilt_pitch_gain",
++            "tilt_band_narrowing",
++            "far_transition_base_m",
++            "far_transition_per_m",
++            "far_blur_reference",
++            "near_transition_base",
++            "near_transition_per_blur",
++            "amount_base",
++            "amount_per_blur",
++            "eye_focus_body_heights",
++            "body_focus_height_fraction",
++            "eye_crisp_body_heights",
++            "tilt_transition_shortening",
++            "tilt_amount_gain",
++            "companion_follow_m",
++            "focus_ease_s",
++            "observe_band_m",
++            "observe_far_transition_m",
++            "observe_near_transition_m",
++            "observe_amount"
++          ],
++          "properties": {
++            "tilt_pitch_gain": {
++              "type": "number",
++              "minimum": 0
++            },
++            "tilt_band_narrowing": {
++              "type": "number",
++              "minimum": 0,
++              "maximum": 1
++            },
++            "far_transition_base_m": {
++              "type": "number",
++              "minimum": 0
++            },
++            "far_transition_per_m": {
++              "type": "number",
++              "minimum": 0
++            },
++            "far_blur_reference": {
++              "type": "number",
++              "minimum": 0
++            },
++            "near_transition_base": {
++              "type": "number",
++              "minimum": 0
++            },
++            "near_transition_per_blur": {
++              "type": "number",
++              "minimum": 0
++            },
++            "amount_base": {
++              "type": "number",
++              "minimum": 0
++            },
++            "amount_per_blur": {
++              "type": "number",
++              "minimum": 0
++            },
++            "eye_focus_body_heights": {
++              "type": "number",
++              "minimum": 0
++            },
++            "body_focus_height_fraction": {
++              "type": "number",
++              "minimum": 0
++            },
++            "eye_crisp_body_heights": {
++              "type": "number",
++              "minimum": 0
++            },
++            "tilt_transition_shortening": {
++              "type": "number",
++              "minimum": 0,
++              "maximum": 1
++            },
++            "tilt_amount_gain": {
++              "type": "number",
++              "minimum": 0
++            },
++            "companion_follow_m": {
++              "type": "number",
++              "minimum": 0
++            },
++            "focus_ease_s": {
++              "type": "number",
++              "minimum": 0
++            },
++            "observe_band_m": {
++              "type": "number",
++              "minimum": 0
++            },
++            "observe_far_transition_m": {
++              "type": "number",
++              "minimum": 0
++            },
++            "observe_near_transition_m": {
++              "type": "number",
++              "minimum": 0
++            },
++            "observe_amount": {
++              "type": "number",
++              "minimum": 0,
++              "maximum": 1
++            }
++          }
++        },
++        "x_look_post": {
++          "type": "object",
++          "additionalProperties": false,
++          "required": [
++            "vignette_start",
++            "vignette_end",
++            "grain_fine",
++            "grain_soft",
++            "grain_soft_px",
++            "focus_saturation",
++            "defocus_saturation",
++            "defocus_darken",
++            "bokeh_threshold",
++            "bokeh_gain"
++          ],
++          "properties": {
++            "vignette_start": {
++              "type": "number",
++              "minimum": 0
++            },
++            "vignette_end": {
++              "type": "number",
++              "minimum": 0
++            },
++            "grain_fine": {
++              "type": "number",
++              "minimum": 0
++            },
++            "grain_soft": {
++              "type": "number",
++              "minimum": 0
++            },
++            "grain_soft_px": {
++              "type": "number",
++              "minimum": 0
++            },
++            "focus_saturation": {
++              "type": "number",
++              "minimum": 0
++            },
++            "defocus_saturation": {
++              "type": "number",
++              "minimum": 0
++            },
++            "defocus_darken": {
++              "type": "number",
++              "minimum": 0,
++              "maximum": 1
++            },
++            "bokeh_threshold": {
++              "type": "number",
++              "minimum": 0
++            },
++            "bokeh_gain": {
++              "type": "number",
++              "minimum": 0
++            }
++          }
++        },
++        "x_look_sky": {
++          "type": "object",
++          "additionalProperties": false,
++          "required": [
++            "day_zenith",
++            "day_horizon",
++            "dusk_zenith",
++            "dusk_horizon",
++            "night_zenith",
++            "night_horizon",
++            "cloud_light",
++            "cloud_shade",
++            "brightness",
++            "sun_disc_deg",
++            "sun_halo",
++            "moon_disc_deg",
++            "star_strength",
++            "dusk_start_deg",
++            "dusk_end_deg",
++            "ground",
++            "ground_season_tint"
++          ],
++          "properties": {
++            "day_zenith": {
++              "$ref": "common.schema.json#/$defs/color_hex"
++            },
++            "day_horizon": {
++              "$ref": "common.schema.json#/$defs/color_hex"
++            },
++            "dusk_zenith": {
++              "$ref": "common.schema.json#/$defs/color_hex"
++            },
++            "dusk_horizon": {
++              "$ref": "common.schema.json#/$defs/color_hex"
++            },
++            "night_zenith": {
++              "$ref": "common.schema.json#/$defs/color_hex"
++            },
++            "night_horizon": {
++              "$ref": "common.schema.json#/$defs/color_hex"
++            },
++            "cloud_light": {
++              "$ref": "common.schema.json#/$defs/color_hex"
++            },
++            "cloud_shade": {
++              "$ref": "common.schema.json#/$defs/color_hex"
++            },
++            "brightness": {
++              "type": "number",
++              "minimum": 0
++            },
++            "sun_disc_deg": {
++              "type": "number",
++              "minimum": 0
++            },
++            "sun_halo": {
++              "type": "number",
++              "minimum": 0
++            },
++            "moon_disc_deg": {
++              "type": "number",
++              "minimum": 0
++            },
++            "star_strength": {
++              "type": "number",
++              "minimum": 0
++            },
++            "dusk_start_deg": {
++              "type": "number",
++              "minimum": 0
++            },
++            "dusk_end_deg": {
++              "type": "number",
++              "minimum": 0
++            },
++            "ground": {
++              "$ref": "common.schema.json#/$defs/color_hex"
++            },
++            "ground_season_tint": {
++              "type": "number",
++              "minimum": 0,
++              "maximum": 1
++            }
++          }
++        }
++      }
++        }
++      ]
+     }
+   },
+   "$defs": {
+@@ -850,6 +1700,127 @@
+           "pattern": "^res://[A-Za-z0-9_./-]{1,200}$"
+         }
+       }
++    },
++    "look_role_marks_entry": {
++      "type": "object",
++      "additionalProperties": false,
++      "required": [
++        "pattern",
++        "stroke_scale_m",
++        "stroke_stretch",
++        "stroke_axis",
++        "pattern_scale_m",
++        "variation",
++        "wrap",
++        "terminator_warmth",
++        "sheen",
++        "specular",
++        "texture_strength",
++        "texture_scale_m",
++        "calm"
++      ],
++      "properties": {
++        "pattern": {
++          "enum": [
++            "none",
++            "wood",
++            "fabric",
++            "plaster",
++            "paper",
++            "cardboard",
++            "brushed",
++            "speckle",
++            "smooth",
++            "stone"
++          ]
++        },
++        "stroke_scale_m": {
++          "type": "number",
++          "minimum": 0
++        },
++        "stroke_stretch": {
++          "type": "number",
++          "minimum": 0
++        },
++        "stroke_axis": {
++          "enum": [
++            "x",
++            "y",
++            "z"
++          ]
++        },
++        "pattern_scale_m": {
++          "type": "number",
++          "minimum": 0
++        },
++        "variation": {
++          "type": "number",
++          "minimum": 0
++        },
++        "wrap": {
++          "type": "number",
++          "minimum": 0
++        },
++        "terminator_warmth": {
++          "type": "number",
++          "minimum": 0
++        },
++        "sheen": {
++          "type": "number",
++          "minimum": 0
++        },
++        "specular": {
++          "type": "number",
++          "minimum": 0
++        },
++        "texture_strength": {
++          "type": "number",
++          "minimum": 0
++        },
++        "texture_scale_m": {
++          "type": "number",
++          "minimum": 0
++        },
++        "calm": {
++          "type": "number",
++          "minimum": 0,
++          "maximum": 1
++        }
++      }
++    },
++    "look_season_look": {
++      "type": "object",
++      "additionalProperties": false,
++      "required": [
++        "sun_energy",
++        "sun_blur",
++        "sky_saturation",
++        "sky_brightness",
++        "cloud_amount"
++      ],
++      "properties": {
++        "sun_energy": {
++          "type": "number",
++          "minimum": 0
++        },
++        "sun_blur": {
++          "type": "number",
++          "minimum": 0
++        },
++        "sky_saturation": {
++          "type": "number",
++          "minimum": 0
++        },
++        "sky_brightness": {
++          "type": "number",
++          "minimum": 0
++        },
++        "cloud_amount": {
++          "type": "number",
++          "minimum": 0,
++          "maximum": 1
++        }
++      }
+     }
+   }
+ }

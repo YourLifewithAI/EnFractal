@@ -1,0 +1,1 @@
+Codex reports land here, one per brief, on that brief's `codex/` branch. The integrator reviews each one, checks its scope with `tools/codex/check_scope.py`, and verifies its claims before merging or folding them into a design doc.

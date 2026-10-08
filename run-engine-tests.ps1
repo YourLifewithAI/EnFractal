@@ -32,7 +32,8 @@ $tests = @(
     'creation_visuals_smoke.gd',
     'invention_runtime_smoke.gd',
     'invention_editor_smoke.gd',
-    'durable_creation_smoke.gd'
+    'durable_creation_smoke.gd',
+    'kernel_canonical_json_smoke.gd'
 )
 foreach ($test in $tests) {
     $result = Invoke-EnfractalNativeProcess -Toolchain $nativeToolchain -FilePath $enginePath `
@@ -54,3 +55,25 @@ if ($probe.Stderr -or $probe.Stdout -notmatch 'Native release probe passed:') {
     throw "Native compiler probe failed:`n$($probe.Stdout)`n$($probe.Stderr)"
 }
 Write-Output ($probe.Stdout.Trim().Split("`n") | Select-Object -Last 1)
+
+# C# kernel: canonical JSON golden fixture (C# and GDScript) and the enfractal.command host.
+foreach ($scene in @('native_kernel_canonical_json.tscn', 'native_kernel_command_host.tscn', 'native_kernel_play_hud.tscn')) {
+    $kernel = Invoke-EnfractalNativeProcess -Toolchain $nativeToolchain -FilePath $enginePath `
+        -Arguments @('--headless', '--path', $projectPath, '--fixed-fps', '60', "res://tests/$scene") -TimeoutSeconds 120
+    if ($kernel.Stderr -or $kernel.Stdout -notmatch 'NATIVE_KERNEL_[A-Z_]+: \d+/\d+ checks passed') {
+        throw "$scene failed:`n$($kernel.Stdout)`n$($kernel.Stderr)"
+    }
+    Write-Output ($kernel.Stdout.Trim().Split("`n") | Select-Object -Last 1)
+}
+
+# Companion (A1): MCP surface, mock host, link and boundary tests in the pinned companion environment.
+# The first run needs network once to fill companion/.venv from companion/uv.lock.
+$uv = Get-Command uv -CommandType Application -ErrorAction SilentlyContinue
+if (-not $uv) { throw 'uv is required for the companion tests (companion/uv.lock); see docs/companion/README.md.' }
+$companionOutput = & $uv.Source run --project (Join-Path $PSScriptRoot 'companion') --locked --quiet `
+    python -m unittest discover -s (Join-Path $PSScriptRoot 'companion/tests') 2>&1 | ForEach-Object { "$_" }
+if ($LASTEXITCODE -ne 0) {
+    Write-Output $companionOutput
+    throw "Companion tests failed with exit code $LASTEXITCODE."
+}
+Write-Output ("companion: " + (($companionOutput | Select-String -Pattern '^Ran \d+ tests' | Select-Object -Last 1).Line))

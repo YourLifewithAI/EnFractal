@@ -1,0 +1,51 @@
+{
+  "schema": "enfractal.result",
+  "version": 1,
+  "ok": true,
+  "op": "entities.list",
+  "query_id": "q-0011",
+  "principal": "companion:local",
+  "room_id": "garage_example",
+  "revision": 4,
+  "replayed": false,
+  "preview": false,
+  "at_utc": "2026-10-06T00:05:00Z",
+  "data": {
+    "items": [
+      {
+        "id": "obj:paint_clutter",
+        "kind": "object",
+        "display_name": "Paint supplies",
+        "revision": 0,
+        "position_m": [
+          0.8,
+          0.9,
+          -2.5
+        ],
+        "bounds_m": {
+          "min_m": [
+            0.4,
+            0.9,
+            -2.675
+          ],
+          "max_m": [
+            1.2000000000000002,
+            1.15,
+            -2.325
+          ]
+        },
+        "affordances": [
+          "breakable"
+        ],
+        "movable": true,
+        "protected": false,
+        "provenance_kind": "captured_generated",
+        "category": "paint bottles and brushes",
+        "category_group": "clutter_set",
+        "seen": "remembered",
+        "last_seen_ago_s": 42.5,
+        "last_seen_revision": 3
+      }
+    ]
+  }
+}

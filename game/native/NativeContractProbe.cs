@@ -14,7 +14,7 @@ public partial class NativeContractProbe : Node
         {
             using var contract = new NativeWorldContract();
             var profile = contract.GetDefaultProfile();
-            if (!contract.ValidateProfile(profile) || profile["height_m"].AsDouble() != 0.30 ||
+            if (!contract.ValidateProfile(profile) || profile["height_m"].AsDouble() != 0.10 ||
                 profile["meters_per_world_unit"].AsDouble() != 1.0 || profile["schema_version"].AsInt32() != 1)
                 throw new System.InvalidOperationException("Native metric profile failed");
             using var adapter = new LegacyCreationCompiler();
@@ -33,7 +33,7 @@ public partial class NativeContractProbe : Node
             var style = StylePreset.Resolve(RoomWorld.DefaultStyleId, RoomWorld.DefaultStyleVersion);
             if (room.Objects.Count == 0 || room.Shell.Count == 0 || style.PresetVersion < 1)
                 throw new System.InvalidOperationException("Shipped room or style preset is empty");
-            GD.Print($"Native release probe passed: compiled C#, 0.30 m profile, shared GDScript compiler, valid/invalid inputs, identical artifacts, room {room.RoomId} and style {style.PresetId}@{style.PresetVersion} hashes verified");
+            GD.Print($"Native release probe passed: compiled C#, 0.10 m profile, shared GDScript compiler, valid/invalid inputs, identical artifacts, room {room.RoomId} and style {style.PresetId}@{style.PresetVersion} hashes verified");
             GetTree().Quit(0);
         }
         catch (System.Exception error)

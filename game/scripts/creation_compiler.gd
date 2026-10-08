@@ -2,6 +2,8 @@ extends RefCounted
 ## Data-only creation compiler. The artifact is derived; authority must recompile
 ## editable source before admitting an instance, never trust a supplied artifact.
 
+const JSON_KERNEL = preload("res://scripts/creation_json.gd")
+const TEXT = preload("res://scripts/creation_text.gd")
 const COMPILER_VERSION := 1
 const STYLE_VERSION := "painterly_v1"
 const MAX_BYTES := 32768
@@ -71,8 +73,10 @@ static func compile(manifest: Variant) -> Dictionary:
 		return _error("schema", "$.schema", "Expected enfractal.creation source.")
 	if not _integer(manifest.version) or int(manifest.version) != 1:
 		return _error("version", "$.version", "Only creation schema version 1 is supported.")
-	if not manifest.name is String or manifest.name.strip_edges().is_empty() or manifest.name.to_utf8_buffer().size() > 64 or _has_control(manifest.name):
-		return _error("name", "$.name", "Use a nonempty name of at most 64 UTF-8 bytes without control characters.")
+	# A name is untrusted world text: the project's invisible-character rule (creation_text.gd) refuses
+	# controls, format characters, blanks, variation selectors and plane 14, except emoji markers in place.
+	if not manifest.name is String or manifest.name.strip_edges().is_empty() or manifest.name.to_utf8_buffer().size() > 64 or TEXT.has_hidden(manifest.name):
+		return _error("name", "$.name", "Use a nonempty name of at most 64 UTF-8 bytes without control or invisible characters.")
 	if not _integer(manifest.seed) or float(manifest.seed) < 0 or float(manifest.seed) > 2147483647:
 		return _error("seed", "$.seed", "Seed must be an integer from 0 to 2147483647.")
 	var vocabulary := registry()
@@ -240,25 +244,12 @@ static func compile(manifest: Variant) -> Dictionary:
 			"fields": counts.wind, "lights": counts.light, "rotors": counts.spin}}}
 
 
-## Stable UTF-8 representation for already JSON-compatible bounded values.
-## compile performs the depth/size/type guard first; callers hashing requests
-## should likewise bound them before using this general utility.
+## EnFractal canonical JSON v1 (scripts/creation_json.gd): exact numbers, sorted keys, no
+## whitespace; byte-identical with the C# command host and tools/kernel/canonical_json.py.
+## compile performs the depth/size/type guard first; callers hashing requests should likewise
+## bound them before using this general utility. Returns "" for a value JSON cannot hold.
 static func canonical_json(value: Variant) -> String:
-	if value is Dictionary:
-		var keys: Array = value.keys()
-		keys.sort()
-		var entries: PackedStringArray = []
-		for key in keys:
-			entries.append(JSON.stringify(key) + ":" + canonical_json(value[key]))
-		return "{" + ",".join(entries) + "}"
-	if value is Array:
-		var entries: PackedStringArray = []
-		for element in value:
-			entries.append(canonical_json(element))
-		return "[" + ",".join(entries) + "]"
-	if _finite_number(value):
-		return JSON.stringify(_normalized_number(value), "", true, true)
-	return JSON.stringify(value, "", true, true)
+	return JSON_KERNEL.canonical(value)
 
 
 static func _keys(value: Variant, allowed: Array, path: String) -> Dictionary:
@@ -323,15 +314,9 @@ static func _valid_id(value: Variant) -> bool:
 	if not value is String:
 		return false
 	var pattern := RegEx.new()
-	pattern.compile("^[A-Za-z][A-Za-z0-9_-]{0,31}$")
+	# \A and \z: PCRE's $ also matches before a final newline.
+	pattern.compile("\\A[A-Za-z][A-Za-z0-9_-]{0,31}\\z")
 	return pattern.search(value) != null
-
-
-static func _has_control(value: String) -> bool:
-	for i in range(value.length()):
-		if value.unicode_at(i) < 32 or value.unicode_at(i) == 127:
-			return true
-	return false
 
 
 static func _finite_number(value: Variant) -> bool:

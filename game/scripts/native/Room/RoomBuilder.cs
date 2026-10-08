@@ -49,7 +49,9 @@ public static class RoomBuilder
                     node.AddChild(new CollisionShape3D { Shape = mesh.Mesh.CreateTrimeshShape(), Transform = RelativeTransform(scene, mesh) });
             return node;
         }
-        var (arrayMesh, shape) = ExtrudePolygon(part.Points, part.ThicknessM);
+        // The openings listed for this part are holes in the slab: a window in a solid wall is a hole, not a painted square.
+        var visualHoles = room.Openings.Where(o => o.HostPartId == part.Id && o.CutsVisual).ToArray();
+        var (arrayMesh, shape) = ExtrudePolygon(part.Points, part.ThicknessM, visualHoles, visualHoles.Where(o => o.CutsCollision).ToArray());
         node.AddChild(new MeshInstance3D { Name = "Visual", Mesh = arrayMesh, MaterialOverride = MaterialLibrary.For(part.MaterialRole, part.BaseColor) });
         if (part.Collides) node.AddChild(new CollisionShape3D { Name = "Collision", Shape = shape });
         return node;
@@ -129,35 +131,158 @@ public static class RoomBuilder
     }
 
     /// <summary>Extrude a planar polygon away from the room. Inner face follows the polygon winding (normal into the room).</summary>
-    public static (ArrayMesh Mesh, Shape3D Shape) ExtrudePolygon(Vector3[] points, float thickness)
+    public static (ArrayMesh Mesh, Shape3D Shape) ExtrudePolygon(Vector3[] points, float thickness) =>
+        ExtrudePolygon(points, thickness, Array.Empty<ShellOpening>(), Array.Empty<ShellOpening>());
+
+    /// <summary>
+    /// Extrude a planar polygon away from the room with rectangular holes cut through it. The mesh has the visual holes
+    /// (every opening that lets light and sight through); the collision shape has only the solid holes (those a body can
+    /// pass), so a window is glass to a body and open to the sun. Geometry2D cannot triangulate a polygon with holes, so
+    /// the wall is cut into simple pieces by clipping it with the four strips around each hole, and each piece is triangulated.
+    /// </summary>
+    public static (ArrayMesh Mesh, Shape3D Shape) ExtrudePolygon(Vector3[] points, float thickness, IReadOnlyList<ShellOpening> visualHoles, IReadOnlyList<ShellOpening> solidHoles)
     {
         var normal = NewellNormal(points);
+        var back = -normal * thickness;
+        var mesh = Slab(points, normal, back, visualHoles);
+        if (solidHoles.Count > 0) return (mesh, Slab(points, normal, back, solidHoles).CreateTrimeshShape());
         var u = (points[1] - points[0]).Normalized();
         var v = normal.Cross(u).Normalized();
         var flat = points.Select(p => new Vector2((p - points[0]).Dot(u), (p - points[0]).Dot(v))).ToArray();
-        var triangles = Geometry2D.TriangulatePolygon(flat);
-        if (triangles.Length == 0) throw new RoomLoadException("shell polygon cannot be triangulated");
-        var back = -normal * thickness;
+        // No hole a body can pass: the collision is the whole slab, glass included.
+        Shape3D shape = IsConvex(flat)
+            ? new ConvexPolygonShape3D { Points = points.Concat(points.Select(p => p + back)).ToArray() }
+            : (visualHoles.Count == 0 ? mesh : Slab(points, normal, back, Array.Empty<ShellOpening>())).CreateTrimeshShape();
+        return (mesh, shape);
+    }
+
+    /// <summary>The mesh of a slab: the polygon (minus the holes) on the inside, its mirror at the back, the edge faces round the outside and round each hole.</summary>
+    private static ArrayMesh Slab(Vector3[] points, Vector3 normal, Vector3 back, IReadOnlyList<ShellOpening> holes)
+    {
+        var u = (points[1] - points[0]).Normalized();
+        var v = normal.Cross(u).Normalized();
+        Vector2 Flat(Vector3 p) => new((p - points[0]).Dot(u), (p - points[0]).Dot(v));
+        Vector3 Lift(Vector2 f) => points[0] + u * f.X + v * f.Y;
+        var flat = points.Select(Flat).ToArray();
+        // Each hole is a rectangle in the plane of the wall: its width runs along the wall at the horizontal (up cross
+        // normal), its height up the wall; a surface that is not upright (a ceiling vent) uses the polygon's own axes.
+        var rectangles = new List<(Vector2 Centre, Vector2 A, Vector2 B, float Width, float Height)>();
+        foreach (var hole in holes)
+        {
+            var upright = Mathf.Abs(normal.Dot(Vector3.Up)) < 0.99f;
+            var across = upright ? Vector3.Up.Cross(normal).Normalized() : u;
+            var up = upright ? normal.Cross(across).Normalized() : v;
+            if (upright && up.Dot(Vector3.Up) < 0f) up = -up;
+            var onPlane = hole.CenterM - normal * (hole.CenterM - points[0]).Dot(normal);
+            rectangles.Add((Flat(onPlane), new Vector2(across.Dot(u), across.Dot(v)).Normalized(), new Vector2(up.Dot(u), up.Dot(v)).Normalized(), hole.SizeM.X, hole.SizeM.Y));
+        }
+        var pieces = new List<Vector2[]> { flat };
+        // A hole that removes nothing gets no reveal: the test room's west wall is already built round its window, and the
+        // window's host is the piece below the sill, whose neighbours' own edges are the reveal.
+        var cut = new List<(Vector2 Centre, Vector2 A, Vector2 B, float Width, float Height)>();
+        foreach (var r in rectangles)
+        {
+            var before = pieces.Sum(p => Mathf.Abs(Area(p)));
+            const float big = 1000f;
+            Vector2[] Strip(float x0, float x1, float y0, float y1) => new[]
+            {
+                r.Centre + r.A * x0 + r.B * y0, r.Centre + r.A * x1 + r.B * y0, r.Centre + r.A * x1 + r.B * y1, r.Centre + r.A * x0 + r.B * y1,
+            };
+            var halfW = r.Width * 0.5f;
+            var halfH = r.Height * 0.5f;
+            var strips = new[] { Strip(-big, -halfW, -big, big), Strip(halfW, big, -big, big), Strip(-halfW, halfW, -big, -halfH), Strip(-halfW, halfW, halfH, big) };
+            var next = new List<Vector2[]>();
+            foreach (var piece in pieces)
+                foreach (var strip in strips)
+                    foreach (var part in Geometry2D.IntersectPolygons(piece, strip))
+                        if (part.Length >= 3 && Mathf.Abs(Area(part)) > 1e-6f) next.Add(part);
+            pieces = next;
+            if (before - pieces.Sum(p => Mathf.Abs(Area(p))) > 1e-4f) cut.Add(r);
+        }
         var tool = new SurfaceTool();
         tool.Begin(Mesh.PrimitiveType.Triangles);
-        for (var i = 0; i < triangles.Length; i += 3)
+        foreach (var piece in pieces)
         {
-            var a = points[triangles[i]]; var b = points[triangles[i + 1]]; var c = points[triangles[i + 2]];
-            Triangle(tool, a, b, c, normal);
-            Triangle(tool, a + back, b + back, c + back, -normal);
+            var triangles = Geometry2D.TriangulatePolygon(piece);
+            if (triangles.Length == 0) throw new RoomLoadException("shell polygon cannot be triangulated");
+            for (var i = 0; i < triangles.Length; i += 3)
+            {
+                var a = Lift(piece[triangles[i]]); var b = Lift(piece[triangles[i + 1]]); var c = Lift(piece[triangles[i + 2]]);
+                Triangle(tool, a, b, c, normal);
+                Triangle(tool, a + back, b + back, c + back, -normal);
+            }
         }
         for (var i = 0; i < points.Length; i++)
         {
             var a = points[i]; var b = points[(i + 1) % points.Length];
             var outward = (b - a).Cross(normal).Normalized();
-            Triangle(tool, a, b, b + back, outward);
-            Triangle(tool, a, b + back, a + back, outward);
+            // Only the stretches of the edge that are still wall: an opening that runs off the edge (a passage at the end
+            // of a wall) leaves no face standing across it.
+            foreach (var (from, to) in OutsideHoles(flat[i], flat[(i + 1) % points.Length], cut))
+            {
+                var p = a + (b - a) * from; var q = a + (b - a) * to;
+                Triangle(tool, p, q, q + back, outward);
+                Triangle(tool, p, q + back, p + back, outward);
+            }
         }
-        var mesh = tool.Commit();
-        Shape3D shape = IsConvex(flat)
-            ? new ConvexPolygonShape3D { Points = points.Concat(points.Select(p => p + back)).ToArray() }
-            : mesh.CreateTrimeshShape();
-        return (mesh, shape);
+        // The reveal: faces through the thickness round each hole, facing into the opening, wherever the wall goes on
+        // behind them. A door's sill on the wall's bottom edge, a side beyond the wall's end, or a side that falls inside
+        // a neighbouring opening gets none.
+        foreach (var r in cut)
+        {
+            var corners = new[] { new Vector2(-1, -1), new Vector2(1, -1), new Vector2(1, 1), new Vector2(-1, 1) }
+                .Select(c => r.Centre + r.A * (c.X * r.Width * 0.5f) + r.B * (c.Y * r.Height * 0.5f)).ToArray();
+            var centre = Lift(r.Centre);
+            for (var i = 0; i < 4; i++)
+            {
+                var side = (corners[i] + corners[(i + 1) % 4]) * 0.5f;
+                var behind = side + (side - r.Centre).Normalized() * 0.005f;
+                if (!pieces.Any(piece => Geometry2D.IsPointInPolygon(behind, piece))) continue;
+                var a = Lift(corners[i]); var b = Lift(corners[(i + 1) % 4]);
+                var inward = centre - (a + b) * 0.5f;
+                inward = (inward - normal * inward.Dot(normal)).Normalized();
+                Triangle(tool, a, b, b + back, inward);
+                Triangle(tool, a, b + back, a + back, inward);
+            }
+        }
+        return tool.Commit();
+    }
+
+    /// <summary>The stretches of the segment a to b, as fractions of its length, that lie outside every hole.</summary>
+    private static List<(float From, float To)> OutsideHoles(Vector2 a, Vector2 b, IReadOnlyList<(Vector2 Centre, Vector2 A, Vector2 B, float Width, float Height)> holes)
+    {
+        var keep = new List<(float From, float To)> { (0f, 1f) };
+        foreach (var hole in holes)
+        {
+            // The part of the segment strictly inside the hole: inside both of its slabs, across and up.
+            var (enter, leave) = (0f, 1f);
+            foreach (var (axis, half) in new[] { (hole.A, hole.Width * 0.5f), (hole.B, hole.Height * 0.5f) })
+            {
+                var start = (a - hole.Centre).Dot(axis);
+                var rate = (b - a).Dot(axis);
+                if (Mathf.Abs(rate) < 1e-6f)
+                {
+                    // An edge along the hole's border (a door's foot on the wall's bottom edge) counts as inside it.
+                    if (Mathf.Abs(start) > half + 1e-4f) (enter, leave) = (1f, 0f);
+                    continue;
+                }
+                var t0 = (-half - start) / rate;
+                var t1 = (half - start) / rate;
+                enter = Mathf.Max(enter, Mathf.Min(t0, t1));
+                leave = Mathf.Min(leave, Mathf.Max(t0, t1));
+            }
+            if (leave - enter < 1e-5f) continue;
+            keep = keep.SelectMany(k => new[] { (From: k.From, To: Mathf.Min(k.To, enter)), (From: Mathf.Max(k.From, leave), To: k.To) })
+                .Where(k => k.To - k.From > 1e-5f).ToList();
+        }
+        return keep;
+    }
+
+    private static float Area(Vector2[] polygon)
+    {
+        var sum = 0f;
+        for (var i = 0; i < polygon.Length; i++) sum += polygon[i].Cross(polygon[(i + 1) % polygon.Length]);
+        return sum * 0.5f;
     }
 
     /// <summary>Godot treats clockwise triangles (seen from the front) as front faces.</summary>

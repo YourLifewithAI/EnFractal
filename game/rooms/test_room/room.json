@@ -55,7 +55,7 @@
         },
         "collides": true,
         "material_role": "wood",
-        "base_color": "#8a7a66"
+        "base_color": "#9a8f7e"
       },
       {
         "id": "shell:ceiling",
@@ -88,7 +88,7 @@
         },
         "collides": true,
         "material_role": "plaster",
-        "base_color": "#e9e4da"
+        "base_color": "#ece8df"
       },
       {
         "id": "shell:wall_north",
@@ -121,7 +121,7 @@
         },
         "collides": true,
         "material_role": "painted_wall",
-        "base_color": "#b9b4ab"
+        "base_color": "#ddd5c6"
       },
       {
         "id": "shell:wall_south",
@@ -154,7 +154,7 @@
         },
         "collides": true,
         "material_role": "painted_wall",
-        "base_color": "#b9b4ab"
+        "base_color": "#ddd5c6"
       },
       {
         "id": "shell:wall_east",
@@ -187,7 +187,7 @@
         },
         "collides": true,
         "material_role": "painted_wall",
-        "base_color": "#b3aea4"
+        "base_color": "#b8c7c8"
       },
       {
         "id": "shell:wall_west",
@@ -207,6 +207,39 @@
             ],
             [
               -2.0,
+              0.5,
+              -1.5
+            ],
+            [
+              -2.0,
+              0.5,
+              1.5
+            ]
+          ],
+          "thickness_m": 0.1
+        },
+        "collides": true,
+        "material_role": "painted_wall",
+        "base_color": "#b8c7c8"
+      },
+      {
+        "id": "shell:wall_west_head",
+        "role": "wall",
+        "geometry": {
+          "kind": "polygon",
+          "points_m": [
+            [
+              -2.0,
+              2.0,
+              1.5
+            ],
+            [
+              -2.0,
+              2.0,
+              -1.5
+            ],
+            [
+              -2.0,
               2.4,
               -1.5
             ],
@@ -220,10 +253,93 @@
         },
         "collides": true,
         "material_role": "painted_wall",
-        "base_color": "#b3aea4"
+        "base_color": "#b8c7c8"
+      },
+      {
+        "id": "shell:wall_west_south",
+        "role": "wall",
+        "geometry": {
+          "kind": "polygon",
+          "points_m": [
+            [
+              -2.0,
+              0.5,
+              1.5
+            ],
+            [
+              -2.0,
+              0.5,
+              0.8999999999999999
+            ],
+            [
+              -2.0,
+              2.0,
+              0.8999999999999999
+            ],
+            [
+              -2.0,
+              2.0,
+              1.5
+            ]
+          ],
+          "thickness_m": 0.1
+        },
+        "collides": true,
+        "material_role": "painted_wall",
+        "base_color": "#b8c7c8"
+      },
+      {
+        "id": "shell:wall_west_north",
+        "role": "wall",
+        "geometry": {
+          "kind": "polygon",
+          "points_m": [
+            [
+              -2.0,
+              0.5,
+              -0.3
+            ],
+            [
+              -2.0,
+              0.5,
+              -1.5
+            ],
+            [
+              -2.0,
+              2.0,
+              -1.5
+            ],
+            [
+              -2.0,
+              2.0,
+              -0.3
+            ]
+          ],
+          "thickness_m": 0.1
+        },
+        "collides": true,
+        "material_role": "painted_wall",
+        "base_color": "#b8c7c8"
       }
     ],
-    "openings": []
+    "openings": [
+      {
+        "id": "window_west",
+        "kind": "window",
+        "host_part_id": "shell:wall_west",
+        "center_m": [
+          -2.0,
+          1.25,
+          0.3
+        ],
+        "size_m": [
+          1.2,
+          1.5
+        ],
+        "state": "fixed",
+        "traversable": false
+      }
+    ]
   },
   "objects": [
     {
@@ -294,9 +410,9 @@
       "asset": "objects/rug_proxy/asset.json",
       "transform": {
         "position_m": [
-          0.2,
+          0.15,
           0.0,
-          0.7
+          0.725
         ],
         "rotation": [
           0.0,
@@ -316,7 +432,7 @@
       "transform": {
         "position_m": [
           -0.3,
-          0.0,
+          0.006,
           0.5
         ],
         "rotation": [
@@ -327,8 +443,8 @@
         ]
       },
       "support": {
-        "kind": "floor",
-        "target_id": "shell:floor"
+        "kind": "object",
+        "target_id": "obj:rug"
       }
     }
   ],
@@ -354,6 +470,11 @@
       "yaw_deg": 0.0
     }
   ],
+  "site": {
+    "latitude_deg": 30,
+    "neg_z_bearing_deg": 0,
+    "solar_noon_h": 12
+  },
   "light_hints": [
     {
       "id": "ceiling_lamp",
@@ -366,32 +487,56 @@
       "color": "#ffe7bf",
       "relative_intensity": 0.8,
       "estimated": false
+    },
+    {
+      "id": "window_west",
+      "kind": "window",
+      "position_m": [
+        -2.15,
+        1.25,
+        0.3
+      ],
+      "direction": [
+        1.0,
+        -0.3,
+        0.0
+      ],
+      "color": "#d6e2f5",
+      "relative_intensity": 0.7,
+      "estimated": false
+    },
+    {
+      "id": "sun",
+      "kind": "sun",
+      "color": "#fff1d2",
+      "relative_intensity": 1.0,
+      "estimated": false
     }
   ],
   "files": [
     {
       "path": "objects/book_proxy/asset.json",
-      "sha256": "500c41038d848c1ebc97d46ccdc3b63da1d9da6c9183d7e83c6d1f95511c9be6",
+      "sha256": "84f08307e6cc48fde9e799d10578000b1cb8b39db084d44135fcc62759420593",
       "bytes": 1027
     },
     {
       "path": "objects/box_proxy/asset.json",
-      "sha256": "4f78c12f27e9e0f075f13f7867067bfaf1a5d16e2372ce5bf493f7301fe3b1c6",
+      "sha256": "28e7bf1ccf495f3b59599b1723d0a914171afe5c2197f9481cac6ae882c4c90f",
       "bytes": 1047
     },
     {
       "path": "objects/doorstop_proxy/asset.json",
-      "sha256": "50d9c4634dd09dcc6c323b0418510b309ca4da6bba0b89d6d24087455afb7007",
+      "sha256": "ce037bbd260f62dae4f4e28e96f76a4604574e1a350600906713e78afe5168e8",
       "bytes": 1025
     },
     {
       "path": "objects/rug_proxy/asset.json",
-      "sha256": "232c9322d3895f79f204ed870f38c15e5e2ac0ef20651bb333ce9d4604d04dd9",
-      "bytes": 1000
+      "sha256": "ca2b471891e64cbfd6103deeb8a0156c6d58885d4f9eb79728b16b74d06a5f52",
+      "bytes": 1001
     },
     {
       "path": "objects/table_proxy/asset.json",
-      "sha256": "947f817d57a2d0326b19aff34408b1365b36b6ad3a51380d39e3c7ff739f2669",
+      "sha256": "a69270a83c0f6b3adc8e4010bed8d10884194251ff4e8e489aa43e785df77d91",
       "bytes": 1015
     }
   ]

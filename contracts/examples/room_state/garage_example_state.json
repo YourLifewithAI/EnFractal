@@ -3,7 +3,7 @@
   "version": 1,
   "room_id": "garage_example",
   "room_pin": {
-    "manifest_sha256": "a7629a89ef4e6d64d3f163c8a8ca433c70ba06cad296b7608a729cf0855ccf37"
+    "manifest_sha256": "455f16034dde371d32209ef253b25561e72014c0bb359e88ba25b9ff5aea3f5d"
   },
   "style_pin": {
     "preset_id": "storybook_painterly",

@@ -1,8 +1,12 @@
 extends SceneTree
 ## Exercises the compiled C# boundary using real GDScript Variants.
+const GUARD = preload("res://tests/kernel_test_guard.gd")
+## Fails the suite on any script or engine error (kernel_test_guard.gd).
+var guard = GUARD.new()
 
 
 func _initialize() -> void:
+	OS.add_logger(guard)
 	var contract_script = load("res://native/NativeWorldContract.cs")
 	if contract_script == null or not contract_script.can_instantiate():
 		_fail("C# assembly missing; run tools/build-native.ps1 with Godot .NET")
@@ -13,10 +17,11 @@ func _initialize() -> void:
 		_fail("C# profile did not survive its GDScript round trip")
 		return
 	if profile["schema_version"] != 1 or not is_equal_approx(profile["meters_per_world_unit"], 1.0) \
-			or not is_equal_approx(profile["height_m"], 0.30):
-		_fail("unit or 30 cm body contract drifted")
+			or not is_equal_approx(profile["height_m"], 0.10) or not is_equal_approx(profile["radius_m"], 0.02) \
+			or not is_equal_approx(profile["eye_height_m"], 0.087) or not is_equal_approx(profile["interaction_reach_m"], 0.15):
+		_fail("unit or 10 cm body contract drifted")
 		return
-	for invalid in [null, [], "profile", {"height_m": 0.30}]:
+	for invalid in [null, [], "profile", {"height_m": 0.10}]:
 		if contract.call("ValidateProfile", invalid):
 			_fail("malformed profile accepted")
 			return
@@ -26,10 +31,11 @@ func _initialize() -> void:
 		["meters_per_world_unit", 6.0],
 		["height_m", NAN],
 		["height_m", INF],
-		["height_m", "0.30"],
+		["height_m", "0.10"],
 		["height_m", 0.0],
-		["radius_m", 0.16],
-		["eye_height_m", 0.31],
+		["height_m", 0.04],
+		["radius_m", 0.06],
+		["eye_height_m", 0.11],
 		["interaction_reach_m", -1.0],
 		["unknown_authority", true],
 	]
@@ -41,13 +47,13 @@ func _initialize() -> void:
 			return
 	var second: Dictionary = contract.call("GetDefaultProfile")
 	profile["height_m"] = 2.0
-	if not is_equal_approx(second["height_m"], 0.30):
+	if not is_equal_approx(second["height_m"], 0.10):
 		_fail("caller mutation changed the canonical profile")
 		return
-	print("Native interop smoke passed: C# profile, meter units, Variant validation, and caller isolation")
-	quit(0)
+	print("Native interop smoke passed: C# 0.10 m profile, meter units, Variant validation, and caller isolation")
+	quit(guard.exit_code(false))
 
 
 func _fail(message: String) -> void:
 	push_error("Native interop smoke: " + message)
-	quit(1)
+	quit(guard.exit_code(true))

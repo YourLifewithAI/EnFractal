@@ -14,9 +14,9 @@
   },
   "pivot": "bottom_center",
   "dimensions_m": [
-    1.6,
+    1.5,
     0.006,
-    1.1
+    1.05
   ],
   "geometry": {
     "kind": "primitive",
@@ -33,7 +33,7 @@
     {
       "slot": "body",
       "role": "fabric",
-      "base_color": "#7a5b63"
+      "base_color": "#d3a3a6"
     }
   ],
   "affordances": [

@@ -43,16 +43,25 @@ Every run is built by parallel agent lanes. A lane **edits only the paths it own
 
 | Path | Packets |
 |---|---|
-| `game/scripts/creation_*.gd`, `game/scripts/invention_*.gd`, `game/scripts/world_state.gd`, `game/scripts/world_physics_profile.gd`, `game/scripts/player_controller.gd` (legacy fixture, to be removed), `game/creation_templates/**` | P1 |
+| `game/scripts/creation_*.gd`, `game/scripts/invention_*.gd`, `game/scripts/world_state.gd`, `game/scripts/world_physics_profile.gd`, `game/creation_templates/**` | P1 |
 | `game/scripts/native/Kernel/**` (C# side of the kernel and the command host; the integrator wires its `CommandHost.Attach(RoomWorld)` entry point into `RoomWorld.cs` at merge) | P1 |
 | `game/tests/native/Kernel/**`, `game/tests/native_kernel_*.tscn`, `game/tests/fixtures/kernel/**`, `tools/kernel/**` (command-host tests, golden canonical-JSON fixtures and their Python reproducer) | P1 |
-| `game/native/WorldScaleProfile.cs`, `game/scripts/native/SmallPlayerController.cs`, `game/scripts/native/CompanionAvatar.cs` (body and movement only) | P2 |
+| `game/native/WorldScaleProfile.cs`, `game/scripts/native/SmallPlayerController.cs`, `game/scripts/native/CompanionAvatar.cs` (body and movement only), `game/scripts/native/Navigation/**`, `game/tests/native/RoomNavigationTest.cs`, `game/tests/native_room_navigation.tscn` | P2 |
 | `game/scripts/native/Room/**` (room data and builder) | P6, from Run 2 |
 | `game/scripts/native/Sandbox/**` | P3, from Run 2 |
 | `game/scripts/native/Saves/**` | P4, from Run 3 |
 | `game/scripts/native/RoomHud.cs`, `game/scripts/native/Ui/**` | P5, from Run 3 |
-| `game/tests/*.gd` (kernel suites), `game/tests/native/SmallAvatarPhysicsTest.cs`, `game/tests/native_small_avatar.tscn`, `game/scenes/player_test.tscn` | P1, P2 |
+| `game/tests/*.gd` (kernel suites), `game/tests/native/SmallAvatarPhysicsTest.cs`, `game/tests/native_small_avatar.tscn` | P1, P2 |
 | `docs/engine/phase3/**` | P1 kernel records |
+
+## Codex (GPT), a contractor
+
+| Path | Notes |
+|---|---|
+| `codex/<brief>` branches only | Never `main`, `run1/*` or a lane branch |
+| The files in its brief's `scope` block, normally `docs/codex/reports/<brief>.md` | `tools/codex/check_scope.py` checks every branch before the integrator merges it |
+
+The integrator owns `docs/codex/README.md`, `docs/codex/briefs/**` and `tools/codex/**`. Codex works on research, test runs and audits, never on contracts, the kernel, the companion's server or the Look lane's GPU work. See [docs/codex/README.md](../codex/README.md).
 
 ## Track A: AI companion
 

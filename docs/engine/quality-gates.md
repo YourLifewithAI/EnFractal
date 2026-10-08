@@ -1,8 +1,8 @@
 # EnFractal milestone reviews
 
-> **Review rubric, kept.** The phase names and the art rubric it cites belong to the geography era; the scoring method, the three-independent-reviewer rule and the 8.5 target carry forward to the R0–R5 phases in the [room-scale direction](../ROOM-SCALE-DIRECTION.md).
+> **Review rubric, kept; policy updated 7 October 2026.** The phase framing and three-reviewer scoring process below are historical. Work now follows the integration runs in the [room-scale direction](../ROOM-SCALE-DIRECTION.md). [Orchestration](../runs/ORCHESTRATION.md#reviews) requires one independent reviewer at a completed whole-lane chunk; the integrator reviews partial work. Only the founder passes a gate.
 
-The [roadmap](../history/ROADMAP.md) defines the phase exit gates. This file defines how the implementation team checks progress without treating an agent's completed patch as an accepted milestone.
+The current run brief defines active exit evidence (see [Run 1](../runs/RUN-1.md#integration-and-exit)). The [historical roadmap](../history/ROADMAP.md) and the process below are earlier context, not active gates. This file retains the rubric without treating an agent's completed patch as an accepted milestone.
 
 ## Reporting rhythm
 

@@ -1,0 +1,59 @@
+19:02:43 | INFO: Data are loaded, start creating Blender stuff
+19:02:43 | INFO: Blender create Mesh node Cube.001
+19:02:43 | INFO: Blender create Mesh node Cube.007
+19:02:43 | INFO: Blender create Mesh node Cube.006
+19:02:43 | INFO: Blender create Mesh node Cube.009
+19:02:43 | INFO: Blender create Mesh node Cube.008
+19:02:43 | INFO: Blender create Mesh node Cube.004
+19:02:43 | INFO: Blender create Mesh node Cube.002
+19:02:43 | INFO: Blender create Mesh node Cube.005
+19:02:43 | INFO: Blender create Mesh node Cube.003
+19:02:43 | INFO: glTF import finished in 0.02s
+PASS cardboard_box: GLB roundtrip bounds/triangles, 9 asset meshes, 512x384 PNG
+19:02:43 | INFO: Data are loaded, start creating Blender stuff
+19:02:43 | INFO: Blender create Mesh node gingham_metal_lid
+19:02:43 | INFO: Blender create Mesh node hollow_faceted_glass_body
+19:02:43 | INFO: Blender create Mesh node neck_thread_visual_approximation
+19:02:43 | INFO: glTF import finished in 0.02s
+PASS bonne_maman_jar: GLB roundtrip bounds/triangles, 3 asset meshes, 512x384 PNG
+INFO Draco is available, use library at C:\Users\blues\AppData\Local\Programs\Blender\blender-5.2.2-windows-x64\5.2\scripts\addons_core\io_scene_gltf2\bf_intern_draco_bridge.dll
+INFO MeshOptimizer is available, use library at C:\Users\blues\AppData\Local\Programs\Blender\blender-5.2.2-windows-x64\5.2\scripts\addons_core\io_scene_gltf2\bf_intern_meshopt_bridge.dll
+19:02:43 | INFO: Starting glTF 2.0 export
+19:02:43 | INFO: Extracting primitive: Cube.010
+19:02:43 | INFO: Primitives created: 1
+19:02:43 | INFO: Extracting primitive: Cube.016
+19:02:43 | INFO: Primitives created: 1
+19:02:43 | INFO: Extracting primitive: Cube.015
+19:02:43 | INFO: Primitives created: 1
+19:02:43 | INFO: Extracting primitive: Cube.018
+19:02:43 | INFO: Primitives created: 1
+19:02:43 | INFO: Extracting primitive: Cube.017
+19:02:43 | INFO: Primitives created: 1
+19:02:43 | INFO: Extracting primitive: Cube.013
+19:02:43 | INFO: Primitives created: 1
+19:02:43 | INFO: Extracting primitive: Cube.011
+19:02:43 | INFO: Primitives created: 1
+19:02:43 | INFO: Extracting primitive: Cube.014
+19:02:43 | INFO: Primitives created: 1
+19:02:43 | INFO: Extracting primitive: Cube.012
+19:02:43 | INFO: Primitives created: 1
+19:02:43 | INFO: Finished glTF 2.0 export in 0.06624865531921387 s
+
+RESULT {"triangle_count": 972, "dimensions_m_y_up": [0.20000000298023224, 0.11999999731779099, 0.1599999964237213], "glb_bytes": 72132, "export_seconds": 0.20231959999364335, "render_seconds": 0, "script_seconds": 0.24195789999794215, "checks": "PASS: embedded resources, triangle indices, finite Y-up bounds, bottom-centre identity root"}
+PASS box parameters: 0.20x0.16x0.12 m, 4 mm thickness, closed flaps
+19:02:44 | INFO: Starting glTF 2.0 export
+19:02:44 | INFO: Extracting primitive: gingham_metal_lid.001
+19:02:44 | INFO: Primitives created: 1
+19:02:44 | INFO: Extracting primitive: hollow_faceted_glass_body.001
+19:02:44 | INFO: Primitives created: 1
+19:02:44 | INFO: Extracting primitive: neck_thread_visual_approximation.001
+19:02:44 | INFO: Primitives created: 1
+19:02:44 | INFO: Finished glTF 2.0 export in 0.016100406646728516 s
+
+RESULT {"triangle_count": 7308, "dimensions_m_y_up": [0.08799999952316284, 0.125, 0.08799999952316284], "glb_bytes": 175652, "export_seconds": 0.017729299986967817, "render_seconds": 0, "script_seconds": 0.4951784000004409, "checks": "PASS: embedded resources, triangle indices, finite Y-up bounds, bottom-centre identity root"}
+PASS jar parameters: resized body/lid, 2.5 mm wall, 20 mm lid lift, solid geometric thread
+SPIKE_ACCEPTANCE: 4/4 cases passed
+Blender 5.2.2 LTS (hash d13f752e3b9c built 2026-09-15 01:37:04)
+
+Blender quit
+PROCESS object=verify exit=0 wall_seconds=2.171

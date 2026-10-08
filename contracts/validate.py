@@ -20,11 +20,13 @@ import hashlib
 import json
 import math
 import re
+import bisect
+import functools
 import struct
 import sys
 from pathlib import Path, PurePosixPath
 
-from jsonschema import Draft202012Validator, validators
+from jsonschema import Draft202012Validator, ValidationError, validators
 from jsonschema.exceptions import best_match
 from referencing import Registry, Resource
 from referencing.jsonschema import DRAFT202012
@@ -98,12 +100,146 @@ def loads_strict(text: str):
         return json.loads(text, object_pairs_hook=unique_pairs, parse_constant=reject_constant, parse_float=finite_float)
     except json.JSONDecodeError as error:
         raise ContractError(f"invalid JSON: {error}") from None
+    except ContractError:
+        raise
+    except ValueError:  # an integer literal longer than Python converts (4,300 digits by default)
+        raise ContractError("a number is too long to read") from None
+    except RecursionError:
+        raise ContractError("the document nests too deeply to read") from None
 
 
 # 'integer' means a JSON number written without a fraction, as the C# and GDScript readers require.
 _STRICT_TYPES = Draft202012Validator.TYPE_CHECKER.redefine(
     "integer", lambda _checker, instance: isinstance(instance, int) and not isinstance(instance, bool))
-StrictValidator = validators.extend(Draft202012Validator, type_checker=_STRICT_TYPES)
+
+
+def ecma_pattern(pattern: str) -> str:
+    """Translate an ECMA-262 pattern (JSON Schema's dialect, no flags) for Python's re.
+
+    ECMA-262's '$' matches only at the very end of the input; Python's (and .NET's) '$' also
+    matches just before a final newline, so "approved\\n" passed '^[^...]*$'. Every '$' that is
+    neither escaped nor inside a character class becomes '\\Z'. The contract's patterns use no
+    other construct whose meaning differs."""
+    out, in_class, i = [], False, 0
+    while i < len(pattern):
+        ch = pattern[i]
+        if ch == "\\" and i + 1 < len(pattern):
+            out.append(pattern[i:i + 2])
+            i += 2
+            continue
+        if in_class:
+            in_class = ch != "]"
+        elif ch == "[":
+            in_class = True
+            prefix = "[^" if pattern.startswith("[^", i) else "["
+            out.append(prefix)
+            i += len(prefix)
+            if i < len(pattern) and pattern[i] == "]":  # a ']' first in a class is a member
+                out.append("]")
+                i += 1
+            continue
+        elif ch == "$":
+            out.append(r"\Z")
+            i += 1
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+@functools.lru_cache(maxsize=512)
+def _compiled(pattern: str):
+    return re.compile(ecma_pattern(pattern))
+
+
+def _ecma_pattern_keyword(validator, pattern, instance, schema):
+    if validator.is_type(instance, "string") and not _compiled(pattern).search(instance):
+        yield ValidationError(f"{instance!r} does not match {pattern!r}")
+
+
+StrictValidator = validators.extend(Draft202012Validator, {"pattern": _ecma_pattern_keyword}, type_checker=_STRICT_TYPES)
+
+
+# Extended_Pictographic (UTS #51, Unicode 15.1 emoji-data.txt), merged into ranges. It reserves whole
+# blocks for future emoji, so new emoji need no table update.
+_EXTENDED_PICTOGRAPHIC = (
+    (0x00A9, 0x00A9), (0x00AE, 0x00AE), (0x203C, 0x203C), (0x2049, 0x2049), (0x2122, 0x2122), (0x2139, 0x2139),
+    (0x2194, 0x2199), (0x21A9, 0x21AA), (0x231A, 0x231B), (0x2328, 0x2328), (0x2388, 0x2388), (0x23CF, 0x23CF),
+    (0x23E9, 0x23F3), (0x23F8, 0x23FA), (0x24C2, 0x24C2), (0x25AA, 0x25AB), (0x25B6, 0x25B6), (0x25C0, 0x25C0),
+    (0x25FB, 0x25FE), (0x2600, 0x2605), (0x2607, 0x2612), (0x2614, 0x2685), (0x2690, 0x2705), (0x2708, 0x2712),
+    (0x2714, 0x2714), (0x2716, 0x2716), (0x271D, 0x271D), (0x2721, 0x2721), (0x2728, 0x2728), (0x2733, 0x2734),
+    (0x2744, 0x2744), (0x2747, 0x2747), (0x274C, 0x274C), (0x274E, 0x274E), (0x2753, 0x2755), (0x2757, 0x2757),
+    (0x2763, 0x2767), (0x2795, 0x2797), (0x27A1, 0x27A1), (0x27B0, 0x27B0), (0x27BF, 0x27BF), (0x2934, 0x2935),
+    (0x2B05, 0x2B07), (0x2B1B, 0x2B1C), (0x2B50, 0x2B50), (0x2B55, 0x2B55), (0x3030, 0x3030), (0x303D, 0x303D),
+    (0x3297, 0x3297), (0x3299, 0x3299), (0x1F000, 0x1F0FF), (0x1F10D, 0x1F10F), (0x1F12F, 0x1F12F), (0x1F16C, 0x1F171),
+    (0x1F17E, 0x1F17F), (0x1F18E, 0x1F18E), (0x1F191, 0x1F19A), (0x1F1AD, 0x1F1E5), (0x1F201, 0x1F20F), (0x1F21A, 0x1F21A),
+    (0x1F22F, 0x1F22F), (0x1F232, 0x1F23A), (0x1F23C, 0x1F23F), (0x1F249, 0x1F3FA), (0x1F400, 0x1F53D), (0x1F546, 0x1F64F),
+    (0x1F680, 0x1F6FF), (0x1F774, 0x1F77F), (0x1F7D5, 0x1F7FF), (0x1F80C, 0x1F80F), (0x1F848, 0x1F84F), (0x1F85A, 0x1F85F),
+    (0x1F888, 0x1F88F), (0x1F8AE, 0x1F8FF), (0x1F90C, 0x1F93A), (0x1F93C, 0x1F945), (0x1F947, 0x1FAFF), (0x1FC00, 0x1FFFD),
+)
+_PICTOGRAPHIC_STARTS = tuple(low for low, _high in _EXTENDED_PICTOGRAPHIC)
+_KEYCAP_BASES = frozenset(map(ord, "0123456789#*"))
+_VS15, _VS16, _ZWJ, _KEYCAP = 0xFE0E, 0xFE0F, 0x200D, 0x20E3
+
+
+def _pictographic(code: int) -> bool:
+    index = bisect.bisect_right(_PICTOGRAPHIC_STARTS, code) - 1
+    return index >= 0 and code <= _EXTENDED_PICTOGRAPHIC[index][1]
+
+
+def _misplaced_marker(text: str) -> str | None:
+    """The first emoji marker out of place. The text patterns let VS15, VS16, the zero-width joiner and
+    the keycap combiner through because emoji use them; they are allowed only where an emoji puts them:
+    a selector right after an Extended_Pictographic character or a keycap base (0-9, # or *), so at most
+    one per base; the joiner between two emoji (the one before may carry one VS16 or skin tone); the
+    keycap after a keycap base, optionally with VS16. Alone or in runs they could carry hidden data."""
+    for i, ch in enumerate(text):
+        code = ord(ch)
+        if code not in (_VS15, _VS16, _ZWJ, _KEYCAP):
+            continue
+        before = ord(text[i - 1]) if i else -1
+        if code in (_VS15, _VS16):
+            in_place = _pictographic(before) or before in _KEYCAP_BASES
+        elif code == _KEYCAP:
+            in_place = before in _KEYCAP_BASES or (before == _VS16 and i >= 2 and ord(text[i - 2]) in _KEYCAP_BASES)
+        else:
+            j = i - 1
+            if j >= 0 and (ord(text[j]) == _VS16 or 0x1F3FB <= ord(text[j]) <= 0x1F3FF):
+                j -= 1
+            in_place = (i + 1 < len(text) and _pictographic(ord(text[i + 1])) and j >= 0
+                        and _pictographic(ord(text[j])))
+        if not in_place:
+            return f"U+{code:04X}"
+    return None
+
+
+def _hidden_code_point(text: str) -> str | None:
+    """Plane 14 (U+E0000-U+EFFFF: the TAG block, which can spell a hidden message, and the variation
+    selector supplement), unpaired surrogates and misplaced emoji markers. The text patterns refuse
+    plane 14 only in UTF-16 readers, through \\uDB40-\\uDB7F, and cannot see a marker's context;
+    Python matches code points, so it checks here, in every string."""
+    for ch in text:
+        code = ord(ch)
+        if 0xE0000 <= code <= 0xEFFFF or 0xD800 <= code <= 0xDFFF:
+            return f"U+{code:04X}"
+    return _misplaced_marker(text)
+
+
+def _text_problems(value, path: str = "$") -> list[str]:
+    if isinstance(value, str):
+        found = _hidden_code_point(value)
+        return [f"{path}: contains the invisible, unpaired or misplaced character {found}"] if found else []
+    problems = []
+    if isinstance(value, dict):
+        for key, item in value.items():
+            found = _hidden_code_point(key) if isinstance(key, str) else None
+            if found:
+                problems.append(f"{path}: a field name contains the invisible, unpaired or misplaced character {found}")
+            problems += _text_problems(item, f"{path}.{key}")
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            problems += _text_problems(item, f"{path}[{index}]")
+    return problems
 
 
 def _registry() -> Registry:
@@ -154,6 +290,9 @@ def schema_errors(document, expected: str | None = None) -> list[str]:
             deepest = best_match(error.context)
             detail = f"{detail} (closest: {_json_path(deepest)}: {deepest.message})"
         messages.append(f"{_json_path(error)}: {detail}")
+    hidden = _text_problems(document)
+    if hidden:
+        return messages + hidden  # an unpaired surrogate cannot be measured in UTF-8 either
     limit = MESSAGE_LIMITS.get(document["schema"])
     if limit and len(canonical_bytes(document)) > limit:
         messages.append(f"$: message is {len(canonical_bytes(document))} bytes of canonical JSON; the limit is {limit}")

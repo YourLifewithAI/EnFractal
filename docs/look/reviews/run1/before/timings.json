@@ -1,0 +1,340 @@
+{
+  "label": "before-a0f12c9-newclock",
+  "commit": "a0f12c9",
+  "note": "NVIDIA GeForce RTX 2070 SUPER; 1526 of 8192 MiB in use and 39% utilisation before launch (quiet for 6 s)",
+  "captured_utc": "2026-10-07T18:17:41Z",
+  "engine": "4.7.2-stable (official)",
+  "rendering_method": "forward_plus",
+  "rendering_driver": "vulkan",
+  "adapter": "NVIDIA GeForce RTX 2070 SUPER",
+  "adapter_driver": "NVIDIA 32.0.15.9186",
+  "target": "offscreen SubViewport (window shows a scaled preview)",
+  "resolution": [
+    1920,
+    1080
+  ],
+  "vsync": "disabled",
+  "warmup_frames": 120,
+  "measured_frames": 300,
+  "style": "storybook_painterly@1",
+  "style_note": "",
+  "room_manifest_sha256": "f561157d0936fbb0443ae0e1578f72f0a6bdd0604ad4877d847b41f7bf3f4964",
+  "cameras_file": "C:\\dev\\EnFractal-run1\\look\\tools\\look\\review_cameras.json",
+  "msaa_3d": "Disabled",
+  "screen_space_aa": "Fxaa",
+  "use_taa": false,
+  "cameras": [
+    {
+      "frames": 300,
+      "frame_ms_mean": 12.604,
+      "frame_ms_p50": 12.554,
+      "frame_ms_p95": 13.918,
+      "frame_ms_p99": 14.235,
+      "frame_ms_max": 23.533,
+      "gpu_ms_mean": 9.431,
+      "gpu_ms_p95": 10.279,
+      "render_cpu_ms_mean": 0.383,
+      "draw_calls_mean": 29,
+      "primitives_mean": 338,
+      "video_mem_mib": 442.321,
+      "camera": "player_eye",
+      "file": "player_eye.png",
+      "image_size": [
+        1920,
+        1080
+      ]
+    },
+    {
+      "frames": 300,
+      "frame_ms_mean": 12.136,
+      "frame_ms_p50": 12.107,
+      "frame_ms_p95": 13.206,
+      "frame_ms_p99": 13.551,
+      "frame_ms_max": 15.24,
+      "gpu_ms_mean": 9.108,
+      "gpu_ms_p95": 10.008,
+      "render_cpu_ms_mean": 0.426,
+      "draw_calls_mean": 63,
+      "primitives_mean": 4946,
+      "video_mem_mib": 442.321,
+      "camera": "over_shoulder",
+      "file": "over_shoulder.png",
+      "image_size": [
+        1920,
+        1080
+      ],
+      "contact_crops": [
+        "contact_over_shoulder_player.png",
+        "contact_over_shoulder_companion.png"
+      ]
+    },
+    {
+      "frames": 300,
+      "frame_ms_mean": 11.929,
+      "frame_ms_p50": 11.948,
+      "frame_ms_p95": 12.849,
+      "frame_ms_p99": 13.253,
+      "frame_ms_max": 14.289,
+      "gpu_ms_mean": 8.822,
+      "gpu_ms_p95": 9.603,
+      "render_cpu_ms_mean": 0.388,
+      "draw_calls_mean": 43,
+      "primitives_mean": 4706,
+      "video_mem_mib": 442.321,
+      "camera": "companion",
+      "file": "companion.png",
+      "image_size": [
+        1920,
+        1080
+      ],
+      "contact_crops": [
+        "contact_companion_player.png",
+        "contact_companion_companion.png"
+      ]
+    },
+    {
+      "frames": 300,
+      "frame_ms_mean": 11.621,
+      "frame_ms_p50": 11.579,
+      "frame_ms_p95": 12.467,
+      "frame_ms_p99": 12.853,
+      "frame_ms_max": 33.39,
+      "gpu_ms_mean": 8.461,
+      "gpu_ms_p95": 8.938,
+      "render_cpu_ms_mean": 0.387,
+      "draw_calls_mean": 70,
+      "primitives_mean": 5030,
+      "video_mem_mib": 442.321,
+      "camera": "low_corner",
+      "file": "low_corner.png",
+      "image_size": [
+        1920,
+        1080
+      ],
+      "contact_crops": [
+        "contact_low_corner_player.png",
+        "contact_low_corner_companion.png"
+      ]
+    },
+    {
+      "frames": 300,
+      "frame_ms_mean": 12.319,
+      "frame_ms_p50": 12.41,
+      "frame_ms_p95": 13.044,
+      "frame_ms_p99": 13.18,
+      "frame_ms_max": 14.369,
+      "gpu_ms_mean": 9.328,
+      "gpu_ms_p95": 10.023,
+      "render_cpu_ms_mean": 0.386,
+      "draw_calls_mean": 53,
+      "primitives_mean": 3426,
+      "video_mem_mib": 442.321,
+      "camera": "ceiling_corner",
+      "file": "ceiling_corner.png",
+      "image_size": [
+        1920,
+        1080
+      ]
+    },
+    {
+      "frames": 300,
+      "frame_ms_mean": 12.436,
+      "frame_ms_p50": 12.436,
+      "frame_ms_p95": 13.263,
+      "frame_ms_p99": 13.615,
+      "frame_ms_max": 14.646,
+      "gpu_ms_mean": 9.253,
+      "gpu_ms_p95": 9.979,
+      "render_cpu_ms_mean": 0.441,
+      "draw_calls_mean": 54,
+      "primitives_mean": 4838,
+      "video_mem_mib": 442.321,
+      "camera": "diorama_high",
+      "file": "diorama_high.png",
+      "image_size": [
+        1920,
+        1080
+      ]
+    },
+    {
+      "frames": 300,
+      "frame_ms_mean": 12.482,
+      "frame_ms_p50": 12.478,
+      "frame_ms_p95": 13.357,
+      "frame_ms_p99": 13.699,
+      "frame_ms_max": 14.023,
+      "gpu_ms_mean": 9.22,
+      "gpu_ms_p95": 9.823,
+      "render_cpu_ms_mean": 0.445,
+      "draw_calls_mean": 48,
+      "primitives_mean": 3366,
+      "video_mem_mib": 442.321,
+      "camera": "iso_room",
+      "file": "iso_room.png",
+      "image_size": [
+        1920,
+        1080
+      ]
+    },
+    {
+      "frames": 300,
+      "frame_ms_mean": 11.721,
+      "frame_ms_p50": 11.744,
+      "frame_ms_p95": 12.585,
+      "frame_ms_p99": 12.896,
+      "frame_ms_max": 13.163,
+      "gpu_ms_mean": 8.601,
+      "gpu_ms_p95": 9.248,
+      "render_cpu_ms_mean": 0.406,
+      "draw_calls_mean": 68,
+      "primitives_mean": 5006,
+      "video_mem_mib": 442.321,
+      "camera": "window_view",
+      "file": "window_view.png",
+      "image_size": [
+        1920,
+        1080
+      ]
+    },
+    {
+      "frames": 300,
+      "frame_ms_mean": 12.595,
+      "frame_ms_p50": 12.634,
+      "frame_ms_p95": 13.455,
+      "frame_ms_p99": 13.602,
+      "frame_ms_max": 13.963,
+      "gpu_ms_mean": 9.314,
+      "gpu_ms_p95": 10.011,
+      "render_cpu_ms_mean": 0.45,
+      "draw_calls_mean": 51,
+      "primitives_mean": 4802,
+      "video_mem_mib": 442.321,
+      "camera": "observe_view",
+      "file": "observe_view.png",
+      "image_size": [
+        1920,
+        1080
+      ]
+    }
+  ],
+  "look": "storybook_painterly@1 (draft) sha256=e1200d00e51fd77527824053f163bc96c6bb82cf7abf7c94ed721a4e35b4e444; renderer=forward_plus; key=sun elevation 17.7 yaw -90.9 energy 2.21 (sun at 17.7 degrees, bearing 270.9; moon weight 0; sun scale 1); sky fill energy 1.737 colour #cbdbff; lamps off (switched by the light); hour 17 day 105 season spring (hour pinned, day pinned (pinned by SetClock)); VoxelGI 4.6 x 3.0 x 3.6 m at subdiv 128 baked in 508 ms; ssao=True ssil=False glow=True dof=True tilt=0.8; grain 0.05 vignette 0.15 post effect ran",
+  "look_problems": [],
+  "post_effect_check": {
+    "ran": true,
+    "corner_to_centre_darkening": 0.061,
+    "grain_spread": 0.004,
+    "grain_correlation": 0.172,
+    "noise_correlation_scale": 0.005,
+    "centre_pixels_compared": 46656,
+    "passed": true
+  },
+  "light_checks": {
+    "sun_through_window": {
+      "camera": "ceiling_corner",
+      "sun_elevation_deg": 17.74,
+      "lit_points": 145,
+      "shaded_points": 386,
+      "lit_gain": 0.247,
+      "shaded_gain": 0.02,
+      "passed": true
+    },
+    "night": [
+      {
+        "camera": "ceiling_corner",
+        "lamps": "off",
+        "file": "night_ceiling_corner_lamps_off.png",
+        "mean_luma": 0.155,
+        "p05_luma": 0.041,
+        "p50_luma": 0.16,
+        "p95_luma": 0.302
+      },
+      {
+        "camera": "ceiling_corner",
+        "lamps": "on",
+        "file": "night_ceiling_corner_lamps_on.png",
+        "mean_luma": 0.493,
+        "p05_luma": 0.257,
+        "p50_luma": 0.481,
+        "p95_luma": 0.749
+      },
+      {
+        "camera": "over_shoulder",
+        "lamps": "off",
+        "file": "night_over_shoulder_lamps_off.png",
+        "mean_luma": 0.188,
+        "p05_luma": 0.054,
+        "p50_luma": 0.197,
+        "p95_luma": 0.262
+      },
+      {
+        "camera": "over_shoulder",
+        "lamps": "on",
+        "file": "night_over_shoulder_lamps_on.png",
+        "mean_luma": 0.434,
+        "p05_luma": 0.275,
+        "p50_luma": 0.411,
+        "p95_luma": 0.688
+      }
+    ],
+    "contact_moments": [
+      {
+        "label": "summer_sun",
+        "camera": "over_shoulder",
+        "file": "summer_sun_over_shoulder.png",
+        "contact_crops": [
+          "contact_summer_sun_over_shoulder_player.png",
+          "contact_summer_sun_over_shoulder_companion.png"
+        ]
+      },
+      {
+        "label": "summer_sun",
+        "camera": "low_corner",
+        "file": "summer_sun_low_corner.png",
+        "contact_crops": [
+          "contact_summer_sun_low_corner_player.png",
+          "contact_summer_sun_low_corner_companion.png"
+        ]
+      },
+      {
+        "label": "summer_sun",
+        "camera": "companion",
+        "file": "summer_sun_companion.png",
+        "contact_crops": [
+          "contact_summer_sun_companion_player.png",
+          "contact_summer_sun_companion_companion.png"
+        ]
+      },
+      {
+        "label": "lamp_night",
+        "camera": "over_shoulder",
+        "file": "lamp_night_over_shoulder.png",
+        "contact_crops": [
+          "contact_lamp_night_over_shoulder_player.png",
+          "contact_lamp_night_over_shoulder_companion.png"
+        ]
+      },
+      {
+        "label": "lamp_night",
+        "camera": "low_corner",
+        "file": "lamp_night_low_corner.png",
+        "contact_crops": [
+          "contact_lamp_night_low_corner_player.png",
+          "contact_lamp_night_low_corner_companion.png"
+        ]
+      },
+      {
+        "label": "lamp_night",
+        "camera": "companion",
+        "file": "lamp_night_companion.png",
+        "contact_crops": [
+          "contact_lamp_night_companion_player.png",
+          "contact_lamp_night_companion_companion.png"
+        ]
+      }
+    ],
+    "night_passed": true,
+    "ran": true
+  },
+  "player_notice": "",
+  "gpu_during_capture": "GPU memory during capture 1570-2212 MiB over 160 samples"
+}

@@ -124,13 +124,13 @@ The earlier choice of the Compatibility renderer served an 8 GiB integrated-grap
 
 ### The runs
 
-Each run is built by a parallel team: one builder per packet group with owned files, one integrator who owns the contracts and merges, and two independent reviewers (one for correctness and tests, one for the look rubric). No lane marks its own gate passed; the founder's judgment is final on look and fun.
+Each run is built by a parallel team: one builder per packet group with owned files, one integrator who owns the contracts and merges, and one independent reviewer when a lane completes a whole chunk of its roadmap, per [the orchestration policy](runs/ORCHESTRATION.md#reviews). No lane marks its own gate passed; the founder's judgment is final on look and fun.
 
 | Run | Lanes in parallel | Exit evidence |
 |---|---|---|
 | **Run 0 — contracts** (done 6 October 2026) | Schemas for the room manifest, asset metadata, style preset, game command and room state; the owned-file map per track | [contracts/](../contracts/README.md), [ownership](runs/OWNERSHIP.md), [Run 1 brief](runs/RUN-1.md); the game loads rooms and presets through them |
 | **Run 1 — the charming box** | L1 L2 L3 · P1 P2 · C1 C2 · A1 | The placeholder room with primitive props passes the look gate from fixed cameras; the 10 cm body feels right; the garage photo set yields a coverage report with specific guidance; the command surface passes its boundary tests with a mock client |
-| **Run 2 — five real objects** | C0 C3 C4 C5 · L4 L6 · P3 P6 · A2 | Five garage objects stand in the styled room with collision; the player picks one up and carries it; the companion fetches one; the room rebuilds from data |
+| **Run 2 — the scanned garage, first pass** | C3 C4 C5 C7 (started) · L4 L6 · P3 P6 · A2 · the journal's data | The garage's shell and five of its objects, as stylised stand-ins, load from data with collision; the player picks one up and carries it; the companion fetches one; the room rebuilds from data |
 | **Run 3 — the garage** | C6 C7 · L5 L7 · P4 P5 · A3 | **The milestone:** the whole garage captured, styled, sandboxable and saved; a real AI client performs one loose wish; locks and stop hold |
 | **Run 4 — scenarios and a second room** | A4 · the back yard as an outdoor shell · look iteration | Each scenario runs from a loose wish; the outdoor edge case works; budgets hold |
 | **Run 5 — playtests and release** | Accessibility, performance, fresh-player sessions, Windows build | Founder and fresh players complete the loop without coaching |
@@ -146,6 +146,51 @@ The cleanup plan's "R0" work is Run 1's P lane. Multiplayer remains a later proj
 - **First style preset**: painterly/storybook with Tiny Glade warmth.
 - **Scale**: 1 unit = 1 metre with a 0.10 m avatar; size and scale will be tuned in play.
 - **First AI client**: model-neutral MCP surface; Claude is acceptable as the first client to pair. Accessibility to any capable AI is the requirement.
+
+## Founder decisions during Run 1, 6 October 2026
+
+Details and the founder's reference notes are in [the Run 1 status page](runs/RUN-1-STATUS.md).
+
+- **Light comes only from real sources** (windows and lamps). Darkness is possible and is gameplay. Changing the lights is a 10 cm puzzle: the avatars need tools or powers, and the companion helps.
+- **The player chooses a material medium** (felt, stone, clay, yarn, cardboard and so on), and the whole room manifests in it. Architecture styles (cottage, urban, modern) are player options too. "Fanciful" and "cozy" are the target words.
+- **Cameras:** over-the-shoulder, first person and isometric, all with a gentle tilt-shift blur. While moving, focus follows the avatars; while building, it follows the cursor or a free camera.
+- **The time of day follows the real clock** and the seasons follow the calendar, with stronger swings.
+- **Avatars are felt figurines** with a few head, torso, arm and leg options for now.
+- **The companion sees what is in its line of sight.** (Replaced on 7 October by [shared team knowledge and selective memory](companion/JOURNAL.md); companion-only sight remains the current code until Run 2.) Voice is for talking to the companion; the player uses the keyboard.
+- **No approval clicks.** Host-enforced tiers with undo, preview-then-commit, and a spoken or keyed "yes" only for the irreversible; see [the live voice design](companion/LIVE-VOICE.md). A fixed command set comes first, with a help panel.
+- **Bring your own AI.** Players connect their own AI or agent harness to the game's MCP surface. No model is bundled for now, and no hosted AI is provided. The audience is people who already use AI well. Multiplayer with players and their AIs comes later.
+- **Style before medium.** First settle one artistic style in the spirit of Tiny Glade, with camera angles that read as artistic rather than photorealistic. Material media come later.
+- **Building is a conversation over a ghost draft.** A kit of combinable pieces, starting with a Tiny Glade-like Victorian set, is assembled under host-enforced rules. Structure classes have their own rule sets, and buildings are always enterable. Buildings are grounded unless the player lets them float. The player confirms every build, can edit it afterwards and can save designs. Buildings are sized for the 10 cm figurines. See [the building design](companion/BUILDING.md).
+- **The companion is the player's size (10 cm).**
+- **Modes, later:**
+  - a strictly creative mode;
+  - a grounded challenge mode, with physics for both avatars, critters in the shadows, resources to gather, and AI upgrades that improve the companion's in-game abilities;
+  - a "build only with what you see" mode in a captured room.
+- **Physics:** the 10 cm body runs at 1 unit = 1 metre with no ×10 import scale, on Jolt Physics. The room renders with Forward+.
+
+## Founder decisions during Run 1, 7 October 2026
+
+Details are in [the Run 1 status page](runs/RUN-1-STATUS.md).
+
+- **The player and their companion share one knowledge of the world.** This replaces "the companion sees what is in its line of sight". What either avatar's eyes see goes on one shared map; the camera adds nothing, so the pair can divide and conquer. Things out of view show as last seen. In multiplayer, knowledge is per team. See [the journal design](companion/JOURNAL.md).
+- **Design for AI that keeps improving.** The game is built for AI systems as they grow more capable over the next couple of years: simple designs now, more complex later. The companion writes its own notes in the journal, so it feels like a buddy rather than rote AI.
+- **Memory is selective.** The companion keeps important, game-relevant things: actions completed and at whose direction, how the things it made were later changed, and, in challenge modes, where it saw resources a build in progress needs. It keeps no log of every step or sight.
+- **A journal and a minimap.**
+  - The journal is old tan drafting paper in a leather-bound notepad. It shows what the player and companion are working on, as descriptions, never numbers. It also shows what has been built, and, where resources matter, where they are and how many remain.
+  - The minimap is a small circle in an upper corner. With the journal open, the journal takes one side of the screen and an expanded map the other.
+  - The map is drawn from room data, fades the levels the player is not on, and starts blank, filling in as the pair explores.
+- **Cameras in challenge modes:**
+  - only over-the-shoulder and first person;
+  - the overview unlocks when the objective is met, or, in an open-ended challenge, at 75% of the map discovered;
+  - creative modes are unrestricted.
+- **The game refuses what the companion cannot do yet,** with a reason. More freedom for the AI is a later challenge.
+- **Voice is deferred** until the baseline game is fully designed and working; it is a UI extension. The UI comes first: keyboard, fixed commands and symbolic buttons.
+- **Run 2 keeps its spine: real objects first.** Building comes after the sandbox verbs and the real host.
+- **The player's own AI makes the game's objects** (late on 7 October). It uses software on the player's computer (Blender, local models) or its own connectors and tools, guided by the game's MCP. No hosted or paid service is ever required, so the capture guidance (C7) is part of the product. Run 2 spends nothing online.
+- **The objective, restated:** scan a room and get a generally faithful space, then stylise it into a charming, playable one. Exact replicas of real objects are out of scope. Objects come from the room scan, never from separate photos of each object. They are faithful in kind, size, place and broad colour, and stylised in detail.
+- **A toolchain with no strings attached, usable by anyone.** Blender recipes come first (one script per kind of object), and TripoSR (MIT) handles shapes a recipe cannot. Stability Community License tools are out. The first recipes: a cardboard box, a couch with wooden legs, a gaming laptop, an empty Bonne Maman jam jar and a metal French press.
+- **Run 2 builds the garage's shell and five of its objects as stand-ins,** pulled forward from Run 3, and **starts the journal's data work.** See [the Run 2 plan](runs/RUN-2.md).
+- **The Look direction** is the founder's Google Doc `Art inspiration/Look and Art Style direction`: details make a scene, consistency within a theme, colour contrast as focus, palettes by season, and tight tilt-shift for an observe view.
 
 ## Pointers
 

@@ -44,6 +44,8 @@ Capture heuristics the skill should encode: 80–200 photos for a room of this s
 
 Honest note on the uploaded document's numbers: 60–150 photos and 70 % overlap are reasonable; its one-pass sharpness filter is necessary but not sufficient. Coverage, not sharpness, is what fails most amateur captures, and only a pose estimate can measure coverage.
 
+**Metric scale needs a tape.** A feed-forward pose model does not know the real scale of a room: on the garage set its own batches disagreed by 28 percentage points and all of them overestimated. Two or three tape measurements (length, width, floor to ceiling) fix one uniform scale; `roomscan` reads them from `captures/<room>/measurements.json` and reports each against the model. Without them every size in the report is an estimate. See the [roomscan README](../../pipeline/roomscan/README.md).
+
 Optional capture path: an iPhone Pro or iPad Pro with LiDAR can export a structured room (walls, doors, windows, furniture boxes) through Apple's RoomPlan, or a splat/mesh through Polycam or Scaniverse. If the founder's phone has LiDAR, a RoomPlan export is the cheapest possible stage-2 input and should be accepted as an alternative to photo-only reconstruction. The current iPhone 17 photos are from the dual-wide camera; whether that device has LiDAR is a question for the founder.
 
 ### 2. Room shell

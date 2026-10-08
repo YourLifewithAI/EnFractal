@@ -1,0 +1,14 @@
+diff --git a/tools/rooms/build_test_room.py b/tools/rooms/build_test_room.py
+index 7015ba1..b29d9cc 100644
+--- a/tools/rooms/build_test_room.py
++++ b/tools/rooms/build_test_room.py
+@@ -141,6 +141,9 @@ def build(out: Path) -> None:
+             {"id": "player_start", "role": "player", "position_m": [0.0, 0.0, 0.6], "yaw_deg": 0.0},
+             {"id": "companion_start", "role": "companion", "position_m": [0.45, 0.0, 0.6], "yaw_deg": 0.0},
+         ],
++        # Where the room stands, for the sun (the Look lane's review M5): the look used to keep these three numbers in the shared
++        # style preset. Coarse by contract: whole degrees, no longitude and no place.
++        "site": {"latitude_deg": 30, "neg_z_bearing_deg": 0, "solar_noon_h": 12},
+         "light_hints": [
+             {"id": "ceiling_lamp", "kind": "ceiling_lamp", "position_m": [0.0, H - 0.15, 0.0], "color": "#ffe7bf", "relative_intensity": 0.8, "estimated": False},
+             # Sky light through the window: just outside the opening, aimed east into the room and a little down.

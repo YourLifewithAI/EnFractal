@@ -1,6 +1,6 @@
 # Phase 3 manual invention: primary-source implementation notes
 
-> **Kernel record.** This describes the creation kernel as built for the retired Barton workshop. The kernel is kept; its plot bounds, terrain sampler and legacy fixture body are generalized for rooms in R0 (see the [room-scale direction](../../ROOM-SCALE-DIRECTION.md)). Scene, launcher and checkpoint references below may point at files now on the `geography-era-final` branch.
+> **Kernel record, generalized for rooms in Run 1 (P1).** The kernel was built for the retired Barton workshop and is kept. Run 1 replaced its plot rectangle with the room's bounds, its protected garden with locks, its terrain sampler with a physics surface query, its fixture identities with `player:local` and `companion:local`, and its 1.7 m GDScript body with the 10 cm C# body (see [command-host.md](command-host.md), [body-and-physics.md](body-and-physics.md) and the [room-scale direction](../../ROOM-SCALE-DIRECTION.md)). Integration-scene and checkpoint references below may point at files now on the `geography-era-final` branch.
 
 Checked **2026-10-02** against Godot **4.7** documentation and Roblox Creator Hub. This note informs the [manual invention contract](manual-invention-contract.md); it is not an acceptance score or proof that the current playable build passes its tests.
 

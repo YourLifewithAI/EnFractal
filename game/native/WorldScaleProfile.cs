@@ -1,8 +1,8 @@
 namespace EnFractal.Native;
 
 /// <summary>
-/// Engine-independent dimensions in real-world meters. Avatar size never rescales
-/// geography or gravity. The controller adopts this contract in a separate step.
+/// Engine-independent body dimensions in real-world metres. Avatar size never rescales the room or
+/// gravity: one world unit is one metre, and the room stays at its captured size.
 /// </summary>
 public sealed record WorldScaleProfile(
     double HeightMeters,
@@ -12,7 +12,15 @@ public sealed record WorldScaleProfile(
 {
     public const int SchemaVersion = 1;
     public const double MetersPerWorldUnit = 1.0;
-    public static WorldScaleProfile SmallPlayer { get; } = new(0.30, 0.06, 0.26, 0.45);
+
+    /// <summary>The player: a 10 cm body in a real-size room (Run 1, P2).</summary>
+    public static WorldScaleProfile SmallPlayer { get; } = new(0.10, 0.02, 0.087, 0.15);
+
+    /// <summary>
+    /// The companion: a 10 cm body like the player's (founder decision, 6 October: "the companion shrinks to match
+    /// the player"). It stays a separate profile object because companion upgrades may later change its abilities.
+    /// </summary>
+    public static WorldScaleProfile Companion { get; } = new(0.10, 0.02, 0.087, 0.15);
 
     public bool IsValid =>
         double.IsFinite(HeightMeters) && HeightMeters is >= 0.05 and <= 3.0 &&

@@ -1,0 +1,25 @@
+{
+  "schema": "enfractal.result",
+  "version": 1,
+  "ok": true,
+  "op": "goal.set",
+  "action_id": "fetch-paint-0001",
+  "principal": "companion:local",
+  "room_id": "garage_example",
+  "revision": 4,
+  "replayed": false,
+  "preview": false,
+  "at_utc": "2026-10-06T00:05:00Z",
+  "affected": [
+    "avatar:companion"
+  ],
+  "job_id": "goal-000001",
+  "transient": true,
+  "data": {
+    "actor": "avatar:companion",
+    "goal": "fetch",
+    "target_seen": "remembered",
+    "last_seen_ago_s": 42.5,
+    "may_be_stale": false
+  }
+}

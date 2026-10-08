@@ -1,5 +1,8 @@
 extends SceneTree
 ## Checks generated geometry against admitted bounds and exercises real graph/timer code.
+const GUARD = preload("res://tests/kernel_test_guard.gd")
+## Fails the suite on any script or engine error (kernel_test_guard.gd).
+var guard = GUARD.new()
 const COMPILER = preload("res://scripts/creation_compiler.gd")
 const VISUALS = preload("res://scripts/creation_visuals.gd")
 const RUNTIME = preload("res://scripts/invention_runtime.gd")
@@ -20,32 +23,22 @@ class BudgetRecorder extends RefCounted:
 		calls.append({"id":id,"principal":principal,"fields":fields,"nodes":evaluations,"time":time})
 		return {"ok":false,"message":"test denial"} if deny else {"ok":true}
 	func snapshot(_principal: String) -> Dictionary:
-		return {"ok":true,"revision":0,"permission_revision":0,"consent":{"local_player":false}}
-	func can_affect(_owner: String, _target: String, _position: Vector3) -> bool:
+		return {"ok":true,"revision":0,"permission_revision":0,"consent":{"player:local":false}}
+	func can_affect(_owner: String, _target: String, _position: Vector3, _ignore := "") -> bool:
 		return false
 
 
-class TestActor extends Node3D:
-	func set_creation_effects(_acceleration: Vector3, _glide: float, _guard: Callable) -> void:
+## Stands in for the C# body's creation-effect API.
+class TestActor extends CharacterBody3D:
+	var BodyRadiusM := 0.02
+	func SetCreationEffects(_acceleration: Vector3, _glide: float, _guard: Callable) -> void:
 		pass
-	func clear_creation_motion() -> void:
+	func ClearCreationMotion() -> void:
 		pass
-
-
-class TestTerrain extends RefCounted:
-	func surface_height_at(_x: float, _z: float) -> float:
-		return 0.0
-
-
-class TestViewer extends Node3D:
-	var player_body = TestActor.new()
-	var map_runtime = TestTerrain.new()
-	var walking := false
-	func _init() -> void:
-		add_child(player_body)
 
 
 func _initialize() -> void:
+	OS.add_logger(guard)
 	call_deferred("_run")
 
 
@@ -65,11 +58,11 @@ func _run() -> void:
 	_graph_checks()
 	if failures.is_empty():
 		print("Creation visuals smoke passed: %d assemblies, %d mesh-bound corners, %d outward clockwise triangles; full rotor sweeps, graph deduplication, budget rejection and no timer catch-up." % [assemblies_checked,corners_checked,triangles_checked])
-		quit(0)
+		quit(guard.exit_code(false))
 	else:
 		for failure in failures:
 			push_error(failure)
-		quit(1)
+		quit(guard.exit_code(true))
 
 
 func _geometry(source: Dictionary) -> void:
@@ -157,13 +150,13 @@ func _graph_checks() -> void:
 	var recorder := BudgetRecorder.new()
 	runtime.authority = recorder
 	var assembly := _install(runtime, source)
-	var fired: Dictionary = runtime._fire("fixture", "use", "local_player")
+	var fired: Dictionary = runtime._fire("fixture", "use", "player:local")
 	_check(fired.ok and runtime.evaluated_nodes == 4 and runtime.animations.size() == 3, "real graph interpreter must deduplicate diamond join and exclude unreachable node")
 	_check(recorder.calls.size() == 1 and recorder.calls[0].nodes == 4, "runtime admission must receive exact reachable graph cost")
-	_check(runtime._fire("fixture", "use", "local_player").ok and runtime.animations.size() == 3, "repeat activation replaces same-node light jobs")
+	_check(runtime._fire("fixture", "use", "player:local").ok and runtime.animations.size() == 3, "repeat activation replaces same-node light jobs")
 	var before: int = runtime.evaluated_nodes
 	recorder.deny = true
-	var denied: Dictionary = runtime._fire("fixture","use","local_player")
+	var denied: Dictionary = runtime._fire("fixture","use","player:local")
 	_check(not denied.ok and runtime.evaluated_nodes == before and runtime.animations.size() == 3, "denied runtime quota must prevent all graph effects")
 	assembly.free()
 	runtime.free()
@@ -177,7 +170,7 @@ func _graph_checks() -> void:
 	var spinning_part: Node3D = assembly.get_meta("parts")["part"]
 	var original_basis := spinning_part.basis
 	var artifact: Dictionary = runtime.instances.fixture.artifact
-	_check(runtime._fire("fixture","use","local_player").ok, "rotor trigger must be admitted")
+	_check(runtime._fire("fixture","use","player:local").ok, "rotor trigger must be admitted")
 	for step in range(48):
 		runtime.clock_s += 1.0 / 48.0
 		runtime._step_animations(1.0 / 48.0)
@@ -193,11 +186,9 @@ func _graph_checks() -> void:
 	runtime = RUNTIME.new()
 	recorder = BudgetRecorder.new()
 	runtime.authority = recorder
-	var viewer := TestViewer.new()
-	root.add_child(viewer)
-	runtime.viewer = viewer
-	runtime.guest = Node3D.new()
-	root.add_child(runtime.guest)
+	var actor := TestActor.new()
+	root.add_child(actor)
+	runtime.player = actor
 	runtime.hud = Label.new()
 	runtime.hud_card = PanelContainer.new()
 	runtime._make_field_display()
@@ -213,10 +204,9 @@ func _graph_checks() -> void:
 	_check(runtime.activation_count == 2, "timer fires once when next deadline is reached")
 	_check(runtime.animations.size() <= 1, "repeating timer does not grow duplicate effect jobs")
 	assembly.free()
-	runtime.guest.free()
 	runtime.hud.free()
 	runtime.hud_card.free()
-	viewer.free()
+	actor.free()
 	runtime.free()
 
 
@@ -224,7 +214,7 @@ func _install(runtime, source: Dictionary) -> Node3D:
 	var artifact: Dictionary = COMPILER.compile(source).artifact
 	var assembly: Node3D = VISUALS.build(artifact,false)
 	root.add_child(assembly)
-	runtime.instances = {"fixture":{"id":"fixture","source":artifact.source,"artifact":artifact,"owner_id":"local_player","active":true}}
+	runtime.instances = {"fixture":{"id":"fixture","source":artifact.source,"artifact":artifact,"owner_id":"player:local","active":true}}
 	runtime.assemblies = {"fixture":assembly}
 	return assembly
 

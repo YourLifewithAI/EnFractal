@@ -1,0 +1,91 @@
+{
+  "schema": "enfractal.result",
+  "version": 1,
+  "ok": true,
+  "op": "observe",
+  "query_id": "q-0007",
+  "principal": "companion:local",
+  "room_id": "garage_example",
+  "revision": 4,
+  "replayed": false,
+  "preview": false,
+  "data": {
+    "actor": "avatar:companion",
+    "visible": [
+      {
+        "id": "obj:bean_bag",
+        "kind": "object",
+        "display_name": "Bean bag",
+        "revision": 2,
+        "position_m": [
+          1.0,
+          0.0,
+          0.9
+        ],
+        "bounds_m": {
+          "min_m": [
+            0.55,
+            0.0,
+            0.45
+          ],
+          "max_m": [
+            1.45,
+            0.55,
+            1.35
+          ]
+        },
+        "affordances": [
+          "walkable_top",
+          "climbable",
+          "soft",
+          "sittable"
+        ],
+        "movable": true,
+        "protected": false,
+        "provenance_kind": "captured_generated",
+        "category": "grey bean bag",
+        "category_group": "furniture",
+        "seen": "now"
+      }
+    ],
+    "texts": [],
+    "remembered": [
+      {
+        "id": "obj:paint_clutter",
+        "kind": "object",
+        "display_name": "Paint supplies",
+        "revision": 0,
+        "position_m": [
+          0.8,
+          0.9,
+          -2.5
+        ],
+        "bounds_m": {
+          "min_m": [
+            0.4,
+            0.9,
+            -2.675
+          ],
+          "max_m": [
+            1.2000000000000002,
+            1.15,
+            -2.325
+          ]
+        },
+        "affordances": [
+          "breakable"
+        ],
+        "movable": true,
+        "protected": false,
+        "provenance_kind": "captured_generated",
+        "category": "paint bottles and brushes",
+        "category_group": "clutter_set",
+        "seen": "remembered",
+        "last_seen_ago_s": 42.5,
+        "last_seen_revision": 3,
+        "may_be_stale": false
+      }
+    ]
+  },
+  "at_utc": "2026-10-06T00:05:00Z"
+}

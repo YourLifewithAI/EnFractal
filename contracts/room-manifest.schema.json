@@ -128,6 +128,37 @@
         "$ref": "#/$defs/light_hint"
       }
     },
+    "site": {
+      "description": "Where the room stands, as far as the sun is concerned, and no more. The look works out the sun's height and direction from it; a room without one gets the look's fallback site. Deliberately coarse: whole degrees of latitude and a quarter hour of solar noon say which sun a room gets and nothing about where it is. There is no longitude, no place name and no finer latitude, and the schema refuses them, so a manifest that is shared or exported cannot carry a location (AGENTS.md: strip location metadata from anything written). Review M5 of the Look lane: these three numbers used to live in the shared style preset.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "latitude_deg",
+        "neg_z_bearing_deg",
+        "solar_noon_h"
+      ],
+      "properties": {
+        "latitude_deg": {
+          "description": "Whole degrees north of the equator (south is negative), within 66 degrees of it.",
+          "type": "integer",
+          "minimum": -66,
+          "maximum": 66
+        },
+        "neg_z_bearing_deg": {
+          "description": "The compass bearing of the room's -Z axis in whole degrees, clockwise from north: 0 means -Z points north (so -X is west), 90 means it points east.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 359
+        },
+        "solar_noon_h": {
+          "description": "The clock hour (local standard time, daylight saving removed) when the sun is highest on average, on a quarter hour. 12 is a room at the middle of its time zone; this is the only trace of longitude and is coarser than a time zone's width.",
+          "type": "number",
+          "minimum": 10,
+          "maximum": 14,
+          "multipleOf": 0.25
+        }
+      }
+    },
     "default_style": {
       "description": "Style the room opens with. The active style is pinned in room state, so restyling never rewrites the manifest.",
       "$ref": "common.schema.json#/$defs/style_pin"
