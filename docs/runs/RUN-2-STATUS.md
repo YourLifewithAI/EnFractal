@@ -15,8 +15,11 @@
 - **Merged: the contract round** (`a1eee3d`): `entity.push` is the one new verb (pick up, drop, place with snapping and stack reuse `entity.grab`, `entity.release` and `entity.place`, now documented); `job_id` is `job-` plus 26 random base32 characters, minted by a cryptographic generator in both the host and the mock; `journal.read`, `journal.note` and `map.find`; room state's optional `journal` and `discovered` (older states stay valid). Until Lanes P and A build them, the host answers the four new ops "operation does not exist" and the mock refuses them. Bounds chosen by the integrator's agent, for the founder to see: at most 32 open tasks, `map.find` answers at most 10, a push moves at most 1 m. A fetch ends with the companion holding the object beside the player; setting it down is a separate command. Windows runners: command host 420/420, HUD 72/72, companion 501, avatar 160/160, navigation 10/10, room data 56/56, look 367/367; contracts 64.
 - **Running:**
   - Codex brief 11, the storybook recipes;
-  - Lane C (Sonnet): C3 shell and C4 inventory.
-- **Next:** Lanes P and A, now that the contracts are merged; Lane L when Lane C's GPU work is done.
+  - Lane C (Sonnet): C3 shell and C4 inventory;
+  - Lane P (Opus): P3, the sandbox verbs (next round: P6 and the map store with the journal writer);
+  - Lane A (Opus): the A2 swap to the real host, follow, come, look and point, fetch against the mock until P3 merges, and per-client profiles (next round: the journal's queries).
+- The Linux suite was **GREEN** on the merged head `b9e5e5b` (WSL; its clone is now on `run2/integration`).
+- **Next:** Lane L when Lane C's GPU work is done.
 
 ## The handoff from Run 1 (7 October, night)
 
