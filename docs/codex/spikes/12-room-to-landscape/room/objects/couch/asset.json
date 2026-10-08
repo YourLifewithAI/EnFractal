@@ -1,0 +1,45 @@
+{
+  "schema": "enfractal.asset",
+  "version": 1,
+  "asset_id": "couch",
+  "display_name": "Couch",
+  "category": "couch",
+  "category_group": "other",
+  "tier": "proxy",
+  "provenance": {
+    "kind": "placeholder",
+    "license": "Original EnFractal placeholder; CC0-1.0",
+    "created_utc": "2026-10-06T00:00:00Z",
+    "notes": "Assumed synthetic bounds. Recipe defaults for five recognised objects; no scan."
+  },
+  "pivot": "bottom_center",
+  "dimensions_m": [
+    2.1,
+    0.83,
+    0.95
+  ],
+  "geometry": {
+    "kind": "primitive",
+    "primitive": "box"
+  },
+  "collision": {
+    "kind": "primitive"
+  },
+  "physics": {
+    "movable": true,
+    "mass_kg": 1.5
+  },
+  "materials": [
+    {
+      "slot": "body",
+      "role": "fabric",
+      "base_color": "#50757b"
+    }
+  ],
+  "affordances": [],
+  "review": {
+    "status": "draft",
+    "notes": "Synthetic source box only; not a landscape approval."
+  },
+  "files": []
+}

@@ -1,0 +1,634 @@
+{
+  "schema": "enfractal.room",
+  "version": 1,
+  "room_id": "room",
+  "display_name": "Synthetic garage landscape spike",
+  "description": "Assumed 5.5 x 2.6 x 6 m garage-like room. No capture or real place.",
+  "created_utc": "2026-10-07T00:00:00Z",
+  "units": "m",
+  "axes": "y_up_neg_z_forward",
+  "source": {
+    "kind": "hand_built"
+  },
+  "bounds": {
+    "min_m": [
+      -2.75,
+      0,
+      -3
+    ],
+    "max_m": [
+      2.75,
+      2.6,
+      3
+    ]
+  },
+  "spawns": [
+    {
+      "id": "player_start",
+      "role": "player",
+      "position_m": [
+        -0.55,
+        0,
+        0.53
+      ],
+      "yaw_deg": 0.0
+    },
+    {
+      "id": "companion_start",
+      "role": "companion",
+      "position_m": [
+        -0.8,
+        0,
+        0.65
+      ],
+      "yaw_deg": 0.0
+    }
+  ],
+  "objects": [
+    {
+      "id": "obj:couch",
+      "asset": "objects/couch/asset.json",
+      "transform": {
+        "position_m": [
+          -1.05,
+          0,
+          -2.36
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ]
+      },
+      "support": {
+        "kind": "floor",
+        "target_id": "shell:floor"
+      }
+    },
+    {
+      "id": "obj:cardboard_box",
+      "asset": "objects/cardboard_box/asset.json",
+      "transform": {
+        "position_m": [
+          -0.35,
+          0,
+          0.2
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ]
+      },
+      "support": {
+        "kind": "floor",
+        "target_id": "shell:floor"
+      }
+    },
+    {
+      "id": "obj:gaming_laptop",
+      "asset": "objects/gaming_laptop/asset.json",
+      "transform": {
+        "position_m": [
+          -0.35,
+          0.25,
+          0.2
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ]
+      },
+      "support": {
+        "kind": "object",
+        "target_id": "obj:cardboard_box"
+      }
+    },
+    {
+      "id": "obj:shelves",
+      "asset": "objects/shelves/asset.json",
+      "transform": {
+        "position_m": [
+          2.45,
+          0,
+          -0.7
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ]
+      },
+      "support": {
+        "kind": "floor",
+        "target_id": "shell:floor"
+      }
+    },
+    {
+      "id": "obj:jam_jar",
+      "asset": "objects/jam_jar/asset.json",
+      "transform": {
+        "position_m": [
+          2.6,
+          1.7,
+          -0.36
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ]
+      },
+      "support": {
+        "kind": "object",
+        "target_id": "obj:shelves"
+      }
+    },
+    {
+      "id": "obj:french_press",
+      "asset": "objects/french_press/asset.json",
+      "transform": {
+        "position_m": [
+          2.58,
+          1.7,
+          -0.88
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ]
+      },
+      "support": {
+        "kind": "object",
+        "target_id": "obj:shelves"
+      }
+    },
+    {
+      "id": "obj:rug",
+      "asset": "objects/rug/asset.json",
+      "transform": {
+        "position_m": [
+          -0.6,
+          0,
+          1.15
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ]
+      },
+      "support": {
+        "kind": "floor",
+        "target_id": "shell:floor"
+      }
+    }
+  ],
+  "files": [
+    {
+      "path": "objects/couch/asset.json",
+      "sha256": "70cfcc24916e060c7086a7b35bf7928bcd25c877a2129ed93a6f0ae10bd64d42",
+      "bytes": 929
+    },
+    {
+      "path": "objects/cardboard_box/asset.json",
+      "sha256": "9db5ca07d86c7337ecd1021eb53724db014c6bbdf78a8d772cf6b89488477dfe",
+      "bytes": 955
+    },
+    {
+      "path": "objects/gaming_laptop/asset.json",
+      "sha256": "1cda80a85d069581c55bf75ac6d3a71bb4aaa5f356e39c551741cab04b312cb8",
+      "bytes": 955
+    },
+    {
+      "path": "objects/shelves/asset.json",
+      "sha256": "087cd1abb6df6ed412318ede9bc218d89a3c7fa9ea8a00e8e2d111fdc8854782",
+      "bytes": 931
+    },
+    {
+      "path": "objects/jam_jar/asset.json",
+      "sha256": "17047f806cadff198b1d057f67f5afa667959975818151c05c1c6abe9c33ffba",
+      "bytes": 938
+    },
+    {
+      "path": "objects/french_press/asset.json",
+      "sha256": "b354ec60344f30da63c0e5bd9e5675906ec5536a5afa6cc6f1bdeb0c004b1024",
+      "bytes": 952
+    },
+    {
+      "path": "objects/rug/asset.json",
+      "sha256": "fbd7a45bbe587b69eafc8240212f403d03d066a2e947f1ad44635fbd4b445945",
+      "bytes": 925
+    }
+  ],
+  "shell": {
+    "parts": [
+      {
+        "id": "shell:floor",
+        "role": "floor",
+        "geometry": {
+          "kind": "polygon",
+          "points_m": [
+            [
+              -2.75,
+              0,
+              3
+            ],
+            [
+              2.75,
+              0,
+              3
+            ],
+            [
+              2.75,
+              0,
+              -3
+            ],
+            [
+              -2.75,
+              0,
+              -3
+            ]
+          ],
+          "thickness_m": 0.1
+        },
+        "collides": true,
+        "material_role": "concrete",
+        "base_color": "#a7aa95"
+      },
+      {
+        "id": "shell:ceiling",
+        "role": "ceiling",
+        "geometry": {
+          "kind": "polygon",
+          "points_m": [
+            [
+              2.75,
+              2.6,
+              -3
+            ],
+            [
+              2.75,
+              2.6,
+              3
+            ],
+            [
+              -2.75,
+              2.6,
+              3
+            ],
+            [
+              -2.75,
+              2.6,
+              -3
+            ]
+          ],
+          "thickness_m": 0.1
+        },
+        "collides": true,
+        "material_role": "painted_wall",
+        "base_color": "#ece8df"
+      },
+      {
+        "id": "shell:east",
+        "role": "wall",
+        "geometry": {
+          "kind": "polygon",
+          "points_m": [
+            [
+              2.75,
+              0,
+              -3
+            ],
+            [
+              2.75,
+              0,
+              3
+            ],
+            [
+              2.75,
+              2.6,
+              3
+            ],
+            [
+              2.75,
+              2.6,
+              -3
+            ]
+          ],
+          "thickness_m": 0.1
+        },
+        "collides": true,
+        "material_role": "painted_wall",
+        "base_color": "#c4bdac"
+      },
+      {
+        "id": "shell:south",
+        "role": "wall",
+        "geometry": {
+          "kind": "polygon",
+          "points_m": [
+            [
+              -2.75,
+              2.6,
+              3
+            ],
+            [
+              2.75,
+              2.6,
+              3
+            ],
+            [
+              2.75,
+              0,
+              3
+            ],
+            [
+              -2.75,
+              0,
+              3
+            ]
+          ],
+          "thickness_m": 0.1
+        },
+        "collides": true,
+        "material_role": "painted_wall",
+        "base_color": "#c4bdac"
+      },
+      {
+        "id": "shell:west_sill",
+        "role": "wall",
+        "geometry": {
+          "kind": "polygon",
+          "points_m": [
+            [
+              -2.75,
+              1,
+              -3
+            ],
+            [
+              -2.75,
+              1,
+              3
+            ],
+            [
+              -2.75,
+              0,
+              3
+            ],
+            [
+              -2.75,
+              0,
+              -3
+            ]
+          ],
+          "thickness_m": 0.1
+        },
+        "collides": true,
+        "material_role": "painted_wall",
+        "base_color": "#c4bdac"
+      },
+      {
+        "id": "shell:west_head",
+        "role": "wall",
+        "geometry": {
+          "kind": "polygon",
+          "points_m": [
+            [
+              -2.75,
+              2.6,
+              -3
+            ],
+            [
+              -2.75,
+              2.6,
+              3
+            ],
+            [
+              -2.75,
+              2,
+              3
+            ],
+            [
+              -2.75,
+              2,
+              -3
+            ]
+          ],
+          "thickness_m": 0.1
+        },
+        "collides": true,
+        "material_role": "painted_wall",
+        "base_color": "#c4bdac"
+      },
+      {
+        "id": "shell:west_front",
+        "role": "wall",
+        "geometry": {
+          "kind": "polygon",
+          "points_m": [
+            [
+              -2.75,
+              2,
+              -1.2
+            ],
+            [
+              -2.75,
+              2,
+              3
+            ],
+            [
+              -2.75,
+              1,
+              3
+            ],
+            [
+              -2.75,
+              1,
+              -1.2
+            ]
+          ],
+          "thickness_m": 0.1
+        },
+        "collides": true,
+        "material_role": "painted_wall",
+        "base_color": "#c4bdac"
+      },
+      {
+        "id": "shell:west_back",
+        "role": "wall",
+        "geometry": {
+          "kind": "polygon",
+          "points_m": [
+            [
+              -2.75,
+              2,
+              -3
+            ],
+            [
+              -2.75,
+              2,
+              -2.4
+            ],
+            [
+              -2.75,
+              1,
+              -2.4
+            ],
+            [
+              -2.75,
+              1,
+              -3
+            ]
+          ],
+          "thickness_m": 0.1
+        },
+        "collides": true,
+        "material_role": "painted_wall",
+        "base_color": "#c4bdac"
+      },
+      {
+        "id": "shell:north_left",
+        "role": "wall",
+        "geometry": {
+          "kind": "polygon",
+          "points_m": [
+            [
+              -2.75,
+              0,
+              -3
+            ],
+            [
+              1.4,
+              0,
+              -3
+            ],
+            [
+              1.4,
+              2.6,
+              -3
+            ],
+            [
+              -2.75,
+              2.6,
+              -3
+            ]
+          ],
+          "thickness_m": 0.1
+        },
+        "collides": true,
+        "material_role": "painted_wall",
+        "base_color": "#c4bdac"
+      },
+      {
+        "id": "shell:north_right",
+        "role": "wall",
+        "geometry": {
+          "kind": "polygon",
+          "points_m": [
+            [
+              2.3,
+              0,
+              -3
+            ],
+            [
+              2.75,
+              0,
+              -3
+            ],
+            [
+              2.75,
+              2.6,
+              -3
+            ],
+            [
+              2.3,
+              2.6,
+              -3
+            ]
+          ],
+          "thickness_m": 0.1
+        },
+        "collides": true,
+        "material_role": "painted_wall",
+        "base_color": "#c4bdac"
+      },
+      {
+        "id": "shell:north_head",
+        "role": "wall",
+        "geometry": {
+          "kind": "polygon",
+          "points_m": [
+            [
+              1.4,
+              2.1,
+              -3
+            ],
+            [
+              2.3,
+              2.1,
+              -3
+            ],
+            [
+              2.3,
+              2.6,
+              -3
+            ],
+            [
+              1.4,
+              2.6,
+              -3
+            ]
+          ],
+          "thickness_m": 0.1
+        },
+        "collides": true,
+        "material_role": "painted_wall",
+        "base_color": "#c4bdac"
+      }
+    ],
+    "openings": [
+      {
+        "id": "window_west",
+        "kind": "window",
+        "host_part_id": "shell:west_sill",
+        "center_m": [
+          -2.75,
+          1.5,
+          -1.8
+        ],
+        "size_m": [
+          1.2,
+          1.0
+        ],
+        "state": "fixed",
+        "traversable": false
+      },
+      {
+        "id": "door_north",
+        "kind": "door",
+        "host_part_id": "shell:north_left",
+        "center_m": [
+          1.85,
+          1.05,
+          -3
+        ],
+        "size_m": [
+          0.9,
+          2.1
+        ],
+        "state": "open",
+        "traversable": true
+      }
+    ]
+  }
+}
