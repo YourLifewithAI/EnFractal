@@ -38,6 +38,9 @@ var object_pose_sink := Callable()
 ## Optional: Callable(poses: Dictionary) -> Dictionary, the command host's check of a save's object poses (the
 ## authority's pose_check). Set before this node enters the tree.
 var object_pose_check := Callable()
+## Optional: Callable(team: Dictionary) -> Dictionary, the command host's check of a save's journal and discovered map
+## (the authority's team_check). Set before this node enters the tree.
+var team_check := Callable()
 var editor
 var editor_open := false
 var assemblies: Dictionary = {}
@@ -76,6 +79,7 @@ func _ready() -> void:
 	var configured: Dictionary = authority.configure(room, Callable(self, "surface_at"), save_path)
 	authority.pose_sink = object_pose_sink
 	authority.pose_check = object_pose_check
+	authority.team_check = team_check
 	var loaded: Dictionary = authority.load_saved() if configured.ok else configured
 	authority.occupancy_query = Callable(self, "_check_occupancy")
 	authority.activation_query = Callable(self, "_check_activation")

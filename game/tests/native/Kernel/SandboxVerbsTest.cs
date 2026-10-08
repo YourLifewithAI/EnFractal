@@ -68,7 +68,10 @@ public partial class SandboxVerbsTest : Node3D
             await TestThinWall();
             await TestNothingRestsOnCreations();
             await TestHostileSaves();
-            GD.Print($"NATIVE_KERNEL_SANDBOX: {_checks - _failures}/{_checks} checks passed; pick up, carry, drop, place with snapping, stack and push through enfractal.command, with receipts, refusals, saved poses and a reload{(_dump != null ? $"; {_dumped} messages dumped" : "")}");
+            await TestFetch();
+            await TestFetchStopsAndRefusals();
+            await TestUnreachable();
+            GD.Print($"NATIVE_KERNEL_SANDBOX: {_checks - _failures}/{_checks} checks passed; pick up, carry, drop, place with snapping, stack and push through enfractal.command, with receipts, refusals, saved poses and a reload; fetch through the host{(_dump != null ? $"; {_dumped} messages dumped" : "")}");
             RemoveSave();
             GetTree().Quit(_failures == 0 ? 0 : 1);
         }
@@ -151,6 +154,8 @@ public partial class SandboxVerbsTest : Node3D
             Check(Code(Send(Command(NextId("actor"), op, args), Companion)) == "actor_denied", $"{op}: the companion never acts through the player's avatar");
         Check(Code(Send(Command(NextId("actor"), "entity.grab", new JsonObject { ["target"] = "obj:doorstop", ["actor"] = "avatar:stranger" }), Player)) == "target_not_found", "an avatar not in the room is not found");
         await Stand(_companion, new Vector3(1.6f, 0.01f, 0.2f), Vector3.Left, "behind the box");
+        // The team's sight is shared: the player steps behind the box too, so neither avatar sees the book.
+        await Stand(_player, new Vector3(1.7f, 0.01f, 0.32f), Vector3.Left, "behind the box too");
         var hidden = Send(Command(NextId("grab"), "entity.grab", new JsonObject { ["target"] = "obj:book" }), Companion);
         var unknown = Send(Command(NextId("grab"), "entity.grab", new JsonObject { ["target"] = "obj:nothing" }), Companion);
         Check(Code(hidden) == "target_not_found" && hidden["error"]!["message"]!.GetValue<string>() == unknown["error"]!["message"]!.GetValue<string>(),
@@ -438,6 +443,120 @@ public partial class SandboxVerbsTest : Node3D
         NewHost();
         await Frames(3);
         Check(_host.Authority.Call("is_ready").AsBool(), "the untouched save still loads");
+    }
+
+    // ---- fetch on the real host (docs/companion/proposals/a2-real-host.md, section 3) ----
+
+    /// <summary>The companion fetches the doorstop: it walks there, picks it up with entity.grab's checks, brings it back, and keeps holding it.</summary>
+    private async Task TestFetch()
+    {
+        await Stand(_player, new Vector3(0.0f, 0.006f, 1.0f), Vector3.Left, "on the rug's south side");
+        Check(Ok(Send(Command(NextId("place"), "entity.place", new JsonObject { ["target"] = "obj:doorstop", ["placement"] = Placement(-1.2, 0, 0.9) }), Player)), "the doorstop goes to the floor west of the rug");
+        await Stand(_companion, new Vector3(-0.5f, 0.006f, 0.9f), Vector3.Left, "on the rug's west side, facing the doorstop");
+        var fetch = Send(Command(NextId("fetch"), "goal.set", new JsonObject { ["actor"] = CompanionAvatar, ["goal"] = "fetch", ["target"] = "obj:doorstop" }), Companion);
+        Check(Ok(fetch) && fetch["transient"]!.GetValue<bool>() && fetch["data"]?["target_seen"]?.GetValue<string>() == "now" &&
+            System.Text.RegularExpressions.Regex.IsMatch(fetch["job_id"]?.GetValue<string>() ?? "", @"\Ajob-[a-z2-7]{26}\z") && _host.HeldBy(CompanionAvatar) == null,
+            "the companion sets out to fetch the doorstop: a transient receipt and a job, nothing held yet: " + Code(fetch));
+        var held = await UntilJobEnds(1500, () => _host.HeldBy(CompanionAvatar) == "obj:doorstop");
+        var job = JobStatus(fetch, Companion);
+        Check(held && job?["state"]?.GetValue<string>() == "succeeded", "it picked the doorstop up on the way and the job succeeds back at the player: " + job?.ToJsonString());
+        var planar = new Vector2(_companion.GlobalPosition.X - _player.GlobalPosition.X, _companion.GlobalPosition.Z - _player.GlobalPosition.Z).Length();
+        Check(planar <= EnFractal.Native.CompanionAvatar.ComeArrivalM + 0.02f && _host.HeldBy(CompanionAvatar) == "obj:doorstop" && Inspect("obj:doorstop", Companion)["held_by"]?.GetValue<string>() == CompanionAvatar,
+            $"the companion stands {planar:0.00} m from the player, still holding the doorstop (entity.inspect says so)");
+        var down = Send(Command(NextId("down"), "entity.release", new JsonObject { ["actor"] = CompanionAvatar }), Companion);
+        var box = SandboxControls.Box(Inspect("obj:doorstop", Player));
+        var playerBox = new Aabb(_player.GlobalPosition - new Vector3(_player.BodyRadiusM, 0, _player.BodyRadiusM), new Vector3(_player.BodyRadiusM * 2, _player.BodyHeightM, _player.BodyRadiusM * 2));
+        Check(Ok(down) && !down["transient"]!.GetValue<bool>() && _host.HeldBy(CompanionAvatar) == null && !box.Intersects(playerBox),
+            "entity.release puts it down (a durable receipt): with the player in front, beside the companion instead: " + Code(down));
+    }
+
+    /// <summary>Stops and new goals cancel a fetch in either phase; set-time refusals are entity.grab's.</summary>
+    private async Task TestFetchStopsAndRefusals()
+    {
+        Check(Ok(Send(Command(NextId("place"), "entity.place", new JsonObject { ["target"] = "obj:doorstop", ["placement"] = Placement(-1.2, 0, 0.9) }), Player)), "the doorstop goes back west of the rug");
+        await Stand(_companion, new Vector3(-0.5f, 0.006f, 0.9f), Vector3.Left, "facing the doorstop again");
+        var fetch = Send(Command(NextId("fetch"), "goal.set", new JsonObject { ["actor"] = CompanionAvatar, ["goal"] = "fetch", ["target"] = "obj:doorstop" }), Companion);
+        await Frames(20);
+        var stop = Send(Command(NextId("stop"), "goal.stop", new JsonObject()), Companion);
+        await Frames(2);
+        Check(Ok(fetch) && Ok(stop) && JobStatus(fetch, Companion)?["state"]?.GetValue<string>() == "cancelled" && _host.HeldBy(CompanionAvatar) == null && _companion.CurrentIntent == "stop",
+            "goal.stop cancels a fetch on its way there: nothing is picked up");
+
+        await Stand(_companion, new Vector3(-1.2f, 0, 0.78f), Vector3.Forward, "beside the doorstop");
+        Check(Ok(Send(Command(NextId("grab"), "entity.grab", new JsonObject { ["target"] = "obj:doorstop" }), Companion)), "the companion picks the doorstop up itself");
+        var home = Send(Command(NextId("fetch"), "goal.set", new JsonObject { ["actor"] = CompanionAvatar, ["goal"] = "fetch", ["target"] = "obj:doorstop" }), Companion);
+        Check(Ok(home) && _host.RunningGoal(CompanionAvatar)?.Goal == "fetch" && _companion.CurrentIntent == "come", "fetching what it already holds starts on the way back");
+        await Frames(10);
+        var follow = Send(Command(NextId("follow"), "goal.set", new JsonObject { ["actor"] = CompanionAvatar, ["goal"] = "follow" }), Companion);
+        Check(Ok(follow) && JobStatus(home, Companion)?["state"]?.GetValue<string>() == "cancelled" && _host.HeldBy(CompanionAvatar) == "obj:doorstop",
+            "a new goal cancels a fetch on its way back, and the companion keeps holding the doorstop");
+        var busy = Send(Command(NextId("fetch"), "goal.set", new JsonObject { ["actor"] = CompanionAvatar, ["goal"] = "fetch", ["target"] = "obj:book" }), Player);
+        Check(Code(busy) == "target_busy" && busy["error"]!["field_path"]!.GetValue<string>() == "$.args.actor", "holding something else, a fetch is target_busy at the actor");
+        Check(Ok(Send(Command(NextId("down"), "entity.release", new JsonObject { ["actor"] = CompanionAvatar }), Player)), "the player has the companion put it down");
+        var heavy = Send(Command(NextId("fetch"), "goal.set", new JsonObject { ["actor"] = CompanionAvatar, ["goal"] = "fetch", ["target"] = "obj:table" }), Player);
+        Check(Code(heavy) == "target_too_heavy" && heavy["error"]!["allowed"]!.GetValue<double>() == 2.0 && heavy["error"]!["actual"]!.GetValue<double>() == 25.0,
+            "the 25 kg table is too heavy to fetch, with both numbers");
+        Check(Ok(Send(Command(NextId("lock"), "protect.lock", new JsonObject { ["targets"] = new JsonArray("obj:doorstop") }, expectedRevision: _host.Revision), Player)), "the player protects the doorstop");
+        Check(Code(Send(Command(NextId("fetch"), "goal.set", new JsonObject { ["actor"] = CompanionAvatar, ["goal"] = "fetch", ["target"] = "obj:doorstop" }), Player)) == "target_protected",
+            "a protected thing cannot be fetched");
+        Check(Ok(Send(Command(NextId("unlock"), "protect.unlock", new JsonObject { ["targets"] = new JsonArray("obj:doorstop") }, expectedRevision: _host.Revision), Player)), "and unprotects it");
+    }
+
+    /// <summary>A goal whose body has reported blocked for about 5 s fails with target_unreachable, and the body stops trying.</summary>
+    private async Task TestUnreachable()
+    {
+        await Stand(_companion, new Vector3(-0.9f, 0, 0.3f), Vector3.Forward, "where the pen will be");
+        var pen = new StaticBody3D { Name = "Pen", CollisionLayer = RoomBuilder.WorldLayer, CollisionMask = 0, Position = new Vector3(-0.9f, 0.1f, 0.3f) };
+        foreach (var (offset, size) in new[] { (new Vector3(0, 0, -0.05f), new Vector3(0.104f, 0.2f, 0.004f)), (new Vector3(0, 0, 0.05f), new Vector3(0.104f, 0.2f, 0.004f)),
+                                               (new Vector3(-0.05f, 0, 0), new Vector3(0.004f, 0.2f, 0.104f)), (new Vector3(0.05f, 0, 0), new Vector3(0.004f, 0.2f, 0.104f)) })
+            pen.AddChild(new CollisionShape3D { Position = offset, Shape = new BoxShape3D { Size = size } });
+        AddChild(pen);
+        await Frames(3);
+        var fetch = Send(Command(NextId("fetch"), "goal.set", new JsonObject { ["actor"] = CompanionAvatar, ["goal"] = "fetch", ["target"] = "obj:doorstop" }), Player);
+        Check(Ok(fetch), "the player sends the penned companion to fetch the doorstop: " + Code(fetch));
+        var frames = 0;
+        while (_host.RunningGoal(CompanionAvatar) != null && frames < 900) { await Frames(1); frames++; }
+        var job = JobStatus(fetch, Player);
+        Check(job?["state"]?.GetValue<string>() == "failed" && job["result"]?["error"]?["code"]?.GetValue<string>() == "target_unreachable" &&
+            job["result"]!["error"]!["field_path"]!.GetValue<string>() == "$.args.target" && !job["result"]!["error"]!["retryable"]!.GetValue<bool>(),
+            $"after {frames / 60.0:0.0} s blocked the fetch fails with target_unreachable: " + job?.ToJsonString());
+        Check(frames >= (int)(CommandHost.UnreachableAfterS * 60) - 5 && frames <= (int)(CommandHost.UnreachableAfterS * 60) + 150 && _companion.CurrentIntent == "stay" && _host.HeldBy(CompanionAvatar) == null,
+            "about five seconds, and then the body stops trying");
+        // Review major 5: a walk to a place, or a come with no target, is watched the same way, though it has no job to report.
+        foreach (var (label, args) in new (string, JsonObject)[]
+        {
+            ("a go_to to a place", new JsonObject { ["actor"] = CompanionAvatar, ["goal"] = "go_to", ["position_m"] = new JsonArray(-0.5, 0, 0.3) }),
+            ("a come with no target", new JsonObject { ["actor"] = CompanionAvatar, ["goal"] = "come" }),
+        })
+        {
+            var walk = Send(Command(NextId("walk"), "goal.set", args), Player);
+            await Frames(10);
+            var walking = _companion.CurrentIntent;
+            var waited = 10;
+            while (_companion.CurrentIntent == walking && waited < 600) { await Frames(1); waited++; }
+            Check(Ok(walk) && walk["job_id"] == null && walking != "stay" && _companion.CurrentIntent == "stay" && waited >= 290 && waited <= 460,
+                $"{label} from the pen stops trying after about five seconds blocked ({waited / 60.0:0.0} s, {walking} then {_companion.CurrentIntent})");
+        }
+        pen.QueueFree();
+        await Frames(2);
+    }
+
+    /// <summary>Wait until the companion's running goal ends (or the frames run out); true if the condition held at some point.</summary>
+    private async Task<bool> UntilJobEnds(int maxFrames, Func<bool> sawAlong)
+    {
+        var saw = false;
+        for (var i = 0; i < maxFrames && _host.RunningGoal(CompanionAvatar) != null; i++)
+        {
+            await Frames(1);
+            saw |= sawAlong();
+        }
+        return saw;
+    }
+
+    private JsonObject? JobStatus(JsonObject goalResult, string principal)
+    {
+        var id = goalResult["job_id"]?.GetValue<string>();
+        return id == null ? null : Query("jobs.status", new JsonObject { ["job_id"] = id }, principal)["data"]?.AsObject();
     }
 
     private bool Supported(JsonObject entity)
