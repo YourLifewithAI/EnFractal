@@ -1,0 +1,568 @@
+"""Turn a corpus room into a landscape package.
+
+    python -m pipeline.landscape.gen_b.generate --room <room folder> --out <empty folder>
+
+Deterministic: the same room, inventory and setup answers give identical bytes.
+"""
+import argparse
+import math
+import random
+from pathlib import Path
+
+from pipeline.landscape.harness import write_package
+from pipeline.landscape.harness.common import load_json
+from pipeline.landscape.harness.kit import SIZES
+from .field import Grid, Noise, clamp, distance_field, face_slope_max, lerp, slope_field, smooth
+from .land import (cameras, inside_distance, local, outside_distance, parse_objects, room_shape,
+                   shell_land, sightline_cap, sun_shadow, uplift, weather, rr_dist)
+from .life import (STEP_LIMIT_M, WALK_LIMIT_DEG, build_mesh, build_road, find_hamlet, flatten, paint_line,
+                   paint_path, prototypes, reachable_from, surface, walk)
+from .water import DISTANT_LAKE_Y, choose_outlet, lake_rho, plan_and_carve
+
+GENERATOR = {'name': 'landscape-gen-b', 'version': '1'}
+SEED = 20261008
+CELL = .03
+MARGIN = 2.1
+REPO = Path(__file__).resolve().parents[3]
+SETUP_PATH = REPO/'pipeline'/'landscape'/'harness'/'ab-setup.json'
+
+
+def eyes(room):
+    """Where the review eyes and figures stand, so planting keeps them clear."""
+    lo, hi, _ = room_shape(room)
+    cx, cz = (lo[0]+hi[0])/2, (lo[2]+hi[2])/2
+    out = []
+    for s in room['spawns']:
+        x, _, z = s['position_m']
+        ax, az = cx, cz
+        if math.hypot(cx-x, cz-z) < 1.5:
+            ax, az = max([(cx, lo[2]), (hi[0], cz), (cx, hi[2]), (lo[0], cz)],
+                         key=lambda p: math.hypot(p[0]-x, p[1]-z))
+        out.append((x, z, ax, az))
+    wins = sorted([o for o in room['shell'].get('openings', []) if o['kind'] == 'window'], key=lambda w: w['id'])
+    if wins:
+        out.append((cx, cz, wins[0]['center_m'][0], wins[0]['center_m'][2]))
+    else:
+        out.append((cx, cz, cx, lo[2]))
+    return out
+
+
+def clear_of_eyes(views, x, z, radius, corridor):
+    for ex, ez, ax, az in views:
+        d = math.hypot(x-ex, z-ez)
+        if d < radius:
+            return False
+        L = math.hypot(ax-ex, az-ez) or 1
+        ux, uz = (ax-ex)/L, (az-ez)/L
+        along = (x-ex)*ux+(z-ez)*uz
+        across = abs(-(x-ex)*uz+(z-ez)*ux)
+        if 0 < along < corridor[0] and across < corridor[1]+along*.25:
+            return False
+        fx, fz = ex+.4*ux-.07*uz, ez+.4*uz+.07*ux
+        if math.hypot(x-fx, z-fz) < radius*.8:
+            return False
+    return True
+
+
+def distant_hills(room, cams, noise, outlet):
+    """Unreachable hills beyond the boundary ridges, kept below every overview's
+    sightline to the room so they frame it rather than hide it."""
+    lo, hi, _ = room_shape(room)
+    cx, cz = (lo[0]+hi[0])/2, (lo[2]+hi[2])/2
+    radii = [5.2+.55*k for k in range(30)]
+    ring = 144
+    pos, tri, tints, blend = [], [], [], []
+    lake = dict(x=cx+outlet['nx']*7.6+(outlet['x']-cx)*abs(outlet['nz'])*.6,
+                z=cz+outlet['nz']*8.1+(outlet['z']-cz)*abs(outlet['nx'])*.6)
+    for r in radii:
+        for k in range(ring):
+            a = 2*math.pi*k/ring
+            x, z = cx+math.cos(a)*r*1.05, cz+math.sin(a)*r
+            env = smooth((r-5.4)/3.)
+            hgt = env*(.9+1.6*max(0., noise.fbm(x*.17+3, z*.17-5, 4)+.25)+.5*noise.ridged(x*.3, z*.3))
+            dl = math.hypot((x-lake['x'])/6.4, (z-lake['z'])/4.0)
+            hgt *= smooth((dl-.95)/.6)
+            hgt = hgt-.09*(1-env)
+            cap = sightline_cap(room, cams, x, z)
+            hgt = min(hgt, cap)
+            pos.append([round(x, 4), round(max(hgt, -.09), 4), round(z, 4)])
+    for m in range(len(radii)-1):
+        for k in range(ring):
+            a = m*ring+k
+            b = m*ring+(k+1) % ring
+            c = (m+1)*ring+k
+            d = (m+1)*ring+(k+1) % ring
+            tri += [[a, b, d], [a, d, c]]
+    for v in pos:
+        y = v[1]
+        blend.append(round(smooth((y-1.1)/.9), 4))
+        g = clamp(.75+.1*noise(v[0], v[2]))
+        tints.append([g*.82, g*.9, g*1.0, 1])
+    return [dict(role='meadow', positions=pos, triangles=tri, tints=tints, blend_role='rock', blend_weights=blend)]
+
+
+def grounding(grid, h, objects, base):
+    rows = []
+    for o in objects:
+        a, b = o['sx']/2, o['sz']/2
+        R = math.hypot(a, b)+.05
+        rx, rz = grid.span(o['cx']-R, o['cx']+R, o['cz']-R, o['cz']+R)
+        vals = []
+        for j in rz:
+            for i in rx:
+                lx, lz = local(o, grid.xs[i], grid.zs[j])
+                if abs(lx) <= a and abs(lz) <= b:
+                    vals.append(h[j*grid.nx+i])
+        if not vals:
+            ci, cj = grid.nearest(o['cx'], o['cz'])
+            vals = [h[cj*grid.nx+ci]]
+        top = max(vals)
+        rows.append(dict(id=o['id'], kind=o['kind'], form=o['form'], basis=o['form_basis'],
+                         rock=o['rock_role'], centre=[round(o['cx'], 3), round(o['cz'], 3)],
+                         box_top=round(o['top'], 3), land_top=round(top, 3),
+                         land_mean=round(sum(vals)/len(vals), 3), delta=round(top-o['top'], 3)))
+    return rows
+
+
+def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False):
+    room_dir = Path(room_dir)
+    room = load_json(room_dir/'room.json')
+    inventory = load_json(room_dir/'inventory.json')
+    setup = setup if setup is not None else load_json(SETUP_PATH)
+    noise = Noise(seed)
+    rnd = random.Random(seed)
+    objects = parse_objects(inventory)
+    lo, hi, _ = room_shape(room)
+    grid = Grid(lo[0]-MARGIN, lo[2]-MARGIN, hi[0]+MARGIN, hi[2]+MARGIN, CELL)
+    nx = grid.nx
+    spawns = [s['position_m'] for s in room['spawns']]
+    inside = [outside_distance(room, grid.xs[q % nx], grid.zs[q//nx]) <= 0 for q in range(grid.n)]
+    outlet = choose_outlet(room, spawns)
+    diag = math.hypot(hi[0]-lo[0], hi[2]-lo[2])
+    # The plain: living ground tilting gently toward the pass where water leaves.
+    base = []
+    for q in range(grid.n):
+        x, z = grid.xs[q % nx], grid.zs[q//nx]
+        t = clamp(math.hypot(x-outlet['x'], z-outlet['z'])/diag)
+        base.append(.035+.055*t+.018*noise.fbm(x*.55+2, z*.55-1, 3))
+    owner = [-1]*grid.n
+    h = uplift(grid, objects, base, noise, owner)
+    cams = cameras(room)
+    outside = shell_land(grid, room, h, noise, cams)
+    slope = slope_field(grid, h)
+    h, acc = weather(grid, h, outside, slope, noise)
+    water = plan_and_carve(grid, room, objects, h, base, inside, spawns, setup, noise, outside)
+    wet = water['wet']
+    reach = distance_field(grid, [w <= 0 for w in wet])
+    for q in range(grid.n):
+        if reach[q] < wet[q]:
+            wet[q] = reach[q]
+    views = eyes(room)
+    # Resting places where the review eyes stand: a small level clearing.
+    for ex, ez, _, _ in views:
+        R, blend = .16, .26
+        rx, rz = grid.span(ex-R-blend, ex+R+blend, ez-R-blend, ez+R+blend)
+        ring = sorted(h[j*nx+i] for j in rz for i in rx if math.hypot(grid.xs[i]-ex, grid.zs[j]-ez) <= R)
+        if not ring or min(wet[j*nx+i] for j in rz for i in rx) < .1:
+            continue
+        level = ring[len(ring)//2]
+        for j in rz:
+            for i in rx:
+                d = math.hypot(grid.xs[i]-ex, grid.zs[j]-ez)
+                h[j*nx+i] = lerp(level, h[j*nx+i], smooth((d-R)/blend))
+    # ---------------- the hamlet: water, flat ground and shelter meet
+    slope = slope_field(grid, h)
+    avoid = lambda x, z: clear_of_eyes(views, x, z, .75, (2.3, .5))
+    player0 = next((s for s in room['spawns'] if s['role'] == 'player'), room['spawns'][0])['position_m']
+    dry = reachable_from(grid, h, wet, inside, (player0[0], player0[2]))
+    site = find_hamlet(grid, h, slope, wet, inside, spawns, avoid, lambda x, z: inside_distance(room, x, z), dry)
+    houses = []
+    pads = [0.]*grid.n
+    fields = [0.]*grid.n
+    blocked = [False]*grid.n
+    scatter = []
+    objects_out = []
+    hamlet = None
+    if site is not None:
+        sx, sz = site
+        # Nearest water direction: doors face the water.
+        best = None
+        for j in range(grid.nz):
+            for i in range(nx):
+                q = j*nx+i
+                if wet[q] == 0 and inside[q]:
+                    d = math.hypot(grid.xs[i]-sx, grid.zs[j]-sz)
+                    if best is None or d < best[0]:
+                        best = (d, grid.xs[i], grid.zs[j])
+        wx, wz = (best[1], best[2]) if best else (sx, sz-1)
+        toward = math.atan2(wz-sz, wx-sx)
+        cot = SIZES['cottage']
+        for k, (da, r, sc) in enumerate([(0., .0, .74), (1.9, .5, .68), (-1.75, .48, .64), (3.1, .52, .7)]):
+            a = toward+da
+            x, z = sx+math.cos(a)*r, sz+math.sin(a)*r
+            hx, hz = cot[0]*sc/2, cot[2]*sc/2
+            # Face the water: local -Z (the door) points at the nearest water.
+            yaw = math.degrees(math.atan2(-(wx-x), -(wz-z)))
+            yaw = round(yaw/5)*5
+            if inside_distance(room, x, z) < math.hypot(hx, hz)+.08:
+                continue
+            i, j = grid.nearest(x, z)
+            if wet[j*nx+i] < math.hypot(hx, hz)+.06:
+                continue
+            if any(math.hypot(x-hh['x'], z-hh['z']) < .42 for hh in houses):
+                continue
+            if not clear_of_eyes(views, x, z, .6, (2.0, .3)):
+                continue
+            level = flatten(grid, h, x, z, hx, hz, yaw)
+            houses.append(dict(x=x, z=z, yaw=yaw, scale=sc, y=level, hx=hx, hz=hz))
+            if len(houses) == 3:
+                break
+        nx_ = grid.nx
+        for hh in houses:
+            R = max(hh['hx'], hh['hz'])+.1
+            rx, rz = grid.span(hh['x']-R, hh['x']+R, hh['z']-R, hh['z']+R)
+            a = math.radians(hh['yaw'])
+            c, s = math.cos(a), math.sin(a)
+            for j in rz:
+                for i in rx:
+                    dx, dz = grid.xs[i]-hh['x'], grid.zs[j]-hh['z']
+                    lx, lz = c*dx-s*dz, s*dx+c*dz
+                    q = j*nx_+i
+                    if abs(lx) <= hh['hx']+.01 and abs(lz) <= hh['hz']+.01:
+                        blocked[q] = True
+                    d = max(abs(lx)-hh['hx'], abs(lz)-hh['hz'], 0.)
+                    pads[q] = max(pads[q], .55*(1-smooth(d/.08)))
+        hamlet = dict(x=sx, z=sz, water=[wx, wz], houses=len(houses))
+    # ---------------- paths (built and graded) and the carryable object
+    paths = [0.]*grid.n
+    player = next((s for s in room['spawns'] if s['role'] == 'player'), room['spawns'][0])
+    px, pz = player['position_m'][0], player['position_m'][2]
+    carry = None
+    route = None
+    roads = []
+    if houses:
+        door = houses[0]
+        a = math.radians(door['yaw'])
+        # In front of the first cottage's door, beside the path.
+        fx = door['x']-math.sin(a)*(door['hz']+.12)+math.cos(a)*.13
+        fz = door['z']-math.cos(a)*(door['hz']+.12)-math.sin(a)*.13
+        road = build_road(grid, h, wet, inside, blocked, pads, (px, pz), (fx, fz))
+        if road:
+            roads.append(road)
+            paint_line(grid, road, paths)
+            for hh in houses[1:]:
+                a = math.radians(hh['yaw'])
+                dx_, dz_ = hh['x']-math.sin(a)*(hh['hz']+.08), hh['z']-math.cos(a)*(hh['hz']+.08)
+                r2 = build_road(grid, h, wet, inside, blocked, pads, (fx, fz), (dx_, dz_), .03)
+                if r2:
+                    roads.append(r2)
+                    paint_line(grid, r2, paths, .028)
+    slope = slope_field(grid, h)
+    tris = grid.triangles()
+    fslope = face_slope_max(grid, h, tris)
+    if houses and roads:
+        route = walk(grid, h, fslope, wet, inside, blocked, (px, pz), (fx, fz))
+        if route:
+            gy = grid.tri_height(h, fx, fz)
+            carry = dict(id='apple_crate', kind='crate', prototype='crate',
+                         position_m=[round(fx, 4), round(gy-.002, 4), round(fz, 4)],
+                         yaw_deg=round(door['yaw']+20, 1), size_m=[.08, .07, .07],
+                         mass_kg=.12, carriable=True, tint=[1., .82, .7])
+            objects_out.append(carry)
+    shadow = sun_shadow(grid, h, water_sun(setup))
+    weights, tints = surface(grid, h, base, fslope, owner, objects, shadow, wet, acc, outside,
+                             paths, pads, fields, noise)
+    terrain_tris = [t for t in tris if inside_tri(grid, inside, t)]
+    ridge_tris = [t for t in tris if not inside_tri(grid, inside, t)]
+    meshes = {'land': build_mesh(grid, h, weights, tints, terrain_tris),
+              'ridges': build_mesh(grid, h, weights, tints, ridge_tris),
+              'far_hills': distant_hills(room, cams, noise, water.get('outlet', outlet))}
+    water_records = []
+    for w in water['meshes']:
+        meshes[w['name']] = [dict(role='still_water' if w['kind'] == 'still' else 'flowing_water',
+                                  positions=w['positions'], triangles=w['triangles'])]
+        water_records.append({'mesh': w['name'], 'kind': w['kind']})
+    protos = prototypes()
+    proto_records = {}
+    for name, (prims, size) in protos.items():
+        meshes['proto_'+name] = prims
+        proto_records[name] = {'mesh': 'proto_'+name, 'size_m': size}
+    # ---------------- planting
+    plant = Planter(grid, h, fslope, wet, inside, shadow, paths, pads, blocked, base, owner, objects,
+                    views, room, rnd, noise, acc)
+    for hh in houses:
+        scatter.append(dict(prototype='cottage', position_m=[round(hh['x'], 4), round(hh['y']-.004, 4), round(hh['z'], 4)],
+                            yaw_deg=hh['yaw'], scale=[hh['scale']]*3))
+        plant.occupy(hh['x'], hh['z'], max(hh['hx'], hh['hz'])+.06)
+    if carry:
+        plant.occupy(carry['position_m'][0], carry['position_m'][2], .08)
+    if houses:
+        scatter += plant.hamlet_props(houses)
+    scatter += plant.everything()
+    extensions = {'x_gen_b': dict(seed=seed, cell_m=CELL, margin_m=MARGIN,
+                                  walk_limit_deg=WALK_LIMIT_DEG, step_limit_m=STEP_LIMIT_M,
+                                  lake=water['lake'], spring=[round(v, 3) for v in water.get('spring', (0, 0))],
+                                  hamlet=hamlet,
+                                  forms={o['id']: [o['form'], o['form_basis'], o['rock_role']] for o in objects},
+                                  grounding=grounding(grid, h, objects, base))}
+    doc = write_package(out_dir, room_dir, meshes=meshes, setup=setup, generator=GENERATOR,
+                        terrain=[{'mesh': 'land'}], water=water_records,
+                        scenery=[{'mesh': 'ridges', 'reachable': False}, {'mesh': 'far_hills', 'reachable': False}],
+                        prototypes=proto_records, scatter=scatter, objects=objects_out, extensions=extensions)
+    if return_state:
+        return doc, dict(grid=grid, h=h, route=route, carry=carry, houses=houses)
+    return doc
+
+
+def water_sun(setup):
+    from pipeline.landscape.harness.views import sun_position
+    return sun_position(setup['latitude_deg'], setup['day_of_year'], setup['solar_time_h'],
+                        setup['neg_z_bearing_deg'])['direction_room']
+
+
+def inside_tri(grid, inside, t):
+    return sum(inside[q] for q in t) >= 2
+
+
+class Planter:
+    """Plants follow water, slope, height and light; nothing roots in water,
+    on a path, a pad or in front of a review eye."""
+
+    def __init__(self, grid, h, fslope, wet, inside, shadow, paths, pads, blocked, base, owner, objects,
+                 views, room, rnd, noise, acc):
+        self.__dict__.update(locals())
+        self.taken = []   # (x, z, r)
+        self.cells = {}
+
+    def occupy(self, x, z, r):
+        self.taken.append((x, z, r))
+        key = (int(math.floor(x/.5)), int(math.floor(z/.5)))
+        self.cells.setdefault(key, []).append((x, z, r))
+
+    def free(self, x, z, r):
+        kx, kz = int(math.floor(x/.5)), int(math.floor(z/.5))
+        for dx in (-1, 0, 1):
+            for dz in (-1, 0, 1):
+                for ox, oz, orr in self.cells.get((kx+dx, kz+dz), ()):
+                    if math.hypot(x-ox, z-oz) < r+orr:
+                        return False
+        return True
+
+    def at(self, x, z):
+        i, j = self.grid.nearest(x, z)
+        return j*self.grid.nx+i
+
+    def ground(self, x, z, r):
+        g = self.grid
+        pts = [(x, z)]+[(x+r*math.cos(a), z+r*math.sin(a)) for a in (0, 1.57, 3.14, 4.71)]
+        hs = [g.tri_height(self.h, a, b) for a, b in pts]
+        return min(hs), max(hs)
+
+    def fits(self, x, z, size, scale):
+        sx, sy, sz = size[0]*scale[0], size[1]*scale[1], size[2]*scale[2]
+        r = math.hypot(sx, sz)/2
+        lo, hi, _ = room_shape(self.room)
+        return (lo[0]+r+.005 < x < hi[0]-r-.005 and lo[2]+r+.005 < z < hi[2]-r-.005)
+
+    def put(self, proto, x, z, scale, yaw, root, size, tint=None, sink=.004, clear=.0, built=False):
+        if not self.fits(x, z, size, scale):
+            return None
+        q = self.at(x, z)
+        if not self.inside[q] or self.wet[q] < .02+root or self.paths[q] > .2 or self.pads[q] > .05 or self.blocked[q]:
+            return None
+        if built:
+            # Built things need level ground under the whole footprint.
+            a = math.radians(yaw)
+            c, s = math.cos(a), math.sin(a)
+            hx, hz = size[0]*scale[0]/2, size[2]*scale[2]/2
+            hs = [self.grid.tri_height(self.h, x+c*lx+s*lz, z-s*lx+c*lz)
+                  for lx in (-hx, 0, hx) for lz in (-hz, 0, hz)]
+            lo_, hi_ = min(hs), max(hs)
+            if hi_-lo_ > .012:
+                return None
+            sink = min(sink, .002)
+        else:
+            lo_, hi_ = self.ground(x, z, root)
+            if hi_-lo_ > max(.012, .25*size[1]*scale[1]):
+                return None
+        y = lo_-sink
+        if y < .0005:
+            return None
+        if y+size[1]*scale[1] > self.room['bounds']['max_m'][1]-.01:
+            return None
+        rec = dict(prototype=proto, position_m=[round(x, 4), round(y, 4), round(z, 4)],
+                   yaw_deg=round(yaw, 1), scale=[round(s, 3) for s in scale])
+        if tint:
+            rec['tint'] = [round(c, 3) for c in tint]
+        if clear:
+            self.occupy(x, z, clear)
+        return rec
+
+    def hamlet_props(self, houses):
+        out = []
+        rnd = self.rnd
+        for k, hh in enumerate(houses):
+            a = math.radians(hh['yaw'])
+            c, s = math.cos(a), math.sin(a)
+            # Behind each cottage: a woodpile or crates; beside the first, a lantern.
+            for name, lx, lz, sc in [('woodpile', hh['hx']+.06, .08, 1.), ('crate', -hh['hx']-.05, .1, .45)]:
+                if (k+len(name)) % 2 and name == 'crate':
+                    continue
+                x = hh['x']+c*lx+s*lz
+                z = hh['z']-s*lx+c*lz
+                size = SIZES[name] if name in SIZES else [.09, .044, .1]
+                rec = self.put(name, x, z, [sc]*3, hh['yaw']+rnd.uniform(-15, 15), .02, size, sink=.002, clear=.06,
+                               built=True)
+                if rec:
+                    out.append(rec)
+        hh = houses[0]
+        a = math.radians(hh['yaw'])
+        x = hh['x']-math.sin(a)*(hh['hz']+.1)-math.cos(a)*(hh['hx']+.02)
+        z = hh['z']-math.cos(a)*(hh['hz']+.1)+math.sin(a)*(hh['hx']+.02)
+        rec = self.put('lantern', x, z, [.5]*3, hh['yaw'], .01, SIZES['lantern'], sink=.002, clear=.04, built=True)
+        if rec:
+            out.append(rec)
+        # A fenced garden on the sunny side of the hamlet.
+        for hh in houses[:2]:
+            a = math.radians(hh['yaw'])
+            for side in (1,):
+                for n in range(2):
+                    lx, lz = side*(hh['hx']+.12), -hh['hz']+.05+n*.3
+                    x = hh['x']+math.cos(a)*lx+math.sin(a)*lz
+                    z = hh['z']-math.sin(a)*lx+math.cos(a)*lz
+                    rec = self.put('fence', x, z, [.5, .55, .5], hh['yaw']+90, .03, SIZES['fence'], sink=.004, clear=.05,
+                                   built=True)
+                    if rec:
+                        out.append(rec)
+        return out
+
+    def everything(self):
+        g = self.grid
+        out = []
+        rnd = self.rnd
+        noise = self.noise
+        lo, hi, _ = room_shape(self.room)
+
+        def lattice(spacing):
+            pts = []
+            nxs = int((hi[0]-lo[0])/spacing)
+            nzs = int((hi[2]-lo[2])/spacing)
+            for b in range(nzs):
+                for a in range(nxs):
+                    pts.append((lo[0]+(a+rnd.random())*spacing, lo[2]+(b+rnd.random())*spacing))
+            return pts
+
+        def env(x, z):
+            q = self.at(x, z)
+            o = self.objects[self.owner[q]] if self.owner[q] >= 0 else None
+            return q, self.h[q]-self.base[q], self.fslope[q], self.wet[q], self.shadow[q], o
+
+        # Trees: riparian broadleaves; conifers on ridges, tops and the wild edges.
+        for x, z in lattice(.2):
+            q, rel, s, w, sh, o = env(x, z)
+            if s > 30 or not clear_of_eyes(self.views, x, z, .45, (1.1, .25)):
+                continue
+            edge = smooth((.9-inside_distance(self.room, x, z))/.6)
+            riparian = smooth((.55-w)/.35)*(w > .06)
+            high = smooth((rel-.18)/.25)
+            n = noise.fbm(x*1.6+9, z*1.6, 3)
+            groves = smooth((n+.05)/.35)
+            hills = smooth((rel-.04)/.1)*(1-smooth((rel-.5)/.2))
+            p_broad = .6*riparian+.22*groves*(1-high)*(1-edge)+.3*hills*groves
+            p_con = .6*high*(1-smooth((s-26)/8))+.55*edge*groves+.2*groves*(sh > .5)
+            u = rnd.random()
+            if u < p_con*.6 and self.h[q] < 1.45:
+                sc = .38+.3*rnd.random()
+                scale = [sc, sc*(.9+.3*rnd.random()), sc]
+                if self.free(x, z, .1*sc+.06):
+                    rec = self.put('conifer', x, z, scale, rnd.uniform(0, 360), .03*sc, SIZES['conifer'],
+                                   tint=(lerp(.75, .95, rnd.random()), lerp(.85, 1, rnd.random()), lerp(.8, .95, rnd.random())),
+                                   sink=.008, clear=.1*sc+.06)
+                    if rec:
+                        out.append(rec)
+            elif u < (p_con*.6+p_broad*.75):
+                sc = .4+.3*rnd.random()
+                scale = [sc, sc*(.85+.3*rnd.random()), sc]
+                if self.free(x, z, .16*sc+.06):
+                    rec = self.put('broadleaf', x, z, scale, rnd.uniform(0, 360), .035*sc, SIZES['broadleaf'],
+                                   tint=(lerp(.85, 1, rnd.random()), lerp(.9, 1, rnd.random()), lerp(.7, .9, rnd.random())),
+                                   sink=.008, clear=.16*sc+.06)
+                    if rec:
+                        out.append(rec)
+        # Shrubs at grove edges and on banks; loose stones below cliffs.
+        for x, z in lattice(.13):
+            q, rel, s, w, sh, o = env(x, z)
+            if not clear_of_eyes(self.views, x, z, .3, (.8, .18)):
+                continue
+            u = rnd.random()
+            n = noise.fbm(x*1.6+9, z*1.6, 3)
+            if s < 32 and u < .22*smooth((n+.2)/.4)+.2*smooth((.4-w)/.3):
+                sc = .35+.35*rnd.random()
+                if self.free(x, z, .1*sc):
+                    rec = self.put('shrub', x, z, [sc, sc*(.8+.4*rnd.random()), sc], rnd.uniform(0, 360), .05*sc,
+                                   SIZES['shrub'], tint=(lerp(.8, 1, rnd.random()), lerp(.9, 1, rnd.random()), .8),
+                                   sink=.01, clear=.1*sc)
+                    if rec:
+                        out.append(rec)
+            elif o is not None and o['form'] not in ('dome',) and 22 < s < 42 and u < .5:
+                sc = .18+.35*rnd.random()
+                if self.free(x, z, .07*sc+.01):
+                    rec = self.put('rock', x, z, [sc, sc*(.7+.5*rnd.random()), sc], rnd.uniform(0, 360), .06*sc,
+                                   SIZES['rock'], tint=tuple(lerp(1, c, .7) for c in o['tint']), sink=.01*sc+.004)
+                    if rec:
+                        out.append(rec)
+        # Ground cover: grass everywhere it can grow; flowers in the morning sun;
+        # heather on high dry tops; ferns in shade; reeds where feet get wet.
+        for x, z in lattice(.07):
+            q, rel, s, w, sh, o = env(x, z)
+            if s > 34 or not clear_of_eyes(self.views, x, z, .22, (.45, .08)):
+                continue
+            u = rnd.random()
+            yaw = rnd.uniform(0, 360)
+            if w < .09:
+                if u < .55 and w > .025:
+                    sc = .7+.5*rnd.random()
+                    rec = self.put('reeds', x, z, [sc, sc, sc], yaw, .02, [.08, .07, .08], sink=.004)
+                    if rec:
+                        out.append(rec)
+                continue
+            if sh > .55 and u < .5:
+                sc = .2+.15*rnd.random()
+                rec = self.put('fern', x, z, [sc, sc, sc], yaw, .03, SIZES['fern'], tint=(.8, 1, .85), sink=.004)
+            elif rel > .3 and sh < .4 and w > .5 and u < .55:
+                sc = .8+.5*rnd.random()
+                rec = self.put('heather', x, z, [sc, sc, sc], yaw, .03, [.13, .022, .13], sink=.003)
+            elif sh < .35 and u < .16+.12*smooth((.8-w)/.6):
+                kind = ('wildflowers', 'daisies', 'buttercups')[int(3*((noise(x*2.3, z*2.3)+1)/2*.999))]
+                size = {'wildflowers': [.11, .03, .11], 'daisies': [.1, .028, .1], 'buttercups': [.09, .027, .09]}[kind]
+                sc = .8+.5*rnd.random()
+                tint = None
+                if kind == 'wildflowers':
+                    tint = [(1, .55, .5), (1, .8, 1), (.75, .6, 1)][int(rnd.random()*2.999)]
+                rec = self.put(kind, x, z, [sc, sc, sc], yaw, .03, size, tint=tint, sink=.004)
+            elif u < .78:
+                sc = .8+.6*rnd.random()
+                lush = smooth((.6-w)/.5)
+                rec = self.put('grass', x, z, [sc, sc*(.8+.5*rnd.random()), sc], yaw, .03, [.14, .028, .14],
+                               tint=(lerp(1, .85, lush), 1, lerp(.7, .85, lush)), sink=.004)
+            else:
+                rec = None
+            if rec:
+                out.append(rec)
+        return out
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--room', required=True)
+    parser.add_argument('--out', required=True)
+    parser.add_argument('--setup', default=str(SETUP_PATH))
+    parser.add_argument('--seed', type=int, default=SEED)
+    args = parser.parse_args()
+    doc = generate(args.room, args.out, load_json(args.setup), args.seed)
+    print('GEN_B_PACKAGE', args.out, 'meshes', len(doc['meshes']), 'scatter', len(doc['scatter']),
+          'objects', len(doc['objects']))
+
+
+if __name__ == '__main__':
+    main()

@@ -1,0 +1,352 @@
+{
+  "blender": "5.2.2",
+  "blender_display": "5.2.2 LTS",
+  "diagnostic": {
+    "assumed_thresholds_deg": [
+      35,
+      55
+    ],
+    "bytes": 497358,
+    "depth_of_field": false,
+    "figure_inside_geometry": false,
+    "figure_position_m": [
+      0.0,
+      0.08770000189542773,
+      -3.0
+    ],
+    "focus_distance_m": 12.09929084777832,
+    "fstop": 1.399999976158142,
+    "ground_height_m": null,
+    "ground_missing": false,
+    "inside_geometry": false,
+    "kind": "overview",
+    "lens_mm": 40.0,
+    "name": "overview_ne",
+    "note": "Slope only; no connectivity, clearance or collision certification.",
+    "path": "slope.png",
+    "pitch_deg": 15,
+    "position_m": [
+      8.263969303730672,
+      4.481526892578396,
+      -8.263969303730672
+    ],
+    "projection": "PERSP",
+    "raw_bytes": 586727,
+    "rendered_harness_sha256": "fa84a0de0d7eac433bd873e14e4cd9fb0f6043c2107109d4e82868c410718f51",
+    "seconds": 18.678832,
+    "sha256": "aa8a90aa31303d227d58c11ac55b691f57b2e84ca0fc726d731517c4b50d3ce1",
+    "shift_x": 0.012643124717490961,
+    "shift_y": -0.09593678626994813,
+    "target_m": [
+      0.0,
+      1.35,
+      0.0
+    ],
+    "unlit": true
+  },
+  "expected_setup": {
+    "day_of_year": 172,
+    "gameplay_mode": "sandbox",
+    "latitude_deg": 30,
+    "neg_z_bearing_deg": 0,
+    "season": "summer",
+    "solar_time_h": 9,
+    "water": "some"
+  },
+  "format": "enfractal.landscape.render-receipt",
+  "harness_revision": {
+    "files": {
+      "__init__.py": "66ed20d1f6c3ec67f1a12a1179e7f9d241234f38c7ddfba8bf18617053624718",
+      "ab-setup.json": "8d8887fbe1de07f4c2d8f2ca0d54cd639c296d5e49b64666f8dbf24ef0da12cc",
+      "build_reference.py": "c43a6419a02a8a6f35e96c4e669ac3db4727d938eb453f32f8436e67951b7cde",
+      "common.py": "5580237eda4ad196f8e28d924069715fee86d5f3cd7fe96f94c84f8955cfdf2b",
+      "glb.py": "6de9a884c12281f289b5664eba92c02ac69ba111b66f1d6a7fe87332469455be",
+      "kit.py": "18c22e11117b8101ca74954a7044652014aaa1e2a0ea27633efc77b02e5a4e7c",
+      "package.py": "a71f30dad1951d2312b541c3160816de5ffdeb53034aab7c6e04de0d90450e8d",
+      "png.py": "cf2479deac9a8b590b51425a067bacc00d41278e004a5361da5faefc009e3194",
+      "render.py": "024a286ac8e79e4ff572e312c4c0797352b755e6cee8dd5655114b1ed025885d",
+      "tests/__init__.py": "a04d581017f82b24db63c115297af4d73c00745f124706868fd3ee95176a8413",
+      "tests/test_harness.py": "f81dc05456d9fcbdf9065de854fb1c519d58340a6691d8131c6bafc04307e060",
+      "views.py": "c03ca7a41a8b22f8c5c7025096962c3fa6176bcc17b2814503cf49f0200d8e44",
+      "worker.py": "3c5efc43183bb43321e16c0b145e90aa33da688823709986b97698880759cb34"
+    },
+    "kit_version": 1,
+    "materials_version": 2,
+    "sha256": "fa84a0de0d7eac433bd873e14e4cd9fb0f6043c2107109d4e82868c410718f51"
+  },
+  "package_sha256": "9a701252bc96ebde34075c6f35c940707f2f8b196f7d2cc72b8cc151f4612848",
+  "partial_rerender": false,
+  "retained_views": [],
+  "room_sha256": "cb5e1eb42d68509ebeff48de4be70512fbfc6ddd83fc4aa655ce844d8d36d538",
+  "scale_figure_height_m": 0.1,
+  "settings": {
+    "denoiser": "OPENIMAGEDENOISE",
+    "denoising_use_gpu": false,
+    "device": "CPU",
+    "exposure": -0.7,
+    "eye_focus_m": 0.4,
+    "eye_fstop": 32.0,
+    "eye_lens_mm": 22.0,
+    "far_haze_density": 0.1,
+    "far_haze_start_m": 7.0,
+    "haze_density": 0.008,
+    "haze_start_m": 0.8,
+    "height": 720,
+    "max_bounces": 5,
+    "overview_fstop": 1.4,
+    "overview_lens_mm": 40.0,
+    "samples": 48,
+    "seed": 16,
+    "sky_strength": 0.65,
+    "sun_angle_deg": 0.65,
+    "sun_energy": 4.5,
+    "threads": 4,
+    "view_look": "Medium High Contrast",
+    "view_transform": "Standard",
+    "width": 1280
+  },
+  "setup": {
+    "day_of_year": 172,
+    "gameplay_mode": "sandbox",
+    "latitude_deg": 30,
+    "neg_z_bearing_deg": 0,
+    "season": "summer",
+    "solar_time_h": 9,
+    "water": "some"
+  },
+  "stats": {
+    "expanded_triangles": 425612,
+    "instances": 2744,
+    "triangles": 266526
+  },
+  "sun": {
+    "altitude_deg": 49.53245354006852,
+    "azimuth_deg": 88.20766890204106,
+    "declination_deg": 23.451119689661482,
+    "direction_room": [
+      0.6486997061623491,
+      0.7607737046949333,
+      -0.020299297269327842
+    ],
+    "model": "NOAA approximate, geometric, apparent solar time"
+  },
+  "total_render_seconds": 725.72742,
+  "total_view_seconds": 707.048588,
+  "total_wall_seconds": 795.367924,
+  "uniform_harness_revision": true,
+  "version": 1,
+  "views": [
+    {
+      "bytes": 1012231,
+      "figure_inside_geometry": false,
+      "figure_position_m": [
+        0.0,
+        0.08770000189542773,
+        -3.0
+      ],
+      "focus_distance_m": 12.09929084777832,
+      "fstop": 1.399999976158142,
+      "ground_height_m": null,
+      "ground_missing": false,
+      "inside_geometry": false,
+      "kind": "overview",
+      "lens_mm": 40.0,
+      "name": "overview_ne",
+      "path": "overview_ne.png",
+      "pitch_deg": 15,
+      "position_m": [
+        8.263969303730672,
+        4.481526892578396,
+        -8.263969303730672
+      ],
+      "projection": "PERSP",
+      "raw_bytes": 975896,
+      "rendered_harness_sha256": "fa84a0de0d7eac433bd873e14e4cd9fb0f6043c2107109d4e82868c410718f51",
+      "seconds": 118.170985,
+      "sha256": "f5b001c30fe04e5555df5f5f526ea9ed839f0f0002dfe55b0d1db8b891e85b31",
+      "shift_x": 0.012643124717490961,
+      "shift_y": -0.09593678626994813,
+      "target_m": [
+        0.0,
+        1.35,
+        0.0
+      ]
+    },
+    {
+      "bytes": 1027786,
+      "figure_inside_geometry": false,
+      "figure_position_m": [
+        0.0,
+        0.08770000189542773,
+        -3.0
+      ],
+      "focus_distance_m": 12.09929084777832,
+      "fstop": 1.399999976158142,
+      "ground_height_m": null,
+      "ground_missing": false,
+      "inside_geometry": false,
+      "kind": "overview",
+      "lens_mm": 40.0,
+      "name": "overview_sw",
+      "path": "overview_sw.png",
+      "pitch_deg": 15,
+      "position_m": [
+        -8.263969303730672,
+        4.481526892578396,
+        8.263969303730672
+      ],
+      "projection": "PERSP",
+      "raw_bytes": 996048,
+      "rendered_harness_sha256": "fa84a0de0d7eac433bd873e14e4cd9fb0f6043c2107109d4e82868c410718f51",
+      "seconds": 147.847016,
+      "sha256": "078ff43d15007629b1c749bb68426728389ef56d311e99830b7697d32adf0c90",
+      "shift_x": 0.012643124717490961,
+      "shift_y": -0.09593678626994813,
+      "target_m": [
+        0.0,
+        1.35,
+        0.0
+      ]
+    },
+    {
+      "bytes": 992416,
+      "figure_inside_geometry": false,
+      "figure_position_m": [
+        0.0,
+        0.08770000189542773,
+        -3.0
+      ],
+      "focus_distance_m": 12.09929084777832,
+      "fstop": 1.399999976158142,
+      "ground_height_m": null,
+      "ground_missing": false,
+      "inside_geometry": false,
+      "kind": "overview",
+      "lens_mm": 40.0,
+      "name": "overview_se",
+      "path": "overview_se.png",
+      "pitch_deg": 15,
+      "position_m": [
+        8.263969303730672,
+        4.481526892578396,
+        8.263969303730672
+      ],
+      "projection": "PERSP",
+      "raw_bytes": 964878,
+      "rendered_harness_sha256": "fa84a0de0d7eac433bd873e14e4cd9fb0f6043c2107109d4e82868c410718f51",
+      "seconds": 125.466308,
+      "sha256": "933454f883f69844ce383b3e3031de2b63a5f4fcb5e36e07a599d52f093a6b27",
+      "shift_x": -0.012643124717490906,
+      "shift_y": -0.09593678626994813,
+      "target_m": [
+        0.0,
+        1.35,
+        0.0
+      ]
+    },
+    {
+      "bytes": 817547,
+      "figure_ground_missing": false,
+      "figure_inside_geometry": false,
+      "figure_position_m": [
+        -0.07,
+        0.09252000188826977,
+        -2.6
+      ],
+      "focus_distance_m": 0.4000000059604645,
+      "fstop": 32.0,
+      "ground_height_m": 0.08770000189542772,
+      "ground_missing": false,
+      "inside_geometry": false,
+      "kind": "eye",
+      "lens_mm": 22.0,
+      "name": "eye_player",
+      "path": "eye_player.png",
+      "position_m": [
+        0.0,
+        0.17470000189542773,
+        -3.0
+      ],
+      "projection": "PERSP",
+      "raw_bytes": 819831,
+      "rendered_harness_sha256": "fa84a0de0d7eac433bd873e14e4cd9fb0f6043c2107109d4e82868c410718f51",
+      "seconds": 97.249303,
+      "sha256": "e1199c1efffbc3f79567f29e7279e8a4212f567167ec412e5b5905f665088683",
+      "spawn_id": "player_start",
+      "target_m": [
+        0.0,
+        0.17470000189542773,
+        0.0
+      ]
+    },
+    {
+      "bytes": 976808,
+      "figure_ground_missing": false,
+      "figure_inside_geometry": false,
+      "figure_position_m": [
+        0.8071010627297288,
+        0.0888252775325101,
+        -2.6426626244009728
+      ],
+      "focus_distance_m": 0.4000000059604645,
+      "fstop": 32.0,
+      "ground_height_m": 0.07027000188827516,
+      "ground_missing": false,
+      "inside_geometry": false,
+      "kind": "eye",
+      "lens_mm": 22.0,
+      "name": "eye_companion",
+      "path": "eye_companion.png",
+      "position_m": [
+        1.0,
+        0.15727000188827517,
+        -3.0
+      ],
+      "projection": "PERSP",
+      "raw_bytes": 932265,
+      "rendered_harness_sha256": "fa84a0de0d7eac433bd873e14e4cd9fb0f6043c2107109d4e82868c410718f51",
+      "seconds": 106.325304,
+      "sha256": "c9fab212280e4608914c04ce89890bc891254ba578ef978ae0bfbc644e7d8013",
+      "spawn_id": "companion_start",
+      "target_m": [
+        0.0,
+        0.15727000188827517,
+        0.0
+      ]
+    },
+    {
+      "bytes": 685621,
+      "figure_ground_missing": false,
+      "figure_inside_geometry": false,
+      "figure_position_m": [
+        0.38078253214605945,
+        0.08984510698015803,
+        -0.14108388714674416
+      ],
+      "focus_distance_m": 0.4000000059604645,
+      "fstop": 32.0,
+      "ground_height_m": 0.0678599998354912,
+      "ground_missing": false,
+      "inside_geometry": false,
+      "kind": "eye",
+      "lens_mm": 22.0,
+      "name": "eye_window",
+      "path": "eye_window.png",
+      "position_m": [
+        0.0,
+        0.1548599998354912,
+        0.0
+      ],
+      "projection": "PERSP",
+      "raw_bytes": 711550,
+      "rendered_harness_sha256": "fa84a0de0d7eac433bd873e14e4cd9fb0f6043c2107109d4e82868c410718f51",
+      "seconds": 111.989672,
+      "sha256": "91917fe12e64db2fcd65af33e374ed6543f05c77b5dd817695d5c9b2d9868e5d",
+      "target_m": [
+        0.8637789008984335,
+        0.1548599998354912,
+        -0.5038710255240862
+      ]
+    }
+  ]
+}
