@@ -116,13 +116,18 @@ class JournalBoundaryCases:
                                                            "placement": {"position_m": self.place_at}}, self.fresh("lamp")))
         if not placed["ok"]:
             self.skipTest(f"this host would not place the small creation: {placed['error']}")
-        built = [e for e in (await self.journal(kind="built"))["entries"] if placed["created"][0] in e["subject"]["entities"]]
+        # The fact written at that revision (it names the creation only if either avatar's eyes reached its place).
+        built = [e for e in (await self.journal(kind="built"))["entries"] if e["revision"] == placed["revision"]]
         self.assertEqual(len(built), 1, built)
         fact = built[0]
         self.assertEqual((fact["actor"], fact["directed_by"]), (COMPANION, COMPANION))
         self.assertTrue(fact["line"].endswith(", on its own initiative"), fact["line"])
-        self.assertEqual(fact["line"].count('"'), 2, fact["line"])  # one quoted name, whatever the name says
         self.assertNotIn("player's direction\"", fact["line"])
+        if "subject" in fact:
+            self.assertEqual(fact["subject"]["entities"], placed["created"])
+            self.assertEqual(fact["line"].count('"'), 2, fact["line"])  # one quoted name, whatever the name says
+        else:
+            self.assertEqual(fact["line"], "Built something, on its own initiative")
 
 
 class OnTheMock(JournalBoundaryCases, unittest.IsolatedAsyncioTestCase):

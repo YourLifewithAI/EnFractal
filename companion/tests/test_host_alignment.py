@@ -35,6 +35,9 @@ class AlignmentScenarios:
     async def finish(self, job_id: str) -> str:
         raise NotImplementedError
 
+    # Outcome keys a host cannot yet be held to (each with its reason in the subclass).
+    unchecked: tuple[str, ...] = ()
+
     def next_id(self, prefix: str) -> str:
         self._n = getattr(self, "_n", 0) + 1
         return f"{prefix}-{id(self) % 100000}-{self._n}"
@@ -92,14 +95,18 @@ class AlignmentScenarios:
             "nothing written since": after == before,
             "named anywhere": "Hidden vault" in json.dumps(after) or made in json.dumps(after),
         }
-        self.assertEqual(outcome, {
+        expected = {
             "inspect": "target_not_found",
             "built facts": [("Built something, on its own initiative", False, False)],
             "revise refused like an unknown id": "target_not_found",
             "remove refused like an unknown id": "target_not_found",
             "nothing written since": True,
             "named anywhere": False,
-        })
+        }
+        for key in self.unchecked:
+            outcome.pop(key)
+            expected.pop(key)
+        self.assertEqual(outcome, expected)
 
 
 class AlignmentOnTheMock(AlignmentScenarios, unittest.IsolatedAsyncioTestCase):
