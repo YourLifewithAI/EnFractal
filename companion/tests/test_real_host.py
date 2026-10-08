@@ -632,6 +632,15 @@ class AlignmentOnTheRealHost(AlignmentScenarios, RealHostCase):
     async def finish(self, job_id: str) -> str:
         return (await self.job_state(self.link, job_id))["state"]
 
+    @unittest.expectedFailure
+    async def test_a_build_neither_avatar_sees_stays_unnamed_and_cannot_be_changed_or_removed_unseen(self):
+        """A known host gap, reported to Lane P (8 October): the kernel names a build behind the table ("Built \"Hidden
+        vault\"", with its id and a pin) although entity.inspect and observe say neither avatar sees it. The fact's pin is
+        the place box's centre, [-0.9, 0, -1.42], 5 cm below the creation's own centre (its bounds are 0 to 0.1 m high):
+        TeamSeesPlace checks a box half under the floor. The refusals and the silence after them already match the mock.
+        When the host is fixed this reports an unexpected success: remove this override then."""
+        await super().test_a_build_neither_avatar_sees_stays_unnamed_and_cannot_be_changed_or_removed_unseen()
+
 
 # ---------------------------------------------------------------------------- the journal's boundary, on the real host
 

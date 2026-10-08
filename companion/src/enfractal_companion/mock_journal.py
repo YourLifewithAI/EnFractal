@@ -18,6 +18,8 @@ import re
 import secrets
 from datetime import datetime, timezone
 
+from . import perception
+
 MAX_OPEN_TASKS = 32  # kernel: MaxOpenTasks
 MAX_HISTORY = 500  # kernel: MaxHistory
 MAX_NOTES = 100  # kernel: MaxNotes
@@ -94,26 +96,38 @@ class JournalMixin:
     # ------------------------------------------------------------------ what the team knows
 
     def _known_to_team(self, entity_id: str) -> bool:
-        """The avatars always; otherwise on the team's map or in sight of either avatar now."""
+        """The avatars always; otherwise in sight of either avatar now or on the team's map."""
         if entity_id in (self.avatars.get(self._team_principal()), "avatar:player", "avatar:companion"):
             return True
-        if entity_id in self._memory(self._team_principal()).entries:
-            return True
+        return self._team_view(entity_id) is not None
+
+    def _team_sees(self, entity_id: str) -> bool:
+        """Whether either avatar's eyes see a thing now (the team's sight, whatever shared_sight says for queries)."""
         return any(entity_id in self.perceived(p) for p in self._team_principals())
 
+    def _team_sees_place(self, box: dict, standing: str) -> bool:
+        """Whether either avatar's eyes reach a place now, for a thing about to stand there (`standing` is its id, which
+        never hides its own place)."""
+        occluders = [o for o in self._occluders() if o[0] != standing]
+        for principal in self._team_principals():
+            eye = perception.eye_point(self.entities[self.avatars[principal]].position,
+                                       "player" if principal.startswith("player:") else "companion")
+            if perception.visible(eye, standing, box["min_m"], box["max_m"], occluders):
+                return True
+        return False
+
     def _team_view(self, entity_id: str):
-        """(name, pin) as the team knows it: as last seen on the map, else as seen now; None when it does not know it."""
+        """(name, pin) as the team knows it (the kernel's TeamView): in either avatar's sight now, as it is; else as last
+        seen on the map; None when neither avatar has seen it."""
+        entity = self.entities.get(entity_id)
+        if entity is not None and not entity.removed and self._team_sees(entity_id):
+            summary = entity.summary(self.text)
+            return summary["display_name"], _centre(summary["bounds_m"])
         entry = self._memory(self._team_principal()).entries.get(entity_id)
         if entry is not None:
             summary = entry.view["summary"]
             return summary["display_name"], _centre(summary["bounds_m"])
-        if not self._known_to_team(entity_id):
-            return None
-        entity = self.entities.get(entity_id)
-        if entity is None or entity.removed:
-            return None
-        summary = entity.summary(self.text)
-        return summary["display_name"], _centre(summary["bounds_m"])
+        return None
 
     # ------------------------------------------------------------------ tasks
 
@@ -186,16 +200,22 @@ class JournalMixin:
 
     # ------------------------------------------------------------------ creation facts
 
-    def _creation_fact(self, op: str, principal: str, approved_by: str | None, entity_id: str, name, pin,
+    def _creation_fact(self, op: str, principal: str, approved_by: str | None, entity_id: str, view,
                        revision: int) -> None:
+        """A built, changed or removed fact. `view` is (name, pin) as the team knows the thing when the fact is
+        written (CommandHost.CreationFact): None, for a thing neither avatar has seen, is "something" with no id and
+        no pin."""
         directed_by = approved_by or principal
         kind, verb = {"creation.place": ("built", "built"), "creation.revise": ("changed", "changed")}.get(
             op, ("removed", "removed"))
+        what = "something" if view is None else self._quoted(view[0])
         if principal.startswith("player:"):
-            line = f"You {verb} {self._quoted(name)}"
+            line = f"You {verb} {what}"
         else:
-            line = f"{verb.capitalize()} {self._quoted(name)}{self._direction(principal, directed_by)}"
-        self._add_history(self._fact(kind, line, principal, directed_by, entity_id, name, pin, revision=revision))
+            line = f"{verb.capitalize()} {what}{self._direction(principal, directed_by)}"
+        self._add_history(self._fact(kind, line, principal, directed_by, None if view is None else entity_id,
+                                     None if view is None else view[0], None if view is None else view[1],
+                                     revision=revision))
 
     # ------------------------------------------------------------------ journal.note, journal.read, map.find
 
@@ -210,11 +230,17 @@ class JournalMixin:
 
     def _journal_read(self, principal: str, args: dict) -> dict:
         kind, about, since = args.get("kind"), args.get("about"), args.get("since_utc")
+        # An instant, however many fractional digits either side writes (CommandHost.ParseUtc).
+        since_at = None if since is None else parse_utc(since)
+        if since is not None and since_at is None:
+            from .mock_host import HostError
+            raise HostError("request_invalid", "since_utc is a UTC time.", field_path="$.args.since_utc")
 
         def match(entry: dict) -> bool:
+            at = parse_utc(entry["at_utc"])
             return ((kind is None or entry["kind"] == kind)
                     and (about is None or about in entry.get("subject", {}).get("entities", []))
-                    and (since is None or entry["at_utc"] >= since))
+                    and (since_at is None or (at is not None and at >= since_at)))
 
         self._name_seen_tasks()
         job_of_task = {entry: job for job, entry in self._task_of_job.items()}
@@ -272,6 +298,22 @@ class JournalMixin:
         items.sort(key=lambda item: (item[0], item[1]))
         limit = args.get("limit", 5)
         return {"items": [{"entity": s, "distance_m": min(3500.0, round(d, 3))} for d, _i, s in items[:limit]]}
+
+
+_UTC = re.compile(r"([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})(?:\.([0-9]{1,6}))?Z")
+
+
+def parse_utc(text: str) -> datetime | None:
+    """A UTC time in the contract's form as an instant (microseconds), or None when it is not a real time."""
+    match = _UTC.fullmatch(text) if isinstance(text, str) else None
+    if match is None:
+        return None
+    year, month, day, hour, minute, second, fraction = match.groups()
+    try:
+        return datetime(int(year), int(month), int(day), int(hour), int(minute), int(second),
+                        int((fraction or "").ljust(6, "0")), tzinfo=timezone.utc)
+    except ValueError:
+        return None
 
 
 def _centre(box: dict) -> list[float]:

@@ -15,6 +15,7 @@ Every result is checked against the contract.
 from __future__ import annotations
 
 import dataclasses
+import json
 import unittest
 
 from support import COMPANION, PLAYER, FakeClock, HostPolicy, command, contract_problems, contracts, example, new_host, query
@@ -277,6 +278,127 @@ class ReviewFixes(TeamCase):
         self.host.clock.advance(1.0)
         self.place("avatar:player", OUT_OF_EVERY_SIGHT)
         self.assertNotIn("obj:book", self.host.memory[COMPANION].entries)
+
+
+HIDDEN_SPOT = [-0.9, 0.0, -1.42]  # behind the table: neither avatar sees it from its spawn
+IN_THE_OPEN = [0.8, 0.0, 0.9]  # on the rug: both spawns see it; neither hiding place does
+NEAR_THE_HIDING_PLACES = [-1.2, 0.0, -1.4]  # both hiding places see it
+
+
+def block(name: str) -> dict:
+    """A 10 cm wooden block, the creation compiler's smallest part."""
+    return {"schema": "enfractal.creation", "version": 1, "name": name, "seed": 7, "mount": "ground",
+            "parts": [{"id": "block", "shape": "box", "position_m": [0, 0.05, 0], "rotation_deg": [0, 0, 0],
+                       "size_m": [0.1, 0.1, 0.1], "material": "wood"}], "nodes": [], "edges": []}
+
+
+class FactsFromTeamKnowledge(TeamCase):
+    """Built, changed and removed facts take their subject and pin from the team's knowledge when written (Lane P's host
+    fix of the reviews): in sight now as it is, remembered as last seen, never seen "something" with no id or pin."""
+
+    def build(self, name, at, principal=PLAYER):
+        made = self.act("creation.place", {"source": block(name), "placement": {"position_m": at}}, principal)
+        self.assertTrue(made["ok"], made)
+        return made["created"][0]
+
+    def facts(self, kind):
+        return self.journal(kind=kind)["entries"]
+
+    def test_a_build_neither_avatar_sees_is_built_something(self):
+        self.build("Secret vault", HIDDEN_SPOT, COMPANION)
+        [fact] = self.facts("built")
+        self.assertEqual(fact["line"], "Built something, on its own initiative")
+        self.assertNotIn("subject", fact)
+        self.assertNotIn("pin_m", fact)
+
+    def test_a_change_to_a_creation_neither_avatar_has_seen_is_changed_something(self):
+        made = self.build("Secret vault", HIDDEN_SPOT)
+        revised = self.act("creation.revise", {"target": made, "source": block("Bigger vault")}, PLAYER,
+                           expected_entities={made: 1})
+        self.assertTrue(revised["ok"], revised)
+        [fact] = self.facts("changed")
+        self.assertEqual(fact["line"], "You changed something")
+        self.assertNotIn("subject", fact)
+        self.assertNotIn("pin_m", fact)
+        self.assertNotIn("Vault", json.dumps(self.journal()))
+
+    def test_a_thing_moved_out_of_sight_is_recorded_where_the_team_last_saw_it(self):
+        made = self.build("Lantern", IN_THE_OPEN)
+        self.ask("room.describe")  # the team sees it on the rug
+        self.place("avatar:companion", BEHIND_THE_TABLE)
+        self.place("avatar:player", OUT_OF_EVERY_SIGHT)
+        moved = self.act("creation.revise", {"target": made, "placement": {"position_m": [0.3, 0.0, 0.9]},  # still unseen
+                                             "source": block("Moved lantern")}, PLAYER, expected_entities={made: 1})
+        self.assertTrue(moved["ok"], moved)
+        removed = self.act("entity.remove", {"target": made}, PLAYER, expected_entities={made: 2})
+        self.assertTrue(removed["ok"], removed)
+        for kind in ("changed", "removed"):
+            [fact] = self.facts(kind)
+            self.assertEqual(fact["subject"], {"entities": [made], "name": "Lantern"})  # the last-seen name
+            self.assertAlmostEqual(fact["pin_m"][0], IN_THE_OPEN[0], places=3)  # where the team last saw it
+            self.assertAlmostEqual(fact["pin_m"][2], IN_THE_OPEN[2], places=3)
+
+    def test_a_thing_in_sight_is_named_as_it_is_now(self):
+        made = self.build("Lantern", IN_THE_OPEN)
+        self.ask("room.describe")
+        self.host.entities[made].display_name = "Blue lantern"  # changed in sight
+        removed = self.act("entity.remove", {"target": made}, PLAYER, expected_entities={made: 1})
+        self.assertTrue(removed["ok"], removed)
+        [fact] = self.facts("removed")
+        self.assertEqual(fact["line"], 'You removed "Blue lantern"')
+
+
+class TheMapsHardBound(TeamCase):
+    """The map's bound is hard (Lane P's host fix): past it, routine things out of sight, then routine things in sight,
+    then creations out of the team's sight, then creations in sight, each least recently seen first; the targets of
+    running goals and open tasks are never dropped."""
+
+    def test_creations_are_dropped_past_a_lowered_bound_out_of_sight_first(self):
+        self.host.policy = dataclasses.replace(self.host.policy, perception_memory_entries=1)
+        first = self.act("creation.place", {"source": block("First"), "placement": {"position_m": IN_THE_OPEN}}, PLAYER)["created"][0]
+        self.ask("room.describe")
+        self.assertEqual(list(self.host.memory[COMPANION].entries), [first])
+        self.place("avatar:companion", BEHIND_THE_TABLE)
+        self.place("avatar:player", OUT_OF_EVERY_SIGHT)
+        second = self.act("creation.place", {"source": block("Second"), "placement": {"position_m": NEAR_THE_HIDING_PLACES}},
+                          PLAYER)["created"][0]
+        self.ask("room.describe")  # the first is out of the team's sight now, the second in it
+        self.assertEqual(list(self.host.memory[COMPANION].entries), [second])
+
+    def test_a_running_goals_target_is_never_dropped(self):
+        self.host.policy = dataclasses.replace(self.host.policy, perception_memory_entries=1)
+        first = self.act("creation.place", {"source": block("First"), "placement": {"position_m": IN_THE_OPEN}}, PLAYER)["created"][0]
+        self.ask("room.describe")
+        self.place("avatar:companion", BEHIND_THE_TABLE)
+        self.place("avatar:player", OUT_OF_EVERY_SIGHT)
+        walk = self.goal("go_to", target=first)
+        self.assertEqual(walk["data"]["target_seen"], "remembered")
+        self.act("creation.place", {"source": block("Second"), "placement": {"position_m": NEAR_THE_HIDING_PLACES}}, PLAYER)
+        self.ask("room.describe")
+        self.assertEqual(list(self.host.memory[COMPANION].entries), [first])
+
+    def test_the_bound_holds_with_many_creations_in_sight(self):
+        self.host.policy = dataclasses.replace(self.host.policy, perception_memory_entries=3)
+        for i in range(5):
+            self.act("creation.place", {"source": block(f"Block {i}"), "placement": {"position_m": [0.2 + 0.15 * i, 0.0, 1.2]}}, PLAYER)
+        self.ask("room.describe")
+        self.assertEqual(len(self.host.memory[COMPANION].entries), 3)
+
+
+class SinceAsInstants(TeamCase):
+    def test_since_utc_compares_instants_whatever_the_fractional_digits(self):
+        note = self.act("journal.note", {"text": "a note"})
+        written = [e for e in self.journal()["entries"] if e["entry_id"] == note["data"]["entry_id"]][0]["at_utc"]
+        whole = written[:19] + "Z"  # the same second, written without a fraction
+        for since in (whole, written[:19] + ".0Z", written[:19] + ".000000Z"):
+            with self.subTest(since=since):
+                self.assertEqual(len(self.journal(since_utc=since)["entries"]), 1)
+        later = written[:17] + f"{int(written[17:19]) + 1:02d}" + ".5Z"
+        self.assertEqual(self.journal(since_utc=later)["entries"], [])
+
+    def test_a_time_that_is_not_a_real_instant_is_refused(self):
+        result = self.ask("journal.read", {"since_utc": "2026-99-01T00:00:00Z"})
+        self.assertEqual((result["error"]["code"], result["error"]["field_path"]), ("request_invalid", "$.args.since_utc"))
 
 
 class DropBeside(TeamCase):

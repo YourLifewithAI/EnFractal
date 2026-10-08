@@ -615,9 +615,12 @@ class MockHost(JournalMixin):
         for entity in fresh:
             memory.entries.pop(entity.id, None)
             memory.entries[entity.id] = Remembered(self._perceivable(entity), now, self.revision, entity.mass_kg)
+        # The bound is hard (CommandHost.EvictionOrder): routine things out of sight, routine things in sight,
+        # creations out of the team's sight, creations in sight, each least recently seen first; never a task target.
         kept = self._kept_targets()
-        routine = [i for i in memory.entries if not i.startswith("creation:") and i not in kept]
-        victims = [i for i in routine if i not in seen] + [i for i in routine if i in seen]
+        order = [i for i in memory.entries if i not in kept]
+        victims = sorted(order, key=lambda i: ((2 if i.startswith("creation:") else 0) + (1 if i in seen else 0),
+                                              order.index(i)))
         for victim in victims[:max(0, len(memory.entries) - limit)]:
             del memory.entries[victim]
 
@@ -881,21 +884,21 @@ class MockHost(JournalMixin):
         durable = op not in TRANSIENT_OPS
         moves_revision = durable and op not in NO_REVISION_OPS
         new_revision = self.revision + 1 if moves_revision else None
-        gone_view = None
-        if op == "entity.remove":
-            gone = self.entities.get(message["args"].get("target", ""))
-            if gone is not None and gone.kind == "creation":
-                gone_view = (gone.summary(self.text)["display_name"], gone.bounds())
+        # The journal's facts about creations (built, changed, removed), from the team's knowledge, dated at the revision
+        # the command commits. A change or a removal is judged before it commits: the thing as the team knows it now.
+        target = message["args"].get("target", "") if op in ("creation.revise", "entity.remove") else ""
+        known = self.entities.get(target)
+        before = self._team_view(target) if known is not None and known.kind == "creation" else None
         outcome = handler(principal, message, True, new_revision)
-        # The journal's facts about creations (built, changed, removed), dated at the revision the command commits.
-        if op in ("creation.place", "creation.revise") and outcome.get("affected"):
-            made = self.entities[outcome["affected"][0]]
-            self._creation_fact(op, principal, approved_by, made.id, made.summary(self.text)["display_name"],
-                                made.position, new_revision)
-        elif gone_view is not None:
-            box = gone_view[1]
-            self._creation_fact(op, principal, approved_by, message["args"]["target"], gone_view[0],
-                                [(box["min_m"][i] + box["max_m"][i]) / 2 for i in range(3)], new_revision)
+        if op == "creation.place" and outcome.get("created"):
+            # A new thing is known to the team only if either avatar's eyes reach where it stands.
+            made = self.entities[outcome["created"][0]]
+            box = made.bounds()
+            view = (made.summary(self.text)["display_name"], [(box["min_m"][i] + box["max_m"][i]) / 2 for i in range(3)]) \
+                if self._team_sees_place(box, made.id) else None
+            self._creation_fact(op, principal, approved_by, made.id, view, new_revision)
+        elif known is not None and known.kind == "creation":
+            self._creation_fact(op, principal, approved_by, target, before, new_revision)
         if moves_revision:
             self.revision = new_revision
             self.history[new_revision] = self._snapshot()
