@@ -3,6 +3,7 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 using EnFractal.Native;
+using EnFractal.Native.Kernel;
 using EnFractal.Native.Look;
 
 namespace EnFractal.Tests.Kernel;
@@ -16,6 +17,8 @@ namespace EnFractal.Tests.Kernel;
 /// </summary>
 public partial class PlayHudTest : Node
 {
+    /// <summary>The room's saves for this suite: the hand keys keep durable receipts, so they never touch the player's own saves.</summary>
+    private const string HudSaves = "user://tests/play_hud/saves";
     private int _checks;
     private int _failures;
     private RoomWorld _world = null!;
@@ -25,6 +28,8 @@ public partial class PlayHudTest : Node
     {
         try
         {
+            RemoveSaves();
+            CommandHost.SaveRoot = HudSaves;
             _world = GD.Load<PackedScene>("res://scenes/room.tscn").Instantiate<RoomWorld>();
             AddChild(_world);
             for (var i = 0; i < 900 && !_world.WorldReady && _world.LoadError.Length == 0; i++) await Frames(1);
@@ -42,8 +47,11 @@ public partial class PlayHudTest : Node
             await TestNoLookNoClock();
             TestNameTag();
             await TestNameTagSize();
+            await TestHandKeys();
 
-            GD.Print($"NATIVE_KERNEL_PLAY_HUD: {_checks - _failures}/{_checks} checks passed; H folds the help, Q and E turn the isometric view, T and Shift+T step the time of day and the season back to the real clock, and the companion's solid name tag stays small and hides near the camera");
+            CommandHost.SaveRoot = CommandHost.DefaultSaveRoot;
+            RemoveSaves();
+            GD.Print($"NATIVE_KERNEL_PLAY_HUD: {_checks - _failures}/{_checks} checks passed; H folds the help, Q and E turn the isometric view, T and Shift+T step the time of day and the season back to the real clock, the companion's solid name tag stays small and hides near the camera, and F and V pick up, carry, set down on the box and push");
             GetTree().Quit(_failures == 0 ? 0 : 1);
         }
         catch (Exception error)
@@ -54,6 +62,91 @@ public partial class PlayHudTest : Node
     }
 
     private static InputEventKey Press(Key key, bool shift = false) => new() { PhysicalKeycode = key, Pressed = true, ShiftPressed = shift };
+
+    /// <summary>
+    /// P3's acceptance in the real room through the HUD's keys, the same commands the companion sends: the player picks up the
+    /// doorstop (F), carries it across the room to the big box and sets it on top (F, a durable receipt), pushes it along the
+    /// box (V twice), and is told plainly when what it faces is too heavy to pick up.
+    /// </summary>
+    private async Task TestHandKeys()
+    {
+        var host = CommandHost.Of(_world)!;
+        var player = _world.Player;
+        player.ReadKeyboard = false;
+        _hud.SetViewMode(1);
+        var notice = (Label)_hud.FindChild("Notice", true, false)!;
+        var state = (Label)_hud.FindChild("State", true, false)!;
+        var help = string.Join("\n", _world.FindChildren("*", "Label", true, false).OfType<Label>().Select(l => l.Text));
+        Check(help.Contains("F pick up", StringComparison.Ordinal) && help.Contains("V push", StringComparison.Ordinal), "the help names the hand keys F and V");
+        Check(_hud.FindChild("HandActions", true, false) is HBoxContainer { } buttons && buttons.GetChildCount() == 2, "and the top panel has their buttons");
+        Check(await WalkTo(player, new Vector2(-0.3f, 0.62f)), "the player walks over to the doorstop on the rug");
+        await Face(player, Vector3.Forward);
+        _hud._UnhandledInput(Press(Key.F));
+        await Frames(2);
+        Check(host.HeldBy(CommandHost.PlayerAvatar) == "obj:doorstop" && notice.Text.StartsWith("Holding Doorstop", StringComparison.Ordinal) && state.Text.Contains("holding Doorstop (F)", StringComparison.Ordinal),
+            $"F picks up the doorstop it faces; the HUD says so ({notice.Text} | {state.Text})");
+        var revision = host.Revision;
+        Check(await WalkTo(player, new Vector2(0.87f, 0.17f)), "the player carries it across the room to the big box");
+        await Face(player, Vector3.Right);
+        Check(Entity(host, "obj:doorstop")["held_by"]?.GetValue<string>() == CommandHost.PlayerAvatar, "still holding it on arrival");
+        _hud._UnhandledInput(Press(Key.F));
+        await Frames(2);
+        var onBox = Entity(host, "obj:doorstop");
+        var at = Vec(onBox["position_m"]!);
+        Check(host.HeldBy(CommandHost.PlayerAvatar) == null && onBox["held_by"] == null && Mathf.Abs(at.Y - 0.30f) < 0.0005f && at.X > 0.925f && at.X < 1.275f && at.Z > 0.025f && at.Z < 0.375f,
+            $"F facing the box sets the doorstop on its top: {onBox["position_m"]!.ToJsonString()} ({notice.Text})");
+        Check(host.Revision == revision + 1 && host.EntityRevision("obj:doorstop") == 1 && notice.Text == "Set Doorstop on Cardboard box.",
+            "through a command with a durable receipt: the room's revision and the doorstop's moved by one");
+        var saved = System.IO.File.ReadAllText(ProjectSettings.GlobalizePath(CommandHost.SavePathFor(_world.Room)));
+        Check(saved.Contains("\"object_poses\"", StringComparison.Ordinal) && saved.Contains("\"obj:doorstop\"", StringComparison.Ordinal) && saved.Contains("entity.release", StringComparison.Ordinal),
+            "the save holds its new place and the receipt");
+        _hud._UnhandledInput(Press(Key.V));
+        await Frames(2);
+        _hud._UnhandledInput(Press(Key.V));
+        await Frames(2);
+        var pushed = Vec(Entity(host, "obj:doorstop")["position_m"]!);
+        Check(Mathf.Abs(pushed.X - at.X - 0.2f) < 0.002f && Mathf.Abs(pushed.Y - 0.30f) < 0.0005f && Mathf.Abs(pushed.Z - at.Z) < 0.002f && notice.Text == "Pushed Doorstop.",
+            $"V twice pushes it 20 cm along the box's top ({at.X:0.000} to {pushed.X:0.000} m)");
+        _hud._UnhandledInput(Press(Key.F));
+        await Frames(2);
+        Check(host.HeldBy(CommandHost.PlayerAvatar) == null && notice.Text.Contains("too heavy", StringComparison.Ordinal), "F on the big box says it is too heavy: " + notice.Text);
+    }
+
+    private static System.Text.Json.Nodes.JsonObject Entity(CommandHost host, string id) => host.Entities().First(e => e["id"]!.GetValue<string>() == id);
+
+    private static Vector3 Vec(System.Text.Json.Nodes.JsonNode node) => new((float)node[0]!.GetValue<double>(), (float)node[1]!.GetValue<double>(), (float)node[2]!.GetValue<double>());
+
+    private async Task Face(SmallPlayerController body, Vector3 facing)
+    {
+        body.Rotation = new Vector3(0, Mathf.Atan2(-facing.X, -facing.Z), 0);
+        await Frames(4);
+    }
+
+    /// <summary>Walk a body to a spot on the floor plane, steering each tick: running while far, slowing near it.</summary>
+    private async Task<bool> WalkTo(SmallPlayerController body, Vector2 target, int maxFrames = 900)
+    {
+        for (var i = 0; i < maxFrames; i++)
+        {
+            var to = target - new Vector2(body.GlobalPosition.X, body.GlobalPosition.Z);
+            if (to.Length() < 0.008f)
+            {
+                body.SetControlInput(Vector2.Zero);
+                await Frames(20);
+                return true;
+            }
+            body.Rotation = new Vector3(0, Mathf.Atan2(-to.X, -to.Y), 0);
+            body.SetControlInput(new Vector2(0, to.Length() > 0.1f ? 1 : 0.35f), sprint: to.Length() > 0.3f);
+            await Frames(1);
+        }
+        body.SetControlInput(Vector2.Zero);
+        return false;
+    }
+
+    private static void RemoveSaves()
+    {
+        var directory = ProjectSettings.GlobalizePath(HudSaves);
+        if (System.IO.Directory.Exists(directory)) System.IO.Directory.Delete(directory, true);
+    }
 
     private async Task TestFoldedHelp()
     {

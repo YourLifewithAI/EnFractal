@@ -158,7 +158,7 @@ public partial class RoomHud : CanvasLayer
         AddChild(top);
         var column = new VBoxContainer(); top.AddChild(column);
         column.AddChild(new Label { Text = RoomTitle });
-        _state = new Label(); column.AddChild(_state);
+        _state = new Label { Name = "State" }; column.AddChild(_state);
         _clock = new Label { Visible = false }; column.AddChild(_clock);
         var actions = new HBoxContainer { Name = "CompanionActions" }; column.AddChild(actions);
         AddButton(actions, "1 Follow", () => Goal("follow"), 26);
@@ -167,6 +167,10 @@ public partial class RoomHud : CanvasLayer
         AddButton(actions, "4 Stop", () => Goal("stop"), 26);
         AddButton(actions, "5 Point", PointAhead, 26);
         AddButton(actions, "Customize", ToggleCustomization, 26);
+        // The hand keys send the same sandbox commands the companion uses (CommandHost.PlayerHands, PlayerPush).
+        var hands = new HBoxContainer { Name = "HandActions" }; column.AddChild(hands);
+        AddButton(hands, "F Pick up / put down", Hands, 26);
+        AddButton(hands, "V Push", Push, 26);
         _footer = new PanelContainer { Name = "HelpFooter", Theme = compactTheme, GrowVertical = Control.GrowDirection.Begin };
         AddChild(_footer);
         _footer.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.BottomWide);
@@ -177,6 +181,7 @@ public partial class RoomHud : CanvasLayer
         _keyHelp.AddChild(new Label { Text = "WASD move · Shift run · Space jump · R recover · G gravity · click to look · Esc release" });
         _keyHelp.AddChild(new Label { Text = "F1 eye · F2 shoulder · F3 diorama: mouse orbits, wheel zooms, WASD follows the view · F4 isometric: Q/E turn the view" });
         _keyHelp.AddChild(new Label { Text = "T time of day · Shift+T season (each steps round to the real clock) · L lamps · O observe (a very tight tilt-shift view, best from F3 or F4) · C customize" });
+        _keyHelp.AddChild(new Label { Text = "F pick up what you face · F again sets it down in front of you, or on top of what you face (the box, the book) · V push what you face 10 cm" });
         _notice = new Label { Name = "Notice", Text = _noticeText }; help.AddChild(_notice);
         help.MinimumSizeChanged += () => _footer.Size = new Vector2(_footer.Size.X, 0);
         _customization = new PanelContainer { Position = new Vector2(18, 190), Theme = theme, Visible = false };
@@ -302,7 +307,9 @@ public partial class RoomHud : CanvasLayer
     {
         if (ViewMode >= 2) PlaceDioramaRig(snap: false, (float)delta);
         _arm.Rotation = new Vector3(Mathf.Clamp(Player.EyeCamera.Rotation.X - 0.18f, -1.1f, 0.8f), 0, 0);
-        _state.Text = $"{Player.BodyHeightM * 100:0} cm player  ·  gravity {Player.WorldPhysicsId} (G)  ·  {Companion.CompanionName}: {Companion.CurrentIntent}" + (Companion.GoalBlocked ? " · path blocked" : "") + (Look?.Observe == true ? "  ·  observe view (O)" : "");
+        var holding = Host?.HeldName(Kernel.CommandHost.PlayerAvatar) ?? "";
+        _state.Text = $"{Player.BodyHeightM * 100:0} cm player  ·  gravity {Player.WorldPhysicsId} (G)  ·  {Companion.CompanionName}: {Companion.CurrentIntent}" + (Companion.GoalBlocked ? " · path blocked" : "") +
+            (holding.Length > 0 ? $"  ·  holding {holding} (F)" : "") + (Look?.Observe == true ? "  ·  observe view (O)" : "");
         _notice.Text = _noticeText;
         // The observe view looks at what the free camera orbits: focus follows its target, and lets go when the view does.
         if (Look != null && Look.Observe && ViewMode >= 2) { Look.FocusOverride = _dioramaPivot.GlobalPosition; _observeFocus = true; }
@@ -349,6 +356,9 @@ public partial class RoomHud : CanvasLayer
                 case Key.Key3: Goal("come"); break;
                 case Key.Key4: Goal("stop"); break;
                 case Key.Key5: PointAhead(); break;
+                // Hand keys: pick up, put down and push, as commands from the player.
+                case Key.F: Hands(); break;
+                case Key.V: Push(); break;
             }
         }
         if (!Customizing && input is InputEventMouseButton click && click.Pressed && click.ButtonIndex == MouseButton.Left)
@@ -371,6 +381,15 @@ public partial class RoomHud : CanvasLayer
     }
 
     private void PointAhead() => Goal("point_at", Player.GlobalPosition - Player.GlobalBasis.Z * 0.6f + Vector3.Up * 0.05f);
+
+    /// <summary>The room's command host (null in fixtures without one).</summary>
+    private Kernel.CommandHost? Host => GetParent() is { } parent ? Kernel.CommandHost.Of(parent) : null;
+
+    /// <summary>F: pick up what the player faces, or put down what it holds (on what it faces, if that has a top).</summary>
+    private void Hands() => _noticeText = Host?.PlayerHands().Message ?? "The command host is not attached; the hand keys are off.";
+
+    /// <summary>V: push what the player faces.</summary>
+    private void Push() => _noticeText = Host?.PlayerPush().Message ?? "The command host is not attached; the hand keys are off.";
 
     private void Goal(string goal, Vector3? point = null)
     {

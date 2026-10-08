@@ -10,9 +10,10 @@ const JSON_KERNEL = preload("res://scripts/creation_json.gd")
 const TEXT = preload("res://scripts/creation_text.gd")
 const SCHEMA := "enfractal.creation-world"
 ## Version 2 pins a room manifest instead of a map, uses contract principals and adds locks. Version 3 adds
-## the compacted receipt index and the checkpoints; version 2 saves still load (with neither).
-const VERSION := 3
-const LOADABLE_VERSIONS := [2, 3]
+## the compacted receipt index and the checkpoints. Version 4 adds object_poses: where play has moved the
+## room's objects (the sandbox verbs, Run 2 P3). Version 2 and 3 saves still load (with none of the later blocks).
+const VERSION := 4
+const LOADABLE_VERSIONS := [2, 3, 4]
 const STYLE_VERSION := "painterly_v1"
 const MAX_SAVE_BYTES := 4 * 1024 * 1024
 ## Durable receipts in the ledger. The last PLAYER_RECEIPT_RESERVE slots are the player's alone, so a
@@ -54,6 +55,10 @@ var activation_query := Callable()
 # The sink must acknowledge commit before returning ok; errors retain old memory.
 var persistence_sink := Callable()
 var access_guard := Callable()
+## The trusted host's scene seam: called with every object pose (a copy) whenever they change, and while a
+## save loads before its creations are checked against the room's surfaces, so the scene stays derived from
+## this state. Bound by the command host through the runtime; optional.
+var pose_sink := Callable()
 var _roles := DEFAULT_ROLES.duplicate()
 var _consent := {PLAYER: false, COMPANION: false}
 var _instances: Dictionary = {}
@@ -63,6 +68,9 @@ var _checkpoints: Array = []
 var _activation_receipts: Dictionary = {}
 var _locks: Dictionary = {}
 var _entity_revisions: Dictionary = {}
+## Where play has moved room objects: {"obj:x": {position_m, rotation, bounds: {min_m, max_m}}}. An object
+## absent here stands where the room manifest puts it.
+var _object_poses: Dictionary = {}
 var _surface := Callable()
 var _room_id := ""
 var _manifest_sha256 := ""
@@ -88,6 +96,7 @@ func configure(room: Dictionary, surface_query: Callable, save_path: String) -> 
 	_activation_receipts.clear()
 	_locks.clear()
 	_entity_revisions.clear()
+	_object_poses.clear()
 	_runtime_events.clear()
 	_last_budget_time = -1.0
 	revision = 0
@@ -145,8 +154,8 @@ func submit(principal: String, request: Dictionary, receipt_meta: Dictionary = {
 			return _failure("action_id_conflict", "action_id", "This action ID was already used for different content.")
 		return {"ok": true, "instance_id": "", "revision": int(_compacted[key][0]), "permission_revision": permission_revision, "replayed": true, "compacted": true, "affected": [], "created": []}
 	var op: Variant = request.get("op")
-	if op not in ["place", "revise", "remove", "activate", "lock", "unlock", "checkpoint"]:
-		return _failure("operation_invalid", "op", "Choose place, revise, remove, activate, lock, unlock or checkpoint.")
+	if op not in ["place", "revise", "remove", "activate", "lock", "unlock", "checkpoint", "move"]:
+		return _failure("operation_invalid", "op", "Choose place, revise, remove, activate, lock, unlock, checkpoint or move.")
 	var allowed := ["op", "action_id", "expected_revision", "expected_permission_revision"]
 	if op in ["place", "revise"]:
 		allowed.append_array(["source", "x_m", "z_m", "yaw_deg", "y_m", "on"])
@@ -156,6 +165,8 @@ func submit(principal: String, request: Dictionary, receipt_meta: Dictionary = {
 		allowed.append("targets")
 	if op == "checkpoint":
 		allowed.append("label")
+	if op == "move":
+		allowed.append_array(["target", "position_m", "rotation", "bounds"])
 	for field in request:
 		if field not in allowed:
 			return _failure("field_unknown", String(field), "Identity, ownership, height, approval and compiled costs are assigned by the host.")
@@ -168,6 +179,8 @@ func submit(principal: String, request: Dictionary, receipt_meta: Dictionary = {
 		return _submit_lock(principal, op, request.get("targets"), key, fingerprint, meta)
 	if op == "checkpoint":
 		return _submit_checkpoint(principal, request.get("label", ""), key, fingerprint, meta)
+	if op == "move":
+		return _submit_move(principal, request, key, fingerprint, meta)
 	var instance_id := ""
 	if op != "place":
 		if not request.get("instance_id") is String or not _instances.has(request.instance_id):
@@ -291,6 +304,73 @@ func _submit_checkpoint(principal: String, label: Variant, key: String, fingerpr
 	return answer
 
 
+## The sandbox verbs' durable half (entity.release, entity.place, entity.push): the trusted host worked out
+## where the object comes to rest with the room's physics; this records that pose with the receipt in one
+## atomic save and moves the object's revision. Only room objects move here (creations move by revision),
+## never a protected one, and never outside the room.
+func _submit_move(principal: String, request: Dictionary, key: String, fingerprint: String, meta: Dictionary) -> Dictionary:
+	if not _can_build(principal):
+		return _failure("build_denied", "principal", "Only an owner or editor may move things.")
+	var target: Variant = request.get("target")
+	if not target is String or not _room_entities.has(target) or _room_entities[target].kind != "object":
+		return _failure("target_invalid", "target", "Only the room's objects can be moved this way.")
+	if _locks.has(target):
+		return _failure("target_locked", "target", "That is protected. Only the player can unlock it.")
+	var pose := _pose_problem(request)
+	if not pose.ok:
+		return pose
+	if not _receipt_room(principal):
+		return _receipt_limit()
+	var next := _state()
+	next.object_poses = _object_poses.duplicate(true)
+	next.object_poses[target] = pose.pose
+	next.entity_revisions = _entity_revisions.duplicate()
+	next.entity_revisions[target] = int(next.entity_revisions.get(target, 0)) + 1
+	var receipt := {"ok": true, "instance_id": "", "revision": revision + 1, "permission_revision": permission_revision, "replayed": false, "affected": [target], "created": []}
+	next.receipts = _receipts.duplicate(true)
+	next.receipts[key] = {"principal": principal, "action_id": key.get_slice("|", 1), "fingerprint": fingerprint, "receipt": receipt.duplicate(true), "meta": meta}
+	next.revision = revision + 1
+	var committed := _commit(next)
+	if not committed.ok:
+		return committed
+	return receipt
+
+
+## A pose as the host sends it and the save keeps it: {position_m, rotation (unit xyzw), bounds}, the origin
+## and the bounds inside the room (1 mm tolerance). Returns {ok, pose} with plain floats, or a failure.
+func _pose_problem(value: Dictionary) -> Dictionary:
+	var position: Variant = value.get("position_m")
+	var rotation: Variant = value.get("rotation")
+	if not position is Array or position.size() != 3 or not rotation is Array or rotation.size() != 4:
+		return _failure("placement_invalid", "position_m", "A pose has a position and a rotation.")
+	for number in position + rotation:
+		if not _number(number) or abs(float(number)) > COORDINATE_LIMIT_M:
+			return _failure("placement_invalid", "position_m", "Use finite pose numbers.")
+	var length := sqrt(float(rotation[0]) * float(rotation[0]) + float(rotation[1]) * float(rotation[1]) + float(rotation[2]) * float(rotation[2]) + float(rotation[3]) * float(rotation[3]))
+	if abs(length - 1.0) > 0.001:
+		return _failure("placement_invalid", "rotation", "A rotation is a unit quaternion.")
+	var extent := _bounds(value.get("bounds"))
+	if extent.is_empty():
+		return _failure("placement_invalid", "bounds", "A pose names the bounds it occupies.")
+	var origin := Vector3(float(position[0]), float(position[1]), float(position[2]))
+	var tolerance := Vector3.ONE * 0.001
+	var room := AABB(_room_min - tolerance, _room_max - _room_min + tolerance * 2.0)
+	if not room.has_point(origin) or not room.has_point(extent[0]) or not room.has_point(extent[1]):
+		return _failure("room_bounds", "position_m", "The object must stay inside the room.")
+	var pose := {"position_m": [float(position[0]), float(position[1]), float(position[2])], "rotation": [float(rotation[0]), float(rotation[1]), float(rotation[2]), float(rotation[3])], "bounds": {"min_m": _array3(extent[0]), "max_m": _array3(extent[1])}}
+	return {"ok": true, "pose": pose}
+
+
+## Where play has moved one object ({} when it stands where the manifest puts it).
+func object_pose(entity_id: String) -> Dictionary:
+	return _object_poses[entity_id].duplicate(true) if _object_poses.has(entity_id) else {}
+
+
+func _publish_poses(poses: Dictionary) -> void:
+	if pose_sink.is_valid():
+		pose_sink.call(poses.duplicate(true))
+
+
 ## Whether principal may add a durable receipt: the companion may fill the ledger up to the player's reserve.
 func _receipt_room(principal: String) -> bool:
 	var limit := MAX_RECEIPTS if principal == PLAYER else MAX_RECEIPTS - PLAYER_RECEIPT_RESERVE
@@ -395,7 +475,7 @@ func snapshot(principal: String) -> Dictionary:
 		item.active = _can_build(item.owner_id)
 		item.locked = _locks.has(item.id)
 		readable[item.id] = item
-	return {"ok": true, "revision": revision, "permission_revision": permission_revision, "instances": readable, "roles": _roles.duplicate(), "consent": _consent.duplicate(), "principal_role": _roles[principal], "capacity": _capacity(_instances), "limits": {"owner": OWNER_LIMITS.duplicate(), "world": WORLD_LIMITS.duplicate()}, "room_pin": _room_pin(), "locks": _locks.duplicate(true), "entity_revisions": _entity_revisions.duplicate(), "bounds": {"min_m": _array3(_room_min), "max_m": _array3(_room_max)}}
+	return {"ok": true, "revision": revision, "permission_revision": permission_revision, "instances": readable, "roles": _roles.duplicate(), "consent": _consent.duplicate(), "principal_role": _roles[principal], "capacity": _capacity(_instances), "limits": {"owner": OWNER_LIMITS.duplicate(), "world": WORLD_LIMITS.duplicate()}, "room_pin": _room_pin(), "locks": _locks.duplicate(true), "entity_revisions": _entity_revisions.duplicate(), "object_poses": _object_poses.duplicate(true), "bounds": {"min_m": _array3(_room_min), "max_m": _array3(_room_max)}}
 
 
 func is_ready() -> bool:
@@ -548,9 +628,17 @@ func load_envelope(data: Dictionary) -> Dictionary:
 	if not _configured:
 		return _failure("configuration_invalid", "", "Configure a room before loading inventions.")
 	_load_required = true
+	# The saved poses go into the scene before the saved creations are checked against the room's surfaces:
+	# a creation may stand on an object play has moved. A save that then fails puts the scene back.
+	var poses := _saved_poses(data)
+	if not poses.ok:
+		return poses
+	_publish_poses(poses.poses)
 	var checked := _validate_saved(data)
 	if not checked.ok:
+		_publish_poses(_object_poses)
 		return checked
+	_object_poses = poses.poses
 	_instances = checked.instances
 	_receipts = data.receipts.duplicate(true)
 	_compacted = {}
@@ -584,7 +672,7 @@ func export_envelope() -> Dictionary:
 
 
 func _state() -> Dictionary:
-	return {"instances": _instances, "receipts": _receipts, "compacted": _compacted, "checkpoints": _checkpoints, "revision": revision, "permission_revision": permission_revision, "roles": _roles, "consent": _consent, "next_id": _next_id, "locks": _locks, "entity_revisions": _entity_revisions}
+	return {"instances": _instances, "receipts": _receipts, "compacted": _compacted, "checkpoints": _checkpoints, "revision": revision, "permission_revision": permission_revision, "roles": _roles, "consent": _consent, "next_id": _next_id, "locks": _locks, "entity_revisions": _entity_revisions, "object_poses": _object_poses}
 
 
 ## Persists the complete next state, then publishes it. A failed write publishes nothing.
@@ -601,8 +689,12 @@ func _commit(next: Dictionary) -> Dictionary:
 	_next_id = int(next.next_id)
 	_locks = next.locks
 	_entity_revisions = next.entity_revisions
+	var moved: bool = next.object_poses != _object_poses
+	_object_poses = next.object_poses
 	revision = int(next.revision)
 	permission_revision = int(next.permission_revision)
+	if moved:
+		_publish_poses(_object_poses)
 	return {"ok": true}
 
 
@@ -700,6 +792,9 @@ func _lock_zones(instances: Dictionary, locks: Dictionary, ignore := "") -> Arra
 		if instances.has(entity_id):
 			var item: Dictionary = instances[entity_id]
 			zones.append(_footprint(item.artifact, float(item.position_m[0]), float(item.position_m[2]), float(item.yaw_deg)))
+		elif _object_poses.has(entity_id):
+			var moved: Dictionary = _object_poses[entity_id].bounds
+			zones.append([Vector2(float(moved.min_m[0]), float(moved.min_m[2])), Vector2(float(moved.max_m[0]), float(moved.max_m[2]))])
 		elif _room_entities.has(entity_id):
 			var entity: Dictionary = _room_entities[entity_id]
 			zones.append([Vector2(entity.min.x, entity.min.z), Vector2(entity.max.x, entity.max.z)])
@@ -765,7 +860,7 @@ func _envelope(state: Dictionary) -> Dictionary:
 		stored.erase("artifact")
 		stored.erase("active")
 		stored_instances.append(stored)
-	return {"schema": SCHEMA, "version": VERSION, "compiler_version": 1, "style_version": STYLE_VERSION, "room_pin": _room_pin(), "revision": state.revision, "permission_revision": state.permission_revision, "next_id": state.next_id, "roles": state.roles.duplicate(true), "consent": state.consent.duplicate(true), "instances": stored_instances, "receipts": state.receipts.duplicate(true), "compacted": state.compacted.duplicate(true), "checkpoints": state.checkpoints.duplicate(true), "locks": state.locks.duplicate(true), "entity_revisions": state.entity_revisions.duplicate(true)}
+	return {"schema": SCHEMA, "version": VERSION, "compiler_version": 1, "style_version": STYLE_VERSION, "room_pin": _room_pin(), "revision": state.revision, "permission_revision": state.permission_revision, "next_id": state.next_id, "roles": state.roles.duplicate(true), "consent": state.consent.duplicate(true), "instances": stored_instances, "receipts": state.receipts.duplicate(true), "compacted": state.compacted.duplicate(true), "checkpoints": state.checkpoints.duplicate(true), "locks": state.locks.duplicate(true), "entity_revisions": state.entity_revisions.duplicate(true), "object_poses": state.object_poses.duplicate(true)}
 
 
 func _persist(state: Dictionary) -> Dictionary:
@@ -811,13 +906,17 @@ func _envelope_bounds_problem(data: Dictionary) -> Dictionary:
 		return _failure("save_size", "save", "Saved instances or receipts exceed their bounds.")
 	if not data.get("locks") is Dictionary or data.locks.size() > MAX_LOCKS or not data.get("compacted", {}) is Dictionary or data.get("compacted", {}).size() > MAX_COMPACTED or not data.get("checkpoints", []) is Array or data.get("checkpoints", []).size() > MAX_CHECKPOINTS:
 		return _failure("save_size", "save", "Saved locks, compacted receipts or checkpoints exceed their bounds.")
+	if not data.get("object_poses", {}) is Dictionary or data.get("object_poses", {}).size() > _room_entities.size():
+		return _failure("save_size", "save", "Saved object poses exceed their bounds.")
 	return {}
 
 
 func _validate_saved(data: Dictionary) -> Dictionary:
 	var expected := ["schema", "version", "compiler_version", "style_version", "room_pin", "revision", "permission_revision", "next_id", "roles", "consent", "instances", "receipts", "locks", "entity_revisions"]
-	if _whole(data.get("version")) and int(data.version) == 3:
+	if _whole(data.get("version")) and int(data.version) >= 3:
 		expected.append_array(["compacted", "checkpoints"])
+	if _whole(data.get("version")) and int(data.version) >= 4:
+		expected.append("object_poses")
 	if not _exact_keys(data, expected) or data.get("schema") != SCHEMA or not _whole(data.get("version")) or int(data.version) not in LOADABLE_VERSIONS or not _whole(data.get("compiler_version")) or int(data.compiler_version) != 1 or data.get("style_version") != STYLE_VERSION or data.get("room_pin") != _room_pin():
 		return _failure("save_incompatible", "save", "The save's room, compiler or style version does not match this room.")
 	var bounded := _envelope_bounds_problem(data)
@@ -889,7 +988,31 @@ func _validate_saved(data: Dictionary) -> Dictionary:
 	for entity_id in data.entity_revisions:
 		if not _room_entities.has(entity_id) or not _whole(data.entity_revisions[entity_id]) or int(data.entity_revisions[entity_id]) < 1 or int(data.entity_revisions[entity_id]) > int(data.revision):
 			return _failure("save_invalid", "entity_revisions", "A saved object revision names something not in this room.")
+	# A moved object has been changed by play, so it has a revision of its own.
+	for entity_id in data.get("object_poses", {}):
+		if not data.entity_revisions.has(entity_id):
+			return _failure("save_invalid", "object_poses", "A saved object pose has no object revision.")
 	return {"ok": true, "instances": rebuilt}
+
+
+## The saved object poses, checked: room objects only, each pose inside the room. Saves before version 4 have none.
+func _saved_poses(data: Dictionary) -> Dictionary:
+	# Only a version 4 save of this room moves its objects; any other save fails in _validate_saved for its own reason.
+	if data.get("room_pin") != _room_pin() or not _whole(data.get("version")) or int(data.version) < 4:
+		return {"ok": true, "poses": {}}
+	var saved: Variant = data.get("object_poses", {})
+	if not saved is Dictionary or saved.size() > _room_entities.size():
+		return _failure("save_invalid", "object_poses", "Saved object poses are invalid.")
+	var poses := {}
+	for entity_id in saved:
+		var pose: Variant = saved[entity_id]
+		if not entity_id is String or not _room_entities.has(entity_id) or _room_entities[entity_id].kind != "object" or not pose is Dictionary or not _exact_keys(pose, ["position_m", "rotation", "bounds"]):
+			return _failure("save_invalid", "object_poses", "A saved object pose names something not in this room.")
+		var checked := _pose_problem(pose)
+		if not checked.ok:
+			return _failure("save_invalid", "object_poses", "A saved object pose is outside this room.")
+		poses[entity_id] = checked.pose
+	return {"ok": true, "poses": poses}
 
 
 ## Every durable receipt names its contract op and commit time, so receipt.lookup can rebuild the
@@ -897,7 +1020,7 @@ func _validate_saved(data: Dictionary) -> Dictionary:
 func _complete_meta(meta: Dictionary, op: String) -> Dictionary:
 	var complete := meta.duplicate()
 	if String(complete.op).is_empty():
-		complete.op = {"place": "creation.place", "revise": "creation.revise", "remove": "entity.remove", "lock": "protect.lock", "unlock": "protect.unlock", "activate": "creation.activate", "checkpoint": "room.checkpoint"}[op]
+		complete.op = {"place": "creation.place", "revise": "creation.revise", "remove": "entity.remove", "lock": "protect.lock", "unlock": "protect.unlock", "activate": "creation.activate", "checkpoint": "room.checkpoint", "move": "entity.place"}[op]
 	if String(complete.at_utc).is_empty():
 		complete.at_utc = Time.get_datetime_string_from_system(true) + "Z"
 	return complete

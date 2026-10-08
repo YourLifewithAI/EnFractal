@@ -293,6 +293,24 @@ Run `pwsh -NoProfile -File run-room.ps1` and click the window to capture the mou
 6. Stand still on the rug, then on the book, in **F2** and **F3**: do both avatars stand on the surface now, or does either still look as if it hovers? If one does, note the view, the time of day and where its shadow starts.
 7. Anything that bobs, catches or clips, and anything the HUD says ("path blocked").
 
+## Carry playtest (Run 2, P3)
+
+Run `pwsh -NoProfile -File run-room.ps1` and click the window to capture the mouse. The room remembers where things are put (`%APPDATA%\Godot\app_userdata\EnFractal\saves\rooms\test_room\`); delete that folder to start over.
+
+| Key | Does |
+|---|---|
+| **F** | Pick up the thing you face within reach; holding something, set it on the thing you face if it has a top (the box, the book), else down in front of you |
+| **V** | Push the thing you face 10 cm |
+
+1. The doorstop is the small block on the rug, a step ahead and to the left of where you start. Walk up to it, face it and press **F**: it rides over your head and the top panel says "holding Doorstop".
+2. Carry it across the room to the big cardboard box (ahead and to your right, about a metre away), in F2 and F3: does it read as carrying, and does it stay with you through turns, jumps (**Space**) and the rug's edge?
+3. Face the box and press **F**: it lands on top. Press **V** to push it along the top, and again until it falls off the far edge.
+4. Press **F** facing the book: too heavy (0.6 kg against your 0.5 kg). Press **V** at it instead: it slides, stops at walls and rides over the rug's edge.
+5. Pick the doorstop up again and set it on the book (stacking), then try to push the book.
+6. Try: setting something down facing a wall or the box (no room), and putting it on the table (out of reach at 75 cm).
+
+Check against: is 35 cm (3.5 body heights) the right height to reach up to; is carrying over the head right, or should it be in front; should carrying slow you down; is 10 cm a good push; are the messages clear.
+
 ## Open questions for the founder
 
 - Should low gravity ever let the body jump higher (for example floaty reaching the 30 cm box)? Today gravity changes the feel only.

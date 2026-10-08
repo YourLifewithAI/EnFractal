@@ -32,6 +32,9 @@ var keyboard_enabled := true
 var workshop_enabled := true
 ## Optional: Callable(command: Dictionary) -> Dictionary returning an enfractal.result.
 var command_sink := Callable()
+## Optional: Callable(poses: Dictionary), the command host's scene seam for objects play has moved (the
+## authority's pose_sink). Set before this node enters the tree: a save's poses reach the scene while it loads.
+var object_pose_sink := Callable()
 var editor
 var editor_open := false
 var assemblies: Dictionary = {}
@@ -68,6 +71,7 @@ func _ready() -> void:
 	session_token = Crypto.new().generate_random_bytes(8).hex_encode()
 	authority = AUTHORITY.new()
 	var configured: Dictionary = authority.configure(room, Callable(self, "surface_at"), save_path)
+	authority.pose_sink = object_pose_sink
 	var loaded: Dictionary = authority.load_saved() if configured.ok else configured
 	authority.occupancy_query = Callable(self, "_check_occupancy")
 	authority.activation_query = Callable(self, "_check_activation")
