@@ -140,7 +140,7 @@ class HostPolicy:
     follow_player_out_of_sight: bool = True  # follow/come keep working when the player is not in sight
     # Perception memory (founder decision, 6 October 2026: the companion remembers what it saw).
     # At most this many entities per companion, least recently seen forgotten first; 0 turns it off.
-    perception_memory_entries: int = 256
+    perception_memory_entries: int = 1024
     # A remembered entity is flagged may_be_stale after this long, or as soon as it changes.
     perception_memory_stale_after_s: float = 60.0
     max_jobs_per_principal: int = 256  # goal jobs kept for jobs.status, oldest finished dropped first

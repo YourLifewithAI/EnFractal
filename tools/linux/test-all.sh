@@ -53,6 +53,16 @@ run native_kernel_sandbox "checks passed" --headless --path "$P" --fixed-fps 60 
 if (cd "$REPO" && "$LINUX/contracts-venv/bin/python" -I contracts/validate.py "$SANDBOX_DUMP"/*.json > "$LOG/sandbox_messages.log" 2>&1); then
   echo "PASS sandbox messages validate: $(tail -1 "$LOG/sandbox_messages.log")"
 else cat "$LOG/sandbox_messages.log"; failed=1; fi
+JOURNAL_DUMP="$LOG/journal_messages"; rm -rf "$JOURNAL_DUMP"
+run native_kernel_journal "checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_kernel_journal.tscn -- --dump="$JOURNAL_DUMP"
+if (cd "$REPO" && "$LINUX/contracts-venv/bin/python" -I contracts/validate.py "$JOURNAL_DUMP"/*.json > "$LOG/journal_messages.log" 2>&1); then
+  echo "PASS journal messages validate: $(tail -1 "$LOG/journal_messages.log")"
+else cat "$LOG/journal_messages.log"; failed=1; fi
+REBUILD_DUMP="$LOG/rebuild_states"; rm -rf "$REBUILD_DUMP"
+run native_kernel_rebuild "checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_kernel_rebuild.tscn -- --dump="$REBUILD_DUMP"
+if (cd "$REPO" && for s in room_state_before room_state_after; do "$LINUX/contracts-venv/bin/python" -I contracts/validate.py --state "$REBUILD_DUMP/$s.json" --room game/rooms/test_room || exit 1; done > "$LOG/rebuild_states.log" 2>&1); then
+  echo "PASS rebuilt room states validate against the test room: $(tail -1 "$LOG/rebuild_states.log")"
+else cat "$LOG/rebuild_states.log"; failed=1; fi
 echo "== kernel canonical JSON (Python reference)"
 if (cd "$REPO" && "$LINUX/contracts-venv/bin/python" tools/kernel/canonical_json.py --check game/tests/fixtures/kernel > "$LOG/canonical.log" 2>&1 \
     && "$LINUX/contracts-venv/bin/python" -m unittest discover -s tools/kernel >> "$LOG/canonical.log" 2>&1); then
