@@ -60,9 +60,11 @@ public partial class JournalTest : Node3D
             await TestTheMapFillsFromBothAvatarsEyes();
             await TestDiscoveryAndBounds();
             await TestDiscoveryNeverStarves();
+            await TestTheMapBoundIsHard();
             await TestTasksAndFetch();
             await TestCreationFactsAndForgedNames();
             TestTheAiCannotWriteFacts();
+            await TestFactsFromTeamKnowledge();
             await TestSavedWithTheRoom();
             await TestForgedSaves();
             GD.Print($"NATIVE_KERNEL_JOURNAL: {_checks - _failures}/{_checks} checks passed; the team's map from both avatars' eyes, the journal writer, journal.note, journal.read and map.find, with no forged facts and no leaks{(_dump != null ? $"; {_dumped} messages dumped" : "")}");
@@ -237,6 +239,77 @@ public partial class JournalTest : Node3D
         await Frames(2);
     }
 
+    /// <summary>
+    /// Review major (Sol, Lane A's round): the map's bound is hard. Past it routine things go first, then creations out of the
+    /// team's sight, then creations in sight, least recently seen first; only the targets of running goals and open tasks stay.
+    /// </summary>
+    private async Task TestTheMapBoundIsHard()
+    {
+        await Stand(_companion, new Vector3(-1.5f, 0, 1.2f), Vector3.Forward, "in the south-west");
+        await Stand(_player, new Vector3(0.0f, 0, -0.5f), Vector3.Right, "in the middle of the north half");
+        var built = new List<string>();
+        foreach (var (x, z) in new[] { (0.3, -0.3), (0.3, -0.7), (-0.2, -0.3) })
+        {
+            var made = Send(Command(NextId("place"), "creation.place", new JsonObject { ["source"] = Source("Pebble"), ["placement"] = Placement(x, 0, z) }), Player);
+            if (made["created"]?[0]?.GetValue<string>() is { } id) built.Add(id);
+        }
+        Check(built.Count == 3, "the player builds three pebbles around itself");
+        _host.TeamSightIntervalS = 0.25;
+        _host.PerceptionMemoryLimit = 2;
+        await Frames(30);
+        var kept = _host.RememberedIds(Companion);
+        var exported = _host.ExportDiscovered()["entities"]!.AsObject().Count;
+        Check(kept.Count <= 2 && exported <= 2, $"with creations alone over a lowered bound of 2, the map holds 2 and saves 2: {string.Join(", ", kept)} ({exported} saved)");
+        _host.PerceptionMemoryLimit = CommandHost.MaxDiscoveredEntities;
+        _host.TeamSightIntervalS = 0;
+        foreach (var id in built) Send(Command(NextId("remove"), "entity.remove", new JsonObject { ["target"] = id }, expectedRevision: _host.Revision), Player);
+    }
+
+    /// <summary>
+    /// Review major (both reviewers, Lane A's round): built, changed and removed facts name only what the team knows when they
+    /// are written: in sight now, as it is; remembered, as last seen; never seen, "something" with no id and no place.
+    /// </summary>
+    private async Task TestFactsFromTeamKnowledge()
+    {
+        // Seen first: a lantern the companion sees at A.
+        await Stand(_player, new Vector3(-1.2f, 0, 0.25f), Vector3.Back, "north of A");
+        await Stand(_companion, new Vector3(-1.0f, 0, 0.3f), Vector3.Back, "beside the player");
+        var lantern = Send(Command(NextId("place"), "creation.place", new JsonObject { ["source"] = Source("Lantern"), ["placement"] = Placement(-1.2, 0, 0.6) }), Player)["created"]?[0]?.GetValue<string>() ?? "";
+        Send(Query("observe", new JsonObject { ["actor"] = CompanionAvatar }), Companion);
+        Check(lantern.Length > 0 && _host.RememberedIds(Companion).Contains(lantern), "a lantern built at A, seen by the team");
+        var seenAt = SandboxBox(Summaries()[lantern]).GetCenter();
+        // Both avatars behind the table, north of it: A, B, C and the treasure's spot are all out of their sight.
+        await Stand(_player, new Vector3(-0.9f, 0, -1.35f), Vector3.Forward, "behind the table");
+        await Stand(_companion, new Vector3(-0.7f, 0, -1.35f), Vector3.Forward, "behind the table too");
+        var treasure = Send(Command(NextId("place"), "creation.place", new JsonObject { ["source"] = Source("Hidden treasure"), ["placement"] = Placement(-0.9, 0, 0.9) }), Player);
+        var treasureId = treasure["created"]?[0]?.GetValue<string>() ?? "";
+        var hidden = Read(Companion)["entries"]![0]!.AsObject();
+        Check(Ok(treasure) && hidden["kind"]?.GetValue<string>() == "built" && hidden["line"]?.GetValue<string>() == "You built something" && hidden["subject"] == null && hidden["pin_m"] == null &&
+            !Canonical(Send(Query("journal.read", new JsonObject { ["limit"] = 50 }), Companion)).Contains("treasure", StringComparison.OrdinalIgnoreCase) &&
+            !Canonical(Send(Query("journal.read", new JsonObject { ["limit"] = 50 }), Companion)).Contains(treasureId, StringComparison.Ordinal),
+            "built where neither avatar sees: \"You built something\", no id, no name, no place: " + hidden.ToJsonString());
+        Check(Send(Query("map.find", new JsonObject { ["name"] = "treasure" }), Companion)["data"]!["items"]!.AsArray().Count == 0, "and map.find does not find it");
+        // Moved unseen twice, then removed unseen: the facts keep the place the team last saw it, A.
+        foreach (var (x, z) in new[] { (-1.2, 1.2), (-0.9, 1.3) })
+            Check(Ok(Send(Command(NextId("revise"), "creation.revise", new JsonObject { ["target"] = lantern, ["placement"] = Placement(x, 0, z) }, expectedRevision: _host.Revision), Player)),
+                $"the player moves the lantern unseen to ({x}, {z})");
+        Check(Ok(Send(Command(NextId("remove"), "entity.remove", new JsonObject { ["target"] = lantern }, expectedRevision: _host.Revision), Player)), "and removes it unseen");
+        var facts = Read(Companion, new JsonObject { ["about"] = lantern, ["limit"] = 10 })["entries"]!.AsArray().Select(e => e!.AsObject()).ToList();
+        var changed = facts.Where(f => f["kind"]!.GetValue<string>() == "changed").ToList();
+        var removed = facts.FirstOrDefault(f => f["kind"]!.GetValue<string>() == "removed");
+        bool AtA(JsonObject fact) => fact["pin_m"] is JsonArray pin && new Vector3((float)pin[0]!.GetValue<double>(), (float)pin[1]!.GetValue<double>(), (float)pin[2]!.GetValue<double>()).DistanceTo(seenAt) < 0.001f;
+        Check(changed.Count == 2 && changed.All(f => AtA(f) && f["line"]!.GetValue<string>() == "You changed \"Lantern\""),
+            "each unseen change is recorded where the team last saw it, A, never where it went: " + string.Join(" | ", changed.Select(f => f["pin_m"]?.ToJsonString())));
+        Check(removed != null && AtA(removed) && removed["line"]!.GetValue<string>() == "You removed \"Lantern\"", "and so is its unseen removal: " + removed?["pin_m"]?.ToJsonString());
+        Check(Ok(Send(Command(NextId("remove"), "entity.remove", new JsonObject { ["target"] = treasureId }, expectedRevision: _host.Revision), Player)) &&
+            Read(Companion)["entries"]![0]!["line"]!.GetValue<string>() == "You removed something" && Read(Companion)["entries"]![0]!["subject"] == null,
+            "removing what the team never saw: \"You removed something\"");
+    }
+
+    private Dictionary<string, JsonObject> Summaries() => _host.Entities().ToDictionary(e => e["id"]!.GetValue<string>(), e => e);
+
+    private static Aabb SandboxBox(JsonObject entity) => EnFractal.Native.Sandbox.SandboxControls.Box(entity);
+
     // ---- the journal writer: tasks ----
 
     private async Task TestTasksAndFetch()
@@ -346,6 +419,10 @@ public partial class JournalTest : Node3D
             Read(Companion)["entries"]!.AsArray().Count(e => e!["kind"]!.GetValue<string>() == "note" && e["text"]!.GetValue<string>() == note["text"]!.GetValue<string>()) == 1,
             "a retry replays its receipt and writes no second note");
         Check(Code(Send(Command("note-claim", "journal.note", new JsonObject { ["text"] = "something else" }), Companion)) == "action_id_conflict", "the same action id with other words is a conflict");
+        var at = note["at_utc"]!.GetValue<string>();
+        foreach (var since in new[] { at[..19] + "Z", at[..^2] + "Z" })
+            Check(Read(Companion, new JsonObject { ["kind"] = "note", ["since_utc"] = since })["entries"]!.AsArray().Any(e => e!["entry_id"]!.GetValue<string>() == note["entry_id"]!.GetValue<string>()),
+                $"since_utc is an instant: a note at {at} is at or after {since}");
         var notes = Read(Companion, new JsonObject { ["kind"] = "note", ["limit"] = 1 });
         Check(notes["entries"]!.AsArray().Count == 1 && notes["next_cursor"]?.GetValue<string>() == "1" && notes["open_tasks"]!.AsArray().Count == 0,
             "journal.read filters by kind and pages by cursor");
