@@ -25,7 +25,7 @@ the validator subprocess needs the repository's existing contract dependencies.
 | Dense plants and tree crowns | Merged by role into non-colliding static shell meshes; no per-instance game nodes |
 | Tree trunks / small rocks | Bark trunk cones and coarse rock ellipsoids merged into colliding shell GLBs; simple kit geometry, not canopy collision |
 | Scatter exceeding entity budget | After reserving all populated objects, first landmarks in package order use remaining slots up to 512; the rest keep their drawn geometry in merged shell meshes |
-| Source spawns | Same x/z, ids and yaw; y is the highest terrain triangle hit, including roofs of caves; missing ground fails instead of guessing |
+| Source spawns | Same x/z and ids; y is the highest terrain triangle hit, including roofs of caves; missing ground fails. Yaw faces the horizontally nearest carriable/movable populated object or cottage/tower (including merged buildings), using Godot +Y rotation with -Z forward. Equal distances use package order (objects, then scatter); no destination or a coincident nearest destination keeps source yaw |
 | Setup | Latitude/bearing in `site`; solar noon 12 because package time is apparent solar time; full answers in `extensions.x_landscape_setup` |
 | Indoor lamps / openings | Dropped; one sun hint, plus at most 31 lantern `lamp` hints; no source textures, reference images or location records copied |
 
