@@ -38,6 +38,14 @@ echo "== native fixtures and room boot"
 run native_contract_probe "Native release probe passed" --headless --path "$P" res://scenes/native_contract_probe.tscn
 run native_small_avatar "checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_small_avatar.tscn
 run native_room_navigation "checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_room_navigation.tscn
+# Play on the land: the garage landscape, generated and exported at test time (derived data, never committed),
+# cached under .cache/landscape-fixture by a hash of the generator, the exporter, the package format and the corpus room.
+LK=$(cd "$REPO" && find pipeline/landscape/generator pipeline/landscape/export pipeline/landscape/harness pipeline/landscape/corpus/rooms/garage_nominal -type f \( -name '*.py' -o -name '*.json' \) -not -path '*/tests/*' -not -path '*/renders/*' -not -path '*/__pycache__/*' | LC_ALL=C sort | xargs sha256sum | sha256sum | cut -c1-16)
+LR="$REPO/.cache/landscape-fixture/$LK/landscape_garage_nominal"
+if [ ! -f "$LR/room.json" ]; then rm -rf "$REPO/.cache/landscape-fixture"; mkdir -p "$REPO/.cache/landscape-fixture/$LK"
+  (cd "$REPO" && python3 -B -m pipeline.landscape.generator.generate --room pipeline/landscape/corpus/rooms/garage_nominal --out "$REPO/.cache/landscape-fixture/$LK/package" && python3 -B -S -m pipeline.landscape.export --package "$REPO/.cache/landscape-fixture/$LK/package" --room pipeline/landscape/corpus/rooms/garage_nominal --room-id landscape_garage_nominal --out "$LR") > "$LOG/landscape_fixture.log" 2>&1 || { echo "FAIL landscape fixture"; tail -15 "$LOG/landscape_fixture.log"; failed=1; }
+fi
+run native_kernel_landscape "NATIVE_KERNEL_LANDSCAPE: [0-9]+/[0-9]+ checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_kernel_landscape.tscn -- --landscape="$LR"
 run native_room_data "checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_room_data.tscn
 run native_look_preset "checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_look_preset.tscn
 run room_boot "ROOM_WORLD_READY" --headless --path "$P" --fixed-fps 60 --quit-after 240 res://scenes/room.tscn
