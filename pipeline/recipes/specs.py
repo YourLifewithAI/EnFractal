@@ -67,7 +67,10 @@ def number(value, low, high, label, integer=False):
 
 
 def resolve(document):
-    keys(document, ('recipe', 'size_m', 'colours', 'params'), 'input')
+    keys(document, ('recipe', 'size_m', 'colours', 'params', 'style'), 'input')
+    style = document.get('style', 'storybook')
+    if not isinstance(style, str) or style not in ('storybook', 'plain'):
+        raise ValueError('style must be storybook or plain')
     name = document.get('recipe')
     if not isinstance(name, str) or name not in RECIPES:
         raise ValueError('recipe must be one of: ' + ', '.join(RECIPES))
@@ -83,7 +86,9 @@ def resolve(document):
     keys(colours, spec['colours'], 'colours')
     keys(params, spec['params'], 'params')
     used = {'recipe': {'value': name, 'source': 'given'},
-            'size_m': {'value': size, 'source': 'given'}, 'colours': {}, 'params': {}}
+            'size_m': {'value': size, 'source': 'given'},
+            'style': {'value': style, 'source': 'given' if 'style' in document else 'default'},
+            'colours': {}, 'params': {}}
     for slot, (default, _role) in spec['colours'].items():
         value = colours.get(slot, default)
         if not isinstance(value, str) or re.fullmatch(r'#[0-9a-fA-F]{6}', value) is None:
@@ -104,6 +109,7 @@ def resolve(document):
 
 def values(used):
     return {'recipe': used['recipe']['value'], 'size_m': used['size_m']['value'],
+            'style': used['style']['value'],
             'colours': {k: v['value'] for k, v in used['colours'].items()},
             'params': {k: v['value'] for k, v in used['params'].items()}}
 

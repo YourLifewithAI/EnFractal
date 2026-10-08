@@ -18,6 +18,7 @@ from mathutils import Matrix, Vector
 from geometry import bounds, inspect_glb, material, render_preview, reset
 from specs import RECIPES, material_entries, resolve, strict_loads, values
 from contract_check import check_glb
+import style
 
 
 def srgb(value):
@@ -66,6 +67,15 @@ def materials(used, out):
                        metallic=1 if role in ('metal', 'metal_painted') else 0,
                        transmission=1 if role == 'glass' else 0)
         mat['material_role'] = role
+        if style.enabled():
+            bsdf = mat.node_tree.nodes.get('Principled BSDF')
+            bsdf.inputs['Roughness'].default_value = 0.32 if role == 'glass' else 0.58
+            bsdf.inputs['Metallic'].default_value = 0.25 if role in ('metal', 'metal_painted') else 0
+            if role == 'glass':
+                bsdf.inputs['Transmission Weight'].default_value = 0
+                bsdf.inputs['Alpha'].default_value = 0.22
+                mat.surface_render_method = 'BLENDED'
+                mat['glass_treatment'] = 'tinted_alpha_thick_shell'
         result[slot] = mat
         if slot == 'screen':
             bsdf = mat.node_tree.nodes.get('Principled BSDF')
@@ -158,8 +168,10 @@ def main():
     resolve(data)  # Validate even when somebody invokes this internal worker directly.
     name = data['recipe']
     reset()
+    style.configure(data)
     mats = materials(used, args.out)
     parts = importlib.import_module(name).build(data, mats)
+    style.finish(parts)
     root, topology, box, scale = fit_and_check(parts, name, data['size_m'])
     triangles = sum(part['triangles'] for part in topology.values())
     limit = 20000 if name == 'couch' else 10000
@@ -212,7 +224,7 @@ def main():
         bpy.data.objects.remove(obj, do_unlink=True)
     export_seconds = time.perf_counter() - export_started
     render_started = time.perf_counter()
-    render_preview(args.out / (name + '.png'), parts, samples=24)
+    render_preview(args.out / (name + '.png'), parts, samples=64)
     checks = {key: {'passed': True} for key in (
         'finite_matching_bounds', 'bottom_centre_identity_root', 'no_degenerate_triangles',
         'closed_parts_manifold_positive_volume', 'named_slots_and_roles', 'triangle_budget',
@@ -229,7 +241,8 @@ def main():
               'template_fit_scale_xyz_blender': scale, 'materials': entries,
               'glb': {'path': glb.name, 'bytes': len(raw), 'sha256': hashlib.sha256(raw).hexdigest()},
               'preview': {'path': name + '.png', 'pixels': [512, 384], 'engine': 'CYCLES',
-                          'device': 'CPU', 'samples': 24},
+                          'device': 'CPU', 'samples': 64, 'denoising': 'OPENIMAGEDENOISE_CPU',
+                          'camera_angle_deg': 30},
               'runtime_seconds': {'worker': time.perf_counter() - started,
                                   'export_and_checks': export_seconds,
                                   'render': time.perf_counter() - render_started},

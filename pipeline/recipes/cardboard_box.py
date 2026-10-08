@@ -1,11 +1,14 @@
 """Four thick carton walls and four independently named hinged flaps."""
 import math
 from geometry import panel
+import style
 
 
 def build(data, mats):
     w, h, d = data['size_m']
     t = min(w, h, d) * data['params']['wall_fraction']
+    if style.enabled():
+        t *= 1.8
     bevel = t * 0.15
     body, edges = mats['cardboard'], mats['edges']
     parts = [panel('bottom', (w, d, t), (0, 0, t / 2), body, bevel)]
@@ -27,4 +30,15 @@ def build(data, mats):
                      h - 1.5 * t + length / 2 * math.sin(angle)), edges, bevel)
         obj.rotation_euler.x = -side * angle
         parts.append(obj)
+    if style.enabled():
+        # Tape is a coarse identifying feature, not a photographic decal.
+        tape = panel('packing_tape', (w * 0.12, d * 0.95, t * 0.16),
+                     (0, 0, h + t * 0.10), edges, bevel)
+        # Attach to a flap for open poses rather than bridging the opening.
+        if angle:
+            flap = next(obj for obj in parts if obj.name == 'flap_x_1')
+            tape.location = flap.location.copy()
+            tape.location.z += t * 0.55
+            tape.rotation_euler = flap.rotation_euler.copy()
+        parts.append(tape)
     return parts

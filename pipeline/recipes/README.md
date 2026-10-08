@@ -22,6 +22,9 @@ The first command needs an input file such as:
 ```
 
 `recipe` and `size_m` are required. Omitting `colours` and `params` uses every default.
+`style` is optional: `"storybook"` (default) or `"plain"` for the original geometry
+and materials. Both use the same clean review renderer. This is an author comparison
+parameter, not a material medium or an alteration of the scanned colour slots.
 Each size component is a finite number in **[0.02, 20] metres**; maximum/minimum
 component ratio must be at most 100. These are engineering limits, assumed.
 The array is **width, height, depth**, +Y up and -Z forward, and describes the **whole
@@ -59,7 +62,7 @@ Dimensionless thickness/height fractions scale with size rather than fixing tiny
 | french_press | `beaker_material` | glass | `glass`, `metal`; changes the `beaker` material role and transmission |
 | french_press | `plunger_fraction` | 0.1 | 0.05..0.75 times height; filter elevation (knob stays at full height) |
 
-Jar wall thickness is 2.4% of the shortest horizontal input side. Other internal
+Plain jar wall thickness is 2.4% of the shortest horizontal input side. Other internal
 proportions, bevels and tessellation are fixed recipe implementation details, assumed.
 Panel bevel widths are capped at one quarter of each panel's thinnest dimension,
 leaving a flat strip between opposing bevels even on the couch's thinnest seat frame.
@@ -104,7 +107,11 @@ slot; its `extras.material_role` and the receipt's `materials` use the current c
 Gingham/stripes use a generated, packed 64 x 64 sRGB PNG. No photo textures are used.
 Flat-colour panels discard unused cube UV layers before beveling/export, avoiding
 the observed process-to-process UV interpolation jitter without quantising geometry.
-CPU-only Cycles previews are 512 x 384, 24 samples and four threads; glass can appear noisy.
+CPU-only Cycles previews are 512 x 384, 64 samples and four threads, with
+OpenImageDenoise explicitly on the CPU. A 30-degree perspective lens, high three-quarter
+angle, warm disk key light and cool fill frame the actual projected bounds with a margin.
+Plain and storybook use the same renderer/camera rules. All object detail stays in focus
+for review; the game's preset supplies its own depth of field and brushwork.
 The launcher uses `--background --factory-startup --python-exit-code 1` plus fixed worker
 paths. See [Blender's CLI/environment documentation](https://docs.blender.org/manual/en/4.3/advanced/command_line/arguments.html).
 Export conventions follow [Blender's glTF documentation](https://docs.blender.org/manual/en/3.2/addons/import_export/scene_gltf2.html).
@@ -135,6 +142,8 @@ outside this recipe library's evidence.
 
 Tests build all five default recipes at 0.5x, 1x and 2x size, alternate states, one
 repeat per default for byte determinism, and all 24 couch endpoint/size combinations.
+They also build plain twice and explicit storybook once per recipe, verifying plain
+determinism, default/explicit equivalence, distinct exports, bounds and glass alpha.
 They inspect receipts, materials, hashes, the absence of unused panel UVs,
 PNG headers and rejection before Blender launch. There are no installs or skipped builds.
 Set trusted local `RECIPE_TEST_ARTIFACTS` to a temp directory to retain evidence; otherwise
@@ -147,3 +156,39 @@ an AI. Track whether measurements are measured, sourced or assumed upstream; rec
 environment, scripts, export/check code and command-line construction owned by a trusted
 local worker. This CLI is author tooling, not a proposed game-companion shell/file capability.
 Capture owns IDs, pose in the room, mass, affordances, review status and the final asset package.
+
+## Shared storybook layer and C7 rules for new recipes
+
+The trusted worker calls `style.configure(data)` before materials and geometry, then
+`style.finish(parts)` before fitting, checks and export. Every recipe therefore gets
+the shared material response and deterministic taper, lean and bow by default. Use
+`geometry.panel` for box parts: its storybook bevel is built in unit space before
+scaling, so thin panels have broad plan corners; cushions and arms get pillowy rounding.
+Plain retains the previous small bevel and bypasses all deformations. Curved vessels
+still need hand-authored rounded lathe profiles: the layer cannot invent a rounded
+profile or a recognizable silhouette from arbitrary sharp geometry.
+
+- Measure the whole posed box in metres, including open lids and handles. Keep kind,
+  size, placement and broad slot colours faithful; exaggerate only internal details.
+- Use thick shells, fewer larger details and soft profiles. Keep the telltale features:
+  flap seams/tape, uneven cushions, a keyboard/palm rest, jar facets/gingham, press frame/knob.
+- Use `style.enabled()` for recipe-specific proportions and `style.signed(part, channel)`
+  for small repeatable variation. The SHA-256 seed covers canonical resolved input,
+  excluding given/default provenance. Never use Python's randomized `hash()`, time or
+  vertex noise. Shared wonk is at most 1.8% lean, 2.2% taper and 1.2% bow of each part;
+  cushion/flap rotations are about one degree. Fit afterward and retain every check.
+- Preserve material names, roles and exact base colours. Storybook metal uses restrained
+  metallic response and broad rough highlights; fabric stays fabric and cardboard stays
+  cardboard. No photographic textures or preview-only shader trick is needed for charm.
+- Glass uses a thick shell, unchanged slot tint, alpha 0.22 and zero transmission, exported
+  as core glTF `alphaMode=BLEND`; physical refraction is reserved for plain. This avoids
+  relying on a transmission extension ([Blender glTF material documentation](https://docs.blender.org/manual/en/3.6/addons/import_export/scene_gltf2.html)).
+  Layered transparency and the game's role-material replacement need a Look/Capture
+  check in Godot; Blender re-import and binary alpha checks do not certify that runtime.
+- Return named closed parts. Do not bypass the worker, change triangle budgets, or expose
+  paths/scripts/launch settings to the game companion. Add both styles to the build tests.
+
+The budgets remain 20,000 triangles for a couch and 10,000 for each other recipe.
+The supplied comparison sheet shows both styles with identical preview settings;
+the five individual previews are storybook. A new style default intentionally changes
+GLB hashes from brief 10; determinism is within the same Blender/exporter version.
