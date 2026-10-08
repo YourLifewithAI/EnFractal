@@ -33,7 +33,7 @@
 
 ## The next session
 
-1. **`docs/ROOM-TO-LANDSCAPE.md`:** Codex drafts it ([brief 13](../codex/briefs/13-landscape-design.md): prior art, then the design from the founder's decisions above); the integrator edits it with the founder. Check `git log run2/integration` for whether brief 13 merged this session.
+1. **Rewrite `docs/ROOM-TO-LANDSCAPE.md` with the founder.** Codex's first draft ([brief 13](../codex/briefs/13-landscape-design.md), [report with prior art](../codex/reports/13-landscape-design.md)) is merged as input, but it predates the founder's physics principle and the looseness note. Rewrite it around the approved core (geology, water, ecology, people) as guiding principles, not rigid rules, and keep it short. The founder wants A/B tests rather than assumptions about who builds what, so consider an A/B on the landscape's look (a Claude lane against Codex, or two Codex models) as the first build step.
 2. **Then revise RUN-2.md with the founder:** Lane C's C5 becomes a landscape generator from the shell and inventory (the hybrid route), Lane L's v2 becomes the landscape look in the game (sky, horizon, ground, the painterly ground shader), and C7 the guidance for it. Get the founder's approval before dispatching.
 3. **Lane P's next round** (unaffected): P6 world as data, the map store and the journal writer, and the host's fetch steps (`docs/companion/proposals/a2-real-host.md`), using `target_unreachable` for goals with no route.
 4. **Lane A's next round** (after P's): fetch on the real host, then `journal.read`, `journal.note`, `map.find` and the journal resource.
