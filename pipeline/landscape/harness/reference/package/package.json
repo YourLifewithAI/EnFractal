@@ -1,0 +1,395 @@
+{
+  "axes": "y_up_neg_z_forward",
+  "files": {
+    "custom.glb": "b45c9228cb3130acf61b074c1254b3a4a6ee12f4cf959124696e2c993ac39030",
+    "fall.glb": "eb30a9c24c64d4348094e4f3f63c27ece54412c253259693ca5b41484af240bc",
+    "horizon.glb": "101902a47e24a2aeeda35195eb3ff1a05982678c299da1250676a5beb55a310d",
+    "land.glb": "a73b87c4e3309c0a3e0f47a2145162a6a0b8c6e66aa74addc78967d69f19a71f",
+    "pool.glb": "9364b091a08353114d488185cf6d11976873ab277201f4f43d8c3d91fc500eae",
+    "stream.glb": "6d3ed7634b2e2916a46551ae067828d04b5958c46fae418fe7a1a0b6676d9d27"
+  },
+  "floor_y_m": 0,
+  "format": "enfractal.landscape",
+  "generator": {
+    "name": "format-fixture",
+    "version": "1"
+  },
+  "material_roles": [
+    "bark",
+    "cliff",
+    "cloth",
+    "flowing_water",
+    "foliage",
+    "meadow",
+    "metal",
+    "rock",
+    "roof",
+    "soil",
+    "still_water",
+    "stone",
+    "stone_masonry",
+    "timber",
+    "wood",
+    "worn_path"
+  ],
+  "meshes": {
+    "custom": "custom.glb",
+    "fall": "fall.glb",
+    "horizon": "horizon.glb",
+    "land": "land.glb",
+    "pool": "pool.glb",
+    "stream": "stream.glb"
+  },
+  "objects": [
+    {
+      "carriable": true,
+      "id": "findable_crate",
+      "kind": "container",
+      "mass_kg": 0.05,
+      "position_m": [
+        0.4,
+        0,
+        -2.8
+      ],
+      "prototype": "crate",
+      "size_m": [
+        0.12,
+        0.105,
+        0.105
+      ],
+      "tint": [
+        0.8,
+        0.9,
+        1
+      ],
+      "yaw_deg": 0
+    }
+  ],
+  "prototypes": {
+    "marker": {
+      "mesh": "custom",
+      "size_m": [
+        0.12,
+        0.1,
+        0.12
+      ]
+    }
+  },
+  "scatter": [
+    {
+      "position_m": [
+        -2.3,
+        0,
+        -1.7
+      ],
+      "prototype": "broadleaf",
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "tint": [
+        1,
+        0.9,
+        0.8
+      ],
+      "yaw_deg": 0
+    },
+    {
+      "position_m": [
+        -1.2499999999999998,
+        0,
+        -1.7
+      ],
+      "prototype": "conifer",
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "tint": [
+        1,
+        0.9,
+        0.8
+      ],
+      "yaw_deg": 15
+    },
+    {
+      "position_m": [
+        -0.19999999999999973,
+        0,
+        -1.7
+      ],
+      "prototype": "shrub",
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "tint": [
+        1,
+        0.9,
+        0.8
+      ],
+      "yaw_deg": 30
+    },
+    {
+      "position_m": [
+        0.8500000000000005,
+        0,
+        -1.7
+      ],
+      "prototype": "grass_tuft",
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "tint": [
+        1,
+        0.9,
+        0.8
+      ],
+      "yaw_deg": 0
+    },
+    {
+      "position_m": [
+        1.9000000000000004,
+        0,
+        -1.7
+      ],
+      "prototype": "flower_clump",
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "tint": [
+        1,
+        0.9,
+        0.8
+      ],
+      "yaw_deg": 15
+    },
+    {
+      "position_m": [
+        -2.3,
+        0,
+        -0.5
+      ],
+      "prototype": "fern",
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "tint": [
+        1,
+        0.9,
+        0.8
+      ],
+      "yaw_deg": 30
+    },
+    {
+      "position_m": [
+        -1.2499999999999998,
+        0,
+        -0.5
+      ],
+      "prototype": "rock",
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "tint": [
+        1,
+        0.9,
+        0.8
+      ],
+      "yaw_deg": 0
+    },
+    {
+      "position_m": [
+        -0.19999999999999973,
+        0,
+        -0.5
+      ],
+      "prototype": "boulder",
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "tint": [
+        1,
+        0.9,
+        0.8
+      ],
+      "yaw_deg": 15
+    },
+    {
+      "position_m": [
+        0.8500000000000005,
+        0,
+        -0.5
+      ],
+      "prototype": "cottage",
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "tint": [
+        1,
+        0.9,
+        0.8
+      ],
+      "yaw_deg": 30
+    },
+    {
+      "position_m": [
+        1.9000000000000004,
+        0,
+        -0.5
+      ],
+      "prototype": "tower",
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "tint": [
+        1,
+        0.9,
+        0.8
+      ],
+      "yaw_deg": 0
+    },
+    {
+      "position_m": [
+        -2.3,
+        0,
+        0.7
+      ],
+      "prototype": "fence",
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "tint": [
+        1,
+        0.9,
+        0.8
+      ],
+      "yaw_deg": 15
+    },
+    {
+      "position_m": [
+        -1.2499999999999998,
+        0,
+        0.7
+      ],
+      "prototype": "crate",
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "tint": [
+        1,
+        0.9,
+        0.8
+      ],
+      "yaw_deg": 30
+    },
+    {
+      "position_m": [
+        -0.19999999999999973,
+        0,
+        0.7
+      ],
+      "prototype": "lantern",
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "tint": [
+        1,
+        0.9,
+        0.8
+      ],
+      "yaw_deg": 0
+    },
+    {
+      "position_m": [
+        2.2,
+        0,
+        2
+      ],
+      "prototype": "marker",
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "yaw_deg": 25
+    }
+  ],
+  "scenery": [
+    {
+      "mesh": "horizon",
+      "reachable": false
+    }
+  ],
+  "setup": {
+    "day_of_year": 172,
+    "gameplay_mode": "sandbox",
+    "latitude_deg": 30,
+    "neg_z_bearing_deg": 0,
+    "season": "summer",
+    "solar_time_h": 9,
+    "water": "some"
+  },
+  "source": {
+    "inventory_sha256": "ad83427d897f9c8a7df529793842763bb556ee5804e1a1ce4d9e827b9103b0ce",
+    "room_id": "garage_nominal",
+    "room_sha256": "cb5e1eb42d68509ebeff48de4be70512fbfc6ddd83fc4aa655ce844d8d36d538"
+  },
+  "terrain": [
+    {
+      "mesh": "land"
+    }
+  ],
+  "units": "m",
+  "version": 1,
+  "water": [
+    {
+      "kind": "still",
+      "mesh": "pool"
+    },
+    {
+      "kind": "flowing",
+      "mesh": "stream"
+    },
+    {
+      "kind": "falling",
+      "mesh": "fall"
+    }
+  ],
+  "x_note": "Synthetic format fixture, not a landscape design.",
+  "x_paths": [
+    [
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      1
+    ]
+  ]
+}
