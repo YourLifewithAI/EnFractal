@@ -1,6 +1,6 @@
 # Run 2: five real objects (draft plan, for the founder's approval)
 
-**Status:** **approved by the founder, late on 7 October 2026,** after the founder's corrections (below). The live handoff is [RUN-2-STATUS.md](RUN-2-STATUS.md).
+**Status:** **approved by the founder, late on 7 October 2026,** after the founder's corrections (below). **Revised for the landscape and approved on 8 October: [RUN-2-REVISION.md](RUN-2-REVISION.md) supersedes this page's goal, Lane C, Lane L and Codex sections and its exit evidence.** The live handoff is [RUN-2-STATUS.md](RUN-2-STATUS.md).
 
 **Goal:** the garage, scanned from the founder's existing photos, becomes a generally faithful, stylised, playable space in the game: its shell and five of its objects as stand-ins at their scanned sizes and places. The player picks one up and carries it. The companion fetches one, through the real game host instead of the mock. The room rebuilds from data. The journal's data layer exists. This is the roadmap's Run 2 ([ROOM-SCALE-DIRECTION.md](../ROOM-SCALE-DIRECTION.md#the-runs)) with the garage's shell pulled forward from Run 3, because scanning a room into a playable space is the product. The test room stays as the regression room.
 

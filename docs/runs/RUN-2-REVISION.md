@@ -1,6 +1,6 @@
 # Run 2, revised for the landscape (proposal)
 
-**Status:** drafted by the integrator on 8 October 2026 and updated the same day for the founder's design ([ROOM-TO-LANDSCAPE.md](../ROOM-TO-LANDSCAPE.md)); **for the founder's approval.** Once approved, fold it into [RUN-2.md](RUN-2.md). Already done this run: Lane P's P3, P6, the map store, the journal writer and fetch on the host; Lane A's journal tools and a real client's fetch; Lane L's observe focus (v2 draft). See [RUN-2-STATUS.md](RUN-2-STATUS.md).
+**Status:** **approved by the founder on 8 October 2026** ("I approve the plan"). Written by the integrator for the founder's design ([ROOM-TO-LANDSCAPE.md](../ROOM-TO-LANDSCAPE.md)). It supersedes [RUN-2.md](RUN-2.md)'s goal, its Lane C, Lane L and Codex sections, and its exit evidence; RUN-2.md's founder decisions on the toolchain (Blender first, TripoSR, nothing under Stability's licence, nothing online or paid) still stand. Already done this run: Lane P's P3, P6, the map store, the journal writer and fetch on the host; Lane A's journal tools and a real client's fetch; Lane L's observe focus (v2 draft). See [RUN-2-STATUS.md](RUN-2-STATUS.md).
 
 ## Goal
 
