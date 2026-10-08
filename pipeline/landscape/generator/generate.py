@@ -1,6 +1,6 @@
 """Turn a corpus room into a landscape package.
 
-    python -m pipeline.landscape.gen_b.generate --room <room folder> --out <empty folder>
+    python -m pipeline.landscape.generator.generate --room <room folder> --out <empty folder>
 
 Deterministic: the same room, inventory and setup answers give identical bytes.
 """

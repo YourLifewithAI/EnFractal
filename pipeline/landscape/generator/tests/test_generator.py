@@ -1,6 +1,6 @@
 """Determinism and principle checks for landscape generator B.
 
-    python -B -m unittest pipeline.landscape.gen_b.tests.test_gen_b -v
+    python -B -m unittest pipeline.landscape.generator.tests.test_generator -v
 """
 import os
 import shutil
@@ -8,8 +8,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from pipeline.landscape.gen_b import checks
-from pipeline.landscape.gen_b.generate import generate
+from pipeline.landscape.generator import checks
+from pipeline.landscape.generator.generate import generate
 
 ROOT = Path(__file__).resolve().parents[4]
 ROOMS = ROOT/'pipeline'/'landscape'/'corpus'/'rooms'

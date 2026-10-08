@@ -1,6 +1,6 @@
 """Principle checks on a written package (not on the generator's memory).
 
-    python -m pipeline.landscape.gen_b.checks --package <folder> --room <room folder>
+    python -m pipeline.landscape.generator.checks --package <folder> --room <room folder>
 
 Rebuilds the terrain height grid from the package's own meshes, then checks:
 water level and downhill; nothing built floating or sunk; the walk from the
