@@ -30,3 +30,6 @@ docs/look/proposals/*.diff -text
 
 # The synthetic room corpus (brief 14): manifests pin asset bytes, and a test checks the checked-in outputs are fresh.
 pipeline/landscape/corpus/rooms/** -text
+
+# Landscape packages (brief 16 on): package.json pins every file by SHA-256, so their bytes must not change on checkout.
+pipeline/landscape/harness/reference/** -text
