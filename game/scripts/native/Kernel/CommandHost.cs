@@ -77,6 +77,7 @@ public partial class CommandHost : Node
     private static readonly Regex CreationId = new(@"\Acreation:[A-Za-z0-9_-]{1,64}\z", RegexOptions.Compiled);
     private static readonly Regex EffectId = new(@"\Aeffect:[A-Za-z0-9_-]{1,64}\z", RegexOptions.Compiled);
     private static readonly Regex RequestIdPattern = new(@"\A[a-f0-9]{32,64}\z", RegexOptions.Compiled);
+    private static readonly Regex JobIdPattern = new(@"\Ajob-[a-z2-7]{26}\z", RegexOptions.Compiled);
     private static readonly Regex ParamName = new(@"\A[a-z][a-z0-9_]{0,31}\z", RegexOptions.Compiled);
     private static readonly Regex PathSegment = new(@"\A[A-Za-z0-9_.:-]{1,64}\z", RegexOptions.Compiled);
     private static readonly Regex ManifestPrefix = new(@"\A[0-9a-f]{16}\z", RegexOptions.Compiled);
@@ -152,9 +153,8 @@ public partial class CommandHost : Node
     private bool _approving;
     /// <summary>Perception memory per companion principal. In memory only: never in a receipt, a snapshot or a save.</summary>
     private readonly Dictionary<string, PerceptionMemory> _memory = new();
-    /// <summary>Goal jobs per principal, oldest first; job ids are numbered per principal, so they say nothing about another's.</summary>
+    /// <summary>Goal jobs per principal, oldest first. Job ids are opaque random tokens (contracts: common job_id), never counters, so they say nothing about how many jobs exist or whose they are.</summary>
     private readonly Dictionary<string, List<GoalJob>> _jobs = new();
-    private readonly Dictionary<string, int> _jobNumbers = new();
     /// <summary>The running job of each actor's current goal (at most one: a new goal or a stop cancels it).</summary>
     private readonly Dictionary<string, GoalJob> _runningGoals = new();
     private Func<string, bool>? _physicsSink;
@@ -1410,11 +1410,10 @@ public partial class CommandHost : Node
 
     private GoalJob StartJob(string principal, string actor, string actionId, string goal, string target, Aabb aim, int serial)
     {
-        var number = _jobNumbers.GetValueOrDefault(principal) + 1;
-        _jobNumbers[principal] = number;
         var job = new GoalJob
         {
-            Id = $"goal-{number:000000}", Principal = principal, Actor = actor, ActionId = actionId, Goal = goal, Target = target, Aim = aim, Serial = serial,
+            // 'job-' and 26 lowercase base32 characters (130 random bits): the contract's pattern, which no counter can match.
+            Id = "job-" + System.Security.Cryptography.RandomNumberGenerator.GetString("abcdefghijklmnopqrstuvwxyz234567", 26), Principal = principal, Actor = actor, ActionId = actionId, Goal = goal, Target = target, Aim = aim, Serial = serial,
         };
         if (!_jobs.TryGetValue(principal, out var mine)) _jobs[principal] = mine = new List<GoalJob>();
         mine.Add(job);
@@ -1864,8 +1863,8 @@ public partial class CommandHost : Node
                     throw new Refusal("request_invalid", "request_id is the hex id the host returned.", "$.args.request_id");
                 break;
             case "jobs.status":
-                if (!args.TryGetProperty("job_id", out var job) || job.ValueKind != JsonValueKind.String || !Token.IsMatch(job.GetString()!))
-                    throw new Refusal("request_invalid", "job_id is a lowercase token.", "$.args.job_id");
+                if (!args.TryGetProperty("job_id", out var job) || job.ValueKind != JsonValueKind.String || !JobIdPattern.IsMatch(job.GetString()!))
+                    throw new Refusal("request_invalid", "job_id is the opaque id the host returned.", "$.args.job_id");
                 break;
             case "capabilities.list":
                 if (args.TryGetProperty("category", out var category) && (category.ValueKind != JsonValueKind.String || !Token.IsMatch(category.GetString()!)))

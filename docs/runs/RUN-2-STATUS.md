@@ -1,6 +1,31 @@
-# Run 2 status: handoff, 7 October 2026 (night), before Run 2 starts
+# Run 2 status
 
-Run 2 has **not started**. This page is the handoff for the next integrating session. Read it with [ORCHESTRATION.md](ORCHESTRATION.md) (session budget, model routing, testing, reviews), the approved plan [RUN-2.md](RUN-2.md) and [AGENTS.md](../../AGENTS.md). Run 1's record is [RUN-1-REPORT.md](RUN-1-REPORT.md), with the day-by-day detail in [RUN-1-STATUS.md](RUN-1-STATUS.md).
+**Run 2 started on 7 October 2026 (evening, local).** This page is the handoff for the next integrating session.
+
+## Now (7 October, evening)
+
+- **PR #7 is merged** (the founder's approval): Run 1 is on `main` at `b0ecf18`. `run2/integration` starts there.
+- **Lane worktrees:** `C:\dev\EnFractal-run2\{play,companion,capture,look}` on `run2/<lane>`, plus `contracts` on `run2/contracts` for the contract round; each has the `.cache` junctions.
+- **Run 1's garage capture data was on this machine** after all, in `C:\dev\EnFractal-run1\capture\captures` (774 MB, session `s-27647e23c354`). It is copied into `C:\dev\EnFractal-run2\capture\captures`, so Lane C runs here and the poses need no rerun. Keep the Run 1 copy until Run 2's capture work is merged.
+- **Merged: Codex brief 10, the recipe library** (`pipeline/recipes/**`, now in OWNERSHIP.md; [report](../codex/reports/10-recipe-library.md)).
+  - Five parametric Blender recipes: cardboard box, couch, gaming laptop, jam jar, French press. One input shape (`recipe`, `size_m` as `[w, h, d]`, colour slots, `params`), one output (GLB, receipt, CPU preview), shared checks before export including `check_glb`.
+  - 7 tests and 49 builds pass in about 4.5 min (`python -B -m unittest pipeline.recipes.tests -v` from the repository root, with Blender installed); all five rebuild byte-identically. Not in the Windows or Linux runners: they need Blender.
+  - Previews in `pipeline/recipes/previews/`.
+- **The founder's verdict on brief 10's previews (7 October): basic.** The proportions are mostly right, the laptop looks off, the French press and glass are grainy, and nothing is stylised or charming: "If the point of the exercise is to reproduce an object, I'd say that's been achieved." Brief 10 had asked for plain shapes and left the style to Lane L's L4. **The founder chose to put the style in the recipes now:** [brief 11](../codex/briefs/11-storybook-recipes.md), a shared storybook shape layer from the look bible (soft, rounded, slightly wonky, toy-like forms; painted colour; stylised glass), grain-free previews with a longer lens, the laptop fixed, and a plain-versus-storybook comparison sheet. Lane L's in-game treatment (L4, L6) still adds to it.
+- **Merged: Codex brief 11, the storybook recipes** ([report](../codex/reports/11-storybook-recipes.md), comparison sheet `pipeline/recipes/previews/plain-vs-storybook.png`). Storybook is now every recipe's default (`style: "plain"` keeps brief 10's shapes): soft, rounded, slightly wonky forms seeded from the input, so builds stay byte-identical; chunkier toy proportions; tinted alpha glass. The laptop's deck now allows for the lid's overhang. 9 tests, 64 builds. **Waiting for the founder's verdict** on the sheet. The integrator's view: the couch and laptop gained the most; the box's corner gaps, the jar's milky glass and the press's lost metal are the weak spots.
+  - **For Lane L, before the stand-ins are judged in the game:** `LookDirector.PaintCaptured` replaces a GLB's materials with the painterly shader, which has no alpha, so recipe glass turns opaque. Codex's proposed stopgap (skip transparent `glass` surfaces) is in the report, unverified; the real fix is a painterly glass path.
+- **The founder's new direction (7 October, late evening): the room becomes a landscape, not cozy replicas.** "I don't want the scene to be converted into cartoon/cozy versions of real objects. I want the room to get converted into landscape. [...] how do we convert normal rooms into fantastical landscapes that share some kind of grounding in the dimensions of the initial room and the objects within it." This changes C5 (stand-ins), C7, L4 and L6 as RUN-2.md wrote them; RUN-2.md needs revising with the founder once the direction is clearer. Unchanged: C3 and C4 (the shell and inventory are the grounding), P3 and P6, all of Lane A, and the recipe machinery (fit to a scanned box, checks, determinism), which can build landforms. Stop: no more replica-styling recipe work. Next: [brief 12](../codex/briefs/12-room-to-landscape.md), a Codex spike building one synthetic room three ways (landforms by object kind, terrain from occupied volume, and a hybrid) for the founder to react to.
+- **Merged: the contract round** (`a1eee3d`): `entity.push` is the one new verb (pick up, drop, place with snapping and stack reuse `entity.grab`, `entity.release` and `entity.place`, now documented); `job_id` is `job-` plus 26 random base32 characters, minted by a cryptographic generator in both the host and the mock; `journal.read`, `journal.note` and `map.find`; room state's optional `journal` and `discovered` (older states stay valid). Until Lanes P and A build them, the host answers the four new ops "operation does not exist" and the mock refuses them. Bounds chosen by the integrator's agent, for the founder to see: at most 32 open tasks, `map.find` answers at most 10, a push moves at most 1 m. A fetch ends with the companion holding the object beside the player; setting it down is a separate command. Windows runners: command host 420/420, HUD 72/72, companion 501, avatar 160/160, navigation 10/10, room data 56/56, look 367/367; contracts 64.
+- **Running:**
+  - Lane C (Sonnet): C3 shell and C4 inventory;
+  - Lane P (Opus): P3, the sandbox verbs (next round: P6 and the map store with the journal writer);
+  - Lane A (Opus): the A2 swap to the real host, follow, come, look and point, fetch against the mock until P3 merges, and per-client profiles (next round: the journal's queries).
+- The Linux suite was **GREEN** on the merged head `b9e5e5b` (WSL; its clone is now on `run2/integration`).
+- **Next:** Lane L when Lane C's GPU work is done.
+
+## The handoff from Run 1 (7 October, night)
+
+The rest of this page is the handoff written when Run 1 closed. Read it with [ORCHESTRATION.md](ORCHESTRATION.md) (session budget, model routing, testing, reviews), the approved plan [RUN-2.md](RUN-2.md) and [AGENTS.md](../../AGENTS.md). Run 1's record is [RUN-1-REPORT.md](RUN-1-REPORT.md), with the day-by-day detail in [RUN-1-STATUS.md](RUN-1-STATUS.md).
 
 ## Where things stand
 

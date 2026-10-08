@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://contracts.enfractal.invalid/v1/room-state.schema.json",
   "title": "EnFractal room state (saved play on top of a room manifest)",
-  "description": "Everything play has changed in a room: moved or removed objects, creations, locks, avatar identities, the active style and the durable receipt ledger. The scene is rebuilt from manifest + state; no other scene state is authoritative. Written atomically per docs/engine/persistence-notes.md. Velocities, running effects, goals and transient receipts are not saved. When a checkpoint is taken, receipts at or below its revision may be compacted; receipt.lookup then reports compacted.",
+  "description": "Everything play has changed in a room: moved or removed objects, creations, locks, avatar identities, the active style, the durable receipt ledger and, since Run 2, the team's journal and discovered map. The scene is rebuilt from manifest + state; no other scene state is authoritative. Written atomically per docs/engine/persistence-notes.md. Velocities, running effects, goals, jobs, what an avatar is holding (a carried thing is saved where it was last put down) and transient receipts are not saved. When a checkpoint is taken, receipts at or below its revision may be compacted; receipt.lookup then reports compacted.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -189,6 +189,152 @@
           },
           "created_utc": {
             "$ref": "common.schema.json#/$defs/utc_timestamp"
+          }
+        }
+      }
+    },
+    "journal": {
+      "description": "The team's journal (docs/companion/JOURNAL.md), saved with the room. A room state written before Run 2 has none: read its absence as an empty journal.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "open_tasks",
+        "history",
+        "notes"
+      ],
+      "properties": {
+        "open_tasks": {
+          "description": "Tasks still open, oldest first.",
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "allOf": [
+              {
+                "$ref": "game-command.schema.json#/$defs/journal_entry"
+              },
+              {
+                "properties": {
+                  "kind": {
+                    "const": "task"
+                  },
+                  "state": {
+                    "const": "active"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "state"
+                ]
+              },
+              {
+                "properties": {
+                  "job_id": false
+                }
+              }
+            ]
+          }
+        },
+        "history": {
+          "description": "Facts and finished tasks, oldest first. At most 500 (start): the oldest 'found' and 'gathered' entries of finished tasks go first; 'built' and 'changed' are kept.",
+          "type": "array",
+          "maxItems": 500,
+          "items": {
+            "allOf": [
+              {
+                "$ref": "game-command.schema.json#/$defs/journal_entry"
+              },
+              {
+                "not": {
+                  "properties": {
+                    "kind": {
+                      "const": "note"
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ]
+                }
+              },
+              {
+                "not": {
+                  "properties": {
+                    "kind": {
+                      "const": "task"
+                    },
+                    "state": {
+                      "const": "active"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "state"
+                  ]
+                }
+              },
+              {
+                "properties": {
+                  "job_id": false
+                }
+              }
+            ]
+          }
+        },
+        "notes": {
+          "description": "The companion's notes, oldest first. At most 100 (start), the oldest dropped first; the player may remove any.",
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "allOf": [
+              {
+                "$ref": "game-command.schema.json#/$defs/journal_entry"
+              },
+              {
+                "properties": {
+                  "kind": {
+                    "const": "note"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    "discovered": {
+      "description": "What the team has discovered of this room, saved with it: only the two avatars' eyes add to it, never the camera and never anything the AI says. A room state written before Run 2 has none: read its absence as nothing discovered yet, so the map starts blank.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cell_m",
+        "levels",
+        "entities"
+      ],
+      "properties": {
+        "cell_m": {
+          "description": "Edge of one cell of discovered space, in metres (start: 0.05).",
+          "type": "number",
+          "minimum": 0.01,
+          "maximum": 0.5
+        },
+        "levels": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/discovered_level"
+          }
+        },
+        "entities": {
+          "description": "Every discovered object and creation as the team last saw it, keyed by id. At most 1,024 (start): out-of-sight routine entries go first, least recently seen; things the team built and the resources of an open task are kept. The shell and the avatars are always known and are not listed.",
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^(obj|creation):[A-Za-z0-9_-]{1,64}$"
+          },
+          "maxProperties": 1024,
+          "additionalProperties": {
+            "$ref": "#/$defs/discovered_entity"
           }
         }
       }
@@ -426,6 +572,115 @@
           }
         }
       ]
+    },
+    "discovered_level": {
+      "description": "Discovered space on one level, a walkable surface patch at one height (the floor, the top of the big box, a shelf). A grid in room coordinates from min_xz_m, +x along a row and +z from row to row. Cell (column c, row r) is bit r * columns + c of the cells bitmap, least significant bit first in each byte; 1 means discovered.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "support",
+        "height_m",
+        "min_xz_m",
+        "columns",
+        "rows",
+        "cells"
+      ],
+      "properties": {
+        "support": {
+          "description": "The shell part, object or creation whose walkable top this level is.",
+          "type": "string",
+          "pattern": "^(shell|obj|creation):[A-Za-z0-9_-]{1,64}$"
+        },
+        "surface": {
+          "description": "Which of the support's walkable surfaces (its asset's walkable_surfaces id), when it has several.",
+          "$ref": "common.schema.json#/$defs/token"
+        },
+        "height_m": {
+          "type": "number",
+          "minimum": -1000,
+          "maximum": 1000
+        },
+        "min_xz_m": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "number",
+            "minimum": -1000,
+            "maximum": 1000
+          }
+        },
+        "columns": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1024
+        },
+        "rows": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1024
+        },
+        "cells": {
+          "description": "Standard base64 (with padding) of exactly ceil(columns * rows / 8) bytes; the unused bits of the last byte are 0.",
+          "type": "string",
+          "maxLength": 174764,
+          "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+        }
+      }
+    },
+    "discovered_entity": {
+      "description": "One discovered entity as the team last saw it.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "entity",
+        "last_seen_utc",
+        "last_seen_revision",
+        "may_be_stale"
+      ],
+      "properties": {
+        "entity": {
+          "description": "Its summary as last seen. Holding is not saved, and the knowledge fields are worked out when the host answers.",
+          "allOf": [
+            {
+              "$ref": "game-command.schema.json#/$defs/entity_summary"
+            },
+            {
+              "properties": {
+                "seen": false,
+                "last_seen_ago_s": false,
+                "last_seen_revision": false,
+                "may_be_stale": false,
+                "held_by": false
+              }
+            }
+          ]
+        },
+        "parts": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "common.schema.json#/$defs/token"
+          },
+          "additionalProperties": {
+            "$ref": "common.schema.json#/$defs/unit_interval"
+          },
+          "maxProperties": 32
+        },
+        "protected_by": {
+          "$ref": "common.schema.json#/$defs/principal_id"
+        },
+        "last_seen_utc": {
+          "$ref": "common.schema.json#/$defs/utc_timestamp"
+        },
+        "last_seen_revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "may_be_stale": {
+          "description": "The sticky bit: it changed in some way since the team last saw it (moved, changed, locked, picked up or gone), never saying which. The host adds the age rule when it answers.",
+          "type": "boolean"
+        }
+      }
     }
   }
 }

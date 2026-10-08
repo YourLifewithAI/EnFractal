@@ -1,0 +1,10 @@
+{
+  "schema": "enfractal.query",
+  "version": 1,
+  "query_id": "q-0017",
+  "room_id": "garage_example",
+  "op": "jobs.status",
+  "args": {
+    "job_id": "job-00000000000000000000000007"
+  }
+}

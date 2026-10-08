@@ -5,6 +5,6 @@
   "room_id": "garage_example",
   "op": "jobs.status",
   "args": {
-    "job_id": "goal-000001"
+    "job_id": "job-45k3jjkv2q75gxvoqd4zmtxz6y"
   }
 }

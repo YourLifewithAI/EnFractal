@@ -247,7 +247,7 @@ class Commands(MemoryCase):
                 self.assertTrue(result["ok"], result)
                 self.assertEqual(result["data"], {"actor": "avatar:companion", "goal": goal, "target_seen": "remembered",
                                                   "last_seen_ago_s": 3.0, "may_be_stale": False})
-                self.assertRegex(result["job_id"], r"^goal-\d{6}$")
+                self.assertRegex(result["job_id"], r"^job-[a-z2-7]{26}$")
                 self.assertEqual(self.host.goals["avatar:companion"]["target"], "obj:doorstop")
 
     def test_a_goal_at_something_in_sight_says_so(self):
@@ -319,7 +319,8 @@ class Commands(MemoryCase):
                 self.player("entity.remove", {"target": "obj:doorstop"}, expected_entities={"obj:doorstop": 0})
             result = self.fetch("obj:doorstop")
             self.assertTrue(result["ok"], result)
-            answers[change] = {k: result.get(k) for k in ("ok", "data", "job_id", "affected", "error")}
+            # A job id is opaque and random, so only whether there is a job may be compared.
+            answers[change] = {k: result.get(k) for k in ("ok", "data", "affected", "error")} | {"job": "job_id" in result}
             self.tearDown()
         self.assertEqual(answers["locked"], answers["removed"])
         self.assertTrue(answers["locked"]["data"]["may_be_stale"])
@@ -396,7 +397,7 @@ class Arrival(MemoryCase):
         players = self.host.player_command(command("goal.set", {"actor": "avatar:companion", "goal": "go_to",
                                                                 "target": "obj:box"}, "p-go"))
         mine = self.status(players["job_id"])
-        unknown = self.status("goal-999999")
+        unknown = self.status("job-" + "a" * 26)
         self.assertEqual(mine["error"], unknown["error"])
         self.assertEqual(mine["error"]["code"], "target_not_found")
 
@@ -551,7 +552,8 @@ class NothingHiddenLeaks(MemoryCase):
         out = []
         for op, args in (("room.describe", {}), ("entities.list", {}), ("entity.inspect", {"target": "obj:doorstop"}),
                          ("observe", {"actor": "avatar:companion"}), ("capabilities.list", {}),
-                         ("receipt.lookup", {"action_id": "c-1"}), ("approval.status", {"request_id": "0" * 32})):
+                         ("receipt.lookup", {"action_id": "c-1"}), ("approval.status", {"request_id": "0" * 32}),
+                         ("journal.read", {}), ("map.find", {"name": "doorstop"})):
             self.probed_ops.add(op)
             result = self.ask(op, args)
             data = copy.deepcopy(result.get("data"))
@@ -560,9 +562,10 @@ class NothingHiddenLeaks(MemoryCase):
             out.append((op, result["ok"], data, result.get("error")))
         for goal in sorted(REMEMBERED_TARGET_GOALS):
             result = self.fetch("obj:doorstop", goal)
-            out.append((goal, result["ok"], result.get("data"), result.get("job_id"), result.get("error")))
+            # A job id is opaque and random, so only whether there is a job may be compared.
+            out.append((goal, result["ok"], result.get("data"), "job_id" in result, result.get("error")))
             status = self.ask("jobs.status", {"job_id": result["job_id"]})
-            out.append(("jobs.status", status["data"]))
+            out.append(("jobs.status", {k: v for k, v in status["data"].items() if k != "job_id"}))
         self.tearDown()
         return json.dumps(out, sort_keys=True)
 
@@ -586,7 +589,7 @@ class NothingHiddenLeaks(MemoryCase):
         self.clock.advance(100)
         queries = [query("room.describe", {}), query("entities.list", {}), query("observe", {"actor": "avatar:companion"}),
                    query("entities.list", {"filter": {"near": {"center_m": [0, 0, 0], "radius_m": 50}}}),
-                   query("jobs.status", {"job_id": "goal-000001"})]
+                   query("jobs.status", {"job_id": "job-" + "a" * 26})]
         queries += [query("entity.inspect", {"target": target}) for target in hidden]
         for i, message in enumerate(queries):
             message["query_id"] = f"q-hidden-{i}"

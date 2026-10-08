@@ -16,6 +16,8 @@ only when everything passes. Requires the packages in contracts/requirements.txt
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import hashlib
 import json
 import math
@@ -612,7 +614,7 @@ def check_style(preset: dict, label: str, path: Path | None = None) -> list[str]
 def check_state(state: dict, label: str, room_dir: Path | None = None, check_style_pins: bool = False, styles_dir: Path = STYLES_DIR) -> list[str]:
     problems = []
     store = state["store_revision"]
-    manifest_objects, bounds = None, None
+    manifest_objects, bounds, shell_ids = None, None, None
     if room_dir is not None:
         manifest = Path(room_dir) / "room.json"
         if not manifest.is_file():
@@ -624,6 +626,7 @@ def check_state(state: dict, label: str, room_dir: Path | None = None, check_sty
             if room["room_id"] != state["room_id"]:
                 problems.append(f"{label}: room_id does not match the pinned room")
             manifest_objects = {o["id"] for o in room["objects"]}
+            shell_ids = {p["id"] for p in room["shell"]["parts"]}
             bounds = room["bounds"]
     for key, entity in state["entities"].items():
         namespace = key.split(":", 1)[0]
@@ -660,8 +663,103 @@ def check_state(state: dict, label: str, room_dir: Path | None = None, check_sty
     for checkpoint in state.get("checkpoints", []):
         if checkpoint["revision"] > store:
             problems.append(f"{label}: checkpoint {checkpoint['id']} is newer than the store revision")
+    if "journal" in state:
+        problems += _check_journal(state["journal"], store, label)
+    if "discovered" in state:
+        problems += _check_discovered(state["discovered"], store, label, manifest_objects, shell_ids, bounds)
     if check_style_pins:
         problems += check_style_pin(state["style_pin"], label, styles_dir)
+    return problems
+
+
+def _check_journal(journal: dict, store: int, label: str) -> list[str]:
+    """Saved journal entries: one id each, none newer than the store, each list oldest first by revision (the room
+    revision is monotonic; a wall clock may step back)."""
+    problems, seen = [], set()
+    for part in ("open_tasks", "history", "notes"):
+        previous = -1
+        for entry in journal[part]:
+            if entry["entry_id"] in seen:
+                problems.append(f"{label}: journal entry {entry['entry_id']} appears twice")
+            seen.add(entry["entry_id"])
+            if entry["revision"] > store:
+                problems.append(f"{label}: journal entry {entry['entry_id']} is newer than the store revision")
+            if entry["revision"] < previous:
+                problems.append(f"{label}: journal {part} must be oldest first; {entry['entry_id']} is out of order")
+            previous = max(previous, entry["revision"])
+    return problems
+
+
+def _check_discovered(discovered: dict, store: int, label: str, manifest_objects: set | None,
+                      shell_ids: set | None, bounds: dict | None) -> list[str]:
+    problems = []
+    for key, item in discovered["entities"].items():
+        entity = item["entity"]
+        if entity["id"] != key:
+            problems.append(f"{label}: discovered {key} does not match its summary's id {entity['id']}")
+        if STATE_KINDS.get(key.split(":", 1)[0]) != entity["kind"]:
+            problems.append(f"{label}: discovered {key} cannot be of kind {entity['kind']}")
+        if item["last_seen_revision"] > store:
+            problems.append(f"{label}: discovered {key} was seen after the store revision")
+        if manifest_objects is not None and key.startswith("obj:") and key not in manifest_objects:
+            problems.append(f"{label}: discovered {key} is not an object in the pinned room")
+    cell = discovered["cell_m"]
+    levels = set()
+    for index, level in enumerate(discovered["levels"]):
+        where = f"{label}: discovered level {index} ({level['support']})"
+        identity = (level["support"], level.get("surface"))
+        if identity in levels:
+            problems.append(f"{where} is listed twice")
+        levels.add(identity)
+        support = level["support"]
+        if support.startswith("shell:") and shell_ids is not None and support not in shell_ids:
+            problems.append(f"{where} rests on a shell part the pinned room does not have")
+        if support.startswith("obj:") and manifest_objects is not None and support not in manifest_objects:
+            problems.append(f"{where} rests on an object the pinned room does not have")
+        try:
+            cells = base64.b64decode(level["cells"], validate=True)
+        except (binascii.Error, ValueError):
+            problems.append(f"{where}: cells is not standard base64")
+            continue
+        count = level["columns"] * level["rows"]
+        if len(cells) != (count + 7) // 8:
+            problems.append(f"{where}: cells holds {len(cells)} bytes; {level['columns']} x {level['rows']} cells need {(count + 7) // 8}")
+        elif count % 8 and cells[-1] >> (count % 8):
+            problems.append(f"{where}: the unused bits after the last cell must be 0")
+        if bounds is not None:
+            low = [level["min_xz_m"][0], level["min_xz_m"][1]]
+            high = [low[0] + level["columns"] * cell, low[1] + level["rows"] * cell]
+            for axis, i, j in (("x", 0, 0), ("z", 2, 1)):
+                if low[j] < bounds["min_m"][i] - cell or high[j] > bounds["max_m"][i] + cell:
+                    problems.append(f"{where}: its grid reaches beyond the room bounds along {axis}")
+    return problems
+
+
+def check_message(document: dict, label: str) -> list[str]:
+    """Rules a schema cannot express for results: the journal newest first with one id per entry, and map.find
+    answers nearest first."""
+    if document.get("schema") != "enfractal.result" or document.get("ok") is not True:
+        return []
+    problems = []
+    data = document.get("data") or {}
+    if document["op"] == "journal.read":
+        seen = set()
+        for part in ("open_tasks", "entries"):
+            previous = None
+            for entry in data[part]:
+                if entry["entry_id"] in seen:
+                    problems.append(f"{label}: journal entry {entry['entry_id']} appears twice")
+                seen.add(entry["entry_id"])
+                if previous is not None and entry["revision"] > previous:
+                    problems.append(f"{label}: journal {part} must be newest first; {entry['entry_id']} is out of order")
+                previous = entry["revision"]
+    elif document["op"] == "map.find":
+        distances = [item["distance_m"] for item in data["items"]]
+        if distances != sorted(distances):
+            problems.append(f"{label}: map.find items must be nearest first")
+        ids = [item["entity"]["id"] for item in data["items"]]
+        if len(ids) != len(set(ids)):
+            problems.append(f"{label}: map.find lists an entity twice")
     return problems
 
 
@@ -685,7 +783,7 @@ def check_document(path: Path, check_style_pins: bool = False) -> list[str]:
         return check_style(document, label, path)
     if kind == "enfractal.room_state":
         return check_state(document, label, check_style_pins=check_style_pins)
-    return []
+    return check_message(document, label)
 
 
 def main(argv: list[str]) -> int:

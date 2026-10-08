@@ -56,6 +56,26 @@ EXPECTED_FAILURES = {
     "result_text_marked_trusted": "True was expected",
     "result_name_with_injected_line": "does not match",
     "duplicate_keys": "duplicate key 'schema'",
+    # Opaque job ids (Run 2): a counter never passes, padded or not.
+    "query_jobs_status_counter_job_id": "'goal-000001' does not match",
+    "query_jobs_status_padded_counter": "does not match '^job-[a-z2-7]{26}$'",
+    "result_goal_with_counter_job_id": "'goal-000001' does not match",
+    # The sandbox verbs (Run 2).
+    "command_push_too_far": "greater than the maximum of 1",
+    "result_release_that_names_what_lies_beneath": "False schema does not allow {'rests_on'",
+    # The journal and the map (Run 2): the companion writes notes only, and nothing beside the answer.
+    "command_journal_note_writes_a_fact": "('directed_by', 'kind' were unexpected)",
+    "command_journal_note_too_long": "is too long",
+    "command_journal_note_empty": "should be non-empty",
+    "command_journal_note_with_injected_line": "does not match",
+    "result_journal_note_posing_as_a_fact": "False schema does not allow \"Built a castle",
+    "result_journal_fact_in_the_companions_words": "False schema does not allow 'The player said",
+    "result_journal_fact_without_direction": "'directed_by' is a required property",
+    "result_journal_open_task_that_is_done": "'active' was expected",
+    "result_journal_read_without_data": "'data' is a required property",
+    "result_journal_note_without_its_entry": "'data' is a required property",
+    "query_map_find_with_nothing_to_find": "is not valid under any of the given schemas",
+    "result_map_find_counting_the_unseen": "('not_yet_seen' was unexpected)",
 }
 
 
@@ -147,10 +167,12 @@ class ExampleTests(unittest.TestCase):
 
     def test_garage_example_room_and_state(self):
         self.assertEqual(validate.check_room(EXAMPLES / "rooms" / "garage_example"), [])
-        state_path = EXAMPLES / "room_state" / "garage_example_state.json"
-        state = validate.load_strict(state_path)
-        self.assertEqual(validate.schema_errors(state), [])
-        self.assertEqual(validate.check_state(state, "state", EXAMPLES / "rooms" / "garage_example"), [])
+        # Before Run 2 (no journal, nothing discovered) and after: both pin the same room and both validate.
+        for name in ("garage_example_state.json", "garage_example_state_run2.json"):
+            with self.subTest(state=name):
+                state = validate.load_strict(EXAMPLES / "room_state" / name)
+                self.assertEqual(validate.schema_errors(state), [])
+                self.assertEqual(validate.check_state(state, "state", EXAMPLES / "rooms" / "garage_example"), [])
 
     def test_examples_are_reproducible(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -158,6 +180,284 @@ class ExampleTests(unittest.TestCase):
             subprocess.run([sys.executable, "-I", str(EXAMPLES / "build_examples.py"), "--out", str(out)], check=True, capture_output=True)
             committed = {k: v for k, v in files_under(EXAMPLES).items() if not k.startswith("fixtures")}
             self.assertEqual(files_under(out), committed, "rerun contracts/examples/build_examples.py and commit the result")
+
+
+COMMAND_SCHEMA = CONTRACTS / "game-command.schema.json"
+RUN2_STATE = EXAMPLES / "room_state" / "garage_example_state_run2.json"
+GARAGE = EXAMPLES / "rooms" / "garage_example"
+# The room state example as written before Run 2 (commit 4b44357). Its bytes stay as they were and it stays valid:
+# an old save needs no converter, and its reader treats the missing journal and map as empty.
+PRE_RUN2_STATE_SHA256 = "9883c8a6da85cc801b6d3b916a168cd1929b30f043d691ffe30e8870fca7f2a5"
+SANDBOX_VERBS = ("entity.grab", "entity.release", "entity.place", "entity.push")
+FACT_FIELDS = ("line", "subject", "actor", "directed_by", "pin_m", "state", "quantity", "job_id")
+NOTE_FIELDS = ("author", "text", "untrusted")
+
+
+def valid_example(name: str) -> dict:
+    return validate.load_strict(EXAMPLES / "messages" / "valid" / f"{name}.json")
+
+
+def host_minted_job_id() -> str:
+    import base64
+    import secrets
+    return "job-" + base64.b32encode(secrets.token_bytes(16)).decode("ascii").rstrip("=").lower()
+
+
+class SandboxVerbTests(unittest.TestCase):
+    """Pick up, carry, drop, push, place with snapping and stack: who may use each, and what a result may say."""
+
+    def setUp(self):
+        self.schema = validate.load_strict(COMMAND_SCHEMA)["$defs"]
+
+    def test_the_verbs_and_the_journal_are_open_to_the_companion_and_only_two_ops_are_the_players(self):
+        ops = set(self.schema["command_op"]["enum"]) | set(self.schema["query_op"]["enum"])
+        self.assertLessEqual(set(SANDBOX_VERBS) | {"journal.note", "journal.read", "map.find"}, ops)
+        self.assertEqual(set(self.schema["player_only_ops"]["enum"]), {"protect.unlock", "world.set_physics"})
+
+    def test_verbs_done_by_a_body_name_it_as_an_avatar(self):
+        # The adapter fills the companion's own avatar and refuses any other; the host refuses a companion directing the player.
+        for op in ("entity.grab", "entity.release", "entity.push"):
+            with self.subTest(op=op):
+                self.assertEqual(self.schema["args"][op]["properties"]["actor"]["$ref"], "#/$defs/avatar_id")
+        self.assertNotIn("actor", self.schema["args"]["entity.place"]["properties"])
+
+    def test_a_verb_result_has_no_data_to_leak_through(self):
+        for op in SANDBOX_VERBS:
+            with self.subTest(op=op):
+                document = {**valid_example("result_push_ok"), "op": op}
+                self.assertEqual(validate.schema_errors(document), [])
+                self.assertTrue(validate.schema_errors({**document, "data": {}}))
+                self.assertTrue(validate.schema_errors({**document, "ok": False, "data": {"rests_on": "obj:hidden"},
+                                                        "error": {"code": "invalid_args", "message": "x", "retryable": False}}))
+
+    def test_placing_on_a_thing_stacks_on_it_and_drop_needs_no_placement(self):
+        stacked = valid_example("command_release_stacked_on_bean_bag")
+        self.assertEqual(stacked["args"]["placement"]["on"], "obj:bean_bag")
+        self.assertEqual(valid_example("command_drop_what_you_hold")["args"], {})
+
+
+class OpaqueJobIdTests(unittest.TestCase):
+    def test_job_id_is_the_opaque_id_wherever_it_travels(self):
+        defs = validate.load_strict(COMMAND_SCHEMA)["$defs"]
+        opaque = "common.schema.json#/$defs/job_id"
+        self.assertEqual(defs["result"]["properties"]["job_id"]["$ref"], opaque)
+        self.assertEqual(defs["args"]["jobs.status"]["properties"]["job_id"]["$ref"], opaque)
+        self.assertEqual(defs["data"]["jobs.status"]["properties"]["job_id"]["$ref"], opaque)
+        self.assertEqual(defs["journal_entry"]["properties"]["job_id"]["$ref"], opaque)
+
+    def test_counters_never_pass_and_host_minted_tokens_do(self):
+        query = valid_example("query_jobs_status")
+        counters = ["goal-000001", "1", "job-1", "job-42", "job-" + "0" * 26, "job-" + format(42, "026d"),
+                    "job-" + format(4242, "026x"), "job-" + "9" * 26, "JOB-" + "a" * 26, "job-" + "A" * 26, "job-" + "a" * 25,
+                    "job-" + "a" * 27, "job_" + "a" * 26]
+        for job_id in counters:
+            with self.subTest(job_id=job_id):
+                self.assertTrue(validate.schema_errors({**query, "args": {"job_id": job_id}}))
+        for _ in range(50):
+            job_id = host_minted_job_id()
+            self.assertEqual(validate.schema_errors({**query, "args": {"job_id": job_id}}), [], job_id)
+
+
+class JournalAndMapTests(unittest.TestCase):
+    """The AI writes only notes in its own words; facts are the host's; no result shape can say more than it should."""
+
+    def setUp(self):
+        self.schema = validate.load_strict(COMMAND_SCHEMA)
+        self.read = valid_example("result_journal_read")
+        self.note = next(e for e in self.read["data"]["entries"] if e["kind"] == "note")
+        self.fact = next(e for e in self.read["data"]["entries"] if e["kind"] == "built")
+
+    def with_entry(self, entry):
+        return {**self.read, "data": {"open_tasks": [], "entries": [entry]}}
+
+    def test_journal_note_takes_nothing_but_the_words(self):
+        args = self.schema["$defs"]["args"]["journal.note"]
+        self.assertEqual((set(args["properties"]), args["required"], args["additionalProperties"]), ({"text"}, ["text"], False))
+
+    def test_no_command_takes_a_facts_fields(self):
+        for op, args in self.schema["$defs"]["args"].items():
+            with self.subTest(op=op):
+                self.assertFalse(set(args.get("properties", {})) & {"line", "directed_by", "author", "untrusted", "quantity", "pin_m"})
+
+    def test_a_note_never_passes_for_a_fact_and_a_fact_never_carries_words(self):
+        self.assertEqual(validate.schema_errors(self.with_entry(self.note)), [])
+        self.assertEqual(validate.schema_errors(self.with_entry(self.fact)), [])
+        for name in FACT_FIELDS:
+            with self.subTest(note_with=name):
+                value = {"line": "Built a castle", "subject": self.fact["subject"], "actor": "companion:local", "directed_by": "player:local",
+                         "pin_m": [0, 0, 0], "state": "done", "quantity": {"count": 1}, "job_id": host_minted_job_id()}[name]
+                self.assertTrue(validate.schema_errors(self.with_entry({**self.note, name: value})))
+        for name, value in (("author", "companion:local"), ("text", "my words"), ("untrusted", True)):
+            with self.subTest(fact_with=name):
+                self.assertTrue(validate.schema_errors(self.with_entry({**self.fact, name: value})))
+        for kind in ("task", "built", "changed", "removed", "found", "gathered"):
+            with self.subTest(note_as=kind):
+                self.assertTrue(validate.schema_errors(self.with_entry({**self.note, "kind": kind})))
+        untrusted_dropped = {k: v for k, v in self.note.items() if k != "untrusted"}
+        self.assertTrue(validate.schema_errors(self.with_entry(untrusted_dropped)), "a note always says it is untrusted")
+
+    def test_every_fact_says_what_happened_who_acted_and_at_whose_direction(self):
+        for name in ("line", "actor", "directed_by"):
+            with self.subTest(without=name):
+                self.assertTrue(validate.schema_errors(self.with_entry({k: v for k, v in self.fact.items() if k != name})))
+        self.assertTrue(validate.schema_errors(self.with_entry({**self.fact, "kind": "task"})), "a task has a state")
+        self.assertTrue(validate.schema_errors(self.with_entry({**self.fact, "kind": "gathered"})), "gathering has a quantity")
+        self.assertEqual(validate.schema_errors(self.with_entry({**self.fact, "kind": "gathered", "quantity": {"count": 6, "needed": 10}})), [])
+
+    def test_journal_answers_are_newest_first_with_one_id_each(self):
+        self.assertEqual(validate.check_message(self.read, "read"), [])
+        reordered = copy.deepcopy(self.read)
+        reordered["data"]["entries"].reverse()
+        self.assertTrue(any("newest first" in p for p in validate.check_message(reordered, "read")))
+        twice = copy.deepcopy(self.read)
+        twice["data"]["entries"].append(copy.deepcopy(twice["data"]["entries"][-1]))
+        self.assertTrue(any("appears twice" in p for p in validate.check_message(twice, "read")))
+
+    def test_map_find_answers_nearest_first(self):
+        found = valid_example("result_map_find")
+        self.assertEqual(validate.check_message(found, "find"), [])
+        far = copy.deepcopy(found["data"]["items"][0])
+        near = {**copy.deepcopy(far), "entity": {**far["entity"], "id": "obj:bean_bag"}, "distance_m": 0.5}
+        found["data"]["items"] = [far, near]
+        self.assertEqual(validate.schema_errors(found), [])
+        self.assertTrue(any("nearest first" in p for p in validate.check_message(found, "find")))
+
+    def test_no_journal_or_map_answer_has_a_free_form_field(self):
+        """Every object in these answers lists its fields: there is nowhere to put an undiscovered place or thing."""
+        defs = self.schema["$defs"]
+        common = validate.load_strict(CONTRACTS / "common.schema.json")["$defs"]
+
+        def walk(node, where, seen, base=None):
+            base = defs if base is None else base  # the $defs a '#/' reference in this node resolves against
+            if isinstance(node, list):
+                for item in node:
+                    walk(item, where, seen, base)
+                return
+            if not isinstance(node, dict):
+                return
+            reference = node.get("$ref")
+            if isinstance(reference, str) and reference not in seen:
+                seen.add(reference)
+                document, pointer = reference.split("#/$defs/")
+                target_base = {"common.schema.json": common, "game-command.schema.json": defs, "": base}[document]
+                target = target_base
+                for part in pointer.split("/"):
+                    target = target[part]
+                walk(target, reference, seen, target_base)
+            if node.get("type") == "object":
+                if "properties" in node:
+                    self.assertIs(node.get("additionalProperties"), False, f"{where}: an object with free-form fields")
+                else:  # a map: its values are typed
+                    self.assertIsInstance(node.get("additionalProperties"), dict, f"{where}: an untyped object")
+            for key, value in node.items():
+                if key not in ("$ref", "description", "if", "not"):  # conditions describe, they do not add fields
+                    walk(value, where, seen, base)
+
+        for name in ("journal.read", "journal.note", "map.find"):
+            with self.subTest(data=name):
+                walk(defs["data"][name], f"data/{name}", set())
+        with self.subTest(data="the saved journal and map"):
+            walk(validate.load_strict(CONTRACTS / "room-state.schema.json")["properties"]["journal"], "journal", set())
+
+
+class RoomStateRun2Tests(unittest.TestCase):
+    """Room state's journal and discovered blocks: bounded as JOURNAL.md says, and an older state stays valid."""
+
+    def setUp(self):
+        self.state = validate.load_strict(RUN2_STATE)
+
+    def problems(self, mutate):
+        state = copy.deepcopy(self.state)
+        mutate(state)
+        return validate.schema_errors(state) or validate.check_state(state, "state", GARAGE)
+
+    def assertRefused(self, mutate, fragment):
+        problems = self.problems(mutate)
+        self.assertTrue(any(fragment in p for p in problems), problems)
+
+    def test_a_room_state_written_before_run2_stays_valid(self):
+        path = EXAMPLES / "room_state" / "garage_example_state.json"
+        self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), PRE_RUN2_STATE_SHA256,
+                         "the pre-Run-2 example must stay byte for byte as it was written")
+        old = validate.load_strict(path)
+        self.assertNotIn("journal", old)
+        self.assertNotIn("discovered", old)
+        self.assertEqual(validate.schema_errors(old), [])
+        self.assertEqual(validate.check_state(old, "state", GARAGE), [])
+        self.assertEqual(self.problems(lambda s: None), [])
+
+    def test_the_saved_journal_keeps_facts_notes_and_open_tasks_apart(self):
+        note = self.state["journal"]["notes"][0]
+        task = self.state["journal"]["open_tasks"][0]
+        self.assertRefused(lambda s: s["journal"]["history"].append(copy.deepcopy(note)), "must not match")
+        self.assertRefused(lambda s: s["journal"]["notes"].append(copy.deepcopy(s["journal"]["history"][0])), "'note' was expected")
+        self.assertRefused(lambda s: s["journal"]["history"].append(copy.deepcopy(task)), "must not match")
+        self.assertRefused(lambda s: s["journal"]["open_tasks"][0].update(job_id=host_minted_job_id()), "False schema")
+        self.assertRefused(lambda s: s["journal"]["notes"][0].update(text="a" * 281), "is too long")
+
+    def test_the_journal_is_bounded(self):
+        def grow(part, count, entry):
+            def mutate(s):
+                s["journal"][part] = [dict(copy.deepcopy(entry), entry_id=f"entry-{i:026d}".replace("0", "a").replace("1", "b")
+                                           .replace("8", "c").replace("9", "d")) for i in range(count)]
+            return mutate
+        self.assertEqual(validate.schema_errors(self.mutated(grow("history", 500, self.state["journal"]["history"][0]))), [])
+        self.assertRefused(grow("history", 501, self.state["journal"]["history"][0]), "is too long")
+        self.assertRefused(grow("notes", 101, self.state["journal"]["notes"][0]), "is too long")
+        self.assertRefused(grow("open_tasks", 33, self.state["journal"]["open_tasks"][0]), "is too long")
+
+    def mutated(self, mutate):
+        state = copy.deepcopy(self.state)
+        mutate(state)
+        return state
+
+    def test_the_discovered_map_is_bounded(self):
+        bean = self.state["discovered"]["entities"]["obj:bean_bag"]
+
+        def known(count):
+            def mutate(s):
+                s["discovered"]["entities"] = {f"creation:c{i:04d}": dict(copy.deepcopy(bean), entity=dict(bean["entity"], id=f"creation:c{i:04d}", kind="creation"))
+                                               for i in range(count)}
+            return mutate
+        self.assertEqual(validate.schema_errors(self.mutated(known(1024))), [])
+        self.assertRefused(known(1025), "has too many properties")
+        self.assertRefused(lambda s: s["discovered"].update(cell_m=0.001), "less than the minimum of 0.01")
+        self.assertRefused(lambda s: s["discovered"]["levels"][0].update(columns=2048), "greater than the maximum of 1024")
+
+    def test_the_discovered_map_holds_only_what_the_team_saw_as_it_saw_it(self):
+        self.assertRefused(lambda s: s["discovered"]["entities"].update({"shell:floor": copy.deepcopy(s["discovered"]["entities"]["obj:bean_bag"])}),
+                           "does not match")
+        self.assertRefused(lambda s: s["discovered"]["entities"]["obj:bean_bag"]["entity"].update(held_by="avatar:player"), "False schema")
+        self.assertRefused(lambda s: s["discovered"]["entities"]["obj:bean_bag"]["entity"].update(seen="now"), "False schema")
+        self.assertRefused(lambda s: s["discovered"]["entities"].update({"obj:ghost": copy.deepcopy(s["discovered"]["entities"]["obj:bean_bag"])}),
+                           "does not match its summary's id")
+        self.assertRefused(lambda s: s["discovered"]["entities"]["obj:bean_bag"]["entity"].update(kind="creation"), "cannot be of kind")
+        self.assertRefused(lambda s: s["discovered"]["entities"]["obj:bean_bag"].update(last_seen_revision=40), "seen after the store revision")
+
+        def ghost(s):
+            s["discovered"]["entities"]["obj:ghost"] = copy.deepcopy(s["discovered"]["entities"]["obj:bean_bag"])
+            s["discovered"]["entities"]["obj:ghost"]["entity"]["id"] = "obj:ghost"
+        self.assertRefused(ghost, "is not an object in the pinned room")
+
+    def test_saved_journal_entries_are_unique_ordered_and_not_from_the_future(self):
+        self.assertRefused(lambda s: s["journal"]["notes"].append(copy.deepcopy(s["journal"]["notes"][0])), "appears twice")
+        self.assertRefused(lambda s: s["journal"]["history"].reverse(), "oldest first")
+        self.assertRefused(lambda s: s["journal"]["notes"][0].update(revision=40), "newer than the store revision")
+
+    def test_discovered_cells_are_a_bitmap_of_exactly_their_grid(self):
+        import base64
+        floor = self.state["discovered"]["levels"][0]
+        self.assertEqual(len(base64.b64decode(floor["cells"])), (floor["columns"] * floor["rows"] + 7) // 8)
+        self.assertRefused(lambda s: s["discovered"]["levels"][0].update(rows=111), "need")
+        self.assertRefused(lambda s: s["discovered"]["levels"][0].update(cells="not base64!"), "does not match")
+
+        def odd_grid_with_a_stray_bit(s):
+            s["discovered"]["levels"][1].update(columns=3, rows=3, cells=base64.b64encode(bytes([0xFF, 0x03])).decode("ascii"))
+        self.assertRefused(odd_grid_with_a_stray_bit, "unused bits")
+        self.assertRefused(lambda s: s["discovered"]["levels"].append(copy.deepcopy(s["discovered"]["levels"][0])), "listed twice")
+        self.assertRefused(lambda s: s["discovered"]["levels"][0].update(min_xz_m=[50.0, 0.0]), "beyond the room bounds")
+        self.assertRefused(lambda s: s["discovered"]["levels"][1].update(support="obj:ghost"), "object the pinned room does not have")
+        self.assertRefused(lambda s: s["discovered"]["levels"][0].update(support="shell:attic"), "shell part the pinned room does not have")
 
 
 class TestRoomTests(unittest.TestCase):
