@@ -538,9 +538,21 @@ public partial class CommandHost : Node
         // path the commit takes names the creation and where it will stand.
         var candidate = Authority.Call("preflight", principal, source, x, z, yaw, instanceId, y, on, approvedBy ?? "").AsGodotDictionary();
         if (!candidate["ok"].AsBool()) throw Translate(candidate);
-        var at = candidate["position_m"].AsGodotArray();
-        var fact = CreationFact(op, principal, approvedBy, candidate["instance_id"].AsString(),
-            candidate["artifact"].AsGodotDictionary()["source"].AsGodotDictionary()["name"].AsString(), new Vector3((float)at[0].AsDouble(), (float)at[1].AsDouble(), (float)at[2].AsDouble()));
+        var id = candidate["instance_id"].AsString();
+        (string Name, Vector3 Pin)? view;
+        if (op == "creation.place")
+        {
+            // A new thing is known to the team only if either avatar's eyes reach where it will stand.
+            var at = candidate["position_m"].AsGodotArray();
+            var bounds = candidate["artifact"].AsGodotDictionary()["bounds"].AsGodotDictionary();
+            var low = ArrayVector(bounds["min"].AsGodotArray());
+            var place = new Transform3D(new Basis(Vector3.Up, Mathf.DegToRad((float)yaw)), new Vector3((float)at[0].AsDouble(), (float)at[1].AsDouble(), (float)at[2].AsDouble())) *
+                new Aabb(low, ArrayVector(bounds["max"].AsGodotArray()) - low);
+            view = TeamSeesPlace(place) ? (candidate["artifact"].AsGodotDictionary()["source"].AsGodotDictionary()["name"].AsString(), place.GetCenter()) : null;
+        }
+        // A change is written before it commits: the thing as the team knows it now.
+        else view = TeamView(id);
+        var fact = CreationFact(op, principal, approvedBy, id, view);
         request["team"] = FactTeam(fact);
         var result = Submit(request, principal, actionId, meta);
         AddHistory(fact);
@@ -562,8 +574,7 @@ public partial class CommandHost : Node
             ["expected_revision"] = Revision, ["expected_permission_revision"] = PermissionRevision,
         };
         // The removal's fact is saved with the removal and its receipt (review major 3).
-        var gone = Entities().First(e => e["id"]!.GetValue<string>() == target);
-        var fact = CreationFact("entity.remove", principal, approvedBy, target, gone["display_name"]?.GetValue<string>(), BoundsOf(gone).GetCenter());
+        var fact = CreationFact("entity.remove", principal, approvedBy, target, TeamView(target));
         request["team"] = FactTeam(fact);
         var result = Submit(request, principal, actionId, meta);
         AddHistory(fact);
@@ -1404,16 +1415,29 @@ public partial class CommandHost : Node
                 Summary = (JsonObject)entity.DeepClone(), ProtectedBy = owners.GetValueOrDefault(id, ""), SeenAt = Clock(), SeenRevision = Revision,
             });
         }
-        // Past the bound: routine things out of sight go first, least recently seen; then routine things in sight. What the
-        // team built and the targets of open tasks are never dropped (review major 6).
+        EvictPastTheBound(memory, sight);
+    }
+
+    /// <summary>
+    /// The map's bound is hard (review major, Lane A's round): past it, routine things out of sight go first, then routine
+    /// things in sight, then creations out of the team's sight, then creations in sight, each least recently seen first.
+    /// The targets of running goals and open tasks are never dropped (there are far fewer than the bound).
+    /// </summary>
+    private void EvictPastTheBound(PerceptionMemory memory, HashSet<string> sight)
+    {
+        var excess = memory.Order.Count - Math.Max(0, PerceptionMemoryLimit);
+        if (excess <= 0) return;
+        foreach (var victim in EvictionOrder(memory.Order, sight).Take(excess).ToList()) memory.Remove(victim);
+    }
+
+    /// <summary>Remembered ids in the order the bound drops them (least recently seen first within each class); task targets never.</summary>
+    private IEnumerable<string> EvictionOrder(IReadOnlyList<string> order, HashSet<string> sight)
+    {
         var kept = TaskTargets();
-        bool Routine(string id) => !id.StartsWith("creation:", StringComparison.Ordinal) && !kept.Contains(id);
-        while (memory.Order.Count > PerceptionMemoryLimit)
-        {
-            var victim = memory.Order.FirstOrDefault(id => Routine(id) && !sight.Contains(id)) ?? memory.Order.FirstOrDefault(Routine);
-            if (victim == null) break;
-            memory.Remove(victim);
-        }
+        bool Creation(string id) => id.StartsWith("creation:", StringComparison.Ordinal);
+        return order.Where(id => !kept.Contains(id))
+            .Select((id, index) => (Id: id, Index: index, Class: (Creation(id) ? 2 : 0) + (sight.Contains(id) ? 1 : 0)))
+            .OrderBy(x => x.Class).ThenBy(x => x.Index).Select(x => x.Id);
     }
 
     /// <summary>The targets of running goals and open tasks: kept on the team's map whatever its bound.</summary>
@@ -2090,7 +2114,7 @@ public partial class CommandHost : Node
                     throw new Refusal("request_invalid", "kind is a journal entry kind.", "$.args.kind");
                 if (args.TryGetProperty("about", out var about) && (about.ValueKind != JsonValueKind.String || !EntityId.IsMatch(about.GetString()!)))
                     throw new Refusal("request_invalid", "about is an entity id.", "$.args.about");
-                if (args.TryGetProperty("since_utc", out var since) && (since.ValueKind != JsonValueKind.String || !UtcPattern.IsMatch(since.GetString()!)))
+                if (args.TryGetProperty("since_utc", out var since) && (since.ValueKind != JsonValueKind.String || ParseUtc(since.GetString()!) == null))
                     throw new Refusal("request_invalid", "since_utc is a UTC time.", "$.args.since_utc");
                 if (args.TryGetProperty("limit", out var journalLimit) && (!IsIntegerLiteral(journalLimit) || journalLimit.GetDouble() is < 1 or > 50))
                     throw new Refusal("request_invalid", "limit is between 1 and 50.", "$.args.limit");

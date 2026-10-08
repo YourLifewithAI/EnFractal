@@ -1,0 +1,156 @@
+{
+  "schema": "enfractal.style",
+  "version": 1,
+  "preset_id": "storybook_painterly",
+  "preset_version": 2,
+  "display_name": "Storybook painterly",
+  "description": "Draft v2 for Observe focus review: a 14 cm observe depth band for the 10 cm avatar (v1's 6 cm was narrower than the body) and the observe blur amount lowered from 0.3 to 0.2 to bring that view's frame time within the 16.7 ms budget; the v1 lighting, materials, grade and blur ramps are retained. Requires founder visual acceptance before candidate status or pinning.",
+  "status": "draft",
+  "look_bible": "docs/look/LOOK-BIBLE.md",
+  "renderer": {
+    "method": "forward_plus",
+    "gi": { "mode": "voxelgi", "energy": 1.0, "bounce_feedback": 0.6 },
+    "shadows": { "enabled": true, "softness": 0.55, "tint": "#4a4f78" },
+    "ambient_occlusion": { "enabled": true, "intensity": 1.4, "radius_m": 0.16 },
+    "glow": { "enabled": true, "intensity": 0.5, "bloom": 0.05 },
+    "tonemap": { "mode": "filmic", "exposure": 1.05, "white": 2.5 }
+  },
+  "palette": {
+    "saturation": 0.9,
+    "contrast": 1.05,
+    "warmth": 0.0,
+    "shadow_tint": "#5a6480",
+    "highlight_tint": "#fff8f0",
+    "accents": ["#d28f63", "#65b9b0", "#d7b765", "#a18cc3", "#75965c"]
+  },
+  "lighting": {
+    "key": { "color": "#fff1d2", "energy": 3.5, "elevation_deg": 38, "azimuth_deg": 75, "casts_shadows": true },
+    "ambient": { "color": "#9aaccf", "energy": 0.6 },
+    "background": "#2a2f33",
+    "honor_room_lights": 1.0,
+    "room_light_energy_scale": 1.0
+  },
+  "time_of_day": {
+    "enabled": true,
+    "default_hour": 16.5,
+    "follow_clock": true,
+    "keys": [
+      { "hour": 1.0, "key_color": "#7585c4", "key_energy": 0.058, "ambient_color": "#3c4878", "ambient_energy": 0.16 },
+      { "hour": 5.0, "key_color": "#8a98d0", "key_energy": 0.062, "ambient_color": "#4f5b8e", "ambient_energy": 0.2 },
+      { "hour": 6.5, "key_color": "#ffc9a0", "key_energy": 0.3, "ambient_color": "#a2b2da", "ambient_energy": 0.34 },
+      { "hour": 8.5, "key_color": "#ffe6c8", "key_energy": 0.7, "ambient_color": "#aabbdc", "ambient_energy": 0.5 },
+      { "hour": 12.5, "key_color": "#fff4e4", "key_energy": 0.85, "ambient_color": "#b2c4e0", "ambient_energy": 0.58 },
+      { "hour": 16.5, "key_color": "#ffe0ae", "key_energy": 0.95, "ambient_color": "#a6b8de", "ambient_energy": 0.58 },
+      { "hour": 17.5, "key_color": "#ffc77e", "key_energy": 0.7, "ambient_color": "#a2b4dc", "ambient_energy": 0.5 },
+      { "hour": 18.5, "key_color": "#ffaa6c", "key_energy": 0.3, "ambient_color": "#94aade", "ambient_energy": 0.42 },
+      { "hour": 19.2, "key_color": "#ff9266", "key_energy": 0.12, "ambient_color": "#8a9cd8", "ambient_energy": 0.32 },
+      { "hour": 20.0, "key_color": "#8494d4", "key_energy": 0.07, "ambient_color": "#5a6aa8", "ambient_energy": 0.27 },
+      { "hour": 21.5, "key_color": "#7686c8", "key_energy": 0.064, "ambient_color": "#44508a", "ambient_energy": 0.21 }
+    ]
+  },
+  "seasons": {
+    "enabled": true,
+    "follow_calendar": true,
+    "hemisphere": "north",
+    "grades": {
+      "spring": { "saturation": 1.3, "warmth": 0.0, "tint": "#d2e8b0" },
+      "summer": { "saturation": 1.2, "warmth": 0.0, "tint": "#f2d884" },
+      "autumn": { "saturation": 1.3, "warmth": 0.0, "tint": "#eaa676" },
+      "winter": { "saturation": 0.55, "warmth": -0.2, "tint": "#92b2ee" }
+    }
+  },
+  "camera": {
+    "fov_deg": 70,
+    "depth_of_field": {
+      "enabled": true,
+      "focus": "player",
+      "focus_band_m": 0.6,
+      "far_blur": 0.55,
+      "near_blur": 0.5,
+      "near_blur_distance_m": 0.08
+    },
+    "tilt_shift": { "enabled": true, "strength": 0.8 }
+  },
+  "post": {
+    "kuwahara": { "enabled": false, "radius_px": 4, "sharpness": 8, "world_space_orientation": true },
+    "outline": { "enabled": false, "color": "#3a3030", "width_px": 1 },
+    "grain": 0.05,
+    "vignette": 0.22
+  },
+  "materials": {
+    "default": { "albedo_softening": 0.4, "stroke_normal_strength": 0.25, "edge_wear": 0.2, "roughness": 0.85 },
+    "roles": {
+      "painted_wall": { "albedo_softening": 0.5, "stroke_normal_strength": 0.3, "edge_wear": 0.1, "roughness": 0.9 },
+      "plaster": { "tint": "#efe7d8", "albedo_softening": 0.55, "stroke_normal_strength": 0.3, "edge_wear": 0.1, "roughness": 0.92 },
+      "wood": { "albedo_softening": 0.35, "stroke_normal_strength": 0.35, "edge_wear": 0.3, "roughness": 0.8 },
+      "wood_painted": { "albedo_softening": 0.45, "stroke_normal_strength": 0.3, "edge_wear": 0.4, "roughness": 0.75 },
+      "fabric": { "albedo_softening": 0.5, "stroke_normal_strength": 0.2, "edge_wear": 0.05, "roughness": 0.95 },
+      "carpet": { "albedo_softening": 0.5, "stroke_normal_strength": 0.25, "edge_wear": 0.05, "roughness": 0.97 },
+      "metal": { "albedo_softening": 0.3, "stroke_normal_strength": 0.15, "edge_wear": 0.35, "roughness": 0.5, "metallic": 0.6 },
+      "concrete": { "tint": "#a79f92", "albedo_softening": 0.45, "stroke_normal_strength": 0.3, "edge_wear": 0.25, "roughness": 0.95, "texture": "res://assets/art/painterly/textures/ground-paint-v1.png" },
+      "stone": { "albedo_softening": 0.4, "stroke_normal_strength": 0.35, "edge_wear": 0.25, "roughness": 0.93 },
+      "ceramic": { "albedo_softening": 0.45, "stroke_normal_strength": 0.1, "edge_wear": 0.15, "roughness": 0.35 },
+      "glass": { "albedo_softening": 0.3, "stroke_normal_strength": 0.05, "edge_wear": 0.05, "roughness": 0.15 },
+      "paper": { "albedo_softening": 0.55, "stroke_normal_strength": 0.15, "edge_wear": 0.15, "roughness": 0.95 },
+      "cardboard": { "tint": "#c9a274", "albedo_softening": 0.45, "stroke_normal_strength": 0.25, "edge_wear": 0.35, "roughness": 0.92 },
+      "plastic": { "albedo_softening": 0.45, "stroke_normal_strength": 0.1, "edge_wear": 0.1, "roughness": 0.6 },
+      "rubber": { "albedo_softening": 0.4, "stroke_normal_strength": 0.15, "edge_wear": 0.1, "roughness": 0.9 }
+    }
+  },
+  "geometry": { "bevel_m": 0.004, "wobble_m": 0.002, "silhouette_softening": 0.3, "decimation_ratio": 0.5 },
+  "charm": {
+    "enabled": false,
+    "seed": 20261006,
+    "kinds": ["moss", "vines", "pebbles", "crumbs", "dust_bunnies", "trim", "clutter"],
+    "density": { "floor_edges": 0.3, "wall_bases": 0.2, "object_tops": 0.15, "creations": 0.4, "outdoor_ground": 0.5 }
+  },
+  "restyle": {
+    "method": "img2img_atlas",
+    "prompt": "hand-painted storybook miniature, soft painterly brush texture, warm gentle light, slightly desaturated palette, handmade toy craftsmanship, cozy",
+    "negative_prompt": "photorealistic, harsh specular, noisy photo texture, text, logos, people",
+    "references": [],
+    "strength": 0.45,
+    "conditioning": ["depth", "normal"],
+    "seed": 20261006
+  },
+  "budgets": { "target_frame_ms": 16.7, "max_shadowed_lights": 3, "reference_gpu": "NVIDIA RTX 2070 SUPER 8 GB" },
+  "extensions": {
+    "x_look_key_mode": "sun",
+    "x_look_glaze_amount": 0.12,
+    "x_look_role_marks": {
+      "default": { "pattern": "none", "stroke_scale_m": 0.05, "stroke_stretch": 2, "stroke_axis": "y", "pattern_scale_m": 0.1, "variation": 0.4, "wrap": 0.25, "terminator_warmth": 0.2, "sheen": 0, "specular": 0.35, "texture_strength": 0.35, "texture_scale_m": 0.6, "calm": 0 },
+      "painted_wall": { "pattern": "plaster", "stroke_scale_m": 0.16, "stroke_stretch": 1.8, "stroke_axis": "y", "pattern_scale_m": 0.3, "variation": 0.55, "wrap": 0.3, "terminator_warmth": 0.25, "sheen": 0, "specular": 0.2, "texture_strength": 0.35, "texture_scale_m": 0.6, "calm": 0.3 },
+      "plaster": { "pattern": "plaster", "stroke_scale_m": 0.18, "stroke_stretch": 1.8, "stroke_axis": "x", "pattern_scale_m": 0.4, "variation": 0.55, "wrap": 0.3, "terminator_warmth": 0.25, "sheen": 0, "specular": 0.2, "texture_strength": 0.35, "texture_scale_m": 0.6, "calm": 0.3 },
+      "wallpaper": { "pattern": "plaster", "stroke_scale_m": 0.06, "stroke_stretch": 5, "stroke_axis": "y", "pattern_scale_m": 0.2, "variation": 0.4, "wrap": 0.3, "terminator_warmth": 0.2, "sheen": 0, "specular": 0.2, "texture_strength": 0.35, "texture_scale_m": 0.6, "calm": 0 },
+      "wood": { "pattern": "wood", "stroke_scale_m": 0.04, "stroke_stretch": 6, "stroke_axis": "x", "pattern_scale_m": 0.11, "variation": 0.8, "wrap": 0.2, "terminator_warmth": 0.3, "sheen": 0, "specular": 0.35, "texture_strength": 0.35, "texture_scale_m": 0.6, "calm": 0.28 },
+      "wood_painted": { "pattern": "wood", "stroke_scale_m": 0.05, "stroke_stretch": 5, "stroke_axis": "x", "pattern_scale_m": 0.11, "variation": 0.4, "wrap": 0.25, "terminator_warmth": 0.25, "sheen": 0, "specular": 0.3, "texture_strength": 0.35, "texture_scale_m": 0.6, "calm": 0.15 },
+      "fabric": { "pattern": "fabric", "stroke_scale_m": 0.05, "stroke_stretch": 2, "stroke_axis": "x", "pattern_scale_m": 0.004, "variation": 0.6, "wrap": 0.45, "terminator_warmth": 0.3, "sheen": 0.35, "specular": 0.05, "texture_strength": 0.35, "texture_scale_m": 0.6, "calm": 0.45 },
+      "carpet": { "pattern": "fabric", "stroke_scale_m": 0.06, "stroke_stretch": 1.5, "stroke_axis": "x", "pattern_scale_m": 0.006, "variation": 0.55, "wrap": 0.5, "terminator_warmth": 0.3, "sheen": 0.45, "specular": 0.03, "texture_strength": 0.35, "texture_scale_m": 0.6, "calm": 0.45 },
+      "leather": { "pattern": "smooth", "stroke_scale_m": 0.03, "stroke_stretch": 2, "stroke_axis": "x", "pattern_scale_m": 0.05, "variation": 0.45, "wrap": 0.25, "terminator_warmth": 0.25, "sheen": 0.15, "specular": 0.4, "texture_strength": 0.35, "texture_scale_m": 0.6, "calm": 0 },
+      "metal": { "pattern": "brushed", "stroke_scale_m": 0.05, "stroke_stretch": 8, "stroke_axis": "x", "pattern_scale_m": 0.03, "variation": 0.35, "wrap": 0.1, "terminator_warmth": 0.1, "sheen": 0, "specular": 0.9, "texture_strength": 0.35, "texture_scale_m": 0.6, "calm": 0 },
+      "metal_painted": { "pattern": "smooth", "stroke_scale_m": 0.05, "stroke_stretch": 3, "stroke_axis": "x", "pattern_scale_m": 0.05, "variation": 0.4, "wrap": 0.2, "terminator_warmth": 0.2, "sheen": 0, "specular": 0.5, "texture_strength": 0.35, "texture_scale_m": 0.6, "calm": 0 },
+      "glass": { "pattern": "smooth", "stroke_scale_m": 0.08, "stroke_stretch": 2, "stroke_axis": "y", "pattern_scale_m": 0.1, "variation": 0.1, "wrap": 0.1, "terminator_warmth": 0.05, "sheen": 0, "specular": 0.9, "texture_strength": 0.35, "texture_scale_m": 0.6, "calm": 0 },
+      "mirror": { "pattern": "smooth", "stroke_scale_m": 0.08, "stroke_stretch": 2, "stroke_axis": "y", "pattern_scale_m": 0.1, "variation": 0.05, "wrap": 0.05, "terminator_warmth": 0, "sheen": 0, "specular": 1, "texture_strength": 0.35, "texture_scale_m": 0.6, "calm": 0 },
+      "ceramic": { "pattern": "smooth", "stroke_scale_m": 0.04, "stroke_stretch": 2, "stroke_axis": "y", "pattern_scale_m": 0.05, "variation": 0.3, "wrap": 0.2, "terminator_warmth": 0.2, "sheen": 0, "specular": 0.6, "texture_strength": 0.35, "texture_scale_m": 0.6, "calm": 0 },
+      "stone": { "pattern": "stone", "stroke_scale_m": 0.06, "stroke_stretch": 2, "stroke_axis": "x", "pattern_scale_m": 0.02, "variation": 0.7, "wrap": 0.2, "terminator_warmth": 0.25, "sheen": 0, "specular": 0.2, "texture_strength": 0.35, "texture_scale_m": 0.6, "calm": 0.25 },
+      "concrete": { "pattern": "stone", "stroke_scale_m": 0.08, "stroke_stretch": 2, "stroke_axis": "x", "pattern_scale_m": 0.03, "variation": 0.6, "wrap": 0.2, "terminator_warmth": 0.2, "sheen": 0, "specular": 0.15, "texture_strength": 0.35, "texture_scale_m": 0.6, "calm": 0.3 },
+      "brick": { "pattern": "stone", "stroke_scale_m": 0.05, "stroke_stretch": 3, "stroke_axis": "x", "pattern_scale_m": 0.02, "variation": 0.7, "wrap": 0.2, "terminator_warmth": 0.25, "sheen": 0, "specular": 0.15, "texture_strength": 0.35, "texture_scale_m": 0.6, "calm": 0 },
+      "paper": { "pattern": "paper", "stroke_scale_m": 0.03, "stroke_stretch": 3, "stroke_axis": "x", "pattern_scale_m": 0.0012, "variation": 0.35, "wrap": 0.35, "terminator_warmth": 0.25, "sheen": 0.05, "specular": 0.1, "texture_strength": 0.35, "texture_scale_m": 0.6, "calm": 0 },
+      "cardboard": { "pattern": "cardboard", "stroke_scale_m": 0.04, "stroke_stretch": 3, "stroke_axis": "x", "pattern_scale_m": 0.004, "variation": 0.5, "wrap": 0.3, "terminator_warmth": 0.3, "sheen": 0, "specular": 0.1, "texture_strength": 0.35, "texture_scale_m": 0.6, "calm": 0 },
+      "plastic": { "pattern": "smooth", "stroke_scale_m": 0.05, "stroke_stretch": 2, "stroke_axis": "x", "pattern_scale_m": 0.05, "variation": 0.3, "wrap": 0.25, "terminator_warmth": 0.2, "sheen": 0.05, "specular": 0.6, "texture_strength": 0.35, "texture_scale_m": 0.6, "calm": 0 },
+      "rubber": { "pattern": "speckle", "stroke_scale_m": 0.03, "stroke_stretch": 2, "stroke_axis": "x", "pattern_scale_m": 0.0025, "variation": 0.4, "wrap": 0.3, "terminator_warmth": 0.2, "sheen": 0, "specular": 0.15, "texture_strength": 0.35, "texture_scale_m": 0.6, "calm": 0 }
+    },
+    "x_look_paint": { "tone_wash": 0.9, "tone_strokes": 0.6, "tone_bristle": 0.35, "tone_gain": 0.42, "softening_calm": 0.7, "temperature_variation": 0.03, "pastel_mix": 0.45, "pastel_chroma": 0.82, "pastel_scale": 0.94, "pastel_lift": 0.03, "wear_brightness": 1.32, "wear_lift": 0.035, "cavity_darkening": 0.35, "stroke_normal_gain": 0.2, "mark_fade_start": 0.15, "mark_fade_end": 0.45, "bevel_fraction": 0.08, "bevel_max_m": 0.025, "accent_mix": 0.55, "accent_darken": 0.12, "photo_blur_lod": 2.5 },
+    "x_look_shadows": { "key_splits": 2, "key_angular_base_deg": 0, "key_angular_per_softness_deg": 0, "blur_base": 1, "blur_per_softness": 1, "key_min_distance_m": 4, "key_distance_per_diagonal": 1.1, "key_split_1": 0.3, "key_bias": 0.02, "key_normal_bias": 0.6, "lamp_bias": 0.02, "lamp_normal_bias": 0.6, "lamp_size_base_m": 0.05, "lamp_size_per_softness_m": 0.25 },
+    "x_look_ssao": { "power": 1.4, "detail": 0.6, "horizon": 0.06, "sharpness": 0.98, "light_affect": 0.15, "ao_channel_affect": 0.5 },
+    "x_look_glow": { "strength": 1, "blend_mode": "softlight", "hdr_threshold": 0.9, "levels": [0, 0, 1, 1, 1, 0, 0] },
+    "x_look_gi": { "subdiv": 128, "margin_m": 0.05, "bias": 1.5, "normal_bias": 0, "two_bounces_above": 0.2, "environment_ambient_scale": 0.15 },
+    "x_look_lamps": { "attenuation": 2.5, "range_per_diagonal": 1, "window_spot_angle_deg": 60, "switch_on_below_daylight": 0.25, "window_standoff_m": 0.6, "window_light_size_m": 0.6, "sky_fill_energy": 2.4, "sky_fill_saturation": 0.55, "lamp_tint": "#ffe3b8", "lamp_tint_amount": 0.4, "glow_radius_m": 0.035, "glow_energy": 3 },
+    "x_look_sun": { "real_clock_daylight_saving": true, "sunrise_elevation_deg": -0.833, "twilight_elevation_deg": -6, "horizon_elevation_deg": 1, "moon_elevation_deg": 35, "moon_bearing_deg": 250, "reference_daylight": 0.12 },
+    "x_look_seasons": { "centre_days": [15, 105, 196, 288], "hold": 0.3, "light_strength": 0.35, "fixed_day_of_year": 196, "looks": { "winter": { "sun_energy": 0.7, "sun_blur": 1.8, "sky_saturation": 0.5, "sky_brightness": 0.95, "cloud_amount": 0.75 }, "spring": { "sun_energy": 1, "sun_blur": 1.2, "sky_saturation": 1.15, "sky_brightness": 1, "cloud_amount": 0.45 }, "summer": { "sun_energy": 1.25, "sun_blur": 0.75, "sky_saturation": 1.15, "sky_brightness": 1.1, "cloud_amount": 0.3 }, "autumn": { "sun_energy": 0.95, "sun_blur": 1.1, "sky_saturation": 1.05, "sky_brightness": 0.95, "cloud_amount": 0.55 } } },
+    "x_look_grade": { "shadow_tone": 0.5, "highlight_tone": 0.2, "season_tint": 0.06, "warmth_rgb": [0.08, 0.015, -0.1], "night_desaturate": 0.35, "night_tint_rgb": [-0.14, -0.05, 0.12], "night_deepen": 0.15, "lut_size": 33, "night_full_below": 0.08, "night_none_above": 0.4, "season_tint_shadow_fade": 0.45, "night_with_lamps": 0.1 },
+    "x_look_dof": { "tilt_pitch_gain": 1.5, "tilt_band_narrowing": 0.6, "far_transition_base_m": 0.25, "far_transition_per_m": 0.35, "far_blur_reference": 1.3, "near_transition_base": 0.9, "near_transition_per_blur": 0.5, "amount_base": 0.02, "amount_per_blur": 0.1, "eye_focus_body_heights": 3, "body_focus_height_fraction": 0.5, "eye_crisp_body_heights": 1.5, "tilt_transition_shortening": 0.7, "tilt_amount_gain": 1.5, "companion_follow_m": 0.8, "focus_ease_s": 0.12, "observe_band_m": 0.14, "observe_far_transition_m": 0.1, "observe_near_transition_m": 0.08, "observe_amount": 0.2 },
+    "x_look_post": { "vignette_start": 0.45, "vignette_end": 1.05, "grain_fine": 1.2, "grain_soft": 0.8, "grain_soft_px": 3, "focus_saturation": 1.12, "defocus_saturation": 0.78, "defocus_darken": 0, "bokeh_threshold": 1.2, "bokeh_gain": 0.8 },
+    "x_look_sky": { "day_zenith": "#4f8fd6", "day_horizon": "#bfd9ee", "dusk_zenith": "#7a86c8", "dusk_horizon": "#ffb98a", "night_zenith": "#0f1730", "night_horizon": "#2b3a66", "cloud_light": "#fff4e6", "cloud_shade": "#b7c4dc", "brightness": 1.15, "sun_disc_deg": 3, "sun_halo": 0.5, "moon_disc_deg": 3, "star_strength": 0.6, "dusk_start_deg": 6, "dusk_end_deg": 40, "ground": "#7d9a63", "ground_season_tint": 0.35 }
+  }
+}

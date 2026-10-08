@@ -39,6 +39,9 @@ public partial class LookCaptureHarness : Node
     private Camera3D _camera = null!;
     private RoomWorld _world = null!;
     private Node? _look;
+    // A camera with "hud_view" copies the live HUD rig (F3 or F4) every frame and takes the focus the look would give it there.
+    private RoomHud? _hud;
+    private Camera3D? _mirror;
     private readonly List<Dictionary<string, object>> _results = new();
 
     public override async void _Ready()
@@ -202,6 +205,14 @@ public partial class LookCaptureHarness : Node
 
     private void Frame(JsonElement entry)
     {
+        // Leave the HUD rig a previous camera mirrored.
+        _mirror = null;
+        if (_hud != null && _hud.ViewMode != 1) _hud.SetViewMode(1);
+        if (entry.TryGetProperty("hud_view", out var hudView))
+        {
+            FrameHudRig(entry, hudView.GetInt32());
+            return;
+        }
         var position = Vec(entry.GetProperty("position_m"));
         var lookAt = Vec(entry.GetProperty("look_at_m"));
         _camera.GlobalPosition = position;
@@ -217,10 +228,41 @@ public partial class LookCaptureHarness : Node
         if (_look != null && _look.HasMethod("FrameCamera")) _look.Call("FrameCamera", _camera, focus);
     }
 
+    /// <summary>
+    /// The founder's observe playtest was in the HUD's F3 and F4 views, which no fixed camera shows: the rig is placed by the
+    /// real HUD (pivot on the player, spring arm, lens), and the look's own focus rule for that camera (FocusPointFor, which
+    /// includes whatever the HUD handed it) sets the depth of field, so a change to either shows in the frame.
+    /// </summary>
+    private void FrameHudRig(JsonElement entry, int mode)
+    {
+        _hud ??= _world.FindChildren("*", "CanvasLayer", true, false).OfType<RoomHud>().FirstOrDefault()
+            ?? throw new InvalidOperationException("the room has no HUD to mirror for hud_view");
+        _look?.Set("Observe", entry.TryGetProperty("observe", out var observe) && observe.GetBoolean());
+        _camera.CullMask = 0xFFFFFu;
+        _hud.SetViewMode(mode);
+        _mirror = _hud.DioramaCamera;
+        Mirror();
+    }
+
+    private void Mirror()
+    {
+        if (_mirror == null || !IsInstanceValid(_mirror)) return;
+        _camera.GlobalTransform = _mirror.GlobalTransform;
+        _camera.Fov = _mirror.Fov;
+        _camera.Near = _mirror.Near;
+        _camera.Far = _mirror.Far;
+        if (_look != null && _look.HasMethod("FrameCamera") && _look.HasMethod("FocusPointFor"))
+            _look.Call("FrameCamera", _camera, _look.Call("FocusPointFor", _mirror));
+    }
+
     private static Vector3 Vec(JsonElement array) =>
         new((float)array[0].GetDouble(), (float)array[1].GetDouble(), (float)array[2].GetDouble());
 
-    private async Task NextFrame() => await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+    private async Task NextFrame()
+    {
+        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        Mirror();
+    }
 
     private Image Grab()
     {
