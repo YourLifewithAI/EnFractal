@@ -1,0 +1,153 @@
+diff --git a/game/scripts/native/CompanionAvatar.cs b/game/scripts/native/CompanionAvatar.cs
+index ca7ef5c..a1c4fd3 100644
+--- a/game/scripts/native/CompanionAvatar.cs
++++ b/game/scripts/native/CompanionAvatar.cs
+@@ -27,6 +27,10 @@ public partial class CompanionAvatar : SmallPlayerController
+     public int IntentSerial { get; private set; }
+     /// <summary>The IntentSerial of the last come that arrived beside the player (the body then stays); -1 before any.</summary>
+     public int ComeArrivedSerial { get; private set; } = -1;
++    /// <summary>The IntentSerial of the last go_to that arrived (the body then stays); -1 before any.</summary>
++    public int GoToArrivedSerial { get; private set; } = -1;
++    /// <summary>The box a go_to walks to (meaningful while CurrentIntent is "go_to").</summary>
++    public Aabb GoToTarget => _goToTarget;
+     /// <summary>Whether the body is turned toward a look or point target.</summary>
+     public bool HasLookTarget => _hasLookTarget;
+     /// <summary>The point the body looks or points at (meaningful while HasLookTarget).</summary>
+@@ -110,6 +114,8 @@ public partial class CompanionAvatar : SmallPlayerController
+     private const float NameTagHeightFraction = 0.025f;
+     private const float NameTagHideWithinM = 0.25f;
+     private Vector3 _lookTarget;
++    private Aabb _goToTarget;
++    private float _goToArrivalM;
+     private bool _hasLookTarget;
+     private bool _entered;
+     private bool _following;
+@@ -222,6 +228,19 @@ public partial class CompanionAvatar : SmallPlayerController
+     public void Come() => BeginIntent("come");
+     public void Stop() => BeginIntent("stop");
+ 
++    /// <summary>
++    /// Walk to a box (a thing's bounds, or a place as an empty box), routing round furniture as come does, and stop
++    /// once the body's centre is within arrivalM of the box's footprint. The command host's go_to (and A2's fetch)
++    /// watch GoToArrivedSerial; a body that cannot get there reports GoalBlocked, honestly.
++    /// </summary>
++    public void GoTo(Aabb target, float arrivalM)
++    {
++        if (!target.Position.IsFinite() || !target.Size.IsFinite()) return;
++        BeginIntent("go_to");
++        _goToTarget = target.Abs();
++        _goToArrivalM = Mathf.Max(0.005f, arrivalM);
++    }
++
+     private void BeginIntent(string intent)
+     {
+         IntentSerial++;
+@@ -282,6 +301,7 @@ public partial class CompanionAvatar : SmallPlayerController
+             else if (CurrentIntent != "stop" && playerOffset.Length() < YieldM)
+                 desired = (playerOffset.LengthSquared() < 0.0001f ? GlobalBasis.X : playerOffset.Normalized()) * WalkSpeedMps;
+             else if (CurrentIntent == "come") desired = ComeVelocity(playerOffset, dt);
++            else if (CurrentIntent == "go_to") desired = GoToVelocity(dt);
+         }
+         var trying = desired.LengthSquared() > 0.0025f;
+         if (desired.LengthSquared() > 0.0004f) MoveWith(desired, dt);
+@@ -390,6 +410,31 @@ public partial class CompanionAvatar : SmallPlayerController
+         return -playerOffset / distance * speed;
+     }
+ 
++    /// <summary>Toward the nearest point of the go_to box's footprint; arrived within _goToArrivalM of it, then stays.</summary>
++    private Vector3 GoToVelocity(float dt)
++    {
++        var here = GlobalPosition;
++        var low = _goToTarget.Position;
++        var high = _goToTarget.End;
++        var nearest = new Vector3(Mathf.Clamp(here.X, low.X, high.X), here.Y, Mathf.Clamp(here.Z, low.Z, high.Z));
++        var offset = Planar(nearest - here);
++        var distance = offset.Length();
++        var routed = PlanRoute(nearest, _goToArrivalM, dt);
++        var detour = routed && !_route.Direct && _route.LengthM > distance + DetourM;
++        if (distance <= _goToArrivalM && !detour)
++        {
++            // Arrived: the command host finishes this go_to's job (the serial tells it which one it was).
++            GoToArrivedSerial = IntentSerial;
++            Stay();
++            return Vector3.Zero;
++        }
++        if (routed && !_route.Reaches) GoalBlocked = true;
++        if (detour || (routed && !_route.Reaches))
++            return RouteVelocity(Mathf.Clamp((_route.LengthM - _goToArrivalM + 0.02f) * FollowGainPerS, MinApproachMps, RunSpeedMps));
++        var speed = Mathf.Clamp((distance - _goToArrivalM + 0.02f) * FollowGainPerS, MinApproachMps, RunSpeedMps);
++        return offset / distance * speed;
++    }
++
+     private bool NavigationReady => Navigation != null && GodotObject.IsInstanceValid(Navigation) && Navigation.IsReady;
+ 
+     /// <summary>Plan a route to the goal, or keep the current one while it is fresh. False when there is no navigation to plan on.</summary>
+diff --git a/game/scripts/native/Kernel/CommandHost.cs b/game/scripts/native/Kernel/CommandHost.cs
+index 83604f9..3b55033 100644
+--- a/game/scripts/native/Kernel/CommandHost.cs
++++ b/game/scripts/native/Kernel/CommandHost.cs
+@@ -66,6 +66,8 @@ public partial class CommandHost : Node
+     public const int MaxJobsPerPrincipal = 256;
+     /// <summary>On arrival, a target farther than this from where the goal aimed has moved (an avatar's reach).</summary>
+     public const float ArrivalReachM = 0.15f;
++    /// <summary>A go_to stops with the body's centre this close to the target's footprint (within the 10 cm body's reach).</summary>
++    public const float GoToStopM = 0.08f;
+     public static readonly TimeSpan ApprovalLifetime = TimeSpan.FromMinutes(5);
+     public const string RuntimeScript = "res://scripts/invention_runtime.gd";
+ 
+@@ -106,7 +108,7 @@ public partial class CommandHost : Node
+     /// <summary>What perception memory keeps: everything but the shell, which is always in sight.</summary>
+     private static readonly HashSet<string> RememberedKinds = new() { "object", "creation", "avatar", "effect" };
+     /// <summary>The goals whose arrival the host watches on the companion's body itself; go_to and fetch arrive through ReportArrival (A2).</summary>
+-    private static readonly HashSet<string> HostDrivenGoals = new() { "follow", "come", "look_at", "point_at" };
++    private static readonly HashSet<string> HostDrivenGoals = new() { "follow", "come", "look_at", "point_at", "go_to" };
+     private static readonly HashSet<string> Affordances = new()
+     {
+         "walkable_top", "climbable", "sittable", "openable", "container", "soft", "breakable", "light_source", "switchable", "screen", "readable", "rideable", "hazard",
+@@ -602,6 +604,9 @@ public partial class CommandHost : Node
+             case "come": Companion.Come(); break;
+             case "look_at": Companion.LookAtPoint(point!.Value); break;
+             case "point_at": Companion.PointAt(point!.Value); break;
++            case "go_to":
++                Companion.GoTo(target != null ? aim : new Aabb(KernelJson.ReadVector(args.GetProperty("position_m")), Vector3.Zero), GoToStopM);
++                break;
+         }
+         // A goal with a target runs as a job: the host re-checks the target when the avatar arrives.
+         var job = target != null ? StartJob(principal, actor, actionId, goal, target, aim, Companion.IntentSerial) : null;
+@@ -1493,7 +1498,7 @@ public partial class CommandHost : Node
+     public override void _PhysicsProcess(double delta)
+     {
+         if (Companion == null || !IsInstanceValid(Companion) || !_runningGoals.TryGetValue(CompanionAvatarId, out var job) || !HostDrivenGoals.Contains(job.Goal)) return;
+-        if (job.Goal == "come" && Companion.ComeArrivedSerial == job.Serial)
++        if ((job.Goal == "come" && Companion.ComeArrivedSerial == job.Serial) || (job.Goal == "go_to" && Companion.GoToArrivedSerial == job.Serial))
+         {
+             ReportArrival(CompanionAvatarId);
+             return;
+@@ -1907,7 +1912,8 @@ public partial class CommandHost : Node
+         "effect.start" => "Free-standing effects arrive with the first magic (Run 3).",
+         "style.set" => "Restyling the room from a command arrives with the look runtime.",
+         "room.undo" => "Undo arrives with room saves (Run 3).",
+-        "goal.set" when Str(args, "goal") is "go_to" or "fetch" or "wander" => "That goal arrives with the companion's embodiment (Run 2).",
++        "goal.set" when Str(args, "goal") is "fetch" => "Fetching arrives with the sandbox verbs (Run 2, P3).",
++        "goal.set" when Str(args, "goal") is "wander" => "Wandering is not available yet.",
+         // Today the body follows and comes to the player only; staying by something waits for the goal runner too.
+         "goal.set" when Str(args, "goal") is "follow" or "stay" or "come" && Str(args, "target") is { } target && (target != PlayerAvatar || Str(args, "goal") == "stay") =>
+             "Following, coming to or staying by anything but the player arrives with the companion's embodiment (Run 2).",
+diff --git a/game/tests/native/Kernel/CommandHostTest.cs b/game/tests/native/Kernel/CommandHostTest.cs
+index 72fb844..03cd4d4 100644
+--- a/game/tests/native/Kernel/CommandHostTest.cs
++++ b/game/tests/native/Kernel/CommandHostTest.cs
+@@ -881,8 +881,11 @@ public partial class CommandHostTest : Node3D
+             }) &&System.Text.RegularExpressions.Regex.IsMatch(aimed["job_id"]?.GetValue<string>() ?? "", @"\Ajob-[a-z2-7]{26}\z") &&
+                 _host.RunningGoal(CommandHost.CompanionAvatarId)?.Target == "obj:doorstop", $"{goal} may aim at the remembered doorstop: a job, judged on the memory");
+         }
+-        Check(Code(Aim("obj:doorstop", "go_to")) == "unsupported_capability" && Code(Aim("obj:doorstop", "fetch")) == "unsupported_capability" &&
+-            Code(Aim("obj:doorstop", "come")) == "unsupported_capability", "go_to, fetch and coming to a thing wait for the goal runner (A2), whatever the target");
++        var goTo = Aim("obj:doorstop", "go_to");
++        Check(Ok(goTo) && goTo["data"]?["target_seen"]?.GetValue<string>() == "remembered" && _host.RunningGoal(CommandHost.CompanionAvatarId)?.Goal == "go_to",
++            "go_to may aim at the remembered doorstop: the body walks there, a job judged on the memory");
++        Check(Code(Aim("obj:doorstop", "fetch")) == "unsupported_capability" && Code(Aim("obj:doorstop", "come")) == "unsupported_capability",
++            "fetch (with P3's verbs) and coming to a thing still wait, whatever the target");
+         var inSight = Aim("obj:box");
+         Check(Ok(inSight) && inSight["data"]?["target_seen"]?.GetValue<string>() == "now" && inSight["data"]?["last_seen_ago_s"] == null, "a goal at something in sight says so");
+         foreach (var goal in new[] { "follow", "stay", "wander" })

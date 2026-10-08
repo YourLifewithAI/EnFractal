@@ -99,6 +99,8 @@ REMEMBERED_KINDS = frozenset({"object", "creation", "avatar", "effect"})
 # cannot see now (founder decision, 6 October 2026). The host re-checks when the avatar arrives.
 REMEMBERED_TARGET_GOALS = frozenset({"go_to", "look_at", "point_at", "come", "fetch"})
 
+# A come (and a fetch's walk back) ends this far from the player, centre to centre (CompanionAvatar.ComeArrivalM).
+COME_ARRIVAL_M = 0.14
 # Both avatars have the 10 cm body (perception.py): radius 0.02 m, height 0.10 m, as Entity half_extents.
 _BODY = [perception.BODY_RADIUS_M, perception.BODY_HEIGHT_M, perception.BODY_RADIUS_M]
 
@@ -455,8 +457,10 @@ class MockHost:
             self.entities[entity_id].display_name = name
 
     def move_avatar(self, avatar_id: str, position: list[float]) -> None:
+        """The avatar walks there, carrying whatever it holds."""
         with self._lock:
             self.entities[avatar_id].position = list(position)
+            self._carry(avatar_id)
 
     def move_entity(self, entity_id: str, position: list[float]) -> None:
         """The world moving something by itself (physics, the player's hands) between requests."""
@@ -1118,26 +1122,47 @@ class MockHost:
     # Each handler validates first. With apply=False it only predicts the outcome; with apply=True it
     # changes the world. Durable ops receive the new room revision to stamp on what they touch.
 
+    def _grab_problem(self, actor: str, target_id: str, kind: str, movable: bool, protected: bool,
+                      held_by: str | None, mass_kg: float | None) -> HostError | None:
+        """entity.grab's checks, which a fetch applies when it is set (on what the companion sees or remembers) and
+        again when it picks the thing up (on the thing as it is then). None when the avatar may pick it up."""
+        if not movable or kind not in ("object", "creation"):
+            return HostError("permission_denied", "That cannot be picked up.", field_path="$.args.target")
+        if protected:
+            return HostError("target_protected", "That is protected. Only the player can unlock it.", field_path="$.args.target")
+        if held_by and held_by != actor:
+            return HostError("target_busy", "Someone else is holding that.", field_path="$.args.target")
+        if self.holding.get(actor) not in (None, target_id):
+            return HostError("target_busy", "The avatar is already holding something.", field_path="$.args.actor")
+        limit = self.policy.carry_limit_kg.get(actor, 0.0)
+        if mass_kg is not None and mass_kg > limit:
+            return HostError("target_too_heavy", "That is too heavy for this avatar.", field_path="$.args.target",
+                             allowed=limit, actual=mass_kg)
+        return None
+
+    def _take_hold(self, actor: str, target: Entity) -> None:
+        """Picking up leaves the thing where it is; from then on it moves with its holder (_carry)."""
+        target.held_by = actor
+        self.holding[actor] = target.id
+
+    def _carry(self, actor: str) -> None:
+        """Carry: a held thing moves with its holder (it rests where the holder stands, as a drop would leave it).
+        Holding is not saved, so carrying moves no revision."""
+        held = self.entities.get(self.holding.get(actor, ""))
+        if held is not None and not held.removed:
+            held.position = list(self.entities[actor].position)
+
     def _op_entity_grab(self, principal, message, apply, new_revision):
         args = message["args"]
         actor = self._actor(principal, args)
         target = self._require(args["target"], "$.args.target")
-        if not target.movable or target.kind != "object" and target.kind != "creation":
-            raise HostError("permission_denied", "That cannot be picked up.", field_path="$.args.target")
-        if target.protected:
-            raise HostError("target_protected", "That is protected. Only the player can unlock it.", field_path="$.args.target")
-        if target.held_by and target.held_by != actor:
-            raise HostError("target_busy", "Someone else is holding that.", field_path="$.args.target")
-        if self.holding.get(actor) not in (None, target.id):
-            raise HostError("target_busy", "The avatar is already holding something.", field_path="$.args.actor")
-        limit = self.policy.carry_limit_kg.get(actor, 0.0)
-        if target.mass_kg is not None and target.mass_kg > limit:
-            raise HostError("target_too_heavy", "That is too heavy for this avatar.", field_path="$.args.target",
-                            allowed=limit, actual=target.mass_kg)
+        problem = self._grab_problem(actor, target.id, target.kind, target.movable, target.protected, target.held_by,
+                                     target.mass_kg)
+        if problem is not None:
+            raise problem
         if not apply:
             return {"affected": [target.id]}
-        target.held_by = actor
-        self.holding[actor] = target.id
+        self._take_hold(actor, target)
         return {"affected": [target.id]}
 
     def _op_entity_release(self, principal, message, apply, new_revision):
@@ -1300,6 +1325,7 @@ class MockHost:
             if target is not None:
                 kind, movable, protected, mass, aim = (target.kind, target.movable, target.protected, target.mass_kg,
                                                        target.bounds())
+                held_by = target.held_by
                 if not principal.startswith("player:"):
                     data["target_seen"] = "now"
             else:
@@ -1312,19 +1338,18 @@ class MockHost:
                 summary = entry.view["summary"]
                 kind, movable, protected, mass, aim = (summary["kind"], summary["movable"], summary["protected"],
                                                        entry.mass_kg, summary["bounds_m"])
+                held_by = summary.get("held_by")
                 data["target_seen"] = "remembered"
                 fields = self._memory_fields(entry)
                 data["last_seen_ago_s"], data["may_be_stale"] = fields["last_seen_ago_s"], fields["may_be_stale"]
             if args["goal"] == "fetch":
+                # entity.grab's checks and limit, judged on what the companion sees or remembers; the pick-up on
+                # arrival checks them again on the thing as it is then.
                 if kind not in ("object", "creation") or not movable:
                     raise HostError("permission_denied", "That cannot be fetched.", field_path="$.args.target")
-                if protected:
-                    raise HostError("target_protected", "That is protected. Only the player can unlock it.",
-                                    field_path="$.args.target")
-                limit = self.policy.carry_limit_kg.get(actor, 0.0)
-                if mass is not None and mass > limit:
-                    raise HostError("target_too_heavy", "That is too heavy for this avatar.", field_path="$.args.target",
-                                    allowed=limit, actual=mass)
+                problem = self._grab_problem(actor, args["target"], kind, movable, protected, held_by, mass)
+                if problem is not None:
+                    raise problem
         if "position_m" in args and not _inside(args["position_m"], self.room_bounds):
             raise HostError("out_of_bounds", "That position is outside the room.", field_path="$.args.position_m")
         if "area" in args:
@@ -1341,6 +1366,10 @@ class MockHost:
                 # A goal with a target runs as a job: the host re-checks the target when the avatar arrives.
                 outcome["job_id"] = goal["job_id"] = self._start_job(principal, actor, message["action_id"])
                 goal["aim_bounds"] = copy.deepcopy(aim)
+            if args["goal"] == "fetch":
+                # A fetch walks to the thing, picks it up, and brings it back to the player. Already in hand, it
+                # only comes back.
+                goal["phase"] = "return" if self.holding.get(actor) == args["target"] else "approach"
             self.goals[actor] = goal
         return outcome
 
@@ -1371,13 +1400,19 @@ class MockHost:
         - failed, revision_conflict: it is in sight, but has moved since (the companion sees where);
         - failed, target_not_found: it is not in sight. Moved out of sight and gone give the same answer.
 
-        The mock models the arrival check only; carrying a fetched thing back is the Run 2 goal runner's.
+        A fetch arrives twice (contracts/README.md, "The sandbox verbs"). At the thing, after the same re-check,
+        the avatar picks it up with entity.grab's checks and limit (a refusal fails the job with that error), and
+        the job keeps running ("running" is returned). Back beside the player, the job succeeds with the avatar
+        still holding the thing; entity.release puts it down. The mock stands in for the walk back by placing the
+        avatar beside the player, as a come would leave it.
         """
         with self._lock:
             goal = self.goals.get(actor_id)
             job = self.jobs.get(goal.get("job_id", "")) if goal else None
             if job is None or job["state"] != "running":
                 raise KeyError("that avatar has no goal with a target running")
+            if goal.get("phase") == "return":
+                return self._fetch_returned(actor_id, goal, job)
             principal = self._principal_of(actor_id) or job["principal"]
             seen = self.perceived(principal)
             if not principal.startswith("player:"):
@@ -1390,15 +1425,44 @@ class MockHost:
             elif _box_gap(target.bounds(), goal["aim_bounds"]) > perception.REACH_M:
                 error = HostError("revision_conflict", "The target has moved since it was seen. Observe and try again.",
                                   field_path="$.args.target", retryable=True)
-            del self.goals[actor_id]
-            if error is None:
-                job["state"] = "succeeded"
-            else:
-                job["state"] = "failed"
-                message = {"schema": COMMAND_SCHEMA, "op": "goal.set", "action_id": job["action_id"]}
-                job["result"] = self._fail(job["principal"], message, error)
-            self._emit("goal_finished", {"actor": actor_id, "job_id": goal["job_id"], "state": job["state"]})
-            return job["state"]
+            elif goal["goal"] == "fetch":
+                error = self._grab_problem(actor_id, target.id, target.kind, target.movable, target.protected,
+                                           target.held_by, target.mass_kg)
+                if error is None:
+                    self._take_hold(actor_id, target)
+                    goal["phase"] = "return"
+                    self._emit("goal_progress", {"actor": actor_id, "job_id": goal["job_id"], "phase": "return"})
+                    return job["state"]
+            return self._finish_job(actor_id, goal, job, error)
+
+    def _fetch_returned(self, actor_id: str, goal: dict, job: dict) -> str:
+        """A fetch back beside the player: it succeeds while the avatar still holds the thing."""
+        error = None
+        if self.holding.get(actor_id) != goal["target"]:
+            error = HostError("target_not_found", "The fetched thing is no longer in hand.", field_path="$.args.target")
+        else:
+            player = self.entities[self.avatars[PLAYER]].position
+            here = self.entities[actor_id].position
+            away = [here[0] - player[0], here[2] - player[2]]
+            length = math.hypot(*away)
+            if length == 0.0:
+                away, length = [1.0, 0.0], 1.0
+            scale = COME_ARRIVAL_M / length
+            self.entities[actor_id].position = [_r(player[0] + away[0] * scale), player[1],
+                                                _r(player[2] + away[1] * scale)]
+            self._carry(actor_id)
+        return self._finish_job(actor_id, goal, job, error)
+
+    def _finish_job(self, actor_id: str, goal: dict, job: dict, error: HostError | None) -> str:
+        del self.goals[actor_id]
+        if error is None:
+            job["state"] = "succeeded"
+        else:
+            job["state"] = "failed"
+            message = {"schema": COMMAND_SCHEMA, "op": "goal.set", "action_id": job["action_id"]}
+            job["result"] = self._fail(job["principal"], message, error)
+        self._emit("goal_finished", {"actor": actor_id, "job_id": goal["job_id"], "state": job["state"]})
+        return job["state"]
 
     def _op_goal_stop(self, principal, message, apply, new_revision):
         # Always permitted. Without an actor it stops every actor the principal may direct, their

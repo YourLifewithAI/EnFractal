@@ -1,10 +1,11 @@
 # The companion link
 
-How the companion's MCP server reaches the running game. Implemented in
-`companion/src/enfractal_companion/link.py` (both ends, Python); the frame shapes are in
-`companion/schemas/companion-link.schema.json`, proposed for `contracts/`. Run 2 implements the game end
-in C# in front of P1's `CommandHost`; it must pass the cases in `companion/tests/test_link.py` and
-`test_link_schema.py`.
+How the companion's MCP server reaches the running game. The companion's end is
+`companion/src/enfractal_companion/link.py` (`LinkClient`), which also holds the Python game end the mock host uses
+(`LinkServer`). **The game's end is C#** (A2, 8 October 2026): `game/scripts/native/Companion/CompanionLinkServer.cs`,
+in front of the kernel's `CommandHost` through `CompanionBridge.cs` ([EMBODIMENT.md](EMBODIMENT.md)).
+`companion/tests/test_real_host.py` runs `test_link.py`'s cases against it in a headless game. The frame shapes are
+in `companion/schemas/companion-link.schema.json`, proposed for `contracts/`.
 
 ## Goals
 
@@ -35,7 +36,10 @@ At startup the game listens on `127.0.0.1` (or `::1`) on an ephemeral port and w
 
 - Written atomically (temporary file in the same folder, then rename), UTF-8, LF, no byte-order mark;
   on POSIX with mode `0600`. On Windows the user's `AppData\Roaming` ACL already limits it to the
-  player's account. The game deletes it on exit.
+  player's account. The game deletes it on exit, if it still holds that game's token.
+- A second game window finds a session file whose process is still running and runs without the link (the first
+  keeps it); a file left by a game that has ended, or naming a process id since reused, is overwritten.
+  `--no-companion-link` runs a room without the link.
 - The companion re-reads the file on every reconnect, so a restarted game (new port, new token) is
   picked up without reconfiguring the MCP client.
 - The companion refuses a file whose `host` is not the literal `127.0.0.1` or `::1` (no names, no
@@ -107,9 +111,21 @@ game:      {"type": "response", "seq": 1, "message": <enfractal.result>}
   connection and reports an unknown outcome; the model is told to call `receipt_lookup` before
   retrying, which the contract's idempotency rules make safe.
 - The game's end tells its host when an authenticated session starts and when it ends
-  (`LinkServer(on_session=...)`, called with the principal and `"start"` or `"end"`). The host clears
-  that companion's perception memory on both, so nothing it remembers outlives a session
-  (PERCEPTION.md). Nothing about this crosses the wire.
+  (`LinkServer(on_session=...)` in Python, `CommandHost.SessionEvent` from the C# bridge, called with the principal
+  and `"start"` or `"end"`). The host clears that companion's perception memory on both, so nothing it remembers
+  outlives a session (PERCEPTION.md). Nothing about this crosses the wire.
+
+## The C# end
+
+- Networking runs on the thread pool; every request is answered on Godot's main thread by
+  `CommandHost.HandleObject(message, "companion:local")`, in order, even while the game is paused. The principal is
+  the bridge's constant: nothing a connection sends reaches it.
+- A frame is refused (`frame_invalid`, connection closed) for invalid UTF-8, a byte-order mark, duplicate keys at
+  any depth, a number that overflows a double, nesting deeper than 256, or any shape but the request frame. What is
+  wrong inside a well-formed frame's message (a lone surrogate escape, nesting deeper than canonical JSON allows, a
+  missing schema) is the host's to answer, with `request_invalid`.
+- The game prints `COMPANION_LINK` events (listening, authenticated, refused with its code, session start and end)
+  and `COMPANION_STATE` changes to its console. Never the token.
 
 ## Contract proposal
 

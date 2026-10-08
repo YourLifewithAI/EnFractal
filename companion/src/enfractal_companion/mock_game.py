@@ -12,7 +12,8 @@ command. Type at the console, as the player:
     say <entity> <text>  put a sign or label with that text on an entity (untrusted world text)
     walk <x> <y> <z>     move the companion's avatar there (what it sees, and so remembers, changes)
     move <entity> <x> <y> <z>  the world moves something (out of the companion's sight, say)
-    arrive               the companion's avatar reaches its goal; the game re-checks the target
+    arrive               the companion's avatar reaches its goal; the game re-checks the target (a fetch
+                         arrives twice: at the thing, which it picks up, then back beside the player)
     quit                 stop the game
 
 The console is the player's UI. Nothing typed into the MCP client can reach it.
@@ -96,6 +97,8 @@ def _announce(kind: str, payload: dict) -> None:
         print(f"[decided] {payload['request_id']} -> {payload['state']}", flush=True)
     elif kind == "committed":
         print(f"[committed] {payload['principal']} {payload['op']} {payload['action_id']}", flush=True)
+    elif kind == "goal_progress":
+        print(f"[goal] {payload['actor']} {payload['job_id']} picked it up; bringing it back", flush=True)
     elif kind == "goal_finished":
         print(f"[goal] {payload['actor']} {payload['job_id']} -> {payload['state']}", flush=True)
 

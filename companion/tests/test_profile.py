@@ -1,17 +1,25 @@
 """The play-only client profile (founder decision, 6 October 2026): one MCP server, nothing else.
 
-Any MCP client or agent harness can take the profile. These tests check what it says, and then
-launch the server exactly as it says with the official SDK's stdio client: the session that
-results offers the game's tools and nothing else.
+Any MCP client or agent harness can take the profile. These tests check what it says, launch the server exactly
+as it says with the official SDK's stdio client (the session offers the game's tools and nothing else), and check
+the easier connection of A2 (docs/codex/reports/04-byoai-connect-survey.md):
+- on Windows the profile gives the server SYSTEMROOT, with this machine's value, and nothing else: without it the
+  server cannot load Winsock and exits with WinError 10106 when a client starts it with an empty environment;
+- every client in clients.json gets the same server in its own format, which parses back to that server;
+- --write puts the files in the folder it is given and nowhere else.
 """
 from __future__ import annotations
 
 import io
 import json
+import os
 import re
+import subprocess
 import sys
+import tempfile
+import tomllib
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 from mcp import Client, StdioServerParameters
@@ -21,6 +29,9 @@ from enfractal_companion import profile
 
 VENDOR_WORDS = re.compile(r"anthropic|claude|openai|chatgpt|\bgpt|gemini|google|mistral|llama|copilot|bedrock|vertex",
                           re.IGNORECASE)
+ON_WINDOWS = os.name == "nt"
+# A path with a space, a quote, backslashes and a non-ASCII letter, which every format must carry unchanged.
+AWKWARD = "C:\\Games\\EnFractal's D\u00e9v\\companion\\.venv\\Scripts\\python.exe"
 
 
 def printed(*argv: str) -> dict:
@@ -29,6 +40,106 @@ def printed(*argv: str) -> dict:
         status = profile.main(list(argv))
     assert status == 0
     return json.loads(out.getvalue())
+
+
+def parse_yaml_subset(text: str):
+    """The YAML the generator writes: block mappings, '- ' lists of mappings, and scalars (single- or double-quoted
+    strings, integers, booleans, flow lists of those). Anything else fails the test."""
+    lines = [line for line in text.split("\n") if line.strip()]
+    position = 0
+
+    def split_flow(body: str) -> list[str]:
+        items, current, quote, i = [], "", None, 0
+        while i < len(body):
+            c = body[i]
+            if quote == "'" and c == "'" and body[i + 1:i + 2] == "'":
+                current, i = current + "''", i + 2
+                continue
+            if quote == '"' and c == "\\":
+                current, i = current + body[i:i + 2], i + 2
+                continue
+            if quote and c == quote:
+                quote = None
+            elif not quote and c in "'\"":
+                quote = c
+            elif not quote and c == ",":
+                items.append(current)
+                current, i = "", i + 1
+                continue
+            current, i = current + c, i + 1
+        if current.strip():
+            items.append(current)
+        return items
+
+    def scalar(token: str):
+        token = token.strip()
+        if token.startswith("'"):
+            assert token.endswith("'") and len(token) >= 2, token
+            return token[1:-1].replace("''", "'")
+        if token.startswith('"'):
+            return json.loads(token)
+        if token in ("true", "false"):
+            return token == "true"
+        if token.startswith("["):
+            assert token.endswith("]"), token
+            return [scalar(item) for item in split_flow(token[1:-1])]
+        return int(token)
+
+    def block(indent: int):
+        nonlocal position
+        result = None
+        while position < len(lines):
+            line = lines[position]
+            here = len(line) - len(line.lstrip(" "))
+            if here < indent:
+                break
+            assert here == indent, f"unexpected indentation: {line!r}"
+            body = line[indent:]
+            if body.startswith("- "):
+                result = [] if result is None else result
+                assert isinstance(result, list), line
+                lines[position] = " " * (indent + 2) + body[2:]
+                result.append(block(indent + 2))
+                continue
+            key, colon, rest = body.partition(":")
+            assert colon and key and " " not in key, f"not a mapping line: {line!r}"
+            result = {} if result is None else result
+            assert isinstance(result, dict) and key not in result, line
+            position += 1
+            result[key] = scalar(rest) if rest.strip() else block(indent + 2)
+        return result
+
+    document = block(0)
+    assert position == len(lines), "the parser did not read every line"
+    return document
+
+
+def parse(format_name: str, text: str):
+    if format_name.endswith("-json"):
+        return json.loads(text)
+    if format_name.endswith("-toml"):
+        return tomllib.loads(text)
+    return parse_yaml_subset(text)
+
+
+def server_in(format_name: str, document) -> dict:
+    """The one server entry a client's document configures."""
+    if format_name == "mcpServers-json":
+        servers = document["mcpServers"]
+    elif format_name == "servers-json":
+        servers = document["servers"]
+    elif format_name == "mcp.servers-json":
+        servers = document["mcp"]["servers"]
+    elif format_name in ("mcp_servers-toml", "mcp_servers-yaml"):
+        servers = document["mcp_servers"]
+    elif format_name == "mcpServers-yaml-list":
+        assert len(document["mcpServers"]) == 1
+        entry = dict(document["mcpServers"][0])
+        servers = {entry.pop("name"): entry}
+    else:
+        raise AssertionError(format_name)
+    assert list(servers) == [profile.SERVER_KEY], servers
+    return servers[profile.SERVER_KEY]
 
 
 class Profile(unittest.TestCase):
@@ -41,17 +152,24 @@ class Profile(unittest.TestCase):
                 self.assertEqual(list(document), ["mcpServers"])
                 self.assertEqual(list(document["mcpServers"]), ["enfractal-companion"])
                 server = document["mcpServers"]["enfractal-companion"]
-                self.assertEqual(set(server), {"type", "command", "args"})  # no env: the server needs no keys
+                # No environment but SYSTEMROOT on Windows: the server needs no keys, and clears the rest anyway.
+                self.assertEqual(set(server), {"type", "command", "args"} | ({"env"} if ON_WINDOWS else set()))
                 self.assertEqual(server["type"], "stdio")
                 self.assertTrue(Path(server["command"]).is_absolute())
                 self.assertEqual(server["args"], ["-m", "enfractal_companion", *extra])
+                if ON_WINDOWS:
+                    self.assertEqual(server["env"], {"SYSTEMROOT": os.environ["SYSTEMROOT"]})
 
     def test_the_command_is_the_companions_own_interpreter_not_what_it_links_to(self):
         self.assertEqual(profile.play_only_profile()["mcpServers"]["enfractal-companion"]["command"],
                          str(Path(sys.executable).absolute()))
 
     def test_offers_nothing_but_the_game_and_names_no_vendor(self):
-        text = json.dumps(printed("--mock"))
+        document = printed("--mock")
+        server = document["mcpServers"]["enfractal-companion"]
+        self.assertEqual(list(server.get("env", {})), ["SYSTEMROOT"] if ON_WINDOWS else [])
+        server.pop("env", None)
+        text = json.dumps(document)
         self.assertIsNone(VENDOR_WORDS.search(text))
         self.assertNotIn("--no-lockdown", text)
         for word in ("shell", "http", "url", "env", "token", "key", "secret"):
@@ -62,10 +180,141 @@ class Profile(unittest.TestCase):
             profile.play_only_profile(mock=True, session_file=Path("x.json"))
 
 
+class SystemRoot(unittest.TestCase):
+    def test_windows_profiles_give_the_server_systemroot_with_this_machines_value(self):
+        launch = profile.server_launch(windows=True, systemroot="D:\\WINNT")
+        self.assertEqual(launch.env, {"SYSTEMROOT": "D:\\WINNT"})
+        here = profile.server_launch(windows=True)
+        self.assertEqual(here.env, {"SYSTEMROOT": os.environ.get("SYSTEMROOT") or profile.DEFAULT_SYSTEMROOT})
+        self.assertEqual(profile.server_launch(windows=False).env, {})
+        posix = profile.play_only_profile(windows=False)["mcpServers"]["enfractal-companion"]
+        self.assertNotIn("env", posix)
+
+    def run_server(self, env: dict) -> tuple[int | None, list[dict], str]:
+        """Start the server exactly as a client would with this environment, and speak MCP to it over stdio."""
+        launch = profile.server_launch(mock=True)
+        process = subprocess.Popen([launch.command, *launch.args], env=env, stdin=subprocess.PIPE,
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        requests = [
+            {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+                "protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "profile-test", "version": "1"}}},
+            {"jsonrpc": "2.0", "method": "notifications/initialized"},
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
+        ]
+        try:
+            out, err = process.communicate("".join(json.dumps(r) + "\n" for r in requests).encode(), timeout=60)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            out, err = process.communicate()
+        replies = [json.loads(line) for line in out.decode("utf-8").splitlines() if line.strip()]
+        return process.returncode, replies, err.decode("utf-8", errors="replace")
+
+    @unittest.skipUnless(ON_WINDOWS, "SYSTEMROOT is a Windows variable")
+    def test_the_server_serves_with_only_the_environment_the_profile_gives_it(self):
+        server = printed("--mock")["mcpServers"]["enfractal-companion"]
+        code, replies, err = self.run_server(dict(server["env"]))
+        tools = next(r for r in replies if r.get("id") == 2)["result"]["tools"]
+        self.assertEqual(len(tools), 29, err)
+        self.assertEqual({t["name"] for t in tools}, {s.name for s in contracts().tool_specs()})
+
+    @unittest.skipUnless(ON_WINDOWS, "SYSTEMROOT is a Windows variable")
+    def test_without_systemroot_the_server_cannot_start_which_is_why_the_profile_sets_it(self):
+        code, replies, err = self.run_server({})
+        if code == 0 and replies:
+            self.skipTest("this Python loads Winsock without SYSTEMROOT; the profile still sets it")
+        self.assertNotEqual(code, 0)
+        self.assertEqual(replies, [])
+        self.assertIn("10106", err)
+
+
+class ClientFormats(unittest.TestCase):
+    def setUp(self):
+        self.launch = profile.server_launch(python=AWKWARD, session_file=Path("game/session.json"), windows=True,
+                                            systemroot="C:\\Windows")
+
+    def test_the_catalogue_names_the_six_clients_with_known_formats(self):
+        entries = profile.clients()
+        self.assertEqual([e["id"] for e in entries], ["claude-code", "codex", "vscode", "continue", "hermes", "openclaw"])
+        files = []
+        for entry in entries:
+            with self.subTest(client=entry["id"]):
+                self.assertTrue({"id", "name", "format", "file", "goes", "play_only", "server_extra", "env", "verified"} <= set(entry))
+                profile.render_document(entry["format"], self.launch, entry)  # a format the generator knows
+                files += [entry["file"], *(extra["file"] for extra in entry.get("also", []))]
+        self.assertEqual(len(files), len(set(files)))
+        self.assertTrue(all(not Path(f).is_absolute() and ".." not in Path(f).parts for f in files))
+
+    def test_every_client_gets_the_same_server_in_its_own_format(self):
+        for entry in profile.clients():
+            with self.subTest(client=entry["id"]):
+                text = profile.render_text(entry["format"], self.launch, entry)
+                server = server_in(entry["format"], parse(entry["format"], text))
+                self.assertEqual(server["command"], AWKWARD)  # the space, the quote and the backslashes survive
+                self.assertEqual(server["args"], self.launch.args)
+                self.assertEqual(server.get("env"), {"SYSTEMROOT": "C:\\Windows"} if entry["env"] else None)
+                for key, value in entry["server_extra"].items():
+                    self.assertEqual(server[key], value)
+                self.assertNotIn("--no-lockdown", text)
+                for word in ("token", "secret", "password", "api_key", "apikey"):
+                    self.assertNotIn(word, text.lower())
+
+    def test_the_documented_shapes_hold(self):
+        codex = profile.render_text("mcp_servers-toml", self.launch, profile.client("codex"))
+        self.assertTrue(codex.startswith("[mcp_servers.enfractal-companion]\n"))
+        self.assertIn("env = { SYSTEMROOT = 'C:\\Windows' }", codex)
+        self.assertIn("required = true", codex)
+        plain = profile.server_launch(python="C:\\Games\\EnFractal Dev\\python.exe", windows=True, systemroot="C:\\Windows")
+        self.assertIn("command = 'C:\\Games\\EnFractal Dev\\python.exe'", profile.render_text("mcp_servers-toml", plain))
+        hermes = parse_yaml_subset(profile.render_text("mcp_servers-yaml", self.launch, profile.client("hermes")))
+        self.assertEqual(hermes["mcp_servers"]["enfractal-companion"]["tools"], {"resources": False, "prompts": False})
+        cont = parse_yaml_subset(profile.render_text("mcpServers-yaml-list", self.launch, profile.client("continue")))
+        self.assertEqual((cont["schema"], cont["mcpServers"][0]["type"]), ("v1", "stdio"))
+        vscode = json.loads(profile.render_text("servers-json", self.launch, profile.client("vscode")))
+        self.assertEqual(list(vscode), ["servers"])
+        openclaw = json.loads(profile.render_text("mcp.servers-json", self.launch, profile.client("openclaw")))
+        self.assertNotIn("type", openclaw["mcp"]["servers"]["enfractal-companion"])
+
+    def test_write_puts_every_file_in_the_folder_and_nowhere_else(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / "play"
+            written = profile.write_profiles(folder, self.launch)
+            expected = {"README.txt"} | {e["file"] for e in profile.clients()} | \
+                {x["file"] for e in profile.clients() for x in e.get("also", [])}
+            self.assertEqual({p.relative_to(folder.resolve()).as_posix() for p in written}, expected)
+            self.assertEqual(sorted(p.name for p in Path(tmp).iterdir()), ["play"])
+            readme = (folder / "README.txt").read_text(encoding="utf-8")
+            for entry in profile.clients():
+                self.assertIn(entry["file"], readme)
+                self.assertIn(entry["play_only"], readme)
+            agent = (folder / "vscode/.github/agents/enfractal.agent.md").read_text(encoding="utf-8")
+            self.assertIn("tools: ['enfractal-companion/*']", agent)
+            self.assertEqual(profile.write_profiles(folder, self.launch), written)  # the same files again: fine
+            other = profile.server_launch(python="C:\\Other\\python.exe", windows=True, systemroot="C:\\Windows")
+            with self.assertRaises(FileExistsError):
+                profile.write_profiles(folder, other)
+            profile.write_profiles(folder, other, force=True)
+            self.assertIn("C:\\\\Other", (folder / "claude-code/play-mcp.json").read_text(encoding="utf-8"))
+
+    def test_the_command_line_prints_one_client_or_writes_them_all(self):
+        out = io.StringIO()
+        with redirect_stdout(out):
+            self.assertEqual(profile.main(["--mock", "--client", "codex"]), 0)
+        self.assertTrue(out.getvalue().startswith("[mcp_servers.enfractal-companion]"))
+        self.assertIn("'--mock'", out.getvalue())
+        with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            profile.main(["--client", "nobody"])
+        with tempfile.TemporaryDirectory() as tmp, redirect_stdout(io.StringIO()) as listed:
+            self.assertEqual(profile.main(["--write", tmp]), 0)
+            self.assertEqual(len(listed.getvalue().splitlines()), 8)
+        with redirect_stdout(io.StringIO()) as names:
+            profile.main(["--list-clients"])
+        self.assertEqual(len(names.getvalue().splitlines()), 6)
+
+
 class LaunchedFromTheProfile(unittest.IsolatedAsyncioTestCase):
     async def test_a_client_launched_from_the_profile_sees_the_game_and_nothing_else(self):
         server = printed("--mock")["mcpServers"]["enfractal-companion"]
-        parameters = StdioServerParameters(command=server["command"], args=server["args"])
+        parameters = StdioServerParameters(command=server["command"], args=server["args"], env=server.get("env"))
         async with Client(parameters, mode="legacy") as client:
             capabilities = client.server_capabilities
             self.assertIsNone(capabilities.resources)
