@@ -15,6 +15,7 @@ import uuid
 sys.dont_write_bytecode = True
 from pipeline.recipes.specs import RECIPES, resolve, strict_loads
 from pipeline.recipes.contract_check import check_glb
+from pipeline.recipes import style as shape_style
 
 REPO = Path(__file__).resolve().parents[3]
 RUNNER = REPO / 'pipeline' / 'recipes' / 'build.py'
@@ -36,7 +37,8 @@ class InputTests(unittest.TestCase):
                    {'size_m': [20, 0.02, 1]}, {'params': {'cushion_count': 7}},
                    {'params': {'cushion_count': 2.0}}, {'params': {'cushion_count': False}},
                    {'params': {'arbitrary': 1}}, {'colours': {'legs': '#12345g'}},
-                   {'colours': {'arbitrary': '#123456'}}, {'colours': []}, {'params': None}]
+                   {'colours': {'arbitrary': '#123456'}}, {'colours': []}, {'params': None},
+                   {'style': None}, {'style': 'photo'}, {'style': True}]
         for change in changes:
             with self.subTest(change=change), self.assertRaises(ValueError):
                 resolve({**base, **change})
@@ -57,6 +59,20 @@ class InputTests(unittest.TestCase):
         self.assertEqual(used['colours']['upholstery']['source'], 'default')
         self.assertEqual(used['params']['cushion_count']['source'], 'given')
         self.assertEqual(used['params']['seat_height_fraction']['source'], 'default')
+        self.assertEqual(used['style'], {'value': 'storybook', 'source': 'default'})
+        self.assertEqual(resolve({'recipe': 'couch', 'size_m': [2, 1, 1],
+                                  'style': 'plain'})['style']['value'], 'plain')
+
+    def test_style_seed(self):
+        data = {'style': 'storybook', 'size_m': [2, 1, 1], 'colours': {'legs': '#112233'}}
+        shape_style.configure(data)
+        first = shape_style.signed('arm_1')
+        shape_style.configure(dict(reversed(list(data.items()))))
+        self.assertEqual(first, shape_style.signed('arm_1'))
+        self.assertNotEqual(first, shape_style.signed('arm_-1'))
+        shape_style.configure({**data, 'colours': {'legs': '#112234'}})
+        self.assertNotEqual(first, shape_style.signed('arm_1'))
+        self.assertLessEqual(abs(first), 1)
 
     def test_cli_refuses_before_launch(self):
         root = working_folder('recipe-invalid-')
@@ -90,12 +106,14 @@ class BuildTests(unittest.TestCase):
         else:
             print(f'ARTIFACTS {cls.root}', flush=True)
 
-    def build_case(self, name, case, size, params=None):
+    def build_case(self, name, case, size, params=None, style=None):
         out = self.root / name / case
         out.mkdir(parents=True, exist_ok=True)
         document = {'recipe': name, 'size_m': size}
         if params is not None:
             document['params'] = params
+        if style is not None:
+            document['style'] = style
         path = out / 'input.json'
         path.write_text(json.dumps(document) + '\n', encoding='utf-8', newline='\n')
         process = subprocess.run([sys.executable, '-B', str(RUNNER), str(path), '--out', str(out)],
@@ -121,6 +139,10 @@ class BuildTests(unittest.TestCase):
         for mat in receipt['materials']:
             exported = next(m for m in gltf['materials'] if m['name'] == mat['slot'])
             self.assertEqual(exported['extras']['material_role'], mat['role'])
+            if receipt['inputs_used']['style']['value'] == 'storybook' and mat['role'] == 'glass':
+                self.assertEqual(exported['alphaMode'], 'BLEND')
+                self.assertAlmostEqual(exported['pbrMetallicRoughness']['baseColorFactor'][3], 0.22)
+                self.assertNotIn('KHR_materials_transmission', exported.get('extensions', {}))
         for part in receipt['parts'].values():
             self.assertEqual(part['degenerate_triangles'], 0)
             self.assertEqual(part['nonmanifold_edges'], 0)
@@ -132,6 +154,9 @@ class BuildTests(unittest.TestCase):
         self.assertLessEqual(width, 640)
         self.assertLessEqual(height, 480)
         self.assertEqual(receipt['preview']['device'], 'CPU')
+        self.assertEqual(receipt['preview']['denoising'], 'OPENIMAGEDENOISE_CPU')
+        self.assertEqual(receipt['preview']['camera_angle_deg'], 30)
+        self.assertLess(len(png), 400000)
         self.assertTrue(receipt['collision_shapes'])
         for shape in receipt['collision_shapes']:
             self.assertEqual(shape['shape'], 'box')
@@ -181,6 +206,18 @@ class BuildTests(unittest.TestCase):
                     self.build_case('couch', case, size, params)
                     print(f'COUCH_EXTREMES params={json.dumps(params, sort_keys=True)} size={label} PASS',
                           flush=True)
+
+    def test_05_plain_and_default_style(self):
+        for name, spec in RECIPES.items():
+            with self.subTest(recipe=name):
+                _, plain = self.build_case(name, 'plain', spec['example_size_m'], style='plain')
+                _, repeat = self.build_case(name, 'plain_repeat', spec['example_size_m'], style='plain')
+                self.assertEqual(plain, repeat, f'{name}: plain GLB bytes differ')
+                _, explicit = self.build_case(name, 'explicit_storybook', spec['example_size_m'], style='storybook')
+                default = (self.root / name / 'default' / (name + '.glb')).read_bytes()
+                self.assertEqual(default, explicit, f'{name}: omitted style differs from storybook')
+                self.assertNotEqual(plain, explicit, f'{name}: style has no exported effect')
+                print(f'PLAIN_AND_STORYBOOK {name} bounds_fit=True byte_identical=True distinct_styles=True', flush=True)
 
 
 if __name__ == '__main__':

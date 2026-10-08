@@ -6,6 +6,7 @@ from pathlib import Path
 import bmesh
 import bpy
 from mathutils import Matrix, Quaternion, Vector
+import style
 
 def reset():
     if not bpy.app.background:
@@ -52,8 +53,10 @@ def panel(name, size, location, mat, bevel):
     bpy.ops.mesh.primitive_cube_add(size=1, location=location)
     obj = bpy.context.object
     obj.name = name
-    obj.dimensions = size
-    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    styled = style.enabled()
+    if not styled:
+        obj.dimensions = size
+        bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
     # These panels have flat-colour materials. Cube UV interpolation during bevel
     # can jitter across processes; unused layers need not reach the exporter.
     for layer in list(obj.data.uv_layers):
@@ -61,9 +64,17 @@ def panel(name, size, location, mat, bevel):
     mod = obj.modifiers.new('small_real_edge_bevel', 'BEVEL')
     # Leave a flat strip even on thin frames/screens. Blender's overlap clamp at
     # half the shortest side can collapse opposing bevels into zero-area faces.
-    mod.width = min(bevel, min(size) * 0.25)
-    mod.segments = 2
+    rounding, segments, pillow = style.panel_settings(name)
+    mod.width = rounding if styled else min(bevel, min(size) * 0.25)
+    mod.segments = segments if styled else 2
     bpy.ops.object.modifier_apply(modifier=mod.name)
+    if styled:
+        for vertex in obj.data.vertices:
+            for axis in range(3):
+                vertex.co[axis] *= size[axis]
+        for polygon in obj.data.polygons:
+            polygon.use_smooth = pillow or max(abs(v) for v in polygon.normal) < 0.999
+        obj.data.update()
     obj.data.materials.append(mat)
     return obj
 
@@ -167,7 +178,9 @@ def render_preview(path, objects, samples):
     scene.cycles.device = 'CPU'
     scene.cycles.samples = samples
     scene.cycles.seed = 10
-    scene.cycles.use_denoising = False
+    scene.cycles.use_denoising = True
+    scene.cycles.denoiser = 'OPENIMAGEDENOISE'
+    scene.cycles.denoising_use_gpu = False
     scene.cycles.max_bounces = 6
     scene.cycles.transmission_bounces = 4
     scene.render.threads_mode = 'FIXED'
@@ -181,7 +194,7 @@ def render_preview(path, objects, samples):
     lo, hi = bounds(objects)
     height = hi[2]
     span = max(hi[i] - lo[i] for i in range(3))
-    floor = material('preview_floor_only', (0.35, 0.39, 0.43), roughness=0.85)
+    floor = material('preview_floor_only', (0.30, 0.34, 0.37), roughness=0.85)
     bpy.ops.mesh.primitive_plane_add(size=span * 200, location=(0, 0, -0.0001))
     bpy.context.object.data.materials.append(floor)
     scene.world.use_nodes = True
@@ -194,6 +207,7 @@ def render_preview(path, objects, samples):
         light.energy = power * span * span
         light.shape = 'DISK'
         light.size = size * span
+        light.color = (1.0, 0.83, 0.66) if name == 'key' else (0.78, 0.86, 1.0)
         obj = bpy.data.objects.new(name, light)
         bpy.context.collection.objects.link(obj)
         obj.location = Vector(xyz) * span
@@ -201,14 +215,29 @@ def render_preview(path, objects, samples):
     camera = bpy.data.cameras.new('preview_camera')
     obj = bpy.data.objects.new('preview_camera', camera)
     bpy.context.collection.objects.link(obj)
-    obj.location = Vector((1.7 * span, -2.5 * span, height * 0.5 + 1.5 * span))
-    obj.rotation_euler = (Vector((0, 0, height * 0.45)) - obj.location).to_track_quat('-Z', 'Y').to_euler()
-    camera.type = 'ORTHO'
-    camera.ortho_scale = max(span * 1.7, height * 1.9)
+    focus = Vector((0, 0, height * 0.45))
+    direction = Vector((2.5, -4.2, 3.3)).normalized()
+    rotation = (-direction).to_track_quat('-Z', 'Y')
+    obj.rotation_euler = rotation.to_euler()
+    camera.type = 'PERSP'
+    camera.angle = math.radians(30)
+    camera.sensor_fit = 'HORIZONTAL'
+    # Fit the actual mesh projection with 18% breathing room. Same camera and
+    # lighting for both styles, including a wide couch and a tall narrow vessel.
+    tangent = math.tan(camera.angle / 2)
+    inverse = rotation.inverted()
+    points = [inverse @ (part.matrix_world @ v.co - focus)
+              for part in objects for v in part.data.vertices]
+    distance = max(max(abs(p.x) / (tangent * 0.82),
+                       abs(p.y) / (tangent * 0.75 * 0.82)) + p.z for p in points)
+    obj.location = focus + direction * distance
+    camera.clip_start = span * 0.01
+    camera.clip_end = span * 300
     scene.camera = obj
-    assert bpy.app.background and scene.cycles.device == 'CPU'
+    assert bpy.app.background and scene.cycles.device == 'CPU' and not scene.cycles.denoising_use_gpu
     print(f'RENDER engine={scene.render.engine} device={scene.cycles.device} '
-          f'threads={scene.render.threads} samples={samples} size=512x384', flush=True)
+          f'threads={scene.render.threads} samples={samples} denoise=OIDN_CPU '
+          f'lens=30deg size=512x384', flush=True)
     bpy.ops.render.render(write_still=True)
 
 
