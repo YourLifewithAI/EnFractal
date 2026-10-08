@@ -282,3 +282,50 @@ here; replace the fallback with Lane L's intended role-aware shader later.
 Contracts: no change requested. Full Windows runners were not run because this
 brief forbids Godot. No setup guard or sandbox denial occurred; `rg` was absent,
 so file reads/searches used PowerShell's built-in tools.
+
+
+## Follow-up round
+
+Each spawn now faces the nearest promised destination in X/Z: a populated
+`carriable` object (exported as movable), or a cottage/tower prototype in either
+objects or scatter. Buildings merged after the entity budget still qualify.
+Selection uses entity properties, never room ids. Godot +Y yaw is
+`degrees(atan2(-dx, -dz))`; ties preserve package order (objects, then scatter).
+With no destination, or a coincident nearest destination with no horizontal
+heading, source yaw remains. This supersedes the original yaw-preservation mapping.
+
+Added three tests covering reference headings within 0.5 degrees, movable and
+building types, separate choices per spawn, horizontal rather than 3D distance,
+and nonzero source-yaw fallback despite fixed decoration. The existing spawn
+test retains its X/Z and terrain-height assertions under the new yaw policy.
+All 15 tests pass, including byte determinism and the real contract validator.
+The requested full suite ran once in this round. No sandbox denials, paid APIs,
+GPU use, commits or out-of-scope edits. Cost $0. No follow-up implementation is
+unfinished; native game/play verification remains unverified for the integrator
+because this brief forbids Godot.
+
+```text
+python -B -S -m unittest pipeline.landscape.export.tests.test_export -v
+exit 0
+test_broken_input_and_nonempty_output_fail_cleanly (pipeline.landscape.export.tests.test_export.ExportTests.test_broken_input_and_nonempty_output_fail_cleanly) ... ok
+test_byte_deterministic (pipeline.landscape.export.tests.test_export.ExportTests.test_byte_deterministic) ... ok
+test_carryable_object_matches_host_mass_movable_rules (pipeline.landscape.export.tests.test_export.ExportTests.test_carryable_object_matches_host_mass_movable_rules) ... ok
+test_materials_bake_tints_blends_without_double_multiplication (pipeline.landscape.export.tests.test_export.ExportTests.test_materials_bake_tints_blends_without_double_multiplication) ... ok
+test_no_promised_destination_keeps_source_yaw (pipeline.landscape.export.tests.test_export.ExportTests.test_no_promised_destination_keeps_source_yaw) ... ok
+test_nonuniform_scale_and_yaw_are_baked_in_order (pipeline.landscape.export.tests.test_export.ExportTests.test_nonuniform_scale_and_yaw_are_baked_in_order) ... ok
+test_nonuniform_scatter_exports_static_and_entity_geometry (pipeline.landscape.export.tests.test_export.ExportTests.test_nonuniform_scatter_exports_static_and_entity_geometry) ... ok
+test_normals_share_indices_and_preserve_split_creases (pipeline.landscape.export.tests.test_export.ExportTests.test_normals_share_indices_and_preserve_split_creases) ... ok
+test_reference_spawns_face_nearest_promised_destination (pipeline.landscape.export.tests.test_export.ExportTests.test_reference_spawns_face_nearest_promised_destination) ... ok
+test_reference_validates_and_all_files_are_pinned (pipeline.landscape.export.tests.test_export.ExportTests.test_reference_validates_and_all_files_are_pinned) ... ok
+test_room_budget_caps_scatter_entities_without_losing_geometry (pipeline.landscape.export.tests.test_export.ExportTests.test_room_budget_caps_scatter_entities_without_losing_geometry) ... ok
+test_scatter_scenery_water_and_setup_policy (pipeline.landscape.export.tests.test_export.ExportTests.test_scatter_scenery_water_and_setup_policy) ... ok
+test_spawns_choose_by_type_and_horizontal_distance_individually (pipeline.landscape.export.tests.test_export.ExportTests.test_spawns_choose_by_type_and_horizontal_distance_individually) ... ok
+test_spawns_sample_terrain_and_keep_source_xz (pipeline.landscape.export.tests.test_export.ExportTests.test_spawns_sample_terrain_and_keep_source_xz) ... ok
+test_terrain_triangles_and_bounds_match_exactly (pipeline.landscape.export.tests.test_export.ExportTests.test_terrain_triangles_and_bounds_match_exactly) ... ok
+
+----------------------------------------------------------------------
+Ran 15 tests in 3.603s
+
+OK
+VALIDATOR exit=0 OK: 1 item(s) checked, 0 problem(s)
+```

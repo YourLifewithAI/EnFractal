@@ -182,6 +182,13 @@ def export_room(package_folder, source_room_folder, room_id, out):
     require(len(blobs) <= 2048, 'output exceeds room file limit (2048)')
     require(len({o['id'] for o in objects}) == len(objects), 'populated id collides with generated scatter entity id')
 
+    # Package v1 carriable objects become movable assets. Only cottage/tower
+    # prototypes promise a door; other fixed landmarks are not destinations.
+    # Include buildings merged after the entity budget, since they remain drawn.
+    destinations = [r['position_m'] for r in doc['objects']
+                    if r['carriable'] or r['prototype'] in {'cottage', 'tower'}]
+    destinations.extend(r['position_m'] for r in doc['scatter']
+                        if r['prototype'] in {'cottage', 'tower'})
     spawns = []
     for spawn in source['spawns']:
         spawn = dict(spawn, position_m=list(spawn['position_m']))
@@ -190,6 +197,14 @@ def export_room(package_folder, source_room_folder, room_id, out):
         spawn['position_m'][1] = y
         require(all(source['bounds']['min_m'][i]-1e-6 <= spawn['position_m'][i] <= source['bounds']['max_m'][i]+1e-6
                     for i in range(3)), 'lifted spawn outside source room bounds')
+        if destinations:
+            x, _, z = spawn['position_m']
+            # min keeps package order on ties. Height never affects selection.
+            target = min(destinations, key=lambda p: (p[0]-x)**2 + (p[2]-z)**2)
+            dx, dz = target[0]-x, target[2]-z
+            if dx != 0 or dz != 0:
+                # Godot +Y yaw turns -Z towards -X; a coincident target has no heading.
+                spawn['yaw_deg'] = math.degrees(math.atan2(-dx, -dz))
         spawns.append(spawn)
     setup = doc['setup']
     edges = open_edges(terrain)

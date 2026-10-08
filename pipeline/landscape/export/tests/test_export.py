@@ -101,13 +101,80 @@ class ExportTests(unittest.TestCase):
                 self.assertEqual(f(v[i] for p in original for v in p['positions']),
                                  f(v[i] for p in exported for v in p['positions']))
 
-    def test_spawns_sample_terrain_and_keep_source_xz_yaw(self):
+    def test_spawns_sample_terrain_and_keep_source_xz(self):
         terrain = [p for r in self.package['terrain'] for p in self.meshes[r['mesh']]]
         source = json.loads((ROOM/'room.json').read_bytes())
         for a, b in zip(source['spawns'], self.manifest['spawns']):
-            self.assertEqual([a['position_m'][0], a['position_m'][2], a['yaw_deg']],
-                             [b['position_m'][0], b['position_m'][2], b['yaw_deg']])
+            self.assertEqual([a['position_m'][0], a['position_m'][2]],
+                             [b['position_m'][0], b['position_m'][2]])
             self.assertAlmostEqual(b['position_m'][1], ground(terrain, b['position_m'][0], b['position_m'][2]))
+
+    def assert_faces(self, spawn, target):
+        dx, dz = target[0]-spawn['position_m'][0], target[2]-spawn['position_m'][2]
+        yaw = math.radians(spawn['yaw_deg'])
+        forward = (-math.sin(yaw), -math.cos(yaw))
+        error = math.degrees(math.atan2(abs(forward[0]*dz-forward[1]*dx),
+                                       forward[0]*dx+forward[1]*dz))
+        self.assertLessEqual(error, .5)
+
+    def test_reference_spawns_face_nearest_promised_destination(self):
+        # The reference's movable crate is closer than its cottage and tower.
+        target = self.package['objects'][0]['position_m']
+        for spawn in self.manifest['spawns']:
+            self.assert_faces(spawn, target)
+
+    def test_spawns_choose_by_type_and_horizontal_distance_individually(self):
+        for mode in ('movable', 'populated_cottage', 'scatter_cottage', 'scatter_tower'):
+            with self.subTest(mode=mode):
+                # Fixed crates/boulders are closer, but promise neither carrying nor doors.
+                fixed = dict(id='nearby_decoration', kind='container', prototype='crate',
+                             position_m=[0,0,-3], yaw_deg=0, size_m=[.1,.1,.1],
+                             mass_kg=1, carriable=False)
+                objects = [fixed]
+                scatter = [dict(prototype='boulder', position_m=[1,0,-3],
+                                yaw_deg=0, scale=[1,1,1])]
+                targets = [[-1,1.85,-2.5], [2,0,-2.5]]
+                name = 'tower' if mode == 'scatter_tower' else 'cottage'
+                for i, target in enumerate(targets):
+                    if mode.startswith('scatter_'):
+                        scatter.append(dict(prototype=name, position_m=target,
+                                            yaw_deg=0, scale=[1,1,1]))
+                    else:
+                        objects.append(dict(id='destination_'+str(i), kind='decor',
+                                            prototype='crate' if mode == 'movable' else name,
+                                            position_m=target, yaw_deg=0, size_m=[.1,.1,.1],
+                                            mass_kg=.1, carriable=mode == 'movable'))
+                package = self.scratch/('heading-package-'+mode)
+                write_package(package, ROOM, meshes={'land': self.meshes['land']}, setup=dict(SETUP),
+                              generator={'name':'test','version':'1'}, terrain=[{'mesh':'land'}],
+                              objects=objects, scatter=scatter)
+                room_id = 'heading_'+mode
+                out = self.scratch/room_id
+                export_room(package, ROOM, room_id, out)
+                spawns = json.loads((out/'room.json').read_bytes())['spawns']
+                for spawn, target in zip(spawns, targets):
+                    self.assert_faces(spawn, target)
+
+    def test_no_promised_destination_keeps_source_yaw(self):
+        source = self.scratch/'yaw-source'
+        os.makedirs(source)
+        room = json.loads((ROOM/'room.json').read_bytes())
+        for spawn, yaw in zip(room['spawns'], [-37,123]):
+            spawn['yaw_deg'] = yaw
+        (source/'room.json').write_text(json.dumps(room)+'\n', encoding='utf-8', newline='\n')
+        (source/'inventory.json').write_bytes((ROOM/'inventory.json').read_bytes())
+        package = self.scratch/'no-destination-package'
+        # Both populated and scatter records exist; neither is a promised destination.
+        write_package(package, source, meshes={'land': self.meshes['land']}, setup=dict(SETUP),
+                      generator={'name':'test','version':'1'}, terrain=[{'mesh':'land'}],
+                      objects=[dict(id='fixed_crate', kind='container', prototype='crate',
+                                    position_m=[0,0,0], yaw_deg=0, size_m=[.1,.1,.1],
+                                    mass_kg=1, carriable=False)],
+                      scatter=[dict(prototype='boulder', position_m=[1,0,0], yaw_deg=0, scale=[1,1,1])])
+        out = self.scratch/'heading_no_destination'
+        export_room(package, source, out.name, out)
+        spawns = json.loads((out/'room.json').read_bytes())['spawns']
+        self.assertEqual([s['yaw_deg'] for s in spawns], [-37,123])
 
     def test_carryable_object_matches_host_mass_movable_rules(self):
         rules = (ROOT/'game/scripts/native/Sandbox/SandboxRules.cs').read_text()
