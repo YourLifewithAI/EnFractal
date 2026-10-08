@@ -1,0 +1,94 @@
+{
+  "triangle_count": 7308,
+  "bbox_min_m_y_up": [
+    -0.041999999433755875,
+    0.0,
+    -0.041999999433755875
+  ],
+  "bbox_max_m_y_up": [
+    0.041999999433755875,
+    0.0949999988079071,
+    0.041999999433755875
+  ],
+  "dimensions_m_y_up": [
+    0.08399999886751175,
+    0.0949999988079071,
+    0.08399999886751175
+  ],
+  "glb_bytes": 175652,
+  "extensions_used": [
+    "KHR_materials_transmission"
+  ],
+  "materials": [
+    {
+      "doubleSided": true,
+      "name": "red_white_gingham_enamel",
+      "pbrMetallicRoughness": {
+        "baseColorTexture": {
+          "index": 0
+        },
+        "metallicFactor": 0.15000000596046448,
+        "roughnessFactor": 0.30000001192092896
+      }
+    },
+    {
+      "doubleSided": true,
+      "extensions": {
+        "KHR_materials_transmission": {
+          "transmissionFactor": 1
+        }
+      },
+      "name": "clear_glass",
+      "pbrMetallicRoughness": {
+        "baseColorFactor": [
+          0.9800000190734863,
+          0.9950000047683716,
+          1,
+          1
+        ],
+        "metallicFactor": 0,
+        "roughnessFactor": 0.054999999701976776
+      }
+    }
+  ],
+  "embedded_images": 1,
+  "checks": "PASS: embedded resources, triangle indices, finite Y-up bounds, bottom-centre identity root",
+  "blender": "5.2.2 LTS",
+  "parameters": {
+    "out": "C:\\Users\\blues\\AppData\\Local\\Temp\\enfractal-09-blender-spike\\artifacts",
+    "height": 0.095,
+    "body_diameter": 0.082,
+    "lid_inner_diameter": 0.082,
+    "glass_wall": 0.002,
+    "lid_lift": 0.0,
+    "no_render": false
+  },
+  "topology": {
+    "hollow_faceted_glass_body": {
+      "triangles": 3072,
+      "nonmanifold_edges": 0,
+      "degenerate_triangles": 0,
+      "signed_volume_m3": 6.17215628721592e-05
+    },
+    "neck_thread_visual_approximation": {
+      "triangles": 3084,
+      "nonmanifold_edges": 0,
+      "degenerate_triangles": 0,
+      "signed_volume_m3": 7.643061074349681e-07
+    },
+    "gingham_metal_lid": {
+      "triangles": 1152,
+      "nonmanifold_edges": 0,
+      "degenerate_triangles": 0,
+      "signed_volume_m3": 8.451594000053772e-06
+    }
+  },
+  "export_seconds": 0.4791668999969261,
+  "render_seconds": 20.145334399989224,
+  "script_seconds": 21.033493399998406,
+  "render_device": "CPU",
+  "preview_pixels": [
+    512,
+    384
+  ]
+}

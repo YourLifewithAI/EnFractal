@@ -1,0 +1,30 @@
+INFO Draco is available, use library at C:\Users\blues\AppData\Local\Programs\Blender\blender-5.2.2-windows-x64\5.2\scripts\addons_core\io_scene_gltf2\bf_intern_draco_bridge.dll
+INFO MeshOptimizer is available, use library at C:\Users\blues\AppData\Local\Programs\Blender\blender-5.2.2-windows-x64\5.2\scripts\addons_core\io_scene_gltf2\bf_intern_meshopt_bridge.dll
+19:01:53 | INFO: Starting glTF 2.0 export
+19:01:53 | INFO: Extracting primitive: Cube.001
+19:01:53 | INFO: Primitives created: 1
+19:01:53 | INFO: Extracting primitive: Cube.007
+19:01:53 | INFO: Primitives created: 1
+19:01:53 | INFO: Extracting primitive: Cube.006
+19:01:53 | INFO: Primitives created: 1
+19:01:53 | INFO: Extracting primitive: Cube.009
+19:01:53 | INFO: Primitives created: 1
+19:01:53 | INFO: Extracting primitive: Cube.008
+19:01:53 | INFO: Primitives created: 1
+19:01:53 | INFO: Extracting primitive: Cube.004
+19:01:53 | INFO: Primitives created: 1
+19:01:53 | INFO: Extracting primitive: Cube.002
+19:01:53 | INFO: Primitives created: 1
+19:01:53 | INFO: Extracting primitive: Cube.005
+19:01:53 | INFO: Primitives created: 1
+19:01:53 | INFO: Extracting primitive: Cube.003
+19:01:53 | INFO: Primitives created: 1
+19:01:53 | INFO: Finished glTF 2.0 export in 0.10386800765991211 s
+
+RENDER engine=CYCLES device=CPU threads=4 samples=48 size=512x384
+00:08.391  render           | Saved: 'C:\Users\blues\AppData\Local\Temp\enfractal-09-blender-spike\artifacts\cardboard_box.png'
+RESULT {"triangle_count": 972, "dimensions_m_y_up": [0.4000000059604645, 0.2637231945991516, 0.30000001192092896], "glb_bytes": 75176, "export_seconds": 2.2219221999985166, "render_seconds": 5.584093999990728, "script_seconds": 7.846118500005105, "checks": "PASS: embedded resources, triangle indices, finite Y-up bounds, bottom-centre identity root"}
+Blender 5.2.2 LTS (hash d13f752e3b9c built 2026-09-15 01:37:04)
+
+Blender quit
+PROCESS object=box exit=0 wall_seconds=8.644

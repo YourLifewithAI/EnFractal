@@ -1,0 +1,126 @@
+{
+  "triangle_count": 972,
+  "bbox_min_m_y_up": [
+    -0.20000000298023224,
+    0.0,
+    -0.15000000596046448
+  ],
+  "bbox_max_m_y_up": [
+    0.20000000298023224,
+    0.2637231945991516,
+    0.15000000596046448
+  ],
+  "dimensions_m_y_up": [
+    0.4000000059604645,
+    0.2637231945991516,
+    0.30000001192092896
+  ],
+  "glb_bytes": 75176,
+  "extensions_used": [],
+  "materials": [
+    {
+      "doubleSided": true,
+      "name": "kraft_cardboard",
+      "pbrMetallicRoughness": {
+        "baseColorFactor": [
+          0.4300000071525574,
+          0.2549999952316284,
+          0.11500000208616257,
+          1
+        ],
+        "metallicFactor": 0,
+        "roughnessFactor": 0.8799999952316284
+      }
+    },
+    {
+      "doubleSided": true,
+      "name": "kraft_cut_edges",
+      "pbrMetallicRoughness": {
+        "baseColorFactor": [
+          0.49000000953674316,
+          0.3100000023841858,
+          0.15000000596046448,
+          1
+        ],
+        "metallicFactor": 0,
+        "roughnessFactor": 0.949999988079071
+      }
+    }
+  ],
+  "embedded_images": 0,
+  "checks": "PASS: embedded resources, triangle indices, finite Y-up bounds, bottom-centre identity root",
+  "blender": "5.2.2 LTS",
+  "parameters": {
+    "out": "C:\\Users\\blues\\AppData\\Local\\Temp\\enfractal-09-blender-spike\\artifacts",
+    "width": 0.4,
+    "depth": 0.3,
+    "height": 0.25,
+    "thickness": 0.004,
+    "flap_deg": 4.0,
+    "no_render": false
+  },
+  "topology": {
+    "bottom": {
+      "triangles": 108,
+      "nonmanifold_edges": 0,
+      "degenerate_triangles": 0,
+      "signed_volume_m3": 0.00047959665995176624
+    },
+    "wall_x_-1": {
+      "triangles": 108,
+      "nonmanifold_edges": 0,
+      "degenerate_triangles": 0,
+      "signed_volume_m3": 0.00029488562581927134
+    },
+    "wall_y_-1": {
+      "triangles": 108,
+      "nonmanifold_edges": 0,
+      "degenerate_triangles": 0,
+      "signed_volume_m3": 0.0003853609796320217
+    },
+    "wall_x_1": {
+      "triangles": 108,
+      "nonmanifold_edges": 0,
+      "degenerate_triangles": 0,
+      "signed_volume_m3": 0.00029488562581927134
+    },
+    "wall_y_1": {
+      "triangles": 108,
+      "nonmanifold_edges": 0,
+      "degenerate_triangles": 0,
+      "signed_volume_m3": 0.0003853609796320217
+    },
+    "inner_flap_-1": {
+      "triangles": 108,
+      "nonmanifold_edges": 0,
+      "degenerate_triangles": 0,
+      "signed_volume_m3": 0.00022783436525276404
+    },
+    "inner_flap_1": {
+      "triangles": 108,
+      "nonmanifold_edges": 0,
+      "degenerate_triangles": 0,
+      "signed_volume_m3": 0.00022783436525276459
+    },
+    "outer_flap_-1": {
+      "triangles": 108,
+      "nonmanifold_edges": 0,
+      "degenerate_triangles": 0,
+      "signed_volume_m3": 0.00023355556943056236
+    },
+    "outer_flap_1": {
+      "triangles": 108,
+      "nonmanifold_edges": 0,
+      "degenerate_triangles": 0,
+      "signed_volume_m3": 0.00023355556943056245
+    }
+  },
+  "export_seconds": 2.2219221999985166,
+  "render_seconds": 5.584093999990728,
+  "script_seconds": 7.846118500005105,
+  "render_device": "CPU",
+  "preview_pixels": [
+    512,
+    384
+  ]
+}
