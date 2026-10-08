@@ -67,6 +67,9 @@ public partial class LookPresetTest : Node3D
             await CheckCapturedWalls(preset);
             await CheckFocusEasing(preset, room);
             await CheckObserve(preset, room);
+            var observeV2 = StylePreset.Resolve(RoomWorld.DefaultStyleId, 2);
+            CheckObservePlayerEnvelope(observeV2);
+            await CheckObservePlayerTracking(observeV2, room);
             CheckFocusPass(preset);
             CheckSeasonLooks(preset);
             await CheckLightProtections(preset, room);
@@ -692,6 +695,79 @@ public partial class LookPresetTest : Node3D
                 if (!(dof.NearDistance < distance && dof.FarDistance > distance && dof.FarTransition > 0f && dof.NearTransition > 0f && dof.Amount is > 0f and <= 1f))
                     Check(false, $"depth of field is well formed at {distance} m looking down {down}: {dof}");
             }
+    }
+
+    /// <summary>Observe v2 must fit a full 10 cm body, rather than merely its focus point.</summary>
+    private void CheckObservePlayerEnvelope(StylePreset preset)
+    {
+        Check(preset.PresetVersion == 2 && Mathf.IsEqualApprox(preset.Tuning.Dof.ObserveBandM, 0.14f),
+            "the new Observe fixture reads v2 with its 14 cm band");
+        foreach (var distance in new[] { 0.30f, 1.4f, 2.4f, 2.7f })
+            foreach (var pitch in Enumerable.Range(20, 61).Select(p => (float)p).Append(RoomHud.IsoPitchDeg))
+            {
+                var angle = Mathf.DegToRad(pitch);
+                // Conservative support of the height/radius envelope, plus visual seating.
+                var extent = 0.05f * Mathf.Sin(angle) + 0.02f * Mathf.Cos(angle) + SmallPlayerController.MaxSeatGapM;
+                var dof = LookDirector.DepthOfFieldFor(preset, distance, Mathf.Sin(angle), observe: true);
+                Check(dof.NearDistance < distance - extent && dof.FarDistance > distance + extent,
+                    $"Observe contains the whole body at depth {distance}, pitch {pitch}");
+                Check(Mathf.IsEqualApprox(dof.FarDistance - dof.NearDistance, 0.14f)
+                    && Mathf.IsEqualApprox(dof.NearTransition, 0.08f)
+                    && Mathf.IsEqualApprox(dof.FarTransition, 0.10f)
+                    && Mathf.IsEqualApprox(dof.Amount, 0.30f), "Observe retains its tight width, ramps and amount");
+            }
+        var close = LookDirector.DepthOfFieldFor(preset, 0.05f, 0.7f, observe: true);
+        Check(!close.NearEnabled && close.NearDistance <= 0.05f && close.FarDistance > 0.05f,
+            "a close collision-shortened view does not put the near edge past its own focus");
+    }
+
+    /// <summary>One camera changes F3/F4 poses; a shared pivot override must not steal the player focus.</summary>
+    private async Task CheckObservePlayerTracking(StylePreset preset, RoomData room)
+    {
+        var (holder, look) = NewDirector(preset, room, "ObserveV2Holder");
+        look.SetProcess(false);
+        var player = new SmallPlayerController { Name = "Player", ReadKeyboard = false };
+        holder.AddChild(player);
+        player.SetPhysicsProcess(false);
+        look.FocusTarget = player;
+        look.Observe = true;
+        var camera = new Camera3D { Near = 0.01f };
+        holder.AddChild(camera);
+        camera.MakeCurrent();
+        foreach (var (distance, pitch) in new[] { (1.4f, 45f), (2.7f, RoomHud.IsoPitchDeg), (0.30f, 80f), (2.4f, 20f) })
+        {
+            player.GlobalPosition += new Vector3(0.3f, 0.02f, -0.4f);
+            var middle = player.GetGlobalTransformInterpolated().Origin + Vector3.Up * 0.05f;
+            var forward = new Vector3(0f, -Mathf.Sin(Mathf.DegToRad(pitch)), -Mathf.Cos(Mathf.DegToRad(pitch)));
+            var sharedPivot = middle + new Vector3(0f, 0f, -0.2f);
+            camera.GlobalPosition = sharedPivot - forward * distance;
+            camera.LookAt(sharedPivot);
+            look.FocusOverride = sharedPivot;
+            Check(look.FocusPointFor(camera).IsEqualApprox(middle), "Observe chooses rendered player middle before shared pivot");
+            look._Process(1.0 / 60.0);
+            var depth = Distance(camera, middle);
+            Check(InFocus(camera, middle, out var band)
+                && Mathf.Abs((band.Near + band.Far) * 0.5f - depth) < 1e-4f,
+                "Observe follows the new player/camera depth in the same frame, including a view swap");
+            foreach (var x in new[] { -0.02f, 0.02f })
+                foreach (var y in new[] { -SmallPlayerController.MaxSeatGapM, 0.10f })
+                    foreach (var z in new[] { -0.02f, 0.02f })
+                        Check(InFocus(camera, player.GetGlobalTransformInterpolated().Origin + new Vector3(x, y, z), out _),
+                            "Observe contains a conservative body-box corner including visual seating");
+            var attributes = (CameraAttributesPractical)camera.Attributes!;
+            Check(look.Post!.Focus is { } postBand && Mathf.Abs(postBand.NearDistance - band.Near) < 1e-4f
+                && Mathf.Abs(postBand.FarDistance - band.Far) < 1e-4f,
+                "post and decoded optical sharp edges agree");
+            Check(Mathf.Abs(attributes.DofBlurAmount - 0.30f) < 1e-4f, "Observe keeps the prescribed blur amount");
+        }
+        look.Observe = false;
+        Check(look.FocusPointFor(camera).IsEqualApprox(look.FocusOverride!.Value), "ordinary building focus still honours its override");
+        look.FocusOverride = null;
+        Check(look.FocusPointFor(player.EyeCamera).IsEqualApprox(player.EyeCamera.GlobalPosition
+            - player.EyeCamera.GlobalBasis.Z * (preset.Tuning.Dof.EyeFocusBodyHeights * player.BodyHeightM)),
+            "the eye camera keeps its existing focus rule");
+        holder.QueueFree();
+        await Frames(1);
     }
 
     // ---------- post effect ----------

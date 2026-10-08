@@ -81,8 +81,8 @@ public partial class LookDirector : Node3D
     /// The observe view (the founder, 7 October: "the player should be able to switch to a view like that to look at what
     /// they built with their companion"): a very tight tilt-shift band, a sliver of the room crisp around the focus point
     /// with everything nearer and farther melting away, like looking at a model on a table. Focus follows
-    /// FocusOverride (the mouse or a free camera) or else the avatar; the band does not stretch to keep the companion in.
-    /// Eases in and out like every focus change. Off by default; the key that switches it is the HUD's.
+    /// the interpolated player body in third person, ahead of any cursor override; the band does not stretch for the companion.
+    /// Observe tracks depth immediately; ordinary focus eases. Off by default; the HUD supplies its key.
     /// </summary>
     public bool Observe { get; set; }
     /// <summary>Where the clock comes from: the real clock and calendar, the preset's fixed hour and day, or a pin (and who pinned it).</summary>
@@ -790,7 +790,7 @@ public partial class LookDirector : Node3D
         {
             // A sliver of crisp depth, short ramps and full blur outside it: the tightest tilt-shift the look makes.
             var half = 0.5f * t.ObserveBandM;
-            var nearEdge = Mathf.Max(preset.NearBlurDistanceM, d - half);
+            var nearEdge = Mathf.Max(0.01f, d - half);
             return new DepthOfField(preset.DofEnabled, d + half, t.ObserveFarTransitionM, preset.DofEnabled && nearEdge > 0.01f, nearEdge, t.ObserveNearTransitionM, t.ObserveAmount);
         }
         var nearest = float.IsFinite(alsoM) && alsoM > 0.05f ? Mathf.Min(d, alsoM) : d;
@@ -840,11 +840,11 @@ public partial class LookDirector : Node3D
         var distance = (focusPoint - camera.GlobalPosition).Dot(forward);
         var also = alsoPoint is { } point ? (point - camera.GlobalPosition).Dot(forward) : float.NaN;
         var dof = DepthOfFieldFor(Preset, distance, Mathf.Max(0f, -forward.Y), crispFromM, also, Observe);
-        // Ease toward the wanted band (a moving player, a cursor jumping across the room, the observe view switching on);
-        // a camera the look has not focused before, and a framed review camera (delta 0), take it at once.
+        // Ordinary focus eases. Observe follows the current body/camera depth immediately,
+        // including a mode change on the shared F3/F4 camera; the rig already eases its motion.
         var ease = Preset.Tuning.Dof.FocusEaseS;
         var id = camera.GetInstanceId();
-        if (delta > 0 && ease > 0f && _eased.TryGetValue(id, out var previous)) dof = Ease(previous, dof, 1f - Mathf.Exp((float)(-delta / ease)));
+        if (!Observe && delta > 0 && ease > 0f && _eased.TryGetValue(id, out var previous)) dof = Ease(previous, dof, 1f - Mathf.Exp((float)(-delta / ease)));
         _eased[id] = dof;
         Post?.SetFocus(dof);
         attributes.DofBlurFarEnabled = dof.FarEnabled;
@@ -897,10 +897,12 @@ public partial class LookDirector : Node3D
     /// </summary>
     public Vector3 FocusPointFor(Camera3D camera)
     {
+        var body = FocusBody();
+        if (Observe && body is SmallPlayerController avatar && IsInstanceValid(avatar) && camera != avatar.EyeCamera)
+            return avatar.GetGlobalTransformInterpolated().Origin + Vector3.Up * (avatar.BodyHeightM * 0.5f);
         if (FocusOverride is { } target) return target;
         var forward = -camera.GlobalBasis.Z;
         var dof = Preset.Tuning.Dof;
-        var body = FocusBody();
         if (body != null && IsInstanceValid(body))
         {
             if (body is SmallPlayerController controller)

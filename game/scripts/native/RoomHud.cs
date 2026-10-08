@@ -122,7 +122,6 @@ public partial class RoomHud : CanvasLayer
         return $"{hour}  ·  {moment.Season}, {date}, " + (SeasonStop >= 0 ? SeasonStops[SeasonStop].Name + " (Shift+T)" : "real date (Shift+T)");
     }
 
-    private bool _observeFocus;
     private Node3D _dioramaPivot = null!;
     private SpringArm3D _dioramaArm = null!;
     private Camera3D _diorama = null!;
@@ -133,6 +132,8 @@ public partial class RoomHud : CanvasLayer
     public override void _Ready()
     {
         Name = "RoomHud";
+        // Place the rendered camera before LookDirector computes its focus depth.
+        ProcessPriority = -1;
         BuildCameras();
         LoadPreferences();
         var theme = new Theme { DefaultFontSize = 18 };
@@ -311,9 +312,6 @@ public partial class RoomHud : CanvasLayer
         _state.Text = $"{Player.BodyHeightM * 100:0} cm player  ·  gravity {Player.WorldPhysicsId} (G)  ·  {Companion.CompanionName}: {Companion.CurrentIntent}" + (Companion.GoalBlocked ? " · path blocked" : "") +
             (holding.Length > 0 ? $"  ·  holding {holding} (F)" : "") + (Look?.Observe == true ? "  ·  observe view (O)" : "");
         _notice.Text = _noticeText;
-        // The observe view looks at what the free camera orbits: focus follows its target, and lets go when the view does.
-        if (Look != null && Look.Observe && ViewMode >= 2) { Look.FocusOverride = _dioramaPivot.GlobalPosition; _observeFocus = true; }
-        else if (_observeFocus) { Look!.FocusOverride = null; _observeFocus = false; }
         var clock = ClockText();
         _clock.Visible = clock.Length > 0;
         _clock.Text = clock;
