@@ -11,9 +11,10 @@ const TEXT = preload("res://scripts/creation_text.gd")
 const SCHEMA := "enfractal.creation-world"
 ## Version 2 pins a room manifest instead of a map, uses contract principals and adds locks. Version 3 adds
 ## the compacted receipt index and the checkpoints. Version 4 adds object_poses: where play has moved the
-## room's objects (the sandbox verbs, Run 2 P3). Version 2 and 3 saves still load (with none of the later blocks).
-const VERSION := 4
-const LOADABLE_VERSIONS := [2, 3, 4]
+## room's objects (the sandbox verbs, Run 2 P3). Version 5 adds team: the team's journal and discovered map, a block
+## the trusted host owns and checks (team_check). Earlier saves still load (with none of the later blocks).
+const VERSION := 5
+const LOADABLE_VERSIONS := [2, 3, 4, 5]
 const STYLE_VERSION := "painterly_v1"
 const MAX_SAVE_BYTES := 4 * 1024 * 1024
 ## Durable receipts in the ledger. The last PLAYER_RECEIPT_RESERVE slots are the player's alone, so a
@@ -63,6 +64,9 @@ var pose_sink := Callable()
 ## support), called once the poses reach the scene and before the save's creations are checked: {ok} or
 ## {ok: false, message}. A refused pose refuses the whole save, as an unplaceable creation does. Optional.
 var pose_check := Callable()
+## The trusted host's check of a save's team block (its journal and discovered map) and its revision before the save
+## is believed: {ok} or {ok: false, message}. Optional; without it any dictionary loads.
+var team_check := Callable()
 var _roles := DEFAULT_ROLES.duplicate()
 var _consent := {PLAYER: false, COMPANION: false}
 var _instances: Dictionary = {}
@@ -75,6 +79,8 @@ var _entity_revisions: Dictionary = {}
 ## Where play has moved room objects: {"obj:x": {position_m, rotation, bounds: {min_m, max_m}}}. An object
 ## absent here stands where the room manifest puts it.
 var _object_poses: Dictionary = {}
+## The team's journal and discovered map ({} until the host writes them): opaque here, owned and checked by the host.
+var _team: Dictionary = {}
 var _surface := Callable()
 var _room_id := ""
 var _manifest_sha256 := ""
@@ -101,6 +107,7 @@ func configure(room: Dictionary, surface_query: Callable, save_path: String) -> 
 	_locks.clear()
 	_entity_revisions.clear()
 	_object_poses.clear()
+	_team = {}
 	_runtime_events.clear()
 	_last_budget_time = -1.0
 	revision = 0
@@ -158,8 +165,8 @@ func submit(principal: String, request: Dictionary, receipt_meta: Dictionary = {
 			return _failure("action_id_conflict", "action_id", "This action ID was already used for different content.")
 		return {"ok": true, "instance_id": "", "revision": int(_compacted[key][0]), "permission_revision": permission_revision, "replayed": true, "compacted": true, "affected": [], "created": []}
 	var op: Variant = request.get("op")
-	if op not in ["place", "revise", "remove", "activate", "lock", "unlock", "checkpoint", "move"]:
-		return _failure("operation_invalid", "op", "Choose place, revise, remove, activate, lock, unlock, checkpoint or move.")
+	if op not in ["place", "revise", "remove", "activate", "lock", "unlock", "checkpoint", "move", "note"]:
+		return _failure("operation_invalid", "op", "Choose place, revise, remove, activate, lock, unlock, checkpoint, move or note.")
 	var allowed := ["op", "action_id", "expected_revision", "expected_permission_revision"]
 	if op in ["place", "revise"]:
 		allowed.append_array(["source", "x_m", "z_m", "yaw_deg", "y_m", "on"])
@@ -171,6 +178,8 @@ func submit(principal: String, request: Dictionary, receipt_meta: Dictionary = {
 		allowed.append("label")
 	if op == "move":
 		allowed.append_array(["target", "position_m", "rotation", "bounds"])
+	if op == "note":
+		allowed.append_array(["team", "entry_id"])
 	for field in request:
 		if field not in allowed:
 			return _failure("field_unknown", String(field), "Identity, ownership, height, approval and compiled costs are assigned by the host.")
@@ -185,6 +194,8 @@ func submit(principal: String, request: Dictionary, receipt_meta: Dictionary = {
 		return _submit_checkpoint(principal, request.get("label", ""), key, fingerprint, meta)
 	if op == "move":
 		return _submit_move(principal, request, key, fingerprint, meta)
+	if op == "note":
+		return _submit_note(principal, request, key, fingerprint, meta)
 	var instance_id := ""
 	if op != "place":
 		if not request.get("instance_id") is String or not _instances.has(request.instance_id):
@@ -338,6 +349,42 @@ func _submit_move(principal: String, request: Dictionary, key: String, fingerpri
 	if not committed.ok:
 		return committed
 	return receipt
+
+
+## journal.note: the sender's own words, written by the trusted host into the team block it hands over, saved
+## atomically with a durable receipt naming the entry. It changes no world state and does not move the revision.
+func _submit_note(principal: String, request: Dictionary, key: String, fingerprint: String, meta: Dictionary) -> Dictionary:
+	var team: Variant = request.get("team")
+	var entry_id: Variant = request.get("entry_id")
+	if not team is Dictionary or not entry_id is String or not _pattern(ENTRY_ID).search(entry_id):
+		return _failure("request_invalid", "team", "A note names its entry and the team block it is written into.")
+	if not _receipt_room(principal):
+		return _receipt_limit()
+	var next := _state()
+	next.team = team.duplicate(true)
+	var receipt := {"ok": true, "instance_id": "", "revision": revision, "permission_revision": permission_revision, "replayed": false, "affected": [], "created": [], "entry_id": entry_id}
+	next.receipts = _receipts.duplicate(true)
+	next.receipts[key] = {"principal": principal, "action_id": key.get_slice("|", 1), "fingerprint": fingerprint, "receipt": receipt.duplicate(true), "meta": meta}
+	var committed := _commit(next)
+	if not committed.ok:
+		return committed
+	return receipt
+
+
+## The team block as last saved ({} before the host wrote one).
+func team() -> Dictionary:
+	return _team.duplicate(true)
+
+
+## The trusted host saves the team's journal and discovered map (a goal's task, a fact, newly discovered space). It
+## changes no world state, keeps no receipt and does not move the revision. Never while the save is unavailable: a
+## save that failed to load is never overwritten.
+func set_team(team: Dictionary) -> Dictionary:
+	if not _available():
+		return _failure("save_not_ready", "", "Load the saved room successfully before changing it.")
+	var next := _state()
+	next.team = team.duplicate(true)
+	return _commit(next)
 
 
 ## A pose as the host sends it and the save keeps it: {position_m, rotation (unit xyzw), bounds}, the origin
@@ -649,11 +696,22 @@ func load_envelope(data: Dictionary) -> Dictionary:
 			_publish_poses(_object_poses)
 			var reason := String(verdict.get("message", "")) if verdict is Dictionary else ""
 			return _failure("save_invalid", "object_poses", reason if not reason.is_empty() else "A saved object pose does not fit the room.")
+	var saved_team: Variant = data.get("team", {}) if _whole(data.get("version")) and int(data.version) >= 5 else {}
+	if not saved_team is Dictionary:
+		_publish_poses(_object_poses)
+		return _failure("save_invalid", "team", "The saved journal and map are invalid.")
+	if team_check.is_valid() and not saved_team.is_empty():
+		var judged: Variant = team_check.call(saved_team.duplicate(true), int(data.revision) if _whole(data.get("revision")) else -1)
+		if not judged is Dictionary or judged.get("ok") != true:
+			_publish_poses(_object_poses)
+			var why := String(judged.get("message", "")) if judged is Dictionary else ""
+			return _failure("save_invalid", "team", why if not why.is_empty() else "The saved journal and map are invalid.")
 	var checked := _validate_saved(data)
 	if not checked.ok:
 		_publish_poses(_object_poses)
 		return checked
 	_object_poses = poses.poses
+	_team = saved_team.duplicate(true)
 	_instances = checked.instances
 	_receipts = data.receipts.duplicate(true)
 	_compacted = {}
@@ -687,7 +745,7 @@ func export_envelope() -> Dictionary:
 
 
 func _state() -> Dictionary:
-	return {"instances": _instances, "receipts": _receipts, "compacted": _compacted, "checkpoints": _checkpoints, "revision": revision, "permission_revision": permission_revision, "roles": _roles, "consent": _consent, "next_id": _next_id, "locks": _locks, "entity_revisions": _entity_revisions, "object_poses": _object_poses}
+	return {"instances": _instances, "receipts": _receipts, "compacted": _compacted, "checkpoints": _checkpoints, "revision": revision, "permission_revision": permission_revision, "roles": _roles, "consent": _consent, "next_id": _next_id, "locks": _locks, "entity_revisions": _entity_revisions, "object_poses": _object_poses, "team": _team}
 
 
 ## Persists the complete next state, then publishes it. A failed write publishes nothing.
@@ -706,6 +764,7 @@ func _commit(next: Dictionary) -> Dictionary:
 	_entity_revisions = next.entity_revisions
 	var moved: bool = next.object_poses != _object_poses
 	_object_poses = next.object_poses
+	_team = next.team
 	revision = int(next.revision)
 	permission_revision = int(next.permission_revision)
 	if moved:
@@ -875,7 +934,7 @@ func _envelope(state: Dictionary) -> Dictionary:
 		stored.erase("artifact")
 		stored.erase("active")
 		stored_instances.append(stored)
-	return {"schema": SCHEMA, "version": VERSION, "compiler_version": 1, "style_version": STYLE_VERSION, "room_pin": _room_pin(), "revision": state.revision, "permission_revision": state.permission_revision, "next_id": state.next_id, "roles": state.roles.duplicate(true), "consent": state.consent.duplicate(true), "instances": stored_instances, "receipts": state.receipts.duplicate(true), "compacted": state.compacted.duplicate(true), "checkpoints": state.checkpoints.duplicate(true), "locks": state.locks.duplicate(true), "entity_revisions": state.entity_revisions.duplicate(true), "object_poses": state.object_poses.duplicate(true)}
+	return {"schema": SCHEMA, "version": VERSION, "compiler_version": 1, "style_version": STYLE_VERSION, "room_pin": _room_pin(), "revision": state.revision, "permission_revision": state.permission_revision, "next_id": state.next_id, "roles": state.roles.duplicate(true), "consent": state.consent.duplicate(true), "instances": stored_instances, "receipts": state.receipts.duplicate(true), "compacted": state.compacted.duplicate(true), "checkpoints": state.checkpoints.duplicate(true), "locks": state.locks.duplicate(true), "entity_revisions": state.entity_revisions.duplicate(true), "object_poses": state.object_poses.duplicate(true), "team": state.team.duplicate(true)}
 
 
 func _persist(state: Dictionary) -> Dictionary:
@@ -932,6 +991,8 @@ func _validate_saved(data: Dictionary) -> Dictionary:
 		expected.append_array(["compacted", "checkpoints"])
 	if _whole(data.get("version")) and int(data.version) >= 4:
 		expected.append("object_poses")
+	if _whole(data.get("version")) and int(data.version) >= 5:
+		expected.append("team")
 	if not _exact_keys(data, expected) or data.get("schema") != SCHEMA or not _whole(data.get("version")) or int(data.version) not in LOADABLE_VERSIONS or not _whole(data.get("compiler_version")) or int(data.compiler_version) != 1 or data.get("style_version") != STYLE_VERSION or data.get("room_pin") != _room_pin():
 		return _failure("save_incompatible", "save", "The save's room, compiler or style version does not match this room.")
 	var bounded := _envelope_bounds_problem(data)
@@ -977,7 +1038,11 @@ func _validate_saved(data: Dictionary) -> Dictionary:
 		if not entry is Dictionary or not _exact_keys(entry, ["principal", "action_id", "fingerprint", "receipt", "meta"]) or entry.principal not in PRINCIPALS or not _token(entry.action_id) or key != entry.principal + "|" + entry.action_id or not _hash(entry.fingerprint):
 			return _failure("save_receipt_invalid", "receipts", "Saved action identity or fingerprint is invalid.")
 		var receipt: Variant = entry.receipt
-		if not receipt is Dictionary or not _exact_keys(receipt, ["ok", "instance_id", "revision", "permission_revision", "replayed", "affected", "created"]) or receipt.ok != true or receipt.replayed != false or not receipt.instance_id is String or (not receipt.instance_id.is_empty() and not receipt.instance_id.begins_with("creation:")) or not _whole(receipt.revision) or int(receipt.revision) < 0 or int(receipt.revision) > int(data.revision) or not _whole(receipt.permission_revision) or int(receipt.permission_revision) < 0 or int(receipt.permission_revision) > int(data.permission_revision) or not _entity_list(receipt.affected) or not _entity_list(receipt.created):
+		# A note's receipt names its journal entry; no other receipt carries one.
+		var receipt_keys := ["ok", "instance_id", "revision", "permission_revision", "replayed", "affected", "created"]
+		if entry.meta is Dictionary and entry.meta.get("op") == "journal.note":
+			receipt_keys.append("entry_id")
+		if not receipt is Dictionary or not _exact_keys(receipt, receipt_keys) or (receipt.has("entry_id") and (not receipt.entry_id is String or not _pattern(ENTRY_ID).search(receipt.entry_id))) or receipt.ok != true or receipt.replayed != false or not receipt.instance_id is String or (not receipt.instance_id.is_empty() and not receipt.instance_id.begins_with("creation:")) or not _whole(receipt.revision) or int(receipt.revision) < 0 or int(receipt.revision) > int(data.revision) or not _whole(receipt.permission_revision) or int(receipt.permission_revision) < 0 or int(receipt.permission_revision) > int(data.permission_revision) or not _entity_list(receipt.affected) or not _entity_list(receipt.created):
 			return _failure("save_receipt_invalid", "receipts.receipt", "Saved receipt revisions are invalid.")
 		if _receipt_meta(entry.principal, entry.meta).is_empty() or not _exact_keys(entry.meta, ["op", "at_utc", "approved_by"]):
 			return _failure("save_receipt_invalid", "receipts.meta", "Saved receipt metadata is invalid.")
@@ -1035,7 +1100,7 @@ func _saved_poses(data: Dictionary) -> Dictionary:
 func _complete_meta(meta: Dictionary, op: String) -> Dictionary:
 	var complete := meta.duplicate()
 	if String(complete.op).is_empty():
-		complete.op = {"place": "creation.place", "revise": "creation.revise", "remove": "entity.remove", "lock": "protect.lock", "unlock": "protect.unlock", "activate": "creation.activate", "checkpoint": "room.checkpoint", "move": "entity.place"}[op]
+		complete.op = {"place": "creation.place", "revise": "creation.revise", "remove": "entity.remove", "lock": "protect.lock", "unlock": "protect.unlock", "activate": "creation.activate", "checkpoint": "room.checkpoint", "move": "entity.place", "note": "journal.note"}[op]
 	if String(complete.at_utc).is_empty():
 		complete.at_utc = Time.get_datetime_string_from_system(true) + "Z"
 	return complete
@@ -1194,6 +1259,7 @@ const ROOM_ID := "\\A[a-z][a-z0-9_-]{0,63}\\z"
 const ROOM_ENTITY_ID := "\\A(shell|obj):[A-Za-z0-9_-]{1,64}\\z"
 const ENTITY_ID := "\\A(shell|obj|creation|avatar|effect|edit):[A-Za-z0-9_-]{1,64}\\z"
 const CHECKPOINT_ID := "\\Acp[0-9]{4,9}\\z"
+const ENTRY_ID := "\\Aentry-[a-z2-7]{26}\\z"
 static var _patterns: Dictionary = {}
 
 
