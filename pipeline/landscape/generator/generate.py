@@ -13,13 +13,13 @@ from pipeline.landscape.harness import write_package
 from pipeline.landscape.harness.common import load_json
 from pipeline.landscape.harness.kit import SIZES
 from .field import Grid, Noise, clamp, distance_field, face_slope_max, lerp, slope_field, smooth
-from .land import (cameras, inside_distance, local, outside_distance, parse_objects, room_shape,
-                   shell_land, sightline_cap, sun_shadow, uplift, weather, rr_dist)
+from .land import (FAR_Y, high_country, inside_distance, local, outside_distance, parse_objects, room_shape,
+                   shell_land, sun_shadow, uplift, weather, rr_dist)
 from .life import (STEP_LIMIT_M, WALK_LIMIT_DEG, build_mesh, build_road, find_hamlet, flatten, paint_line,
                    paint_path, prototypes, reachable_from, surface, walk)
 from .water import DISTANT_LAKE_Y, choose_outlet, lake_rho, plan_and_carve
 
-GENERATOR = {'name': 'landscape-gen-b', 'version': '1'}
+GENERATOR = {'name': 'landscape-generator', 'version': '2'}
 SEED = 20261008
 CELL = .03
 MARGIN = 2.1
@@ -47,29 +47,24 @@ def eyes(room):
     return out
 
 
-def clear_of_eyes(views, x, z, radius, corridor):
+def clear_of_eyes(views, x, z, radius, corridor=None):
+    """A glade where a body arrives (each spawn) and at the land's middle; no
+    sightline is kept open for any particular camera."""
     for ex, ez, ax, az in views:
         d = math.hypot(x-ex, z-ez)
         if d < radius:
             return False
-        L = math.hypot(ax-ex, az-ez) or 1
-        ux, uz = (ax-ex)/L, (az-ez)/L
-        along = (x-ex)*ux+(z-ez)*uz
-        across = abs(-(x-ex)*uz+(z-ez)*ux)
-        if 0 < along < corridor[0] and across < corridor[1]+along*.25:
-            return False
-        fx, fz = ex+.4*ux-.07*uz, ez+.4*uz+.07*ux
-        if math.hypot(x-fx, z-fz) < radius*.8:
-            return False
     return True
 
 
-def distant_hills(room, cams, noise, outlet):
-    """Unreachable hills beyond the boundary ridges, kept below every overview's
-    sightline to the room so they frame it rather than hide it."""
+def distant_hills(room, noise, outlet):
+    """Unreachable hills all round beyond the boundary ridges, rising out of the
+    shared surround; a gap opens where the river leaves for the distant lake.
+    Shaped for a viewer anywhere, never to a camera."""
     lo, hi, _ = room_shape(room)
     cx, cz = (lo[0]+hi[0])/2, (lo[2]+hi[2])/2
-    radii = [5.2+.55*k for k in range(30)]
+    r0 = max(hi[0]-cx, hi[2]-cz)+MARGIN-.3
+    radii = [r0+.55*k for k in range(30)]
     ring = 144
     pos, tri, tints, blend = [], [], [], []
     lake = dict(x=cx+outlet['nx']*7.6+(outlet['x']-cx)*abs(outlet['nz'])*.6,
@@ -78,14 +73,11 @@ def distant_hills(room, cams, noise, outlet):
         for k in range(ring):
             a = 2*math.pi*k/ring
             x, z = cx+math.cos(a)*r*1.05, cz+math.sin(a)*r
-            env = smooth((r-5.4)/3.)
+            env = smooth((r-r0-.2)/3.)
             hgt = env*(.9+1.6*max(0., noise.fbm(x*.17+3, z*.17-5, 4)+.25)+.5*noise.ridged(x*.3, z*.3))
             dl = math.hypot((x-lake['x'])/6.4, (z-lake['z'])/4.0)
             hgt *= smooth((dl-.95)/.6)
-            hgt = hgt-.09*(1-env)
-            cap = sightline_cap(room, cams, x, z)
-            hgt = min(hgt, cap)
-            pos.append([round(x, 4), round(max(hgt, -.09), 4), round(z, 4)])
+            pos.append([round(x, 4), round(FAR_Y+hgt, 4), round(z, 4)])
     for m in range(len(radii)-1):
         for k in range(ring):
             a = m*ring+k
@@ -94,11 +86,13 @@ def distant_hills(room, cams, noise, outlet):
             d = (m+1)*ring+(k+1) % ring
             tri += [[a, b, d], [a, d, c]]
     for v in pos:
-        y = v[1]
+        y = v[1]-FAR_Y
+        # Moss at the foot, like the shared surround it rises from; rock high up.
         blend.append(round(smooth((y-1.1)/.9), 4))
         g = clamp(.75+.1*noise(v[0], v[2]))
-        tints.append([g*.82, g*.9, g*1.0, 1])
-    return [dict(role='meadow', positions=pos, triangles=tri, tints=tints, blend_role='rock', blend_weights=blend)]
+        f = smooth(y/.35)
+        tints.append([round(lerp(1, g*.82, f), 4), round(lerp(1, g*.9, f), 4), round(lerp(1, g, f), 4), 1])
+    return [dict(role='moss', positions=pos, triangles=tri, tints=tints, blend_role='rock', blend_weights=blend)]
 
 
 def grounding(grid, h, objects, base):
@@ -146,9 +140,16 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False):
         t = clamp(math.hypot(x-outlet['x'], z-outlet['z'])/diag)
         base.append(.035+.055*t+.018*noise.fbm(x*.55+2, z*.55-1, 3))
     owner = [-1]*grid.n
+    # One lee for the whole land: soft hills trail their long gentle side the
+    # way the land drains, from the high country toward the pass, so every
+    # hill shares the same weathering, like crag-and-tail country.
+    hx_, hz_ = high_country(room, outlet)
+    for o in objects:
+        a = math.radians(o['yaw'])
+        dx, dz = outlet['x']-hx_, outlet['z']-hz_
+        o['tail'] = math.atan2(math.sin(a)*dx+math.cos(a)*dz, math.cos(a)*dx-math.sin(a)*dz)
     h = uplift(grid, objects, base, noise, owner)
-    cams = cameras(room)
-    outside = shell_land(grid, room, h, noise, cams)
+    outside, skirt = shell_land(grid, room, h, noise, outlet, objects)
     slope = slope_field(grid, h)
     h, acc = weather(grid, h, outside, slope, noise)
     water = plan_and_carve(grid, room, objects, h, base, inside, spawns, setup, noise, outside)
@@ -240,20 +241,23 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False):
     carry = None
     route = None
     roads = []
+    # Paths keep an 11 cm carrying lane clear of walls: route them that far off.
+    near_built = distance_field(grid, blocked)
+    lane_blocked = [d < .07 for d in near_built]
     if houses:
         door = houses[0]
         a = math.radians(door['yaw'])
         # In front of the first cottage's door, beside the path.
         fx = door['x']-math.sin(a)*(door['hz']+.12)+math.cos(a)*.13
         fz = door['z']-math.cos(a)*(door['hz']+.12)-math.sin(a)*.13
-        road = build_road(grid, h, wet, inside, blocked, pads, (px, pz), (fx, fz))
+        road = build_road(grid, h, wet, inside, lane_blocked, pads, (px, pz), (fx, fz))
         if road:
             roads.append(road)
             paint_line(grid, road, paths)
             for hh in houses[1:]:
                 a = math.radians(hh['yaw'])
                 dx_, dz_ = hh['x']-math.sin(a)*(hh['hz']+.08), hh['z']-math.cos(a)*(hh['hz']+.08)
-                r2 = build_road(grid, h, wet, inside, blocked, pads, (fx, fz), (dx_, dz_), .03)
+                r2 = build_road(grid, h, wet, inside, lane_blocked, pads, (fx, fz), (dx_, dz_), .03)
                 if r2:
                     roads.append(r2)
                     paint_line(grid, r2, paths, .028)
@@ -271,12 +275,12 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False):
             objects_out.append(carry)
     shadow = sun_shadow(grid, h, water_sun(setup))
     weights, tints = surface(grid, h, base, fslope, owner, objects, shadow, wet, acc, outside,
-                             paths, pads, fields, noise)
+                             paths, pads, fields, noise, skirt)
     terrain_tris = [t for t in tris if inside_tri(grid, inside, t)]
     ridge_tris = [t for t in tris if not inside_tri(grid, inside, t)]
     meshes = {'land': build_mesh(grid, h, weights, tints, terrain_tris),
               'ridges': build_mesh(grid, h, weights, tints, ridge_tris),
-              'far_hills': distant_hills(room, cams, noise, water.get('outlet', outlet))}
+              'far_hills': distant_hills(room, noise, water.get('outlet', outlet))}
     water_records = []
     for w in water['meshes']:
         meshes[w['name']] = [dict(role='still_water' if w['kind'] == 'still' else 'flowing_water',
@@ -288,8 +292,11 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False):
         meshes['proto_'+name] = prims
         proto_records[name] = {'mesh': 'proto_'+name, 'size_m': size}
     # ---------------- planting
+    # Things a body cannot pass keep an 11 cm carrying lane clear beside every path.
+    path_gap = distance_field(grid, [v >= .5 for v in paths])
     plant = Planter(grid, h, fslope, wet, inside, shadow, paths, pads, blocked, base, owner, objects,
                     views, room, rnd, noise, acc)
+    plant.path_gap = path_gap
     for hh in houses:
         scatter.append(dict(prototype='cottage', position_m=[round(hh['x'], 4), round(hh['y']-.004, 4), round(hh['z'], 4)],
                             yaw_deg=hh['yaw'], scale=[hh['scale']]*3))
@@ -298,8 +305,56 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False):
         plant.occupy(carry['position_m'][0], carry['position_m'][2], .08)
     if houses:
         scatter += plant.hamlet_props(houses)
+        # A trodden lane from the first door to each yard thing keeps it reachable.
+        lane = [1. if v >= .5 else 0. for v in paths]
+        road_pts = [pt for r in roads for pt in r]
+        for rec in scatter:
+            if rec['prototype'] in ('drying_line', 'woodpile'):
+                ay = math.radians(rec['yaw_deg'])
+                fronts = [(rec['position_m'][0]-math.sin(ay)*f, rec['position_m'][2]-math.cos(ay)*f) for f in (.1, -.1)]
+                front, door = min(((f, min(road_pts, key=lambda pt: math.hypot(pt[0]-f[0], pt[1]-f[1])))
+                                   for f in fronts), key=lambda fd: math.hypot(fd[0][0]-fd[1][0], fd[0][1]-fd[1][1]))
+                steps = max(2, int(math.hypot(front[0]-door[0], front[1]-door[1])/.02))
+                paint_line(grid, [(door[0]+(front[0]-door[0])*k/steps, door[1]+(front[1]-door[1])*k/steps)
+                                  for k in range(steps+1)], lane, .02)
+        plant.path_gap = distance_field(grid, [v >= .5 for v in lane])
     scatter += plant.everything()
-    extensions = {'x_gen_b': dict(seed=seed, cell_m=CELL, margin_m=MARGIN,
+    # Promise only what a body can reach: a yard thing no 11 cm lane reaches
+    # from the spawn is left out (the same walk the checks run).
+    from .checks import YARD, Terrain, Walker, approaches
+    probe = dict(terrain=[{'mesh': 'land'}], scenery=[], water=water_records, scatter=scatter,
+                 prototypes=proto_records, objects=objects_out)
+    walker = None
+    # Where planting closed the way to the crate or a door, the way is
+    # cleared: whatever stands within a carrying lane of the open route goes.
+    goals = [(carry['position_m'][0], carry['position_m'][2])] if carry else []
+    goals += [(hh['x']-math.sin(math.radians(hh['yaw']))*(hh['hz']+.08),
+               hh['z']-math.cos(math.radians(hh['yaw']))*(hh['hz']+.08)) for hh in houses]
+    for goal in goals:
+        walker = Walker(probe, meshes, Terrain(probe, meshes), room)
+        if walker.route((px, pz), goal)[0]:
+            continue
+        walker.obs = {}
+        path = walker.route((px, pz), goal)[0]
+        if not path:
+            continue
+        pts = [(k[0]*walker.t.cell, k[1]*walker.t.cell) for k in path]
+        for rec in [r for r in scatter if r['prototype'] in BLOCKING and r['prototype'] != 'cottage']:
+            x, z = rec['position_m'][0], rec['position_m'][2]
+            if any(math.hypot(x-a, z-b) < .3 for a, b in pts):
+                one = Walker(dict(probe, scatter=[rec]), meshes, walker.t, room)
+                if any(one.blocked(a, b) for a, b in pts if math.hypot(x-a, z-b) < .3):
+                    scatter.remove(rec)
+        walker = None
+    for rec in [r for r in scatter if r['prototype'] in YARD]:
+        if walker is None:
+            walker = Walker(probe, meshes, Terrain(probe, meshes), room)
+        base_size = SIZES[rec['prototype']] if rec['prototype'] in SIZES else proto_records[rec['prototype']]['size_m']
+        size = [b*s for b, s in zip(base_size, rec['scale'])]
+        if not any(walker.route((px, pz), g)[0] for g in approaches(rec, size)):
+            scatter.remove(rec)
+            walker = None
+    extensions = {'x_generator': dict(seed=seed, cell_m=CELL, margin_m=MARGIN,
                                   walk_limit_deg=WALK_LIMIT_DEG, step_limit_m=STEP_LIMIT_M,
                                   lake=water['lake'], spring=[round(v, 3) for v in water.get('spring', (0, 0))],
                                   hamlet=hamlet,
@@ -322,6 +377,11 @@ def water_sun(setup):
 
 def inside_tri(grid, inside, t):
     return sum(inside[q] for q in t) >= 2
+
+
+DRYING_LINE = [.36, .2, .03]
+BLOCKING = {'broadleaf', 'conifer', 'rock', 'boulder', 'shrub', 'cottage', 'woodpile', 'fence', 'lantern',
+            'crate', 'drying_line', 'footbridge'}
 
 
 class Planter:
@@ -361,8 +421,7 @@ class Planter:
     def fits(self, x, z, size, scale):
         sx, sy, sz = size[0]*scale[0], size[1]*scale[1], size[2]*scale[2]
         r = math.hypot(sx, sz)/2
-        lo, hi, _ = room_shape(self.room)
-        return (lo[0]+r+.005 < x < hi[0]-r-.005 and lo[2]+r+.005 < z < hi[2]-r-.005)
+        return inside_distance(self.room, x, z) > r+.005
 
     def put(self, proto, x, z, scale, yaw, root, size, tint=None, sink=.004, clear=.0, built=False):
         if not self.fits(x, z, size, scale):
@@ -370,6 +429,15 @@ class Planter:
         q = self.at(x, z)
         if not self.inside[q] or self.wet[q] < .02+root or self.paths[q] > .2 or self.pads[q] > .05 or self.blocked[q]:
             return None
+        if proto in BLOCKING:
+            if proto in ('broadleaf', 'conifer'):
+                r = .045*scale[0]+.01
+            elif proto in ('rock', 'boulder', 'shrub'):
+                r = min(size[0]*scale[0], size[2]*scale[2])/2
+            else:
+                r = math.hypot(size[0]*scale[0], size[2]*scale[2])/2
+            if self.path_gap[q] < r+.075:
+                return None
         if built:
             # Built things need level ground under the whole footprint.
             a = math.radians(yaw)
@@ -415,6 +483,24 @@ class Planter:
                                built=True)
                 if rec:
                     out.append(rec)
+        # Laundry drying on a line in the open beside a cottage.
+        done = False
+        for hh in houses:
+            if done:
+                break
+            a = math.radians(hh['yaw'])
+            c, s = math.cos(a), math.sin(a)
+            # Door side first (local -Z), where the paths arrive.
+            for lx, lz, turn in [(hh['hx']+.3, -hh['hz']*.6, 90), (-hh['hx']-.3, -hh['hz']*.6, 90),
+                                 (hh['hx']+.3, 0., 90), (-hh['hx']-.3, 0., 90), (0., hh['hz']+.3, 0)]:
+                x = hh['x']+c*lx+s*lz
+                z = hh['z']-s*lx+c*lz
+                rec = self.put('drying_line', x, z, [1., 1., 1.], hh['yaw']+turn, .02, DRYING_LINE, sink=.002,
+                               clear=.3, built=True)
+                if rec:
+                    out.append(rec)
+                    done = True
+                    break
         hh = houses[0]
         a = math.radians(hh['yaw'])
         x = hh['x']-math.sin(a)*(hh['hz']+.1)-math.cos(a)*(hh['hx']+.02)
@@ -560,7 +646,7 @@ def main():
     parser.add_argument('--seed', type=int, default=SEED)
     args = parser.parse_args()
     doc = generate(args.room, args.out, load_json(args.setup), args.seed)
-    print('GEN_B_PACKAGE', args.out, 'meshes', len(doc['meshes']), 'scatter', len(doc['scatter']),
+    print('LANDSCAPE_PACKAGE', args.out, 'meshes', len(doc['meshes']), 'scatter', len(doc['scatter']),
           'objects', len(doc['objects']))
 
 

@@ -186,6 +186,26 @@ custom prototypes use the same materials; supplied terrain retains its topology.
 The catalogue is documentation and never part of a blind sheet. Append
 `--kit-picture` when rendering the reference to produce it using the same lights.
 
+## Rendering changes in v1.1 (Lane C, C5)
+
+The package format is unchanged; only how the worker draws it changed.
+
+- **Smooth shading.** Terrain, water and scenery records are smooth-shaded with
+  per-corner normals. Faces that touch the same vertex *position* are averaged
+  (area-weighted) across every primitive of the record, so the one-primitive-per-role
+  split leaves no seam. Two faces meeting at more than **60 degrees** keep a hard
+  edge, and vertices a primitive deliberately splits (same position, different
+  index) never smooth with each other. Kit and custom prototypes shade as before.
+  The receipt records `smooth_shading`.
+- **Overview cutaway.** The game's camera moves, so land is no longer shaped to
+  the fixed overviews. Instead, in the three overviews only, land and scenery
+  faces outside the room's bounds whose camera ray would land on the floor more
+  than **0.9 m** inside the bounds are invisible to camera rays (they still cast
+  shadows and bounce light); land seen from inside its own solid through such a
+  cut (a back face) is cut too. Eye views and the slope diagnostic never cut.
+  The receipt records `overview_cutaway` with the face counts per view.
+- Cycles' transparent-bounce limit is 64 so camera rays can pass the cut layers.
+
 ## Fixed review rig and receipts
 
 Three perspective overviews are high three-quarter views from NE, SW and SE.

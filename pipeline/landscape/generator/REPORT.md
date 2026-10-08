@@ -1,55 +1,52 @@
-# The garage as land: generator B
+# The garage as land: the landscape generator (C5)
 
-Renders: [sheet.png](renders/sheet.png) (final settings), [scan_17_draft_sheet.png](renders/scan_17_draft_sheet.png).
+Renders: [sheet.png](renders/sheet.png) (final settings), [scan_17_draft_sheet.png](renders/scan_17_draft_sheet.png). Seed `20261008`.
 
-## How the room became land
+## How the room becomes land
+- **Geology.** Every box is uplift on one 3 cm grid, merged by a smooth maximum. Confident kinds pick forms (couch escarpment, shelf crag, desk terrace, easel needle); low confidence falls back to proportions and spreads less far. **Soft kinds are hills:** a summit ridge, spurs with gullies, a bench, and a long lee tail all hills share (high country toward the pass). **Territory:** a form may not rise over a neighbour about as sure as itself; a support's certainty includes what it carries. Three rounds of stream-power erosion branch the gullies.
+- **Shell.** Walls become a vegetated ridge ring along the floor outline (any polygon), highest farthest from the outlet so the land drains to the pass. It rises behind objects against the wall, never over them, and runs into the shared surround as a moss skirt (no seam). Distant hills surround the land. Nothing is shaped to a camera.
+- **Water, ecology, people** are as in gen_b; the hamlet search relaxes step by step when a room offers no ideal site. Paths keep an 11 cm lane clear; a yard item no lane reaches is left out.
 
-- **Geology.** Every box is uplift on one 3 cm height grid, merged by a smooth maximum so neighbours share saddles. A confident kind picks the form: the couch is an escarpment with a bench terrace, the bean bags twin rounded hills, the shelf a crag, the desk a terrace, the easel and french press needles, the table, box and tote mesas, the bicycle a serrated fin, the jar the shelf's snow cap. Low confidence falls back to proportions. Warm colours become sandstone (`cliff`), cool ones slate (`rock`), tinted by the source colour. Outlines are noise-warped; flow accumulation cuts gullies, crests soften, talus aprons skirt cliffs.
-- **Shell.** Walls become a broken ring of hills whose crests stay under each overview's sightline. The high country rises in the one corner no camera looks across. The garage door becomes the lowest pass, the window a col. Unreachable hills stand beyond, marked as scenery.
-- **Water.** A spring at the foot of the snowy crag feeds a brook into a tarn on the open plain. The outlet river leaves through the door's pass to a distant lake. Water levels are fixed before carving: each cross-section is level and nothing rises downstream.
-- **Ecology.** Surfaces follow slope, height, water and the 09:00 sun (a shadow march from the east). Moss and ferns grow in the shade, gold grass and heather on dry tops, reeds at the water's edge, broadleaves along the banks and conifers on the ridges and wild edges.
-- **People.** A hamlet of three cottages, a woodpile and a lantern sits where flat ground, shelter and water meet. The site must be reachable from the spawn without crossing water. A graded path (at most 12° along it) leads from the spawn to the cottages. The carryable `apple_crate` waits at the first door.
+## What changed and why
+The founder's favourites are kept: detail, garage features legible in the land, a believable surround. gen_a's checks are folded in. Of gen_b's six weak points, four are fixed; bridges are not built and the laundry is generated but dropped (see Weak). Harness: smooth shading and the overview cutaway (see its README).
 
-**Invented:** the lake and the river are not in the room, and the hamlet and path have no source object. The spawns and the room centre each get a small level clearing as a resting place. Seed `20261008`.
-
-## Checks (on the written package)
-
+## Checks
 ```
-python -B -m pipeline.landscape.gen_b.generate --room pipeline/landscape/corpus/rooms/garage_nominal --out <pkg>
-python -B -m pipeline.landscape.gen_b.checks --package <pkg> --room pipeline/landscape/corpus/rooms/garage_nominal
-python -B -m unittest pipeline.landscape.gen_b.tests.test_gen_b -v     # 6 tests, OK (73 s)
+python -B -m pipeline.landscape.generator.generate --room pipeline/landscape/corpus/rooms/garage_nominal --out <pkg>
+python -B -m pipeline.landscape.generator.checks --package <pkg> --room pipeline/landscape/corpus/rooms/garage_nominal
+python -B -m unittest pipeline.landscape.generator.tests.test_generator -v   # 7 tests OK (207 s)
 ```
 ```
-WATER tarn level 0.00716 spread 0.0, rim open away from a stream 0; brook_0 0.0776->0.0077, river_0 0.0067->-0.015, tilt 0.0, rise 0.0
-GROUNDED built=4 worst_hang_m=-0.0020 worst_sunk_m=0.0043 failures=0
-WALK to apple_crate: 6.47 m, max face slope 18.34 deg, max grade 11.69, max step 0.0088 m
-WALK back carrying: 6.47 m, 17.66 deg, step 0.0081 m; cottage doors 0-2 found (5.98-6.79 m)
+GROUNDED built=6 worst_hang_m=-0.0020 worst_sunk_m=0.0061 failures=0
+WALK to apple_crate 6.446 m, 8.76 deg, step 0.0009 m; back carrying 6.446 m, 11.9 deg
+WALK cottage doors 0-2: 6.315 / 6.813 / 6.267 m
 CHECKS water=True grounded=True walk=True footprints=True overall=True
 ```
-**Walk method:** an A* search over the terrain's vertices, 8-connected and rebuilt from the package. A vertex counts only when every triangle touching it is at most 20° steep. Each move may climb at most 0.02 m, and water, trunks, rocks and buildings are blocked.
+Walk method: A* on a 2.5 cm lattice of the decoded triangles (topmost hit). An 11 cm disc must be clear of water, trunks, rocks and buildings, on faces of 20° or less. Every edge is sampled each centimetre (step 0.02 m).
 
 | Object | Form | Box top | Land top | Δ | Rise |
 |---|---|---|---|---|---|
-| couch_1 | ridge | 0.830 | 0.897 | +0.067 | 0.619 |
-| bean_bag_1 / _2 | dome | 0.65 / 0.60 | 0.661 / 0.681 | +0.011 / +0.081 | 0.54 / 0.59 |
-| bicycle_1 | fin | 1.050 | 1.051 | +0.001 | 0.970 |
-| bin_1 | stack | 0.500 | 0.574 | +0.074 | 0.477 |
-| cardboard_box_1 | mesa | 0.300 | 0.390 | +0.090 | 0.257 |
-| desk_1 | mesa | 0.750 | 0.996 | +0.246 | 0.718 |
-| easel_1 | spire | 1.650 | 1.732 | +0.082 | 1.571 |
-| french_press_1 | spire | 0.966 | 0.914 | −0.052 | 0.193 |
-| jar_1 | cap (snow) | 2.140 | 2.143 | +0.003 | 0.123 |
-| laptop_1 | slab | 0.790 | 0.973 | +0.183 | 0.223 |
-| monitor_1 | crag | 1.170 | 1.160 | −0.010 | 0.410 |
-| office_chair_1 | knoll | 1.050 | 1.017 | −0.033 | 0.859 |
-| shelving_unit_1 | crag | 2.020 | 2.179 | +0.159 | 1.957 |
-| storage_tote_1 | mesa | 0.380 | 0.452 | +0.072 | 0.375 |
-| table_1 | mesa | 0.720 | 0.821 | +0.101 | 0.718 |
+| couch_1 | ridge | 0.830 | 0.896 | +0.066 | 0.596 |
+| bean_bag_1 / _2 | hill | 0.65 / 0.60 | 0.786 / 0.735 | +0.136 / +0.135 | 0.68 / 0.64 |
+| bicycle_1 | fin | 1.050 | 1.051 | +0.001 | 0.966 |
+| bin_1 | stack | 0.500 | 0.574 | +0.074 | 0.455 |
+| cardboard_box_1 | mesa | 0.300 | 0.390 | +0.090 | 0.222 |
+| desk_1 | mesa | 0.750 | 0.991 | +0.241 | 0.652 |
+| easel_1 | spire | 1.650 | 1.730 | +0.080 | 1.193 |
+| french_press_1 | spire | 0.966 | 0.912 | −0.054 | 0.191 |
+| jar_1 | cap (snow) | 2.140 | 2.142 | +0.002 | 0.122 |
+| laptop_1 | slab | 0.790 | 0.970 | +0.180 | 0.220 |
+| monitor_1 | crag | 1.170 | 1.158 | −0.012 | 0.408 |
+| office_chair_1 | knoll | 1.050 | 1.077 | +0.027 | 0.854 |
+| shelving_unit_1 | crag | 2.020 | 2.177 | +0.157 | 1.863 |
+| storage_tote_1 | mesa | 0.380 | 0.452 | +0.072 | 0.373 |
+| table_1 | mesa | 0.720 | 0.821 | +0.101 | 0.713 |
 
-Every box stays where it was (land inside the box footprint, excluding taller boxes on top of it). The rise is measured against the ring 0.45–0.7 m around the box.
+**Scan 17:** every footprint reads (desk +0.142, was +0.599). Water and grounding pass. **The walk fails:** the doors and crate are unreachable with 11 cm clearance.
 
-**Scan 17:** the layout survives: the same ridge, hills, needle, snowy crag, tarn and pass. The low-confidence mislabels turn into blockier mesas, the walk passes, and one check fails. The chair (labelled "bean bag" at 0.29) becomes a dome that swallows the desk terrace: `desk_1 delta +0.599 LOST`.
-
-## Weak and next
-
-The terrain is flat-shaded, so facets show at 10 cm. The bean-bag hills still read a little as mounds. The ridge's outer slope meets the shared far ground along visible lines. There are no bridges, so a hamlet across water is never chosen. The waterfall rule exists but this room produced none. Next: finer grid near the eyes, a proper hydraulic erosion pass, a bridge or ford rule, and the other 23 corpus rooms.
+## Weak
+- The laundry line and woodpiles are generated but dropped as unreachable in the garage; the lantern loses to the path lane.
+- No bridge or ford yet.
+- Scan 17's walk fails.
+- In the SW overview the high country's flank fills the near side.
+- Hills still look rounded up close.

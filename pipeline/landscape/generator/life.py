@@ -55,6 +55,15 @@ def _heads(rnd, count, height, spread, size):
     return pos, tris
 
 
+_BOX_T = [[0, 2, 1], [0, 3, 2], [4, 5, 6], [4, 6, 7], [0, 1, 5], [0, 5, 4], [1, 2, 6], [1, 6, 5],
+          [2, 3, 7], [2, 7, 6], [3, 0, 4], [3, 4, 7]]
+
+
+def _box(x, y, z, sx, sy, sz):
+    return [[x, y, z], [x+sx, y, z], [x+sx, y, z+sz], [x, y, z+sz],
+            [x, y+sy, z], [x+sx, y+sy, z], [x+sx, y+sy, z+sz], [x, y+sy, z+sz]]
+
+
 def prototypes():
     """Custom ground-cover meshes at 10 cm scale, in the shared roles."""
     out = {}
@@ -102,11 +111,26 @@ def prototypes():
             tri += [[seg, seg+s, seg+(s+1) % seg] for s in range(1, seg-1)]
             logs.append(dict(role='bark', positions=pos, triangles=tri))
     out['woodpile'] = (logs, [.09, .044, .1])
+    # A drying line: two posts, a line and the washing hung out in the sun.
+    line = [dict(role='timber', positions=_box(x, .0, -.006, .012, .2, .012), triangles=_BOX_T)
+            for x in (-.174, .162)]
+    line.append(dict(role='wood', positions=_box(-.17, .186, -.0015, .344, .003, .003), triangles=_BOX_T))
+    for k, (x0, w, drop, tint) in enumerate([(-.14, .07, .07, [1, .93, .75, 1]), (-.055, .06, .09, [.65, .8, 1, 1]),
+                                             (.03, .08, .065, [1, .75, .7, 1]), (.12, .045, .08, [1, 1, .95, 1])]):
+        pos, tri = [], []
+        for j in range(4):
+            for i in range(4):
+                pos.append([x0+w*i/3, .186-drop*j/3, .006*math.sin(i*1.7+k)*j/3])
+                if i and j:
+                    a_ = j*4+i
+                    tri += [[a_-5, a_-1, a_], [a_-5, a_, a_-4], [a_-5, a_, a_-1], [a_-5, a_-4, a_]]
+        line.append(dict(role='cloth', positions=pos, triangles=tri, tints=[tint]*len(pos)))
+    out['drying_line'] = (line, [.36, .2, .03])
     return {k: (_fit(v[0], v[1]), v[1]) for k, v in out.items()}
 
 
 # ---------------------------------------------------------------- surfaces
-def surface(grid, h, base, slope, owner, objects, shadow, wet, acc, outside, paths, pads, fields, noise):
+def surface(grid, h, base, slope, owner, objects, shadow, wet, acc, outside, paths, pads, fields, noise, skirt=None):
     """Per-vertex (role weights, tint): slope, height, water, light and use."""
     out_w = []
     out_t = []
@@ -173,7 +197,18 @@ def surface(grid, h, base, slope, owner, objects, shadow, wet, acc, outside, pat
         for v, k in top:
             for i in range(3):
                 tint[i] += tints[k][i]*v/tsum
-        out_w.append({k: v/tsum for v, k in top})
+        weights = {k: v/tsum for v, k in top}
+        sk = skirt[q] if skirt else 0.
+        if sk > 0:
+            # Where the ridge has run down into the shared surround, take on
+            # its moss and plain tint so the two meet without a seam.
+            weights = {k: v*(1-sk) for k, v in weights.items()}
+            weights['moss'] = weights.get('moss', 0.)+sk
+            top2 = sorted(((v, k) for k, v in weights.items()), reverse=True)[:2]
+            t2 = sum(v for v, _ in top2) or 1.
+            weights = {k: v/t2 for v, k in top2}
+            tint = [lerp(c, 1., sk) for c in tint]
+        out_w.append(weights)
         out_t.append(tuple(round(clamp(c), 4) for c in tint))
         del total
     return out_w, out_t
@@ -218,6 +253,17 @@ def build_mesh(grid, h, weights, tints, tris):
 
 # ---------------------------------------------------------------- people
 def find_hamlet(grid, h, slope, wet, inside, spawns, avoid, indist, reachable=None):
+    """The best site where water, flat ground and shelter meet; when a room
+    offers none, the demands relax a step at a time (steeper ground, farther
+    from water) before giving up."""
+    for flat_max, far_water in ((14, 1.2), (17, 1.8), (20, 3.)):
+        site = _find_hamlet(grid, h, slope, wet, inside, spawns, avoid, indist, reachable, flat_max, far_water)
+        if site is not None:
+            return site
+    return None
+
+
+def _find_hamlet(grid, h, slope, wet, inside, spawns, avoid, indist, reachable, flat_max, far_water):
     nx = grid.nx
     best = None
     for j in range(0, grid.nz, 2):
@@ -229,7 +275,7 @@ def find_hamlet(grid, h, slope, wet, inside, spawns, avoid, indist, reachable=No
             if indist(x, z) < .6:
                 continue
             w = wet[q]
-            if w < .25 or w > 1.2:
+            if w < .25 or w > far_water:
                 continue
             if any(math.hypot(x-s[0], z-s[2]) < .9 for s in spawns):
                 continue
@@ -240,7 +286,7 @@ def find_hamlet(grid, h, slope, wet, inside, spawns, avoid, indist, reachable=No
             for jj in rz:
                 for ii in rx:
                     flat = max(flat, slope[jj*nx+ii])
-            if flat > 14:
+            if flat > flat_max:
                 continue
             shelter = 0
             for k in range(12):

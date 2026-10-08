@@ -152,13 +152,72 @@ def material(role,blend=None):
     fog=haze_factor(tree)
     emission=node(tree,'ShaderNodeEmission'); emission.inputs['Color'].default_value=(*HAZE,1)
     mix=node(tree,'ShaderNodeMixShader'); tree.links.new(fog,mix.inputs[0]); tree.links.new(bsdf.outputs[0],mix.inputs[1]); tree.links.new(emission.outputs[0],mix.inputs[2])
-    output=node(tree,'ShaderNodeOutputMaterial'); tree.links.new(mix.outputs[0],output.inputs['Surface'])
+    # Overview cutaway: land outside the room that would hide the room's floor
+    # from this overview is invisible to camera rays only (it still casts
+    # shadows and bounces light). Eye views name no attribute, so nothing cuts.
+    cut=node(tree,'ShaderNodeAttribute'); cut.name='overview_cutaway'; cut.attribute_name='no_cutaway'
+    path=node(tree,'ShaderNodeLightPath'); clear=node(tree,'ShaderNodeBsdfTransparent')
+    hide=node(tree,'ShaderNodeMixShader'); amount=cut.outputs['Fac']
+    if role in GROUND_ROLES:
+        # Through a cut, a camera ray may meet land from inside the solid
+        # (a back face); in an overview that is cut away as well.
+        flag=node(tree,'ShaderNodeValue'); flag.name='overview_flag'; flag.outputs[0].default_value=0
+        back=node(tree,'ShaderNodeNewGeometry')
+        amount=math_node(tree,'MAXIMUM',amount,math_node(tree,'MULTIPLY',back.outputs['Backfacing'],flag.outputs[0]))
+    tree.links.new(math_node(tree,'MULTIPLY',amount,path.outputs['Is Camera Ray']),hide.inputs[0])
+    tree.links.new(mix.outputs[0],hide.inputs[1]); tree.links.new(clear.outputs[0],hide.inputs[2])
+    output=node(tree,'ShaderNodeOutputMaterial'); tree.links.new(hide.outputs[0],output.inputs['Surface'])
     MATERIALS[key]=m
     return m
 
 
-def add_mesh(name,primitives,position=(0,0,0),yaw=0,scale=(1,1,1),tint=(1,1,1),smooth=False,bevel=False):
+CREASE_DEG=60.
+GROUND_ROLES=('meadow','soil','worn_path','gravel','scree','rock','cliff','moss','snow')
+CUT_INSET=.9
+
+
+def soft_normals(primitives,crease_deg=CREASE_DEG):
+    """Per-corner normals for one land, water or scenery record.
+
+    Faces that touch the same vertex position are averaged (area-weighted)
+    across every primitive of the record, so the per-role primitive split
+    the format imposes leaves no seam. Two faces meeting at more than the
+    crease angle keep a hard edge, and vertices a primitive deliberately
+    splits (same position, different index) never smooth with each other.
+    Returns one list of Blender-space corner normals per primitive.
+    """
+    limit=math.cos(math.radians(crease_deg))
+    faces=[]; around={}
+    for pi,p in enumerate(primitives):
+        vs=p['positions']
+        for ti,t in enumerate(p['triangles']):
+            a,b,c=[vs[k] for k in t]
+            ux,uy,uz=b[0]-a[0],b[1]-a[1],b[2]-a[2]
+            vx,vy,vz=c[0]-a[0],c[1]-a[1],c[2]-a[2]
+            n=(uy*vz-uz*vy,uz*vx-ux*vz,ux*vy-uy*vx)
+            length=math.sqrt(n[0]*n[0]+n[1]*n[1]+n[2]*n[2]) or 1e-30
+            faces.append((n,(n[0]/length,n[1]/length,n[2]/length),pi,t))
+            f=len(faces)-1
+            for k in t:
+                around.setdefault(tuple(vs[k]),[]).append((f,pi,k))
+    out=[[] for _ in primitives]
+    for f,(n,u,pi,t) in enumerate(faces):
+        vs=primitives[pi]['positions']
+        for k in t:
+            sx=sy=sz=0.
+            for g,pj,kj in around[tuple(vs[k])]:
+                if pj==pi and kj!=k: continue
+                m,w=faces[g][0],faces[g][1]
+                if g!=f and u[0]*w[0]+u[1]*w[1]+u[2]*w[2]<limit: continue
+                sx+=m[0]; sy+=m[1]; sz+=m[2]
+            length=math.sqrt(sx*sx+sy*sy+sz*sz) or 1e-30
+            out[pi].append(xyz((sx/length,sy/length,sz/length)))
+    return out
+
+
+def add_mesh(name,primitives,position=(0,0,0),yaw=0,scale=(1,1,1),tint=(1,1,1),smooth=False,bevel=False,soft=False):
     objects=[]
+    corners=soft_normals(primitives) if soft else None
     for index,p in enumerate(primitives):
         data=bpy.data.meshes.new(name+'_'+str(index)); data.from_pydata([xyz(v) for v in p['positions']],[],p['triangles']); data.update()
         obj=bpy.data.objects.new(data.name,data); bpy.context.collection.objects.link(obj)
@@ -171,7 +230,8 @@ def add_mesh(name,primitives,position=(0,0,0),yaw=0,scale=(1,1,1),tint=(1,1,1),s
         weight=data.attributes.new(name='role_weight',type='FLOAT',domain='POINT')
         for item,value in zip(weight.data,p.get('blend_weights',[0]*len(p['positions']))): item.value=value
         data.materials.append(material(p['role'],p.get('blend_role')))
-        for polygon in data.polygons: polygon.use_smooth=smooth
+        for polygon in data.polygons: polygon.use_smooth=smooth or soft
+        if soft: data.normals_split_custom_set(corners[index])
         if bevel:
             modifier=obj.modifiers.new('kit_soft_edges','BEVEL'); modifier.width=.007; modifier.segments=2
         objects.append(obj)
@@ -219,6 +279,33 @@ def far_ground(room):
     return add_mesh('shared_far_ground',[
         quad(-reach,x0,-reach,reach,y,'moss'),quad(x1,reach,-reach,reach,y,'moss'),
         quad(x0,x1,-reach,z0,y,'moss'),quad(x0,x1,z1,reach,y,'moss')])
+
+
+def cutaway(objects,plan,room):
+    """Per overview, mark land and scenery faces outside the room's bounds that
+    stand between the camera and the room's floor (the camera's ray through
+    the face would land on the floor inside the bounds). Only the instrument
+    changes: the package's land is untouched, and eye views never cut."""
+    lo,hi=room['bounds']['min_m'],room['bounds']['max_m']; floor=lo[1]
+    # Only what hides the room's interior is cut: rays landing within the
+    # walls' own inner foothills (CUT_INSET) leave the land in place.
+    a,b=lo[0]+CUT_INSET,hi[0]-CUT_INSET; c,d=lo[2]+CUT_INSET,hi[2]-CUT_INSET
+    counts={}
+    for view in plan:
+        if view['kind']!='overview': continue
+        cx,cy,cz=view['position_m']; total=0
+        for obj in objects:
+            data=obj.data
+            attr=data.attributes.new(name='cut_'+view['name'],type='FLOAT',domain='FACE')
+            for face,item in zip(data.polygons,attr.data):
+                X,Y,Z=face.center; x,y,z=X,Z,-Y
+                cut=0.
+                if not (lo[0]<=x<=hi[0] and lo[2]<=z<=hi[2]) and floor+.005<y<cy:
+                    t=(cy-floor)/(cy-y); hx=cx+(x-cx)*t; hz=cz+(z-cz)*t
+                    if a<hx<b and c<hz<d: cut=1.
+                item.value=cut; total+=cut>0
+        counts[view['name']]=total
+    return counts
 
 
 def geometry_bvh(objects):
@@ -271,6 +358,10 @@ def render_view(view,camera,diagnostic=False):
         for n in m.node_tree.nodes:
             if n.name=='haze_camera_origin':
                 for i,v in enumerate(origin): n.inputs[i].default_value=v
+            if n.name=='overview_cutaway':
+                n.attribute_name='cut_'+view['name'] if view['kind']=='overview' and not diagnostic else 'no_cutaway'
+            if n.name=='overview_flag':
+                n.outputs[0].default_value=1. if view['kind']=='overview' and not diagnostic else 0.
 
     camera.data.lens=SET['overview_lens_mm'] if view['kind']=='overview' else SET['eye_lens_mm']
     camera.data.dof.use_dof=not diagnostic
@@ -337,7 +428,9 @@ def main():
     scene.cycles.samples=SET['samples']; scene.cycles.seed=SET['seed']; scene.cycles.use_animated_seed=False
     scene.cycles.use_adaptive_sampling=False; scene.cycles.use_denoising=True
     scene.cycles.denoiser='OPENIMAGEDENOISE'; scene.cycles.denoising_use_gpu=False
-    scene.cycles.max_bounces=SET['max_bounces']; scene.render.threads_mode='FIXED'; scene.render.threads=SET['threads']
+    scene.cycles.max_bounces=SET['max_bounces']
+    # The overview cutaway lets camera rays pass many cut layers of land.
+    scene.cycles.transparent_max_bounces=64; scene.render.threads_mode='FIXED'; scene.render.threads=SET['threads']
     scene.render.resolution_x=SET['width']; scene.render.resolution_y=SET['height']; scene.render.resolution_percentage=100
     scene.render.image_settings.file_format='PNG'; scene.render.image_settings.color_mode='RGB'
     scene.render.image_settings.color_depth='8'; scene.render.image_settings.compression=100
@@ -351,7 +444,7 @@ def main():
     sun=sun_position(doc['setup']['latitude_deg'],doc['setup']['day_of_year'],doc['setup']['solar_time_h'],doc['setup']['neg_z_bearing_deg'])
     make_world(doc['setup'],sun)
     far_ground(room)
-    terrain_objects=[]; collision_objects=[]
+    terrain_objects=[]; collision_objects=[]; land_objects=[]
     for category in ['terrain','water','scenery']:
         for index,item in enumerate(doc[category]):
             primitives=meshes[item['mesh']]
@@ -359,8 +452,9 @@ def main():
                 role='still_water' if item['kind']=='still' else 'flowing_water'
                 primitives=[dict(p,role=role) for p in primitives]
                 primitives=[{k:v for k,v in p.items() if k not in ('blend_role','blend_weights')} for p in primitives]
-            objects=add_mesh(category+'_'+str(index),primitives)
+            objects=add_mesh(category+'_'+str(index),primitives,soft=True)
             if category=='terrain': terrain_objects+=objects; collision_objects+=objects
+            if category!='water': land_objects+=objects
     for category in ['scatter','objects']:
         for i,item in enumerate(doc[category]):
             name=item['prototype']
@@ -371,6 +465,7 @@ def main():
                                         item.get('tint',(1,1,1)),smooth=name in SIZES and name not in ('crate','cottage','fence','lantern'),
                                         bevel=name in ('crate','cottage','fence','lantern'))
     plan=camera_plan(room,meshes,doc['terrain']); bpy.context.view_layer.update()
+    cut_faces=cutaway(land_objects,plan,room)
     bvh=geometry_bvh(collision_objects)
     for view in plan:
         view['inside_geometry']=eye_blocked(bvh,Vector(xyz(view['position_m']))) if view['kind']=='eye' else False
@@ -445,6 +540,8 @@ def main():
                  diagnostic=dict(diagnostic,assumed_thresholds_deg=[35,55],unlit=True,depth_of_field=False,
                                  note='Slope only; no connectivity, clearance or collision certification.'),
                  stats=stats,scale_figure_height_m=.1,
+                 overview_cutaway=dict(faces=cut_faces,rule='land/scenery faces outside bounds whose camera ray lands on the floor more than inset_m inside bounds; camera rays only',inset_m=CUT_INSET),
+                 smooth_shading=dict(crease_deg=CREASE_DEG,scope='terrain, water and scenery; welded by position across primitives'),
                  partial_rerender=requested is not None,retained_views=sorted(retained),
                  uniform_harness_revision=all(v['rendered_harness_sha256']==config['harness_revision']['sha256']
                                               for v in renders+[diagnostic]),

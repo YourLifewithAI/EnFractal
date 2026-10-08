@@ -22,70 +22,64 @@ from pipeline.landscape.harness.kit import SIZES
 WALK_DEG = 20.     # low incline, well under the body's 45 degrees
 CARRY_DEG = 20.
 STEP_M = .02       # the body's step-up
-BUILT = {'cottage', 'tower', 'fence', 'crate', 'lantern', 'woodpile'}
+BUILT = {'cottage', 'tower', 'fence', 'crate', 'lantern', 'woodpile', 'drying_line', 'footbridge'}
 
 
 class Terrain:
-    def __init__(self, doc, meshes):
-        cell = doc['x_gen_b']['cell_m']
-        verts = [v for rec in doc['terrain']+[s for s in doc['scenery'] if s['mesh'] == 'ridges']
-                 for p in meshes[rec['mesh']] for v in p['positions']]
+    """The decoded package surface: topmost triangle under a point, from the
+    package's own terrain (and scenery) meshes, with no knowledge of how the
+    generator built them. `cell` is the sampling step the checks use."""
+
+    def __init__(self, doc, meshes, cell=.025, bucket=.1):
         self.cell = cell
-        self.x0 = min(v[0] for v in verts)
-        self.z0 = min(v[2] for v in verts)
-        pts = {(round((x-self.x0)/cell), round((z-self.z0)/cell)): y for x, y, z in verts}
-        self.i0 = self.j0 = 0
-        self.nx = max(k[0] for k in pts)+1
-        self.nz = max(k[1] for k in pts)+1
-        self.h = [math.nan]*(self.nx*self.nz)
-        for (i, j), y in pts.items():
-            self.h[j*self.nx+i] = y
+        self.bucket = bucket
+        self.tris = []
+        self.grid = {}
+        records = doc['terrain']+doc['scenery']
+        for rec in records:
+            for p in meshes[rec['mesh']]:
+                vs = p['positions']
+                for t in p['triangles']:
+                    a, b, c = vs[t[0]], vs[t[1]], vs[t[2]]
+                    det = (b[2]-c[2])*(a[0]-c[0])+(c[0]-b[0])*(a[2]-c[2])
+                    if abs(det) < 1e-12:
+                        continue
+                    k = len(self.tris)
+                    self.tris.append((a, b, c, det))
+                    i0, i1 = int(math.floor(min(a[0], b[0], c[0])/bucket)), int(math.floor(max(a[0], b[0], c[0])/bucket))
+                    j0, j1 = int(math.floor(min(a[2], b[2], c[2])/bucket)), int(math.floor(max(a[2], b[2], c[2])/bucket))
+                    for j in range(j0, j1+1):
+                        for i in range(i0, i1+1):
+                            self.grid.setdefault((i, j), []).append(k)
+        self._memo = {}
 
-    def x(self, i):
-        return self.x0+i*self.cell
-
-    def z(self, j):
-        return self.z0+j*self.cell
+    def hit(self, x, z):
+        """(height, slope degrees) of the topmost triangle at (x, z), or None."""
+        key = (round(x, 5), round(z, 5))
+        if key in self._memo:
+            return self._memo[key]
+        best = None
+        for k in self.grid.get((int(math.floor(x/self.bucket)), int(math.floor(z/self.bucket))), ()):
+            a, b, c, det = self.tris[k]
+            u = ((b[2]-c[2])*(x-c[0])+(c[0]-b[0])*(z-c[2]))/det
+            v = ((c[2]-a[2])*(x-c[0])+(a[0]-c[0])*(z-c[2]))/det
+            w = 1-u-v
+            if min(u, v, w) < -1e-7:
+                continue
+            y = u*a[1]+v*b[1]+w*c[1]
+            if best is None or y > best[0]:
+                ux, uy, uz = b[0]-a[0], b[1]-a[1], b[2]-a[2]
+                vx, vy, vz = c[0]-a[0], c[1]-a[1], c[2]-a[2]
+                nx_, ny_, nz_ = uy*vz-uz*vy, uz*vx-ux*vz, ux*vy-uy*vx
+                slope = math.degrees(math.acos(min(1., abs(ny_)/(math.sqrt(nx_*nx_+ny_*ny_+nz_*nz_) or 1e-30))))
+                best = (y, slope)
+        if len(self._memo) < 2_000_000:
+            self._memo[key] = best
+        return best
 
     def height(self, x, z):
-        """On the triangulated surface (checkerboard diagonals, as written)."""
-        fx = (x-self.x0)/self.cell
-        fz = (z-self.z0)/self.cell
-        i = min(max(int(math.floor(fx)), 0), self.nx-2)
-        j = min(max(int(math.floor(fz)), 0), self.nz-2)
-        u, v = fx-i, fz-j
-        n = self.nx
-        a, b, c, d = self.h[j*n+i], self.h[j*n+i+1], self.h[(j+1)*n+i], self.h[(j+1)*n+i+1]
-        if (i+self.i0+j+self.j0) % 2 == 0:
-            return a+(d-c)*u+(c-a)*v if v > u else a+(b-a)*u+(d-b)*v
-        return a+(b-a)*u+(c-a)*v if u+v < 1 else d+(c-d)*(1-u)+(b-d)*(1-v)
-
-    def face_slopes(self):
-        """Per vertex: steepest incident triangle, degrees."""
-        n = self.nx
-        out = [0.]*(n*self.nz)
-        c = self.cell
-        for j in range(self.nz-1):
-            for i in range(n-1):
-                a, b, cc, d = j*n+i, j*n+i+1, (j+1)*n+i, (j+1)*n+i+1
-                if (i+self.i0+j+self.j0) % 2 == 0:
-                    tris = [(a, cc, d), (a, d, b)]
-                else:
-                    tris = [(a, cc, b), (b, cc, d)]
-                for t in tris:
-                    ys = [self.h[k] for k in t]
-                    if any(math.isnan(y) for y in ys):
-                        continue
-                    # Right-isoceles triangles on the lattice: gradient from legs.
-                    ps = [(k % n, k//n, self.h[k]) for k in t]
-                    (x0, z0, y0), (x1, z1, y1), (x2, z2, y2) = ps
-                    ux, uy, uz = (x1-x0)*c, y1-y0, (z1-z0)*c
-                    vx, vy, vz = (x2-x0)*c, y2-y0, (z2-z0)*c
-                    nxx, nyy, nzz = uy*vz-uz*vy, uz*vx-ux*vz, ux*vy-uy*vx
-                    s = math.degrees(math.acos(min(1., abs(nyy)/math.sqrt(nxx*nxx+nyy*nyy+nzz*nzz))))
-                    for k in t:
-                        out[k] = max(out[k], s)
-        return out
+        r = self.hit(x, z)
+        return math.nan if r is None else r[0]
 
 
 def water_checks(doc, meshes, terrain):
@@ -138,9 +132,7 @@ def water_checks(doc, meshes, terrain):
 
 
 def _covered(terrain, x, z):
-    fx = (x-terrain.x0)/terrain.cell
-    fz = (z-terrain.z0)/terrain.cell
-    return 0 <= fx < terrain.nx-1 and 0 <= fz < terrain.nz-1
+    return terrain.hit(x, z) is not None
 
 
 def footprint_points(item, size):
@@ -188,63 +180,6 @@ def grounding_checks(doc, terrain):
     return bad == 0, rows
 
 
-def obstacles(doc, terrain, keep=()):
-    """Vertices a body cannot stand on: water, buildings, trunks, rocks."""
-    blocked = set()
-    n = terrain.nx
-    protos = doc['prototypes']
-
-    def stamp(x, z, r):
-        i0 = int(math.floor((x-r-terrain.x0)/terrain.cell))
-        i1 = int(math.ceil((x+r-terrain.x0)/terrain.cell))
-        j0 = int(math.floor((z-r-terrain.z0)/terrain.cell))
-        j1 = int(math.ceil((z+r-terrain.z0)/terrain.cell))
-        for j in range(max(0, j0), min(terrain.nz, j1+1)):
-            for i in range(max(0, i0), min(n, i1+1)):
-                if math.hypot(terrain.x(i)-x, terrain.z(j)-z) <= r:
-                    blocked.add(j*n+i)
-    for item in doc['scatter']:
-        name = item['prototype']
-        base = SIZES[name] if name in SIZES else protos[name]['size_m']
-        size = [b*s for b, s in zip(base, item['scale'])]
-        x, _, z = item['position_m']
-        if name in BUILT:
-            for px, pz in footprint_points(item, size):
-                stamp(px, pz, .02)
-            stamp(x, z, min(size[0], size[2])/2)
-        elif name in ('broadleaf', 'conifer'):
-            stamp(x, z, .045*size[0]/base[0]+.01)
-        elif name in ('boulder', 'rock', 'shrub'):
-            stamp(x, z, min(size[0], size[2])/2)
-    for rec in doc['water']:
-        if rec['mesh'] == 'distant_lake':
-            continue
-    return blocked
-
-
-def water_mask(doc, meshes, terrain):
-    wet = set()
-    n = terrain.nx
-    for rec in doc['water']:
-        for p in meshes[rec['mesh']]:
-            for t in p['triangles']:
-                vs = [p['positions'][k] for k in t]
-                xs = [v[0] for v in vs]
-                zs = [v[2] for v in vs]
-                i0 = int(math.floor((min(xs)-terrain.x0)/terrain.cell))
-                i1 = int(math.ceil((max(xs)-terrain.x0)/terrain.cell))
-                j0 = int(math.floor((min(zs)-terrain.z0)/terrain.cell))
-                j1 = int(math.ceil((max(zs)-terrain.z0)/terrain.cell))
-                for j in range(max(0, j0), min(terrain.nz, j1+1)):
-                    for i in range(max(0, i0), min(n, i1+1)):
-                        if _in_tri(terrain.x(i), terrain.z(j), vs):
-                            y = terrain.h[j*n+i]
-                            # Under the surface means wet; dry land above it is fine.
-                            if y < max(v[1] for v in vs)+.002:
-                                wet.add(j*n+i)
-    return wet
-
-
 def _in_tri(x, z, vs):
     (ax, _, az), (bx, _, bz), (cx, _, cz) = vs
     d = (bz-cz)*(ax-cx)+(cx-bx)*(az-cz)
@@ -255,88 +190,224 @@ def _in_tri(x, z, vs):
     return u >= -1e-6 and v >= -1e-6 and 1-u-v >= -1e-6
 
 
-def search(terrain, slopes, blocked, room, start, goal, limit, step):
-    lo, hi = room['bounds']['min_m'], room['bounds']['max_m']
-    n = terrain.nx
+CLEAR_R = .055      # half of the 11 cm carrying clearance (body and a held item)
+EDGE_SAMPLE = .01   # every walk edge is sampled each centimetre
 
-    def node(x, z):
-        return int(round((z-terrain.z0)/terrain.cell))*n+int(round((x-terrain.x0)/terrain.cell))
 
-    def ok(q):
-        i, j = q % n, q//n
-        x, z = terrain.x(i), terrain.z(j)
-        return lo[0] <= x <= hi[0] and lo[2] <= z <= hi[2] and q not in blocked and slopes[q] <= limit
-    s, g = node(*start), node(*goal)
-    if not ok(s) or not ok(g):
-        return None, dict(start_ok=ok(s), goal_ok=ok(g))
-    gx, gz = terrain.x(g % n), terrain.z(g//n)
-    dist = {s: 0.}
-    prev = {}
-    heap = [(0., s)]
-    while heap:
-        f, q = heapq.heappop(heap)
-        if q == g:
-            break
-        d = dist[q]
-        if f > d+math.hypot(terrain.x(q % n)-gx, terrain.z(q//n)-gz)+1e-9:
-            continue
-        i, j = q % n, q//n
-        for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)):
-            ii, jj = i+di, j+dj
-            if not (0 <= ii < n and 0 <= jj < terrain.nz):
+def obstacles(doc):
+    """Footprints a body cannot pass through: buildings and yard things as
+    rotated rectangles, trunks, rocks and shrubs as discs. Ground cover is
+    passable."""
+    protos = doc['prototypes']
+    out = []
+    for item in doc['scatter']:
+        name = item['prototype']
+        base = SIZES[name] if name in SIZES else protos[name]['size_m']
+        size = [b*s for b, s in zip(base, item['scale'])]
+        x, _, z = item['position_m']
+        if name in BUILT:
+            out.append(('box', x, z, size[0]/2, size[2]/2, math.radians(item['yaw_deg'])))
+        elif name in ('broadleaf', 'conifer'):
+            out.append(('disc', x, z, .045*size[0]/base[0]+.01))
+        elif name in ('boulder', 'rock', 'shrub'):
+            out.append(('disc', x, z, min(size[0], size[2])/2))
+    return out
+
+
+class Walker:
+    """A* over a 2.5 cm lattice of the decoded surface. A node is standable
+    when an 11 cm disc around it is dry, clear of obstacles, inside the
+    walkable floor and on triangles no steeper than the limit; every edge is
+    sampled each centimetre for its rise and incline."""
+
+    def __init__(self, doc, meshes, terrain, room, limit=WALK_DEG, step=STEP_M):
+        from .land import inside_distance
+        self.t = terrain
+        self.room = room
+        self.limit = limit
+        self.step = step
+        self.inside = lambda x, z: inside_distance(room, x, z)
+        self.obs = {}
+        for o in obstacles(doc):
+            r = o[3] if o[0] == 'disc' else math.hypot(o[3], o[4])
+            for i in range(int(math.floor((o[1]-r-CLEAR_R)/.2)), int(math.floor((o[1]+r+CLEAR_R)/.2))+1):
+                for j in range(int(math.floor((o[2]-r-CLEAR_R)/.2)), int(math.floor((o[2]+r+CLEAR_R)/.2))+1):
+                    self.obs.setdefault((i, j), []).append(o)
+        self.water = []
+        self.wbuck = {}
+        for rec in doc['water']:
+            for p in meshes[rec['mesh']]:
+                for t in p['triangles']:
+                    vs = [p['positions'][k] for k in t]
+                    k = len(self.water)
+                    self.water.append(vs)
+                    xs, zs = [v[0] for v in vs], [v[2] for v in vs]
+                    for i in range(int(math.floor(min(xs)/.1)), int(math.floor(max(xs)/.1))+1):
+                        for j in range(int(math.floor(min(zs)/.1)), int(math.floor(max(zs)/.1))+1):
+                            self.wbuck.setdefault((i, j), []).append(k)
+        self.cache = {}
+
+    def wet(self, x, z):
+        g = self.t.height(x, z)
+        for k in self.wbuck.get((int(math.floor(x/.1)), int(math.floor(z/.1))), ()):
+            vs = self.water[k]
+            if _in_tri(x, z, vs) and g < max(v[1] for v in vs)+.002:
+                return True
+        return False
+
+    def blocked(self, x, z):
+        for o in self.obs.get((int(math.floor(x/.2)), int(math.floor(z/.2))), ()):
+            if o[0] == 'disc':
+                if math.hypot(x-o[1], z-o[2]) < o[3]+CLEAR_R:
+                    return True
+            else:
+                a = o[5]
+                c, s = math.cos(a), math.sin(a)
+                dx, dz = x-o[1], z-o[2]
+                lx, lz = c*dx-s*dz, s*dx+c*dz
+                ex, ez = max(0., abs(lx)-o[3]), max(0., abs(lz)-o[4])
+                if math.hypot(ex, ez) < CLEAR_R:
+                    return True
+        return False
+
+    def standable(self, k):
+        if k in self.cache:
+            return self.cache[k]
+        x, z = k[0]*self.t.cell, k[1]*self.t.cell
+        ok = self.inside(x, z) >= CLEAR_R and not self.blocked(x, z)
+        if ok:
+            for dx, dz in ((0, 0), (CLEAR_R, 0), (-CLEAR_R, 0), (0, CLEAR_R), (0, -CLEAR_R)):
+                hit = self.t.hit(x+dx, z+dz)
+                if hit is None or hit[1] > self.limit or self.wet(x+dx, z+dz):
+                    ok = False
+                    break
+        self.cache[k] = ok
+        return ok
+
+    def edge(self, a, b):
+        ax, az, bx, bz = a[0]*self.t.cell, a[1]*self.t.cell, b[0]*self.t.cell, b[1]*self.t.cell
+        run = math.hypot(bx-ax, bz-az)
+        n = max(1, int(math.ceil(run/EDGE_SAMPLE)))
+        y = self.t.height(ax, az)
+        rise = grade = 0.
+        for m in range(1, n+1):
+            f = m/n
+            hit = self.t.hit(ax+f*(bx-ax), az+f*(bz-az))
+            if hit is None:
+                return None
+            rise = max(rise, abs(hit[0]-y))
+            grade = max(grade, hit[1])
+            y = hit[0]
+        if rise > self.step or grade > self.limit:
+            return None
+        return rise, grade
+
+    def key(self, x, z):
+        return int(round(x/self.t.cell)), int(round(z/self.t.cell))
+
+    def route(self, start, goal):
+        s, g = self.key(*start), self.key(*goal)
+        if not self.standable(s) or not self.standable(g):
+            return None, dict(start_ok=self.standable(s), goal_ok=self.standable(g))
+        c = self.t.cell
+        cost = {s: 0.}
+        prev = {}
+        heap = [(0., 0., s)]
+        while heap:
+            _, d, k = heapq.heappop(heap)
+            if d > cost.get(k, math.inf)+1e-12:
                 continue
-            p = jj*n+ii
-            if not ok(p) or abs(terrain.h[p]-terrain.h[q]) > step:
-                continue
-            nd = d+terrain.cell*(math.sqrt(2) if di and dj else 1)
-            if nd < dist.get(p, math.inf)-1e-12:
-                dist[p] = nd
-                prev[p] = q
-                heapq.heappush(heap, (nd+math.hypot(terrain.x(ii)-gx, terrain.z(jj)-gz), p))
-    if g not in dist:
-        return None, {}
-    path = [g]
-    while path[-1] != s:
-        path.append(prev[path[-1]])
-    path.reverse()
-    steps = [abs(terrain.h[b]-terrain.h[a]) for a, b in zip(path, path[1:])]
-    grades = []
-    for a, b in zip(path, path[1:]):
-        run = terrain.cell*(math.sqrt(2) if (a % n != b % n and a//n != b//n) else 1)
-        grades.append(math.degrees(math.atan(abs(terrain.h[b]-terrain.h[a])/run)))
-    return path, dict(length_m=round(dist[g], 3), vertices=len(path),
-                      max_face_slope_deg=round(max(slopes[q] for q in path), 2),
-                      max_step_m=round(max(steps), 4), max_grade_deg=round(max(grades), 2),
-                      climb_m=round(max(terrain.h[q] for q in path)-min(terrain.h[q] for q in path), 3))
+            if k == g:
+                break
+            for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)):
+                n = (k[0]+di, k[1]+dj)
+                if not self.standable(n):
+                    continue
+                if di and dj and not (self.standable((k[0]+di, k[1])) and self.standable((k[0], k[1]+dj))):
+                    continue
+                e = self.edge(k, n)
+                if e is None:
+                    continue
+                length = c*(math.sqrt(2) if di and dj else 1)
+                nd = d+length+2*abs(self.t.height(n[0]*c, n[1]*c)-self.t.height(k[0]*c, k[1]*c))
+                if nd < cost.get(n, math.inf)-1e-12:
+                    cost[n] = nd
+                    prev[n] = k
+                    heapq.heappush(heap, (nd+c*math.hypot(n[0]-g[0], n[1]-g[1]), nd, n))
+        if g not in cost:
+            return None, {}
+        path = [g]
+        while path[-1] != s:
+            path.append(prev[path[-1]])
+        path.reverse()
+        rises, grades, length = [0.], [0.], 0.
+        for a, b in zip(path, path[1:]):
+            r, gr = self.edge(a, b)
+            rises.append(r)
+            grades.append(gr)
+            length += c*math.hypot(b[0]-a[0], b[1]-a[1])
+        hs = [self.t.height(k[0]*c, k[1]*c) for k in path]
+        return path, dict(length_m=round(length, 3), nodes=len(path), max_face_slope_deg=round(max(grades), 2),
+                          max_step_m=round(max(rises), 4), climb_m=round(max(hs)-min(hs), 3),
+                          clearance_m=2*CLEAR_R, lattice_m=c)
+
+
+def approaches(item, size, gap=.08):
+    """Points a body would stand at to use a building or a yard thing: before
+    its front (local -Z, a cottage's door) first, then its other sides."""
+    a = math.radians(item['yaw_deg'])
+    c, s = math.cos(a), math.sin(a)
+    x0, _, z0 = item['position_m']
+    out = []
+    for lx, lz in ((0, -(size[2]/2+gap)), (0, size[2]/2+gap), (size[0]/2+gap, 0), (-(size[0]/2+gap), 0)):
+        out.append((x0+c*lx+s*lz, z0-s*lx+c*lz))
+    return out
+
+
+YARD = ('woodpile', 'drying_line', 'firewood')
 
 
 def walk_checks(doc, meshes, terrain, room):
-    slopes = terrain.face_slopes()
-    blocked = obstacles(doc, terrain) | water_mask(doc, meshes, terrain)
+    """From the player's spawn to every carryable object and back carrying it,
+    to every cottage door and to every workyard thing (any free side)."""
+    walker = Walker(doc, meshes, terrain, room)
     player = next((s for s in room['spawns'] if s['role'] == 'player'), room['spawns'][0])
     start = (player['position_m'][0], player['position_m'][2])
     results = []
     ok = True
     carry = [o for o in doc['objects'] if o['carriable']]
-    targets = [('to ' + o['id'], start, (o['position_m'][0], o['position_m'][2]), WALK_DEG) for o in carry]
-    targets += [('back carrying ' + o['id'], (o['position_m'][0], o['position_m'][2]), start, CARRY_DEG) for o in carry]
-    for k, item in enumerate([s for s in doc['scatter'] if s['prototype'] == 'cottage']):
-        a = math.radians(item['yaw_deg'])
-        half = SIZES['cottage'][2]*item['scale'][2]/2
-        door = (item['position_m'][0]-math.sin(a)*(half+.06), item['position_m'][2]-math.cos(a)*(half+.06))
-        targets.append((f'to cottage {k} door', start, door, WALK_DEG))
-    for name, a, b, limit in targets:
-        path, info = search(terrain, slopes, blocked, room, a, b, limit, STEP_M)
+    targets = []
+    for o in carry:
+        at = (o['position_m'][0], o['position_m'][2])
+        targets.append(('to '+o['id'], start, [at]))
+        targets.append(('back carrying '+o['id'], at, [start]))
+    protos = doc['prototypes']
+    for k, item in enumerate(s for s in doc['scatter'] if s['prototype'] == 'cottage'):
+        size = [b*s for b, s in zip(SIZES['cottage'], item['scale'])]
+        targets.append(('to cottage %d door' % k, start, approaches(item, size)[:1]))
+    for k, item in enumerate(s for s in doc['scatter'] if s['prototype'] in YARD):
+        base = SIZES[item['prototype']] if item['prototype'] in SIZES else protos[item['prototype']]['size_m']
+        size = [b*s for b, s in zip(base, item['scale'])]
+        targets.append(('to %s %d' % (item['prototype'], k), start, approaches(item, size)))
+    for name, a, goals in targets:
+        info = {}
+        path = None
+        for goal in goals:
+            path, info = walker.route(a, goal)
+            if path is not None:
+                break
         good = path is not None
         ok &= good
-        results.append(dict(route=name, found=good, limit_deg=limit, step_limit_m=STEP_M, **info))
+        results.append(dict(route=name, found=good, limit_deg=WALK_DEG, step_limit_m=STEP_M, **info))
     if not carry:
         ok = False
     return ok, results
 
 
-def footprint_checks(inventory, terrain):
-    """Per object: where its box went and how far the land's rise is from it."""
+def footprint_checks(inventory, terrain, room):
+    """Per object: where its box went and how far the land's rise is from it
+    (inside the walkable floor only)."""
+    from .land import inside_distance
     rows = []
     ok = True
     objs = inventory['objects']
@@ -354,13 +425,15 @@ def footprint_checks(inventory, terrain):
         c, s = math.cos(a), math.sin(a)
         inside, ring = [], []
         R = math.hypot(sx, sz)/2+.7
-        step = terrain.cell
+        step = .03
         k = int(R/step)
         for dj in range(-k, k+1):
             for di in range(-k, k+1):
                 x, z = cx+di*step, cz+dj*step
                 lx, lz = c*(x-cx)-s*(z-cz), s*(x-cx)+c*(z-cz)
                 dx, dz = abs(lx)-sx/2, abs(lz)-sz/2
+                if dx <= 0 and dz <= 0 and inside_distance(room, x, z) < 0:
+                    continue  # a scanned box poking through a wall: the ridge beyond is the wall's
                 if dx <= 0 and dz <= 0:
                     # Skip where a taller box (a child or an overlapping
                     # neighbour) stands on this footprint: that land is its.
@@ -402,7 +475,7 @@ def run(package, room_dir):
     w_ok, water, joins = water_checks(doc, meshes, terrain)
     g_ok, ground = grounding_checks(doc, terrain)
     p_ok, walks = walk_checks(doc, meshes, terrain, room)
-    f_ok, prints = footprint_checks(inventory, terrain)
+    f_ok, prints = footprint_checks(inventory, terrain, room)
     return dict(ok=w_ok and g_ok and p_ok and f_ok, water_ok=w_ok, grounded_ok=g_ok, walk_ok=p_ok,
                 footprints_ok=f_ok, water=water, joins=joins, grounding=ground, walks=walks,
                 footprints=prints, stats=stats)
