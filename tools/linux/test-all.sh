@@ -73,6 +73,10 @@ echo "== roomscan (capture pipeline, CPU only)"
 if (cd "$REPO/pipeline/roomscan" && uv run --locked pytest -q > "$LOG/roomscan.log" 2>&1); then
   echo "PASS roomscan: $(tail -n 1 "$LOG/roomscan.log")"
 else cat "$LOG/roomscan.log"; failed=1; fi
+echo "== landscape corpus (synthetic rooms, read through roomscan)"
+if (cd "$REPO/pipeline/roomscan" && uv run --locked python -B -m unittest discover -s "$REPO/pipeline/landscape/corpus/tests" -t "$REPO" > "$LOG/corpus.log" 2>&1); then
+  echo "PASS landscape corpus: $(grep -E '^Ran' "$LOG/corpus.log")"
+else cat "$LOG/corpus.log"; failed=1; fi
 
 echo "== $([ $failed -eq 0 ] && echo GREEN || echo RED)"
 exit $failed
