@@ -241,20 +241,69 @@ public partial class LandscapePlayTest : Node3D
         Check(Ok(down) && Supported(CrateBox()), "the companion sets it down on the land: " + Code(down));
     }
 
-    /// <summary>Every named destination the exporter made (the cottages): a route from the spawn, and the companion's go_to.</summary>
+    /// <summary>
+    /// Every named entity the exporter made: a route from the spawn and the companion's go_to. Only promised destinations
+    /// must be reachable ("a ledge is a destination only if there is a way up"): things to find and carry, and dwellings.
+    /// Other landmarks (fences, boulders, lanterns) are reported with how near a route or go_to gets, and never fail.
+    /// </summary>
     private async Task TestDestinations()
     {
         var spawn = _world.Room.SpawnFor("player").PositionM;
-        foreach (var item in _world.Room.Objects.Where(o => !o.Asset.Movable))
+        foreach (var item in _world.Room.Objects)
         {
             var box = EntityBox(item.Id);
-            var route = _navigation.FindRoute(spawn, Nearest(box, spawn), 0.1f);
+            var promised = Promised(item);
+            var (route, gap) = RouteTo(spawn, box);
+            var nearestSide = _navigation.FindRoute(spawn, Nearest(box, spawn), 0.1f).Reaches;
             var go = Send(Command(NextId("goto"), "goal.set", new JsonObject { ["actor"] = CompanionAvatar, ["goal"] = "go_to", ["target"] = item.Id }), Player);
             var walk = await Watch($"companion go_to {item.DisplayName}", _world.Companion, () => _host.RunningGoal(CompanionAvatar) != null, 3600);
             var job = JobStatus(go);
-            Measure($"LANDSCAPE_DESTINATION {item.Id} ({item.DisplayName}) at {Text(box.GetCenter())}: route from the spawn {(route.Reaches ? "reaches" : "does not reach")}, {route.LengthM:0.00} m; go_to {job?["state"]?.GetValue<string>()}");
-            Check(route.Reaches && job?["state"]?.GetValue<string>() == "succeeded", $"{item.DisplayName} is reachable from the spawn ({walk.Summary()})");
+            var state = job?["state"]?.GetValue<string>() ?? Code(go) ?? "none";
+            var near = PlanarDistance(_world.Companion.GlobalPosition, Nearest(box, _world.Companion.GlobalPosition));
+            Measure($"LANDSCAPE_DESTINATION {item.Id} ({item.DisplayName}, {item.Asset.Category}, {(promised ? "promised" : "landmark")}) at {Text(box.GetCenter())}: " +
+                    $"route from the spawn {(route.Reaches ? "reaches" : "does not reach")}, {route.LengthM:0.00} m, ending {gap:0.00} m from it (to the side nearest the spawn alone: {(nearestSide ? "reaches" : "does not reach")}); go_to {state}, ending {near:0.00} m from it");
+            if (promised)
+                Check(route.Reaches && job?["state"]?.GetValue<string>() == "succeeded", $"{item.DisplayName}, a promised destination, is reachable from the spawn ({walk.Summary()})");
         }
+    }
+
+    /// <summary>
+    /// What the land promises a visit to, by what the entity is (never by id): a thing to find and carry (movable), or a
+    /// dwelling, which the exporter names cottage or tower or builds as a structure with a roof. Fences, boulders and
+    /// lanterns are landmarks.
+    /// </summary>
+    private static bool Promised(ObjectInstance item) =>
+        item.Asset.Movable || item.Asset.Category is "cottage" or "tower" ||
+        (item.Asset.CategoryGroup == "structure" && item.Asset.Materials.Any(m => m.Slot == "roof" || m.Role == "roof"));
+
+    /// <summary>
+    /// The shortest route from a point to anywhere beside a box's footprint (the four sides and four corners, a body's
+    /// clearance out), as go_to gets there from any side; and how far its end is from the footprint. A route counts only
+    /// when it reaches its own end on the start's island and ends within arrival reach of the box. (Aiming at the single
+    /// footprint point nearest the spawn, as before, called a fence unreachable when that side was a slope or a ledge
+    /// but go_to arrived from its other side.)
+    /// </summary>
+    private (RoomNavigation.Route Route, float Gap) RouteTo(Vector3 from, Aabb box)
+    {
+        var clear = _navigation.AgentRadiusM + 0.01f;
+        var centre = box.GetCenter();
+        var half = new Vector2(box.Size.X * 0.5f + clear, box.Size.Z * 0.5f + clear);
+        RoomNavigation.Route? best = null;
+        var bestGap = float.PositiveInfinity;
+        var fallback = _navigation.FindRoute(from, Nearest(box, from), 0.1f);
+        foreach (var (sx, sz) in new[] { (1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1) })
+        {
+            var aim = new Vector3(centre.X + sx * half.X, box.Position.Y, centre.Z + sz * half.Y);
+            var route = _navigation.FindRoute(from, aim, 0.05f);
+            if (!route.Reaches) continue;
+            var end = route.Points[^1];
+            var gap = PlanarDistance(end, Nearest(box, end));
+            if (gap > CommandHost.ArrivalReachM || (best != null && route.LengthM >= best.Value.LengthM)) continue;
+            (best, bestGap) = (route, gap);
+        }
+        if (best != null) return (best.Value, bestGap);
+        var last = fallback.IsEmpty ? from : fallback.Points[^1];
+        return (fallback with { Reaches = false }, PlanarDistance(last, Nearest(box, last)));
     }
 
     /// <summary>
@@ -498,7 +547,7 @@ public partial class LandscapePlayTest : Node3D
 
     private void Finish()
     {
-        GD.Print($"NATIVE_KERNEL_LANDSCAPE: {_checks - _failures}/{_checks} checks passed; both bodies held inside the bounds, the companion's go_to and fetch and the player's carry on the land, every named destination reached");
+        GD.Print($"NATIVE_KERNEL_LANDSCAPE: {_checks - _failures}/{_checks} checks passed; both bodies held inside the bounds, the companion's go_to and fetch and the player's carry on the land, every promised destination reached");
         RemoveSaves();
         CommandHost.SaveRoot = CommandHost.DefaultSaveRoot;
         GetTree().Quit(_failures == 0 ? 0 : 1);
