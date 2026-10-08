@@ -514,6 +514,17 @@ public partial class CompanionAvatar : SmallPlayerController
 
     private static Vector3 Planar(Vector3 value) => new(value.X, 0, value.Z);
 
+    /// <summary>A heading without its components that would carry the body past a bound it stands within a probe of.</summary>
+    private Vector3 AlongBounds(Vector3 heading)
+    {
+        if (PlayableBounds is not { } bounds) return heading;
+        var here = GlobalPosition;
+        var reach = BodyRadiusM + SteeringProbeM;
+        if ((heading.X > 0 && here.X + reach > bounds.End.X) || (heading.X < 0 && here.X - reach < bounds.Position.X)) heading.X = 0;
+        if ((heading.Z > 0 && here.Z + reach > bounds.End.Z) || (heading.Z < 0 && here.Z - reach < bounds.Position.Z)) heading.Z = 0;
+        return heading;
+    }
+
     private Vector3 ChooseClearDirection(Vector3 desired)
     {
         // Local steering for the last stretch, round the player and round anything the navigation mesh does
@@ -521,6 +532,13 @@ public partial class CompanionAvatar : SmallPlayerController
         foreach (var angle in new[] { 0.0f, -0.65f, 0.65f, -1.15f, 1.15f })
         {
             var candidate = desired.Rotated(Vector3.Up, angle);
+            // The room's bounds are a wall to the body (PlayableBounds): a heading across one keeps only its part along it.
+            if (!InsidePlayableBounds(GlobalPosition + candidate * SteeringProbeM))
+            {
+                candidate = AlongBounds(candidate);
+                if (candidate.LengthSquared() < 0.04f) continue;
+                candidate = candidate.Normalized();
+            }
             var probe = candidate * SteeringProbeM;
             if (!HasSupportNear(GlobalPosition + probe)) continue;
             // Flat travel does not require the extra headroom used for a step.

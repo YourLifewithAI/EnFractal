@@ -86,6 +86,18 @@ public partial class SmallPlayerController : CharacterBody3D
     public bool IsBlocked { get; private set; }
     public Color AppearanceColor { get; private set; } = new("d28f63");
     public Vector3 LastSafePosition { get; private set; }
+    /// <summary>
+    /// The room's playable volume (the manifest's bounds: "avatars outside it are recovered"), set by the command host. The
+    /// body never walks, slides or is pushed out of it sideways: it stops at the bound as at a wall, with the whole capsule
+    /// inside. A generated landscape's ground runs a few centimetres past its bounds and then stops, with nothing beyond.
+    /// Null (the body suites' fixtures) keeps no bound. It is enforced in the body, not by colliders, so nothing else meets
+    /// it: rays to the sun, sight, the navigation mesh and sandbox placement see the room exactly as before.
+    /// </summary>
+    public Aabb? PlayableBounds { get; private set; }
+    /// <summary>A body this far below the playable bounds is falling out of the room and is recovered (without bounds: 12 m below its spawn).</summary>
+    public const float RecoverBelowBoundsM = 1.0f;
+    /// <summary>Physics ticks on which the playable bounds held the body back.</summary>
+    public int BoundsStops { get; private set; }
     public Vector3 CreationVelocity => _creationVelocity;
     public bool HasCreationGuard { get; private set; }
 
@@ -203,6 +215,58 @@ public partial class SmallPlayerController : CharacterBody3D
         if (feetPosition.IsFinite()) _spawnPoint = feetPosition;
     }
 
+    /// <summary>The trusted host's room bounds (see PlayableBounds). Refused unless finite and wider than the body.</summary>
+    public bool SetPlayableBounds(Aabb bounds)
+    {
+        var radius = (float)Profile.RadiusMeters;
+        if (!bounds.Position.IsFinite() || !bounds.Size.IsFinite() || bounds.Size.X <= radius * 2 || bounds.Size.Z <= radius * 2 || bounds.Size.Y <= 0) return false;
+        PlayableBounds = bounds;
+        return true;
+    }
+
+    /// <summary>Whether feet here keep the whole capsule inside the playable bounds horizontally (always, without bounds).</summary>
+    public bool InsidePlayableBounds(Vector3 feetPosition)
+    {
+        if (PlayableBounds is not { } bounds) return true;
+        var radius = BodyRadiusM - 0.0005f;
+        return feetPosition.X >= bounds.Position.X + radius && feetPosition.X <= bounds.End.X - radius &&
+               feetPosition.Z >= bounds.Position.Z + radius && feetPosition.Z <= bounds.End.Z - radius;
+    }
+
+    /// <summary>The horizontal velocity cut so this tick's motion ends inside the playable bounds: at the bound, the outward part stops.</summary>
+    private Vector3 WithinBounds(Vector3 horizontal, float dt)
+    {
+        if (PlayableBounds is not { } bounds || dt <= 0) return horizontal;
+        var here = GlobalPosition;
+        float Axis(float velocity, float position, float low, float high)
+        {
+            var next = position + velocity * dt;
+            if (velocity > 0 && next > high) return Mathf.Max(0, (high - position) / dt);
+            if (velocity < 0 && next < low) return Mathf.Min(0, (low - position) / dt);
+            return velocity;
+        }
+        var limited = new Vector3(
+            Axis(horizontal.X, here.X, bounds.Position.X + BodyRadiusM, bounds.End.X - BodyRadiusM), horizontal.Y,
+            Axis(horizontal.Z, here.Z, bounds.Position.Z + BodyRadiusM, bounds.End.Z - BodyRadiusM));
+        if (limited != horizontal) BoundsStops++;
+        return limited;
+    }
+
+    /// <summary>After the move: a slide or a creation push that still crossed the bound is put back on it, and its outward speed stops.</summary>
+    private void HoldInsideBounds()
+    {
+        if (PlayableBounds is not { } bounds) return;
+        var here = GlobalPosition;
+        var held = new Vector3(
+            Mathf.Clamp(here.X, bounds.Position.X + BodyRadiusM, bounds.End.X - BodyRadiusM), here.Y,
+            Mathf.Clamp(here.Z, bounds.Position.Z + BodyRadiusM, bounds.End.Z - BodyRadiusM));
+        if (held == here) return;
+        GlobalPosition = held;
+        Velocity = new Vector3(held.X != here.X ? 0 : Velocity.X, Velocity.Y, held.Z != here.Z ? 0 : Velocity.Z);
+        _creationVelocity = new Vector3(held.X != here.X ? 0 : _creationVelocity.X, _creationVelocity.Y, held.Z != here.Z ? 0 : _creationVelocity.Z);
+        BoundsStops++;
+    }
+
     /// <summary>The trusted host's gravity and wind. Accepts only a valid profile with a newer revision.</summary>
     public bool SetWorldPhysics(Dictionary profile)
     {
@@ -318,7 +382,7 @@ public partial class SmallPlayerController : CharacterBody3D
     /// <summary>Only teleport to a supported, unoccupied surface near the supplied foot height.</summary>
     public bool TryTeleportTo(Vector3 feetPosition)
     {
-        if (!_ready || !feetPosition.IsFinite() || !FindSupportedPosition(feetPosition, out var position)) return false;
+        if (!_ready || !feetPosition.IsFinite() || !InsidePlayableBounds(feetPosition) || !FindSupportedPosition(feetPosition, out var position)) return false;
         GlobalPosition = position;
         // With physics interpolation on, a teleport must not be drawn as a glide from the old place to the new one.
         ResetPhysicsInterpolation();
@@ -403,7 +467,7 @@ public partial class SmallPlayerController : CharacterBody3D
         if (!onFloor && WindMps != Vector2.Zero)
             desired = (desired + new Vector3(WindMps.X, 0, WindMps.Y)).LimitLength(RunSpeedMps + WindMps.Length());
         var acceleration = onFloor ? GroundAccelerationMps2 : AirAccelerationMps2 * AirControl;
-        var horizontal = new Vector3(Velocity.X, 0, Velocity.Z).MoveToward(desired, acceleration * dt);
+        var horizontal = WithinBounds(new Vector3(Velocity.X, 0, Velocity.Z).MoveToward(desired, acceleration * dt), dt);
         var vertical = onFloor ? Mathf.Min(0, Velocity.Y) : Mathf.Max(Velocity.Y - GravityMps2 * dt, -EffectiveTerminalFallMps);
         var jumped = false;
         if (_jumpBuffer > 0 && InputEnabled && _coyote > 0)
@@ -434,6 +498,7 @@ public partial class SmallPlayerController : CharacterBody3D
             Velocity = new Vector3(horizontal.X, Velocity.Y, horizontal.Z);
         }
         else MoveAndSlide();
+        HoldInsideBounds();
         // Project the creation contribution along contacts the same way MoveAndSlide projects motion.
         for (var index = 0; index < GetSlideCollisionCount(); index++)
         {
@@ -457,7 +522,8 @@ public partial class SmallPlayerController : CharacterBody3D
             LastSafePosition = GlobalPosition;
             HasSafePosition = true;
         }
-        if (!GlobalPosition.IsFinite() || GlobalPosition.Y < _spawnPoint.Y - 12.0f) Recover();
+        if (!GlobalPosition.IsFinite() || GlobalPosition.Y < _spawnPoint.Y - 12.0f ||
+            (PlayableBounds is { } bounds && GlobalPosition.Y < bounds.Position.Y - RecoverBelowBoundsM)) Recover();
         SeatVisual();
         VisualRoot.Visible = !EyeCamera.Current;
     }
