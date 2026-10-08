@@ -1,4 +1,4 @@
-"""Command line: ``roomscan ingest`` (C1) and ``roomscan coverage`` (C2)."""
+"""Command line: ``roomscan ingest`` (C1), ``coverage`` (C2), ``shell`` (C3) and ``inventory`` (C4)."""
 
 from __future__ import annotations
 
@@ -43,6 +43,41 @@ def cmd_coverage(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_shell(args: argparse.Namespace) -> int:
+    from .shell.export import export_shell
+
+    result = export_shell(
+        _captures(args), args.room, session=args.session,
+        rooms_dir=Path(args.rooms_dir) if args.rooms_dir else None, created_utc=args.created_utc,
+        spec_path=Path(args.spec) if args.spec else None, pictures=not args.no_pictures)
+    print(f"manifest: {result['manifest']}")
+    for problem in result["problems"]:
+        print(f"PROBLEM: {problem}")
+    return 1 if result["problems"] else 0
+
+
+def cmd_inventory(args: argparse.Namespace) -> int:
+    set_model_caches()
+    from .inventory.build import build_inventory
+    from .inventory.review import render_review
+    from .shell.planes import ShellPlan
+    from .shell.spec import SPEC_FILE, load_spec
+
+    result = build_inventory(
+        _captures(args), args.room, session=args.session,
+        curation_path=Path(args.curation) if args.curation else None, min_evidence=args.min_evidence)
+    scene, inventory = result["scene"], result["inventory"]
+    x0, x1, z0, z1 = scene.bounds
+    spec_file = scene.room_dir / SPEC_FILE
+    spec = load_spec(spec_file) if spec_file.is_file() else None
+    plan = ShellPlan(x0, x1, z0, z1, scene.height_m, [], scene.factor, scene.scale_source)
+    image = render_review(scene, inventory, [p["id"] for p in inventory["picks"]], scene.room_dir / "inventory-review.jpg",
+                          plan=plan if spec else None, spec=spec)
+    print(f"inventory: {result['path']}")
+    print(f"review image: {image}")
+    return 0
+
+
 def cmd_sessions(args: argparse.Namespace) -> int:
     import json
 
@@ -77,6 +112,22 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--measurements", help="Tape measurements (default: captures/<room>/measurements.json if it exists)")
     p.add_argument("--no-measurements", action="store_true", help="Ignore tape measurements: keep the model's own scale")
     p.set_defaults(func=cmd_coverage)
+
+    p = sub.add_parser("shell", help="C3: the room's shell as a room manifest in the player's user data")
+    p.add_argument("--room", required=True)
+    p.add_argument("--session", default="latest")
+    p.add_argument("--spec", help="Shell spec (default: captures/<room>/shell-spec.json)")
+    p.add_argument("--rooms-dir", help="Where captured rooms go (default: the game's user://rooms; never inside the repository)")
+    p.add_argument("--created-utc", help="Timestamp for the manifest (default: now); fix it to rebuild the same bytes")
+    p.add_argument("--no-pictures", action="store_true", help="Skip the rectified wall pictures")
+    p.set_defaults(func=cmd_shell)
+
+    p = sub.add_parser("inventory", help="C4: the room's objects (kind, box, colours), the five picks and a top-down review image")
+    p.add_argument("--room", required=True)
+    p.add_argument("--session", default="latest")
+    p.add_argument("--curation", help="Reviewer's corrections (default: captures/<room>/inventory-curation.json)")
+    p.add_argument("--min-evidence", type=float, default=1.8, help="Smallest photos-times-score a detector cluster needs")
+    p.set_defaults(func=cmd_inventory)
 
     p = sub.add_parser("sessions", help="List ingested sessions for a room")
     p.add_argument("--room", required=True)

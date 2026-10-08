@@ -1,7 +1,7 @@
 [project]
 name = "roomscan"
 version = "0.1.0"
-description = "EnFractal capture pipeline: photo ingest (C1) and coverage guidance (C2)"
+description = "EnFractal capture pipeline: photo ingest (C1), coverage guidance (C2), the room shell (C3) and the object inventory (C4)"
 readme = "README.md"
 # 3.12 is the interpreter MapAnything is tested on; uv provisions it (see README.md).
 requires-python = ">=3.12,<3.13"
@@ -25,11 +25,21 @@ pose = [
     "transformers>=4.50",
 ]
 
+# C4 inventory: the open-vocabulary detector (OWLv2, Apache-2.0) needs torch and transformers but
+# not MapAnything, whose dependency tree (tensorboard, rerun) is large. Poses are cached, so the
+# inventory never needs the pose model.
+detect = [
+    "torch==2.14.1",
+    "torchvision==0.29.1",
+    "transformers>=4.50",
+]
+
 [project.scripts]
 roomscan = "roomscan.cli:main"
 
 [dependency-groups]
-dev = ["pytest>=8"]
+# jsonschema and its pins match contracts/requirements.txt: the shell and inventory tests run the contract validator.
+dev = ["pytest>=8", "jsonschema==4.26.0", "referencing==0.37.0", "jsonschema-specifications==2025.9.1", "rpds-py==2026.9.1", "attrs==26.1.0"]
 
 [tool.uv]
 default-groups = ["dev"]
