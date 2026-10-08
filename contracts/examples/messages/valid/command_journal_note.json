@@ -1,0 +1,10 @@
+{
+  "schema": "enfractal.command",
+  "version": 1,
+  "action_id": "note-0002",
+  "room_id": "garage_example",
+  "op": "journal.note",
+  "args": {
+    "text": "You keep the paint by the shelves. Ask before moving it."
+  }
+}

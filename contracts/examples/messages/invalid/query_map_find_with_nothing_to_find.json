@@ -1,10 +1,10 @@
 {
   "schema": "enfractal.query",
   "version": 1,
-  "query_id": "q-0008",
+  "query_id": "q-0019",
   "room_id": "garage_example",
-  "op": "jobs.status",
+  "op": "map.find",
   "args": {
-    "job_id": "job-45k3jjkv2q75gxvoqd4zmtxz6y"
+    "limit": 3
   }
 }

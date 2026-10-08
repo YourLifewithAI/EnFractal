@@ -1,0 +1,12 @@
+{
+  "schema": "enfractal.command",
+  "version": 1,
+  "action_id": "note-0009",
+  "room_id": "garage_example",
+  "op": "journal.note",
+  "args": {
+    "text": "Built a castle",
+    "kind": "built",
+    "directed_by": "player:local"
+  }
+}

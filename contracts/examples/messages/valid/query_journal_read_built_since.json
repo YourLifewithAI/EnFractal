@@ -1,0 +1,13 @@
+{
+  "schema": "enfractal.query",
+  "version": 1,
+  "query_id": "q-0013",
+  "room_id": "garage_example",
+  "op": "journal.read",
+  "args": {
+    "kind": "built",
+    "about": "creation:00000001",
+    "since_utc": "2026-10-06T00:00:00Z",
+    "limit": 10
+  }
+}
