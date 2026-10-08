@@ -12,7 +12,8 @@ command. Type at the console, as the player:
     say <entity> <text>  put a sign or label with that text on an entity (untrusted world text)
     walk <x> <y> <z>     move the companion's avatar there (what it sees, and so remembers, changes)
     move <entity> <x> <y> <z>  the world moves something (out of the companion's sight, say)
-    arrive               the companion's avatar reaches its goal; the game re-checks the target
+    arrive               the companion's avatar reaches its goal; the game re-checks the target (a fetch
+                         arrives twice: at the thing, which it picks up, then back beside the player)
     quit                 stop the game
 
 The console is the player's UI. Nothing typed into the MCP client can reach it.
@@ -27,7 +28,7 @@ import threading
 from pathlib import Path
 
 from .contract import Contracts
-from .link import LinkServer, default_session_path
+from .link import LinkServer, SessionLock, default_session_path
 from .mock_host import MockHost
 
 
@@ -49,6 +50,18 @@ def main(argv: list[str] | None = None) -> int:
 
 
 async def _run(host: MockHost, session_path: Path) -> None:
+    # The account's ownership of the link, as the game takes it: never two games publishing one session file.
+    ownership = SessionLock(session_path)
+    if not ownership.acquire():
+        print("mock game: another game holds the companion link; stop it first", flush=True)
+        return
+    try:
+        await _serve(host, session_path)
+    finally:
+        ownership.release()
+
+
+async def _serve(host: MockHost, session_path: Path) -> None:
     server = LinkServer(host.handle, host.room_id, on_session=host.session_event)
     info = await server.start(session_path)
     print(f"mock game: room {host.room_id} on {info.host}:{info.port}", flush=True)
@@ -96,6 +109,8 @@ def _announce(kind: str, payload: dict) -> None:
         print(f"[decided] {payload['request_id']} -> {payload['state']}", flush=True)
     elif kind == "committed":
         print(f"[committed] {payload['principal']} {payload['op']} {payload['action_id']}", flush=True)
+    elif kind == "goal_progress":
+        print(f"[goal] {payload['actor']} {payload['job_id']} picked it up; bringing it back", flush=True)
     elif kind == "goal_finished":
         print(f"[goal] {payload['actor']} {payload['job_id']} -> {payload['state']}", flush=True)
 

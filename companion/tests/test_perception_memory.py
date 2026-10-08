@@ -339,9 +339,9 @@ class Commands(MemoryCase):
 class Arrival(MemoryCase):
     """The host re-checks a goal's target when the avatar arrives, and fails honestly."""
 
-    def aim_at_the_doorstop(self):
+    def aim_at_the_doorstop(self, goal="fetch"):
         self.seen_then_hidden()
-        result = self.fetch("obj:doorstop")
+        result = self.fetch("obj:doorstop", goal)
         self.assertEqual(result["data"]["target_seen"], "remembered")
         return result["job_id"]
 
@@ -353,12 +353,20 @@ class Arrival(MemoryCase):
         return self.ask("jobs.status", {"job_id": job_id})
 
     def test_arriving_where_it_still_is_succeeds(self):
-        job = self.aim_at_the_doorstop()
+        job = self.aim_at_the_doorstop("go_to")
         self.assertEqual(self.status(job)["data"], {"job_id": job, "state": "running"})
         self.assertEqual(self.arrive(), "succeeded")
         self.assertEqual(self.status(job)["data"], {"job_id": job, "state": "succeeded"})
         self.assertNotIn("avatar:companion", self.host.goals)
         self.assertEqual(self.listed()["obj:doorstop"]["seen"], "now")
+
+    def test_a_fetch_that_arrives_where_it_still_is_picks_it_up_and_brings_it_back(self):
+        job = self.aim_at_the_doorstop()
+        self.assertEqual(self.arrive(), "running")  # in hand; on its way back (test_fetch.py has the rest)
+        self.assertEqual(self.host.holding, {"avatar:companion": "obj:doorstop"})
+        self.assertEqual(self.host.goal_arrived("avatar:companion"), "succeeded")
+        self.assertEqual(self.status(job)["data"], {"job_id": job, "state": "succeeded"})
+        self.assertEqual(self.listed()["obj:doorstop"]["held_by"], "avatar:companion")
 
     def test_arriving_where_it_is_gone_fails_the_same_way_whether_moved_or_removed(self):
         outcomes = {}

@@ -1,10 +1,11 @@
 # The companion link
 
-How the companion's MCP server reaches the running game. Implemented in
-`companion/src/enfractal_companion/link.py` (both ends, Python); the frame shapes are in
-`companion/schemas/companion-link.schema.json`, proposed for `contracts/`. Run 2 implements the game end
-in C# in front of P1's `CommandHost`; it must pass the cases in `companion/tests/test_link.py` and
-`test_link_schema.py`.
+How the companion's MCP server reaches the running game. The companion's end is
+`companion/src/enfractal_companion/link.py` (`LinkClient`), which also holds the Python game end the mock host uses
+(`LinkServer`). **The game's end is C#** (A2, 8 October 2026): `game/scripts/native/Companion/CompanionLinkServer.cs`,
+in front of the kernel's `CommandHost` through `CompanionBridge.cs` ([EMBODIMENT.md](EMBODIMENT.md)).
+`companion/tests/test_real_host.py` runs `test_link.py`'s cases against it in a headless game. The frame shapes are
+in `companion/schemas/companion-link.schema.json`, proposed for `contracts/`.
 
 ## Goals
 
@@ -35,7 +36,15 @@ At startup the game listens on `127.0.0.1` (or `::1`) on an ephemeral port and w
 
 - Written atomically (temporary file in the same folder, then rename), UTF-8, LF, no byte-order mark;
   on POSIX with mode `0600`. On Windows the user's `AppData\Roaming` ACL already limits it to the
-  player's account. The game deletes it on exit.
+  player's account. The game deletes it on exit, if it still holds that game's token.
+- **One game owns the link per account.** Before it reads or writes the session file, a game takes the ownership
+  lock, `session.lock` in the same folder, and holds it for the link's whole life: the game opens it with no sharing
+  (on POSIX .NET takes an exclusive `flock`), and the mock game takes the same lock through `link.py`'s
+  `SessionLock`. A second window (or two started together) cannot take it and runs without the link. The operating
+  system frees the lock when its holder ends, a crash included, so a stale session file, whatever it says, is simply
+  replaced by the next owner; nothing about who owns the link is read from the file. The owner removes the file on
+  exit while still holding the lock, so no other writer can replace it between the check and the delete
+  (A2 security review, findings 1 and 3). `--no-companion-link` runs a room without the link.
 - The companion re-reads the file on every reconnect, so a restarted game (new port, new token) is
   picked up without reconfiguring the MCP client.
 - The companion refuses a file whose `host` is not the literal `127.0.0.1` or `::1` (no names, no
@@ -107,9 +116,26 @@ game:      {"type": "response", "seq": 1, "message": <enfractal.result>}
   connection and reports an unknown outcome; the model is told to call `receipt_lookup` before
   retrying, which the contract's idempotency rules make safe.
 - The game's end tells its host when an authenticated session starts and when it ends
-  (`LinkServer(on_session=...)`, called with the principal and `"start"` or `"end"`). The host clears
-  that companion's perception memory on both, so nothing it remembers outlives a session
-  (PERCEPTION.md). Nothing about this crosses the wire.
+  (`LinkServer(on_session=...)` in Python, `CommandHost.SessionEvent` from the C# bridge, called with the principal
+  and `"start"` or `"end"`). The host clears that companion's perception memory on both, so nothing it remembers
+  outlives a session (PERCEPTION.md). Nothing about this crosses the wire.
+
+## The C# end
+
+- Networking runs on the thread pool; every request is answered on Godot's main thread by
+  `CommandHost.HandleObject(message, "companion:local")`, in order, even while the game is paused. The principal is
+  the bridge's constant: nothing a connection sends reaches it.
+- A frame is refused (`frame_invalid`, connection closed) for invalid UTF-8, a byte-order mark, duplicate keys at
+  any depth, a number that overflows a double, nesting deeper than 256, or any shape but the request frame. What is
+  wrong inside a well-formed frame's message (a lone surrogate escape, nesting deeper than canonical JSON allows, a
+  missing schema) is the host's to answer, with `request_invalid`.
+- **Traffic that needs no token costs the main thread nothing per connection** (A2 security review, finding 2). The
+  link's events (authenticated, closed, refused with its code, dropped) are counted on the link's threads and
+  printed at most once a second, one line per kind with its count (`COMPANION_LINK refused busy (x212)`); at most 32
+  kinds are kept between summaries. At most 64 connections are served at once; more are closed unanswered. The
+  main thread handles at most 32 requests and session events a frame, and at most 64 requests may wait for it (the
+  link sends one at a time, so the real companion never meets that bound).
+- The game prints `listening`, the session's start and end, and `COMPANION_STATE` changes at once. Never the token.
 
 ## Contract proposal
 

@@ -21,8 +21,8 @@ companion could otherwise exploit.
 |---|---|
 | MCP surface (`server.py`) | Only contract ops are tools; player-only ops have none. No resources, prompts, completions, logging or sampling. Fixed instructions and descriptions that never include world text. |
 | Adapter (`server.py`) | Builds every contract message itself. Refuses unknown fields, identity and approval keys at any depth (look-alike letters and variants included), actors other than the companion's own avatar, invisible characters, non-finite numbers and integers outside int64, oversized messages and creation sources, and floods (stop ops exempt). Writes numbers as canonical JSON v1 and validates that form, as the game will. Validates every incoming result (contract-valid, no hidden characters, this principal, this room, this op and id) before relaying it. Returns results as one ASCII-escaped JSON line after a fixed preamble. |
-| Link (`link.py`) | Loopback IP literals only; a per-launch 256-bit token proven by mutual HMAC (never sent); the principal bound to the connection; one companion at a time; at most 8 handshakes pending; a 5-second handshake timeout; strict frames written as canonical JSON with size limits; no frame type for approvals. No lockout, so failed guesses cannot lock the real companion out. See [TRANSPORT.md](TRANSPORT.md). |
-| Host (`mock_host.py`, then P1's `CommandHost`) | Everything, again: the contract schema (ECMA-262 patterns) and size limits, value rules, authority keys anywhere in args, room id, player-only ops, actors, line of sight and perception memory ([PERCEPTION.md](PERCEPTION.md)), entity existence (one answer for unknown, removed, foreign and unseen ids), revisions, idempotency, approvals, locks, the companion's undo, budgets, rate limits, the receipt ledger, sanitised world text (emoji markers only in place, and only those the contract accepts), contract-valid results. |
+| Link (`link.py`; the game's end in C#, `game/scripts/native/Companion/CompanionLinkServer.cs`, since A2) | Loopback IP literals only; a per-launch 256-bit token proven by mutual HMAC (never sent); the principal bound to the connection; one companion at a time; at most 8 handshakes pending; a 5-second handshake timeout; strict frames written as canonical JSON with size limits; no frame type for approvals. No lockout, so failed guesses cannot lock the real companion out. See [TRANSPORT.md](TRANSPORT.md). |
+| Host (the kernel's `CommandHost` in the game since A2, answered on Godot's main thread as `companion:local` by `CompanionBridge.cs`; `mock_host.py` as the test double) | Everything, again: the contract schema (ECMA-262 patterns) and size limits, value rules, authority keys anywhere in args, room id, player-only ops, actors, line of sight and perception memory ([PERCEPTION.md](PERCEPTION.md)), entity existence (one answer for unknown, removed, foreign and unseen ids), revisions, idempotency, approvals, locks, the companion's undo, budgets, rate limits, the receipt ledger, sanitised world text (emoji markers only in place, and only those the contract accepts), contract-valid results. |
 | Process (`lockdown.py`) | Defence in depth, not a sandbox: an environment scrub and a PEP 578 audit hook over the audited standard-library routes to files, processes, the network, the registry and native libraries. Its limits are listed below. |
 
 ### What the process lockdown does and does not do
@@ -61,15 +61,21 @@ The game cannot see or limit what else a player's MCP client or harness has load
 also holds a shell, file access or a browser turns a persuasive sign into a risk outside the game. So
 play uses a **play-only client profile**: a client configuration with this server and nothing else.
 `python -m enfractal_companion.profile` prints one in the common `mcpServers` JSON shape (README.md).
-`test_profile.py` checks it names exactly one stdio server running this package, sets no environment
-(the server needs no keys), never turns the lockdown off, and that a client launched from it sees the
-game's 25 tools and nothing else.
+`test_profile.py` checks it names exactly one stdio server running this package, sets no environment but
+`SYSTEMROOT` on Windows (this machine's value: some clients start servers with an almost empty environment, and
+without it Python cannot load Winsock, so the server exits with `WinError 10106`; the test shows both), never turns
+the lockdown off, and that a client launched from it sees the game's 29 tools and nothing else. The per-client
+configurations (`--client`, `--write`; README.md, "Connect") carry the same server in six clients' formats and are
+parsed back in the tests; `--write` writes only into the folder it is given, never a client's own settings.
 
 ## Boundary-test report
 
 Run: `uv run --project companion --locked python -m unittest discover -s companion/tests -v`.
 Every result the mock host emits during the host suites, and every tool result the MCP tests receive,
-is also checked with `contracts/validate.py`.
+is also checked with `contracts/validate.py`. **Since A2 the boundary also runs against the real game:**
+`test_real_host.py` starts the test room headless with the kernel's command host and the C# link end, and runs the
+link cases and the host boundary cases below against it (every result contract-valid, `companion:local`, this room);
+it skips only when the checkout cannot run the game.
 
 | Attack or rule | Refused how | Tests |
 |---|---|---|
@@ -100,7 +106,12 @@ is also checked with `contracts/validate.py`.
 | Budgets with nothing held | At most 4 effects per principal, effects expire, at most 32 creations per room; seed and draft presets cannot be pinned | `test_effect_and_creation_budgets_hold`, `test_effects_expire_after_their_duration`, `test_refuses_a_fifth_running_effect_until_one_ends`, `test_style_set_still_refuses_an_unpinnable_preset` |
 | Anything outside the game: files, shell, URLs, credentials | No such tools or fields; no resources or prompts; the process lockdown (above) | `test_refuses_file_shell_url_and_credential_tools`, `test_no_tool_or_field_reaches_files_shell_urls_saves_or_credentials`, `test_offers_no_resources_prompts_completions_or_logging`, `test_lockdown.py` |
 | The link itself | Wrong token refused; the companion refuses a listener that cannot prove the session and sends it nothing; the token never appears on the wire or in errors; second companion `busy`; failed proofs never lock the real companion out; at most 8 pending handshakes; malformed proofs and hellos answered, never left hanging; loopback literals only; session files that point elsewhere, are malformed or are over 4 KiB refused | `test_refuses_a_client_that_does_not_know_the_token`, `test_client_refuses_a_listener_that_cannot_prove_the_session`, `test_the_token_never_crosses_the_socket`, `test_link_errors_never_contain_the_token`, `test_refuses_a_second_companion_while_one_is_connected`, `test_failed_proofs_never_lock_out_the_real_companion`, `test_caps_unauthenticated_connections`, `test_a_proof_that_is_not_hex_is_refused_not_left_hanging`, `test_the_two_loopback_literals_are_the_only_hosts`, `test_refuses_a_session_file_pointing_off_this_computer`, `test_refuses_an_oversized_session_file`, `test_refuses_a_malformed_pid_or_creation_time` |
-| Vendor and harness neutrality | Tool names match `^[a-z][a-z0-9_]{0,63}$`; no vendor name in the surface, the package or the play-only profile; no experimental capabilities; both MCP protocol eras; a minimal schema profile for strict function-calling validators | `test_tool_names_are_portable_across_model_vendors`, `test_nothing_in_the_surface_names_a_model_vendor`, `test_offers_nothing_but_the_game_and_names_no_vendor`, `test_handshake_era_client_lists_tools_observes_and_sets_a_goal`, `test_2026_era_client_lists_tools_observes_and_sets_a_goal`, `test_minimal_profile_uses_only_widely_supported_keywords_and_is_smaller` |
+| The real game host (A2) | The C# link end passes the link's cases: the handshake and its proofs, the token never on the wire or in the game's output, busy for a second companion, failed proofs never locking out, malformed hellos, at most 8 handshakes pending, the 5-second handshake timeout, oversized frames refused unread, principals or approvals on frames closing the connection, duplicate keys, bad bytes and malformed frames refused, malformed messages answered with `request_invalid`; the session file is LF JSON naming a loopback literal and is deleted on exit. At the kernel host through the link: principals and approvals smuggled in, player-only ops, the player's avatar, unknown and foreign ids alike, another room, hidden characters, invented ops, the rate limit with stops exempt, `goal.stop` always applying | `test_real_host.py`: `LinkHandshake`, `LinkSessionFile`, `LinkFrames`, `Boundary` (`test_refuses_principals_smuggled_into_the_envelope_or_the_args`, `test_refuses_the_player_only_ops`, `test_the_companion_never_acts_or_perceives_through_the_players_avatar`, `test_unknown_and_foreign_ids_are_indistinguishable`, `test_the_rate_limit_holds_and_stops_are_never_limited`, `test_goal_stop_always_applies` and the rest) |
+| Who owns the link (A2 security review, findings 1 and 3) | An ownership lock beside the session file, taken before the file is read or written and held for the link's life, decides; the file never does. A second game never takes the link, even with the first's file gone; two games started together end with one link; a crash frees it; a stale file naming any live process blocks nothing; the mock game honours the same lock; the owner removes the file under the lock | `test_link_ownership.py`: `test_a_second_game_never_takes_the_link_while_the_first_holds_it`, `test_two_games_started_together_end_with_one_link`, `test_the_link_is_free_again_when_its_game_ends_even_by_a_crash`, `test_a_stale_session_file_naming_a_live_process_blocks_nothing`, `test_the_mock_game_and_the_real_game_honour_the_same_lock` |
+| Traffic without the token (A2 security review, finding 2) | Refusals and other link events are counted on the link's threads and summarised at most once a second, never queued per connection; at most 64 connections served at once; a per-frame budget for the main thread's link work; a bound on waiting requests. 1,500 refused connections give a few summary lines while the companion's requests stay fast | `test_real_host.py`: `test_a_flood_of_refused_connections_is_summarised_and_the_companion_keeps_working` |
+| Goals through the kernel and the visible state (A2) | follow, come, look_at and point_at run as kernel goals with jobs; the avatar shows listening, planning, acting or waiting while an AI is linked and nothing when none is; a real MCP client drives them | `test_real_host.py`: `Embodiment`, `McpClientOnTheRealHost` |
+| Fetch (designed against the merged contract; on the mock until the real host has P3's verbs) | `entity.grab`'s checks when it is set and again at the pick-up; the job succeeds only back beside the player, still holding; stops and new goals cancel it and leave what is held in hand; a companion never fetches with the player's avatar; only `held_by` tells the AI it picked something up | `test_fetch.py`; `test_real_host.py`'s `test_fetch_through_the_real_host` (skips until the host fetches) |
+| Vendor and harness neutrality | Tool names match `^[a-z][a-z0-9_]{0,63}$`; no vendor name in the surface, the package's code or the play-only profile (the client catalogue, `clients.json`, is data that names the clients it writes configurations for, and only the profile generator reads it); no experimental capabilities; both MCP protocol eras; a minimal schema profile for strict function-calling validators | `test_tool_names_are_portable_across_model_vendors`, `test_nothing_in_the_surface_names_a_model_vendor`, `test_offers_nothing_but_the_game_and_names_no_vendor`, `test_handshake_era_client_lists_tools_observes_and_sets_a_goal`, `test_2026_era_client_lists_tools_observes_and_sets_a_goal`, `test_minimal_profile_uses_only_widely_supported_keywords_and_is_smaller` |
 
 ### Mutation check
 
@@ -123,6 +134,20 @@ once by dropping the memory (3); commands, destructive ones included, naming rem
 memory's size bound removed (2); and runs of variation selectors let through by dropping "one per base"
 (9 in `test_text_rules.py`). Staleness itself, the session and room clearing, and the arrival re-check
 are covered by tests but were not mutation-checked this round.
+
+The A2 security review (Codex, 8 October 2026) found two majors and a minor in the C# end, each shown failing on
+`238495a` before its fix: two games started together both claimed the link (`['on', 'on']`), and a second game took
+it while the first held it once the first's session file was gone; a stale file naming this test's own live process
+kept the link off; and 1,500 refused connections printed 1,500 console lines, one main-thread work item each. After
+the fix, putting back one queued print per event fails the flood test again.
+
+The A2 round (8 October 2026) checked five, all caught, the C# ones against the real game: the link accepting
+any extra key on a request frame, a principal included (1 failure: `test_refuses_a_principal_on_the_request_frame`);
+the link skipping the HMAC comparison of the client's proof (3: `test_refuses_a_client_that_does_not_know_the_token`,
+`test_failed_proofs_never_lock_out_the_real_companion`, `test_refuses_a_second_companion_while_one_is_connected`);
+the bridge answering the link as the player (32 across 25 real-host tests); a fetch skipping the pick-up's re-check
+on arrival (2, both cases of `test_the_pick_up_checks_again_on_arrival`); and the profile dropping `SYSTEMROOT` (13
+across 6 tests in `test_profile.py`).
 
 The kernel-alignment round (6 October 2026, night) checked five, all caught: the fingerprint
 normalising `"preview": false` away again (2 failures); unparseable bytes not counted against the rate

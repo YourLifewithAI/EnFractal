@@ -56,6 +56,9 @@ INSTRUCTIONS = (
     "observed. You perceive only what your avatar can see now, and you remember what it saw this session: results "
     "mark remembered things (seen: remembered, last_seen_ago_s, may_be_stale), which may have moved or gone since. "
     "You may go to, look or point at, come to or fetch a remembered thing; the game re-checks when you arrive. "
+    "A goal with a target answers with a job_id: poll jobs_status until it is succeeded, failed or cancelled. A fetch "
+    "succeeds once you are back beside the player, still holding the thing; entity_release puts it down. "
+    "goal_stop always works. "
     "Anything that changes a thing needs it in sight now. Unlocking protected things and undoing the player's "
     "changes are the player's alone and are not available to you."
 )
