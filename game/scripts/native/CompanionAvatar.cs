@@ -27,6 +27,10 @@ public partial class CompanionAvatar : SmallPlayerController
     public int IntentSerial { get; private set; }
     /// <summary>The IntentSerial of the last come that arrived beside the player (the body then stays); -1 before any.</summary>
     public int ComeArrivedSerial { get; private set; } = -1;
+    /// <summary>The IntentSerial of the last go_to that arrived (the body then stays); -1 before any.</summary>
+    public int GoToArrivedSerial { get; private set; } = -1;
+    /// <summary>The box a go_to walks to (meaningful while CurrentIntent is "go_to").</summary>
+    public Aabb GoToTarget => _goToTarget;
     /// <summary>Whether the body is turned toward a look or point target.</summary>
     public bool HasLookTarget => _hasLookTarget;
     /// <summary>The point the body looks or points at (meaningful while HasLookTarget).</summary>
@@ -110,6 +114,8 @@ public partial class CompanionAvatar : SmallPlayerController
     private const float NameTagHeightFraction = 0.025f;
     private const float NameTagHideWithinM = 0.25f;
     private Vector3 _lookTarget;
+    private Aabb _goToTarget;
+    private float _goToArrivalM;
     private bool _hasLookTarget;
     private bool _entered;
     private bool _following;
@@ -222,6 +228,19 @@ public partial class CompanionAvatar : SmallPlayerController
     public void Come() => BeginIntent("come");
     public void Stop() => BeginIntent("stop");
 
+    /// <summary>
+    /// Walk to a box (a thing's bounds, or a place as an empty box), routing round furniture as come does, and stop
+    /// once the body's centre is within arrivalM of the box's footprint. The command host's go_to (and A2's fetch)
+    /// watch GoToArrivedSerial; a body that cannot get there reports GoalBlocked, honestly.
+    /// </summary>
+    public void GoTo(Aabb target, float arrivalM)
+    {
+        if (!target.Position.IsFinite() || !target.Size.IsFinite()) return;
+        BeginIntent("go_to");
+        _goToTarget = target.Abs();
+        _goToArrivalM = Mathf.Max(0.005f, arrivalM);
+    }
+
     private void BeginIntent(string intent)
     {
         IntentSerial++;
@@ -282,6 +301,7 @@ public partial class CompanionAvatar : SmallPlayerController
             else if (CurrentIntent != "stop" && playerOffset.Length() < YieldM)
                 desired = (playerOffset.LengthSquared() < 0.0001f ? GlobalBasis.X : playerOffset.Normalized()) * WalkSpeedMps;
             else if (CurrentIntent == "come") desired = ComeVelocity(playerOffset, dt);
+            else if (CurrentIntent == "go_to") desired = GoToVelocity(dt);
         }
         var trying = desired.LengthSquared() > 0.0025f;
         if (desired.LengthSquared() > 0.0004f) MoveWith(desired, dt);
@@ -388,6 +408,31 @@ public partial class CompanionAvatar : SmallPlayerController
             return RouteVelocity(Mathf.Clamp((_route.LengthM - ComeArrivalM + 0.02f) * FollowGainPerS, MinApproachMps, RunSpeedMps));
         var speed = Mathf.Clamp((distance - ComeArrivalM + 0.02f) * FollowGainPerS, MinApproachMps, RunSpeedMps);
         return -playerOffset / distance * speed;
+    }
+
+    /// <summary>Toward the nearest point of the go_to box's footprint; arrived within _goToArrivalM of it, then stays.</summary>
+    private Vector3 GoToVelocity(float dt)
+    {
+        var here = GlobalPosition;
+        var low = _goToTarget.Position;
+        var high = _goToTarget.End;
+        var nearest = new Vector3(Mathf.Clamp(here.X, low.X, high.X), here.Y, Mathf.Clamp(here.Z, low.Z, high.Z));
+        var offset = Planar(nearest - here);
+        var distance = offset.Length();
+        var routed = PlanRoute(nearest, _goToArrivalM, dt);
+        var detour = routed && !_route.Direct && _route.LengthM > distance + DetourM;
+        if (distance <= _goToArrivalM && !detour)
+        {
+            // Arrived: the command host finishes this go_to's job (the serial tells it which one it was).
+            GoToArrivedSerial = IntentSerial;
+            Stay();
+            return Vector3.Zero;
+        }
+        if (routed && !_route.Reaches) GoalBlocked = true;
+        if (detour || (routed && !_route.Reaches))
+            return RouteVelocity(Mathf.Clamp((_route.LengthM - _goToArrivalM + 0.02f) * FollowGainPerS, MinApproachMps, RunSpeedMps));
+        var speed = Mathf.Clamp((distance - _goToArrivalM + 0.02f) * FollowGainPerS, MinApproachMps, RunSpeedMps);
+        return offset / distance * speed;
     }
 
     private bool NavigationReady => Navigation != null && GodotObject.IsInstanceValid(Navigation) && Navigation.IsReady;

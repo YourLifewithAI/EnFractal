@@ -66,6 +66,8 @@ public partial class CommandHost : Node
     public const int MaxJobsPerPrincipal = 256;
     /// <summary>On arrival, a target farther than this from where the goal aimed has moved (an avatar's reach).</summary>
     public const float ArrivalReachM = 0.15f;
+    /// <summary>A go_to stops with the body's centre this close to the target's footprint (within the 10 cm body's reach).</summary>
+    public const float GoToStopM = 0.08f;
     public static readonly TimeSpan ApprovalLifetime = TimeSpan.FromMinutes(5);
     public const string RuntimeScript = "res://scripts/invention_runtime.gd";
 
@@ -106,7 +108,7 @@ public partial class CommandHost : Node
     /// <summary>What perception memory keeps: everything but the shell, which is always in sight.</summary>
     private static readonly HashSet<string> RememberedKinds = new() { "object", "creation", "avatar", "effect" };
     /// <summary>The goals whose arrival the host watches on the companion's body itself; go_to and fetch arrive through ReportArrival (A2).</summary>
-    private static readonly HashSet<string> HostDrivenGoals = new() { "follow", "come", "look_at", "point_at" };
+    private static readonly HashSet<string> HostDrivenGoals = new() { "follow", "come", "look_at", "point_at", "go_to" };
     private static readonly HashSet<string> Affordances = new()
     {
         "walkable_top", "climbable", "sittable", "openable", "container", "soft", "breakable", "light_source", "switchable", "screen", "readable", "rideable", "hazard",
@@ -612,6 +614,9 @@ public partial class CommandHost : Node
             case "come": Companion.Come(); break;
             case "look_at": Companion.LookAtPoint(point!.Value); break;
             case "point_at": Companion.PointAt(point!.Value); break;
+            case "go_to":
+                Companion.GoTo(target != null ? aim : new Aabb(KernelJson.ReadVector(args.GetProperty("position_m")), Vector3.Zero), GoToStopM);
+                break;
         }
         // A goal with a target runs as a job: the host re-checks the target when the avatar arrives.
         var job = target != null ? StartJob(principal, actor, actionId, goal, target, aim, Companion.IntentSerial) : null;
@@ -1510,7 +1515,7 @@ public partial class CommandHost : Node
     public override void _PhysicsProcess(double delta)
     {
         if (Companion == null || !IsInstanceValid(Companion) || !_runningGoals.TryGetValue(CompanionAvatarId, out var job) || !HostDrivenGoals.Contains(job.Goal)) return;
-        if (job.Goal == "come" && Companion.ComeArrivedSerial == job.Serial)
+        if ((job.Goal == "come" && Companion.ComeArrivedSerial == job.Serial) || (job.Goal == "go_to" && Companion.GoToArrivedSerial == job.Serial))
         {
             ReportArrival(CompanionAvatarId);
             return;
@@ -1932,7 +1937,8 @@ public partial class CommandHost : Node
         "effect.start" => "Free-standing effects arrive with the first magic (Run 3).",
         "style.set" => "Restyling the room from a command arrives with the look runtime.",
         "room.undo" => "Undo arrives with room saves (Run 3).",
-        "goal.set" when Str(args, "goal") is "go_to" or "fetch" or "wander" => "That goal arrives with the companion's embodiment (Run 2).",
+        "goal.set" when Str(args, "goal") is "fetch" => "Fetching arrives with the sandbox verbs (Run 2, P3).",
+        "goal.set" when Str(args, "goal") is "wander" => "Wandering is not available yet.",
         // Today the body follows and comes to the player only; staying by something waits for the goal runner too.
         "goal.set" when Str(args, "goal") is "follow" or "stay" or "come" && Str(args, "target") is { } target && (target != PlayerAvatar || Str(args, "goal") == "stay") =>
             "Following, coming to or staying by anything but the player arrives with the companion's embodiment (Run 2).",

@@ -881,8 +881,11 @@ public partial class CommandHostTest : Node3D
             }) &&System.Text.RegularExpressions.Regex.IsMatch(aimed["job_id"]?.GetValue<string>() ?? "", @"\Ajob-[a-z2-7]{26}\z") &&
                 _host.RunningGoal(CommandHost.CompanionAvatarId)?.Target == "obj:doorstop", $"{goal} may aim at the remembered doorstop: a job, judged on the memory");
         }
-        Check(Code(Aim("obj:doorstop", "go_to")) == "unsupported_capability" && Code(Aim("obj:doorstop", "fetch")) == "unsupported_capability" &&
-            Code(Aim("obj:doorstop", "come")) == "unsupported_capability", "go_to, fetch and coming to a thing wait for the goal runner (A2), whatever the target");
+        var goTo = Aim("obj:doorstop", "go_to");
+        Check(Ok(goTo) && goTo["data"]?["target_seen"]?.GetValue<string>() == "remembered" && _host.RunningGoal(CommandHost.CompanionAvatarId)?.Goal == "go_to",
+            "go_to may aim at the remembered doorstop: the body walks there, a job judged on the memory");
+        Check(Code(Aim("obj:doorstop", "fetch")) == "unsupported_capability" && Code(Aim("obj:doorstop", "come")) == "unsupported_capability",
+            "fetch (with P3's verbs) and coming to a thing still wait, whatever the target");
         var inSight = Aim("obj:box");
         Check(Ok(inSight) && inSight["data"]?["target_seen"]?.GetValue<string>() == "now" && inSight["data"]?["last_seen_ago_s"] == null, "a goal at something in sight says so");
         foreach (var goal in new[] { "follow", "stay", "wander" })
