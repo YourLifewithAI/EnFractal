@@ -138,6 +138,7 @@ Add one row per agent run.
 | 2026-10-08 | Codex second-opinion reviews of P6 and the fixes, in parallel (the A/B's second trial) | GPT-6.1 Sol and GPT-6 Astra, high effort, read-only | 147k (Sol), 125k (Astra) | Both source-traced; every finding checked and real |
 | 2026-10-08 | P second review fix round (8 majors, 1 minor) | Opus (same agent, resumed) | 93k more (711k total) | Clean, in scope; about 16 min; one commit; every finding failing first; rebuild 56/56, journal 81/81; 5 of 5 mutations caught. Merged as `09d0acd` after both Windows runners passed on the merge |
 | 2026-10-08 | A round: mock parity with P's semantics, the journal and map tools and resource, a real client's fetch | Opus | running | |
+| 2026-10-08 | L round: the v2 preset's observe focus (brief 07's A1–A3 and C1) and the observe frame budget, with the capture budget from the start | **Sonnet** | running | |
 
 The first Codex launches failed at once, "blocked by policy". They had skipped the founder's config, which also turned off the Windows sandbox, and the sandbox then could not start the Store-packaged PowerShell 7. Codex stopped and reported, as its rules say. `tools/codex/run.ps1` now handles both.
 
