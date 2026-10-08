@@ -1,6 +1,7 @@
 using Godot;
 using System;
 using System.Linq;
+using EnFractal.Native.Companion;
 using EnFractal.Native.Look;
 using EnFractal.Native.Room;
 using FileAccess = Godot.FileAccess;
@@ -90,6 +91,8 @@ public partial class RoomWorld : Node3D
                 Look = Look,
             });
             Kernel.CommandHost.Attach(this);
+            // The player's AI: the companion link in front of the command host (A2).
+            CompanionBridge.Attach(this);
             Navigation.RoomNavigation.Attach(this);
             SetMeta("room_id", Room.RoomId);
             SetMeta("room_manifest_sha256", Room.ManifestSha256);
