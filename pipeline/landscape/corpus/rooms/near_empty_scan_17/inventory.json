@@ -1,0 +1,191 @@
+{
+  "box_convention": "size_m is [width (local X), height, depth (local Z)]; yaw_deg turns local -Z (the front) to the direction it faces, positive turning left seen from above; placement.position_m is the bottom centre",
+  "detector": {
+    "detections": 0,
+    "detector": "injected",
+    "gpu_seconds": 0.0,
+    "peak_allocated_mib": 0,
+    "photos": 0,
+    "queries": 0,
+    "reused_from_cache": false,
+    "threshold": 0.14
+  },
+  "dropped": [],
+  "frame": "the shell's room frame: metres, +Y up, floor at y = 0, -Z up the page; walls A at z_min, B at x_max, C at z_max, D at x_min",
+  "objects": [
+    {
+      "box": {
+        "centre_m": [
+          2.174,
+          0.281,
+          2.651
+        ],
+        "footprint_m": [
+          1.986,
+          2.459,
+          2.362,
+          2.843
+        ],
+        "size_m": [
+          0.377,
+          0.563,
+          0.384
+        ],
+        "yaw_deg": 0
+      },
+      "colours": [
+        {
+          "hex": "#717839",
+          "share": 1.0
+        }
+      ],
+      "confidence": 0.21,
+      "evidence": {
+        "also_called": {},
+        "detector_mean_score": 0.0,
+        "detector_views": 0,
+        "masks_accepted": 4,
+        "photos_followed": 4,
+        "points": 200,
+        "sheet": "preview.png",
+        "source": "added"
+      },
+      "id": "plant_1",
+      "kind": "bin",
+      "notes": [
+        "Synthetic observation: evidence counts are simulated; sheet is a plan, no photos or models used.",
+        "Synthetic uncertain label; physical truth is in truth.json (not a converter input)."
+      ],
+      "placement": {
+        "front_known": false,
+        "position_m": [
+          2.174,
+          0,
+          2.651
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "support": {
+          "height_m": 0.0,
+          "kind": "floor"
+        },
+        "yaw_deg": 0
+      },
+      "recipe": null,
+      "recipe_needed": {
+        "colours": [
+          "#717839"
+        ],
+        "for_kind": "bin",
+        "size_m": [
+          0.377,
+          0.563,
+          0.384
+        ]
+      }
+    },
+    {
+      "box": {
+        "centre_m": [
+          -1.936,
+          0.553,
+          -2.468
+        ],
+        "footprint_m": [
+          -2.333,
+          -2.872,
+          -1.539,
+          -2.063
+        ],
+        "size_m": [
+          0.587,
+          1.105,
+          0.619
+        ],
+        "yaw_deg": 25
+      },
+      "colours": [
+        {
+          "hex": "#65797e",
+          "share": 1.0
+        }
+      ],
+      "confidence": 0.86,
+      "evidence": {
+        "also_called": {},
+        "detector_mean_score": 0.0,
+        "detector_views": 0,
+        "masks_accepted": 4,
+        "photos_followed": 4,
+        "points": 200,
+        "sheet": "preview.png",
+        "source": "added"
+      },
+      "id": "office_chair_1",
+      "kind": "office chair",
+      "notes": [
+        "Synthetic observation: evidence counts are simulated; sheet is a plan, no photos or models used."
+      ],
+      "pick": {
+        "rank": 1,
+        "why": "the room has no cardboard box; the best-evidenced furniture not yet picked, which needs a recipe of its own"
+      },
+      "placement": {
+        "front_known": true,
+        "position_m": [
+          -1.936,
+          0,
+          -2.468
+        ],
+        "rotation": [
+          0.0,
+          0.21644,
+          0.0,
+          0.976296
+        ],
+        "support": {
+          "height_m": 0.0,
+          "kind": "floor"
+        },
+        "yaw_deg": 25
+      },
+      "recipe": null,
+      "recipe_needed": {
+        "colours": [
+          "#65797e"
+        ],
+        "for_kind": "office chair",
+        "size_m": [
+          0.587,
+          1.105,
+          0.619
+        ]
+      }
+    }
+  ],
+  "picks": [
+    {
+      "id": "office_chair_1",
+      "kind": "office chair",
+      "why": "the room has no cardboard box; the best-evidenced furniture not yet picked, which needs a recipe of its own"
+    }
+  ],
+  "room": "near_empty_scan_17",
+  "scale": {
+    "factor": 1.0,
+    "source": "synthetic metric truth"
+  },
+  "schema": "enfractal.inventory",
+  "segmenter": {
+    "gpu_seconds": 0.0,
+    "new": 0,
+    "peak_allocated_mib": 0.0,
+    "prompts": 0
+  },
+  "session_id": "s-synthetic-near_empty_scan_17",
+  "version": 1
+}

@@ -1,0 +1,189 @@
+{
+  "assumptions": "Room dimensions, palette, placement and unspecified sizes/clearances are assumed.",
+  "bounds": {
+    "colour_channel_shift_max": 24,
+    "low_confidence_range": [
+      0.18,
+      0.38
+    ],
+    "mislabel_count_min": 1,
+    "mislabel_fraction_target_max": 0.25,
+    "position_distance_max_m": 0.1,
+    "size_relative_max": 0.15,
+    "yaw_delta_deg": 0
+  },
+  "dimensions_m": [
+    4.6,
+    2.5,
+    4.8
+  ],
+  "format": "brief14-truth-v1",
+  "lamp_channel_shift": [
+    0,
+    0,
+    0
+  ],
+  "neighbour_groups": [],
+  "objects": [
+    {
+      "colour": "#8d9ca7",
+      "confidence": 0.28,
+      "id": "couch_1",
+      "kind": "couch",
+      "position_m": [
+        -0.7,
+        0,
+        -1.3
+      ],
+      "semantic_label": "bed",
+      "size_basis": "malm",
+      "size_m": [
+        1.76,
+        1,
+        2.09
+      ],
+      "support_target": null,
+      "void": {
+        "basis": "malm",
+        "position_local_m": [
+          0,
+          0,
+          0
+        ],
+        "size_m": [
+          1.55,
+          0.21,
+          1.8
+        ]
+      },
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#bd9c72",
+      "confidence": 0.86,
+      "id": "cabinet_1",
+      "kind": "cabinet",
+      "position_m": [
+        0.75,
+        0,
+        -1.85
+      ],
+      "semantic_label": "bedside cabinet",
+      "size_basis": "assumed",
+      "size_m": [
+        0.45,
+        0.55,
+        0.4
+      ],
+      "support_target": null,
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#e0bd81",
+      "confidence": 0.86,
+      "id": "lamp_1",
+      "kind": "lamp",
+      "position_m": [
+        0.75,
+        0.55,
+        -1.85
+      ],
+      "semantic_label": "lamp",
+      "size_basis": "assumed",
+      "size_m": [
+        0.2,
+        0.35,
+        0.2
+      ],
+      "support_target": "cabinet_1",
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#c0b2a2",
+      "confidence": 0.86,
+      "id": "cabinet_2",
+      "kind": "cabinet",
+      "position_m": [
+        1.65,
+        0,
+        1.85
+      ],
+      "semantic_label": "wardrobe",
+      "size_basis": "assumed",
+      "size_m": [
+        1.05,
+        2,
+        0.6
+      ],
+      "support_target": null,
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#a38669",
+      "confidence": 0.86,
+      "id": "chest_of_drawers_1",
+      "kind": "chest of drawers",
+      "position_m": [
+        -1.65,
+        0,
+        2
+      ],
+      "semantic_label": "chest of drawers",
+      "size_basis": "assumed",
+      "size_m": [
+        1.1,
+        0.85,
+        0.45
+      ],
+      "support_target": null,
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#b79b72",
+      "confidence": 0.86,
+      "id": "basket_1",
+      "kind": "basket",
+      "position_m": [
+        -1.8,
+        0,
+        0.35
+      ],
+      "semantic_label": "basket",
+      "size_basis": "assumed",
+      "size_m": [
+        0.4,
+        0.35,
+        0.4
+      ],
+      "support_target": null,
+      "yaw_deg": 0
+    }
+  ],
+  "outline_xz_m": [
+    [
+      -2.3,
+      -2.4
+    ],
+    [
+      2.3,
+      -2.4
+    ],
+    [
+      2.3,
+      2.4
+    ],
+    [
+      -2.3,
+      2.4
+    ]
+  ],
+  "room_type": "bedroom",
+  "seed": null,
+  "tests": [
+    "bed absent from C4 vocabulary: low confidence fallback",
+    "underbed void",
+    "stacked lamp",
+    "large open floor"
+  ],
+  "variant": "nominal"
+}

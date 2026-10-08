@@ -1,0 +1,3203 @@
+{
+  "box_convention": "size_m is [width (local X), height, depth (local Z)]; yaw_deg turns local -Z (the front) to the direction it faces, positive turning left seen from above; placement.position_m is the bottom centre",
+  "detector": {
+    "detections": 0,
+    "detector": "injected",
+    "gpu_seconds": 0.0,
+    "peak_allocated_mib": 0,
+    "photos": 0,
+    "queries": 0,
+    "reused_from_cache": false,
+    "threshold": 0.14
+  },
+  "dropped": [],
+  "frame": "the shell's room frame: metres, +Y up, floor at y = 0, -Z up the page; walls A at z_min, B at x_max, C at z_max, D at x_min",
+  "objects": [
+    {
+      "box": {
+        "centre_m": [
+          -0.56,
+          0.125,
+          0.4
+        ],
+        "footprint_m": [
+          -0.605,
+          0.355,
+          -0.515,
+          0.445
+        ],
+        "size_m": [
+          0.09,
+          0.25,
+          0.09
+        ],
+        "yaw_deg": 0
+      },
+      "colours": [
+        {
+          "hex": "#738ab0",
+          "share": 1.0
+        }
+      ],
+      "confidence": 0.86,
+      "evidence": {
+        "also_called": {},
+        "detector_mean_score": 0.0,
+        "detector_views": 0,
+        "masks_accepted": 4,
+        "photos_followed": 4,
+        "points": 200,
+        "sheet": "preview.png",
+        "source": "added"
+      },
+      "id": "bottle_20",
+      "kind": "bottle",
+      "notes": [
+        "Synthetic observation: evidence counts are simulated; sheet is a plan, no photos or models used."
+      ],
+      "placement": {
+        "front_known": false,
+        "position_m": [
+          -0.56,
+          0,
+          0.4
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "support": {
+          "height_m": 0.0,
+          "kind": "floor"
+        },
+        "yaw_deg": 0
+      },
+      "recipe": null,
+      "recipe_needed": {
+        "colours": [
+          "#738ab0"
+        ],
+        "for_kind": "bottle",
+        "size_m": [
+          0.09,
+          0.25,
+          0.09
+        ]
+      }
+    },
+    {
+      "box": {
+        "centre_m": [
+          -0.56,
+          0.125,
+          1.16
+        ],
+        "footprint_m": [
+          -0.605,
+          1.115,
+          -0.515,
+          1.205
+        ],
+        "size_m": [
+          0.09,
+          0.25,
+          0.09
+        ],
+        "yaw_deg": 0
+      },
+      "colours": [
+        {
+          "hex": "#738ab0",
+          "share": 1.0
+        }
+      ],
+      "confidence": 0.86,
+      "evidence": {
+        "also_called": {},
+        "detector_mean_score": 0.0,
+        "detector_views": 0,
+        "masks_accepted": 4,
+        "photos_followed": 4,
+        "points": 200,
+        "sheet": "preview.png",
+        "source": "added"
+      },
+      "id": "bottle_32",
+      "kind": "bottle",
+      "notes": [
+        "Synthetic observation: evidence counts are simulated; sheet is a plan, no photos or models used."
+      ],
+      "placement": {
+        "front_known": false,
+        "position_m": [
+          -0.56,
+          0,
+          1.16
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "support": {
+          "height_m": 0.0,
+          "kind": "floor"
+        },
+        "yaw_deg": 0
+      },
+      "recipe": null,
+      "recipe_needed": {
+        "colours": [
+          "#738ab0"
+        ],
+        "for_kind": "bottle",
+        "size_m": [
+          0.09,
+          0.25,
+          0.09
+        ]
+      }
+    },
+    {
+      "box": {
+        "centre_m": [
+          -0.48,
+          0.975,
+          -2.31
+        ],
+        "footprint_m": [
+          -0.525,
+          -2.355,
+          -0.435,
+          -2.265
+        ],
+        "size_m": [
+          0.09,
+          0.25,
+          0.09
+        ],
+        "yaw_deg": 0
+      },
+      "colours": [
+        {
+          "hex": "#738ab0",
+          "share": 1.0
+        }
+      ],
+      "confidence": 0.86,
+      "evidence": {
+        "also_called": {},
+        "detector_mean_score": 0.0,
+        "detector_views": 0,
+        "masks_accepted": 4,
+        "photos_followed": 4,
+        "points": 200,
+        "sheet": "preview.png",
+        "source": "added"
+      },
+      "id": "bottle_8",
+      "kind": "bottle",
+      "notes": [
+        "Synthetic observation: evidence counts are simulated; sheet is a plan, no photos or models used."
+      ],
+      "placement": {
+        "front_known": false,
+        "position_m": [
+          -0.48,
+          0.85,
+          -2.31
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "support": {
+          "height_m": 0.85,
+          "kind": "object",
+          "target_id": "desk_1"
+        },
+        "yaw_deg": 0
+      },
+      "recipe": null,
+      "recipe_needed": {
+        "colours": [
+          "#738ab0"
+        ],
+        "for_kind": "bottle",
+        "size_m": [
+          0.09,
+          0.25,
+          0.09
+        ]
+      }
+    },
+    {
+      "box": {
+        "centre_m": [
+          0.12,
+          0.975,
+          -2.57
+        ],
+        "footprint_m": [
+          0.075,
+          -2.615,
+          0.165,
+          -2.525
+        ],
+        "size_m": [
+          0.09,
+          0.25,
+          0.09
+        ],
+        "yaw_deg": 0
+      },
+      "colours": [
+        {
+          "hex": "#738ab0",
+          "share": 1.0
+        }
+      ],
+      "confidence": 0.86,
+      "evidence": {
+        "also_called": {},
+        "detector_mean_score": 0.0,
+        "detector_views": 0,
+        "masks_accepted": 4,
+        "photos_followed": 4,
+        "points": 200,
+        "sheet": "preview.png",
+        "source": "added"
+      },
+      "id": "bottle_4",
+      "kind": "bottle",
+      "notes": [
+        "Synthetic observation: evidence counts are simulated; sheet is a plan, no photos or models used."
+      ],
+      "placement": {
+        "front_known": false,
+        "position_m": [
+          0.12,
+          0.85,
+          -2.57
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "support": {
+          "height_m": 0.85,
+          "kind": "object",
+          "target_id": "desk_1"
+        },
+        "yaw_deg": 0
+      },
+      "recipe": null,
+      "recipe_needed": {
+        "colours": [
+          "#738ab0"
+        ],
+        "for_kind": "bottle",
+        "size_m": [
+          0.09,
+          0.25,
+          0.09
+        ]
+      }
+    },
+    {
+      "box": {
+        "centre_m": [
+          0.12,
+          0.975,
+          -2.05
+        ],
+        "footprint_m": [
+          0.075,
+          -2.095,
+          0.165,
+          -2.005
+        ],
+        "size_m": [
+          0.09,
+          0.25,
+          0.09
+        ],
+        "yaw_deg": 0
+      },
+      "colours": [
+        {
+          "hex": "#738ab0",
+          "share": 1.0
+        }
+      ],
+      "confidence": 0.86,
+      "evidence": {
+        "also_called": {},
+        "detector_mean_score": 0.0,
+        "detector_views": 0,
+        "masks_accepted": 4,
+        "photos_followed": 4,
+        "points": 200,
+        "sheet": "preview.png",
+        "source": "added"
+      },
+      "id": "bottle_16",
+      "kind": "bottle",
+      "notes": [
+        "Synthetic observation: evidence counts are simulated; sheet is a plan, no photos or models used."
+      ],
+      "placement": {
+        "front_known": false,
+        "position_m": [
+          0.12,
+          0.85,
+          -2.05
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "support": {
+          "height_m": 0.85,
+          "kind": "object",
+          "target_id": "desk_1"
+        },
+        "yaw_deg": 0
+      },
+      "recipe": null,
+      "recipe_needed": {
+        "colours": [
+          "#738ab0"
+        ],
+        "for_kind": "bottle",
+        "size_m": [
+          0.09,
+          0.25,
+          0.09
+        ]
+      }
+    },
+    {
+      "box": {
+        "centre_m": [
+          0.12,
+          0.125,
+          0.78
+        ],
+        "footprint_m": [
+          0.075,
+          0.735,
+          0.165,
+          0.825
+        ],
+        "size_m": [
+          0.09,
+          0.25,
+          0.09
+        ],
+        "yaw_deg": 0
+      },
+      "colours": [
+        {
+          "hex": "#738ab0",
+          "share": 1.0
+        }
+      ],
+      "confidence": 0.86,
+      "evidence": {
+        "also_called": {},
+        "detector_mean_score": 0.0,
+        "detector_views": 0,
+        "masks_accepted": 4,
+        "photos_followed": 4,
+        "points": 200,
+        "sheet": "preview.png",
+        "source": "added"
+      },
+      "id": "bottle_28",
+      "kind": "bottle",
+      "notes": [
+        "Synthetic observation: evidence counts are simulated; sheet is a plan, no photos or models used."
+      ],
+      "placement": {
+        "front_known": false,
+        "position_m": [
+          0.12,
+          0,
+          0.78
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "support": {
+          "height_m": 0.0,
+          "kind": "floor"
+        },
+        "yaw_deg": 0
+      },
+      "recipe": null,
+      "recipe_needed": {
+        "colours": [
+          "#738ab0"
+        ],
+        "for_kind": "bottle",
+        "size_m": [
+          0.09,
+          0.25,
+          0.09
+        ]
+      }
+    },
+    {
+      "box": {
+        "centre_m": [
+          0.72,
+          0.975,
+          -2.31
+        ],
+        "footprint_m": [
+          0.675,
+          -2.355,
+          0.765,
+          -2.265
+        ],
+        "size_m": [
+          0.09,
+          0.25,
+          0.09
+        ],
+        "yaw_deg": 0
+      },
+      "colours": [
+        {
+          "hex": "#738ab0",
+          "share": 1.0
+        }
+      ],
+      "confidence": 0.86,
+      "evidence": {
+        "also_called": {},
+        "detector_mean_score": 0.0,
+        "detector_views": 0,
+        "masks_accepted": 4,
+        "photos_followed": 4,
+        "points": 200,
+        "sheet": "preview.png",
+        "source": "added"
+      },
+      "id": "bottle_12",
+      "kind": "bottle",
+      "notes": [
+        "Synthetic observation: evidence counts are simulated; sheet is a plan, no photos or models used."
+      ],
+      "placement": {
+        "front_known": false,
+        "position_m": [
+          0.72,
+          0.85,
+          -2.31
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "support": {
+          "height_m": 0.85,
+          "kind": "object",
+          "target_id": "desk_1"
+        },
+        "yaw_deg": 0
+      },
+      "recipe": null,
+      "recipe_needed": {
+        "colours": [
+          "#738ab0"
+        ],
+        "for_kind": "bottle",
+        "size_m": [
+          0.09,
+          0.25,
+          0.09
+        ]
+      }
+    },
+    {
+      "box": {
+        "centre_m": [
+          0.8,
+          0.125,
+          0.4
+        ],
+        "footprint_m": [
+          0.755,
+          0.355,
+          0.845,
+          0.445
+        ],
+        "size_m": [
+          0.09,
+          0.25,
+          0.09
+        ],
+        "yaw_deg": 0
+      },
+      "colours": [
+        {
+          "hex": "#738ab0",
+          "share": 1.0
+        }
+      ],
+      "confidence": 0.86,
+      "evidence": {
+        "also_called": {},
+        "detector_mean_score": 0.0,
+        "detector_views": 0,
+        "masks_accepted": 4,
+        "photos_followed": 4,
+        "points": 200,
+        "sheet": "preview.png",
+        "source": "added"
+      },
+      "id": "bottle_24",
+      "kind": "bottle",
+      "notes": [
+        "Synthetic observation: evidence counts are simulated; sheet is a plan, no photos or models used."
+      ],
+      "placement": {
+        "front_known": false,
+        "position_m": [
+          0.8,
+          0,
+          0.4
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "support": {
+          "height_m": 0.0,
+          "kind": "floor"
+        },
+        "yaw_deg": 0
+      },
+      "recipe": null,
+      "recipe_needed": {
+        "colours": [
+          "#738ab0"
+        ],
+        "for_kind": "bottle",
+        "size_m": [
+          0.09,
+          0.25,
+          0.09
+        ]
+      }
+    },
+    {
+      "box": {
+        "centre_m": [
+          0.8,
+          0.125,
+          1.16
+        ],
+        "footprint_m": [
+          0.755,
+          1.115,
+          0.845,
+          1.205
+        ],
+        "size_m": [
+          0.09,
+          0.25,
+          0.09
+        ],
+        "yaw_deg": 0
+      },
+      "colours": [
+        {
+          "hex": "#738ab0",
+          "share": 1.0
+        }
+      ],
+      "confidence": 0.86,
+      "evidence": {
+        "also_called": {},
+        "detector_mean_score": 0.0,
+        "detector_views": 0,
+        "masks_accepted": 4,
+        "photos_followed": 4,
+        "points": 200,
+        "sheet": "preview.png",
+        "source": "added"
+      },
+      "id": "bottle_36",
+      "kind": "bottle",
+      "notes": [
+        "Synthetic observation: evidence counts are simulated; sheet is a plan, no photos or models used."
+      ],
+      "placement": {
+        "front_known": false,
+        "position_m": [
+          0.8,
+          0,
+          1.16
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "support": {
+          "height_m": 0.0,
+          "kind": "floor"
+        },
+        "yaw_deg": 0
+      },
+      "recipe": null,
+      "recipe_needed": {
+        "colours": [
+          "#738ab0"
+        ],
+        "for_kind": "bottle",
+        "size_m": [
+          0.09,
+          0.25,
+          0.09
+        ]
+      }
+    },
+    {
+      "box": {
+        "centre_m": [
+          0,
+          0.425,
+          -2.3
+        ],
+        "footprint_m": [
+          -1.0,
+          -2.725,
+          1.0,
+          -1.875
+        ],
+        "size_m": [
+          2,
+          0.85,
+          0.85
+        ],
+        "yaw_deg": 0
+      },
+      "colours": [
+        {
+          "hex": "#af8a5d",
+          "share": 1.0
+        }
+      ],
+      "confidence": 0.86,
+      "evidence": {
+        "also_called": {},
+        "detector_mean_score": 0.0,
+        "detector_views": 0,
+        "masks_accepted": 4,
+        "photos_followed": 4,
+        "points": 200,
+        "sheet": "preview.png",
+        "source": "added"
+      },
+      "id": "desk_1",
+      "kind": "desk",
+      "notes": [
+        "Synthetic observation: evidence counts are simulated; sheet is a plan, no photos or models used.",
+        "Synthetic uncertain label; physical truth is in truth.json (not a converter input)."
+      ],
+      "placement": {
+        "front_known": true,
+        "position_m": [
+          0,
+          0,
+          -2.3
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "support": {
+          "height_m": 0.0,
+          "kind": "floor"
+        },
+        "yaw_deg": 0
+      },
+      "recipe": null,
+      "recipe_needed": {
+        "colours": [
+          "#af8a5d"
+        ],
+        "for_kind": "desk",
+        "size_m": [
+          2,
+          0.85,
+          0.85
+        ]
+      }
+    },
+    {
+      "box": {
+        "centre_m": [
+          -0.56,
+          0.06,
+          0.78
+        ],
+        "footprint_m": [
+          -0.603,
+          0.738,
+          -0.518,
+          0.823
+        ],
+        "size_m": [
+          0.085,
+          0.12,
+          0.085
+        ],
+        "yaw_deg": 0
+      },
+      "colours": [
+        {
+          "hex": "#809f9b",
+          "share": 1.0
+        }
+      ],
+      "confidence": 0.86,
+      "evidence": {
+        "also_called": {},
+        "detector_mean_score": 0.0,
+        "detector_views": 0,
+        "masks_accepted": 4,
+        "photos_followed": 4,
+        "points": 200,
+        "sheet": "preview.png",
+        "source": "added"
+      },
+      "id": "jar_26",
+      "kind": "jar",
+      "notes": [
+        "Synthetic observation: evidence counts are simulated; sheet is a plan, no photos or models used."
+      ],
+      "placement": {
+        "front_known": false,
+        "position_m": [
+          -0.56,
+          0,
+          0.78
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "support": {
+          "height_m": 0.0,
+          "kind": "floor"
+        },
+        "yaw_deg": 0
+      },
+      "recipe": {
+        "colours": {
+          "lid": "#809f9b"
+        },
+        "params": {},
+        "recipe": "jam_jar",
+        "size_m": [
+          0.085,
+          0.12,
+          0.085
+        ]
+      },
+      "recipe_slots": {
+        "defaulted": [
+          "glass"
+        ],
+        "from_scan": {
+          "lid": "synthetic broad colour"
+        }
+      }
+    },
+    {
+      "box": {
+        "centre_m": [
+          -0.48,
+          0.91,
+          -2.57
+        ],
+        "footprint_m": [
+          -0.523,
+          -2.612,
+          -0.438,
+          -2.527
+        ],
+        "size_m": [
+          0.085,
+          0.12,
+          0.085
+        ],
+        "yaw_deg": 0
+      },
+      "colours": [
+        {
+          "hex": "#809f9b",
+          "share": 1.0
+        }
+      ],
+      "confidence": 0.86,
+      "evidence": {
+        "also_called": {},
+        "detector_mean_score": 0.0,
+        "detector_views": 0,
+        "masks_accepted": 4,
+        "photos_followed": 4,
+        "points": 200,
+        "sheet": "preview.png",
+        "source": "added"
+      },
+      "id": "jar_2",
+      "kind": "jar",
+      "notes": [
+        "Synthetic observation: evidence counts are simulated; sheet is a plan, no photos or models used."
+      ],
+      "placement": {
+        "front_known": false,
+        "position_m": [
+          -0.48,
+          0.85,
+          -2.57
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "support": {
+          "height_m": 0.85,
+          "kind": "object",
+          "target_id": "desk_1"
+        },
+        "yaw_deg": 0
+      },
+      "recipe": {
+        "colours": {
+          "lid": "#809f9b"
+        },
+        "params": {},
+        "recipe": "jam_jar",
+        "size_m": [
+          0.085,
+          0.12,
+          0.085
+        ]
+      },
+      "recipe_slots": {
+        "defaulted": [
+          "glass"
+        ],
+        "from_scan": {
+          "lid": "synthetic broad colour"
+        }
+      }
+    },
+    {
+      "box": {
+        "centre_m": [
+          -0.48,
+          0.91,
+          -2.05
+        ],
+        "footprint_m": [
+          -0.523,
+          -2.092,
+          -0.438,
+          -2.007
+        ],
+        "size_m": [
+          0.085,
+          0.12,
+          0.085
+        ],
+        "yaw_deg": 0
+      },
+      "colours": [
+        {
+          "hex": "#809f9b",
+          "share": 1.0
+        }
+      ],
+      "confidence": 0.86,
+      "evidence": {
+        "also_called": {},
+        "detector_mean_score": 0.0,
+        "detector_views": 0,
+        "masks_accepted": 4,
+        "photos_followed": 4,
+        "points": 200,
+        "sheet": "preview.png",
+        "source": "added"
+      },
+      "id": "jar_14",
+      "kind": "jar",
+      "notes": [
+        "Synthetic observation: evidence counts are simulated; sheet is a plan, no photos or models used."
+      ],
+      "placement": {
+        "front_known": false,
+        "position_m": [
+          -0.48,
+          0.85,
+          -2.05
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "support": {
+          "height_m": 0.85,
+          "kind": "object",
+          "target_id": "desk_1"
+        },
+        "yaw_deg": 0
+      },
+      "recipe": {
+        "colours": {
+          "lid": "#809f9b"
+        },
+        "params": {},
+        "recipe": "jam_jar",
+        "size_m": [
+          0.085,
+          0.12,
+          0.085
+        ]
+      },
+      "recipe_slots": {
+        "defaulted": [
+          "glass"
+        ],
+        "from_scan": {
+          "lid": "synthetic broad colour"
+        }
+      }
+    },
+    {
+      "box": {
+        "centre_m": [
+          0.12,
+          0.91,
+          -2.31
+        ],
+        "footprint_m": [
+          0.077,
+          -2.352,
+          0.162,
+          -2.267
+        ],
+        "size_m": [
+          0.085,
+          0.12,
+          0.085
+        ],
+        "yaw_deg": 0
+      },
+      "colours": [
+        {
+          "hex": "#809f9b",
+          "share": 1.0
+        }
+      ],
+      "confidence": 0.86,
+      "evidence": {
+        "also_called": {},
+        "detector_mean_score": 0.0,
+        "detector_views": 0,
+        "masks_accepted": 4,
+        "photos_followed": 4,
+        "points": 200,
+        "sheet": "preview.png",
+        "source": "added"
+      },
+      "id": "jar_10",
+      "kind": "jar",
+      "notes": [
+        "Synthetic observation: evidence counts are simulated; sheet is a plan, no photos or models used."
+      ],
+      "placement": {
+        "front_known": false,
+        "position_m": [
+          0.12,
+          0.85,
+          -2.31
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "support": {
+          "height_m": 0.85,
+          "kind": "object",
+          "target_id": "desk_1"
+        },
+        "yaw_deg": 0
+      },
+      "recipe": {
+        "colours": {
+          "lid": "#809f9b"
+        },
+        "params": {},
+        "recipe": "jam_jar",
+        "size_m": [
+          0.085,
+          0.12,
+          0.085
+        ]
+      },
+      "recipe_slots": {
+        "defaulted": [
+          "glass"
+        ],
+        "from_scan": {
+          "lid": "synthetic broad colour"
+        }
+      }
+    },
+    {
+      "box": {
+        "centre_m": [
+          0.12,
+          0.06,
+          0.4
+        ],
+        "footprint_m": [
+          0.077,
+          0.358,
+          0.163,
+          0.443
+        ],
+        "size_m": [
+          0.085,
+          0.12,
+          0.085
+        ],
+        "yaw_deg": 0
+      },
+      "colours": [
+        {
+          "hex": "#809f9b",
+          "share": 1.0
+        }
+      ],
+      "confidence": 0.86,
+      "evidence": {
+        "also_called": {},
+        "detector_mean_score": 0.0,
+        "detector_views": 0,
+        "masks_accepted": 4,
+        "photos_followed": 4,
+        "points": 200,
+        "sheet": "preview.png",
+        "source": "added"
+      },
+      "id": "jar_22",
+      "kind": "jar",
+      "notes": [
+        "Synthetic observation: evidence counts are simulated; sheet is a plan, no photos or models used."
+      ],
+      "placement": {
+        "front_known": false,
+        "position_m": [
+          0.12,
+          0,
+          0.4
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "support": {
+          "height_m": 0.0,
+          "kind": "floor"
+        },
+        "yaw_deg": 0
+      },
+      "recipe": {
+        "colours": {
+          "lid": "#809f9b"
+        },
+        "params": {},
+        "recipe": "jam_jar",
+        "size_m": [
+          0.085,
+          0.12,
+          0.085
+        ]
+      },
+      "recipe_slots": {
+        "defaulted": [
+          "glass"
+        ],
+        "from_scan": {
+          "lid": "synthetic broad colour"
+        }
+      }
+    },
+    {
+      "box": {
+        "centre_m": [
+          0.12,
+          0.06,
+          1.16
+        ],
+        "footprint_m": [
+          0.077,
+          1.118,
+          0.163,
+          1.203
+        ],
+        "size_m": [
+          0.085,
+          0.12,
+          0.085
+        ],
+        "yaw_deg": 0
+      },
+      "colours": [
+        {
+          "hex": "#809f9b",
+          "share": 1.0
+        }
+      ],
+      "confidence": 0.86,
+      "evidence": {
+        "also_called": {},
+        "detector_mean_score": 0.0,
+        "detector_views": 0,
+        "masks_accepted": 4,
+        "photos_followed": 4,
+        "points": 200,
+        "sheet": "preview.png",
+        "source": "added"
+      },
+      "id": "jar_34",
+      "kind": "jar",
+      "notes": [
+        "Synthetic observation: evidence counts are simulated; sheet is a plan, no photos or models used."
+      ],
+      "pick": {
+        "rank": 1,
+        "why": "the room holds a jar; the best-evidenced one"
+      },
+      "placement": {
+        "front_known": false,
+        "position_m": [
+          0.12,
+          0,
+          1.16
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "support": {
+          "height_m": 0.0,
+          "kind": "floor"
+        },
+        "yaw_deg": 0
+      },
+      "recipe": {
+        "colours": {
+          "lid": "#809f9b"
+        },
+        "params": {},
+        "recipe": "jam_jar",
+        "size_m": [
+          0.085,
+          0.12,
+          0.085
+        ]
+      },
+      "recipe_slots": {
+        "defaulted": [
+          "glass"
+        ],
+        "from_scan": {
+          "lid": "synthetic broad colour"
+        }
+      }
+    },
+    {
+      "box": {
+        "centre_m": [
+          0.72,
+          0.91,
+          -2.57
+        ],
+        "footprint_m": [
+          0.677,
+          -2.612,
+          0.762,
+          -2.527
+        ],
+        "size_m": [
+          0.085,
+          0.12,
+          0.085
+        ],
+        "yaw_deg": 0
+      },
+      "colours": [
+        {
+          "hex": "#809f9b",
+          "share": 1.0
+        }
+      ],
+      "confidence": 0.86,
+      "evidence": {
+        "also_called": {},
+        "detector_mean_score": 0.0,
+        "detector_views": 0,
+        "masks_accepted": 4,
+        "photos_followed": 4,
+        "points": 200,
+        "sheet": "preview.png",
+        "source": "added"
+      },
+      "id": "jar_6",
+      "kind": "jar",
+      "notes": [
+        "Synthetic observation: evidence counts are simulated; sheet is a plan, no photos or models used."
+      ],
+      "placement": {
+        "front_known": false,
+        "position_m": [
+          0.72,
+          0.85,
+          -2.57
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "support": {
+          "height_m": 0.85,
+          "kind": "object",
+          "target_id": "desk_1"
+        },
+        "yaw_deg": 0
+      },
+      "recipe": {
+        "colours": {
+          "lid": "#809f9b"
+        },
+        "params": {},
+        "recipe": "jam_jar",
+        "size_m": [
+          0.085,
+          0.12,
+          0.085
+        ]
+      },
+      "recipe_slots": {
+        "defaulted": [
+          "glass"
+        ],
+        "from_scan": {
+          "lid": "synthetic broad colour"
+        }
+      }
+    },
+    {
+      "box": {
+        "centre_m": [
+          0.72,
+          0.91,
+          -2.05
+        ],
+        "footprint_m": [
+          0.677,
+          -2.092,
+          0.762,
+          -2.007
+        ],
+        "size_m": [
+          0.085,
+          0.12,
+          0.085
+        ],
+        "yaw_deg": 0
+      },
+      "colours": [
+        {
+          "hex": "#809f9b",
+          "share": 1.0
+        }
+      ],
+      "confidence": 0.86,
+      "evidence": {
+        "also_called": {},
+        "detector_mean_score": 0.0,
+        "detector_views": 0,
+        "masks_accepted": 4,
+        "photos_followed": 4,
+        "points": 200,
+        "sheet": "preview.png",
+        "source": "added"
+      },
+      "id": "jar_18",
+      "kind": "jar",
+      "notes": [
+        "Synthetic observation: evidence counts are simulated; sheet is a plan, no photos or models used."
+      ],
+      "placement": {
+        "front_known": false,
+        "position_m": [
+          0.72,
+          0.85,
+          -2.05
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "support": {
+          "height_m": 0.85,
+          "kind": "object",
+          "target_id": "desk_1"
+        },
+        "yaw_deg": 0
+      },
+      "recipe": {
+        "colours": {
+          "lid": "#809f9b"
+        },
+        "params": {},
+        "recipe": "jam_jar",
+        "size_m": [
+          0.085,
+          0.12,
+          0.085
+        ]
+      },
+      "recipe_slots": {
+        "defaulted": [
+          "glass"
+        ],
+        "from_scan": {
+          "lid": "synthetic broad colour"
+        }
+      }
+    },
+    {
+      "box": {
+        "centre_m": [
+          0.8,
+          0.06,
+          0.78
+        ],
+        "footprint_m": [
+          0.758,
+          0.738,
+          0.843,
+          0.823
+        ],
+        "size_m": [
+          0.085,
+          0.12,
+          0.085
+        ],
+        "yaw_deg": 0
+      },
+      "colours": [
+        {
+          "hex": "#809f9b",
+          "share": 1.0
+        }
+      ],
+      "confidence": 0.86,
+      "evidence": {
+        "also_called": {},
+        "detector_mean_score": 0.0,
+        "detector_views": 0,
+        "masks_accepted": 4,
+        "photos_followed": 4,
+        "points": 200,
+        "sheet": "preview.png",
+        "source": "added"
+      },
+      "id": "jar_30",
+      "kind": "jar",
+      "notes": [
+        "Synthetic observation: evidence counts are simulated; sheet is a plan, no photos or models used."
+      ],
+      "placement": {
+        "front_known": false,
+        "position_m": [
+          0.8,
+          0,
+          0.78
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "support": {
+          "height_m": 0.0,
+          "kind": "floor"
+        },
+        "yaw_deg": 0
+      },
+      "recipe": {
+        "colours": {
+          "lid": "#809f9b"
+        },
+        "params": {},
+        "recipe": "jam_jar",
+        "size_m": [
+          0.085,
+          0.12,
+          0.085
+        ]
+      },
+      "recipe_slots": {
+        "defaulted": [
+          "glass"
+        ],
+        "from_scan": {
+          "lid": "synthetic broad colour"
+        }
+      }
+    },
+    {
+      "box": {
+        "centre_m": [
+          -0.9,
+          0.055,
+          0.4
+        ],
+        "footprint_m": [
+          -0.95,
+          0.355,
+          -0.85,
+          0.445
+        ],
+        "size_m": [
+          0.1,
+          0.11,
+          0.09
+        ],
+        "yaw_deg": 0
+      },
+      "colours": [
+        {
+          "hex": "#c9b073",
+          "share": 1.0
+        }
+      ],
+      "confidence": 0.86,
+      "evidence": {
+        "also_called": {},
+        "detector_mean_score": 0.0,
+        "detector_views": 0,
+        "masks_accepted": 4,
+        "photos_followed": 4,
+        "points": 200,
+        "sheet": "preview.png",
+        "source": "added"
+      },
+      "id": "mug_19",
+      "kind": "mug",
+      "notes": [
+        "Synthetic observation: evidence counts are simulated; sheet is a plan, no photos or models used."
+      ],
+      "placement": {
+        "front_known": false,
+        "position_m": [
+          -0.9,
+          0,
+          0.4
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "support": {
+          "height_m": 0.0,
+          "kind": "floor"
+        },
+        "yaw_deg": 0
+      },
+      "recipe": null,
+      "recipe_needed": {
+        "colours": [
+          "#c9b073"
+        ],
+        "for_kind": "mug",
+        "size_m": [
+          0.1,
+          0.11,
+          0.09
+        ]
+      }
+    },
+    {
+      "box": {
+        "centre_m": [
+          -0.9,
+          0.055,
+          1.16
+        ],
+        "footprint_m": [
+          -0.95,
+          1.115,
+          -0.85,
+          1.205
+        ],
+        "size_m": [
+          0.1,
+          0.11,
+          0.09
+        ],
+        "yaw_deg": 0
+      },
+      "colours": [
+        {
+          "hex": "#c9b073",
+          "share": 1.0
+        }
+      ],
+      "confidence": 0.86,
+      "evidence": {
+        "also_called": {},
+        "detector_mean_score": 0.0,
+        "detector_views": 0,
+        "masks_accepted": 4,
+        "photos_followed": 4,
+        "points": 200,
+        "sheet": "preview.png",
+        "source": "added"
+      },
+      "id": "mug_31",
+      "kind": "mug",
+      "notes": [
+        "Synthetic observation: evidence counts are simulated; sheet is a plan, no photos or models used."
+      ],
+      "placement": {
+        "front_known": false,
+        "position_m": [
+          -0.9,
+          0,
+          1.16
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "support": {
+          "height_m": 0.0,
+          "kind": "floor"
+        },
+        "yaw_deg": 0
+      },
+      "recipe": null,
+      "recipe_needed": {
+        "colours": [
+          "#c9b073"
+        ],
+        "for_kind": "mug",
+        "size_m": [
+          0.1,
+          0.11,
+          0.09
+        ]
+      }
+    },
+    {
+      "box": {
+        "centre_m": [
+          -0.78,
+          0.905,
+          -2.31
+        ],
+        "footprint_m": [
+          -0.83,
+          -2.355,
+          -0.73,
+          -2.265
+        ],
+        "size_m": [
+          0.1,
+          0.11,
+          0.09
+        ],
+        "yaw_deg": 0
+      },
+      "colours": [
+        {
+          "hex": "#c9b073",
+          "share": 1.0
+        }
+      ],
+      "confidence": 0.86,
+      "evidence": {
+        "also_called": {},
+        "detector_mean_score": 0.0,
+        "detector_views": 0,
+        "masks_accepted": 4,
+        "photos_followed": 4,
+        "points": 200,
+        "sheet": "preview.png",
+        "source": "added"
+      },
+      "id": "mug_7",
+      "kind": "mug",
+      "notes": [
+        "Synthetic observation: evidence counts are simulated; sheet is a plan, no photos or models used."
+      ],
+      "placement": {
+        "front_known": false,
+        "position_m": [
+          -0.78,
+          0.85,
+          -2.31
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "support": {
+          "height_m": 0.85,
+          "kind": "object",
+          "target_id": "desk_1"
+        },
+        "yaw_deg": 0
+      },
+      "recipe": null,
+      "recipe_needed": {
+        "colours": [
+          "#c9b073"
+        ],
+        "for_kind": "mug",
+        "size_m": [
+          0.1,
+          0.11,
+          0.09
+        ]
+      }
+    },
+    {
+      "box": {
+        "centre_m": [
+          -0.22,
+          0.055,
+          0.78
+        ],
+        "footprint_m": [
+          -0.27,
+          0.735,
+          -0.17,
+          0.825
+        ],
+        "size_m": [
+          0.1,
+          0.11,
+          0.09
+        ],
+        "yaw_deg": 0
+      },
+      "colours": [
+        {
+          "hex": "#c9b073",
+          "share": 1.0
+        }
+      ],
+      "confidence": 0.86,
+      "evidence": {
+        "also_called": {},
+        "detector_mean_score": 0.0,
+        "detector_views": 0,
+        "masks_accepted": 4,
+        "photos_followed": 4,
+        "points": 200,
+        "sheet": "preview.png",
+        "source": "added"
+      },
+      "id": "mug_27",
+      "kind": "mug",
+      "notes": [
+        "Synthetic observation: evidence counts are simulated; sheet is a plan, no photos or models used."
+      ],
+      "placement": {
+        "front_known": false,
+        "position_m": [
+          -0.22,
+          0,
+          0.78
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "support": {
+          "height_m": 0.0,
+          "kind": "floor"
+        },
+        "yaw_deg": 0
+      },
+      "recipe": null,
+      "recipe_needed": {
+        "colours": [
+          "#c9b073"
+        ],
+        "for_kind": "mug",
+        "size_m": [
+          0.1,
+          0.11,
+          0.09
+        ]
+      }
+    },
+    {
+      "box": {
+        "centre_m": [
+          -0.18,
+          0.905,
+          -2.57
+        ],
+        "footprint_m": [
+          -0.23,
+          -2.615,
+          -0.13,
+          -2.525
+        ],
+        "size_m": [
+          0.1,
+          0.11,
+          0.09
+        ],
+        "yaw_deg": 0
+      },
+      "colours": [
+        {
+          "hex": "#c9b073",
+          "share": 1.0
+        }
+      ],
+      "confidence": 0.86,
+      "evidence": {
+        "also_called": {},
+        "detector_mean_score": 0.0,
+        "detector_views": 0,
+        "masks_accepted": 4,
+        "photos_followed": 4,
+        "points": 200,
+        "sheet": "preview.png",
+        "source": "added"
+      },
+      "id": "mug_3",
+      "kind": "mug",
+      "notes": [
+        "Synthetic observation: evidence counts are simulated; sheet is a plan, no photos or models used."
+      ],
+      "placement": {
+        "front_known": false,
+        "position_m": [
+          -0.18,
+          0.85,
+          -2.57
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "support": {
+          "height_m": 0.85,
+          "kind": "object",
+          "target_id": "desk_1"
+        },
+        "yaw_deg": 0
+      },
+      "recipe": null,
+      "recipe_needed": {
+        "colours": [
+          "#c9b073"
+        ],
+        "for_kind": "mug",
+        "size_m": [
+          0.1,
+          0.11,
+          0.09
+        ]
+      }
+    },
+    {
+      "box": {
+        "centre_m": [
+          -0.18,
+          0.905,
+          -2.05
+        ],
+        "footprint_m": [
+          -0.23,
+          -2.095,
+          -0.13,
+          -2.005
+        ],
+        "size_m": [
+          0.1,
+          0.11,
+          0.09
+        ],
+        "yaw_deg": 0
+      },
+      "colours": [
+        {
+          "hex": "#c9b073",
+          "share": 1.0
+        }
+      ],
+      "confidence": 0.86,
+      "evidence": {
+        "also_called": {},
+        "detector_mean_score": 0.0,
+        "detector_views": 0,
+        "masks_accepted": 4,
+        "photos_followed": 4,
+        "points": 200,
+        "sheet": "preview.png",
+        "source": "added"
+      },
+      "id": "mug_15",
+      "kind": "mug",
+      "notes": [
+        "Synthetic observation: evidence counts are simulated; sheet is a plan, no photos or models used."
+      ],
+      "placement": {
+        "front_known": false,
+        "position_m": [
+          -0.18,
+          0.85,
+          -2.05
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "support": {
+          "height_m": 0.85,
+          "kind": "object",
+          "target_id": "desk_1"
+        },
+        "yaw_deg": 0
+      },
+      "recipe": null,
+      "recipe_needed": {
+        "colours": [
+          "#c9b073"
+        ],
+        "for_kind": "mug",
+        "size_m": [
+          0.1,
+          0.11,
+          0.09
+        ]
+      }
+    },
+    {
+      "box": {
+        "centre_m": [
+          0.42,
+          0.905,
+          -2.31
+        ],
+        "footprint_m": [
+          0.37,
+          -2.355,
+          0.47,
+          -2.265
+        ],
+        "size_m": [
+          0.1,
+          0.11,
+          0.09
+        ],
+        "yaw_deg": 0
+      },
+      "colours": [
+        {
+          "hex": "#c9b073",
+          "share": 1.0
+        }
+      ],
+      "confidence": 0.86,
+      "evidence": {
+        "also_called": {},
+        "detector_mean_score": 0.0,
+        "detector_views": 0,
+        "masks_accepted": 4,
+        "photos_followed": 4,
+        "points": 200,
+        "sheet": "preview.png",
+        "source": "added"
+      },
+      "id": "mug_11",
+      "kind": "mug",
+      "notes": [
+        "Synthetic observation: evidence counts are simulated; sheet is a plan, no photos or models used."
+      ],
+      "placement": {
+        "front_known": false,
+        "position_m": [
+          0.42,
+          0.85,
+          -2.31
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "support": {
+          "height_m": 0.85,
+          "kind": "object",
+          "target_id": "desk_1"
+        },
+        "yaw_deg": 0
+      },
+      "recipe": null,
+      "recipe_needed": {
+        "colours": [
+          "#c9b073"
+        ],
+        "for_kind": "mug",
+        "size_m": [
+          0.1,
+          0.11,
+          0.09
+        ]
+      }
+    },
+    {
+      "box": {
+        "centre_m": [
+          0.46,
+          0.055,
+          0.4
+        ],
+        "footprint_m": [
+          0.41,
+          0.355,
+          0.51,
+          0.445
+        ],
+        "size_m": [
+          0.1,
+          0.11,
+          0.09
+        ],
+        "yaw_deg": 0
+      },
+      "colours": [
+        {
+          "hex": "#c9b073",
+          "share": 1.0
+        }
+      ],
+      "confidence": 0.86,
+      "evidence": {
+        "also_called": {},
+        "detector_mean_score": 0.0,
+        "detector_views": 0,
+        "masks_accepted": 4,
+        "photos_followed": 4,
+        "points": 200,
+        "sheet": "preview.png",
+        "source": "added"
+      },
+      "id": "mug_23",
+      "kind": "mug",
+      "notes": [
+        "Synthetic observation: evidence counts are simulated; sheet is a plan, no photos or models used."
+      ],
+      "placement": {
+        "front_known": false,
+        "position_m": [
+          0.46,
+          0,
+          0.4
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "support": {
+          "height_m": 0.0,
+          "kind": "floor"
+        },
+        "yaw_deg": 0
+      },
+      "recipe": null,
+      "recipe_needed": {
+        "colours": [
+          "#c9b073"
+        ],
+        "for_kind": "mug",
+        "size_m": [
+          0.1,
+          0.11,
+          0.09
+        ]
+      }
+    },
+    {
+      "box": {
+        "centre_m": [
+          0.46,
+          0.055,
+          1.16
+        ],
+        "footprint_m": [
+          0.41,
+          1.115,
+          0.51,
+          1.205
+        ],
+        "size_m": [
+          0.1,
+          0.11,
+          0.09
+        ],
+        "yaw_deg": 0
+      },
+      "colours": [
+        {
+          "hex": "#c9b073",
+          "share": 1.0
+        }
+      ],
+      "confidence": 0.86,
+      "evidence": {
+        "also_called": {},
+        "detector_mean_score": 0.0,
+        "detector_views": 0,
+        "masks_accepted": 4,
+        "photos_followed": 4,
+        "points": 200,
+        "sheet": "preview.png",
+        "source": "added"
+      },
+      "id": "mug_35",
+      "kind": "mug",
+      "notes": [
+        "Synthetic observation: evidence counts are simulated; sheet is a plan, no photos or models used."
+      ],
+      "placement": {
+        "front_known": false,
+        "position_m": [
+          0.46,
+          0,
+          1.16
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "support": {
+          "height_m": 0.0,
+          "kind": "floor"
+        },
+        "yaw_deg": 0
+      },
+      "recipe": null,
+      "recipe_needed": {
+        "colours": [
+          "#c9b073"
+        ],
+        "for_kind": "mug",
+        "size_m": [
+          0.1,
+          0.11,
+          0.09
+        ]
+      }
+    },
+    {
+      "box": {
+        "centre_m": [
+          0,
+          0.475,
+          -1.25
+        ],
+        "footprint_m": [
+          -0.275,
+          -1.525,
+          0.275,
+          -0.975
+        ],
+        "size_m": [
+          0.55,
+          0.95,
+          0.55
+        ],
+        "yaw_deg": 0
+      },
+      "colours": [
+        {
+          "hex": "#535e65",
+          "share": 1.0
+        }
+      ],
+      "confidence": 0.86,
+      "evidence": {
+        "also_called": {},
+        "detector_mean_score": 0.0,
+        "detector_views": 0,
+        "masks_accepted": 4,
+        "photos_followed": 4,
+        "points": 200,
+        "sheet": "preview.png",
+        "source": "added"
+      },
+      "id": "office_chair_1",
+      "kind": "office chair",
+      "notes": [
+        "Synthetic observation: evidence counts are simulated; sheet is a plan, no photos or models used."
+      ],
+      "placement": {
+        "front_known": true,
+        "position_m": [
+          0,
+          0,
+          -1.25
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "support": {
+          "height_m": 0.0,
+          "kind": "floor"
+        },
+        "yaw_deg": 0
+      },
+      "recipe": null,
+      "recipe_needed": {
+        "colours": [
+          "#535e65"
+        ],
+        "for_kind": "office chair",
+        "size_m": [
+          0.55,
+          0.95,
+          0.55
+        ]
+      }
+    },
+    {
+      "box": {
+        "centre_m": [
+          -0.9,
+          0.09,
+          0.78
+        ],
+        "footprint_m": [
+          -0.97,
+          0.71,
+          -0.83,
+          0.85
+        ],
+        "size_m": [
+          0.14,
+          0.18,
+          0.14
+        ],
+        "yaw_deg": 0
+      },
+      "colours": [
+        {
+          "hex": "#b25f44",
+          "share": 1.0
+        }
+      ],
+      "confidence": 0.86,
+      "evidence": {
+        "also_called": {},
+        "detector_mean_score": 0.0,
+        "detector_views": 0,
+        "masks_accepted": 4,
+        "photos_followed": 4,
+        "points": 200,
+        "sheet": "preview.png",
+        "source": "added"
+      },
+      "id": "paint_can_25",
+      "kind": "paint can",
+      "notes": [
+        "Synthetic observation: evidence counts are simulated; sheet is a plan, no photos or models used."
+      ],
+      "placement": {
+        "front_known": false,
+        "position_m": [
+          -0.9,
+          0,
+          0.78
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "support": {
+          "height_m": 0.0,
+          "kind": "floor"
+        },
+        "yaw_deg": 0
+      },
+      "recipe": null,
+      "recipe_needed": {
+        "colours": [
+          "#b25f44"
+        ],
+        "for_kind": "paint can",
+        "size_m": [
+          0.14,
+          0.18,
+          0.14
+        ]
+      }
+    },
+    {
+      "box": {
+        "centre_m": [
+          -0.78,
+          0.94,
+          -2.57
+        ],
+        "footprint_m": [
+          -0.85,
+          -2.64,
+          -0.71,
+          -2.5
+        ],
+        "size_m": [
+          0.14,
+          0.18,
+          0.14
+        ],
+        "yaw_deg": 0
+      },
+      "colours": [
+        {
+          "hex": "#b25f44",
+          "share": 1.0
+        }
+      ],
+      "confidence": 0.86,
+      "evidence": {
+        "also_called": {},
+        "detector_mean_score": 0.0,
+        "detector_views": 0,
+        "masks_accepted": 4,
+        "photos_followed": 4,
+        "points": 200,
+        "sheet": "preview.png",
+        "source": "added"
+      },
+      "id": "paint_can_1",
+      "kind": "paint can",
+      "notes": [
+        "Synthetic observation: evidence counts are simulated; sheet is a plan, no photos or models used."
+      ],
+      "placement": {
+        "front_known": false,
+        "position_m": [
+          -0.78,
+          0.85,
+          -2.57
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "support": {
+          "height_m": 0.85,
+          "kind": "object",
+          "target_id": "desk_1"
+        },
+        "yaw_deg": 0
+      },
+      "recipe": null,
+      "recipe_needed": {
+        "colours": [
+          "#b25f44"
+        ],
+        "for_kind": "paint can",
+        "size_m": [
+          0.14,
+          0.18,
+          0.14
+        ]
+      }
+    },
+    {
+      "box": {
+        "centre_m": [
+          -0.78,
+          0.94,
+          -2.05
+        ],
+        "footprint_m": [
+          -0.85,
+          -2.12,
+          -0.71,
+          -1.98
+        ],
+        "size_m": [
+          0.14,
+          0.18,
+          0.14
+        ],
+        "yaw_deg": 0
+      },
+      "colours": [
+        {
+          "hex": "#b25f44",
+          "share": 1.0
+        }
+      ],
+      "confidence": 0.86,
+      "evidence": {
+        "also_called": {},
+        "detector_mean_score": 0.0,
+        "detector_views": 0,
+        "masks_accepted": 4,
+        "photos_followed": 4,
+        "points": 200,
+        "sheet": "preview.png",
+        "source": "added"
+      },
+      "id": "paint_can_13",
+      "kind": "paint can",
+      "notes": [
+        "Synthetic observation: evidence counts are simulated; sheet is a plan, no photos or models used."
+      ],
+      "placement": {
+        "front_known": false,
+        "position_m": [
+          -0.78,
+          0.85,
+          -2.05
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "support": {
+          "height_m": 0.85,
+          "kind": "object",
+          "target_id": "desk_1"
+        },
+        "yaw_deg": 0
+      },
+      "recipe": null,
+      "recipe_needed": {
+        "colours": [
+          "#b25f44"
+        ],
+        "for_kind": "paint can",
+        "size_m": [
+          0.14,
+          0.18,
+          0.14
+        ]
+      }
+    },
+    {
+      "box": {
+        "centre_m": [
+          -0.22,
+          0.09,
+          0.4
+        ],
+        "footprint_m": [
+          -0.29,
+          0.33,
+          -0.15,
+          0.47
+        ],
+        "size_m": [
+          0.14,
+          0.18,
+          0.14
+        ],
+        "yaw_deg": 0
+      },
+      "colours": [
+        {
+          "hex": "#b25f44",
+          "share": 1.0
+        }
+      ],
+      "confidence": 0.86,
+      "evidence": {
+        "also_called": {},
+        "detector_mean_score": 0.0,
+        "detector_views": 0,
+        "masks_accepted": 4,
+        "photos_followed": 4,
+        "points": 200,
+        "sheet": "preview.png",
+        "source": "added"
+      },
+      "id": "paint_can_21",
+      "kind": "paint can",
+      "notes": [
+        "Synthetic observation: evidence counts are simulated; sheet is a plan, no photos or models used."
+      ],
+      "placement": {
+        "front_known": false,
+        "position_m": [
+          -0.22,
+          0,
+          0.4
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "support": {
+          "height_m": 0.0,
+          "kind": "floor"
+        },
+        "yaw_deg": 0
+      },
+      "recipe": null,
+      "recipe_needed": {
+        "colours": [
+          "#b25f44"
+        ],
+        "for_kind": "paint can",
+        "size_m": [
+          0.14,
+          0.18,
+          0.14
+        ]
+      }
+    },
+    {
+      "box": {
+        "centre_m": [
+          -0.22,
+          0.09,
+          1.16
+        ],
+        "footprint_m": [
+          -0.29,
+          1.09,
+          -0.15,
+          1.23
+        ],
+        "size_m": [
+          0.14,
+          0.18,
+          0.14
+        ],
+        "yaw_deg": 0
+      },
+      "colours": [
+        {
+          "hex": "#b25f44",
+          "share": 1.0
+        }
+      ],
+      "confidence": 0.86,
+      "evidence": {
+        "also_called": {},
+        "detector_mean_score": 0.0,
+        "detector_views": 0,
+        "masks_accepted": 4,
+        "photos_followed": 4,
+        "points": 200,
+        "sheet": "preview.png",
+        "source": "added"
+      },
+      "id": "paint_can_33",
+      "kind": "paint can",
+      "notes": [
+        "Synthetic observation: evidence counts are simulated; sheet is a plan, no photos or models used."
+      ],
+      "pick": {
+        "rank": 5,
+        "why": "the room has no french press; the best-evidenced vessel not yet picked, which needs a recipe of its own"
+      },
+      "placement": {
+        "front_known": false,
+        "position_m": [
+          -0.22,
+          0,
+          1.16
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "support": {
+          "height_m": 0.0,
+          "kind": "floor"
+        },
+        "yaw_deg": 0
+      },
+      "recipe": null,
+      "recipe_needed": {
+        "colours": [
+          "#b25f44"
+        ],
+        "for_kind": "paint can",
+        "size_m": [
+          0.14,
+          0.18,
+          0.14
+        ]
+      }
+    },
+    {
+      "box": {
+        "centre_m": [
+          -0.18,
+          0.94,
+          -2.31
+        ],
+        "footprint_m": [
+          -0.25,
+          -2.38,
+          -0.11,
+          -2.24
+        ],
+        "size_m": [
+          0.14,
+          0.18,
+          0.14
+        ],
+        "yaw_deg": 0
+      },
+      "colours": [
+        {
+          "hex": "#b25f44",
+          "share": 1.0
+        }
+      ],
+      "confidence": 0.86,
+      "evidence": {
+        "also_called": {},
+        "detector_mean_score": 0.0,
+        "detector_views": 0,
+        "masks_accepted": 4,
+        "photos_followed": 4,
+        "points": 200,
+        "sheet": "preview.png",
+        "source": "added"
+      },
+      "id": "paint_can_9",
+      "kind": "paint can",
+      "notes": [
+        "Synthetic observation: evidence counts are simulated; sheet is a plan, no photos or models used."
+      ],
+      "placement": {
+        "front_known": false,
+        "position_m": [
+          -0.18,
+          0.85,
+          -2.31
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "support": {
+          "height_m": 0.85,
+          "kind": "object",
+          "target_id": "desk_1"
+        },
+        "yaw_deg": 0
+      },
+      "recipe": null,
+      "recipe_needed": {
+        "colours": [
+          "#b25f44"
+        ],
+        "for_kind": "paint can",
+        "size_m": [
+          0.14,
+          0.18,
+          0.14
+        ]
+      }
+    },
+    {
+      "box": {
+        "centre_m": [
+          0.42,
+          0.94,
+          -2.57
+        ],
+        "footprint_m": [
+          0.35,
+          -2.64,
+          0.49,
+          -2.5
+        ],
+        "size_m": [
+          0.14,
+          0.18,
+          0.14
+        ],
+        "yaw_deg": 0
+      },
+      "colours": [
+        {
+          "hex": "#b25f44",
+          "share": 1.0
+        }
+      ],
+      "confidence": 0.86,
+      "evidence": {
+        "also_called": {},
+        "detector_mean_score": 0.0,
+        "detector_views": 0,
+        "masks_accepted": 4,
+        "photos_followed": 4,
+        "points": 200,
+        "sheet": "preview.png",
+        "source": "added"
+      },
+      "id": "paint_can_5",
+      "kind": "paint can",
+      "notes": [
+        "Synthetic observation: evidence counts are simulated; sheet is a plan, no photos or models used."
+      ],
+      "placement": {
+        "front_known": false,
+        "position_m": [
+          0.42,
+          0.85,
+          -2.57
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "support": {
+          "height_m": 0.85,
+          "kind": "object",
+          "target_id": "desk_1"
+        },
+        "yaw_deg": 0
+      },
+      "recipe": null,
+      "recipe_needed": {
+        "colours": [
+          "#b25f44"
+        ],
+        "for_kind": "paint can",
+        "size_m": [
+          0.14,
+          0.18,
+          0.14
+        ]
+      }
+    },
+    {
+      "box": {
+        "centre_m": [
+          0.42,
+          0.94,
+          -2.05
+        ],
+        "footprint_m": [
+          0.35,
+          -2.12,
+          0.49,
+          -1.98
+        ],
+        "size_m": [
+          0.14,
+          0.18,
+          0.14
+        ],
+        "yaw_deg": 0
+      },
+      "colours": [
+        {
+          "hex": "#b25f44",
+          "share": 1.0
+        }
+      ],
+      "confidence": 0.86,
+      "evidence": {
+        "also_called": {},
+        "detector_mean_score": 0.0,
+        "detector_views": 0,
+        "masks_accepted": 4,
+        "photos_followed": 4,
+        "points": 200,
+        "sheet": "preview.png",
+        "source": "added"
+      },
+      "id": "paint_can_17",
+      "kind": "paint can",
+      "notes": [
+        "Synthetic observation: evidence counts are simulated; sheet is a plan, no photos or models used."
+      ],
+      "placement": {
+        "front_known": false,
+        "position_m": [
+          0.42,
+          0.85,
+          -2.05
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "support": {
+          "height_m": 0.85,
+          "kind": "object",
+          "target_id": "desk_1"
+        },
+        "yaw_deg": 0
+      },
+      "recipe": null,
+      "recipe_needed": {
+        "colours": [
+          "#b25f44"
+        ],
+        "for_kind": "paint can",
+        "size_m": [
+          0.14,
+          0.18,
+          0.14
+        ]
+      }
+    },
+    {
+      "box": {
+        "centre_m": [
+          0.46,
+          0.09,
+          0.78
+        ],
+        "footprint_m": [
+          0.39,
+          0.71,
+          0.53,
+          0.85
+        ],
+        "size_m": [
+          0.14,
+          0.18,
+          0.14
+        ],
+        "yaw_deg": 0
+      },
+      "colours": [
+        {
+          "hex": "#b25f44",
+          "share": 1.0
+        }
+      ],
+      "confidence": 0.86,
+      "evidence": {
+        "also_called": {},
+        "detector_mean_score": 0.0,
+        "detector_views": 0,
+        "masks_accepted": 4,
+        "photos_followed": 4,
+        "points": 200,
+        "sheet": "preview.png",
+        "source": "added"
+      },
+      "id": "paint_can_29",
+      "kind": "paint can",
+      "notes": [
+        "Synthetic observation: evidence counts are simulated; sheet is a plan, no photos or models used."
+      ],
+      "placement": {
+        "front_known": false,
+        "position_m": [
+          0.46,
+          0,
+          0.78
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "support": {
+          "height_m": 0.0,
+          "kind": "floor"
+        },
+        "yaw_deg": 0
+      },
+      "recipe": null,
+      "recipe_needed": {
+        "colours": [
+          "#b25f44"
+        ],
+        "for_kind": "paint can",
+        "size_m": [
+          0.14,
+          0.18,
+          0.14
+        ]
+      }
+    },
+    {
+      "box": {
+        "centre_m": [
+          -2.3,
+          0.9,
+          1.8
+        ],
+        "footprint_m": [
+          -2.525,
+          1.2,
+          -2.075,
+          2.4
+        ],
+        "size_m": [
+          1.2,
+          1.8,
+          0.45
+        ],
+        "yaw_deg": 90
+      },
+      "colours": [
+        {
+          "hex": "#6b7b80",
+          "share": 1.0
+        }
+      ],
+      "confidence": 0.86,
+      "evidence": {
+        "also_called": {},
+        "detector_mean_score": 0.0,
+        "detector_views": 0,
+        "masks_accepted": 4,
+        "photos_followed": 4,
+        "points": 200,
+        "sheet": "preview.png",
+        "source": "added"
+      },
+      "id": "shelving_unit_1",
+      "kind": "shelving unit",
+      "notes": [
+        "Synthetic observation: evidence counts are simulated; sheet is a plan, no photos or models used."
+      ],
+      "pick": {
+        "rank": 4,
+        "why": "the room has no laptop; the best-evidenced furniture not yet picked, which needs a recipe of its own"
+      },
+      "placement": {
+        "front_known": true,
+        "position_m": [
+          -2.3,
+          0,
+          1.8
+        ],
+        "rotation": [
+          0.0,
+          0.707107,
+          0.0,
+          0.707107
+        ],
+        "support": {
+          "height_m": 0.0,
+          "kind": "floor"
+        },
+        "yaw_deg": 90
+      },
+      "recipe": null,
+      "recipe_needed": {
+        "colours": [
+          "#6b7b80"
+        ],
+        "for_kind": "shelving unit",
+        "size_m": [
+          1.2,
+          1.8,
+          0.45
+        ]
+      }
+    },
+    {
+      "box": {
+        "centre_m": [
+          2.1,
+          0.75,
+          -1.8
+        ],
+        "footprint_m": [
+          1.825,
+          -2.1,
+          2.375,
+          -1.5
+        ],
+        "size_m": [
+          0.55,
+          1.5,
+          0.6
+        ],
+        "yaw_deg": 0
+      },
+      "colours": [
+        {
+          "hex": "#9daba9",
+          "share": 1.0
+        }
+      ],
+      "confidence": 0.86,
+      "evidence": {
+        "also_called": {},
+        "detector_mean_score": 0.0,
+        "detector_views": 0,
+        "masks_accepted": 4,
+        "photos_followed": 4,
+        "points": 200,
+        "sheet": "preview.png",
+        "source": "added"
+      },
+      "id": "step_ladder_1",
+      "kind": "step ladder",
+      "notes": [
+        "Synthetic observation: evidence counts are simulated; sheet is a plan, no photos or models used."
+      ],
+      "pick": {
+        "rank": 3,
+        "why": "the room has no couch; the best-evidenced tool not yet picked, which needs a recipe of its own"
+      },
+      "placement": {
+        "front_known": true,
+        "position_m": [
+          2.1,
+          0,
+          -1.8
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "support": {
+          "height_m": 0.0,
+          "kind": "floor"
+        },
+        "yaw_deg": 0
+      },
+      "recipe": null,
+      "recipe_needed": {
+        "colours": [
+          "#9daba9"
+        ],
+        "for_kind": "step ladder",
+        "size_m": [
+          0.55,
+          1.5,
+          0.6
+        ]
+      }
+    },
+    {
+      "box": {
+        "centre_m": [
+          1.85,
+          0.175,
+          1.4
+        ],
+        "footprint_m": [
+          1.575,
+          1.2,
+          2.125,
+          1.6
+        ],
+        "size_m": [
+          0.55,
+          0.35,
+          0.4
+        ],
+        "yaw_deg": 0
+      },
+      "colours": [
+        {
+          "hex": "#708c82",
+          "share": 1.0
+        }
+      ],
+      "confidence": 0.86,
+      "evidence": {
+        "also_called": {},
+        "detector_mean_score": 0.0,
+        "detector_views": 0,
+        "masks_accepted": 4,
+        "photos_followed": 4,
+        "points": 200,
+        "sheet": "preview.png",
+        "source": "added"
+      },
+      "id": "storage_tote_1",
+      "kind": "storage tote",
+      "notes": [
+        "Synthetic observation: evidence counts are simulated; sheet is a plan, no photos or models used."
+      ],
+      "pick": {
+        "rank": 2,
+        "why": "the room has no cardboard box; the best-evidenced container not yet picked, which needs a recipe of its own"
+      },
+      "placement": {
+        "front_known": true,
+        "position_m": [
+          1.85,
+          0,
+          1.4
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "support": {
+          "height_m": 0.0,
+          "kind": "floor"
+        },
+        "yaw_deg": 0
+      },
+      "recipe": null,
+      "recipe_needed": {
+        "colours": [
+          "#708c82"
+        ],
+        "for_kind": "storage tote",
+        "size_m": [
+          0.55,
+          0.35,
+          0.4
+        ]
+      }
+    }
+  ],
+  "picks": [
+    {
+      "id": "jar_34",
+      "kind": "jar",
+      "why": "the room holds a jar; the best-evidenced one"
+    },
+    {
+      "id": "storage_tote_1",
+      "kind": "storage tote",
+      "why": "the room has no cardboard box; the best-evidenced container not yet picked, which needs a recipe of its own"
+    },
+    {
+      "id": "step_ladder_1",
+      "kind": "step ladder",
+      "why": "the room has no couch; the best-evidenced tool not yet picked, which needs a recipe of its own"
+    },
+    {
+      "id": "shelving_unit_1",
+      "kind": "shelving unit",
+      "why": "the room has no laptop; the best-evidenced furniture not yet picked, which needs a recipe of its own"
+    },
+    {
+      "id": "paint_can_33",
+      "kind": "paint can",
+      "why": "the room has no french press; the best-evidenced vessel not yet picked, which needs a recipe of its own"
+    }
+  ],
+  "room": "workshop_nominal",
+  "scale": {
+    "factor": 1.0,
+    "source": "synthetic metric truth"
+  },
+  "schema": "enfractal.inventory",
+  "segmenter": {
+    "gpu_seconds": 0.0,
+    "new": 0,
+    "peak_allocated_mib": 0.0,
+    "prompts": 0
+  },
+  "session_id": "s-synthetic-workshop_nominal",
+  "version": 1
+}

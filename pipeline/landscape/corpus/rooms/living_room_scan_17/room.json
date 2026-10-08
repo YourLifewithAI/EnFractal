@@ -1,0 +1,303 @@
+{
+  "axes": "y_up_neg_z_forward",
+  "bounds": {
+    "max_m": [
+      2.75,
+      2.7,
+      2.9
+    ],
+    "min_m": [
+      -2.75,
+      0.0,
+      -2.9
+    ]
+  },
+  "created_utc": "2026-10-07T00:00:00Z",
+  "description": "Invented synthetic shell only. cohesive warm palette; low table versus high shelves; shelf interior void absent from box; separated seating islands",
+  "display_name": "Living Room",
+  "files": [],
+  "light_hints": [
+    {
+      "color": "#fff1d2",
+      "estimated": true,
+      "id": "ceiling_light",
+      "kind": "ceiling_lamp",
+      "position_m": [
+        0,
+        2.5500000000000003,
+        -0.5
+      ],
+      "relative_intensity": 0.8
+    }
+  ],
+  "objects": [],
+  "room_id": "living_room_scan_17",
+  "schema": "enfractal.room",
+  "shell": {
+    "openings": [
+      {
+        "center_m": [
+          2.1750000000000003,
+          1.05,
+          -2.9
+        ],
+        "host_part_id": "shell:wall_a",
+        "id": "entry",
+        "kind": "door",
+        "size_m": [
+          0.85,
+          2.1
+        ],
+        "state": "closed",
+        "traversable": false
+      },
+      {
+        "center_m": [
+          2.75,
+          1.6,
+          -1.45
+        ],
+        "host_part_id": "shell:wall_b",
+        "id": "window",
+        "kind": "window",
+        "size_m": [
+          1.0,
+          1.0
+        ],
+        "state": "fixed",
+        "traversable": false
+      }
+    ],
+    "parts": [
+      {
+        "base_color": "#a28a71",
+        "collides": true,
+        "geometry": {
+          "kind": "polygon",
+          "points_m": [
+            [
+              -2.87,
+              0.0,
+              -3.02
+            ],
+            [
+              -2.87,
+              0.0,
+              3.02
+            ],
+            [
+              2.87,
+              0.0,
+              3.02
+            ],
+            [
+              2.87,
+              0.0,
+              -3.02
+            ]
+          ],
+          "thickness_m": 0.12
+        },
+        "id": "shell:floor",
+        "material_role": "concrete",
+        "role": "floor"
+      },
+      {
+        "base_color": "#ece8df",
+        "collides": true,
+        "geometry": {
+          "kind": "polygon",
+          "points_m": [
+            [
+              -2.87,
+              2.7,
+              -3.02
+            ],
+            [
+              2.87,
+              2.7,
+              -3.02
+            ],
+            [
+              2.87,
+              2.7,
+              3.02
+            ],
+            [
+              -2.87,
+              2.7,
+              3.02
+            ]
+          ],
+          "thickness_m": 0.12
+        },
+        "id": "shell:ceiling",
+        "material_role": "plaster",
+        "role": "ceiling"
+      },
+      {
+        "base_color": "#ded8cb",
+        "collides": true,
+        "geometry": {
+          "kind": "polygon",
+          "points_m": [
+            [
+              -2.87,
+              0.0,
+              -2.9
+            ],
+            [
+              2.87,
+              0.0,
+              -2.9
+            ],
+            [
+              2.87,
+              2.7,
+              -2.9
+            ],
+            [
+              -2.87,
+              2.7,
+              -2.9
+            ]
+          ],
+          "thickness_m": 0.12
+        },
+        "id": "shell:wall_a",
+        "material_role": "painted_wall",
+        "role": "wall"
+      },
+      {
+        "base_color": "#ded8cb",
+        "collides": true,
+        "geometry": {
+          "kind": "polygon",
+          "points_m": [
+            [
+              2.75,
+              0.0,
+              -2.9
+            ],
+            [
+              2.75,
+              0.0,
+              2.9
+            ],
+            [
+              2.75,
+              2.7,
+              2.9
+            ],
+            [
+              2.75,
+              2.7,
+              -2.9
+            ]
+          ],
+          "thickness_m": 0.12
+        },
+        "id": "shell:wall_b",
+        "material_role": "painted_wall",
+        "role": "wall"
+      },
+      {
+        "base_color": "#ded8cb",
+        "collides": true,
+        "geometry": {
+          "kind": "polygon",
+          "points_m": [
+            [
+              2.87,
+              0.0,
+              2.9
+            ],
+            [
+              -2.87,
+              0.0,
+              2.9
+            ],
+            [
+              -2.87,
+              2.7,
+              2.9
+            ],
+            [
+              2.87,
+              2.7,
+              2.9
+            ]
+          ],
+          "thickness_m": 0.12
+        },
+        "id": "shell:wall_c",
+        "material_role": "painted_wall",
+        "role": "wall"
+      },
+      {
+        "base_color": "#ded8cb",
+        "collides": true,
+        "geometry": {
+          "kind": "polygon",
+          "points_m": [
+            [
+              -2.75,
+              0.0,
+              2.9
+            ],
+            [
+              -2.75,
+              0.0,
+              -2.9
+            ],
+            [
+              -2.75,
+              2.7,
+              -2.9
+            ],
+            [
+              -2.75,
+              2.7,
+              2.9
+            ]
+          ],
+          "thickness_m": 0.12
+        },
+        "id": "shell:wall_d",
+        "material_role": "painted_wall",
+        "role": "wall"
+      }
+    ]
+  },
+  "source": {
+    "kind": "procedural",
+    "pipeline": {
+      "name": "brief14-synthetic-corpus",
+      "version": "1"
+    }
+  },
+  "spawns": [
+    {
+      "id": "player_start",
+      "position_m": [
+        0.8,
+        0.0,
+        -2.4
+      ],
+      "role": "player",
+      "yaw_deg": 0.0
+    },
+    {
+      "id": "companion_start",
+      "position_m": [
+        1.8,
+        0.0,
+        -2.4
+      ],
+      "role": "companion",
+      "yaw_deg": 0.0
+    }
+  ],
+  "units": "m",
+  "version": 1
+}

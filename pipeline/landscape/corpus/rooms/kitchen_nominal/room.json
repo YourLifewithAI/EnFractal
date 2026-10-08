@@ -1,0 +1,303 @@
+{
+  "axes": "y_up_neg_z_forward",
+  "bounds": {
+    "max_m": [
+      2.4,
+      2.6,
+      2.5
+    ],
+    "min_m": [
+      -2.4,
+      0.0,
+      -2.5
+    ]
+  },
+  "created_utc": "2026-10-07T00:00:00Z",
+  "description": "Invented synthetic shell only. counter-supported vessels; missing appliance labels; 1.65 m counter/table work aisle (NKBA >=1.0668 m); table void",
+  "display_name": "Kitchen",
+  "files": [],
+  "light_hints": [
+    {
+      "color": "#fff1d2",
+      "estimated": true,
+      "id": "ceiling_light",
+      "kind": "ceiling_lamp",
+      "position_m": [
+        0,
+        2.45,
+        -0.5
+      ],
+      "relative_intensity": 0.8
+    }
+  ],
+  "objects": [],
+  "room_id": "kitchen_nominal",
+  "schema": "enfractal.room",
+  "shell": {
+    "openings": [
+      {
+        "center_m": [
+          1.825,
+          1.05,
+          -2.5
+        ],
+        "host_part_id": "shell:wall_a",
+        "id": "entry",
+        "kind": "door",
+        "size_m": [
+          0.85,
+          2.1
+        ],
+        "state": "closed",
+        "traversable": false
+      },
+      {
+        "center_m": [
+          2.4,
+          1.6,
+          -1.25
+        ],
+        "host_part_id": "shell:wall_b",
+        "id": "window",
+        "kind": "window",
+        "size_m": [
+          1.0,
+          1.0
+        ],
+        "state": "fixed",
+        "traversable": false
+      }
+    ],
+    "parts": [
+      {
+        "base_color": "#a28a71",
+        "collides": true,
+        "geometry": {
+          "kind": "polygon",
+          "points_m": [
+            [
+              -2.52,
+              0.0,
+              -2.62
+            ],
+            [
+              -2.52,
+              0.0,
+              2.62
+            ],
+            [
+              2.52,
+              0.0,
+              2.62
+            ],
+            [
+              2.52,
+              0.0,
+              -2.62
+            ]
+          ],
+          "thickness_m": 0.12
+        },
+        "id": "shell:floor",
+        "material_role": "concrete",
+        "role": "floor"
+      },
+      {
+        "base_color": "#ece8df",
+        "collides": true,
+        "geometry": {
+          "kind": "polygon",
+          "points_m": [
+            [
+              -2.52,
+              2.6,
+              -2.62
+            ],
+            [
+              2.52,
+              2.6,
+              -2.62
+            ],
+            [
+              2.52,
+              2.6,
+              2.62
+            ],
+            [
+              -2.52,
+              2.6,
+              2.62
+            ]
+          ],
+          "thickness_m": 0.12
+        },
+        "id": "shell:ceiling",
+        "material_role": "plaster",
+        "role": "ceiling"
+      },
+      {
+        "base_color": "#ded8cb",
+        "collides": true,
+        "geometry": {
+          "kind": "polygon",
+          "points_m": [
+            [
+              -2.52,
+              0.0,
+              -2.5
+            ],
+            [
+              2.52,
+              0.0,
+              -2.5
+            ],
+            [
+              2.52,
+              2.6,
+              -2.5
+            ],
+            [
+              -2.52,
+              2.6,
+              -2.5
+            ]
+          ],
+          "thickness_m": 0.12
+        },
+        "id": "shell:wall_a",
+        "material_role": "painted_wall",
+        "role": "wall"
+      },
+      {
+        "base_color": "#ded8cb",
+        "collides": true,
+        "geometry": {
+          "kind": "polygon",
+          "points_m": [
+            [
+              2.4,
+              0.0,
+              -2.5
+            ],
+            [
+              2.4,
+              0.0,
+              2.5
+            ],
+            [
+              2.4,
+              2.6,
+              2.5
+            ],
+            [
+              2.4,
+              2.6,
+              -2.5
+            ]
+          ],
+          "thickness_m": 0.12
+        },
+        "id": "shell:wall_b",
+        "material_role": "painted_wall",
+        "role": "wall"
+      },
+      {
+        "base_color": "#ded8cb",
+        "collides": true,
+        "geometry": {
+          "kind": "polygon",
+          "points_m": [
+            [
+              2.52,
+              0.0,
+              2.5
+            ],
+            [
+              -2.52,
+              0.0,
+              2.5
+            ],
+            [
+              -2.52,
+              2.6,
+              2.5
+            ],
+            [
+              2.52,
+              2.6,
+              2.5
+            ]
+          ],
+          "thickness_m": 0.12
+        },
+        "id": "shell:wall_c",
+        "material_role": "painted_wall",
+        "role": "wall"
+      },
+      {
+        "base_color": "#ded8cb",
+        "collides": true,
+        "geometry": {
+          "kind": "polygon",
+          "points_m": [
+            [
+              -2.4,
+              0.0,
+              2.5
+            ],
+            [
+              -2.4,
+              0.0,
+              -2.5
+            ],
+            [
+              -2.4,
+              2.6,
+              -2.5
+            ],
+            [
+              -2.4,
+              2.6,
+              2.5
+            ]
+          ],
+          "thickness_m": 0.12
+        },
+        "id": "shell:wall_d",
+        "material_role": "painted_wall",
+        "role": "wall"
+      }
+    ]
+  },
+  "source": {
+    "kind": "procedural",
+    "pipeline": {
+      "name": "brief14-synthetic-corpus",
+      "version": "1"
+    }
+  },
+  "spawns": [
+    {
+      "id": "player_start",
+      "position_m": [
+        1.1,
+        0.0,
+        -2.0
+      ],
+      "role": "player",
+      "yaw_deg": 0.0
+    },
+    {
+      "id": "companion_start",
+      "position_m": [
+        -1.9,
+        0.0,
+        -1.5
+      ],
+      "role": "companion",
+      "yaw_deg": 0.0
+    }
+  ],
+  "units": "m",
+  "version": 1
+}

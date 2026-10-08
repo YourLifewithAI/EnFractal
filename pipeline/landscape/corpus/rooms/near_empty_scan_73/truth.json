@@ -1,0 +1,95 @@
+{
+  "assumptions": "Room dimensions, palette, placement and unspecified sizes/clearances are assumed.",
+  "bounds": {
+    "colour_channel_shift_max": 24,
+    "low_confidence_range": [
+      0.18,
+      0.38
+    ],
+    "mislabel_count_min": 1,
+    "mislabel_fraction_target_max": 0.25,
+    "position_distance_max_m": 0.1,
+    "size_relative_max": 0.15,
+    "yaw_delta_deg": 0
+  },
+  "dimensions_m": [
+    5,
+    2.8,
+    6
+  ],
+  "format": "brief14-truth-v1",
+  "lamp_channel_shift": [
+    -8,
+    -6,
+    8
+  ],
+  "neighbour_groups": [],
+  "objects": [
+    {
+      "colour": "#507b91",
+      "confidence": 0.86,
+      "id": "office_chair_1",
+      "kind": "office chair",
+      "position_m": [
+        -1.9,
+        0,
+        -2.55
+      ],
+      "semantic_label": "office chair",
+      "size_basis": "assumed",
+      "size_m": [
+        0.6,
+        1,
+        0.6
+      ],
+      "support_target": null,
+      "yaw_deg": 25
+    },
+    {
+      "colour": "#5c7a4c",
+      "confidence": 0.86,
+      "id": "plant_1",
+      "kind": "plant",
+      "position_m": [
+        2.1,
+        0,
+        2.6
+      ],
+      "semantic_label": "plant",
+      "size_basis": "assumed",
+      "size_m": [
+        0.35,
+        0.6,
+        0.35
+      ],
+      "support_target": null,
+      "yaw_deg": 0
+    }
+  ],
+  "outline_xz_m": [
+    [
+      -2.5,
+      -3.0
+    ],
+    [
+      2.5,
+      -3.0
+    ],
+    [
+      2.5,
+      3.0
+    ],
+    [
+      -2.5,
+      3.0
+    ]
+  ],
+  "room_type": "near_empty",
+  "seed": 73,
+  "tests": [
+    "sparse input: only two picks",
+    "dominant empty floor",
+    "non-cardinal yaw"
+  ],
+  "variant": "scan_73"
+}
