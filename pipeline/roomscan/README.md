@@ -1,8 +1,10 @@
 # roomscan: room capture pipeline (Lane C)
 
-Turns a folder of room photos into a coverage report: which parts of the room the photos cover,
-and specific instructions for the photos to take next. It is stages C1 (ingest) and C2 (coverage
-and guidance) of the [room capture pipeline](../../docs/pipeline/ROOM-CAPTURE-PIPELINE.md).
+Turns a folder of room photos into a coverage report (which parts of the room the photos cover, and specific
+instructions for the photos to take next), then into the room's **shell** as a room manifest the game loads, and an
+**inventory** of its objects with a stand-in recipe request for each kind a recipe exists for. It is stages C1 to C4 of
+the [room capture pipeline](../../docs/pipeline/ROOM-CAPTURE-PIPELINE.md); the design notes for C3 and C4 are in
+[SHELL-AND-INVENTORY.md](../../docs/pipeline/SHELL-AND-INVENTORY.md).
 
 - **C1 `roomscan ingest`**: HEIC to JPEG, EXIF kept by allow-list (device, lens, focal length,
   exposure, timestamp) with GPS and every other location field stripped, exact and near-duplicate
@@ -13,6 +15,13 @@ and guidance) of the [room capture pipeline](../../docs/pipeline/ROOM-CAPTURE-PI
   walls and ceiling fitted as a box; coverage grids (25 cm cells) of each surface; furniture found
   by an open-vocabulary detector, with per-object photo counts and the sides it was seen from; and
   ranked, plain-language guidance, a top-down coverage map and an HTML report.
+- **C3 `roomscan shell`**: the floor, four walls and ceiling as planes (checked against the photos' points, coloured from
+  them), the openings a reviewer marks (doors, windows, the garage door), a coarse `site` and clear spawns, written as a
+  room manifest to the player's user data and checked with `contracts/validate.py`. CPU only.
+- **C4 `roomscan inventory`**: the objects across the photos, each with a kind, a 3-D box in room coordinates (size, place,
+  turn, which way it faces), broad colours, a confidence and, for the founder's five recipe kinds, a recipe request that
+  `pipeline/recipes` accepts as it is; five objects picked for stand-ins; a top-down review image. Detector and segmenter
+  on the GPU for about two minutes; everything after is CPU.
 
 ## Rules it follows
 
@@ -32,6 +41,12 @@ and guidance) of the [room capture pipeline](../../docs/pipeline/ROOM-CAPTURE-PI
 - GPU stages pause while a window titled `EnFractal...` is open (the founder may be playing on the
   same card) and wait for free VRAM.
 - Photos, derived images and reports of a real room are never committed.
+- A captured room is written to the player's user data (`%APPDATA%\Godot\app_userdata\EnFractal\rooms\<room>\` on
+  Windows) and nowhere else: `write_room` refuses a folder inside a checkout of the repository. The manifest carries no
+  GPS, no place and no longitude; its `site` is whole degrees of latitude, the bearing of -Z and a quarter hour of solar
+  noon, which the contract's schema enforces.
+- The inventory, the shell spec, the curation file and the review image stay under `captures/`. Commit only code, tests
+  with synthetic fixtures and docs.
 
 ## Install
 
@@ -42,17 +57,19 @@ Needs [uv](https://docs.astral.sh/uv/). uv provides Python 3.12 and installs the
 cd pipeline/roomscan
 uv sync --locked                 # C1 and the tests: CPU only, about 150 MB
 uv sync --locked --extra pose    # adds C2 on an NVIDIA GPU: torch 2.14.1 + CUDA 12.6, about 4 GB
+uv sync --locked --extra detect  # adds C4's detector and segmenter without MapAnything: torch, torchvision, transformers
 ```
 
-With the `pose` extra installed, **always pass `--extra pose`** to `uv run` and `uv sync`. Without it,
-uv's exact sync removes the GPU packages again.
+With the `pose` (or `detect`) extra installed, **always pass the same `--extra`** to `uv run` and `uv sync`. Without it,
+uv's exact sync removes the GPU packages again. C3 and the tests need neither.
 
 The first `roomscan coverage` downloads the models into `<repo>/.cache/`:
 
 | Model | Use | Size | Licence |
 |---|---|---|---|
 | `facebook/map-anything-apache` @ `00f9c24` | camera poses, depth | 4.91 GB | Apache-2.0 |
-| `google/owlv2-base-patch16-ensemble` @ `cfd3195` | furniture detection | 0.62 GB | Apache-2.0 |
+| `google/owlv2-base-patch16-ensemble` @ `cfd3195` | furniture detection (C2) and the inventory's kinds (C4) | 0.62 GB | Apache-2.0 |
+| `facebook/sam2.1-hiera-small` @ `ee5bba1` | object masks from detector boxes (C4) | 0.18 GB | Apache-2.0 |
 | `facebookresearch/dinov2` @ `7764ea0` (torch.hub, code only) | encoder definition MapAnything builds on | 4 MB | Apache-2.0 |
 
 All three allow commercial use. One caveat on the third: at the pinned commit, DINOv2's `hubconf.py` also
@@ -75,6 +92,20 @@ uv run --locked --extra pose roomscan coverage --room garage
 uv run --locked --extra pose roomscan sessions --room garage    # list sessions
 ```
 
+C3 and C4 start from the poses C2 cached, so they need no pose model:
+
+```powershell
+uv run --locked --extra detect roomscan inventory --room garage   # C4: detector and segmenter on the GPU, then CPU
+uv run --locked roomscan shell --room garage                       # C3: CPU only; writes the room to the game's user data
+```
+
+`inventory` reads `captures/<room>/inventory-curation.json` if it exists; `shell` reads
+`captures/<room>/shell-spec.json`. Both are a reviewer's decisions, kept next to the capture (see
+[SHELL-AND-INVENTORY.md](../../docs/pipeline/SHELL-AND-INVENTORY.md)). `shell` takes `--rooms-dir DIR` (default: the game's
+`user://rooms`), `--created-utc` (fix it to rebuild the same bytes), `--spec PATH` and `--no-pictures`; `inventory` takes
+`--curation PATH` and `--min-evidence X`. Run `inventory` first when a room has one: `shell` keeps the avatars' spawns off
+the objects it picked.
+
 `coverage` uses the latest session unless `--session s-...` is given. Other options:
 `--chunk-size N` (photos per GPU batch; default from free VRAM, at most 32),
 `--skip-detection` (no furniture, no GPU detector), `--recompute` (ignore cached poses),
@@ -94,6 +125,12 @@ Outputs, all under `captures/<room>/`:
 | `sessions/<id>/coverage/coverage.json` | Every number behind the report, including the scale and the tape fit |
 | `sessions/<id>/coverage/coverage-run.json` | Stage times, GPU seconds, peak VRAM, models and licences |
 | `sessions/<id>/coverage/poses.npz`, `detections.json` | Caches; reused when the photos and settings match |
+| `shell-spec.json` | C3 input, the reviewer's: openings, site, lamps, spawns, surface colours |
+| `shell/plan.json`, `shell/wall_a.png` ... | C3: each plane's evidence and colours; the walls unfolded from the photos |
+| `inventory-curation.json` | C4 input, the reviewer's: proposals to drop or relabel, objects to add, measurements |
+| `inventory.json` | C4: every object (kind, box, colours, confidence, recipe request) and the five picks |
+| `inventory-review.jpg` | C4: the room from above with every box, the picks numbered, and a panel for the five |
+| `sessions/<id>/inventory/` | C4 caches and evidence: `detections.json`, `masks.npz`, `evidence/<object>.jpg` |
 
 ## Measured on the RTX 2070 SUPER (8 GB), October 2026
 
@@ -104,6 +141,13 @@ Outputs, all under `captures/<room>/`:
 - Coverage of the 180 usable garage photos, from scratch: about 6 min. That is 96 s of GPU
   inference for poses, 17 s for furniture, and the rest CPU. A re-run with cached poses and
   detections takes about 1.5 min.
+- Inventory of the same set: 69 detector phrases over 179 photos, each whole and as a 2 x 2 grid of tiles from a
+  1536 px copy: 83 s of GPU inference (peak 0.9 GB), 3.6 min with image decoding. SAM 2.1 small: 297 masks in 35 s
+  (peak 0.5 GB). A rerun with both caches warm takes about 25 s of CPU, most of it loading the poses (3 s) and the points.
+- The shell: loading the scene 3 s, the plane evidence and colours 15 s, the rectified wall pictures 15 s.
+- Downloads for C3 and C4 (October 2026): torch 2.14.1+cu126, torchvision and transformers 5.19 into the project's
+  `.venv` (4.4 GB of wheels, 2 min); SAM 2.1 small's `model.safetensors` (184 MB). The OWLv2 weights were copied from the
+  C2 cache (nothing downloaded). Nothing hosted, nothing paid.
 
 ## Test
 
@@ -116,6 +160,12 @@ The tests use only synthetic images and a ray-cast synthetic room (`tests/synth.
 `tests/scene.py`). A fake pose backend returns each batch in its own random frame and scale, and a
 fake detector returns the true furniture boxes, so the whole C2 pipeline runs end to end without a
 GPU, a model or a real photo. The one test that touches torch is skipped when torch is absent.
+
+C3 and C4 add `tests/test_shell.py`, `tests/test_inventory.py` and `tests/test_inventory_fit.py`. Their scene
+(`tests/inv_scene.py`) is ray-cast at the real stored-map size from a known room, so a lifted box, a fitted box or a
+silhouette is checked against the truth the room was built from; the segmenter is a fake that returns known pixels. The
+shell test writes a manifest to a temporary folder and runs `contracts/validate.py` on it (the validator's pinned
+packages are in the dev group).
 
 ## How it works
 
@@ -145,6 +195,50 @@ GPU, a model or a real photo. The one test that touches torch is skipped when to
    points fall inside the object's box, and the side it was seen from is measured.
 7. **Guidance and report** (`coverage/guidance.py`, `render.py`, `report.py`). Ranked
    instructions: lower walls and floor first, because the player is 10 cm tall.
+
+## C3: the shell
+
+1. **The scene** (`scene.py`). `load_scene` rebuilds what the coverage run knew before it drew anything: every fitted
+   photo's camera and point map in the room frame at the tape-fitted scale. It refits the box with the same functions and
+   stops with `SceneMismatch` if the result differs from the room `coverage.json` recorded, so a changed cache or fit
+   cannot slip into an exported room.
+2. **Planes** (`shell/planes.py`). The box is not fitted again (the ceiling moved 8 to 10 cm with the fifth digit of the
+   scale when it was). Each of the six planes is checked against the points on it: how many, how far from the plane
+   (median and spread), and how many photos saw it. Each gets one broad colour from the pixels of points within 4 cm of
+   it, so furniture and posters in front of a wall do not paint it.
+3. **Openings** (`shell/spec.py`, `shell/overlay.py`, `ortho.py`). Which gap in a wall is a door, a window or the garage
+   door is a reviewer's call, made from the walls unfolded from the photos (`shell/wall_*.png`, one pixel per centimetre,
+   each pixel the median of the three photos that see it best with nothing in front) and checked by drawing the result back
+   onto photos. It is written to `shell-spec.json`, read strictly, and cut as real holes by `RoomBuilder`.
+4. **The manifest** (`shell/manifest.py`). One polygon per surface, walls A and C running 12 cm past B and D; windows
+   light the room, with a `sun` hint; spawns on floor the photos saw clear (the coverage floor grid), clear of the objects
+   the inventory picked. Pinned bytes, so the same inputs give the same file.
+
+## C4: the inventory
+
+1. **Detections** (`inventory/detection.py`). OWLv2 is asked for 69 phrases (`inventory/vocabulary.py` groups them into
+   kinds, with a plausible size for each and the recipe that builds a stand-in) over every fitted photo, whole and in tiles.
+2. **Sightings and clusters** (`lift.py`, `cluster.py`). A box lifts to the points of its middle's distance; the same kind
+   at the same place in three photos (two when the detector is sure) is a candidate; candidates sharing most of their
+   volume are one object.
+3. **A reviewer's corrections** (`curation.py`). Proposals are dropped or relabelled, missed objects added, and boxes
+   measured, all by *place* because the order the detector finds things in is not stable. The garage's first automatic
+   pass was judged by eye from the evidence sheets, and most of its proposals were clutter or the wrong kind.
+4. **Following each object** (`track.py`, `segment.py`, `masks.py`). The object's 3-D position projects into every photo
+   that sees it; up to ten of them (close, square-on, spread round it) get a box prompt for SAM 2.1, run on a crop of the
+   full-size photo. The mask is judged (size against the box, the box's middle on the mask, overlap), pushed onto the point
+   map, and cached.
+5. **Box, turn, front, colours** (`fit.py`, `build.py`, `recipes.py`). The pooled points give the smallest rectangle round
+   their middle 94 per cent, turned to the room's axes when close, with the height worked out photo by photo. A thing that
+   stands on the floor starts on it. The front is where a sofa is lower, away from the wall a thing stands against, or
+   toward the photos that saw it. Slot colours for a recipe come from the object's own pixels, and a slot the scan cannot
+   show is left out so the recipe uses its default.
+6. **Picks and the review image** (`picks.py`, `review.py`). The founder's kinds first; where the room lacks one, the
+   best-evidenced object of a kind not yet picked, from a different kind of thing, with the recipe it still needs named.
+
+Sizes and places are good to about 15 per cent and 10 cm: the pose model's depth is noisy at edges (its own edge masking
+shrinks small things) and its poses move a box by a few centimetres between photos. The review image and the `confidence`
+say so; a reviewer's measurement replaces a fit where the photos plainly disagree.
 
 ## Room scale: the model's guess and the founder's tape
 
@@ -199,5 +293,10 @@ photos fixes the scale; a tape does.
 - Room sizes are only as good as the model's metric scale. Without tape measurements they can be off by
   tens of percent (see "Room scale").
 - The room is assumed to be a box. An L-shaped room or an alcove shows up as a poor wall fit.
-- Furniture detection misses and mislabels things; it is a starting point for the inventory (C3).
+- Furniture detection misses and mislabels things; the inventory treats it as a proposal a reviewer checks (C4).
+- The shell is one box: no alcoves, no slanted ceilings, one flat floor (a garage floor that falls toward the door is
+  levelled), and openings are rectangles.
+- The photos carry no location and no compass. The manifest's `site` comes from the reviewer, and the bearing of -Z is a
+  placeholder until the owner says which way a wall faces.
+- A box is only as deep as what the photos saw of a thing against a wall, and an L-shaped sofa is one rectangle.
 - The blur threshold was calibrated by eye on one photo set (the garage, October 2026).
