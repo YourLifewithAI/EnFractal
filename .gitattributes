@@ -27,3 +27,6 @@ companion/schemas/*.json text eol=lf
 companion/tests/fixtures/** -text
 docs/companion/proposals/*.diff -text
 docs/look/proposals/*.diff -text
+
+# The synthetic room corpus (brief 14): manifests pin asset bytes, and a test checks the checked-in outputs are fresh.
+pipeline/landscape/corpus/rooms/** -text
