@@ -1,4 +1,4 @@
-"""Determinism and principle checks for landscape generator B.
+"""Determinism and principle checks for the landscape generator.
 
     python -B -m unittest pipeline.landscape.generator.tests.test_generator -v
 """
@@ -17,7 +17,7 @@ ROOMS = ROOT/'pipeline'/'landscape'/'corpus'/'rooms'
 
 def workdir(name):
     # Plain os.makedirs: tempfile.mkdtemp's owner-only ACL blocks sandboxed writes.
-    path = os.path.join(tempfile.gettempdir(), 'gen_b_tests', name)
+    path = os.path.join(tempfile.gettempdir(), 'landscape_generator_tests', name)
     shutil.rmtree(path, ignore_errors=True)
     os.makedirs(path)
     return path
@@ -39,7 +39,7 @@ class GarageLandscape(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        shutil.rmtree(os.path.join(tempfile.gettempdir(), 'gen_b_tests'), ignore_errors=True)
+        shutil.rmtree(os.path.join(tempfile.gettempdir(), 'landscape_generator_tests'), ignore_errors=True)
 
     def test_identical_bytes(self):
         first, second = tree(self.a), tree(self.b)
@@ -87,6 +87,29 @@ class CheckerCatchesContradictions(unittest.TestCase):
         cottage['position_m'][1] += .05
         ok, _ = checks.grounding_checks(doc, terrain)
         self.assertFalse(ok)
+        cottage['position_m'][1] -= .05
+        # A boulder dropped on the crate leaves no 11 cm place to stand there.
+        crate = doc['objects'][0]['position_m']
+        doc['scatter'].append(dict(prototype='boulder', position_m=list(crate), yaw_deg=0, scale=[.4, .4, .4]))
+        from pipeline.landscape.harness.common import load_json
+        ok, walks = checks.walk_checks(doc, meshes, terrain, load_json(room/'room.json'))
+        self.assertFalse(ok)
+        self.assertFalse(walks[0]['found'])
+
+
+class NoisyScanKeepsItsDesk(unittest.TestCase):
+    """Scan 17: a low-confidence mislabel and a confident neighbour's crag no
+    longer swallow the desk (confidence limits how far a form spreads)."""
+
+    def test_scan_17_footprints_read(self):
+        room = ROOMS/'garage_scan_17'
+        out = os.path.join(workdir('s17'), 'pkg')
+        generate(room, out)
+        from pipeline.landscape.harness import read_package
+        from pipeline.landscape.harness.common import load_json
+        doc, meshes, manifest, _ = read_package(out, room)
+        ok, rows = checks.footprint_checks(load_json(room/'inventory.json'), checks.Terrain(doc, meshes), manifest)
+        self.assertTrue(ok, [r for r in rows if not r['reads']])
 
 
 if __name__ == '__main__':

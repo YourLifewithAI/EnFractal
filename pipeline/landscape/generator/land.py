@@ -20,6 +20,8 @@ FORMS = {
     'laptop': 'slab', 'book': 'slab', 'board game': 'slab', 'monitor': 'crag',
     'office chair': 'knoll', 'chair': 'knoll', 'shelving unit': 'crag',
     'bookcase': 'crag', 'wardrobe': 'crag', 'cabinet': 'mesa', 'printer': 'mesa',
+    'chest of drawers': 'mesa', 'suitcase': 'mesa', 'paint can': 'stack', 'speaker': 'stack',
+    'kettle': 'cap', 'plant': 'knoll',
 }
 SOFT = {'dome', 'ridge', 'knoll'}
 
@@ -72,11 +74,19 @@ def parse_objects(inventory):
         lin = hex_lin(colour)
         o['rock_role'] = 'cliff' if lin[0] >= lin[2] else 'rock'
         o['tint'] = geology_tint(colour, .55)
+        # Confidence limits how far a form may spread over the land around it.
+        o['reach_k'] = lerp(.45, 1., clamp((o['confidence']-.2)/.5))
+        o['phase'] = (len(objects)*2.39996) % math.tau
         objects.append(o)
     ids = {o['id'] for o in objects}
     for o in objects:
         if o['parent'] not in ids:
             o['parent'] = None
+    # A support whose load was confidently seen is itself confirmed: a desk
+    # under a sure laptop and monitor is surely there, whatever its own label.
+    for o in objects:
+        kids = [c['confidence'] for c in objects if c['parent'] == o['id']]
+        o['support_conf'] = max([o['confidence']]+[.9*k for k in kids])
     return objects
 
 
@@ -105,18 +115,43 @@ def dome(lx, lz, a, b, H, spread):
     return H*bell(rho)
 
 
+def hill(o, lx, lz, a, b, H, spread):
+    """A weathered hill, not a dome: a summit ridge along the long axis, spurs
+    with re-entrant gullies between them, and a long gentle tail toward open
+    ground (the lee) against a shorter, steeper scarp on the other side."""
+    ang = math.atan2(lz, lx)
+    tail = o.get('tail', 0.)
+    ph = o.get('phase', 0.)
+    asym = 1+.5*math.cos(ang-tail)
+    lobes = 1+.16*math.cos(3*ang+ph)+.08*math.cos(5*ang+2.1*ph)
+    long_x = a >= b
+    core = .45*(a if long_x else b)
+    ex = max(0., abs(lx)-core) if long_x else lx
+    ez = lz if long_x else max(0., abs(lz)-core)
+    ra = (a-(core if long_x else 0)+spread*asym)*lobes
+    rb = (b-(0 if long_x else core)+spread*asym)*lobes
+    rho = math.hypot(ex/ra, ez/rb)
+    if rho >= 1:
+        return 0.
+    # Convex shoulders, a concave foot, and a bench part-way down the scarp.
+    body = bell(rho)**1.15
+    bench = .07*max(0., 1-abs(rho-.55)/.12)*(.5-.5*math.cos(ang-tail))
+    return H*(body+bench)
+
+
 def profile(o, lx, lz, noise):
     """Height above the object's base for a landform of the object's form."""
     a, b, H = o['sx']/2, o['sz']/2, o['sy']
     f = o['form']
+    k = o.get('reach_k', 1.)
     if f == 'mesa':
         soft = o['form_basis'] == 'proportions'
         return mesa(lx, lz, a, b, H, cliff=.14 if soft else .07, talus=.42 if soft else .32,
-                    dome=.10 if soft else .04)
+                    dome=.10 if soft else .04, spread=(.55*H+.12)*k)
     if f == 'slab':
         return mesa(lx, lz, a, b, H, cliff=.02, talus=.5, spread=.04, dome=0)
     if f == 'dome':
-        return dome(lx, lz, a, b, H, .6+.25*H)
+        return hill(o, lx, lz, a, b, H, (.45+.25*H)*k)
     if f == 'cap':
         return dome(lx, lz, a, b, H, .06)
     if f == 'ridge':
@@ -159,16 +194,47 @@ def profile(o, lx, lz, noise):
         apron = .35*H*max(0., 1-(r-1)*min(a, b)/.25)**2 if r >= 1 else .35*H
         return max(tor, apron)
     if f == 'knoll':
-        hill = dome(lx, lz, a, b, .5*H, .4)
+        low = hill(o, lx, lz, a, b, .5*H, .4*k)
         r = math.hypot(lx/(a*.55), (lz-.55*b)/(b*.4))
         tor = H*.9*max(0., 1-r**3)**.5 if r < 1 else 0.
-        return smax(hill, tor, .08)
+        return smax(low, tor, .08)
     raise ValueError(f)
 
 
 def reach(o):
     H = o['sy']
-    return max(o['sx'], o['sz'])/2+.7+.6*H
+    return max(o['sx'], o['sz'])/2+.7+.6*H+.3
+
+
+def stronger_neighbours(o, objects):
+    """Confident neighbours this form may not swallow: a form spreads over a
+    neighbour's footprint only as far as its own confidence allows."""
+    out = []
+    for n in objects:
+        if n is o or n['parent'] is not None or o['parent'] == n['id'] or n['parent'] == o['id']:
+            continue
+        # Any neighbour about as sure as this form (or surer) keeps its own
+        # footprint: two confident forms meet as a terrace against a crag.
+        if n['support_conf'] < o['support_conf']-.15:
+            continue
+        if math.hypot(n['cx']-o['cx'], n['cz']-o['cz']) > reach(o)+max(n['sx'], n['sz']):
+            continue
+        out.append(n)
+    return out
+
+
+def territory_cap(o, others, x, z):
+    """Highest this (less confident) form may stand at (x, z): a little above a
+    stronger neighbour's own top inside its footprint, rising with distance."""
+    cap = math.inf
+    for n in others:
+        lx, lz = local(n, x, z)
+        d = rr_dist(lx, lz, n['sx']/2, n['sz']/2, .05)
+        if d > .6:
+            continue
+        gap = max(0., n['support_conf']-o['support_conf'])
+        cap = min(cap, n['top']+.04+max(0., d)*(2.2-1.5*gap))
+    return cap
 
 
 def uplift(grid, objects, base, noise, owner):
@@ -179,6 +245,7 @@ def uplift(grid, objects, base, noise, owner):
     index = {o['id']: k for k, o in enumerate(objects)}
     for o in order:
         R = reach(o)
+        others = stronger_neighbours(o, objects) if o['parent'] is None else []
         rx, rz = grid.span(o['cx']-R, o['cx']+R, o['cz']-R, o['cz']+R)
         rugged = .06 if o['form'] in SOFT else .07
         warp = .05+.05*min(o['sy'], 1.)
@@ -196,9 +263,11 @@ def uplift(grid, objects, base, noise, owner):
                 if p <= 0:
                     continue
                 p += rugged*o['sy']*noise.fbm(x*4.3+k*5.1, z*4.3-k*3.7, 3)*smooth(p/max(o['sy'], 1e-6)*2.5)
-                if o['form'] == 'dome':
-                    p += .2*o['sy']*noise.fbm(x*2.2-k, z*2.2+k, 2)*smooth(p/max(o['sy'], 1e-6)*3)
+                if o['form'] in ('dome', 'knoll'):
+                    p += .12*o['sy']*noise.ridged(x*2.6-k, z*2.6+k, 3)*smooth(p/max(o['sy'], 1e-6)*3)
                 q = j*grid.nx+i
+                if others:
+                    p = min(p, max(0., territory_cap(o, others, x, z)-base[q]))
                 if parent is not None:
                     plx, plz = local(parent, x, z)
                     if rr_dist(plx, plz, parent['sx']/2, parent['sz']/2, .05) > -.01:
@@ -241,22 +310,78 @@ def poly_dist(x, z, poly):
     return best
 
 
+FAR_Y = -.03   # just under the harness's shared far ground (-0.025): the land sinks into it
+
+
+def _sd_rect(x, z, lo, hi):
+    """Signed distance to the bounds rectangle with its nearest point and outward normal."""
+    dx = max(lo[0]-x, x-hi[0])
+    dz = max(lo[2]-z, z-hi[2])
+    if dx <= 0 and dz <= 0:
+        k = min([(x-lo[0], (lo[0], z), (-1., 0.)), (hi[0]-x, (hi[0], z), (1., 0.)),
+                 (z-lo[2], (x, lo[2]), (0., -1.)), (hi[2]-z, (x, hi[2]), (0., 1.))])
+        return -k[0], k[1][0], k[1][1], k[2][0], k[2][1]
+    px, pz = clamp(x, lo[0], hi[0]), clamp(z, lo[2], hi[2])
+    d = math.hypot(x-px, z-pz)
+    return d, px, pz, (x-px)/d, (z-pz)/d
+
+
+def _sd_poly(x, z, poly):
+    best = None
+    for a, b in zip(poly, poly[1:]+poly[:1]):
+        dx, dz = b[0]-a[0], b[2]-a[2]
+        L = dx*dx+dz*dz
+        t = 0 if L == 0 else clamp(((x-a[0])*dx+(z-a[2])*dz)/L)
+        px, pz = a[0]+t*dx, a[2]+t*dz
+        d = math.hypot(x-px, z-pz)
+        if best is None or d < best[0]:
+            best = (d, px, pz)
+    d, px, pz = best
+    inside = point_in_poly(x, z, poly)
+    if d < 1e-9:
+        return 0., px, pz, 0., 0.
+    ox, oz = (x-px)/d, (z-pz)/d
+    if inside:
+        return -d, px, pz, -ox, -oz
+    return d, px, pz, ox, oz
+
+
+def wall_frame(room, x, z):
+    """Signed distance to the walkable floor (bounds within the floor polygons;
+    negative inside), the nearest wall point and that wall's outward normal.
+    Works for any floor outline, concave ones included."""
+    lo, hi, floors = room_shape(room)
+    best = _sd_rect(x, z, lo, hi)
+    if floors:
+        cands = [_sd_poly(x, z, poly) for poly in floors]
+        inside = [c for c in cands if c[0] <= 0]
+        poly = max(inside, key=lambda c: c[0]) if inside else min(cands, key=lambda c: c[0])
+        if poly[0] > best[0]:
+            best = poly
+    return best
+
+
 def outside_distance(room, x, z):
     """Distance outside the walkable floor (0 inside)."""
-    lo, hi, floors = room_shape(room)
-    ox = max(lo[0]-x, 0., x-hi[0])
-    oz = max(lo[2]-z, 0., z-hi[2])
-    d = math.hypot(ox, oz)
-    thickness = min((p['geometry'].get('thickness_m', .12) for p in room['shell']['parts']
-                     if p['role'] == 'floor'), default=.12)
-    if floors and not any(point_in_poly(x, z, p) for p in floors):
-        d = max(d, min(poly_dist(x, z, p) for p in floors)+thickness)
-    return d
+    return max(0., wall_frame(room, x, z)[0])
 
 
 def inside_distance(room, x, z):
-    lo, hi, _ = room_shape(room)
-    return min(x-lo[0], hi[0]-x, z-lo[2], hi[2]-z)
+    """Distance inside the walkable floor to its nearest wall (negative outside)."""
+    return -wall_frame(room, x, z)[0]
+
+
+def perimeter(room, step=.1):
+    """Points along the walkable floor's boundary, in a fixed order."""
+    lo, hi, floors = room_shape(room)
+    pts = []
+    nx_, nz_ = int((hi[0]-lo[0])/step), int((hi[2]-lo[2])/step)
+    for a in range(nx_+1):
+        for b in range(nz_+1):
+            x, z = lo[0]+a*step, lo[2]+b*step
+            if -step < wall_frame(room, x, z)[0] <= 0:
+                pts.append((round(x, 4), round(z, 4)))
+    return pts
 
 
 def openings(room):
@@ -321,64 +446,71 @@ def sightline_cap(room, cams, x, z):
     return cap
 
 
-def shell_land(grid, room, h, noise, cams):
-    """Walls dissolve into irregular ridgelines; a hazy far side drops away
-    beneath the shared surround. Interior land rises a little at the walls."""
+def high_country(room, outlet):
+    """Where the wall ring rises highest: the stretch of wall farthest from the
+    pass where water leaves, so the land drains from the heights to the pass.
+    Chosen from the room alone, never from a camera."""
+    return max(perimeter(room), key=lambda p: (round(math.hypot(p[0]-outlet['x'], p[1]-outlet['z']), 3), p))
+
+
+def shell_land(grid, room, h, noise, outlet, objects=()):
+    """Walls dissolve into irregular ridgelines, highest in the high country and
+    broken by passes at the openings. Each ridge's far side runs down into the
+    shared surround (FAR_Y) as a flat skirt, so no seam shows where they meet.
+    Interior land rises a little at the walls. Returns (outside mask, skirt
+    weight: 1 where the land has become the surround)."""
     lo, hi, _ = room_shape(room)
     cx, cz = (lo[0]+hi[0])/2, (lo[2]+hi[2])/2
     margin = min(grid.xs[-1]-hi[0], lo[0]-grid.x0, grid.zs[-1]-hi[2], lo[2]-grid.z0)
-    # The corner no camera looks across holds the high country.
-    corners = [(lo[0], lo[2]), (hi[0], lo[2]), (lo[0], hi[2]), (hi[0], hi[2])]
-    far = max(corners, key=lambda p: (min(math.hypot(p[0]-c['position_m'][0], p[1]-c['position_m'][2])
-                                          for c in cams), p))
+    far = high_country(room, outlet)
     outside = [False]*grid.n
+    skirt = [0.]*grid.n
     for j, z in enumerate(grid.zs):
         for i, x in enumerate(grid.xs):
             q = j*grid.nx+i
-            d = outside_distance(room, x, z)
-            px_, pz_ = clamp(x, lo[0], hi[0]), clamp(z, lo[2], hi[2])
-            if d <= 0:
-                din = inside_distance(room, x, z)
-                if din > .4:
-                    continue
-                s = -din
-                # Nearest wall's outward normal for an interior point.
-                k = min([(x-lo[0], (-1, 0)), (hi[0]-x, (1, 0)), (z-lo[2], (0, -1)), (hi[2]-z, (0, 1))])
-                ox, oz = k[1]
-                px_, pz_ = x+ox*din, z+oz*din
-            else:
+            s, px_, pz_, ox, oz = wall_frame(room, x, z)
+            if s < -.95:
+                continue
+            if s > 0:
                 outside[q] = True
-                s = d
-                ox, oz = (x-px_)/d, (z-pz_)/d
             ang = math.atan2(z-cz, x-cx)
             ca, sa = math.cos(ang), math.sin(ang)
-            crest = .5+.3*noise.fbm(ca*2.2+9, sa*2.2-4, 3)
+            crest = .42+.28*noise.fbm(ca*2.2+9, sa*2.2-4, 3)
             crest *= .55+.45*(.5+.5*noise(px_*1.6+21, pz_*1.6-13))
-            fd = math.hypot(x-far[0], z-far[1])
-            crest += 1.25*bell(fd/2.6)
+            fd = math.hypot(px_-far[0], pz_-far[1])
+            crest += 1.05*bell(fd/3.0)
             crest *= opening_factor(room, x, z)
-            dc = .35+.6*(.5+.5*noise(px_*.7-3, pz_*.7+8))
-            foot = -.3*(.5+.5*noise(px_*1.3+2, pz_*1.3+5))
-            # Keep the crest under each overview's line of sight to the floor
-            # (plus a little), so near ridges frame the land instead of hiding it.
-            cap = sightline_cap(room, cams, px_+ox*dc, pz_+oz*dc)+.16
-            crest = min(crest, max(.14, cap))
-            tuck = margin-.22-.5*(.5+.5*noise(x*1.1+5, z*1.1-2))
+            dc = .45+.6*(.5+.5*noise(px_*.7-3, pz_*.7+8))+.25*max(0., crest-.6)
+            # Broad, grassy inner slopes: the foot reaches farther in under higher crests.
+            foot = -.15-.3*(.5+.5*noise(px_*1.3+2, pz_*1.3+5))-.35*max(0., crest-.45)
+            # The outer slope reaches the surround well inside the grid.
+            reach_out = min(margin-.15, dc+.55+.75*crest)
             if s < foot:
                 continue
             if s < dc:
                 ridge = crest*bell((dc-s)/(dc-foot))
+                fade = 0.
             else:
-                t = (s-dc)/max(.2, tuck-dc)
-                ridge = crest*(1-smooth(t))-.06*smooth(t)
-            ridge += .05*noise.ridged(x*3.3, z*3.3)*smooth(s/.3)*smooth((crest-.1)/.3)
-            if d <= 0:
-                h[q] += ridge
+                t = (s-dc)/max(.2, reach_out-dc)
+                fade = smooth(t)
+                ridge = crest*(1-fade)
+            ridge += .05*noise.ridged(x*3.3, z*3.3)*smooth(s/.3)*smooth((crest-.1)/.3)*(1-fade)
+            if s <= 0:
+                # The ridge rises behind what stands against the wall, never over it.
+                cap = math.inf
+                for o in objects:
+                    if o['parent'] is not None:
+                        continue
+                    lx, lz = local(o, x, z)
+                    d = rr_dist(lx, lz, o['sx']/2, o['sz']/2, .05)
+                    if d < .5:
+                        cap = min(cap, o['top']+.04+max(0., d)*1.6)
+                h[q] = max(h[q], min(h[q]+ridge, cap))
                 continue
-            h[q] = smax(h[q], ridge, .1) if ridge > h[q]-.1 else h[q]
-            if s > tuck:
-                h[q] = min(h[q], lerp(h[q], -.09, smooth((s-tuck)/.16)))
-    return outside
+            land = max(h[q], h[q]+ridge)
+            h[q] = lerp(land, FAR_Y, fade)
+            skirt[q] = smooth((fade-.55)/.45)
+    return outside, skirt
 
 
 def flow_accumulation(grid, h):
@@ -407,18 +539,21 @@ def flow_accumulation(grid, h):
     return acc, down
 
 
-def weather(grid, h, outside, slope, noise):
-    """Erosion signature: gullies where flow gathers on slopes, softened crests,
-    talus deposited below steep faces."""
-    acc, _ = flow_accumulation(grid, h)
+def weather(grid, h, outside, slope, noise, rounds=3):
+    """Erosion signature: a few rounds of stream-power incision, so gullies
+    gather into branching drainage and the ground between them stands as
+    spurs; then softened crests and talus below steep faces."""
+    from .field import slope_field
     out = h[:]
-    for q in range(grid.n):
-        s = slope[q]
-        if s < 12:
-            continue
-        a = min(acc[q], 500.)
-        cut = .0038*math.sqrt(a)*smooth((s-12)/25)
-        out[q] -= cut
+    for r in range(rounds):
+        acc, _ = flow_accumulation(grid, out)
+        s_now = slope_field(grid, out) if r else slope
+        for q in range(grid.n):
+            s = s_now[q]
+            if s < 10:
+                continue
+            a = min(acc[q], 600.)
+            out[q] -= .0016*math.sqrt(a)*smooth((s-10)/25)*(1.25 if r == 0 else 1.)
     # Soften crests: blur where convex and steep.
     nx = grid.nx
     soft = out[:]
