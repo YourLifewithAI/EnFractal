@@ -17,7 +17,7 @@ from __future__ import annotations
 import dataclasses
 import unittest
 
-from support import COMPANION, PLAYER, HostPolicy, command, contract_problems, contracts, example, new_host, query
+from support import COMPANION, PLAYER, FakeClock, HostPolicy, command, contract_problems, contracts, example, new_host, query
 
 SPINNER = example("command_creation_place_spinner")["args"]["source"]
 
@@ -31,7 +31,7 @@ class TeamCase(unittest.TestCase):
     policy = FAST
 
     def setUp(self):
-        self.host = new_host(policy=self.policy)
+        self.host = new_host(policy=self.policy, clock=FakeClock())
         self._ids = 0
 
     def tearDown(self):
@@ -221,6 +221,62 @@ class Unreachable(TeamCase):
         self.goal("follow", target="avatar:player")
         with self.assertRaises(KeyError):
             self.host.goal_blocked("avatar:companion", 10.0)
+
+
+class ReviewFixes(TeamCase):
+    """Codex's review of Lane A's round 2 (both reviewers, verified by the integrator)."""
+
+    def test_a_fetch_starts_its_return_with_no_blocked_time(self):
+        # The host resets BlockedS at the pick-up: 4.9 s blocked on the way there and 0.1 s on the way back is no failure.
+        started = self.goal("fetch", target="obj:book")
+        self.assertEqual(self.host.goal_blocked("avatar:companion", 4.9), "running")
+        self.host.move_avatar("avatar:companion", [0.45, 0.0, 0.25])
+        self.assertEqual(self.host.goal_arrived("avatar:companion"), "running")  # picked up, turning for home
+        self.assertEqual(self.host.goal_blocked("avatar:companion", 0.1), "running")
+        self.assertEqual(self.host.goal_blocked("avatar:companion", 5.0), "failed")
+        self.assertEqual(self.ask("jobs.status", {"job_id": started["job_id"]})["data"]["result"]["error"]["code"],
+                         "target_unreachable")
+
+    def test_arriving_judges_a_target_only_the_player_sees_with_the_teams_sight(self):
+        self.place("avatar:companion", BEHIND_THE_TABLE)  # the player at its spawn sees the book; the companion does not
+        started = self.goal("look_at", target="obj:book")
+        self.assertEqual(started["data"]["target_seen"], "now")
+        self.assertEqual(self.host.goal_arrived("avatar:companion"), "succeeded")
+        self.assertIn("obj:book", self.host.memory[COMPANION].entries)  # the arrival's look kept it on the map
+
+    def test_the_players_exploration_fills_the_map_while_the_companion_is_not_asking(self):
+        self.place("avatar:companion", BEHIND_THE_TABLE)
+        self.place("avatar:player", OUT_OF_EVERY_SIGHT)
+        self.assertEqual(self.ask("map.find", {"name": "book"})["data"], {"items": []})
+        self.place("avatar:player", PLAYER_SPAWN)  # the player walks out and looks round
+        self.host.clock.advance(1.0)  # time passes with no request from the companion
+        self.place("avatar:player", OUT_OF_EVERY_SIGHT)  # and walks back
+        found = self.ask("map.find", {"name": "book"})["data"]["items"]
+        self.assertEqual([item["entity"]["id"] for item in found], ["obj:book"])
+        self.assertEqual(found[0]["entity"]["seen"], "remembered")
+
+    def test_a_player_request_or_an_explicit_sweep_fills_the_map_too(self):
+        self.place("avatar:companion", BEHIND_THE_TABLE)
+        self.place("avatar:player", OUT_OF_EVERY_SIGHT)
+        self.ask("room.describe")
+        self.place("avatar:player", PLAYER_SPAWN)
+        self.host.player_command(query("room.describe", {}, "p-q"))  # the player's own request looks too
+        self.place("avatar:player", OUT_OF_EVERY_SIGHT)
+        self.assertIn("obj:book", self.host.memory[COMPANION].entries)
+        self.host.memory[COMPANION].entries.clear()
+        self.place("avatar:player", PLAYER_SPAWN)
+        self.host.sight_sweep()
+        self.assertIn("obj:book", self.host.memory[COMPANION].entries)
+
+    def test_the_sweep_can_be_turned_off(self):
+        self.host.policy = dataclasses.replace(self.host.policy, team_sight_interval_s=0.0)
+        self.place("avatar:companion", BEHIND_THE_TABLE)
+        self.place("avatar:player", OUT_OF_EVERY_SIGHT)
+        self.ask("room.describe")
+        self.place("avatar:player", PLAYER_SPAWN)
+        self.host.clock.advance(1.0)
+        self.place("avatar:player", OUT_OF_EVERY_SIGHT)
+        self.assertNotIn("obj:book", self.host.memory[COMPANION].entries)
 
 
 class DropBeside(TeamCase):

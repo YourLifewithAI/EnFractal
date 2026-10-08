@@ -49,7 +49,7 @@ IN_THE_OPEN = [0.9, 0.0, 1.0]  # on the rug, in sight of the spawn and of the do
 
 # One avatar's sight (the team's shared sight off, as in the kernel's own memory tests); test_team_knowledge.py
 # covers the team's sight, the 1,024-entry map and its eviction.
-FAST = HostPolicy(companion_messages_per_s=1_000_000, shared_sight=False)
+FAST = HostPolicy(companion_messages_per_s=1_000_000, shared_sight=False, team_sight_interval_s=0.0)
 MEMORY_FIELDS = ("seen", "last_seen_ago_s", "last_seen_revision", "may_be_stale")
 
 

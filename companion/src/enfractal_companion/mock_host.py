@@ -151,6 +151,10 @@ class HostPolicy:
     shared_sight: bool = True
     # A walking goal whose body reports blocked this long without a break fails (kernel: UnreachableAfterS).
     unreachable_after_s: float = 5.0
+    # The host's sight sweep (kernel: DefaultTeamSightIntervalS): both avatars' eyes fill the team's map this often on
+    # the host's own clock, whether or not the companion is asking. The mock sweeps when its clock has moved on this
+    # far by the next request or world change (or on sight_sweep()); 0 turns it off (tests of one avatar's sight).
+    team_sight_interval_s: float = 0.25
     # A remembered entity is flagged may_be_stale after this long, or as soon as it changes.
     perception_memory_stale_after_s: float = 60.0
     max_jobs_per_principal: int = 256  # goal jobs kept for jobs.status, oldest finished dropped first
@@ -373,6 +377,7 @@ class MockHost(JournalMixin):
         self.committed_by: dict[int, str] = {}  # revision -> the principal whose command made it
         # Perception memory, per companion principal. In memory only: never in a snapshot, a receipt or a save.
         self.memory: dict[str, PerceptionMemory] = {}
+        self._last_sweep = self.clock.now()
         self._reset_journal()
         self._creation_counter = 0
         self._effect_counter = 0
@@ -471,12 +476,14 @@ class MockHost(JournalMixin):
     def move_avatar(self, avatar_id: str, position: list[float]) -> None:
         """The avatar walks there, carrying whatever it holds."""
         with self._lock:
+            self._maybe_sweep()  # what the avatars saw where they stood while the time passed
             self.entities[avatar_id].position = list(position)
             self._carry(avatar_id)
 
     def move_entity(self, entity_id: str, position: list[float]) -> None:
         """The world moving something by itself (physics, the player's hands) between requests."""
         with self._lock:
+            self._maybe_sweep()
             self.entities[entity_id].position = list(position)
 
     def load_room(self, room_dir: Path) -> None:
@@ -533,6 +540,20 @@ class MockHost(JournalMixin):
                 seen.add(self.avatars[PLAYER])
             return seen
 
+    def sight_sweep(self) -> None:
+        """The host's sight sweep (CommandHost.SightSweep): what each of the team's avatars sees now goes into the
+        team's map, and a place either sees empty drops what was remembered there. It needs no request."""
+        with self._lock:
+            team = self._team_principal()
+            seen = self.perceived(team) | self.perceived(PLAYER)
+            self._look(team, seen, eyes_of=[team, PLAYER])
+            self._last_sweep = self.clock.now()
+
+    def _maybe_sweep(self, now: bool = False) -> None:
+        interval = self.policy.team_sight_interval_s
+        if interval > 0 and (now or self.clock.now() - self._last_sweep >= interval):
+            self.sight_sweep()
+
     def _view_for(self, principal: str, *, for_command: bool) -> set[str] | None:
         if principal.startswith("player:"):
             return None  # the player's own controls and UI see the whole room
@@ -554,7 +575,7 @@ class MockHost(JournalMixin):
             memory = self.memory[principal] = PerceptionMemory(self.room_id)
         return memory
 
-    def _look(self, principal: str, seen: set[str]) -> None:
+    def _look(self, principal: str, seen: set[str], eyes_of: list[str] | None = None) -> None:
         """Update a companion's map from what its team's avatars see now (`seen`, the team's sight). Only the
         avatars' eyes fill it: never the camera, another team's companion or hidden state.
 
@@ -573,7 +594,8 @@ class MockHost(JournalMixin):
             return
         avatar = self.entities[self.avatars[principal]]
         eyes = [perception.eye_point(self.entities[self.avatars[p]].position,
-                                     "player" if p.startswith("player:") else "companion") for p in self._eyes(principal)]
+                                     "player" if p.startswith("player:") else "companion")
+                for p in (eyes_of or self._eyes(principal))]
         occluders = None
         for entity_id, entry in list(memory.entries.items()):
             if entity_id in seen:
@@ -655,6 +677,8 @@ class MockHost(JournalMixin):
             if not _is_stop(message) and not self._take_token(principal):
                 return self._rate_limited(principal)
             self._expire()
+            # The sweep on the host's clock; a player's own request is the player looking, so it always sweeps.
+            self._maybe_sweep(now=principal.startswith("player:"))
             try:
                 result = self._handle(principal, message)
             except HostError as error:
@@ -1494,9 +1518,10 @@ class MockHost(JournalMixin):
             if goal.get("phase") == "return":
                 return self._fetch_returned(actor_id, goal, job)
             principal = self._principal_of(actor_id) or job["principal"]
-            seen = self.perceived(principal)
+            # The team's sight, as the host's arrival check (the target the player alone sees is in sight now).
+            seen = self.team_sight(principal)
             if not principal.startswith("player:"):
-                self._look(principal, seen)  # arriving is looking: memory is refreshed or dropped
+                self._look(principal, seen)  # arriving is looking: the team's map is refreshed or dropped
             target = self.entities.get(goal["target"])
             error = None
             if target is None or target.removed or goal["target"] not in seen:
@@ -1511,6 +1536,7 @@ class MockHost(JournalMixin):
                 if error is None:
                     self._take_hold(actor_id, target)
                     goal["phase"] = "return"
+                    goal["blocked_s"] = 0.0  # the walk back starts afresh (the host resets BlockedS at the pick-up)
                     self._emit("goal_progress", {"actor": actor_id, "job_id": goal["job_id"], "phase": "return"})
                     return job["state"]
             return self._finish_job(actor_id, goal, job, error)

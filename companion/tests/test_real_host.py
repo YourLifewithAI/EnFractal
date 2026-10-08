@@ -27,6 +27,7 @@ import time
 import unittest
 
 from support import CONTRACTS, COMPANION, SRC, command, contract_problems, query
+from test_host_alignment import AlignmentScenarios
 from test_journal_boundary import JournalBoundaryCases
 from test_link import closed, raw_connect
 
@@ -588,6 +589,48 @@ class Embodiment(RealHostCase):
         self.assertTrue(done, journal)
         self.assertEqual((done[0]["actor"], done[0]["directed_by"]), (COMPANION, COMPANION))
         self.assertTrue(done[0]["line"].startswith('Fetched "'), done[0])
+
+
+# ---------------------------------------------------------------------------- behavioural alignment, on the real host
+
+class AlignmentOnTheRealHost(AlignmentScenarios, RealHostCase):
+    """test_host_alignment.py's scenarios against the kernel host: the same steps and the same expected outcomes as on
+    the mock. The companion walks with go_to and is brought back to the player afterwards."""
+
+    async def asyncSetUp(self):
+        await super().asyncSetUp()
+        await self.settle_rate()
+        self.link = self.client()
+
+    async def asyncTearDown(self):
+        back = await self.ask(companion_goal("come", fresh_id("come"), target="avatar:player"))
+        if back["ok"]:
+            await self.job_state(self.link, back["job_id"], 30)
+        await super().asyncTearDown()
+
+    async def ask(self, client_or_message, message: dict | None = None) -> dict:
+        client, message = (self.link, client_or_message) if message is None else (client_or_message, message)
+        result = await client.request(message)
+        self.results.append(result)
+        return result
+
+    async def companion_to(self, position: list[float]) -> None:
+        """go_to a place has no job to poll: wait until the body has stopped near the place."""
+        started = await self.ask(companion_goal("go_to", fresh_id("go"), position_m=position))
+        self.assertTrue(started["ok"], started)
+        deadline, last = time.monotonic() + 30, None
+        while time.monotonic() < deadline:
+            await asyncio.sleep(0.5)
+            me = await self.ask(query("entity.inspect", {"target": "avatar:companion"}, fresh_id("q")))
+            at = me["data"]["entity"]["position_m"]
+            near = ((at[0] - position[0]) ** 2 + (at[2] - position[2]) ** 2) ** 0.5 <= 0.1
+            if near and last is not None and max(abs(a - b) for a, b in zip(at, last)) < 0.002:
+                return
+            last = at
+        self.fail(f"the companion did not reach {position} (last at {last})")
+
+    async def finish(self, job_id: str) -> str:
+        return (await self.job_state(self.link, job_id))["state"]
 
 
 # ---------------------------------------------------------------------------- the journal's boundary, on the real host
