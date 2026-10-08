@@ -315,7 +315,10 @@ public partial class LookPresetTest
             $"switching the observe view on narrows the look's band from {(normalBand.Far - normalBand.Near) * 100f:0.#} to {(observeBand.Far - observeBand.Near) * 100f:0.#} cm, and the band no longer stretches to keep the companion in");
         look.FocusOverride = new Vector3(-1f, 0.05f, -0.8f);
         await Settle();
-        Check(InFocus(camera, look.FocusOverride.Value, out _) && !InFocus(camera, player.GlobalPosition, out _), "in the observe view focus follows the mouse or free camera's point");
+        // Brief 07 (A2): the observe view's focus is the player's rendered body for a third-person camera, ahead of any point
+        // set from outside (the HUD's orbit pivot used to steal it and left both avatars soft). The eye camera keeps its rule.
+        var middle = player.GetGlobalTransformInterpolated().Origin + Vector3.Up * (player.BodyHeightM * 0.5f);
+        Check(InFocus(camera, middle, out _) && !InFocus(camera, look.FocusOverride.Value, out _), "in the observe view a third-person camera stays on the player's body whatever point is set");
         look.Observe = false;
         look.FocusOverride = null;
         await Settle();

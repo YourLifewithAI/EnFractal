@@ -67,6 +67,10 @@ public partial class LookPresetTest : Node3D
             await CheckCapturedWalls(preset);
             await CheckFocusEasing(preset, room);
             await CheckObserve(preset, room);
+            var observeV2 = StylePreset.Resolve(RoomWorld.DefaultStyleId, 2);
+            CheckObservePlayerEnvelope(observeV2);
+            CheckObserveFrameBudget(preset, observeV2);
+            await CheckObservePlayerTracking(observeV2, room);
             CheckFocusPass(preset);
             CheckSeasonLooks(preset);
             await CheckLightProtections(preset, room);
@@ -548,8 +552,14 @@ public partial class LookPresetTest : Node3D
         var root = document.RootElement;
         var cameras = root.GetProperty("cameras").EnumerateArray().ToArray();
         var ids = cameras.Select(c => c.GetProperty("id").GetString()).ToArray();
-        Check(ids.Take(7).SequenceEqual(new[] { "player_eye", "over_shoulder", "companion", "low_corner", "ceiling_corner", "diorama_high", "iso_room" }) && ids.Skip(7).SequenceEqual(new[] { "window_view", "observe_view" })
-            && ids.Distinct().Count() == ids.Length, "the five baseline review cameras come first, then the two art-direction cameras and the window and observe views, in order, and ids are unique: " + string.Join(",", ids));
+        Check(ids.Take(7).SequenceEqual(new[] { "player_eye", "over_shoulder", "companion", "low_corner", "ceiling_corner", "diorama_high", "iso_room" }) && ids.Skip(7).SequenceEqual(new[] { "window_view", "observe_view", "observe_f3", "observe_f4" })
+            && ids.Distinct().Count() == ids.Length, "the five baseline review cameras come first, then the two art-direction cameras, the window and observe views and the two observe rigs, in order, and ids are unique: " + string.Join(",", ids));
+        // The two observe rigs are the real HUD's F3 and F4 views (placed by the HUD, not by a pose in this file) with the observe switch on.
+        var rigs = cameras.Where(c => c.TryGetProperty("hud_view", out _)).ToArray();
+        Check(rigs.Select(c => c.GetProperty("id").GetString()).SequenceEqual(new[] { "observe_f3", "observe_f4" })
+            && rigs.Select(c => c.GetProperty("hud_view").GetInt32()).SequenceEqual(new[] { 2, 3 }) && rigs.All(c => c.TryGetProperty("observe", out var o) && o.GetBoolean()),
+            "observe_f3 and observe_f4 mirror the HUD's F3 and F4 views with the observe switch on");
+        cameras = cameras.Where(c => !c.TryGetProperty("hud_view", out _)).ToArray();
         var baseline = new Dictionary<string, (Vector3 Position, Vector3 LookAt, float Fov)>
         {
             ["player_eye"] = (new Vector3(0f, 0.087f, 0.6f), new Vector3(-0.25f, 0.14f, -0.6f), 70f),
@@ -692,6 +702,100 @@ public partial class LookPresetTest : Node3D
                 if (!(dof.NearDistance < distance && dof.FarDistance > distance && dof.FarTransition > 0f && dof.NearTransition > 0f && dof.Amount is > 0f and <= 1f))
                     Check(false, $"depth of field is well formed at {distance} m looking down {down}: {dof}");
             }
+    }
+
+    /// <summary>Observe v2 must fit a full 10 cm body, rather than merely its focus point.</summary>
+    private void CheckObservePlayerEnvelope(StylePreset preset)
+    {
+        Check(preset.PresetVersion == 2 && Mathf.IsEqualApprox(preset.Tuning.Dof.ObserveBandM, 0.14f),
+            "the new Observe fixture reads v2 with its 14 cm band");
+        foreach (var distance in new[] { 0.30f, 1.4f, 2.4f, 2.7f })
+            foreach (var pitch in Enumerable.Range(20, 61).Select(p => (float)p).Append(RoomHud.IsoPitchDeg))
+            {
+                var angle = Mathf.DegToRad(pitch);
+                // Conservative support of the height/radius envelope, plus visual seating.
+                var extent = 0.05f * Mathf.Sin(angle) + 0.02f * Mathf.Cos(angle) + SmallPlayerController.MaxSeatGapM;
+                var dof = LookDirector.DepthOfFieldFor(preset, distance, Mathf.Sin(angle), observe: true);
+                Check(dof.NearDistance < distance - extent && dof.FarDistance > distance + extent,
+                    $"Observe contains the whole body at depth {distance}, pitch {pitch}");
+                Check(Mathf.IsEqualApprox(dof.FarDistance - dof.NearDistance, 0.14f)
+                    && Mathf.IsEqualApprox(dof.NearTransition, 0.08f)
+                    && Mathf.IsEqualApprox(dof.FarTransition, 0.10f)
+                    && Mathf.IsEqualApprox(dof.Amount, preset.Tuning.Dof.ObserveAmount), "Observe retains its tight width, ramps and the preset's amount");
+            }
+        var close = LookDirector.DepthOfFieldFor(preset, 0.05f, 0.7f, observe: true);
+        Check(!close.NearEnabled && close.NearDistance <= 0.05f && close.FarDistance > 0.05f,
+            "a close collision-shortened view does not put the near edge past its own focus");
+    }
+
+    /// <summary>
+    /// The observe view's frame budget (Run 2). Godot's circular bokeh gathers about (64 x amount)^2 / (2 x blur_scale) samples at
+    /// every half-resolution pixel whatever the frame holds (bokeh_dof.glsl; blur_scale 1.0 at the project's bokeh quality 2), so
+    /// what the observe profile costs over the ordinary tilt-shift follows its blur amount squared, not its band or its ramps.
+    /// Run 1's captures (the founder's RTX 2070 SUPER, 17:00 on 15 April): diorama_high, amount 0.165, 10.07 ms of GPU time;
+    /// observe_view, amount 0.3, 11.98 ms of GPU time and 17.34 ms at p95. That is 30.4 ms per unit of amount squared; v2 must put
+    /// the observe view's p95 on those numbers at least 0.5 ms inside the preset's budget. Rendering confirms it (docs/look/reviews/run2).
+    /// </summary>
+    private void CheckObserveFrameBudget(StylePreset v1, StylePreset v2)
+    {
+        const float RunOneP95 = 17.34f, RunOneAmount = 0.3f;
+        const float MsPerAmountSquared = (11.98f - 10.07f) / (0.3f * 0.3f - 0.165f * 0.165f);
+        float P95At(float amount) => RunOneP95 - MsPerAmountSquared * (RunOneAmount * RunOneAmount - amount * amount);
+        var v1Amount = v1.Tuning.Dof.ObserveAmount;
+        Check(Mathf.IsEqualApprox(v1Amount, RunOneAmount) && P95At(v1Amount) > v1.TargetFrameMs, $"the model reproduces v1's over-budget observe view ({P95At(v1Amount):0.0} ms at amount {v1Amount})");
+        var amount = v2.Tuning.Dof.ObserveAmount;
+        Check(P95At(amount) <= v2.TargetFrameMs - 0.5f, $"v2's observe amount {amount} puts the observe view's modelled p95 at {P95At(amount):0.0} ms, at least 0.5 ms inside the {v2.TargetFrameMs} ms budget");
+        var ordinary = LookDirector.DepthOfFieldFor(v2, 1.4f, Mathf.Sin(Mathf.DegToRad(45f)));
+        Check(amount >= ordinary.Amount, $"and the observe view still blurs at least as hard as the ordinary tilt-shift ({amount} against {ordinary.Amount:0.###})");
+    }
+
+    /// <summary>One camera changes F3/F4 poses; a shared pivot override must not steal the player focus.</summary>
+    private async Task CheckObservePlayerTracking(StylePreset preset, RoomData room)
+    {
+        var (holder, look) = NewDirector(preset, room, "ObserveV2Holder");
+        look.SetProcess(false);
+        var player = new SmallPlayerController { Name = "Player", ReadKeyboard = false };
+        holder.AddChild(player);
+        player.SetPhysicsProcess(false);
+        look.FocusTarget = player;
+        look.Observe = true;
+        var camera = new Camera3D { Near = 0.01f };
+        holder.AddChild(camera);
+        camera.MakeCurrent();
+        foreach (var (distance, pitch) in new[] { (1.4f, 45f), (2.7f, RoomHud.IsoPitchDeg), (0.30f, 80f), (2.4f, 20f) })
+        {
+            player.GlobalPosition += new Vector3(0.3f, 0.02f, -0.4f);
+            var middle = player.GetGlobalTransformInterpolated().Origin + Vector3.Up * 0.05f;
+            var forward = new Vector3(0f, -Mathf.Sin(Mathf.DegToRad(pitch)), -Mathf.Cos(Mathf.DegToRad(pitch)));
+            var sharedPivot = middle + new Vector3(0f, 0f, -0.2f);
+            camera.GlobalPosition = sharedPivot - forward * distance;
+            camera.LookAt(sharedPivot);
+            look.FocusOverride = sharedPivot;
+            Check(look.FocusPointFor(camera).IsEqualApprox(middle), "Observe chooses rendered player middle before shared pivot");
+            look._Process(1.0 / 60.0);
+            var depth = Distance(camera, middle);
+            Check(InFocus(camera, middle, out var band)
+                && Mathf.Abs((band.Near + band.Far) * 0.5f - depth) < 1e-4f,
+                "Observe follows the new player/camera depth in the same frame, including a view swap");
+            foreach (var x in new[] { -0.02f, 0.02f })
+                foreach (var y in new[] { -SmallPlayerController.MaxSeatGapM, 0.10f })
+                    foreach (var z in new[] { -0.02f, 0.02f })
+                        Check(InFocus(camera, player.GetGlobalTransformInterpolated().Origin + new Vector3(x, y, z), out _),
+                            "Observe contains a conservative body-box corner including visual seating");
+            var attributes = (CameraAttributesPractical)camera.Attributes!;
+            Check(look.Post!.Focus is { } postBand && Mathf.Abs(postBand.NearDistance - band.Near) < 1e-4f
+                && Mathf.Abs(postBand.FarDistance - band.Far) < 1e-4f,
+                "post and decoded optical sharp edges agree");
+            Check(Mathf.Abs(attributes.DofBlurAmount - preset.Tuning.Dof.ObserveAmount) < 1e-4f, "Observe keeps the prescribed blur amount");
+        }
+        look.Observe = false;
+        Check(look.FocusPointFor(camera).IsEqualApprox(look.FocusOverride!.Value), "ordinary building focus still honours its override");
+        look.FocusOverride = null;
+        Check(look.FocusPointFor(player.EyeCamera).IsEqualApprox(player.EyeCamera.GlobalPosition
+            - player.EyeCamera.GlobalBasis.Z * (preset.Tuning.Dof.EyeFocusBodyHeights * player.BodyHeightM)),
+            "the eye camera keeps its existing focus rule");
+        holder.QueueFree();
+        await Frames(1);
     }
 
     // ---------- post effect ----------

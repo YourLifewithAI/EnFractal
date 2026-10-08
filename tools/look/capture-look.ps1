@@ -20,7 +20,7 @@ night_*.png) to timings.json (look_problems, post_effect_check, light_checks), a
 avatars' feet (contact_*.png) for the cameras the cameras file names. A problem, such as a renderer fallback,
 fails the capture after the files are written; pass -AllowProblems to keep the exit code at zero.
 
--Style PATH renders with a preset variant instead of the room's style (for tuning; never a review of record).
+-Style PATH renders with a preset variant instead of the room's style (for tuning; never a review of record), and a draft under review such as game/styles/storybook_painterly/v2.json; -Only ID,ID renders just those cameras and -NoLightChecks skips the light checks, which is all a probe or a tuning variant needs (Run 2's capture budget).
 
 -Probe NAME runs a GPU probe instead of the review captures (rooms, window, free-viewport, shimmer: see
 LookCaptureHarness.Probes.cs) and writes probe_NAME.json (and a few images) into -OutDir. With -Baseline the same probe code
