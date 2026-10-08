@@ -1,0 +1,81 @@
+{
+  "schema": "enfractal.result",
+  "version": 1,
+  "ok": true,
+  "op": "journal.read",
+  "query_id": "q-0012",
+  "principal": "companion:local",
+  "room_id": "garage_example",
+  "revision": 4,
+  "replayed": false,
+  "preview": false,
+  "data": {
+    "open_tasks": [
+      {
+        "entry_id": "entry-57imdbj44uwi5mvi3a3gealb3a",
+        "kind": "task",
+        "at_utc": "2026-10-06T00:04:20Z",
+        "revision": 4,
+        "line": "Following you",
+        "actor": "companion:local",
+        "directed_by": "player:local",
+        "subject": {
+          "entities": [
+            "avatar:player"
+          ],
+          "name": "Player"
+        },
+        "state": "active",
+        "job_id": "job-26dw7xqxs4o6hsds23t2gn75su"
+      }
+    ],
+    "entries": [
+      {
+        "entry_id": "entry-fqkvcpytfsbmnq3ld5v75mizwy",
+        "kind": "note",
+        "at_utc": "2026-10-06T00:04:30Z",
+        "revision": 4,
+        "author": "companion:local",
+        "text": "You like the bean bag beside the shelves. Maybe a reading nook there?",
+        "untrusted": true
+      },
+      {
+        "entry_id": "entry-fvnyxy5km2qqb7mfb5o6cjnfj4",
+        "kind": "task",
+        "at_utc": "2026-10-06T00:04:10Z",
+        "revision": 4,
+        "line": "Fetched \"Paint supplies\", at the player's direction",
+        "actor": "companion:local",
+        "directed_by": "player:local",
+        "subject": {
+          "entities": [
+            "obj:paint_clutter"
+          ],
+          "name": "Paint supplies"
+        },
+        "state": "done"
+      },
+      {
+        "entry_id": "entry-zwwxase76lbaq3h2ttangf545q",
+        "kind": "built",
+        "at_utc": "2026-10-06T00:02:00Z",
+        "revision": 2,
+        "line": "Built \"Spinner\" on the floor, on its own initiative",
+        "actor": "companion:local",
+        "directed_by": "companion:local",
+        "subject": {
+          "entities": [
+            "creation:00000001"
+          ],
+          "name": "Spinner"
+        },
+        "pin_m": [
+          -1.2,
+          0.0,
+          0.8
+        ]
+      }
+    ]
+  },
+  "at_utc": "2026-10-06T00:05:00Z"
+}

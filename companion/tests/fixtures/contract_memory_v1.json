@@ -2,19 +2,19 @@
   "entity_summary": {
     "properties": {
       "seen": {
-        "description": "How a companion knows this entity. 'now': in its avatar's line of sight at this moment. 'remembered': out of sight; every other field is as it was when the companion last saw it (perception memory, docs/companion/PERCEPTION.md). Results for the player leave it out: the player sees the whole room.",
+        "description": "How the team (the player's and the companion's avatars) knows this entity, in a companion's results. 'now': in sight of either avatar at this moment. 'remembered': known to the team but not in sight now; every other field is as it was when the team last saw it (docs/companion/JOURNAL.md). Results for the player may leave it out.",
         "enum": [
           "now",
           "remembered"
         ]
       },
       "last_seen_ago_s": {
-        "description": "Remembered entities only: seconds since the companion last saw it.",
+        "description": "Remembered entities only: seconds since the team last saw it.",
         "type": "number",
         "minimum": 0
       },
       "last_seen_revision": {
-        "description": "Remembered entities only: the room revision when the companion last saw it.",
+        "description": "Remembered entities only: the room revision when the team last saw it.",
         "type": "integer",
         "minimum": 0
       },
@@ -55,7 +55,7 @@
   "observe": {
     "properties": {
       "remembered": {
-        "description": "Things the actor saw earlier in this session that are out of its sight now, within the radius of where they were last seen, nearest first. Each carries seen 'remembered'. Only what this avatar itself saw, never through another avatar.",
+        "description": "Things the team knows that are out of sight now, within the radius of where they were last seen, nearest first. Each carries seen 'remembered'. Only what the two avatars' eyes saw, never the camera.",
         "type": "array",
         "maxItems": 50,
         "items": {

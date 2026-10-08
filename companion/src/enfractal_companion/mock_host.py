@@ -48,6 +48,7 @@ What must carry over is the message behaviour, which the boundary tests pin down
 """
 from __future__ import annotations
 
+import base64
 import copy
 import hashlib
 import logging
@@ -362,7 +363,6 @@ class MockHost:
         self._creation_counter = 0
         self._effect_counter = 0
         self._checkpoint_counter = 0
-        self._job_counter = 0
         self._load_room()
         self.history[0] = self._snapshot()
 
@@ -1172,6 +1172,11 @@ class MockHost:
         self._touch(target, new_revision)
         return {"affected": [target.id]}
 
+    def _op_entity_push(self, principal, message, apply, new_revision):
+        # Not modelled yet (Run 2, P3); a companion naming any avatar but its own is still refused first.
+        self._actor(principal, message["args"])
+        raise HostError("unsupported_capability", "Pushing arrives with the sandbox verbs (Run 2).", field_path="$.op")
+
     def _op_entity_set_part(self, principal, message, apply, new_revision):
         args = message["args"]
         target = self._require(args["target"], "$.args.target")
@@ -1342,8 +1347,8 @@ class MockHost:
     # ------------------------------------------------------------------ goal jobs (the goal runner's side)
 
     def _start_job(self, principal: str, actor: str, action_id: str) -> str:
-        self._job_counter += 1
-        job_id = f"goal-{self._job_counter:06d}"
+        # Opaque (contracts: common job_id): 'job-' and 128 random bits in lowercase base32, never a counter.
+        job_id = "job-" + base64.b32encode(secrets.token_bytes(16)).decode("ascii").rstrip("=").lower()
         self.jobs[job_id] = {"principal": principal, "actor": actor, "action_id": action_id, "state": "running"}
         mine = [k for k, job in self.jobs.items() if job["principal"] == principal and job["state"] != "running"]
         excess = sum(1 for job in self.jobs.values() if job["principal"] == principal) - self.policy.max_jobs_per_principal

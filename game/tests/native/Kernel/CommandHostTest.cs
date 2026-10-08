@@ -23,6 +23,8 @@ public partial class CommandHostTest : Node3D
     private const string TestRoot = "user://tests/command_host";
     private const string Player = CommandHost.PlayerPrincipal;
     private const string Companion = CommandHost.CompanionPrincipal;
+    /// <summary>A well-formed job id no host minted (contracts: common job_id).</summary>
+    private static readonly string UnknownJob = "job-" + new string('a', 26);
     private int _checks;
     private int _failures;
     private int _dumped;
@@ -138,7 +140,8 @@ public partial class CommandHostTest : Node3D
         Check(Ok(Query("capabilities.list", new JsonObject { ["category"] = "air", ["limit"] = 10, ["cursor"] = "0" }, Companion)) &&
             Code(Query("capabilities.list", new JsonObject { ["cursor"] = "7" }, Companion)) == "invalid_args" &&
             Code(Query("capabilities.list", new JsonObject { ["limit"] = 0 }, Companion)) == "request_invalid", "capabilities.list checks its category, limit and cursor");
-        Check(Code(Query("jobs.status", new JsonObject { ["job_id"] = "nothing" }, Companion)) == "target_not_found", "unknown jobs are not found");
+        Check(Code(Query("jobs.status", new JsonObject { ["job_id"] = UnknownJob }, Companion)) == "target_not_found", "unknown jobs are not found");
+        Check(Code(Query("jobs.status", new JsonObject { ["job_id"] = "goal-000001" }, Companion)) == "request_invalid", "a counter is never a job id");
     }
 
     private string TestPlaceReviseAndReplay()
@@ -875,7 +878,7 @@ public partial class CommandHostTest : Node3D
             Check(Ok(aimed) && CanonicalJson.Text(aimed["data"]!) == CanonicalJson.Text(new JsonObject
             {
                 ["actor"] = CommandHost.CompanionAvatarId, ["goal"] = goal, ["target_seen"] = "remembered", ["last_seen_ago_s"] = 3.0, ["may_be_stale"] = false,
-            }) &&System.Text.RegularExpressions.Regex.IsMatch(aimed["job_id"]?.GetValue<string>() ?? "", @"\Agoal-\d{6}\z") &&
+            }) &&System.Text.RegularExpressions.Regex.IsMatch(aimed["job_id"]?.GetValue<string>() ?? "", @"\Ajob-[a-z2-7]{26}\z") &&
                 _host.RunningGoal(CommandHost.CompanionAvatarId)?.Target == "obj:doorstop", $"{goal} may aim at the remembered doorstop: a job, judged on the memory");
         }
         Check(Code(Aim("obj:doorstop", "go_to")) == "unsupported_capability" && Code(Aim("obj:doorstop", "fetch")) == "unsupported_capability" &&
@@ -985,13 +988,10 @@ public partial class CommandHostTest : Node3D
         _host.PlayerGoal("stop");
         Check(JobData(follow)?["state"]?.GetValue<string>() == "cancelled", "the player's stop cancels the companion's job");
 
-        // Job ids are numbered per principal: the player's newest id is beyond any of the companion's.
-        var mine = int.Parse(follow["goal-".Length..], System.Globalization.CultureInfo.InvariantCulture);
-        string players;
-        do players = Send(Command(NextId("player-aim"), "goal.set", new JsonObject { ["actor"] = CommandHost.CompanionAvatarId, ["goal"] = "look_at", ["target"] = "obj:box" }), Player)["job_id"]?.GetValue<string>() ?? "goal-999999";
-        while (int.Parse(players["goal-".Length..], System.Globalization.CultureInfo.InvariantCulture) <= mine);
+        // Job ids are opaque random tokens, so the player's never matches one of the companion's.
+        var players = Send(Command(NextId("player-aim"), "goal.set", new JsonObject { ["actor"] = CommandHost.CompanionAvatarId, ["goal"] = "look_at", ["target"] = "obj:box" }), Player)["job_id"]?.GetValue<string>() ?? UnknownJob;
         var foreign = Query("jobs.status", new JsonObject { ["job_id"] = players }, Companion);
-        Check(Code(foreign) == "target_not_found" && foreign["error"]!.ToJsonString() == Query("jobs.status", new JsonObject { ["job_id"] = "goal-999999" }, Companion)["error"]!.ToJsonString() &&
+        Check(players != UnknownJob && Code(foreign) == "target_not_found" && foreign["error"]!.ToJsonString() == Query("jobs.status", new JsonObject { ["job_id"] = UnknownJob }, Companion)["error"]!.ToJsonString() &&
             Ok(Query("jobs.status", new JsonObject { ["job_id"] = players }, Player)), "another principal's job looks like no job");
         _host.PlayerGoal("stop");
 
@@ -1110,7 +1110,7 @@ public partial class CommandHostTest : Node3D
             {
                 var result = Send(Command($"leak-{goal.Replace('_', '-')}", "goal.set", new JsonObject { ["actor"] = CommandHost.CompanionAvatarId, ["goal"] = goal, ["target"] = wedge }), Companion);
                 probe.Add(new JsonObject { ["goal"] = goal, ["ok"] = result["ok"]!.DeepClone(), ["data"] = result["data"]?.DeepClone(), ["job_id"] = result["job_id"]?.DeepClone(), ["affected"] = result["affected"]?.DeepClone(), ["error"] = result["error"]?.DeepClone() });
-                probe.Add(new JsonObject { ["op"] = "jobs.status", ["data"] = Query("jobs.status", new JsonObject { ["job_id"] = result["job_id"]?.GetValue<string>() ?? "goal-999999" }, Companion)["data"]?.DeepClone() });
+                probe.Add(new JsonObject { ["op"] = "jobs.status", ["data"] = Query("jobs.status", new JsonObject { ["job_id"] = result["job_id"]?.GetValue<string>() ?? UnknownJob }, Companion)["data"]?.DeepClone() });
             }
             return Normalised(probe);
         }
@@ -1135,7 +1135,7 @@ public partial class CommandHostTest : Node3D
         {
             ("room.describe", new JsonObject()), ("entities.list", new JsonObject { ["limit"] = 100 }), ("observe", new JsonObject { ["actor"] = CommandHost.CompanionAvatarId }),
             ("entities.list", new JsonObject { ["limit"] = 100, ["filter"] = new JsonObject { ["near"] = new JsonObject { ["center_m"] = new JsonArray(0, 0, 0), ["radius_m"] = 50 } } }),
-            ("jobs.status", new JsonObject { ["job_id"] = "goal-000001" }),
+            ("jobs.status", new JsonObject { ["job_id"] = UnknownJob }),
         };
         queries.AddRange(hidden.Select(id => ("entity.inspect", new JsonObject { ["target"] = id })));
         var published = string.Join("\n", queries.Select(q => Query(q.Op, q.Args, Companion).ToJsonString()));
@@ -1288,7 +1288,9 @@ public partial class CommandHostTest : Node3D
     {
         static JsonNode? Clean(JsonNode? node) => node switch
         {
-            JsonObject map => new JsonObject(map.Where(p => p.Key != "at_utc").Select(p => KeyValuePair.Create(p.Key, Clean(p.Value)))),
+            // Job ids are opaque random tokens: only whether there is one may be compared between hosts.
+            JsonObject map => new JsonObject(map.Where(p => p.Key != "at_utc").Select(p => KeyValuePair.Create(p.Key,
+                p.Key == "job_id" && p.Value != null ? (JsonNode?)JsonValue.Create("(opaque)") : Clean(p.Value)))),
             JsonArray list => new JsonArray(list.Where(i => i is not JsonObject item || item["id"]?.GetValue<string>() != CommandHost.CompanionAvatarId).Select(Clean).ToArray()),
             JsonValue value when value.TryGetValue<double>(out var number) && value.GetValueKind() == JsonValueKind.Number => JsonValue.Create(Math.Round(number, 3)),
             _ => node?.DeepClone(),
@@ -1328,10 +1330,11 @@ public partial class CommandHostTest : Node3D
         var place = Command("place-0300", "creation.place", new JsonObject { ["source"] = Source("Survivor"), ["placement"] = Placement(-1.5, 0, 0.9) });
         // The companion saw the room and has goal jobs before the reload.
         await SeenThenHidden();
-        Check(_host.RememberedIds(Companion).Contains("obj:book") && Ok(Aim("obj:book")), "before the reload the companion remembers the book and aims at it");
+        var jobBefore = Aim("obj:book");
+        Check(_host.RememberedIds(Companion).Contains("obj:book") && Ok(jobBefore), "before the reload the companion remembers the book and aims at it");
         var first = Send(place, Player);
         var saved = System.IO.File.ReadAllText(ProjectSettings.GlobalizePath(SavePath));
-        Check(saved.Contains("Survivor", StringComparison.Ordinal) && !new[] { "remembered", "last_seen", "may_be_stale", "goal-0" }.Any(word => saved.Contains(word, StringComparison.Ordinal)),
+        Check(saved.Contains("Survivor", StringComparison.Ordinal) && !new[] { "remembered", "last_seen", "may_be_stale", "job-" }.Any(word => saved.Contains(word, StringComparison.Ordinal)),
             "perception memory and goal jobs are never saved");
         _host.QueueFree();
         await Frames(2);
@@ -1344,7 +1347,7 @@ public partial class CommandHostTest : Node3D
         Check(again["replayed"]?.GetValue<bool>() == true && again["created"]?[0]?.GetValue<string>() == first["created"]?[0]?.GetValue<string>(), "durable receipts replay after the host and its save are reloaded");
         Check(Code(Send(Command("goal-0001", "goal.set", new JsonObject { ["actor"] = CommandHost.CompanionAvatarId, ["goal"] = "come" }), Companion)) == null, "transient receipts do not survive a new session");
         Check(!Listed().ContainsKey("obj:book") && _host.RememberedIds(Companion).All(id => id != "obj:book"), "a new room session starts with no perception memory");
-        Check(Code(Query("jobs.status", new JsonObject { ["job_id"] = "goal-000001" }, Companion)) == "target_not_found", "nor any goal job");
+        Check(Code(Query("jobs.status", new JsonObject { ["job_id"] = jobBefore["job_id"]?.GetValue<string>() ?? UnknownJob }, Companion)) == "target_not_found", "nor any goal job");
         _host.PlayerGoal("stop");
         await MoveCompanion(CompanionSpawn, "back to its spawn");
     }

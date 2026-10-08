@@ -5,7 +5,7 @@
   "description": "Shared building blocks for every EnFractal contract. Units are metres, kilograms, seconds and degrees. Coordinates follow Godot: +Y up, -Z forward, right-handed. The .invalid host is deliberate: these identifiers are never fetched.",
   "$defs": {
     "token": {
-      "description": "Lowercase identifier for rooms, assets, presets, spawns, openings, jobs and parts.",
+      "description": "Lowercase identifier for rooms, assets, presets, spawns, openings and parts.",
       "type": "string",
       "pattern": "^[a-z][a-z0-9_-]{0,63}$"
     },
@@ -287,6 +287,16 @@
       "description": "Host-minted, unguessable identifier (at least 128 bits, lowercase hex).",
       "type": "string",
       "pattern": "^[a-f0-9]{32,64}$"
+    },
+    "job_id": {
+      "description": "Host-minted, opaque handle for a job, such as a goal with a target: 'job-' and 26 characters of lowercase RFC 4648 base32 (a-z and 2-7) carrying at least 128 random bits from a cryptographic generator. Never a counter: the alphabet has no 0, 1, 8 or 9, so a numbered id (goal-000001, or a count padded in decimal or hexadecimal) cannot match. An id says nothing about how many jobs exist or whose they are. Never shown to the player: the journal shows descriptions.",
+      "type": "string",
+      "pattern": "^job-[a-z2-7]{26}$"
+    },
+    "journal_entry_id": {
+      "description": "Host-minted, opaque id of one journal entry: 'entry-' and 26 characters of lowercase RFC 4648 base32 (a-z and 2-7), random like job_id and never a counter.",
+      "type": "string",
+      "pattern": "^entry-[a-z2-7]{26}$"
     },
     "scalar": {
       "description": "A bounded scalar parameter value.",

@@ -3,7 +3,7 @@
   "version": 1,
   "ok": true,
   "op": "goal.set",
-  "action_id": "fetch-paint-0001",
+  "action_id": "fetch-paint-0002",
   "principal": "companion:local",
   "room_id": "garage_example",
   "revision": 4,
@@ -13,13 +13,6 @@
   "affected": [
     "avatar:companion"
   ],
-  "job_id": "job-45k3jjkv2q75gxvoqd4zmtxz6y",
-  "transient": true,
-  "data": {
-    "actor": "avatar:companion",
-    "goal": "fetch",
-    "target_seen": "remembered",
-    "last_seen_ago_s": 42.5,
-    "may_be_stale": false
-  }
+  "job_id": "goal-000001",
+  "transient": true
 }
