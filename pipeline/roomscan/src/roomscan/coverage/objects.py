@@ -102,7 +102,7 @@ class ObjectInstance:
 
 
 class Detector:
-    def __init__(self, threshold: float = 0.22, log=print):
+    def __init__(self, threshold: float = 0.22, log=print, vocabulary: dict[str, str] | None = None):
         import torch
         from transformers import Owlv2ForObjectDetection, Owlv2Processor
 
@@ -110,7 +110,8 @@ class Detector:
         rev = MODEL_REGISTRY[DETECTOR]["revision"]
         self.processor = Owlv2Processor.from_pretrained(DETECTOR, revision=rev)
         self.model = Owlv2ForObjectDetection.from_pretrained(DETECTOR, revision=rev).to("cuda").eval()
-        self.queries = list(VOCABULARY)
+        self.vocabulary = dict(VOCABULARY if vocabulary is None else vocabulary)  # query -> canonical name
+        self.queries = list(self.vocabulary)
         self.threshold = threshold
         self.seconds = 0.0
         self.peak_mib = 0.0
@@ -136,7 +137,32 @@ class Detector:
             x1, y1 = min(float(image.width), x1), min(float(image.height), y1)
             if x1 - x0 < 4 or y1 - y0 < 4:
                 continue
-            found.append((VOCABULARY[self.queries[label]], float(score), (x0, y0, x1, y1)))
+            found.append((self.vocabulary[self.queries[label]], float(score), (x0, y0, x1, y1)))
+        return _nms(found, 0.6)
+
+    def detect_tiled(self, image: Image.Image, grid: tuple[int, int] = (2, 2), overlap: float = 0.25,
+                     photo: dict | None = None) -> list[tuple[str, float, tuple[float, float, float, float]]]:
+        """Detections over overlapping tiles of a larger picture, so small things get more of the detector's pixels.
+
+        A box that runs into the edge of a tile is cut off by it, so it is dropped unless that edge is the
+        picture's own (the whole-picture pass finds the big ones).
+        """
+        cols, rows = grid
+        W, H = image.size
+        tw = W / (cols - (cols - 1) * overlap)
+        th = H / (rows - (rows - 1) * overlap)
+        found = []
+        for r in range(rows):
+            for c in range(cols):
+                x0 = 0.0 if cols == 1 else c * (W - tw) / (cols - 1)
+                y0 = 0.0 if rows == 1 else r * (H - th) / (rows - 1)
+                x1, y1 = x0 + tw, y0 + th
+                crop = image.crop((round(x0), round(y0), round(x1), round(y1)))
+                for label, score, (bx0, by0, bx1, by1) in self.detect(crop, photo=photo):
+                    cut = ((bx0 < 4 and x0 > 1) or (by0 < 4 and y0 > 1)
+                           or (bx1 > crop.width - 4 and x1 < W - 1) or (by1 > crop.height - 4 and y1 < H - 1))
+                    if not cut:
+                        found.append((label, score, (bx0 + round(x0), by0 + round(y0), bx1 + round(x0), by1 + round(y0))))
         return _nms(found, 0.6)
 
     def close(self) -> None:

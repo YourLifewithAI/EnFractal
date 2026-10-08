@@ -32,11 +32,18 @@ MODEL_REGISTRY = {
         "download_bytes": 4914062480,
     },
     "google/owlv2-base-patch16-ensemble": {
-        "role": "open-vocabulary object detection for per-object view counts (C2)",
+        "role": "open-vocabulary object detection for per-object view counts (C2) and the inventory (C4)",
         "licence": "Apache-2.0",
         "gated": False,
         "revision": "cfd3195ba4ea9592eec887ded089f4c08eff231d",
         "download_bytes": 619918824,
+    },
+    "facebook/sam2.1-hiera-small": {
+        "role": "object masks from detector boxes, for the inventory's boxes and colours (C4)",
+        "licence": "Apache-2.0",
+        "gated": False,
+        "revision": "ee5bba1d82bb8749febdf90f45e84b687142ba03",
+        "download_bytes": 184305280,  # model.safetensors; the repository's .pt copy is not fetched
     },
 }
 # Code (not weights) fetched by torch.hub when MapAnything builds its DINOv2 encoder. Uniception
