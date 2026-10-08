@@ -316,7 +316,12 @@ public partial class CommandHost
             var floor = kind == "shell" && Room.Shell.Any(p => p.Id == id && p.Role == "floor");
             var top = kind == "object" && entity["held_by"] == null && entity["affordances"]!.AsArray().Any(a => a!.GetValue<string>() == "walkable_top");
             if (!floor && !top) continue;
-            var box = BoundsOf(entity);
+            // Space is the room's: a floor part that runs under the walls is cut at the room's bounds.
+            var whole = BoundsOf(entity);
+            var low = new Vector3(Mathf.Max(whole.Position.X, Room.Bounds.Position.X), whole.Position.Y, Mathf.Max(whole.Position.Z, Room.Bounds.Position.Z));
+            var high = new Vector3(Mathf.Min(whole.End.X, Room.Bounds.End.X), whole.End.Y, Mathf.Min(whole.End.Z, Room.Bounds.End.Z));
+            if (high.X <= low.X || high.Z <= low.Z) continue;
+            var box = new Aabb(low, high - low);
             var columns = Math.Clamp((int)Math.Ceiling(box.Size.X / DiscoverCellM - 1e-6), 1, 1024);
             var rows = Math.Clamp((int)Math.Ceiling(box.Size.Z / DiscoverCellM - 1e-6), 1, 1024);
             if (!_levels.TryGetValue(id, out var level))
