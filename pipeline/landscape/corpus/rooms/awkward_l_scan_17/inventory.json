@@ -1,0 +1,431 @@
+{
+  "box_convention": "size_m is [width (local X), height, depth (local Z)]; yaw_deg turns local -Z (the front) to the direction it faces, positive turning left seen from above; placement.position_m is the bottom centre",
+  "detector": {
+    "detections": 0,
+    "detector": "injected",
+    "gpu_seconds": 0.0,
+    "peak_allocated_mib": 0,
+    "photos": 0,
+    "queries": 0,
+    "reused_from_cache": false,
+    "threshold": 0.14
+  },
+  "dropped": [],
+  "frame": "the shell's room frame: metres, +Y up, floor at y = 0, -Z up the page; six wall polygons A-F in outline order, including the re-entrant corner",
+  "objects": [
+    {
+      "box": {
+        "centre_m": [
+          -2.585,
+          0.458,
+          -0.47
+        ],
+        "footprint_m": [
+          -2.983,
+          -0.695,
+          -2.187,
+          -0.245
+        ],
+        "size_m": [
+          0.796,
+          0.916,
+          0.449
+        ],
+        "yaw_deg": 0
+      },
+      "colours": [
+        {
+          "hex": "#d1ae7d",
+          "share": 1.0
+        }
+      ],
+      "confidence": 0.86,
+      "evidence": {
+        "also_called": {},
+        "detector_mean_score": 0.0,
+        "detector_views": 0,
+        "masks_accepted": 4,
+        "photos_followed": 4,
+        "points": 200,
+        "sheet": "preview.png",
+        "source": "added"
+      },
+      "id": "cabinet_1",
+      "kind": "cabinet",
+      "notes": [
+        "Synthetic observation: evidence counts are simulated; sheet is a plan, no photos or models used."
+      ],
+      "pick": {
+        "rank": 3,
+        "why": "the room has no laptop; the best-evidenced furniture not yet picked, which needs a recipe of its own"
+      },
+      "placement": {
+        "front_known": true,
+        "position_m": [
+          -2.585,
+          0,
+          -0.47
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "support": {
+          "height_m": 0.0,
+          "kind": "floor"
+        },
+        "yaw_deg": 0
+      },
+      "recipe": null,
+      "recipe_needed": {
+        "colours": [
+          "#d1ae7d"
+        ],
+        "for_kind": "cabinet",
+        "size_m": [
+          0.796,
+          0.916,
+          0.449
+        ]
+      }
+    },
+    {
+      "box": {
+        "centre_m": [
+          1.298,
+          0.572,
+          -1.51
+        ],
+        "footprint_m": [
+          0.997,
+          -1.849,
+          1.6,
+          -1.171
+        ],
+        "size_m": [
+          0.603,
+          1.145,
+          0.677
+        ],
+        "yaw_deg": 0
+      },
+      "colours": [
+        {
+          "hex": "#797c6b",
+          "share": 1.0
+        }
+      ],
+      "confidence": 0.35,
+      "evidence": {
+        "also_called": {},
+        "detector_mean_score": 0.0,
+        "detector_views": 0,
+        "masks_accepted": 4,
+        "photos_followed": 4,
+        "points": 200,
+        "sheet": "preview.png",
+        "source": "added"
+      },
+      "id": "office_chair_1",
+      "kind": "office chair",
+      "notes": [
+        "Synthetic observation: evidence counts are simulated; sheet is a plan, no photos or models used."
+      ],
+      "placement": {
+        "front_known": true,
+        "position_m": [
+          1.298,
+          0,
+          -1.51
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "support": {
+          "height_m": 0.0,
+          "kind": "floor"
+        },
+        "yaw_deg": 0
+      },
+      "recipe": null,
+      "recipe_needed": {
+        "colours": [
+          "#797c6b"
+        ],
+        "for_kind": "office chair",
+        "size_m": [
+          0.603,
+          1.145,
+          0.677
+        ]
+      }
+    },
+    {
+      "box": {
+        "centre_m": [
+          -2.8,
+          0.922,
+          2.111
+        ],
+        "footprint_m": [
+          -2.939,
+          1.728,
+          -2.662,
+          2.494
+        ],
+        "size_m": [
+          0.766,
+          1.844,
+          0.278
+        ],
+        "yaw_deg": 90
+      },
+      "colours": [
+        {
+          "hex": "#af854a",
+          "share": 1.0
+        }
+      ],
+      "confidence": 0.86,
+      "evidence": {
+        "also_called": {},
+        "detector_mean_score": 0.0,
+        "detector_views": 0,
+        "masks_accepted": 4,
+        "photos_followed": 4,
+        "points": 200,
+        "sheet": "preview.png",
+        "source": "added"
+      },
+      "id": "shelving_unit_1",
+      "kind": "shelving unit",
+      "notes": [
+        "Synthetic observation: evidence counts are simulated; sheet is a plan, no photos or models used."
+      ],
+      "pick": {
+        "rank": 2,
+        "why": "the room has no couch; the best-evidenced furniture not yet picked, which needs a recipe of its own"
+      },
+      "placement": {
+        "front_known": true,
+        "position_m": [
+          -2.8,
+          0,
+          2.111
+        ],
+        "rotation": [
+          0.0,
+          0.707107,
+          0.0,
+          0.707107
+        ],
+        "support": {
+          "height_m": 0.0,
+          "kind": "floor"
+        },
+        "yaw_deg": 90
+      },
+      "recipe": null,
+      "recipe_needed": {
+        "colours": [
+          "#af854a"
+        ],
+        "for_kind": "shelving unit",
+        "size_m": [
+          0.766,
+          1.844,
+          0.278
+        ]
+      }
+    },
+    {
+      "box": {
+        "centre_m": [
+          -1.351,
+          0.293,
+          1.574
+        ],
+        "footprint_m": [
+          -1.589,
+          1.353,
+          -1.112,
+          1.796
+        ],
+        "size_m": [
+          0.4,
+          0.587,
+          0.26
+        ],
+        "yaw_deg": 35
+      },
+      "colours": [
+        {
+          "hex": "#7d5552",
+          "share": 1.0
+        }
+      ],
+      "confidence": 0.86,
+      "evidence": {
+        "also_called": {},
+        "detector_mean_score": 0.0,
+        "detector_views": 0,
+        "masks_accepted": 4,
+        "photos_followed": 4,
+        "points": 200,
+        "sheet": "preview.png",
+        "source": "added"
+      },
+      "id": "suitcase_1",
+      "kind": "suitcase",
+      "notes": [
+        "Synthetic observation: evidence counts are simulated; sheet is a plan, no photos or models used."
+      ],
+      "pick": {
+        "rank": 1,
+        "why": "the room has no cardboard box; the best-evidenced container not yet picked, which needs a recipe of its own"
+      },
+      "placement": {
+        "front_known": true,
+        "position_m": [
+          -1.351,
+          0,
+          1.574
+        ],
+        "rotation": [
+          0.0,
+          0.300706,
+          0.0,
+          0.953717
+        ],
+        "support": {
+          "height_m": 0.0,
+          "kind": "floor"
+        },
+        "yaw_deg": 35
+      },
+      "recipe": null,
+      "recipe_needed": {
+        "colours": [
+          "#7d5552"
+        ],
+        "for_kind": "suitcase",
+        "size_m": [
+          0.4,
+          0.587,
+          0.26
+        ]
+      }
+    },
+    {
+      "box": {
+        "centre_m": [
+          1.385,
+          0.345,
+          -2.672
+        ],
+        "footprint_m": [
+          0.831,
+          -2.947,
+          1.94,
+          -2.396
+        ],
+        "size_m": [
+          1.109,
+          0.689,
+          0.551
+        ],
+        "yaw_deg": 0
+      },
+      "colours": [
+        {
+          "hex": "#d0a369",
+          "share": 1.0
+        }
+      ],
+      "confidence": 0.25,
+      "evidence": {
+        "also_called": {},
+        "detector_mean_score": 0.0,
+        "detector_views": 0,
+        "masks_accepted": 4,
+        "photos_followed": 4,
+        "points": 200,
+        "sheet": "preview.png",
+        "source": "added"
+      },
+      "id": "desk_1",
+      "kind": "table",
+      "notes": [
+        "Synthetic observation: evidence counts are simulated; sheet is a plan, no photos or models used.",
+        "Synthetic uncertain label; physical truth is in truth.json (not a converter input)."
+      ],
+      "placement": {
+        "front_known": true,
+        "position_m": [
+          1.385,
+          0,
+          -2.672
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "support": {
+          "height_m": 0.0,
+          "kind": "floor"
+        },
+        "yaw_deg": 0
+      },
+      "recipe": null,
+      "recipe_needed": {
+        "colours": [
+          "#d0a369"
+        ],
+        "for_kind": "table",
+        "size_m": [
+          1.109,
+          0.689,
+          0.551
+        ]
+      }
+    }
+  ],
+  "picks": [
+    {
+      "id": "suitcase_1",
+      "kind": "suitcase",
+      "why": "the room has no cardboard box; the best-evidenced container not yet picked, which needs a recipe of its own"
+    },
+    {
+      "id": "shelving_unit_1",
+      "kind": "shelving unit",
+      "why": "the room has no couch; the best-evidenced furniture not yet picked, which needs a recipe of its own"
+    },
+    {
+      "id": "cabinet_1",
+      "kind": "cabinet",
+      "why": "the room has no laptop; the best-evidenced furniture not yet picked, which needs a recipe of its own"
+    }
+  ],
+  "room": "awkward_l_scan_17",
+  "scale": {
+    "factor": 1.0,
+    "source": "synthetic metric truth"
+  },
+  "schema": "enfractal.inventory",
+  "segmenter": {
+    "gpu_seconds": 0.0,
+    "new": 0,
+    "peak_allocated_mib": 0.0,
+    "prompts": 0
+  },
+  "session_id": "s-synthetic-awkward_l_scan_17",
+  "version": 1
+}

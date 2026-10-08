@@ -1,0 +1,902 @@
+{
+  "assumptions": "Room dimensions, palette, placement and unspecified sizes/clearances are assumed.",
+  "bounds": {
+    "colour_channel_shift_max": 24,
+    "low_confidence_range": [
+      0.18,
+      0.38
+    ],
+    "mislabel_count_min": 1,
+    "mislabel_fraction_target_max": 0.25,
+    "position_distance_max_m": 0.1,
+    "size_relative_max": 0.15,
+    "yaw_delta_deg": 0
+  },
+  "dimensions_m": [
+    5.2,
+    2.6,
+    5.6
+  ],
+  "format": "brief14-truth-v1",
+  "lamp_channel_shift": [
+    0,
+    0,
+    0
+  ],
+  "neighbour_groups": [],
+  "objects": [
+    {
+      "colour": "#af8a5d",
+      "confidence": 0.86,
+      "id": "desk_1",
+      "kind": "desk",
+      "position_m": [
+        0,
+        0,
+        -2.3
+      ],
+      "semantic_label": "workbench",
+      "size_basis": "assumed",
+      "size_m": [
+        2,
+        0.85,
+        0.85
+      ],
+      "support_target": null,
+      "void": {
+        "basis": "assumed",
+        "position_local_m": [
+          0,
+          0,
+          0
+        ],
+        "size_m": [
+          1.6,
+          0.73,
+          0.65
+        ]
+      },
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#6b7b80",
+      "confidence": 0.86,
+      "id": "shelving_unit_1",
+      "kind": "shelving unit",
+      "position_m": [
+        -2.3,
+        0,
+        1.8
+      ],
+      "semantic_label": "shelving unit",
+      "size_basis": "assumed",
+      "size_m": [
+        1.2,
+        1.8,
+        0.45
+      ],
+      "support_target": null,
+      "void": {
+        "basis": "assumed",
+        "position_local_m": [
+          0,
+          0.18,
+          0
+        ],
+        "size_m": [
+          0.95,
+          0.35,
+          0.38
+        ]
+      },
+      "yaw_deg": 90
+    },
+    {
+      "colour": "#708c82",
+      "confidence": 0.86,
+      "id": "storage_tote_1",
+      "kind": "storage tote",
+      "position_m": [
+        1.85,
+        0,
+        1.4
+      ],
+      "semantic_label": "storage tote",
+      "size_basis": "assumed",
+      "size_m": [
+        0.55,
+        0.35,
+        0.4
+      ],
+      "support_target": null,
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#9daba9",
+      "confidence": 0.86,
+      "id": "step_ladder_1",
+      "kind": "step ladder",
+      "position_m": [
+        2.1,
+        0,
+        -1.8
+      ],
+      "semantic_label": "step ladder",
+      "size_basis": "assumed",
+      "size_m": [
+        0.55,
+        1.5,
+        0.6
+      ],
+      "support_target": null,
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#535e65",
+      "confidence": 0.86,
+      "id": "office_chair_1",
+      "kind": "office chair",
+      "position_m": [
+        0,
+        0,
+        -1.25
+      ],
+      "semantic_label": "office chair",
+      "size_basis": "assumed",
+      "size_m": [
+        0.55,
+        0.95,
+        0.55
+      ],
+      "support_target": null,
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#b25f44",
+      "confidence": 0.86,
+      "id": "paint_can_1",
+      "kind": "paint can",
+      "position_m": [
+        -0.78,
+        0.85,
+        -2.57
+      ],
+      "semantic_label": "paint can",
+      "size_basis": "assumed",
+      "size_m": [
+        0.14,
+        0.18,
+        0.14
+      ],
+      "support_target": "desk_1",
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#809f9b",
+      "confidence": 0.86,
+      "id": "jar_2",
+      "kind": "jar",
+      "position_m": [
+        -0.48000000000000004,
+        0.85,
+        -2.57
+      ],
+      "semantic_label": "jar",
+      "size_basis": "assumed",
+      "size_m": [
+        0.085,
+        0.12,
+        0.085
+      ],
+      "support_target": "desk_1",
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#c9b073",
+      "confidence": 0.86,
+      "id": "mug_3",
+      "kind": "mug",
+      "position_m": [
+        -0.18000000000000005,
+        0.85,
+        -2.57
+      ],
+      "semantic_label": "mug",
+      "size_basis": "assumed",
+      "size_m": [
+        0.1,
+        0.11,
+        0.09
+      ],
+      "support_target": "desk_1",
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#738ab0",
+      "confidence": 0.86,
+      "id": "bottle_4",
+      "kind": "bottle",
+      "position_m": [
+        0.11999999999999988,
+        0.85,
+        -2.57
+      ],
+      "semantic_label": "bottle",
+      "size_basis": "assumed",
+      "size_m": [
+        0.09,
+        0.25,
+        0.09
+      ],
+      "support_target": "desk_1",
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#b25f44",
+      "confidence": 0.86,
+      "id": "paint_can_5",
+      "kind": "paint can",
+      "position_m": [
+        0.41999999999999993,
+        0.85,
+        -2.57
+      ],
+      "semantic_label": "paint can",
+      "size_basis": "assumed",
+      "size_m": [
+        0.14,
+        0.18,
+        0.14
+      ],
+      "support_target": "desk_1",
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#809f9b",
+      "confidence": 0.86,
+      "id": "jar_6",
+      "kind": "jar",
+      "position_m": [
+        0.72,
+        0.85,
+        -2.57
+      ],
+      "semantic_label": "jar",
+      "size_basis": "assumed",
+      "size_m": [
+        0.085,
+        0.12,
+        0.085
+      ],
+      "support_target": "desk_1",
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#c9b073",
+      "confidence": 0.86,
+      "id": "mug_7",
+      "kind": "mug",
+      "position_m": [
+        -0.78,
+        0.85,
+        -2.3099999999999996
+      ],
+      "semantic_label": "mug",
+      "size_basis": "assumed",
+      "size_m": [
+        0.1,
+        0.11,
+        0.09
+      ],
+      "support_target": "desk_1",
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#738ab0",
+      "confidence": 0.86,
+      "id": "bottle_8",
+      "kind": "bottle",
+      "position_m": [
+        -0.48000000000000004,
+        0.85,
+        -2.3099999999999996
+      ],
+      "semantic_label": "bottle",
+      "size_basis": "assumed",
+      "size_m": [
+        0.09,
+        0.25,
+        0.09
+      ],
+      "support_target": "desk_1",
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#b25f44",
+      "confidence": 0.86,
+      "id": "paint_can_9",
+      "kind": "paint can",
+      "position_m": [
+        -0.18000000000000005,
+        0.85,
+        -2.3099999999999996
+      ],
+      "semantic_label": "paint can",
+      "size_basis": "assumed",
+      "size_m": [
+        0.14,
+        0.18,
+        0.14
+      ],
+      "support_target": "desk_1",
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#809f9b",
+      "confidence": 0.86,
+      "id": "jar_10",
+      "kind": "jar",
+      "position_m": [
+        0.11999999999999988,
+        0.85,
+        -2.3099999999999996
+      ],
+      "semantic_label": "jar",
+      "size_basis": "assumed",
+      "size_m": [
+        0.085,
+        0.12,
+        0.085
+      ],
+      "support_target": "desk_1",
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#c9b073",
+      "confidence": 0.86,
+      "id": "mug_11",
+      "kind": "mug",
+      "position_m": [
+        0.41999999999999993,
+        0.85,
+        -2.3099999999999996
+      ],
+      "semantic_label": "mug",
+      "size_basis": "assumed",
+      "size_m": [
+        0.1,
+        0.11,
+        0.09
+      ],
+      "support_target": "desk_1",
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#738ab0",
+      "confidence": 0.86,
+      "id": "bottle_12",
+      "kind": "bottle",
+      "position_m": [
+        0.72,
+        0.85,
+        -2.3099999999999996
+      ],
+      "semantic_label": "bottle",
+      "size_basis": "assumed",
+      "size_m": [
+        0.09,
+        0.25,
+        0.09
+      ],
+      "support_target": "desk_1",
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#b25f44",
+      "confidence": 0.86,
+      "id": "paint_can_13",
+      "kind": "paint can",
+      "position_m": [
+        -0.78,
+        0.85,
+        -2.05
+      ],
+      "semantic_label": "paint can",
+      "size_basis": "assumed",
+      "size_m": [
+        0.14,
+        0.18,
+        0.14
+      ],
+      "support_target": "desk_1",
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#809f9b",
+      "confidence": 0.86,
+      "id": "jar_14",
+      "kind": "jar",
+      "position_m": [
+        -0.48000000000000004,
+        0.85,
+        -2.05
+      ],
+      "semantic_label": "jar",
+      "size_basis": "assumed",
+      "size_m": [
+        0.085,
+        0.12,
+        0.085
+      ],
+      "support_target": "desk_1",
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#c9b073",
+      "confidence": 0.86,
+      "id": "mug_15",
+      "kind": "mug",
+      "position_m": [
+        -0.18000000000000005,
+        0.85,
+        -2.05
+      ],
+      "semantic_label": "mug",
+      "size_basis": "assumed",
+      "size_m": [
+        0.1,
+        0.11,
+        0.09
+      ],
+      "support_target": "desk_1",
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#738ab0",
+      "confidence": 0.86,
+      "id": "bottle_16",
+      "kind": "bottle",
+      "position_m": [
+        0.11999999999999988,
+        0.85,
+        -2.05
+      ],
+      "semantic_label": "bottle",
+      "size_basis": "assumed",
+      "size_m": [
+        0.09,
+        0.25,
+        0.09
+      ],
+      "support_target": "desk_1",
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#b25f44",
+      "confidence": 0.86,
+      "id": "paint_can_17",
+      "kind": "paint can",
+      "position_m": [
+        0.41999999999999993,
+        0.85,
+        -2.05
+      ],
+      "semantic_label": "paint can",
+      "size_basis": "assumed",
+      "size_m": [
+        0.14,
+        0.18,
+        0.14
+      ],
+      "support_target": "desk_1",
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#809f9b",
+      "confidence": 0.86,
+      "id": "jar_18",
+      "kind": "jar",
+      "position_m": [
+        0.72,
+        0.85,
+        -2.05
+      ],
+      "semantic_label": "jar",
+      "size_basis": "assumed",
+      "size_m": [
+        0.085,
+        0.12,
+        0.085
+      ],
+      "support_target": "desk_1",
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#c9b073",
+      "confidence": 0.86,
+      "id": "mug_19",
+      "kind": "mug",
+      "position_m": [
+        -0.9,
+        0,
+        0.4
+      ],
+      "semantic_label": "mug",
+      "size_basis": "assumed",
+      "size_m": [
+        0.1,
+        0.11,
+        0.09
+      ],
+      "support_target": null,
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#738ab0",
+      "confidence": 0.86,
+      "id": "bottle_20",
+      "kind": "bottle",
+      "position_m": [
+        -0.56,
+        0,
+        0.4
+      ],
+      "semantic_label": "bottle",
+      "size_basis": "assumed",
+      "size_m": [
+        0.09,
+        0.25,
+        0.09
+      ],
+      "support_target": null,
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#b25f44",
+      "confidence": 0.86,
+      "id": "paint_can_21",
+      "kind": "paint can",
+      "position_m": [
+        -0.21999999999999997,
+        0,
+        0.4
+      ],
+      "semantic_label": "paint can",
+      "size_basis": "assumed",
+      "size_m": [
+        0.14,
+        0.18,
+        0.14
+      ],
+      "support_target": null,
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#809f9b",
+      "confidence": 0.86,
+      "id": "jar_22",
+      "kind": "jar",
+      "position_m": [
+        0.12,
+        0,
+        0.4
+      ],
+      "semantic_label": "jar",
+      "size_basis": "assumed",
+      "size_m": [
+        0.085,
+        0.12,
+        0.085
+      ],
+      "support_target": null,
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#c9b073",
+      "confidence": 0.86,
+      "id": "mug_23",
+      "kind": "mug",
+      "position_m": [
+        0.4600000000000001,
+        0,
+        0.4
+      ],
+      "semantic_label": "mug",
+      "size_basis": "assumed",
+      "size_m": [
+        0.1,
+        0.11,
+        0.09
+      ],
+      "support_target": null,
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#738ab0",
+      "confidence": 0.86,
+      "id": "bottle_24",
+      "kind": "bottle",
+      "position_m": [
+        0.8000000000000002,
+        0,
+        0.4
+      ],
+      "semantic_label": "bottle",
+      "size_basis": "assumed",
+      "size_m": [
+        0.09,
+        0.25,
+        0.09
+      ],
+      "support_target": null,
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#b25f44",
+      "confidence": 0.86,
+      "id": "paint_can_25",
+      "kind": "paint can",
+      "position_m": [
+        -0.9,
+        0,
+        0.78
+      ],
+      "semantic_label": "paint can",
+      "size_basis": "assumed",
+      "size_m": [
+        0.14,
+        0.18,
+        0.14
+      ],
+      "support_target": null,
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#809f9b",
+      "confidence": 0.86,
+      "id": "jar_26",
+      "kind": "jar",
+      "position_m": [
+        -0.56,
+        0,
+        0.78
+      ],
+      "semantic_label": "jar",
+      "size_basis": "assumed",
+      "size_m": [
+        0.085,
+        0.12,
+        0.085
+      ],
+      "support_target": null,
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#c9b073",
+      "confidence": 0.86,
+      "id": "mug_27",
+      "kind": "mug",
+      "position_m": [
+        -0.21999999999999997,
+        0,
+        0.78
+      ],
+      "semantic_label": "mug",
+      "size_basis": "assumed",
+      "size_m": [
+        0.1,
+        0.11,
+        0.09
+      ],
+      "support_target": null,
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#738ab0",
+      "confidence": 0.86,
+      "id": "bottle_28",
+      "kind": "bottle",
+      "position_m": [
+        0.12,
+        0,
+        0.78
+      ],
+      "semantic_label": "bottle",
+      "size_basis": "assumed",
+      "size_m": [
+        0.09,
+        0.25,
+        0.09
+      ],
+      "support_target": null,
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#b25f44",
+      "confidence": 0.86,
+      "id": "paint_can_29",
+      "kind": "paint can",
+      "position_m": [
+        0.4600000000000001,
+        0,
+        0.78
+      ],
+      "semantic_label": "paint can",
+      "size_basis": "assumed",
+      "size_m": [
+        0.14,
+        0.18,
+        0.14
+      ],
+      "support_target": null,
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#809f9b",
+      "confidence": 0.86,
+      "id": "jar_30",
+      "kind": "jar",
+      "position_m": [
+        0.8000000000000002,
+        0,
+        0.78
+      ],
+      "semantic_label": "jar",
+      "size_basis": "assumed",
+      "size_m": [
+        0.085,
+        0.12,
+        0.085
+      ],
+      "support_target": null,
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#c9b073",
+      "confidence": 0.86,
+      "id": "mug_31",
+      "kind": "mug",
+      "position_m": [
+        -0.9,
+        0,
+        1.1600000000000001
+      ],
+      "semantic_label": "mug",
+      "size_basis": "assumed",
+      "size_m": [
+        0.1,
+        0.11,
+        0.09
+      ],
+      "support_target": null,
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#738ab0",
+      "confidence": 0.86,
+      "id": "bottle_32",
+      "kind": "bottle",
+      "position_m": [
+        -0.56,
+        0,
+        1.1600000000000001
+      ],
+      "semantic_label": "bottle",
+      "size_basis": "assumed",
+      "size_m": [
+        0.09,
+        0.25,
+        0.09
+      ],
+      "support_target": null,
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#b25f44",
+      "confidence": 0.86,
+      "id": "paint_can_33",
+      "kind": "paint can",
+      "position_m": [
+        -0.21999999999999997,
+        0,
+        1.1600000000000001
+      ],
+      "semantic_label": "paint can",
+      "size_basis": "assumed",
+      "size_m": [
+        0.14,
+        0.18,
+        0.14
+      ],
+      "support_target": null,
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#809f9b",
+      "confidence": 0.86,
+      "id": "jar_34",
+      "kind": "jar",
+      "position_m": [
+        0.12,
+        0,
+        1.1600000000000001
+      ],
+      "semantic_label": "jar",
+      "size_basis": "assumed",
+      "size_m": [
+        0.085,
+        0.12,
+        0.085
+      ],
+      "support_target": null,
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#c9b073",
+      "confidence": 0.86,
+      "id": "mug_35",
+      "kind": "mug",
+      "position_m": [
+        0.4600000000000001,
+        0,
+        1.1600000000000001
+      ],
+      "semantic_label": "mug",
+      "size_basis": "assumed",
+      "size_m": [
+        0.1,
+        0.11,
+        0.09
+      ],
+      "support_target": null,
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#738ab0",
+      "confidence": 0.86,
+      "id": "bottle_36",
+      "kind": "bottle",
+      "position_m": [
+        0.8000000000000002,
+        0,
+        1.1600000000000001
+      ],
+      "semantic_label": "bottle",
+      "size_basis": "assumed",
+      "size_m": [
+        0.09,
+        0.25,
+        0.09
+      ],
+      "support_target": null,
+      "yaw_deg": 0
+    }
+  ],
+  "outline_xz_m": [
+    [
+      -2.6,
+      -2.8
+    ],
+    [
+      2.6,
+      -2.8
+    ],
+    [
+      2.6,
+      2.8
+    ],
+    [
+      -2.6,
+      2.8
+    ]
+  ],
+  "room_type": "workshop",
+  "seed": null,
+  "tests": [
+    "41 objects, 36 small",
+    "repeated labels and colours",
+    "workbench supports",
+    "small floor clutter"
+  ],
+  "variant": "nominal"
+}

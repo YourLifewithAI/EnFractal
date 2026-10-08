@@ -1,0 +1,177 @@
+{
+  "assumptions": "Room dimensions, palette, placement and unspecified sizes/clearances are assumed.",
+  "bounds": {
+    "colour_channel_shift_max": 24,
+    "low_confidence_range": [
+      0.18,
+      0.38
+    ],
+    "mislabel_count_min": 1,
+    "mislabel_fraction_target_max": 0.25,
+    "position_distance_max_m": 0.1,
+    "size_relative_max": 0.15,
+    "yaw_delta_deg": 0
+  },
+  "dimensions_m": [
+    6,
+    2.4,
+    6
+  ],
+  "format": "brief14-truth-v1",
+  "lamp_channel_shift": [
+    0,
+    0,
+    0
+  ],
+  "neighbour_groups": [],
+  "objects": [
+    {
+      "colour": "#bca080",
+      "confidence": 0.86,
+      "id": "desk_1",
+      "kind": "desk",
+      "position_m": [
+        1.3,
+        0,
+        -2.7
+      ],
+      "semantic_label": "desk",
+      "size_basis": "micke",
+      "size_m": [
+        1.05,
+        0.75,
+        0.5
+      ],
+      "support_target": null,
+      "void": {
+        "basis": "assumed",
+        "position_local_m": [
+          0,
+          0,
+          0
+        ],
+        "size_m": [
+          0.6,
+          0.61,
+          0.38
+        ]
+      },
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#657982",
+      "confidence": 0.86,
+      "id": "office_chair_1",
+      "kind": "office chair",
+      "position_m": [
+        1.3,
+        0,
+        -1.6
+      ],
+      "semantic_label": "office chair",
+      "size_basis": "assumed",
+      "size_m": [
+        0.6,
+        1,
+        0.6
+      ],
+      "support_target": null,
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#9b8261",
+      "confidence": 0.86,
+      "id": "shelving_unit_1",
+      "kind": "shelving unit",
+      "position_m": [
+        -2.79,
+        0,
+        2.2
+      ],
+      "semantic_label": "shelving unit",
+      "size_basis": "billy",
+      "size_m": [
+        0.8,
+        2.02,
+        0.28
+      ],
+      "support_target": null,
+      "yaw_deg": 90
+    },
+    {
+      "colour": "#bdab94",
+      "confidence": 0.86,
+      "id": "cabinet_1",
+      "kind": "cabinet",
+      "position_m": [
+        -2.5,
+        0,
+        -0.5
+      ],
+      "semantic_label": "cabinet",
+      "size_basis": "assumed",
+      "size_m": [
+        0.8,
+        0.9,
+        0.5
+      ],
+      "support_target": null,
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#695269",
+      "confidence": 0.86,
+      "id": "suitcase_1",
+      "kind": "suitcase",
+      "position_m": [
+        -1.3,
+        0,
+        1.5
+      ],
+      "semantic_label": "suitcase",
+      "size_basis": "assumed",
+      "size_m": [
+        0.45,
+        0.65,
+        0.3
+      ],
+      "support_target": null,
+      "yaw_deg": 35
+    }
+  ],
+  "outline_xz_m": [
+    [
+      -3.0,
+      -3.0
+    ],
+    [
+      3.0,
+      -3.0
+    ],
+    [
+      3.0,
+      0
+    ],
+    [
+      0,
+      0
+    ],
+    [
+      0,
+      3.0
+    ],
+    [
+      -3.0,
+      3.0
+    ]
+  ],
+  "room_type": "awkward_l",
+  "seed": null,
+  "tests": [
+    "concave floor",
+    "re-entrant corner",
+    "AABB includes absent quadrant",
+    "contract topology beyond current C3 box fitter"
+  ],
+  "variant": "nominal"
+}
