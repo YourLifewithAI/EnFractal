@@ -95,6 +95,10 @@ echo "== landscape corpus (synthetic rooms, read through roomscan)"
 if (cd "$REPO/pipeline/roomscan" && uv run --locked python -B -m unittest discover -s "$REPO/pipeline/landscape/corpus/tests" -t "$REPO" > "$LOG/corpus.log" 2>&1); then
   echo "PASS landscape corpus: $(grep -E '^Ran' "$LOG/corpus.log")"
 else cat "$LOG/corpus.log"; failed=1; fi
+echo "== landscape exporter (a package to a game room, validated against the contracts)"
+if (cd "$REPO" && "$LINUX/contracts-venv/bin/python" -B -m unittest pipeline.landscape.export.tests.test_export > "$LOG/landscape_export.log" 2>&1); then
+  echo "PASS landscape exporter: $(grep -E '^Ran' "$LOG/landscape_export.log") $(grep -E '^OK' "$LOG/landscape_export.log")"
+else echo "FAIL landscape exporter"; tail -20 "$LOG/landscape_export.log"; failed=1; fi
 echo "== landscape harness (package format and views; its Blender tests skip without Blender)"
 if (cd "$REPO" && python3 -B -S -m unittest pipeline.landscape.harness.tests.test_harness > "$LOG/harness.log" 2>&1); then
   echo "PASS landscape harness: $(grep -E '^Ran' "$LOG/harness.log") $(grep -E '^OK' "$LOG/harness.log")"
