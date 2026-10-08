@@ -31,6 +31,13 @@
 - **The founder (7 October): Claude and Codex as partners; who does what is decided by A/B tests, not assumed** (and not to save tokens). Try the other Codex models too (`-Model`); OpenRouter (DeepSeek V4.1 Flash and others) is skipped for now, the founder's call. See ORCHESTRATION.md's routing and A/B log.
 - **What it changes in Run 2:** C5 (stand-ins), C7 (the guidance), L4 and L6 as RUN-2.md wrote them. **Unchanged:** C3 and C4 (the shell and inventory are the grounding), P3 and P6, all of Lane A, and the recipe machinery in `pipeline/recipes/` (fit to a scanned box, checks before export, determinism), which can build landforms. **Stopped:** replica-styling recipe work (briefs 10 and 11 stay merged as the machinery).
 
+## The second session (8 October, the first Windows machine)
+
+- **Synced:** this machine's integrator checkout is on `run2/integration`. Lane P's worktree is `C:\dev\EnFractal-run2\play` on `run2/play` (fast-forwarded to `4eefb39`; `.cache\dotnet` and `.cache\godot` are junctions into the integrator's `.cache`). The other lanes have no worktree on this machine yet.
+- **Lane P's next round is running** (Opus): fetch on the real host with `target_unreachable`, then the map store and journal writer with the host's `journal.read`, `journal.note` and `map.find`, then P6. Codex reviews it before it merges.
+- **The landscape design, as a blind A/B** (founder's rule: A/B, not assumptions): the integrator and Codex (brief 15, **GPT-6 Astra**, its first use) each rewrote the design from the same inputs, at most 1,000 words, blind to each other. The two drafts are numbered at random in `docs/ab/` (local, ignored through `.git/info/exclude`); the key is in the integrator's scratch folder. The founder picks one or takes parts of each; the result replaces `docs/ROOM-TO-LANDSCAPE.md`, and the A/B log records it.
+- **Run 1's worktrees on this machine** have no junctions (checked), all clean and pushed. `C:\dev\EnFractal-run1\capture\captures\garage` (0.9 GB, Run 1's poses) is the only copy here: move it out before removing that worktree.
+
 ## The next session
 
 1. **Rewrite `docs/ROOM-TO-LANDSCAPE.md` with the founder.** Codex's first draft ([brief 13](../codex/briefs/13-landscape-design.md), [report with prior art](../codex/reports/13-landscape-design.md)) is merged as input, but it predates the founder's physics principle and the looseness note. Rewrite it around the approved core (geology, water, ecology, people) as guiding principles, not rigid rules, and keep it short. The founder wants A/B tests rather than assumptions about who builds what, so consider an A/B on the landscape's look (a Claude lane against Codex, or two Codex models) as the first build step.

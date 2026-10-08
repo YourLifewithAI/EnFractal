@@ -46,6 +46,7 @@ Choose by **capability for the task, then cost.** A cheap agent whose work needs
 
 | Date | Task | Contenders | Judged by | Result |
 |---|---|---|---|---|
+| 2026-10-08 | Rewrite `docs/ROOM-TO-LANDSCAPE.md` around the four principles, at most 1,000 words, from the same inputs (brief 15) | The integrator (Opus 5.5) against Codex brief 15 (GPT-6 Astra, high effort), each blind to the other | The founder, blind (drafts numbered at random; the key is in the integrator's scratch folder) | Pending |
 
 ## Testing
 
@@ -127,6 +128,8 @@ Add one row per agent run.
 | 2026-10-07 | A2 Linux path fix (Windows profile paths on Linux) | Opus (same agent, resumed) | 17k more | Clean; found by the integrator's Linux suite, not by the lane's Windows runs |
 | 2026-10-07 | Codex brief 13: prior art and a first draft of `docs/ROOM-TO-LANDSCAPE.md` | GPT-6.1 Sol, high effort, web search | 167k | Clean, in scope; a useful draft and sources, but written before the founder's physics and looseness notes, so the next session rewrites it |
 | 2026-10-07 | Codex brief 14: a synthetic room corpus (8 room types, each nominal and two scan-like variants) | GPT-6.1 Sol, high effort, web search | 165k + 102k (two runs) | Run 1 stopped honestly at a missing `cv2`; with Lane C's interpreter, run 2 fixed 8 real failures (boundary tolerances, a shelf taller than its room, PNG bytes varying with zlib, small objects the reader refused). 10 tests; the integrator pinned the files' bytes (`-text`) and added them to `test-all.sh` |
+
+| 2026-10-08 | Codex brief 15: an independent rewrite of the landscape design (one side of the A/B above) | **GPT-6 Astra** (first use), high effort, no web | 59k | Clean, in scope (one file); under the word cap; carried the approved core word for word. Content notes wait until the founder has judged |
 
 The first Codex launches failed at once, "blocked by policy". They had skipped the founder's config, which also turned off the Windows sandbox, and the sandbox then could not start the Store-packaged PowerShell 7. Codex stopped and reported, as its rules say. `tools/codex/run.ps1` now handles both.
 
