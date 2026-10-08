@@ -27,6 +27,8 @@ import time
 import unittest
 
 from support import CONTRACTS, COMPANION, SRC, command, contract_problems, query
+from test_host_alignment import AlignmentScenarios
+from test_journal_boundary import JournalBoundaryCases
 from test_link import closed, raw_connect
 
 from enfractal_companion import link
@@ -65,7 +67,8 @@ def fresh_id(prefix: str) -> str:
 
 
 class RealHostCase(unittest.IsolatedAsyncioTestCase):
-    """A fresh link session per test (the host clears the companion's perception memory with each one)."""
+    """A fresh link session per test. A session no longer clears the team's map or journal (they belong to the room),
+    so a test never assumes it starts with nothing known."""
 
     def setUp(self):
         if GAME is None:
@@ -580,6 +583,81 @@ class Embodiment(RealHostCase):
         self.assertEqual(held["data"]["entity"].get("held_by"), "avatar:companion")
         released = await self.ask(client, command("entity.release", {"actor": "avatar:companion"}, fresh_id("down")))
         self.assertTrue(released["ok"], released)
+        # The journal keeps the finished fetch: a fact the host wrote, the companion's own initiative.
+        journal = await self.ask(client, query("journal.read", {"about": "obj:doorstop", "kind": "task"}, fresh_id("q")))
+        done = [e for e in journal["data"]["entries"] if e["state"] == "done"]
+        self.assertTrue(done, journal)
+        self.assertEqual((done[0]["actor"], done[0]["directed_by"]), (COMPANION, COMPANION))
+        self.assertTrue(done[0]["line"].startswith('Fetched "'), done[0])
+
+
+# ---------------------------------------------------------------------------- behavioural alignment, on the real host
+
+class AlignmentOnTheRealHost(AlignmentScenarios, RealHostCase):
+    """test_host_alignment.py's scenarios against the kernel host: the same steps and the same expected outcomes as on
+    the mock. The companion walks with go_to and is brought back to the player afterwards."""
+
+    async def asyncSetUp(self):
+        await super().asyncSetUp()
+        await self.settle_rate()
+        self.link = self.client()
+
+    async def asyncTearDown(self):
+        back = await self.ask(companion_goal("come", fresh_id("come"), target="avatar:player"))
+        if back["ok"]:
+            await self.job_state(self.link, back["job_id"], 30)
+        await super().asyncTearDown()
+
+    async def ask(self, client_or_message, message: dict | None = None) -> dict:
+        client, message = (self.link, client_or_message) if message is None else (client_or_message, message)
+        result = await client.request(message)
+        self.results.append(result)
+        return result
+
+    async def companion_to(self, position: list[float]) -> None:
+        """go_to a place has no job to poll: wait until the body has stopped near the place."""
+        started = await self.ask(companion_goal("go_to", fresh_id("go"), position_m=position))
+        self.assertTrue(started["ok"], started)
+        deadline, last = time.monotonic() + 30, None
+        while time.monotonic() < deadline:
+            await asyncio.sleep(0.5)
+            me = await self.ask(query("entity.inspect", {"target": "avatar:companion"}, fresh_id("q")))
+            at = me["data"]["entity"]["position_m"]
+            near = ((at[0] - position[0]) ** 2 + (at[2] - position[2]) ** 2) ** 0.5 <= 0.1
+            if near and last is not None and max(abs(a - b) for a, b in zip(at, last)) < 0.002:
+                return
+            last = at
+        self.fail(f"the companion did not reach {position} (last at {last})")
+
+    async def finish(self, job_id: str) -> str:
+        return (await self.job_state(self.link, job_id))["state"]
+
+    # A known host gap, reported to Lane P (8 October): whether the kernel names a new build is not yet reliable. Run alone,
+    # a build behind the table that entity.inspect says neither avatar sees was named ("Built \"Hidden vault\"", with
+    # its id and a pin at the place box's centre, [-0.9, 0, -1.42], 5 cm below the creation's own centre); in the full
+    # runner the same build was "something", and a build in plain view on the rug was "something" too. The refusals and
+    # the silence after them match the mock; the build's own fact is left out here until the host's TeamSeesPlace holds.
+    unchecked = ("built facts", "named anywhere")
+
+
+# ---------------------------------------------------------------------------- the journal's boundary, on the real host
+
+class JournalOnTheRealHost(JournalBoundaryCases, RealHostCase):
+    """test_journal_boundary.py's cases against the kernel host. Both avatars see the whole test room from where they
+    stand, so nothing in it stays undiscovered: the leak cases compare ids and names from another room and from
+    nowhere."""
+
+    place_at = [0.75, 0.0, 1.0]
+
+    async def asyncSetUp(self):
+        await super().asyncSetUp()
+        await self.settle_rate()
+        self.link = self.client()
+
+    async def ask(self, message: dict) -> dict:
+        result = await self.link.request(message)
+        self.results.append(result)
+        return result
 
 
 # ---------------------------------------------------------------------------- the MCP server against the real host

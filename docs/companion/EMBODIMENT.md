@@ -36,7 +36,7 @@ any MCP client --stdio--> enfractal-companion --loopback link--> CompanionLinkSe
 | `come` | Routes round furniture to 0.14 m from the player, then stays | Succeeds on arrival; the host re-checks that the player is in sight |
 | `look_at`, `point_at` | Turns to face the target or place (and points); succeeds within 3 degrees | A target is a job; a place is not |
 | `stay`, `goal.stop` | Stops where it is | `goal.stop` always applies (never refused on revisions, rate limits, capacity or a reused action id) and cancels the running job |
-| `fetch`, `go_to` | Refused with `unsupported_capability` until P3 and the go-to below land | (see Fetch) |
+| `fetch`, `go_to` | Since Lane P's round 2: walk there (round furniture), a fetch picks the thing up and brings it back; a walk blocked 5 s fails with `target_unreachable` | (see Fetch) |
 
 The host drives these itself from the body's public state (`CompanionAvatar.ComeArrivedSerial`,
 `FacesLookTarget`, `IntentSerial`), keeps the job store and answers `jobs.status`. The bridge adds nothing to a
@@ -123,6 +123,28 @@ Codex sent `expected_entities` with the revisions it had observed, unprompted. T
 companion's state through the session: `planning`, `listening`, `acting` (the follow), then `planning` and `acting`
 around each goal, `listening` at the end, and `offline` when Codex closed the link. Its one surprise: fetch is in the
 tool schema but this host refuses it.
+
+## Acceptance: a real client fetches through the real host (Run 2, 8 October 2026)
+
+**How it ran.** The same Codex CLI 0.162 (GPT-6.1 Sol, medium reasoning) from the Codex desktop app: `codex exec
+--ignore-user-config --ephemeral -s read-only`, web search off, the shell, unified exec, browser, computer use, apps,
+plugins, image generation, multi-agent, hooks, skills and the other tool features disabled, and this server as its
+only MCP server (`-c mcp_servers.enfractal.*`, the profile generator's values with `--session-file`), against
+`python -m enfractal_companion.real_game --isolated` (the test room headless, a temporary user folder). Its code-mode
+host had to stay on: with it off, this Codex build refuses every MCP call. 38 seconds and 41,824 tokens; no money or
+GPU spent.
+
+| Step | What Codex called | Result |
+|---|---|---|
+| 1 | `journal_read` | ok: no open tasks, no entries |
+| 2 | `observe` | ok: the doorstop in sight |
+| 3 | `goal_set` fetch `obj:doorstop` | ok, with a job id |
+| 4 | `jobs_status` | ok: `succeeded` (the companion walked to it, picked it up and came back to the player) |
+| 5 | `journal_read` | ok: one entry, kind `task`, state `done`, line "Fetched \"Doorstop\", on its own initiative", actor and directed_by `companion:local` |
+| 6 | `entity_release` | ok: put down beside the player |
+
+The game's console showed `session start`, `planning`, `listening`, `acting` (the fetch), `planning` and `listening`
+around the reads, then `session end` and `offline`. Codex reported the game's text as quoted data, as asked.
 
 ## Tests
 

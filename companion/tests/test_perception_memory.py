@@ -9,8 +9,10 @@ that may be out of date.
   until the companion looks at its place again.
 - Goals that only move or turn the companion may aim at a remembered thing; the host re-checks on
   arrival and fails honestly. Everything that changes an entity still needs it in sight now.
-- Memory is bounded, forgets the least recently seen first, is cleared with the session or the room,
-  and is never saved.
+- Memory is bounded, forgets the least recently seen first, is cleared with the room, and is never
+  saved by the mock. Since Run 2 it is the team's map, which a link session keeps (the kernel saves it
+  with the room). These suites turn the team's shared sight off to test one avatar's eyes;
+  test_team_knowledge.py covers the team's sight.
 
 The memory result fields are a proposed contract change (docs/companion/proposals/contracts-run1.diff),
 so these tests run on a copy of contracts/ with that change merged (support.memory_contracts) and check
@@ -45,7 +47,9 @@ BESIDE_THE_DOORSTOP = [-0.15, 0.0, 0.5]  # within reach of the doorstop at (-0.3
 OUT_OF_EVERY_SIGHT = [-1.7, 0.0, -1.2]  # behind the table: hidden from the spawn, the box and the doorstop
 IN_THE_OPEN = [0.9, 0.0, 1.0]  # on the rug, in sight of the spawn and of the doorstop's place
 
-FAST = HostPolicy(companion_messages_per_s=1_000_000)
+# One avatar's sight (the team's shared sight off, as in the kernel's own memory tests); test_team_knowledge.py
+# covers the team's sight, the 1,024-entry map and its eviction.
+FAST = HostPolicy(companion_messages_per_s=1_000_000, shared_sight=False, team_sight_interval_s=0.0)
 MEMORY_FIELDS = ("seen", "last_seen_ago_s", "last_seen_revision", "may_be_stale")
 
 
@@ -474,13 +478,14 @@ class Bounds(MemoryCase):
         self.assertEqual(self.fetch("obj:book", "go_to")["error"]["code"], "target_not_found")
         self.assertEqual(self.host.memory[COMPANION].entries, {})
 
-    def test_memory_is_cleared_when_a_session_starts_or_ends(self):
+    def test_a_session_starting_or_ending_keeps_the_map(self):
+        # Since Run 2 the team's map is the room's (the kernel saves it with the room): sessions never clear it.
         for event in ("start", "end"):
             with self.subTest(event=event):
                 self.seen_then_hidden()
                 self.assertIn("obj:book", self.listed())
                 self.host.session_event(COMPANION, event)
-                self.assertNotIn("obj:book", self.listed())
+                self.assertEqual(self.listed()["obj:book"]["seen"], "remembered")
 
     def test_memory_is_cleared_when_the_room_changes(self):
         self.seen_then_hidden()
@@ -502,7 +507,7 @@ class Bounds(MemoryCase):
         for word in ("remembered", "last_seen", "may_be_stale"):
             self.assertNotIn(word, saved)
 
-    def test_a_link_session_clears_the_memory_when_it_ends(self):
+    def test_a_link_session_keeps_the_map_when_it_starts_and_ends(self):
         self.seen_then_hidden()  # remembered before the session, outside it
         remembered_inside = []
 
@@ -520,13 +525,10 @@ class Bounds(MemoryCase):
 
         with ThreadedGame(self.host) as game:
             asyncio.run(session(game))
-            for _ in range(500):  # the game's end of the link notices the close
-                if COMPANION not in self.host.memory:
-                    break
-                time.sleep(0.01)
-        self.assertEqual(remembered_inside[0], [], "a new session starts with no memory")
+            time.sleep(0.2)  # the game's end of the link notices the close
+        self.assertIn("obj:book", remembered_inside[0], "a new session starts with the team's map")
         self.assertIn("obj:book", remembered_inside[1])
-        self.assertNotIn(COMPANION, self.host.memory, "the memory ends with the session")
+        self.assertIn("obj:book", self.host.memory[COMPANION].entries, "the map outlives the session")
 
 
 class NothingHiddenLeaks(MemoryCase):
@@ -665,7 +667,7 @@ class ThroughTheAdapter(unittest.IsolatedAsyncioTestCase):
         async with McpHarness() as h:
             tools = {tool.name: tool.description for tool in (await h.client.list_tools()).tools}
             self.assertEqual("remembered" in tools["entities_list"], contracts().memory_fields)
-        self.assertIn("remember what it saw this session", INSTRUCTIONS)
+        self.assertIn("the team's map remembers what they saw", INSTRUCTIONS)
 
 
 def _doorstop_flagged(value):

@@ -25,8 +25,8 @@ namespace EnFractal.Native.Companion;
 ///   events each frame.
 /// - Answers every request on Godot's main thread through <see cref="CommandHost.HandleObject"/> as
 ///   companion:local. Nothing a connection sends chooses the principal.
-/// - Tells the host when a link session starts and ends (<see cref="CommandHost.SessionEvent"/>), so the companion's
-///   perception memory never outlives a session.
+/// - Tells the host when a link session starts and ends (<see cref="CommandHost.SessionEvent"/>). Since Run 2 the
+///   team's map and journal belong to the room and are saved with it, so a session no longer clears them.
 /// - Shows the companion's state on its avatar (<see cref="CompanionStatusCue"/>): listening, planning, acting, or
 ///   waiting for the player's yes; nothing when no AI is linked.
 /// The goals themselves (follow, come, look_at, point_at) run in the host, which watches the body for their arrival.
