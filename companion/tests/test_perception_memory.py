@@ -667,7 +667,7 @@ class ThroughTheAdapter(unittest.IsolatedAsyncioTestCase):
         async with McpHarness() as h:
             tools = {tool.name: tool.description for tool in (await h.client.list_tools()).tools}
             self.assertEqual("remembered" in tools["entities_list"], contracts().memory_fields)
-        self.assertIn("remember what it saw this session", INSTRUCTIONS)
+        self.assertIn("the team's map remembers what they saw", INSTRUCTIONS)
 
 
 def _doorstop_flagged(value):

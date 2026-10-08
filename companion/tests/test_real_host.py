@@ -27,6 +27,7 @@ import time
 import unittest
 
 from support import CONTRACTS, COMPANION, SRC, command, contract_problems, query
+from test_journal_boundary import JournalBoundaryCases
 from test_link import closed, raw_connect
 
 from enfractal_companion import link
@@ -581,6 +582,32 @@ class Embodiment(RealHostCase):
         self.assertEqual(held["data"]["entity"].get("held_by"), "avatar:companion")
         released = await self.ask(client, command("entity.release", {"actor": "avatar:companion"}, fresh_id("down")))
         self.assertTrue(released["ok"], released)
+        # The journal keeps the finished fetch: a fact the host wrote, the companion's own initiative.
+        journal = await self.ask(client, query("journal.read", {"about": "obj:doorstop", "kind": "task"}, fresh_id("q")))
+        done = [e for e in journal["data"]["entries"] if e["state"] == "done"]
+        self.assertTrue(done, journal)
+        self.assertEqual((done[0]["actor"], done[0]["directed_by"]), (COMPANION, COMPANION))
+        self.assertTrue(done[0]["line"].startswith('Fetched "'), done[0])
+
+
+# ---------------------------------------------------------------------------- the journal's boundary, on the real host
+
+class JournalOnTheRealHost(JournalBoundaryCases, RealHostCase):
+    """test_journal_boundary.py's cases against the kernel host. Both avatars see the whole test room from where they
+    stand, so nothing in it stays undiscovered: the leak cases compare ids and names from another room and from
+    nowhere."""
+
+    place_at = [0.75, 0.0, 1.0]
+
+    async def asyncSetUp(self):
+        await super().asyncSetUp()
+        await self.settle_rate()
+        self.link = self.client()
+
+    async def ask(self, message: dict) -> dict:
+        result = await self.link.request(message)
+        self.results.append(result)
+        return result
 
 
 # ---------------------------------------------------------------------------- the MCP server against the real host

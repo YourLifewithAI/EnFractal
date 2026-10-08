@@ -371,7 +371,7 @@ class LaunchedFromTheProfile(unittest.IsolatedAsyncioTestCase):
         parameters = StdioServerParameters(command=server["command"], args=server["args"], env=server.get("env"))
         async with Client(parameters, mode="legacy") as client:
             capabilities = client.server_capabilities
-            self.assertIsNone(capabilities.resources)
+            self.assertEqual([str(r.uri) for r in (await client.list_resources()).resources], ["enfractal://journal"])
             self.assertIsNone(capabilities.prompts)
             tools = (await client.list_tools()).tools
             self.assertEqual({t.name for t in tools}, {s.name for s in contracts().tool_specs()})

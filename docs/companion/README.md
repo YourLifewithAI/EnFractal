@@ -138,7 +138,7 @@ it on their own machine.
    `test_profile.py` shows both). The OpenClaw file sets no environment, because its persisted shape was not
    established; its `README.txt` entry says what to do if the server exits with that error.
 
-3. Check that the client lists 29 tools and no resources or prompts, then ask, for example: "Observe what
+3. Check that the client lists 29 tools, one resource (the journal) and no prompts, then ask, for example: "Observe what
    the companion can see, then set a follow goal for it." Expect an `observe` result listing the
    test-room props and a `goal_set` result with `"ok": true` and `"transient": true`.
 
