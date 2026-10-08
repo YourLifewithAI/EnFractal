@@ -239,7 +239,7 @@ public partial class CommandHostTest : Node3D
         Check(again["replayed"]!.GetValue<bool>() && _companion.CurrentIntent == "stay", "a goal retry replays its transient receipt and does not run twice");
         Check(Query("receipt.lookup", new JsonObject { ["action_id"] = "goal-0001" }, Companion)["data"]!["receipt"]!["transient"]!.GetValue<bool>(), "receipt.lookup finds transient receipts for the session");
         Check(Code(Send(Command("goal-0002", "goal.set", new JsonObject { ["actor"] = CommandHost.PlayerAvatar, ["goal"] = "follow" }), Companion)) == "actor_denied", "a companion may not direct the player");
-        Check(Code(Send(Command("goal-0003", "goal.set", new JsonObject { ["actor"] = CommandHost.CompanionAvatarId, ["goal"] = "fetch", ["target"] = "obj:book" }), Companion)) == "unsupported_capability", "fetch waits for the embodiment packet");
+        Check(Code(Send(Command("goal-0003", "goal.set", new JsonObject { ["actor"] = CommandHost.CompanionAvatarId, ["goal"] = "fetch", ["target"] = "shell:floor" }), Companion)) == "permission_denied", "fetch refuses what cannot be picked up (the floor), as entity.grab does");
         var point = Send(Command("goal-0004", "goal.set", new JsonObject { ["actor"] = CommandHost.CompanionAvatarId, ["goal"] = "point_at", ["target"] = "obj:table" }), Player);
         await Frames(20);
         Check(Ok(point) && _companion.IsPointing, "the player can direct the companion to point at the table");
@@ -884,8 +884,10 @@ public partial class CommandHostTest : Node3D
         var goTo = Aim("obj:doorstop", "go_to");
         Check(Ok(goTo) && goTo["data"]?["target_seen"]?.GetValue<string>() == "remembered" && _host.RunningGoal(CommandHost.CompanionAvatarId)?.Goal == "go_to",
             "go_to may aim at the remembered doorstop: the body walks there, a job judged on the memory");
-        Check(Code(Aim("obj:doorstop", "fetch")) == "unsupported_capability" && Code(Aim("obj:doorstop", "come")) == "unsupported_capability",
-            "fetch (with P3's verbs) and coming to a thing still wait, whatever the target");
+        var fetch = Aim("obj:doorstop", "fetch");
+        Check(Ok(fetch) && fetch["data"]?["target_seen"]?.GetValue<string>() == "remembered" && _host.RunningGoal(CommandHost.CompanionAvatarId)?.Goal == "fetch",
+            "fetch may aim at the remembered doorstop: the body walks there first, a job judged on the memory");
+        Check(Code(Aim("obj:doorstop", "come")) == "unsupported_capability", "coming to a thing still waits, whatever the target");
         var inSight = Aim("obj:box");
         Check(Ok(inSight) && inSight["data"]?["target_seen"]?.GetValue<string>() == "now" && inSight["data"]?["last_seen_ago_s"] == null, "a goal at something in sight says so");
         foreach (var goal in new[] { "follow", "stay", "wander" })

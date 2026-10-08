@@ -54,24 +54,55 @@ public partial class CommandHost
         var (actor, body) = SandboxActor(args, principal);
         RequireChange(principal);
         var target = Str(args, "target")!;
-        var entities = Entities();
-        var entity = Find(entities, target) ?? throw new Refusal("target_not_found", "That is not in this room.", "$.args.target");
-        var item = MovableObject(entity, "$.args.target", "That cannot be picked up.");
-        if (entity["protected"]!.GetValue<bool>()) throw new Refusal("target_protected", "That is protected. Only the player can unlock it.", "$.args.target");
-        var holder = entity["held_by"]?.GetValue<string>();
-        if (holder != null && holder != actor) throw new Refusal("target_busy", "Someone else is holding that.", "$.args.target");
-        if (holder == null)
-        {
-            if (_held.ContainsKey(actor)) throw new Refusal("target_busy", "This avatar is already holding something. Put it down first.", "$.args.actor");
-            var limit = SandboxRules.CarryLimitKg(actor);
-            if (item.Asset.MassKg > limit) throw TooHeavy("to pick up", item.Asset.MassKg, limit);
-            CheckReach(body, item, BoundsOf(entity));
-            CheckNothingOnIt(entities, entity);
-        }
+        var item = CheckGrab(actor, body, target);
         if (preview) return Previewed("entity.grab", principal, actionId, target);
         // Grabbing what this avatar already holds changes nothing and answers as a grab.
-        if (holder == null) TakeHold(actor, body, item, PoseOf(item, ObjectPoses()));
+        if (item != null) TakeHold(actor, body, item, PoseOf(item, ObjectPoses()));
         return Transient("entity.grab", principal, actionId, fingerprint, new JsonArray(target), null);
+    }
+
+    /// <summary>
+    /// entity.grab's checks for an actor and a thing (the command's, and a fetch's pick-up on arrival): the thing to take
+    /// hold of, or null when the actor already holds it. Refusals name the contract's codes and fields.
+    /// </summary>
+    private ObjectInstance? CheckGrab(string actor, SmallPlayerController body, string target)
+    {
+        var entities = Entities();
+        var entity = Find(entities, target) ?? throw new Refusal("target_not_found", "That is not in this room.", "$.args.target");
+        var item = CheckHoldable(entity, actor);
+        if (item == null) return null;
+        CheckReach(body, item, BoundsOf(entity));
+        CheckNothingOnIt(entities, entity);
+        return item;
+    }
+
+    /// <summary>
+    /// What may be picked up at all, judged on a summary (live, or as the requester remembers it): a movable object, not
+    /// protected, not held by another, an actor with empty hands, within its carry limit. Null when the actor holds it.
+    /// </summary>
+    private ObjectInstance? CheckHoldable(JsonObject entity, string actor)
+    {
+        var item = MovableObject(entity, "$.args.target", "That cannot be picked up.");
+        if (entity["protected"]!.GetValue<bool>()) throw new Refusal("target_protected", "That is protected. Only the player can unlock it.", "$.args.target");
+        // An avatar always knows what it holds itself; anyone else's hold is judged as the summary says (seen or remembered).
+        if (HeldBy(actor) == item.Id) return null;
+        var holder = entity["held_by"]?.GetValue<string>();
+        if (holder != null) throw new Refusal("target_busy", "Someone else is holding that.", "$.args.target");
+        if (_held.ContainsKey(actor)) throw new Refusal("target_busy", "This avatar is already holding something. Put it down first.", "$.args.actor");
+        var limit = SandboxRules.CarryLimitKg(actor);
+        if (item.Asset.MassKg > limit) throw TooHeavy("to pick up", item.Asset.MassKg, limit);
+        return item;
+    }
+
+    /// <summary>
+    /// A fetch's checks when it is set (contracts/README.md, Fetch): the pick-up's, on the thing as the requester sees or
+    /// remembers it, and a room the principal may change. Reach and what rests on it wait for arrival. True when the
+    /// actor already holds it, so the fetch starts on its way back.
+    /// </summary>
+    private bool CheckFetch(string principal, string actor, JsonObject known)
+    {
+        RequireChange(principal);
+        return CheckHoldable(known, actor) == null;
     }
 
     private JsonObject Release(JsonElement args, string principal, string actionId, Godot.Collections.Dictionary meta, bool preview)

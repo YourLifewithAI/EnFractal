@@ -68,6 +68,8 @@ public partial class CommandHost : Node
     public const float ArrivalReachM = 0.15f;
     /// <summary>A go_to stops with the body's centre this close to the target's footprint (within the 10 cm body's reach).</summary>
     public const float GoToStopM = 0.08f;
+    /// <summary>A come, go_to or fetch whose body has reported blocked this long without a break fails with target_unreachable.</summary>
+    public const double UnreachableAfterS = 5.0;
     public static readonly TimeSpan ApprovalLifetime = TimeSpan.FromMinutes(5);
     public const string RuntimeScript = "res://scripts/invention_runtime.gd";
 
@@ -107,8 +109,10 @@ public partial class CommandHost : Node
     private static readonly HashSet<string> RememberedTargetGoals = new() { "go_to", "look_at", "point_at", "come", "fetch" };
     /// <summary>What perception memory keeps: everything but the shell, which is always in sight.</summary>
     private static readonly HashSet<string> RememberedKinds = new() { "object", "creation", "avatar", "effect" };
-    /// <summary>The goals whose arrival the host watches on the companion's body itself; go_to and fetch arrive through ReportArrival (A2).</summary>
-    private static readonly HashSet<string> HostDrivenGoals = new() { "follow", "come", "look_at", "point_at", "go_to" };
+    /// <summary>The goals whose arrival the host watches on the companion's body itself (fetch in two phases: approach, then return).</summary>
+    private static readonly HashSet<string> HostDrivenGoals = new() { "follow", "come", "look_at", "point_at", "go_to", "fetch" };
+    /// <summary>The goals that walk somewhere: a body blocked on them for UnreachableAfterS fails them with target_unreachable.</summary>
+    private static readonly HashSet<string> WalkingGoals = new() { "come", "go_to", "fetch" };
     private static readonly HashSet<string> Affordances = new()
     {
         "walkable_top", "climbable", "sittable", "openable", "container", "soft", "breakable", "light_source", "switchable", "screen", "readable", "rideable", "hazard",
@@ -585,6 +589,7 @@ public partial class CommandHost : Node
         var data = new JsonObject { ["actor"] = actor, ["goal"] = goal };
         string? target = null;
         Aabb aim = default;
+        JsonObject? known = null;
         if (args.TryGetProperty("target", out var named))
         {
             target = named.GetString()!;
@@ -593,6 +598,7 @@ public partial class CommandHost : Node
             var remembered = principal != PlayerPrincipal && !_approving && !Perceives(principal, target) ? Recall(principal, target) : null;
             if (remembered != null)
             {
+                known = remembered.Summary;
                 aim = BoundsOf(remembered.Summary);
                 data["target_seen"] = "remembered";
                 data["last_seen_ago_s"] = AgeSeconds(remembered);
@@ -602,12 +608,15 @@ public partial class CommandHost : Node
             {
                 var summary = Entities().FirstOrDefault(e => e["id"]!.GetValue<string>() == target)
                     ?? throw new Refusal("target_not_found", "That is not in this room.", "$.args.target");
+                known = summary;
                 aim = BoundsOf(summary);
                 if (principal != PlayerPrincipal) data["target_seen"] = "now";
             }
         }
         Vector3? point = null;
         if (goal is "look_at" or "point_at") point = target != null ? aim.GetCenter() : KernelJson.ReadVector(args.GetProperty("position_m"));
+        // Fetch: P3's pick-up checks, on the thing as the requester sees or remembers it (reach waits for arrival).
+        var returning = goal == "fetch" && CheckFetch(principal, actor, known!);
         if (preview) return Previewed("goal.set", principal, actionId, actor);
         // A new goal replaces the old one, and with it the old goal's job.
         CancelGoal(actor);
@@ -621,9 +630,13 @@ public partial class CommandHost : Node
             case "go_to":
                 Companion.GoTo(target != null ? aim : new Aabb(KernelJson.ReadVector(args.GetProperty("position_m")), Vector3.Zero), GoToStopM);
                 break;
+            // Already holding it: straight to the return phase. Otherwise walk to it first.
+            case "fetch" when returning: Companion.Come(); break;
+            case "fetch": Companion.GoTo(aim, GoToStopM); break;
         }
         // A goal with a target runs as a job: the host re-checks the target when the avatar arrives.
         var job = target != null ? StartJob(principal, actor, actionId, goal, target, aim, Companion.IntentSerial) : null;
+        if (job != null && goal == "fetch") job.Phase = returning ? "return" : "approach";
         return Transient("goal.set", principal, actionId, fingerprint, new JsonArray(actor), data, job?.Id);
     }
 
@@ -1431,8 +1444,12 @@ public partial class CommandHost : Node
         public required string Target { get; init; }
         /// <summary>Where the goal aimed: the target's bounds as the requester saw (or remembered) them.</summary>
         public Aabb Aim { get; init; }
-        /// <summary>The body's IntentSerial for this goal; a different serial means a newer goal replaced it.</summary>
-        public int Serial { get; init; }
+        /// <summary>The body's IntentSerial for this goal; a different serial means a newer goal replaced it. A fetch moves it on when it turns for home.</summary>
+        public int Serial { get; set; }
+        /// <summary>Fetch only: "approach" (walking to the thing) or "return" (carrying it back to the player).</summary>
+        public string Phase { get; set; } = "";
+        /// <summary>How long the body has reported blocked without a break on this goal.</summary>
+        public double BlockedS { get; set; }
         public string State { get; set; } = "running";
         public JsonObject? Result { get; set; }
     }
@@ -1483,7 +1500,14 @@ public partial class CommandHost : Node
     public string? ReportArrival(string actor)
     {
         if (!_runningGoals.Remove(actor, out var job)) return null;
-        var principal = actor == CompanionAvatarId ? CompanionPrincipal : PlayerPrincipal;
+        Finish(job, ArrivalProblem(job));
+        return job.State;
+    }
+
+    /// <summary>The arrival re-check: what is wrong with the target from where the avatar stands now, or null.</summary>
+    private Refusal? ArrivalProblem(GoalJob job)
+    {
+        var principal = job.Actor == CompanionAvatarId ? CompanionPrincipal : PlayerPrincipal;
         HashSet<string> sight;
         _perceived = null;
         try
@@ -1493,16 +1517,56 @@ public partial class CommandHost : Node
         }
         finally { _perceived = null; }
         var target = Entities().FirstOrDefault(e => e["id"]!.GetValue<string>() == job.Target);
-        Refusal? error = null;
         if (target == null || !sight.Contains(job.Target))
-            error = new Refusal("target_not_found", "The target is not where it was seen. Observe and try again.", "$.args.target");
-        else if (job.Goal is not ("follow" or "come") && Gap(BoundsOf(target), job.Aim) > ArrivalReachM)
-            error = new Refusal("revision_conflict", "The target has moved since it was seen. Observe and try again.", "$.args.target", retryable: true);
+            return new Refusal("target_not_found", "The target is not where it was seen. Observe and try again.", "$.args.target");
+        if (job.Goal is not ("follow" or "come") && Gap(BoundsOf(target), job.Aim) > ArrivalReachM)
+            return new Refusal("revision_conflict", "The target has moved since it was seen. Observe and try again.", "$.args.target", retryable: true);
+        return null;
+    }
+
+    /// <summary>A job ends: succeeded with no error, else failed with it as the goal's result (no longer running).</summary>
+    private void Finish(GoalJob job, Refusal? error)
+    {
+        if (_runningGoals.TryGetValue(job.Actor, out var running) && running == job) _runningGoals.Remove(job.Actor);
         job.State = error == null ? "succeeded" : "failed";
         if (error != null) job.Result = Fail("goal.set", job.Principal, job.ActionId, null, error);
-        GoalFinished?.Invoke(actor, job.Id, job.State);
-        return job.State;
+        GoalFinished?.Invoke(job.Actor, job.Id, job.State);
     }
+
+    /// <summary>
+    /// A fetch reached its thing: the arrival re-check, then P3's pick-up under the job's principal with the companion's
+    /// avatar as the actor. A refusal fails the job with it; picked up, the job turns for home (a come to the player).
+    /// Nothing about the pick-up reaches the AI but held_by in entity.inspect.
+    /// </summary>
+    private void PickUp(GoalJob job)
+    {
+        try
+        {
+            if (ArrivalProblem(job) is { } problem) throw problem;
+            _perceived = null;
+            try
+            {
+                var body = BodyOf(job.Actor) ?? throw new Refusal("target_not_found", "There is no such actor in this room.", "$.args.actor");
+                RequireChange(job.Principal);
+                if (!Perceives(job.Principal, job.Target)) throw new Refusal("target_not_found", "The target is not where it was seen. Observe and try again.", "$.args.target");
+                if (CheckGrab(job.Actor, body, job.Target) is { } item) TakeHold(job.Actor, body, item, PoseOf(item, ObjectPoses()));
+            }
+            finally { _perceived = null; }
+        }
+        catch (Refusal refusal)
+        {
+            Finish(job, refusal);
+            return;
+        }
+        Companion!.Come();
+        job.Serial = Companion.IntentSerial;
+        job.Phase = "return";
+        job.BlockedS = 0;
+    }
+
+    /// <summary>A fetch came back to the player: done while the companion still holds the thing (it keeps holding it).</summary>
+    private void Delivered(GoalJob job) =>
+        Finish(job, HeldBy(job.Actor) == job.Target ? null : new Refusal("target_not_found", "The companion is no longer holding it.", "$.args.target"));
 
     /// <summary>The gap between two boxes (0 when they touch or overlap).</summary>
     private static float Gap(Aabb a, Aabb b)
@@ -1522,6 +1586,16 @@ public partial class CommandHost : Node
     public override void _PhysicsProcess(double delta)
     {
         if (Companion == null || !IsInstanceValid(Companion) || !_runningGoals.TryGetValue(CompanionAvatarId, out var job) || !HostDrivenGoals.Contains(job.Goal)) return;
+        if (job.Goal == "fetch" && job.Phase == "approach" && Companion.GoToArrivedSerial == job.Serial)
+        {
+            PickUp(job);
+            return;
+        }
+        if (job.Goal == "fetch" && job.Phase == "return" && Companion.ComeArrivedSerial == job.Serial)
+        {
+            Delivered(job);
+            return;
+        }
         if ((job.Goal == "come" && Companion.ComeArrivedSerial == job.Serial) || (job.Goal == "go_to" && Companion.GoToArrivedSerial == job.Serial))
         {
             ReportArrival(CompanionAvatarId);
@@ -1531,6 +1605,18 @@ public partial class CommandHost : Node
         {
             CancelGoal(CompanionAvatarId);
             return;
+        }
+        // A goal that walks somewhere and finds no way there (the body reports blocked for UnreachableAfterS without a
+        // break) fails honestly with target_unreachable, and the body stops trying.
+        if (WalkingGoals.Contains(job.Goal))
+        {
+            job.BlockedS = Companion.GoalBlocked ? job.BlockedS + delta : 0;
+            if (job.BlockedS >= UnreachableAfterS)
+            {
+                Finish(job, new Refusal("target_unreachable", "The companion cannot find a way there from here.", "$.args.target"));
+                Companion.Stay();
+                return;
+            }
         }
         if (job.Goal is "look_at" or "point_at" && Companion.FacesLookTarget) ReportArrival(CompanionAvatarId);
     }
@@ -1944,7 +2030,6 @@ public partial class CommandHost : Node
         "effect.start" => "Free-standing effects arrive with the first magic (Run 3).",
         "style.set" => "Restyling the room from a command arrives with the look runtime.",
         "room.undo" => "Undo arrives with room saves (Run 3).",
-        "goal.set" when Str(args, "goal") is "fetch" => "Fetching arrives with the sandbox verbs (Run 2, P3).",
         "goal.set" when Str(args, "goal") is "wander" => "Wandering is not available yet.",
         // Today the body follows and comes to the player only; staying by something waits for the goal runner too.
         "goal.set" when Str(args, "goal") is "follow" or "stay" or "come" && Str(args, "target") is { } target && (target != PlayerAvatar || Str(args, "goal") == "stay") =>

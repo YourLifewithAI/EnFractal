@@ -127,17 +127,38 @@ public sealed class SandboxPhysics
         facing.Y = 0;
         facing = facing.LengthSquared() > 1e-6f ? facing.Normalized() : Vector3.Forward;
         var feet = actor.GlobalPosition;
-        var at = feet + facing * (actor.BodyRadiusM + HalfAlong(thing.Rotation, thing.Size, facing) + 0.01f);
+        var noRoom = new Blocked("occupied", "There is no room to put it down here. Turn round or step back.", true);
+        // In front. Only when an avatar stands there (the player a fetch came back to) does it go beside the actor, or
+        // behind it: a wall or a thing in front still refuses, so a drop never reaches round what the actor faces.
+        var (front, frontBlocked, avatar) = DropToward(thing, actor, feet, facing);
+        if (front != null || !avatar) return (front, front != null ? null : frontBlocked ?? noRoom);
+        foreach (var turn in new[] { Mathf.Pi * 0.5f, -Mathf.Pi * 0.5f, Mathf.Pi })
+        {
+            var (rest, _, _) = DropToward(thing, actor, feet, facing.Rotated(Vector3.Up, turn));
+            if (rest != null) return (rest, null);
+        }
+        return (null, frontBlocked ?? noRoom);
+    }
+
+    /// <summary>A drop to one side of the actor: where it comes to rest, or why not, and whether an avatar was what stood in the way.</summary>
+    private (Rest? At, Blocked? Blocked, bool Avatar) DropToward(Thing thing, SmallPlayerController actor, Vector3 feet, Vector3 direction)
+    {
+        var at = feet + direction * (actor.BodyRadiusM + HalfAlong(thing.Rotation, thing.Size, direction) + 0.01f);
+        var avatar = false;
         // From where it is carried (over the head); with something low overhead, from just above the feet.
         foreach (var height in new[] { actor.BodyHeightM + SandboxRules.CarryGapM, actor.StepHeightM })
         {
             var start = new Vector3(at.X, feet.Y + height, at.Z);
-            if (start.Y + thing.Size.Y > _room.End.Y || !Free(thing, start, thing.Rotation, WorldMask | AvatarMask) || !PathClear(thing, thing.Position, start, thing.Rotation)) continue;
+            if (start.Y + thing.Size.Y > _room.End.Y || !Free(thing, start, thing.Rotation, WorldMask) || !PathClear(thing, thing.Position, start, thing.Rotation)) continue;
+            if (!Free(thing, start, thing.Rotation, AvatarMask))
+            {
+                avatar = true;
+                continue;
+            }
             var (rest, blocked) = Finish(thing, start, thing.Rotation, null);
-            if (rest != null) return (rest, null);
-            return (null, blocked);
+            return (rest, blocked, avatar || ReferenceEquals(blocked, AvatarInTheWay));
         }
-        return (null, new Blocked("occupied", "There is no room to put it down here. Turn round or step back.", true));
+        return (null, null, avatar);
     }
 
     /// <summary>
@@ -222,6 +243,7 @@ public sealed class SandboxPhysics
     }
 
     private static readonly Blocked InTheWay = new("occupied", "Something is in the way: it cannot be put there from here.", true);
+    private static readonly Blocked AvatarInTheWay = new("occupied", "An avatar is in the way.", true);
 
     /// <summary>Whether a supporting entity is part of the room a thing may rest on: the shell or another object, never a creation.</summary>
     public static bool RoomSupport(string support) => support.StartsWith("shell:", StringComparison.Ordinal) || support.StartsWith("obj:", StringComparison.Ordinal);
@@ -361,7 +383,7 @@ public sealed class SandboxPhysics
         var rounded = new Quaternion(Mathf.Snapped(rotation.X, 1e-6f), Mathf.Snapped(rotation.Y, 1e-6f), Mathf.Snapped(rotation.Z, 1e-6f), Mathf.Snapped(rotation.W, 1e-6f)).Normalized();
         var bounds = Bounds(pivot, rounded, thing.Size);
         if (!_room.Grow(0.001f).Encloses(bounds)) return (null, new Blocked("out_of_bounds", "It would not fit inside the room there."));
-        if (!Free(thing, pivot + Vector3.Up * 0.0005f, rounded, AvatarMask)) return (null, new Blocked("occupied", "An avatar is in the way.", true));
+        if (!Free(thing, pivot + Vector3.Up * 0.0005f, rounded, AvatarMask)) return (null, AvatarInTheWay);
         return (new Rest(pivot, rounded, bounds, support), null);
     }
 
