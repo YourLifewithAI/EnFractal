@@ -58,8 +58,8 @@ public partial class CommandHost : Node
     public const int MaxTransientPerPrincipal = 1024;
     public const int MaxPendingApprovals = 8;
     public const int CompanionMessagesPerSecond = 30;
-    /// <summary>Perception memory: at most this many entities per companion, the least recently seen forgotten first.</summary>
-    public const int PerceptionMemoryEntries = 256;
+    /// <summary>The team's map: at most this many entities (the contract's bound); routine out-of-sight entries go first, never what the team built or an open task's target.</summary>
+    public const int PerceptionMemoryEntries = MaxDiscoveredEntities;
     /// <summary>A remembered entity is marked may_be_stale once its memory is this old (or as soon as it changed).</summary>
     public const int PerceptionMemoryStaleAfterS = 60;
     /// <summary>Goal jobs kept per principal for jobs.status; the oldest finished is dropped first.</summary>
@@ -142,6 +142,13 @@ public partial class CommandHost : Node
     public int PerceptionMemoryLimit { get; internal set; } = PerceptionMemoryEntries;
     /// <summary>The age at which a memory is marked may_be_stale (PerceptionMemoryStaleAfterS). Tests lower it.</summary>
     public TimeSpan PerceptionMemoryStaleAfter { get; internal set; } = TimeSpan.FromSeconds(PerceptionMemoryStaleAfterS);
+    /// <summary>
+    /// The team's sight (JOURNAL.md): for the companion, "in sight now" is in sight of either avatar's eyes, and the player's
+    /// avatar is always known. Queries and command checks use it; observe stays the named avatar's own eyes. Off only for
+    /// suites that test one avatar's line of sight.
+    /// </summary>
+    public static bool DefaultSharedSight { get; set; } = true;
+    public bool SharedSight { get; set; } = DefaultSharedSight;
     /// <summary>Goal jobs kept per principal (MaxJobsPerPrincipal). Tests lower it.</summary>
     public int JobLimit { get; internal set; } = MaxJobsPerPrincipal;
 
@@ -461,8 +468,6 @@ public partial class CommandHost : Node
                 return Hold(root, principal, actionId, fingerprint, op, reason, touched);
             var meta = new Godot.Collections.Dictionary { ["fingerprint"] = fingerprint, ["op"] = op, ["at_utc"] = Now() };
             if (approvedBy != null) meta["approved_by"] = approvedBy;
-            // What a removal takes away, as it was, for the journal's fact.
-            var before = op == "entity.remove" ? Entities().FirstOrDefault(e => e["id"]!.GetValue<string>() == Str(args, "target")) : null;
             var result = op switch
             {
                 "creation.place" or "creation.revise" => PlaceOrRevise(op, args, principal, actionId, meta, preview, approvedBy),
@@ -481,10 +486,6 @@ public partial class CommandHost : Node
                 "journal.note" => Note(args, principal, actionId, meta, preview),
                 _ => throw new Refusal("unsupported_capability", "This operation is not available yet.", "$.op"),
             };
-            // The journal writer: a creation built, changed or removed is a fact, written once (never for a preview or a replay).
-            if (!preview && op is "creation.place" or "creation.revise" or "entity.remove" && result["ok"]!.GetValue<bool>() && result["replayed"]?.GetValue<bool>() != true &&
-                (op != "entity.remove" || Str(args, "target")!.StartsWith("creation:", StringComparison.Ordinal)))
-                CreationFact(op, principal, approvedBy, result, before);
             return result;
         }
         catch (Refusal refusal) { return Fail(op, principal, actionId, null, refusal); }
@@ -531,7 +532,17 @@ public partial class CommandHost : Node
         };
         if (on.Length > 0) request["on"] = on;
         if (instanceId.Length > 0) request["instance_id"] = instanceId;
-        return Submit(request, principal, actionId, meta);
+        // The journal's fact goes in the same save as the creation and its receipt (review major 3): the same candidate
+        // path the commit takes names the creation and where it will stand.
+        var candidate = Authority.Call("preflight", principal, source, x, z, yaw, instanceId, y, on, approvedBy ?? "").AsGodotDictionary();
+        if (!candidate["ok"].AsBool()) throw Translate(candidate);
+        var at = candidate["position_m"].AsGodotArray();
+        var fact = CreationFact(op, principal, approvedBy, candidate["instance_id"].AsString(),
+            candidate["artifact"].AsGodotDictionary()["source"].AsGodotDictionary()["name"].AsString(), new Vector3((float)at[0].AsDouble(), (float)at[1].AsDouble(), (float)at[2].AsDouble()));
+        request["team"] = FactTeam(fact);
+        var result = Submit(request, principal, actionId, meta);
+        AddHistory(fact);
+        return result;
     }
 
     private JsonObject Remove(JsonElement args, string principal, string actionId, Godot.Collections.Dictionary meta, bool preview, string? approvedBy)
@@ -548,7 +559,13 @@ public partial class CommandHost : Node
             ["op"] = "remove", ["action_id"] = actionId, ["instance_id"] = target,
             ["expected_revision"] = Revision, ["expected_permission_revision"] = PermissionRevision,
         };
-        return Submit(request, principal, actionId, meta);
+        // The removal's fact is saved with the removal and its receipt (review major 3).
+        var gone = Entities().First(e => e["id"]!.GetValue<string>() == target);
+        var fact = CreationFact("entity.remove", principal, approvedBy, target, gone["display_name"]?.GetValue<string>(), BoundsOf(gone).GetCenter());
+        request["team"] = FactTeam(fact);
+        var result = Submit(request, principal, actionId, meta);
+        AddHistory(fact);
+        return result;
     }
 
     private JsonObject Protect(string op, JsonElement args, string principal, string actionId, Godot.Collections.Dictionary meta, bool preview)
@@ -648,11 +665,15 @@ public partial class CommandHost : Node
             case "fetch" when returning: Companion.Come(); break;
             case "fetch": Companion.GoTo(aim, GoToStopM); break;
         }
-        // A goal with a target runs as a job: the host re-checks the target when the avatar arrives.
-        var job = target != null ? StartJob(principal, actor, actionId, goal, target, aim, Companion.IntentSerial) : null;
+        // A goal with a target runs as a job: the host re-checks the target when the avatar arrives. A walk with no thing to
+        // walk to (come, go_to a place) is watched the same way for arrival and the unreachable timeout, with no job to report.
+        var job = target != null ? StartJob(principal, actor, actionId, goal, target, aim, Companion.IntentSerial)
+            : goal is "come" or "go_to" ? StartJob(principal, actor, actionId, goal, goal == "come" ? PlayerAvatar : "",
+                goal == "go_to" ? new Aabb(KernelJson.ReadVector(args.GetProperty("position_m")), Vector3.Zero) : default, Companion.IntentSerial, exposed: false)
+            : null;
         if (job != null && goal == "fetch") job.Phase = returning ? "return" : "approach";
         if (job != null) TaskStarted(job, known);
-        return Transient("goal.set", principal, actionId, fingerprint, new JsonArray(actor), data, job?.Id);
+        return Transient("goal.set", principal, actionId, fingerprint, new JsonArray(actor), data, job is { Exposed: true } ? job.Id : null);
     }
 
     /// <summary>
@@ -1034,7 +1055,8 @@ public partial class CommandHost : Node
         // A companion's own sight was taken (and remembered) for this request; the player looking through either
         // avatar's eyes never touches a companion's memory.
         var own = actor == (principal == CompanionPrincipal ? CompanionAvatarId : PlayerAvatar);
-        var sight = own ? Perception(principal, entities) : Perceive(body, actor, entities);
+        // observe is the named avatar's own eyes, never the team's (the companion's own look already filled the map).
+        var sight = Perceive(body, actor, entities);
         var visible = new List<(float Distance, JsonObject Entity)>();
         foreach (var entity in entities)
         {
@@ -1184,8 +1206,15 @@ public partial class CommandHost : Node
     private HashSet<string> Perception(string principal, List<JsonObject>? entities = null)
     {
         if (_perceived != null) return _perceived;
+        var all = entities ?? Entities();
         var body = principal == CompanionPrincipal ? Companion : Player;
-        _perceived = Perceive(body, principal == CompanionPrincipal ? CompanionAvatarId : PlayerAvatar, entities ?? Entities());
+        _perceived = Perceive(body, principal == CompanionPrincipal ? CompanionAvatarId : PlayerAvatar, all);
+        // The team's sight: what the player's avatar sees is in sight now too, and the player is always known.
+        if (principal == CompanionPrincipal && SharedSight && Player != null && IsInstanceValid(Player))
+        {
+            _perceived.UnionWith(Perceive(Player, PlayerAvatar, all));
+            _perceived.Add(PlayerAvatar);
+        }
         return _perceived;
     }
 
@@ -1342,7 +1371,7 @@ public partial class CommandHost : Node
     /// What one avatar's eyes see now goes into the team's map (the companion's on each of its messages, both avatars' on
     /// the host's sight sweep): remembered afresh, what changed out of its sight marked, what is seen gone dropped.
     /// </summary>
-    private void Remember(SmallPlayerController body, string ownAvatar, List<JsonObject> entities, HashSet<string> sight)
+    private void Remember(SmallPlayerController body, string ownAvatar, List<JsonObject> entities, HashSet<string> sight, HashSet<string>? considered = null)
     {
         var memory = MemoryOf(CompanionPrincipal);
         if (PerceptionMemoryLimit <= 0)
@@ -1354,7 +1383,8 @@ public partial class CommandHost : Node
         var owners = LockOwners();
         foreach (var id in memory.Order.ToList())
         {
-            if (sight.Contains(id)) continue;
+            // A sweep looks at some things each time: what it did not look at is neither changed nor gone as far as it knows.
+            if (sight.Contains(id) || (considered != null && !considered.Contains(id))) continue;
             var entry = memory.Entries[id];
             if (!entry.Changed && (!byId.TryGetValue(id, out var now) || !SameAsSeen(entry, now, owners.GetValueOrDefault(id, ""))))
                 entry.Changed = true;
@@ -1372,7 +1402,24 @@ public partial class CommandHost : Node
                 Summary = (JsonObject)entity.DeepClone(), ProtectedBy = owners.GetValueOrDefault(id, ""), SeenAt = Clock(), SeenRevision = Revision,
             });
         }
-        while (memory.Order.Count > PerceptionMemoryLimit) memory.Remove(memory.Order[0]);
+        // Past the bound: routine things out of sight go first, least recently seen; then routine things in sight. What the
+        // team built and the targets of open tasks are never dropped (review major 6).
+        var kept = TaskTargets();
+        bool Routine(string id) => !id.StartsWith("creation:", StringComparison.Ordinal) && !kept.Contains(id);
+        while (memory.Order.Count > PerceptionMemoryLimit)
+        {
+            var victim = memory.Order.FirstOrDefault(id => Routine(id) && !sight.Contains(id)) ?? memory.Order.FirstOrDefault(Routine);
+            if (victim == null) break;
+            memory.Remove(victim);
+        }
+    }
+
+    /// <summary>The targets of running goals and open tasks: kept on the team's map whatever its bound.</summary>
+    private HashSet<string> TaskTargets()
+    {
+        var targets = new HashSet<string>(_runningGoals.Values.Select(j => j.Target), StringComparer.Ordinal);
+        targets.UnionWith(_taskTargets.Values);
+        return targets;
     }
 
     /// <summary>
@@ -1478,24 +1525,28 @@ public partial class CommandHost : Node
         public int Serial { get; set; }
         /// <summary>Fetch only: "approach" (walking to the thing) or "return" (carrying it back to the player).</summary>
         public string Phase { get; set; } = "";
+        /// <summary>False for a walk with no thing to walk to: watched, but never in jobs.status or the journal.</summary>
+        public bool Exposed { get; init; } = true;
         /// <summary>How long the body has reported blocked without a break on this goal.</summary>
         public double BlockedS { get; set; }
         public string State { get; set; } = "running";
         public JsonObject? Result { get; set; }
     }
 
-    private GoalJob StartJob(string principal, string actor, string actionId, string goal, string target, Aabb aim, int serial)
+    private GoalJob StartJob(string principal, string actor, string actionId, string goal, string target, Aabb aim, int serial, bool exposed = true)
     {
         var job = new GoalJob
         {
             // 'job-' and 26 lowercase base32 characters (130 random bits): the contract's pattern, which no counter can match.
             Id = "job-" + System.Security.Cryptography.RandomNumberGenerator.GetString("abcdefghijklmnopqrstuvwxyz234567", 26), Principal = principal, Actor = actor, ActionId = actionId, Goal = goal, Target = target, Aim = aim, Serial = serial,
+            Exposed = exposed,
         };
+        _runningGoals[actor] = job;
+        if (!exposed) return job;
         if (!_jobs.TryGetValue(principal, out var mine)) _jobs[principal] = mine = new List<GoalJob>();
         mine.Add(job);
         // At most JobLimit per principal: the oldest finished go first (a running job is never dropped).
         while (mine.Count > JobLimit && mine.FirstOrDefault(j => j.State != "running") is { } finished) mine.Remove(finished);
-        _runningGoals[actor] = job;
         return job;
     }
 
@@ -1538,6 +1589,8 @@ public partial class CommandHost : Node
     /// <summary>The arrival re-check: what is wrong with the target from where the avatar stands now, or null.</summary>
     private Refusal? ArrivalProblem(GoalJob job)
     {
+        // A walk to a place has nothing to re-check.
+        if (job.Target.Length == 0) return null;
         var principal = job.Actor == CompanionAvatarId ? CompanionPrincipal : PlayerPrincipal;
         HashSet<string> sight;
         _perceived = null;

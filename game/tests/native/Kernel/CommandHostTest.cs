@@ -46,9 +46,10 @@ public partial class CommandHostTest : Node3D
             _dump = OS.GetCmdlineUserArgs().FirstOrDefault(a => a.StartsWith("--dump=", StringComparison.Ordinal))?["--dump=".Length..];
             if (_dump != null) System.IO.Directory.CreateDirectory(_dump);
             RemoveSave();
-            // These checks are of the companion's own sight: the host's sweep of both avatars' eyes into the team's map is
-            // off here (the journal suite, native_kernel_journal.tscn, runs it).
+            // These checks are of the companion's own line of sight: the host's sweep of both avatars' eyes into the team's map
+            // and the team's shared sight are off here (the journal suite, native_kernel_journal.tscn, runs both).
             CommandHost.DefaultTeamSightIntervalS = 0;
+            CommandHost.DefaultSharedSight = false;
             _room = RoomData.Load(RoomWorld.DefaultRoom);
             // The game's layout (user://saves/rooms/<room>/<manifest prefix>/inventions.json) under the test folder, with an
             // older manifest's save beside it: the host must tell the player those creations were not loaded.
@@ -1037,14 +1038,20 @@ public partial class CommandHostTest : Node3D
     private async Task TestMemoryBounds()
     {
         _host.ClearPerceptionMemory(Companion);
-        _host.PerceptionMemoryLimit = 2;
+        // Creations are never dropped (review major 6), so the bound leaves room for every creation in the room and two more.
+        var bound = _host.Entities().Count(e => e["kind"]!.GetValue<string>() == "creation") + 2;
+        _host.PerceptionMemoryLimit = bound;
         await MoveCompanion(CompanionSpawn, "to its spawn");
-        var nearest = NearestVisible(2);
-        Check(_host.RememberedIds(Companion).SequenceEqual(new[] { nearest[1], nearest[0] }), $"memory keeps the two nearest of what it saw, the nearer last ({string.Join(", ", _host.RememberedIds(Companion))})");
+        // Past the bound routine things go, never what the team built (review major 6): creations stay, beyond the two.
+        List<string> Routine() => _host.RememberedIds(Companion).Where(id => !id.StartsWith("creation:", StringComparison.Ordinal)).ToList();
+        List<string> NearestRoutine() => NearestVisible(100).Where(id => !id.StartsWith("creation:", StringComparison.Ordinal)).Take(2).ToList();
+        var nearest = NearestRoutine();
+        Check(Routine().TakeLast(2).SequenceEqual(new[] { nearest[1], nearest[0] }) && _host.RememberedIds(Companion).Count <= bound,
+            $"past its bound memory keeps the nearest routine things it saw, the nearer last, and every creation ({string.Join(", ", _host.RememberedIds(Companion))})");
         await MoveCompanion(BehindTheBox, "behind the box");
         _now += TimeSpan.FromSeconds(1);
-        nearest = NearestVisible(2);
-        Check(_host.RememberedIds(Companion).SequenceEqual(new[] { nearest[1], nearest[0] }), "new sightings push out the least recently seen");
+        nearest = NearestRoutine();
+        Check(Routine().TakeLast(2).SequenceEqual(new[] { nearest[1], nearest[0] }) && _host.RememberedIds(Companion).Count <= bound, "new sightings push out the least recently seen routine things");
         Check(Listed().Values.Where(i => i["seen"]?.GetValue<string>() == "remembered").All(i => _host.RememberedIds(Companion).Contains(i["id"]!.GetValue<string>())),
             "only what memory holds is listed as remembered");
 

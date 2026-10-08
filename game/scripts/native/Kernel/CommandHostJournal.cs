@@ -38,6 +38,14 @@ public partial class CommandHost
     /// <summary>The host's sight sweep: both avatars' eyes fill the team's map this often (0 turns it off; tests of one avatar's sight).</summary>
     public static double DefaultTeamSightIntervalS { get; set; } = 0.25;
     public double TeamSightIntervalS { get; set; } = DefaultTeamSightIntervalS;
+    /// <summary>Cells looked at per avatar per sweep, at most (the enumeration's bound; review major 4).</summary>
+    public const int DiscoverCandidatesPerSweep = 8192;
+    /// <summary>A cell a ray did not reach waits this many sweeps before it is tried again, so it never starves farther cells.</summary>
+    public const int DiscoverRetrySweeps = 16;
+    /// <summary>Objects and creations whose sight each avatar's sweep checks, at most, in turn (15 rays each).</summary>
+    public const int SweepEntitiesPerAvatar = 48;
+    /// <summary>All levels' bitmaps together stay under this many bytes, leaving the save room for receipts and the journal (review minor 9).</summary>
+    public const int MaxDiscoveredLevelBytes = 256 * 1024;
     /// <summary>Newly discovered space and sightings are saved at most this often (journal entries are saved at once).</summary>
     public double TeamSaveIntervalS { get; set; } = 5.0;
 
@@ -61,6 +69,12 @@ public partial class CommandHost
     /// <summary>This session: each running job's task entry.</summary>
     private readonly Dictionary<string, string> _taskOfJob = new(StringComparer.Ordinal);
     private readonly SortedDictionary<string, Level> _levels = new(StringComparer.Ordinal);
+    /// <summary>This session: each open task's target, so a task about something the team had not seen can name it once it is seen.</summary>
+    private readonly Dictionary<string, string> _taskTargets = new(StringComparer.Ordinal);
+    /// <summary>Cells a ray did not reach, and the sweep before which they are not tried again.</summary>
+    private readonly Dictionary<(string Support, int Cell), int> _cellCooldown = new();
+    private int _sweepCount;
+    private int _sweepEntityCursor;
     private double _sightClock;
     private double _saveClock;
     private bool _teamDirty;
@@ -82,6 +96,9 @@ public partial class CommandHost
 
     // ---- the journal writer ----
 
+    /// <summary>A journal entry's real time, to the millisecond, so entries written within one second keep their order.</summary>
+    private string EntryTime() => Clock().ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", System.Globalization.CultureInfo.InvariantCulture);
+
     private static string NewEntryId() => "entry-" + System.Security.Cryptography.RandomNumberGenerator.GetString(Base32, 26);
 
     /// <summary>A name as a fact's line quotes it: display text, at most 60 characters, its own quotes turned to apostrophes.</summary>
@@ -101,11 +118,11 @@ public partial class CommandHost
     private static string Direction(string actor, string directedBy) =>
         actor == PlayerPrincipal ? "" : directedBy == PlayerPrincipal ? ", at the player's direction" : ", on its own initiative";
 
-    private JsonObject Fact(string kind, string line, string actor, string directedBy, string? subjectId, string? subjectName, Vector3? pin, string? state = null)
+    private JsonObject Fact(string kind, string line, string actor, string directedBy, string? subjectId, string? subjectName, Vector3? pin, string? state = null, int? revision = null)
     {
         var entry = new JsonObject
         {
-            ["entry_id"] = NewEntryId(), ["kind"] = kind, ["at_utc"] = Now(), ["revision"] = Revision,
+            ["entry_id"] = NewEntryId(), ["kind"] = kind, ["at_utc"] = EntryTime(), ["revision"] = revision ?? Revision,
             ["line"] = KernelJson.DisplayText(line, 200), ["actor"] = actor, ["directed_by"] = directedBy,
         };
         if (subjectId != null) entry["subject"] = new JsonObject { ["entities"] = new JsonArray(subjectId), ["name"] = SubjectName(subjectName) };
@@ -114,38 +131,82 @@ public partial class CommandHost
         return entry;
     }
 
-    private void AddHistory(JsonObject entry)
+    private static void AddTo(List<JsonObject> history, JsonObject entry)
     {
-        _history.Add(entry);
+        history.Add(entry);
         // The oldest found and gathered entries go first, then other routine ones; built and changed are kept.
-        while (_history.Count > MaxHistory)
+        while (history.Count > MaxHistory)
         {
-            var drop = _history.FindIndex(e => e["kind"]!.GetValue<string>() is "found" or "gathered");
-            if (drop < 0) drop = _history.FindIndex(e => e["kind"]!.GetValue<string>() is not ("built" or "changed"));
-            _history.RemoveAt(drop < 0 ? 0 : drop);
+            var drop = history.FindIndex(e => e["kind"]!.GetValue<string>() is "found" or "gathered");
+            if (drop < 0) drop = history.FindIndex(e => e["kind"]!.GetValue<string>() is not ("built" or "changed"));
+            history.RemoveAt(drop < 0 ? 0 : drop);
         }
     }
 
-    /// <summary>A goal job started: its task opens in "Working on" (fetch, follow, come, go_to; looking and pointing are not journaled).</summary>
+    private void AddHistory(JsonObject entry) => AddTo(_history, entry);
+
+    /// <summary>
+    /// Whether the team knows a thing: the avatars always; otherwise it is on the team's map or in sight of either avatar now.
+    /// Only what the team knows may be named in the journal (review major 7).
+    /// </summary>
+    private bool KnownToTeam(string id)
+    {
+        if (id is PlayerAvatar or CompanionAvatarId || TeamMemory().Entries.ContainsKey(id)) return true;
+        var entities = Entities();
+        foreach (var (body, avatar) in new (SmallPlayerController?, string)[] { (Player, PlayerAvatar), (Companion, CompanionAvatarId) })
+            if (body != null && IsInstanceValid(body) && Perceive(body, avatar, entities).Contains(id)) return true;
+        return false;
+    }
+
+    /// <summary>A thing's name and place as the team knows it: as last seen on the map, else as seen now; null when the team does not know it.</summary>
+    private (string Name, Vector3 Pin)? TeamView(string id)
+    {
+        if (TeamMemory().Entries.TryGetValue(id, out var seen)) return (seen.Summary["display_name"]!.GetValue<string>(), BoundsOf(seen.Summary).GetCenter());
+        if (!KnownToTeam(id)) return null;
+        var live = Entities().FirstOrDefault(e => e["id"]!.GetValue<string>() == id);
+        return live == null ? null : (live["display_name"]!.GetValue<string>(), BoundsOf(live).GetCenter());
+    }
+
+    private static string TaskLine(string goal, string? name, string actor, string directedBy) => goal switch
+    {
+        "fetch" => "Fetching " + (name == null ? "something" : Quoted(name)) + Direction(actor, directedBy),
+        "follow" => "Following you",
+        "come" => "Coming to you",
+        _ => "Going to " + (name == null ? "somewhere" : Quoted(name)),
+    };
+
+    /// <summary>
+    /// A goal job started: its task opens in "Working on" (fetch, follow, come, go_to; looking and pointing are not journaled).
+    /// Its subject and pin come only from the team's knowledge: a thing neither avatar has seen is "something", with no id
+    /// and no place, until the team sees it.
+    /// </summary>
     private void TaskStarted(GoalJob job, JsonObject? known)
     {
-        if (!TaskGoals.Contains(job.Goal)) return;
+        if (!TaskGoals.Contains(job.Goal) || !job.Exposed) return;
         var actor = job.Actor == CompanionAvatarId ? CompanionPrincipal : PlayerPrincipal;
-        var name = known?["display_name"]?.GetValue<string>();
-        var line = job.Goal switch
-        {
-            "fetch" => "Fetching " + Quoted(name) + Direction(actor, job.Principal),
-            "follow" => "Following you",
-            "come" => "Coming to you",
-            _ => "Going to " + Quoted(name),
-        };
-        var pin = job.Target == PlayerAvatar ? (Vector3?)null : job.Aim.GetCenter();
-        var task = Fact("task", line, actor, job.Principal, job.Target, job.Target == PlayerAvatar ? "Player" : name, pin, "active");
+        var view = job.Target == PlayerAvatar ? ("Player", Vector3.Zero) : TeamView(job.Target);
+        var task = Fact("task", TaskLine(job.Goal, view?.Name, actor, job.Principal), actor, job.Principal, view == null ? null : job.Target, view?.Name,
+            view == null || job.Target == PlayerAvatar ? null : view.Value.Pin, "active");
         while (_openTasks.Count >= MaxOpenTasks) CloseTask(_openTasks[0], "cancelled");
         _openTasks.Add(task);
-        _taskGoals[task["entry_id"]!.GetValue<string>()] = job.Goal;
-        _taskOfJob[job.Id] = task["entry_id"]!.GetValue<string>();
+        var entryId = task["entry_id"]!.GetValue<string>();
+        _taskGoals[entryId] = job.Goal;
+        _taskTargets[entryId] = job.Target;
+        _taskOfJob[job.Id] = entryId;
         SaveTeam();
+    }
+
+    /// <summary>Open tasks about something the team had not seen get their subject once it has (the task is updated in place).</summary>
+    private void NameSeenTasks()
+    {
+        foreach (var task in _openTasks.Where(t => t["subject"] == null).ToList())
+        {
+            var entryId = task["entry_id"]!.GetValue<string>();
+            if (!_taskTargets.TryGetValue(entryId, out var target) || target.Length == 0 || TeamView(target) is not { } view) continue;
+            task["subject"] = new JsonObject { ["entities"] = new JsonArray(target), ["name"] = SubjectName(view.Name) };
+            task["pin_m"] = KernelJson.Vector(view.Pin);
+            task["line"] = KernelJson.DisplayText(TaskLine(_taskGoals.GetValueOrDefault(entryId, "go_to"), view.Name, task["actor"]!.GetValue<string>(), task["directed_by"]!.GetValue<string>()), 200);
+        }
     }
 
     /// <summary>A goal job ended: its task closes; a fetch stays in the history as done, failed or stopped, the others leave none.</summary>
@@ -154,6 +215,7 @@ public partial class CommandHost
         if (!_taskOfJob.Remove(job.Id, out var entryId)) return;
         var task = _openTasks.FirstOrDefault(t => t["entry_id"]!.GetValue<string>() == entryId);
         if (task == null) return;
+        NameSeenTasks();
         CloseTask(task, job.State switch { "succeeded" => "done", "failed" => "failed", _ => "cancelled" });
         SaveTeam();
     }
@@ -163,32 +225,40 @@ public partial class CommandHost
         var entryId = task["entry_id"]!.GetValue<string>();
         _openTasks.Remove(task);
         _taskGoals.Remove(entryId, out var goal);
+        _taskTargets.Remove(entryId);
         if (goal == null || !RecordedGoals.Contains(goal)) return;
-        var name = Quoted(task["subject"]?["name"]?.GetValue<string>());
+        var subject = task["subject"]?["name"]?.GetValue<string>();
+        var name = subject == null ? "something" : Quoted(subject);
         var actor = task["actor"]!.GetValue<string>();
         var directedBy = task["directed_by"]!.GetValue<string>();
         var line = state switch { "done" => "Fetched " + name, "failed" => "Could not fetch " + name, _ => "Stopped fetching " + name } + Direction(actor, directedBy);
         var closed = (JsonObject)task.DeepClone();
         closed["line"] = KernelJson.DisplayText(line, 200);
         closed["state"] = state;
-        closed["at_utc"] = Now();
+        closed["at_utc"] = EntryTime();
         closed["revision"] = Revision;
         AddHistory(closed);
     }
 
-    /// <summary>A creation was built, changed or removed: a fact, with who acted and at whose direction (the player when the player approved it).</summary>
-    private void CreationFact(string op, string principal, string? approvedBy, JsonObject result, JsonObject? before)
+    /// <summary>
+    /// The fact a creation command will write (built, changed, removed), with who acted and at whose direction (the player
+    /// when the player approved it), dated at the revision the command commits at. It is saved in the same write as the
+    /// creation and its receipt (review major 3): see FactTeam.
+    /// </summary>
+    private JsonObject CreationFact(string op, string principal, string? approvedBy, string id, string? name, Vector3 pin)
     {
         var directedBy = approvedBy ?? principal;
-        var id = op == "creation.place" ? result["created"]?[0]?.GetValue<string>() : result["affected"]?[0]?.GetValue<string>();
-        if (id == null) return;
-        var now = op == "entity.remove" ? before : Entities().FirstOrDefault(e => e["id"]!.GetValue<string>() == id);
-        if (now == null) return;
-        var name = now["display_name"]?.GetValue<string>();
         var (kind, verb) = op switch { "creation.place" => ("built", "built"), "creation.revise" => ("changed", "changed"), _ => ("removed", "removed") };
         var line = principal == PlayerPrincipal ? $"You {verb} {Quoted(name)}" : $"{char.ToUpperInvariant(verb[0])}{verb[1..]} {Quoted(name)}{Direction(principal, directedBy)}";
-        AddHistory(Fact(kind, line, principal, directedBy, id, name, BoundsOf(now).GetCenter()));
-        SaveTeam();
+        return Fact(kind, line, principal, directedBy, id, name, pin, revision: Revision + 1);
+    }
+
+    /// <summary>The team block with one more fact in the history, for the authority to save with the command that made it.</summary>
+    private Godot.Collections.Dictionary FactTeam(JsonObject fact)
+    {
+        var history = _history.ToList();
+        AddTo(history, fact);
+        return KernelJson.ToVariant(ExportTeam(_notes, history)).AsGodotDictionary();
     }
 
     // ---- journal.note, journal.read, map.find ----
@@ -199,7 +269,7 @@ public partial class CommandHost
         if (preview) return Previewed("journal.note", principal, actionId);
         var entry = new JsonObject
         {
-            ["entry_id"] = NewEntryId(), ["kind"] = "note", ["at_utc"] = Now(), ["revision"] = Revision,
+            ["entry_id"] = NewEntryId(), ["kind"] = "note", ["at_utc"] = EntryTime(), ["revision"] = Revision,
             ["author"] = principal, ["text"] = text, ["untrusted"] = true,
         };
         var notes = _notes.Select(n => n).Append(entry).ToList();
@@ -225,6 +295,7 @@ public partial class CommandHost
             (kind == null || e["kind"]!.GetValue<string>() == kind) &&
             (about == null || (e["subject"]?["entities"]?.AsArray().Any(x => x!.GetValue<string>() == about) ?? false)) &&
             (since == null || string.CompareOrdinal(e["at_utc"]!.GetValue<string>(), since) >= 0);
+        NameSeenTasks();
         var jobOfTask = _taskOfJob.ToDictionary(p => p.Value, p => p.Key, StringComparer.Ordinal);
         var open = _openTasks.Where(Match).Reverse().Select(t =>
         {
@@ -284,7 +355,11 @@ public partial class CommandHost
     /// <summary>The team's map (one team in single player): the store the companion's perception memory became.</summary>
     private PerceptionMemory TeamMemory() => MemoryOf(CompanionPrincipal);
 
-    /// <summary>The host's sight sweep: what each avatar's eyes see goes into the team's map, entities and space.</summary>
+    /// <summary>
+    /// The host's sight sweep: what each avatar's eyes see goes into the team's map, entities and space. Each sweep is
+    /// bounded: at most SweepEntitiesPerAvatar things are looked at per avatar, in turn, and at most DiscoverRaysPerSweep
+    /// cells, nearest first among those not tried lately.
+    /// </summary>
     private void SightSweep(double delta)
     {
         if (TeamSightIntervalS <= 0 || Authority == null || !Authority.Call("is_ready").AsBool()) return;
@@ -293,23 +368,38 @@ public partial class CommandHost
         if (_sightClock >= TeamSightIntervalS)
         {
             _sightClock = 0;
+            _sweepCount++;
             var entities = Entities();
             RefreshLevels(entities);
+            var things = entities.Where(e => e["kind"]!.GetValue<string>() is "object" or "creation").ToList();
+            var turn = things.Count <= SweepEntitiesPerAvatar ? things
+                : Enumerable.Range(0, SweepEntitiesPerAvatar).Select(i => things[(_sweepEntityCursor + i) % things.Count]).ToList();
+            _sweepEntityCursor = things.Count == 0 ? 0 : (_sweepEntityCursor + SweepEntitiesPerAvatar) % things.Count;
+            var looked = entities.Where(e => e["kind"]!.GetValue<string>() is "avatar" or "shell").Concat(turn).ToList();
+            var considered = new HashSet<string>(looked.Select(e => e["id"]!.GetValue<string>()), StringComparer.Ordinal);
             foreach (var (body, avatar) in new (SmallPlayerController?, string)[] { (Player, PlayerAvatar), (Companion, CompanionAvatarId) })
             {
                 if (body == null || !IsInstanceValid(body) || !body.IsInsideTree()) continue;
-                Remember(body, avatar, entities, Perceive(body, avatar, entities));
+                Remember(body, avatar, entities, Perceive(body, avatar, looked), considered);
                 Discover(body);
             }
+            if (_cellCooldown.Count > 65536)
+                foreach (var key in _cellCooldown.Where(p => p.Value <= _sweepCount).Select(p => p.Key).ToList()) _cellCooldown.Remove(key);
             _teamDirty = true;
         }
         if (_teamDirty && _saveClock >= TeamSaveIntervalS) SaveTeam();
     }
 
-    /// <summary>Levels from the room as it is: each floor part, and the top of each object with a walkable top, where it stands now.</summary>
+    private int LevelBytes() => _levels.Values.Sum(l => l.Cells.Length);
+
+    /// <summary>
+    /// Levels from the room as it is: each floor part, and the top of each object with a walkable top, where it stands now.
+    /// A level whose support moved starts blank again (its cells were where it stood; review minor 8), and all bitmaps
+    /// together stay within MaxDiscoveredLevelBytes (floors first).
+    /// </summary>
     private void RefreshLevels(List<JsonObject> entities)
     {
-        foreach (var entity in entities)
+        foreach (var entity in entities.OrderBy(e => e["kind"]!.GetValue<string>() == "shell" ? 0 : 1).ThenBy(e => e["id"]!.GetValue<string>(), StringComparer.Ordinal))
         {
             var id = entity["id"]!.GetValue<string>();
             var kind = entity["kind"]!.GetValue<string>();
@@ -324,31 +414,45 @@ public partial class CommandHost
             var box = new Aabb(low, high - low);
             var columns = Math.Clamp((int)Math.Ceiling(box.Size.X / DiscoverCellM - 1e-6), 1, 1024);
             var rows = Math.Clamp((int)Math.Ceiling(box.Size.Z / DiscoverCellM - 1e-6), 1, 1024);
+            var (height, minX, minZ) = (Math.Round(box.End.Y, 4), Math.Round(box.Position.X, 4), Math.Round(box.Position.Z, 4));
+            var bytes = (columns * rows + 7) / 8;
             if (!_levels.TryGetValue(id, out var level))
             {
-                if (_levels.Count >= MaxLevels) continue;
-                _levels[id] = level = new Level { Support = id };
+                if (_levels.Count >= MaxLevels || LevelBytes() + bytes > MaxDiscoveredLevelBytes) continue;
+                _levels[id] = level = new Level { Support = id, Columns = columns, Rows = rows, Height = height, MinX = minX, MinZ = minZ, Cells = new byte[bytes] };
+                continue;
             }
-            if (level.Columns != columns || level.Rows != rows) level.Cells = new byte[(columns * rows + 7) / 8];
-            (level.Columns, level.Rows, level.Height, level.MinX, level.MinZ) = (columns, rows, Math.Round(box.End.Y, 4), Math.Round(box.Position.X, 4), Math.Round(box.Position.Z, 4));
+            var moved = Math.Abs(level.Height - height) > 0.001 || Math.Abs(level.MinX - minX) > 0.001 || Math.Abs(level.MinZ - minZ) > 0.001;
+            if (!moved && level.Columns == columns && level.Rows == rows) continue;
+            if (LevelBytes() - level.Cells.Length + bytes > MaxDiscoveredLevelBytes) { _levels.Remove(id); continue; }
+            (level.Columns, level.Rows, level.Height, level.MinX, level.MinZ, level.Cells) = (columns, rows, height, minX, minZ, new byte[bytes]);
+            foreach (var key in _cellCooldown.Keys.Where(k => k.Support == id).ToList()) _cellCooldown.Remove(key);
         }
     }
 
-    /// <summary>Cells near an avatar's eye that a ray from the eye reaches: discovered. The nearest undiscovered first, a bounded number per sweep.</summary>
+    /// <summary>
+    /// Cells near an avatar's eye that a ray from the eye reaches: discovered. Nearest first among the undiscovered cells not
+    /// tried lately; a cell a ray did not reach waits DiscoverRetrySweeps sweeps, so cells never in sight (under a tabletop)
+    /// do not starve the rest (review major 4). At most DiscoverCandidatesPerSweep cells are looked at, the levels in turn.
+    /// </summary>
     private void Discover(SmallPlayerController body)
     {
         var eye = body.EyeCamera.GlobalPosition;
         var candidates = new List<(float Distance, Level Level, int C, int R, Vector3 Point)>();
-        foreach (var level in _levels.Values)
+        var levels = _levels.Values.ToList();
+        var examined = 0;
+        for (var n = 0; n < levels.Count && examined < DiscoverCandidatesPerSweep; n++)
         {
+            var level = levels[(n + _sweepCount) % levels.Count];
             var c0 = Math.Max(0, (int)Math.Floor((eye.X - DiscoverRadiusM - level.MinX) / DiscoverCellM));
             var c1 = Math.Min(level.Columns - 1, (int)Math.Floor((eye.X + DiscoverRadiusM - level.MinX) / DiscoverCellM));
             var r0 = Math.Max(0, (int)Math.Floor((eye.Z - DiscoverRadiusM - level.MinZ) / DiscoverCellM));
             var r1 = Math.Min(level.Rows - 1, (int)Math.Floor((eye.Z + DiscoverRadiusM - level.MinZ) / DiscoverCellM));
-            for (var r = r0; r <= r1; r++)
-            for (var c = c0; c <= c1; c++)
+            for (var r = r0; r <= r1 && examined < DiscoverCandidatesPerSweep; r++)
+            for (var c = c0; c <= c1 && examined < DiscoverCandidatesPerSweep; c++)
             {
-                if (level.Get(c, r)) continue;
+                examined++;
+                if (level.Get(c, r) || (_cellCooldown.TryGetValue((level.Support, r * level.Columns + c), out var until) && until > _sweepCount)) continue;
                 var point = new Vector3((float)(level.MinX + (c + 0.5) * DiscoverCellM), (float)level.Height + 0.005f, (float)(level.MinZ + (r + 0.5) * DiscoverCellM));
                 var distance = new Vector2(point.X - eye.X, point.Z - eye.Z).Length();
                 if (distance <= DiscoverRadiusM) candidates.Add((distance, level, c, r, point));
@@ -360,6 +464,7 @@ public partial class CommandHost
         {
             var hit = space.IntersectRay(PhysicsRayQueryParameters3D.Create(eye, point, RoomBuilder.WorldLayer, exclude));
             if (hit.Count == 0 || hit["position"].AsVector3().DistanceTo(point) <= 0.015f) level.Set(c, r);
+            else _cellCooldown[(level.Support, r * level.Columns + c)] = _sweepCount + DiscoverRetrySweeps;
         }
     }
 
@@ -387,9 +492,9 @@ public partial class CommandHost
     }
 
     /// <summary>The team block as the save keeps it: room state's journal and discovered, plus the open tasks' goals.</summary>
-    private JsonObject ExportTeam(List<JsonObject> notes) => new()
+    private JsonObject ExportTeam(List<JsonObject> notes, List<JsonObject>? history = null) => new()
     {
-        ["journal"] = ExportJournal(notes),
+        ["journal"] = ExportJournal(notes, history),
         ["discovered"] = ExportDiscovered(),
         ["task_goals"] = new JsonObject(_taskGoals.OrderBy(p => p.Key, StringComparer.Ordinal).Select(p => KeyValuePair.Create(p.Key, (JsonNode?)JsonValue.Create(p.Value)))),
     };
@@ -397,10 +502,10 @@ public partial class CommandHost
     /// <summary>Room state's journal block: open tasks (never with a job id), history and notes, each oldest first.</summary>
     public JsonObject ExportJournal() => ExportJournal(_notes);
 
-    private JsonObject ExportJournal(List<JsonObject> notes)
+    private JsonObject ExportJournal(List<JsonObject> notes, List<JsonObject>? history = null)
     {
         static JsonArray Copy(IEnumerable<JsonObject> list) => new(list.Select(e => { var c = (JsonObject)e.DeepClone(); c.Remove("job_id"); return (JsonNode?)c; }).ToArray());
-        return new JsonObject { ["open_tasks"] = Copy(_openTasks), ["history"] = Copy(_history), ["notes"] = Copy(notes) };
+        return new JsonObject { ["open_tasks"] = Copy(_openTasks), ["history"] = Copy(history ?? _history), ["notes"] = Copy(notes) };
     }
 
     /// <summary>Room state's discovered block: the levels with anything discovered, and every discovered object and creation as last seen.</summary>
@@ -447,10 +552,57 @@ public partial class CommandHost
     /// <summary>What is wrong with a team block (or null): its journal, its discovered map, or its open tasks' goals.</summary>
     internal string? TeamProblem(JsonObject? team, int revision)
     {
+        // Anything malformed refuses the load whole; nothing that passes may throw later.
+        try { return TeamProblemUnchecked(team, revision); }
+        catch (Exception error) { return "an unreadable block (" + error.GetType().Name + ")"; }
+    }
+
+    private static readonly string[] UtcFormats = { "yyyy-MM-dd'T'HH:mm:ss'Z'", "yyyy-MM-dd'T'HH:mm:ss.FFFFFF'Z'" };
+    private static readonly HashSet<string> ProvenanceKinds = new() { "captured_generated", "captured_scanned", "hand_authored", "procedural", "ai_created", "player_created", "placeholder" };
+
+    /// <summary>A real UTC time in the contract's form (the pattern alone admits month 99).</summary>
+    private static bool RealTime(JsonNode? node) =>
+        node?.GetValueKind() == JsonValueKind.String && UtcPattern.IsMatch(node.GetValue<string>()) &&
+        DateTime.TryParseExact(node.GetValue<string>(), UtcFormats, System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal, out _);
+
+    private static bool Number(JsonNode? node, double limit = 1000) =>
+        node?.GetValueKind() == JsonValueKind.Number && node.GetValue<double>() is var d && double.IsFinite(d) && Math.Abs(d) <= limit;
+
+    private static bool Whole(JsonNode? node, double max = int.MaxValue) => Number(node, double.MaxValue) && node!.GetValue<double>() is var d && d >= 0 && d <= max && d == Math.Floor(d);
+
+    private static bool Vec3(JsonNode? node) => node is JsonArray a && a.Count == 3 && a.All(v => Number(v));
+
+    private static bool Text(JsonNode? node, int max) => node?.GetValueKind() == JsonValueKind.String && node.GetValue<string>() is { Length: > 0 } t &&
+        KernelText.CodePoints(t).Length <= max && !KernelText.HasHidden(t);
+
+    /// <summary>A discovered entity's summary as the contract types it: every field, its type and range (review major 1).</summary>
+    private static string? SummaryProblem(JsonObject entity, string id, int storeRevision)
+    {
+        var allowed = new HashSet<string> { "id", "kind", "display_name", "category", "category_group", "position_m", "bounds_m", "affordances", "movable", "protected", "provenance_kind", "revision" };
+        if (entity.Any(p => !allowed.Contains(p.Key))) return "fields";
+        if (entity["id"]?.GetValueKind() != JsonValueKind.String || entity["id"]!.GetValue<string>() != id) return "id";
+        if (entity["kind"]?.GetValueKind() != JsonValueKind.String || entity["kind"]!.GetValue<string>() != (id.StartsWith("obj:", StringComparison.Ordinal) ? "object" : "creation")) return "kind";
+        if (!Text(entity["display_name"], 80) || (entity["category"] != null && !Text(entity["category"], 60))) return "name";
+        if (entity["category_group"] is { } group && (group.GetValueKind() != JsonValueKind.String || !Token.IsMatch(group.GetValue<string>()))) return "category group";
+        if (!Vec3(entity["position_m"]) || entity["bounds_m"] is not JsonObject bounds || bounds.Count != 2 || !Vec3(bounds["min_m"]) || !Vec3(bounds["max_m"])) return "place";
+        for (var axis = 0; axis < 3; axis++)
+            if (bounds["min_m"]![axis]!.GetValue<double>() > bounds["max_m"]![axis]!.GetValue<double>()) return "bounds";
+        if (entity["affordances"] is not JsonArray affordances || affordances.Count > 16 ||
+            affordances.Any(a => a?.GetValueKind() != JsonValueKind.String || !Affordances.Contains(a.GetValue<string>())) ||
+            affordances.Select(a => a!.GetValue<string>()).Distinct().Count() != affordances.Count) return "affordances";
+        if (entity["movable"]?.GetValueKind() is not (JsonValueKind.True or JsonValueKind.False) || entity["protected"]?.GetValueKind() is not (JsonValueKind.True or JsonValueKind.False)) return "flags";
+        if (entity["provenance_kind"]?.GetValueKind() != JsonValueKind.String || !ProvenanceKinds.Contains(entity["provenance_kind"]!.GetValue<string>())) return "provenance";
+        if (!Whole(entity["revision"], Math.Max(storeRevision, 0))) return "revision";
+        return null;
+    }
+
+    private string? TeamProblemUnchecked(JsonObject? team, int revision)
+    {
         if (team == null) return "not an object";
         if (team.Any(p => p.Key is not ("journal" or "discovered" or "task_goals"))) return "an unknown block";
         if (team["journal"] is JsonObject journal && JournalProblem(journal, revision) is { } j) return j;
-        if (team["discovered"] is JsonObject discovered && DiscoveredProblem(discovered) is { } d) return d;
+        if (team["discovered"] is JsonObject discovered && DiscoveredProblem(discovered, revision) is { } d) return d;
         if (team["journal"] is not (null or JsonObject) || team["discovered"] is not (null or JsonObject)) return "a block that is not an object";
         if (team["task_goals"] is { } goals && (goals is not JsonObject map || map.Any(p => !EntryIdPattern.IsMatch(p.Key) || p.Value?.GetValueKind() != JsonValueKind.String || !TaskGoals.Contains(p.Value.GetValue<string>()))))
             return "an open task's goal";
@@ -484,12 +636,9 @@ public partial class CommandHost
     /// <summary>One entry: the contract's fields for its kind (a note carries none of a fact's, a fact none of a note's), display text, ids.</summary>
     private static string? EntryProblem(JsonObject entry)
     {
-        static bool Text(JsonNode? node, int max) => node?.GetValueKind() == JsonValueKind.String && node.GetValue<string>() is { Length: > 0 } t &&
-            KernelText.CodePoints(t).Length <= max && !KernelText.HasHidden(t);
-        static bool Whole(JsonNode? node) => node?.GetValueKind() == JsonValueKind.Number && node.GetValue<double>() is var d && d >= 0 && d == Math.Floor(d) && d < int.MaxValue;
         if (!EntryIdPattern.IsMatch(entry["entry_id"]?.GetValueKind() == JsonValueKind.String ? entry["entry_id"]!.GetValue<string>() : "")) return "entry_id";
         if (entry["kind"]?.GetValueKind() != JsonValueKind.String || !JournalKinds.Contains(entry["kind"]!.GetValue<string>())) return "kind";
-        if (entry["at_utc"]?.GetValueKind() != JsonValueKind.String || !UtcPattern.IsMatch(entry["at_utc"]!.GetValue<string>()) || !Whole(entry["revision"])) return "time";
+        if (!RealTime(entry["at_utc"]) || !Whole(entry["revision"])) return "time";
         var kind = entry["kind"]!.GetValue<string>();
         var note = new[] { "author", "text", "untrusted" };
         var fact = new[] { "line", "subject", "actor", "directed_by", "pin_m", "state", "quantity" };
@@ -505,16 +654,19 @@ public partial class CommandHost
         if ((kind is "found" or "gathered") != entry.ContainsKey("quantity")) return "a quantity";
         if (entry["subject"] is { } subject && (subject is not JsonObject s || s.Count != 2 || s["entities"] is not JsonArray list || list.Count is < 1 or > 8 ||
             list.Any(x => x?.GetValueKind() != JsonValueKind.String || !EntityId.IsMatch(x.GetValue<string>())) || list.Select(x => x!.GetValue<string>()).Distinct().Count() != list.Count || !Text(s["name"], 80))) return "a subject";
-        if (entry["pin_m"] is { } pin && (pin is not JsonArray p || p.Count != 3 || p.Any(v => v?.GetValueKind() != JsonValueKind.Number || Math.Abs(v.GetValue<double>()) > 1000))) return "a pin";
+        if (entry["pin_m"] is { } pin && !Vec3(pin)) return "a pin";
+        if (entry["quantity"] is { } quantity && (quantity is not JsonObject q || q.Any(x => x.Key is not ("count" or "needed")) || !Whole(q["count"], 1000000) ||
+            (q["needed"] != null && (!Whole(q["needed"], 1000000) || q["needed"]!.GetValue<double>() < 1)))) return "a quantity";
         return null;
     }
 
-    private string? DiscoveredProblem(JsonObject discovered)
+    private string? DiscoveredProblem(JsonObject discovered, int storeRevision)
     {
         if (discovered.Count != 3 || discovered["cell_m"]?.GetValueKind() != JsonValueKind.Number || Math.Abs(discovered["cell_m"]!.GetValue<double>() - DiscoverCellM) > 1e-9 ||
             discovered["levels"] is not JsonArray levels || discovered["entities"] is not JsonObject entities) return "the discovered map's blocks";
         if (levels.Count > MaxLevels || entities.Count > MaxDiscoveredEntities) return "the discovered map's bounds";
         var supports = new HashSet<string>(StringComparer.Ordinal);
+        var budget = 0;
         foreach (var node in levels)
         {
             if (node is not JsonObject level || level.Any(p => p.Key is not ("support" or "surface" or "height_m" or "min_xz_m" or "columns" or "rows" or "cells"))) return "a level";
@@ -524,23 +676,22 @@ public partial class CommandHost
             var columns = level["columns"]!.GetValue<double>();
             var rows = level["rows"]!.GetValue<double>();
             if (columns is < 1 or > 1024 || rows is < 1 or > 1024 || columns != Math.Floor(columns) || rows != Math.Floor(rows)) return "a level's grid";
-            if (level["height_m"]?.GetValueKind() != JsonValueKind.Number || level["min_xz_m"] is not JsonArray min || min.Count != 2 || min.Any(v => v?.GetValueKind() != JsonValueKind.Number)) return "a level's place";
-            try
-            {
-                if (level["cells"]?.GetValueKind() != JsonValueKind.String || Convert.FromBase64String(level["cells"]!.GetValue<string>()).Length != ((int)columns * (int)rows + 7) / 8) return "a level's cells";
-            }
-            catch (FormatException) { return "a level's cells"; }
+            if (!Number(level["height_m"]) || level["min_xz_m"] is not JsonArray min || min.Count != 2 || min.Any(v => !Number(v))) return "a level's place";
+            if (level["surface"] is { } surface && (surface.GetValueKind() != JsonValueKind.String || !Token.IsMatch(surface.GetValue<string>()))) return "a level's surface";
+            if (level["cells"]?.GetValueKind() != JsonValueKind.String) return "a level's cells";
+            var bits = Convert.FromBase64String(level["cells"]!.GetValue<string>());
+            var count = (int)columns * (int)rows;
+            if (bits.Length != (count + 7) / 8 || (count % 8 != 0 && bits[^1] >> (count % 8) != 0)) return "a level's cells";
+            budget += bits.Length;
+            if (budget > MaxDiscoveredLevelBytes) return "discovered space over its budget";
         }
         foreach (var (id, node) in entities)
         {
             if (!KnownIdPattern.IsMatch(id) || (id.StartsWith("obj:", StringComparison.Ordinal) && Room.Objects.All(o => o.Id != id))) return "a discovered entity's id";
             if (node is not JsonObject known || known.Any(p => p.Key is not ("entity" or "parts" or "protected_by" or "last_seen_utc" or "last_seen_revision" or "may_be_stale"))) return "a discovered entity";
-            if (known["entity"] is not JsonObject entity || entity["id"]?.GetValueKind() != JsonValueKind.String || entity["id"]!.GetValue<string>() != id ||
-                entity.Any(p => p.Key is "seen" or "last_seen_ago_s" or "last_seen_revision" or "may_be_stale" or "held_by") ||
-                entity["display_name"]?.GetValueKind() != JsonValueKind.String || KernelText.HasHidden(entity["display_name"]!.GetValue<string>()) ||
-                entity["bounds_m"]?["min_m"] is not JsonArray || entity["bounds_m"]?["max_m"] is not JsonArray || entity["position_m"] is not JsonArray) return "a discovered entity's summary";
-            if (known["last_seen_utc"]?.GetValueKind() != JsonValueKind.String || !UtcPattern.IsMatch(known["last_seen_utc"]!.GetValue<string>()) ||
-                known["last_seen_revision"]?.GetValueKind() != JsonValueKind.Number || known["may_be_stale"]?.GetValueKind() is not (JsonValueKind.True or JsonValueKind.False)) return "a discovered entity's sighting";
+            if (known["entity"] is not JsonObject entity || SummaryProblem(entity, id, storeRevision) is { } why) return "a discovered entity's summary" + (known["entity"] is JsonObject e && SummaryProblem(e, id, storeRevision) is { } w ? $" ({w})" : "");
+            if (!RealTime(known["last_seen_utc"]) || !Whole(known["last_seen_revision"], Math.Max(storeRevision, 0)) || known["may_be_stale"]?.GetValueKind() is not (JsonValueKind.True or JsonValueKind.False)) return "a discovered entity's sighting";
+            if (known["parts"] is { } parts && (parts is not JsonObject partMap || partMap.Count > 32 || partMap.Any(x => !Token.IsMatch(x.Key) || !Number(x.Value, 1) || x.Value!.GetValue<double>() < 0))) return "a discovered entity's parts";
             if (known["protected_by"] is { } by && (by.GetValueKind() != JsonValueKind.String || !Principals.Contains(by.GetValue<string>()))) return "a discovered entity's protection";
         }
         return null;
@@ -552,8 +703,19 @@ public partial class CommandHost
     /// </summary>
     private void LoadTeam(JsonObject? team, bool closeOpenTasks)
     {
-        team = Normalized(team);
+        try { LoadTeamUnchecked(Normalized(team), closeOpenTasks); }
+        catch (Exception error)
+        {
+            GD.Print("COMMAND_HOST the saved journal and map could not be read and were left out: " + error.GetType().Name);
+            LoadTeamUnchecked(null, false);
+        }
+    }
+
+    private void LoadTeamUnchecked(JsonObject? team, bool closeOpenTasks)
+    {
         _openTasks = new(); _history = new(); _notes = new(); _taskGoals = new(StringComparer.Ordinal);
+        _taskTargets.Clear();
+        _cellCooldown.Clear();
         _levels.Clear();
         var memory = TeamMemory();
         memory.Clear();

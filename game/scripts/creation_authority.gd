@@ -140,7 +140,14 @@ func submit(principal: String, request: Dictionary, receipt_meta: Dictionary = {
 		return _failure("save_not_ready", "", "Load the saved room successfully before changing it.")
 	if not _roles.has(principal):
 		return _failure("principal_unknown", "principal", "The host did not admit this principal.")
-	if not _json_safe(request, MAX_REQUEST_BYTES) or COMPILER.canonical_json(request).to_utf8_buffer().size() > MAX_REQUEST_BYTES:
+	# The team block is the trusted host's, bounded by the save's limit; the request's own limit covers the rest.
+	var bounded: Dictionary = request
+	if request.has("team"):
+		if not request.team is Dictionary or not _json_safe(request.team, MAX_SAVE_BYTES):
+			return _failure("request_invalid", "team", "The team block must be bounded finite JSON data.")
+		bounded = request.duplicate()
+		bounded.erase("team")
+	if not _json_safe(bounded, MAX_REQUEST_BYTES) or COMPILER.canonical_json(bounded).to_utf8_buffer().size() > MAX_REQUEST_BYTES:
 		return _failure("request_invalid", "", "The command must contain bounded finite JSON data.")
 	var action: Variant = request.get("action_id")
 	if not _token(action):
@@ -172,6 +179,8 @@ func submit(principal: String, request: Dictionary, receipt_meta: Dictionary = {
 		allowed.append_array(["source", "x_m", "z_m", "yaw_deg", "y_m", "on"])
 	if op in ["revise", "remove", "activate"]:
 		allowed.append("instance_id")
+	if op in ["place", "revise", "remove"]:
+		allowed.append("team")
 	if op in ["lock", "unlock"]:
 		allowed.append("targets")
 	if op == "checkpoint":
@@ -230,6 +239,9 @@ func submit(principal: String, request: Dictionary, receipt_meta: Dictionary = {
 		if not _receipt_room(principal):
 			return _receipt_limit()
 		next.instances.erase(instance_id)
+	# The journal's fact for this change, saved in the same write as the change and its receipt.
+	if request.has("team"):
+		next.team = request.team.duplicate(true)
 	var created := [instance_id] if op == "place" else []
 	var receipt := {"ok": true, "instance_id": instance_id, "revision": revision + 1, "permission_revision": permission_revision, "replayed": false, "affected": [] if op == "place" else [instance_id], "created": created}
 	next.receipts = _receipts.duplicate(true)

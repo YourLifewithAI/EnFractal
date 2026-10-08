@@ -154,6 +154,8 @@ public partial class SandboxVerbsTest : Node3D
             Check(Code(Send(Command(NextId("actor"), op, args), Companion)) == "actor_denied", $"{op}: the companion never acts through the player's avatar");
         Check(Code(Send(Command(NextId("actor"), "entity.grab", new JsonObject { ["target"] = "obj:doorstop", ["actor"] = "avatar:stranger" }), Player)) == "target_not_found", "an avatar not in the room is not found");
         await Stand(_companion, new Vector3(1.6f, 0.01f, 0.2f), Vector3.Left, "behind the box");
+        // The team's sight is shared: the player steps behind the box too, so neither avatar sees the book.
+        await Stand(_player, new Vector3(1.7f, 0.01f, 0.32f), Vector3.Left, "behind the box too");
         var hidden = Send(Command(NextId("grab"), "entity.grab", new JsonObject { ["target"] = "obj:book" }), Companion);
         var unknown = Send(Command(NextId("grab"), "entity.grab", new JsonObject { ["target"] = "obj:nothing" }), Companion);
         Check(Code(hidden) == "target_not_found" && hidden["error"]!["message"]!.GetValue<string>() == unknown["error"]!["message"]!.GetValue<string>(),
@@ -520,6 +522,21 @@ public partial class SandboxVerbsTest : Node3D
             $"after {frames / 60.0:0.0} s blocked the fetch fails with target_unreachable: " + job?.ToJsonString());
         Check(frames >= (int)(CommandHost.UnreachableAfterS * 60) - 5 && frames <= (int)(CommandHost.UnreachableAfterS * 60) + 150 && _companion.CurrentIntent == "stay" && _host.HeldBy(CompanionAvatar) == null,
             "about five seconds, and then the body stops trying");
+        // Review major 5: a walk to a place, or a come with no target, is watched the same way, though it has no job to report.
+        foreach (var (label, args) in new (string, JsonObject)[]
+        {
+            ("a go_to to a place", new JsonObject { ["actor"] = CompanionAvatar, ["goal"] = "go_to", ["position_m"] = new JsonArray(-0.5, 0, 0.3) }),
+            ("a come with no target", new JsonObject { ["actor"] = CompanionAvatar, ["goal"] = "come" }),
+        })
+        {
+            var walk = Send(Command(NextId("walk"), "goal.set", args), Player);
+            await Frames(10);
+            var walking = _companion.CurrentIntent;
+            var waited = 10;
+            while (_companion.CurrentIntent == walking && waited < 600) { await Frames(1); waited++; }
+            Check(Ok(walk) && walk["job_id"] == null && walking != "stay" && _companion.CurrentIntent == "stay" && waited >= 290 && waited <= 460,
+                $"{label} from the pen stops trying after about five seconds blocked ({waited / 60.0:0.0} s, {walking} then {_companion.CurrentIntent})");
+        }
         pen.QueueFree();
         await Frames(2);
     }
