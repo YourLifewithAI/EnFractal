@@ -1,5 +1,7 @@
 # The room becomes a landscape
 
+> **Integrator's note:** Codex wrote this draft (brief 13) before two of the founder's points that same night: the believable physics ("geologic and ecologic laws that determine how the land gets its shape and how the plants and animals [...] get their form and place"), whose approved core is in [RUN-2-STATUS.md](runs/RUN-2-STATUS.md), and that these are **guiding principles, not rigid rules** (agents overfit to rigid rules; most rooms have no hollows, so the generator may invent a lake or a spring where it charms). The next session rewrites this document around both, with the founder.
+
 **Draft, 7 October 2026.** Design input for the revised Run 2. The founder's decisions below are settled; the implementation choices are proposals. Numbers marked *start* are first guesses. Nothing here passes a look or play gate.
 
 ## The goal
