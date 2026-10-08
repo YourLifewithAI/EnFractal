@@ -1203,6 +1203,7 @@
         "target_busy",
         "target_too_heavy",
         "out_of_bounds",
+        "target_unreachable",
         "occupied",
         "unsupported_capability",
         "invalid_args",

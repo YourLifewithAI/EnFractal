@@ -59,6 +59,8 @@ Pick up, carry, drop, push, place on a surface with snapping, and stack, all thr
 | Stack | the same, with `on` naming another movable thing; the support's own `position_m` centres it there | durable | both |
 | Push | `entity.push` (`target`, `distance_m` up to 1 m, optional `toward_m`, `actor`): slid along its surface with collisions, away from the actor or toward the point | durable | both; a companion only with its own avatar |
 
+Refusals: out of reach is `out_of_bounds` (retryable); no room, or a push that is blocked, is `occupied`; something resting on the target is `target_busy`. A goal whose actor finds no way to its target (`come`, `go_to`, `fetch`) fails with **`target_unreachable`**: the target exists and is known, but no route reaches it. That is not `out_of_bounds`, which means outside the room or beyond reach from where the actor stands.
+
 - **None of them is player-only.** Fetch needs the companion to pick up, carry and put down. A companion may never act through the player's avatar (`actor_denied`), and the player may direct the companion's.
 - **Fetch** (`goal.set`, `goal: "fetch"`): the companion walks to the target, picks it up with `entity.grab`'s checks and limit, and brings it back to the player, still holding it; its job succeeds then. `entity.release`, from the companion or the player directing it, puts it down. So the goal stays transient and the move that is saved is its own durable command.
 - **Holding is not saved.** A carried thing is saved where it was last put down; a session that ends mid-carry leaves it there.

@@ -29,7 +29,7 @@ Read first: [the look bible](../../look/LOOK-BIBLE.md) (its art references are a
 - CPU Cycles with denoising, at most 960 × 540, each under 600 KB;
 - one comparison sheet, `docs/codex/spikes/12-room-to-landscape/sheet.png`, under 2 MB: the room, then each route's two views, labelled.
 
-**Also look back.** EnFractal's earlier geography era built painterly terrain (heightfields, a painterly Central Texas landscape) that lives on the `geography-era-final` branch (`git log geography-era-final`, `git show geography-era-final:<path>`; read only). Say what of it could carry over to rooms-as-landscapes.
+**Also look back.** EnFractal's earlier geography era built painterly terrain (heightfields, a painterly Central Texas landscape) that lives on the `geography-era-final` branch, here the remote-tracking ref `origin/geography-era-final` (`git log origin/geography-era-final`, `git show origin/geography-era-final:<path>`; read only). Say what of it could carry over to rooms-as-landscapes.
 
 **Report** in `docs/codex/reports/12-room-to-landscape.md` (about 300 words of summary, then evidence):
 - what each route does well and badly, judged against the founder's words above;

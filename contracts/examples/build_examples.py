@@ -490,6 +490,14 @@ def build_messages(out: Path) -> None:
                                                               "error": {"code": "target_not_found", "message": "The target is not where it was seen. Observe and try again.",
                                                                         "field_path": "$.args.target", "retryable": False}}},
                                           "at_utc": at}
+    # A goal whose actor finds no way to its target fails with target_unreachable, not out_of_bounds.
+    valid["result_jobs_status_unreachable"] = {"schema": "enfractal.result", "version": 1, "ok": True, "op": "jobs.status", "query_id": "q-0009",
+                                               "principal": "companion:local", "room_id": "garage_example", "revision": 5, "replayed": False, "preview": False,
+                                               "data": {"job_id": FETCH_JOB, "state": "failed",
+                                                        "result": {**result("goal.set", "fetch-paint-0001", "companion:local", 5, at), "ok": False,
+                                                                   "error": {"code": "target_unreachable", "message": "No way to reach that from here.",
+                                                                             "field_path": "$.args.target", "retryable": False}}},
+                                               "at_utc": at}
     # The sandbox verbs: drop what you hold, stack it on another movable thing (its own position centres it), push.
     valid["command_drop_what_you_hold"] = command("entity.release", "drop-0001", {})
     valid["command_release_stacked_on_bean_bag"] = command("entity.release", "stack-0001", {"placement": {"position_m": [1.0, 0.0, 0.9], "on": "obj:bean_bag"}})
