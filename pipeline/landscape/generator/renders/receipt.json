@@ -6,12 +6,12 @@
       35,
       55
     ],
-    "bytes": 497358,
+    "bytes": 509022,
     "depth_of_field": false,
     "figure_inside_geometry": false,
     "figure_position_m": [
       0.0,
-      0.08770000189542773,
+      0.09110999852418902,
       -3.0
     ],
     "focus_distance_m": 12.09929084777832,
@@ -31,10 +31,10 @@
       -8.263969303730672
     ],
     "projection": "PERSP",
-    "raw_bytes": 586727,
-    "rendered_harness_sha256": "fa84a0de0d7eac433bd873e14e4cd9fb0f6043c2107109d4e82868c410718f51",
-    "seconds": 18.678832,
-    "sha256": "aa8a90aa31303d227d58c11ac55b691f57b2e84ca0fc726d731517c4b50d3ce1",
+    "raw_bytes": 593359,
+    "rendered_harness_sha256": "ce1bcad85a0806a395741b74c21b47c2ee20bdcb2b971334123bb98128524bb5",
+    "seconds": 24.216654,
+    "sha256": "590c1c2f9841efe84d919e1d67319e26b341cdc757a65cd22108df7c2d18da94",
     "shift_x": 0.012643124717490961,
     "shift_y": -0.09593678626994813,
     "target_m": [
@@ -68,13 +68,22 @@
       "tests/__init__.py": "a04d581017f82b24db63c115297af4d73c00745f124706868fd3ee95176a8413",
       "tests/test_harness.py": "f81dc05456d9fcbdf9065de854fb1c519d58340a6691d8131c6bafc04307e060",
       "views.py": "c03ca7a41a8b22f8c5c7025096962c3fa6176bcc17b2814503cf49f0200d8e44",
-      "worker.py": "3c5efc43183bb43321e16c0b145e90aa33da688823709986b97698880759cb34"
+      "worker.py": "84649ae3b51f4af9b5ee2f1fe9d44c82f891d91659e671bd46dede2e9ddd2074"
     },
     "kit_version": 1,
     "materials_version": 2,
-    "sha256": "fa84a0de0d7eac433bd873e14e4cd9fb0f6043c2107109d4e82868c410718f51"
+    "sha256": "ce1bcad85a0806a395741b74c21b47c2ee20bdcb2b971334123bb98128524bb5"
   },
-  "package_sha256": "9a701252bc96ebde34075c6f35c940707f2f8b196f7d2cc72b8cc151f4612848",
+  "overview_cutaway": {
+    "faces": {
+      "overview_ne": 0,
+      "overview_se": 388,
+      "overview_sw": 5622
+    },
+    "inset_m": 0.9,
+    "rule": "land/scenery faces outside bounds whose camera ray lands on the floor more than inset_m inside bounds; camera rays only"
+  },
+  "package_sha256": "7936069b63d56e0a121550a29b183b7ab2d677ae1ceb45aeb06131c8e9ad9524",
   "partial_rerender": false,
   "retained_views": [],
   "room_sha256": "cb5e1eb42d68509ebeff48de4be70512fbfc6ddd83fc4aa655ce844d8d36d538",
@@ -114,10 +123,14 @@
     "solar_time_h": 9,
     "water": "some"
   },
+  "smooth_shading": {
+    "crease_deg": 60.0,
+    "scope": "terrain, water and scenery; welded by position across primitives"
+  },
   "stats": {
-    "expanded_triangles": 425612,
-    "instances": 2744,
-    "triangles": 266526
+    "expanded_triangles": 436088,
+    "instances": 2821,
+    "triangles": 266676
   },
   "sun": {
     "altitude_deg": 49.53245354006852,
@@ -130,18 +143,18 @@
     ],
     "model": "NOAA approximate, geometric, apparent solar time"
   },
-  "total_render_seconds": 725.72742,
-  "total_view_seconds": 707.048588,
-  "total_wall_seconds": 795.367924,
+  "total_render_seconds": 1035.531608,
+  "total_view_seconds": 1011.314954,
+  "total_wall_seconds": 1111.269834,
   "uniform_harness_revision": true,
   "version": 1,
   "views": [
     {
-      "bytes": 1012231,
+      "bytes": 951157,
       "figure_inside_geometry": false,
       "figure_position_m": [
         0.0,
-        0.08770000189542773,
+        0.09110999852418902,
         -3.0
       ],
       "focus_distance_m": 12.09929084777832,
@@ -160,10 +173,10 @@
         -8.263969303730672
       ],
       "projection": "PERSP",
-      "raw_bytes": 975896,
-      "rendered_harness_sha256": "fa84a0de0d7eac433bd873e14e4cd9fb0f6043c2107109d4e82868c410718f51",
-      "seconds": 118.170985,
-      "sha256": "f5b001c30fe04e5555df5f5f526ea9ed839f0f0002dfe55b0d1db8b891e85b31",
+      "raw_bytes": 936133,
+      "rendered_harness_sha256": "ce1bcad85a0806a395741b74c21b47c2ee20bdcb2b971334123bb98128524bb5",
+      "seconds": 136.824589,
+      "sha256": "72d93bf775f49f2a330e508621b29e99803df0a0e0424dc4754e5d52bb95ad30",
       "shift_x": 0.012643124717490961,
       "shift_y": -0.09593678626994813,
       "target_m": [
@@ -173,11 +186,11 @@
       ]
     },
     {
-      "bytes": 1027786,
+      "bytes": 861507,
       "figure_inside_geometry": false,
       "figure_position_m": [
         0.0,
-        0.08770000189542773,
+        0.09110999852418902,
         -3.0
       ],
       "focus_distance_m": 12.09929084777832,
@@ -196,10 +209,10 @@
         8.263969303730672
       ],
       "projection": "PERSP",
-      "raw_bytes": 996048,
-      "rendered_harness_sha256": "fa84a0de0d7eac433bd873e14e4cd9fb0f6043c2107109d4e82868c410718f51",
-      "seconds": 147.847016,
-      "sha256": "078ff43d15007629b1c749bb68426728389ef56d311e99830b7697d32adf0c90",
+      "raw_bytes": 859333,
+      "rendered_harness_sha256": "ce1bcad85a0806a395741b74c21b47c2ee20bdcb2b971334123bb98128524bb5",
+      "seconds": 145.258344,
+      "sha256": "696862f5b16d05559b10653d0a88a66295db55c29051fdc1d258331303aaf8d6",
       "shift_x": 0.012643124717490961,
       "shift_y": -0.09593678626994813,
       "target_m": [
@@ -209,11 +222,11 @@
       ]
     },
     {
-      "bytes": 992416,
+      "bytes": 922099,
       "figure_inside_geometry": false,
       "figure_position_m": [
         0.0,
-        0.08770000189542773,
+        0.09110999852418902,
         -3.0
       ],
       "focus_distance_m": 12.09929084777832,
@@ -232,10 +245,10 @@
         8.263969303730672
       ],
       "projection": "PERSP",
-      "raw_bytes": 964878,
-      "rendered_harness_sha256": "fa84a0de0d7eac433bd873e14e4cd9fb0f6043c2107109d4e82868c410718f51",
-      "seconds": 125.466308,
-      "sha256": "933454f883f69844ce383b3e3031de2b63a5f4fcb5e36e07a599d52f093a6b27",
+      "raw_bytes": 908116,
+      "rendered_harness_sha256": "ce1bcad85a0806a395741b74c21b47c2ee20bdcb2b971334123bb98128524bb5",
+      "seconds": 145.710553,
+      "sha256": "28c1d9f18b4480cdaa3eec34f7223b2a5daffc281ef465881ae090a2dcdaea46",
       "shift_x": -0.012643124717490906,
       "shift_y": -0.09593678626994813,
       "target_m": [
@@ -245,17 +258,17 @@
       ]
     },
     {
-      "bytes": 817547,
+      "bytes": 957989,
       "figure_ground_missing": false,
       "figure_inside_geometry": false,
       "figure_position_m": [
         -0.07,
-        0.09252000188826977,
+        0.09253333384214724,
         -2.6
       ],
       "focus_distance_m": 0.4000000059604645,
       "fstop": 32.0,
-      "ground_height_m": 0.08770000189542772,
+      "ground_height_m": 0.09110999852418901,
       "ground_missing": false,
       "inside_geometry": false,
       "kind": "eye",
@@ -264,33 +277,33 @@
       "path": "eye_player.png",
       "position_m": [
         0.0,
-        0.17470000189542773,
+        0.17810999852418902,
         -3.0
       ],
       "projection": "PERSP",
-      "raw_bytes": 819831,
-      "rendered_harness_sha256": "fa84a0de0d7eac433bd873e14e4cd9fb0f6043c2107109d4e82868c410718f51",
-      "seconds": 97.249303,
-      "sha256": "e1199c1efffbc3f79567f29e7279e8a4212f567167ec412e5b5905f665088683",
+      "raw_bytes": 900408,
+      "rendered_harness_sha256": "ce1bcad85a0806a395741b74c21b47c2ee20bdcb2b971334123bb98128524bb5",
+      "seconds": 179.67185,
+      "sha256": "a25f27f5ab32c7dbbab7bd5368818c980005cf7d177b1fe8f529065c80531309",
       "spawn_id": "player_start",
       "target_m": [
         0.0,
-        0.17470000189542773,
+        0.17810999852418902,
         0.0
       ]
     },
     {
-      "bytes": 976808,
+      "bytes": 1009390,
       "figure_ground_missing": false,
       "figure_inside_geometry": false,
       "figure_position_m": [
         0.8071010627297288,
-        0.0888252775325101,
+        0.09046613095549583,
         -2.6426626244009728
       ],
       "focus_distance_m": 0.4000000059604645,
       "fstop": 32.0,
-      "ground_height_m": 0.07027000188827516,
+      "ground_height_m": 0.08827000111341478,
       "ground_missing": false,
       "inside_geometry": false,
       "kind": "eye",
@@ -299,33 +312,33 @@
       "path": "eye_companion.png",
       "position_m": [
         1.0,
-        0.15727000188827517,
+        0.1752700011134148,
         -3.0
       ],
       "projection": "PERSP",
-      "raw_bytes": 932265,
-      "rendered_harness_sha256": "fa84a0de0d7eac433bd873e14e4cd9fb0f6043c2107109d4e82868c410718f51",
-      "seconds": 106.325304,
-      "sha256": "c9fab212280e4608914c04ce89890bc891254ba578ef978ae0bfbc644e7d8013",
+      "raw_bytes": 944384,
+      "rendered_harness_sha256": "ce1bcad85a0806a395741b74c21b47c2ee20bdcb2b971334123bb98128524bb5",
+      "seconds": 172.165275,
+      "sha256": "d0c27f567d0b5c501120cad4775f66da5e1b7f6e009db21c1ae03832a3f22ff9",
       "spawn_id": "companion_start",
       "target_m": [
         0.0,
-        0.15727000188827517,
+        0.1752700011134148,
         0.0
       ]
     },
     {
-      "bytes": 685621,
+      "bytes": 963479,
       "figure_ground_missing": false,
-      "figure_inside_geometry": false,
+      "figure_inside_geometry": true,
       "figure_position_m": [
         0.38078253214605945,
-        0.08984510698015803,
+        0.08697849015260278,
         -0.14108388714674416
       ],
       "focus_distance_m": 0.4000000059604645,
       "fstop": 32.0,
-      "ground_height_m": 0.0678599998354912,
+      "ground_height_m": 0.06694000214338304,
       "ground_missing": false,
       "inside_geometry": false,
       "kind": "eye",
@@ -334,17 +347,17 @@
       "path": "eye_window.png",
       "position_m": [
         0.0,
-        0.1548599998354912,
+        0.15394000214338305,
         0.0
       ],
       "projection": "PERSP",
-      "raw_bytes": 711550,
-      "rendered_harness_sha256": "fa84a0de0d7eac433bd873e14e4cd9fb0f6043c2107109d4e82868c410718f51",
-      "seconds": 111.989672,
-      "sha256": "91917fe12e64db2fcd65af33e374ed6543f05c77b5dd817695d5c9b2d9868e5d",
+      "raw_bytes": 906740,
+      "rendered_harness_sha256": "ce1bcad85a0806a395741b74c21b47c2ee20bdcb2b971334123bb98128524bb5",
+      "seconds": 231.684343,
+      "sha256": "111c02c12186066e7438ab6c326828f45c2c8c0ded84854bdf45db4642f7d6aa",
       "target_m": [
         0.8637789008984335,
-        0.1548599998354912,
+        0.15394000214338305,
         -0.5038710255240862
       ]
     }

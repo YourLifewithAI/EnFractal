@@ -32,8 +32,8 @@
     ],
     "projection": "PERSP",
     "raw_bytes": 451948,
-    "rendered_harness_sha256": "fa84a0de0d7eac433bd873e14e4cd9fb0f6043c2107109d4e82868c410718f51",
-    "seconds": 15.335133,
+    "rendered_harness_sha256": "ce1bcad85a0806a395741b74c21b47c2ee20bdcb2b971334123bb98128524bb5",
+    "seconds": 23.520843,
     "sha256": "858f0d6fdabb106e4d7bf7d409de56d38c108b68b2b035ebeee9b1f3140fbb15",
     "shift_x": 0.012643124717490961,
     "shift_y": -0.09593678626994813,
@@ -68,18 +68,27 @@
       "tests/__init__.py": "a04d581017f82b24db63c115297af4d73c00745f124706868fd3ee95176a8413",
       "tests/test_harness.py": "f81dc05456d9fcbdf9065de854fb1c519d58340a6691d8131c6bafc04307e060",
       "views.py": "c03ca7a41a8b22f8c5c7025096962c3fa6176bcc17b2814503cf49f0200d8e44",
-      "worker.py": "3c5efc43183bb43321e16c0b145e90aa33da688823709986b97698880759cb34"
+      "worker.py": "84649ae3b51f4af9b5ee2f1fe9d44c82f891d91659e671bd46dede2e9ddd2074"
     },
     "kit_version": 1,
     "materials_version": 2,
-    "sha256": "fa84a0de0d7eac433bd873e14e4cd9fb0f6043c2107109d4e82868c410718f51"
+    "sha256": "ce1bcad85a0806a395741b74c21b47c2ee20bdcb2b971334123bb98128524bb5"
   },
   "kit": {
     "bytes": 524741,
     "path": "kit.png",
-    "rendered_harness_sha256": "fa84a0de0d7eac433bd873e14e4cd9fb0f6043c2107109d4e82868c410718f51",
-    "seconds": 66.753099,
+    "rendered_harness_sha256": "ce1bcad85a0806a395741b74c21b47c2ee20bdcb2b971334123bb98128524bb5",
+    "seconds": 128.121034,
     "sha256": "11715f7394179b9912d89566c45cee3020d0a7865a0f67c273b7436d271668ca"
+  },
+  "overview_cutaway": {
+    "faces": {
+      "overview_ne": 0,
+      "overview_se": 0,
+      "overview_sw": 0
+    },
+    "inset_m": 0.9,
+    "rule": "land/scenery faces outside bounds whose camera ray lands on the floor more than inset_m inside bounds; camera rays only"
   },
   "package_sha256": "7f9eee42b9c2e0766567359ce668cabcaf37412883fc261cb99125dd4c88bb71",
   "partial_rerender": false,
@@ -121,6 +130,10 @@
     "solar_time_h": 9,
     "water": "some"
   },
+  "smooth_shading": {
+    "crease_deg": 60.0,
+    "scope": "terrain, water and scenery; welded by position across primitives"
+  },
   "stats": {
     "expanded_triangles": 3958,
     "instances": 15,
@@ -137,14 +150,14 @@
     ],
     "model": "NOAA approximate, geometric, apparent solar time"
   },
-  "total_render_seconds": 451.3839,
-  "total_view_seconds": 369.295668,
-  "total_wall_seconds": 507.862928,
+  "total_render_seconds": 782.854374,
+  "total_view_seconds": 631.212497,
+  "total_wall_seconds": 855.367825,
   "uniform_harness_revision": true,
   "version": 1,
   "views": [
     {
-      "bytes": 560669,
+      "bytes": 551159,
       "figure_inside_geometry": false,
       "figure_position_m": [
         0.0,
@@ -167,10 +180,10 @@
         -8.263969303730672
       ],
       "projection": "PERSP",
-      "raw_bytes": 633486,
-      "rendered_harness_sha256": "fa84a0de0d7eac433bd873e14e4cd9fb0f6043c2107109d4e82868c410718f51",
-      "seconds": 67.57843,
-      "sha256": "e1b03d86cf97df3ce0aa8f4dbd4004cdf483b68698d266b7e95c87332d72ae62",
+      "raw_bytes": 620632,
+      "rendered_harness_sha256": "ce1bcad85a0806a395741b74c21b47c2ee20bdcb2b971334123bb98128524bb5",
+      "seconds": 96.742816,
+      "sha256": "c6df35cb154f05ecaffaa9d71f5c829ef4d2b388beab76c019bfbcca6642484a",
       "shift_x": 0.012643124717490961,
       "shift_y": -0.09593678626994813,
       "target_m": [
@@ -180,7 +193,7 @@
       ]
     },
     {
-      "bytes": 543130,
+      "bytes": 543615,
       "figure_inside_geometry": false,
       "figure_position_m": [
         0.0,
@@ -203,10 +216,10 @@
         8.263969303730672
       ],
       "projection": "PERSP",
-      "raw_bytes": 610177,
-      "rendered_harness_sha256": "fa84a0de0d7eac433bd873e14e4cd9fb0f6043c2107109d4e82868c410718f51",
-      "seconds": 65.185724,
-      "sha256": "32f72b549935b73afd29e39869010b098b3061471db6bf4cc89b643f32b65637",
+      "raw_bytes": 613440,
+      "rendered_harness_sha256": "ce1bcad85a0806a395741b74c21b47c2ee20bdcb2b971334123bb98128524bb5",
+      "seconds": 125.69947,
+      "sha256": "b0f130ebd806f243fb24e2ce603c7645a6a1d139dadaae3ea284aab3ea782416",
       "shift_x": 0.012643124717490961,
       "shift_y": -0.09593678626994813,
       "target_m": [
@@ -216,7 +229,7 @@
       ]
     },
     {
-      "bytes": 541430,
+      "bytes": 543494,
       "figure_inside_geometry": false,
       "figure_position_m": [
         0.0,
@@ -239,10 +252,10 @@
         8.263969303730672
       ],
       "projection": "PERSP",
-      "raw_bytes": 612710,
-      "rendered_harness_sha256": "fa84a0de0d7eac433bd873e14e4cd9fb0f6043c2107109d4e82868c410718f51",
-      "seconds": 65.092195,
-      "sha256": "a7cd6731a9ce0b15652958b40144dd1f6a0aae6bc9fd332ecbe40f36844dce82",
+      "raw_bytes": 609512,
+      "rendered_harness_sha256": "ce1bcad85a0806a395741b74c21b47c2ee20bdcb2b971334123bb98128524bb5",
+      "seconds": 108.915382,
+      "sha256": "0dd20061f2a6f1707dda669e094d5470a427a58d31ae599e350a86bf757b2673",
       "shift_x": -0.012643124717490906,
       "shift_y": -0.09593678626994813,
       "target_m": [
@@ -252,7 +265,7 @@
       ]
     },
     {
-      "bytes": 557846,
+      "bytes": 557611,
       "figure_ground_missing": false,
       "figure_inside_geometry": false,
       "figure_position_m": [
@@ -275,10 +288,10 @@
         -3.0
       ],
       "projection": "PERSP",
-      "raw_bytes": 616978,
-      "rendered_harness_sha256": "fa84a0de0d7eac433bd873e14e4cd9fb0f6043c2107109d4e82868c410718f51",
-      "seconds": 55.000472,
-      "sha256": "23ae7cccf3fe7f71eaa2730dd722d85d9fb76aaa5073b45dc38163ba3477c5d1",
+      "raw_bytes": 616941,
+      "rendered_harness_sha256": "ce1bcad85a0806a395741b74c21b47c2ee20bdcb2b971334123bb98128524bb5",
+      "seconds": 89.278242,
+      "sha256": "aeb3860d8e7e4ae40a5d858eb8c86bbbe001c9d76d9221b904b8d2a4ac50d641",
       "spawn_id": "player_start",
       "target_m": [
         0.0,
@@ -287,7 +300,7 @@
       ]
     },
     {
-      "bytes": 551884,
+      "bytes": 551920,
       "figure_ground_missing": false,
       "figure_inside_geometry": false,
       "figure_position_m": [
@@ -310,10 +323,10 @@
         -3.0
       ],
       "projection": "PERSP",
-      "raw_bytes": 615105,
-      "rendered_harness_sha256": "fa84a0de0d7eac433bd873e14e4cd9fb0f6043c2107109d4e82868c410718f51",
-      "seconds": 53.532032,
-      "sha256": "28a33fb84c8f90ad0afb4c8f2f0a344d94068360fa3d90e6c4299e3aa6421b4b",
+      "raw_bytes": 614979,
+      "rendered_harness_sha256": "ce1bcad85a0806a395741b74c21b47c2ee20bdcb2b971334123bb98128524bb5",
+      "seconds": 96.551069,
+      "sha256": "a3da8b4b73e4404f5314758de3c87622ee12dd4dcf9fd673d71f6789793b778b",
       "spawn_id": "companion_start",
       "target_m": [
         0.0,
@@ -322,7 +335,7 @@
       ]
     },
     {
-      "bytes": 508588,
+      "bytes": 508619,
       "figure_ground_missing": false,
       "figure_inside_geometry": false,
       "figure_position_m": [
@@ -345,10 +358,10 @@
         0.0
       ],
       "projection": "PERSP",
-      "raw_bytes": 591920,
-      "rendered_harness_sha256": "fa84a0de0d7eac433bd873e14e4cd9fb0f6043c2107109d4e82868c410718f51",
-      "seconds": 62.906815,
-      "sha256": "0c8b49895506e7208d68c6ff849bd18158a584333f60dea1e9c674befef821dc",
+      "raw_bytes": 591819,
+      "rendered_harness_sha256": "ce1bcad85a0806a395741b74c21b47c2ee20bdcb2b971334123bb98128524bb5",
+      "seconds": 114.025518,
+      "sha256": "83ec017d153d0ebdf9902fd7576db8b22baa3687741b1880d250031363272107",
       "target_m": [
         0.8637789008984335,
         0.087,
