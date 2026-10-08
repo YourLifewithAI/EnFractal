@@ -8,8 +8,6 @@ the real pixels of what was found.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import numpy as np
 from PIL import Image, ImageDraw
 
@@ -76,15 +74,14 @@ def crop_with_box(scene: Scene, view: int, box: tuple[float, float, float, float
     return crop
 
 
-def sheet(images: list[Image.Image], path: Path, *, cols: int = 6, cell: int = 320, background=(24, 24, 24)) -> Path:
-    """A grid of crops in one JPEG for a reviewer to look at."""
+def contact_sheet(images: list[Image.Image], *, cols: int = 6, cell: int = 320, background=(24, 24, 24)) -> Image.Image:
+    """A grid of crops in one picture for a reviewer to look at. It writes nothing: a picture of a real room is saved
+    only through ``OutputGuard.write_image``, which keeps it inside the capture."""
     rows = max(1, -(-len(images) // cols))
     out = Image.new("RGB", (cols * cell, rows * cell), background)
     for i, im in enumerate(images):
         out.paste(im, ((i % cols) * cell, (i // cols) * cell))
-    Path(path).parent.mkdir(parents=True, exist_ok=True)
-    out.save(path, quality=88)
-    return Path(path)
+    return out
 
 
 def stored_to_photo_xy(scene: Scene, view: int, xy: np.ndarray) -> np.ndarray:

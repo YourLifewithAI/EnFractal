@@ -382,3 +382,111 @@ def test_additions_replace_detector_proposals_of_the_same_kind_at_the_same_place
     added = candidates_from_additions([Addition("couch", (0.2, 0.4, 0.1), 1.9, "by the reviewer")])
     merged = merge_duplicates([detected] + added)
     assert len(merged) == 1 and merged[0].source == "added"
+
+
+# --- review fixes: separate rotated boxes, supports on a turned desk, and the recipe library's own input check -----------------
+
+def make_fit(kind, box, views=5):
+    cand = Candidate(kind, np.array(box.centre_m), float(max(box.size_m)), [], "added")
+    return Fit(cand, box, np.zeros((0, 3)), np.zeros((0, 3)), np.zeros((0, 3), np.uint8), [object()] * views, [])
+
+
+def test_separate_rotated_boxes_are_not_folded_into_one():
+    from roomscan.inventory.fit import box_overlap_volume, footprint_overlap_area, forward_xz
+
+    yaw = 45.0
+    back = -forward_xz(yaw)  # along the box's depth
+    a = Box((0.0, 0.25, 0.0), (1.0, 0.5, 0.1), yaw, 0.0)
+    gap = Box((0.2 * back[0], 0.25, 0.2 * back[1]), (1.0, 0.5, 0.1), yaw, 0.0)  # 0.2 m along the depth: 0.1 m of daylight between
+    assert footprint_overlap_area(a, gap) == 0.0 and box_overlap_volume(a, gap) == 0.0
+    # Their bounding squares overlap heavily, which is what the old test measured: over four times the smaller volume.
+    ax0, az0, ax1, az1 = a.footprint
+    bx0, bz0, bx1, bz1 = gap.footprint
+    squares = max(0, min(ax1, bx1) - max(ax0, bx0)) * max(0, min(az1, bz1) - max(az0, bz0)) * 0.5
+    assert squares / (1.0 * 0.5 * 0.1) > 4.0
+    kept = drop_overlapping([make_fit("table", a), make_fit("table", gap)])
+    assert len(kept) == 2
+    # Boxes that really share their space are still one object: identical, and half-shifted along the depth.
+    assert box_overlap_volume(a, a) == pytest.approx(0.05)
+    half = Box((0.05 * back[0], 0.25, 0.05 * back[1]), (1.0, 0.5, 0.1), yaw, 0.0)
+    assert box_overlap_volume(a, half) == pytest.approx(0.025)
+    near = Box((0.02 * back[0], 0.25, 0.02 * back[1]), (1.0, 0.5, 0.1), yaw, 0.0)  # 80 per cent of the smaller box shared
+    assert box_overlap_volume(a, near) == pytest.approx(0.04)
+    assert len(drop_overlapping([make_fit("table", a), make_fit("desk", near, views=3)])) == 1
+    assert len(drop_overlapping([make_fit("table", a), make_fit("desk", half, views=3)])) == 2  # half shared: two objects side by side
+    # Stacked, not shared: a box sitting on another has no volume in common.
+    on_top = Box((0.0, 0.75, 0.0), (1.0, 0.5, 0.1), yaw, 0.5)
+    assert box_overlap_volume(a, on_top) == 0.0 and len(drop_overlapping([make_fit("table", a), make_fit("box", on_top)])) == 2
+
+
+def test_a_thing_sits_on_a_turned_desk_only_where_the_desk_really_is():
+    desk = entry("desk_1", "desk", 0.7, size=(1.2, 0.75, 0.6), centre=(0.0, 0.375, 0.0))
+    desk["box"]["yaw_deg"] = 45.0
+    inside = entry("laptop_1", "laptop", 0.7, support="surface", size=(0.3, 0.02, 0.2), centre=(0.2, 0.76, 0.0), base=0.75)
+    corner = entry("jar_1", "jar", 0.5, support="surface", size=(0.1, 0.1, 0.1), centre=(0.6, 0.8, 0.0), base=0.75)  # in the bounding square, off the desk
+    for e in (inside, corner):
+        e["placement"]["support"]["target_id"] = None
+    link_supports([desk, inside, corner])
+    assert inside["placement"]["support"]["target_id"] == "desk_1"
+    assert corner["placement"]["support"]["kind"] == "surface" and corner["placement"]["support"]["target_id"] is None
+
+
+def recipe_library():
+    """The recipe library's own input validation (pipeline/recipes/specs.py, standard library only), loaded without Blender."""
+    import importlib.util
+
+    from roomscan.paths import find_repo_root
+
+    path = find_repo_root() / "pipeline" / "recipes" / "specs.py"
+    assert path.is_file(), "pipeline/recipes/specs.py is missing: merge run2/integration into this branch"
+    spec = importlib.util.spec_from_file_location("enfractal_recipe_specs", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_requests_pass_the_recipe_librarys_own_input_check(scene):
+    library = recipe_library()
+    samples = {
+        "cardboard_box": ((0.42, 0.34, 0.32), {"cardboard": "#9c7958", "edges": "#a8896c"}),
+        "couch": ((1.85, 0.78, 0.95), {"upholstery": "#9a9287", "legs": "#775035"}),
+        "gaming_laptop": ((0.30, 0.022, 0.22), {"shell": "#161411"}),
+        "jam_jar": ((0.10, 0.14, 0.10), {}),
+        "french_press": ((0.12, 0.25, 0.11), {"frame": "#aeb5bd"}),
+    }
+    assert set(samples) == set(recipes.SLOTS) == set(library.RECIPES)
+    for name, (size, colours) in samples.items():
+        request = recipes.request_for(name, size, colours)
+        used = library.resolve(json.loads(json.dumps(request)))
+        values = library.values(used)
+        assert values["recipe"] == name and values["size_m"] == list(size) and used["style"]["source"] == "default"
+        assert all(used["colours"][slot]["source"] == "given" for slot in colours)
+        assert all(used["params"][p]["source"] == "given" for p in request["params"])
+    # A laptop entry made from a fitted box, end to end, is accepted too.
+    lo, hi = (0.45, 0.75, 0.9), (0.75, 0.87, 1.15)
+    fit = fit_candidate(scene, make_candidate("laptop", lo, hi, 0.35), true_results(scene, lo, hi), [])
+    assert library.resolve(entry_for(scene, fit, "laptop_1", {})["recipe"])
+
+
+def test_our_copy_of_the_recipe_tables_agrees_with_the_library_and_both_refuse_the_same_bad_input():
+    library = recipe_library()
+    for name, slots in recipes.SLOTS.items():
+        assert set(slots) == set(library.RECIPES[name]["colours"]), name
+        for key, rule in recipes.PARAMS[name].items():
+            theirs = library.RECIPES[name]["params"][key]
+            if isinstance(rule[0], str):
+                assert tuple(rule) == tuple(theirs[1]), (name, key)
+            else:
+                assert (rule[0], rule[1]) == (theirs[1], theirs[2]) and rule[2] == (type(theirs[0]) is int), (name, key)
+    good = {"recipe": "couch", "size_m": [1.8, 0.8, 0.9], "colours": {"upholstery": "#aabbcc"}, "params": {"cushion_count": 3}}
+    bad = [dict(good, size_m=[1.8, 0.8]), dict(good, size_m=[1.8, 0.001, 0.9]), dict(good, size_m=[1.8, 0.8, 99]),
+           dict(good, colours={"seat": "#aabbcc"}), dict(good, colours={"legs": "blue"}),
+           dict(good, params={"cushion_count": 9}), dict(good, params={"cushion_count": 2.5}), dict(good, params={"mystery": 1}),
+           dict(good, extra=1), dict(good, recipe="sofa")]
+    for request in bad:
+        with pytest.raises(recipes.RequestError):
+            recipes.validate_request(request)
+        with pytest.raises(ValueError):
+            library.resolve(request)
+    recipes.validate_request(good)
+    library.resolve(good)

@@ -50,10 +50,14 @@ def cmd_shell(args: argparse.Namespace) -> int:
         _captures(args), args.room, session=args.session,
         rooms_dir=Path(args.rooms_dir) if args.rooms_dir else None, created_utc=args.created_utc,
         spec_path=Path(args.spec) if args.spec else None, pictures=not args.no_pictures)
-    print(f"manifest: {result['manifest']}")
+    if result["published"]:
+        print(f"manifest: {result['manifest']}")
+    else:
+        kept = f"; the earlier room at {result['manifest']} is untouched" if result["manifest"] else ""
+        print(f"NOT published{kept}")
     for problem in result["problems"]:
         print(f"PROBLEM: {problem}")
-    return 1 if result["problems"] else 0
+    return 0 if result["published"] else 1
 
 
 def cmd_inventory(args: argparse.Namespace) -> int:

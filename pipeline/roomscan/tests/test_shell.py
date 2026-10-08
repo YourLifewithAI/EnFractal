@@ -149,10 +149,13 @@ def build(plan, **extra):
 
 def test_the_manifest_validates_against_the_contract_and_is_the_same_bytes_every_time(plan, tmp_path):
     room = build(plan)
-    path, sha = mf.write_room(tmp_path / "rooms", room)
+    written = mf.write_room(tmp_path / "rooms", room)
+    path, sha = written.path, written.sha256
+    assert written.published and written.problems == []
     assert path == tmp_path / "rooms" / "garage" / "room.json"
     assert check_with_contract(path.parent) == []
-    again, sha2 = mf.write_room(tmp_path / "rooms2", build(plan))
+    again_written = mf.write_room(tmp_path / "rooms2", build(plan))
+    again, sha2 = again_written.path, again_written.sha256
     assert sha == sha2 and path.read_bytes() == again.read_bytes()
     raw = path.read_bytes()
     assert raw.endswith(b"\n") and b"\r" not in raw and not raw.startswith(b"\xef\xbb\xbf")
@@ -168,12 +171,12 @@ def test_the_manifest_validates_against_the_contract_and_is_the_same_bytes_every
 def test_a_shell_the_contract_would_refuse_is_caught(plan, tmp_path):
     room = build(plan)
     room["shell"]["openings"][0]["host_part_id"] = "shell:wall_z"
-    path, _ = mf.write_room(tmp_path / "rooms", room)
+    path = mf.write_room(tmp_path / "rooms", room).path
     problems = check_with_contract(path.parent)
     assert problems and any("wall_z" in p for p in problems)
     room = build(plan)
     room["spawns"][0]["position_m"] = [9.0, 0.0, 0.0]  # outside the bounds
-    path, _ = mf.write_room(tmp_path / "rooms3", room)
+    path = mf.write_room(tmp_path / "rooms3", room).path
     assert any("outside the room bounds" in p for p in check_with_contract(path.parent))
 
 
@@ -181,7 +184,7 @@ def test_a_captured_room_is_never_written_into_the_repository(plan):
     repo = find_repo_root()
     assert repo is not None
     inside = repo / "game" / "rooms" / "never_written"
-    with pytest.raises(mf.ShellError, match="inside the repository"):
+    with pytest.raises(mf.ShellError, match="Git checkout"):
         mf.write_room(inside, build(plan))
     assert not inside.exists()
 
@@ -278,3 +281,133 @@ def test_export_end_to_end_makes_a_manifest_the_contract_accepts(garage_session,
     cov.write_text(json.dumps(record), encoding="utf-8")
     with pytest.raises(SceneMismatch):
         load_scene(captures, "garage")
+
+
+# --- the export at the tape scale, checked against the true room; a bad export keeps the old room ----------------------------
+
+TAPE_FACTOR = 0.926
+
+
+class ModelTooLargeBackend(sc.FakeBackend):
+    """The pose model returns the room 1 / 0.926 too large in its seed batch, as it did for the real garage: the tape factor is 0.926."""
+
+    def batch_scale(self) -> float:
+        return 1 / TAPE_FACTOR if self.calls == 0 else 1.0
+
+
+@pytest.fixture(scope="module")
+def scaled_garage(garage_master, tmp_path_factory):
+    """The synthetic garage covered with a floor-to-ceiling and a diagonal tape measurement of the TRUE room (4 x 2.5 x 5 m)."""
+    import dataclasses
+    import shutil
+
+    captures = tmp_path_factory.mktemp("scaled") / "repo" / "captures"
+    shutil.copytree(garage_master.captures, captures)
+    session = dataclasses.replace(garage_master, captures=captures)
+    sid = session.session_id
+    tape = {"room": "garage", "measurements": [
+        {"id": "up", "kind": "floor_to_ceiling", "between": [], "session_id": sid, "value_m": 2.5, "sigma_m": 0.01},
+        {"id": "diag", "kind": "diagonal", "between": ["AB", "CD"], "session_id": sid, "value_m": float(np.hypot(4.0, 5.0)), "sigma_m": 0.01}]}
+    (captures / "garage" / "measurements.json").write_text(json.dumps(tape), encoding="utf-8")
+    result = run_coverage(captures, "garage", chunk_size=10, anchors=3, skip_detection=True, log=lambda *_: None,
+                          backend_factory=lambda: ModelTooLargeBackend(session.room, session.cams, names=session.names, seed=3))
+    spec = spec_doc(session_id=sid)
+    (captures / "garage" / "shell-spec.json").write_text(json.dumps(spec), encoding="utf-8")
+    return session, result, spec
+
+
+def true_to_room(session, scene):
+    """The similarity (scale, rotation, translation) from the synthetic room's own coordinates to the pipeline's room frame,
+    found from where the cameras really were: truth that does not come from any plane the pipeline fitted."""
+    from roomscan.coverage.geometry import umeyama
+
+    truth = np.array([session.cams[session.names[Path(scene.views[i]["derived"]["jpeg"]).name]][:3, 3] for i in scene.registered])
+    room = np.array([scene.c2w[i][:3, 3] for i in scene.registered])
+    return umeyama(truth, room)
+
+
+def true_box_corners():
+    return np.array([[x, y, z] for x in (-2.0, 2.0) for y in (0.0, 2.5) for z in (-2.5, 2.5)])
+
+
+def test_the_export_at_the_tape_scale_lands_on_the_true_room(scaled_garage, tmp_path):
+    session, result, spec = scaled_garage
+    assert result["run"]["scale"]["scale_source"] == "tape"
+    assert result["run"]["scale"]["applied_factor"] == pytest.approx(TAPE_FACTOR, abs=0.015)  # not the unit scale
+    scene = load_scene(session.captures, "garage")
+    assert scene.factor == pytest.approx(TAPE_FACTOR, abs=0.015)
+    s, R, t = true_to_room(session, scene)
+    assert s == pytest.approx(1.0, abs=0.03)  # true metres are the tape's metres: the room is not 8 per cent too large
+    mapped = true_box_corners() @ (s * R).T + t
+    exported = export_shell(session.captures, "garage", rooms_dir=tmp_path / "rooms", created_utc="2026-10-08T00:00:00Z", log=lambda *_: None)
+    assert exported["problems"] == [], exported["problems"]
+    document = json.loads(exported["manifest"].read_bytes())
+    lo, hi = np.array(document["bounds"]["min_m"]), np.array(document["bounds"]["max_m"])
+    assert np.allclose(mapped.min(0), lo, atol=0.05) and np.allclose(mapped.max(0), hi, atol=0.05), (mapped.min(0), lo, mapped.max(0), hi)
+    # Every shell polygon lies on a face of the true room (to 5 cm), at the tape scale.
+    faces = [(axis, float(v)) for axis in (0, 1, 2) for v in (mapped[:, axis].min(), mapped[:, axis].max())]
+    for part in document["shell"]["parts"]:
+        points = np.array(part["geometry"]["points_m"])
+        flat = [axis for axis in (0, 1, 2) if np.ptp(points[:, axis]) < 1e-6]
+        assert len(flat) == 1, part["id"]  # each is a flat plate
+        axis = flat[0]
+        assert min(abs(points[0, axis] - v) for a, v in faces if a == axis) < 0.05, part["id"]
+
+
+def test_openings_come_out_as_holes_inside_their_walls_at_true_places(scaled_garage, tmp_path):
+    session, _, spec = scaled_garage
+    scene = load_scene(session.captures, "garage")
+    s, R, t = true_to_room(session, scene)
+    mapped = true_box_corners() @ (s * R).T + t
+    planes = {axis: (mapped[:, axis].min(), mapped[:, axis].max()) for axis in (0, 2)}
+    exported = export_shell(session.captures, "garage", rooms_dir=tmp_path / "rooms", created_utc="2026-10-08T00:00:00Z", log=lambda *_: None)
+    document = json.loads(exported["manifest"].read_bytes())
+    parts = {p["id"]: p for p in document["shell"]["parts"]}
+    assert len(document["shell"]["openings"]) == len(spec["openings"]) == 3
+    for opening in document["shell"]["openings"]:
+        host = np.array(parts[opening["host_part_id"]]["geometry"]["points_m"])
+        centre, (width, height) = np.array(opening["center_m"]), opening["size_m"]
+        axis = next(a for a in (0, 2) if np.ptp(host[:, a]) < 1e-6)  # the wall's normal axis
+        along = 2 if axis == 0 else 0
+        # On the wall's plane, which is one of the true room's walls.
+        assert abs(centre[axis] - host[0, axis]) < 1e-3
+        assert min(abs(centre[axis] - v) for v in planes[axis]) < 0.05
+        # Wholly inside the wall's polygon, with wall left on both sides: a hole, not a notch at an edge.
+        lo_a, hi_a = host[:, along].min(), host[:, along].max()
+        assert lo_a + 1e-6 < centre[along] - width / 2 and centre[along] + width / 2 < hi_a - 1e-6, opening["id"]
+        assert centre[1] + height / 2 < host[:, 1].max() - 1e-6 and centre[1] - height / 2 > host[:, 1].min() - 1e-6, opening["id"]
+    window = next(o for o in document["shell"]["openings"] if o["kind"] == "window")
+    assert window["center_m"][1] - window["size_m"][1] / 2 > 0.5  # a sill: wall below it, so a hole and not a doorway
+
+
+def test_a_failed_validation_keeps_the_previous_playable_manifest(scaled_garage, tmp_path, monkeypatch):
+    session, _, spec = scaled_garage
+    rooms = tmp_path / "rooms"
+    first = export_shell(session.captures, "garage", rooms_dir=rooms, created_utc="2026-10-08T00:00:00Z", log=lambda *_: None)
+    assert first["problems"] == []
+    path = first["manifest"]
+    kept = path.read_bytes()
+    spec_path = session.captures / "garage" / "shell-spec.json"
+    # A spec with one player spawn and no companion breaks the contract's two-spawn rule.
+    broken = dict(spec, spawns=[{"id": "player_start", "role": "player", "position_m": [0.0, 0.0, 0.0], "yaw_deg": 0.0}])
+    spec_path.write_text(json.dumps(broken), encoding="utf-8")
+    try:
+        bad = export_shell(session.captures, "garage", rooms_dir=rooms, created_utc="2026-10-09T00:00:00Z", log=lambda *_: None)
+        assert path.read_bytes() == kept, "the playable room was replaced by one that fails validation"
+        assert bad["problems"] and any("spawns" in p for p in bad["problems"])
+        assert bad["published"] is False
+        assert sorted(p.name for p in (rooms / "garage").iterdir()) == ["room.json"]  # no staged copy is left behind
+        assert not (rooms / ".staging").exists() or not any((rooms / ".staging").iterdir())
+        # When the validator cannot run at all, nothing is published either, and the old room stays.
+        spec_path.write_text(json.dumps(dict(spec, display_name="Another name")), encoding="utf-8")
+        from roomscan.shell import export as export_module
+        monkeypatch.setattr(export_module, "check_with_contract", lambda room_dir: ["contract validator could not run: no jsonschema"])
+        unchecked = export_shell(session.captures, "garage", rooms_dir=rooms, created_utc="2026-10-09T00:00:00Z", log=lambda *_: None)
+        assert path.read_bytes() == kept and unchecked["published"] is False and "could not run" in unchecked["problems"][0]
+        monkeypatch.undo()
+        # A valid export does replace it.
+        good = export_shell(session.captures, "garage", rooms_dir=rooms, created_utc="2026-10-09T00:00:00Z", log=lambda *_: None)
+        assert good["problems"] == [] and good["published"] is True and path.read_bytes() != kept
+        assert json.loads(path.read_bytes())["display_name"] == "Another name"
+    finally:
+        spec_path.write_text(json.dumps(spec), encoding="utf-8")

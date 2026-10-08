@@ -14,16 +14,18 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import shutil
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, NamedTuple
 
 import numpy as np
 
 from .. import __version__
 from ..coverage.backend import MODEL_REGISTRY
 from ..jsonio import sha256_hex
-from ..paths import find_repo_root
+from ..paths import git_checkout_of
 from ..scene import Scene
 from .planes import ShellPlan, WALL_KEYS
 from .spec import OpeningSpec, ShellSpec
@@ -239,24 +241,60 @@ def default_rooms_dir() -> Path:
     return base / GAME_NAME / "rooms"
 
 
-def _inside(child: Path, parent: Path) -> bool:
-    try:
-        child.relative_to(parent)
-        return True
-    except ValueError:
-        return False
+ROOM_ID = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
 
 
-def write_room(rooms_dir: Path, manifest: dict[str, Any]) -> tuple[Path, str]:
-    """Write ``<rooms_dir>/<room_id>/room.json``; never inside a checkout of the repository."""
-    rooms_dir = Path(rooms_dir).resolve()
-    repo = find_repo_root()
-    if repo is not None and _inside(rooms_dir, repo.resolve()):
-        raise ShellError(f"{rooms_dir} is inside the repository; a captured room goes to the player's user data, never into Git")
+class RoomWrite(NamedTuple):
+    path: Path  # where the room's manifest is (or would be): <rooms_dir>/<room_id>/room.json
+    sha256: str  # of the manifest's bytes, the room's identity pin
+    published: bool  # False when the check failed or could not run: the room folder is as it was
+    problems: list[str]
+
+
+def room_target(rooms_dir: Path, room_id: str) -> Path:
+    """Where a room's manifest goes, checked on the *resolved* path: never inside any Git checkout, never outside ``rooms_dir``.
+
+    Every checkout counts, not only the one the code runs from (another clone's tracked tree is as bad), and links are
+    followed first, so a ``rooms/garage`` that points into a checkout is refused.
+    """
+    if not ROOM_ID.match(room_id):
+        raise ShellError(f"{room_id!r} is not a room id (a lowercase token)")
+    rooms = Path(rooms_dir).resolve()
+    folder = (rooms / room_id).resolve()
+    if folder.parent != rooms:
+        raise ShellError(f"the room folder {folder} resolves outside the rooms folder {rooms}")
+    for place in (rooms, folder):
+        checkout = git_checkout_of(place)
+        if checkout is not None:
+            raise ShellError(f"{place} is inside the Git checkout {checkout} (the repository or another clone); "
+                             "a captured room goes to the player's user data, never where Git can track it")
+    return folder / "room.json"
+
+
+def write_room(rooms_dir: Path, manifest: dict[str, Any], *, check: Callable[[Path], list[str]] | None = None) -> RoomWrite:
+    """Stage ``<rooms_dir>/<room_id>/room.json``, check the staged room, and only then replace the one that is there.
+
+    ``check`` takes the staged room folder and returns problems (``export.check_with_contract``); with any problem, or when
+    it could not run, the room that was playable stays exactly as it was and nothing is published. Without ``check`` the
+    manifest is published as it is.
+    """
+    target = room_target(rooms_dir, manifest["room_id"])
     data = dump(manifest)
-    target = rooms_dir / manifest["room_id"] / "room.json"
-    target.parent.mkdir(parents=True, exist_ok=True)
-    tmp = target.with_name("room.json.part")
-    tmp.write_bytes(data)
-    os.replace(tmp, target)
-    return target, sha256_hex(data)
+    sha = sha256_hex(data)
+    staging = target.parent.parent / ".staging" / f"{manifest['room_id']}-{os.getpid()}" / manifest["room_id"]
+    staging.mkdir(parents=True, exist_ok=True)
+    staged = staging / "room.json"
+    try:
+        staged.write_bytes(data)
+        problems = check(staging) if check is not None else []
+        if problems:
+            return RoomWrite(target, sha, False, list(problems))
+        target.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(staged, target)
+        return RoomWrite(target, sha, True, [])
+    finally:
+        shutil.rmtree(staging.parent, ignore_errors=True)
+        try:
+            staging.parent.parent.rmdir()  # the .staging folder, when nothing else is staging in it
+        except OSError:
+            pass

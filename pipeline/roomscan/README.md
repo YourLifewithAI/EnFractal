@@ -42,9 +42,15 @@ the [room capture pipeline](../../docs/pipeline/ROOM-CAPTURE-PIPELINE.md); the d
   same card) and wait for free VRAM.
 - Photos, derived images and reports of a real room are never committed.
 - A captured room is written to the player's user data (`%APPDATA%\Godot\app_userdata\EnFractal\rooms\<room>\` on
-  Windows) and nowhere else: `write_room` refuses a folder inside a checkout of the repository. The manifest carries no
-  GPS, no place and no longitude; its `site` is whole degrees of latitude, the bearing of -Z and a quarter hour of solar
-  noon, which the contract's schema enforces.
+  Windows) and nowhere else: `write_room` refuses the resolved destination when it is inside *any* Git checkout (this one,
+  another clone, a worktree) or when the room folder is a link that leads out of the rooms folder. It stages the manifest,
+  runs `contracts/validate.py` on the staged copy and only then replaces the room that was there: a manifest that fails
+  validation, or a validator that cannot run, leaves the earlier playable room untouched.
+- Every picture a review helper saves (the shell and object overlays, the review image) goes through `OutputGuard`: a
+  `.jpg` or `.png` inside the room's capture folder, and that folder must itself be a checkout's ignored `captures/` or
+  outside every checkout. A path anywhere else (a `docs/` folder, another clone) is refused before any work is done.
+- The manifest carries no GPS, no place and no longitude; its `site` is whole degrees of latitude, the bearing of -Z and a
+  quarter hour of solar noon, which the contract's schema enforces.
 - The inventory, the shell spec, the curation file and the review image stay under `captures/`. Commit only code, tests
   with synthetic fixtures and docs.
 

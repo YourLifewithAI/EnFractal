@@ -8,6 +8,7 @@ Rules (AGENTS.md, docs/runs/RUN-1.md):
 
 from __future__ import annotations
 
+import io
 import os
 import re
 from pathlib import Path
@@ -41,6 +42,15 @@ def validate_room(room: str) -> str:
     return room
 
 
+def git_checkout_of(path: Path) -> Path | None:
+    """The root of the Git checkout (or worktree: its ``.git`` is a file) that contains ``path``, if any."""
+    resolved = Path(path).resolve()
+    for candidate in (resolved, *resolved.parents):
+        if (candidate / ".git").exists():
+            return candidate
+    return None
+
+
 def _is_within(child: Path, parent: Path) -> bool:
     try:
         child.relative_to(parent)
@@ -66,12 +76,24 @@ def check_source_and_output(source: Path, out_root: Path) -> None:
         )
 
 
+IMAGE_FORMATS = {".jpg": "JPEG", ".jpeg": "JPEG", ".png": "PNG"}
+
+
 class OutputGuard:
-    """Every write goes through here so nothing escapes ``<captures>/<room>/``."""
+    """Every write goes through here so nothing escapes ``<captures>/<room>/``.
+
+    The folder itself must not be somewhere Git tracks: inside a checkout of the repository the only place derived
+    data of a real room may go is that checkout's ignored ``captures/`` folder.
+    """
 
     def __init__(self, room_dir: Path, forbidden: Path | None = None):
         self.root = Path(room_dir).resolve()
         self.forbidden = Path(forbidden).resolve() if forbidden else None
+        checkout = git_checkout_of(self.root)
+        if checkout is not None and not _is_within(self.root, checkout / "captures"):
+            raise PathPolicyError(
+                f"{self.root} is inside the Git checkout {checkout} but not in its ignored captures/ folder: derived data "
+                "of a real room is never written where Git can track it.")
 
     def path(self, *parts: str | os.PathLike[str]) -> Path:
         target = self.root.joinpath(*parts).resolve()
@@ -93,6 +115,21 @@ class OutputGuard:
         tmp.write_bytes(data)
         os.replace(tmp, target)
         return target
+
+    def image_path(self, rel: str | os.PathLike[str]) -> Path:
+        """A place under the root for a picture: inside it, and a picture's suffix."""
+        target = self.path(rel)
+        if target.suffix.lower() not in IMAGE_FORMATS:
+            raise PathPolicyError(f"Only {', '.join(IMAGE_FORMATS)} pictures are written, not {target.name}.")
+        return target
+
+    def write_image(self, rel: str | os.PathLike[str], image, *, quality: int = 90) -> Path:
+        """Save a PIL image as a JPEG or PNG under the root (the suffix says which); no other suffix is written."""
+        target = self.image_path(rel)
+        fmt = IMAGE_FORMATS[target.suffix.lower()]
+        buf = io.BytesIO()
+        image.convert("RGB").save(buf, format=fmt, **({"quality": quality} if fmt == "JPEG" else {}))
+        return self.write_bytes(target, buf.getvalue())
 
     def rel(self, target: Path) -> str:
         return Path(target).resolve().relative_to(self.root).as_posix()

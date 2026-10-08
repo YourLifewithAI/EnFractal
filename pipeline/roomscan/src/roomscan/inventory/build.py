@@ -30,10 +30,12 @@ from ..scene import Scene, load_scene
 from .cluster import Cluster, build_clusters, group_by_kind
 from .curation import CURATION_FILE, Addition, Curation, Override, load_curation, slug
 from .detection import run_inventory_detector
-from .fit import Box, face_away_from, fit_box, front_from_height_profile, front_from_viewers
+from .fit import (Box, box_contains_xz, box_overlap_volume, face_away_from, fit_box, front_from_height_profile,
+                  front_from_viewers)
 from .lift import lift_all
 from .picks import pick_five
 from .masks import MaskResult, MaskStore, prompt_key, segment_prompts
+from .overlay import entry_box
 from .recipes import Evidence, request_for, slots_for
 from .track import Prompt, pick_prompts
 from .vocabulary import BY_NAME, SHELL_KINDS, plausible
@@ -290,9 +292,9 @@ def link_supports(entries: list[dict[str, Any]]) -> None:
         for other in entries:
             if other is e:
                 continue
-            x0, z0, x1, z1 = other["box"]["footprint_m"]
             top = other["box"]["centre_m"][1] + other["box"]["size_m"][1] / 2
-            if x0 - 0.05 <= cx <= x1 + 0.05 and z0 - 0.05 <= cz <= z1 + 0.05 and abs(top - s["height_m"]) < 0.12:
+            # Over the other object's turned footprint, not its bounding square.
+            if box_contains_xz(entry_box(other), cx, cz, 0.05) and abs(top - s["height_m"]) < 0.12:
                 if best is None or abs(top - s["height_m"]) < best[0]:
                     best = (abs(top - s["height_m"]), other["id"])
         if best:
@@ -305,14 +307,10 @@ def drop_overlapping(fits: list[Fit]) -> list[Fit]:
         return float(np.prod(f.box.size_m))
 
     def overlap(a: Fit, b: Fit) -> float:
-        ax0, az0, ax1, az1 = a.box.footprint
-        bx0, bz0, bx1, bz1 = b.box.footprint
-        ix, iz = max(0.0, min(ax1, bx1) - max(ax0, bx0)), max(0.0, min(az1, bz1) - max(az0, bz0))
-        ay0, ay1 = a.box.base_y, a.box.base_y + a.box.size_m[1]
-        by0, by1 = b.box.base_y, b.box.base_y + b.box.size_m[1]
-        iy = max(0.0, min(ay1, by1) - max(ay0, by0))
+        """The share of the smaller box that the other covers, with the turned boxes intersected as they are (their
+        bounding squares overlap far more than the boxes do, and two separate rotated objects would be folded into one)."""
         small = min(volume(a), volume(b))
-        return ix * iz * iy / small if small > 1e-6 else 0.0
+        return box_overlap_volume(a.box, b.box) / small if small > 1e-6 else 0.0
 
     kept: list[Fit] = []
     for f in sorted(fits, key=lambda f: (-len(f.accepted), f.candidate.kind)):

@@ -15,7 +15,8 @@ from PIL import Image, ImageDraw
 
 from ..scene import Scene
 from .fit import Box, box_corners_xz
-from .photos import open_photo, project_to_photo, sheet
+from ..paths import OutputGuard
+from .photos import contact_sheet, open_photo, project_to_photo
 from .track import visible_views
 
 
@@ -61,6 +62,10 @@ def best_views(scene: Scene, entry: dict[str, Any], count: int = 6) -> list[int]
 
 
 def object_overlay_sheet(scene: Scene, entry: dict[str, Any], path: Path, *, count: int = 6, cell: int = 520, max_side: int = 1100) -> Path:
+    """An object's box drawn onto the photos that saw it best, saved under the capture (``path`` absolute or relative to the
+    room's capture folder; anywhere else is refused)."""
+    guard = OutputGuard(scene.room_dir)
+    guard.image_path(path)  # refuse a bad place before any work
     box = entry_box(entry)
     images = []
     for v in best_views(scene, entry, count):
@@ -78,4 +83,4 @@ def object_overlay_sheet(scene: Scene, entry: dict[str, Any], path: Path, *, cou
             im = im.crop((int(max(0, x0 - pad)), int(max(0, y0 - pad)), int(min(im.width, x1 + pad)), int(min(im.height, y1 + pad))))
         im.thumbnail((cell, cell))
         images.append(im)
-    return sheet(images, path, cols=3, cell=cell)
+    return guard.write_image(path, contact_sheet(images, cols=3, cell=cell), quality=88)

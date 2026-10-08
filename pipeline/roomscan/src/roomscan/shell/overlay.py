@@ -12,7 +12,8 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from ..inventory.photos import draw_polyline3d, open_photo, sheet
+from ..inventory.photos import contact_sheet, draw_polyline3d, open_photo
+from ..paths import OutputGuard
 from ..scene import Scene
 from .manifest import opening_centre, wall_frame
 from .planes import WALL_KEYS, ShellPlan
@@ -65,6 +66,10 @@ def best_views_for(scene: Scene, plan: ShellPlan, o, count: int = 3) -> list[int
 
 def overlay_sheet(scene: Scene, plan: ShellPlan, spec: ShellSpec, path: Path, *, per_opening: int = 2,
                   cols: int = 4, cell: int = 480) -> Path:
+    """The openings drawn onto the photos that see them best, in one picture saved under the capture (``path`` is absolute or
+    relative to the room's capture folder; anywhere else is refused)."""
+    guard = OutputGuard(scene.room_dir)
+    guard.image_path(path)  # refuse a bad place before any work
     views: list[int] = []
     for o in spec.openings:
         for v in best_views_for(scene, plan, o, per_opening):
@@ -75,4 +80,4 @@ def overlay_sheet(scene: Scene, plan: ShellPlan, spec: ShellSpec, path: Path, *,
         im = overlay_image(scene, plan, spec, v)
         im.thumbnail((cell, cell))
         images.append(im)
-    return sheet(images, path, cols=cols, cell=cell)
+    return guard.write_image(path, contact_sheet(images, cols=cols, cell=cell), quality=88)

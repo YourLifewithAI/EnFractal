@@ -61,6 +61,59 @@ def box_corners_xz(box: Box) -> np.ndarray:
     return np.array([c - r * w - f * d, c + r * w - f * d, c + r * w + f * d, c - r * w + f * d])
 
 
+def _counter_clockwise(polygon: np.ndarray) -> np.ndarray:
+    x, z = polygon[:, 0], polygon[:, 1]
+    area = 0.5 * float(np.sum(x * np.roll(z, -1) - np.roll(x, -1) * z))
+    return polygon if area >= 0 else polygon[::-1]
+
+
+def polygon_area(polygon: np.ndarray) -> float:
+    x, z = polygon[:, 0], polygon[:, 1]
+    return abs(0.5 * float(np.sum(x * np.roll(z, -1) - np.roll(x, -1) * z)))
+
+
+def clip_convex(subject: np.ndarray, clip: np.ndarray) -> np.ndarray:
+    """The overlap of two convex polygons (N, 2) by Sutherland-Hodgman clipping; empty (0, 2) when they do not touch."""
+    out = [p for p in _counter_clockwise(np.asarray(subject, float))]
+    edges = _counter_clockwise(np.asarray(clip, float))
+    for i in range(len(edges)):
+        a, b = edges[i], edges[(i + 1) % len(edges)]
+        inside = lambda p: (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]) >= -1e-12  # noqa: E731
+        incoming, out = out, []
+        for j in range(len(incoming)):
+            p, q = incoming[j], incoming[(j + 1) % len(incoming)]
+            p_in, q_in = inside(p), inside(q)
+            if p_in:
+                out.append(p)
+            if p_in != q_in:
+                d1, d2 = q - p, b - a
+                denom = d1[0] * d2[1] - d1[1] * d2[0]
+                if abs(denom) > 1e-15:
+                    t = ((a[0] - p[0]) * d2[1] - (a[1] - p[1]) * d2[0]) / denom
+                    out.append(p + t * d1)
+        if not out:
+            return np.zeros((0, 2))
+    return np.array(out)
+
+
+def footprint_overlap_area(a: "Box", b: "Box") -> float:
+    """The area (m2) where two turned boxes' footprints overlap: the rotated rectangles intersected, not their bounding squares."""
+    overlap = clip_convex(box_corners_xz(a), box_corners_xz(b))
+    return polygon_area(overlap) if len(overlap) >= 3 else 0.0
+
+
+def box_overlap_volume(a: "Box", b: "Box") -> float:
+    """The volume (m3) shared by two turned boxes: the footprints' overlap times the height both span."""
+    height = min(a.base_y + a.size_m[1], b.base_y + b.size_m[1]) - max(a.base_y, b.base_y)
+    return footprint_overlap_area(a, b) * max(0.0, height)
+
+
+def box_contains_xz(box: "Box", x: float, z: float, margin: float = 0.0) -> bool:
+    """Whether a floor position is over the turned box's footprint (``margin`` metres of slack all round)."""
+    local = to_local_xz(np.array([[x, z]]), (box.centre_m[0], box.centre_m[2]), box.yaw_deg)[0]
+    return abs(local[0]) <= box.size_m[0] / 2 + margin and abs(local[1]) <= box.size_m[2] / 2 + margin
+
+
 def to_local_xz(points_xz: np.ndarray, centre_xz, yaw_deg: float) -> np.ndarray:
     """Floor positions (N, 2) as (local x, local z) of a box with this centre and yaw."""
     r, back = right_xz(yaw_deg), -forward_xz(yaw_deg)

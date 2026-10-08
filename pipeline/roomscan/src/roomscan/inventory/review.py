@@ -15,11 +15,13 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 from ..ortho import top_down
+from ..paths import OutputGuard
 from ..scene import Scene
 from ..shell.overlay import opening_corners
 from ..shell.planes import ShellPlan
 from ..shell.spec import ShellSpec
-from .fit import Box, box_corners_xz, forward_xz
+from .fit import box_corners_xz, forward_xz
+from .overlay import entry_box
 
 KIND_COLOURS = {
     "furniture": (120, 200, 255), "container": (255, 210, 120), "electronics": (170, 255, 170), "other": (230, 230, 230),
@@ -49,14 +51,11 @@ def _text(d: ImageDraw.ImageDraw, xy, text: str, font, fill=(255, 255, 255), hal
     d.text((x, y), text, font=font, fill=fill)
 
 
-def _box_from_entry(o: dict[str, Any]) -> Box:
-    b = o["box"]
-    return Box(tuple(b["centre_m"]), tuple(b["size_m"]), b["yaw_deg"], o["placement"]["position_m"][1])
-
-
 def render_review(scene: Scene, inventory: dict[str, Any], picks: list[str], path: Path, *, plan: ShellPlan | None = None,
                   spec: ShellSpec | None = None, res_m: float = 0.02, scale: int = 4, min_confidence: float = 0.0,
                   title: str | None = None) -> Path:
+    guard = OutputGuard(scene.room_dir)
+    guard.image_path(path)  # the picture is of a real place: refuse any place but the capture folder before any work
     rgb, _, (ox, oz) = top_down(scene, res_m=res_m)
     # The scan from above is smeared by pose noise, so it is only a faint ground to draw on.
     base = Image.fromarray((rgb.astype(np.float32) * 0.28 + 14).astype(np.uint8)).resize((rgb.shape[1] * scale, rgb.shape[0] * scale), Image.Resampling.BICUBIC)
@@ -85,7 +84,7 @@ def render_review(scene: Scene, inventory: dict[str, Any], picks: list[str], pat
     objects = [o for o in inventory["objects"] if o["confidence"] >= min_confidence]
     number = {pid: n for n, pid in enumerate(picks, 1)}
     for o in objects:
-        box = _box_from_entry(o)
+        box = entry_box(o)
         corners = box_corners_xz(box)
         poly = [to_px(*c) for c in corners]
         pick = o["id"] in number
@@ -141,7 +140,4 @@ def render_review(scene: Scene, inventory: dict[str, Any], picks: list[str], pat
             canvas.paste(thumb, (left + 16, int(y)))
             y += thumb.height + 8
         y += 10
-    out = canvas.convert("RGB")
-    Path(path).parent.mkdir(parents=True, exist_ok=True)
-    out.save(path, quality=92)
-    return Path(path)
+    return guard.write_image(path, canvas, quality=92)

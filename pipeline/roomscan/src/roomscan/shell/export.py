@@ -122,16 +122,20 @@ def export_shell(captures_root: Path, room: str, *, session: str | None = "lates
         + ", ".join(f"{s.key} {s.evidence['median_offset_cm']} cm" for s in plan.surfaces))
     rel = Path("shell")
     guard.mkdir(rel)
-    written = wall_pictures(scene, plan, guard, rel) if pictures else []
+    pictures_written = wall_pictures(scene, plan, guard, rel) if pictures else []
     spawns = [dict(id=s.id, role=s.role, position_m=list(s.position_m), yaw_deg=s.yaw_deg) for s in spec.spawns] \
         or default_spawns(scene, plan, inventory_footprints if inventory_footprints is not None else picked_footprints(room_dir))
     created = created_utc or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     manifest = build_manifest(plan, spec, scene, created_utc=created, spawns=spawns)
     guard.write_bytes(rel / "plan.json", json_bytes(plan_record(plan, spec, scene)))
     target_root = Path(rooms_dir) if rooms_dir else default_rooms_dir()
-    path, sha = write_room(target_root, manifest)
-    problems = check_with_contract(path.parent)
-    log(f"Room manifest {path} ({sha[:12]}): " + ("validates" if not problems else f"{len(problems)} problem(s)"))
-    return {"manifest": path, "sha256": sha, "problems": problems, "pictures": written, "plan": plan, "spec": spec,
+    written = write_room(target_root, manifest, check=check_with_contract)
+    problems = written.problems
+    if written.published:
+        log(f"Room manifest {written.path} ({written.sha256[:12]}): validates and replaces any earlier one")
+    else:
+        log(f"Room manifest NOT published, the room folder is as it was ({len(problems)} problem(s)): " + "; ".join(problems[:3]))
+    return {"manifest": written.path if written.path.is_file() else None, "published": written.published,
+            "sha256": written.sha256, "problems": problems, "pictures": pictures_written, "plan": plan, "spec": spec,
             "spawns": spawns, "seconds": round(time.perf_counter() - t0, 1)}
 

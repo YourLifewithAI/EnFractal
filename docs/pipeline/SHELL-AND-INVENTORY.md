@@ -6,7 +6,9 @@ the player's data, and an **inventory** of the room's objects, each ready to fee
 a person, or a player's AI, needs to run the stages and review their results.
 
 Photos, the shell spec, the curation file, the inventory and its pictures describe a real place: they live under
-`captures/<room>/` (Git ignores it) and the manifest goes to `user://rooms/<room>/`, never into the repository.
+`captures/<room>/` (Git ignores it) and the manifest goes to `user://rooms/<room>/`, never into any Git checkout. The code
+enforces it: pictures are written only inside the room's capture folder, the manifest's resolved destination may not be in
+any checkout or lead out of the rooms folder, and the manifest is validated before it replaces the room that was playable.
 
 ## The loop
 
