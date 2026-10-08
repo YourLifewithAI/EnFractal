@@ -752,6 +752,62 @@ func load_envelope(data: Dictionary) -> Dictionary:
 	return {"ok": true, "loaded": true, "revision": revision, "permission_revision": permission_revision}
 
 
+## The trusted host rebuilds (or migrates) a room with no play into a whole state: checked exactly as a save is, written,
+## and only then believed. If any check or the write fails, nothing changes: the state stays as it was and the scene's
+## object poses (shown while the creations are checked against them) go back.
+func adopt_envelope(data: Dictionary) -> Dictionary:
+	if not _available() or revision != 0 or not _receipts.is_empty() or not _compacted.is_empty() or not _instances.is_empty() or not _locks.is_empty() or not _object_poses.is_empty() or not _entity_revisions.is_empty():
+		return _failure("save_not_ready", "", "Only a room with no play takes a whole state.")
+	if not _json_safe(data, MAX_SAVE_BYTES):
+		return _failure("save_invalid", "save", "The state exceeds its structural limits.")
+	var poses := _saved_poses(data)
+	if not poses.ok:
+		return poses
+	_publish_poses(poses.poses)
+	if pose_check.is_valid() and not poses.poses.is_empty():
+		var verdict: Variant = pose_check.call(poses.poses.duplicate(true))
+		if not verdict is Dictionary or verdict.get("ok") != true:
+			_publish_poses(_object_poses)
+			var reason := String(verdict.get("message", "")) if verdict is Dictionary else ""
+			return _failure("save_invalid", "object_poses", reason if not reason.is_empty() else "A saved object pose does not fit the room.")
+	var saved_team: Variant = data.get("team", {}) if _whole(data.get("version")) and int(data.version) >= 5 else {}
+	if not saved_team is Dictionary:
+		_publish_poses(_object_poses)
+		return _failure("save_invalid", "team", "The journal and map are invalid.")
+	if team_check.is_valid() and not saved_team.is_empty():
+		var judged: Variant = team_check.call(saved_team.duplicate(true), int(data.revision) if _whole(data.get("revision")) else -1)
+		if not judged is Dictionary or judged.get("ok") != true:
+			_publish_poses(_object_poses)
+			return _failure("save_invalid", "team", String(judged.get("message", "The journal and map are invalid.")) if judged is Dictionary else "The journal and map are invalid.")
+	var checked := _validate_saved(data)
+	if not checked.ok:
+		_publish_poses(_object_poses)
+		return checked
+	var compacted := {}
+	for key in data.get("compacted", {}):
+		compacted[key] = [int(data.compacted[key][0]), String(data.compacted[key][1])]
+	var checkpoints: Array = []
+	for checkpoint in data.get("checkpoints", []):
+		checkpoints.append({"id": checkpoint.id, "revision": int(checkpoint.revision), "label": checkpoint.label})
+	var locks: Dictionary = data.locks.duplicate(true)
+	for entity_id in locks:
+		locks[entity_id].locked_revision = int(locks[entity_id].locked_revision)
+	var revisions := {}
+	for entity_id in data.entity_revisions:
+		revisions[entity_id] = int(data.entity_revisions[entity_id])
+	var next := {"instances": checked.instances, "receipts": data.receipts.duplicate(true), "compacted": compacted, "checkpoints": checkpoints, "revision": int(data.revision), "permission_revision": int(data.permission_revision) + 1, "roles": data.roles.duplicate(), "consent": {PLAYER: false, COMPANION: false}, "next_id": int(data.next_id), "locks": locks, "entity_revisions": revisions, "object_poses": poses.poses, "team": saved_team.duplicate(true)}
+	# Written first; believed (and the poses published for good) only once it is on disk.
+	var committed := _commit(next)
+	if not committed.ok:
+		_publish_poses(_object_poses)
+		return committed
+	_activation_receipts.clear()
+	_runtime_events.clear()
+	_last_budget_time = -1.0
+	_publish_poses(_object_poses)
+	return {"ok": true, "revision": revision, "permission_revision": permission_revision}
+
+
 func export_envelope() -> Dictionary:
 	return _envelope(_state())
 

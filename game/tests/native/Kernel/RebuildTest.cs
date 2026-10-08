@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using EnFractal.Native;
 using EnFractal.Native.Kernel;
 using EnFractal.Native.Room;
+using RoomStateOutcome = EnFractal.Native.Kernel.CommandHost.RoomStateOutcome;
 
 namespace EnFractal.Tests.Kernel;
 
@@ -68,8 +69,16 @@ public partial class RebuildTest : Node3D
         var lampId = Send(lamp, Player)["created"]?[0]?.GetValue<string>() ?? "";
         var arch = Send(Command(NextId("arch"), "creation.place", new JsonObject { ["source"] = Source("Arch"), ["placement"] = Placement(-1.5, 0, 0.5) }), Companion);
         Check(lampId.Length > 0 && Ok(arch), "the player builds a lamp turned a quarter, the companion an arch");
+        // Review minor 9: both half-turns, +180 and -180, are one angle.
+        var east = Send(Command(NextId("half"), "creation.place", new JsonObject { ["source"] = Source("Half east"), ["placement"] = HalfTurn(-1.0, 0, 0.9, 1) }), Player);
+        var west = Send(Command(NextId("half"), "creation.place", new JsonObject { ["source"] = Source("Half west"), ["placement"] = HalfTurn(-1.0, 0, 0.5, -1) }), Player);
+        Check(Ok(east) && Ok(west), "two creations turned half round, one each way");
         Check(Ok(Send(Command(NextId("lock"), "protect.lock", new JsonObject { ["targets"] = new JsonArray(lampId, "obj:rug") }, expectedRevision: _host.Revision), Player)), "the player protects the lamp and the rug");
         Check(Ok(Send(Command(NextId("note"), "journal.note", new JsonObject { ["text"] = "The lamp lights the reading corner." }), Companion)), "the companion writes a note");
+        // Review major 5: identities that are not the defaults.
+        _companion.SetDisplayName("Pip");
+        _companion.SetAppearance(new Color("3a7bd5"));
+        _player.SetAppearance(new Color("c04040"));
         await Frames(40);
         _host.TeamSightIntervalS = 0;
         var before = _host.ExportRoomState()!;
@@ -77,25 +86,35 @@ public partial class RebuildTest : Node3D
         var instances = CreationIds();
         Dump("room_state_before.json", before);
         Check(before["entities"]![lampId]?["protection"]?["locked"]?.GetValue<bool>() == true && before["entities"]!["obj:doorstop"]?["transform"] != null &&
-            before["entities"]!["avatar:companion"]?["avatar"]?["role"]?.GetValue<string>() == "companion" && before["journal"]!["notes"]!.AsArray().Count == 1 &&
+            before["entities"]!["avatar:companion"]?["avatar"]?["display_name"]?.GetValue<string>() == "Pip" && before["journal"]!["notes"]!.AsArray().Count == 1 &&
             before["journal"]!["history"]!.AsArray().Count >= 2 && before["discovered"]!["levels"]!.AsArray().Count > 0 && before["discovered"]!["entities"]!.AsObject().Count > 0,
             "room state holds the moved objects, the creations and their locks, the avatars, the journal and the discovered map");
 
         // Free everything: the room, the avatars and the host.
         _world.QueueFree();
         await Frames(3);
+        // Review major 2: a rebuild whose save cannot be written changes nothing at all.
         await NewWorld(_room, $"{TestRoot}/b/inventions.json", sweep: false);
-        Check(_host.Revision == 0 && CreationIds().Count == 0 && _host.ExportJournal()["notes"]!.AsArray().Count == 0, "a room built from nothing: no play, no creations, an empty journal");
+        _host.Authority.Set("persistence_sink", Callable.From((Godot.Collections.Dictionary _) => new Godot.Collections.Dictionary { ["ok"] = false, ["message"] = "the disk is full" }));
+        var unsaved = _host.ImportRoomState(before);
+        _host.Authority.Set("persistence_sink", new Callable());
+        Check(!unsaved.Ok && _host.Authority.Call("is_ready").AsBool() && _host.Revision == 0 && CreationIds().Count == 0 && Summaries().Values.All(e => e["kind"]!.GetValue<string>() != "creation") &&
+            _host.ExportJournal()["notes"]!.AsArray().Count == 0 && _host.ExportDiscovered()["levels"]!.AsArray().Count == 0 &&
+            Node(_world, "obj:doorstop")!.GlobalPosition.DistanceTo(new Vector3(-0.3f, 0.006f, 0.5f)) < 1e-4f && _companion.CompanionName != "Pip",
+            "a rebuild whose save fails leaves the room as it was: authority, journal, map, scene and avatars (review major 2): " + unsaved.Message);
+        Check(_host.Revision == 0 && CreationIds().Count == 0, "a room built from nothing: no play, no creations, an empty journal");
         var rebuilt = _host.ImportRoomState(before);
         var after = _host.ExportRoomState()!;
         Dump("room_state_after.json", after);
         Check(rebuilt.Ok && Canonical(Unsessioned(after)) == Canonical(Unsessioned(before)),
-            "rebuilt from room state, the room writes the same room state: entities, receipts, journal, discovered map and extensions: " + rebuilt.Message);
+            "rebuilt from room state, the room writes the same room state: entities (both half-turns, the avatars), receipts, journal, discovered map and extensions: " + rebuilt.Message);
         Check(Canonical(after["journal"]) == Canonical(before["journal"]) && Canonical(after["discovered"]) == Canonical(before["discovered"]), "the journal and the discovered map came through whole");
+        Check(_companion.CompanionName == "Pip" && _companion.AppearanceColor.ToHtml(false) == "3a7bd5" && _player.AppearanceColor.ToHtml(false) == "c04040",
+            "the avatars' identities are restored: the companion's name and both colours (review major 5)");
         var sceneAfter = SceneOf();
         Check(scene.Count == sceneAfter.Count && scene.All(p => sceneAfter.TryGetValue(p.Key, out var t) && t.Origin.DistanceTo(p.Value.Origin) < 1e-4f && t.Basis.IsEqualApprox(p.Value.Basis)),
             "every object's node stands where it stood: the scene is derived from the state");
-        Check(CreationIds().SequenceEqual(instances) && instances.Count == 2, "and the creations are back in the scene: " + string.Join(", ", CreationIds()));
+        Check(CreationIds().SequenceEqual(instances) && instances.Count == 4, "and the creations are back in the scene: " + string.Join(", ", CreationIds()));
         var entities = Summaries();
         Check(entities[lampId]["protected"]!.GetValue<bool>() && entities["obj:rug"]["protected"]!.GetValue<bool>() && !entities["obj:book"]["protected"]!.GetValue<bool>(), "the locks hold");
         var replay = Send(lamp, Player);
@@ -108,17 +127,53 @@ public partial class RebuildTest : Node3D
         _world.QueueFree();
         await Frames(3);
         await NewWorld(_room, $"{TestRoot}/b/inventions.json", sweep: false);
-        Check(_host.Authority.Call("is_ready").AsBool() && Canonical(Unsessioned(_host.ExportRoomState()!)) == Canonical(Unsessioned(before)), "the rebuilt room's save loads again into the same room state");
+        Check(_host.Authority.Call("is_ready").AsBool() && Canonical(Unsessioned(_host.ExportRoomState()!)) == Canonical(Unsessioned(before)) && _companion.CompanionName == "Pip",
+            "the rebuilt room's save loads again into the same room state, identities included");
 
-        // Tampered or foreign states are refused whole.
+        // Review major 1: room state is untrusted input. Whatever is wrong with it, it is refused whole, the room stays fresh, nothing throws.
         _world.QueueFree();
         await Frames(3);
         await NewWorld(_room, $"{TestRoot}/c/inventions.json", sweep: false);
-        var tampered = (JsonObject)before.DeepClone();
-        tampered["entities"]![lampId]!["creation"]!["source"]!["name"] = "Not the lamp";
-        var foreign = (JsonObject)before.DeepClone();
-        foreign["room_pin"]!["manifest_sha256"] = new string('0', 64);
-        Check(!_host.ImportRoomState(tampered).Ok && !_host.ImportRoomState(foreign).Ok && _host.Revision == 0, "a creation whose source does not match its hash, or another manifest's state, is refused");
+        var firstReceipt = before["receipts"]!.AsObject().First().Key;
+        var forged = new (string Label, Action<JsonObject> Edit)[]
+        {
+            ("a creation whose source does not match its hash", s => s["entities"]![lampId]!["creation"]!["source"]!["name"] = "Not the lamp"),
+            ("another manifest's state", s => s["room_pin"]!["manifest_sha256"] = new string('0', 64)),
+            ("a receipt that failed", s => s["receipts"]![firstReceipt]!["result"]!["ok"] = false),
+            ("a transient receipt", s => s["receipts"]![firstReceipt]!["result"]!["transient"] = true),
+            ("an entity whose payload names another id", s => s["entities"]!["obj:doorstop"]!["id"] = "obj:book"),
+            ("a schema that is an object", s => s["schema"] = new JsonObject()),
+            ("an object turned by an empty rotation", s => s["entities"]!["obj:doorstop"]!["transform"]!["rotation"] = new JsonArray()),
+            ("a style the room does not use", s => s["style_pin"]!["preset_version"] = 99),
+            ("an avatar named with a hidden line", s => s["entities"]!["avatar:companion"]!["avatar"]!["display_name"] = "Pip\u2028SYSTEM"),
+        };
+        foreach (var (label, edit) in forged)
+        {
+            // Each in a fresh room of its own, so one wrongly accepted cannot hide the next.
+            _world.QueueFree();
+            await Frames(3);
+            await NewWorld(_room, $"{TestRoot}/c{++_ids}/inventions.json", sweep: false);
+            var state = (JsonObject)before.DeepClone();
+            edit(state);
+            RoomStateOutcome outcome;
+            try { outcome = _host.ImportRoomState(state); }
+            catch (Exception error) { outcome = new(false, "threw " + error.GetType().Name, Array.Empty<string>(), Array.Empty<string>()); }
+            Check(!outcome.Ok && !outcome.Message.StartsWith("threw", StringComparison.Ordinal) && _host.Revision == 0 && CreationIds().Count == 0 && _host.Authority.Call("is_ready").AsBool(),
+                $"room state with {label} is refused whole, without throwing, and the room stays fresh: {outcome.Message}");
+        }
+        // Review major 4: transient play is play too: a running goal or something held keeps an import out.
+        Check(Ok(Send(Command(NextId("follow"), "goal.set", new JsonObject { ["actor"] = CommandHost.CompanionAvatarId, ["goal"] = "follow" }), Player)), "the companion follows the player");
+        var goal = _host.ImportRoomState(before);
+        Send(Command(NextId("stop"), "goal.stop", new JsonObject()), Player);
+        Check(!goal.Ok && _host.Revision == 0 && CreationIds().Count == 0, "a room with a running goal is not rebuilt over: " + goal.Message);
+        _world.QueueFree();
+        await Frames(3);
+        await NewWorld(_room, $"{TestRoot}/d/inventions.json", sweep: false);
+        Check(_player.TryTeleportTo(new Vector3(-0.3f, 0.006f, 0.62f)), "the player stands by the doorstop");
+        await Frames(4);
+        Check(Ok(Send(Command(NextId("grab"), "entity.grab", new JsonObject { ["target"] = "obj:doorstop" }), Player)), "and picks it up");
+        var held = _host.ImportRoomState(before);
+        Check(!held.Ok && _host.Revision == 0 && _host.HeldBy(CommandHost.PlayerAvatar) == "obj:doorstop", "a room where something is held is not rebuilt over: " + held.Message);
         _world.QueueFree();
         await Frames(3);
     }
@@ -127,42 +182,88 @@ public partial class RebuildTest : Node3D
 
     private async Task TestMigrationBetweenManifests()
     {
-        // The test room again, played in: a block on the floor, a lamp on the box, the box and the lamp protected.
+        // The test room again, played in: a block on the floor, a lamp on the box, a cube where the box will stand, locks.
         await NewWorld(_room, CommandHost.SavePathFor(_room), sweep: false);
         var block = Send(Command("block", "creation.place", new JsonObject { ["source"] = Source("Block"), ["placement"] = Placement(-1.5, 0, 0.9) }), Player)["created"]?[0]?.GetValue<string>() ?? "";
         var onBox = Send(Command("on-box", "creation.place", new JsonObject { ["source"] = Source("Box lamp"), ["placement"] = Placement(1.1, 0.3, 0.2, "obj:box") }), Player)["created"]?[0]?.GetValue<string>() ?? "";
-        Check(block.Length > 0 && onBox.Length > 0, "a block on the floor and a lamp on the box");
-        Check(Ok(Send(Command("lock-all", "protect.lock", new JsonObject { ["targets"] = new JsonArray(block, onBox, "obj:box") }, expectedRevision: _host.Revision), Player)), "the player protects both and the box");
+        var cube = Send(Command("cube", "creation.place", new JsonObject { ["source"] = Source("Cube"), ["placement"] = Placement(1.1, 0, -0.6) }), Player)["created"]?[0]?.GetValue<string>() ?? "";
+        Check(block.Length > 0 && onBox.Length > 0 && cube.Length > 0, "a block on the floor, a lamp on the box, a cube north of the box");
+        Check(Ok(Send(Command("lock-all", "protect.lock", new JsonObject { ["targets"] = new JsonArray(block, onBox, "obj:box") }, expectedRevision: _host.Revision), Player)), "the player protects the block, the lamp and the box");
         Check(Ok(Send(Command(NextId("note"), "journal.note", new JsonObject { ["text"] = "Building by the door." }), Companion)), "the companion writes a note");
         var revision = _host.Revision;
         var blockRevision = Summaries()[block]["revision"]!.GetValue<int>();
         var oldPath = CommandHost.SavePathFor(_room);
-        var oldBytes = System.IO.File.ReadAllBytes(ProjectSettings.GlobalizePath(oldPath));
+        var oldAbsolute = ProjectSettings.GlobalizePath(oldPath);
+        var oldBytes = System.IO.File.ReadAllBytes(oldAbsolute);
         _world.QueueFree();
         await Frames(3);
 
-        // The room re-exported with the box moved north: a new manifest, so a new save folder.
+        // The room re-exported with the box moved north, onto the cube's spot: a new manifest, so a new save folder.
         var moved = ReExport(new Vector3(1.1f, 0, 0.2f), new Vector3(1.1f, 0, -0.6f));
         Check(moved.ManifestSha256 != _room.ManifestSha256, "the re-exported room has a new manifest");
-        await NewWorld(moved, CommandHost.SavePathFor(moved), sweep: false);
+        // Review major 6: in real play the sweep runs and wants to save; the offer stays until the player answers.
+        await NewWorld(moved, CommandHost.SavePathFor(moved), sweep: true);
+        _host.TeamSaveIntervalS = 0.5;
+        await Frames(90);
         Check(_host.Revision == 0 && CreationIds().Count == 0 && _host.SaveNotice.Length > 0, "nothing loads by itself; the player is told about the earlier save");
         var candidate = _host.MigrationCandidate();
-        Check(candidate == oldPath, "the earlier save is offered: " + candidate);
+        Check(candidate == oldPath && !System.IO.File.Exists(ProjectSettings.GlobalizePath(CommandHost.SavePathFor(moved))),
+            "with the sweep running for 1.5 s, the earlier save is still offered and nothing was saved over the offer: " + candidate);
         Check(!_host.MigrateFrom($"{TestRoot}/elsewhere/inventions.json").Ok, "only the offered save can be brought over");
-        var outcome = _host.MigrateFrom(candidate!);
-        Check(outcome.Ok && outcome.Kept.SequenceEqual(new[] { block }) && outcome.LeftBehind.SequenceEqual(new[] { onBox }),
-            "the block comes over; the lamp, whose box moved away, is listed and left behind: " + outcome.Message);
+
+        // Review major 1: the earlier save is untrusted input too. Each forgery is refused whole and the file is left as it was.
+        var valid = JsonNode.Parse(System.IO.File.ReadAllText(oldAbsolute))!.AsObject();
+        var receiptKey = valid["receipts"]!.AsObject().First().Key;
+        var playerKey = valid["receipts"]!.AsObject().First(p => p.Key.StartsWith("player:", StringComparison.Ordinal)).Key;
+        var forgeries = new (string Label, Func<byte[]> Bytes)[]
+        {
+            ("a receipt that failed", () => Edited(valid, v => v["receipts"]![receiptKey]!["receipt"]!["ok"] = false)),
+            ("another compiler", () => Edited(valid, v => v["compiler_version"] = 2)),
+            ("a receipt under someone else's key", () => Edited(valid, v => v["receipts"]![playerKey]!["principal"] = "companion:local")),
+            ("more than 4 MiB", () => CanonicalJson.Bytes(valid).Concat(Enumerable.Repeat((byte)' ', 4 * 1024 * 1024)).ToArray()),
+            ("no revision", () => Edited(valid, v => v.Remove("revision"))),
+            ("a creation placed at two coordinates", () => Edited(valid, v => v["instances"]![0]!["position_m"] = new JsonArray(1.0, 2.0))),
+        };
+        foreach (var (label, bytes) in forgeries)
+        {
+            // Each in a fresh room of its own (a wrongly accepted one would leave play behind).
+            _world.QueueFree();
+            await Frames(3);
+            var own = ProjectSettings.GlobalizePath(CommandHost.SavePathFor(moved));
+            if (System.IO.File.Exists(own)) System.IO.File.Delete(own);
+            await NewWorld(moved, CommandHost.SavePathFor(moved), sweep: false);
+            var forged = bytes();
+            System.IO.File.WriteAllBytes(oldAbsolute, forged);
+            RoomStateOutcome outcome;
+            try { outcome = _host.MigrateFrom(oldPath); }
+            catch (Exception error) { outcome = new(false, "threw " + error.GetType().Name, Array.Empty<string>(), Array.Empty<string>()); }
+            Check(!outcome.Ok && !outcome.Message.StartsWith("threw", StringComparison.Ordinal) && _host.Revision == 0 && CreationIds().Count == 0 &&
+                System.IO.File.ReadAllBytes(oldAbsolute).SequenceEqual(forged), $"an earlier save with {label} is refused whole, without throwing: {outcome.Message}");
+        }
+        System.IO.File.WriteAllBytes(oldAbsolute, oldBytes);
+        System.IO.File.SetLastWriteTimeUtc(oldAbsolute, DateTime.UtcNow);
+        _world.QueueFree();
+        await Frames(3);
+        var ownSave = ProjectSettings.GlobalizePath(CommandHost.SavePathFor(moved));
+        if (System.IO.File.Exists(ownSave)) System.IO.File.Delete(ownSave);
+        await NewWorld(moved, CommandHost.SavePathFor(moved), sweep: true);
+        await Frames(30);
+
+        var migrated = _host.MigrateFrom(oldPath);
+        Check(migrated.Ok && migrated.Kept.SequenceEqual(new[] { block }) && migrated.LeftBehind.SequenceEqual(new[] { onBox, cube }),
+            "the block comes over; the lamp, whose box moved away, and the cube, which the box now stands on, stay behind (review major 3): " + migrated.Message);
         var entities = Summaries();
-        Check(entities.ContainsKey(block) && !entities.ContainsKey(onBox) && entities[block]["revision"]!.GetValue<int>() == blockRevision && blockRevision == 2 && _host.Revision == revision,
+        Check(entities.ContainsKey(block) && !entities.ContainsKey(onBox) && !entities.ContainsKey(cube) && entities[block]["revision"]!.GetValue<int>() == blockRevision && blockRevision == 2 && _host.Revision == revision,
             "the block keeps its id and revision, and the room its revision");
         Check(entities[block]["protected"]!.GetValue<bool>() && entities["obj:box"]["protected"]!.GetValue<bool>(), "locks on what still exists carry over (the block, the box)");
         Check(Node(_world, "obj:box")!.GlobalPosition.DistanceTo(new Vector3(1.1f, 0, -0.6f)) < 1e-4f, "objects stand where the new manifest puts them");
-        Check(_host.ExportJournal()["notes"]!.AsArray().Count == 1 && _host.ExportDiscovered()["levels"]!.AsArray().Count == 0, "the journal comes over; the discovered map starts blank");
+        Check(_host.ExportJournal()["notes"]!.AsArray().Count == 1 && _host.ExportDiscovered()["levels"]!.AsArray().Count > 0,
+            "the journal comes over, and what the avatars discovered of this room while the offer stood is kept");
         var replay = Send(Command("block", "creation.place", new JsonObject { ["source"] = Source("Block"), ["placement"] = Placement(-1.5, 0, 0.9) }), Player);
         Check(replay["replayed"]?.GetValue<bool>() == true && Code(Send(Command("block", "creation.place", new JsonObject { ["source"] = Source("Other"), ["placement"] = Placement(-1.0, 0, 0.9) }), Player)) == "action_id_conflict",
             "the ledger starts compacted: an old action id replays and refuses conflicting reuse");
-        Check(System.IO.File.ReadAllBytes(ProjectSettings.GlobalizePath(oldPath)).SequenceEqual(oldBytes), "the earlier save is never modified");
-        Check(_host.MigrationCandidate() == null && !_host.MigrateFrom(candidate!).Ok, "once the room has its own save, nothing is offered again");
+        Check(System.IO.File.ReadAllBytes(oldAbsolute).SequenceEqual(oldBytes), "the earlier save is never modified");
+        Check(_host.MigrationCandidate() == null && !_host.MigrateFrom(oldPath).Ok, "once the room has its own save, nothing is offered again");
         Dump("room_state_migrated.json", _host.ExportRoomState()!);
         _world.QueueFree();
         await Frames(3);
@@ -171,6 +272,16 @@ public partial class RebuildTest : Node3D
         _world.QueueFree();
         await Frames(3);
     }
+
+    private static byte[] Edited(JsonObject document, Action<JsonObject> edit)
+    {
+        var copy = (JsonObject)document.DeepClone();
+        edit(copy);
+        return CanonicalJson.Bytes(copy);
+    }
+
+    private static JsonObject HalfTurn(double x, double y, double z, int sign) =>
+        new() { ["position_m"] = new JsonArray(x, y, z), ["rotation"] = new JsonArray(0, sign, 0, 0) };
 
     /// <summary>The test room copied to a user folder with one object's place changed: a re-exported room, a new manifest hash.</summary>
     private RoomData ReExport(Vector3 from, Vector3 to)

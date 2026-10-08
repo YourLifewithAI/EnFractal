@@ -210,6 +210,8 @@ public partial class CommandHost : Node
         AddChild(Runtime);
         Authority = Runtime.Get("authority").AsGodotObject();
         // The team's journal and map come back with the room; tasks an earlier session left open are closed (their jobs did not survive it).
+        // A room with no save of its own offers the newest earlier save of the same room, until the player answers.
+        if (Authority.Call("is_ready").AsBool() && !Godot.FileAccess.FileExists(SavePath) && Revision == 0) _migrationOffer = NewestOtherSave();
         LoadTeam(Authority.Call("is_ready").AsBool() ? KernelJson.ToJson(Authority.Call("team")) as JsonObject : null, closeOpenTasks: true);
         // Whatever the load did, the scene shows the authority's state: a save that failed to load leaves the manifest's places.
         ApplyObjectPoses(ObjectPoses());
@@ -2164,7 +2166,7 @@ public partial class CommandHost : Node
                 throw new Refusal("invalid_args", "Creations stand upright; use a rotation about the vertical axis only.", "$.args.placement.rotation");
             yaw = 2.0 * Math.Atan2(q[1], q[3]) * 180.0 / Math.PI;
             if (yaw > 180.0) yaw -= 360.0;
-            if (yaw < -180.0) yaw += 360.0;
+            if (yaw <= -180.0) yaw += 360.0;
             yaw = Math.Round(yaw, 9);
         }
         var on = placement.TryGetProperty("on", out var surface) ? surface.GetString()! : "";

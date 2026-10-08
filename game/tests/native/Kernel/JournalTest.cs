@@ -59,6 +59,7 @@ public partial class JournalTest : Node3D
             await TestSharedSight();
             await TestTheMapFillsFromBothAvatarsEyes();
             await TestDiscoveryAndBounds();
+            await TestDiscoveryNeverStarves();
             await TestTasksAndFetch();
             await TestCreationFactsAndForgedNames();
             TestTheAiCannotWriteFacts();
@@ -200,8 +201,40 @@ public partial class JournalTest : Node3D
         var kept = _host.RememberedIds(Companion);
         Check(Ok(built) && kept.Contains(cairn) && kept.Count <= 3, "past its bound the map drops routine things first and never what the team built: " + string.Join(", ", kept));
         _host.PerceptionMemoryLimit = CommandHost.MaxDiscoveredEntities;
+        Check(Ok(Send(Command(NextId("remove"), "entity.remove", new JsonObject { ["target"] = cairn }, expectedRevision: _host.Revision), Player)), "the player removes the cairn");
+        await Frames(20);
+        Check(!_host.RememberedIds(Companion).Contains(cairn), "seen gone, it leaves the team's map, though nothing built is ever dropped for space (review major 8)");
         _host.TeamSightIntervalS = 0;
         Check(Ok(Send(Command(NextId("place"), "entity.place", new JsonObject { ["target"] = "obj:book", ["placement"] = Placement(0.45, 0, 0.1) }), Player)), "the book goes back");
+    }
+
+    /// <summary>
+    /// Review major 7 of the second review: thousands of nearer cells that are never in sight (the player in a pen with one
+    /// gap) must not keep a farther cell in sight through the gap from ever being looked at.
+    /// </summary>
+    private async Task TestDiscoveryNeverStarves()
+    {
+        await Stand(_companion, new Vector3(-1.5f, 0, 1.2f), Vector3.Forward, "in the south-west, far from the cell below");
+        await Stand(_player, new Vector3(0.0f, 0, -0.5f), Vector3.Right, "in the middle of the north half");
+        _host.ForgetDiscoveredSpace();
+        var pen = new StaticBody3D { Name = "Pen", CollisionLayer = RoomBuilder.WorldLayer, CollisionMask = 0, Position = new Vector3(0.0f, 0.1f, -0.5f) };
+        foreach (var (offset, size) in new[]
+        {
+            (new Vector3(0, 0, -0.06f), new Vector3(0.124f, 0.2f, 0.004f)), (new Vector3(0, 0, 0.06f), new Vector3(0.124f, 0.2f, 0.004f)),
+            (new Vector3(-0.06f, 0, 0), new Vector3(0.004f, 0.2f, 0.124f)),
+            // The east side has a gap a few centimetres wide, along z = -0.5.
+            (new Vector3(0.06f, 0, -0.04f), new Vector3(0.004f, 0.2f, 0.044f)), (new Vector3(0.06f, 0, 0.04f), new Vector3(0.004f, 0.2f, 0.044f)),
+        })
+            pen.AddChild(new CollisionShape3D { Position = offset, Shape = new BoxShape3D { Size = size } });
+        AddChild(pen);
+        await Frames(3);
+        Check(!_host.DiscoveredAt("shell:floor", 1.825f, -0.475f), "the floor cell 1.8 m east, through the gap, is not discovered yet");
+        _host.TeamSightIntervalS = 1.0 / 60.0;
+        await Frames(60);
+        _host.TeamSightIntervalS = 0;
+        Check(_host.DiscoveredAt("shell:floor", 1.825f, -0.475f), "within 60 sweeps it is: cells never tried go before retries of cells never in sight");
+        pen.QueueFree();
+        await Frames(2);
     }
 
     // ---- the journal writer: tasks ----

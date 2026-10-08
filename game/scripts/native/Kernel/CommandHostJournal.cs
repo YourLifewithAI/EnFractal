@@ -71,10 +71,11 @@ public partial class CommandHost
     private readonly SortedDictionary<string, Level> _levels = new(StringComparer.Ordinal);
     /// <summary>This session: each open task's target, so a task about something the team had not seen can name it once it is seen.</summary>
     private readonly Dictionary<string, string> _taskTargets = new(StringComparer.Ordinal);
-    /// <summary>Cells a ray did not reach, and the sweep before which they are not tried again.</summary>
+    /// <summary>Cells a ray did not reach, and the sweep they were last tried in (a cell discovered leaves it).</summary>
     private readonly Dictionary<(string Support, int Cell), int> _cellCooldown = new();
     private int _sweepCount;
     private int _sweepEntityCursor;
+    private int _sweepGoneCursor;
     private double _sightClock;
     private double _saveClock;
     private bool _teamDirty;
@@ -377,14 +378,20 @@ public partial class CommandHost
             _sweepEntityCursor = things.Count == 0 ? 0 : (_sweepEntityCursor + SweepEntitiesPerAvatar) % things.Count;
             var looked = entities.Where(e => e["kind"]!.GetValue<string>() is "avatar" or "shell").Concat(turn).ToList();
             var considered = new HashSet<string>(looked.Select(e => e["id"]!.GetValue<string>()), StringComparer.Ordinal);
+            // What the map remembers that is no longer in the room is looked for too (its place, seen empty, drops it), in turn.
+            var live = new HashSet<string>(entities.Select(e => e["id"]!.GetValue<string>()), StringComparer.Ordinal);
+            var gone = TeamMemory().Order.Where(id => !live.Contains(id)).ToList();
+            if (gone.Count > 0)
+            {
+                foreach (var id in Enumerable.Range(0, Math.Min(SweepEntitiesPerAvatar, gone.Count)).Select(i => gone[(_sweepGoneCursor + i) % gone.Count])) considered.Add(id);
+                _sweepGoneCursor = (_sweepGoneCursor + SweepEntitiesPerAvatar) % gone.Count;
+            }
             foreach (var (body, avatar) in new (SmallPlayerController?, string)[] { (Player, PlayerAvatar), (Companion, CompanionAvatarId) })
             {
                 if (body == null || !IsInstanceValid(body) || !body.IsInsideTree()) continue;
                 Remember(body, avatar, entities, Perceive(body, avatar, looked), considered);
                 Discover(body);
             }
-            if (_cellCooldown.Count > 65536)
-                foreach (var key in _cellCooldown.Where(p => p.Value <= _sweepCount).Select(p => p.Key).ToList()) _cellCooldown.Remove(key);
             _teamDirty = true;
         }
         if (_teamDirty && _saveClock >= TeamSaveIntervalS) SaveTeam();
@@ -438,7 +445,7 @@ public partial class CommandHost
     private void Discover(SmallPlayerController body)
     {
         var eye = body.EyeCamera.GlobalPosition;
-        var candidates = new List<(float Distance, Level Level, int C, int R, Vector3 Point)>();
+        var candidates = new List<(int Tried, int Last, float Distance, Level Level, int C, int R, Vector3 Point)>();
         var levels = _levels.Values.ToList();
         var examined = 0;
         for (var n = 0; n < levels.Count && examined < DiscoverCandidatesPerSweep; n++)
@@ -452,20 +459,34 @@ public partial class CommandHost
             for (var c = c0; c <= c1 && examined < DiscoverCandidatesPerSweep; c++)
             {
                 examined++;
-                if (level.Get(c, r) || (_cellCooldown.TryGetValue((level.Support, r * level.Columns + c), out var until) && until > _sweepCount)) continue;
+                var tried = _cellCooldown.TryGetValue((level.Support, r * level.Columns + c), out var last);
+                if (level.Get(c, r) || (tried && _sweepCount - last < DiscoverRetrySweeps)) continue;
                 var point = new Vector3((float)(level.MinX + (c + 0.5) * DiscoverCellM), (float)level.Height + 0.005f, (float)(level.MinZ + (r + 0.5) * DiscoverCellM));
                 var distance = new Vector2(point.X - eye.X, point.Z - eye.Z).Length();
-                if (distance <= DiscoverRadiusM) candidates.Add((distance, level, c, r, point));
+                if (distance <= DiscoverRadiusM) candidates.Add((tried ? 1 : 0, tried ? last : 0, distance, level, c, r, point));
             }
         }
         var space = body.GetWorld3D().DirectSpaceState;
         var exclude = new Godot.Collections.Array<Rid> { body.GetRid() };
-        foreach (var (_, level, c, r, point) in candidates.OrderBy(x => x.Distance).Take(DiscoverRaysPerSweep))
+        // Never-tried cells first, nearest first; then retries, the longest-waiting first. Cells that are never in sight can
+        // never take every ray from cells not yet looked at (review major 7, second review).
+        foreach (var (_, _, _, level, c, r, point) in candidates.OrderBy(x => x.Tried).ThenBy(x => x.Last).ThenBy(x => x.Distance).Take(DiscoverRaysPerSweep))
         {
             var hit = space.IntersectRay(PhysicsRayQueryParameters3D.Create(eye, point, RoomBuilder.WorldLayer, exclude));
-            if (hit.Count == 0 || hit["position"].AsVector3().DistanceTo(point) <= 0.015f) level.Set(c, r);
-            else _cellCooldown[(level.Support, r * level.Columns + c)] = _sweepCount + DiscoverRetrySweeps;
+            if (hit.Count == 0 || hit["position"].AsVector3().DistanceTo(point) <= 0.015f)
+            {
+                level.Set(c, r);
+                _cellCooldown.Remove((level.Support, r * level.Columns + c));
+            }
+            else _cellCooldown[(level.Support, r * level.Columns + c)] = _sweepCount;
         }
+    }
+
+    /// <summary>Test seam: forget all discovered space (the levels stay, blank) and every cell's tries.</summary>
+    internal void ForgetDiscoveredSpace()
+    {
+        foreach (var level in _levels.Values) level.Cells = new byte[level.Cells.Length];
+        _cellCooldown.Clear();
     }
 
     /// <summary>Test seam: how many cells of a level are discovered (-1 when the level is unknown).</summary>
@@ -487,6 +508,13 @@ public partial class CommandHost
     {
         _saveClock = 0;
         if (Authority == null || !Authority.Call("is_ready").AsBool()) return;
+        // While an earlier save is offered and the player has not answered, sightings and tasks wait in memory: writing them
+        // would make a save of this room and withdraw the offer (review major 6, second review).
+        if (_migrationOffer != null && !Godot.FileAccess.FileExists(SavePath))
+        {
+            _teamDirty = true;
+            return;
+        }
         var saved = Authority.Call("set_team", KernelJson.ToVariant(ExportTeam(_notes))).AsGodotDictionary();
         _teamDirty = !saved["ok"].AsBool();
     }
@@ -497,7 +525,19 @@ public partial class CommandHost
         ["journal"] = ExportJournal(notes, history),
         ["discovered"] = ExportDiscovered(),
         ["task_goals"] = new JsonObject(_taskGoals.OrderBy(p => p.Key, StringComparer.Ordinal).Select(p => KeyValuePair.Create(p.Key, (JsonNode?)JsonValue.Create(p.Value)))),
+        ["avatars"] = AvatarIdentities(),
     };
+
+    /// <summary>The avatars' identities as the save keeps them: the player's colour, the companion's name and colour.</summary>
+    private JsonObject AvatarIdentities()
+    {
+        var avatars = new JsonObject();
+        if (Player != null && IsInstanceValid(Player))
+            avatars[PlayerAvatar] = new JsonObject { ["display_name"] = "Player", ["color"] = "#" + Player.AppearanceColor.ToHtml(false) };
+        if (Companion != null && IsInstanceValid(Companion))
+            avatars[CompanionAvatarId] = new JsonObject { ["display_name"] = KernelJson.DisplayText(Companion.CompanionName, 40), ["color"] = "#" + Companion.AppearanceColor.ToHtml(false) };
+        return avatars;
+    }
 
     /// <summary>Room state's journal block: open tasks (never with a job id), history and notes, each oldest first.</summary>
     public JsonObject ExportJournal() => ExportJournal(_notes);
@@ -520,7 +560,11 @@ public partial class CommandHost
             });
         var entities = new JsonObject();
         var memory = TeamMemory();
-        foreach (var id in memory.Order.Where(i => KnownIdPattern.IsMatch(i)).TakeLast(MaxDiscoveredEntities).OrderBy(i => i, StringComparer.Ordinal))
+        var targets = TaskTargets();
+        var listed = memory.Order.Where(i => KnownIdPattern.IsMatch(i)).ToList();
+        var keptFirst = listed.Where(i => i.StartsWith("creation:", StringComparison.Ordinal) || targets.Contains(i)).TakeLast(MaxDiscoveredEntities).ToList();
+        var routine = listed.Where(i => !keptFirst.Contains(i)).TakeLast(MaxDiscoveredEntities - keptFirst.Count);
+        foreach (var id in keptFirst.Concat(routine).OrderBy(i => i, StringComparer.Ordinal))
         {
             var entry = memory.Entries[id];
             var entity = (JsonObject)entry.Summary.DeepClone();
@@ -600,7 +644,11 @@ public partial class CommandHost
     private string? TeamProblemUnchecked(JsonObject? team, int revision)
     {
         if (team == null) return "not an object";
-        if (team.Any(p => p.Key is not ("journal" or "discovered" or "task_goals"))) return "an unknown block";
+        if (team.Any(p => p.Key is not ("journal" or "discovered" or "task_goals" or "avatars"))) return "an unknown block";
+        if (team["avatars"] is { } avatars && (avatars is not JsonObject identities || identities.Any(p => p.Key is not (PlayerAvatar or CompanionAvatarId) ||
+            p.Value is not JsonObject identity || identity.Count != 2 || !Text(identity["display_name"], 40) ||
+            identity["color"]?.GetValueKind() != JsonValueKind.String || !System.Text.RegularExpressions.Regex.IsMatch(identity["color"]!.GetValue<string>(), @"\A#[0-9a-fA-F]{6}\z") ||
+            (p.Key == PlayerAvatar && identity["display_name"]!.GetValue<string>() != "Player")))) return "an avatar's identity";
         if (team["journal"] is JsonObject journal && JournalProblem(journal, revision) is { } j) return j;
         if (team["discovered"] is JsonObject discovered && DiscoveredProblem(discovered, revision) is { } d) return d;
         if (team["journal"] is not (null or JsonObject) || team["discovered"] is not (null or JsonObject)) return "a block that is not an object";
@@ -750,6 +798,16 @@ public partial class CommandHost
                     SeenRevision = (int)sighting["last_seen_revision"]!.GetValue<double>(), Changed = sighting["may_be_stale"]!.GetValue<bool>(),
                 });
             }
+        }
+        if (team["avatars"] is JsonObject identities)
+        {
+            if (identities[CompanionAvatarId] is JsonObject companion && Companion != null && IsInstanceValid(Companion))
+            {
+                Companion.SetDisplayName(companion["display_name"]!.GetValue<string>());
+                Companion.SetAppearance(new Color(companion["color"]!.GetValue<string>()));
+            }
+            if (identities[PlayerAvatar] is JsonObject player && Player != null && IsInstanceValid(Player))
+                Player.SetAppearance(new Color(player["color"]!.GetValue<string>()));
         }
         if (!closeOpenTasks || _openTasks.Count == 0) return;
         foreach (var task in _openTasks.ToList()) CloseTask(task, "cancelled");
