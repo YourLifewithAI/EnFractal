@@ -47,6 +47,7 @@ Choose by **capability for the task, then cost.** A cheap agent whose work needs
 | Date | Task | Contenders | Judged by | Result |
 |---|---|---|---|---|
 | 2026-10-08 | Rewrite `docs/ROOM-TO-LANDSCAPE.md` around the four principles, at most 1,000 words, from the same inputs (brief 15) | The integrator (Opus 5.5) against Codex brief 15 (GPT-6 Astra, high effort), each blind to the other | The founder, blind (drafts numbered at random; the key is in the integrator's scratch folder) | Pending |
+| 2026-10-08 | Second-opinion review of Lane P's round 2, parts 1–2 (`4eefb39..1f540bb`), the same prompt, read-only, in parallel | Codex GPT-6.1 Sol against GPT-6 Astra, both high effort | The integrator, each finding checked against the source | **Astra slightly ahead, one trial.** Six findings shared (save validation, shared sight, atomic facts, discovery starvation, the unreachable timer's gap, eviction). Astra alone: a journal task names an undiscovered target to the companion (a boundary finding) and the discovered map's unbounded save size. Sol alone: a walkable-top level follows a moved object without sight. All nine real; no false positives from either. Astra 108k tokens, Sol not shown |
 
 ## Testing
 
@@ -130,6 +131,8 @@ Add one row per agent run.
 | 2026-10-07 | Codex brief 14: a synthetic room corpus (8 room types, each nominal and two scan-like variants) | GPT-6.1 Sol, high effort, web search | 165k + 102k (two runs) | Run 1 stopped honestly at a missing `cv2`; with Lane C's interpreter, run 2 fixed 8 real failures (boundary tolerances, a shelf taller than its room, PNG bytes varying with zlib, small objects the reader refused). 10 tests; the integrator pinned the files' bytes (`-text`) and added them to `test-all.sh` |
 
 | 2026-10-08 | Codex brief 15: an independent rewrite of the landscape design (one side of the A/B above) | **GPT-6 Astra** (first use), high effort, no web | 59k | Clean, in scope (one file); under the word cap; carried the approved core word for word. Content notes wait until the founder has judged |
+| 2026-10-08 | P round 2, parts 1–2: fetch on the real host with `target_unreachable`; the team's map store and journal writer; `journal.read`, `journal.note`, `map.find`; save format 5 | Opus | 470k | Clean, in scope; about 30 min; journal suite 48/48, sandbox 151/151, command host 423/423; 4 of 4 mutations caught. Stopped before P6 as told. The two Codex reviews then found 6 majors and 3 minors (A/B log) |
+| 2026-10-08 | Codex second-opinion reviews of P round 2, in parallel (an A/B) | GPT-6.1 Sol and **GPT-6 Astra**, high effort, read-only | not shown (Sol), 108k (Astra) | Both source-traced and honest about not running Godot; every finding checked and real |
 
 The first Codex launches failed at once, "blocked by policy". They had skipped the founder's config, which also turned off the Windows sandbox, and the sandbox then could not start the Store-packaged PowerShell 7. Codex stopped and reported, as its rules say. `tools/codex/run.ps1` now handles both.
 
