@@ -71,6 +71,8 @@ public partial class PlayCaptureHarness : Node
             GetTree().PhysicsInterpolation = Arg("interp", GetTree().PhysicsInterpolation.ToString()).ToLowerInvariant() == "true";
 
             _world = GD.Load<PackedScene>("res://scenes/room.tscn").Instantiate<RoomWorld>();
+            // --room=ID|DIR: a captured or exported room (a landscape) instead of the test room.
+            if (Arg("room", "").Length > 0) _world.RoomDirectory = RoomWorld.ResolveRoom(Arg("room", "").Replace('\\', '/'));
             AddChild(_world);
             for (var i = 0; i < 900 && !_world.WorldReady && _world.LoadError.Length == 0; i++) await NextFrame();
             if (!_world.WorldReady) throw new InvalidOperationException("room did not load: " + _world.LoadError);
@@ -111,6 +113,7 @@ public partial class PlayCaptureHarness : Node
                     case "steady_f3": await Steady(2, "steady_f3"); break;
                     case "steady_f2": await Steady(1, "steady_f2"); break;
                     case "timing": await Timing(); break;
+                    case "landscape": await Landscape(); break;
                     default: throw new ArgumentException("unknown scenario " + scenario);
                 }
             }
@@ -158,6 +161,54 @@ public partial class PlayCaptureHarness : Node
     }
 
     // ---- scenarios ----
+
+    /// <summary>
+    /// First pictures of a landscape room (--room=DIR) as the game shows it, nothing tuned: the 10 cm eye at the spawn
+    /// looking towards the carryable thing's settlement, that thing close up over the player's shoulder, the observe view
+    /// from the diorama camera, and one wide view from above the room's near edge.
+    /// </summary>
+    private async Task Landscape()
+    {
+        var room = _world.Room;
+        var thing = room.Objects.FirstOrDefault(o => o.Asset.Movable) ?? room.Objects.First();
+        var spawn = room.SpawnFor("player").PositionM;
+        var toThing = new Vector2(thing.PositionM.X - spawn.X, thing.PositionM.Z - spawn.Z);
+        var yaw = Mathf.RadToDeg(Mathf.Atan2(-toThing.X, -toThing.Y));
+        async Task Save(string name)
+        {
+            for (var i = 0; i < 90; i++) await NextFrame();
+            var image = await Grab();
+            var path = System.IO.Path.Combine(_out, $"{_tag}_{name}.png");
+            image.SavePng(path);
+            AddRecord(name, "frame", new List<double> { 0 }, $"{_tag}_{name}.png", null);
+            GD.Print($"PLAY_CAPTURE_FRAME {path}");
+        }
+
+        await Stage(spawn + Vector3.Up * 0.005f, yaw, new Vector3(0.12f, 0, -0.25f));
+        _hud.SetViewMode(0);
+        await Save("landscape_eye_spawn");
+
+        // Close up: the player a quarter of a metre from the thing, facing it, under the shoulder camera.
+        var away = new Vector3(-toThing.X, 0, -toThing.Y).Normalized() * 0.25f;
+        await Stage(thing.PositionM + away + Vector3.Up * 0.01f, yaw, new Vector3(0.14f, 0, 0.05f));
+        _hud.SetViewMode(1);
+        await Save("landscape_crate_close");
+
+        _hud.SetViewMode(2);
+        _world.Look.Observe = true;
+        await Save("landscape_observe");
+        _world.Look.Observe = false;
+
+        var wide = new Camera3D { Name = "WideCapture", Fov = 55, Near = 0.05f, Far = 200 };
+        _world.AddChild(wide);
+        var centre = room.Bounds.GetCenter();
+        wide.GlobalPosition = new Vector3(centre.X, room.Bounds.End.Y + 2.5f, room.Bounds.Position.Z - 3.5f);
+        wide.LookAt(new Vector3(centre.X, 0.3f, centre.Z + 0.5f), Vector3.Up);
+        wide.MakeCurrent();
+        await Save("landscape_wide");
+        wide.QueueFree();
+        _hud.SetViewMode(1);
+    }
 
     /// <summary>F2: the shoulder camera on a companion standing in front, the tag over its head against the far room.</summary>
     private async Task LabelF2()

@@ -231,6 +231,10 @@ public partial class CommandHost : Node
         }
         BuildPrompt();
         AddChild(new Sandbox.Carrying { Name = "Carrying", Carried = CarriedNow });
+        // The room's bounds are its playable volume (room manifest): neither body walks out of them, and one that falls
+        // below them is recovered. A generated landscape's ground stops just past its bounds, with nothing beyond.
+        Player?.SetPlayableBounds(Room.Bounds);
+        Companion?.SetPlayableBounds(Room.Bounds);
     }
 
     public override void _ExitTree()
