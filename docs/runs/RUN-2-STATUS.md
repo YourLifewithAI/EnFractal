@@ -7,9 +7,12 @@
 - **PR #7 is merged** (the founder's approval): Run 1 is on `main` at `b0ecf18`. `run2/integration` starts there.
 - **Lane worktrees:** `C:\dev\EnFractal-run2\{play,companion,capture,look}` on `run2/<lane>`, plus `contracts` on `run2/contracts` for the contract round; each has the `.cache` junctions.
 - **Run 1's garage capture data was on this machine** after all, in `C:\dev\EnFractal-run1\capture\captures` (774 MB, session `s-27647e23c354`). It is copied into `C:\dev\EnFractal-run2\capture\captures`, so Lane C runs here and the poses need no rerun. Keep the Run 1 copy until Run 2's capture work is merged.
+- **Merged: Codex brief 10, the recipe library** (`pipeline/recipes/**`, now in OWNERSHIP.md; [report](../codex/reports/10-recipe-library.md)).
+  - Five parametric Blender recipes: cardboard box, couch, gaming laptop, jam jar, French press. One input shape (`recipe`, `size_m` as `[w, h, d]`, colour slots, `params`), one output (GLB, receipt, CPU preview), shared checks before export including `check_glb`.
+  - 7 tests and 49 builds pass in about 4.5 min (`python -B -m unittest pipeline.recipes.tests -v` from the repository root, with Blender installed); all five rebuild byte-identically. Not in the Windows or Linux runners: they need Blender.
+  - Previews in `pipeline/recipes/previews/`. The founder has not judged them yet.
 - **Running:**
   - the contract round (step 3 below), an Opus agent for the integrator in `run2/contracts`;
-  - Codex brief 10, the recipe library (`codex/10-recipe-library`, `pipeline/recipes/**`, now in OWNERSHIP.md);
   - Lane C (Sonnet): C3 shell and C4 inventory.
 - **Waiting:** Lanes P and A start when the contract round merges; Lane L when Lane C's GPU work is done.
 

@@ -101,6 +101,7 @@ Add one row per agent run.
 | 2026-10-07 | Codex brief 07: observe focus diagnosis, then a source check | GPT-6.1 Sol, high effort; web search for the follow-up | 135k plus a small follow-up | Two real causes with arithmetic and exact diffs. It flagged its own uncertain third cause and settled it from Godot's tagged renderer source |
 
 | 2026-10-07 | Codex brief 09: AI-built objects in Blender (a cardboard box and the Bonne Maman jar) | GPT-6.1 Sol, high effort, web search | 116k | Clean; headless Blender 5.2.2 in its sandbox, about 4 min of authoring, both scripts right first time, $0. Stopped honestly at its own audit over CRLF in two JSON files; the integrator normalised them |
+| 2026-10-07 | Codex brief 10: the recipe library (five parametric Blender recipes, shared checks, runner, tests) | GPT-6.1 Sol, high effort, web search | 115k + 107k + 86k (three runs) | Clean and in scope. Run 1 stopped correctly at a sandbox denial (Python 3.14's owner-only `mkdtemp` folders; the integrator diagnosed it and added a rule to the Codex README); run 2 fixed it and stopped at 3 failing tests; run 3, authorised, fixed a couch bevel collapse and byte determinism. 7 tests, 49 builds, exit 0; the integrator's spot build outside the sandbox matched |
 
 The first Codex launches failed at once, "blocked by policy". They had skipped the founder's config, which also turned off the Windows sandbox, and the sandbox then could not start the Store-packaged PowerShell 7. Codex stopped and reported, as its rules say. `tools/codex/run.ps1` now handles both.
 

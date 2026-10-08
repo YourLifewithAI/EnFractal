@@ -19,6 +19,8 @@ You are a contractor on EnFractal, working for the integrator: the Claude sessio
 
 Stop and report it: a failing setup step, a permission prompt, a sandbox limit, a test that will not pass, a file you would need to edit outside your scope. **Never work around a guard.** That means no disabling of checks, no editing of tests to pass, no retrying the same blocked action, no `--force` or `--no-verify`. A clear "blocked at step 3, here is the output" is a good result.
 
+**Temporary folders in the sandbox.** On Windows, Python 3.13 and later give folders made by `tempfile.mkdtemp` and `tempfile.TemporaryDirectory` an owner-only access list, and the sandbox's restricted token cannot write inside them. Make working folders with `os.makedirs` (in your temp folder or an output folder you were given) and remove them with `shutil.rmtree`.
+
 ## Never
 
 - Edit `contracts/`, the kernel and command host (`game/scripts/native/Kernel/`), the companion's server and mock (`companion/src/`), `AGENTS.md`, `docs/runs/`, or any lane's files, unless your brief's scope names them.
