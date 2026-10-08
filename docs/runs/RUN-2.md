@@ -38,7 +38,7 @@ Four lanes, as in Run 1. Each builder agent owns its files ([OWNERSHIP.md](OWNER
 ### Lane C: Capture (C0, C5, and the start of C7)
 
 - **C0 pilot, local only.** The five objects, from photos and measurements to assets in the room. There are two routes, compared object by object:
-  - **an AI-built model in Blender:** the AI writes a parametric Blender Python script from the photos and measurements, run headless (`blender --background`). This suits boxes, jars, laptops and presses, and handles glass and metal, which defeat image-to-3D. [Codex brief 09](../codex/briefs/09-blender-spike.md) tests it on the box and the jar first;
+  - **an AI-built model in Blender:** the AI writes a parametric Blender Python script from the photos and measurements, run headless (`blender --background`). This suits boxes, jars, laptops and presses, and handles glass and metal, which defeat image-to-3D. [Codex brief 09](../codex/reports/09-blender-spike.md) built the box and the jar this way on 7 October: headless, about 4 minutes of authoring, $0, both right first time, with the jar's lid sized from Bonne Maman's published specification;
   - **local image-to-3D:** TripoSR, and SPAR3D if the founder agrees, on the RTX 2070 SUPER (SPAR3D's low-memory mode needs about 7 GB of the 8). Best for soft or irregular shapes, such as the couch's cushions.
 
   Each result then goes through the same chain: fitted to the measured size, collision, mass and affordances, the asset contract, and Godot import. The founder judges the results side by side.
