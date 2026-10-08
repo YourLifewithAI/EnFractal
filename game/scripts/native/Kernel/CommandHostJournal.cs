@@ -150,22 +150,32 @@ public partial class CommandHost
     /// Whether the team knows a thing: the avatars always; otherwise it is on the team's map or in sight of either avatar now.
     /// Only what the team knows may be named in the journal (review major 7).
     /// </summary>
-    private bool KnownToTeam(string id)
+    private bool KnownToTeam(string id) => id is PlayerAvatar or CompanionAvatarId || TeamView(id) != null;
+
+    /// <summary>Whether either avatar's eyes see a thing now (the team's sight, whatever SharedSight says for queries).</summary>
+    private bool TeamSees(string id, List<JsonObject> entities)
     {
-        if (id is PlayerAvatar or CompanionAvatarId || TeamMemory().Entries.ContainsKey(id)) return true;
-        var entities = Entities();
         foreach (var (body, avatar) in new (SmallPlayerController?, string)[] { (Player, PlayerAvatar), (Companion, CompanionAvatarId) })
-            if (body != null && IsInstanceValid(body) && Perceive(body, avatar, entities).Contains(id)) return true;
+            if (body != null && IsInstanceValid(body) && body.IsInsideTree() && Perceive(body, avatar, entities).Contains(id)) return true;
         return false;
     }
 
-    /// <summary>A thing's name and place as the team knows it: as last seen on the map, else as seen now; null when the team does not know it.</summary>
+    /// <summary>Whether either avatar's eyes reach a place now (for a thing about to stand there).</summary>
+    private bool TeamSeesPlace(Aabb place)
+    {
+        foreach (var body in new SmallPlayerController?[] { Player, Companion })
+            if (body != null && IsInstanceValid(body) && body.IsInsideTree() && SeesBox(body, place)) return true;
+        return false;
+    }
+
+    /// <summary>A thing's name and place as the team knows it: in either avatar's sight now, as it is; else as last seen on the map; null when neither avatar has seen it.</summary>
     private (string Name, Vector3 Pin)? TeamView(string id)
     {
+        var entities = Entities();
+        if (entities.FirstOrDefault(e => e["id"]!.GetValue<string>() == id) is { } live && TeamSees(id, entities))
+            return (live["display_name"]!.GetValue<string>(), BoundsOf(live).GetCenter());
         if (TeamMemory().Entries.TryGetValue(id, out var seen)) return (seen.Summary["display_name"]!.GetValue<string>(), BoundsOf(seen.Summary).GetCenter());
-        if (!KnownToTeam(id)) return null;
-        var live = Entities().FirstOrDefault(e => e["id"]!.GetValue<string>() == id);
-        return live == null ? null : (live["display_name"]!.GetValue<string>(), BoundsOf(live).GetCenter());
+        return null;
     }
 
     private static string TaskLine(string goal, string? name, string actor, string directedBy) => goal switch
@@ -244,14 +254,17 @@ public partial class CommandHost
     /// <summary>
     /// The fact a creation command will write (built, changed, removed), with who acted and at whose direction (the player
     /// when the player approved it), dated at the revision the command commits at. It is saved in the same write as the
-    /// creation and its receipt (review major 3): see FactTeam.
+    /// creation and its receipt (review major 3): see FactTeam. Its subject and pin come from the team's knowledge when it is
+    /// written, as a task's do (review major, Lane A's round): a thing in either avatar's sight now as it is, a remembered one
+    /// as last seen, and one neither avatar has seen is "something" with no id and no place.
     /// </summary>
-    private JsonObject CreationFact(string op, string principal, string? approvedBy, string id, string? name, Vector3 pin)
+    private JsonObject CreationFact(string op, string principal, string? approvedBy, string id, (string Name, Vector3 Pin)? view)
     {
         var directedBy = approvedBy ?? principal;
         var (kind, verb) = op switch { "creation.place" => ("built", "built"), "creation.revise" => ("changed", "changed"), _ => ("removed", "removed") };
-        var line = principal == PlayerPrincipal ? $"You {verb} {Quoted(name)}" : $"{char.ToUpperInvariant(verb[0])}{verb[1..]} {Quoted(name)}{Direction(principal, directedBy)}";
-        return Fact(kind, line, principal, directedBy, id, name, pin, revision: Revision + 1);
+        var what = view == null ? "something" : Quoted(view.Value.Name);
+        var line = principal == PlayerPrincipal ? $"You {verb} {what}" : $"{char.ToUpperInvariant(verb[0])}{verb[1..]} {what}{Direction(principal, directedBy)}";
+        return Fact(kind, line, principal, directedBy, view == null ? null : id, view?.Name, view?.Pin, revision: Revision + 1);
     }
 
     /// <summary>The team block with one more fact in the history, for the authority to save with the command that made it.</summary>
@@ -292,10 +305,12 @@ public partial class CommandHost
         var kind = Str(args, "kind");
         var about = Str(args, "about");
         var since = Str(args, "since_utc");
+        // An instant, however many fractional digits either side writes (review minor, Lane A's round).
+        var sinceAt = since == null ? (DateTime?)null : ParseUtc(since);
         bool Match(JsonObject e) =>
             (kind == null || e["kind"]!.GetValue<string>() == kind) &&
             (about == null || (e["subject"]?["entities"]?.AsArray().Any(x => x!.GetValue<string>() == about) ?? false)) &&
-            (since == null || string.CompareOrdinal(e["at_utc"]!.GetValue<string>(), since) >= 0);
+            (sinceAt == null || (ParseUtc(e["at_utc"]!.GetValue<string>()) is { } at && at >= sinceAt.Value));
         NameSeenTasks();
         var jobOfTask = _taskOfJob.ToDictionary(p => p.Value, p => p.Key, StringComparer.Ordinal);
         var open = _openTasks.Where(Match).Reverse().Select(t =>
@@ -560,11 +575,10 @@ public partial class CommandHost
             });
         var entities = new JsonObject();
         var memory = TeamMemory();
-        var targets = TaskTargets();
         var listed = memory.Order.Where(i => KnownIdPattern.IsMatch(i)).ToList();
-        var keptFirst = listed.Where(i => i.StartsWith("creation:", StringComparison.Ordinal) || targets.Contains(i)).TakeLast(MaxDiscoveredEntities).ToList();
-        var routine = listed.Where(i => !keptFirst.Contains(i)).TakeLast(MaxDiscoveredEntities - keptFirst.Count);
-        foreach (var id in keptFirst.Concat(routine).OrderBy(i => i, StringComparer.Ordinal))
+        var cap = Math.Min(PerceptionMemoryLimit, MaxDiscoveredEntities);
+        var dropped = new HashSet<string>(EvictionOrder(listed, new HashSet<string>(StringComparer.Ordinal)).Take(Math.Max(0, listed.Count - cap)), StringComparer.Ordinal);
+        foreach (var id in listed.Where(i => !dropped.Contains(i)).OrderBy(i => i, StringComparer.Ordinal))
         {
             var entry = memory.Entries[id];
             var entity = (JsonObject)entry.Summary.DeepClone();
@@ -603,6 +617,11 @@ public partial class CommandHost
 
     private static readonly string[] UtcFormats = { "yyyy-MM-dd'T'HH:mm:ss'Z'", "yyyy-MM-dd'T'HH:mm:ss.FFFFFF'Z'" };
     private static readonly HashSet<string> ProvenanceKinds = new() { "captured_generated", "captured_scanned", "hand_authored", "procedural", "ai_created", "player_created", "placeholder" };
+
+    /// <summary>A UTC time in the contract's form as an instant, or null.</summary>
+    private static DateTime? ParseUtc(string text) =>
+        UtcPattern.IsMatch(text) && DateTime.TryParseExact(text, UtcFormats, System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal, out var at) ? at : null;
 
     /// <summary>A real UTC time in the contract's form (the pattern alone admits month 99).</summary>
     private static bool RealTime(JsonNode? node) =>
@@ -809,6 +828,7 @@ public partial class CommandHost
             if (identities[PlayerAvatar] is JsonObject player && Player != null && IsInstanceValid(Player))
                 Player.SetAppearance(new Color(player["color"]!.GetValue<string>()));
         }
+        EvictPastTheBound(TeamMemory(), new HashSet<string>(StringComparer.Ordinal));
         if (!closeOpenTasks || _openTasks.Count == 0) return;
         foreach (var task in _openTasks.ToList()) CloseTask(task, "cancelled");
         SaveTeam();
