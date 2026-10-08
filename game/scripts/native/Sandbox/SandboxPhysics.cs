@@ -25,6 +25,11 @@ public sealed record Blocked(string Code, string Message, bool Retryable = false
 ///   it stops early at an obstacle, climbs a ledge up to a quarter of its own height (at most 1 cm, so a book rides over
 ///   a rug's edge), settles after every step and falls when it leaves its support. A push that leaves it hanging with
 ///   its centre over nothing carries on until it tips off, at most half its diagonal further.
+/// - A carried thing is put down along a path from over its holder's head (up at the holder if the spot is higher, then
+///   across, then down onto the spot), probed along the thing's centre line against the world: a wall between holder and
+///   spot stops it, however thin. (A thing carried overhead may clip a wall beside its holder; that alone does not.)
+/// - Things rest only on the room's shell and objects. A creation is an obstacle but never a support (a thing on one
+///   would float once the creation went), so a verb that would leave a thing on a creation is refused.
 /// Things stay upright: there is no tipping over, rolling or sliding once at rest.
 /// </summary>
 public sealed class SandboxPhysics
@@ -76,6 +81,45 @@ public sealed class SandboxPhysics
         return Mathf.Abs(direction.Dot(basis.X)) * size.X * 0.5f + Mathf.Abs(direction.Dot(basis.Z)) * size.Z * 0.5f;
     }
 
+    /// <summary>
+    /// Whether an avatar's hand gets to a box: for some point of it (its centre, corners and face centres, pulled inside),
+    /// nothing in the world but the box's own body lies on the path from the avatar's axis, straight up to the point's height
+    /// when it is above the head, then across to the point. Reach distance is SandboxRules.WithinReach; this is the way there.
+    /// </summary>
+    public bool ReachClear(SmallPlayerController body, Aabb box, Rid target)
+    {
+        var feet = body.GlobalPosition;
+        var head = feet.Y + body.BodyHeightM;
+        var exclude = new Godot.Collections.Array<Rid> { target };
+        foreach (var point in Samples(box))
+        {
+            var corner = new Vector3(feet.X, point.Y, feet.Z);
+            if (point.Y > head && RayBlocked(new Vector3(feet.X, head, feet.Z), corner, exclude)) continue;
+            if (!RayBlocked(corner, point, exclude)) return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// What is wrong with a saved pose in the room as it is, or null: it overlaps something (a millimetre in from every
+    /// face, so resting and flush neighbours do not count), or rests on nothing of the room's (no surface of the shell or an
+    /// object within a few millimetres under it). The command host checks every saved pose this way when a save loads.
+    /// </summary>
+    public string? PoseProblem(Thing thing)
+    {
+        var size = new Vector3(Mathf.Max(0.001f, thing.Size.X - 0.002f), Mathf.Max(0.001f, thing.Size.Y - 0.002f), Mathf.Max(0.001f, thing.Size.Z - 0.002f));
+        var basis = new Basis(thing.Rotation);
+        var inside = new PhysicsShapeQueryParameters3D
+        {
+            Shape = new BoxShape3D { Size = size, Margin = 0.001f }, Transform = new Transform3D(basis, thing.Position + basis * new Vector3(0, thing.Size.Y * 0.5f, 0)),
+            CollisionMask = WorldMask, CollideWithBodies = true, CollideWithAreas = false, Exclude = new Godot.Collections.Array<Rid> { thing.Body },
+        };
+        if (_space.IntersectShape(inside, 1).Count > 0) return "is inside something";
+        if (Snap(thing, thing.Position, thing.Rotation) is not { } support || Mathf.Abs(support.Height - thing.Position.Y) > 0.002f || !RoomSupport(support.Support))
+            return "is not resting on anything";
+        return null;
+    }
+
     /// <summary>Release with no placement: set down in front of the actor, then settle.</summary>
     public (Rest? At, Blocked? Blocked) Drop(Thing thing, SmallPlayerController actor)
     {
@@ -88,18 +132,24 @@ public sealed class SandboxPhysics
         foreach (var height in new[] { actor.BodyHeightM + SandboxRules.CarryGapM, actor.StepHeightM })
         {
             var start = new Vector3(at.X, feet.Y + height, at.Z);
-            if (start.Y + thing.Size.Y > _room.End.Y || !Free(thing, start, thing.Rotation, WorldMask | AvatarMask)) continue;
-            return Finish(thing, start, thing.Rotation, null);
+            if (start.Y + thing.Size.Y > _room.End.Y || !Free(thing, start, thing.Rotation, WorldMask | AvatarMask) || !PathClear(thing, thing.Position, start, thing.Rotation)) continue;
+            var (rest, blocked) = Finish(thing, start, thing.Rotation, null);
+            if (rest != null) return (rest, null);
+            return (null, blocked);
         }
         return (null, new Blocked("occupied", "There is no room to put it down here. Turn round or step back.", true));
     }
 
-    /// <summary>A placement without a support: the thing starts a little above position_m and settles on whatever is below.</summary>
-    public (Rest? At, Blocked? Blocked) PlaceAt(Thing thing, Vector3 position, Quaternion rotation)
+    /// <summary>
+    /// A placement without a support: the thing starts a little above position_m and settles on whatever is below. A
+    /// carried thing (carried: its pose is over its holder's head) must get there along the put-down path.
+    /// </summary>
+    public (Rest? At, Blocked? Blocked) PlaceAt(Thing thing, Vector3 position, Quaternion rotation, bool carried = false)
     {
         var start = new Vector3(position.X, Mathf.Min(position.Y + ProbeM, _room.End.Y - thing.Size.Y - 0.001f), position.Z);
         if (!Free(thing, start, rotation, WorldMask | AvatarMask))
             return (null, new Blocked("occupied", "There is no room for it there.", true));
+        if (carried && !PathClear(thing, thing.Position, start, rotation)) return (null, InTheWay);
         return Finish(thing, start, rotation, null);
     }
 
@@ -108,7 +158,7 @@ public sealed class SandboxPhysics
     /// it fits (centred on an axis where it does not), and refused when anything else is in the way. position_m's height
     /// picks a lower surface of the support when it has one there (a shelf); otherwise the thing goes on top.
     /// </summary>
-    public (Rest? At, Blocked? Blocked) PlaceOn(Thing thing, Vector3 position, Quaternion rotation, string support, Aabb supportBounds)
+    public (Rest? At, Blocked? Blocked) PlaceOn(Thing thing, Vector3 position, Quaternion rotation, string support, Aabb supportBounds, bool carried = false)
     {
         var footprint = Bounds(Vector3.Zero, rotation, thing.Size);
         var x = Inside(position.X, supportBounds.Position.X - footprint.Position.X + 0.001f, supportBounds.End.X - footprint.End.X - 0.001f, supportBounds.GetCenter().X);
@@ -125,6 +175,11 @@ public sealed class SandboxPhysics
                 continue;
             }
             if (!Free(thing, start, rotation, WorldMask | AvatarMask)) continue;
+            if (carried && !PathClear(thing, thing.Position, start, rotation))
+            {
+                blocked ??= InTheWay;
+                continue;
+            }
             var (rest, refused) = Finish(thing, start, rotation, support);
             if (rest != null) return (rest, null);
             blocked ??= refused;
@@ -166,6 +221,11 @@ public sealed class SandboxPhysics
         return Finish(thing, pivot, rotation, null, settled: true);
     }
 
+    private static readonly Blocked InTheWay = new("occupied", "Something is in the way: it cannot be put there from here.", true);
+
+    /// <summary>Whether a supporting entity is part of the room a thing may rest on: the shell or another object, never a creation.</summary>
+    public static bool RoomSupport(string support) => support.StartsWith("shell:", StringComparison.Ordinal) || support.StartsWith("obj:", StringComparison.Ordinal);
+
     // ---- queries ----
 
     private PhysicsShapeQueryParameters3D Query(Thing thing, Vector3 pivot, Quaternion rotation, uint mask, Vector3 motion = default)
@@ -182,6 +242,44 @@ public sealed class SandboxPhysics
     }
 
     public bool Free(Thing thing, Vector3 pivot, Quaternion rotation, uint mask) => _space.IntersectShape(Query(thing, pivot, rotation, mask), 1).Count == 0;
+
+    /// <summary>
+    /// The put-down path of a carried thing, along its centre line: up at the holder if the spot is higher, across, then down
+    /// to the start. The start itself is checked with the whole shape by the caller.
+    /// </summary>
+    private bool PathClear(Thing thing, Vector3 from, Vector3 to, Quaternion rotation)
+    {
+        var lift = new Basis(rotation) * new Vector3(0, thing.Size.Y * 0.5f, 0);
+        var start = from + lift;
+        var end = to + lift;
+        var up = Mathf.Max(start.Y, end.Y);
+        var over = new Vector3(start.X, up, start.Z);
+        var above = new Vector3(end.X, up, end.Z);
+        var exclude = new Godot.Collections.Array<Rid> { thing.Body };
+        return !RayBlocked(start, over, exclude) && !RayBlocked(over, above, exclude) && !RayBlocked(above, end, exclude);
+    }
+
+    private bool RayBlocked(Vector3 from, Vector3 to, Godot.Collections.Array<Rid> exclude) =>
+        from.DistanceSquaredTo(to) > 1e-10f && _space.IntersectRay(PhysicsRayQueryParameters3D.Create(from, to, WorldMask, exclude)).Count > 0;
+
+    /// <summary>A box's centre, corners and face centres, each pulled 1 cm (or a quarter of the box) inside: the points perception samples too.</summary>
+    private static IEnumerable<Vector3> Samples(Aabb box)
+    {
+        var centre = box.GetCenter();
+        var size = box.Size;
+        var reach = new Vector3(Mathf.Max(0, size.X * 0.5f - Mathf.Min(0.01f, size.X * 0.25f)),
+            Mathf.Max(0, size.Y * 0.5f - Mathf.Min(0.01f, size.Y * 0.25f)), Mathf.Max(0, size.Z * 0.5f - Mathf.Min(0.01f, size.Z * 0.25f)));
+        yield return centre;
+        foreach (var x in new[] { -1f, 1f })
+        foreach (var y in new[] { -1f, 1f })
+        foreach (var z in new[] { -1f, 1f })
+            yield return centre + reach * new Vector3(x, y, z);
+        foreach (var axis in new[] { Vector3.Right, Vector3.Up, Vector3.Back })
+        {
+            yield return centre + reach * axis;
+            yield return centre - reach * axis;
+        }
+    }
 
     private float Cast(Thing thing, Vector3 pivot, Quaternion rotation, Vector3 motion, uint mask)
     {
@@ -255,6 +353,10 @@ public sealed class SandboxPhysics
         }
         else support = Contact(thing, pivot, rotation);
         if (mustRestOn != null && support != mustRestOn) return (null, new Blocked("occupied", "There is no room for it there.", true));
+        if (!RoomSupport(support))
+            return (null, new Blocked("occupied", support == CreationSupport
+                ? "It would rest on a creation; for now things are set only on the room's surfaces and objects."
+                : "It would not rest on the room's surfaces or objects there."));
         pivot = new Vector3(Mathf.Snapped(pivot.X, PoseGridM), Mathf.Snapped(pivot.Y, PoseGridM), Mathf.Snapped(pivot.Z, PoseGridM));
         var rounded = new Quaternion(Mathf.Snapped(rotation.X, 1e-6f), Mathf.Snapped(rotation.Y, 1e-6f), Mathf.Snapped(rotation.Z, 1e-6f), Mathf.Snapped(rotation.W, 1e-6f)).Normalized();
         var bounds = Bounds(pivot, rounded, thing.Size);
@@ -278,7 +380,7 @@ public sealed class SandboxPhysics
             var hit = _space.IntersectRay(ray);
             if (hit.Count == 0 || hit["normal"].AsVector3().Y < 0.7f) continue;
             var height = hit["position"].AsVector3().Y;
-            if (best == null || height > best.Value.Height) best = (height, EntityOf(hit["collider"].AsGodotObject()));
+            if (best == null || height > best.Value.Height) best = (height, SupportOf(hit["collider"].AsGodotObject()));
         }
         return best;
     }
@@ -287,7 +389,19 @@ public sealed class SandboxPhysics
     private string Contact(Thing thing, Vector3 pivot, Quaternion rotation)
     {
         var info = _space.GetRestInfo(Query(thing, pivot + Vector3.Down * 0.0015f, rotation, WorldMask));
-        return info.Count > 0 ? EntityOf(GodotObject.InstanceFromId(info["collider_id"].AsUInt64())) : "";
+        return info.Count > 0 ? SupportOf(GodotObject.InstanceFromId(info["collider_id"].AsUInt64())) : "";
+    }
+
+    /// <summary>What a support is: an entity id, CreationSupport for a creation's parts (they carry an artifact hash, not an id), else "".</summary>
+    public const string CreationSupport = "creation";
+
+    private static string SupportOf(GodotObject? collider)
+    {
+        var entity = EntityOf(collider);
+        if (entity.Length > 0) return entity;
+        for (var node = collider as Node; node != null; node = node.GetParent())
+            if (node.HasMeta("artifact_hash")) return CreationSupport;
+        return "";
     }
 
     /// <summary>The entity id a collider belongs to: the nearest node at or above it carrying entity_id metadata.</summary>

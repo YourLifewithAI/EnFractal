@@ -59,6 +59,10 @@ var access_guard := Callable()
 ## save loads before its creations are checked against the room's surfaces, so the scene stays derived from
 ## this state. Bound by the command host through the runtime; optional.
 var pose_sink := Callable()
+## The trusted host's check of a save's object poses against the room as it is (asset geometry, collision and
+## support), called once the poses reach the scene and before the save's creations are checked: {ok} or
+## {ok: false, message}. A refused pose refuses the whole save, as an unplaceable creation does. Optional.
+var pose_check := Callable()
 var _roles := DEFAULT_ROLES.duplicate()
 var _consent := {PLAYER: false, COMPANION: false}
 var _instances: Dictionary = {}
@@ -482,6 +486,11 @@ func is_ready() -> bool:
 	return _available()
 
 
+## Whether principal may change the room now: the save is loaded and its role builds (an owner or an editor).
+func may_change(principal: String) -> bool:
+	return _available() and _roles.has(principal) and _can_build(principal)
+
+
 ## Revision of a room entity the authority knows: a creation's own revision, an object's or shell
 ## part's play revision (0 until play changes it), or -1 when it is not in this room.
 func entity_revision(entity_id: Variant) -> int:
@@ -634,6 +643,12 @@ func load_envelope(data: Dictionary) -> Dictionary:
 	if not poses.ok:
 		return poses
 	_publish_poses(poses.poses)
+	if pose_check.is_valid() and not poses.poses.is_empty():
+		var verdict: Variant = pose_check.call(poses.poses.duplicate(true))
+		if not verdict is Dictionary or verdict.get("ok") != true:
+			_publish_poses(_object_poses)
+			var reason := String(verdict.get("message", "")) if verdict is Dictionary else ""
+			return _failure("save_invalid", "object_poses", reason if not reason.is_empty() else "A saved object pose does not fit the room.")
 	var checked := _validate_saved(data)
 	if not checked.ok:
 		_publish_poses(_object_poses)

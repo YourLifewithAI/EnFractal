@@ -17,26 +17,27 @@ public static class SandboxControls
     public const float AheadDegrees = 70f;
 
     /// <summary>
-    /// The movable object the body faces within reach, for picking up or pushing: one within the limit first (so the book
-    /// beside the doorstop does not block it), then the nearest, so a key on something too heavy gets the host's reason.
+    /// The movable object the body faces within reach (reaches: near enough, with a clear way to it), for picking up or
+    /// pushing: one within the limit first (so the book beside the doorstop does not block it), then the nearest, so a key
+    /// on something too heavy gets the host's reason.
     /// </summary>
-    public static JsonObject? ThingAhead(SmallPlayerController body, IReadOnlyList<JsonObject> entities, float limitKg, Func<string, float> massOf) =>
+    public static JsonObject? ThingAhead(SmallPlayerController body, IReadOnlyList<JsonObject> entities, float limitKg, Func<string, float> massOf, Func<JsonObject, bool> reaches) =>
         entities
             .Where(e => Kind(e) == "object" && e["movable"]!.GetValue<bool>() && e["held_by"] == null && !StandsOn(body, Box(e)))
             .Select(e => (Entity: e, Box: Box(e)))
-            .Where(c => SandboxRules.WithinReach(body, c.Box) && Angle(body, c.Box) <= AheadDegrees)
+            .Where(c => Angle(body, c.Box) <= AheadDegrees && reaches(c.Entity))
             .OrderBy(c => massOf(Id(c.Entity)) <= limitKg ? 0 : 1)
             .ThenBy(c => Gap(body, c.Box))
             .ThenBy(c => Id(c.Entity), StringComparer.Ordinal)
             .Select(c => c.Entity).FirstOrDefault();
 
     /// <summary>The thing with a walkable top the body faces within reach, above the ground it stands on: where F sets a carried thing.</summary>
-    public static JsonObject? SupportAhead(SmallPlayerController body, IReadOnlyList<JsonObject> entities, string heldId) =>
+    public static JsonObject? SupportAhead(SmallPlayerController body, IReadOnlyList<JsonObject> entities, string heldId, Func<JsonObject, bool> reaches) =>
         entities
             .Where(e => Kind(e) == "object" && Id(e) != heldId && e["held_by"] == null &&
                 e["affordances"]!.AsArray().Any(a => a!.GetValue<string>() == "walkable_top") && !StandsOn(body, Box(e)))
             .Select(e => (Entity: e, Box: Box(e)))
-            .Where(c => c.Box.End.Y > body.GlobalPosition.Y + 0.01f && SandboxRules.WithinReach(body, c.Box) && Angle(body, c.Box) <= AheadDegrees)
+            .Where(c => c.Box.End.Y > body.GlobalPosition.Y + 0.01f && Angle(body, c.Box) <= AheadDegrees && reaches(c.Entity))
             .OrderBy(c => Gap(body, c.Box)).ThenBy(c => Id(c.Entity), StringComparer.Ordinal)
             .Select(c => c.Entity).FirstOrDefault();
 

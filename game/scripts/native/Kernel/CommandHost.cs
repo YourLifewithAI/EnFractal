@@ -191,8 +191,12 @@ public partial class CommandHost : Node
         Runtime.Call("configure", RoomDictionary(Room), Player!, Companion!);
         // The scene is derived: the authority hands every saved object pose to the room's nodes, while a save loads too.
         Runtime.Set("object_pose_sink", new Callable(this, MethodName.ApplyObjectPoses));
+        // A save's object poses are checked against the room as it is before they are believed (asset size, collision, support).
+        Runtime.Set("object_pose_check", new Callable(this, MethodName.CheckObjectPoses));
         AddChild(Runtime);
         Authority = Runtime.Get("authority").AsGodotObject();
+        // Whatever the load did, the scene shows the authority's state: a save that failed to load leaves the manifest's places.
+        ApplyObjectPoses(ObjectPoses());
         Runtime.Set("command_sink", new Callable(this, MethodName.RuntimeCommand));
         SaveNotice = OtherManifestNotice(SavePath);
         if (SaveNotice.Length > 0)
@@ -695,6 +699,9 @@ public partial class CommandHost : Node
     {
         var outcome = Authority.Call("submit", principal, request, meta).AsGodotDictionary();
         if (!outcome["ok"].AsBool()) throw Translate(outcome);
+        // The scene is derived at once: a placed, revised or removed creation's colliders are where the state says before
+        // the next command looks (object poses reach the scene through the authority's pose seam during the commit).
+        Runtime.Call("refresh_now");
         // The first answer is rebuilt from the durable receipt, exactly as every replay will be.
         var record = Authority.Call("receipt_for", principal, actionId).AsGodotDictionary();
         return Durable(record, replayed: false);

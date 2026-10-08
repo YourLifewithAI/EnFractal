@@ -617,6 +617,20 @@ func _test_object_moves() -> void:
 	orphan.locks.erase("obj:table")
 	_expect_code(refused.load_envelope(orphan), "save_invalid", "a saved pose without its object's revision is refused")
 	_expect(refused_published.size() == 2 and refused_published[1].is_empty(), "a save that fails after its poses reached the scene puts the scene back")
+	var checked = Authority.new()
+	var checked_published: Array = []
+	checked.pose_sink = func(poses: Dictionary) -> void: checked_published.append(poses)
+	checked.pose_check = func(poses: Dictionary) -> Dictionary: return {"ok": false, "message": "The saved place of %s is not resting on anything." % poses.keys()[0]}
+	checked.configure(ROOM, Callable(self, "_flat"), host._save_path)
+	var refusal: Dictionary = checked.load_saved()
+	_expect(refusal.get("code") == "save_invalid" and String(refusal.get("message")).contains("obj:table") and not checked.is_ready(), "the host's check of the poses can refuse the save, saying which")
+	_expect(checked_published.size() == 2 and checked_published[1].is_empty(), "and the scene goes back to the manifest's places")
+	var accepted = Authority.new()
+	accepted.pose_check = func(_poses: Dictionary) -> Dictionary: return {"ok": true}
+	accepted.configure(ROOM, Callable(self, "_flat"), host._save_path)
+	_expect(accepted.load_saved().ok and accepted.object_pose("obj:table").position_m == [30.0, 10.0, 330.0], "a pose the check accepts loads")
+	_expect(accepted.may_change(PLAYER) and not accepted.may_change(COMPANION) and not accepted.may_change("intruder"), "only a principal whose role builds may change the room (the companion is a visitor in this save)")
+	_expect(not checked.may_change(PLAYER), "and nobody may while the save is not loaded")
 	var stranger: Dictionary = restored.export_envelope()
 	stranger.object_poses["shell:floor"] = stranger.object_poses["obj:table"].duplicate(true)
 	stranger.entity_revisions["shell:floor"] = 1

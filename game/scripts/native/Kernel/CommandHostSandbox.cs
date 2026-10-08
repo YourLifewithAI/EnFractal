@@ -52,6 +52,7 @@ public partial class CommandHost
     private JsonObject Grab(JsonElement args, string principal, string actionId, string fingerprint, bool preview)
     {
         var (actor, body) = SandboxActor(args, principal);
+        RequireChange(principal);
         var target = Str(args, "target")!;
         var entities = Entities();
         var entity = Find(entities, target) ?? throw new Refusal("target_not_found", "That is not in this room.", "$.args.target");
@@ -64,7 +65,7 @@ public partial class CommandHost
             if (_held.ContainsKey(actor)) throw new Refusal("target_busy", "This avatar is already holding something. Put it down first.", "$.args.actor");
             var limit = SandboxRules.CarryLimitKg(actor);
             if (item.Asset.MassKg > limit) throw TooHeavy("to pick up", item.Asset.MassKg, limit);
-            if (!SandboxRules.WithinReach(body, BoundsOf(entity))) throw OutOfReach("$.args.target");
+            CheckReach(body, item, BoundsOf(entity));
             CheckNothingOnIt(entities, entity);
         }
         if (preview) return Previewed("entity.grab", principal, actionId, target);
@@ -76,11 +77,12 @@ public partial class CommandHost
     private JsonObject Release(JsonElement args, string principal, string actionId, Godot.Collections.Dictionary meta, bool preview)
     {
         var (actor, body) = SandboxActor(args, principal);
+        RequireChange(principal);
         if (!_held.TryGetValue(actor, out var held)) throw new Refusal("invalid_args", "This avatar is not holding anything.", "$.args");
         var (position, rotation) = Carried(actor, held);
         var thing = ThingOf(held.Item, position, rotation);
         var hasPlacement = args.TryGetProperty("placement", out var placement);
-        var rest = Settled(hasPlacement ? Placed(thing, placement, Entities()) : Physics().Drop(thing, body), hasPlacement ? "$.args.placement" : "$.args");
+        var rest = Settled(hasPlacement ? Placed(thing, placement, Entities(), carried: true) : Physics().Drop(thing, body), hasPlacement ? "$.args.placement" : "$.args");
         if (!SandboxRules.WithinReach(body, rest.Bounds)) throw OutOfReach(hasPlacement ? "$.args.placement" : "$.args");
         if (preview) return Previewed("entity.release", principal, actionId, held.Item.Id);
         return MoveHeld(actor, held, rest, principal, actionId, meta);
@@ -88,6 +90,7 @@ public partial class CommandHost
 
     private JsonObject PlaceObject(JsonElement args, string principal, string actionId, Godot.Collections.Dictionary meta, bool preview)
     {
+        RequireChange(principal);
         var target = Str(args, "target")!;
         var entities = Entities();
         var entity = Find(entities, target) ?? throw new Refusal("target_not_found", "That is not in this room.", "$.args.target");
@@ -107,6 +110,7 @@ public partial class CommandHost
     private JsonObject PushObject(JsonElement args, string principal, string actionId, Godot.Collections.Dictionary meta, bool preview)
     {
         var (actor, body) = SandboxActor(args, principal);
+        RequireChange(principal);
         var target = Str(args, "target")!;
         var entities = Entities();
         var entity = Find(entities, target) ?? throw new Refusal("target_not_found", "That is not in this room.", "$.args.target");
@@ -116,7 +120,7 @@ public partial class CommandHost
         var limit = SandboxRules.PushLimitKg(actor);
         if (item.Asset.MassKg > limit) throw TooHeavy("to push", item.Asset.MassKg, limit);
         var bounds = BoundsOf(entity);
-        if (!SandboxRules.WithinReach(body, bounds)) throw OutOfReach("$.args.target");
+        CheckReach(body, item, bounds);
         CheckNothingOnIt(entities, entity);
         var centre = bounds.GetCenter();
         var direction = args.TryGetProperty("toward_m", out var toward) ? KernelJson.ReadVector(toward) - centre : centre - body.GlobalPosition;
@@ -166,6 +170,36 @@ public partial class CommandHost
     private static Refusal OutOfReach(string path) => new("out_of_bounds", "That is out of reach. Move closer.", path, retryable: true);
 
     /// <summary>
+    /// A verb changes the room, so it needs what every change needs before anything happens (a hold included): a save that
+    /// loaded, and a role that builds. A visitor's hands are empty; so are everyone's while the save failed to load.
+    /// </summary>
+    private void RequireChange(string principal)
+    {
+        if (!Authority.Call("is_ready").AsBool())
+            throw new Refusal("not_ready", "The room's saved state is not loaded, so nothing in it can be moved.", retryable: true);
+        if (!Authority.Call("may_change", principal).AsBool())
+            throw new Refusal("permission_denied", "A visitor cannot move things.");
+    }
+
+    /// <summary>Within reach and with a clear way to it: a wall or partition between hand and thing puts it out of reach, however near.</summary>
+    private void CheckReach(SmallPlayerController body, ObjectInstance item, Aabb bounds)
+    {
+        if (!SandboxRules.WithinReach(body, bounds)) throw OutOfReach("$.args.target");
+        if (!Reachable(body, item, bounds))
+            throw new Refusal("out_of_bounds", "That is out of reach: something is in the way.", "$.args.target", retryable: true);
+    }
+
+    private bool Reachable(SmallPlayerController body, ObjectInstance item, Aabb bounds) =>
+        Physics().ReachClear(body, bounds, ObjectNode(item.Id) is CollisionObject3D collider ? collider.GetRid() : new Rid());
+
+    /// <summary>Whether a rotation is the object's manifest rotation turned about the vertical: things stay upright as captured.</summary>
+    private static bool IsTurnOf(Quaternion rotation, Quaternion manifest)
+    {
+        var turn = (rotation.Normalized() * manifest.Normalized().Inverse()).Normalized();
+        return Mathf.Abs(turn.X) <= 1e-3f && Mathf.Abs(turn.Z) <= 1e-3f;
+    }
+
+    /// <summary>
     /// A thing with something resting on it stays put (the things on top would be left floating): take them off first.
     /// One with an avatar standing on it waits for the avatar to step off.
     /// </summary>
@@ -192,7 +226,7 @@ public partial class CommandHost
     }
 
     /// <summary>A placement for a thing: on a support (snapped onto its walkable top), or at a position where it settles.</summary>
-    private (Rest? At, Blocked? Blocked) Placed(Thing thing, JsonElement placement, List<JsonObject> entities)
+    private (Rest? At, Blocked? Blocked) Placed(Thing thing, JsonElement placement, List<JsonObject> entities, bool carried = false)
     {
         var position = KernelJson.ReadVector(placement.GetProperty("position_m"));
         if (!Room.Bounds.Grow(0.001f).HasPoint(position)) throw new Refusal("out_of_bounds", "That position is outside the room.", "$.args.placement.position_m");
@@ -200,20 +234,21 @@ public partial class CommandHost
         if (placement.TryGetProperty("rotation", out var turn))
         {
             var q = turn.EnumerateArray().Select(v => (float)CanonicalJson.ReadNumber(v)).ToArray();
-            // Things stand upright: only a turn about the vertical axis.
-            if (Mathf.Abs(q[0]) > 1e-4f || Mathf.Abs(q[2]) > 1e-4f)
-                throw new Refusal("invalid_args", "Things stand upright; use a rotation about the vertical axis only.", "$.args.placement.rotation");
             rotation = new Quaternion(q[0], q[1], q[2], q[3]).Normalized();
+            // Things stand as captured: only a turn about the vertical axis.
+            var manifest = Room.Objects.FirstOrDefault(o => o.Id == thing.Id)?.Rotation ?? Quaternion.Identity;
+            if (!IsTurnOf(rotation, manifest))
+                throw new Refusal("invalid_args", "Things stand upright; use a rotation about the vertical axis only.", "$.args.placement.rotation");
         }
         var placed = thing with { Rotation = rotation };
-        if (!placement.TryGetProperty("on", out var on)) return Physics().PlaceAt(placed, position, rotation);
+        if (!placement.TryGetProperty("on", out var on)) return Physics().PlaceAt(placed, position, rotation, carried);
         var supportId = on.GetString()!;
         var support = Find(entities, supportId) ?? throw new Refusal("target_not_found", "That is not in this room.", "$.args.placement.on");
         if (supportId == thing.Id) throw new Refusal("invalid_args", "A thing cannot be put on itself.", "$.args.placement.on");
         if (!support["affordances"]!.AsArray().Any(a => a!.GetValue<string>() == "walkable_top"))
             throw new Refusal("invalid_args", "Things can only be placed on surfaces with a walkable top.", "$.args.placement.on");
         if (support["held_by"] != null) throw new Refusal("target_busy", "Someone is holding that.", "$.args.placement.on");
-        return Physics().PlaceOn(placed, position, rotation, supportId, BoundsOf(support));
+        return Physics().PlaceOn(placed, position, rotation, supportId, BoundsOf(support), carried);
     }
 
     private static Rest Settled((Rest? At, Blocked? Blocked) outcome, string path) =>
@@ -302,7 +337,9 @@ public partial class CommandHost
         foreach (var actor in _held.Keys.ToList())
         {
             var held = _held[actor];
-            if (BodyOf(actor) is not { } body || !body.IsInsideTree())
+            // A holder that left the room, or whose principal may no longer change it (demoted to visitor, a save that
+            // stopped being available), lets go: the thing goes back to where it was last put down.
+            if (BodyOf(actor) is not { } body || !body.IsInsideTree() || !Authority.Call("may_change", actor == PlayerAvatar ? PlayerPrincipal : CompanionPrincipal).AsBool())
             {
                 LetGo(actor);
                 ApplyObjectPoses(ObjectPoses());
@@ -349,6 +386,36 @@ public partial class CommandHost
         }
     }
 
+    /// <summary>
+    /// The authority's pose check (creation_authority.gd pose_check), for a save being loaded, once its poses are in the scene:
+    /// a pose is believed only if it is the object's manifest rotation turned about the vertical, its bounds are its asset's
+    /// at that pose, and it rests on the shell or an object without overlapping anything. Otherwise the save is refused,
+    /// saying which object, and stays on disk untouched (as a save with an unplaceable creation does).
+    /// </summary>
+    public Godot.Collections.Dictionary CheckObjectPoses(Godot.Collections.Dictionary poses)
+    {
+        foreach (var (key, value) in poses)
+        {
+            var id = key.AsString();
+            var item = Room.Objects.FirstOrDefault(o => o.Id == id);
+            if (item == null) return PoseRefused(id, "is not in this room");
+            var pose = value.AsGodotDictionary();
+            var (position, rotation) = PoseOf(item, new Godot.Collections.Dictionary { [id] = pose }, carried: false);
+            if (!IsTurnOf(rotation, item.Rotation)) return PoseRefused(id, "is turned off its upright");
+            var bounds = SandboxPhysics.Bounds(position, rotation, item.Asset.DimensionsM * item.Scale);
+            var saved = pose["bounds"].AsGodotDictionary();
+            if (bounds.Position.DistanceTo(ArrayVector(saved["min_m"].AsGodotArray())) > 0.001f || bounds.End.DistanceTo(ArrayVector(saved["max_m"].AsGodotArray())) > 0.001f)
+                return PoseRefused(id, "does not match the object's size");
+            if (Physics().PoseProblem(ThingOf(item, position, rotation)) is { } problem) return PoseRefused(id, problem);
+        }
+        return new Godot.Collections.Dictionary { ["ok"] = true };
+    }
+
+    private static Godot.Collections.Dictionary PoseRefused(string id, string problem) => new()
+    {
+        ["ok"] = false, ["message"] = $"The saved place of {id} {problem}; the save was not loaded and is kept as it was.",
+    };
+
     /// <summary>The built room's object nodes by entity id (the room the host's parent built, named "Room").</summary>
     private Node3D? ObjectNode(string id)
     {
@@ -377,7 +444,7 @@ public partial class CommandHost
         if (_held.TryGetValue(PlayerAvatar, out var held))
         {
             var name = HeldName(PlayerAvatar);
-            var support = SandboxControls.SupportAhead(Player, entities, held.Target);
+            var support = SandboxControls.SupportAhead(Player, entities, held.Target, PlayerReaches);
             var args = new JsonObject();
             if (support != null)
             {
@@ -390,7 +457,7 @@ public partial class CommandHost
             var released = PlayerSandbox("entity.release", args);
             return Outcome(released, support != null ? $"Set {name} on {support["display_name"]!.GetValue<string>()}." : $"Set {name} down.");
         }
-        var target = SandboxControls.ThingAhead(Player, entities, SandboxRules.CarryLimitKg(PlayerAvatar), MassOf);
+        var target = SandboxControls.ThingAhead(Player, entities, SandboxRules.CarryLimitKg(PlayerAvatar), MassOf, PlayerReaches);
         if (target == null) return new(false, "Nothing to pick up within reach. Walk up to something and face it.");
         var grabbed = PlayerSandbox("entity.grab", new JsonObject { ["target"] = target["id"]!.GetValue<string>() });
         return Outcome(grabbed, $"Holding {HeldName(PlayerAvatar)}. F sets it down in front of you, or on top of what you face.");
@@ -400,7 +467,7 @@ public partial class CommandHost
     public HandsOutcome PlayerPush()
     {
         if (Player == null || !IsInstanceValid(Player)) return new(false, "The player's body is not in the room.");
-        var target = SandboxControls.ThingAhead(Player, Entities(), SandboxRules.PushLimitKg(PlayerAvatar), MassOf);
+        var target = SandboxControls.ThingAhead(Player, Entities(), SandboxRules.PushLimitKg(PlayerAvatar), MassOf, PlayerReaches);
         if (target == null) return new(false, "Nothing to push within reach. Walk up to something and face it.");
         var centre = BoundsOf(target).GetCenter();
         var pushed = PlayerSandbox("entity.push", new JsonObject
@@ -412,6 +479,16 @@ public partial class CommandHost
     }
 
     private float MassOf(string id) => Room.Objects.FirstOrDefault(o => o.Id == id)?.Asset.MassKg ?? float.MaxValue;
+
+    /// <summary>What the hand keys may aim at: within the player's reach, with a clear way to it.</summary>
+    private bool PlayerReaches(JsonObject entity)
+    {
+        var bounds = BoundsOf(entity);
+        if (Player == null || !SandboxRules.WithinReach(Player, bounds)) return false;
+        var item = Room.Objects.FirstOrDefault(o => o.Id == entity["id"]!.GetValue<string>());
+        // A support for a put-down is reached at its top; objects are checked with their own body left out.
+        return item == null || Reachable(Player, item, bounds);
+    }
 
     /// <summary>
     /// A hand key's command, as the player. Each put-down and push keeps a durable receipt; if the player's share of the

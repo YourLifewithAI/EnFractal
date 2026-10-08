@@ -64,6 +64,10 @@ public partial class SandboxVerbsTest : Node3D
             await TestLocksAndPreviews();
             await TestPushOffTheBox();
             await TestReload();
+            await TestRolesAndReadiness();
+            await TestThinWall();
+            await TestNothingRestsOnCreations();
+            await TestHostileSaves();
             GD.Print($"NATIVE_KERNEL_SANDBOX: {_checks - _failures}/{_checks} checks passed; pick up, carry, drop, place with snapping, stack and push through enfractal.command, with receipts, refusals, saved poses and a reload{(_dump != null ? $"; {_dumped} messages dumped" : "")}");
             RemoveSave();
             GetTree().Quit(_failures == 0 ? 0 : 1);
@@ -208,7 +212,8 @@ public partial class SandboxVerbsTest : Node3D
         Check(Code(Send(Command(NextId("place"), "entity.place", new JsonObject { ["target"] = "obj:book", ["placement"] = Placement(0, 0, 0) }), Player)) == "target_busy",
             "the player's hand cannot take what the companion holds");
         var directed = Send(Command(NextId("drop"), "entity.release", new JsonObject { ["actor"] = CompanionAvatar, ["placement"] = Placement(1.2, 0.3, 0.1, "obj:box") }), Player);
-        Check(Code(directed) == "out_of_bounds", "the player may direct the companion's avatar, and the box is out of its reach from here");
+        Check(Code(directed) is "out_of_bounds" or "occupied" && _host.HeldBy(CompanionAvatar) == "obj:book",
+            "the player may direct the companion's avatar; from here the box is out of its reach (or the doorstop is in its way): " + Code(directed));
         await Stand(_companion, new Vector3(1.1f, 0, -0.03f), Vector3.Back, "north of the box");
         var crowded = Send(Command(NextId("drop"), "entity.release", new JsonObject { ["placement"] = Placement(1.1, 0.3, 0.2, "obj:box") }), Companion);
         Check(Code(crowded) == "occupied" && _host.HeldBy(CompanionAvatar) == "obj:book", "the middle of the box is taken by the doorstop: no room, and the companion still holds the book");
@@ -304,6 +309,150 @@ public partial class SandboxVerbsTest : Node3D
         Check(_player.TryTeleportTo(Vec(doorstop["position_m"]!) + Vector3.Up * 0.03f) && Mathf.Abs(_player.GlobalPosition.Y - 0.04f) < 0.006f,
             $"an avatar can stand on the moved doorstop ({_player.GlobalPosition.Y:0.000} m)");
     }
+
+    // ---- the P3 review (Codex, 9cad588) ----
+
+    /// <summary>Review major 1: a pick-up needs what any change needs, a ready room and a role that may build, before the hold begins.</summary>
+    private async Task TestRolesAndReadiness()
+    {
+        await Stand(_player, new Vector3(1.5f, 0, 1.0f), Vector3.Forward, "off the doorstop, out of the way");
+        Check(Ok(Send(Command(NextId("place"), "entity.place", new JsonObject { ["target"] = "obj:doorstop", ["placement"] = Placement(0.6, 0, -0.5) }), Player)), "the doorstop goes to the open floor");
+        await Stand(_companion, new Vector3(0.6f, 0, -0.38f), Vector3.Forward, "south of the doorstop");
+        Check(_host.Authority.Call("set_role", Player, Companion, "visitor").AsGodotDictionary()["ok"].AsBool(), "the player makes the companion a visitor");
+        var visitor = Send(Command(NextId("grab"), "entity.grab", new JsonObject { ["target"] = "obj:doorstop" }), Companion);
+        Check(Code(visitor) == "permission_denied" && _host.HeldBy(CompanionAvatar) == null && Node("obj:doorstop") is CollisionObject3D { CollisionLayer: RoomBuilder.WorldLayer },
+            "a visitor cannot pick anything up, and the thing is untouched: " + Code(visitor));
+        Check(_host.Authority.Call("set_role", Player, Companion, "editor").AsGodotDictionary()["ok"].AsBool(), "the companion is an editor again");
+        Check(Ok(Send(Command(NextId("grab"), "entity.grab", new JsonObject { ["target"] = "obj:doorstop" }), Companion)), "an editor picks it up");
+        _host.Authority.Call("set_role", Player, Companion, "visitor");
+        await Frames(3);
+        Check(_host.HeldBy(CompanionAvatar) == null && Node("obj:doorstop")!.GlobalPosition.DistanceTo(new Vector3(0.6f, 0, -0.5f)) < 0.001f &&
+            Node("obj:doorstop") is CollisionObject3D { CollisionLayer: RoomBuilder.WorldLayer },
+            "demoted mid-carry, the companion lets go: the doorstop goes back to where it was last put down");
+        _host.Authority.Call("set_role", Player, Companion, "editor");
+        await Stand(_companion, new Vector3(1.5f, 0, -1.0f), Vector3.Forward, "out of the way");
+
+        // A save that failed to load: the room is not ready, so nothing can be picked up that could not be put down.
+        _host.QueueFree();
+        await Frames(2);
+        var corrupt = $"{TestRoot}/corrupt/inventions.json";
+        var absolute = ProjectSettings.GlobalizePath(corrupt);
+        System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(absolute)!);
+        System.IO.File.WriteAllText(absolute, "{not json");
+        _host = CommandHost.Create(this, _room, _player, _companion, null, corrupt);
+        _host.Clock = () => _now;
+        await Frames(3);
+        await Stand(_player, new Vector3(-0.3f, 0, 0.62f), Vector3.Forward, "beside the doorstop's manifest place");
+        var unready = Send(Command(NextId("grab"), "entity.grab", new JsonObject { ["target"] = "obj:doorstop" }), Player);
+        Check(!_host.Authority.Call("is_ready").AsBool() && Code(unready) == "not_ready" && _host.HeldBy(PlayerAvatar) == null,
+            "with a save that failed to load, a pick-up is not_ready and nothing is held: " + Code(unready));
+        Check(Node("obj:doorstop")!.GlobalPosition.DistanceTo(new Vector3(-0.3f, 0.006f, 0.5f)) < 0.001f, "and the scene shows the room as its manifest has it, the state the host answers from");
+        _host.QueueFree();
+        await Frames(2);
+        NewHost();
+        await Frames(3);
+        Check(_host.Authority.Call("is_ready").AsBool() && Node("obj:doorstop")!.GlobalPosition.DistanceTo(new Vector3(0.6f, 0, -0.5f)) < 0.001f, "back on the real save, the doorstop is where it was put");
+    }
+
+    /// <summary>Review major 3: a thin wall stops a reach and a put-down, whatever the distance.</summary>
+    private async Task TestThinWall()
+    {
+        var wall = new StaticBody3D { Name = "Partition", CollisionLayer = RoomBuilder.WorldLayer, CollisionMask = 0, Position = new Vector3(0.6f, 0.15f, -0.396f) };
+        wall.AddChild(new CollisionShape3D { Shape = new BoxShape3D { Size = new Vector3(0.5f, 0.3f, 0.004f) } });
+        AddChild(wall);
+        await Frames(2);
+        await Stand(_player, new Vector3(0.6f, 0, -0.37f), Vector3.Forward, "behind a 4 mm partition from the doorstop");
+        var through = Send(Command(NextId("grab"), "entity.grab", new JsonObject { ["target"] = "obj:doorstop" }), Player);
+        Check(Code(through) == "out_of_bounds" && _host.HeldBy(PlayerAvatar) == null, "the doorstop 9 cm away behind the partition is out of reach: " + Code(through));
+        if (_host.HeldBy(PlayerAvatar) != null) Send(Command(NextId("drop"), "entity.release", new JsonObject { ["placement"] = Placement(0.6, 0, -0.5) }), Player);
+        Check(Code(Send(Command(NextId("push"), "entity.push", new JsonObject { ["target"] = "obj:doorstop", ["distance_m"] = 0.05 }), Player)) == "out_of_bounds", "and cannot be pushed through it");
+        Check(Ok(Send(Command(NextId("place"), "entity.place", new JsonObject { ["target"] = "obj:doorstop", ["placement"] = Placement(0.6, 0, -0.28) }), Player)), "the doorstop goes to the player's side");
+        await Face(_player, Vector3.Back);
+        Check(Ok(Send(Command(NextId("grab"), "entity.grab", new JsonObject { ["target"] = "obj:doorstop" }), Player)), "the player picks it up on its own side");
+        await Face(_player, Vector3.Forward);
+        var drop = Send(Command(NextId("drop"), "entity.release", new JsonObject()), Player);
+        Check(Code(drop) == "occupied" && _host.HeldBy(PlayerAvatar) == "obj:doorstop", "facing the partition, it cannot be set down on the far side: " + Code(drop));
+        var beyond = Send(Command(NextId("drop"), "entity.release", new JsonObject { ["placement"] = Placement(0.6, 0, -0.5) }), Player);
+        Check(!Ok(beyond) && _host.HeldBy(PlayerAvatar) == "obj:doorstop", "nor placed there: " + Code(beyond));
+        await Face(_player, Vector3.Back);
+        Check(Ok(Send(Command(NextId("drop"), "entity.release", new JsonObject()), Player)), "set down on its own side, it goes");
+        wall.QueueFree();
+        await Frames(2);
+    }
+
+    /// <summary>
+    /// Review major 4: a thing set on a creation would float once the creation goes, and load floating. Things rest only
+    /// on the room's surfaces and objects.
+    /// </summary>
+    private async Task TestNothingRestsOnCreations()
+    {
+        var block = Send(Command(NextId("place"), "creation.place", new JsonObject { ["source"] = Source("Block"), ["placement"] = Placement(-1.0, 0, 0.0) }), Player);
+        var id = block["created"]?[0]?.GetValue<string>() ?? "";
+        Check(Ok(block), "the player builds a 10 cm block on the floor");
+        var onBlock = Send(Command(NextId("place"), "entity.place", new JsonObject { ["target"] = "obj:doorstop", ["placement"] = Placement(-1.0, 0.3, 0.0) }), Player);
+        Check(Code(onBlock) == "occupied" && onBlock["error"]!["message"]!.GetValue<string>().Contains("creation", StringComparison.Ordinal),
+            "the doorstop cannot be set on the block: " + Code(onBlock) + " " + Inspect("obj:doorstop", Player)["position_m"]?.ToJsonString());
+        Check(Ok(Send(Command(NextId("remove"), "entity.remove", new JsonObject { ["target"] = id }, expectedRevision: _host.Revision), Player)), "the block is removed");
+        await Frames(3);
+        var floating = _host.Entities().Where(e => e["kind"]!.GetValue<string>() == "object" && !Supported(e)).Select(e => e["id"]!.GetValue<string>()).ToList();
+        Check(floating.Count == 0, "and nothing is left floating: " + string.Join(", ", floating));
+        await Frames(1);
+    }
+
+    /// <summary>
+    /// Review major 2: a save's object poses are checked against the room as it is, not trusted. A pose raised into mid-air,
+    /// sunk into a wall behind bounds that hide it, inside another object, or turned over refuses the whole save (as an
+    /// unplaceable creation does): it is not loaded, its file is untouched, and the room shows its manifest places.
+    /// </summary>
+    private async Task TestHostileSaves()
+    {
+        var valid = JsonNode.Parse(System.IO.File.ReadAllText(ProjectSettings.GlobalizePath(_savePath)))!.AsObject();
+        Check(valid["object_poses"]?["obj:doorstop"] != null, "the save has the doorstop's pose");
+        var cases = new (string Label, Action<JsonObject> Edit)[]
+        {
+            ("raised 20 cm into mid-air", pose => { Shift(pose["position_m"]!, 1, 0.2); Shift(pose["bounds"]!["min_m"]!, 1, 0.2); Shift(pose["bounds"]!["max_m"]!, 1, 0.2); }),
+            ("sunk into the east wall behind tiny bounds", pose => { pose["position_m"] = new JsonArray(1.99, 0, 0.0); pose["bounds"] = Box(1.989, 0, -0.001, 1.991, 0.001, 0.001); }),
+            ("inside the big box behind tiny bounds", pose => { pose["position_m"] = new JsonArray(1.1, 0.1, 0.2); pose["bounds"] = Box(1.099, 0.1, 0.199, 1.101, 0.101, 0.201); }),
+            ("turned upside down into the floor", pose => { pose["position_m"] = new JsonArray(0.6, 0.0, -0.8); pose["rotation"] = new JsonArray(1.0, 0.0, 0.0, 0.0); pose["bounds"] = Box(0.599, 0, -0.801, 0.601, 0.001, -0.799); }),
+        };
+        var index = 0;
+        foreach (var (label, edit) in cases)
+        {
+            var hostile = (JsonObject)valid.DeepClone();
+            edit(hostile["object_poses"]!["obj:doorstop"]!.AsObject());
+            var path = $"{TestRoot}/hostile/{++index}/inventions.json";
+            var absolute = ProjectSettings.GlobalizePath(path);
+            System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(absolute)!);
+            System.IO.File.WriteAllBytes(absolute, CanonicalJson.Bytes(hostile));
+            _host.QueueFree();
+            await Frames(2);
+            _host = CommandHost.Create(this, _room, _player, _companion, null, path);
+            _host.Clock = () => _now;
+            await Frames(3);
+            Check(!_host.Authority.Call("is_ready").AsBool() && Node("obj:doorstop")!.GlobalPosition.DistanceTo(new Vector3(-0.3f, 0.006f, 0.5f)) < 0.001f &&
+                System.IO.File.ReadAllBytes(absolute).SequenceEqual(CanonicalJson.Bytes(hostile)),
+                $"a save with the doorstop {label} is refused, left as it was, and the room shows the manifest's places");
+        }
+        _host.QueueFree();
+        await Frames(2);
+        NewHost();
+        await Frames(3);
+        Check(_host.Authority.Call("is_ready").AsBool(), "the untouched save still loads");
+    }
+
+    private bool Supported(JsonObject entity)
+    {
+        var box = SandboxControls.Box(entity);
+        var centre = box.GetCenter();
+        var hit = GetWorld3D().DirectSpaceState.IntersectRay(PhysicsRayQueryParameters3D.Create(new Vector3(centre.X, box.Position.Y + 0.002f, centre.Z),
+            new Vector3(centre.X, box.Position.Y - 0.003f, centre.Z), RoomBuilder.WorldLayer, new Godot.Collections.Array<Rid> { ((CollisionObject3D)Node(entity["id"]!.GetValue<string>())!).GetRid() }));
+        return hit.Count > 0;
+    }
+
+    private static void Shift(JsonNode vector, int axis, double by) => vector[axis] = vector[axis]!.GetValue<double>() + by;
+
+    private static JsonObject Box(double x0, double y0, double z0, double x1, double y1, double z1) =>
+        new() { ["min_m"] = new JsonArray(x0, y0, z0), ["max_m"] = new JsonArray(x1, y1, z1) };
 
     // ---- helpers ----
 
