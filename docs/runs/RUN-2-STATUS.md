@@ -10,11 +10,13 @@
 - **Merged: Codex brief 10, the recipe library** (`pipeline/recipes/**`, now in OWNERSHIP.md; [report](../codex/reports/10-recipe-library.md)).
   - Five parametric Blender recipes: cardboard box, couch, gaming laptop, jam jar, French press. One input shape (`recipe`, `size_m` as `[w, h, d]`, colour slots, `params`), one output (GLB, receipt, CPU preview), shared checks before export including `check_glb`.
   - 7 tests and 49 builds pass in about 4.5 min (`python -B -m unittest pipeline.recipes.tests -v` from the repository root, with Blender installed); all five rebuild byte-identically. Not in the Windows or Linux runners: they need Blender.
-  - Previews in `pipeline/recipes/previews/`. The founder has not judged them yet.
+  - Previews in `pipeline/recipes/previews/`.
+- **The founder's verdict on brief 10's previews (7 October): basic.** The proportions are mostly right, the laptop looks off, the French press and glass are grainy, and nothing is stylised or charming: "If the point of the exercise is to reproduce an object, I'd say that's been achieved." Brief 10 had asked for plain shapes and left the style to Lane L's L4. **The founder chose to put the style in the recipes now:** [brief 11](../codex/briefs/11-storybook-recipes.md), a shared storybook shape layer from the look bible (soft, rounded, slightly wonky, toy-like forms; painted colour; stylised glass), grain-free previews with a longer lens, the laptop fixed, and a plain-versus-storybook comparison sheet. Lane L's in-game treatment (L4, L6) still adds to it.
+- **Merged: the contract round** (`a1eee3d`): `entity.push` is the one new verb (pick up, drop, place with snapping and stack reuse `entity.grab`, `entity.release` and `entity.place`, now documented); `job_id` is `job-` plus 26 random base32 characters, minted by a cryptographic generator in both the host and the mock; `journal.read`, `journal.note` and `map.find`; room state's optional `journal` and `discovered` (older states stay valid). Until Lanes P and A build them, the host answers the four new ops "operation does not exist" and the mock refuses them. Bounds chosen by the integrator's agent, for the founder to see: at most 32 open tasks, `map.find` answers at most 10, a push moves at most 1 m. A fetch ends with the companion holding the object beside the player; setting it down is a separate command. Windows runners: command host 420/420, HUD 72/72, companion 501, avatar 160/160, navigation 10/10, room data 56/56, look 367/367; contracts 64.
 - **Running:**
-  - the contract round (step 3 below), an Opus agent for the integrator in `run2/contracts`;
+  - Codex brief 11, the storybook recipes;
   - Lane C (Sonnet): C3 shell and C4 inventory.
-- **Waiting:** Lanes P and A start when the contract round merges; Lane L when Lane C's GPU work is done.
+- **Next:** Lanes P and A, now that the contracts are merged; Lane L when Lane C's GPU work is done.
 
 ## The handoff from Run 1 (7 October, night)
 
