@@ -278,6 +278,11 @@ public partial class JournalTest : Node3D
         Send(Query("observe", new JsonObject { ["actor"] = CompanionAvatar }), Companion);
         Check(lantern.Length > 0 && _host.RememberedIds(Companion).Contains(lantern), "a lantern built at A, seen by the team");
         var seenAt = SandboxBox(Summaries()[lantern]).GetCenter();
+        // Built in plain view: named, its pin the creation's own centre (not its base or the place it was asked for).
+        var plain = Read(Companion, new JsonObject { ["kind"] = "built", ["about"] = lantern })["entries"]?[0]?.AsObject();
+        var plainPin = plain?["pin_m"] is JsonArray p0 ? new Vector3((float)p0[0]!.GetValue<double>(), (float)p0[1]!.GetValue<double>(), (float)p0[2]!.GetValue<double>()) : new Vector3(float.NaN, 0, 0);
+        Check(plain?["line"]?.GetValue<string>() == "You built \"Lantern\"" && plain["subject"]?["entities"]?[0]?.GetValue<string>() == lantern && plainPin.DistanceTo(seenAt) < 0.001f,
+            $"built in plain view: named, with its id, pinned at its own centre {seenAt}: " + plain?.ToJsonString());
         // Both avatars behind the table, north of it: A, B, C and the treasure's spot are all out of their sight.
         await Stand(_player, new Vector3(-0.9f, 0, -1.35f), Vector3.Forward, "behind the table");
         await Stand(_companion, new Vector3(-0.7f, 0, -1.35f), Vector3.Forward, "behind the table too");
