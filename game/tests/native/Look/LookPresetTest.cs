@@ -69,6 +69,7 @@ public partial class LookPresetTest : Node3D
             await CheckObserve(preset, room);
             var observeV2 = StylePreset.Resolve(RoomWorld.DefaultStyleId, 2);
             CheckObservePlayerEnvelope(observeV2);
+            CheckObserveFrameBudget(preset, observeV2);
             await CheckObservePlayerTracking(observeV2, room);
             CheckFocusPass(preset);
             CheckSeasonLooks(preset);
@@ -727,6 +728,27 @@ public partial class LookPresetTest : Node3D
             "a close collision-shortened view does not put the near edge past its own focus");
     }
 
+    /// <summary>
+    /// The observe view's frame budget (Run 2). Godot's circular bokeh gathers about (64 x amount)^2 / (2 x blur_scale) samples at
+    /// every half-resolution pixel whatever the frame holds (bokeh_dof.glsl; blur_scale 1.0 at the project's bokeh quality 2), so
+    /// what the observe profile costs over the ordinary tilt-shift follows its blur amount squared, not its band or its ramps.
+    /// Run 1's captures (the founder's RTX 2070 SUPER, 17:00 on 15 April): diorama_high, amount 0.165, 10.07 ms of GPU time;
+    /// observe_view, amount 0.3, 11.98 ms of GPU time and 17.34 ms at p95. That is 30.4 ms per unit of amount squared; v2 must put
+    /// the observe view's p95 on those numbers at least 0.5 ms inside the preset's budget. Rendering confirms it (docs/look/reviews/run2).
+    /// </summary>
+    private void CheckObserveFrameBudget(StylePreset v1, StylePreset v2)
+    {
+        const float RunOneP95 = 17.34f, RunOneAmount = 0.3f;
+        const float MsPerAmountSquared = (11.98f - 10.07f) / (0.3f * 0.3f - 0.165f * 0.165f);
+        float P95At(float amount) => RunOneP95 - MsPerAmountSquared * (RunOneAmount * RunOneAmount - amount * amount);
+        var v1Amount = v1.Tuning.Dof.ObserveAmount;
+        Check(Mathf.IsEqualApprox(v1Amount, RunOneAmount) && P95At(v1Amount) > v1.TargetFrameMs, $"the model reproduces v1's over-budget observe view ({P95At(v1Amount):0.0} ms at amount {v1Amount})");
+        var amount = v2.Tuning.Dof.ObserveAmount;
+        Check(P95At(amount) <= v2.TargetFrameMs - 0.5f, $"v2's observe amount {amount} puts the observe view's modelled p95 at {P95At(amount):0.0} ms, at least 0.5 ms inside the {v2.TargetFrameMs} ms budget");
+        var ordinary = LookDirector.DepthOfFieldFor(v2, 1.4f, Mathf.Sin(Mathf.DegToRad(45f)));
+        Check(amount >= ordinary.Amount, $"and the observe view still blurs at least as hard as the ordinary tilt-shift ({amount} against {ordinary.Amount:0.###})");
+    }
+
     /// <summary>One camera changes F3/F4 poses; a shared pivot override must not steal the player focus.</summary>
     private async Task CheckObservePlayerTracking(StylePreset preset, RoomData room)
     {
@@ -764,7 +786,7 @@ public partial class LookPresetTest : Node3D
             Check(look.Post!.Focus is { } postBand && Mathf.Abs(postBand.NearDistance - band.Near) < 1e-4f
                 && Mathf.Abs(postBand.FarDistance - band.Far) < 1e-4f,
                 "post and decoded optical sharp edges agree");
-            Check(Mathf.Abs(attributes.DofBlurAmount - 0.30f) < 1e-4f, "Observe keeps the prescribed blur amount");
+            Check(Mathf.Abs(attributes.DofBlurAmount - preset.Tuning.Dof.ObserveAmount) < 1e-4f, "Observe keeps the prescribed blur amount");
         }
         look.Observe = false;
         Check(look.FocusPointFor(camera).IsEqualApprox(look.FocusOverride!.Value), "ordinary building focus still honours its override");
