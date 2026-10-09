@@ -16,16 +16,22 @@ public static class MaterialLibrary
     public const string ShaderPath = "res://shaders/painterly_material.gdshader";
     private static StylePreset? _preset;
     private static Shader? _shader;
+    private static Shader? _landShader;
     private static readonly Dictionary<string, Material> Cache = new();
     private static readonly HashSet<string> SetNames = new();
+    private static readonly HashSet<string> LandSetNames = new();
 
     /// <summary>Every shader parameter name a material from here has been given; each must be a uniform of the shader.</summary>
     public static IReadOnlyCollection<string> ParameterNames => SetNames;
+
+    /// <summary>Every parameter name a landscape material (ForLandscape) has been given; each must be a uniform of painterly_land.gdshader.</summary>
+    public static IReadOnlyCollection<string> LandscapeParameterNames => LandSetNames;
 
     public static void Configure(StylePreset preset)
     {
         _preset = preset;
         _shader = GD.Load<Shader>(ShaderPath);
+        _landShader = GD.Load<Shader>(LandscapeLook.ShaderPath);
         Cache.Clear();
     }
 
@@ -48,6 +54,72 @@ public static class MaterialLibrary
     /// block-in. Falls back to a plain material, like For, when no preset is configured.
     /// </summary>
     public static Material ForCaptured(string role, Color albedo, Texture2D? texture) => Make(role, albedo, texture);
+
+    private static void SetLand(ShaderMaterial material, string name, Variant value)
+    {
+        LandSetNames.Add(name);
+        material.SetShaderParameter(name, value);
+    }
+
+    /// <summary>
+    /// The painterly material of a landscape's harness role (Run 2: the land in the game). factor is the glTF material's colour,
+    /// the envelope of the role's blends; the shader multiplies it by the baked vertex colour, which is the colour the generator
+    /// meant. bake is the flat colour VoxelGI voxelizes in its place. Falls back, like For, to a plain material that does keep
+    /// the vertex colour when no preset is configured.
+    /// </summary>
+    public static Material ForLandscape(string role, Color factor, Color bake)
+    {
+        var key = "land|" + role + "|" + factor.ToHtml(false) + "|" + bake.ToHtml(false);
+        if (Cache.TryGetValue(key, out var cached)) return cached;
+        var marks = LandscapeLook.Roles[role];
+        if (_preset == null || _landShader == null)
+        {
+            var plain = new StandardMaterial3D { AlbedoColor = factor, VertexColorUseAsAlbedo = true, Roughness = marks.Roughness, ResourceName = $"land {role}" };
+            Cache[key] = plain;
+            return plain;
+        }
+        var paint = _preset.Tuning.Paint;
+        var material = new ShaderMaterial { Shader = _landShader, ResourceName = $"painterly land {role}" };
+        SetLand(material, "base_color", factor);
+        SetLand(material, "kind", (int)marks.Kind);
+        SetLand(material, "albedo_softening", marks.Softening);
+        SetLand(material, "stroke_normal_strength", marks.NormalStrength);
+        SetLand(material, "roughness_value", marks.Roughness);
+        SetLand(material, "metallic_value", marks.Metallic);
+        SetLand(material, "specular_strength", marks.Specular);
+        SetLand(material, "scale_m", marks.ScaleM);
+        SetLand(material, "scale2_m", marks.Scale2M);
+        SetLand(material, "stroke_stretch", marks.Stretch);
+        SetLand(material, "stroke_axis", marks.Axis);
+        SetLand(material, "variation", marks.Variation);
+        SetLand(material, "role_calm", marks.Calm);
+        SetLand(material, "ramp_gain", marks.RampGain);
+        SetLand(material, "flow_speed", marks.FlowSpeed);
+        SetLand(material, "glaze", marks.Glaze ?? Vector3.One);
+        SetLand(material, "wrap_light", marks.Wrap);
+        SetLand(material, "terminator_warmth", marks.Warmth);
+        SetLand(material, "sheen", marks.Sheen);
+        SetLand(material, "sky_rim", marks.SkyRim);
+        SetLand(material, "tone_wash", paint.ToneWash);
+        SetLand(material, "tone_strokes", paint.ToneStrokes);
+        SetLand(material, "tone_bristle", paint.ToneBristle);
+        SetLand(material, "tone_gain", paint.ToneGain);
+        SetLand(material, "temperature_variation", paint.TemperatureVariation);
+        SetLand(material, "pastel_mix", paint.PastelMix);
+        SetLand(material, "pastel_chroma", paint.PastelChroma);
+        SetLand(material, "pastel_scale", paint.PastelScale);
+        SetLand(material, "pastel_lift", paint.PastelLift);
+        SetLand(material, "cavity_darkening", paint.CavityDarkening);
+        SetLand(material, "stroke_normal_gain", paint.StrokeNormalGain);
+        SetLand(material, "mark_fade_start", paint.MarkFadeStart);
+        SetLand(material, "mark_fade_end", paint.MarkFadeEnd);
+        material.SetMeta("material_role", role);
+        material.SetMeta("landscape", true);
+        // VoxelGI voxelizes BaseMaterial3D albedo only, and ignores vertex colour: the look director bakes with this colour instead.
+        material.SetMeta("bake_albedo", bake);
+        Cache[key] = material;
+        return material;
+    }
 
     private static Material Make(string role, Color baseColor, Texture2D? photo)
     {
