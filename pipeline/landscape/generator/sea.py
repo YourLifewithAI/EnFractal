@@ -53,6 +53,8 @@ def _shore(d, hl, bw):
     if d <= 0:
         beach = SEA_Y+T9*min(-d, .25)+T16*min(max(0., -d-.25), .25)+T72*max(0., -d-.5)
         rocky = SEA_Y+.01+T30*min(-d, .3)+T72*max(0., -d-.3)
+        if hl > .5:
+            return math.inf   # a headland keeps its landform's height to the waterline, then drops
     else:
         beach = SEA_Y-T8*min(d, .29)-T22*max(0., d-.29)
         rocky = SEA_Y+.01-T30*d

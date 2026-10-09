@@ -522,7 +522,7 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False):
 
 def _godot_yaw(dx, dz):
     """Yaw (degrees, Godot +Y rotation, -Z forward) that faces (dx, dz)."""
-    return round(math.degrees(math.atan2(-dx, -dz)), 2)
+    return round(math.degrees(math.atan2(-dx, -dz)), 2)+0.   # never -0.0
 
 
 def describe_sea(grid, h, room, coast, jetty, beaches, islands, player0, streams):

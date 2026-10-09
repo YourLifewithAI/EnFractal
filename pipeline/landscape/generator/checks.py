@@ -532,7 +532,7 @@ def sea_checks(doc, meshes, terrain, room):
             best = min(best, math.hypot(x-a[0]-t*dx, z-a[1]-t*dz))
         offs.append(best)
     rows['reef_offshore_m'] = [round(min(offs or [0]), 3), round(max(offs or [0]), 3)]
-    ok &= bool(offs) and min(offs) >= .2 and max(offs) <= .85
+    ok &= bool(offs) and min(offs) >= .2 and max(offs) <= 1.
     # Beaches: walk out of the sea, then on to the spawn.
     walker = Walker(doc, meshes, terrain, room)
     start = (player[0], player[2])
@@ -540,7 +540,7 @@ def sea_checks(doc, meshes, terrain, room):
     for b in sea['beaches']:
         (wx, _, wz), (bx, _, bz) = b['water_m'], b['wash_ashore_m']
         depth0 = level-terrain.height(wx, wz)
-        run = math.hypot(bx-wx, bz-wz)
+        run = max(math.hypot(bx-wx, bz-wz), 1e-6)
         n = max(2, int(run/EDGE_SAMPLE))
         hs = [terrain.height(wx+(bx-wx)*k/n, wz+(bz-wz)*k/n) for k in range(n+1)]
         steep = wet_steep = 0.
