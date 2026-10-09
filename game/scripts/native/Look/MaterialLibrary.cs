@@ -20,6 +20,8 @@ public static class MaterialLibrary
     private static readonly Dictionary<string, Material> Cache = new();
     private static readonly HashSet<string> SetNames = new();
     private static readonly HashSet<string> LandSetNames = new();
+    private static readonly HashSet<string> WaterSetNames = new();
+    private static Shader? _waterShader;
 
     /// <summary>Every shader parameter name a material from here has been given; each must be a uniform of the shader.</summary>
     public static IReadOnlyCollection<string> ParameterNames => SetNames;
@@ -27,11 +29,15 @@ public static class MaterialLibrary
     /// <summary>Every parameter name a landscape material (ForLandscape) has been given; each must be a uniform of painterly_land.gdshader.</summary>
     public static IReadOnlyCollection<string> LandscapeParameterNames => LandSetNames;
 
+    /// <summary>Every parameter name a landscape water material has been given; each must be a uniform of painterly_water.gdshader.</summary>
+    public static IReadOnlyCollection<string> WaterParameterNames => WaterSetNames;
+
     public static void Configure(StylePreset preset)
     {
         _preset = preset;
         _shader = GD.Load<Shader>(ShaderPath);
         _landShader = GD.Load<Shader>(LandscapeLook.ShaderPath);
+        _waterShader = GD.Load<Shader>(LandscapeLook.WaterShaderPath);
         Cache.Clear();
     }
 
@@ -79,6 +85,7 @@ public static class MaterialLibrary
             return plain;
         }
         var paint = _preset.Tuning.Paint;
+        if (LandscapeLook.IsWater(role) && _waterShader != null) return Cache[key] = ForWater(role, marks, factor, bake, paint);
         var material = new ShaderMaterial { Shader = _landShader, ResourceName = $"painterly land {role}" };
         SetLand(material, "base_color", factor);
         SetLand(material, "kind", (int)marks.Kind);
@@ -118,6 +125,57 @@ public static class MaterialLibrary
         // VoxelGI voxelizes BaseMaterial3D albedo only, and ignores vertex colour: the look director bakes with this colour instead.
         material.SetMeta("bake_albedo", bake);
         Cache[key] = material;
+        return material;
+    }
+
+    private static void SetWater(ShaderMaterial material, string name, Variant value)
+    {
+        WaterSetNames.Add(name);
+        material.SetShaderParameter(name, value);
+    }
+
+    /// <summary>
+    /// A landscape's still or flowing water: the water shader, a glaze you can see into (clear shallows, a darker and cooler deep
+    /// middle, visible from below), with the role's ripples and the WaterLook of its kind.
+    /// </summary>
+    private static ShaderMaterial ForWater(string role, LandRole marks, Color factor, Color bake, PaintTuning paint)
+    {
+        var water = WaterLook.For(marks.Kind);
+        var material = new ShaderMaterial { Shader = _waterShader, ResourceName = $"painterly water {role}" };
+        SetWater(material, "base_color", factor);
+        SetWater(material, "kind", (int)marks.Kind);
+        SetWater(material, "scale_m", marks.ScaleM);
+        SetWater(material, "stroke_axis", marks.Axis);
+        SetWater(material, "stroke_stretch", marks.Stretch);
+        SetWater(material, "variation", marks.Variation);
+        SetWater(material, "flow_speed", marks.FlowSpeed);
+        SetWater(material, "roughness_value", marks.Roughness);
+        SetWater(material, "specular_strength", marks.Specular);
+        SetWater(material, "stroke_normal_strength", marks.NormalStrength);
+        SetWater(material, "glaze", marks.Glaze ?? Vector3.One);
+        SetWater(material, "wrap_light", marks.Wrap);
+        SetWater(material, "sky_rim", marks.SkyRim);
+        SetWater(material, "clarity_m", water.ClarityM);
+        SetWater(material, "surface_alpha", water.SurfaceAlpha);
+        SetWater(material, "max_alpha", water.MaxAlpha);
+        SetWater(material, "deep_m", water.DeepM);
+        SetWater(material, "wash_steps", water.WashSteps);
+        SetWater(material, "wash_wobble", water.WashWobble);
+        SetWater(material, "shallow_tint", water.ShallowTint);
+        SetWater(material, "deep_tint", water.DeepTint);
+        SetWater(material, "shore_m", water.ShoreM);
+        SetWater(material, "shore_strength", water.ShoreStrength);
+        SetWater(material, "sky_color", water.SkyColor);
+        SetWater(material, "underside_tint", water.UndersideTint);
+        SetWater(material, "underside_alpha", water.UndersideAlpha);
+        SetWater(material, "stroke_normal_gain", paint.StrokeNormalGain);
+        SetWater(material, "mark_fade_start", paint.MarkFadeStart);
+        SetWater(material, "mark_fade_end", paint.MarkFadeEnd);
+        material.SetMeta("material_role", role);
+        material.SetMeta("landscape", true);
+        material.SetMeta("water", true);
+        // VoxelGI voxelizes BaseMaterial3D albedo only: the look director bakes with this colour instead.
+        material.SetMeta("bake_albedo", bake);
         return material;
     }
 

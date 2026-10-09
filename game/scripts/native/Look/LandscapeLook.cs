@@ -40,6 +40,8 @@ public sealed record LandRole(
 public static class LandscapeLook
 {
     public const string ShaderPath = "res://shaders/painterly_land.gdshader";
+    /// <summary>Still and flowing water wear this shader instead: a glaze you can see into (Run 2, the founder's playtest round).</summary>
+    public const string WaterShaderPath = "res://shaders/painterly_water.gdshader";
     /// <summary>Meta on a mesh whose surfaces wear landscape materials.</summary>
     public const string LandscapePaintedMeta = "look_landscape_painted";
 
@@ -62,7 +64,7 @@ public static class LandscapeLook
         ["cliff"] = R(LandKind.Cliff, 0.060f, 0.140f, 2.0f, Vector3.Up, 0.55f, 0.20f, 0.25f, 0.00f, 0.15f, 0.93f, 0.25f, 0.60f),
         ["moss"] = R(LandKind.Moss, 0.030f, 0.040f, 1.5f, Vector3.Right, 0.60f, 0.45f, 0.25f, 0.25f, 0.04f, 0.97f, 0.25f, 0.50f),
         ["snow"] = R(LandKind.Snow, 0.050f, 0.050f, 1.5f, Vector3.Right, 0.35f, 0.55f, 0.12f, 0.15f, 0.22f, 0.70f, 0.15f, 0.30f),
-        // Water: opaque, painted, with ripples that drift and a soft sky rim; no refraction.
+        // Water: ripples that drift and a soft sky rim, painted as a glaze you can see into (WaterLook); no refraction.
         ["still_water"] = R(LandKind.StillWater, 0.120f, 0.100f, 1.5f, Wind, 0.40f, 0.12f, 0.05f, 0.00f, 0.85f, 0.20f, 0.10f, 1.00f, 0f, 0.45f, 0.75f),
         ["flowing_water"] = R(LandKind.FlowingWater, 0.050f, 0.100f, 5.0f, Wind, 0.50f, 0.12f, 0.05f, 0.00f, 0.80f, 0.20f, 0.10f, 1.00f, 0f, 0.70f, 0.60f),
         // Vegetation: rounded dabs of leaf paint, bark with furrows.
@@ -120,6 +122,9 @@ public static class LandscapeLook
         return new Color((float)(factor.R * r / count), (float)(factor.G * g / count), (float)(factor.B * b / count)).LinearToSrgb();
     }
 
+    /// <summary>Whether a harness role is water, which takes the water shader (see-through, two-sided, no shadow of its own).</summary>
+    public static bool IsWater(string role) => Roles.TryGetValue(role, out var look) && look.Kind is LandKind.StillWater or LandKind.FlowingWater;
+
     /// <summary>Whether a room is open land: its shell has no wall and no ceiling (a landscape's ground and backdrop are all there is).</summary>
     public static bool IsOpenLand(Room.RoomData room) =>
         room.Shell.Count > 0 && !room.Shell.Any(part => part.Role is "wall" or "ceiling");
@@ -148,3 +153,23 @@ public static class OpenLandLight
     public const float ShadowSplit1 = 0.25f;
 }
 
+
+/// <summary>
+/// How water is painted (Run 2, the founder's playtest round: water you can see into). A pond is a glaze over its bed: the eye's
+/// path through the water sets how much it hides (clear shallows, an opaque deep middle), and the depth straight down to the bed
+/// sets its colour in a few soft washes, the generator's water colour lifted toward clear green in the shallows and darker and
+/// cooler in the deep middle. A pale wet line marks the shore; from below the surface is a pale rippled ceiling. Numbers are
+/// metres in the 10 cm avatar's world: a 5 cm pond reads clear at its rim and dusky in its middle, a 20 cm one dark and cool.
+/// </summary>
+public sealed record WaterLook(
+    float ClarityM, float SurfaceAlpha, float MaxAlpha, float DeepM, float WashSteps, float WashWobble,
+    Vector3 ShallowTint, Vector3 DeepTint, float ShoreM, float ShoreStrength, Color SkyColor, Vector3 UndersideTint, float UndersideAlpha)
+{
+    /// <summary>Still water: a pond or a lake, green-clear at its rim and deepening to a cool dusk.</summary>
+    public static readonly WaterLook Still = new(0.06f, 0.10f, 0.93f, 0.12f, 4f, 0.45f,
+        new Vector3(1.25f, 1.32f, 1.15f), new Vector3(0.34f, 0.46f, 0.62f), 0.005f, 0.55f, new Color(0.78f, 0.88f, 0.96f), new Vector3(1.5f, 1.6f, 1.55f), 0.42f);
+    /// <summary>Flowing water: a brook runs shallow and clear over its stones.</summary>
+    public static readonly WaterLook Flowing = Still with { ClarityM = 0.08f, SurfaceAlpha = 0.12f, ShoreStrength = 0.6f };
+
+    public static WaterLook For(LandKind kind) => kind == LandKind.FlowingWater ? Flowing : Still;
+}
