@@ -31,3 +31,14 @@ Captured on this Windows machine (NVIDIA RTX 2070 SUPER, Forward+, Vulkan, 1920 
 ## What the cost is (numbers first, rendering to confirm)
 
 Godot's circular bokeh gathers about (64 x amount)^2 / (2 x blur_scale) samples at every half-resolution pixel whatever the frame holds, with blur_scale 1.0 at the project's bokeh quality 2: 184 samples a pixel at the observe amount 0.3, 82 at 0.2, 55 at the tilt-shift's 0.165. Run 1's two cameras give 30.4 ms of GPU time per unit of amount squared; a check in the look test pins v2's amount on that model (p95 at least 0.5 ms inside the budget). The render agrees: the observe views' GPU time fell by 0.6 ms (0.7 ms in `observe_f3`) while the unchanged cameras rose by 0.4 ms, and their GPU time against `diorama_high` fell from 1.17 to 1.04.
+
+## Water you can see into, and fish (the founder's playtest round, 8 October)
+
+`water/before` (6b097ca) and `water/after` (5df8ee4): the garage landscape's two new cameras, `land_pond` (into the tarn from its south-west shore, 22 cm up) and `land_under` (3 cm under the tarn's surface, looking across it), one launch each, two JPEGs each, no light checks. Before, the tarn is an opaque teal sheet and from below it is not there at all. After, the bed shows through the water, the fish swim in small schools, and from under the surface the water clouds with distance, the surface is a ceiling and the fish near the eye stay clear. Today's tarn is 5.6 cm at its deepest, so its middle darkens only a little; the colour reaches its deepest wash at 12 cm (Lane C's deeper ponds).
+
+| Camera | Before p50 | Before p95 | Before GPU mean | After p50 | After p95 | After p99 | After GPU mean |
+|---|---|---|---|---|---|---|---|
+| land_pond | 5.99 | 7.24 | 5.48 | 6.31 | 7.66 | 11.30 | 5.77 |
+| land_under | 4.91 | 6.15 | 4.40 | 5.66 | 7.00 | 10.48 | 5.10 |
+
+The see-through water and 23 fish cost about 0.3 ms of GPU time from above; under the water the veil adds about 0.7 ms. Both views stay far inside 16.7 ms.
