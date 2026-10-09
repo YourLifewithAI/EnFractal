@@ -651,7 +651,7 @@ public partial class LookDirector : Node3D
             OpenSea.SetHorizon(skyLook.Horizon, skyLook.Brightness);
         }
         if (OpenSea.Note.Length > 0) Warn(OpenSea.Note);
-        GD.Print($"LOOK: open sea: surface {(OpenSea.Surface != null ? "follows the camera" : "missing")}, bed at {OpenSea.BedY:0.###} m, {OpenSea.Islands.Count} distant island(s) holding their place");
+        GD.Print($"LOOK: open sea: surface {(OpenSea.Surface != null ? "follows the camera" : "missing")}, one sea floor at RoomSea.OpenSeaBedAt, {OpenSea.Islands.Count} distant island(s) holding their place");
     }
 
     /// <summary>Dress one mesh; returns true when it is shell geometry that belongs in the GI bake.</summary>

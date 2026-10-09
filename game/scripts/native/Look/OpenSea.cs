@@ -14,8 +14,9 @@ namespace EnFractal.Native.Look;
 /// <item>a surface that follows the camera, wearing the room's own sea water with its marks in world space (so they stay put
 /// while the surface moves), leaving out the rectangle the room's sea mesh already paints, and turning into the sky's own
 /// horizon colour toward the camera's far plane, so the sea runs to the horizon with no edge;</item>
-/// <item>an open-sea bed under it, just below the backdrop's deepest floor, so the water past the room's meshes has a bed
-/// to be water over (the depth the water shader reads), never the void;</item>
+/// <item>one sea floor: the backdrop's floor and an open-sea bed beyond it out to 1.5 km, both drawn at RoomSea.OpenSeaBedAt, the
+/// bed the swimmers and divers touch (Lane P), so a diver never sees the bed in one place and touches it in another, and the water
+/// past the room's meshes always has a bed to be water over (the depth the water shader reads);</item>
 /// <item>the distant islands hold their place on the horizon (the founder, 9 October: they are never reached or swum through,
 /// like the moon). They are lifted out of the backdrop mesh, each its own silhouette, and slide away along their own bearing
 /// from the home island whenever a swimmer would come closer to one than it looks from the edge of the home waters.</item>
@@ -26,10 +27,10 @@ public partial class OpenSea : Node3D
 {
     /// <summary>Half the size of the follow surface and bed, metres: past every play camera's far plane (100 m).</summary>
     public const float ReachM = 160f;
-    /// <summary>The open bed sits this far under the backdrop's deepest floor, so where that floor is it hides the open bed.</summary>
-    public const float BedUnderFloorM = 0.02f;
-    /// <summary>The open bed's depth under the sea's level when the room has no backdrop floor to follow.</summary>
-    public const float DefaultBedDepthM = 1.3f;
+    /// <summary>How far out the open-sea bed reaches from the island, metres: past Lane P's far net (1 km) and a camera's far plane.</summary>
+    public const float BedReachM = 1500f;
+    /// <summary>How many sides the open-sea bed has when the room has no backdrop floor to continue.</summary>
+    public const int BedSides = 128;
     /// <summary>What of the backdrop is an island: every triangle reaching higher than this under the sea's level (deeper is floor).</summary>
     public const float IslandCutM = 0.3f;
     /// <summary>A backdrop mesh is one that reaches this far past the room's sea (the distant islands' ring, not the home island).</summary>
@@ -38,7 +39,7 @@ public partial class OpenSea : Node3D
     public const float ShoreKeepM = 1.5f;
     /// <summary>Where, as fractions of the camera's far plane, the sea starts and finishes turning into the horizon.</summary>
     public const float HorizonFadeStart = 0.55f, HorizonFadeEnd = 0.97f;
-    /// <summary>The open bed's colour: the backdrop floor's dark moss, of which the deep water lets about a tenth through.</summary>
+    /// <summary>The open bed's colour when there is no backdrop floor to continue: a dark moss, of which deep water lets a tenth through.</summary>
     public static readonly Color BedColor = new(0.30f, 0.34f, 0.28f);
 
     /// <summary>One distant island: its mesh, its centre from the home island's centre, and how close its centre may come to a swimmer.</summary>
@@ -47,14 +48,16 @@ public partial class OpenSea : Node3D
     public RoomSea Sea { get; private set; } = null!;
     /// <summary>The surface that follows the camera (null when the room's own sea mesh could not be found).</summary>
     public MeshInstance3D? Surface { get; private set; }
+    /// <summary>The open-sea bed past the backdrop's floor, out to BedReachM: static, drawn at RoomSea.OpenSeaBedAt.</summary>
     public MeshInstance3D Bed { get; private set; } = null!;
+    /// <summary>The backdrop meshes whose floor now lies at RoomSea.OpenSeaBedAt (their islands lifted out).</summary>
+    public IReadOnlyList<MeshInstance3D> Floors => _floors;
     /// <summary>The centre of the room's sea (the generated sea's and the backdrop's centre), in XZ.</summary>
     public Vector2 Home { get; private set; }
     /// <summary>How far the home waters reach from Home: the reef's farthest point.</summary>
     public float HomeReachM { get; private set; }
     /// <summary>The rectangle (x0, z0, x1, z1) the room's own sea mesh covers, which the follow surface leaves to it.</summary>
     public Vector4 Hole { get; private set; }
-    public float BedY { get; private set; }
     public IReadOnlyList<DistantIsland> Islands => _islands;
     /// <summary>The camera the sea follows: the one a review or preview framed, else the viewport's current camera.</summary>
     public Camera3D? Camera { get; set; }
@@ -62,6 +65,7 @@ public partial class OpenSea : Node3D
     public string Note { get; private set; } = "";
 
     private readonly List<DistantIsland> _islands = new();
+    private readonly List<MeshInstance3D> _floors = new();
     private readonly List<ShaderMaterial> _water = new();
     private float _far = -1f;
 
@@ -93,18 +97,6 @@ public partial class OpenSea : Node3D
             .Select(m => (Mesh: m, Box: m.GlobalTransform * m.GetAabb()))
             .Where(m => m.Box.Position.X < roomRect.Position.X - BackdropReachM || m.Box.End.X > roomRect.End.X + BackdropReachM)
             .Select(m => m.Mesh).ToArray();
-        var floorY = backdrop.Length > 0 ? backdrop.Min(m => (m.GlobalTransform * m.GetAabb()).Position.Y) : sea.LevelM - DefaultBedDepthM + BedUnderFloorM;
-        open.BedY = floorY - BedUnderFloorM;
-        open.Bed = new MeshInstance3D
-        {
-            Name = "OpenSeaBed", Mesh = Quad(ReachM, new Color(1f, 1f, 1f)),
-            MaterialOverride = new StandardMaterial3D { AlbedoColor = BedColor, Roughness = 1f, MetallicSpecular = 0.2f, ResourceName = "open sea bed" },
-            CastShadow = GeometryInstance3D.ShadowCastingSetting.Off, GIMode = GeometryInstance3D.GIModeEnum.Disabled,
-            Position = new Vector3(centre.X, open.BedY, centre.Y),
-        };
-        open.Bed.SetMeta(LookDirector.DressedMeta, true);
-        open.AddChild(open.Bed);
-
         if (seaMesh.Mesh?.GetSurfaceOverrideMaterial(0) is ShaderMaterial water && water.HasMeta("water"))
         {
             open._water.Add(water);
@@ -126,7 +118,25 @@ public partial class OpenSea : Node3D
         }
         else open.Note = "the room's sea surface was not found among its water, so the open sea has a bed but no surface";
 
-        foreach (var mesh in backdrop) open.LiftIslands(mesh);
+        // Islands lifted out first, then the floor laid on the bed the bodies touch, then the open bed carrying on from its rim.
+        Vector3[] rim = Array.Empty<Vector3>();
+        Color[] rimColours = Array.Empty<Color>();
+        Material? floorMaterial = null;
+        foreach (var mesh in backdrop)
+        {
+            open.LiftIslands(mesh);
+            var (meshRim, meshColours) = open.LayFloor(mesh);
+            if (meshRim.Length > rim.Length) (rim, rimColours, floorMaterial) = (meshRim, meshColours, mesh.GetSurfaceOverrideMaterial(0));
+        }
+        open.Bed = new MeshInstance3D
+        {
+            Name = "OpenSeaBed", Mesh = open.BedMesh(rim, rimColours), CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
+            GIMode = GeometryInstance3D.GIModeEnum.Disabled,
+        };
+        if (floorMaterial != null) open.Bed.SetSurfaceOverrideMaterial(0, floorMaterial);
+        else open.Bed.MaterialOverride = new StandardMaterial3D { AlbedoColor = BedColor, Roughness = 1f, MetallicSpecular = 0.2f, VertexColorUseAsAlbedo = true, ResourceName = "open sea bed" };
+        open.Bed.SetMeta(LookDirector.DressedMeta, true);
+        open.AddChild(open.Bed);
         return open;
     }
 
@@ -225,15 +235,110 @@ public partial class OpenSea : Node3D
             AddChild(instance);
             _islands.Add(new DistantIsland(instance, offset, keep, world.Origin));
         }
-        // The backdrop keeps its floor.
-        var rest = Enumerable.Range(0, island.Length).Where(t => !island[t]).SelectMany(t => new[] { indices[3 * t], indices[3 * t + 1], indices[3 * t + 2] }).ToArray();
-        var floorArrays = arrays.Duplicate();
-        floorArrays[(int)Mesh.ArrayType.Index] = rest;
+    }
+
+    /// <summary>
+    /// Lay a backdrop's floor on the bed the bodies touch: every vertex at RoomSea.OpenSeaBedAt under it, facing up, and where an
+    /// island was lifted out its ground takes the deep floor's colour. Returns the floor's rim (its outermost ring of vertices, by
+    /// angle round Home) and their colours, where the open bed carries on.
+    /// </summary>
+    private (Vector3[] Rim, Color[] Colours) LayFloor(MeshInstance3D backdrop)
+    {
+        var mesh = backdrop.Mesh;
+        if (mesh.GetSurfaceCount() != 1) return (Array.Empty<Vector3>(), Array.Empty<Color>());
+        var arrays = mesh.SurfaceGetArrays(0);
+        var world = backdrop.GlobalTransform;
+        var local = world.AffineInverse();
+        var vertices = arrays[(int)Mesh.ArrayType.Vertex].AsVector3Array();
+        var colours = arrays[(int)Mesh.ArrayType.Color].VariantType == Variant.Type.PackedColorArray ? arrays[(int)Mesh.ArrayType.Color].AsColorArray() : null;
+        var cut = Sea.LevelM - IslandCutM;
+        var rimRadius = vertices.Select(v => world * v).Max(v => new Vector2(v.X, v.Z).DistanceTo(Home));
+        var deep = colours == null ? new Color(1f, 1f, 1f) : Mean(vertices.Select((v, i) => (At: world * v, i))
+            .Where(v => new Vector2(v.At.X, v.At.Z).DistanceTo(Home) > rimRadius - 1e-3f).Select(v => colours[v.i]));
+        var rim = new List<(float Angle, Vector3 At, Color Colour)>();
+        for (var i = 0; i < vertices.Length; i++)
+        {
+            var at = world * vertices[i];
+            var flat = new Vector2(at.X, at.Z);
+            if (colours != null && at.Y > cut) colours[i] = deep;
+            at.Y = Sea.OpenSeaBedAt(flat);
+            vertices[i] = local * at;
+            if (flat.DistanceTo(Home) > rimRadius - 1e-3f) rim.Add((Mathf.Atan2(flat.Y - Home.Y, flat.X - Home.X), at, colours?[i] ?? deep));
+        }
+        arrays[(int)Mesh.ArrayType.Vertex] = vertices;
+        arrays[(int)Mesh.ArrayType.Normal] = Enumerable.Repeat(local.Basis * Vector3.Up, vertices.Length).Select(n => n.Normalized()).ToArray();
+        arrays[(int)Mesh.ArrayType.Tangent] = default;
+        if (colours != null) arrays[(int)Mesh.ArrayType.Color] = colours;
         var floor = new ArrayMesh();
-        floor.AddSurfaceFromArrays(Mesh.PrimitiveType.Triangles, floorArrays);
-        var floorMaterial = backdrop.GetSurfaceOverrideMaterial(0);
+        floor.AddSurfaceFromArrays(Mesh.PrimitiveType.Triangles, arrays);
+        var material = backdrop.GetSurfaceOverrideMaterial(0);
         backdrop.Mesh = floor;
-        if (floorMaterial != null) backdrop.SetSurfaceOverrideMaterial(0, floorMaterial);
+        if (material != null) backdrop.SetSurfaceOverrideMaterial(0, material);
+        _floors.Add(backdrop);
+        var ordered = rim.OrderBy(r => r.Angle).ToArray();
+        return (ordered.Select(r => r.At).ToArray(), ordered.Select(r => r.Colour).ToArray());
+    }
+
+    private static Color Mean(IEnumerable<Color> colours)
+    {
+        float r = 0, g = 0, b = 0;
+        var count = 0;
+        foreach (var c in colours) { r += c.R; g += c.G; b += c.B; count++; }
+        return count == 0 ? new Color(1f, 1f, 1f) : new Color(r / count, g / count, b / count);
+    }
+
+    /// <summary>
+    /// The open-sea bed: rings from the floor's rim (its very vertices, so the two meet without a seam) out to BedReachM, every vertex
+    /// at RoomSea.OpenSeaBedAt, in the rim's colours. Without a backdrop floor, a disc round Home.
+    /// </summary>
+    private ArrayMesh BedMesh(Vector3[] rim, Color[] rimColours)
+    {
+        if (rim.Length < 3)
+        {
+            rim = Enumerable.Range(0, BedSides).Select(k => Mathf.Tau * k / BedSides).Select(a => new Vector3(Home.X + Mathf.Cos(a) * 0.01f, 0f, Home.Y + Mathf.Sin(a) * 0.01f)).ToArray();
+            rimColours = Enumerable.Repeat(new Color(1f, 1f, 1f), rim.Length).ToArray();
+        }
+        var directions = rim.Select(r => (new Vector2(r.X, r.Z) - Home).Normalized()).ToArray();
+        var radius = rim.Average(r => new Vector2(r.X, r.Z).DistanceTo(Home));
+        var radii = new List<float>();
+        for (var r = radius * 1.08f + 0.5f; ; r = r * 1.3f + 1f)
+        {
+            radii.Add(Mathf.Min(r, BedReachM));
+            if (r >= BedReachM) break;
+        }
+        var count = rim.Length;
+        var positions = new List<Vector3>(rim.Select(r => new Vector3(r.X, Sea.OpenSeaBedAt(new Vector2(r.X, r.Z)), r.Z)));
+        foreach (var r in radii)
+            foreach (var d in directions)
+            {
+                var flat = Home + d * r;
+                positions.Add(new Vector3(flat.X, Sea.OpenSeaBedAt(flat), flat.Y));
+            }
+        var indices = new List<int>();
+        for (var ring = 0; ring < radii.Count; ring++)
+            for (var k = 0; k < count; k++)
+            {
+                int a = ring * count + k, b = ring * count + (k + 1) % count, c = a + count, d = b + count;
+                indices.AddRange(new[] { a, b, d, a, d, c });
+            }
+        var arrays = new Godot.Collections.Array();
+        arrays.Resize((int)Mesh.ArrayType.Max);
+        arrays[(int)Mesh.ArrayType.Vertex] = positions.ToArray();
+        arrays[(int)Mesh.ArrayType.Normal] = Enumerable.Repeat(Vector3.Up, positions.Count).ToArray();
+        arrays[(int)Mesh.ArrayType.Color] = Enumerable.Range(0, positions.Count).Select(i => rimColours[i % count]).ToArray();
+        // Wound clockwise seen from above (Godot's front face), whichever way the rim runs.
+        var probe = (positions[1] - positions[0]).Cross(positions[count] - positions[0]);
+        arrays[(int)Mesh.ArrayType.Index] = (probe.Y < 0f ? indices : FlipWinding(indices)).ToArray();
+        var bed = new ArrayMesh();
+        bed.AddSurfaceFromArrays(Mesh.PrimitiveType.Triangles, arrays);
+        return bed;
+    }
+
+    private static List<int> FlipWinding(List<int> indices)
+    {
+        var flipped = new List<int>(indices.Count);
+        for (var i = 0; i < indices.Count; i += 3) flipped.AddRange(new[] { indices[i], indices[i + 2], indices[i + 1] });
+        return flipped;
     }
 
     private static Variant Subset(Variant channel, int[] used, Mesh.ArrayType type)
@@ -299,7 +404,6 @@ public partial class OpenSea : Node3D
     {
         var at = camera.GlobalPosition;
         if (Surface != null) Surface.GlobalPosition = new Vector3(at.X, Sea.LevelM, at.Z);
-        Bed.GlobalPosition = new Vector3(at.X, BedY, at.Z);
         SetFar(camera.Far);
         var from = new Vector2(at.X, at.Z) - Home;
         foreach (var island in _islands)

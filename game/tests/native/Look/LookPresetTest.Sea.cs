@@ -146,8 +146,20 @@ public partial class LookPresetTest
         Check(surface.GetShaderParameter("world_pattern").AsBool() && surface.GetShaderParameter("use_hole").AsBool()
             && open.Hole.X <= land.Bounds.Position.X - 20f && open.Hole.Z >= land.Bounds.End.X + 20f,
             $"the surface paints in world space and leaves the room's own sea ({open.Hole}) to it");
-        var backdropFloor = built.FindChildren("*", "MeshInstance3D", true, false).OfType<MeshInstance3D>().Where(m => EntityOf(m) == "shell:scenery_moss").Select(m => (m.GlobalTransform * m.GetAabb()).Position.Y).DefaultIfEmpty(float.NaN).Min();
-        Check(open.BedY < backdropFloor && open.BedY > backdropFloor - 0.1f && open.BedY < land.Sea.LevelM - 1f, $"the open bed lies just under the backdrop's deepest floor ({open.BedY:0.###} under {backdropFloor:0.###} m)");
+        // One sea floor (Codex Astra's review: the look's bed and the bodies' bed were different surfaces): the backdrop's floor and
+        // the open bed past it lie at RoomSea.OpenSeaBedAt, the bed swimmers and divers touch, and meet at the floor's rim.
+        float Off(MeshInstance3D mesh)
+        {
+            var vertices = mesh.Mesh.SurfaceGetArrays(0)[(int)Mesh.ArrayType.Vertex].AsVector3Array();
+            return vertices.Select(v => mesh.GlobalTransform * v).Max(v => Mathf.Abs(v.Y - land.Sea.OpenSeaBedAt(new Vector2(v.X, v.Z))));
+        }
+        var bedVertices = open.Bed.Mesh.SurfaceGetArrays(0)[(int)Mesh.ArrayType.Vertex].AsVector3Array();
+        var reach = bedVertices.Max(v => new Vector2(v.X, v.Z).DistanceTo(open.Home));
+        Check(open.Floors.Count == 1 && Off(open.Floors[0]) < 1e-4f && Off(open.Bed) < 1e-4f && reach >= OpenSea.BedReachM - 1f,
+            $"the backdrop's floor and the open bed out to {reach:0} m lie on RoomSea.OpenSeaBedAt (off by at most {Mathf.Max(open.Floors.Count > 0 ? Off(open.Floors[0]) : 1f, Off(open.Bed)) * 1000f:0.###} mm)");
+        var floorRim = open.Floors[0].Mesh.SurfaceGetArrays(0)[(int)Mesh.ArrayType.Vertex].AsVector3Array().Select(v => open.Floors[0].GlobalTransform * v)
+            .Where(v => new Vector2(v.X, v.Z).DistanceTo(open.Home) > 40f).OrderByDescending(v => new Vector2(v.X, v.Z).DistanceTo(open.Home)).Take(8).ToArray();
+        Check(floorRim.All(r => bedVertices.Any(b => b.IsEqualApprox(r))), "the open bed carries on from the floor's own rim vertices, so the two meet without a seam");
         var floorMesh = built.FindChildren("*", "MeshInstance3D", true, false).OfType<MeshInstance3D>().First(m => EntityOf(m) == "shell:scenery_moss");
         var floorArrays = floorMesh.Mesh.SurfaceGetArrays(0);
         var floorVertices = floorArrays[(int)Mesh.ArrayType.Vertex].AsVector3Array();
@@ -166,8 +178,8 @@ public partial class LookPresetTest
             var swimmer = new Vector2(at.X, at.Z);
             var nearest = open.Islands.Min(i => (new Vector2(i.Mesh.GlobalPosition.X, i.Mesh.GlobalPosition.Z) - new Vector2(i.BasePosition.X, i.BasePosition.Z) + open.Home + i.HomeOffset).DistanceTo(swimmer) - i.KeepM);
             Check(new Vector2(open.Surface.GlobalPosition.X, open.Surface.GlobalPosition.Z).IsEqualApprox(swimmer) && Mathf.IsEqualApprox(open.Surface.GlobalPosition.Y, land.Sea.LevelM)
-                && new Vector2(open.Bed.GlobalPosition.X, open.Bed.GlobalPosition.Z).IsEqualApprox(swimmer) && nearest >= -1e-3f,
-                $"at {at} the sea's surface and bed are under the swimmer and every island keeps off");
+                && nearest >= -1e-3f,
+                $"at {at} the sea's surface is under the swimmer and every island keeps off");
         }
         Check(Mathf.IsEqualApprox(surface.GetShaderParameter("horizon_fade_end_m").AsSingle(), 100f * OpenSea.HorizonFadeEnd), "the far sea turns into the horizon just before the camera's far plane");
         look.SetClock(19.5f, 172);
