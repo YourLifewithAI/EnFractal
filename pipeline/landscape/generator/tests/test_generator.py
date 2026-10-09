@@ -24,6 +24,21 @@ def workdir(name):
     return path
 
 
+_GARAGE = {}
+
+
+def garage():
+    """The garage's package, generated once for every test that only reads it."""
+    if 'path' not in _GARAGE:
+        _GARAGE['path'] = os.path.join(workdir('a'), 'pkg')
+        generate(ROOMS/'garage_nominal', _GARAGE['path'])
+    return _GARAGE['path']
+
+
+def tearDownModule():
+    shutil.rmtree(os.path.join(tempfile.gettempdir(), 'landscape_generator_tests'), ignore_errors=True)
+
+
 def tree(folder):
     return {p.relative_to(folder).as_posix(): p.read_bytes() for p in sorted(Path(folder).rglob('*')) if p.is_file()}
 
@@ -32,15 +47,10 @@ class GarageLandscape(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.room = ROOMS/'garage_nominal'
-        cls.a = os.path.join(workdir('a'), 'pkg')
+        cls.a = garage()
         cls.b = os.path.join(workdir('b'), 'pkg')
-        generate(cls.room, cls.a)
         generate(cls.room, cls.b)
         cls.result = checks.run(cls.a, cls.room)
-
-    @classmethod
-    def tearDownClass(cls):
-        shutil.rmtree(os.path.join(tempfile.gettempdir(), 'landscape_generator_tests'), ignore_errors=True)
 
     def test_identical_bytes(self):
         first, second = tree(self.a), tree(self.b)
@@ -110,6 +120,56 @@ class GarageLandscape(unittest.TestCase):
         steepest = max(grade(k, (k[0]+di, k[1]+dj)) for k in wet for di, dj in steps[:4] if (k[0]+di, k[1]+dj) in cells)
         self.assertGreater(steepest, 45)
 
+    def test_island_in_the_sea(self):
+        """The founder's island: a sea below the land all round, out past a reef
+        a short swim off the coast; beaches a swimmer walks out of the sea up and
+        on to the spawn; the door a jetty reachable on foot."""
+        self.assertTrue(self.result['sea_ok'], {k: v for k, v in self.result['sea'].items()})
+        from pipeline.landscape.harness import read_package
+        doc, meshes, room, _ = read_package(self.a, self.room)
+        sea = doc['x_generator']['sea']
+        self.assertLess(sea['level_m'], 0)
+        self.assertEqual({'mesh': 'sea', 'kind': 'still'}, next(r for r in doc['water'] if r['mesh'] == 'sea'))
+        self.assertGreaterEqual(sea['reef']['offshore_m'][0], .2)
+        self.assertLessEqual(sea['reef']['offshore_m'][1], .85)
+        self.assertGreaterEqual(len(sea['beaches']), 2)
+        self.assertEqual(sea['jetty']['door_id'], 'entry')
+        self.assertIn({'mesh': 'jetty'}, doc['terrain'])
+        # The playable water reaches past the room's walls on every side.
+        lo, hi = room['bounds']['min_m'], room['bounds']['max_m']
+        b = sea['play_area']['bounds_m']
+        self.assertTrue(b['min_m'][0] < lo[0]-.5 and b['min_m'][2] < lo[2]-.5 and b['max_m'][0] > hi[0]+.5
+                        and b['max_m'][2] > hi[2]+.5, b)
+        self.assertLess(b['min_m'][1], sea['level_m']-.3)
+        # A ragged coast: cliffs (faces over 45 degrees, climbable) and beaches (sand under 20) both meet the sea.
+        terrain = checks.Terrain(doc, meshes)
+        coast = sea['coast']['outline_m']
+        cliffs = beaches = 0
+        for x, z in coast:
+            slopes = [terrain.hit(x+dx, z+dz)[1] for dx in (-.03, 0, .03) for dz in (-.03, 0, .03)]
+            cliffs += max(slopes) > 45
+            beaches += max(slopes) < 20
+        self.assertGreater(cliffs, 5)
+        self.assertGreater(beaches, 20)
+
+
+class LShapedIsland(unittest.TestCase):
+    """An L-shaped room becomes an L-shaped island: the notch is sea, both arms land."""
+
+    def test_l_room_l_island(self):
+        room = ROOMS/'awkward_l_nominal'
+        out = os.path.join(workdir('l'), 'pkg')
+        generate(room, out)
+        result = checks.run(out, room)
+        self.assertTrue(result['sea_ok'], result['sea'])
+        from pipeline.landscape.harness import read_package
+        doc, meshes, _, _ = read_package(out, room)
+        terrain = checks.Terrain(doc, meshes)
+        level = doc['x_generator']['sea']['level_m']
+        self.assertLess(terrain.height(1.8, 1.8), level-.1)      # the notch
+        self.assertGreater(terrain.height(-1.5, 1.5), level+.02)  # one arm
+        self.assertGreater(terrain.height(1.5, -1.5), level+.02)  # the other
+
 
 class CheckerCatchesContradictions(unittest.TestCase):
     """The checks are not vacuous: a broken stream or a floating cottage fails."""
@@ -117,9 +177,7 @@ class CheckerCatchesContradictions(unittest.TestCase):
     def test_uphill_stream_and_floating_cottage_fail(self):
         from pipeline.landscape.harness import read_package
         room = ROOMS/'garage_nominal'
-        src = os.path.join(workdir('m'), 'pkg')
-        generate(room, src)
-        doc, meshes, _, _ = read_package(src, room)
+        doc, meshes, _, _ = read_package(garage(), room)
         river = next(r['mesh'] for r in doc['water'] if r['kind'] == 'flowing')
         terrain = checks.Terrain(doc, meshes)
         pos = meshes[river][0]['positions']
@@ -139,6 +197,12 @@ class CheckerCatchesContradictions(unittest.TestCase):
         ok, walks = checks.walk_checks(doc, meshes, terrain, load_json(room/'room.json'))
         self.assertFalse(ok)
         self.assertFalse(walks[0]['found'])
+        # A beach that drops off steeply, or a reef run up onto the coast, fails.
+        sea = doc['x_generator']['sea']
+        beach = sea['beaches'][0]
+        beach['water_m'] = list(beach['wash_ashore_m'])
+        ok, _ = checks.sea_checks(doc, meshes, terrain, load_json(room/'room.json'))
+        self.assertFalse(ok)
 
 
 class NoisyScanKeepsItsPlace(unittest.TestCase):
