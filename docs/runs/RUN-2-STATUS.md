@@ -1,6 +1,6 @@
 # Run 2 status
 
-**Run 2 started on 7 October 2026 (evening, local). The fourth session's handoff was written on 8 October (night), on DiamondAge; start at "The next session".** Then read [ORCHESTRATION.md](ORCHESTRATION.md) and [AGENTS.md](../../AGENTS.md). [RUN-2-REVISION.md](RUN-2-REVISION.md) is the approved plan (8 October); it supersedes [RUN-2.md](RUN-2.md)'s Lane C, C7, Lane L and Codex sections.
+**Run 2 started on 7 October 2026 (evening, local). The fifth session's handoff was written on 9 October (early morning), on DiamondAge; start at "The next session".** Then read [ORCHESTRATION.md](ORCHESTRATION.md) and [AGENTS.md](../../AGENTS.md). [RUN-2-REVISION.md](RUN-2-REVISION.md) is the approved plan (8 October); it supersedes [RUN-2.md](RUN-2.md)'s Lane C, C7, Lane L and Codex sections.
 
 ## The founder's new direction: the room becomes a landscape (7 October, late evening)
 
@@ -158,6 +158,26 @@
   - the founder was sent `C:\dev\EnFractal-art\characters\judging\sheet_{cloudpuff,paw_creature}.png`, labelled Converter 1 and 2 by a fresh coin flip (the mapping is in `.git/info/ab-20-key.md`);
   - **the founder asked for the held-out three (the Gubble, Potato Man, Tomato Man) through both converters too.** The founder and the kids vote on all five tomorrow;
   - for fairness, a fresh Opus reader per converter follows only that converter's own instructions (conv_a `INTERPRET.md` and `FORMAT.md`, conv_b `READING.md`) to write the readings, and the integrator runs each converter unchanged.
+- **The characters' A/B, the final sheets (9 October, early morning):**
+  - **The held-out three:** two fresh Opus readers, one per converter, followed only that converter's instructions. Every reading passed its converter's check (conv_a first time; conv_b after 1 to 3 runs). The integrator then ran each converter unchanged; all ten characters are in `C:\dev\EnFractal-art\characters\out\`.
+  - **The labels:** one tool output printed a 1/2 label beside a folder, so all five sheets were relabelled **X and Y** by a fresh coin flip (never printed) and sent to the founder, replacing the 1/2 sheets.
+  - **What the readers found unclear:**
+    - **conv_a's instructions:**
+      - whether tube ends are flat;
+      - colour bands pinching where volumes thin out;
+      - every mark needs its own child part;
+      - no guidance for several sketches on one page, loose effect marks, or feet at different heights.
+    - **conv_b's instructions:**
+      - ruled notebook paper cut the Gubble into 13 strips;
+      - the `silhouette` method for pencil-shaded areas caught only the strokes;
+      - nothing on several sketches, floating sparkles or ruled paper;
+      - its "shares its area" note fires on intended splits too.
+    - **Both:** neither Gubble is see-through yet, since the game would do that in its shader. Both readers used the bottom sketch of the three and left out the floating sparkles.
+- **The island (the founder's decision):** [ROOM-TO-LANDSCAPE.md](../ROOM-TO-LANDSCAPE.md) has the new section "The island and the sea", and [RUN-2-ISLAND.md](RUN-2-ISLAND.md) is the round's plan.
+- **Tree climbing fixed** (`dcf2f84`, merged in `a7347ff`):
+  - **the cause:** "up" was read through the body's heading, which drifted round a trunk;
+  - **the fix:** while climbing, W always climbs up; A and D move along the face; camera arms skip `drawn: false` parts;
+  - **tests:** both Windows runners green.
 - **The founder on landscape versions (decided, for later):**
   - **What the players get:**
     - players may look at several versions of their room's landscape, each from a different seed;
@@ -186,34 +206,47 @@
 
 ## The next session
 
-1. **The characters: a drawing-to-character converter, as a blind A/B** (the founder's top new direction; see the fourth session).
-   - Copy the five drawings from Drive (`Character Art`) to a folder outside any Git checkout, and strip their location metadata.
-   - Write one brief for both contenders: a photo of a drawing plus a short description (name, the family's colours) becomes a character model. Use a Blender recipe, painterly roles, the 10 cm body's proportions, a bottom-centre pivot and a turntable render. Judge it on two of the five; the converter must be general.
-   - **Contenders:** a Claude Opus agent and Codex (GPT-6 Astra or 6.1 Sol), with web search on (ORCHESTRATION.md).
-   - **The founder and the kids judge blind.**
-   - Then, in the game: a character choice per player, bouncy procedural motion (the Gubble floats, Potato Man waddles), the same collision capsule.
-2. **The intro (Lane L):** about 15 s on every load, skippable, from `x_landscape_source`. The room appears roughly rendered; then the boxes rise into land, the walls slump into ridges, the ceiling dissolves into sky, and water and plants arrive.
-3. **Light:**
-   - the Gubble's own glow (its colour pickable) and its torch;
-   - then the player's own light. The founder has not yet chosen between a carried light, the hamlet's lanterns as real lights, and lights as invention parts; the integrator suggests the first two.
-4. **The generator's next round (Lane C, `run2/landscape`):**
-   - the two failing corpus rooms;
-   - the founder's far scenery, with the features of the playable space (trees, rock, water, a distant settlement);
-   - more variety between rooms (not every room a tarn and a hamlet);
-   - hills still rounded up close.
+1. **The characters' vote** (the founder and the kids, 9 October).
+   - **The sheets:** five, in `C:\dev\EnFractal-art\characters\judging\` (outside Git), labelled Converter X and Y by a fresh coin flip. The key is the "Final sheet labels" line in `.git/info/ab-20-key.md`. The earlier 1/2 labels leaked in a tool output, so they are void, and the founder was told.
+   - **The record so far:** conv_a is Codex GPT-6 Astra (`codex/20-character-converter`, local); conv_b is a Claude Opus agent (`run2/characters`). Never tell the founder before the verdict.
+   - **After the verdict:**
+     - unblind and add a row to ORCHESTRATION.md's A/B log;
+     - merge the winner's converter into `pipeline/characters/` (keep the other's branch);
+     - the founder approved committing the final 3D models, but never a drawing or a render that contains one;
+     - fold the readers' notes on the instructions into the winner's next round (see the fifth session).
+   - **Then, in the game:** a character choice per player, bouncy procedural motion (the Gubble floats, Potato Man waddles), and the same collision capsule.
+2. **The island** ([RUN-2-ISLAND.md](RUN-2-ISLAND.md), the founder's decision): Lane C's coast and sea first, then the contract change with Codex brief 21 and Lane L's sea, then Lane P's edge. The invisible wall goes.
+3. **Lane P part 2** (see [RUN-2-CLIMB-SWIM.md](RUN-2-CLIMB-SWIM.md)):
+   - the Gubble floats, and animals ignore it;
+   - `go_to` aims at the nearest reachable side;
+   - choose the navigation cell size after measuring;
+   - "the Gubble" in the HUD;
+   - a collision layer 5 "hidden" for `drawn: false` parts (sight and placement rays skip them; the integrator names it in `project.godot`);
+   - Lane A's mock then matches the floating Gubble (a change request).
+4. **The intro (Lane L):** about 15 s, skippable, from `x_landscape_source`. With the island, the walls should become the coast, not ridges.
+5. **Light:** the Gubble's glow and torch, then the player's own light (not yet chosen).
+6. **The founder's open questions:**
+   - **Lane P:** climbing indoor walls to the ceiling; carrying while climbing (not allowed now); the grab's timing (later, the founder says);
+   - **Lane C:** each room's water; lakes behind scree dams; canal-like river stretches;
+   - **from before:** the overview cutaway, v2 and the observe blur, drop-beside and the sweep, the companion's state words.
+7. **Housekeeping:**
+   - Codex checkouts that can go:
+     - `C:\dev\EnFractal-codex\{18-landscape-room-export, 19-climbable-trees, review-p-climb-sol, review-p-climb-astra}` (all merged or read-only);
+     - `20-character-converter` after the verdict.
+   - `run2/characters` is pushed; its worktree is `C:\dev\EnFractal-run2\characters`.
 
-   **Then the real garage on this machine** (`C:\dev\EnFractal-run2\capture\captures\garage`): never commit its package, renders or exported room without the founder's approval.
-5. **Lane P follow-ups:**
-   - the companion's `go_to` should aim at the nearest reachable side of a target;
-   - choose the navigation cell size after measuring whether a re-bake stalls a frame;
-   - **the Gubble in player-facing text** (the HUD's name tag and messages); deciding how far the rename goes is the integrator's call.
-6. **The founder's open decisions:**
-   - the overview cutaway (a change to the review instrument);
-   - the observe view's smaller blur and v2 as the default;
-   - Lane P's drop-beside and sweep settings;
-   - the companion's state words;
-   - the light option (item 3).
-7. **Housekeeping:** `C:\dev\EnFractal-codex8-landscape-room-export` can be removed (all merged). Every Run 2 worktree is pushed.
+## The fourth session's next steps (8 October, for the record)
+
+Done in the fifth session:
+- the characters' A/B was run, and the vote is pending;
+- the generator's round (C6): variety, the two failing rooms, deeper water.
+
+Carried:
+- the intro;
+- light;
+- Lane P's follow-ups;
+- the founder's open decisions;
+- the far scenery, now distant islands.
 
 ## The third session's next steps (8 October, for the record)
 
