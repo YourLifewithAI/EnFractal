@@ -501,15 +501,22 @@ public partial class LandscapePlayTest : Node3D
     /// centimetres of it along one of eight headings, and standable terrain at its top 6 to 30 cm higher, well inside the
     /// bounds, with nothing over any of it (a tree's crown over the foot is a tree, not a cliff: the fix round found the
     /// search had been standing the body on crown caps).
+    /// <para>
+    /// Two kinds are left out (Lane P, the open sea round). A foot under the sea is a swimmer's bank, never walked to. And a
+    /// top lower than the face's crest is no top: past a knife-edge ridge the line falls away down its far side, and the
+    /// gentler ground down there is not where a climber pulls over (the reshaped garage's (-2.39, 0.068, 1.07): a crest
+    /// 22 cm up, 44 to 59 degrees beyond it, beside a 50 cm needle the climber went on up and fell from).
+    /// </para>
     /// </summary>
     private List<Cliff> FindCliffs()
     {
         var bounds = _world.Room.Bounds;
+        var seaLevel = _world.Room.Sea?.LevelM ?? float.NegativeInfinity;
         var found = new List<Cliff>();
         for (var x = bounds.Position.X + 0.4f; x < bounds.End.X - 0.4f; x += 0.1f)
             for (var z = bounds.Position.Z + 0.4f; z < bounds.End.Z - 0.4f; z += 0.1f)
             {
-                if (FirstFromAbove(x, z) is not { Terrain: true } foot || foot.Slope > 30f) continue;
+                if (FirstFromAbove(x, z) is not { Terrain: true } foot || foot.Slope > 30f || foot.Point.Y < seaLevel) continue;
                 for (var heading = 0; heading < 8; heading++)
                 {
                     var direction = new Vector3(Mathf.Cos(heading * Mathf.Pi / 4), 0, Mathf.Sin(heading * Mathf.Pi / 4));
@@ -517,6 +524,7 @@ public partial class LandscapePlayTest : Node3D
                     var faceStarted = false;
                     var flat = 0;
                     Vector3? top = null;
+                    var crest = float.NegativeInfinity;
                     for (var r = 0.02f; r <= 0.5f; r += 0.01f)
                     {
                         var at = foot.Point + direction * r;
@@ -527,6 +535,9 @@ public partial class LandscapePlayTest : Node3D
                             else if (r > 0.05f) break;
                             continue;
                         }
+                        // Over a crest and down its far side: not a cliff with a top.
+                        if (here.Point.Y < crest - 0.02f) { top = null; break; }
+                        crest = Mathf.Max(crest, here.Point.Y);
                         steepest = Mathf.Max(steepest, here.Slope);
                         if (here.Slope <= 35f) { flat++; top ??= here.Point; if (flat >= 5) break; }
                         else if (here.Slope > 45f) { flat = 0; top = null; }
