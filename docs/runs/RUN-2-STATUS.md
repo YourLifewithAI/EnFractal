@@ -1,6 +1,6 @@
 # Run 2 status
 
-**Run 2 started on 7 October 2026 (evening, local). The third session's handoff was written on 8 October (late afternoon); start at "The next session".** Then read [ORCHESTRATION.md](ORCHESTRATION.md) and [AGENTS.md](../../AGENTS.md). [RUN-2-REVISION.md](RUN-2-REVISION.md) is the approved plan (8 October); it supersedes [RUN-2.md](RUN-2.md)'s Lane C, C7, Lane L and Codex sections.
+**Run 2 started on 7 October 2026 (evening, local). The fourth session's handoff was written on 8 October (night), on DiamondAge; start at "The next session".** Then read [ORCHESTRATION.md](ORCHESTRATION.md) and [AGENTS.md](../../AGENTS.md). [RUN-2-REVISION.md](RUN-2-REVISION.md) is the approved plan (8 October); it supersedes [RUN-2.md](RUN-2.md)'s Lane C, C7, Lane L and Codex sections.
 
 ## The founder's new direction: the room becomes a landscape (7 October, late evening)
 
@@ -56,12 +56,110 @@
 - **The founder (8 October): A/B contenders get the tools we would really use.** From the next trial both may search the web while they build; what they build stays offline (ORCHESTRATION.md).
 - **Codex README:** tests a brief writes are its own to fix (brief 16 stopped twice at bugs in its own new tests).
 
+## The fourth session (8 October, evening and night, DiamondAge: the machine with WSL, Blender and the garage's capture data)
+
+- **The Linux suite is GREEN** on the third session's head (`3e54ff9`) and on this session's batch (`c86153c`). It now runs the landscape play test (the fixture is generated at test time) and the exporter's tests.
+- **C5, the landscape generator (Lane C, Opus), part 1 is merged** (`867d2ec`). `gen_b` became `pipeline/landscape/generator/`, which Lane C owns with the harness's rendering side (OWNERSHIP.md). Changes:
+  - soft kinds become hills (summit ridge, spurs, gullies, a shared lee side), not domes;
+  - confidence limits how far a form spreads, so scan 17's desk reads again (+0.142 m, was +0.599);
+  - the wall ring follows any floor outline, with no seam to the far ground and distant hills all round, and is no longer shaped to the review cameras;
+  - gen_a's walk checks are folded in (2.5 cm sampling, an 11 cm carrying lane, every door and yard item).
+  - **The harness now smooth-shades land** (a crease above 60°) and **cuts away near land in the three overviews only**. That is a change to the instrument; the founder is asked whether it is acceptable.
+  - **Unfinished, all stated by the agent:** bridges or fords; the laundry and woodpiles dropped as unreachable; `garage_scan_17`'s walk fails.
+  - **Over budget:** 2 h 05 min against the 90 asked.
+- **C5 part 2 is merged** (`3a622c6`; 62 min, on budget):
+  - part 1's leftovers are done: the land gives way to the hamlet (lanes, level forecourts, 17 cm graded paths, cut and fill where a body cannot reach), level timber footbridges where a path must cross a stream, and kept yards (the garage has its laundry line and three woodpiles); `garage_scan_17` passes everything;
+  - **the corpus: 22 of 24 rooms pass all four checks.** `bedroom_nominal` fails water (the tarn's edge is breached at 3 points) and `workshop_nominal` fails the walk (blocked beside a small protected landform);
+  - sheets: `generator/renders/corpus_contact_sheet.png` (the 8 nominal rooms) and `corpus_variants_sheet.png` (garage and living room against their scans; each keeps its character);
+  - **the integrator's note for the next round:** every room gets the same recipe (a ridge ring, a tarn, a river, a two-to-three-cottage hamlet). At water "some" every room gets a tarn, which goes against the design ("rivers and lakes are opportunities, not required features"). Rooms should differ more.
+- **Codex brief 18, the exporter** (`pipeline/landscape/export/`; GPT-6.1 Sol, three runs): a landscape package becomes a game room. Terrain becomes colliding ground meshes, scenery and water become backdrop, plants are merged, and landmarks become named entities. Vertex colours carry the tints and blends.
+  - Follow-up 1: spawns face the nearest promised destination.
+  - Follow-up 2: the source room travels with the landscape as `extensions.x_landscape_source` (walls, floor, ceiling, openings, posed boxes; no labels), for the founder's intro.
+- **The landscape plays in the game:** `run-room.ps1 -Room landscape_garage_nominal`.
+  - The installed copy is `%APPDATA%\Godot\app_userdata\EnFractal\rooms\landscape_garage_nominal`. Refresh it after generator or exporter changes from a runner's fixture, `.cache\landscape-fixture\<hash>\landscape_garage_nominal`.
+  - The founder's desktop shortcut **EnFractal Landscape** opens it; **EnFractal Playtest** opens the test room. Both build `C:\dev\EnFractal`, so they always play the integrator's checkout.
+- **Lane P (Opus):**
+  - **The edge of the world:** the room's bounds are enforced in the body, not by invisible walls, so sun rays, sight and the navigation map are unchanged. A body that falls 1 m below the bounds is recovered.
+  - **`native_kernel_landscape`** (26 checks): both bodies walk, carry and fetch on the generated garage. Only promised destinations must be reachable: movable things and dwellings. Fences and boulders are reported.
+  - **The founder's low-gravity leap:** gravity at or above the default keeps the 6.5 cm jump; lighter gravity leaps higher, and floaty leaps 30 cm, capped at three body heights.
+  - **Findings for the next round:**
+    - the companion's `go_to` aims at a target's nearest side even when that side is unreachable (Fence 6 fails 0.21 m away);
+    - the navigation mesh's 1 cm climb drops slopes over about 27°;
+    - 1 cm cells would cover more land, but a re-bake takes about 270 ms against 93. Measure whether a re-bake stalls a frame before choosing.
+- **Lane L (Sonnet):**
+  - The landscape shows its own colours, painterly: `painterly_land.gdshader` with marks for all 20 harness roles, and vertex colours kept. Only materials marked `colors_baked` take that path.
+  - Open land gets a real sky, and the look bible has the rule.
+  - Landscape cameras (`tools/look/landscape_cameras.json`) and captures (`docs/look/reviews/run2/landscape/`).
+  - Frame time went down at every view (10 cm eye p50 6.4 to 4.5 ms). Look 956 checks.
+  - **For the founder:** greener grass or golden summer; a depth haze on the far hills or not.
+- **The founder's first landscape playtest** (8 October, night):
+  - "Moving around feels pretty good speedwise right now."
+  - Wanted higher low-gravity jumps ("being able to leap up a hillside would be very satisfying"): done.
+  - Likes trying the daytime lightings.
+  - **Wants their own light,** "like a flashlight or a torch. Starting to play with active lighting effects could be fun." Asked which first: a carried light, the hamlet's lanterns as real lights to carry and place, or lights as invention parts. The integrator suggests the first two in that order.
+- **The founder's intro (decided):** on every load, a skippable intro of about 15 s shows the room, roughly rendered, turning into its landscape. The boxes rise and soften into land, the walls slump into the ridges, the ceiling dissolves into sky, then water and plants arrive. In the founder's words: "It shows you the whole concept in the first 15-30 seconds. And people will skip it later, but it creates a vibe. You're seeing creation happen in realtime." The data is in place (`x_landscape_source`); Lane L builds it. The game can compute each terrain vertex's starting height from the source boxes, so no generator change is needed for a first version.
+- **Characters from the family's drawings** (8 October, night). The founder and their kids drew five characters, uploaded to the session and to a Drive folder:
+  - **The Cute Ghost:** see-through, "colorful bubble", carries a torch;
+  - **Potato Man:** egg body, top hat, curly hair, big shiny eyes, striped shoes;
+  - **Tomato Man:** top hat, a magic wand with sparkles, a wink;
+  - **Cloudpuff:** a cloud body under a rainbow, with arms and legs;
+  - **an unnamed long-legged creature** with horns or ears and huge clawed paws with heart pads.
+
+  The integrator proposed:
+  - parametric Blender recipes rather than image-to-3D (line drawings lose their charm in image-to-3D);
+  - **a blind A/B (Claude against Codex) on one or two characters**, judged by the founder and the kids;
+  - then a character choice per player with bouncy procedural motion, keeping the same collision capsule.
+
+  **The founder's answers (8 October, night):**
+  - "Everyone can use these drawings": agents, Codex included, may work from them. Keep the drawings themselves out of Git (AGENTS.md); a local copy outside the repository is fine.
+  - The final 3D models may be committed.
+  - **The direction:** "Every player should be able to make their own character." So the product is a **drawing-to-character converter**, and the family's five drawings are its first test set, as the 24 corpus rooms are for the landscape. Frame the A/B as "who builds the better converter", not "who models one character best". "I'm sure we'll need to put some guardrails on, but that's for later."
+  - **The drawings in Drive:** the folder `Character Art` (id `1jcFfZtgxYGW4OMU9OTFKVBzG8xq5TyrG`, created 8 October) holds five JPEGs: `IMG_2874`, `IMG_2875`, `IMG_2876`, `IMG_2878`, `IMG_2879` (1.7 to 4.0 MB each). Read them with the claude.ai Drive connector (the plugin's Drive server failed its sign-in on DiamondAge), and copy them to a folder outside any Git checkout for the agents. Strip location metadata (EXIF) from the copies.
+  - **The colours (the family's choices):**
+    - **Potato Man:** golden skin; rainbow hair; a black top hat with a red strip; blue shoes with orange stripes (velcro straps); a bright pink nose; normal black eyes.
+    - **Tomato Man:** a red body; a black top hat with a little red band.
+    - **Cloudpuff:** white clouds with a hint of blue; the bow rainbow-coloured across.
+    - **The paw creature** (bear-claw hands and horns; "he"; name still to come): brown and red.
+    - **The ghost** is the "characterised bubble", see-through. **It may pick the colour of its glow.**
+  - **The companion is the ghost bubble, named the Gubble** ("a mashup of ghost and bubble"). In the founder's words: "That's the new term for the companion." So player-facing text says "the Gubble"; how far the rename goes into code and docs is the next session's call. The Gubble carries a torch in its drawing, which suits the founder's light request.
+- **The founder on Lane L's questions (8 October, night):**
+  - **Keep the golden-summer grass:** "That's a good color for the grass in summer."
+  - **The haze is enough,** but "there should also be other landscape features similar to those in our playable space" on the far hills: trees, rock, water, perhaps a distant settlement. That is the generator's scenery (Lane C).
+
 ## The next session
 
-1. ~~The founder's verdict~~ **Done (8 October): Landscape 2, `gen_b`, the Claude Opus agent's, won** (Landscape 1 was `gen_a`, Codex GPT-6 Astra's). The founder: the most detail; "I can see where features from the garage got folded in, which I like"; its surrounding hills and distant features "lend some credence to this being a real place", where Landscape 1's blank expanse "feel[s] much more artificial". "They both need work but this is a really cool first run." Recorded in ORCHESTRATION.md's A/B log. **Next, C5:** a Claude Opus agent continues from `gen_b` (in place or as `pipeline/landscape/generator/`), keeping what the founder liked (detail, garage features legible in the land, a believable surround) and folding in `gen_a`'s best: its checks (2.5 cm terrain sampling, an 11 cm carrying clearance on the walk, every cottage and workyard approach reachable) and its life details (laundry, firewood). Fix `gen_b`'s own weak points: flat-shaded facets at 10 cm, bean-bag hills that read as mounds, the seam where its ridge meets the shared far ground, no bridge or ford rule, the scan-17 lost desk (a low-confidence mislabel's dome swallowing a confident neighbour), and land shaped to the fixed overview cameras (the game's camera moves). Then the other 23 corpus rooms (web search on for any new A/B), then the real garage on the machine with its data.
-2. **The founder's open decisions** (unchanged): the observe view's smaller blur and v2 as the default (now playable with `run-room.ps1 -Style v2`); Lane P's drop beside and sweep settings; the companion's state words.
-3. **The Linux suite on the second machine:** `test-all.sh` gained the journal, rebuild and landscape harness suites since its last run.
-4. **Housekeeping:** the contender checkouts were removed after the verdict. `C:\dev\EnFractal-codex` itself is an old detached worktree (`4553fff`) that holds the brief checkouts; leave it for the founder.
+1. **The characters: a drawing-to-character converter, as a blind A/B** (the founder's top new direction; see the fourth session).
+   - Copy the five drawings from Drive (`Character Art`) to a folder outside any Git checkout, and strip their location metadata.
+   - Write one brief for both contenders: a photo of a drawing plus a short description (name, the family's colours) becomes a character model. Use a Blender recipe, painterly roles, the 10 cm body's proportions, a bottom-centre pivot and a turntable render. Judge it on two of the five; the converter must be general.
+   - **Contenders:** a Claude Opus agent and Codex (GPT-6 Astra or 6.1 Sol), with web search on (ORCHESTRATION.md).
+   - **The founder and the kids judge blind.**
+   - Then, in the game: a character choice per player, bouncy procedural motion (the Gubble floats, Potato Man waddles), the same collision capsule.
+2. **The intro (Lane L):** about 15 s on every load, skippable, from `x_landscape_source`. The room appears roughly rendered; then the boxes rise into land, the walls slump into ridges, the ceiling dissolves into sky, and water and plants arrive.
+3. **Light:**
+   - the Gubble's own glow (its colour pickable) and its torch;
+   - then the player's own light. The founder has not yet chosen between a carried light, the hamlet's lanterns as real lights, and lights as invention parts; the integrator suggests the first two.
+4. **The generator's next round (Lane C, `run2/landscape`):**
+   - the two failing corpus rooms;
+   - the founder's far scenery, with the features of the playable space (trees, rock, water, a distant settlement);
+   - more variety between rooms (not every room a tarn and a hamlet);
+   - hills still rounded up close.
+
+   **Then the real garage on this machine** (`C:\dev\EnFractal-run2\capture\captures\garage`): never commit its package, renders or exported room without the founder's approval.
+5. **Lane P follow-ups:**
+   - the companion's `go_to` should aim at the nearest reachable side of a target;
+   - choose the navigation cell size after measuring whether a re-bake stalls a frame;
+   - **the Gubble in player-facing text** (the HUD's name tag and messages); deciding how far the rename goes is the integrator's call.
+6. **The founder's open decisions:**
+   - the overview cutaway (a change to the review instrument);
+   - the observe view's smaller blur and v2 as the default;
+   - Lane P's drop-beside and sweep settings;
+   - the companion's state words;
+   - the light option (item 3).
+7. **Housekeeping:** `C:\dev\EnFractal-codex8-landscape-room-export` can be removed (all merged). Every Run 2 worktree is pushed.
+
+## The third session's next steps (8 October, for the record)
+
+Item 1 (the A/B verdict, then C5) and item 3 (the Linux suite) were done in the fourth session; items 2 and 4 carry over.
 
 ## The second session's next steps (8 October, for the record)
 
