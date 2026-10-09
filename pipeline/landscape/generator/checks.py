@@ -7,7 +7,10 @@ water level and downhill; nothing built floating or sunk; the walk from the
 player's spawn to the carryable object and back within the low-incline and
 step limits (an 8-connected path search on the terrain's vertices, where a
 vertex is walkable only if every triangle touching it is gentle enough); and
-every inventory object's footprint still reads in the land.
+every inventory object's footprint still reads in the land; and the island:
+the sea surrounds it out past the reef, the reef lies a short swim off the
+coast, every promised beach has a shelving shore a swimmer walks out of the
+sea up, and the beaches and the jetty are reachable on foot from the spawn.
 """
 import argparse
 import heapq
@@ -36,18 +39,18 @@ class Terrain:
         self.tris = []
         self.grid = {}
         records = doc['terrain']+doc['scenery']
+        win = window(doc)
         for rec in records:
             for p in meshes[rec['mesh']]:
                 vs = p['positions']
                 for t in p['triangles']:
                     a, b, c = vs[t[0]], vs[t[1]], vs[t[2]]
                     det = (b[2]-c[2])*(a[0]-c[0])+(c[0]-b[0])*(a[2]-c[2])
-                    if abs(det) < 1e-12:
+                    if abs(det) < 1e-12 or not _meets(win, a, b, c):
                         continue
                     k = len(self.tris)
                     self.tris.append((a, b, c, det))
-                    i0, i1 = int(math.floor(min(a[0], b[0], c[0])/bucket)), int(math.floor(max(a[0], b[0], c[0])/bucket))
-                    j0, j1 = int(math.floor(min(a[2], b[2], c[2])/bucket)), int(math.floor(max(a[2], b[2], c[2])/bucket))
+                    i0, i1, j0, j1 = _span(win, bucket, (a, b, c))
                     for j in range(j0, j1+1):
                         for i in range(i0, i1+1):
                             self.grid.setdefault((i, j), []).append(k)
@@ -101,9 +104,50 @@ class Terrain:
         return math.nan if r is None else r[0]
 
 
+def _sea(doc):
+    return (doc.get('x_generator') or {}).get('sea')
+
+
+def _in_loop(x, z, loop):
+    inside = False
+    for a, b in zip(loop, loop[1:]+loop[:1]):
+        if (a[1] > z) != (b[1] > z) and x < (b[0]-a[0])*(z-a[1])/(b[1]-a[1])+a[0]:
+            inside = not inside
+    return inside
+
+
+def window(doc, margin=.6):
+    """Where the checks look: the island's playable water and a margin (the
+    sea and the distant islands run on to the horizon; nothing is walked or
+    swum out there). None for a package without a sea."""
+    sea = _sea(doc)
+    if not sea:
+        return None
+    b = sea['play_area']['bounds_m']
+    return b['min_m'][0]-margin, b['min_m'][2]-margin, b['max_m'][0]+margin, b['max_m'][2]+margin
+
+
+def _meets(win, *vs):
+    if win is None:
+        return True
+    return not (max(v[0] for v in vs) < win[0] or min(v[0] for v in vs) > win[2] or
+                max(v[2] for v in vs) < win[1] or min(v[2] for v in vs) > win[3])
+
+
+def _span(win, bucket, vs):
+    """Bucket index ranges of a triangle's box, clipped to the window."""
+    x0, x1 = min(v[0] for v in vs), max(v[0] for v in vs)
+    z0, z1 = min(v[2] for v in vs), max(v[2] for v in vs)
+    if win is not None:
+        x0, x1, z0, z1 = max(x0, win[0]), min(x1, win[2]), max(z0, win[1]), min(z1, win[3])
+    return (int(math.floor(x0/bucket)), int(math.floor(x1/bucket)), int(math.floor(z0/bucket)),
+            int(math.floor(z1/bucket)))
+
+
 def water_checks(doc, meshes, terrain):
     out = []
     ok = True
+    sea = _sea(doc)
     for rec in doc['water']:
         ps = [v for p in meshes[rec['mesh']] for v in p['positions']]
         if rec['kind'] == 'still':
@@ -122,6 +166,9 @@ def water_checks(doc, meshes, terrain):
             # A rim vertex may meet a stream that carries the water on.
             streams = [v for r in doc['water'] if r['kind'] != 'still' for p in meshes[r['mesh']] for v in p['positions']]
             loose = [k for k in exposed if not any(math.hypot(ps[k][0]-v[0], ps[k][2]-v[2]) < .12 for v in streams)]
+            if sea and rec['mesh'] == sea['mesh']:
+                # The sea runs on to the horizon past the playable water.
+                loose = [k for k in loose if _in_loop(ps[k][0], ps[k][2], sea['play_area']['outline_m'])]
             scenery = rec['mesh'] == 'distant_lake'
             good = spread <= 1e-6 and (scenery or not loose)
             out.append(dict(mesh=rec['mesh'], kind='still', level=round(ys[0], 5), level_spread=spread,
@@ -270,15 +317,18 @@ class Walker:
                     self.obs.setdefault((i, j), []).append(o)
         self.water = []
         self.wbuck = {}
+        win = window(doc, .2)
         for rec in doc['water']:
             for p in meshes[rec['mesh']]:
                 for t in p['triangles']:
                     vs = [p['positions'][k] for k in t]
+                    if not _meets(win, *vs):
+                        continue
                     k = len(self.water)
                     self.water.append(vs)
-                    xs, zs = [v[0] for v in vs], [v[2] for v in vs]
-                    for i in range(int(math.floor(min(xs)/.1)), int(math.floor(max(xs)/.1))+1):
-                        for j in range(int(math.floor(min(zs)/.1)), int(math.floor(max(zs)/.1))+1):
+                    i0, i1, j0, j1 = _span(win, .1, vs)
+                    for i in range(i0, i1+1):
+                        for j in range(j0, j1+1):
                             self.wbuck.setdefault((i, j), []).append(k)
         self.cache = {}
 
@@ -439,6 +489,87 @@ def walk_checks(doc, meshes, terrain, room):
     return ok, results
 
 
+SWIM_M = .08        # the body floats in water over this depth
+WADE_DEG = 35.      # walking out of water: no step under the surface steeper (the pond's rule)
+
+
+def sea_checks(doc, meshes, terrain, room):
+    """The island: a sea at a level below the land, all round it past the reef;
+    a reef a short swim off the coast; beaches a swimmer walks out of the sea
+    up (water over SWIM_M deep, then no step steeper than the walk limit to dry
+    sand) and reaches the spawn from on foot; the jetty reachable on foot."""
+    sea = _sea(doc)
+    if not sea:
+        return False, dict(error='no sea in the package (x_generator.sea)')
+    level = sea['level_m']
+    rows = dict(level_m=level)
+    ok = True
+    rec = next((r for r in doc['water'] if r['mesh'] == sea['mesh']), None)
+    ys = [v[1] for p in meshes[sea['mesh']] for v in p['positions']] if rec else []
+    rows['sea_level_ok'] = bool(rec and rec['kind'] == 'still' and max(ys)-min(ys) <= 1e-6 and abs(ys[0]-level) < 1e-5)
+    ok &= rows['sea_level_ok']
+    # The playable water's edge is open sea all round, out past the reef.
+    play = sea['play_area']['outline_m']
+    shallow = [p for p in play if terrain.height(p[0], p[1]) > level-.1]
+    rows['play_edge_points'] = len(play)
+    rows['play_edge_not_deep'] = len(shallow)
+    ok &= bool(play) and not shallow
+    # The island stands above the sea: the player's spawn is inside the coast, on land.
+    player = next((s for s in room['spawns'] if s['role'] == 'player'), room['spawns'][0])['position_m']
+    coast = sea['coast']['outline_m']
+    rows['spawn_on_island'] = bool(coast) and _in_loop(player[0], player[2], coast) and \
+        terrain.height(player[0], player[2]) > level+.02
+    ok &= rows['spawn_on_island']
+    # The reef lies a short swim off the coast.
+    reef = sea['reef']['outline_m']
+    offs = []
+    for x, z in reef:
+        best = math.inf
+        for a, b in zip(coast, coast[1:]+coast[:1]):
+            dx, dz = b[0]-a[0], b[1]-a[1]
+            L = dx*dx+dz*dz
+            t = 0 if L == 0 else max(0., min(1., ((x-a[0])*dx+(z-a[1])*dz)/L))
+            best = min(best, math.hypot(x-a[0]-t*dx, z-a[1]-t*dz))
+        offs.append(best)
+    rows['reef_offshore_m'] = [round(min(offs or [0]), 3), round(max(offs or [0]), 3)]
+    ok &= bool(offs) and min(offs) >= .2 and max(offs) <= 1.
+    # Beaches: walk out of the sea, then on to the spawn.
+    walker = Walker(doc, meshes, terrain, room)
+    start = (player[0], player[2])
+    beaches = []
+    for b in sea['beaches']:
+        (wx, _, wz), (bx, _, bz) = b['water_m'], b['wash_ashore_m']
+        depth0 = level-terrain.height(wx, wz)
+        run = max(math.hypot(bx-wx, bz-wz), 1e-6)
+        n = max(2, int(run/EDGE_SAMPLE))
+        hs = [terrain.height(wx+(bx-wx)*k/n, wz+(bz-wz)*k/n) for k in range(n+1)]
+        steep = wet_steep = 0.
+        for k in range(n):
+            if level-hs[k+1] < SWIM_M:   # feet on the bed from here on
+                grade = math.degrees(math.atan(abs(hs[k+1]-hs[k])/(run/n)))
+                if hs[k+1] < level:
+                    wet_steep = max(wet_steep, grade)
+                else:
+                    steep = max(steep, grade)
+        path, info = walker.route(start, (bx, bz))
+        good = depth0 >= SWIM_M and wet_steep <= WADE_DEG and steep <= WALK_DEG and hs[-1] > level+.02 \
+            and path is not None
+        beaches.append(dict(id=b['id'], start_depth_m=round(depth0, 3), wade_max_deg=round(wet_steep, 2),
+                            dry_max_deg=round(steep, 2),
+                            dry_y_m=round(hs[-1], 4), reachable=path is not None, ok=good, **info))
+        ok &= good
+    rows['beaches'] = beaches
+    ok &= bool(beaches)
+    jetty = sea.get('jetty')
+    if jetty:
+        rx, ry, rz = jetty['root_m']
+        path, info = walker.route(start, (rx, rz))
+        deck = terrain.height(rx, rz)
+        rows['jetty'] = dict(reachable=path is not None, deck_at_root_m=round(deck, 4), **info)
+        ok &= path is not None and abs(deck-jetty['deck_top_m']) < .005
+    return ok, rows
+
+
 def footprint_checks(inventory, terrain, room):
     """Per object: where its box went and how far the land's rise is from it
     (inside the walkable floor only)."""
@@ -512,9 +643,10 @@ def run(package, room_dir):
     g_ok, ground = grounding_checks(doc, terrain)
     p_ok, walks = walk_checks(doc, meshes, terrain, room)
     f_ok, prints = footprint_checks(inventory, terrain, room)
-    return dict(ok=w_ok and g_ok and p_ok and f_ok, water_ok=w_ok, grounded_ok=g_ok, walk_ok=p_ok,
-                footprints_ok=f_ok, water=water, joins=joins, grounding=ground, walks=walks,
-                footprints=prints, stats=stats)
+    s_ok, sea = sea_checks(doc, meshes, terrain, room)
+    return dict(ok=w_ok and g_ok and p_ok and f_ok and s_ok, water_ok=w_ok, grounded_ok=g_ok, walk_ok=p_ok,
+                footprints_ok=f_ok, sea_ok=s_ok, water=water, joins=joins, grounding=ground, walks=walks,
+                footprints=prints, sea=sea, stats=stats)
 
 
 def main():
@@ -542,8 +674,13 @@ def main():
         print('FOOTPRINT %-16s %-14s top %.3f land %.3f delta %+.3f rise %.3f %s' % (
             f['id'], f['kind'], f['box_top'], f['land_top'], f['top_delta_m'], f['rise_above_surroundings_m'],
             'reads' if f['reads'] else 'LOST'))
-    print('CHECKS water=%s grounded=%s walk=%s footprints=%s overall=%s' % (
-        result['water_ok'], result['grounded_ok'], result['walk_ok'], result['footprints_ok'], result['ok']))
+    sea = result['sea']
+    for b in sea.get('beaches', ()):
+        print('BEACH', json.dumps(b, sort_keys=True))
+    print('SEA', json.dumps({k: v for k, v in sea.items() if k != 'beaches'}, sort_keys=True))
+    print('CHECKS water=%s grounded=%s walk=%s footprints=%s sea=%s overall=%s' % (
+        result['water_ok'], result['grounded_ok'], result['walk_ok'], result['footprints_ok'], result['sea_ok'],
+        result['ok']))
     raise SystemExit(0 if result['ok'] else 1)
 
 

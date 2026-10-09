@@ -479,8 +479,10 @@ def shape_pools(pts, W, half, depth, sites, wet_room):
     return W, halves, depths, pools
 
 
-def plan_and_carve(grid, room, objects, h, base, inside, spawns, setup, noise, outside_mask):
-    """Returns water records, the lake, stream polylines and a wetness map."""
+def plan_and_carve(grid, room, objects, h, base, inside, spawns, setup, noise, outside_mask, sea=None):
+    """Returns water records, the lake, stream polylines and a wetness map.
+    With a sea (dict: level, goal(q), avoid [(x, z, r)]) the river runs to the
+    sea, never below its level, and the distant lake is gone."""
     wet = [9.]*grid.n
     result = dict(meshes=[], lake=None, streams=[], wet=wet, notes=[], pools=[])
     character, why = water_character(room, objects, spawns, setup)
@@ -560,6 +562,9 @@ def plan_and_carve(grid, room, objects, h, base, inside, spawns, setup, noise, o
         x, z = grid.xs[q % nx], grid.zs[q//nx]
         return outside_mask[q] and outside_distance(room, x, z) > .55 and h[q] < DISTANT_LAKE_Y-.01 \
             and (x-outlet['x'])*outlet['nx']+(z-outlet['z'])*outlet['nz'] > .5
+    floor_y = DISTANT_LAKE_Y if sea is None else sea['level']
+    goal = reach_far if sea is None else sea['goal']
+    sea_avoid = [] if sea is None else list(sea['avoid'])
 
     streams = []
     inflow = None
@@ -587,8 +592,8 @@ def plan_and_carve(grid, room, objects, h, base, inside, spawns, setup, noise, o
     else:
         start = spring
     footprints = [(o['cx'], o['cz'], math.hypot(o['sx'], o['sz'])/2+.35) for o in objects if not o['parent']]
-    raw = route(grid, h, base, noise, start, reach_far, [(s[0], 0, s[2]) for s in spawns],
-                avoid=footprints if character != 'tarn' else ())
+    raw = route(grid, h, base, noise, start, goal, [(s[0], 0, s[2]) for s in spawns],
+                avoid=(footprints if character != 'tarn' else [])+sea_avoid)
     pts = resample(chaikin(raw, 3), .025)
     # A dry upland keeps only a rill; elsewhere a river.
     name, half, depth = ('rill', .035, .012) if character == 'dry' else ('river', .065, .028)
@@ -599,13 +604,13 @@ def plan_and_carve(grid, room, objects, h, base, inside, spawns, setup, noise, o
                 first = max(0, k-1)
                 break
         pts = pts[first:]
-        W = levels(grid, h, pts, half, start_level=lake['level']-.0005, floor_level=DISTANT_LAKE_Y,
+        W = levels(grid, h, pts, half, start_level=lake['level']-.0005, floor_level=floor_y,
                    ignore=lambda x, z: lake_rho(lake, noise, x, z) < 1.03)
     else:
-        W = levels(grid, h, pts, half, floor_level=DISTANT_LAKE_Y)
+        W = levels(grid, h, pts, half, floor_level=floor_y)
     end = len(pts)
     for k, w in enumerate(W):
-        if w <= DISTANT_LAKE_Y+1e-6:
+        if w <= floor_y+1e-6:
             end = k+1
             break
     pts, W = pts[:end], W[:end]
@@ -644,7 +649,8 @@ def plan_and_carve(grid, room, objects, h, base, inside, spawns, setup, noise, o
         meshes.append(dict(name='tarn', kind='still', positions=verts, triangles=tris))
     for s in streams:
         meshes += ribbon_meshes(s['name'], s['pts'], s['W'], s['half'])
-    meshes.append(distant_lake(room, outlet, noise))
+    if sea is None:
+        meshes.append(distant_lake(room, outlet, noise))
     result['meshes'] = meshes
     return result
 

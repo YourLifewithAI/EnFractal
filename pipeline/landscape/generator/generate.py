@@ -13,16 +13,17 @@ from pipeline.landscape.harness import write_package
 from pipeline.landscape.harness.common import load_json
 from pipeline.landscape.harness.kit import SIZES
 from .field import Grid, Noise, clamp, distance_field, face_slope_max, lerp, slope_field, smooth
-from .land import (FAR_Y, high_country, inside_distance, local, outside_distance, parse_objects, room_shape,
-                   shell_land, sun_shadow, uplift, weather, rr_dist)
+from .land import (high_country, inside_distance, local, parse_objects, room_shape, sun_shadow, uplift,
+                   wall_frame, weather, rr_dist)
 from .life import (BRIDGE, grade_line, STEP_LIMIT_M, WALK_LIMIT_DEG, build_mesh, build_road, find_hamlet, flatten, paint_line,
                    paint_path, prototypes, reachable_from, surface, walk)
-from .water import DISTANT_LAKE_Y, choose_outlet, lake_rho, plan_and_carve, resample
+from .water import channel_cells, choose_outlet, lake_rho, plan_and_carve, resample
+from . import sea as Sea
 
-GENERATOR = {'name': 'landscape-generator', 'version': '3'}
+GENERATOR = {'name': 'landscape-generator', 'version': '4'}
 SEED = 20261008
 CELL = .03
-MARGIN = 2.1
+MARGIN = 1.7   # the sea out past the reef and the playable water; beyond it the far sea mesh
 REPO = Path(__file__).resolve().parents[3]
 SETUP_PATH = REPO/'pipeline'/'landscape'/'harness'/'ab-setup.json'
 
@@ -55,44 +56,6 @@ def clear_of_eyes(views, x, z, radius, corridor=None):
         if d < radius:
             return False
     return True
-
-
-def distant_hills(room, noise, outlet):
-    """Unreachable hills all round beyond the boundary ridges, rising out of the
-    shared surround; a gap opens where the river leaves for the distant lake.
-    Shaped for a viewer anywhere, never to a camera."""
-    lo, hi, _ = room_shape(room)
-    cx, cz = (lo[0]+hi[0])/2, (lo[2]+hi[2])/2
-    r0 = max(hi[0]-cx, hi[2]-cz)+MARGIN-.3
-    radii = [r0+.55*k for k in range(30)]
-    ring = 144
-    pos, tri, tints, blend = [], [], [], []
-    lake = dict(x=cx+outlet['nx']*7.6+(outlet['x']-cx)*abs(outlet['nz'])*.6,
-                z=cz+outlet['nz']*8.1+(outlet['z']-cz)*abs(outlet['nx'])*.6)
-    for r in radii:
-        for k in range(ring):
-            a = 2*math.pi*k/ring
-            x, z = cx+math.cos(a)*r*1.05, cz+math.sin(a)*r
-            env = smooth((r-r0-.2)/3.)
-            hgt = env*(.9+1.6*max(0., noise.fbm(x*.17+3, z*.17-5, 4)+.25)+.5*noise.ridged(x*.3, z*.3))
-            dl = math.hypot((x-lake['x'])/6.4, (z-lake['z'])/4.0)
-            hgt *= smooth((dl-.95)/.6)
-            pos.append([round(x, 4), round(FAR_Y+hgt, 4), round(z, 4)])
-    for m in range(len(radii)-1):
-        for k in range(ring):
-            a = m*ring+k
-            b = m*ring+(k+1) % ring
-            c = (m+1)*ring+k
-            d = (m+1)*ring+(k+1) % ring
-            tri += [[a, b, d], [a, d, c]]
-    for v in pos:
-        y = v[1]-FAR_Y
-        # Moss at the foot, like the shared surround it rises from; rock high up.
-        blend.append(round(smooth((y-1.1)/.9), 4))
-        g = clamp(.75+.1*noise(v[0], v[2]))
-        f = smooth(y/.35)
-        tints.append([round(lerp(1, g*.82, f), 4), round(lerp(1, g*.9, f), 4), round(lerp(1, g, f), 4), 1])
-    return [dict(role='moss', positions=pos, triangles=tri, tints=tints, blend_role='rock', blend_weights=blend)]
 
 
 def grounding(grid, h, objects, base):
@@ -130,7 +93,7 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False):
     grid = Grid(lo[0]-MARGIN, lo[2]-MARGIN, hi[0]+MARGIN, hi[2]+MARGIN, CELL)
     nx = grid.nx
     spawns = [s['position_m'] for s in room['spawns']]
-    inside = [outside_distance(room, grid.xs[q % nx], grid.zs[q//nx]) <= 0 for q in range(grid.n)]
+    inside = [wall_frame(room, grid.xs[q % nx], grid.zs[q//nx])[0] <= 0 for q in range(grid.n)]
     outlet = choose_outlet(room, spawns)
     diag = math.hypot(hi[0]-lo[0], hi[2]-lo[2])
     # The plain: living ground tilting gently toward the pass where water leaves.
@@ -149,11 +112,32 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False):
         dx, dz = outlet['x']-hx_, outlet['z']-hz_
         o['tail'] = math.atan2(math.sin(a)*dx+math.cos(a)*dz, math.cos(a)*dx-math.sin(a)*dz)
     h = uplift(grid, objects, base, noise, owner)
-    outside, skirt = shell_land(grid, room, h, noise, outlet, objects)
+    outside = [not v for v in inside]
     slope = slope_field(grid, h)
     h, acc = weather(grid, h, outside, slope, noise)
-    water = plan_and_carve(grid, room, objects, h, base, inside, spawns, setup, noise, outside)
+    # ---------------- the island: the walls become a ragged coast, the door a jetty
+    coast = Sea.carve_coast(grid, room, h, base, noise, objects, spawns, seed)
+    jetty = coast['jetty']
+    Sea.land_jetty(grid, h, jetty)
+    avoid_jetty = [] if jetty is None else [(jetty['root'][0], jetty['root'][1], .7)]
+
+    def sea_goal(q):
+        if h[q] >= Sea.SEA_Y-.03 or coast['s'][q] < coast['c'][q]+.05:
+            return False
+        return jetty is None or math.hypot(grid.xs[q % nx]-jetty['root'][0], grid.zs[q//nx]-jetty['root'][1]) > .8
+    water = plan_and_carve(grid, room, objects, h, base, inside, spawns, setup, noise, outside,
+                           sea=dict(level=Sea.SEA_Y, goal=sea_goal, avoid=avoid_jetty))
     wet = water['wet']
+    # Banks the streams raised past the waterline go back under the sea.
+    for q, v in coast['sea_cap'].items():
+        if v < h[q]:
+            h[q] = v
+    river_mouths = channel_cells(grid, water['streams'], margin=0.)
+    sea = Sea.sea_mask(grid, h, river_mouths)
+    for q in range(grid.n):
+        if sea[q]:
+            wet[q] = 0.
+    sea_near = distance_field(grid, sea)
     reach = distance_field(grid, [w <= 0 for w in wet])
     for q in range(grid.n):
         if reach[q] < wet[q]:
@@ -179,7 +163,7 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False):
 
     def crossable(q):
         """A stream a footbridge can span (inside the land, never the lake)."""
-        if not inside[q]:
+        if not inside[q] or sea_near[q] < .3:
             return False
         return lake is None or lake_rho(lake, noise, grid.xs[q % nx], grid.zs[q//nx]) > 1.15
     dry = reachable_from(grid, h, wet, inside, (player0[0], player0[2]), crossable=crossable)
@@ -295,25 +279,45 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False):
                 if r2:
                     roads.append(r2)
                     paint_line(grid, r2, paths, .028)
+    # A worn path from the spawn down to the jetty's landing.
+    if jetty is not None:
+        ix, iz = -jetty['ux'], -jetty['uz']
+        jetty['stand'] = (jetty['root'][0]+ix*.12, jetty['root'][1]+iz*.12)
+        r3 = build_road(grid, h, wet, inside, lane_blocked, keep_out, (px, pz), jetty['stand'], .075,
+                        crossable=crossable, bridges=bridges)
+        if r3:
+            roads.append(r3)
+            paint_line(grid, r3, paths, .028)
+    sea_pos, sea_tris = Sea.sea_surface(grid, sea)
+    # The checks' walker looks only at the island and its water, not out to the horizon.
+    look = dict(sea=dict(play_area=dict(bounds_m=dict(min_m=[grid.xs[0], 0, grid.zs[0]],
+                                                      max_m=[grid.xs[-1], 0, grid.zs[-1]]))))
+    beaches = Sea.find_beaches(grid, h, room, coast['coast'], jetty)
+    shore_goals = [b['stand'] for b in beaches]+([jetty['root']] if jetty is not None else [])
     # Walk the graded land as a body would (11 cm lane, cottages in the way,
     # bridges underfoot). Where it cannot reach the crate or a door, the land
     # gives way: the route a steeper walk finds is cut and filled to grade.
     if houses and roads:
         from .checks import Terrain as _T, Walker as _W
         keep_tris = [list(t) for t in grid.triangles() if inside_tri(grid, inside, t)]
-        wrec = [{'mesh': w['name'], 'kind': w['kind']} for w in water['meshes']]
+        wrec = [{'mesh': w['name'], 'kind': w['kind']} for w in water['meshes']]+[{'mesh': 'sea', 'kind': 'still'}]
         wmesh = {w['name']: [dict(role='still_water', positions=w['positions'], triangles=w['triangles'])]
                  for w in water['meshes']}
+        wmesh['sea'] = [dict(role='still_water', positions=sea_pos, triangles=sea_tris)]
         cots = [dict(prototype='cottage', position_m=[hh['x'], hh['y'], hh['z']], yaw_deg=hh['yaw'],
                      scale=[hh['scale']]*3) for hh in houses]
         decks = [dict(prototype='footbridge', position_m=[b['x'], b['top']-BRIDGE[1], b['z']], yaw_deg=b['yaw'],
                       scale=[1., 1., b['length']/BRIDGE[2]]) for b in bridges]
         goals = [(fx, fz)]+[(hh['x']-math.sin(math.radians(hh['yaw']))*(hh['hz']+.08),
                              hh['z']-math.cos(math.radians(hh['yaw']))*(hh['hz']+.08)) for hh in houses]
+        goals += shore_goals
         for _ in range(2):
             land = {'land': [dict(role='meadow', positions=[[grid.xs[q % nx], h[q], grid.zs[q//nx]] for q in range(grid.n)],
                                   triangles=keep_tris)], **wmesh}
-            probe0 = dict(terrain=[{'mesh': 'land'}], scenery=[], water=wrec, scatter=cots+decks, objects=[],
+            if jetty is not None:
+                land['jetty'] = Sea.jetty_mesh(grid, h, jetty)
+            probe0 = dict(terrain=[{'mesh': 'land'}]+([{'mesh': 'jetty'}] if jetty is not None else []),
+                          scenery=[], water=wrec, scatter=cots+decks, objects=[], x_generator=look,
                           prototypes={'footbridge': {'size_m': list(BRIDGE)}})
             terr0 = _T(probe0, land)
             strict = _W(probe0, land, terr0, room)
@@ -349,6 +353,8 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False):
                 q = j*nx+i
                 if q not in channel and 1. <= lake_rho(lake, noise, grid.xs[i], grid.zs[j]) <= 1.35:
                     h[q] = max(h[q], lake['level']+.006)
+    # Paths and grading may have filled round the jetty's landing: level it again under the deck.
+    Sea.land_jetty(grid, h, jetty)
     slope = slope_field(grid, h)
     tris = grid.triangles()
     fslope = face_slope_max(grid, h, tris)
@@ -363,13 +369,18 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False):
             objects_out.append(carry)
     shadow = sun_shadow(grid, h, water_sun(setup))
     weights, tints = surface(grid, h, base, fslope, owner, objects, shadow, wet, acc, outside,
-                             paths, pads, fields, noise, skirt)
-    terrain_tris = [t for t in tris if inside_tri(grid, inside, t)]
-    ridge_tris = [t for t in tris if not inside_tri(grid, inside, t)]
-    meshes = {'land': build_mesh(grid, h, weights, tints, terrain_tris),
-              'ridges': build_mesh(grid, h, weights, tints, ridge_tris),
-              'far_hills': distant_hills(room, noise, water.get('outlet', outlet))}
-    water_records = []
+                             paths, pads, fields, noise)
+    sea = Sea.sea_mask(grid, h, river_mouths)
+    weights, tints = Sea.sand_and_seabed(grid, h, coast, sea, weights, tints)
+    far_sea, islands = Sea.distant_islands(grid, room, noise, seed)
+    meshes = {'land': build_mesh(grid, h, weights, tints, tris), 'distant_islands': far_sea}
+    terrain_records = [{'mesh': 'land'}]
+    if jetty is not None:
+        meshes['jetty'] = Sea.jetty_mesh(grid, h, jetty)
+        terrain_records.append({'mesh': 'jetty'})
+    sea_pos, sea_tris = Sea.sea_surface(grid, sea)
+    meshes['sea'] = [dict(role='still_water', positions=sea_pos, triangles=sea_tris)]
+    water_records = [{'mesh': 'sea', 'kind': 'still'}]
     for w in water['meshes']:
         meshes[w['name']] = [dict(role='still_water' if w['kind'] == 'still' else 'flowing_water',
                                   positions=w['positions'], triangles=w['triangles'])]
@@ -390,9 +401,13 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False):
     plant = Planter(grid, h, fslope, wet, inside, shadow, paths, pads, blocked, base, owner, objects,
                     views, room, rnd, noise, acc)
     plant.path_gap = path_gap
+    plant.sandy = [coast['bw'][q]*(1-coast['hl'][q]) > .3 and h[q] < Sea.SEA_Y+.08 or sea_near[q] < .02
+                   for q in range(grid.n)]
     plant.bridge_rects = [(b['x'], b['z'], b['yaw'], b['length']) for b in bridges]
     for b in bridges:
         plant.occupy(b['x'], b['z'], b['length']/2+.05)
+    if jetty is not None:
+        plant.occupy(jetty['root'][0], jetty['root'][1], .2)
     for hh in houses:
         scatter.append(dict(prototype='cottage', position_m=[round(hh['x'], 4), round(hh['y']-.004, 4), round(hh['z'], 4)],
                             yaw_deg=hh['yaw'], scale=[hh['scale']]*3))
@@ -418,8 +433,8 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False):
     # Promise only what a body can reach: a yard thing no 11 cm lane reaches
     # from the spawn is left out (the same walk the checks run).
     from .checks import YARD, Terrain, Walker, approaches
-    probe = dict(terrain=[{'mesh': 'land'}], scenery=[], water=water_records, scatter=scatter,
-                 prototypes=proto_records, objects=objects_out)
+    probe = dict(terrain=terrain_records, scenery=[], water=water_records, scatter=scatter,
+                 prototypes=proto_records, objects=objects_out, x_generator=look)
     # Where planting closed the way to the crate, a door or a yard (laundry,
     # woodpile), the way is cleared: trees, shrubs, stones and fences within a
     # carrying lane of the route past the buildings are taken out. Only a yard
@@ -433,6 +448,7 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False):
     targets = [(None, [(carry['position_m'][0], carry['position_m'][2])])] if carry else []
     targets += [(None, [(hh['x']-math.sin(math.radians(hh['yaw']))*(hh['hz']+.08),
                          hh['z']-math.cos(math.radians(hh['yaw']))*(hh['hz']+.08))]) for hh in houses]
+    targets += [(None, [g]) for g in shore_goals]
     targets += [(rec, approaches(rec, size_of(rec))) for rec in scatter if rec['prototype'] in YARD]
     dropped = []
     for rec_, goals_ in targets:
@@ -483,7 +499,11 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False):
                 scatter.append(moved)
             else:
                 dropped.append(rec_['prototype'])
-    extensions = {'x_generator': dict(seed=seed, cell_m=CELL, margin_m=MARGIN,
+    # Promise only the beaches a body can walk to from the spawn.
+    final = Walker(probe, meshes, terr, room)
+    beaches = [b for b in Sea.find_beaches(grid, h, room, coast['coast'], jetty) if final.route((px, pz), b['stand'])[0]]
+    sea_doc = describe_sea(grid, h, room, coast, jetty, beaches, islands, player0, water['streams'])
+    extensions = {'x_generator': dict(seed=seed, cell_m=CELL, margin_m=MARGIN, sea=sea_doc,
                                   walk_limit_deg=WALK_LIMIT_DEG, step_limit_m=STEP_LIMIT_M,
                                   water_character=water.get('character'), water_why=water.get('why'),
                                   lake=water['lake'], pools=water.get('pools', []),
@@ -492,12 +512,69 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False):
                                   forms={o['id']: [o['form'], o['form_basis'], o['rock_role']] for o in objects},
                                   grounding=grounding(grid, h, objects, base))}
     doc = write_package(out_dir, room_dir, meshes=meshes, setup=setup, generator=GENERATOR,
-                        terrain=[{'mesh': 'land'}], water=water_records,
-                        scenery=[{'mesh': 'ridges', 'reachable': False}, {'mesh': 'far_hills', 'reachable': False}],
+                        terrain=terrain_records, water=water_records,
+                        scenery=[{'mesh': 'distant_islands', 'reachable': False}],
                         prototypes=proto_records, scatter=scatter, objects=objects_out, extensions=extensions)
     if return_state:
         return doc, dict(grid=grid, h=h, route=route, carry=carry, houses=houses)
     return doc
+
+
+def _godot_yaw(dx, dz):
+    """Yaw (degrees, Godot +Y rotation, -Z forward) that faces (dx, dz)."""
+    return round(math.degrees(math.atan2(-dx, -dz)), 2)+0.   # never -0.0
+
+
+def describe_sea(grid, h, room, coast, jetty, beaches, islands, player0, streams):
+    """The sea, the reef, the playable water, the beaches and the jetty, for
+    the exporter and the game (x_generator.sea). Metres and degrees in the room
+    frame; outlines are closed [x, z] loops in the room floor polygons' winding."""
+    nx = grid.nx
+    lo, hi, floors = room_shape(room)
+    sign = -1. if floors and Sea.area([(p[0], p[2]) for p in floors[0]]) < 0 else 1.
+    at = (player0[0], player0[2])
+
+    def outline(f):
+        loop = Sea.main_loop(Sea.contour(grid, f), at)
+        return [[round(x, 3), round(z, 3)] for x, z in Sea.oriented(Sea.simplify(loop, .01), sign)]
+    shore = outline([Sea.SEA_Y-v for v in h])
+    reef = outline([coast['s'][q]-coast['reef'][q] for q in range(grid.n)])
+    play = outline([coast['s'][q]-coast['reef'][q]-Sea.PLAY_PAST_REEF for q in range(grid.n)])
+    offs = [Sea.poly_seg_dist(x, z, shore) for x, z in reef] if shore else [0.]
+    deepest = min([h[q] for q in range(grid.n) if coast['s'][q] < coast['reef'][q]+Sea.PLAY_PAST_REEF]
+                  or [Sea.SEA_Y-Sea.DEEP_DEPTH])
+    xs, zs = [p[0] for p in play] or [lo[0], hi[0]], [p[1] for p in play] or [lo[2], hi[2]]
+    out = dict(
+        level_m=Sea.SEA_Y, mesh='sea', swim_depth_m=Sea.SWIM_DEPTH,
+        lagoon_depth_m=Sea.LAGOON_DEPTH, open_sea_depth_m=Sea.DEEP_DEPTH,
+        coast=dict(outline_m=shore),
+        reef=dict(outline_m=reef, crest_y_m=round(Sea.SEA_Y-.022, 4), band_half_width_m=.085,
+                  offshore_m=[round(min(offs), 3), round(max(offs), 3)],
+                  passes=[] if jetty is None else [dict(centre_m=[round(jetty['wall'][0]+jetty['ux']*jetty['reef'], 3),
+                                                                  round(jetty['wall'][1]+jetty['uz']*jetty['reef'], 3)],
+                                                        width_m=.36)]),
+        play_area=dict(outline_m=play, past_reef_m=Sea.PLAY_PAST_REEF,
+                       bounds_m=dict(min_m=[round(min(xs), 3), round(min(deepest, Sea.SEA_Y-Sea.DEEP_DEPTH)-.02, 3),
+                                            round(min(zs), 3)],
+                                     max_m=[round(max(xs), 3), room['bounds']['max_m'][1], round(max(zs), 3)])),
+        beaches=[], jetty=None,
+        stacks=[dict(centre_m=[st['x'], st['z']], radius_m=st['r'], top_m=st['top']) for st in coast['stacks']],
+        river_mouths=[[round(st['pts'][-1][0], 3), round(st['pts'][-1][1], 3)] for st in streams
+                      if st['W'][-1] <= Sea.SEA_Y+1e-6],
+        distant_islands=islands)
+    for k, b in enumerate(beaches):
+        (x, z), (wx, wz), (ix, iz) = b['stand'], b['water'], b['inward']
+        out['beaches'].append(dict(id='beach_%02d' % k, wash_ashore_m=[round(x, 4), round(grid.tri_height(h, x, z), 4), round(z, 4)],
+                                   yaw_deg=_godot_yaw(ix, iz),
+                                   water_m=[round(wx, 4), Sea.SEA_Y, round(wz, 4)],
+                                   water_depth_m=round(Sea.SEA_Y-grid.tri_height(h, wx, wz), 4)))
+    if jetty is not None:
+        (rx, rz), (ex, ez) = jetty['root'], jetty['end']
+        out['jetty'] = dict(mesh='jetty', door_id=jetty['door_id'], root_m=[round(rx, 4), round(jetty['top'], 4), round(rz, 4)],
+                            end_m=[round(ex, 4), round(jetty['top'], 4), round(ez, 4)], yaw_deg=_godot_yaw(ex-rx, ez-rz),
+                            width_m=jetty['width'], length_m=round(math.hypot(ex-rx, ez-rz), 4),
+                            deck_top_m=round(jetty['top'], 4))
+    return out
 
 
 def water_sun(setup):
@@ -560,6 +637,8 @@ class Planter:
         q = self.at(x, z)
         if not self.inside[q] or self.wet[q] < .02+root or self.paths[q] > .2 or self.pads[q] > .05 or self.blocked[q]:
             return None
+        if getattr(self, 'sandy', None) and self.sandy[q] and proto not in ('rock', 'boulder'):
+            return None   # beaches stay open sand
         for bx, bz, by, bl in getattr(self, 'bridge_rects', ()):
             a_ = math.radians(by)
             dx, dz = x-bx, z-bz

@@ -1,5 +1,95 @@
 # The garage as land: the landscape generator (C5)
 
+## The island (Run 2, the island round, 9 October; generator version 4)
+
+Every room is an island in an endless sea (`sea.py`). Synthetic top-down pictures were made outside the repository; no Blender renders yet.
+
+- **The coast** follows the walkable floor's outline, so an L-shaped room is an L-shaped island. The walls' ridges are gone. Read along the wall line:
+  - **cliffs and headlands** where a landform stands within 0.5 m of the wall, plus a few rocky points. The coast reaches 0.06 to 0.28 m past the wall there. The landform keeps its height to the waterline, then drops at 72 degrees or steeper (climbable);
+  - **coves with beaches** elsewhere, the water 0.07 to 0.33 m inside the wall: sand at 9 then 16 degrees, an 8 degree wading shelf, then 22 degrees down. Half a metre inland the beach stops cutting, so a landform meets it as a bluff and keeps its height;
+  - **a low rocky shore** (30 degrees) between them;
+  - up to four **sea stacks** off the headlands, standing alone in the lagoon.
+- **The door becomes a jetty** in a harbour cove: a level plank deck 0.16 m wide, 0.05 m above the sea, on timber posts, square to the door's wall, from a landing on the shore out over the lagoon. A worn path leads to it, and a pass through the reef lies before it.
+- **The sea:** the level is `SEA_Y = -0.02` m, 2 cm under the room's floor. The lagoon is 0.22 m deep. The reef lies 0.3 to 0.6 m off the coast (0.55 to 0.6 m off a beach, so its shelf reaches swimming water first): rock 2 cm under the surface, with rocks breaking it. Past the reef the sea falls to 0.62 m. The sea's still surface covers the grid wherever the sea floor lies under it, then runs on as a strip to 60 m. **Distant islands** (six, 5 to 19 m out) rise where the far hills were.
+- **Rivers run to the sea:** the river (or a dry room's rill) leaves the tarn or its spring for the sea, never below sea level. It ends in an estuary on a low shore, or falls over a cliff. The distant lake is gone.
+- **Beaches promised to a swimmer:** at the middle of each beach stretch, a wash-ashore place on dry sand. Under water, no step where the feet touch is steeper than 35 degrees (the pond's rule); on dry sand none is steeper than 20. Each place is reachable on foot from the spawn; at most five are promised, at least 1.2 m apart.
+
+### The package's `x_generator.sea` (for brief 21 and the contract change)
+
+Units are metres and degrees, in the room frame (y up, -Z forward). Outlines are closed loops of `[x, z]` in the room's floor-polygon winding, with the first point not repeated.
+
+| Field | Meaning |
+|---|---|
+| `level_m` | sea surface y (-0.02) |
+| `mesh` | `"sea"`: the still water record (`water` kind `still`), the island cut out |
+| `swim_depth_m`, `lagoon_depth_m`, `open_sea_depth_m` | 0.08 (the body floats), 0.22, 0.62 |
+| `coast.outline_m` | the island's waterline (the loop round the player's spawn) |
+| `reef.outline_m` | the reef's crest line |
+| `reef.crest_y_m`, `reef.band_half_width_m` | crest y (level - 0.022), half width (0.085) |
+| `reef.offshore_m` | `[min, max]` distance of the crest from the coast |
+| `reef.passes[]` | `centre_m [x, z]` and `width_m` of the pass before the jetty |
+| `play_area.outline_m` | the playable sea's edge: 0.3 m past the reef (`past_reef_m`); the current belongs between the reef and this line |
+| `play_area.bounds_m` | `min_m`/`max_m` `[x, y, z]`: the room bounds to grow to (deepest sea floor to the room's top) |
+| `beaches[]` | `id`, `wash_ashore_m [x, y, z]` (dry sand, standable, reachable on foot), `yaw_deg` (Godot yaw facing inland), `water_m [x, level, z]` (swimming water straight off it), `water_depth_m` |
+| `jetty` | `mesh` `"jetty"` (a `terrain` record), `door_id`, `root_m`/`end_m [x, deck_top, z]`, `yaw_deg` (root to end), `width_m`, `length_m`, `deck_top_m` |
+| `stacks[]` | `centre_m [x, z]`, `radius_m`, `top_m` |
+| `river_mouths[]` | `[x, z]` where a stream meets the sea |
+| `distant_islands[]` | `x`, `z`, `radius_m`, `top_m` (scenery mesh `distant_islands`) |
+
+**Package records:**
+- `terrain`: `land` (the whole grid: island, beaches, cliffs, lagoon floor, reef and stacks, so the swimmer has a bed) and `jetty`;
+- `water`: `sea` and the inland water;
+- `scenery`: `distant_islands` (the sea floor beyond the grid, and the islands).
+
+The walls' `ridges`, `far_hills` and `distant_lake` are gone.
+
+### Checks
+
+The checks gain `sea`:
+- the sea is level at `level_m`;
+- every point of the playable edge lies in water at least 0.1 m deep;
+- the player's spawn is on the island;
+- the reef lies 0.2 to 1.0 m off the coast (measured to the nearest coast point, which stretches at convex corners);
+- every promised beach has swimming water off it and a walk out of the sea (35 degrees under water, 20 on dry sand), and is reachable on foot from the spawn; there is at least one beach;
+- the jetty's landing end is reachable on foot.
+
+`walk` keeps the crate, the doors and the yards. The checks look only at the island and its water (the playable bounds plus 0.6 m), not out to the horizon.
+
+### Corpus (9 October): 14 of 24 pass all checks (C6 had 23 of 24 before the island)
+
+Command, per room:
+```
+python3 -B -m pipeline.landscape.generator.generate --room <room> --out <pkg>
+python3 -B -m pipeline.landscape.generator.checks --package <pkg> --room <room>
+```
+
+**Pass:**
+- awkward_l nominal and scan 73;
+- bedroom nominal and scan 17;
+- garage, all three;
+- home_office, all three;
+- living_room_nominal;
+- near_empty_nominal;
+- workshop nominal and scan 73.
+
+The garage: `CHECKS water=True grounded=True walk=True footprints=True sea=True overall=True`. It has its tarn (the pond test still passes), climbable headland cliffs, one promised beach and the jetty.
+
+**Fail, by cause:**
+- **The jetty's landing is not reachable on foot:** kitchen, all three; bedroom_scan_73, whose spawn is not standable, as in C6.
+- **No beach could be promised:** living_room scan 17 and scan 73; workshop_scan_17; bedroom_scan_73.
+- **A promised beach the generator's walk reached is unreachable in the written package:** near_empty scan 17 and scan 73; kitchen_scan_73. A difference between the generator's in-memory probe and the package remains to be found.
+- **A footprint is lost:**
+  - kitchen_scan_73's cabinet_2;
+  - living_room_scan_17's lamp_1.
+- **Other:**
+  - living_room_scan_73: a cottage is not grounded;
+  - awkward_l_scan_17: a cottage door is unreachable.
+
+**Not yet done:**
+- **Generation time:** about 110 s for the garage (was 50 s).
+- **The look:** distant islands carry no trees or settlements yet. Foam and breakers are Lane L's.
+
+
 Renders: [sheet.png](renders/sheet.png) (final), [scan_17_draft_sheet.png](renders/scan_17_draft_sheet.png), [corpus_contact_sheet.png](renders/corpus_contact_sheet.png), [corpus_variants_sheet.png](renders/corpus_variants_sheet.png). Seed `20261008`.
 
 ## How the room becomes land
