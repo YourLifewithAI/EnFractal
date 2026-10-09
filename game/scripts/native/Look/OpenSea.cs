@@ -68,6 +68,17 @@ public partial class OpenSea : Node3D
     private readonly List<DistantIsland> _islands = new();
     private readonly List<MeshInstance3D> _floors = new();
     private ShaderMaterial? _islandMaterial;
+    /// <summary>
+    /// The view under the sea (Run 2, for diving): the pond life's veil shader over the whole screen, in the sea's colours, with the
+    /// light from above, shown while the camera is under the sea (CameraUnderSea).
+    /// </summary>
+    public MeshInstance3D Veil { get; private set; } = null!;
+    /// <summary>Whether the camera the sea follows is under the sea now: below its level and off the island (outside the coast).</summary>
+    public bool CameraUnderSea { get; private set; }
+    /// <summary>The sea seen from inside: its murk colour and distance (metres that hide two thirds), the tint at the eye, and the light from above.</summary>
+    public static readonly Color MurkColor = new(0.11f, 0.27f, 0.34f);
+    public const float MurkM = 0.55f, NearTint = 0.1f, UpLight = 1.4f, DimPerM = 0.8f;
+
     /// <summary>The fish in the sea's deeper water near the swimmer (null until the look names the swimmer).</summary>
     public SeaLife? Life { get; private set; }
 
@@ -155,6 +166,7 @@ public partial class OpenSea : Node3D
         else open.Bed.MaterialOverride = new StandardMaterial3D { AlbedoColor = BedColor, Roughness = 1f, MetallicSpecular = 0.2f, VertexColorUseAsAlbedo = true, ResourceName = "open sea bed" };
         open.Bed.SetMeta(LookDirector.DressedMeta, true);
         open.AddChild(open.Bed);
+        open.BuildVeil();
         return open;
     }
 
@@ -396,6 +408,29 @@ public partial class OpenSea : Node3D
         return bearing * reach;
     }
 
+    private void BuildVeil()
+    {
+        var material = new ShaderMaterial { Shader = GD.Load<Shader>(PondLife.VeilShaderPath), ResourceName = "under the sea", RenderPriority = 100 };
+        material.SetShaderParameter("pond_count", 1);
+        material.SetShaderParameter("pond_box", Enumerable.Range(0, 8).Select(i => i == 0 ? new Vector4(-1e6f, -1e6f, 1e6f, 1e6f) : Vector4.Zero).ToArray());
+        material.SetShaderParameter("pond_level", Enumerable.Range(0, 8).Select(i => i == 0 ? Sea.LevelM : -1e9f).ToArray());
+        material.SetShaderParameter("murk_color", MurkColor);
+        material.SetShaderParameter("murk_m", MurkM);
+        material.SetShaderParameter("near_tint", NearTint);
+        material.SetShaderParameter("up_light", UpLight);
+        material.SetShaderParameter("dim_per_m", DimPerM);
+        Veil = new MeshInstance3D
+        {
+            Name = "UnderTheSea", Mesh = new QuadMesh { Size = new Vector2(2f, 2f) }, MaterialOverride = material, Visible = false,
+            CastShadow = GeometryInstance3D.ShadowCastingSetting.Off, GIMode = GeometryInstance3D.GIModeEnum.Disabled, ExtraCullMargin = 16384f,
+        };
+        Veil.SetMeta(LookDirector.DressedMeta, true);
+        AddChild(Veil);
+    }
+
+    /// <summary>Whether a camera at a point is under the sea: below its level and outside the coast (a pond on the island has its own veil).</summary>
+    public bool UnderSea(Vector3 eye) => eye.Y < Sea.LevelM && !RoomSea.Inside(Sea.Coast, new Vector2(eye.X, eye.Z));
+
     /// <summary>The distant islands' own copy of the backdrop's painterly material, with the haze (SeaLook) turned on.</summary>
     private Material? IslandMaterial(Material? material)
     {
@@ -443,6 +478,13 @@ public partial class OpenSea : Node3D
         var at = camera.GlobalPosition;
         if (Surface != null) Surface.GlobalPosition = new Vector3(at.X, Sea.LevelM, at.Z);
         SetFar(camera.Far);
+        CameraUnderSea = UnderSea(at);
+        Veil.Visible = CameraUnderSea;
+        if (CameraUnderSea && Veil.MaterialOverride is ShaderMaterial veil && GetWorld3D()?.Environment is { } environment)
+        {
+            var ambient = environment.AmbientLightColor * environment.AmbientLightEnergy;
+            veil.SetShaderParameter("light_level", Mathf.Clamp(ambient.Luminance * 1.2f + 0.08f, 0.04f, 1.5f));
+        }
         var from = new Vector2(at.X, at.Z) - Home;
         foreach (var island in _islands)
         {

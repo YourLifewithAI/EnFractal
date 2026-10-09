@@ -102,10 +102,18 @@ public partial class PondLife : Node3D
         return new Aabb(new Vector3(pond.Min.X, low - 0.01f, pond.Min.Y), new Vector3(pond.Nx * pond.Cell, high - low + 0.02f, pond.Nz * pond.Cell));
     }
 
-    /// <summary>The still ponds a camera can dip into (deepest first, at most eight): their boxes from above and their levels.</summary>
+    /// <summary>
+    /// The still ponds a camera can dip into (deepest first, at most eight): their boxes from above and their levels. The island's
+    /// sea, which the survey also finds as one great pond, is left to the open sea's own veil (OpenSea), so the two never stack.
+    /// </summary>
     public IReadOnlyList<(Vector4 Box, float Level)> VeilPondsFor() =>
-        Ponds.Where(p => p.Kind == WaterKind.Still && p.MaxDepthM > 0.01f).OrderByDescending(p => p.MaxDepthM).Take(VeilPonds)
+        Ponds.Where(p => p.Kind == WaterKind.Still && p.MaxDepthM > 0.01f && !IsSea(p)).OrderByDescending(p => p.MaxDepthM).Take(VeilPonds)
             .Select(p => (new Vector4(p.Min.X, p.Min.Y, p.Min.X + p.Nx * p.Cell, p.Min.Y + p.Nz * p.Cell), p.Level)).ToList();
+
+    /// <summary>The level of the room's sea, if it has one (the room this life lives in, else what a test sets).</summary>
+    public float? SeaLevel { get; set; }
+
+    private bool IsSea(Pond pond) => (SeaLevel ?? (GetParent() as RoomWorld)?.Room?.Sea?.LevelM) is { } level && Mathf.Abs(pond.Level - level) < 0.003f;
 
     /// <summary>Whether a camera at this point is under a pond's water (the veil shader's own test, for checks and tools).</summary>
     public bool IsUnderwater(Vector3 eye) =>

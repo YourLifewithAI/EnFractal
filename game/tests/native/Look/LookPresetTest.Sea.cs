@@ -217,6 +217,24 @@ public partial class LookPresetTest
         swimmerNode.GlobalPosition = new Vector3(0f, 0.1f, 0f);
         life.Advance(1f / 30f);
         Check(life.Anchors.All(a => a == null || life.Habitable(new Vector2(a.Value.X, a.Value.Z))), "on the island the fish stay out in the open sea, never in the playable water");
+        // The view under the sea: the veil shows only while the camera is under the sea, off the island; a pond's own veil leaves the sea to it.
+        camera.GlobalPosition = new Vector3(6f, -0.2f, -12f);
+        open.Follow(camera);
+        var under = open.Veil.Visible && open.CameraUnderSea;
+        camera.GlobalPosition = new Vector3(6f, 0.05f, -12f);
+        open.Follow(camera);
+        var above = !open.Veil.Visible;
+        camera.GlobalPosition = new Vector3(0f, -0.05f, 0f);
+        open.Follow(camera);
+        var island = !open.Veil.Visible;
+        var veilMaterial = (ShaderMaterial)open.Veil.MaterialOverride!;
+        Check(under && above && island && veilMaterial.GetShaderParameter("up_light").AsSingle() > 0f && veilMaterial.GetShaderParameter("murk_m").AsSingle() > 0.2f,
+            "under the open sea the water tints and hazes the view, brighter toward the surface; above it, or under the island's own ground, there is no veil");
+        var pondLife = PondLife.Create(land.RoomId, built);
+        pondLife.SeaLevel = land.Sea.LevelM;
+        holder.AddChild(pondLife);
+        pondLife.SurveyNow(PondSurvey.RayProbe(GetWorld3D().DirectSpaceState));
+        Check(pondLife.VeilPondsFor().All(p => Mathf.Abs(p.Level - land.Sea.LevelM) > 0.003f), "the ponds' veil leaves the sea to the open sea's own, so the two never stack");
         look.SetClock(19.5f, 172);
         var horizon = LookSky.At(look.Preset, look.Moment).Horizon;
         Check(surface.GetShaderParameter("horizon_color").AsColor().IsEqualApprox(horizon), "and into the sky's own horizon colour of the hour");
@@ -271,5 +289,21 @@ public partial class LookPresetTest
         }
         holder.QueueFree();
         await Frames(1);
+    }
+
+    /// <summary>
+    /// The land up close (the founder's F2 playtest): near ground under the shoulder camera read as a smooth, blurred-looking wash because
+    /// the role's marks were many pixels wide there. Every landscape role now carries the brush's finer strokes and grain, which come in
+    /// only close up (their detail fades with the footprint like every mark).
+    /// </summary>
+    private void CheckLandUpClose(StylePreset preset)
+    {
+        MaterialLibrary.Configure(preset);
+        var roles = LandscapeLook.Roles.Keys.Where(r => !LandscapeLook.IsWater(r)).ToArray();
+        Check(roles.All(r => MaterialLibrary.ForLandscape(r, new Color("c7b8ad"), new Color("66a040")) is ShaderMaterial m && m.GetShaderParameter("close_detail").AsSingle() > 0.5f),
+            "every land role wears the brush's finer marks close up");
+        var code = Regex.Replace(GD.Load<Shader>(LandscapeLook.ShaderPath).Code, @"//[^\n]*", "");
+        Check(Regex.IsMatch(code, @"d_fine\s*=\s*detail\(s\s*\*\s*0\.07,\s*footprint\)\s*\*\s*close_detail") && Regex.IsMatch(code, @"if\s*\(d_fine\s*>\s*0\.0\)"),
+            "they fade with the footprint like every mark, and are skipped where they would be finer than a pixel");
     }
 }
