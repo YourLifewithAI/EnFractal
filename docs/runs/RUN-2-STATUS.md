@@ -130,6 +130,26 @@
 
 - **The founder's playtest round: climbing, swimming and fish.** See [RUN-2-CLIMB-SWIM.md](RUN-2-CLIMB-SWIM.md) for the request, the founder's answers and the lanes' packets.
 - **The contract change:** a shell part may be collision-only (`"drawn": false`, `04aa6b2`). It is used for the trees' hidden climbing poles and crown caps (Codex brief 19).
+- **Merged on `run2/integration` (`6f4f843`, pushed): climbing, swimming, deeper water, climbable trees and fish.**
+  - **Lane P part 1 and its fix round (Opus):**
+    - **Climbing:** any face over 45° (overhangs to 20° past vertical) is climbable. Push in for 0.2 s to grab; the climb is 0.12 m/s; pull over at the top; jump lets go.
+    - **Swimming:** water over 8 cm floats the body (eye 2.4 cm above), at 0.6 of the walk, tipped 75°. Wading slows to 0.6; falls into water are broken.
+    - **Other:** `RoomWater` on layer 4; the contract's `drawn` flag.
+    - **The fix round:**
+      - the landscape cliff check had stood the body on crowns, so it now uses terrain cliffs only;
+      - the body gained the can't-grab cases (a face met above step height, a step up, a scramble up slopes over 35°);
+      - a garage tree is climbed to its crown;
+      - the five review findings are fixed.
+  - **Codex brief 19 (GPT-6.1 Sol):** hidden climbing poles and one-sided crown caps, collision only.
+  - **C6 (Lane C, Opus):**
+    - each room's floor chooses its water: a pond (garage 23 cm deep, a wading shelf on the spawn side), a river with deep pools, or a dry upland;
+    - 23 of 24 corpus rooms pass (`bedroom_scan_73`'s rill has no footbridge).
+  - **Lane L (Opus):** see-through painterly water (two-sided, depth-tinted, a veil under the surface) and fish (`Look/Fauna`, one MultiMesh). The garage now has 43 fish in 7 schools, in the pond and the river's deep pool. The integrator wired `PondLife` into `RoomWorld.cs` with the player only.
+  - **Tests:**
+    - Windows: both runners exit 0 (avatar 231, landscape 35 including a real-garage swim, look 1002);
+    - Linux: GREEN but for the look check, fixed in `6f4f843` and rerun (1002/1002). The generator's 10 tests now run in the Linux suite (about 5 min).
+  - **The founder's installed landscape** was refreshed from the fixture (`room.json` `0A71EF16…`). Its save migrates on the first load.
+  - **Lane P part 2 (the Gubble floats, then the backlog)** waits for the founder's playtest of climbing and swimming, and for the contest to finish.
 - **The founder on landscape versions (decided, for later):**
   - **What the players get:**
     - players may look at several versions of their room's landscape, each from a different seed;
