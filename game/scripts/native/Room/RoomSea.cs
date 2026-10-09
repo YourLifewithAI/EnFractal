@@ -14,9 +14,10 @@ namespace EnFractal.Native.Room;
 /// bounded (3 to 4,096 points), every number finite and within the room's coordinate limit, ids are tokens, and each beach
 /// stands inside the room's bounds; anything else refuses the room. A room without the extension has no sea edge.
 /// <para>
-/// The geometry the bodies ask each tick: how far past the reef a point is, the gentle current there (toward the reef, so
-/// back toward the island, growing from nothing at the reef to its strongest at the edge of the playable water), whether a
-/// point is still in the playable water, and the nearest beach to wash up on. Outlines are closed [x, z] loops in metres.
+/// The geometry the bodies ask: how far past the reef a point is, whether a point is in the playable water, the nearest
+/// beach, the jetty (home, for the B key), and the open sea itself where the room's water meshes stop (OpenWater). The sea
+/// has no edge (the founder, 9 October: "the kids want to be able to swim forever"): no current, no wash ashore. Outlines
+/// are closed [x, z] loops in metres.
 /// </para>
 /// </summary>
 public sealed class RoomSea
@@ -42,8 +43,20 @@ public sealed class RoomSea
     public IReadOnlyList<Beach> Beaches { get; private init; } = Array.Empty<Beach>();
     public Jetty? JettyData { get; private init; }
 
+    /// <summary>
+    /// The open sea's bed where the room's meshes stop, this far under the sea's level at their edge, sinking by
+    /// OpenSeaFallM more over OpenSeaFallOverM beyond: the generator's own far sea floor (generator/sea.py, DEEP_DEPTH and
+    /// distant_islands), which the room draws but does not collide with.
+    /// </summary>
+    public const float OpenSeaDepthM = 0.66f;
+    public const float OpenSeaFallM = 0.6f;
+    public const float OpenSeaFallOverM = 12.0f;
+
+    /// <summary>The middle of the island (its coast's box), which the far net is measured from.</summary>
+    public Vector2 MiddleM { get; private init; }
+
     /// <summary>A sea built directly (the body suites' synthetic island). Loops must have at least three points.</summary>
-    public RoomSea(float levelM, Vector2[] coast, Vector2[] reef, Vector2[] playArea, IReadOnlyList<Beach> beaches)
+    public RoomSea(float levelM, Vector2[] coast, Vector2[] reef, Vector2[] playArea, IReadOnlyList<Beach> beaches, Jetty? jetty = null)
     {
         if (coast.Length < 3 || reef.Length < 3 || playArea.Length < 3) throw new ArgumentException("a sea's loops need three points or more");
         LevelM = levelM;
@@ -52,6 +65,8 @@ public sealed class RoomSea
         Reef = reef;
         PlayArea = playArea;
         Beaches = beaches;
+        JettyData = jetty;
+        MiddleM = Middle(coast);
     }
 
     private RoomSea() { }
@@ -84,10 +99,11 @@ public sealed class RoomSea
             var end = Vec(j, "end_m", 3);
             jetty = new Jetty(new Vector3(root[0], root[1], root[2]), new Vector3(end[0], end[1], end[2]), Num(j, "yaw_deg", -360, 360), Num(j, "width_m", 0, 10), Num(j, "deck_top_m", -10, 10));
         }
+        var coast = Loop(Obj(sea, "coast"), "outline_m");
         return new RoomSea
         {
             LevelM = Num(sea, "level_m", -10, 10), SwimDepthM = Num(sea, "swim_depth_m", 0, 10),
-            Coast = Loop(Obj(sea, "coast"), "outline_m"), Reef = Loop(reef, "outline_m"),
+            Coast = coast, MiddleM = Middle(coast), Reef = Loop(reef, "outline_m"),
             ReefCrestYM = Num(reef, "crest_y_m", -10, 10), ReefBandHalfWidthM = Num(reef, "band_half_width_m", 0, 10),
             Passes = passes, PlayArea = Loop(Obj(sea, "play_area"), "outline_m"), Beaches = beaches, JettyData = jetty,
         };
@@ -102,17 +118,35 @@ public sealed class RoomSea
     public bool InPlayArea(Vector2 point) => Inside(PlayArea, point);
 
     /// <summary>
-    /// The current at a point, in metres a second over the ground: none inside the reef; past it, toward the nearest point of
-    /// the reef (back toward the island), growing from nothing at the reef to strongestMps at the edge of the playable water.
+    /// The open sea's bed at a point (a public read for the look's endless sea): OpenSeaDepthM under the level at the edge of
+    /// the playable water, sinking smoothly by OpenSeaFallM over the next OpenSeaFallOverM, then level for ever.
     /// </summary>
-    public Vector2 Current(Vector2 point, float strongestMps)
+    public float OpenSeaBedAt(Vector2 point)
     {
-        if (Inside(Reef, point)) return Vector2.Zero;
-        var (past, toward) = Nearest(Reef, point);
-        if (past < 1e-4f) return Vector2.Zero;
-        var toEdge = InPlayArea(point) ? Nearest(PlayArea, point).Distance : 0;
-        var share = Mathf.Clamp(past / (past + toEdge), 0, 1);
-        return (toward - point) / past * strongestMps * Mathf.SmoothStep(0, 1, share);
+        var past = InPlayArea(point) ? 0 : Nearest(PlayArea, point).Distance;
+        return LevelM - OpenSeaDepthM - OpenSeaFallM * Mathf.SmoothStep(0, 1, past / OpenSeaFallOverM);
+    }
+
+    /// <summary>
+    /// The sea itself at a point's column, for where no water mesh answers (out past the island, where the meshes stop): its
+    /// surface at LevelM when that lies from aboveM over the point down to belowM under it, outside the coast, over the first
+    /// world-layer ground under the surface or else the open-sea bed. Ground at or above the surface (a sea stack's top) is
+    /// dry, as RoomWater.At has it. RoomWater.Column.Dry otherwise.
+    /// </summary>
+    public RoomWater.Column OpenWater(PhysicsDirectSpaceState3D space, Vector3 point, float aboveM, float belowM, Rid exclude = default)
+    {
+        if (!point.IsFinite() || LevelM > point.Y + aboveM || LevelM < point.Y - belowM) return RoomWater.Column.Dry;
+        var flat = new Vector2(point.X, point.Z);
+        if (Inside(Coast, flat)) return RoomWater.Column.Dry;
+        var bedY = OpenSeaBedAt(flat);
+        var top = new Vector3(point.X, LevelM + RoomWater.BedLookAboveM, point.Z);
+        using var query = PhysicsRayQueryParameters3D.Create(top, new Vector3(point.X, bedY, point.Z), RoomBuilder.WorldLayer);
+        if (exclude.IsValid) query.Exclude = new Godot.Collections.Array<Rid> { exclude };
+        query.HitBackFaces = false;
+        using (var hit = space.IntersectRay(query))
+            if (hit.Count > 0) bedY = hit["position"].AsVector3().Y;
+        if (bedY > LevelM - RoomWater.RimM || bedY > point.Y + RoomWater.BedToleranceM) return RoomWater.Column.Dry;
+        return new RoomWater.Column(true, LevelM, bedY);
     }
 
     /// <summary>The beach nearest a point (null when the sea lists none).</summary>
@@ -139,6 +173,14 @@ public sealed class RoomSea
         var low = new Vector3(Mathf.Max(room.Position.X, minX - marginM), Mathf.Max(room.Position.Y, LevelM - 0.03f), Mathf.Max(room.Position.Z, minZ - marginM));
         var high = new Vector3(Mathf.Min(room.End.X, maxX + marginM), room.End.Y, Mathf.Min(room.End.Z, maxZ + marginM));
         return high.X > low.X && high.Y > low.Y && high.Z > low.Z ? new Aabb(low, high - low) : room;
+    }
+
+    private static Vector2 Middle(Vector2[] loop)
+    {
+        var low = new Vector2(float.PositiveInfinity, float.PositiveInfinity);
+        var high = new Vector2(float.NegativeInfinity, float.NegativeInfinity);
+        foreach (var p in loop) { low = new Vector2(Mathf.Min(low.X, p.X), Mathf.Min(low.Y, p.Y)); high = new Vector2(Mathf.Max(high.X, p.X), Mathf.Max(high.Y, p.Y)); }
+        return (low + high) * 0.5f;
     }
 
     /// <summary>Even-odd point in a closed loop.</summary>

@@ -21,6 +21,9 @@ public partial class RoomHud : CanvasLayer
     private Label _state = null!;
     /// <summary>The wash-ashore fade (the sea's edge): a full-screen veil the player's body darkens and lifts.</summary>
     private ColorRect _washVeil = null!;
+    private Label _moveKeys = null!;
+    /// <summary>The movement keys, with B home from anywhere (the founder, 9 October: to the jetty, or the beach, or the start).</summary>
+    private string MoveKeys => $"WASD move · Shift run · Space jump · B back to {Player.HomeName} · R recover · G gravity · click to look · Esc release";
     private Label _notice = null!;
     private PanelContainer _footer = null!;
     private VBoxContainer _keyHelp = null!;
@@ -174,10 +177,16 @@ public partial class RoomHud : CanvasLayer
         var hands = new HBoxContainer { Name = "HandActions" }; column.AddChild(hands);
         AddButton(hands, "F Pick up / put down", Hands, 26);
         AddButton(hands, "V Push", Push, 26);
-        _washVeil = new ColorRect { Name = "WashAshoreVeil", Color = new Color(0.06f, 0.13f, 0.18f, 0), MouseFilter = Control.MouseFilterEnum.Ignore };
+        _washVeil = new ColorRect { Name = "HomeVeil", Color = new Color(0.06f, 0.13f, 0.18f, 0), MouseFilter = Control.MouseFilterEnum.Ignore };
         AddChild(_washVeil);
         _washVeil.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
-        Player.WashedAshore += _ => _noticeText = "The current carried you back and you washed up on the beach.";
+        Player.WentHome += body => _noticeText = body.LastHome switch
+        {
+            "jetty" => "Home: back at the jetty.",
+            "spawn" => "Home: back where you started.",
+            "" => "There was no room at home; you are back where you last stood.",
+            _ => "Home: back on the beach.",
+        };
         _footer = new PanelContainer { Name = "HelpFooter", Theme = compactTheme, GrowVertical = Control.GrowDirection.Begin };
         AddChild(_footer);
         _footer.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.BottomWide);
@@ -185,7 +194,8 @@ public partial class RoomHud : CanvasLayer
         var help = new VBoxContainer(); _footer.AddChild(help);
         _helpHint = new Label { Text = "H keys" }; help.AddChild(_helpHint);
         _keyHelp = new VBoxContainer { Name = "KeyHelp", Visible = false }; help.AddChild(_keyHelp);
-        _keyHelp.AddChild(new Label { Text = "WASD move · Shift run · Space jump · R recover · G gravity · click to look · Esc release" });
+        _moveKeys = new Label { Name = "MoveKeys", Text = MoveKeys };
+        _keyHelp.AddChild(_moveKeys);
         _keyHelp.AddChild(new Label { Text = "Climb: keep walking into a steep face, W up, S down, A/D across, Space lets go · Swim: deep water floats you, Space leaps" });
         _keyHelp.AddChild(new Label { Text = "1 follow · 2 wait · 3 come · 4 stop · 5 point: the Gubble floats after you, over water and up cliffs" });
         _keyHelp.AddChild(new Label { Text = "F1 eye · F2 shoulder · F3 diorama: mouse orbits, wheel zooms, WASD follows the view · F4 isometric: Q/E turn the view" });
@@ -338,7 +348,8 @@ public partial class RoomHud : CanvasLayer
             (Companion.FloatingThere ? " · floating there" : "") + (Companion.GoalBlocked ? " · path blocked" : "") +
             (holding.Length > 0 ? $"  ·  holding {holding} (F)" : "") + (Look?.Observe == true ? "  ·  observe view (O)" : "");
         _notice.Text = _noticeText;
-        _washVeil.Color = new Color(_washVeil.Color, Player.WashAshoreFade);
+        _washVeil.Color = new Color(_washVeil.Color, Player.HomeFade);
+        _moveKeys.Text = MoveKeys;
         var clock = ClockText();
         _clock.Visible = clock.Length > 0;
         _clock.Text = clock;

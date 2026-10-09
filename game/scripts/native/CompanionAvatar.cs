@@ -256,17 +256,17 @@ public partial class CompanionAvatar : SmallPlayerController
 
     public void BindPlayer(SmallPlayerController player)
     {
-        if (_player != null && GodotObject.IsInstanceValid(_player)) _player.WashedAshore -= PlayerWashedAshore;
+        if (_player != null && GodotObject.IsInstanceValid(_player)) _player.WentHome -= PlayerWentHome;
         _player = player;
-        player.WashedAshore += PlayerWashedAshore;
+        player.WentHome += PlayerWentHome;
     }
 
     /// <summary>
-    /// The player washed up on a beach: the Gubble comes too (founder's island: it floats over the sea and is never lost).
-    /// Following or coming to the player, or out past the reef itself, it appears beside them on the sand, on whichever side
+    /// The player went home (B, or the far net): the Gubble comes too (the founder's island: it floats over the sea and is
+    /// never lost). Following or coming to the player, or out past the reef itself, it appears beside them, on whichever side
     /// has room; with none, it floats there.
     /// </summary>
-    private void PlayerWashedAshore(SmallPlayerController player)
+    private void PlayerWentHome(SmallPlayerController player)
     {
         if (!IsInsideTree() || !GodotObject.IsInstanceValid(player)) return;
         var outAtSea = Sea != null && Sea.PastReefM(new Vector2(GlobalPosition.X, GlobalPosition.Z)) > 0;
@@ -770,7 +770,7 @@ public partial class CompanionAvatar : SmallPlayerController
     /// <summary>A heading without its components that would carry the body past a bound it stands within a probe of.</summary>
     private Vector3 AlongBounds(Vector3 heading)
     {
-        if (PlayableBounds is not { } bounds) return heading;
+        if (PlayableBounds is not { } bounds || !BoundsHoldSides) return heading;
         var here = GlobalPosition;
         var reach = BodyRadiusM + SteeringProbeM;
         if ((heading.X > 0 && here.X + reach > bounds.End.X) || (heading.X < 0 && here.X - reach < bounds.Position.X)) heading.X = 0;
