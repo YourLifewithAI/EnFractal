@@ -120,6 +120,15 @@ public static class MaterialLibrary
         SetLand(material, "stroke_normal_gain", paint.StrokeNormalGain);
         SetLand(material, "mark_fade_start", paint.MarkFadeStart);
         SetLand(material, "mark_fade_end", paint.MarkFadeEnd);
+        // The brush's finer marks close up (the land up close, Run 2): full strength for every role.
+        SetLand(material, "close_detail", LandscapeLook.CloseDetail);
+        // Haze only for what stands out at sea (OpenSea sets it on the distant islands' own copy).
+        SetLand(material, "haze_color", new Color(0.75f, 0.85f, 0.93f));
+        SetLand(material, "haze_energy", 1f);
+        SetLand(material, "haze_start_m", 0f);
+        SetLand(material, "haze_end_m", 1f);
+        SetLand(material, "haze_max", 0f);
+        SetLand(material, "haze_far_m", 0f);
         material.SetMeta("material_role", role);
         material.SetMeta("landscape", true);
         // VoxelGI voxelizes BaseMaterial3D albedo only, and ignores vertex colour: the look director bakes with this colour instead.
@@ -180,6 +189,17 @@ public static class MaterialLibrary
         SetWater(material, "horizon_energy", 1f);
         SetWater(material, "horizon_fade_start_m", 0f);
         SetWater(material, "horizon_fade_end_m", 0f);
+        // The sea's look (OpenSea turns it on for the sea's water): off for ponds and brooks.
+        SetWater(material, "use_sea", false);
+        SetWater(material, "sea_level", 0f);
+        SetWater(material, "sea_deep_m", SeaLook.Default.DeepM);
+        SetWater(material, "sea_clarity_m", SeaLook.Default.ClarityM);
+        SetWater(material, "sea_deep_tint", SeaLook.Default.DeepTint);
+        SetWater(material, "foam_color", SeaLook.Default.FoamColor);
+        SetWater(material, "foam_depth_m", SeaLook.Default.FoamDepthM);
+        SetWater(material, "foam_strength", SeaLook.Default.FoamStrength);
+        SetWater(material, "wave_spacing_m", SeaLook.Default.WaveSpacingM);
+        SetWater(material, "wave_speed", SeaLook.Default.WaveSpeed);
         material.SetMeta("material_role", role);
         material.SetMeta("landscape", true);
         material.SetMeta("water", true);

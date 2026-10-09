@@ -74,6 +74,22 @@ uniform float horizon_energy = 1.0;
 uniform float horizon_fade_start_m = 0.0;
 uniform float horizon_fade_end_m = 0.0;
 
+group_uniforms sea;
+// The island's sea (OpenSea sets these on the sea's water; ponds and brooks leave use_sea off). Water at the sea's level is
+// painted over the sea's own depths: the lagoon a light turquoise, the open sea deep. Where it is shallow, foam: breakers on
+// the reef's crest and gentle waves that run up the beaches (bands in depth that move toward the shallows), broken by a slow
+// noise so they read as brushed white water, not rings.
+uniform bool use_sea = false;
+uniform float sea_level = 0.0;
+uniform float sea_deep_m : hint_range(0.01, 4.0) = 0.7;
+uniform float sea_clarity_m : hint_range(0.005, 2.0) = 0.1;
+uniform vec3 sea_deep_tint = vec3(0.30, 0.42, 0.62);
+uniform vec3 foam_color : source_color = vec3(0.95, 0.97, 0.95);
+uniform float foam_depth_m : hint_range(0.0, 0.3) = 0.05;
+uniform float foam_strength : hint_range(0.0, 1.0) = 0.8;
+uniform float wave_spacing_m : hint_range(0.001, 0.2) = 0.018;
+uniform float wave_speed : hint_range(0.0, 2.0) = 0.25;
+
 uniform sampler2D depth_texture : hint_depth_texture, filter_nearest, repeat_disable;
 
 varying vec3 obj_pos;
@@ -175,18 +191,23 @@ void fragment() {
 
 	vec3 water = base_color * baked_color * glaze;
 	vec3 view_dir = normalize(VIEW);
+	// The sea: its own depth scale and clarity, so the lagoon and the open sea read apart.
+	bool sea = use_sea && abs(surface_world.y - sea_level) < 0.003;
+	float deep_scale = sea ? sea_deep_m : deep_m;
+	float clarity = sea ? sea_clarity_m : clarity_m;
+	vec3 deep_colour = sea ? sea_deep_tint : deep_tint;
 	vec3 color;
 	float alpha;
 	if (FRONT_FACING) {
 		// Depth in a few soft washes, their edges brushed by a slow noise, as a painter would lay in a pond.
 		float wobble = (wash.x - 0.5) * wash_wobble + (ripple_a.x - 0.5) * wash_wobble * 0.3 * d_rip;
 		float steps = max(wash_steps, 1.0);
-		float level = clamp(depth_m / deep_m, 0.0, 1.0) * steps + wobble;
+		float level = clamp(depth_m / deep_scale, 0.0, 1.0) * steps + wobble;
 		float washed = (floor(level) + smoothstep(0.35, 0.65, fract(level))) / steps;
-		float deepness = clamp(mix(clamp(depth_m / deep_m, 0.0, 1.0), washed, 0.75), 0.0, 1.0);
-		color = mix(water * shallow_tint, water * deep_tint, deepness);
+		float deepness = clamp(mix(clamp(depth_m / deep_scale, 0.0, 1.0), washed, 0.75), 0.0, 1.0);
+		color = mix(water * shallow_tint, water * deep_colour, deepness);
 		// Clear shallows, an opaque deep middle: the eye's path through the water sets how much the glaze hides.
-		alpha = mix(surface_alpha, max_alpha, 1.0 - exp(-path_m / clarity_m));
+		alpha = mix(surface_alpha, max_alpha, 1.0 - exp(-path_m / clarity));
 		alpha = max(alpha, mix(surface_alpha, max_alpha, deepness * deepness) * 0.85);
 		// The wet line where water meets the land, broken like a brushed edge.
 		float shore = (1.0 - smoothstep(0.0, shore_m, depth_m)) * smoothstep(0.25, 0.6, ripple_b.x * 0.6 + wash.x * 0.4) * shore_strength;
@@ -197,6 +218,17 @@ void fragment() {
 		float fresnel = pow(1.0 - ndv, 4.0) * sky_rim;
 		color = mix(color, sky_color * mix(vec3(1.0), water * 1.6, 0.25), fresnel * 0.6);
 		alpha = mix(alpha, 1.0, fresnel * 0.7);
+		if (sea && foam_depth_m > 0.0) {
+			// Bands of equal depth that drift toward the shallows: waves running up a beach; on the reef's broad shallow crest
+			// they crowd into breaking white water. Painted over the sky's sheen: foam is white whatever the angle.
+			float shallow = 1.0 - smoothstep(0.0, foam_depth_m, depth_m);
+			float phase = depth_m / wave_spacing_m + TIME * wave_speed + wash.x * 1.6;
+			float crest = smoothstep(0.5, 0.88, fract(phase)) * (1.0 - smoothstep(0.88, 1.0, fract(phase)));
+			float broken = smoothstep(0.25, 0.65, ripple_b.x * 0.55 + wash.x * 0.45);
+			float foam = clamp(pow(shallow, 0.7) * (0.45 + 0.55 * crest) * broken * foam_strength, 0.0, 1.0);
+			color = mix(color, foam_color, foam);
+			alpha = max(alpha, foam * 0.95);
+		}
 	} else {
 		// From below: the surface is a pale rippled ceiling where the sky shows through, mirror-like toward grazing angles
 		// (light inside water meets the surface at more than about 49 degrees and is reflected back down).
@@ -222,7 +254,8 @@ void fragment() {
 	n = normalize(n - tangential * stroke_normal_strength * stroke_normal_gain);
 
 	// Into the horizon: the far sea gives way to the sky's own colour, lit by nothing, as the sky is.
-	float horizon = horizon_fade_end_m > horizon_fade_start_m ? smoothstep(horizon_fade_start_m, horizon_fade_end_m, length(VERTEX)) : 0.0;
+	// Only from above: seen from below, the far underside is the sea's own murk, not the sky (a bright line at the far plane otherwise).
+	float horizon = FRONT_FACING && horizon_fade_end_m > horizon_fade_start_m ? smoothstep(horizon_fade_start_m, horizon_fade_end_m, length(VERTEX)) : 0.0;
 	ALBEDO = clamp(color, 0.0, 1.0) * (1.0 - horizon);
 	EMISSION = horizon_color * horizon_energy * horizon;
 	ALPHA = clamp(mix(alpha, 1.0, horizon), 0.0, 1.0);

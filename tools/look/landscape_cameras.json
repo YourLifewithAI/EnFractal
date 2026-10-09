@@ -160,6 +160,63 @@
       "view": "shoulder",
       "hide_player_body": false,
       "stage": { "player_m": [0.0, 0.095, -2.9], "yaw_deg": 180, "companion_m": [0.14, 0.085, -2.85] }
+    },
+    {
+      "id": "land_reef",
+      "label": "The reef from the open sea",
+      "purpose": "Run 2, the sea's look: a swimmer just outside the north reef looking back over it at the island: breakers and foam where the reef's crest lies 2 cm under the surface, the lagoon's lighter water inside it, the open sea's deeper colour outside.",
+      "position_m": [1.0, 0.12, -5.3],
+      "look_at_m": [1.0, 0.0, -3.9],
+      "fov_deg": 60,
+      "focus_m": [1.0, -0.02, -4.25],
+      "view": "shoulder",
+      "hide_player_body": false
+    },
+    {
+      "id": "land_beach",
+      "label": "Waves at the north beach",
+      "purpose": "Run 2, the sea's look: the north beach's shore from a little offshore and above, where gentle waves run up the shelving sand.",
+      "position_m": [2.35, 0.14, -3.95],
+      "look_at_m": [1.8, 0.0, -3.35],
+      "fov_deg": 55,
+      "focus_m": [1.85, 0.0, -3.45],
+      "view": "shoulder",
+      "hide_player_body": false
+    },
+    {
+      "id": "land_sea_near",
+      "label": "Off the island, looking home",
+      "purpose": "Run 2, the sea's look: 14 m off the north shore at swimmer height, looking home: the island under a little haze, the distant islands holding their place, and the thin grey arcs Lane L found near the horizon.",
+      "position_m": [3.0, 0.15, -14.0],
+      "look_at_m": [0.0, 0.3, 0.0],
+      "fov_deg": 68,
+      "focus_m": [2.94, 0.1, -13.7],
+      "view": "shoulder",
+      "hide_player_body": false
+    },
+    {
+      "id": "land_under_sea",
+      "label": "Under the open sea",
+      "purpose": "Run 2, the view under water: a diver 18 cm under the open sea off the north shore, looking along it: the water's tint and haze, the bed fading into it, and fish near the swimmer.",
+      "position_m": [6.0, -0.2, -12.0],
+      "look_at_m": [6.0, -0.24, -14.0],
+      "fov_deg": 72,
+      "focus_m": [6.0, -0.22, -12.4],
+      "view": "eye",
+      "hide_player_body": true,
+      "stage": { "player_m": [6.0, -0.06, -11.8], "yaw_deg": 180, "companion_m": [6.3, 0.1, -11.6] }
+    },
+    {
+      "id": "land_under_up",
+      "label": "The surface from below",
+      "purpose": "Run 2, the view under water: the same diver looking up toward the surface: the surface seen from below, the light from above, and the fish.",
+      "position_m": [6.0, -0.22, -12.0],
+      "look_at_m": [6.15, 0.0, -12.5],
+      "fov_deg": 72,
+      "focus_m": [6.08, -0.12, -12.25],
+      "view": "eye",
+      "hide_player_body": true,
+      "stage": { "player_m": [6.0, -0.06, -11.8], "yaw_deg": 180, "companion_m": [6.3, 0.1, -11.6] }
     }
   ]
 }

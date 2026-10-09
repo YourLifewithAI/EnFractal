@@ -42,6 +42,11 @@ public static class LandscapeLook
     public const string ShaderPath = "res://shaders/painterly_land.gdshader";
     /// <summary>Still and flowing water wear this shader instead: a glaze you can see into (Run 2, the founder's playtest round).</summary>
     public const string WaterShaderPath = "res://shaders/painterly_water.gdshader";
+    /// <summary>
+    /// How strongly the brush's finer marks come in close up (painterly_land's close_detail): the shoulder camera's ground and the
+    /// cliff beside the diorama camera read as brushwork rather than a smooth wash (the founder's F2 playtest, Run 2).
+    /// </summary>
+    public const float CloseDetail = 2.8f;
     /// <summary>Meta on a mesh whose surfaces wear landscape materials.</summary>
     public const string LandscapePaintedMeta = "look_landscape_painted";
 
@@ -172,4 +177,19 @@ public sealed record WaterLook(
     public static readonly WaterLook Flowing = Still with { ClarityM = 0.08f, SurfaceAlpha = 0.12f, ShoreStrength = 0.6f };
 
     public static WaterLook For(LandKind kind) => kind == LandKind.FlowingWater ? Flowing : Still;
+}
+
+/// <summary>
+/// How the island's sea is painted over the pond water it shares a material with (Run 2, the sea's look). Depths are metres in the
+/// 10 cm avatar's world: the lagoon (22 cm) reads a light turquoise, the open sea (66 cm and deeper) a deep blue-green, the reef's
+/// crest (2 cm under) breaks white. Foam fills water shallower than FoamDepthM in bands WaveSpacingM of depth apart that drift
+/// shoreward at WaveSpeed bands a second. The distant islands sit under a haze that reaches HazeMax of the horizon's colour
+/// between HazeStartM and HazeEndM, keeping their silhouettes.
+/// </summary>
+public sealed record SeaLook(
+    float DeepM, float ClarityM, Vector3 DeepTint, Color FoamColor, float FoamDepthM, float FoamStrength, float WaveSpacingM, float WaveSpeed,
+    float HazeStartM, float HazeEndM, float HazeMax)
+{
+    public static readonly SeaLook Default = new(0.55f, 0.1f, new Vector3(0.22f, 0.36f, 0.60f), new Color(0.95f, 0.97f, 0.95f), 0.07f, 0.9f, 0.012f, 0.25f,
+        3f, 45f, 0.55f);
 }

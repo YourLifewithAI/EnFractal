@@ -645,13 +645,15 @@ public partial class LookDirector : Node3D
         OpenSea = OpenSea.Build(sea, _room.Bounds, meshes.Where(m => m.HasMeta(WaterMeta)),
             meshes.Where(m => !m.HasMeta(WaterMeta) && m.HasMeta(LandscapeLook.LandscapePaintedMeta)));
         AddChild(OpenSea);
+        // The sea's fish follow the player's body, as depth of field does; never the Gubble.
+        OpenSea.SetSwimmer(() => FocusTarget ?? GetParent()?.GetChildren().OfType<SmallPlayerController>().FirstOrDefault(c => c is not CompanionAvatar));
         if (Moment != null)
         {
             var skyLook = LookSky.At(Preset, Moment, _moonYaw);
             OpenSea.SetHorizon(skyLook.Horizon, skyLook.Brightness);
         }
         if (OpenSea.Note.Length > 0) Warn(OpenSea.Note);
-        GD.Print($"LOOK: open sea: surface {(OpenSea.Surface != null ? "follows the camera" : "missing")}, bed at {OpenSea.BedY:0.###} m, {OpenSea.Islands.Count} distant island(s) holding their place");
+        GD.Print($"LOOK: open sea: surface {(OpenSea.Surface != null ? "follows the camera" : "missing")}, one sea floor at RoomSea.OpenSeaBedAt, {OpenSea.Islands.Count} distant island(s) holding their place");
     }
 
     /// <summary>Dress one mesh; returns true when it is shell geometry that belongs in the GI bake.</summary>

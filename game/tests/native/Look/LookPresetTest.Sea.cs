@@ -6,6 +6,7 @@ using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using EnFractal.Native;
 using EnFractal.Native.Look;
+using EnFractal.Native.Look.Fauna;
 using EnFractal.Native.Room;
 
 namespace EnFractal.Tests.Look;
@@ -146,8 +147,20 @@ public partial class LookPresetTest
         Check(surface.GetShaderParameter("world_pattern").AsBool() && surface.GetShaderParameter("use_hole").AsBool()
             && open.Hole.X <= land.Bounds.Position.X - 20f && open.Hole.Z >= land.Bounds.End.X + 20f,
             $"the surface paints in world space and leaves the room's own sea ({open.Hole}) to it");
-        var backdropFloor = built.FindChildren("*", "MeshInstance3D", true, false).OfType<MeshInstance3D>().Where(m => EntityOf(m) == "shell:scenery_moss").Select(m => (m.GlobalTransform * m.GetAabb()).Position.Y).DefaultIfEmpty(float.NaN).Min();
-        Check(open.BedY < backdropFloor && open.BedY > backdropFloor - 0.1f && open.BedY < land.Sea.LevelM - 1f, $"the open bed lies just under the backdrop's deepest floor ({open.BedY:0.###} under {backdropFloor:0.###} m)");
+        // One sea floor (Codex Astra's review: the look's bed and the bodies' bed were different surfaces): the backdrop's floor and
+        // the open bed past it lie at RoomSea.OpenSeaBedAt, the bed swimmers and divers touch, and meet at the floor's rim.
+        float Off(MeshInstance3D mesh)
+        {
+            var vertices = mesh.Mesh.SurfaceGetArrays(0)[(int)Mesh.ArrayType.Vertex].AsVector3Array();
+            return vertices.Select(v => mesh.GlobalTransform * v).Max(v => Mathf.Abs(v.Y - land.Sea.OpenSeaBedAt(new Vector2(v.X, v.Z))));
+        }
+        var bedVertices = open.Bed.Mesh.SurfaceGetArrays(0)[(int)Mesh.ArrayType.Vertex].AsVector3Array();
+        var reach = bedVertices.Max(v => new Vector2(v.X, v.Z).DistanceTo(open.Home));
+        Check(open.Floors.Count == 1 && Off(open.Floors[0]) < 1e-4f && Off(open.Bed) < 1e-4f && reach >= OpenSea.BedReachM - 1f,
+            $"the backdrop's floor and the open bed out to {reach:0} m lie on RoomSea.OpenSeaBedAt (off by at most {Mathf.Max(open.Floors.Count > 0 ? Off(open.Floors[0]) : 1f, Off(open.Bed)) * 1000f:0.###} mm)");
+        var floorRim = open.Floors[0].Mesh.SurfaceGetArrays(0)[(int)Mesh.ArrayType.Vertex].AsVector3Array().Select(v => open.Floors[0].GlobalTransform * v)
+            .Where(v => new Vector2(v.X, v.Z).DistanceTo(open.Home) > 40f).OrderByDescending(v => new Vector2(v.X, v.Z).DistanceTo(open.Home)).Take(8).ToArray();
+        Check(floorRim.All(r => bedVertices.Any(b => b.IsEqualApprox(r))), "the open bed carries on from the floor's own rim vertices, so the two meet without a seam");
         var floorMesh = built.FindChildren("*", "MeshInstance3D", true, false).OfType<MeshInstance3D>().First(m => EntityOf(m) == "shell:scenery_moss");
         var floorArrays = floorMesh.Mesh.SurfaceGetArrays(0);
         var floorVertices = floorArrays[(int)Mesh.ArrayType.Vertex].AsVector3Array();
@@ -166,10 +179,62 @@ public partial class LookPresetTest
             var swimmer = new Vector2(at.X, at.Z);
             var nearest = open.Islands.Min(i => (new Vector2(i.Mesh.GlobalPosition.X, i.Mesh.GlobalPosition.Z) - new Vector2(i.BasePosition.X, i.BasePosition.Z) + open.Home + i.HomeOffset).DistanceTo(swimmer) - i.KeepM);
             Check(new Vector2(open.Surface.GlobalPosition.X, open.Surface.GlobalPosition.Z).IsEqualApprox(swimmer) && Mathf.IsEqualApprox(open.Surface.GlobalPosition.Y, land.Sea.LevelM)
-                && new Vector2(open.Bed.GlobalPosition.X, open.Bed.GlobalPosition.Z).IsEqualApprox(swimmer) && nearest >= -1e-3f,
-                $"at {at} the sea's surface and bed are under the swimmer and every island keeps off");
+                && nearest >= -1e-3f,
+                $"at {at} the sea's surface is under the swimmer and every island keeps off");
         }
         Check(Mathf.IsEqualApprox(surface.GetShaderParameter("horizon_fade_end_m").AsSingle(), 100f * OpenSea.HorizonFadeEnd), "the far sea turns into the horizon just before the camera's far plane");
+        // The sea's look: the sea's water (and only water at its level) paints the sea's depths and foam; the distant islands wear
+        // their own copy of the backdrop's material, under the haze, wholly the horizon by the far plane (no sliver at the cut).
+        Check(surface.GetShaderParameter("use_sea").AsBool() && Mathf.IsEqualApprox(surface.GetShaderParameter("sea_level").AsSingle(), land.Sea.LevelM)
+            && surface.GetShaderParameter("foam_strength").AsSingle() > 0f && surface.GetShaderParameter("sea_deep_m").AsSingle() > 0.5f,
+            "the sea's water paints the sea's own depths (the lagoon light, the open sea deep) and its foam");
+        var islandMaterial = open.Islands[0].Mesh.GetSurfaceOverrideMaterial(0) as ShaderMaterial;
+        var floorMaterial = open.Floors[0].GetSurfaceOverrideMaterial(0) as ShaderMaterial;
+        Check(islandMaterial != null && floorMaterial != null && islandMaterial != floorMaterial && islandMaterial.GetShaderParameter("haze_max").AsSingle() > 0.3f
+            && floorMaterial.GetShaderParameter("haze_max").AsSingle() == 0f && Mathf.IsEqualApprox(islandMaterial.GetShaderParameter("haze_far_m").AsSingle(), 100f)
+            && open.Islands.All(i => i.Mesh.GetSurfaceOverrideMaterial(0) == islandMaterial),
+            "the distant islands sit under the haze, keep their silhouettes, and are wholly the horizon by the far plane; the floor keeps no haze");
+        // Fish in the sea's deeper water near the swimmer: a fixed number, kept near, never in the playable water, darting from the player.
+        var swimmerNode = new Node3D { Name = "Swimmer" };
+        holder.AddChild(swimmerNode);
+        var life = SeaLife.Create(land.Sea, () => swimmerNode);
+        holder.AddChild(life);
+        var count = life.Fish.Count;
+        foreach (var at in new[] { new Vector3(6f, -0.05f, -12f), new Vector3(60f, -0.05f, -90f), new Vector3(-700f, -0.05f, 400f) })
+        {
+            swimmerNode.GlobalPosition = at;
+            for (var step = 0; step < 30; step++) life.Advance(1f / 30f);
+            var placed = life.Anchors.OfType<Vector3>().ToArray();
+            Check(life.Fish.Count == count && placed.Length == SeaLife.SchoolCount && placed.All(a => new Vector2(a.X - at.X, a.Z - at.Z).Length() <= SeaLife.KeepWithinM && life.Habitable(new Vector2(a.X, a.Z)))
+                && life.Fish.All(f => f.Position.Y < land.Sea.LevelM && f.Position.Y > land.Sea.OpenSeaBedAt(new Vector2(f.Position.X, f.Position.Z))),
+                $"at {at} every school swims in deep open water within {SeaLife.KeepWithinM} m of the swimmer, between the bed and the surface ({count} fish)");
+        }
+        var nearestFish = life.Fish.OrderBy(f => f.Position.DistanceTo(swimmerNode.GlobalPosition)).First();
+        swimmerNode.GlobalPosition = nearestFish.Position + new Vector3(0.05f, 0f, 0f);
+        var before = nearestFish.Position.DistanceTo(swimmerNode.GlobalPosition);
+        for (var step = 0; step < 20; step++) life.Advance(1f / 30f);
+        Check(nearestFish.Position.DistanceTo(swimmerNode.GlobalPosition) > before + 0.08f, "a fish darts from the swimmer who comes close (and the Gubble is never one: SeaLife follows the player alone)");
+        swimmerNode.GlobalPosition = new Vector3(0f, 0.1f, 0f);
+        life.Advance(1f / 30f);
+        Check(life.Anchors.All(a => a == null || life.Habitable(new Vector2(a.Value.X, a.Value.Z))), "on the island the fish stay out in the open sea, never in the playable water");
+        // The view under the sea: the veil shows only while the camera is under the sea, off the island; a pond's own veil leaves the sea to it.
+        camera.GlobalPosition = new Vector3(6f, -0.2f, -12f);
+        open.Follow(camera);
+        var under = open.Veil.Visible && open.CameraUnderSea;
+        camera.GlobalPosition = new Vector3(6f, 0.05f, -12f);
+        open.Follow(camera);
+        var above = !open.Veil.Visible;
+        camera.GlobalPosition = new Vector3(0f, -0.05f, 0f);
+        open.Follow(camera);
+        var island = !open.Veil.Visible;
+        var veilMaterial = (ShaderMaterial)open.Veil.MaterialOverride!;
+        Check(under && above && island && veilMaterial.GetShaderParameter("up_light").AsSingle() > 0f && veilMaterial.GetShaderParameter("murk_m").AsSingle() > 0.2f,
+            "under the open sea the water tints and hazes the view, brighter toward the surface; above it, or under the island's own ground, there is no veil");
+        var pondLife = PondLife.Create(land.RoomId, built);
+        pondLife.SeaLevel = land.Sea.LevelM;
+        holder.AddChild(pondLife);
+        pondLife.SurveyNow(PondSurvey.RayProbe(GetWorld3D().DirectSpaceState));
+        Check(pondLife.VeilPondsFor().All(p => Mathf.Abs(p.Level - land.Sea.LevelM) > 0.003f), "the ponds' veil leaves the sea to the open sea's own, so the two never stack");
         look.SetClock(19.5f, 172);
         var horizon = LookSky.At(look.Preset, look.Moment).Horizon;
         Check(surface.GetShaderParameter("horizon_color").AsColor().IsEqualApprox(horizon), "and into the sky's own horizon colour of the hour");
@@ -224,5 +289,21 @@ public partial class LookPresetTest
         }
         holder.QueueFree();
         await Frames(1);
+    }
+
+    /// <summary>
+    /// The land up close (the founder's F2 playtest): near ground under the shoulder camera read as a smooth, blurred-looking wash because
+    /// the role's marks were many pixels wide there. Every landscape role now carries the brush's finer strokes and grain, which come in
+    /// only close up (their detail fades with the footprint like every mark).
+    /// </summary>
+    private void CheckLandUpClose(StylePreset preset)
+    {
+        MaterialLibrary.Configure(preset);
+        var roles = LandscapeLook.Roles.Keys.Where(r => !LandscapeLook.IsWater(r)).ToArray();
+        Check(roles.All(r => MaterialLibrary.ForLandscape(r, new Color("c7b8ad"), new Color("66a040")) is ShaderMaterial m && m.GetShaderParameter("close_detail").AsSingle() > 0.5f),
+            "every land role wears the brush's finer marks close up");
+        var code = Regex.Replace(GD.Load<Shader>(LandscapeLook.ShaderPath).Code, @"//[^\n]*", "");
+        Check(Regex.IsMatch(code, @"d_fine\s*=\s*detail\(s\s*\*\s*0\.07,\s*footprint\)\s*\*\s*close_detail") && Regex.IsMatch(code, @"if\s*\(d_fine\s*>\s*0\.0\)"),
+            "they fade with the footprint like every mark, and are skipped where they would be finer than a pixel");
     }
 }
