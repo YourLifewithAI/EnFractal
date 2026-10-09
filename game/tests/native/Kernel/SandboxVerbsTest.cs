@@ -74,6 +74,10 @@ public partial class SandboxVerbsTest : Node3D
             await TestUnreachable();
             GD.Print($"NATIVE_KERNEL_SANDBOX: {_checks - _failures}/{_checks} checks passed; pick up, carry, drop, place with snapping, stack and push through enfractal.command, with receipts, refusals, saved poses and a reload; fetch through the host{(_dump != null ? $"; {_dumped} messages dumped" : "")}");
             RemoveSave();
+            // Let the wrappers this long run left to the finalizer go before the engine tears down: in the Linux container's
+            // .NET, wrappers still pending at exit can abort Godot's shutdown after every check has passed.
+            System.GC.Collect();
+            System.GC.WaitForPendingFinalizers();
             GetTree().Quit(_failures == 0 ? 0 : 1);
         }
         catch (Exception error)

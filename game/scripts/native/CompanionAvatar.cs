@@ -599,11 +599,12 @@ public partial class CompanionAvatar : SmallPlayerController
     private bool ClearTo(Vector3 point, Rid ignore)
     {
         var from = GlobalPosition + Vector3.Up * (BodyHeightM * 0.5f);
-        var query = PhysicsRayQueryParameters3D.Create(from, point, RoomBuilder.BodyMask);
+        using var query = PhysicsRayQueryParameters3D.Create(from, point, RoomBuilder.BodyMask);
         var exclude = new Godot.Collections.Array<Rid> { GetRid() };
         if (ignore.IsValid) exclude.Add(ignore);
         query.Exclude = exclude;
-        return GetWorld3D().DirectSpaceState.IntersectRay(query).Count == 0;
+        using var hit = GetWorld3D().DirectSpaceState.IntersectRay(query);
+        return hit.Count == 0;
     }
 
     /// <summary>Arrived by floating: it stays, holding its height (beside a player up a tree, it does not sink to the ground below).</summary>

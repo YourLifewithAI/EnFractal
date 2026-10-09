@@ -533,7 +533,8 @@ public partial class LandscapePlayTest : Node3D
             }
             player.SetControlInput(Vector2.Zero);
             await Frames(30);
-            var under = space.IntersectRay(PhysicsRayQueryParameters3D.Create(player.GlobalPosition + Vector3.Up * 0.02f, player.GlobalPosition + Vector3.Down * 0.03f, RoomBuilder.WorldLayer, new Godot.Collections.Array<Rid> { player.GetRid() }));
+            // What the body stands on, as the body sees it: the world and the hidden layer, where the crown caps are.
+            var under = space.IntersectRay(PhysicsRayQueryParameters3D.Create(player.GlobalPosition + Vector3.Up * 0.02f, player.GlobalPosition + Vector3.Down * 0.03f, RoomBuilder.BodyMask, new Godot.Collections.Array<Rid> { player.GetRid() }));
             var standingOn = under.Count > 0 ? (under["collider"].AsGodotObject() as Node)?.GetMeta("entity_id", "").AsString() ?? "" : "";
             climbed = player.Grabs > grabs && player.PullOvers > pulls && player.IsOnFloor() && standingOn == "shell:tree_climb_foliage" && player.GlobalPosition.Y - start.Y > 0.12f;
             if (climbed) _climbedTree = (start, toward);
@@ -667,7 +668,8 @@ public partial class LandscapePlayTest : Node3D
         player.ReadKeyboard = false;
         await Frames(30);
         var space = GetWorld3D().DirectSpaceState;
-        var under = space.IntersectRay(PhysicsRayQueryParameters3D.Create(player.GlobalPosition + Vector3.Up * 0.02f, player.GlobalPosition + Vector3.Down * 0.03f, RoomBuilder.WorldLayer, new Godot.Collections.Array<Rid> { player.GetRid() }));
+        // What the body stands on, as the body sees it: the world and the hidden layer, where the crown caps are.
+        var under = space.IntersectRay(PhysicsRayQueryParameters3D.Create(player.GlobalPosition + Vector3.Up * 0.02f, player.GlobalPosition + Vector3.Down * 0.03f, RoomBuilder.BodyMask, new Godot.Collections.Array<Rid> { player.GetRid() }));
         var standingOn = under.Count > 0 ? (under["collider"].AsGodotObject() as Node)?.GetMeta("entity_id", "").AsString() ?? "" : "";
         var reached = player.Grabs > grabs && player.PullOvers > pulls && player.IsOnFloor() && standingOn == "shell:tree_climb_foliage";
         Measure($"LANDSCAPE_TREE_KEYS W held, the view turned 25 deg once on the trunk, the follow camera live: {(reached ? "reached the crown" : "did not reach the crown")}; grabbed {player.Grabs - grabs}, pulled over {player.PullOvers - pulls}, " +
@@ -911,6 +913,10 @@ public partial class LandscapePlayTest : Node3D
         GD.Print($"NATIVE_KERNEL_LANDSCAPE: {_checks - _failures}/{_checks} checks passed; both bodies held inside the bounds, the companion's go_to and fetch and the player's carry on the land, every promised destination reached, cliffs and a tree climbed");
         RemoveSaves();
         CommandHost.SaveRoot = CommandHost.DefaultSaveRoot;
+        // Let the wrappers this long run left to the finalizer go before the engine tears down: in the Linux container's
+        // .NET, wrappers still pending at exit can abort Godot's shutdown after every check has passed.
+        System.GC.Collect();
+        System.GC.WaitForPendingFinalizers();
         GetTree().Quit(_failures == 0 ? 0 : 1);
     }
 

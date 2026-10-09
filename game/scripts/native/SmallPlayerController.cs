@@ -780,10 +780,12 @@ public partial class SmallPlayerController : CharacterBody3D
         foreach (var column in ahead == Vector3.Zero ? new[] { feet } : new[] { feet, feet + ahead })
         {
             var from = column + Vector3.Up * (BodyHeightM * 0.5f);
-            var query = PhysicsRayQueryParameters3D.Create(from, column + Vector3.Down * HoverSupportSearchM, RoomBuilder.BodyMask);
-            query.Exclude = new Array<Rid> { GetRid() };
+            // Disposed at once: these run every tick, and wrappers left to the finalizer pile up (and trip Godot's exit).
+            using var query = PhysicsRayQueryParameters3D.Create(from, column + Vector3.Down * HoverSupportSearchM, RoomBuilder.BodyMask);
+            var exclude = new Array<Rid> { GetRid() };
+            query.Exclude = exclude;
             query.HitBackFaces = false;
-            var hit = space.IntersectRay(query);
+            using var hit = space.IntersectRay(query);
             if (hit.Count > 0 && (best == null || hit["position"].AsVector3().Y > best)) best = hit["position"].AsVector3().Y;
             // Water is a sheet on its own layer (RoomWater): the highest one under the middle, or over the feet if the body has sunk in.
             var water = RoomWater.At(space, column + Vector3.Up * (BodyHeightM * 0.5f), BodyHeightM, HoverSupportSearchM, GetRid());
@@ -800,10 +802,11 @@ public partial class SmallPlayerController : CharacterBody3D
     private float? Ceiling(Vector3 feet)
     {
         var from = feet + Vector3.Up * (BodyHeightM * 0.5f);
-        var query = PhysicsRayQueryParameters3D.Create(from, feet + Vector3.Up * (BodyHeightM + HoverHeightM + HoverBobM + 0.01f), RoomBuilder.BodyMask);
-        query.Exclude = new Array<Rid> { GetRid() };
+        using var query = PhysicsRayQueryParameters3D.Create(from, feet + Vector3.Up * (BodyHeightM + HoverHeightM + HoverBobM + 0.01f), RoomBuilder.BodyMask);
+        var exclude = new Array<Rid> { GetRid() };
+        query.Exclude = exclude;
         query.HitBackFaces = false;
-        var hit = GetWorld3D().DirectSpaceState.IntersectRay(query);
+        using var hit = GetWorld3D().DirectSpaceState.IntersectRay(query);
         return hit.Count > 0 ? hit["position"].AsVector3().Y : null;
     }
 
