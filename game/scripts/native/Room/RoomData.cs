@@ -98,6 +98,8 @@ public sealed class RoomData
     public IReadOnlyList<LightHint> LightHints { get; private init; } = Array.Empty<LightHint>();
     public IReadOnlyList<ShellOpening> Openings { get; private init; } = Array.Empty<ShellOpening>();
     public StylePin? DefaultStyle { get; private init; }
+    /// <summary>The island's sea (extensions.x_landscape_sea, checked on reading), or null: a room without it has no sea edge.</summary>
+    public RoomSea? Sea { get; private init; }
     /// <summary>Mesh bytes exactly as hash-verified, keyed by full path; the builder never reads them from disk again.</summary>
     public IReadOnlyDictionary<string, byte[]> VerifiedMeshes { get; private init; } = new Dictionary<string, byte[]>();
 
@@ -169,6 +171,10 @@ public sealed class RoomData
         var ids = shell.Select(s => s.Id).Concat(objects.Select(o => o.Id)).ToArray();
         Expect(ids.Length == ids.Distinct().Count(), "shell and object ids must be unique");
         Expect(spawns.Any(s => s.Role is "player" or "any") && spawns.Any(s => s.Role is "companion" or "any"), "room needs player and companion spawns");
+        RoomSea? sea = null;
+        if (root.TryGetProperty("extensions", out var extensions) && extensions.ValueKind == JsonValueKind.Object &&
+            extensions.TryGetProperty(RoomSea.ExtensionName, out var seaRecord))
+            sea = RoomSea.Parse(seaRecord, new Aabb(min, max - min));
         StylePin? style = null;
         if (root.TryGetProperty("default_style", out var pin))
             style = new StylePin(Str(pin, "preset_id"), Int(pin, "preset_version"), Str(pin, "preset_sha256"));
@@ -177,7 +183,7 @@ public sealed class RoomData
         {
             Directory = directory, RoomId = roomId, DisplayName = Display(root, "display_name", 80), DefaultStyle = style, VerifiedMeshes = meshes,
             SourceKind = Str(root.GetProperty("source"), "kind"), ManifestSha256 = Sha256Hex(manifestBytes),
-            Bounds = new Aabb(min, max - min), Shell = shell, Objects = objects, Spawns = spawns, LightHints = hints, Openings = openings,
+            Bounds = new Aabb(min, max - min), Shell = shell, Objects = objects, Spawns = spawns, LightHints = hints, Openings = openings, Sea = sea,
         };
     }
 

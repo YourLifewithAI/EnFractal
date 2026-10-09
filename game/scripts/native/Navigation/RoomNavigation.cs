@@ -67,7 +67,9 @@ public partial class RoomNavigation : Node
     /// <summary>The integrator's one-line wiring: bake the built room for the companion and give it the map.</summary>
     public static RoomNavigation Attach(RoomWorld world)
     {
-        var bounds = world.Room.Bounds;
+        // An island bakes its land only: the sea floor out to the reef doubled the bake (garage: 86-114 ms against 50-57 ms),
+        // and nobody walks there (swimmers swim, the Gubble floats).
+        var bounds = world.Room.Sea?.LandBounds(world.Room.Bounds) ?? world.Room.Bounds;
         var navigation = Create(world, world.Built, bounds, WorldScaleProfile.Companion, world.Companion.StepHeightM * 0.75f);
         world.Companion.BindNavigation(navigation);
         return navigation;

@@ -250,7 +250,34 @@ public partial class CompanionAvatar : SmallPlayerController
         if (_label != null) _label.Text = NameTag;
     }
 
-    public void BindPlayer(SmallPlayerController player) => _player = player;
+    public void BindPlayer(SmallPlayerController player)
+    {
+        if (_player != null && GodotObject.IsInstanceValid(_player)) _player.WashedAshore -= PlayerWashedAshore;
+        _player = player;
+        player.WashedAshore += PlayerWashedAshore;
+    }
+
+    /// <summary>
+    /// The player washed up on a beach: the Gubble comes too (founder's island: it floats over the sea and is never lost).
+    /// Following or coming to the player, or out past the reef itself, it appears beside them on the sand, on whichever side
+    /// has room; with none, it floats there.
+    /// </summary>
+    private void PlayerWashedAshore(SmallPlayerController player)
+    {
+        if (!IsInsideTree() || !GodotObject.IsInstanceValid(player)) return;
+        var outAtSea = Sea != null && Sea.PastReefM(new Vector2(GlobalPosition.X, GlobalPosition.Z)) > 0;
+        if (CurrentIntent is not ("follow" or "come") && !outAtSea) return;
+        var right = player.GlobalBasis.X;
+        var forward = -player.GlobalBasis.Z;
+        foreach (var offset in new[] { right * FollowSideM, -right * FollowSideM, forward * FollowSideM, (right + forward) * (FollowSideM * 0.7f) })
+            if (TryTeleportTo(player.GlobalPosition + offset))
+            {
+                _route = RoomNavigation.Route.None;
+                _floating = false;
+                if (CurrentIntent == "follow") _following = false;
+                return;
+            }
+    }
 
     /// <summary>Give the companion the room's navigation (or none): follow and come then route round obstacles.</summary>
     public void BindNavigation(RoomNavigation? navigation)

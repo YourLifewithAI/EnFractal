@@ -226,6 +226,28 @@ public partial class SmallPlayerController : CharacterBody3D
     public int RiseTicks { get; private set; }
     public int DuckTicks { get; private set; }
 
+    // ---- The sea's edge (an island in an endless sea; the founder, 9 October: "My daughter hates the invisible wall"). No
+    // punishment at the edge: past the reef a gentle current turns a swimmer back toward the island; one who pushes on past
+    // the playable water washes up on the nearest beach, after a fade, standing on the sand and facing inland.
+
+    /// <summary>The room's sea (Room/RoomSea), set by the command host; null keeps the old behaviour (the bounds are the edge).</summary>
+    public RoomSea? Sea { get; private set; }
+    /// <summary>The current at the edge of the playable water: 0.6 of the swim, so a swimmer still makes headway against it.</summary>
+    public const float SeaCurrentMaxMps = 0.115f;
+    /// <summary>The fade to the beach, then the fade back in.</summary>
+    public const float WashFadeS = 0.6f;
+    /// <summary>The current applied to the body on the last tick (metres a second, over the ground).</summary>
+    public Vector3 SeaCurrent { get; private set; }
+    public int WashAshores { get; private set; }
+    /// <summary>The beach the body last washed up on ("" before any).</summary>
+    public string LastBeachId { get; private set; } = "";
+    /// <summary>True from leaving the playable water until the fade back in ends: the body takes no input meanwhile.</summary>
+    public bool WashingAshore => _washTime >= 0;
+    /// <summary>How dark the wash-ashore fade is now: 0 to 1 and back (the HUD draws it).</summary>
+    public float WashAshoreFade => _washTime < 0 ? 0 : _washTime < WashFadeS ? _washTime / WashFadeS : Mathf.Clamp(2 - _washTime / WashFadeS, 0, 1);
+    /// <summary>Raised when the body has been put on a beach (the Gubble comes too).</summary>
+    public event System.Action<SmallPlayerController>? WashedAshore;
+
     public bool IsClimbing => _climbing;
     public bool IsPullingOver => _climbing && _pullPhase > 0;
     public bool IsSwimming => _swimming;
@@ -282,6 +304,8 @@ public partial class SmallPlayerController : CharacterBody3D
     private float _tilt;
     private float _visualYaw;
     private float _hoverClock;
+    private float _washTime = -1;
+    private bool _washed;
 
     public override void _Ready()
     {
@@ -386,6 +410,12 @@ public partial class SmallPlayerController : CharacterBody3D
         PlayableBounds = bounds;
         return true;
     }
+
+    /// <summary>Test seam for the body suites: no playable bounds again.</summary>
+    internal void ClearPlayableBounds() => PlayableBounds = null;
+
+    /// <summary>The trusted host's sea for this room (null for none).</summary>
+    public void SetSea(RoomSea? sea) => Sea = sea;
 
     /// <summary>Whether feet here keep the whole capsule inside the playable bounds horizontally (always, without bounds).</summary>
     public bool InsidePlayableBounds(Vector3 feetPosition)
@@ -607,9 +637,11 @@ public partial class SmallPlayerController : CharacterBody3D
         // Separate last tick's creation contribution from the body's own motion.
         Velocity -= _creationApplied;
         _creationApplied = Vector3.Zero;
-        var control = InputEnabled ? _control : Vector2.Zero;
+        UpdateWashAshore(dt);
+        var control = InputEnabled && !WashingAshore ? _control : Vector2.Zero;
         var sprint = _sprint;
-        if (InputEnabled && ReadKeyboard)
+        if (WashingAshore) _jumpBuffer = 0;
+        if (InputEnabled && ReadKeyboard && !WashingAshore)
         {
             control = new Vector2(
                 (Input.IsPhysicalKeyPressed(Key.D) ? 1 : 0) - (Input.IsPhysicalKeyPressed(Key.A) ? 1 : 0),
@@ -635,11 +667,14 @@ public partial class SmallPlayerController : CharacterBody3D
         wish.Y = 0;
         var before = GlobalPosition;
         SampleWater(dt);
+        SeaCurrent = CurrentHere();
         if (_climbing) Climb(dt, control);
         else if (Floats) Hover(dt, wish, sprint);
         else if (UpdateSwimming()) Swim(dt, wish, sprint);
         else Walk(dt, wish, sprint, onFloor);
         HoldInsideBounds();
+        // Past the playable water: wash ashore (a floating body never does; it hovers over the sea and the bounds hold it).
+        if (Sea != null && !Floats && !WashingAshore && !Sea.InPlayArea(new Vector2(GlobalPosition.X, GlobalPosition.Z))) BeginWashAshore();
         // Project the creation contribution along contacts the same way MoveAndSlide projects motion.
         for (var index = 0; index < GetSlideCollisionCount(); index++)
         {
@@ -674,7 +709,7 @@ public partial class SmallPlayerController : CharacterBody3D
     private void Walk(float dt, Vector3 wish, bool sprint, bool onFloor)
     {
         var start = GlobalPosition;
-        var desired = wish * (sprint ? RunSpeedMps : WalkSpeedMps) * WadeFactor();
+        var desired = wish * (sprint ? RunSpeedMps : WalkSpeedMps) * WadeFactor() + SeaCurrent;
         if (!onFloor && WindMps != Vector2.Zero)
             desired = (desired + new Vector3(WindMps.X, 0, WindMps.Y)).LimitLength(RunSpeedMps + WindMps.Length());
         var acceleration = onFloor ? GroundAccelerationMps2 : AirAccelerationMps2 * AirControl;
@@ -709,6 +744,65 @@ public partial class SmallPlayerController : CharacterBody3D
         // A face too steep to stand on, pushed into: grab it (at once in the air, after a deliberate push on the ground).
         var grounded = IsOnFloor();
         TryGrab(dt, wish, deliberate: grounded, heldBack: !grounded || HeldBack(start, wish, WalkSpeedMps, dt));
+    }
+
+    /// <summary>The sea's current where the body is in the water (wading or swimming) past the reef; none on land or for a floating body.</summary>
+    private Vector3 CurrentHere()
+    {
+        if (Sea == null || Floats || !Water.Wet || Water.Under(GlobalPosition) <= 0) return Vector3.Zero;
+        var current = Sea.Current(new Vector2(GlobalPosition.X, GlobalPosition.Z), SeaCurrentMaxMps);
+        return new Vector3(current.X, 0, current.Y);
+    }
+
+    private void BeginWashAshore()
+    {
+        _washTime = 0;
+        _washed = false;
+        _jumpBuffer = 0;
+    }
+
+    /// <summary>The wash-ashore: the fade out (the sea carries the body on meanwhile), the beach, then the fade back in.</summary>
+    private void UpdateWashAshore(float dt)
+    {
+        if (_washTime < 0) return;
+        _washTime += dt;
+        if (!_washed && _washTime >= WashFadeS)
+        {
+            _washed = true;
+            WashAshore();
+        }
+        if (_washTime >= 2 * WashFadeS) _washTime = -1;
+    }
+
+    /// <summary>
+    /// Onto the nearest beach, standing on the sand and facing inland; a beach with no room there tries a few spots round it,
+    /// and with none at all the body recovers to its last safe footing (it never falls off the world).
+    /// </summary>
+    private void WashAshore()
+    {
+        var here = new Vector2(GlobalPosition.X, GlobalPosition.Z);
+        var landed = false;
+        if (Sea?.NearestBeach(here) is { } beach)
+        {
+            var inland = new Basis(Vector3.Up, Mathf.DegToRad(beach.YawDeg)) * Vector3.Forward;
+            var side = inland.Cross(Vector3.Up);
+            foreach (var offset in new[] { Vector3.Zero, side * 0.06f, -side * 0.06f, inland * 0.06f, side * 0.12f, -side * 0.12f, inland * 0.12f })
+                if (TryTeleportTo(beach.WashAshoreM + offset))
+                {
+                    landed = true;
+                    break;
+                }
+            if (landed)
+            {
+                Rotation = new Vector3(0, Mathf.DegToRad(beach.YawDeg), 0);
+                LastBeachId = beach.Id;
+            }
+        }
+        if (!landed) Recover();
+        Velocity = Vector3.Zero;
+        ClearCreationMotion();
+        WashAshores++;
+        WashedAshore?.Invoke(this);
     }
 
     /// <summary>
@@ -916,7 +1010,7 @@ public partial class SmallPlayerController : CharacterBody3D
             EndSwim();
         }
         else _jumpBuffer = Mathf.Max(0, _jumpBuffer - dt);
-        var desired = wish * WalkSpeedMps * (sprint ? 1.0f : SwimSpeedFactor);
+        var desired = wish * WalkSpeedMps * (sprint ? 1.0f : SwimSpeedFactor) + SeaCurrent;
         var horizontal = WithinBounds(new Vector3(Velocity.X, 0, Velocity.Z).MoveToward(desired, SwimAccelerationMps2 * dt), dt);
         var total = WithCreation(new Vector3(horizontal.X, vertical, horizontal.Z), dt);
         if (_swimming) total.Y = CatchInWater(total.Y, dt);

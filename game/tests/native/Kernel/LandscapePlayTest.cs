@@ -98,6 +98,12 @@ public partial class LandscapePlayTest : Node3D
     /// </summary>
     private async Task TestEdgeOfTheWorld()
     {
+        // An island (x_landscape_sea): no wall at the bounds any more, but a reef, a current and the beaches.
+        if (_world.Room.Sea != null)
+        {
+            await TestSeaEdge(_world.Room.Sea);
+            return;
+        }
         var bounds = _world.Room.Bounds;
         var edges = WalkableEdges(bounds);
         Measure("LANDSCAPE_EDGE walkable land at the bounds: " + (edges.Count == 0 ? "none" : string.Join(", ", edges.Select(e => $"{e.Side} at {Text(e.Inside)} (slope {e.SlopeDeg:0} deg)"))));
@@ -149,6 +155,103 @@ public partial class LandscapePlayTest : Node3D
     }
 
     private const float EdgeInsetM = 0.10f;
+
+    /// <summary>
+    /// The island's edge on the generated garage (the founder, 9 October: "My daughter hates the invisible wall"). From the
+    /// water off a beach, out past the reef: a swimmer who stops is carried back by the current; one who swims on washes up on
+    /// the nearest beach, standing on the sand facing inland, with the bounds never holding them back; the Gubble comes too.
+    /// The bounds' top stands well over the highest land, and the Gubble sent out past the bounds stays inside them, hovering.
+    /// </summary>
+    private async Task TestSeaEdge(RoomSea sea)
+    {
+        var bounds = _world.Room.Bounds;
+        var player = _world.Player;
+        var companion = _world.Companion;
+        var space = GetWorld3D().DirectSpaceState;
+        Measure($"LANDSCAPE_SEA level {sea.LevelM:0.000} m; coast {sea.Coast.Length} points, reef {sea.Reef.Length} (crest {sea.ReefCrestYM:0.000} m), playable water {sea.PlayArea.Length}; beaches " +
+            string.Join(", ", sea.Beaches.Select(b => $"{b.Id} at {Text(b.WashAshoreM)} facing {b.YawDeg:0}")));
+        Check(sea.Beaches.Count > 0 && player.Sea == sea && companion.Sea == sea, "the island's sea reaches both bodies, with beaches to wash up on");
+
+        // No wall to climb: the bounds' top over the highest land, by more than a body and the floatiest leap.
+        var highest = float.NegativeInfinity;
+        for (var x = bounds.Position.X; x < bounds.End.X; x += 0.1f)
+            for (var z = bounds.Position.Z; z < bounds.End.Z; z += 0.1f)
+            {
+                var hit = space.IntersectRay(PhysicsRayQueryParameters3D.Create(new Vector3(x, bounds.End.Y + 1, z), new Vector3(x, bounds.Position.Y - 1, z), RoomBuilder.BodyMask));
+                if (hit.Count > 0) highest = Mathf.Max(highest, hit["position"].AsVector3().Y);
+            }
+        Measure($"LANDSCAPE_SEA the highest land {highest:0.000} m; the bounds' top {bounds.End.Y:0.000} m");
+        Check(highest + player.BodyHeightM + player.MaxJumpApexM < bounds.End.Y, $"the bounds' top stands over the highest land with room for a body and its floatiest leap ({bounds.End.Y - highest:0.00} m over it)");
+
+        // Open water past the reef: off the first beach, outward until past the reef and deep enough to swim.
+        var beach = sea.Beaches[0];
+        var outward = -(new Basis(Vector3.Up, Mathf.DegToRad(beach.YawDeg)) * Vector3.Forward);
+        Vector3? open = null;
+        for (var step = 0.0f; step < 3.0f && open == null; step += 0.05f)
+        {
+            var at = beach.WaterM + outward * step;
+            var flat = new Vector2(at.X, at.Z);
+            var past = sea.PastReefM(flat);
+            if (past > sea.ReefBandHalfWidthM + 0.1f && sea.InPlayArea(flat) && RoomWater.DepthAt(space, new Vector3(at.X, sea.LevelM, at.Z)) > 0.2f) open = new Vector3(at.X, sea.LevelM, at.Z);
+        }
+        Check(open != null, $"open water past the reef off {beach.Id}");
+        if (open is not { } start) return;
+        Send(Command(NextId("follow"), "goal.set", new JsonObject { ["actor"] = CompanionAvatar, ["goal"] = "follow" }), Player);
+        Check(companion.TryTeleportTo(beach.WashAshoreM + Vector3.Up * 0.01f), "the Gubble waits on the beach");
+
+        // The current: a swimmer who stops out there is carried back toward the island.
+        player.SetControlInput(Vector2.Zero);
+        player.GlobalPosition = start + Vector3.Down * player.SwimFloatDepthM;
+        player.Velocity = Vector3.Zero;
+        player.ResetPhysicsInterpolation();
+        await Frames(10);
+        var pastBefore = sea.PastReefM(new Vector2(player.GlobalPosition.X, player.GlobalPosition.Z));
+        var washes = player.WashAshores;
+        await Frames(240);
+        var pastAfter = sea.PastReefM(new Vector2(player.GlobalPosition.X, player.GlobalPosition.Z));
+        Measure($"LANDSCAPE_SEA a swimmer stopped {pastBefore:0.00} m past the reef is carried to {pastAfter:0.00} m in 4 s (swimming {player.IsSwimming}, current {player.SeaCurrent.Length():0.000} m/s)");
+        Check(player.IsSwimming && pastAfter < pastBefore - 0.05f && player.WashAshores == washes, "past the reef the current carries a swimmer who stops back toward the island");
+
+        // Swim on out: washed up on the nearest beach, standing, facing inland; the bounds never hold the swimmer back.
+        player.Rotation = new Vector3(0, Mathf.Atan2(-outward.X, -outward.Z), 0);
+        var stops = player.BoundsStops;
+        player.SetControlInput(new Vector2(0, 1));
+        var frames = 0;
+        var left = Vector2.Zero;
+        for (; frames < 3600 && (player.WashAshores == washes || player.WashingAshore); frames++)
+        {
+            await Frames(1);
+            if (player.WashAshores == washes) left = new Vector2(player.GlobalPosition.X, player.GlobalPosition.Z);
+        }
+        player.SetControlInput(Vector2.Zero);
+        await Frames(30);
+        var nearest = sea.NearestBeach(left)!.Value;
+        var landed = player.GlobalPosition - nearest.WashAshoreM;
+        Measure($"LANDSCAPE_SEA swam out {frames / 60.0f:0.0} s and washed up on {player.LastBeachId} (nearest to where it left the water: {nearest.Id}), {new Vector2(landed.X, landed.Z).Length():0.00} m from its spot, facing {Mathf.RadToDeg(player.Rotation.Y):0} deg, on floor {player.IsOnFloor()}, bound stops {player.BoundsStops - stops}");
+        Check(player.WashAshores == washes + 1 && player.LastBeachId == nearest.Id && player.IsOnFloor() && !player.IsSwimming && new Vector2(landed.X, landed.Z).Length() < 0.15f &&
+            Mathf.Abs(Mathf.AngleDifference(player.Rotation.Y, Mathf.DegToRad(nearest.YawDeg))) < 0.01f && player.BoundsStops == stops,
+            "swimming on past the current, the player washes up on the nearest beach, standing on the sand facing inland, never held by the bounds");
+        var gap = PlanarDistance(companion.GlobalPosition, player.GlobalPosition);
+        Check(gap < 0.4f, $"the Gubble comes too ({gap:0.00} m from the player)");
+
+        // The Gubble sent a metre past the bounds over the open sea: it stays inside them, hovering over the water.
+        var far = start + outward * 10;
+        companion.GoTo(new Aabb(new Vector3(Mathf.Clamp(far.X, bounds.Position.X - 1, bounds.End.X + 1), sea.LevelM, Mathf.Clamp(far.Z, bounds.Position.Z - 1, bounds.End.Z + 1)), Vector3.Zero), CommandHost.GoToStopM);
+        var worstOut = float.NegativeInfinity;
+        var lowest = float.PositiveInfinity;
+        for (var i = 0; i < 900; i++)
+        {
+            await Frames(1);
+            worstOut = Mathf.Max(worstOut, Outside(bounds, companion.GlobalPosition, companion.BodyRadiusM));
+            if (companion.HoversOverWater) lowest = Mathf.Min(lowest, companion.GlobalPosition.Y - sea.LevelM);
+        }
+        Measure($"LANDSCAPE_SEA the Gubble sent past the bounds over the sea: furthest {worstOut * 100:0.0} cm past, lowest {lowest * 100:0.0} cm over the water, intent {companion.CurrentIntent}, blocked {companion.GoalBlocked}");
+        Check(worstOut <= 0.001f && lowest > 0.005f && companion.WashAshores == 0, "the Gubble floats out over the sea and is never lost: inside the bounds, over the water");
+        companion.Stop();
+        Check(player.TryTeleportTo(_world.Room.SpawnFor("player").PositionM) && companion.TryTeleportTo(_world.Room.SpawnFor("companion").PositionM), "both bodies back at their spawns");
+        player.Rotation = new Vector3(0, Mathf.DegToRad(_world.Room.SpawnFor("player").YawDeg), 0);
+        await Frames(10);
+    }
 
     /// <summary>The Gubble hovers within its hover height (and bob, and a little settling) over the ground or water under it.</summary>
     private static bool Hovering(SmallPlayerController body) =>
@@ -253,7 +356,9 @@ public partial class LandscapePlayTest : Node3D
             $"the companion fetches it across the land and stands {gap:0.00} m from the player holding it ({trip.Summary()}): {job?.ToJsonString()}");
         var down = Send(Command(NextId("down"), "entity.release", new JsonObject { ["actor"] = CompanionAvatar }), Player);
         await Frames(10);
-        Check(Ok(down) && Supported(CrateBox()), "the companion sets it down on the land: " + Code(down));
+        var setDown = CrateBox();
+        var groundUnder = GroundBelow(setDown.GetCenter());
+        Check(Ok(down) && Supported(setDown), $"the companion sets it down on the land: {Code(down)} (the crate's foot at {Text(new Vector3(setDown.GetCenter().X, setDown.Position.Y, setDown.GetCenter().Z))}, the ground under its middle at {groundUnder:0.000})");
     }
 
     /// <summary>
@@ -327,7 +432,22 @@ public partial class LandscapePlayTest : Node3D
     /// </summary>
     private async Task TestNavigationClimb()
     {
-        var bounds = _world.Room.Bounds;
+        // An island's walkable map is its land (RoomNavigation.Attach): survey the same, and measure the bake with the sea too.
+        var sea = _world.Room.Sea;
+        var bounds = sea?.LandBounds(_world.Room.Bounds) ?? _world.Room.Bounds;
+        if (sea != null)
+        {
+            var whole = RoomNavigation.Create(this, _world.Built, _world.Room.Bounds, WorldScaleProfile.Companion, 0.01f);
+            for (var i = 0; i < 30 && !whole.IsReady; i++) await Frames(1);
+            var land = new List<double>();
+            var all = new List<double>();
+            for (var i = 0; i < 3; i++) { _navigation.Bake(); land.Add(_navigation.LastBakeMs); whole.Bake(); all.Add(whole.LastBakeMs); }
+            land.Sort();
+            all.Sort();
+            Measure($"LANDSCAPE_NAVIGATION island bake on 2 cm cells: the land alone {land[1]:0} ms ({_navigation.PolygonCount} polygons), the whole bounds with the sea floor {all[1]:0} ms ({whole.PolygonCount} polygons)");
+            Check(land[1] < all[1], "the island's land-only bake is quicker than baking the sea floor too");
+            whole.QueueFree();
+        }
         var samples = new List<(Vector3 Point, float Slope)>();
         for (var x = bounds.Position.X + 0.05f; x < bounds.End.X; x += 0.1f)
             for (var z = bounds.Position.Z + 0.05f; z < bounds.End.Z; z += 0.1f)
@@ -866,13 +986,33 @@ public partial class LandscapePlayTest : Node3D
     private static Vector3 Nearest(Aabb box, Vector3 from) =>
         new(Mathf.Clamp(from.X, box.Position.X, box.End.X), box.Position.Y, Mathf.Clamp(from.Z, box.Position.Z, box.End.Z));
 
-    private bool Supported(Aabb box)
+    /// <summary>The first world-layer surface straight under a point (NaN when none within 2 m).</summary>
+    private float GroundBelow(Vector3 point)
     {
-        var centre = box.GetCenter();
-        var query = PhysicsRayQueryParameters3D.Create(new Vector3(centre.X, box.Position.Y + 0.002f, centre.Z), new Vector3(centre.X, box.Position.Y - 0.004f, centre.Z), RoomBuilder.WorldLayer);
+        var query = PhysicsRayQueryParameters3D.Create(point, point + Vector3.Down * 2, RoomBuilder.WorldLayer);
         var crate = _world.Built.GetNode("Objects").GetChildren().OfType<CollisionObject3D>().FirstOrDefault(n => n.GetMeta("entity_id").AsString() == "obj:apple_crate");
         if (crate != null) query.Exclude = new Godot.Collections.Array<Rid> { crate.GetRid() };
-        return GetWorld3D().DirectSpaceState.IntersectRay(query).Count > 0;
+        var hit = GetWorld3D().DirectSpaceState.IntersectRay(query);
+        return hit.Count > 0 ? hit["position"].AsVector3().Y : float.NaN;
+    }
+
+    /// <summary>
+    /// Whether the box rests on something: under its middle or any corner (1 mm in), the world lies within 4 mm of its foot.
+    /// (A ray under its middle alone missed a crate resting on the island garage's slope by its uphill edge.)
+    /// </summary>
+    private bool Supported(Aabb box)
+    {
+        var crate = _world.Built.GetNode("Objects").GetChildren().OfType<CollisionObject3D>().FirstOrDefault(n => n.GetMeta("entity_id").AsString() == "obj:apple_crate");
+        var centre = box.GetCenter();
+        var half = new Vector2(box.Size.X * 0.5f - 0.001f, box.Size.Z * 0.5f - 0.001f);
+        foreach (var (x, z) in new[] { (0f, 0f), (-1f, -1f), (1f, -1f), (-1f, 1f), (1f, 1f) })
+        {
+            var at = new Vector3(centre.X + x * half.X, box.Position.Y, centre.Z + z * half.Y);
+            var query = PhysicsRayQueryParameters3D.Create(at + Vector3.Up * 0.002f, at + Vector3.Down * 0.004f, RoomBuilder.WorldLayer);
+            if (crate != null) query.Exclude = new Godot.Collections.Array<Rid> { crate.GetRid() };
+            if (GetWorld3D().DirectSpaceState.IntersectRay(query).Count > 0) return true;
+        }
+        return false;
     }
 
     private JsonObject? JobStatus(JsonObject goalResult)
