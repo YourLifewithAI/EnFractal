@@ -278,7 +278,7 @@
 6. **Lane A:** the mock's change request above.
 7. **After the playtest:** promote `x_landscape_sea` into `room-manifest.schema.json`, with examples and tests.
 8. **Then the fifth session's items 4 to 7:** the intro (walls now become the coast), light, the open questions, housekeeping.
-9. **Housekeeping:** PR #9 is merged; PR #10 (Lane C's fix round) stays open until it is brought back.
+9. **Housekeeping:** PR #9 is merged. GitHub shows PR #10 (Lane C's fix round) as merged too, because the reverted merge is in the history, but its changes are not in `run2/integration` until `f29854a` is reverted.
 
 **To run another cloud session:**
 - If the environment still blocks `builds.dotnet.microsoft.com`, install Ubuntu's `dotnet-sdk-8.0` with apt.
