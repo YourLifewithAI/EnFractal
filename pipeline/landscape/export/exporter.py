@@ -10,6 +10,7 @@ from .mesh import encode, ground, open_edges, transform
 from .sea import sea_data
 from .source import source_data
 from .trees import TerrainHeights, climbing_parts, is_tree
+from .loose import LOOSE_CAP, closed_pieces, estimated_mass, footprint_maximum, log_boxes
 
 CREATED = '2026-10-08T00:00:00Z'
 LANDMARKS = {'cottage', 'tower', 'boulder', 'fence', 'crate', 'lantern'}
@@ -125,7 +126,10 @@ def export_room(package_folder, source_room_folder, room_id, out):
                 best, support = y, 'shell:terrain_'+p['role']
         return best, support
 
-    def add_object(record, index, scatter=False):
+    loose_items = []
+    loose_skipped = {}
+
+    def add_object(record, index, scatter=False, loose=None):
         name = record['prototype']
         parts, original_size = get_prototype(name)
         size = ([original_size[i]*record['scale'][i] for i in range(3)] if scatter else record['size_m'])
@@ -133,6 +137,9 @@ def export_room(package_folder, source_room_folder, room_id, out):
         tree = is_tree(name, parts)
         require(not tree or not movable, 'climbable trees must be fixed (static shell collision)')
         mass = 100.0 if scatter else record['mass_kg']
+        if loose is not None:
+            movable, mass = True, loose['mass_kg']
+            size = loose['size_m']
         require(0 < mass <= 5000, 'object mass must fit asset contract (0,5000] kg')
         require(not movable or mass <= 2.0, 'carriable object exceeds companion carry limit (2 kg)')
         require(all(0 < v <= 100 for v in size), 'object size exceeds asset contract')
@@ -140,6 +147,8 @@ def export_room(package_folder, source_room_folder, room_id, out):
         require(len(roles) <= 16, 'asset allows at most 16 material slots')
         asset_id = f'landscape_{index:04d}'
         instance_id = f'obj:scatter_{index:04d}' if scatter else 'obj:'+record['id']
+        if loose is not None:
+            instance_id = loose.get('id', instance_id)
         require(re.fullmatch(r'obj:[A-Za-z0-9_-]{1,64}', instance_id) is not None,
                 'package object id does not fit room entity id')
         kind = name if scatter else record['kind']
@@ -147,8 +156,13 @@ def export_room(package_folder, source_room_folder, room_id, out):
         if scatter:
             display += f' {index+1}'
         display = display[:80]
+        if loose is not None:
+            display = loose['display_name']
         scaled = transform(parts, scale=[size[i]/original_size[i] for i in range(3)],
                            tint=record.get('tint', (1, 1, 1)))
+        if loose is not None:
+            scaled = transform(loose['parts'], tint=record.get('tint', (1, 1, 1)))
+            roles = sorted({p['role'] for p in scaled})
         asset_dir = f'objects/{asset_id}'
         geometry = put(asset_dir+'/mesh.glb', encode(scaled))
         geometry['path'] = 'mesh.glb'
@@ -165,7 +179,7 @@ def export_room(package_folder, source_room_folder, room_id, out):
             'provenance': {'kind': 'procedural', 'license': 'Inherited from source package; licensing unverified',
                            'created_utc': CREATED, 'notes': 'Landscape package v1 geometry, transformed without texture or shader dependencies.'},
             'pivot': 'bottom_center', 'dimensions_m': list(size),
-            'geometry': {'kind': 'mesh', 'mesh': 'mesh.glb', 'triangle_count': triangle_count(parts)},
+            'geometry': {'kind': 'mesh', 'mesh': 'mesh.glb', 'triangle_count': triangle_count(scaled)},
             'collision': {'kind': collision}, 'physics': {'movable': movable, 'mass_kg': mass},
             'materials': [{'slot': r, 'role': CONTRACT_ROLES[r],
                            'base_color': hex_color(material(r)['pbrMetallicRoughness']['baseColorFactor'][:3])}
@@ -178,26 +192,114 @@ def export_room(package_folder, source_room_folder, room_id, out):
             asset['affordances'].append('container')
         if name == 'lantern':
             asset['affordances'].append('light_source')
+        if loose is not None:
+            asset['extensions'] = {'x_landscape_visual_bounds': loose['visual_bounds_m']}
+            asset['provenance']['notes'] += ' Box dimensions approximate contact; visual bounds are in extensions.'
         put(asset_dir+'/asset.json', canonical(asset))
         if tree:
             add_tree(name, transform(parts, [size[i]/original_size[i] for i in range(3)],
                                      record['position_m'], record['yaw_deg']), include_trunk=True)
-        _, support = support_at(record['position_m'])
+        position = loose['position_m'] if loose is not None else record['position_m']
+        _, support = support_at(position)
         angle = math.radians(record['yaw_deg'])/2
         objects.append({'id': instance_id, 'asset': asset_dir+'/asset.json', 'display_name': display,
-                        'transform': {'position_m': record['position_m'],
+                        'transform': {'position_m': position,
                                       'rotation': [0, math.sin(angle), 0, math.cos(angle)]},
                         'support': {'kind': 'shell', 'target_id': support} if support else {'kind': 'none'}})
+        if loose is not None and loose.get('support_id') is not None:
+            objects[-1]['support'] = {'kind': 'object', 'target_id': loose['support_id']}
+        if movable:
+            loose_items.append({'id': instance_id, 'name': display, 'prototype': name, 'mass_kg': mass,
+                                'position_m': position, 'yaw_deg': record['yaw_deg'], 'box_m': list(size),
+                                'support': objects[-1]['support'],
+                                **({'visual_bounds_m': loose['visual_bounds_m'], 'source': loose['source']}
+                                   if loose is not None else {'source': 'object:'+record['id']})})
+
+    # Reserve authored entities/carryables first. Never silently revoke an authored
+    # carry promise. Whole piles precede crates and stones; no half-movable stack.
+    authored_loose = sum(r['carriable'] for r in doc['objects'])
+    require(authored_loose <= LOOSE_CAP, 'authored carryables exceed loose thing cap (64)')
+    planned, pieces_cache = {}, {}
+    reserved_entities, reserved_loose = len(doc['objects']), authored_loose
+    candidates = []
+    for scatter, records in ((False, doc['objects']), (True, doc['scatter'])):
+        for source_index, record in enumerate(records):
+            name = record['prototype']
+            if not scatter and record['carriable'] and name != 'woodpile':
+                continue
+            parts, original_size = get_prototype(name)
+            size = ([original_size[i]*record['scale'][i] for i in range(3)] if scatter else record['size_m'])
+            scale = [size[i]/original_size[i] for i in range(3)]
+            scaled = transform(parts, scale)
+            if name == 'woodpile':
+                if name not in pieces_cache:
+                    pieces_cache[name] = closed_pieces(parts)
+                count, priority = len(pieces_cache[name]), 0
+                mass = None
+            else:
+                mass = estimated_mass(name, scaled, size)
+                if mass is None or (not scatter and record['mass_kg'] > .5):
+                    continue
+                count, priority = 1, 1 if name == 'crate' else 2
+            candidates.append((priority, scatter, source_index, record, parts, scale, size, count, mass))
+    for _, scatter, source_index, record, parts, scale, size, count, mass in sorted(candidates, key=lambda c: c[:3]):
+        name = record['prototype']
+        extra_entities = count if scatter else count-1
+        extra_loose = count-(not scatter and record['carriable'])
+        if reserved_loose+extra_loose > LOOSE_CAP or reserved_entities+extra_entities > 512:
+            require(scatter or not record['carriable'], 'authored loose pile exceeds room budget')
+            loose_skipped[name] = loose_skipped.get(name, 0)+count
+            continue
+        if tree_terrain is None:
+            tree_terrain = TerrainHeights(terrain)
+        source_key = f'{"scatter" if scatter else "object"}:{source_index}'
+        if name == 'woodpile':
+            specs = log_boxes(parts, scale, record['position_m'], record['yaw_deg'], tree_terrain)
+            ids = [f'obj:loose_{"s" if scatter else "o"}_{source_index:04d}_{j:04d}' for j in range(count)]
+            for j, spec in enumerate(specs):
+                spec.update(id=ids[j], display_name='Log', source=source_key,
+                            support_id=ids[spec['support_index']] if spec['support_index'] is not None else None)
+        else:
+            scaled = transform(parts, scale)
+            low = [-size[0]/2, 0, -size[2]/2]
+            high = [size[0]/2, size[1], size[2]/2]
+            bottom = footprint_maximum(tree_terrain, low, high, record['position_m'], record['yaw_deg'])
+            if bottom is None or bottom >= record['position_m'][1]+size[1]-.001:
+                loose_skipped[name] = loose_skipped.get(name, 0)+1
+                continue
+            # Keep the drawn mesh at its original position, including its ground sink.
+            shift = max(bottom-record['position_m'][1], 0)
+            specs = [dict(parts=transform(scaled, position=[0, -shift, 0]),
+                          position_m=[record['position_m'][0], record['position_m'][1]+shift, record['position_m'][2]],
+                          size_m=[size[0], size[1]-shift, size[2]],
+                          mass_kg=mass if scatter else record['mass_kg'],
+                          display_name='Crate' if name == 'crate' else 'Stone', source=source_key,
+                          visual_bounds_m={'min_m': [-size[0]/2, -shift, -size[2]/2],
+                                           'max_m': [size[0]/2, size[1]-shift, size[2]/2]})]
+        planned[scatter, source_index] = specs
+        reserved_loose += extra_loose
+        reserved_entities += extra_entities
 
     for index, record in enumerate(doc['objects']):
-        add_object(record, index)
+        if (False, index) in planned:
+            for spec in planned[False, index]:
+                add_object(record, len(objects), loose=spec)
+        else:
+            add_object(record, len(objects))
     entity_scatter = 0
     merged_visual, merged_solid = [], []
-    for record in doc['scatter']:
+    pending_loose_entities = sum(len(specs) for (scatter, _), specs in planned.items() if scatter)
+    for source_index, record in enumerate(doc['scatter']):
         name = record['prototype']
         parts, size = get_prototype(name)
         final_size = [size[i]*record['scale'][i] for i in range(3)]
-        if scatter_policy(name, parts, final_size) == 'landmark' and len(objects) < 512:
+        if (True, source_index) in planned:
+            for spec in planned[True, source_index]:
+                add_object(record, len(objects), scatter=True, loose=spec)
+                pending_loose_entities -= 1
+            entity_scatter += 1
+            continue
+        if scatter_policy(name, parts, final_size) == 'landmark' and len(objects)+pending_loose_entities < 512:
             add_object(record, len(objects), scatter=True)
             entity_scatter += 1
             continue
@@ -218,6 +320,7 @@ def export_room(package_folder, source_room_folder, room_id, out):
     require(len(shell) <= 128, 'output exceeds room shell part limit (128)')
     require(len(blobs) <= 2048, 'output exceeds room file limit (2048)')
     require(len({o['id'] for o in objects}) == len(objects), 'populated id collides with generated scatter entity id')
+    require(len(loose_items) <= LOOSE_CAP and len(objects) <= 512, 'loose/entity budget exceeded')
 
     # Package v1 carriable objects become movable assets. Only cottage/tower
     # prototypes promise a door; other fixed landmarks are not destinations.
@@ -266,6 +369,8 @@ def export_room(package_folder, source_room_folder, room_id, out):
                        'x_landscape_source': intro_source,
                        'x_landscape_package_sha256': sha((Path(package_folder)/'package.json').read_bytes()),
                        'x_landscape_terrain_open_edges': edges,
+                       'x_landscape_loose': {'cap': LOOSE_CAP, 'count': len(loose_items),
+                                             'items': loose_items, 'skipped': loose_skipped},
                        **({'x_landscape_sea': sea} if sea is not None else {})},
     }
     blobs['room.json'] = canonical(room)
@@ -278,4 +383,5 @@ def export_room(package_folder, source_room_folder, room_id, out):
     return dict(counts, room_id=room_id, files=len(blobs), bytes=sum(map(len, blobs.values())),
                 shell_parts=len(shell), objects=len(objects), populated_objects=len(doc['objects']),
                 scatter_entities=entity_scatter, merged_scatter=len(doc['scatter'])-entity_scatter,
+                loose_things=len(loose_items), loose_cap=LOOSE_CAP, loose_skipped=loose_skipped,
                 terrain_open_edges=len(edges), lantern_hints=len(lights)-1)
