@@ -28,12 +28,15 @@ The founder's decision, 9 October. The founder's daughter disliked the invisible
   - Let geology choose: hard rock stands as cliffs, and soft ground slopes into beaches.
 - **The door becomes a jetty or a harbour.** It is the place where travel to other islands will one day begin. The windows still tell where the sun rises.
 - **Water runs downhill to the sea.** Rivers end in estuaries, or in waterfalls over sea cliffs. Ponds may still sit in hollows inland.
-- **The edge at sea is soft and visible, and nothing falls off the world:**
-  - a reef with breaking waves, a short swim offshore, marks the limit;
-  - past it, a current gently turns a swimmer back;
-  - anyone who keeps going washes up on the nearest beach.
-- **Distant islands on the horizon** give depth, with the same kinds of trees, rock and settlements as the playable land, without promising reachable land yet.
-- **Later:** every room a player scans becomes an island, so a house becomes an archipelago, reached by jetty, boat, bridge or the Gubble's magic. Friends' islands lie further out once multiplayer arrives.
+- **The sea has no edge** (the founder, after the kids' playtest, 9 October: "the kids want to be able to swim forever"):
+  - a reef with breaking waves, a short swim offshore, marks the island's own waters;
+  - past it, the open sea goes on for as long as a swimmer likes. Nothing turns them back, and nothing falls off the world.
+- **Home is the jetty.** One key (B) brings the player back to the shore at the jetty's landward end from anywhere: out at sea, up a mountain, or in a town they are building.
+- **Distant islands on the horizon** give depth, with the same kinds of trees, rock and settlements as the playable land. For now they stay distant: however far you swim, they stay on the horizon.
+- **Later:**
+  - every room a player scans becomes an island, so a house becomes an archipelago, reached by jetty, boat, bridge or the Gubble's magic;
+  - the open sea may become a random search of the shared world, its distant islands standing for other players' islands and roughly shaped like them;
+  - from the jetty, travel is a chosen journey: pick an island, and a ferryman arrives in a little steamboat (a Gubble at first, later one unique character shared by every world).
 - **The trade:** the island's outline and its landforms keep the room recognisable. The walls no longer read as a mountain range around you; that is accepted for a clear, believable edge.
 
 ## Water
@@ -69,4 +72,4 @@ Build one complete synthetic garage landscape: sky, horizon, connected ground, a
 
 1. **May the new sky light the land beyond the real windows, while keeping their eastern exposure meaningful?** Yes. Please add real light but the window can inform where the sun rises.
 2. **Should the first landscape feel mostly wild with a few settlements, or visibly inhabited throughout?** For now, mostly wild with a few settlements.
-3. **How should the world end, instead of an invisible wall?** As an island in an endless sea (9 October). The door becomes a jetty or a harbour; the coast is a ragged mix of beaches and cliffs; a reef and a gentle current mark the edge, and a swimmer who keeps going washes up on the nearest beach.
+3. **How should the world end, instead of an invisible wall?** As an island in an endless sea (9 October). The door becomes a jetty or a harbour; the coast is a ragged mix of beaches and cliffs; a reef marks the island's waters, and past it the sea is open for ever (9 October, after the kids' playtest); B brings the player home to the jetty.

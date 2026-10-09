@@ -15,7 +15,10 @@
 ## Decisions
 
 - **The sea has no edge.** Past the reef the swimmer swims on for as long as they like. There is no current that turns them back and no teleport. The reef still marks the island's own waters.
-  - **Going home is the player's choice:** a key (suggested **B, back to the beach**) does the wash-ashore fade onto the nearest beach. The HUD shows it only out at sea.
+  - **Going home is the player's choice: B, back to the jetty** (the founder, 9 October). It works from anywhere: out at sea, up a mountain, or building a town. With the wash-ashore fade, the player lands on the shore at the jetty's landward end, facing inland. The HUD always lists it.
+    - **Why the jetty:** every room has one where its door was, and "later on the docks might serve as portals to other players' levels". So home is a landmark with more than one use.
+    - **Fallbacks:** a room with a sea but no jetty goes to the nearest beach; a room with no sea goes to the spawn.
+  - **The distant islands stay distant** (the founder). However far a swimmer goes, they stay on the horizon, never reached or swum through. They stay distinct silhouettes, because of what they become later (below).
   - **The Gubble comes along** over the open sea.
   - **The cost** (the integrator's answer to the founder): an endless sea costs the same wherever the swimmer is, because the water surface follows the camera, fish are kept near the swimmer, and nothing new loads. Memory stays flat. The only real limit is numeric: positions are 32-bit floats, so they get coarse kilometres out. At the swim speed (0.19 m/s, 0.32 with Shift), 1 km is about 50 minutes of fast swimming without a break. Lane P measures where motion stops looking smooth, then either re-centres the world quietly or puts a last safety net beyond that point, far past where any child swims.
 - **Diving:** a key dives (suggested: **hold Ctrl to dive, Space to rise**). Under water, W swims the way you look in F1 and F2. There is no breath limit and no harm, since the island's rule is no punishment. Let go and you drift slowly up, so nobody gets stuck on the bottom. The founder tunes all of this by playing.
@@ -35,7 +38,7 @@
       - the current and the push-on teleport go;
       - water past the island answers from `RoomSea` (below sea level, outside the coast) with an open-sea bed, wherever the meshes stop;
       - the bounds no longer hold a swimmer on the sea side;
-      - B (or another free key, reported) goes back to the beach;
+      - B goes back to the jetty from anywhere;
       - the Gubble follows anywhere at sea;
       - Lane P measures float precision far out and chooses re-centring or a far net.
    4. **Report, then part 2 (resumed after the merge): diving.** As above: the dive key, swimming the way you look, rising, the eye and camera arms under water, the bed, no breath limit. Fish still flee a diver, never the Gubble.
@@ -46,7 +49,7 @@
       - F4 and O (observe) keep the tilt-shift;
       - per-view settings go in the preset's `x_look_*` extensions (no contract change);
       - the founder judges by eye.
-   2. **The endless sea's surface,** to the horizon from wherever the swimmer is (it follows the camera), with the open-sea bed beyond the generated floor. This must land with Lane P's open sea, or water past the meshes is invisible.
+   2. **The endless sea's surface,** to the horizon from wherever the swimmer is (it follows the camera), with the open-sea bed beyond the generated floor. This must land with Lane P's open sea, or water past the meshes is invisible. The distant islands hold their place on the horizon.
    3. **The focus highlight** as a Look API (for example `LookDirector.SetFocus(Node3D? target)`): soft, painterly, readable on every ground. Show it in captures on grass, sand, rock and wood.
    4. **Report, then (resumed):** the sea's look from RUN-2-ISLAND.md (colour and depth, foam on the reef, waves at the beaches, the horizon and distant islands, fish in deeper water near the swimmer), and the view under water for diving (tint, haze, the surface seen from below).
 3. **Codex brief 22 (GPT-6 Astra): the characters' second round.** The family's notes, on all five drawings (see [the brief](../codex/briefs/22-characters-round-2.md)).
@@ -54,9 +57,15 @@
 5. **After Lane P's part 1 merges: Lane C** (the last five corpus rooms, the ragged coast). The open sea needs nothing from the generator, but the generator may later mark more loose things for brief 23's rules.
 6. **Codex second-opinion reviews** of Lane P's open sea and diving (Sol against Astra, continuing the A/B), once part 1 reports.
 
+## Later, not now: the shared sea (the founder's notes, 9 October)
+
+- **The ocean as a random search.** Swimming toward a distant island might be a way to wander the shared game space, and find islands made and shared by other players. The far islands could take the rough shape of the islands they stand for, which gives a player a reason to swim toward one rather than another.
+- **The jetty as a chosen journey.** Travel from the jetty to another island is a controlled search: once you choose the island you want to visit, a **ferryman** arrives in a little steamboat. The ferryman can be a Gubble for now. Later, the founder wants a unique character, the same in every world.
+- These belong with multiplayer and sailing between islands ([RUN-2-ISLAND.md](RUN-2-ISLAND.md), "Later, not now"). Nothing is built for them in this round. The round only keeps the doors open: the jetty is home, and the distant islands stay distinct shapes.
+
 ## Principles (not a checklist)
 
 - **No wall a child meets.** Anything a child would really do (swim out for an hour, dive to the bottom, swim under the jetty) just works.
-- **Home is always one key away,** and the Gubble is always with you.
+- **Home is always one key away** (the jetty), and the Gubble is always with you.
 - **The island stays the centre.** From near it, the reef, the beaches and the island read clearly. Far out, it fades into the haze.
 - **Signs, not clutter.** One focus at a time. The scene stays painterly.
