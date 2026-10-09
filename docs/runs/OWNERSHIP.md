@@ -65,6 +65,7 @@ Every run is built by parallel agent lanes. A lane **edits only the paths it own
 | `pipeline/landscape/generator/**` (C5, the landscape generator, continued from the A/B winner `gen_b`), and the harness's rendering side (`harness/worker.py`, `harness/views.py`, `harness/render.py`, its README and reference renders; not the package format: `package.py`, `glb.py`, `common.py`) | Lane C (from the fourth Run 2 session, 8 October, as the revised Run 2 plan assigns it) |
 | `pipeline/landscape/export/**` (a landscape package to a game room directory) | Codex brief 18 |
 | `docs/ROOM-TO-LANDSCAPE.md` | Integrator-owned design; Codex drafts it in brief 13 |
+| `pipeline/characters/**` (drawing-to-character converters; the shared turntable `turntable.py`, which every converter's output is judged through) | The integrator owns it. In brief 20's blind A/B each contender owns one folder (`conv_a/`, `conv_b/`) until the verdict |
 
 The integrator owns `docs/codex/README.md`, `docs/codex/briefs/**` and `tools/codex/**`. Codex works on research, test runs and audits, never on contracts, the kernel, the companion's server or the Look lane's GPU work. See [docs/codex/README.md](../codex/README.md).
 

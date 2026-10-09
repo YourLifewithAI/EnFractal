@@ -137,9 +137,16 @@
   - **The integrator's note:**
     - a stored version is a full room export (the garage's is about 23 MB), so ten are about 230 MB per room, on disk, not in memory;
     - a seed alone is a few bytes, but rebuilding from it takes about 35 s;
-    - the recommendation: keep up to 10 full versions with delete, so switching is instant;
+    - **decided (the founder agreed to the integrator's recommendation):** keep up to 10 full versions per room, with delete, so switching is instant;
     - each version keeps its own save, because saves are keyed by the room file's fingerprint.
   - **Today:** the generator already takes `--seed` (default `20261008`), and the same room and seed always give the same bytes. This belongs with the setup questions when they become UI.
+- **The characters' blind A/B has started (brief 20, a drawing-to-character converter).**
+  - **The drawings:** the founder approved copying the five from Drive (`G:\My Drive\Enfractal\Character Art`, synced on DiamondAge) to `C:\dev\EnFractal-art\characters\`, outside Git. They had no location data; the copies are upright and carry no metadata.
+  - **Which file is which:** IMG_2874 the Gubble, 2875 Potato Man, 2876 the paw creature, 2878 Tomato Man, 2879 Cloudpuff.
+  - **Judged on Cloudpuff and the paw creature** (the founder's choice). The contenders see only `contest/`, with a short description of each.
+  - **Kept back:** the Gubble, Potato Man and Tomato Man, in `held-out/`. The winner runs on them unchanged.
+  - **Contenders:** Codex (GPT-6 Astra) and a Claude Opus agent, folders `conv_a` and `conv_b` by a coin flip. The key is in `.git/info/ab-20-key.md`; never show it to the founder before the verdict.
+  - **The instrument:** both are rendered through the shared `pipeline/characters/turntable.py` (Blender, Cycles on the CPU; four views on a mid-tone backdrop).
 - **The founder's question for Lane P's list:** whether to save where the player and the Gubble stand. Today the save keeps the avatars' identities only, so a load starts at the spawn.
 
 ## The next session
