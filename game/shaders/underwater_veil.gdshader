@@ -5,11 +5,10 @@ shader_type spatial;
 // from above and its level) and collapses to nothing when the camera is in the air, so it costs nothing above water.
 render_mode unshaded, blend_mix, depth_draw_never, depth_test_disabled, cull_disabled, fog_disabled, shadows_disabled;
 
-const int MAX_PONDS = 8;
 uniform int pond_count = 0;
-// Each pond: (min x, min z, max x, max z) seen from above, and its level.
-uniform vec4 pond_box[MAX_PONDS];
-uniform float pond_level[MAX_PONDS];
+// Each pond (at most eight): (min x, min z, max x, max z) seen from above, and its level.
+uniform vec4 pond_box[8];
+uniform float pond_level[8];
 uniform vec3 murk_color : source_color = vec3(0.16, 0.30, 0.30);
 // Metres of water that hide two thirds of what lies beyond, and the faint tint right at the eye.
 uniform float murk_m : hint_range(0.01, 5.0) = 0.22;
@@ -24,7 +23,7 @@ varying flat float water_level;
 void vertex() {
 	vec3 eye = CAMERA_POSITION_WORLD;
 	float level = -1e9;
-	for (int i = 0; i < MAX_PONDS; i++) {
+	for (int i = 0; i < 8; i++) {
 		if (i >= pond_count) break;
 		vec4 box = pond_box[i];
 		if (eye.x >= box.x && eye.x <= box.z && eye.z >= box.y && eye.z <= box.w && eye.y < pond_level[i]) level = pond_level[i];

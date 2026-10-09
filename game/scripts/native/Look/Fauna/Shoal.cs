@@ -64,6 +64,8 @@ public sealed class Shoal
     public const float SmallMinM = 0.015f, SmallMaxM = 0.03f, BigM = 0.045f;
     /// <summary>The gap a fish keeps from the bed and from the surface, as a fraction of its length (at least 4 mm).</summary>
     public const float ClearanceOfLength = 0.3f;
+    /// <summary>However deep the water, fish swim within this much of its surface.</summary>
+    public const float MaxBelowSurfaceM = 0.09f;
 
     // ---- how they move ----
     public const float CruiseMinMps = 0.012f, CruiseMaxMps = 0.05f, DartMps = 0.32f;
@@ -151,7 +153,7 @@ public sealed class Shoal
             {
                 LengthM = variety == FishVariety.Carp ? BigM * Range(0.9f, 1.1f) : Range(SmallMinM, SmallMaxM),
                 Variety = variety,
-                DepthFraction = Range(0.25f, 0.75f),
+                DepthFraction = Range(0.4f, 0.85f),
                 Phase = Range(0f, Mathf.Tau),
                 PatternSeed = Next(),
                 School = Schools.Count,
@@ -189,7 +191,8 @@ public sealed class Shoal
     private static float TargetY(Pond pond, Fish fish, float x, float z)
     {
         var (low, high) = Band(pond, fish, x, z);
-        return low + (high - low) * fish.DepthFraction;
+        // In deep water they keep to the upper few centimetres, where light reaches and a passer-by can see them.
+        return Math.Max(low + (high - low) * fish.DepthFraction, high - MaxBelowSurfaceM);
     }
 
     /// <summary>

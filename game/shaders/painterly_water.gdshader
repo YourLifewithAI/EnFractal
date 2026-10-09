@@ -179,7 +179,7 @@ void fragment() {
 		color = mix(color, mix(water * shallow_tint, vec3(0.92, 0.94, 0.88), 0.6), shore);
 		alpha = max(alpha, shore * 0.8);
 		// Water reflects most at grazing angles: there it shows the sky and hides what is under it.
-		float ndv = clamp(dot(n, (INV_VIEW_MATRIX * vec4(view_dir, 0.0)).xyz), 0.0, 1.0);
+		float ndv = clamp(dot(normalize(MODEL_NORMAL_MATRIX * n), (INV_VIEW_MATRIX * vec4(view_dir, 0.0)).xyz), 0.0, 1.0);
 		float fresnel = pow(1.0 - ndv, 4.0) * sky_rim;
 		color = mix(color, sky_color * mix(vec3(1.0), water * 1.6, 0.25), fresnel * 0.6);
 		alpha = mix(alpha, 1.0, fresnel * 0.7);
@@ -187,7 +187,7 @@ void fragment() {
 		// From below: the surface is a pale rippled ceiling where the sky shows through, mirror-like toward grazing angles
 		// (light inside water meets the surface at more than about 49 degrees and is reflected back down).
 		n = -n;
-		float ndv = clamp(dot(n, (INV_VIEW_MATRIX * vec4(view_dir, 0.0)).xyz), 0.0, 1.0);
+		float ndv = clamp(dot(normalize(MODEL_NORMAL_MATRIX * n), (INV_VIEW_MATRIX * vec4(view_dir, 0.0)).xyz), 0.0, 1.0);
 		float mirror = smoothstep(0.75, 0.55, ndv);
 		color = mix(water * underside_tint, water * deep_tint, mirror * 0.8);
 		alpha = mix(underside_alpha, max_alpha, mirror);

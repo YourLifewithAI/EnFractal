@@ -113,8 +113,8 @@ public partial class PondLife : Node3D
         var ponds = VeilPondsFor();
         if (ponds.Count == 0) return;
         var material = new ShaderMaterial { Shader = GD.Load<Shader>(VeilShaderPath), ResourceName = "underwater veil", RenderPriority = 100 };
-        var boxes = new Godot.Collections.Array<Vector4>(Enumerable.Range(0, VeilPonds).Select(i => i < ponds.Count ? ponds[i].Box : Vector4.Zero));
-        var levels = new Godot.Collections.Array<float>(Enumerable.Range(0, VeilPonds).Select(i => i < ponds.Count ? ponds[i].Level : -1e9f));
+        var boxes = Enumerable.Range(0, VeilPonds).Select(i => i < ponds.Count ? ponds[i].Box : Vector4.Zero).ToArray();
+        var levels = Enumerable.Range(0, VeilPonds).Select(i => i < ponds.Count ? ponds[i].Level : -1e9f).ToArray();
         material.SetShaderParameter("pond_count", ponds.Count);
         material.SetShaderParameter("pond_box", boxes);
         material.SetShaderParameter("pond_level", levels);

@@ -56,6 +56,11 @@ public partial class LookPresetTest
         Check(Regex.IsMatch(code, @"hint_depth_texture") && !code.Contains("hint_screen_texture", StringComparison.Ordinal),
             "it reads the depth under it (clear shallows, a deep middle) and copies no screen: painted, no refraction");
         Check(Regex.IsMatch(code, @"\bFRONT_FACING\b") && Regex.IsMatch(code, @"baked_color\s*=\s*COLOR\.rgb"), "it paints the underside its own way, and keeps the generator's water colour");
+        // The fish and the veil shaders parse, and declare what PondLife sets.
+        var fish = GD.Load<Shader>(PondLife.ShaderPath).GetShaderUniformList().Select(u => u.AsGodotDictionary()["name"].AsString()).ToHashSet();
+        var veil = GD.Load<Shader>(PondLife.VeilShaderPath).GetShaderUniformList().Select(u => u.AsGodotDictionary()["name"].AsString()).ToHashSet();
+        Check(fish.IsSupersetOf(new[] { "minnow_color", "golden_color", "carp_color", "wag_amount" }) && veil.IsSupersetOf(new[] { "pond_count", "pond_box", "pond_level", "light_level" }),
+            $"the fish shader ({fish.Count} uniforms) and the underwater veil ({veil.Count}) parse and take what PondLife sets");
         Check(WaterLook.Still.DeepTint.X < WaterLook.Still.DeepTint.Z && WaterLook.Still.DeepTint.Length() < WaterLook.Still.ShallowTint.Length() && WaterLook.Still.ClarityM is > 0.02f and < 0.2f,
             "the deep middle is darker and cooler than the shallows, and a few centimetres of water already cloud it");
     }
