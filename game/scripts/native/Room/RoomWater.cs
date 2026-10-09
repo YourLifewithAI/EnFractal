@@ -69,9 +69,19 @@ public static class RoomWater
     /// <summary>How deep the water is at this point's column: from the surface over (or just under) the point down to the bed. 0 when dry.</summary>
     public static float DepthAt(PhysicsDirectSpaceState3D space, Vector3 point) => At(space, point).DepthM;
 
+    /// <summary>How far above the point its water's bed may be found and the point still count as in that water (a body rests up to 1.5 mm off its support).</summary>
+    public const float BedToleranceM = 0.01f;
+    /// <summary>The bed is looked for from this far above the surface: at a pond's rim the sheet ends a few millimetres above or below the bank.</summary>
+    public const float BedLookAboveM = 0.02f;
+    /// <summary>Water shallower than this over its ground (or under it) is the rim of a pond, not water.</summary>
+    public const float RimM = 0.005f;
+
     /// <summary>
     /// The water at a point's column: the highest surface from aboveM over the point down to belowM under it, and the bed
-    /// under that surface (a ray on the world layer, never this layer). The body asks this once a tick at its feet.
+    /// under it: the first world-layer surface a ray meets coming down from BedLookAboveM over the water (never this
+    /// layer). A rim, where the ground is within RimM of the surface or above it, is dry. Water whose bed, or anything
+    /// solid, lies between its surface and the point is not the point's water (dry ground under a raised basin): dry too.
+    /// Water with no ground within BedSearchM under it is deep. The body asks this once a tick at its feet.
     /// </summary>
     public static Column At(PhysicsDirectSpaceState3D space, Vector3 point, float aboveM = SearchM, float belowM = 0.05f, Rid exclude = default)
     {
@@ -79,10 +89,22 @@ public static class RoomWater
         var surface = Surface(space, point + Vector3.Up * aboveM, point + Vector3.Down * belowM);
         if (surface is not { } level) return Column.Dry;
         var top = new Vector3(point.X, level, point.Z);
-        var bed = PhysicsRayQueryParameters3D.Create(top + Vector3.Up * 0.001f, top + Vector3.Down * BedSearchM, RoomBuilder.WorldLayer);
+        var bed = PhysicsRayQueryParameters3D.Create(top + Vector3.Up * BedLookAboveM, top + Vector3.Down * BedSearchM, RoomBuilder.WorldLayer);
         if (exclude.IsValid) bed.Exclude = new Godot.Collections.Array<Rid> { exclude };
+        bed.HitBackFaces = false;
         var hit = space.IntersectRay(bed);
-        return new Column(true, level, hit.Count > 0 ? hit["position"].AsVector3().Y : level - BedSearchM);
+        if (hit.Count == 0)
+        {
+            // A ray exactly through a shared vertex or edge of the ground's triangles can slip between them: look again a hair aside.
+            var aside = new Vector3(0.0007f, 0, 0.0005f);
+            bed.From += aside;
+            bed.To += aside;
+            hit = space.IntersectRay(bed);
+        }
+        if (hit.Count == 0) return new Column(true, level, level - BedSearchM);
+        var bedY = hit["position"].AsVector3().Y;
+        if (bedY > level - RimM || bedY > point.Y + BedToleranceM) return Column.Dry;
+        return new Column(true, level, bedY);
     }
 
     private static float? Surface(PhysicsDirectSpaceState3D space, Vector3 from, Vector3 to)

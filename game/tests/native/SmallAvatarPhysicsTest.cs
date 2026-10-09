@@ -948,7 +948,61 @@ public partial class SmallAvatarPhysicsTest : Node3D
         Report(grabbedAt > 0.02f, $"in floaty gravity a leap into a face grabs it in mid-air (at {grabbedAt:0.000} m)");
         Check(_player.SetWorldPhysics(Preset("room_tuned", _player.WorldPhysicsRevision + 1)), "back to tuned gravity");
         await Frames(10);
+
+        // A face that starts above a step, at head height (a crown lobe hanging over a perch, a ledge's underside): the
+        // body pushing into it is grabbed and climbed, never left stuck (Lane P fix round: the old single ray at 2.4 cm missed it).
+        Solid(a + new Vector3(-1.0f, 0.175f, 2.4f), new BoxShape3D { Size = new Vector3(0.3f, 0.25f, 0.6f) });
+        await Frames(2);
+        Check(_player.TryTeleportTo(a + new Vector3(-1.5f, 0.003f, 2.4f)), "the player stands before a face that starts 5 cm up");
+        _player.Rotation = facingEast;
+        (grab, _, _, _, _) = await ClimbUntilOver(Vector3.Right, 600);
+        top = _player.GlobalPosition - a;
+        Report(grab > 0 && _player.IsOnFloor() && Mathf.Abs(top.Y - 0.30f) < 0.006f,
+            $"a face starting at head height is grabbed and climbed to its top, never a trap (feet at {Text(top)})");
+
+        // The bounds' top holds a climber: no pull-over onto a ledge where the head would leave the room.
+        Check(_player.SetPlayableBounds(new Aabb(a + new Vector3(-3, -1, -3), new Vector3(6, 1.0f + 0.25f + _player.BodyHeightM - 0.02f, 6))), "bounds whose top is 2 cm under a head standing on the face's top");
+        Check(_player.TryTeleportTo(a + new Vector3(-1.5f, 0.003f, 0)), "back to the vertical face under the low bounds");
+        _player.Rotation = facingEast;
+        var pullsUnderTop = _player.PullOvers;
+        var highestHead = float.MinValue;
+        _player.SetControlInput(new Vector2(0, 1));
+        for (var i = 0; i < 360; i++)
+        {
+            await Frames(1);
+            highestHead = Mathf.Max(highestHead, _player.GlobalPosition.Y + _player.BodyHeightM - a.Y);
+        }
+        _player.SetControlInput(Vector2.Zero, jump: true);
+        await Frames(2);
+        _player.SetControlInput(Vector2.Zero);
+        await Frames(60);
+        Report(_player.PullOvers == pullsUnderTop && highestHead <= 0.25f + _player.BodyHeightM - 0.02f + 0.001f,
+            $"the bounds' top holds a climber: no pull-over that would lift the head out of the room (highest head {highestHead:0.000} m, bound {0.25f + _player.BodyHeightM - 0.02f:0.000} m)");
+        Check(_player.SetPlayableBounds(new Aabb(new Vector3(-1000, -100, -1000), new Vector3(2000, 200, 2000))), "the bounds open again");
+
+        // Creation forces act on a climber: a lift carries it up along the face, a push away from the face lets it go.
+        Check(_player.TryTeleportTo(a + new Vector3(-1.5f, 0.003f, 0)), "back to the vertical face for creation forces");
+        _player.Rotation = facingEast;
+        _player.SetControlInput(new Vector2(0, 1));
+        for (var i = 0; i < 300 && !(_player.IsClimbing && _player.GlobalPosition.Y - a.Y > 0.05f); i++) await Frames(1);
+        _player.SetControlInput(Vector2.Zero);
+        await Frames(5);
+        var hung = _player.GlobalPosition;
+        _player.SetCreationEffects(new Vector3(0, 0.15f, 0), 0, new Callable(this, MethodName.AllowAll));
+        await Frames(60);
+        var lifted = _player.GlobalPosition.Y - hung.Y;
+        var stillClimbing = _player.IsClimbing;
+        _player.SetCreationEffects(new Vector3(-3.0f, 0, 0), 0, new Callable(this, MethodName.AllowAll));
+        var pushedOff = false;
+        for (var i = 0; i < 60 && !pushedOff; i++) { await Frames(1); pushedOff = !_player.IsClimbing; }
+        await Frames(10);
+        _player.SetCreationEffects(Vector3.Zero, 0, new Callable());
+        for (var i = 0; i < 300 && !_player.IsOnFloor(); i++) await Frames(1);
+        Report(lifted > 0.03f && stillClimbing && pushedOff && _player.GlobalPosition.X < hung.X - 0.01f,
+            $"a creation lift carries a climber up the face ({lifted * 100:0.0} cm in 1 s, still climbing {stillClimbing}) and a push away from the face lets it go (let go {pushedOff}, {(hung.X - _player.GlobalPosition.X) * 100:0.0} cm away)");
     }
+
+    public bool AllowAll(Vector3 position) => true;
 
     /// <summary>
     /// A pool, 20 cm deep with its water 2 cm below the rim: a shelving 20 degree shore on the west, a vertical bank on the
@@ -982,6 +1036,24 @@ public partial class SmallAvatarPhysicsTest : Node3D
         var depth = RoomWater.DepthAt(space, middle + Vector3.Up * surface);
         Report(above is { } up && Mathf.Abs(up - surface) < 0.001f && below is { } dn && Mathf.Abs(dn - surface) < 0.001f && Mathf.Abs(depth - (surface - bed)) < 0.002f,
             $"RoomWater finds the surface from below and above and the depth to the bed (above {above:0.000}, below {below:0.000}, depth {depth:0.000} m)");
+        // A pond's rim: the exported sheet ends a few millimetres under or over the bank (Lane C's check of the garage). Standing
+        // there is dry ground, not water with no bed.
+        foreach (var (rimX, rimY) in new[] { (-0.5f, -0.003f), (-0.2f, 0.003f) })
+        {
+            var rimSheet = new SurfaceTool();
+            rimSheet.Begin(Mesh.PrimitiveType.Triangles);
+            foreach (var corner in new[] { new Vector2(-0.1f, -1.2f), new Vector2(0.1f, -1.2f), new Vector2(0.1f, -1.0f), new Vector2(-0.1f, -1.2f), new Vector2(0.1f, -1.0f), new Vector2(-0.1f, -1.0f) })
+                rimSheet.AddVertex(new Vector3(rimX + corner.X, rimY, corner.Y));
+            var rim = RoomWater.CreateCollider(new[] { ((Shape3D)rimSheet.Commit().CreateTrimeshShape(), Transform3D.Identity) });
+            rim.Position = b;
+            AddChild(rim);
+        }
+        await Frames(2);
+        var underRim = RoomWater.At(space, b + new Vector3(-0.5f, 0.001f, -1.1f), 0.4f, 0.02f);
+        var overRim = RoomWater.At(space, b + new Vector3(-0.2f, 0.001f, -1.1f), 0.4f, 0.02f);
+        var stillPool = RoomWater.At(space, middle + Vector3.Up * (bed + 0.001f), 0.4f, 0.02f);
+        Check(!underRim.Wet && !overRim.Wet && stillPool.Wet && Mathf.Abs(stillPool.DepthM - (surface - bed)) < 0.002f,
+            "at a pond's rim, where the sheet ends 3 mm under or over the bank, the ground is dry; the pool is still water to its bed");
         var anyRay = space.IntersectRay(PhysicsRayQueryParameters3D.Create(middle + Vector3.Up * 0.3f, middle + Vector3.Down * 0.5f));
         var worldRay = space.IntersectRay(PhysicsRayQueryParameters3D.Create(middle + Vector3.Up * 0.3f, middle + Vector3.Down * 0.5f, 1));
         Check(anyRay.Count > 0 && Mathf.Abs(anyRay["position"].AsVector3().Y - bed) < 0.001f && worldRay.Count > 0 && Mathf.Abs(worldRay["position"].AsVector3().Y - bed) < 0.001f,
@@ -1053,12 +1125,89 @@ public partial class SmallAvatarPhysicsTest : Node3D
         Report(swimming && _player.Grabs == grabs && !_player.IsSwimming && _player.IsOnFloor() && Mathf.Abs(_player.GlobalPosition.Y - b.Y) < 0.006f,
             $"a swimmer walks out up a shelving shore (feet at {Text(_player.GlobalPosition - b)})");
 
+        // Climbing down a bank into deep water hands the body to swimming before the eye goes under: a wall 22 cm above the
+        // water on the east bank, its face running on down to the bed.
+        Solid(b + new Vector3(1.35f, 0.1f, -0.35f), new BoxShape3D { Size = new Vector3(0.3f, 0.2f, 0.2f) });
+        await Frames(2);
+        _player.GlobalPosition = b + new Vector3(1.2f - _player.BodyRadiusM - 0.0015f, 0.06f, -0.35f);
+        _player.Velocity = Vector3.Zero;
+        _player.Rotation = new Vector3(0, -Mathf.Pi * 0.5f, 0);
+        grabs = _player.Grabs;
+        _player.SetControlInput(new Vector2(0, 1));
+        for (var i = 0; i < 30 && _player.Grabs == grabs; i++) await Frames(1);
+        var grabbedBank = _player.Grabs > grabs;
+        _player.SetControlInput(new Vector2(0, -1));
+        var eyeUnder = 0;
+        var handedOver = false;
+        for (var i = 0; i < 240 && !handedOver; i++)
+        {
+            await Frames(1);
+            if (_player.GlobalPosition.Y + _player.EyeCamera.Position.Y < b.Y + surface - 0.001f) eyeUnder++;
+            handedOver = _player.IsSwimming && !_player.IsClimbing;
+        }
+        _player.SetControlInput(Vector2.Zero);
+        await Frames(60);
+        Report(grabbedBank && handedOver && eyeUnder == 0 && _player.IsSwimming,
+            $"climbing down a bank into deep water hands the body to swimming, the eye never under (grabbed {grabbedBank}, handed over {handedOver}, ticks with the eye under: {eyeUnder})");
+
+        // Creation forces act on a swimmer: a push carries it across the water.
+        var drifting = _player.GlobalPosition;
+        _player.SetCreationEffects(new Vector3(-0.6f, 0, 0), 0, new Callable(this, MethodName.AllowAll));
+        await Frames(60);
+        _player.SetCreationEffects(Vector3.Zero, 0, new Callable());
+        var drift = drifting.X - _player.GlobalPosition.X;
+        Report(drift > 0.05f && _player.IsSwimming, $"a creation push carries a swimmer across the water ({drift * 100:0.0} cm in 1 s)");
+
+        // Dry ground under a raised basin of water stays dry: walking under it never swims.
+        Solid(b + new Vector3(-1.0f, 0.27f, 1.0f), new BoxShape3D { Size = new Vector3(0.4f, 0.02f, 0.4f) });
+        var basinSheet = new SurfaceTool();
+        basinSheet.Begin(Mesh.PrimitiveType.Triangles);
+        foreach (var corner in new[] { new Vector2(-1.2f, 0.8f), new Vector2(-0.8f, 0.8f), new Vector2(-0.8f, 1.2f), new Vector2(-1.2f, 0.8f), new Vector2(-0.8f, 1.2f), new Vector2(-1.2f, 1.2f) })
+            basinSheet.AddVertex(new Vector3(corner.X, 0.38f, corner.Y));
+        var basin = RoomWater.CreateCollider(new[] { ((Shape3D)basinSheet.Commit().CreateTrimeshShape(), Transform3D.Identity) });
+        basin.Position = b;
+        AddChild(basin);
+        await Frames(2);
+        Check(_player.TryTeleportTo(b + new Vector3(-1.5f, 0.003f, 1.0f)), "the player stands beside a raised basin");
+        _player.Rotation = new Vector3(0, -Mathf.Pi * 0.5f, 0);
+        var swamDry = 0;
+        _player.SetControlInput(new Vector2(0, 1));
+        for (var i = 0; i < 180; i++)
+        {
+            await Frames(1);
+            if (_player.IsSwimming) swamDry++;
+        }
+        _player.SetControlInput(Vector2.Zero);
+        Report(swamDry == 0 && _player.IsOnFloor() && _player.GlobalPosition.X - b.X > -0.7f,
+            $"walking under a raised basin of water never swims (swimming ticks {swamDry}, ends at {Text(_player.GlobalPosition - b)})");
+
+        // A high, fast fall into deep water: the water catches the body before the eye goes under, every tick.
+        // Six drop heights 1.5 cm apart, so one of them meets the surface just after a tick and moves 9 cm through it in the next.
+        Check(_player.SetWorldPhysics(Preset("room_real", _player.WorldPhysicsRevision + 1)), "real gravity for the high fall");
+        var underTicks = 0;
+        var impact = 0.0f;
+        var allSwimming = true;
+        for (var drop = 0; drop < 6; drop++)
+        {
+            _player.GlobalPosition = b + new Vector3(0.8f, 1.5f + drop * 0.015f, 0);
+            _player.Velocity = Vector3.Zero;
+            for (var i = 0; i < 100; i++)
+            {
+                await Frames(1);
+                impact = Mathf.Max(impact, -_player.Velocity.Y);
+                if (_player.GlobalPosition.Y + _player.EyeCamera.Position.Y < b.Y + surface - 0.001f) underTicks++;
+            }
+            allSwimming &= _player.IsSwimming;
+        }
+        Report(underTicks == 0 && allSwimming, $"six 1.5 m falls into deep water at {impact:0.0} m/s never put the eye under, at any tick (ticks under: {underTicks})");
+
         // A fall into deep water lands in it, in all three gravities: no fall recovery, and the body floats back up.
         foreach (var preset in new[] { "room_tuned", "room_real", "room_floaty" })
         {
             Check(_player.SetWorldPhysics(Preset(preset, _player.WorldPhysicsRevision + 1)), $"{preset} gravity for the fall");
             _player.GlobalPosition = b + new Vector3(0.8f, 0.35f, 0);
             _player.Velocity = Vector3.Zero;
+            var recoveries = _player.Recoveries;
             var lowest = float.MaxValue;
             var fastest = 0.0f;
             for (var i = 0; i < 300; i++)
@@ -1068,7 +1217,7 @@ public partial class SmallAvatarPhysicsTest : Node3D
                 fastest = Mathf.Max(fastest, -_player.Velocity.Y);
             }
             var at = _player.GlobalPosition - b;
-            Report(_player.IsSwimming && lowest > bed + 0.005f && Mathf.Abs(at.X - 0.8f) < 0.01f && Mathf.Abs(at.Y - (surface - _player.SwimFloatDepthM)) < 0.008f,
+            Report(_player.IsSwimming && lowest > bed + 0.005f && Mathf.Abs(at.X - 0.8f) < 0.01f && Mathf.Abs(at.Y - (surface - _player.SwimFloatDepthM)) < 0.008f && _player.Recoveries == recoveries,
                 $"{preset}: a 35 cm fall into deep water is broken by it ({fastest:0.00} m/s, deepest feet {lowest:0.000} m over a bed at {bed:0.00}) and floats back to the surface");
             if (preset != "room_tuned") continue;
             // Jump at the surface: a leap out with the land jump's take-off, and back into the water.

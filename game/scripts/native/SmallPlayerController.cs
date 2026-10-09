@@ -156,6 +156,10 @@ public partial class SmallPlayerController : CharacterBody3D
     [Export] public float SwimAccelerationMps2 { get; set; } = 1.6f;
     /// <summary>The push must point within 45 degrees of straight into the face to grab it.</summary>
     public const float ClimbGrabCos = 0.7f;
+    /// <summary>Held back by what it pushes into, a body grabs with its push within 60 degrees of straight in (it is not brushing past).</summary>
+    public const float ClimbHeldGrabCos = 0.5f;
+    /// <summary>Held back on a walkable slope steeper than this, pushing up it, the body scrambles: it climbs the slope.</summary>
+    public const float ScrambleSlopeDeg = 35.0f;
     /// <summary>A face leaning out over the climber more than 20 degrees past vertical is a roof: it cannot be grabbed or climbed onto.</summary>
     public const float ClimbOverhangNormalY = -0.34f;
     /// <summary>How far the hands reach for the face each tick, and the gentle press that keeps them on it.</summary>
@@ -176,6 +180,10 @@ public partial class SmallPlayerController : CharacterBody3D
     public const float WaterDragLinearPerS = 4.0f;
     public const float SwimSpringPerS = 6.0f;
     public const float SwimSpringMaxMps = 0.25f;
+    /// <summary>The water catches a falling or plunging body with its eye at least this far above the surface (no diving this round).</summary>
+    public const float EyeClearanceM = 0.005f;
+    /// <summary>A creation force pulling a climber off its face faster than this lets go, and the body carries that momentum.</summary>
+    public const float ClimbCreationLetGoMps = 0.1f;
     /// <summary>The ledge a climber pulls over onto may be up to about the chest above the feet.</summary>
     public float PullOverReachM => BodyHeightM * 0.55f;
     /// <summary>Water this deep (surface to bed) floats the body: the water would reach the eyes.</summary>
@@ -194,6 +202,8 @@ public partial class SmallPlayerController : CharacterBody3D
     public int PullOvers { get; private set; }
     public int ClimbReleases { get; private set; }
     public int SwimStarts { get; private set; }
+    /// <summary>Recoveries so far (R, a fall out of the room, or a non-finite position).</summary>
+    public int Recoveries { get; private set; }
     /// <summary>The water at the body's feet on the last physics tick (RoomWater); Dry when there is none or the body cannot swim.</summary>
     public RoomWater.Column Water { get; private set; } = RoomWater.Column.Dry;
     /// <summary>How far the visible body is tipped toward lying along the water (0 upright, 1 fully).</summary>
@@ -370,17 +380,21 @@ public partial class SmallPlayerController : CharacterBody3D
         return limited;
     }
 
-    /// <summary>After the move: a slide or a creation push that still crossed the bound is put back on it, and its outward speed stops.</summary>
+    /// <summary>
+    /// After the move: a slide, a climb or a creation push that still crossed the bound is put back on it, and its outward
+    /// speed stops. The top holds the whole body under it too (a climber, a pull-over, a leap).
+    /// </summary>
     private void HoldInsideBounds()
     {
         if (PlayableBounds is not { } bounds) return;
         var here = GlobalPosition;
+        var top = bounds.End.Y - BodyHeightM;
         var held = new Vector3(
-            Mathf.Clamp(here.X, bounds.Position.X + BodyRadiusM, bounds.End.X - BodyRadiusM), here.Y,
+            Mathf.Clamp(here.X, bounds.Position.X + BodyRadiusM, bounds.End.X - BodyRadiusM), bounds.Size.Y > BodyHeightM ? Mathf.Min(here.Y, top) : here.Y,
             Mathf.Clamp(here.Z, bounds.Position.Z + BodyRadiusM, bounds.End.Z - BodyRadiusM));
         if (held == here) return;
         GlobalPosition = held;
-        Velocity = new Vector3(held.X != here.X ? 0 : Velocity.X, Velocity.Y, held.Z != here.Z ? 0 : Velocity.Z);
+        Velocity = new Vector3(held.X != here.X ? 0 : Velocity.X, held.Y != here.Y ? Mathf.Min(0, Velocity.Y) : Velocity.Y, held.Z != here.Z ? 0 : Velocity.Z);
         _creationVelocity = new Vector3(held.X != here.X ? 0 : _creationVelocity.X, _creationVelocity.Y, held.Z != here.Z ? 0 : _creationVelocity.Z);
         BoundsStops++;
     }
@@ -515,6 +529,7 @@ public partial class SmallPlayerController : CharacterBody3D
     /// <summary>Back to the last safe footing, else the spawn. While a creation moves the body, a checkpoint the guard refuses is skipped.</summary>
     public bool Recover()
     {
+        Recoveries++;
         SetControlInput(Vector2.Zero);
         Velocity = Vector3.Zero;
         var guarded = HasCreationGuard;
@@ -584,7 +599,7 @@ public partial class SmallPlayerController : CharacterBody3D
         else wish = GlobalBasis * local;
         wish.Y = 0;
         var before = GlobalPosition;
-        SampleWater();
+        SampleWater(dt);
         if (_climbing) Climb(dt, wish);
         else if (UpdateSwimming()) Swim(dt, wish, sprint);
         else Walk(dt, wish, sprint, onFloor);
@@ -622,6 +637,7 @@ public partial class SmallPlayerController : CharacterBody3D
     /// <summary>On foot or in the air: the walk, the run, steps, jumps and creation forces, slowed by the water it wades in.</summary>
     private void Walk(float dt, Vector3 wish, bool sprint, bool onFloor)
     {
+        var start = GlobalPosition;
         var desired = wish * (sprint ? RunSpeedMps : WalkSpeedMps) * WadeFactor();
         if (!onFloor && WindMps != Vector2.Zero)
             desired = (desired + new Vector3(WindMps.X, 0, WindMps.Y)).LimitLength(RunSpeedMps + WindMps.Length());
@@ -641,11 +657,9 @@ public partial class SmallPlayerController : CharacterBody3D
         // Friendly lift is an explicit game capability: upward acceleration includes weight support.
         if (_creationAcceleration.Y > 0) vertical = Mathf.Max(vertical, 0);
         if (_creationGlideLimit > 0) vertical = Mathf.Max(vertical, -_creationGlideLimit);
-        var own = new Vector3(horizontal.X, vertical, horizontal.Z);
-        _creationVelocity = (_creationVelocity + _creationAcceleration * dt).LimitLength(MaxCreationSpeedMps);
-        var total = own + _creationVelocity;
-        if (_creationGlideLimit > 0) total.Y = Mathf.Max(total.Y, -_creationGlideLimit);
-        _creationApplied = total - own;
+        var total = WithCreation(new Vector3(horizontal.X, vertical, horizontal.Z), dt);
+        // Falling into deep water: the water catches the body this tick, before the eye goes under.
+        total.Y = CatchInWater(total.Y, dt);
         Velocity = total;
         if (onFloor && !jumped && vertical <= 0 && _creationApplied == Vector3.Zero &&
             horizontal.LengthSquared() > 0.000001f && TryStep(horizontal * dt))
@@ -657,16 +671,45 @@ public partial class SmallPlayerController : CharacterBody3D
         }
         else MoveAndSlide();
         // A face too steep to stand on, pushed into: grab it (at once in the air, after a deliberate push on the ground).
-        TryGrab(dt, wish, deliberate: IsOnFloor());
+        var grounded = IsOnFloor();
+        TryGrab(dt, wish, deliberate: grounded, heldBack: !grounded || HeldBack(start, wish, WalkSpeedMps, dt));
+    }
+
+    /// <summary>
+    /// The creation stage every state shares: the creation velocity grows by its acceleration (capped), is added to the
+    /// body's own motion and is remembered as applied, so it is taken off again next tick and never snaps back.
+    /// </summary>
+    private Vector3 WithCreation(Vector3 own, float dt)
+    {
+        _creationVelocity = (_creationVelocity + _creationAcceleration * dt).LimitLength(MaxCreationSpeedMps);
+        var total = own + _creationVelocity;
+        if (_creationGlideLimit > 0) total.Y = Mathf.Max(total.Y, -_creationGlideLimit);
+        _creationApplied = total - own;
+        return total;
     }
 
     // ---- water ----
 
-    private void SampleWater()
+    private float EyeHeightM => (float)Profile.EyeHeightMeters;
+
+    /// <summary>The water at the feet, looking down as far as this tick's fall will carry them, so a fast fall meets the surface it crosses.</summary>
+    private void SampleWater(float dt)
     {
         Water = CanSwim && IsInsideTree()
-            ? RoomWater.At(GetWorld3D().DirectSpaceState, GlobalPosition, BodyHeightM * 4, 0.02f, GetRid())
+            ? RoomWater.At(GetWorld3D().DirectSpaceState, GlobalPosition, BodyHeightM * 4, Mathf.Max(0.02f, -Velocity.Y * dt + 0.02f), GetRid())
             : RoomWater.Column.Dry;
+    }
+
+    /// <summary>
+    /// Deep water never lets the feet sink so far this tick that the eye goes under: a falling or plunging body is caught
+    /// with its eye EyeClearanceM above the surface (and one already that deep rises no faster than the swim spring).
+    /// </summary>
+    private float CatchInWater(float vertical, float dt)
+    {
+        if (!CanSwim || !Water.Wet || Water.DepthM < SwimDepthM || dt <= 0) return vertical;
+        var deepest = Water.SurfaceY - (EyeHeightM - EyeClearanceM);
+        if (GlobalPosition.Y + vertical * dt >= deepest) return vertical;
+        return Mathf.Max(vertical, Mathf.Min((deepest - GlobalPosition.Y) / dt, SwimSpringMaxMps));
     }
 
     /// <summary>Wading slows the body gradually as the water rises up it, to WadeSlowestFactor where it begins to float.</summary>
@@ -694,16 +737,18 @@ public partial class SmallPlayerController : CharacterBody3D
         {
             if (under < -0.01f || Water.DepthM < SwimExitDepthM) EndSwim();
         }
-        else if (!(_waterLeap && Velocity.Y > 0) && under > 0.002f && Water.DepthM >= SwimDepthM)
-        {
-            _swimming = true;
-            _waterLeap = false;
-            _coyote = 0;
-            _grabPush = 0;
-            MotionMode = MotionModeEnum.Floating;
-            SwimStarts++;
-        }
+        else if (!(_waterLeap && Velocity.Y > 0) && under > 0.002f && Water.DepthM >= SwimDepthM) StartSwim();
         return _swimming;
+    }
+
+    private void StartSwim()
+    {
+        _swimming = true;
+        _waterLeap = false;
+        _coyote = 0;
+        _grabPush = 0;
+        MotionMode = MotionModeEnum.Floating;
+        SwimStarts++;
     }
 
     private void EndSwim()
@@ -738,9 +783,11 @@ public partial class SmallPlayerController : CharacterBody3D
         else _jumpBuffer = Mathf.Max(0, _jumpBuffer - dt);
         var desired = wish * WalkSpeedMps * (sprint ? 1.0f : SwimSpeedFactor);
         var horizontal = WithinBounds(new Vector3(Velocity.X, 0, Velocity.Z).MoveToward(desired, SwimAccelerationMps2 * dt), dt);
-        Velocity = new Vector3(horizontal.X, vertical, horizontal.Z);
+        var total = WithCreation(new Vector3(horizontal.X, vertical, horizontal.Z), dt);
+        if (_swimming) total.Y = CatchInWater(total.Y, dt);
+        Velocity = total;
         MoveAndSlide();
-        if (_swimming) TryGrab(dt, wish, deliberate: true);
+        if (_swimming) TryGrab(dt, wish, deliberate: true, heldBack: HeldBack(feet, wish, WalkSpeedMps * SwimSpeedFactor, dt));
     }
 
     // ---- climbing ----
@@ -759,11 +806,21 @@ public partial class SmallPlayerController : CharacterBody3D
 
     private bool HandsAreFull() => HandsFull?.Invoke() ?? false;
 
+    /// <summary>Whether this tick's push made under a quarter of its way: the body is held back by what it pushes into.</summary>
+    private bool HeldBack(Vector3 start, Vector3 wish, float speed, float dt)
+    {
+        var moved = new Vector3(GlobalPosition.X - start.X, 0, GlobalPosition.Z - start.Z);
+        return moved.Dot(wish.Normalized()) < wish.Length() * speed * dt * 0.25f;
+    }
+
     /// <summary>
-    /// Grab a face the body pushes into: too steep to stand on, rising above a step (a step is stepped, never grabbed),
-    /// the push within 45 degrees of straight in, and on the ground held for ClimbGrabDelayS.
+    /// Grab a face the body pushes into: too steep to stand on, the push within 45 degrees of straight in, rising above a
+    /// step (a step is stepped, never grabbed), and on the ground held for ClimbGrabDelayS. A body held back by what it
+    /// pushes into (or in the air) also takes a face it feels a step up and just ahead, with the push within 60 degrees;
+    /// and held back on a slope steeper than ScrambleSlopeDeg, where the walk cannot go on up (a slope steepening into a
+    /// cliff, a crease), it scrambles: the slope itself is grabbed and climbed.
     /// </summary>
-    private void TryGrab(float dt, Vector3 wish, bool deliberate)
+    private void TryGrab(float dt, Vector3 wish, bool deliberate, bool heldBack)
     {
         if (!CanClimb || _regrabBlock > 0 || !InputEnabled || wish.LengthSquared() < 0.25f || HandsAreFull())
         {
@@ -771,13 +828,34 @@ public partial class SmallPlayerController : CharacterBody3D
             return;
         }
         var into = wish.Normalized();
+        var cos = heldBack ? ClimbHeldGrabCos : ClimbGrabCos;
         Vector3? face = null;
+        Vector3? ahead = null;
+        var felt = false;
+        Vector3? FeelAhead()
+        {
+            if (felt) return ahead;
+            felt = true;
+            if (TestMove(GlobalTransform, Vector3.Up * StepHeightM, null, SafeMargin)) return ahead = null;
+            var raised = GlobalTransform;
+            raised.Origin += Vector3.Up * StepHeightM;
+            if (!TestMove(raised, into * 0.02f, _climbContact, SafeMargin)) return ahead = null;
+            var normal = _climbContact.GetNormal();
+            return ahead = Climbable(normal) && into.Dot(-Flat(normal)) >= cos ? normal : null;
+        }
         for (var index = 0; index < GetSlideCollisionCount() && face == null; index++)
         {
-            var normal = GetSlideCollision(index).GetNormal();
-            if (Climbable(normal) && into.Dot(-Flat(normal)) >= ClimbGrabCos) face = normal;
+            var collision = GetSlideCollision(index);
+            var normal = collision.GetNormal();
+            if (Climbable(normal) && into.Dot(-Flat(normal)) >= cos && (RisesAboveStep(normal, collision.GetPosition()) || (heldBack && FeelAhead() != null))) face = normal;
         }
-        if (face is not { } found || !RisesAboveStep(found))
+        if (face == null && heldBack && IsOnFloor())
+        {
+            face = FeelAhead();
+            var floor = GetFloorNormal();
+            if (face == null && floor.Y < Mathf.Cos(Mathf.DegToRad(ScrambleSlopeDeg)) && into.Dot(-Flat(floor)) >= cos) face = floor;
+        }
+        if (face is not { } found)
         {
             _grabPush = 0;
             return;
@@ -797,9 +875,14 @@ public partial class SmallPlayerController : CharacterBody3D
         Grabs++;
     }
 
-    /// <summary>A face is a climb, not a step, when it still stands in front of the body just above step height.</summary>
-    private bool RisesAboveStep(Vector3 normal)
+    /// <summary>
+    /// A face is a climb, not a step, when the body meets it above step height (a face that starts at head height, a
+    /// crown hanging over a perch, a ledge's lip just too tall to step) or it still stands in front of the body just
+    /// above step height (a rising cliff, a trunk).
+    /// </summary>
+    private bool RisesAboveStep(Vector3 normal, Vector3 contact)
     {
+        if (contact.Y > GlobalPosition.Y + StepHeightM + SafeMarginM) return true;
         var from = GlobalPosition + Vector3.Up * (StepHeightM + 0.004f);
         var query = PhysicsRayQueryParameters3D.Create(from, from - Flat(normal) * (BodyRadiusM + 0.02f), CollisionMask);
         query.Exclude = new Array<Rid> { GetRid() };
@@ -836,6 +919,25 @@ public partial class SmallPlayerController : CharacterBody3D
         var right = (-outward).Cross(Vector3.Up);
         var up = wish.Dot(-outward);
         var side = wish.Dot(right);
+        // Down a bank into deep water: the water takes the body before the eye goes under. Climbing out upward holds on.
+        if (CanSwim && Water.Wet && Water.DepthM >= SwimDepthM)
+        {
+            var under = Water.Under(GlobalPosition);
+            if ((up <= 0.3f && under >= SwimFloatDepthM) || under >= EyeHeightM - 0.01f)
+            {
+                StopClimbing(Vector3.Zero);
+                StartSwim();
+                return;
+            }
+        }
+        // Creation forces: one pulling the climber off the face lets go, and the body carries it; the rest move it along the face.
+        _creationVelocity = (_creationVelocity + _creationAcceleration * dt).LimitLength(MaxCreationSpeedMps);
+        if (_creationVelocity.Dot(normal) > ClimbCreationLetGoMps)
+        {
+            LetGo(kick: false);
+            return;
+        }
+        var along = _creationVelocity - normal * _creationVelocity.Dot(normal);
         // The room's bounds hold a climber inside, at the top as at the sides.
         if (PlayableBounds is { } bounds && up > 0 && GlobalPosition.Y + BodyHeightM >= bounds.End.Y) up = 0;
         if (up > 0.3f && FindLedge(outward, out var ledge))
@@ -848,7 +950,8 @@ public partial class SmallPlayerController : CharacterBody3D
         alongUp = alongUp.LengthSquared() > 1e-4f ? alongUp.Normalized() : Vector3.Up;
         var alongSide = right - normal * right.Dot(normal);
         alongSide = alongSide.LengthSquared() > 1e-4f ? alongSide.Normalized() : right;
-        var velocity = (alongUp * up + alongSide * side).LimitLength(1) * ClimbSpeedMps - normal * ClimbStickMps;
+        var velocity = (alongUp * up + alongSide * side).LimitLength(1) * ClimbSpeedMps - normal * ClimbStickMps + along;
+        _creationApplied = along;
         var horizontal = WithinBounds(new Vector3(velocity.X, 0, velocity.Z), dt);
         Velocity = new Vector3(horizontal.X, velocity.Y, horizontal.Z);
         MoveAndSlide();
@@ -894,6 +997,8 @@ public partial class SmallPlayerController : CharacterBody3D
             if (!Standable(normal)) continue;
             var spot = hit["position"].AsVector3() + Vector3.Up * (BodyRadiusM * (1.0f / normal.Y - 1.0f) + SafeMarginM * 2 + 0.001f);
             if (!InsidePlayableBounds(spot) || !CapsuleFits(spot)) continue;
+            // The whole body must stand under the bounds' top there (a pull-over never lifts the head out of the room).
+            if (PlayableBounds is { } bounds && bounds.Size.Y > BodyHeightM && spot.Y + BodyHeightM > bounds.End.Y) continue;
             var rise = Mathf.Max(0, spot.Y + 0.002f - GlobalPosition.Y);
             if (rise > 0 && TestMove(GlobalTransform, Vector3.Up * rise, null, SafeMargin)) continue;
             var raised = GlobalTransform;
@@ -916,6 +1021,8 @@ public partial class SmallPlayerController : CharacterBody3D
     private void PullOver(float dt)
     {
         _pullTime += dt;
+        // The pull-over is the hands' own short move: creation forces wait (their velocity keeps building, so nothing snaps).
+        _creationVelocity = (_creationVelocity + _creationAcceleration * dt).LimitLength(MaxCreationSpeedMps);
         var here = GlobalPosition;
         var velocity = Vector3.Zero;
         if (_pullPhase == 1)
@@ -939,9 +1046,13 @@ public partial class SmallPlayerController : CharacterBody3D
         MoveAndSlide();
         if (_pullTime > PullOverMaxS)
         {
-            // Something moved into the way: stand wherever the body got to.
-            PullOvers++;
-            StopClimbing(Vector3.Zero);
+            // Something moved into the way. A pull-over never ends in a fall: on support, stand there; else hold the face again.
+            if (HasSupportNear(GlobalPosition, 0.01f))
+            {
+                PullOvers++;
+                StopClimbing(Vector3.Zero);
+            }
+            else _pullPhase = 0;
         }
     }
 
