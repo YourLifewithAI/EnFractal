@@ -35,6 +35,10 @@ namespace EnFractal.Tests.Look;
 ///   jpg   save JPEG files at that quality (1 to 100) instead of PNGs (a landscape set is committed, one picture under 1 MB)
 /// A camera entry may also stage the avatars first ("stage": player_m, yaw_deg, companion_m: where they stand, which way the
 /// player faces) and may ask for the player's own eye ("eye_view": true: the real eye camera's transform and focus rule).
+/// It may mirror any of the HUD's views ("hud_view": 0 eye, 1 shoulder, 2 diorama, 3 isometric; "hud_pitch_deg" tilts the diorama),
+/// name the view a fixed camera stands for ("view": eye, shoulder, diorama or isometric, which blurs its own way), and put the
+/// focus highlight on a room object moved onto a spot ("focus": object, at_xz_m, camera_offset_m: the camera looks at it from
+/// there). Looks without views or the highlight ignore those (the harness finds them by reflection).
 /// </summary>
 public partial class LookCaptureHarness : Node
 {
@@ -256,16 +260,71 @@ public partial class LookCaptureHarness : Node
         RenderingServer.ViewportSetMeasureRenderTime(_target.GetViewportRid(), true);
     }
 
+    private static readonly string[] HudViews = { "eye", "shoulder", "diorama", "isometric" };
+
+    /// <summary>Tell the look which view a camera stands for (null: none, the preset's miniature blur); older looks have no views.</summary>
+    private void SetView(string? name)
+    {
+        var property = _look?.GetType().GetProperty("View");
+        if (property == null) return;
+        var type = Nullable.GetUnderlyingType(property.PropertyType) ?? property.PropertyType;
+        property.SetValue(_look, name == null ? null : Enum.Parse(type, name, ignoreCase: true));
+    }
+
+    private Node3D? _focused;
+    private Transform3D _focusedHome;
+
+    /// <summary>
+    /// The focus highlight's captures: a room object moved onto a spot (its base on the ground there) and given the focus, with
+    /// the camera looking at it from an offset. Every other camera has no focus, and the object goes back where it stood.
+    /// </summary>
+    private (Vector3 Position, Vector3 LookAt)? StageFocus(JsonElement entry)
+    {
+        if (_focused != null && IsInstanceValid(_focused)) _focused.GlobalTransform = _focusedHome;
+        _focused = null;
+        var setFocus = _look?.GetType().GetMethod("SetFocusHighlight");
+        setFocus?.Invoke(_look, new object?[] { null });
+        if (!entry.TryGetProperty("focus", out var focus)) return null;
+        var id = focus.GetProperty("object").GetString()!;
+        var thing = _world.Built.FindChildren("*", "Node3D", true, false).OfType<Node3D>().FirstOrDefault(n => n.HasMeta("entity_id") && n.GetMeta("entity_id").AsString() == id)
+            ?? throw new InvalidOperationException($"no room object {id} to put in focus");
+        _focused = thing;
+        _focusedHome = thing.GlobalTransform;
+        var spot = focus.GetProperty("at_xz_m");
+        var x = (float)spot[0].GetDouble();
+        var z = (float)spot[1].GetDouble();
+        var query = PhysicsRayQueryParameters3D.Create(new Vector3(x, 4f, z), new Vector3(x, -2f, z));
+        if (thing is CollisionObject3D own) query.Exclude = new Godot.Collections.Array<Rid> { own.GetRid() };
+        var hit = _world.GetWorld3D().DirectSpaceState.IntersectRay(query);
+        var ground = hit.Count > 0 ? hit["position"].AsVector3() : new Vector3(x, 0f, z);
+        var under = hit.Count > 0 && hit["collider"].AsGodotObject() is Node node ? EntityOf(node) : "nothing";
+        thing.GlobalPosition = ground;
+        setFocus?.Invoke(_look, new object?[] { thing });
+        GD.Print($"LOOK_CAPTURE focus={id} at={ground} on={under} highlight={(setFocus != null ? "on" : "not in this build")}");
+        var offset = Vec(focus.GetProperty("camera_offset_m"));
+        return (ground + offset, ground + Vector3.Up * 0.03f);
+    }
+
+    private static string EntityOf(Node node)
+    {
+        for (var current = node; current != null; current = current.GetParent())
+            if (current.HasMeta("entity_id")) return current.GetMeta("entity_id").AsString();
+        return node.Name;
+    }
+
     private void Frame(JsonElement entry)
     {
         // Leave the HUD rig a previous camera mirrored.
         _mirror = null;
         if (_hud != null && _hud.ViewMode != 1) _hud.SetViewMode(1);
         if (entry.TryGetProperty("stage", out var stage)) Stage(stage);
+        var focused = StageFocus(entry);
+        SetView(entry.TryGetProperty("view", out var view) ? view.GetString() : null);
         if (entry.TryGetProperty("eye_view", out var eyeView) && eyeView.GetBoolean())
         {
             // The player's own eye, 8.7 cm up, with the look's own focus rule for it (a few body heights ahead).
             _look?.Set("Observe", false);
+            SetView("eye");
             _camera.CullMask = 0xFFFFFu & ~HiddenBodyLayer;
             _mirror = _world.Player.EyeCamera;
             Mirror();
@@ -276,8 +335,8 @@ public partial class LookCaptureHarness : Node
             FrameHudRig(entry, hudView.GetInt32());
             return;
         }
-        var position = Vec(entry.GetProperty("position_m"));
-        var lookAt = Vec(entry.GetProperty("look_at_m"));
+        var position = focused?.Position ?? Vec(entry.GetProperty("position_m"));
+        var lookAt = focused?.LookAt ?? Vec(entry.GetProperty("look_at_m"));
         _camera.GlobalPosition = position;
         _camera.LookAt(lookAt, Mathf.Abs((lookAt - position).Normalized().Dot(Vector3.Up)) > 0.99f ? Vector3.Forward : Vector3.Up);
         _camera.Fov = (float)entry.GetProperty("fov_deg").GetDouble();
@@ -285,25 +344,29 @@ public partial class LookCaptureHarness : Node
         _camera.Far = 50f;
         var hideBody = entry.TryGetProperty("hide_player_body", out var hide) && hide.GetBoolean();
         _camera.CullMask = hideBody ? 0xFFFFFu & ~HiddenBodyLayer : 0xFFFFFu;
-        var focus = entry.TryGetProperty("focus_m", out var focusElement) ? Vec(focusElement) : lookAt;
+        var focus = entry.TryGetProperty("focus_m", out var focusElement) ? Vec(focusElement) : focused?.LookAt ?? lookAt;
         // A camera may ask for the observe view (a very tight tilt-shift band); older looks have no such switch and ignore it.
         _look?.Set("Observe", entry.TryGetProperty("observe", out var observe) && observe.GetBoolean());
         if (_look != null && _look.HasMethod("FrameCamera")) _look.Call("FrameCamera", _camera, focus);
     }
 
     /// <summary>
-    /// The founder's observe playtest was in the HUD's F3 and F4 views, which no fixed camera shows: the rig is placed by the
-    /// real HUD (pivot on the player, spring arm, lens), and the look's own focus rule for that camera (FocusPointFor, which
-    /// includes whatever the HUD handed it) sets the depth of field, so a change to either shows in the frame.
+    /// The founder plays in the HUD's views, which no fixed camera shows: the rig is placed by the real HUD (the eye, the shoulder
+    /// arm, or the diorama's pivot, spring arm and lens), and the look's own focus rule for that camera (FocusPointFor, which
+    /// includes whatever the HUD handed it) and that view's blur set the depth of field, so a change to either shows in the frame.
     /// </summary>
     private void FrameHudRig(JsonElement entry, int mode)
     {
         _hud ??= _world.FindChildren("*", "CanvasLayer", true, false).OfType<RoomHud>().FirstOrDefault()
             ?? throw new InvalidOperationException("the room has no HUD to mirror for hud_view");
         _look?.Set("Observe", entry.TryGetProperty("observe", out var observe) && observe.GetBoolean());
-        _camera.CullMask = 0xFFFFFu;
+        // The eye hides the player's own body, as the HUD does in F1.
+        _camera.CullMask = mode == 0 ? 0xFFFFFu & ~HiddenBodyLayer : 0xFFFFFu;
         _hud.SetViewMode(mode);
-        _mirror = _hud.DioramaCamera;
+        if (mode == 2 && entry.TryGetProperty("hud_pitch_deg", out var pitch))
+            _hud.OrbitDiorama(new Vector2(0f, Mathf.DegToRad((float)pitch.GetDouble() - _hud.DioramaPitchDeg) / RoomHud.MouseRadiansPerPixel));
+        SetView(HudViews[Math.Clamp(mode, 0, 3)]);
+        _mirror = GetViewport().GetCamera3D() ?? _hud.DioramaCamera;
         Mirror();
     }
 

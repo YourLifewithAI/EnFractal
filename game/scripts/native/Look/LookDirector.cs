@@ -57,6 +57,7 @@ public partial class LookDirector : Node3D
     /// </summary>
     public bool OpenLand { get; private set; }
     public VoxelGI? Gi { get; private set; }
+
     public Godot.Environment Environment { get; private set; } = null!;
     /// <summary>The sun by day and the moon by night. Hidden in a room without a sun light hint (no window lets the sun in).</summary>
     public DirectionalLight3D Key { get; private set; } = null!;
@@ -92,6 +93,13 @@ public partial class LookDirector : Node3D
     /// Observe tracks depth immediately; ordinary focus eases. Off by default; the HUD supplies its key.
     /// </summary>
     public bool Observe { get; set; }
+    /// <summary>
+    /// Which play view the camera stands for, so each blurs its own way (x_look_views): set by whoever frames a camera the look
+    /// does not otherwise know (the review harness, a preview). Unset, the game's camera follows the HUD's view keys
+    /// (RoomHud.ViewMode: F1 eye, F2 shoulder, F3 diorama, F4 isometric), the player's own eye camera is the eye view, and any
+    /// other camera keeps the preset's miniature blur.
+    /// </summary>
+    public LookView? View { get; set; }
     /// <summary>Where the clock comes from: the real clock and calendar, the preset's fixed hour and day, or a pin (and who pinned it).</summary>
     public string ClockNote { get; private set; } = "";
     /// <summary>Empty when the room declared its own site; otherwise why the sun uses the look's fallback site.</summary>
@@ -825,8 +833,10 @@ public partial class LookDirector : Node3D
     /// Tilt-shift also shortens the blur ramps, so the crisp band ends sooner and the frame's top and bottom melt.
     /// crispFromM keeps everything from there to the focus crisp (the player's reach, seen from its eye), and
     /// alsoM is a second distance the band stretches to keep crisp (the companion beside the player).
+    /// view is how the view blurs (x_look_views): null or "miniature" is all of the above; "far" keeps everything from the
+    /// lens's near blur to crisp_beyond_focus_m past the subject crisp, with no tilt-shift, and softens only what lies beyond.
     /// </summary>
-    public static DepthOfField DepthOfFieldFor(StylePreset preset, float focusDistance, float lookingDown, float crispFromM = float.PositiveInfinity, float alsoM = float.NaN, bool observe = false)
+    public static DepthOfField DepthOfFieldFor(StylePreset preset, float focusDistance, float lookingDown, float crispFromM = float.PositiveInfinity, float alsoM = float.NaN, bool observe = false, ViewBlur? view = null)
     {
         var t = preset.Tuning.Dof;
         var d = Mathf.Max(focusDistance, 0.05f);
@@ -839,6 +849,15 @@ public partial class LookDirector : Node3D
         }
         var nearest = float.IsFinite(alsoM) && alsoM > 0.05f ? Mathf.Min(d, alsoM) : d;
         var farthest = float.IsFinite(alsoM) && alsoM > 0.05f ? Mathf.Max(d, alsoM) : d;
+        if (view is { Far: true } far)
+        {
+            // Only a leaf brushing the lens is soft near (never past half the way to the subject); the land stays crisp to the
+            // far start, and the far shore, the distant islands and the horizon soften over the transition.
+            var lens = Mathf.Min(preset.NearBlurDistanceM, 0.5f * nearest);
+            return new DepthOfField(preset.DofEnabled, farthest + far.CrispBeyondFocusM, far.FarTransitionM,
+                preset.DofEnabled && preset.NearBlur > 0f && lens > 0.01f, lens, Mathf.Max(lens * (t.NearTransitionBase - t.NearTransitionPerBlur * preset.NearBlur), 0.01f),
+                far.FarAmount);
+        }
         var tilt = preset.TiltShiftEnabled ? preset.TiltShiftStrength * Mathf.Clamp(lookingDown * t.TiltPitchGain, 0f, 1f) : 0f;
         var halfBand = 0.5f * preset.FocusBandM * (1f - t.TiltBandNarrowing * tilt);
         var shorten = 1f - t.TiltTransitionShortening * tilt;
@@ -883,7 +902,7 @@ public partial class LookDirector : Node3D
         var forward = -camera.GlobalBasis.Z;
         var distance = (focusPoint - camera.GlobalPosition).Dot(forward);
         var also = alsoPoint is { } point ? (point - camera.GlobalPosition).Dot(forward) : float.NaN;
-        var dof = DepthOfFieldFor(Preset, distance, Mathf.Max(0f, -forward.Y), crispFromM, also, Observe);
+        var dof = DepthOfFieldFor(Preset, distance, Mathf.Max(0f, -forward.Y), crispFromM, also, Observe, ViewFor(camera) is { } view ? Preset.Tuning.BlurFor(view) : null);
         // Ordinary focus eases. Observe follows the current body/camera depth immediately,
         // including a mode change on the shared F3/F4 camera; the rig already eases its motion.
         var ease = Preset.Tuning.Dof.FocusEaseS;
@@ -909,6 +928,21 @@ public partial class LookDirector : Node3D
     };
 
     private Node3D? CompanionBody() => FocusCompanion ?? GetParent()?.GetChildren().OfType<CompanionAvatar>().FirstOrDefault();
+
+    private RoomHud? _hud;
+
+    /// <summary>
+    /// The view a camera stands for: View when it is set; else the player's own eye camera is the eye view, a camera framed with
+    /// FrameCamera keeps the miniature blur (null), and the game's camera is the view the HUD's keys chose.
+    /// </summary>
+    public LookView? ViewFor(Camera3D camera)
+    {
+        if (View is { } chosen) return chosen;
+        if (FocusBody() is SmallPlayerController controller && IsInstanceValid(controller) && camera == controller.EyeCamera) return LookView.Eye;
+        if (_framed.Contains(camera.GetInstanceId())) return null;
+        if (_hud == null || !IsInstanceValid(_hud)) _hud = GetParent()?.GetChildren().OfType<RoomHud>().FirstOrDefault();
+        return _hud?.ViewMode switch { 0 => LookView.Eye, 1 => LookView.Shoulder, 2 => LookView.Diorama, 3 => LookView.Isometric, _ => null };
+    }
 
     /// <summary>
     /// A second point to keep crisp: with "player" focus, the companion's body while it is within

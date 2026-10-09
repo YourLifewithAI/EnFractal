@@ -68,16 +68,19 @@ public partial class LookPresetTest : Node3D
             await CheckFocusEasing(preset, room);
             await CheckObserve(preset, room);
             var observeV2 = StylePreset.Resolve(RoomWorld.DefaultStyleId, 2);
+            var v1 = StylePreset.Resolve(RoomWorld.DefaultStyleId, 1);
             CheckObservePlayerEnvelope(observeV2);
-            CheckObserveFrameBudget(preset, observeV2);
+            CheckObserveFrameBudget(v1, observeV2);
             await CheckObservePlayerTracking(observeV2, room);
+            CheckViewBlur(v1, observeV2);
+            await CheckViewChoice(observeV2, room);
             CheckFocusPass(preset);
             CheckSeasonLooks(preset);
             await CheckLightProtections(preset, room);
             await CheckLandscape(preset, room);
             await CheckPondLife(preset);
             MaterialLibrary.Configure(preset);
-            GD.Print($"NATIVE_LOOK: {_checks - _failures}/{_checks} checks passed; preset reader and look numbers, role materials and shader uniforms, grade, season tint and reduced global tint, clock at every minute, solar model, sun only through the window, night levels and lamps, golden-hour cool fill, depth of field and focus, post effect parameters, bake stand-ins, room dressing, grade cache, renderer notice, the landscape's role marks and baked colours, open land, water you can see into and the fish in it");
+            GD.Print($"NATIVE_LOOK: {_checks - _failures}/{_checks} checks passed; preset reader and look numbers, role materials and shader uniforms, grade, season tint and reduced global tint, clock at every minute, solar model, sun only through the window, night levels and lamps, golden-hour cool fill, depth of field and focus, post effect parameters, bake stand-ins, room dressing, grade cache, renderer notice, the landscape's role marks and baked colours, open land, water you can see into and the fish in it, each view's blur, the open sea and its distant islands, and the focus highlight");
             GetTree().Quit(_failures == 0 ? 0 : 1);
         }
         catch (Exception exception)
@@ -112,7 +115,11 @@ public partial class LookPresetTest : Node3D
     /// <summary>Review finding: look constants lived in C#. The shipped preset now states every look number itself.</summary>
     private void CheckLookNumbersLiveInThePreset(StylePreset preset)
     {
-        Check(preset.Tuning.Defaulted.Count == 0, "the preset states every look number; none is left to the code's defaults: " + string.Join(", ", preset.Tuning.Defaulted.Take(12)));
+        // A block added after the preset's version was written is left to the code's defaults, which reproduce that version's look.
+        var unstated = preset.Tuning.Defaulted.Where(d => !(LookTuning.BlocksSince.TryGetValue(d.Split('.')[0], out var since) && since > preset.PresetVersion)).ToArray();
+        Check(unstated.Length == 0, "the preset states every look number its version knows; none is left to the code's defaults: " + string.Join(", ", unstated.Take(12)));
+        var newest = StylePreset.Resolve(RoomWorld.DefaultStyleId, LookTuning.BlocksSince.Values.Max());
+        Check(newest.Tuning.Defaulted.Count == 0, $"v{newest.PresetVersion} states every look number, the newer blocks too: " + string.Join(", ", newest.Tuning.Defaulted.Take(12)));
         Check(LookTuning.Blocks.All(StylePreset.KnownLookExtensions.Contains), "every tuning block is a known look extension");
         // The numbers really come from the file: change a few and the parsed look follows.
         var edited = PresetWith(Field("sky_fill_energy", "3.25"), Field("lut_size", "17"), Field("vignette_start", "0.3"), Field("tilt_pitch_gain", "0.75"),

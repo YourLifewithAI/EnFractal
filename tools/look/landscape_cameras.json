@@ -2,7 +2,7 @@
   "schema": "enfractal.look_review_cameras",
   "version": 1,
   "room_id": "landscape_garage_nominal",
-  "description": "Review cameras for the garage landscape (Run 2, Lane L: the landscape in the game), in world metres, +Y up, -Z forward. They need a landscape export passed with --room (tools/test-room.ps1 builds one under .cache/landscape-fixture). The player's spawn is (0, 0.088, -3.0); the apple crate and three cottages stand about 5 m on, at z 1.6 to 2.4. The clock is the landscape's own setup answer (summer, day 172, 09:00 apparent solar time, noon at 12 on the clock), so the pictures can be set beside the harness's reference renders; the landscape has no lamps.",
+  "description": "Review cameras for the garage landscape (Run 2, Lane L: the landscape in the game), in world metres, +Y up, -Z forward. They need a landscape export passed with --room (tools/test-room.ps1 builds one under .cache/landscape-fixture). The player's spawn is (0, 0.088, -3.0); the apple crate and three cottages stand about 5 m on, at z 1.6 to 2.4. The clock is the landscape's own setup answer (summer, day 172, 09:00 apparent solar time, noon at 12 on the clock), so the pictures can be set beside the harness's reference renders; the landscape has no lamps. Run 2's open sea round adds the HUD's four views across the island (F1 to F4, staged on the north shore facing south), a swimmer 40 m out looking further out and looking home (the endless sea, the distant islands holding their place), and the focus highlight on the apple crate set on grass, the beach, rock and the jetty's planks.",
   "resolution": [1920, 1080],
   "clock": {
     "hour": 9.0,
@@ -69,6 +69,97 @@
       "focus_m": [0.0, 0.15, 1.9],
       "hide_player_body": false,
       "stage": { "player_m": [0.31, 0.115, 1.62], "yaw_deg": 172, "companion_m": [0.46, 0.115, 1.66] }
+    },
+    {
+      "id": "land_f1_eye",
+      "label": "F1, the eye, across the island",
+      "purpose": "Run 2, the open sea round: the HUD's F1 view (the player's own eye) from the north shore looking south across the island to the far shore and the sea. The founder: blur only what is far; the island stays crisp.",
+      "hud_view": 0,
+      "stage": { "player_m": [0.0, 0.095, -2.9], "yaw_deg": 180, "companion_m": [0.14, 0.085, -2.85] }
+    },
+    {
+      "id": "land_f2_shoulder",
+      "label": "F2, over the shoulder, across the island",
+      "purpose": "Run 2, the open sea round: the HUD's F2 view as the founder played it, the same spot and heading. Before, the island a metre or two away was already soft; after, it stays crisp and only the far shore, the distant islands and the horizon soften.",
+      "hud_view": 1,
+      "stage": { "player_m": [0.0, 0.095, -2.9], "yaw_deg": 180, "companion_m": [0.14, 0.085, -2.85] }
+    },
+    {
+      "id": "land_f3_diorama",
+      "label": "F3, the diorama, tilted up to the horizon",
+      "purpose": "Run 2, the open sea round: the HUD's F3 orbit at its lowest pitch, so the island and the sea out to the horizon are in frame. The island stays crisp; no tilt-shift.",
+      "hud_view": 2,
+      "hud_pitch_deg": 22,
+      "stage": { "player_m": [0.0, 0.095, -2.9], "yaw_deg": 180, "companion_m": [0.14, 0.085, -2.85] }
+    },
+    {
+      "id": "land_f4_iso",
+      "label": "F4, isometric",
+      "purpose": "Run 2, the open sea round: the HUD's F4 view keeps its tilt-shift miniature (the founder: 'that's where we're trying to see the charming/macro-scene view').",
+      "hud_view": 3,
+      "stage": { "player_m": [0.0, 0.095, -2.9], "yaw_deg": 180, "companion_m": [0.14, 0.085, -2.85] }
+    },
+    {
+      "id": "land_sea_out",
+      "label": "Out at sea, looking out",
+      "purpose": "Run 2, the endless sea: a swimmer's-height camera 40 m off the north shore, looking further out. The room's own sea mesh ends 20 m ahead (60 m from the island) and its floor at about 50 m; the open sea must carry on to the horizon with no edge.",
+      "position_m": [4.0, 0.1, -40.0],
+      "look_at_m": [4.0, 0.07, -90.0],
+      "fov_deg": 68,
+      "focus_m": [4.0, 0.0, -40.4],
+      "view": "shoulder",
+      "hide_player_body": false
+    },
+    {
+      "id": "land_sea_home",
+      "label": "Out at sea, looking home",
+      "purpose": "Run 2, the endless sea: the same swimmer looking back at the home island. The distant islands hold their place on the horizon (never reached), each its own silhouette.",
+      "position_m": [4.0, 0.12, -40.0],
+      "look_at_m": [0.0, 0.25, 0.0],
+      "fov_deg": 68,
+      "focus_m": [3.96, 0.1, -39.6],
+      "view": "shoulder",
+      "hide_player_body": false
+    },
+    {
+      "id": "land_focus_grass",
+      "label": "The focus on grass",
+      "purpose": "Run 2: the focus highlight (one thing at a time, a soft rim and line) on the apple crate set on the meadow, seen as from F2.",
+      "focus": { "object": "obj:apple_crate", "at_xz_m": [0.6, -2.45], "camera_offset_m": [0.16, 0.12, -0.22] },
+      "fov_deg": 55,
+      "view": "shoulder",
+      "hide_player_body": false,
+      "stage": { "player_m": [0.0, 0.095, -2.9], "yaw_deg": 180, "companion_m": [0.14, 0.085, -2.85] }
+    },
+    {
+      "id": "land_focus_sand",
+      "label": "The focus on the beach",
+      "purpose": "Run 2: the focus highlight on the apple crate on the north beach's pale shore.",
+      "focus": { "object": "obj:apple_crate", "at_xz_m": [1.9, -3.32], "camera_offset_m": [0.16, 0.12, -0.22] },
+      "fov_deg": 55,
+      "view": "shoulder",
+      "hide_player_body": false,
+      "stage": { "player_m": [0.0, 0.095, -2.9], "yaw_deg": 180, "companion_m": [0.14, 0.085, -2.85] }
+    },
+    {
+      "id": "land_focus_rock",
+      "label": "The focus on rock",
+      "purpose": "Run 2: the focus highlight on the apple crate on a rock outcrop.",
+      "focus": { "object": "obj:apple_crate", "at_xz_m": [1.09, -1.78], "camera_offset_m": [0.16, 0.12, -0.22] },
+      "fov_deg": 55,
+      "view": "shoulder",
+      "hide_player_body": false,
+      "stage": { "player_m": [0.0, 0.095, -2.9], "yaw_deg": 180, "companion_m": [0.14, 0.085, -2.85] }
+    },
+    {
+      "id": "land_focus_wood",
+      "label": "The focus on wood",
+      "purpose": "Run 2: the focus highlight on the apple crate on the jetty's planks.",
+      "focus": { "object": "obj:apple_crate", "at_xz_m": [1.4725, -3.62], "camera_offset_m": [0.2, 0.12, 0.18] },
+      "fov_deg": 55,
+      "view": "shoulder",
+      "hide_player_body": false,
+      "stage": { "player_m": [0.0, 0.095, -2.9], "yaw_deg": 180, "companion_m": [0.14, 0.085, -2.85] }
     }
   ]
 }

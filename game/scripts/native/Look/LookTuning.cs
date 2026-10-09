@@ -126,6 +126,23 @@ public sealed record DofTuning(
     float TiltTransitionShortening, float TiltAmountGain, float CompanionFollowM,
     float FocusEaseS = 0.12f, float ObserveBandM = 0.08f, float ObserveFarTransitionM = 0.12f, float ObserveNearTransitionM = 0.1f, float ObserveAmount = 1f);
 
+/// <summary>The play views the HUD's keys switch between (F1 to F4); the observe view (O) is a switch over any of them.</summary>
+public enum LookView { Eye, Shoulder, Diorama, Isometric }
+
+/// <summary>
+/// How one view blurs (the founder, 9 October, in the island garage: "players are going to want to see the landscape a little
+/// further out. Maybe the blurring is only for features further out"; in F4, "having the tilt-shift there makes sense").
+/// "miniature" is the preset's own depth of field: a band around the subject and a tilt-shift that grows as the camera looks
+/// down, so a high view reads as a model on a table. "far" keeps everything crisp from the lens's near blur out to
+/// CrispBeyondFocusM past the subject (the whole island around the player), then softens over FarTransitionM, so only the far
+/// shore, the distant islands and the horizon melt, at FarAmount (the bokeh's size; its cost grows with its square).
+/// </summary>
+public sealed record ViewBlur(string Style, float CrispBeyondFocusM = 0f, float FarTransitionM = 0f, float FarAmount = 0f)
+{
+    public static readonly ViewBlur Miniature = new("miniature");
+    public bool Far => Style == "far";
+}
+
 /// <summary>
 /// Grain and vignette, and the focus pass of the same post effect: colour contrast as a way to focus. Inside the
 /// depth-of-field band colour is lifted (FocusSaturation) and out of it drawn back (DefocusSaturation, DefocusDarken),
@@ -154,14 +171,33 @@ public sealed record LookTuning(
     /// <summary>"block.field" for every look number the preset left to the code's defaults (empty for the shipped preset).</summary>
     public IReadOnlyList<string> Defaulted { get; init; } = Array.Empty<string>();
 
+    /// <summary>
+    /// How each play view blurs (x_look_views). A preset without the block (v1, written before it) blurs every view with its own
+    /// miniature depth of field, exactly as it always did.
+    /// </summary>
+    public IReadOnlyDictionary<LookView, ViewBlur> Views { get; init; } = DefaultViews;
+
+    public static readonly IReadOnlyDictionary<LookView, ViewBlur> DefaultViews = Enum.GetValues<LookView>().ToDictionary(v => v, _ => ViewBlur.Miniature);
+
     public RoleLook MarksFor(string role) => RoleMarks.TryGetValue(role, out var marks) ? marks : DefaultMarks;
+
+    public ViewBlur BlurFor(LookView view) => Views.TryGetValue(view, out var blur) ? blur : ViewBlur.Miniature;
 
     /// <summary>The x_look_* blocks LookTuning reads (StylePreset reads the others).</summary>
     public static readonly IReadOnlyList<string> Blocks = new[]
     {
         "x_look_role_marks", "x_look_paint", "x_look_shadows", "x_look_ssao", "x_look_glow", "x_look_gi", "x_look_lamps",
-        "x_look_sun", "x_look_seasons", "x_look_grade", "x_look_dof", "x_look_post", "x_look_sky",
+        "x_look_sun", "x_look_seasons", "x_look_grade", "x_look_dof", "x_look_post", "x_look_sky", "x_look_views",
     };
+
+    /// <summary>
+    /// Blocks added after a preset version was written, with the first version that states them: an older version leaves them
+    /// to the code's defaults, which reproduce its look (it may not change once candidate), and every later version states them.
+    /// </summary>
+    public static readonly IReadOnlyDictionary<string, int> BlocksSince = new Dictionary<string, int> { ["x_look_views"] = 2 };
+
+    /// <summary>The view names of x_look_views, in the HUD's key order (F1 eye, F2 shoulder, F3 diorama, F4 isometric).</summary>
+    public static string ViewName(LookView view) => view.ToString().ToLowerInvariant();
 
     /// <summary>The four seasons in calendar order from midwinter, which is the order of x_look_seasons.centre_days.</summary>
     public static readonly string[] SeasonNames = { "winter", "spring", "summer", "autumn" };
@@ -381,7 +417,38 @@ public sealed record LookTuning(
         if (sky.Brightness < 0f || sky.SunDiscDeg < 0f || sky.MoonDiscDeg < 0f || sky.StarStrength < 0f || sky.SunHalo < 0f || !(sky.DuskStartDeg >= 0f && sky.DuskEndDeg > sky.DuskStartDeg) || sky.GroundSeasonTint is < 0f or > 1f)
             throw new InvalidOperationException("x_look_sky: brightness, disc sizes, halo and star strength must not be negative, and dusk_start_deg < dusk_end_deg with dusk_start_deg at least 0, and ground_season_tint between 0 and 1");
 
-        return new LookTuning(roles, defaultMarks, paint, shadows, ssao, glow, gi, lamps, sun, seasons, grade, dof, post, sky) { Defaulted = defaulted };
+        var views = new Dictionary<LookView, ViewBlur>();
+        var viewsBlock = Block("x_look_views");
+        if (viewsBlock.ValueKind is not (JsonValueKind.Object or JsonValueKind.Undefined)) throw new InvalidOperationException("x_look_views must be an object");
+        if (viewsBlock.ValueKind == JsonValueKind.Object)
+        {
+            var names = Enum.GetValues<LookView>().ToDictionary(ViewName);
+            foreach (var name in viewsBlock.EnumerateObject().Select(v => v.Name).Where(n => !names.ContainsKey(n)))
+                throw new InvalidOperationException($"x_look_views.{name} is not eye, shoulder, diorama or isometric");
+            foreach (var (name, view) in names)
+            {
+                // Every view is stated: a view the block leaves out would silently keep the miniature blur.
+                if (!viewsBlock.TryGetProperty(name, out var entry)) throw new InvalidOperationException($"x_look_views needs an entry for {name}");
+                var w = new Fields(entry, "x_look_views." + name, defaulted);
+                var style = w.S("blur", "miniature");
+                if (style is not ("miniature" or "far")) throw new InvalidOperationException($"x_look_views.{name}.blur '{style}' is not miniature or far");
+                // A far view states its three numbers; a miniature view takes the preset's depth of field and states none.
+                views[view] = style == "far"
+                    ? new ViewBlur(style, w.F("crisp_beyond_focus_m", 0f), w.F("far_transition_m", 0f), w.F("far_amount", 0f))
+                    : ViewBlur.Miniature;
+                w.Done();
+                var blur = views[view];
+                if (blur.Far && !(blur.CrispBeyondFocusM > 0f && blur.FarTransitionM > 0f && blur.FarAmount is > 0f and <= 1f))
+                    throw new InvalidOperationException($"x_look_views.{name}: a far view needs crisp_beyond_focus_m and far_transition_m above 0 and far_amount above 0 and at most 1");
+            }
+        }
+        else
+        {
+            defaulted.Add("x_look_views");
+            foreach (var view in Enum.GetValues<LookView>()) views[view] = ViewBlur.Miniature;
+        }
+
+        return new LookTuning(roles, defaultMarks, paint, shadows, ssao, glow, gi, lamps, sun, seasons, grade, dof, post, sky) { Defaulted = defaulted, Views = views };
     }
 
     private static RoleLook Role(JsonElement element, RoleLook fallback, string label, List<string> defaulted)
