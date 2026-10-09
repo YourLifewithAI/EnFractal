@@ -307,6 +307,7 @@
 - **The founder's installed landscape** was refreshed from that fixture (`room.json` `0F0B0F0F…`, 27 loose things). The previous copy is in `%APPDATA%\Godot\app_userdata\EnFractal\room-backups\landscape_garage_nominal-20261009-before-open-sea`.
 - **Codex reviews of Lane P part 1** (Sol against Astra, the A/B log's fifth trial) found 4 and 5 issues. Lane P is fixing them before diving.
 - **Open for the founder:** the far net at 1 km (it brings a swimmer home as B does).
+- **On record for later** (the founder, not to build now): [docs/ideas/SHARED-IMPROVEMENT.md](../ideas/SHARED-IMPROVEMENT.md), on how good ideas spread and fun is verified at scale, and how agents meet safely with proof of ownership and trust.
 
 ## The next session
 
