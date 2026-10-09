@@ -13,7 +13,7 @@ import numpy as np
 from PIL import Image, PngImagePlugin
 
 from audit import accessor, audit, read_glb
-from convert import build, canonical, canonical_png, convert, read_json, validate
+from convert import build, canonical, canonical_png, convert, read_json, validate, make_shape
 from synthetic import create
 
 HERE = Path(__file__).resolve().parent
@@ -128,6 +128,72 @@ class ConverterTests(unittest.TestCase):
         self.assertNotEqual(ma,mb)
         self.assertNotIn(b"drawing.png",a)
         self.assertNotIn(b"file:",a)
+
+    def test_default_plush_depth_keeps_synthetic_outline(self):
+        shallow = copy.deepcopy(self.spec["parts"][0]["shapes"][0])
+        plush = copy.deepcopy(shallow)
+        del plush["thickness"]
+        a, _ = make_shape(shallow, {})
+        b, _ = make_shape(plush, {})
+        np.testing.assert_array_equal(a[:, :2], b[:, :2])
+        self.assertGreater(np.ptp(b[:, 2]), 2 * np.ptp(a[:, 2]))
+        self.assertGreater(np.ptp(b[:, 2]), 0.9 * np.ptp(b[:, :2], axis=0).min())
+
+    def test_effect_and_bubble_export_replay_height_and_pivots(self):
+        spec = copy.deepcopy(self.spec)
+        body = spec["parts"][0]
+        del body["shapes"][0]["thickness"]
+        body["material_hint"] = dict(kind="bubble", see_through=True,
+                                     rim="shimmer", aura_colour="#B4EED8")
+        spec["parts"].append(dict(name="loose_star", role="sparkle", kind="effect",
+            parent="body", pivot=[460,180,5],
+            motion_hint=dict(kind="twinkle", reason="Independent floating star"),
+            shapes=[dict(kind="ellipsoid", center=[460,180,5], radii=[8,12,8], colour="gold")]))
+        spec["parts"].append(dict(name="aura", role="glow", kind="effect", parent="body",
+            pivot=[300,330,0], shapes=[], motion_hint=dict(kind="pulse", reason="Soft aura")))
+        source = self.root / "effects.json"
+        source.write_bytes(canonical(spec))
+        outputs = []
+        for seed in (71, 93):
+            out = self.root / ("effects-" + str(seed))
+            result = subprocess.run([sys.executable, "-B", str(HERE / "convert.py"),
+                "--photo", str(self.root / "input/drawing.png"),
+                "--description", str(self.root / "input/description.txt"),
+                "--interpretation", str(source), "--out", str(out), "--no-render"],
+                capture_output=True, text=True, env={**os.environ, "PYTHONHASHSEED": str(seed)})
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            outputs.append(out)
+        for name in ("character.glb", "character.json", "interpretation.json"):
+            self.assertEqual((outputs[0]/name).read_bytes(), (outputs[1]/name).read_bytes())
+        doc, meta = audit(outputs[0])
+        for part in meta["parts"]:
+            extra = doc["nodes"][part["node_index"]]["extras"]["enfractal_part"]
+            self.assertEqual(extra["kind"], part["kind"])
+            if part["kind"] == "effect":
+                self.assertEqual(extra["motion_hint"], part["motion_hint"])
+        self.assertEqual(sum(p["kind"] == "effect" for p in meta["parts"]), 2)
+        self.assertEqual(meta["parts"][0]["material_hint"], body["material_hint"])
+        node = doc["nodes"][meta["parts"][0]["node_index"]]
+        material_index = doc["meshes"][node["mesh"]]["primitives"][0]["material"]
+        material = doc["materials"][material_index]
+        self.assertEqual(material["name"], "bubble__body__body")
+        self.assertEqual(material["extras"]["enfractal_material"],
+                         {**body["material_hint"], "fallback_colour": spec["palette"]["body"]})
+        self.assertEqual(material["pbrMetallicRoughness"]["baseColorFactor"][3], 1)
+        self.assertNotIn("alphaMode", material)
+        # Other parts can share the same palette colour without becoming bubbles.
+        self.assertNotIn("extras", next(m for m in doc["materials"] if m["name"] == "body"))
+
+    def test_rejects_ambiguous_effect_and_material_hints(self):
+        spec = copy.deepcopy(self.spec)
+        spec["parts"][0]["kind"] = "effect"
+        with self.assertRaisesRegex(ValueError, "motion_hint"):
+            validate(spec)
+        spec["parts"][0].pop("kind")
+        spec["parts"][0]["material_hint"] = dict(kind="bubble", see_through=True,
+                                                rim="shimmer", aura_colour="green")
+        with self.assertRaisesRegex(ValueError, "aura_colour"):
+            validate(spec)
 
 
 if __name__=="__main__":

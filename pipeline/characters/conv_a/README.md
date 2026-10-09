@@ -2,7 +2,7 @@
 
 An offline converter with an explicit visual interpretation step. It produces
 a self-contained, coloured GLB, joint metadata, the saved interpretation, and
-the unchanged shared CPU turntable's front / three-quarter / side / back views.
+the shared CPU turntable's front / three-quarter / side / back views.
 
 ## Convert
 
@@ -25,7 +25,7 @@ One PowerShell command performs the rest (paths containing spaces are supported)
 The destination must be absent or empty. This intentionally refuses to replace
 an existing character. A supplied `--blender` overrides the brief's pinned
 Blender 5.2.2 executable path. `--no-render` is for geometry iteration and tests;
-the default runs the shared turntable at its unchanged 640 px / 48 samples.
+the default runs the shared turntable at 640 px / 48 samples.
 The default uses CPU Cycles; no GPU, network, installs or paid services.
 
 Requirements: the brief's Python 3.14, NumPy and Pillow; Blender for renders.
@@ -45,7 +45,10 @@ changes provenance, not geometry. This boundary is deliberate and tested.
 The mesher supports concave rounded silhouettes, ellipsoids and tapered curves.
 It triangulates an outline, refines the surface, improves the triangles, then
 smooths an inflated front and back with fixed silhouette boundaries. Small
-features can follow that surface. Thickness creates closed solids; all colours
+features can follow that surface. Volumes default to plush depth (95% of the
+narrower outline dimension), with
+fuller shoulders and unchanged front outlines. Explicit thickness supports
+shallow props and marks. Thickness creates closed solids; all fallback colours
 are material base colours. No textures, raster tracing or image bytes are used.
 Facial ink is thin geometry. The drawing's asymmetries live in the interpretation.
 
@@ -97,12 +100,16 @@ The shared turntable fixes CPU rendering and seed. Blender adds dates and render
 durations to individual PNGs, so a final converter pass removes text, time and
 EXIF chunks without recompressing pixels or changing colour-profile chunks.
 Render byte repeatability is tested on the delivery machine, not promised across
-Blender versions or CPUs. The shared turntable itself is never modified.
+Blender versions or CPUs. Unhinted materials follow the original turntable
+unchanged. Brief 22 compared
+all five rendered images of the same round-one GLB before and after the renderer
+change: pixels and normalized PNG bytes matched.
 The AI interpretation is the nondeterministic step; keep its output for replay.
 
 This is an author-assisted converter, not an autonomous image-to-3D model. It
 invents depth from one view. It supports simple outline polygons without holes,
-opaque colours and smooth geometry; it does not reproduce transparency, fur,
+opaque fallback colours, bubble/aura hints and smooth geometry; it does not
+reproduce fur,
 complex material layering or skeletal animation. Contour smoothing may overshoot
 very sharp landmarks; use `smooth: false` or split an outline. Very tight tubes
 can intersect themselves; keep bend radius larger than tube thickness.
@@ -111,5 +118,20 @@ Volumes are softly inflated shapes, so extremely thin features belong in tubes.
 Preserving a wide drawing may put hands or props substantially beyond the 2 cm
 collision radius. Metadata flags large overhangs; it does not certify gameplay
 collision or fit. Founder judgment of resemblance and playability remains open.
+Effects are named parts with pivots and motion hints; animations are not baked.
+Bubble hints are in metadata, named GLB materials and extras. The CPU turntable
+previews clear centres and shimmering coloured rims; the game still needs the
+Look lane shader. See FORMAT.md for the converter-local hint fields. The preview
+uses Blender's [Principled thin-film controls](https://docs.blender.org/manual/en/latest/render/shader_nodes/shader/principled.html)
+and a transparent/Fresnel mix; it is an artistic preview, not a soap-film simulation.
+
+Create a family comparison from the existing renders:
+
+```powershell
+& C:/Python314/python.exe -B pipeline/characters/conv_a/compare_sheet.py `
+  --before C:/path/to/round1 --after captures/characters-out/round2/my-character `
+  --out captures/characters-out/round2/my-character/sheet.png --title "My character"
+```
+
 Next work: a player-facing interpretation preview and correction step, followed
-by the unchanged held-out drawing test and the game's procedural motion import.
+by a new held-out drawing test and the game's procedural motion import.
