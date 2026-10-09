@@ -20,6 +20,7 @@ The founder heard a podcast (*The Cognitive Revolution*, 8 October 2026) about s
   - an AI's score never certifies fun (AGENTS.md: "an agent score does not certify the look");
   - time played is not the goal. For a children's game, optimising it drifts toward compulsion. Charm, invention and no punishment stay the bar; numbers inform the founder's judgement and never replace it.
 - **A small first step, when wanted:** a local session summary written from game events, such as what was done and for how long (never screens, faces or voices). After each playtest the integrator reads it beside the founder's notes. Sharing across families comes much later, with opt-in and parental consent, because data about children is regulated.
+- **Wishes no island can grant yet** (the founder, 9 October, evening). Each wish the game couldn't grant is a request: a record of what players want that doesn't exist yet. Kept locally first, these become a database that drives the building of islands that can grant them, eventually by models that can build islands safely. The design is the "wish ledger" in [docs/magic/README.md](../magic/README.md).
 
 ## Idea 2: agents meet safely
 

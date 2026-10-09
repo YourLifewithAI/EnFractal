@@ -14,8 +14,9 @@
 - the instant in-game acknowledgement while the AI thinks;
 - fire's keyed "yes" near the player's builds;
 - saved spells, for later;
-- "magic, not a teammate";
-- the key review.
+- a teammate whose words match its deeds (the founder corrected an earlier "magic, not a teammate");
+- the key review;
+- the wish ledger: wishes no island can grant yet, kept to grow new islands (the founder's idea, 9 October, evening).
 
 ## The idea
 
@@ -46,7 +47,11 @@ The player directs the Gubble without words (a tap, a wheel, the number keys) or
 7. **Show the hidden inputs.**
    - Dry grass looks yellow and wet ground darker; drifting motes show the wind. Otherwise outcomes feel random (research 1).
    - Chance may change how fast something happens, never what happens: dry grass always burns, at a varying speed.
-8. **Magic, not a teammate.** Players of PUBG's AI ally saw it as a tool far more often than as a teammate (research 2). The Gubble is presented as the player's magic, a companion with powers, not a squadmate whose skill is judged.
+8. **A teammate whose words match its deeds.**
+   - The Gubble is the player's own AI: brought by the player, or one day provided by the game (pending funding). It is a teammate that does magic on the player's behalf **(decided, 9 October; it replaces an earlier "magic, not a teammate")**.
+   - It writes its own journal notes, so it feels like a buddy rather than rote AI (7 October).
+   - What carries over from PUBG's AI ally, whose players mostly read it as a tool (research 2), is narrower: players stop trusting a teammate whose words contradict its actions, and judge it harshly where it is weak (there, combat).
+   - So the Gubble never claims what the host has not confirmed, and its role leans on what AI does well (understanding a wish, composing abilities, remembering), not on twitch skill.
 9. **Rules are data, never code.**
    - They are pinned and hashed like style presets.
    - No scripts, URLs or paths.
@@ -301,6 +306,37 @@ Wish box ──the player's words──▶ Game host (wish queue) ◀── runn
 
 **A wish benchmark:** the kids' five wishes, scripted. Each AI client is scored on the ability it picks, its parameters, its receipts against its claims, and how it handles a refusal. This is the acceptance test, as the house conversation was for building (research 2).
 
+**One path for every AI.** Whether the player brings their own AI or the game one day provides one (the founder: pending, as it would need outside funding and real infrastructure), it comes through the same runner and the same MCP surface. A provided model gets no special path and no extra powers.
+
+## Wishes no island can grant yet: the wish ledger
+
+**The founder's idea (9 October, evening).** Wishes one island can't grant could become a database of requests. It would feed a process that builds islands able to grant them, eventually with a model that can build those islands safely. It is not for now, but the system should be in place for when models can do it.
+
+**What the game can keep from day one** (local, small, alongside the wish queue):
+- **For each wish that wasn't granted, or was granted only in part:**
+  - the player's words;
+  - the island's theme pack and version;
+  - why: the host's refusal codes from the commands that were tried (trusted), and the AI's own label when it sent no command, such as "no ability for this" (kept, marked as the AI's);
+  - what was offered instead, and whether the player took it.
+- **Granted wishes** count too, as the measure of what already works.
+- **The ledger stays on the player's machine:** in `user://`, never in Git, never sent anywhere. Sharing it comes much later, opt-in and with a parent's consent, because these are children's words ([SHARED-IMPROVEMENT.md](../ideas/SHARED-IMPROVEMENT.md)).
+
+**What it can grow into:**
+1. **Missing content.** Wishes cluster into what is missing: an ability, a creature, a kit, a law ("ride a dragon", "make it snow", "a slide down the mountain").
+2. **Two queues.**
+   - **Content** an island can add as data: theme packs, abilities on existing primitives, creatures, kits. A model can build these, because a theme pack can't carry code.
+   - **Engine work** a wish needs that no primitive covers yet (flight, say). That stays engineering, by people or, later, by models through code review.
+3. **A safe pipeline for a model that builds islands.**
+   - The model proposes a theme pack as data.
+   - The pack validator checks it: settings only narrow, limits stay inside the primitives', there is no code, and the text passes the text rules.
+   - The original wishes are replayed against it as a benchmark.
+   - A person reviews it, and it is pinned like a style preset.
+
+   "Safely" comes from the layers: a model can only write what the engine already knows how to check.
+4. **The sea as a way to find them.** A wish this island can't grant could point to an island that can: a dragon island on the horizon, a ferry from the jetty (RUN-2-OPEN-SEA.md, "Later"). An unanswered wish becomes a reason to travel.
+
+**What to build now:** only the ledger record, with the wish queue (build step 2). Everything after it waits for shared islands and for models that can do the work.
+
 ## Costs
 
 **(Decided)** None in creative mode. In the live, challenge, cooperative and competitive modes, costs differ by island: summoning a dragon costs a lot; building a spaceship and shooting blasters have their own costs.
@@ -357,6 +393,7 @@ New with magic:
 2. **The wish path.**
    - The wish box, the queue, the link roles, `companion.say`.
    - The runner, with Claude Code and Codex templates first.
+   - The wish ledger's local record.
    - The wish benchmark.
 3. **Bubbles and Fireworks** (effects; no ground layer needed).
 4. **The ground layer and Bloom** (the trail, then painting).
