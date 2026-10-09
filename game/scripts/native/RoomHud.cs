@@ -235,6 +235,23 @@ public partial class RoomHud : CanvasLayer
         _diorama = new Camera3D { Name = "DioramaCamera", Near = 0.01f, Far = 100, Fov = DioramaFovDeg };
         _dioramaArm.AddChild(_diorama);
         PlaceDioramaRig(snap: true);
+        IgnoreCollisionOnlyParts();
+    }
+
+    /// <summary>
+    /// A shell part that is never drawn ("drawn": false: a tree's hidden climbing pole and crown caps) is no obstacle to a
+    /// camera: the arms pass through it as through the leaves around it. (Founder's playtest, 9 October: inside a crown the
+    /// follow camera was pulled in to the climber's head by the hidden caps.)
+    /// </summary>
+    private void IgnoreCollisionOnlyParts()
+    {
+        if (GetParent() is not RoomWorld { Built: { } built }) return;
+        foreach (var node in built.FindChildren("*", "StaticBody3D", true, false))
+            if (node is StaticBody3D body && body.HasMeta("drawn") && !body.GetMeta("drawn").AsBool())
+            {
+                _arm.AddExcludedObject(body.GetRid());
+                _dioramaArm.AddExcludedObject(body.GetRid());
+            }
     }
 
     public void SetViewMode(int mode)

@@ -78,6 +78,7 @@ public partial class LandscapePlayTest : Node3D
             MeasureWater();
             await TestClimbACliff();
             await TestClimbATree();
+            await TestClimbATreeWithKeys();
             await MeasureASwim();
             Finish();
         }
@@ -530,6 +531,7 @@ public partial class LandscapePlayTest : Node3D
             var under = space.IntersectRay(PhysicsRayQueryParameters3D.Create(player.GlobalPosition + Vector3.Up * 0.02f, player.GlobalPosition + Vector3.Down * 0.03f, RoomBuilder.WorldLayer, new Godot.Collections.Array<Rid> { player.GetRid() }));
             var standingOn = under.Count > 0 ? (under["collider"].AsGodotObject() as Node)?.GetMeta("entity_id", "").AsString() ?? "" : "";
             climbed = player.Grabs > grabs && player.PullOvers > pulls && player.IsOnFloor() && standingOn == "shell:tree_climb_foliage" && player.GlobalPosition.Y - start.Y > 0.12f;
+            if (climbed) _climbedTree = (start, toward);
             Measure($"LANDSCAPE_TREE a tree at ({centre.X:0.00}, {centre.Y:0.00}), pole {bottom:0.000} to {top:0.000} m, its foot walkable from the spawn: {(climbed ? "climbed to its crown" : "not climbed")}; grabbed {player.Grabs - grabs}, pulled over {player.PullOvers - pulls}, " +
                     $"rose {(player.GlobalPosition.Y - start.Y) * 100:0.0} cm (highest {(highest - start.Y) * 100:0.0} cm) in {frames / 60.0:0.0} s, standing on {(standingOn.Length > 0 ? standingOn : "nothing")} at {Text(player.GlobalPosition)}");
         }
@@ -596,6 +598,79 @@ public partial class LandscapePlayTest : Node3D
                 $"{(player.IsOnFloor() && !player.IsSwimming ? $"walked out in {outFrames / 60.0:0.0} s to {Text(player.GlobalPosition)}" : "did not walk out")}; ticks with the eye under {eyeUnder}");
         Check(player.Recoveries == recoveries && eyeUnder == 0, "a swim in the land's water needs no recovery and never puts the eye under");
         Check(player.TryTeleportTo(_world.Room.SpawnFor("player").PositionM), "the player back at the spawn after the swim");
+        await Frames(10);
+    }
+
+    private (Vector3 Start, Vector3 Toward)? _climbedTree;
+
+    /// <summary>
+    /// The founder's playtest, 9 October: "I can climb around halfway up and then something happens to the controls and
+    /// then I seem to be forced to climb down." The same tree climbed as a player climbs it: the W key held through the
+    /// keyboard path, the view (the body's heading in F2) turned 25 degrees once on the trunk, as a hand on the mouse does,
+    /// the follow camera live.
+    /// It must reach the crown cap without ever being carried down while W is held, and the follow camera must not be
+    /// pulled in by the tree's hidden climbing parts.
+    /// </summary>
+    private async Task TestClimbATreeWithKeys()
+    {
+        if (_climbedTree is not { } tree)
+        {
+            Measure("LANDSCAPE_TREE_KEYS no tree was climbed to try with the keys");
+            return;
+        }
+        var player = _world.Player;
+        var hud = _world.GetNode<RoomHud>("RoomHud");
+        hud.SetViewMode(1);
+        Check(player.TryTeleportTo(tree.Start), "the player back at the foot of the tree, for the keys");
+        player.Rotation = new Vector3(0, Mathf.Atan2(-tree.Toward.X, -tree.Toward.Z), 0);
+        await Frames(10);
+        var camera = player.GetNode<SpringArm3D>("FollowCameraArm").GetNode<Camera3D>("FollowCamera");
+        var start = player.GlobalPosition;
+        var grabs = player.Grabs;
+        var pulls = player.PullOvers;
+        var downTicks = 0;
+        var highest = start.Y;
+        var nearestCamera = float.MaxValue;
+        var worstTurn = 0.0f;
+        var turned = false;
+        var frames = 0;
+        player.ReadKeyboard = true;
+        Input.ParseInputEvent(new InputEventKey { PhysicalKeycode = Key.W, Keycode = Key.W, Pressed = true });
+        var lastY = player.GlobalPosition.Y;
+        for (; frames < 1800 && !(player.PullOvers > pulls && player.IsOnFloor() && !player.IsClimbing); frames++)
+        {
+            await Frames(1);
+            var y = player.GlobalPosition.Y;
+            // Once on the trunk, the mouse turns the view 25 degrees, as a player looking round does.
+            if (player.IsClimbing && !turned)
+            {
+                player.Rotation = new Vector3(0, player.Rotation.Y + Mathf.DegToRad(25), 0);
+                turned = true;
+            }
+            if (player.IsClimbing && !player.IsPullingOver && y < lastY - 0.0005f) downTicks++;
+            lastY = y;
+            highest = Mathf.Max(highest, y);
+            if (player.IsClimbing) nearestCamera = Mathf.Min(nearestCamera, camera.GlobalPosition.DistanceTo(player.GlobalPosition + Vector3.Up * player.BodyHeightM * 0.8f));
+            if (player.IsClimbing)
+            {
+                var inward = -new Vector3(player.ClimbNormal.X, 0, player.ClimbNormal.Z).Normalized();
+                var forward = -player.GlobalBasis.Z;
+                worstTurn = Mathf.Max(worstTurn, Mathf.RadToDeg(forward.AngleTo(inward)));
+            }
+        }
+        Input.ParseInputEvent(new InputEventKey { PhysicalKeycode = Key.W, Keycode = Key.W, Pressed = false });
+        player.ReadKeyboard = false;
+        await Frames(30);
+        var space = GetWorld3D().DirectSpaceState;
+        var under = space.IntersectRay(PhysicsRayQueryParameters3D.Create(player.GlobalPosition + Vector3.Up * 0.02f, player.GlobalPosition + Vector3.Down * 0.03f, RoomBuilder.WorldLayer, new Godot.Collections.Array<Rid> { player.GetRid() }));
+        var standingOn = under.Count > 0 ? (under["collider"].AsGodotObject() as Node)?.GetMeta("entity_id", "").AsString() ?? "" : "";
+        var reached = player.Grabs > grabs && player.PullOvers > pulls && player.IsOnFloor() && standingOn == "shell:tree_climb_foliage";
+        Measure($"LANDSCAPE_TREE_KEYS W held, the view turned 25 deg once on the trunk, the follow camera live: {(reached ? "reached the crown" : "did not reach the crown")}; grabbed {player.Grabs - grabs}, pulled over {player.PullOvers - pulls}, " +
+                $"rose {(player.GlobalPosition.Y - start.Y) * 100:0.0} cm (highest {(highest - start.Y) * 100:0.0} cm) in {frames / 60.0:0.0} s; climbing down while W was held {downTicks} ticks, the face up to {worstTurn:0} deg off the body's heading; " +
+                $"the follow camera came within {nearestCamera * 100:0.0} cm of the head (its arm is {player.BodyHeightM * 3.2f * 100:0} cm); standing on {(standingOn.Length > 0 ? standingOn : "nothing")}");
+        Check(reached && downTicks == 0, "with the keys and the follow camera, a tree is climbed to its crown and W never carries the climber down");
+        Check(nearestCamera > player.BodyHeightM * 3.2f * 0.5f, "the tree's hidden climbing parts never pull the follow camera in");
+        Check(player.TryTeleportTo(_world.Room.SpawnFor("player").PositionM), "the player back at the spawn after the keyed climb");
         await Frames(10);
     }
 

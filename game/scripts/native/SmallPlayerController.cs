@@ -600,7 +600,7 @@ public partial class SmallPlayerController : CharacterBody3D
         wish.Y = 0;
         var before = GlobalPosition;
         SampleWater(dt);
-        if (_climbing) Climb(dt, wish);
+        if (_climbing) Climb(dt, control);
         else if (UpdateSwimming()) Swim(dt, wish, sprint);
         else Walk(dt, wish, sprint, onFloor);
         HoldInsideBounds();
@@ -892,10 +892,15 @@ public partial class SmallPlayerController : CharacterBody3D
     }
 
     /// <summary>
-    /// On the face: the move keys climb up, down and sideways along it (pushing toward the face is up), gently pressed to
-    /// it. A ledge within reach above is pulled over onto; ground met while climbing down is stepped off onto; jump lets go.
+    /// On the face: forward climbs up and back climbs down, whatever way the body or the camera is turned; left and right
+    /// move along the face as the view sees them. The body is pressed gently to the face. A ledge within reach above is
+    /// pulled over onto; ground met while climbing down is stepped off onto; jump lets go.
+    /// (Founder's playtest, 9 October: "I can climb around halfway up and then something happens to the controls and then I
+    /// seem to be forced to climb down." Up had been the push toward the face, through the body's heading. On a round trunk
+    /// any angle between the heading and the face sent the climber round it, which turned the face further from the
+    /// heading, until forward pointed away from the face and climbed down. The thin climbing pole above the trunk turned it fastest.)
     /// </summary>
-    private void Climb(float dt, Vector3 wish)
+    private void Climb(float dt, Vector2 control)
     {
         _coyote = 0;
         if (!CanClimb || HandsAreFull())
@@ -917,8 +922,9 @@ public partial class SmallPlayerController : CharacterBody3D
         var normal = _climbNormal;
         var outward = Flat(normal);
         var right = (-outward).Cross(Vector3.Up);
-        var up = wish.Dot(-outward);
-        var side = wish.Dot(right);
+        var up = control.Y;
+        var viewRight = MovementFrameYaw is { } frameYaw ? new Basis(Vector3.Up, frameYaw) * Vector3.Right : GlobalBasis.X;
+        var side = control.X * (new Vector3(viewRight.X, 0, viewRight.Z).Dot(right) >= 0 ? 1.0f : -1.0f);
         // Down a bank into deep water: the water takes the body before the eye goes under. Climbing out upward holds on.
         if (CanSwim && Water.Wet && Water.DepthM >= SwimDepthM)
         {
