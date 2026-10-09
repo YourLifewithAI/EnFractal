@@ -20,10 +20,13 @@ the validator subprocess needs the repository's existing contract dependencies.
 | Terrain | Role-separated `shell:terrain_<role>` GLBs, `ground`, colliding; original positions, indices and winding retained, with no remeshing |
 | Unreachable scenery | `backdrop`, non-colliding GLBs |
 | Water | `backdrop`, non-colliding, contract material `water`; backdrop is the existing decorative shell role, while ground would imply footing |
-| All populated objects | Named `obj:<id>`, individual assets, final dimensions, original mass, yaw quaternion, terrain support when present; `carriable` maps to `physics.movable` |
+| Populated objects | Named `obj:<id>`, individual assets, final dimensions, original mass, yaw quaternion, terrain support when present; authored `carriable` maps to `physics.movable`. Small loose crates/stones also qualify; woodpiles split as below |
 | Cottages, towers, fences, boulders, crates, lanterns | Named fixed scatter entities with box collision (plants remain decorative); custom masonry/roof or non-plant forms at least 0.3 m also qualify |
 | Dense plants and tree crowns | Merged by role into non-colliding static shell meshes; no per-instance game nodes |
-| Tree trunks / small rocks | Original bark trunk cones and coarse rock ellipsoids retain their colliding `scatter_solid` shell GLBs |
+| Tree trunks / excess or large rocks | Original bark trunk cones and coarse rock ellipsoids retain their colliding `scatter_solid` shell GLBs |
+| Woodpiles | Edge-connected closed mesh pieces become separate `Log` entities, preserving every drawn triangle under scale, yaw and tint. No assumed number of logs or primitives; seams join by exact geometric edges |
+| Small loose stones / crates | Stones up to 11 cm with estimated mass at most 0.5 kg; hollow crates up to 10 cm with estimated mass at most 0.5 kg become movable box assets. Populated records retain authored mass; heavier authored records stay fixed |
+| Loose things | At most 64 movable entities including authored carryables. Reserve authored records, whole piles, small crates, then stones, in package order within each priority. Excess scatter stays drawn and colliding in merged shells; excess populated items stay fixed. No partial pile is promoted. More than 64 authored carryables fail before writing |
 | Trees (bark plus foliage, excluding small plants) | Two merged `ground`, colliding shell parts, `shell:tree_climb_bark` and `shell:tree_climb_foliage`: an open pole continuing each trunk and coarse one-sided upper crown caps with flat perches, both `"drawn": false` (collision only). Fixed populated trees keep their original asset visuals and use hidden shell trunk collision instead of a canopy box |
 | Scatter exceeding entity budget | After reserving all populated objects, first landmarks in package order use remaining slots up to 512; the rest keep their drawn geometry in merged shell meshes |
 | Source spawns | Same x/z and ids; y is the highest terrain triangle hit, including roofs of caves; missing ground fails. Yaw faces the horizontally nearest carriable/movable populated object or cottage/tower (including merged buildings), using Godot +Y rotation with -Z forward. Equal distances use package order (objects, then scatter); no destination or a coincident nearest destination keeps source yaw |
@@ -37,8 +40,46 @@ longer than the room contract permits fail cleanly. A `carriable` object above
 the companion's 2 kg limit also fails; its authored mass is never silently changed.
 At 0.5 kg or less both avatars can carry it. Reach, free hands, protection, other
 objects resting on it, and physical clearance remain host checks. Export is not a
-fetch or navigation certificate. Scatter masses are fixed at 100 kg and immovable.
+fetch or navigation certificate. Fixed scatter retains its 100 kg proxy mass.
 Assets remain `draft`; their licensing is explicitly unverified, not newly granted.
+
+Loose masses are authoring estimates, not measurements: convex closed log volume
+times an assumed 600 kg/m³, closed stone volume times 2,600 kg/m³, and hollow-crate
+volume scaled from the generator's 8 x 7 x 7 cm, 0.12 kg apple crate. All promoted
+items are at most 0.5 kg. Plants stay rooted, bridges/buildings stay structural;
+lanterns, fences and drying lines remain fixed pending a founder decision.
+
+**Log collision approximation:** full cylinder bounding boxes overlap between
+rows. Without changing the drawn stack, lower gameplay boxes end at the next
+overlapping log's drawn bottom. Ground-contact bottoms use the highest terrain
+point within the entire yawed footprint (triangle clipping includes interior
+peaks). Upper boxes rest exactly on lower box tops. The mesh is rebased around
+each box pivot, retaining its original world vertices and ground sink. Since the
+contract's `box` uses `dimensions_m`, these dimensions describe the gameplay box;
+the drawn envelope may extend below/above it. This deliberate approximation needs
+game review, especially later manual stacking. Each asset records its actual
+local visual bounds in `extensions.x_landscape_visual_bounds`.
+
+`room.json`'s `extensions.x_landscape_loose` contains the cap, count, skipped
+counts, and every movable entity's ID, source, mass, world box pivot, dimensions,
+yaw and support. Log entries include visual bounds. This is review evidence,
+not additional authoritative physics state. CLI statistics include loose counts.
+64 is a provisional ceiling: at most 64 individual interactive bodies and 128
+asset files, with at least 448 of the 512 entity slots available for fixed items.
+It is not a measured frame-time guarantee; the integrator must measure in Godot.
+
+Focused tests and the full CPU corpus check (working/output folders in system temp):
+
+```powershell
+python -B -S -m unittest discover -s pipeline/landscape/export/tests -t . -v
+python -B -S -m pipeline.landscape.export.tests.corpus_smoke --scratch <temp-folder>
+```
+
+The corpus check generates all 24 synthetic packages, exports each twice, compares
+every byte, validates each room through `contracts/validate.py`, checks log boxes
+against exact terrain and each other, and independently verifies the original
+spawn/destination rule. It prints per-room counts and mass ranges; complete boxes
+are in each room's extension. It uses no Godot, GPU, photos or paid services.
 
 Tree poles reuse the trunk's top perimeter, overlap it by 1 cm and finish 5 mm
 below the highest cap's flat perch, 1.5 cm below the visual crown top. Broadleaf
@@ -124,4 +165,4 @@ points and quaternion components keep their authored order.
 
 The [extension contract](../../../contracts/common.schema.json) allows up to 32
 keys matching `^x_[a-z0-9_]{1,63}$`, with no value shape or byte limit; this export
-uses four keys. Animation, timing and skipping are Lane L's later game work.
+also carries the loose-item evidence key. Animation, timing and skipping are Lane L's later game work.
