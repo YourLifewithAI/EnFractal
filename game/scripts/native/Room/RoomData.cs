@@ -174,7 +174,19 @@ public sealed class RoomData
         RoomSea? sea = null;
         if (root.TryGetProperty("extensions", out var extensions) && extensions.ValueKind == JsonValueKind.Object &&
             extensions.TryGetProperty(RoomSea.ExtensionName, out var seaRecord))
-            sea = RoomSea.Parse(seaRecord, new Aabb(min, max - min));
+        {
+            // The generator's grid, which its far sea floor is measured from, is the source room's bounds grown by its margin.
+            Aabb? source = null;
+            if (extensions.TryGetProperty("x_landscape_source", out var origin) && origin.ValueKind == JsonValueKind.Object &&
+                origin.TryGetProperty("bounds", out var sourceBounds) && sourceBounds.ValueKind == JsonValueKind.Object)
+            {
+                var low = Vec3(sourceBounds.GetProperty("min_m"));
+                var high = Vec3(sourceBounds.GetProperty("max_m"));
+                Expect(low.X < high.X && low.Y <= high.Y && low.Z < high.Z, "x_landscape_source bounds min must be below max");
+                source = new Aabb(low, high - low);
+            }
+            sea = RoomSea.Parse(seaRecord, new Aabb(min, max - min), source);
+        }
         StylePin? style = null;
         if (root.TryGetProperty("default_style", out var pin))
             style = new StylePin(Str(pin, "preset_id"), Int(pin, "preset_version"), Str(pin, "preset_sha256"));

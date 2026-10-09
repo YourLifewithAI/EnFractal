@@ -135,6 +135,8 @@ public partial class SmallPlayerController : CharacterBody3D
     public int BoundsStops { get; private set; }
     public Vector3 CreationVelocity => _creationVelocity;
     public bool HasCreationGuard { get; private set; }
+    /// <summary>Ticks on which a creation guard took back the creation's share of a move.</summary>
+    public int CreationGuardStops { get; private set; }
 
     // ---- Climbing and swimming (founder's playtest, 8 October: "climbing cliffs and climbing trees", "it should feel
     // like you're swimming when you're in deep water"). The numbers are starting points for the founder to tune by feel.
@@ -483,6 +485,20 @@ public partial class SmallPlayerController : CharacterBody3D
         BoundsStops++;
     }
 
+    /// <summary>A floating body out past the far net is put back on it, and its outward speed stops.</summary>
+    private void HoldInsideFarNet()
+    {
+        var flat = new Vector2(GlobalPosition.X, GlobalPosition.Z) - Sea!.MiddleM;
+        var reach = flat.Length();
+        if (reach <= FarNetM || reach <= 0) return;
+        var outward = flat / reach;
+        var held = Sea.MiddleM + outward * FarNetM;
+        GlobalPosition = new Vector3(held.X, GlobalPosition.Y, held.Y);
+        var along = Velocity.X * outward.X + Velocity.Z * outward.Y;
+        if (along > 0) Velocity -= new Vector3(outward.X, 0, outward.Y) * along;
+        BoundsStops++;
+    }
+
     /// <summary>The trusted host's gravity and wind. Accepts only a valid profile with a newer revision.</summary>
     public bool SetWorldPhysics(Dictionary profile)
     {
@@ -610,6 +626,20 @@ public partial class SmallPlayerController : CharacterBody3D
         return true;
     }
 
+    /// <summary>
+    /// Put a floating body here, held in the air, if the whole capsule fits (the Gubble beside a player on a crowded jetty).
+    /// Only for a body that floats: anything else would fall.
+    /// </summary>
+    protected bool TryPlaceFloating(Vector3 feetPosition)
+    {
+        if (!_ready || !Floats || !feetPosition.IsFinite() || !CapsuleFits(feetPosition)) return false;
+        GlobalPosition = feetPosition;
+        ResetPhysicsInterpolation();
+        StopClimbingAndSwimming();
+        Velocity = Vector3.Zero;
+        return true;
+    }
+
     /// <summary>Back to the last safe footing, else the spawn. While a creation moves the body, a checkpoint the guard refuses is skipped.</summary>
     public bool Recover()
     {
@@ -693,8 +723,10 @@ public partial class SmallPlayerController : CharacterBody3D
         else if (UpdateSwimming()) Swim(dt, wish, sprint);
         else Walk(dt, wish, sprint, onFloor);
         HoldInsideBounds();
-        // The far net, hours of swimming out: home as by B (a floating body follows the player, and comes home with them).
+        // The far net, hours of swimming out: home as by B. A floating body (the Gubble, sent off on its own) is held at the
+        // net instead, as at a wall (Codex Astra's review), and says blocked through its goal.
         if (Sea != null && !Floats && !GoingHome && new Vector2(GlobalPosition.X, GlobalPosition.Z).DistanceTo(Sea.MiddleM) > FarNetM) BeginHome();
+        if (Sea != null && Floats) HoldInsideFarNet();
         // Project the creation contribution along contacts the same way MoveAndSlide projects motion.
         for (var index = 0; index < GetSlideCollisionCount(); index++)
         {
@@ -704,11 +736,16 @@ public partial class SmallPlayerController : CharacterBody3D
         }
         if (HasCreationGuard && !GuardAllows(GlobalPosition))
         {
-            // Creation motion may not carry the body into space it is not allowed to be pushed into.
-            GlobalPosition = before;
-            Velocity = Vector3.Zero;
+            // Creation motion may not carry the body into space it is not allowed to be pushed into; the body's own walking,
+            // swimming and climbing may, as they may with no creation about (Codex Sol's review of the open sea: a worn
+            // glider's guard took back every whole move past the room's old bounds, a wall again). Only the creation's share
+            // of this tick's move is taken back, and its motion stops.
+            var creationStep = _creationApplied * dt;
+            if (creationStep.LengthSquared() > 0) MoveAndCollide(-creationStep);
+            Velocity -= _creationApplied;
             _creationApplied = Vector3.Zero;
             _creationVelocity = Vector3.Zero;
+            CreationGuardStops++;
         }
         var actual = GlobalPosition - before;
         if (!_climbing) actual.Y = 0;
@@ -827,12 +864,28 @@ public partial class SmallPlayerController : CharacterBody3D
         WentHome?.Invoke(this);
     }
 
-    /// <summary>Stand at a spot, or the nearest of a few beside it (inland first), facing inland.</summary>
+    /// <summary>How far under a home's spot (the jetty's deck, a beach's sand) its landing may be found.</summary>
+    public const float HomeDropM = 0.06f;
+
+    /// <summary>
+    /// Stand at a spot, or the nearest of a few beside it (inland first), facing inland. A landing must be dry ground within
+    /// HomeDropM under the spot (Codex Astra's review: the seabed under a jetty's root was taken as home, under water), and
+    /// not out past half the far net (Codex Sol's review: room data put there would start trip after trip).
+    /// </summary>
     private bool LandAt(Vector3 spot, Vector3 inland, string name)
     {
+        bool Near(Vector3 at) => Sea == null || new Vector2(at.X, at.Z).DistanceTo(Sea.MiddleM) <= FarNetM * 0.5f;
+        if (!spot.IsFinite() || !Near(spot)) return false;
+        var space = GetWorld3D().DirectSpaceState;
+        bool Dry(Vector3 feet)
+        {
+            var water = RoomWater.At(space, feet, BodyHeightM, 0.005f, GetRid());
+            if (!water.Wet && Sea != null) water = Sea.OpenWater(space, feet, BodyHeightM, 0.005f, GetRid());
+            return !water.Wet || water.Under(feet) <= 0;
+        }
         var side = inland.Cross(Vector3.Up);
         foreach (var offset in new[] { Vector3.Zero, inland * 0.06f, side * 0.06f, -side * 0.06f, inland * 0.12f, side * 0.12f, -side * 0.12f, inland * 0.2f })
-            if (TryTeleportTo(spot + offset))
+            if (Near(spot + offset) && FindSupportedPosition(spot + offset, out var feet) && feet.Y >= spot.Y - HomeDropM && Dry(feet) && TryTeleportTo(feet))
             {
                 Rotation = new Vector3(0, Mathf.Atan2(-inland.X, -inland.Z), 0);
                 LastHome = name;

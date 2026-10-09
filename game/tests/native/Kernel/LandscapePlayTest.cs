@@ -184,6 +184,29 @@ public partial class LandscapePlayTest : Node3D
         Measure($"LANDSCAPE_SEA the highest land {highest:0.000} m; the bounds' top {bounds.End.Y:0.000} m");
         Check(highest + player.BodyHeightM + player.MaxJumpApexM < bounds.End.Y, $"the bounds' top stands over the highest land with room for a body and its floatiest leap ({bounds.End.Y - highest:0.00} m over it)");
 
+        // One open-sea floor (Codex Astra's review): RoomSea.OpenSeaBedAt against the far floor the room draws, the generator's
+        // far sea floor (the shell's scenery parts), whose distant islands only ever rise above it. Every drawn vertex must lie
+        // on the formula's floor or above it, and most of them on it.
+        int onFloor = 0, underFloor = 0, drawn = 0;
+        var deepestUnder = 0.0f;
+        foreach (var part in _world.Room.Shell.Where(p => p.Id.StartsWith("shell:scenery_", StringComparison.Ordinal)))
+        {
+            var node = _world.Built.GetNodeOrNull<Node3D>("Shell/" + RoomBuilder.NodeName(part.Id));
+            if (node == null) continue;
+            foreach (var mesh in node.FindChildren("*", "MeshInstance3D", true, false).OfType<MeshInstance3D>())
+                for (var surface = 0; surface < mesh.Mesh.GetSurfaceCount(); surface++)
+                    foreach (var local in mesh.Mesh.SurfaceGetArrays(surface)[(int)Mesh.ArrayType.Vertex].AsVector3Array())
+                    {
+                        var at = mesh.GlobalTransform * local;
+                        var below = at.Y - sea.OpenSeaBedAt(new Vector2(at.X, at.Z));
+                        drawn++;
+                        if (Mathf.Abs(below) <= 0.002f) onFloor++;
+                        else if (below < 0) { underFloor++; deepestUnder = Mathf.Min(deepestUnder, below); }
+                    }
+        }
+        Measure($"LANDSCAPE_SEA the open-sea floor (centre {sea.OpenSeaCentreM}, sinking from {sea.OpenSeaStartM:0.00} m) against the drawn far floor: {drawn} vertices, {onFloor} on it, {underFloor} under it (deepest {deepestUnder * 1000:0.0} mm)");
+        Check(drawn > 1000 && underFloor == 0 && onFloor > drawn * 0.6f, "RoomSea.OpenSeaBedAt is the far sea floor the room draws");
+
         // Open water past the reef: off the first beach, outward until past the reef and deep enough to swim.
         var beach = sea.Beaches[0];
         var outward = -(new Basis(Vector3.Up, Mathf.DegToRad(beach.YawDeg)) * Vector3.Forward);
@@ -363,6 +386,26 @@ public partial class LandscapePlayTest : Node3D
         var gap = PlanarDistance(companion.GlobalPosition, player.GlobalPosition);
         Check(held && job?["state"]?.GetValue<string>() == "succeeded" && _host.HeldBy(CompanionAvatar) == "obj:apple_crate" && gap <= EnFractal.Native.CompanionAvatar.ComeArrivalM + 0.03f,
             $"the companion fetches it across the land and stands {gap:0.00} m from the player holding it ({trip.Summary()}): {job?.ToJsonString()}");
+        // B with the Gubble on Stay out at sea, carrying the crate (Codex Sol's review): it comes home with the player, holding it.
+        if (_world.Room.Sea is { } sea && sea.Beaches.Count > 0)
+        {
+            var beach = sea.Beaches[0];
+            var outward = -(new Basis(Vector3.Up, Mathf.DegToRad(beach.YawDeg)) * Vector3.Forward);
+            var offshore = beach.WaterM + outward * 2.5f;
+            Send(Command(NextId("stay"), "goal.set", new JsonObject { ["actor"] = CompanionAvatar, ["goal"] = "stay" }), Player);
+            companion.GlobalPosition = new Vector3(offshore.X, sea.LevelM + 0.03f, offshore.Z);
+            companion.ResetPhysicsInterpolation();
+            player.GlobalPosition = new Vector3(offshore.X, sea.LevelM - player.SwimFloatDepthM, offshore.Z) + outward.Cross(Vector3.Up) * 0.3f;
+            player.ResetPhysicsInterpolation();
+            await Frames(30);
+            player.RequestHome();
+            await Frames(100);
+            var crateGap = PlanarDistance(CrateBox().GetCenter(), companion.GlobalPosition);
+            gap = PlanarDistance(companion.GlobalPosition, player.GlobalPosition);
+            Measure($"LANDSCAPE_SEA B with the Gubble on Stay at sea carrying the crate: {gap:0.00} m from the player, holding {_host.HeldBy(CompanionAvatar) ?? "nothing"}, the crate {crateGap:0.00} m from it");
+            Check(player.LastHome == "jetty" && gap < 0.5f && _host.HeldBy(CompanionAvatar) == "obj:apple_crate" && crateGap < 0.3f,
+                "B brings the Gubble home from the sea, still carrying the crate");
+        }
         var down = Send(Command(NextId("down"), "entity.release", new JsonObject { ["actor"] = CompanionAvatar }), Player);
         await Frames(10);
         var setDown = CrateBox();

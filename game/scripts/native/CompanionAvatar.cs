@@ -273,15 +273,30 @@ public partial class CompanionAvatar : SmallPlayerController
         if (CurrentIntent is not ("follow" or "come") && !outAtSea) return;
         var right = player.GlobalBasis.X;
         var forward = -player.GlobalBasis.Z;
-        foreach (var offset in new[] { right * FollowSideM, -right * FollowSideM, forward * FollowSideM, (right + forward) * (FollowSideM * 0.7f) })
-            if (TryTeleportTo(player.GlobalPosition + offset))
+        // Beside them on whichever side has room, then a little farther round (Codex Sol's review: with the four spots by a
+        // crowded jetty taken, the Gubble was left out at sea for good); with nowhere to stand, floating over their head.
+        var placed = false;
+        foreach (var ring in new[] { FollowSideM, 0.25f, 0.35f })
+        {
+            for (var k = 0; k < 8 && !placed; k++)
             {
-                _route = RoomNavigation.Route.None;
-                _floating = false;
-                if (CurrentIntent == "follow") _following = false;
-                return;
+                var angle = k * Mathf.Pi / 4;
+                placed = TryTeleportTo(player.GlobalPosition + (right * Mathf.Cos(angle) + forward * Mathf.Sin(angle)) * ring);
             }
+            if (placed) break;
+        }
+        for (var up = 1; up <= 4 && !placed; up++) placed = TryPlaceFloating(player.GlobalPosition + Vector3.Up * (player.BodyHeightM * up + HoverHeightM));
+        if (!placed) return;
+        _route = RoomNavigation.Route.None;
+        _floating = false;
+        // A height it held out there (resting aloft, an arrival by floating) means nothing at home.
+        FloatAltitudeFloorY = _holdY = null;
+        if (CurrentIntent == "follow") _following = false;
+        WentHomeWithPlayer++;
     }
+
+    /// <summary>Times the Gubble came home with the player (B, the far net).</summary>
+    public int WentHomeWithPlayer { get; private set; }
 
     /// <summary>Give the companion the room's navigation (or none): follow and come then route round obstacles.</summary>
     public void BindNavigation(RoomNavigation? navigation)

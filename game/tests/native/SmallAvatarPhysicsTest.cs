@@ -357,6 +357,9 @@ public partial class SmallAvatarPhysicsTest : Node3D
 
     public bool GuardKeepsXBelowMinusOne(Vector3 position) => position.X <= -1.0f;
 
+    /// <summary>The sea test's room bounds (3 m round the island at (0, 0, -80)), as the creation authority refuses past them.</summary>
+    public bool InsideTheOldBounds(Vector3 position) => Mathf.Abs(position.X) <= 3.0f && Mathf.Abs(position.Z + 80) <= 3.0f;
+
     private async Task TestCompanion()
     {
         Check(_companion.TryTeleportTo(new Vector3(0.5f, 0.01f, 3.2f)), "companion gets its own clear spawn");
@@ -1623,6 +1626,7 @@ public partial class SmallAvatarPhysicsTest : Node3D
         const float surface = -0.02f;
         Solid(b + new Vector3(0, -0.3f, 0), new BoxShape3D { Size = new Vector3(1.0f, 0.6f, 1.0f) });        // the island, its top at 0
         Solid(b + new Vector3(0, -0.65f, 0), new BoxShape3D { Size = new Vector3(8.0f, 0.1f, 8.0f) });       // the sea floor at -0.6
+        Solid(b + new Vector3(0, -1.05f, 6.5f), new BoxShape3D { Size = new Vector3(1.0f, 0.1f, 1.0f) });    // a deep ledge past the meshes, its top at -1.0
         var sheet = new SurfaceTool();
         sheet.Begin(Mesh.PrimitiveType.Triangles);
         foreach (var corner in new[] { new Vector2(-4, -4), new Vector2(4, -4), new Vector2(4, 4), new Vector2(-4, -4), new Vector2(4, 4), new Vector2(-4, 4) })
@@ -1647,6 +1651,9 @@ public partial class SmallAvatarPhysicsTest : Node3D
               !sea.OpenWater(GetWorld3D().DirectSpaceState, b + new Vector3(0.2f, surface - 0.06f, 0), 0.4f, 0.02f).Wet &&
               sea.OpenWater(GetWorld3D().DirectSpaceState, b + new Vector3(3.0f, surface - 0.06f, 0), 0.4f, 0.02f) is { Wet: true } meshed && Mathf.Abs(meshed.BedY - (-0.6f)) < 0.001f,
             $"past the island the sea answers where the meshes stop: its surface, over the ground there or the open-sea bed ({openBed:0.000} m at 4.5 m); inside the coast it is dry");
+        var ledge = sea.OpenWater(GetWorld3D().DirectSpaceState, b + new Vector3(0, surface - 0.06f, 6.5f), 0.4f, 0.02f);
+        Report(ledge.Wet && Mathf.Abs(ledge.BedY - (-1.0f)) < 0.001f,
+            $"real ground deeper than the open-sea bed is the bed there (Codex Sol's review): the ledge at -1.000 m reads {ledge.BedY:0.000} m (the open-sea bed there {sea.OpenSeaBedAt(new Vector2(b.X, b.Z + 6.5f)):0.000} m)");
 
         // The Gubble, sent out over the open sea past the bounds: it hovers over the water, never in it.
         Check(_companion.TryTeleportTo(b + new Vector3(0.2f, 0.01f, -0.3f)), "the Gubble on the island");
@@ -1695,6 +1702,29 @@ public partial class SmallAvatarPhysicsTest : Node3D
         Report(gubbleGap < 0.4f && _companion.HoversOverWater && _companion.GlobalPosition.Y > surface + 0.005f,
             $"the Gubble follows out over the open sea, hovering over it ({gubbleGap:0.00} m from the player, {(_companion.GlobalPosition.Y - b.Y - surface) * 100:0.0} cm over the water)");
 
+        // A worn glider (Codex Sol's review): the invention runtime sets its effect every tick while the body is inside the
+        // room's bounds, with a guard that refuses anywhere outside them (creation_authority.gd _point_authorized), and clears it
+        // outside. The guard took back every whole move across the old bounds, swimming included: a wall again.
+        _player.GlobalPosition = b + new Vector3(2.6f, surface - _player.SwimFloatDepthM, 0);
+        _player.Velocity = Vector3.Zero;
+        _player.ResetPhysicsInterpolation();
+        _player.Rotation = new Vector3(0, -Mathf.Pi * 0.5f, 0);
+        await Frames(10);
+        var gliderGuard = new Callable(this, MethodName.InsideTheOldBounds);
+        var guardOn = 0;
+        for (var i = 0; i < 240 && _player.GlobalPosition.X - b.X < 3.6f; i++)
+        {
+            var inside = InsideTheOldBounds(_player.GlobalPosition);
+            if (inside) { _player.SetCreationEffects(Vector3.Zero, 0.5f, gliderGuard); guardOn++; }
+            else _player.SetCreationEffects(Vector3.Zero, 0, new Callable());
+            _player.SetControlInput(new Vector2(0, 1), sprint: true);
+            await Frames(1);
+        }
+        _player.SetCreationEffects(Vector3.Zero, 0, new Callable());
+        _player.SetControlInput(Vector2.Zero);
+        Report(_player.GlobalPosition.X - b.X >= 3.6f && guardOn > 0 && _player.IsSwimming,
+            $"a glider worn, its guard on inside the room's old bounds ({guardOn} ticks), a swimmer still crosses them out to sea (at {Text(_player.GlobalPosition - b)})");
+
         // B, out there: the fade, then standing at the jetty's landward end facing inland, and the Gubble beside.
         Check(_player.RequestHome() && !_player.RequestHome(), "B starts the way home once (a second press on the way is refused)");
         var darkest = 0.0f;
@@ -1705,6 +1735,38 @@ public partial class SmallAvatarPhysicsTest : Node3D
             new Vector2(atJetty.X, atJetty.Z).Length() < 0.21f && Mathf.Abs(Mathf.AngleDifference(_player.Rotation.Y, inlandYaw)) < 0.01f && darkest > 0.95f &&
             PlanarDistance(_companion.GlobalPosition, _player.GlobalPosition) < 0.3f,
             $"B takes the swimmer home: standing at the jetty's landward end ({Text(atJetty)} from it) facing inland, after the fade ({darkest:0.00}); the Gubble beside ({PlanarDistance(_companion.GlobalPosition, _player.GlobalPosition):0.00} m)");
+
+        // The Gubble left on Stay far out at sea, with the four spots beside home it used to try all taken (Codex Sol's review):
+        // it still comes home, beside the player or over their head, its old height forgotten.
+        var pillars = new List<StaticBody3D>();
+        var landing = jetty.RootM;
+        foreach (var spot in new[] { new Vector3(0, 0, -0.16f), new Vector3(0, 0, 0.16f), new Vector3(-0.16f, 0, 0), new Vector3(-0.113f, 0, -0.113f) })
+            pillars.Add(Solid(landing + spot + Vector3.Up * 0.15f, new BoxShape3D { Size = new Vector3(0.07f, 0.3f, 0.07f) }));
+        await Frames(2);
+        _companion.Stay();
+        _companion.GlobalPosition = b + new Vector3(4.6f, surface + 0.03f, 1.0f);
+        _companion.ResetPhysicsInterpolation();
+        _player.GlobalPosition = b + new Vector3(4.6f, surface - _player.SwimFloatDepthM, 0.6f);
+        _player.ResetPhysicsInterpolation();
+        await Frames(20);
+        _player.RequestHome();
+        await Frames(90);
+        var strandedGap = PlanarDistance(_companion.GlobalPosition, _player.GlobalPosition);
+        Report(_player.LastHome == "jetty" && strandedGap < 0.5f && _companion.GlobalPosition.Y > b.Y - 0.01f,
+            $"with the spots beside home taken, the Gubble on Stay far out still comes home ({strandedGap:0.00} m from the player, at {Text(_companion.GlobalPosition - b)})");
+        foreach (var pillar in pillars) pillar.QueueFree();
+        await Frames(2);
+
+        // A jetty whose root stands over the seabed half a metre down (Codex Astra's review): no home under water; B goes to the beach.
+        var sunk = new RoomSea.Jetty(b + new Vector3(1.0f, -0.15f, 0.6f), b + new Vector3(1.5f, -0.15f, 0.6f), -90, 0.16f, -0.15f);
+        _player.SetSea(new RoomSea(surface, Square(0.5f), Square(1.2f), Square(2.0f), new[] { beach }, sunk));
+        _player.GlobalPosition = b + new Vector3(2.5f, surface - _player.SwimFloatDepthM, 0);
+        _player.ResetPhysicsInterpolation();
+        await Frames(5);
+        _player.RequestHome();
+        await Frames(80);
+        Report(_player.LastHome == "test_beach" && _player.IsOnFloor() && !_player.IsSwimming && _player.GlobalPosition.Y > b.Y - 0.01f,
+            $"a jetty over the seabed is no home: B lands on the beach instead, dry (home {_player.LastHome}, feet at {Text(_player.GlobalPosition - b)})");
 
         // Without a jetty, the nearest beach; without a sea, the spawn.
         _player.SetSea(new RoomSea(surface, Square(0.5f), Square(1.2f), Square(2.0f), new[] { beach }));
@@ -1746,14 +1808,32 @@ public partial class SmallAvatarPhysicsTest : Node3D
         Report(_player.HomeTrips == trips + 1 && _player.LastHome == "jetty" && _player.IsOnFloor(),
             $"the far net, {_player.FarNetM / 1000:0.#} km out ({_player.FarNetM / 0.32f / 3600:0.0} h of fast swimming, {_player.FarNetM / 0.19f / 3600:0.0} h at the plain swim), takes a swimmer home");
 
+        // The Gubble sent off on its own past the far net (Codex Astra's review): held at the net, reporting blocked.
+        _companion.FarNetM = 6.0f;
+        _companion.TryTeleportTo(b + new Vector3(0.2f, 0.01f, -0.3f));
+        _companion.GoTo(new Aabb(b + new Vector3(9.0f, 0, 0), Vector3.Zero), 0.08f);
+        var farthest = 0.0f;
+        var gubbleBlocked = false;
+        for (var i = 0; i < 1200; i++)
+        {
+            await Frames(1);
+            farthest = Mathf.Max(farthest, PlanarDistance(_companion.GlobalPosition, b));
+            gubbleBlocked |= _companion.GoalBlocked;
+        }
+        _companion.FarNetM = SmallPlayerController.DefaultFarNetM;
+        Report(farthest <= 6.01f && farthest > 5.9f && gubbleBlocked && _companion.HoversOverWater,
+            $"the Gubble sent past the far net on its own is held at it, hovering, and says blocked (farthest {farthest:0.00} m, the net set at 6 m for the test)");
+        _companion.Stop();
+
         await MeasureFarOut(sea, surface);
 
         // The extension is untrusted room data: read only when every loop is bounded, every number finite and each beach in the bounds.
         var room = new Aabb(new Vector3(-5, -1, -5), new Vector3(10, 4, 10));
-        string Extension(string loop, string beachAt, string level = "-0.02") =>
+        string Extension(string loop, string beachAt, string level = "-0.02", string jetty = "null") =>
             "{\"level_m\":" + level + ",\"swim_depth_m\":0.08,\"coast\":{\"outline_m\":[[-1,-1],[1,-1],[1,1]]},\"reef\":{\"outline_m\":" + loop +
             ",\"crest_y_m\":-0.04,\"band_half_width_m\":0.08,\"passes\":[]},\"play_area\":{\"outline_m\":[[-3,-3],[3,-3],[3,3],[-3,3]]}," +
-            "\"beaches\":[{\"id\":\"beach_00\",\"wash_ashore_m\":" + beachAt + ",\"yaw_deg\":0,\"water_m\":[0,-0.02,1.5]}],\"jetty\":null}";
+            "\"beaches\":[{\"id\":\"beach_00\",\"wash_ashore_m\":" + beachAt + ",\"yaw_deg\":0,\"water_m\":[0,-0.02,1.5]}],\"jetty\":" + jetty + "}";
+        string Jetty(string root, string end, string deck = "0.03") => "{\"root_m\":" + root + ",\"end_m\":" + end + ",\"yaw_deg\":0,\"width_m\":0.16,\"deck_top_m\":" + deck + "}";
         string? Refusal(string json)
         {
             try { using var doc = System.Text.Json.JsonDocument.Parse(json); RoomSea.Parse(doc.RootElement, room); return null; }
@@ -1765,6 +1845,11 @@ public partial class SmallAvatarPhysicsTest : Node3D
             Refusal(Extension("[[0,0],[1,1]]", "[0,0.01,0.5]")) != null && Refusal(Extension(square, "[9,0.01,0.5]")) is { } outside && outside.Contains("outside the room's bounds") &&
             Refusal(Extension(square, "[0,0.01,0.5]", "1e400")) != null && Refusal(Extension(square, "[0,\"x\",0.5]")) != null,
             "x_landscape_sea is read only when bounded and finite: a loop over 4,096 points, a loop of two, a beach outside the bounds, a number out of range and a non-number are refused");
+        var square2 = "[[-2,-2],[2,-2],[2,2],[-2,2]]";
+        var farJetty = Refusal(Extension(square2, "[0,0.01,0.5]", jetty: Jetty("[900,0.03,900]", "[900,0.03,899]")));
+        var sunkJetty = Refusal(Extension(square2, "[0,0.01,0.5]", jetty: Jetty("[1.5,-0.48,0]", "[2,0.03,0]")));
+        Report(Refusal(Extension(square2, "[0,0.01,0.5]", jetty: Jetty("[1,0.03,0]", "[1.5,0.03,0]"))) == null && farJetty != null && sunkJetty != null,
+            $"a jetty is read only inside the room's bounds and at its deck's height (Codex Sol's and Astra's reviews): one 1 km out is refused ({farJetty ?? "accepted"}), one whose root sits on the seabed is refused ({sunkJetty ?? "accepted"})");
 
         _player.SetSea(null);
         _companion.SetSea(null);
