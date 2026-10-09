@@ -140,6 +140,7 @@ def hill(o, lx, lz, a, b, H, spread):
 
 
 MIN_HALF = .09   # a landform narrower than two grid cells would alias away
+CAPROCK_M = .05  # a tall needle's standable summit (radius)
 
 
 def profile(o, lx, lz, noise):
@@ -176,7 +177,11 @@ def profile(o, lx, lz, noise):
     if f == 'spire':
         r = math.hypot(lx/a, lz/b)*min(a, b)
         r0 = .72*min(a, b)
-        x = r/r0
+        # A hoodoo, not a point: a needle taller than two bodies keeps a
+        # caprock summit a climber can stand on (Lane P's climbs).
+        rs = CAPROCK_M if H > .2 else 0.
+        r0 = max(r0, rs+.04)
+        x = max(0., r-rs)/(r0-rs)
         needle = H*(1-x*x)**.55 if x < 1 else 0.
         apron = .26*H*max(0., 1-r/(r0+(.05 if child else .22+.25*H)))**2
         return max(needle, apron)
@@ -267,9 +272,14 @@ def uplift(grid, objects, base, noise, owner):
                 p = profile(o, lx, lz, noise)
                 if p <= 0:
                     continue
-                p += rugged*o['sy']*noise.fbm(x*4.3+k*5.1, z*4.3-k*3.7, 3)*smooth(p/max(o['sy'], 1e-6)*2.5)
+                # Rugged flanks, but summits weathered smooth: the top a
+                # climber pulls over onto is rock to stand on, not a crown of
+                # noise spikes (softened ridgelines).
+                rel = p/max(o['sy'], 1e-6)
+                crown = 1-smooth((rel-.75)/.2)
+                p += rugged*o['sy']*noise.fbm(x*4.3+k*5.1, z*4.3-k*3.7, 3)*smooth(rel*2.5)*crown
                 if o['form'] in ('dome', 'knoll'):
-                    p += .12*o['sy']*noise.ridged(x*2.6-k, z*2.6+k, 3)*smooth(p/max(o['sy'], 1e-6)*3)
+                    p += .12*o['sy']*noise.ridged(x*2.6-k, z*2.6+k, 3)*smooth(rel*3)*crown
                 q = j*grid.nx+i
                 if others and rr_dist(*local(o, x, z), o['sx']/2, o['sz']/2, .05) > 0:
                     # Outside its own box a form gives way to a sure neighbour;

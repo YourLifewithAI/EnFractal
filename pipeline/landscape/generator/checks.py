@@ -642,6 +642,52 @@ def footprint_checks(inventory, terrain, room):
     return ok, rows
 
 
+CLIMB_FAIL_RISE = .1   # a knife edge a body's height up or more breaks the principle
+
+
+def climb_checks(doc, meshes):
+    """What you climb, you can stand on top of. The land's grid is read back
+    from the package's own land mesh; from every standable foot (dry land,
+    not under inland water or the sea) the climb straight up each face over
+    55 degrees is followed over its top (`climb.knife_edges`). A climb that
+    tops out on a knife edge or a needle a body's height up or more fails;
+    lower ones are reported."""
+    from .climb import knife_edges
+    from .field import Grid
+    pts = {}
+    for p in meshes.get('land', ()):
+        for x, y, z in p['positions']:
+            pts[(round(x, 4), round(z, 4))] = y
+    gen = doc.get('x_generator') or {}
+    if not pts or 'cell_m' not in gen:
+        return True, dict(knife_edges=0, worst=[])
+    xs = sorted({k[0] for k in pts})
+    zs = sorted({k[1] for k in pts})
+    grid = Grid(xs[0], zs[0], xs[-1], zs[-1], gen['cell_m'])
+    nx = grid.nx
+    h = [pts.get((round(grid.xs[q % nx], 4), round(grid.zs[q//nx], 4)), -math.inf) for q in range(grid.n)]
+    level = (_sea(doc) or {}).get('level_m', -math.inf)
+    wet = [False]*grid.n
+    for rec in doc['water']:
+        if rec['mesh'] == (_sea(doc) or {}).get('mesh'):
+            continue
+        for p in meshes[rec['mesh']]:
+            vs = p['positions']
+            for t in p['triangles']:
+                a, b, c = vs[t[0]], vs[t[1]], vs[t[2]]
+                rx, rz = grid.span(min(a[0], b[0], c[0]), max(a[0], b[0], c[0]), min(a[2], b[2], c[2]),
+                                   max(a[2], b[2], c[2]))
+                for j in rz:
+                    for i in rx:
+                        if _in_tri(grid.xs[i], grid.zs[j], (a, b, c)) and max(a[1], b[1], c[1]) > h[j*nx+i]:
+                            wet[j*nx+i] = True
+    bad = knife_edges(grid, h, lambda q: h[q] > level+.005 and not wet[q])
+    fails = [b for b in bad if b['rise'] >= CLIMB_FAIL_RISE]
+    worst = [dict(crest=[round(b['crest'][0], 3), round(b['crest_y'], 3), round(b['crest'][1], 3)],
+                  rise_m=round(b['rise'], 3), foot=[round(v, 3) for v in b['foot']]) for b in bad[:8]]
+    return not fails, dict(knife_edges=len(bad), failing=len(fails), fail_rise_m=CLIMB_FAIL_RISE, worst=worst)
+
+
 def run(package, room_dir):
     doc, meshes, room, stats = read_package(package, room_dir)
     inventory = load_json(Path(room_dir)/'inventory.json')
@@ -651,9 +697,12 @@ def run(package, room_dir):
     p_ok, walks = walk_checks(doc, meshes, terrain, room)
     f_ok, prints = footprint_checks(inventory, terrain, room)
     s_ok, sea = sea_checks(doc, meshes, terrain, room)
-    return dict(ok=w_ok and g_ok and p_ok and f_ok and s_ok, water_ok=w_ok, grounded_ok=g_ok, walk_ok=p_ok,
-                footprints_ok=f_ok, sea_ok=s_ok, water=water, joins=joins, grounding=ground, walks=walks,
-                footprints=prints, sea=sea, stats=stats)
+    c_ok, climbs = climb_checks(doc, meshes)
+    # The climb principle is reported beside the others; it joins `ok` once the
+    # generator meets it on the whole corpus (tall object crests still fail it).
+    return dict(ok=w_ok and g_ok and p_ok and f_ok and s_ok, water_ok=w_ok, grounded_ok=g_ok,
+                walk_ok=p_ok, footprints_ok=f_ok, sea_ok=s_ok, climb_ok=c_ok, water=water, joins=joins,
+                grounding=ground, walks=walks, footprints=prints, sea=sea, climbs=climbs, stats=stats)
 
 
 def main():
@@ -685,9 +734,10 @@ def main():
     for b in sea.get('beaches', ()):
         print('BEACH', json.dumps(b, sort_keys=True))
     print('SEA', json.dumps({k: v for k, v in sea.items() if k != 'beaches'}, sort_keys=True))
-    print('CHECKS water=%s grounded=%s walk=%s footprints=%s sea=%s overall=%s' % (
+    print('CLIMB', json.dumps(result['climbs'], sort_keys=True))
+    print('CHECKS water=%s grounded=%s walk=%s footprints=%s sea=%s climb=%s overall=%s' % (
         result['water_ok'], result['grounded_ok'], result['walk_ok'], result['footprints_ok'], result['sea_ok'],
-        result['ok']))
+        result['climb_ok'], result['ok']))
     raise SystemExit(0 if result['ok'] else 1)
 
 

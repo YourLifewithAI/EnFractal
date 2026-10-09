@@ -257,5 +257,33 @@ class StreamCrossing(unittest.TestCase):
         self.assertTrue(result['ok'], [w for w in result['walks'] if not w['found']])
 
 
+class ClimbLips(unittest.TestCase):
+    """What you climb, you can stand on top of (Lane P's climbs on the garage):
+    a knife-edge ridge and a needle are found from standable ground; planing
+    gives them a ledge; a mesa with a flat top is never flagged."""
+
+    @staticmethod
+    def land(shape):
+        from pipeline.landscape.generator.field import Grid
+        g = Grid(-.6, -.6, .6, .6, .03)
+        return g, [shape(g.xs[q % g.nx], g.zs[q//g.nx]) for q in range(g.n)]
+
+    def test_knife_needle_and_mesa(self):
+        from pipeline.landscape.generator.climb import knife_edges, plane_thin_tops
+        knife = lambda x, z: max(0., .3-abs(x)*2.2) if abs(z) < .3 else 0.          # a 66 degree ridge, 30 cm up
+        needle = lambda x, z: max(0., .4-math.hypot(x, z)*3.)                       # a 72 degree cone, 40 cm up
+        mesa = lambda x, z: .3 if max(abs(x), abs(z)) < .2 else max(0., .3-(max(abs(x), abs(z))-.2)*4)
+        for name, shape, bad in (('knife', knife, True), ('needle', needle, True), ('mesa', mesa, False)):
+            g, h = self.land(shape)
+            found = knife_edges(g, h, lambda q: True)
+            self.assertEqual(bool(found), bad, name)
+            if bad:
+                self.assertTrue(all(b['rise'] > .2 for b in found[:1]), name)
+                moved, deepest = plane_thin_tops(g, h, lambda q: True)
+                self.assertGreater(moved, 0, name)
+                self.assertLess(deepest, .2, name)
+                self.assertEqual(knife_edges(g, h, lambda q: True), [], name)
+
+
 if __name__ == '__main__':
     unittest.main()

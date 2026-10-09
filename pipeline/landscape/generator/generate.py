@@ -7,6 +7,8 @@ Deterministic: the same room, inventory and setup answers give identical bytes.
 import argparse
 import math
 import random
+import shutil
+import tempfile
 from pathlib import Path
 
 from pipeline.landscape.harness import write_package
@@ -19,6 +21,7 @@ from .life import (BRIDGE, grade_line, STEP_LIMIT_M, WALK_LIMIT_DEG, build_mesh,
                    paint_path, prototypes, reachable_from, surface, walk)
 from .water import channel_cells, choose_outlet, lake_rho, plan_and_carve, resample
 from . import sea as Sea
+from .climb import give_lips
 
 GENERATOR = {'name': 'landscape-generator', 'version': '4'}
 SEED = 20261008
@@ -171,6 +174,9 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False):
     # Every object's own footprint keeps its landform: no cottage, path or
     # grading cuts into it (paths go round).
     protect = [False]*grid.n
+    # How far a thin top on an object's landform may weather: well within the
+    # height its footprint is still read by (a third of its height, 15 cm at least).
+    weathers = [math.inf]*grid.n
     for o in objects:
         if o['parent'] is not None:
             continue
@@ -180,6 +186,7 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False):
             for i in rx_:
                 if rr_dist(*local(o, grid.xs[i], grid.zs[j]), max(o['sx']/2, .06), max(o['sz']/2, .06), .02) <= .03:
                     protect[j*nx+i] = True
+                    weathers[j*nx+i] = min(weathers[j*nx+i], max(.15, o['sy']/3)-.05)
     houses = []
     pads = [0.]*grid.n
     fields = [0.]*grid.n
@@ -362,6 +369,19 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False):
         ya = math.radians(hh['yaw'])
         flatten(grid, h, hh['x']-math.sin(ya)*(hh['hz']+.12), hh['z']-math.cos(ya)*(hh['hz']+.12), hh['hx'], .1,
                 hh['yaw'], margin=.03, blend=.14, level=hh['y'])
+    # What you climb, you can stand on top of: rock too thin to stand on (a
+    # needle, a knife edge, the sliver where the coast cut a landform's
+    # corner) weathers down to a ledge a body stands on (Lane P's climbs on
+    # the garage). Water, its banks, paths, the hamlet, the jetty's landing
+    # and the sea past the waterline stay as they are.
+    jroot = None if jetty is None else jetty['root']
+
+    def plane_ok(q):
+        if wet[q] < .04 or paths[q] >= .3 or pads[q] > 0 or blocked[q] or coast['s'][q] > coast['c'][q]:
+            return False
+        return jroot is None or math.hypot(grid.xs[q % nx]-jroot[0], grid.zs[q//nx]-jroot[1]) >= .35
+    # An object's own landform keeps the height its footprint is read by.
+    planed = give_lips(grid, h, lambda q: h[q] > Sea.SEA_Y+.005 and wet[q] > 0, plane_ok, lambda q: weathers[q])
     slope = slope_field(grid, h)
     tris = grid.triangles()
     fslope = face_slope_max(grid, h, tris)
@@ -509,19 +529,36 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False):
     # Promise only the beaches a body can walk to from the spawn.
     final = Walker(probe, meshes, terr, room)
     beaches = [b for b in Sea.find_beaches(grid, h, room, coast['coast'], jetty) if final.route((px, pz), b['stand'])[0]]
-    sea_doc = describe_sea(grid, h, room, coast, jetty, beaches, islands, player0, water['streams'])
-    extensions = {'x_generator': dict(seed=seed, cell_m=CELL, margin_m=MARGIN, sea=sea_doc,
-                                  walk_limit_deg=WALK_LIMIT_DEG, step_limit_m=STEP_LIMIT_M,
+    rest = dict(walk_limit_deg=WALK_LIMIT_DEG, step_limit_m=STEP_LIMIT_M,
                                   water_character=water.get('character'), water_why=water.get('why'),
                                   lake=water['lake'], pools=water.get('pools', []),
                                   spring=[round(v, 3) for v in water.get('spring', (0, 0))],
-                                  hamlet=hamlet, bridges=len(bridges), dropped_yard=dropped,
+                                  hamlet=hamlet, bridges=len(bridges), dropped_yard=dropped, planed=dict(vertices=planed[0], deepest_m=round(planed[1], 3), knife_edges_left=len(planed[2])),
                                   forms={o['id']: [o['form'], o['form_basis'], o['rock_role']] for o in objects},
-                                  grounding=grounding(grid, h, objects, base))}
-    doc = write_package(out_dir, room_dir, meshes=meshes, setup=setup, generator=GENERATOR,
-                        terrain=terrain_records, water=water_records,
-                        scenery=[{'mesh': 'distant_islands', 'reachable': False}],
-                        prototypes=proto_records, scatter=scatter, objects=objects_out, extensions=extensions)
+                                  grounding=grounding(grid, h, objects, base))
+
+    def write(folder, beaches):
+        sea_doc = describe_sea(grid, h, room, coast, jetty, beaches, islands, player0, water['streams'])
+        extensions = {'x_generator': dict(seed=seed, cell_m=CELL, margin_m=MARGIN, sea=sea_doc, **rest)}
+        return write_package(folder, room_dir, meshes=meshes, setup=setup, generator=GENERATOR,
+                             terrain=terrain_records, water=water_records,
+                             scenery=[{'mesh': 'distant_islands', 'reachable': False}],
+                             prototypes=proto_records, scatter=scatter, objects=objects_out, extensions=extensions)
+    # Promise only the beaches a body reaches in the written package itself:
+    # its meshes are stored in single precision, and the walk is that strict.
+    if beaches:
+        from pipeline.landscape.harness import read_package
+        scratch = Path(tempfile.mkdtemp(prefix='landscape-promise-'))
+        try:
+            written = write(scratch/'package', beaches)
+            wdoc, wmeshes, _, _ = read_package(scratch/'package', room_dir)
+            walker = Walker(wdoc, wmeshes, Terrain(wdoc, wmeshes), room)
+            kept = [b for b, rec in zip(beaches, written['x_generator']['sea']['beaches'])
+                    if walker.route((px, pz), (rec['wash_ashore_m'][0], rec['wash_ashore_m'][2]))[0]]
+            beaches = kept or beaches
+        finally:
+            shutil.rmtree(scratch, ignore_errors=True)
+    doc = write(out_dir, beaches)
     if return_state:
         return doc, dict(grid=grid, h=h, route=route, carry=carry, houses=houses)
     return doc
