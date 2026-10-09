@@ -1,6 +1,6 @@
 # Run 2 status
 
-**Run 2 started on 7 October 2026 (evening, local). The fifth session's handoff was written on 9 October (early morning), on DiamondAge; start at "The next session".** Then read [ORCHESTRATION.md](ORCHESTRATION.md) and [AGENTS.md](../../AGENTS.md). [RUN-2-REVISION.md](RUN-2-REVISION.md) is the approved plan (8 October); it supersedes [RUN-2.md](RUN-2.md)'s Lane C, C7, Lane L and Codex sections.
+**Run 2 started on 7 October 2026 (evening, local). The sixth session's handoff was written on 9 October (morning, UTC), in a Linux cloud session; start at "The next session".** Then read [ORCHESTRATION.md](ORCHESTRATION.md) and [AGENTS.md](../../AGENTS.md). [RUN-2-REVISION.md](RUN-2-REVISION.md) is the approved plan (8 October); it supersedes [RUN-2.md](RUN-2.md)'s Lane C, C7, Lane L and Codex sections.
 
 ## The founder's new direction: the room becomes a landscape (7 October, late evening)
 
@@ -204,7 +204,85 @@
   The integrator applied the last two on `run2/look` (`78da261`).
 - **The founder's question for Lane P's list:** whether to save where the player and the Gubble stand. Today the save keeps the avatars' identities only, so a load starts at the spawn.
 
+## The sixth session (9 October, a Linux cloud session, not DiamondAge)
+
+- **Where it ran:** a claude.ai cloud container, without a GPU, Blender, Codex or the founder's files.
+  - The environment's network policy blocks the pinned .NET SDK's host (`builds.dotnet.microsoft.com`). The founder couldn't find the environment setting on the iPhone app, so they approved Ubuntu's own `dotnet-sdk-8.0` (8.0.131) through apt.
+  - `game/global.json` was overridden in the container only (skip-worktree) and never committed.
+  - **Everything merged this session still needs a pinned-SDK run on DiamondAge** (the Windows runners, or the WSL suite).
+- **The characters' vote:** not yet held. It is still parked as below.
+- **Merged on `run2/integration` and pushed** (each batch with a full Linux suite, green):
+  - **`2e6ddb4`:** physics layer 5 is named `hidden`.
+  - **`b324406`, Lane P part 2:**
+    - **The Gubble floats.** It hovers 2 cm over ground or water, with a 4 mm bob every 2.6 s, and never climbs or swims.
+      - It walks only when the route reaches the goal, ends within 6 cm of the goal's height, and is at most 2.5 times the straight line plus 0.5 m. Otherwise it floats straight there, sliding up and over faces, never through them.
+      - `target_unreachable` still comes after 5 s blocked. Fetch and carry work while it floats.
+    - **Animals ignore it.**
+    - **`go_to`** aims at the reachable side.
+    - **The navigation cell stays 2 cm:** a re-bake takes 15 to 21 ms in the test room and 50 to 57 ms in the garage (1 cm was 65 to 80 ms in the test room).
+    - **"The Gubble" in the HUD.** An old save that names "Wisp" loads as the Gubble.
+    - **`drawn: false` parts** are on layer 5, so sight, placement, camera arms and the bake skip them. Failing before: a climber fell through a crown cap.
+    - **Exit crashes:** Lane P found its own per-tick ray queries leaking at exit and disposes them. Three suites force a garbage collection before quitting.
+  - **`1e03dea`, the island's first pass:**
+    - Lane C's generator v4 makes every room an island.
+    - The integrator's exporter step (`pipeline/landscape/export/sea.py`), in place of Codex brief 21: the room's bounds grow past the reef, and the game gets `extensions.x_landscape_sea`.
+    - **Decision: an extension first**, promoted to a contract field after the edge and the founder's playtest ([RUN-2-ISLAND.md](RUN-2-ISLAND.md), "Progress and decisions").
+  - **`6a2ff9e`, Lane P's sea edge:**
+    - past the reef, a current (at most 0.115 m/s, 0.6 of the swim) turns a swimmer back;
+    - a swimmer who pushes on past the playable water washes up on the nearest beach: a 0.6 s fade, then standing facing inland;
+    - the bounds stay only as the last safety net;
+    - the Gubble is kept over the playable water;
+    - the walkable map bakes the land only (the sea floor had doubled the bake);
+    - `RoomSea` checks the untrusted sea record as the exporter does;
+    - the landscape check is 42/42 on the island garage.
+  - **`d936c7d`, Lane C's fix round:**
+    - **The corpus went from 14 to 19 of 24** by Lane C's last run; before the island it was 23.
+    - **Still failing:**
+      - `awkward_l_scan_17` (walk);
+      - `home_office_nominal` and `home_office_scan_73` (sea: newly failing in the fix round);
+      - `living_room_scan_17` (sea);
+      - `living_room_scan_73` (grounded, sea).
+    - **The raggedness pass never started.** The coast still reads as a rounded rectangle with a reef at a near-even offset.
+- **A container restart** killed both lane agents mid-work. Nothing committed was lost. Lane P's edge had no report, so the integrator reviewed it. The lane branches went up as draft PRs #9 and #10 into `run2/integration`; PR #8 is `run2/integration` into `main`, still the founder's call.
+- **Open for the founder:**
+  - **The Gubble:**
+    - after floating up beside the player (a crown, a box top), should it stay hovering at that height, as now, or settle to the ground?
+    - should it pass through the player like a ghost? Today it bumps around.
+    - how do the 2 cm hover and the bob feel?
+  - **The island:**
+    - the sea 2 cm under the room's floor;
+    - a reef up to 1.0 m off the coast at convex corners (the plan said 30 to 60 cm);
+    - the first top-downs (garage and L-shaped room) were sent in the session.
+  - **Not checked:** what happens to something carried when its carrier washes ashore. Lane P's agent was lost before it said.
+- **Change requests waiting:**
+  - **Lane A's mock** (`companion/src/enfractal_companion/mock_host.py`), to match the floating Gubble:
+    1. `"Wisp"` becomes `"the Gubble"` (line 453).
+    2. Add `HOVER_M = 0.02`: to the companion's spawn y, and in `_fetch_returned` `player[1]` becomes `_r(player[1] + HOVER_M)`. Y compares need ±5 mm for the bob.
+    3. Fixtures that use an open pen or a wall for `target_unreachable` should use a closed pen.
+    4. Arrival puts the companion level with its target (about 0.32 m after a fetch from the 30 cm box top).
+    5. No contract change.
+  - **Optional:** "Wisp" becomes "the Gubble" in `contracts/examples/build_examples.py:283`, then rebuild the examples.
+
 ## The next session
+
+1. **On DiamondAge, confirm on the pinned SDK:** pull `run2/integration` and run both Windows runners and the WSL suite. Then refresh the founder's installed landscape (`%APPDATA%\Godot\app_userdata\EnFractal\rooms\landscape_garage_nominal`) from a fresh fixture, which is now the island garage.
+2. **The founder's playtest:** the island, the sea edge (swim out past the reef, push on, wash ashore), the floating Gubble (send it up a cliff and across the pond), and the questions above.
+3. **The characters' vote,** as below (the fifth session's list, item 1). The key and `codex/20-character-converter` are only on DiamondAge.
+4. **Lane L's sea look** (GPU): the open sea's colour and depth, foam on the reef, waves at the beaches, the horizon and distant islands, and fish in the sea's deeper water. Within the frame budget and the capture budget.
+5. **Lane C:**
+   - the last five corpus rooms;
+   - the ragged coast: cove depth and headland reach varying along the coast, the reef's distance varying with it.
+6. **Lane A:** the mock's change request above.
+7. **After the playtest:** promote `x_landscape_sea` into `room-manifest.schema.json`, with examples and tests.
+8. **Then the fifth session's items 4 to 7:** the intro (walls now become the coast), light, the open questions, housekeeping.
+9. **Housekeeping:** close or merge PRs #9 and #10. Their commits are in `run2/integration`, so GitHub may already show them merged.
+
+**To run another cloud session:**
+- If the environment still blocks `builds.dotnet.microsoft.com`, install Ubuntu's `dotnet-sdk-8.0` with apt.
+- Link `.cache/linux/dotnet` to `/usr/lib/dotnet`, run the rest of `tools/linux/setup-toolchain.sh` by hand (the Godot download, the two Python environments), and set `game/global.json` to `8.0.131` under `git update-index --skip-worktree`.
+- Push lane branches as soon as they commit: a container restart loses running agents.
+
+## The fifth session's next steps (9 October, for the record)
 
 1. **The characters' vote** (the founder and the kids, 9 October).
    - **The sheets:** five, in `C:\dev\EnFractal-art\characters\judging\` (outside Git), labelled Converter X and Y by a fresh coin flip. The key is the "Final sheet labels" line in `.git/info/ab-20-key.md`. The earlier 1/2 labels leaked in a tool output, so they are void, and the founder was told.
