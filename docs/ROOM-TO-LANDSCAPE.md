@@ -13,11 +13,32 @@ Everything becomes landscape unless the player makes an exception during setup. 
 - **Geology:** volume is calculated as uplift, so the couch is a ridge pushed up from the plain. The object’s material type (Kind) and colour suggest the material of that geologic feature: so maybe slate for a blue couch, sandstone for a tan box. After uplift is calculated and rendered, erosion is calculated to shape that part of the landscape, with scree at cliff feet, softened ridgelines, and strata showing through cut faces.
 - Volume is our foundation, and it doesn’t need to match existing geometry exactly. Keep the main rises, gaps and height relationships recognisable; soften corners and spread foothills where space allows. Confident kind gives character, with proportions as the fallback. Colour is interpreted through volume and kind, then drawn into a shared palette.
 - Neighbours shape whole places. A chair, desk and bookshelf can become foothills, a high terrace and a defensible crag, sharing strata and an ascent. The scan supplies boxes and supports, not proven cavities: an invented cave is a design choice, not recovered evidence.
-- This shaping includes the shell. The floor becomes living ground, joining rises with soil, meadow and worn paths. Walls dissolve into irregular ridgelines and a hazy horizon; the ceiling becomes sky without a visible seam. The real boundary remains, expressed through cliffs, thickets or closed passes wherever travel ends. Distant scenery gives depth without promising reachable land beyond it.
+- This shaping includes the shell. The floor becomes living ground, joining rises with soil, meadow and worn paths. The ceiling becomes sky without a visible seam. **The walls become the coast: every room is an island in an endless sea** (see "The island and the sea").
+
+## The island and the sea
+
+The founder's decision, 9 October. The founder's daughter disliked the invisible wall, so the world ends where you can see it end.
+
+- **Every room becomes an island in an endless, interconnected sea.**
+  - The island takes the room's floor plan, so an L-shaped room becomes an L-shaped island, and the walls become its coast.
+  - Nothing stops the player invisibly. The sea shows where their world ends.
+- **The coast is ragged: a mix of beaches and cliffs.**
+  - Where furniture stood against a wall, the land meets the sea as a cliff or headland. A bookshelf can become a sea cliff with a castle on top.
+  - Between those, coves and beaches slope into the water, with rocks and sea stacks offshore.
+  - Let geology choose: hard rock stands as cliffs, and soft ground slopes into beaches.
+- **The door becomes a jetty or a harbour.** It is the place where travel to other islands will one day begin. The windows still tell where the sun rises.
+- **Water runs downhill to the sea.** Rivers end in estuaries, or in waterfalls over sea cliffs. Ponds may still sit in hollows inland.
+- **The edge at sea is soft and visible, and nothing falls off the world:**
+  - a reef with breaking waves, a short swim offshore, marks the limit;
+  - past it, a current gently turns a swimmer back;
+  - anyone who keeps going washes up on the nearest beach.
+- **Distant islands on the horizon** give depth, with the same kinds of trees, rock and settlements as the playable land, without promising reachable land yet.
+- **Later:** every room a player scans becomes an island, so a house becomes an archipelago, reached by jetty, boat, bridge or the Gubble's magic. Friends' islands lie further out once multiplayer arrives.
+- **The trade:** the island's outline and its landforms keep the room recognisable. The walls no longer read as a mountain range around you; that is accepted for a clear, believable edge.
 
 ## Water
 
-- **Water:** rain runs downhill. Streams start on the high ground, cut valleys between neighbouring landforms, and pool into lakes in the floor's low hollows. The rivers' paths are dictated by the room's layout, so the layout reads through the water too.
+- **Water:** rain runs downhill. Streams start on the high ground, cut valleys between neighbouring landforms, pool into lakes in the floor's low hollows, and find their way to the sea. The rivers' paths are dictated by the room's layout, so the layout reads through the water too.
 - A flat floor need not forbid a lake. The generator may carve a shallow tarn, place a spring in a rock seam or gather scree into a dam. But all of this must follow simple generative rules. Give the invention a visible explanation: a basin that holds water, banks shaped by its passage, an outlet or seepage where water leaves. Adjust the surrounding land with it.
 - Water must never visibly run uphill or sit tilted on a slope. A blue object need not always become water, and a dry landscape can be complete. Rivers and lakes are opportunities, not required features. At the beginning of scene generation, it may be worth asking the player how much they want water to feature as part of the landscape.
 
@@ -48,3 +69,4 @@ Build one complete synthetic garage landscape: sky, horizon, connected ground, a
 
 1. **May the new sky light the land beyond the real windows, while keeping their eastern exposure meaningful?** Yes. Please add real light but the window can inform where the sun rises.
 2. **Should the first landscape feel mostly wild with a few settlements, or visibly inhabited throughout?** For now, mostly wild with a few settlements.
+3. **How should the world end, instead of an invisible wall?** As an island in an endless sea (9 October). The door becomes a jetty or a harbour; the coast is a ragged mix of beaches and cliffs; a reef and a gentle current mark the edge, and a swimmer who keeps going washes up on the nearest beach.
