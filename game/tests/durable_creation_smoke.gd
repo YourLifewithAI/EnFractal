@@ -38,7 +38,7 @@ func _guard() -> bool:
 	return permit
 
 func _request(authority, action: String) -> Dictionary:
-	var source: Dictionary = COMPILER.templates()[1].duplicate(true)
+	var source: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://tests/fixtures/creations/fixture_use_rotor_wind.json"))
 	return {"op":"place","action_id":action,"source":source,"x_m":-20.0,"z_m":340.0,"yaw_deg":0.0,"expected_revision":authority.revision,"expected_permission_revision":authority.permission_revision}
 
 func _run() -> void:

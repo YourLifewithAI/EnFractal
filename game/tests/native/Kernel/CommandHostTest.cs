@@ -1471,22 +1471,21 @@ public partial class CommandHostTest : Node3D
     /// <summary>A re-exported room starts a fresh save; the player is told the old manifest's creations were not loaded.</summary>
     /// <summary>
     /// The founder retired the invention workshop (second playtest: Q and E in the isometric view showed "No worn design to
-    /// revise"): the playable room has no INVENTIONS panel, no editor and no key bound by the runtime. The runtime stays,
-    /// because it still renders creations and runs their effects for the host.
+    /// revise"), and its code is gone: the playable room has no INVENTIONS panel, no editor and no key bound by the runtime.
+    /// The runtime stays, because it still renders creations and runs their effects for the host.
     /// </summary>
     private void TestWorkshopRetired()
     {
         var runtime = _host.Runtime;
-        Check(!runtime.Get("workshop_enabled").AsBool(), "the host retires the invention workshop for players");
-        Check(runtime.Get("hud").AsGodotObject() == null && runtime.Get("hud_card").AsGodotObject() == null && runtime.Get("editor").AsGodotObject() == null,
-            "no INVENTIONS panel and no editor are built in the playable room");
-        Check(runtime.FindChildren("*", "CanvasLayer", true, false).Count == 0 && runtime.FindChildren("*", "Label", true, false).Count == 0,
-            "nothing of the workshop's interface is in the scene tree");
-        Check(!runtime.IsProcessingUnhandledKeyInput(), "the runtime listens for no keys, so Q and E reach the camera");
-        // Even a key handed to the handler directly acts on nothing (with the guard gone it would reach the missing editor and raise a script error).
-        foreach (var key in new[] { Key.B, Key.F, Key.E, Key.V, Key.Q, Key.K })
-            runtime.Call("_unhandled_key_input", new InputEventKey { PhysicalKeycode = key, Pressed = true });
-        Check(!runtime.Get("editor_open").AsBool() && !runtime.Get("local_consent").AsBool(), "the retired keys open no editor and change no consent");
+        // The editor was a CanvasLayer and the INVENTIONS panel sat on one.
+        Check(runtime.FindChildren("*", "CanvasLayer", true, false).Count == 0, "no INVENTIONS panel and no editor are built in the playable room");
+        Check(runtime.FindChildren("*", "CanvasItem", true, false).Count == 0, "nothing of the workshop's interface (no panel, no label) is in the scene tree");
+        Check(!runtime.IsProcessingUnhandledKeyInput() && !runtime.IsProcessingUnhandledInput() && !runtime.IsProcessingInput() && !runtime.IsProcessingShortcutInput(),
+            "the runtime listens for no keys, so Q and E reach the camera");
+        // No handler is left to hand a key to: each input callback is gone, so the retired keys B F E V Q K reach nothing here.
+        Check(new[] { "_unhandled_key_input", "_unhandled_input", "_input", "_shortcut_input" }.All(m => !runtime.HasMethod(m)),
+            "the retired keys have no handler to reach");
+        Check(!runtime.Get("local_consent").AsBool(), "and consent is unchanged");
         Check(_host.Revision == 0 && _player.InputEnabled, "and the world and the player's input are as they were");
     }
 

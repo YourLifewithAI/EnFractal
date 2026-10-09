@@ -1,10 +1,9 @@
 {
-  "schema": "enfractal.creation", "version": 1, "name": "Storm glider", "seed": 13, "mount": "avatar",
+  "schema": "enfractal.creation", "version": 1, "name": "Fixture worn glide", "seed": 3, "mount": "avatar",
   "parts": [
     {"id":"harness","shape":"box","position_m":[0,0.3,0.15],"rotation_deg":[0,0,0],"size_m":[0.55,0.6,0.25],"material":"copper"},
     {"id":"left_wing","shape":"wing","position_m":[-1.1,0.6,0],"rotation_deg":[0,0,-8],"size_m":[1.8,0.18,1.15],"material":"leaf"},
-    {"id":"right_wing","shape":"wing","position_m":[1.1,0.6,0],"rotation_deg":[0,0,8],"size_m":[1.8,0.18,1.15],"material":"leaf"},
-    {"id":"tail","shape":"wing","position_m":[0,0.25,1],"rotation_deg":[0,0,0],"size_m":[0.8,0.15,1],"material":"wood"}
+    {"id":"right_wing","shape":"wing","position_m":[1.1,0.6,0],"rotation_deg":[0,0,8],"size_m":[1.8,0.18,1.15],"material":"leaf"}
   ],
   "nodes": [
     {"id":"use","op":"interact","part_id":"harness","params":{}},

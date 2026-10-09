@@ -31,7 +31,6 @@ $tests = @(
     'creation_authority_smoke.gd',
     'creation_visuals_smoke.gd',
     'invention_runtime_smoke.gd',
-    'invention_editor_smoke.gd',
     'durable_creation_smoke.gd',
     'kernel_canonical_json_smoke.gd'
 )
