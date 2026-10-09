@@ -18,7 +18,7 @@ public partial class RoomWorld : Node3D
 {
     public const string DefaultRoom = "res://rooms/test_room";
     public const string DefaultStyleId = "storybook_painterly";
-    public const int DefaultStyleVersion = 1;
+    public const int DefaultStyleVersion = 2;
     public static readonly string DefaultStyle = StylePreset.PathFor(DefaultStyleId, DefaultStyleVersion);
     [Export] public string RoomDirectory { get; set; } = DefaultRoom;
     /// <summary>Overrides the room's pinned style when set (tests, previews).</summary>
