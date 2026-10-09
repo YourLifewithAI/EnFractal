@@ -13,9 +13,10 @@ namespace EnFractal.Native.Room;
 /// <summary>A room.json could not be loaded. The message is safe to show and names the failing rule.</summary>
 public sealed class RoomLoadException(string message) : Exception(message);
 
+/// <summary>A shell part. Drawn false (the manifest's optional "drawn", default true) makes it collision-only: a climbing pole hidden in a tree's leaves, a cap to stand on.</summary>
 public sealed record ShellPart(
     string Id, string Role, Vector3[] Points, float ThicknessM, string? MeshPath,
-    bool Collides, string MaterialRole, Color BaseColor);
+    bool Collides, string MaterialRole, Color BaseColor, bool Drawn = true);
 
 public sealed record MaterialSlot(string Slot, string Role, Color? BaseColor);
 
@@ -199,8 +200,11 @@ public sealed class RoomData
             meshes[directory + "/" + mesh] = ReadMesh(directory, listed, mesh, "room.json");
         }
         if (part.TryGetProperty("texture", out var texture)) ReadListed(directory, listed, SafePath(texture.GetString()!), "room.json");
-        return new ShellPart(Str(part, "id"), Str(part, "role"), points, thickness, mesh, part.GetProperty("collides").GetBoolean(),
-            Str(part, "material_role"), part.TryGetProperty("base_color", out var color) ? new Color(color.GetString()!) : new Color("b3aea4"));
+        var collides = part.GetProperty("collides").GetBoolean();
+        var drawn = !part.TryGetProperty("drawn", out var shown) || shown.GetBoolean();
+        Expect(drawn || collides, $"{Str(part, "id")} is neither drawn nor collides");
+        return new ShellPart(Str(part, "id"), Str(part, "role"), points, thickness, mesh, collides,
+            Str(part, "material_role"), part.TryGetProperty("base_color", out var color) ? new Color(color.GetString()!) : new Color("b3aea4"), drawn);
     }
 
     private static AssetInfo ParseAsset(string assetDirectory, byte[] bytes, string label, Dictionary<string, byte[]> meshes)

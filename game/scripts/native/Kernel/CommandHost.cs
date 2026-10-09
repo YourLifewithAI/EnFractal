@@ -228,6 +228,8 @@ public partial class CommandHost : Node
         {
             _previousPhysicsSink = Player.WorldPhysicsRequest;
             Player.WorldPhysicsRequest = _physicsSink;
+            // Climbing takes both hands: a player carrying something does not grab a face (SmallPlayerController.HandsFull).
+            Player.HandsFull = () => IsInstanceValid(this) && HeldBy(PlayerAvatar) != null;
         }
         BuildPrompt();
         AddChild(new Sandbox.Carrying { Name = "Carrying", Carried = CarriedNow });

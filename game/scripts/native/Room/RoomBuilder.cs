@@ -40,20 +40,28 @@ public static class RoomBuilder
         node.SetMeta("entity_id", part.Id);
         node.SetMeta("surface_role", part.Role);
         node.SetMeta("material_role", part.MaterialRole);
+        node.SetMeta("drawn", part.Drawn);
         if (part.MeshPath != null)
         {
             var scene = LoadGlb(room, room.Directory + "/" + part.MeshPath, part.Id);
-            node.AddChild(scene);
+            // A collision-only part ("drawn": false: a climbing pole in a tree's leaves, a cap to stand on) keeps its shapes
+            // and never enters the scene as a visual, so no look or capture can show it.
+            if (part.Drawn) node.AddChild(scene);
             if (part.Collides)
                 foreach (var mesh in Meshes(scene))
-                    node.AddChild(new CollisionShape3D { Shape = mesh.Mesh.CreateTrimeshShape(), Transform = RelativeTransform(scene, mesh) });
+                    node.AddChild(new CollisionShape3D { Shape = OneSided(mesh.Mesh), Transform = RelativeTransform(scene, mesh) });
+            // Water is a query-only surface on its own layer (RoomWater): bodies swim in it and nothing collides with it.
+            if (RoomWater.IsWater(part))
+                node.AddChild(RoomWater.CreateCollider(Meshes(scene).Select(mesh => ((Shape3D)mesh.Mesh.CreateTrimeshShape(), RelativeTransform(scene, mesh))).ToList()));
+            if (!part.Drawn) scene.Free();
             return node;
         }
         // The openings listed for this part are holes in the slab: a window in a solid wall is a hole, not a painted square.
         var visualHoles = room.Openings.Where(o => o.HostPartId == part.Id && o.CutsVisual).ToArray();
         var (arrayMesh, shape) = ExtrudePolygon(part.Points, part.ThicknessM, visualHoles, visualHoles.Where(o => o.CutsCollision).ToArray());
-        node.AddChild(new MeshInstance3D { Name = "Visual", Mesh = arrayMesh, MaterialOverride = MaterialLibrary.For(part.MaterialRole, part.BaseColor) });
+        if (part.Drawn) node.AddChild(new MeshInstance3D { Name = "Visual", Mesh = arrayMesh, MaterialOverride = MaterialLibrary.For(part.MaterialRole, part.BaseColor) });
         if (part.Collides) node.AddChild(new CollisionShape3D { Name = "Collision", Shape = shape });
+        if (RoomWater.IsWater(part)) node.AddChild(RoomWater.CreateCollider(new[] { ((Shape3D)arrayMesh.CreateTrimeshShape(), Transform3D.Identity) }));
         return node;
     }
 
@@ -106,7 +114,7 @@ public static class RoomBuilder
                 break;
             case "trimesh_static":
                 foreach (var mesh in Meshes(visual))
-                    body.AddChild(new CollisionShape3D { Shape = mesh.Mesh.CreateTrimeshShape(), Transform = RelativeTransform(visual, mesh) });
+                    body.AddChild(new CollisionShape3D { Shape = OneSided(mesh.Mesh), Transform = RelativeTransform(visual, mesh) });
                 break;
             case "none":
                 break;
@@ -283,6 +291,17 @@ public static class RoomBuilder
         var sum = 0f;
         for (var i = 0; i < polygon.Length; i++) sum += polygon[i].Cross(polygon[(i + 1) % polygon.Length]);
         return sum * 0.5f;
+    }
+
+    /// <summary>
+    /// Mesh collision is one-sided (contracts/README.md): a body meets a face only from its front, so a climber coming up
+    /// inside a tree's crown passes up through the cap and stands on top of it. Godot's default, set explicitly here.
+    /// </summary>
+    public static ConcavePolygonShape3D OneSided(Mesh mesh)
+    {
+        var shape = (ConcavePolygonShape3D)mesh.CreateTrimeshShape();
+        shape.BackfaceCollision = false;
+        return shape;
     }
 
     /// <summary>Godot treats clockwise triangles (seen from the front) as front faces.</summary>

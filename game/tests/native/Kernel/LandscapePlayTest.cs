@@ -16,8 +16,9 @@ namespace EnFractal.Tests.Kernel;
 /// Play on the land (Run 2, Lane P): a generated landscape room booted as the game boots it, with the real bodies, Jolt
 /// and the command host. The edge of the world holds both bodies inside the room's bounds; the companion walks to the
 /// carryable thing with go_to and fetches it; the player walks to it, picks it up, carries it back to the spawn and sets
-/// it down through enfractal.command; every named destination is reachable; and the slopes, steps, sticks and falls met
-/// on the way are measured. The room is derived data and never committed: the runner generates and exports it and passes
+/// it down through enfractal.command; every named destination is reachable; the slopes, steps, sticks and falls met
+/// on the way are measured; the land's water is found and measured; and the player climbs one of its cliffs. The room
+/// is derived data and never committed: the runner generates and exports it and passes
 /// "-- --landscape=DIR" (the exported room directory, its last component the room id). Saves go to a test folder.
 /// </summary>
 public partial class LandscapePlayTest : Node3D
@@ -70,6 +71,8 @@ public partial class LandscapePlayTest : Node3D
             await TestCompanionFetches();
             await TestDestinations();
             await TestNavigationClimb();
+            MeasureWater();
+            await TestClimbACliff();
             Finish();
         }
         catch (Exception error)
@@ -347,6 +350,115 @@ public partial class LandscapePlayTest : Node3D
         fineCells.QueueFree();
     }
 
+    // ---- climbing and water on the land (founder's playtest round, 8 October) ----
+
+    private readonly record struct Cliff(Vector3 Foot, Vector3 Direction, float RiseM, float SteepestDeg);
+
+    /// <summary>
+    /// Cliffs a body can try: standable ground at a foot, a face steeper than 55 degrees starting within a few centimetres
+    /// of it along one of eight headings, and standable ground at its top 6 to 30 cm higher, all well inside the bounds.
+    /// </summary>
+    private List<Cliff> FindCliffs()
+    {
+        var bounds = _world.Room.Bounds;
+        var space = GetWorld3D().DirectSpaceState;
+        (Vector3 Point, float Slope)? Ground(float x, float z)
+        {
+            var hit = space.IntersectRay(PhysicsRayQueryParameters3D.Create(new Vector3(x, bounds.End.Y + 1, z), new Vector3(x, bounds.Position.Y - 1, z), RoomBuilder.WorldLayer));
+            return hit.Count == 0 ? null : (hit["position"].AsVector3(), Mathf.RadToDeg(Mathf.Acos(Mathf.Clamp(hit["normal"].AsVector3().Y, -1, 1))));
+        }
+        var found = new List<Cliff>();
+        for (var x = bounds.Position.X + 0.4f; x < bounds.End.X - 0.4f; x += 0.1f)
+            for (var z = bounds.Position.Z + 0.4f; z < bounds.End.Z - 0.4f; z += 0.1f)
+            {
+                if (Ground(x, z) is not { } foot || foot.Slope > 30f) continue;
+                for (var heading = 0; heading < 8; heading++)
+                {
+                    var direction = new Vector3(Mathf.Cos(heading * Mathf.Pi / 4), 0, Mathf.Sin(heading * Mathf.Pi / 4));
+                    var steepest = 0f;
+                    var faceStarted = false;
+                    var flat = 0;
+                    Vector3? top = null;
+                    for (var r = 0.02f; r <= 0.5f; r += 0.01f)
+                    {
+                        var at = foot.Point + direction * r;
+                        if (Ground(at.X, at.Z) is not { } here) break;
+                        if (!faceStarted)
+                        {
+                            if (here.Slope > 55f) faceStarted = true;
+                            else if (r > 0.05f) break;
+                            continue;
+                        }
+                        steepest = Mathf.Max(steepest, here.Slope);
+                        if (here.Slope <= 35f) { flat++; top ??= here.Point; if (flat >= 5) break; }
+                        else if (here.Slope > 45f) { flat = 0; top = null; }
+                    }
+                    if (top is not { } summit || flat < 5) continue;
+                    var rise = summit.Y - foot.Point.Y;
+                    if (rise >= 0.06f && rise <= 0.3f) found.Add(new Cliff(foot.Point, direction, rise, steepest));
+                }
+            }
+        // Cliffs of a middling height first: tall enough to be a climb, short enough to finish quickly.
+        return found.OrderBy(c => Mathf.Abs(c.RiseM - 0.12f)).ToList();
+    }
+
+    /// <summary>The player climbs one cliff of the generated land: walks into its foot, grabs it, climbs and pulls over onto the top.</summary>
+    private async Task TestClimbACliff()
+    {
+        var player = _world.Player;
+        var cliffs = FindCliffs();
+        Measure($"LANDSCAPE_CLIFFS {cliffs.Count} cliff faces 6 to 30 cm high with standable ground at the foot and the top (10 cm grid, eight headings)");
+        Check(cliffs.Count > 0, "the land has cliffs to climb");
+        var climbed = false;
+        foreach (var cliff in cliffs.Take(6))
+        {
+            if (!player.TryTeleportTo(cliff.Foot - cliff.Direction * 0.02f)) continue;
+            player.Rotation = new Vector3(0, Mathf.Atan2(-cliff.Direction.X, -cliff.Direction.Z), 0);
+            await Frames(5);
+            var start = player.GlobalPosition;
+            var grabs = player.Grabs;
+            var pulls = player.PullOvers;
+            var frames = 0;
+            player.SetControlInput(new Vector2(0, 1));
+            for (; frames < 900 && !(player.PullOvers > pulls && player.IsOnFloor() && !player.IsClimbing); frames++) await Frames(1);
+            player.SetControlInput(Vector2.Zero);
+            await Frames(20);
+            var rose = player.GlobalPosition.Y - start.Y;
+            climbed = player.Grabs > grabs && player.PullOvers > pulls && player.IsOnFloor() && rose > cliff.RiseM * 0.7f;
+            Measure($"LANDSCAPE_CLIMB a {cliff.RiseM * 100:0} cm cliff (steepest {cliff.SteepestDeg:0} deg) at {Text(cliff.Foot)}: grabbed {player.Grabs - grabs}, pulled over {player.PullOvers - pulls}, rose {rose * 100:0.0} cm in {frames / 60.0:0.0} s, " +
+                    $"ends at {Text(player.GlobalPosition)} on floor {player.IsOnFloor()}, climbing {player.IsClimbing}");
+            if (climbed) break;
+        }
+        Check(climbed, "the player climbs a cliff of the generated land and pulls itself over the top");
+        Check(player.TryTeleportTo(_world.Room.SpawnFor("player").PositionM), "the player back at the spawn after the cliff");
+        await Frames(10);
+    }
+
+    /// <summary>The land's water, as the body sees it (RoomWater): where it is and how deep. The garage's water is shallow until Lane C's deeper ponds.</summary>
+    private void MeasureWater()
+    {
+        var bounds = _world.Room.Bounds;
+        var space = GetWorld3D().DirectSpaceState;
+        int wet = 0, swimmable = 0;
+        var deepest = 0f;
+        var deepestAt = Vector3.Zero;
+        for (var x = bounds.Position.X + 0.05f; x < bounds.End.X; x += 0.1f)
+            for (var z = bounds.Position.Z + 0.05f; z < bounds.End.Z; z += 0.1f)
+            {
+                var column = RoomWater.At(space, new Vector3(x, bounds.Position.Y - 0.5f, z), bounds.Size.Y + 1.5f, 0);
+                if (!column.Wet) continue;
+                // The exported water sheet runs on under the shore: water the land covers is no water to the body.
+                var land = space.IntersectRay(PhysicsRayQueryParameters3D.Create(new Vector3(x, bounds.End.Y + 1, z), new Vector3(x, column.SurfaceY, z), RoomBuilder.WorldLayer));
+                if (land.Count > 0) continue;
+                wet++;
+                if (column.DepthM >= _world.Player.SwimDepthM) swimmable++;
+                if (column.DepthM > deepest) (deepest, deepestAt) = (column.DepthM, new Vector3(x, column.SurfaceY, z));
+            }
+        var areas = _world.Built.GetNode("Shell").GetChildren().Count(part => part.GetNodeOrNull<Area3D>(RoomWater.ColliderName) is { CollisionLayer: RoomWater.Layer });
+        Measure($"LANDSCAPE_WATER {areas} water parts with query-only colliders on layer 4; {wet} points of open water on a 10 cm grid, {swimmable} deep enough to swim ({_world.Player.SwimDepthM * 100:0} cm); deepest {deepest * 100:0.0} cm at {Text(deepestAt)}");
+        Check(areas > 0 && wet > 0, "the land's water parts carry water colliders the body can find");
+    }
+
     // ---- moving and measuring ----
 
     private sealed class Walk
@@ -547,7 +659,7 @@ public partial class LandscapePlayTest : Node3D
 
     private void Finish()
     {
-        GD.Print($"NATIVE_KERNEL_LANDSCAPE: {_checks - _failures}/{_checks} checks passed; both bodies held inside the bounds, the companion's go_to and fetch and the player's carry on the land, every promised destination reached");
+        GD.Print($"NATIVE_KERNEL_LANDSCAPE: {_checks - _failures}/{_checks} checks passed; both bodies held inside the bounds, the companion's go_to and fetch and the player's carry on the land, every promised destination reached, a cliff climbed");
         RemoveSaves();
         CommandHost.SaveRoot = CommandHost.DefaultSaveRoot;
         GetTree().Quit(_failures == 0 ? 0 : 1);
