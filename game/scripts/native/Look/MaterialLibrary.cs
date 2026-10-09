@@ -171,6 +171,15 @@ public static class MaterialLibrary
         SetWater(material, "stroke_normal_gain", paint.StrokeNormalGain);
         SetWater(material, "mark_fade_start", paint.MarkFadeStart);
         SetWater(material, "mark_fade_end", paint.MarkFadeEnd);
+        // The open sea's switches (OpenSea): off for a room's own water, which is painted in its own space and has no hole; the
+        // horizon fade is set by the look for the camera's far plane once the room has a sea.
+        SetWater(material, "world_pattern", false);
+        SetWater(material, "use_hole", false);
+        SetWater(material, "hole", Vector4.Zero);
+        SetWater(material, "horizon_color", water.SkyColor);
+        SetWater(material, "horizon_energy", 1f);
+        SetWater(material, "horizon_fade_start_m", 0f);
+        SetWater(material, "horizon_fade_end_m", 0f);
         material.SetMeta("material_role", role);
         material.SetMeta("landscape", true);
         material.SetMeta("water", true);

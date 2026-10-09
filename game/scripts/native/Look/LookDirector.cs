@@ -57,6 +57,18 @@ public partial class LookDirector : Node3D
     /// </summary>
     public bool OpenLand { get; private set; }
     public VoxelGI? Gi { get; private set; }
+    /// <summary>
+    /// The focus highlight (Run 2): the one thing the next key press would act on wears a soft rim and line (FocusLook). The play
+    /// lane says which thing with SetFocusHighlight; things that can't be used stay plain.
+    /// </summary>
+    public FocusHighlight Highlight => _highlight ??= new FocusHighlight();
+    private FocusHighlight? _highlight;
+
+    /// <summary>Put the focus highlight on one thing (its every mesh), or on nothing (null). One thing at a time: the last one is cleared.</summary>
+    public void SetFocusHighlight(Node3D? target) => Highlight.Set(target);
+
+    /// <summary>The endless sea past the room's own meshes (OpenSea), once a room with a sea is dressed; null in a room without one.</summary>
+    public OpenSea? OpenSea { get; private set; }
     public Godot.Environment Environment { get; private set; } = null!;
     /// <summary>The sun by day and the moon by night. Hidden in a room without a sun light hint (no window lets the sun in).</summary>
     public DirectionalLight3D Key { get; private set; } = null!;
@@ -92,6 +104,13 @@ public partial class LookDirector : Node3D
     /// Observe tracks depth immediately; ordinary focus eases. Off by default; the HUD supplies its key.
     /// </summary>
     public bool Observe { get; set; }
+    /// <summary>
+    /// Which play view the camera stands for, so each blurs its own way (x_look_views): set by whoever frames a camera the look
+    /// does not otherwise know (the review harness, a preview). Unset, the game's camera follows the HUD's view keys
+    /// (RoomHud.ViewMode: F1 eye, F2 shoulder, F3 diorama, F4 isometric), the player's own eye camera is the eye view, and any
+    /// other camera keeps the preset's miniature blur.
+    /// </summary>
+    public LookView? View { get; set; }
     /// <summary>Where the clock comes from: the real clock and calendar, the preset's fixed hour and day, or a pin (and who pinned it).</summary>
     public string ClockNote { get; private set; } = "";
     /// <summary>Empty when the room declared its own site; otherwise why the sun uses the look's fallback site.</summary>
@@ -498,7 +517,9 @@ public partial class LookDirector : Node3D
         Key.LightEnergy = Moment.KeyEnergy * SunScale * (OpenLand ? OpenLandLight.SunStrength : 1f);
         // A summer sun casts a harder shadow than a winter one: the season sets how soft the shadow edge is.
         Key.ShadowBlur = (Preset.Tuning.Shadows.BlurBase + Preset.Tuning.Shadows.BlurPerSoftness * Preset.ShadowSoftness) * Mathf.Lerp(Moment.Look.SunBlur, 1f, Moment.MoonWeight);
-        if (_skyMaterial != null) LookSky.Apply(_skyMaterial, LookSky.At(Preset, Moment, _moonYaw));
+        var skyLook = LookSky.At(Preset, Moment, _moonYaw);
+        if (_skyMaterial != null) LookSky.Apply(_skyMaterial, skyLook);
+        OpenSea?.SetHorizon(skyLook.Horizon, skyLook.Brightness);
         Key.RotationDegrees = new Vector3(-Moment.KeyElevationDeg, Moment.KeyAzimuthDeg, 0);
         var sky = SkyLevel(Preset, Moment);
         foreach (var fill in _skyFills)
@@ -596,6 +617,7 @@ public partial class LookDirector : Node3D
         foreach (var mesh in meshes)
             if (DressMesh(mesh)) bakeRoot ??= SubtreeRoot(mesh);
         if (bakeRoot != null) Bake(bakeRoot);
+        if (bakeRoot != null) BuildOpenSea(bakeRoot);
     }
 
     /// <summary>
@@ -609,6 +631,27 @@ public partial class LookDirector : Node3D
         foreach (var mesh in root.FindChildren("*", "MeshInstance3D", true, false).OfType<MeshInstance3D>().Append(root as MeshInstance3D).OfType<MeshInstance3D>())
             bake |= DressMesh(mesh);
         if (bake) Bake(root);
+        if (bake) BuildOpenSea(root);
+    }
+
+    /// <summary>
+    /// A room with a sea gets the open sea once its shell is dressed: the surface and bed that follow the camera past the room's own
+    /// meshes, and the distant islands lifted out of the backdrop so they hold their place on the horizon.
+    /// </summary>
+    private void BuildOpenSea(Node3D root)
+    {
+        if (OpenSea != null || _room?.Sea is not { } sea || !root.IsInsideTree()) return;
+        var meshes = root.FindChildren("*", "MeshInstance3D", true, false).OfType<MeshInstance3D>().Where(m => m.HasMeta(DressedMeta)).ToArray();
+        OpenSea = OpenSea.Build(sea, _room.Bounds, meshes.Where(m => m.HasMeta(WaterMeta)),
+            meshes.Where(m => !m.HasMeta(WaterMeta) && m.HasMeta(LandscapeLook.LandscapePaintedMeta)));
+        AddChild(OpenSea);
+        if (Moment != null)
+        {
+            var skyLook = LookSky.At(Preset, Moment, _moonYaw);
+            OpenSea.SetHorizon(skyLook.Horizon, skyLook.Brightness);
+        }
+        if (OpenSea.Note.Length > 0) Warn(OpenSea.Note);
+        GD.Print($"LOOK: open sea: surface {(OpenSea.Surface != null ? "follows the camera" : "missing")}, bed at {OpenSea.BedY:0.###} m, {OpenSea.Islands.Count} distant island(s) holding their place");
     }
 
     /// <summary>Dress one mesh; returns true when it is shell geometry that belongs in the GI bake.</summary>
@@ -825,8 +868,10 @@ public partial class LookDirector : Node3D
     /// Tilt-shift also shortens the blur ramps, so the crisp band ends sooner and the frame's top and bottom melt.
     /// crispFromM keeps everything from there to the focus crisp (the player's reach, seen from its eye), and
     /// alsoM is a second distance the band stretches to keep crisp (the companion beside the player).
+    /// view is how the view blurs (x_look_views): null or "miniature" is all of the above; "far" keeps everything from the
+    /// lens to crisp_beyond_focus_m past the subject crisp, with no near blur and no tilt-shift, and softens only what lies beyond.
     /// </summary>
-    public static DepthOfField DepthOfFieldFor(StylePreset preset, float focusDistance, float lookingDown, float crispFromM = float.PositiveInfinity, float alsoM = float.NaN, bool observe = false)
+    public static DepthOfField DepthOfFieldFor(StylePreset preset, float focusDistance, float lookingDown, float crispFromM = float.PositiveInfinity, float alsoM = float.NaN, bool observe = false, ViewBlur? view = null)
     {
         var t = preset.Tuning.Dof;
         var d = Mathf.Max(focusDistance, 0.05f);
@@ -839,6 +884,15 @@ public partial class LookDirector : Node3D
         }
         var nearest = float.IsFinite(alsoM) && alsoM > 0.05f ? Mathf.Min(d, alsoM) : d;
         var farthest = float.IsFinite(alsoM) && alsoM > 0.05f ? Mathf.Max(d, alsoM) : d;
+        if (view is { Far: true } far)
+        {
+            // Nothing near is soft (Godot's near blur smears well past its set distance: in F2 the ground under the camera, in F3
+            // the cliff beside it); the land stays crisp to the far start, and the far shore, the distant islands and the
+            // horizon soften over the transition.
+            var lens = Mathf.Min(preset.NearBlurDistanceM, 0.5f * nearest);
+            return new DepthOfField(preset.DofEnabled, farthest + far.CrispBeyondFocusM, far.FarTransitionM,
+                false, lens, Mathf.Max(lens * (t.NearTransitionBase - t.NearTransitionPerBlur * preset.NearBlur), 0.01f), far.FarAmount);
+        }
         var tilt = preset.TiltShiftEnabled ? preset.TiltShiftStrength * Mathf.Clamp(lookingDown * t.TiltPitchGain, 0f, 1f) : 0f;
         var halfBand = 0.5f * preset.FocusBandM * (1f - t.TiltBandNarrowing * tilt);
         var shorten = 1f - t.TiltTransitionShortening * tilt;
@@ -855,6 +909,7 @@ public partial class LookDirector : Node3D
     public void FrameCamera(Camera3D camera, Vector3 focusPoint)
     {
         _framed.Add(camera.GetInstanceId());
+        if (OpenSea != null) OpenSea.Camera = camera;
         Focus(camera, focusPoint);
     }
 
@@ -883,7 +938,7 @@ public partial class LookDirector : Node3D
         var forward = -camera.GlobalBasis.Z;
         var distance = (focusPoint - camera.GlobalPosition).Dot(forward);
         var also = alsoPoint is { } point ? (point - camera.GlobalPosition).Dot(forward) : float.NaN;
-        var dof = DepthOfFieldFor(Preset, distance, Mathf.Max(0f, -forward.Y), crispFromM, also, Observe);
+        var dof = DepthOfFieldFor(Preset, distance, Mathf.Max(0f, -forward.Y), crispFromM, also, Observe, ViewFor(camera) is { } view ? Preset.Tuning.BlurFor(view) : null);
         // Ordinary focus eases. Observe follows the current body/camera depth immediately,
         // including a mode change on the shared F3/F4 camera; the rig already eases its motion.
         var ease = Preset.Tuning.Dof.FocusEaseS;
@@ -909,6 +964,21 @@ public partial class LookDirector : Node3D
     };
 
     private Node3D? CompanionBody() => FocusCompanion ?? GetParent()?.GetChildren().OfType<CompanionAvatar>().FirstOrDefault();
+
+    private RoomHud? _hud;
+
+    /// <summary>
+    /// The view a camera stands for: View when it is set; else the player's own eye camera is the eye view, a camera framed with
+    /// FrameCamera keeps the miniature blur (null), and the game's camera is the view the HUD's keys chose.
+    /// </summary>
+    public LookView? ViewFor(Camera3D camera)
+    {
+        if (View is { } chosen) return chosen;
+        if (FocusBody() is SmallPlayerController controller && IsInstanceValid(controller) && camera == controller.EyeCamera) return LookView.Eye;
+        if (_framed.Contains(camera.GetInstanceId())) return null;
+        if (_hud == null || !IsInstanceValid(_hud)) _hud = GetParent()?.GetChildren().OfType<RoomHud>().FirstOrDefault();
+        return _hud?.ViewMode switch { 0 => LookView.Eye, 1 => LookView.Shoulder, 2 => LookView.Diorama, 3 => LookView.Isometric, _ => null };
+    }
 
     /// <summary>
     /// A second point to keep crisp: with "player" focus, the companion's body while it is within
@@ -962,6 +1032,7 @@ public partial class LookDirector : Node3D
     public override void _Process(double delta)
     {
         if (Preset == null) return;
+        _highlight?.Prune();
         CollectLut();
         if (_framesSinceApply++ == 2 && !Dressed)
             Warn("no room geometry with a shell was dressed after the first frames; the look has no GI bake and no shell layer");

@@ -138,7 +138,7 @@ public sealed class StylePreset
     public static readonly IReadOnlySet<string> KnownLookExtensions = new HashSet<string>
     {
         "x_look_key_mode", "x_look_glaze_amount", "x_look_ssil", "x_look_role_marks", "x_look_paint", "x_look_shadows", "x_look_ssao",
-        "x_look_glow", "x_look_gi", "x_look_lamps", "x_look_sun", "x_look_seasons", "x_look_grade", "x_look_dof", "x_look_post", "x_look_sky",
+        "x_look_glow", "x_look_gi", "x_look_lamps", "x_look_sun", "x_look_seasons", "x_look_grade", "x_look_dof", "x_look_post", "x_look_sky", "x_look_views",
     };
 
     public const string StylesRoot = "res://styles";
