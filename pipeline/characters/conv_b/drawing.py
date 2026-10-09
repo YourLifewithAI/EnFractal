@@ -59,13 +59,22 @@ class Sheet:
         return self._ink[level]
 
     def silhouette(self, close=3):
-        """Everything the figure's outer lines enclose (the lines included)."""
+        """Everything the figure's outer lines enclose (the lines included): firm pen first, fainter pencil if the
+        firm lines leave the figure open."""
         if 'silhouette' not in self._walls:
-            free = ~self.walls(close, len(LINE_LEVELS) - 1)
-            seed = np.zeros_like(free)
+            seed = np.zeros_like(self.inside)
             seed[0, :] = seed[-1, :] = seed[:, 0] = seed[:, -1] = True
-            outside = grow(free | ~self.inside, seed)
-            self._walls["silhouette"] = ~_dilate(outside, close) & self.inside
+            best = None
+            for level in range(len(LINE_LEVELS)):
+                free = ~self.walls(close, level)
+                outside = grow(free | ~self.inside, seed)
+                shape = ~_dilate(outside, close) & self.inside
+                best = shape
+                if shape.sum() < 0.85 * self.inside.sum() and (~shape & self.inside).sum() > 0:
+                    # Closed enough: the paper around the figure was reached from the edge.
+                    if shape.sum() > 0.02 * self.inside.sum():
+                        break
+            self._walls['silhouette'] = best
         return self._walls['silhouette']
 
     def walls(self, close, level=0):
@@ -348,6 +357,8 @@ def stroke(sheet, spec, notes):
                 continue
             comp = component(ink, (int(x), int(y)))
             seen |= comp
+            if comp.sum() < 10:
+                continue  # a speck of graphite or paper grain, not a line
             inside = (comp & box).sum()
             if inside >= 0.6 * comp.sum():
                 keep |= comp
@@ -365,7 +376,7 @@ def stroke(sheet, spec, notes):
     ky, kx = np.nonzero(keep)
     y0, x0 = max(0, ky.min() - 2), max(0, kx.min() - 2)
     skel = np.zeros_like(keep)
-    skel[y0:ky.max() + 3, x0:kx.max() + 3] = skeleton(_close(keep[y0:ky.max() + 3, x0:kx.max() + 3], 1))
+    skel[y0:ky.max() + 3, x0:kx.max() + 3] = skeleton(_close(keep[y0:ky.max() + 3, x0:kx.max() + 3], 2))
     ys, xs = np.nonzero(skel)
     half = max(1.0, keep.sum() / max(1, len(xs)) / 2.0)
     order = np.lexsort((xs, ys))

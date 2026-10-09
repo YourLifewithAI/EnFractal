@@ -194,15 +194,16 @@ def main():
             if piece['kind'] == 'tube' and piece.get('behind') and part['parent'] in halfthick:
                 y = y - piece['behind'] * halfthick[part['parent']]
             centres = np.stack([b[:, 0], y, b[:, 1]], axis=1)
-            # Depth grows like the square root of the drawn width, so ends and edges come out full and pillowy
-            # instead of pinched to a lens; a thin limb (every ball about the same size) stays a round tube.
+            # Depth grows a little faster than the drawn width, so ends and edges come out full and pillowy instead
+            # of pinched to a lens; a thin limb (every ball about the same size) stays a round tube.
             dmax = max(piece['dmax_m'], 1e-6)
-            radii = np.stack([r, np.sqrt(r * dmax) * piece['depth'], r], axis=1)
+            radii = np.stack([r, r ** 0.7 * dmax ** 0.3 * piece['depth'], r], axis=1)
             obj = balls_object(f"{part['name']}_{k}", centres, radii)
             thin = min(piece['dmax_m'] * min(1.0, piece['depth']), 0.004)
             voxel = max(0.00016, min(0.0006, thin / 3.0))
             obj.data.materials.append(material(piece['colour']))
-            fuse(obj, voxel, 3, 150, 4000)
+            # Big soft bodies get more smoothing, so lobes melt together into one surface a face can sit on.
+            fuse(obj, voxel, 3 + int(min(12, piece["dmax_m"] / voxel / 2)), 150, 4000)
             pieces_by_part[part['name']].append(obj)
             halfthick[part['name']] = max(halfthick.get(part['name'], 0.0), piece['dmax_m'] * piece['depth'])
 
