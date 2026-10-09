@@ -79,6 +79,14 @@ public partial class PlayHudTest : Node
         var help = string.Join("\n", _world.FindChildren("*", "Label", true, false).OfType<Label>().Select(l => l.Text));
         Check(help.Contains("F pick up", StringComparison.Ordinal) && help.Contains("V push", StringComparison.Ordinal), "the help names the hand keys F and V");
         Check(_hud.FindChild("HandActions", true, false) is HBoxContainer { } buttons && buttons.GetChildCount() == 2, "and the top panel has their buttons");
+        // The founder's name for the companion (8 October): the Gubble, in its name tag, the HUD's state line and the help.
+        await Frames(1);
+        var tag = _world.Companion.GetNode<Label3D>("CompanionLabel").Text;
+        Check(_world.Companion.CompanionName == CompanionAvatar.DefaultName && tag == "The Gubble" && state.Text.Contains("the Gubble: ", StringComparison.Ordinal) &&
+            help.Contains("the Gubble", StringComparison.Ordinal) && !help.Contains("Wisp", StringComparison.Ordinal),
+            $"the companion is the Gubble in its name tag ({tag}), the state line and the help ({state.Text})");
+        Check(CompanionAvatar.SavedName("Wisp") == "the Gubble" && CompanionAvatar.SavedName("Pip") == "Pip",
+            "a profile or save still naming the companion Wisp (the former default) restores it as the Gubble; a name the player chose stays");
         Check(await WalkTo(player, new Vector2(-0.3f, 0.62f)), "the player walks over to the doorstop on the rug");
         await Face(player, Vector3.Forward);
         _hud._UnhandledInput(Press(Key.F));

@@ -63,7 +63,8 @@ public partial class LandscapePlayTest : Node3D
             Check(_navigation.IsReady, "the landscape bakes a navigation mesh for the companion");
             Measure($"LANDSCAPE_NAVIGATION {_navigation.PolygonCount} polygons, bake {_navigation.LastBakeMs:0} ms, climb {_navigation.AgentMaxClimbM:0.000} m, radius {_navigation.AgentRadiusM:0.000} m");
             await Frames(30);
-            Check(_world.Player.IsOnFloor() && _world.Companion.IsOnFloor(), "both bodies stand on the land at their spawns");
+            // The Gubble floats: it hovers over the land (or water) at its spawn rather than standing on it.
+            Check(_world.Player.IsOnFloor() && Hovering(_world.Companion), "the player stands on the land at its spawn, and the Gubble hovers over it");
 
             // "-- --climb-only" runs the climbing checks alone (for tuning them).
             if (!OS.GetCmdlineUserArgs().Contains("--climb-only"))
@@ -139,8 +140,8 @@ public partial class LandscapePlayTest : Node3D
             worstOut = Mathf.Max(worstOut, Outside(bounds, companion.GlobalPosition, companion.BodyRadiusM));
             blocked |= companion.GoalBlocked;
         }
-        Measure($"LANDSCAPE_EDGE companion sent 1 m out past the {spot.Side} bound: furthest {worstOut * 100:0.0} cm past, blocked {blocked}, intent {companion.CurrentIntent}, on floor {companion.IsOnFloor()}");
-        Check(worstOut <= 0.001f && companion.IsOnFloor(), $"the companion stays inside the bounds too ({worstOut * 100:0.0} cm past)");
+        Measure($"LANDSCAPE_EDGE companion sent 1 m out past the {spot.Side} bound: furthest {worstOut * 100:0.0} cm past, blocked {blocked}, intent {companion.CurrentIntent}, hovering {Hovering(companion)}");
+        Check(worstOut <= 0.001f && Hovering(companion), $"the companion stays inside the bounds too, hovering over the land ({worstOut * 100:0.0} cm past)");
         companion.Stop();
         Check(player.TryTeleportTo(_world.Room.SpawnFor("player").PositionM) && companion.TryTeleportTo(_world.Room.SpawnFor("companion").PositionM), "both bodies back at their spawns");
         player.Rotation = new Vector3(0, Mathf.DegToRad(_world.Room.SpawnFor("player").YawDeg), 0);
@@ -148,6 +149,10 @@ public partial class LandscapePlayTest : Node3D
     }
 
     private const float EdgeInsetM = 0.10f;
+
+    /// <summary>The Gubble hovers within its hover height (and bob, and a little settling) over the ground or water under it.</summary>
+    private static bool Hovering(SmallPlayerController body) =>
+        body.Floats && body.HoverSupportY is { } top && body.GlobalPosition.Y - top > 0.005f && body.GlobalPosition.Y - top < body.HoverHeightM + 0.015f;
 
     private readonly record struct Edge(string Side, Vector3 Inside, Vector3 Outward, float SlopeDeg);
 
@@ -528,7 +533,8 @@ public partial class LandscapePlayTest : Node3D
             }
             player.SetControlInput(Vector2.Zero);
             await Frames(30);
-            var under = space.IntersectRay(PhysicsRayQueryParameters3D.Create(player.GlobalPosition + Vector3.Up * 0.02f, player.GlobalPosition + Vector3.Down * 0.03f, RoomBuilder.WorldLayer, new Godot.Collections.Array<Rid> { player.GetRid() }));
+            // What the body stands on, as the body sees it: the world and the hidden layer, where the crown caps are.
+            var under = space.IntersectRay(PhysicsRayQueryParameters3D.Create(player.GlobalPosition + Vector3.Up * 0.02f, player.GlobalPosition + Vector3.Down * 0.03f, RoomBuilder.BodyMask, new Godot.Collections.Array<Rid> { player.GetRid() }));
             var standingOn = under.Count > 0 ? (under["collider"].AsGodotObject() as Node)?.GetMeta("entity_id", "").AsString() ?? "" : "";
             climbed = player.Grabs > grabs && player.PullOvers > pulls && player.IsOnFloor() && standingOn == "shell:tree_climb_foliage" && player.GlobalPosition.Y - start.Y > 0.12f;
             if (climbed) _climbedTree = (start, toward);
@@ -662,7 +668,8 @@ public partial class LandscapePlayTest : Node3D
         player.ReadKeyboard = false;
         await Frames(30);
         var space = GetWorld3D().DirectSpaceState;
-        var under = space.IntersectRay(PhysicsRayQueryParameters3D.Create(player.GlobalPosition + Vector3.Up * 0.02f, player.GlobalPosition + Vector3.Down * 0.03f, RoomBuilder.WorldLayer, new Godot.Collections.Array<Rid> { player.GetRid() }));
+        // What the body stands on, as the body sees it: the world and the hidden layer, where the crown caps are.
+        var under = space.IntersectRay(PhysicsRayQueryParameters3D.Create(player.GlobalPosition + Vector3.Up * 0.02f, player.GlobalPosition + Vector3.Down * 0.03f, RoomBuilder.BodyMask, new Godot.Collections.Array<Rid> { player.GetRid() }));
         var standingOn = under.Count > 0 ? (under["collider"].AsGodotObject() as Node)?.GetMeta("entity_id", "").AsString() ?? "" : "";
         var reached = player.Grabs > grabs && player.PullOvers > pulls && player.IsOnFloor() && standingOn == "shell:tree_climb_foliage";
         Measure($"LANDSCAPE_TREE_KEYS W held, the view turned 25 deg once on the trunk, the follow camera live: {(reached ? "reached the crown" : "did not reach the crown")}; grabbed {player.Grabs - grabs}, pulled over {player.PullOvers - pulls}, " +
@@ -906,6 +913,10 @@ public partial class LandscapePlayTest : Node3D
         GD.Print($"NATIVE_KERNEL_LANDSCAPE: {_checks - _failures}/{_checks} checks passed; both bodies held inside the bounds, the companion's go_to and fetch and the player's carry on the land, every promised destination reached, cliffs and a tree climbed");
         RemoveSaves();
         CommandHost.SaveRoot = CommandHost.DefaultSaveRoot;
+        // Let the wrappers this long run left to the finalizer go before the engine tears down: in the Linux container's
+        // .NET, wrappers still pending at exit can abort Godot's shutdown after every check has passed.
+        System.GC.Collect();
+        System.GC.WaitForPendingFinalizers();
         GetTree().Quit(_failures == 0 ? 0 : 1);
     }
 

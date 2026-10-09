@@ -181,6 +181,7 @@ public partial class RoomHud : CanvasLayer
         _keyHelp = new VBoxContainer { Name = "KeyHelp", Visible = false }; help.AddChild(_keyHelp);
         _keyHelp.AddChild(new Label { Text = "WASD move · Shift run · Space jump · R recover · G gravity · click to look · Esc release" });
         _keyHelp.AddChild(new Label { Text = "Climb: keep walking into a steep face, W up, S down, A/D across, Space lets go · Swim: deep water floats you, Space leaps" });
+        _keyHelp.AddChild(new Label { Text = "1 follow · 2 wait · 3 come · 4 stop · 5 point: the Gubble floats after you, over water and up cliffs" });
         _keyHelp.AddChild(new Label { Text = "F1 eye · F2 shoulder · F3 diorama: mouse orbits, wheel zooms, WASD follows the view · F4 isometric: Q/E turn the view" });
         _keyHelp.AddChild(new Label { Text = "T time of day · Shift+T season (each steps round to the real clock) · L lamps · O observe (a very tight tilt-shift view, best from F3 or F4) · C customize" });
         _keyHelp.AddChild(new Label { Text = "F pick up what you face · F again sets it down in front of you, or on top of what you face (the box, the book) · V push what you face 10 cm" });
@@ -190,11 +191,11 @@ public partial class RoomHud : CanvasLayer
         AddChild(_customization);
         var options = new VBoxContainer(); _customization.AddChild(options);
         options.AddChild(new Label { Text = "YOUR TWO AVATARS" });
-        var name = new LineEdit { Text = Companion.CompanionName, MaxLength = 40, PlaceholderText = "Companion name", CustomMinimumSize = new Vector2(360, 40) };
+        var name = new LineEdit { Text = Companion.CompanionName, MaxLength = 40, PlaceholderText = "Your companion's name (the Gubble)", CustomMinimumSize = new Vector2(360, 40) };
         options.AddChild(name);
         name.TextChanged += value => Companion.SetDisplayName(value);
         AddButton(options, "Change player color", () => { _playerColor = (_playerColor + 1) % Palette.Length; Player.SetAppearance(Palette[_playerColor]); });
-        AddButton(options, "Change companion color", () => { _companionColor = (_companionColor + 1) % Palette.Length; Companion.SetAppearance(Palette[_companionColor]); });
+        AddButton(options, "Change the Gubble's color", () => { _companionColor = (_companionColor + 1) % Palette.Length; Companion.SetAppearance(Palette[_companionColor]); });
         options.AddChild(new Label { Text = $"Player height: {Player.BodyHeightM * 100:0} cm. Appearance keeps each avatar's identity." });
         AddButton(options, "Save appearance and return", () => { SavePreferences(); ToggleCustomization(); });
         SetViewMode(1);
@@ -327,7 +328,8 @@ public partial class RoomHud : CanvasLayer
         if (ViewMode >= 2) PlaceDioramaRig(snap: false, (float)delta);
         _arm.Rotation = new Vector3(Mathf.Clamp(Player.EyeCamera.Rotation.X - 0.18f, -1.1f, 0.8f), 0, 0);
         var holding = Host?.HeldName(Kernel.CommandHost.PlayerAvatar) ?? "";
-        _state.Text = $"{Player.BodyHeightM * 100:0} cm player  ·  gravity {Player.WorldPhysicsId} (G)  ·  {Companion.CompanionName}: {Companion.CurrentIntent}" + (Companion.GoalBlocked ? " · path blocked" : "") +
+        _state.Text = $"{Player.BodyHeightM * 100:0} cm player  ·  gravity {Player.WorldPhysicsId} (G)  ·  {Companion.CompanionName}: {Companion.CurrentIntent}" +
+            (Companion.FloatingThere ? " · floating there" : "") + (Companion.GoalBlocked ? " · path blocked" : "") +
             (holding.Length > 0 ? $"  ·  holding {holding} (F)" : "") + (Look?.Observe == true ? "  ·  observe view (O)" : "");
         _notice.Text = _noticeText;
         var clock = ClockText();
@@ -410,7 +412,7 @@ public partial class RoomHud : CanvasLayer
     private void Goal(string goal, Vector3? point = null)
     {
         var host = Kernel.CommandHost.Of(GetParent());
-        if (host == null) { _noticeText = "The command host is not attached; companion keys are off."; return; }
+        if (host == null) { _noticeText = $"The command host is not attached; {Companion.CompanionName}'s keys are off."; return; }
         var result = host.PlayerGoal(goal, point);
         if (!result["ok"]!.GetValue<bool>()) _noticeText = result["error"]!["message"]!.GetValue<string>();
     }
@@ -433,8 +435,10 @@ public partial class RoomHud : CanvasLayer
         var companionColor = config.GetValue("profile", "companion_color", 1);
         if (playerColor.VariantType == Variant.Type.Int) _playerColor = Mathf.PosMod(playerColor.AsInt32(), Palette.Length);
         if (companionColor.VariantType == Variant.Type.Int) _companionColor = Mathf.PosMod(companionColor.AsInt32(), Palette.Length);
-        var name = config.GetValue("profile", "companion_name", "Wisp");
-        if (name.VariantType == Variant.Type.String) Companion.SetDisplayName(name.AsString());
+        var name = config.GetValue("profile", "companion_name", CompanionAvatar.DefaultName);
+        // A profile saved while the companion was still called Wisp takes the founder's name for it, the Gubble.
+        if (name.VariantType == Variant.Type.String)
+            Companion.SetDisplayName(CompanionAvatar.SavedName(name.AsString()));
         Player.SetAppearance(Palette[_playerColor]);
         Companion.SetAppearance(Palette[_companionColor]);
     }

@@ -89,20 +89,27 @@ public static class RoomWater
         var surface = Surface(space, point + Vector3.Up * aboveM, point + Vector3.Down * belowM);
         if (surface is not { } level) return Column.Dry;
         var top = new Vector3(point.X, level, point.Z);
-        var bed = PhysicsRayQueryParameters3D.Create(top + Vector3.Up * BedLookAboveM, top + Vector3.Down * BedSearchM, RoomBuilder.WorldLayer);
-        if (exclude.IsValid) bed.Exclude = new Godot.Collections.Array<Rid> { exclude };
+        // Bodies ask every tick: the query, its exclusions and its answers are disposed at once rather than left to the finalizer.
+        using var bed = PhysicsRayQueryParameters3D.Create(top + Vector3.Up * BedLookAboveM, top + Vector3.Down * BedSearchM, RoomBuilder.WorldLayer);
+        var excluded = new Godot.Collections.Array<Rid>();
+        if (exclude.IsValid)
+        {
+            excluded.Add(exclude);
+            bed.Exclude = excluded;
+        }
         bed.HitBackFaces = false;
-        var hit = space.IntersectRay(bed);
-        if (hit.Count == 0)
+        float? bedHit;
+        using (var hit = space.IntersectRay(bed)) bedHit = hit.Count > 0 ? hit["position"].AsVector3().Y : null;
+        if (bedHit == null)
         {
             // A ray exactly through a shared vertex or edge of the ground's triangles can slip between them: look again a hair aside.
             var aside = new Vector3(0.0007f, 0, 0.0005f);
             bed.From += aside;
             bed.To += aside;
-            hit = space.IntersectRay(bed);
+            using var again = space.IntersectRay(bed);
+            bedHit = again.Count > 0 ? again["position"].AsVector3().Y : null;
         }
-        if (hit.Count == 0) return new Column(true, level, level - BedSearchM);
-        var bedY = hit["position"].AsVector3().Y;
+        if (bedHit is not { } bedY) return new Column(true, level, level - BedSearchM);
         if (bedY > level - RimM || bedY > point.Y + BedToleranceM) return Column.Dry;
         return new Column(true, level, bedY);
     }
@@ -110,12 +117,12 @@ public static class RoomWater
     private static float? Surface(PhysicsDirectSpaceState3D space, Vector3 from, Vector3 to)
     {
         if (!from.IsFinite() || !to.IsFinite()) return null;
-        var query = PhysicsRayQueryParameters3D.Create(from, to, Layer);
+        using var query = PhysicsRayQueryParameters3D.Create(from, to, Layer);
         query.CollideWithAreas = true;
         query.CollideWithBodies = false;
         // The surface is a sheet: found from either side.
         query.HitBackFaces = true;
-        var hit = space.IntersectRay(query);
+        using var hit = space.IntersectRay(query);
         return hit.Count > 0 ? hit["position"].AsVector3().Y : null;
     }
 }

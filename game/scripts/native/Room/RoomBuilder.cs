@@ -15,6 +15,15 @@ namespace EnFractal.Native.Room;
 public static class RoomBuilder
 {
     public const uint WorldLayer = 1;
+    /// <summary>
+    /// Physics layer 5, "hidden" (game/project.godot), as a bit value: the collision of shell parts that are never drawn
+    /// ("drawn": false: a tree's climbing pole and crown caps). Bodies have it in their mask, so they climb and stand on those
+    /// parts; everything that asks only for the world layer passes through them as through the leaves around them: sight,
+    /// reach, sandbox placement and drops, the camera arms and the navigation bake.
+    /// </summary>
+    public const uint HiddenLayer = 16;
+    /// <summary>What a body stands on, climbs and bumps into: the world and the hidden parts.</summary>
+    public const uint BodyMask = WorldLayer | HiddenLayer;
 
     public static Node3D Build(RoomData room)
     {
@@ -35,7 +44,7 @@ public static class RoomBuilder
 
     private static Node3D BuildShellPart(RoomData room, ShellPart part)
     {
-        Node3D node = part.Collides ? new StaticBody3D { CollisionLayer = WorldLayer, CollisionMask = 0 } : new Node3D();
+        Node3D node = part.Collides ? new StaticBody3D { CollisionLayer = part.Drawn ? WorldLayer : HiddenLayer, CollisionMask = 0 } : new Node3D();
         node.Name = NodeName(part.Id);
         node.SetMeta("entity_id", part.Id);
         node.SetMeta("surface_role", part.Role);
