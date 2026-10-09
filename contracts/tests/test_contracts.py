@@ -528,6 +528,16 @@ class SemanticTests(unittest.TestCase):
             d["shell"]["parts"][2]["geometry"]["points_m"].reverse()
         self.assertProblem(self.rewrite(flip), "faces away from the room interior")
 
+    def test_collision_only_part(self):
+        def hide(d):
+            d["shell"]["parts"][-1]["drawn"] = False
+        self.assertEqual(self.rewrite(hide), [])
+
+        def hide_and_ghost(d):
+            hide(d)
+            d["shell"]["parts"][-1]["collides"] = False
+        self.assertProblem(self.rewrite(hide_and_ghost), "neither drawn nor collides")
+
     def test_non_planar_polygon_is_detected(self):
         def bend(d):
             d["shell"]["parts"][2]["geometry"]["points_m"][2][2] += 0.2

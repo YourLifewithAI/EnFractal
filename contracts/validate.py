@@ -468,6 +468,8 @@ def check_room(room_dir: Path, check_style_pins: bool = False, manifest_name: st
     for part in room["shell"]["parts"]:
         ids.append(part["id"])
         shell_roles[part["id"]] = part["role"]
+        if part.get("drawn") is False and not part["collides"]:
+            problems.append(f"{label}: {part['id']} is neither drawn nor collides")
         geometry = part["geometry"]
         if "texture" in part:
             referenced.add(part["texture"])
