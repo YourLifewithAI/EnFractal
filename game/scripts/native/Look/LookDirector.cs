@@ -58,6 +58,8 @@ public partial class LookDirector : Node3D
     public bool OpenLand { get; private set; }
     public VoxelGI? Gi { get; private set; }
 
+    /// <summary>The endless sea past the room's own meshes (OpenSea), once a room with a sea is dressed; null in a room without one.</summary>
+    public OpenSea? OpenSea { get; private set; }
     public Godot.Environment Environment { get; private set; } = null!;
     /// <summary>The sun by day and the moon by night. Hidden in a room without a sun light hint (no window lets the sun in).</summary>
     public DirectionalLight3D Key { get; private set; } = null!;
@@ -506,7 +508,9 @@ public partial class LookDirector : Node3D
         Key.LightEnergy = Moment.KeyEnergy * SunScale * (OpenLand ? OpenLandLight.SunStrength : 1f);
         // A summer sun casts a harder shadow than a winter one: the season sets how soft the shadow edge is.
         Key.ShadowBlur = (Preset.Tuning.Shadows.BlurBase + Preset.Tuning.Shadows.BlurPerSoftness * Preset.ShadowSoftness) * Mathf.Lerp(Moment.Look.SunBlur, 1f, Moment.MoonWeight);
-        if (_skyMaterial != null) LookSky.Apply(_skyMaterial, LookSky.At(Preset, Moment, _moonYaw));
+        var skyLook = LookSky.At(Preset, Moment, _moonYaw);
+        if (_skyMaterial != null) LookSky.Apply(_skyMaterial, skyLook);
+        OpenSea?.SetHorizon(skyLook.Horizon, skyLook.Brightness);
         Key.RotationDegrees = new Vector3(-Moment.KeyElevationDeg, Moment.KeyAzimuthDeg, 0);
         var sky = SkyLevel(Preset, Moment);
         foreach (var fill in _skyFills)
@@ -604,6 +608,7 @@ public partial class LookDirector : Node3D
         foreach (var mesh in meshes)
             if (DressMesh(mesh)) bakeRoot ??= SubtreeRoot(mesh);
         if (bakeRoot != null) Bake(bakeRoot);
+        if (bakeRoot != null) BuildOpenSea(bakeRoot);
     }
 
     /// <summary>
@@ -617,6 +622,27 @@ public partial class LookDirector : Node3D
         foreach (var mesh in root.FindChildren("*", "MeshInstance3D", true, false).OfType<MeshInstance3D>().Append(root as MeshInstance3D).OfType<MeshInstance3D>())
             bake |= DressMesh(mesh);
         if (bake) Bake(root);
+        if (bake) BuildOpenSea(root);
+    }
+
+    /// <summary>
+    /// A room with a sea gets the open sea once its shell is dressed: the surface and bed that follow the camera past the room's own
+    /// meshes, and the distant islands lifted out of the backdrop so they hold their place on the horizon.
+    /// </summary>
+    private void BuildOpenSea(Node3D root)
+    {
+        if (OpenSea != null || _room?.Sea is not { } sea || !root.IsInsideTree()) return;
+        var meshes = root.FindChildren("*", "MeshInstance3D", true, false).OfType<MeshInstance3D>().Where(m => m.HasMeta(DressedMeta)).ToArray();
+        OpenSea = OpenSea.Build(sea, _room.Bounds, meshes.Where(m => m.HasMeta(WaterMeta)),
+            meshes.Where(m => !m.HasMeta(WaterMeta) && m.HasMeta(LandscapeLook.LandscapePaintedMeta)));
+        AddChild(OpenSea);
+        if (Moment != null)
+        {
+            var skyLook = LookSky.At(Preset, Moment, _moonYaw);
+            OpenSea.SetHorizon(skyLook.Horizon, skyLook.Brightness);
+        }
+        if (OpenSea.Note.Length > 0) Warn(OpenSea.Note);
+        GD.Print($"LOOK: open sea: surface {(OpenSea.Surface != null ? "follows the camera" : "missing")}, bed at {OpenSea.BedY:0.###} m, {OpenSea.Islands.Count} distant island(s) holding their place");
     }
 
     /// <summary>Dress one mesh; returns true when it is shell geometry that belongs in the GI bake.</summary>
@@ -874,6 +900,7 @@ public partial class LookDirector : Node3D
     public void FrameCamera(Camera3D camera, Vector3 focusPoint)
     {
         _framed.Add(camera.GetInstanceId());
+        if (OpenSea != null) OpenSea.Camera = camera;
         Focus(camera, focusPoint);
     }
 

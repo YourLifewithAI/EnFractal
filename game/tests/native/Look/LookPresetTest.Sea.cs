@@ -81,4 +81,99 @@ public partial class LookPresetTest
         holder.QueueFree();
         await Frames(1);
     }
+
+    /// <summary>Distant islands hold their place on the horizon: never closer than they keep, however a swimmer comes at them; unmoved near home.</summary>
+    private void CheckIslandHolding()
+    {
+        var home = new Vector2(5.1f, 9.18f);
+        const float keep = 6.2f;
+        Check(OpenSea.IslandOffset(home, keep, Vector2.Zero) == home && OpenSea.IslandOffset(home, keep, new Vector2(-3f, 2f)) == home,
+            "from the home island the distant island stands where the generator put it");
+        var nearest = float.PositiveInfinity;
+        var continuous = true;
+        for (var angle = 0; angle < 360; angle += 5)
+        {
+            var heading = Vector2.FromAngle(Mathf.DegToRad(angle));
+            var last = OpenSea.IslandOffset(home, keep, Vector2.Zero);
+            for (var s = 0.1f; s < 2000f; s *= 1.05f)
+            {
+                var swimmer = heading * s;
+                var at = OpenSea.IslandOffset(home, keep, swimmer);
+                nearest = Mathf.Min(nearest, at.DistanceTo(swimmer));
+                var step = swimmer.DistanceTo(heading * (s / 1.05f));
+                continuous &= at.DistanceTo(last) <= step + Mathf.Sqrt(2f * keep * step) + 1e-3f;
+                continuous &= at.Length() >= home.Length() - 1e-3f;
+                last = at;
+            }
+        }
+        {
+            // Out wide past the island's side, round behind it and back toward home through where it was: no jump, never reached.
+            var path = new[] { new Vector2(12f, 0f), new Vector2(20f, 20f), new Vector2(8f, 30f), new Vector2(4f, 6f), Vector2.Zero };
+            var last = OpenSea.IslandOffset(home, keep, Vector2.Zero);
+            for (var leg = 0; leg < path.Length; leg++)
+                for (var t = 0f; t <= 1f; t += 0.002f)
+                {
+                    var from = path[(leg + path.Length - 1) % path.Length];
+                    var swimmer = from.Lerp(path[leg], t);
+                    var at = OpenSea.IslandOffset(home, keep, swimmer);
+                    var step = from.DistanceTo(path[leg]) * 0.002f;
+                    nearest = Mathf.Min(nearest, at.DistanceTo(swimmer));
+                    continuous &= at.DistanceTo(last) <= step + Mathf.Sqrt(2f * keep * step) + 1e-3f;
+                    last = at;
+                }
+        }
+        Check(nearest >= keep - 1e-3f, $"swimming any way, as far as 2 km, the island's centre never comes nearer than {keep} m (nearest {nearest:0.###} m)");
+        Check(continuous, "it slides without jumping (no faster than a swimmer slipping past its side makes it) and only ever outward from the home island (never through it)");
+    }
+
+    /// <summary>The real island garage, when exported: the surface follows the camera and leaves the room's sea to it, the bed lies under the backdrop's floor, the islands are lifted out and keep off.</summary>
+    private async Task CheckRealOpenSea(StylePreset preset)
+    {
+        var directory = FindLandscapeFixture();
+        if (directory == null) { GD.Print("LOOK_INFO: no island garage exported under .cache/landscape-fixture; the open sea's real-room checks were skipped"); return; }
+        MaterialLibrary.Configure(preset);
+        var land = RoomData.Load(directory);
+        if (land.Sea == null) { GD.Print("LOOK_INFO: the exported garage has no sea; the open sea's real-room checks were skipped"); return; }
+        var (holder, look) = NewDirector(preset, land, "OpenSeaHolder");
+        var built = RoomBuilder.Build(land);
+        holder.AddChild(built);
+        look.Dress(built);
+        await Frames(2);
+        var open = look.OpenSea;
+        Check(open != null && open.Surface != null && open.Note.Length == 0, "a room with a sea gets the open sea, surface and all: " + (open?.Note ?? "none"));
+        if (open?.Surface == null) { holder.QueueFree(); return; }
+        var surface = (ShaderMaterial)open.Surface.MaterialOverride!;
+        Check(surface.GetShaderParameter("world_pattern").AsBool() && surface.GetShaderParameter("use_hole").AsBool()
+            && open.Hole.X <= land.Bounds.Position.X - 20f && open.Hole.Z >= land.Bounds.End.X + 20f,
+            $"the surface paints in world space and leaves the room's own sea ({open.Hole}) to it");
+        var backdropFloor = built.FindChildren("*", "MeshInstance3D", true, false).OfType<MeshInstance3D>().Where(m => EntityOf(m) == "shell:scenery_moss").Select(m => (m.GlobalTransform * m.GetAabb()).Position.Y).DefaultIfEmpty(float.NaN).Min();
+        Check(open.BedY < backdropFloor && open.BedY > backdropFloor - 0.1f && open.BedY < land.Sea.LevelM - 1f, $"the open bed lies just under the backdrop's deepest floor ({open.BedY:0.###} under {backdropFloor:0.###} m)");
+        var floorMesh = built.FindChildren("*", "MeshInstance3D", true, false).OfType<MeshInstance3D>().First(m => EntityOf(m) == "shell:scenery_moss");
+        var floorArrays = floorMesh.Mesh.SurfaceGetArrays(0);
+        var floorVertices = floorArrays[(int)Mesh.ArrayType.Vertex].AsVector3Array();
+        var floorTop = floorArrays[(int)Mesh.ArrayType.Index].AsInt32Array().Select(i => (floorMesh.GlobalTransform * floorVertices[i]).Y).DefaultIfEmpty(float.NaN).Max();
+        // The garage's six islands (the package's records) come out as five pieces: two share a shoal above the cut and move as one.
+        Check(open.Islands.Count >= 5 && floorTop < land.Sea.LevelM - OpenSea.IslandCutM + 0.25f,
+            $"the distant islands are lifted out of the backdrop as {open.Islands.Count} pieces, and what stays (the floor) lies deep under the water (top {floorTop:0.###} m)");
+        Check(open.Islands.All(i => i.KeepM >= i.HomeOffset.Length() - open.HomeReachM - 1e-3f && i.HomeOffset.Length() > open.HomeReachM), "each keeps off at least as far as it looks from the edge of the home waters");
+        // Far out at sea: the surface and bed come along, the islands keep off.
+        var camera = new Camera3D { Far = 100f };
+        holder.AddChild(camera);
+        foreach (var at in new[] { new Vector3(0f, 0.1f, -3.9f), new Vector3(40f, 0.05f, -70f), new Vector3(-600f, 0.05f, 900f), new Vector3(8.9f, 0.05f, -6.3f) })
+        {
+            camera.GlobalPosition = at;
+            open.Follow(camera);
+            var swimmer = new Vector2(at.X, at.Z);
+            var nearest = open.Islands.Min(i => (new Vector2(i.Mesh.GlobalPosition.X, i.Mesh.GlobalPosition.Z) - new Vector2(i.BasePosition.X, i.BasePosition.Z) + open.Home + i.HomeOffset).DistanceTo(swimmer) - i.KeepM);
+            Check(new Vector2(open.Surface.GlobalPosition.X, open.Surface.GlobalPosition.Z).IsEqualApprox(swimmer) && Mathf.IsEqualApprox(open.Surface.GlobalPosition.Y, land.Sea.LevelM)
+                && new Vector2(open.Bed.GlobalPosition.X, open.Bed.GlobalPosition.Z).IsEqualApprox(swimmer) && nearest >= -1e-3f,
+                $"at {at} the sea's surface and bed are under the swimmer and every island keeps off");
+        }
+        Check(Mathf.IsEqualApprox(surface.GetShaderParameter("horizon_fade_end_m").AsSingle(), 100f * OpenSea.HorizonFadeEnd), "the far sea turns into the horizon just before the camera's far plane");
+        look.SetClock(19.5f, 172);
+        var horizon = LookSky.At(look.Preset, look.Moment).Horizon;
+        Check(surface.GetShaderParameter("horizon_color").AsColor().IsEqualApprox(horizon), "and into the sky's own horizon colour of the hour");
+        holder.QueueFree();
+        await Frames(1);
+    }
 }

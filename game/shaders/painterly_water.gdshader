@@ -61,6 +61,19 @@ uniform float stroke_normal_gain = 0.2;
 uniform float mark_fade_start = 0.15;
 uniform float mark_fade_end = 0.45;
 
+group_uniforms open_sea;
+// The open sea (OpenSea, Run 2: the endless sea): a surface that follows the camera paints its marks in world space, so they
+// stay put while it moves, and leaves out the rectangle (x0, z0, x1, z1) the room's own sea mesh already covers.
+uniform bool world_pattern = false;
+uniform bool use_hole = false;
+uniform vec4 hole = vec4(0.0);
+// Toward the camera's far plane the sea turns into the sky's own horizon (its colour times its brightness, as the sky shader
+// draws it just under the horizon), so where the sea is cut off by the far plane no edge shows. 0 for the end leaves it off.
+uniform vec3 horizon_color : source_color = vec3(0.75, 0.85, 0.93);
+uniform float horizon_energy = 1.0;
+uniform float horizon_fade_start_m = 0.0;
+uniform float horizon_fade_end_m = 0.0;
+
 uniform sampler2D depth_texture : hint_depth_texture, filter_nearest, repeat_disable;
 
 varying vec3 obj_pos;
@@ -122,13 +135,14 @@ float detail(float size_m, float footprint_m) {
 }
 
 void vertex() {
-	obj_pos = VERTEX;
-	obj_normal = NORMAL;
+	obj_pos = world_pattern ? (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz : VERTEX;
+	obj_normal = world_pattern ? normalize(mat3(MODEL_MATRIX) * NORMAL) : NORMAL;
 	baked_color = COLOR.rgb;
 }
 
 void fragment() {
 	vec3 p = obj_pos;
+	if (use_hole && p.x > hole.x && p.x < hole.z && p.z > hole.y && p.z < hole.w) discard;
 	vec3 n = normalize(obj_normal);
 	float footprint = max(length(fwidth(p)), 1e-5);
 	float s = scale_m;
@@ -207,8 +221,11 @@ void fragment() {
 	vec3 tangential = bump - n * dot(bump, n);
 	n = normalize(n - tangential * stroke_normal_strength * stroke_normal_gain);
 
-	ALBEDO = clamp(color, 0.0, 1.0);
-	ALPHA = clamp(alpha, 0.0, 1.0);
+	// Into the horizon: the far sea gives way to the sky's own colour, lit by nothing, as the sky is.
+	float horizon = horizon_fade_end_m > horizon_fade_start_m ? smoothstep(horizon_fade_start_m, horizon_fade_end_m, length(VERTEX)) : 0.0;
+	ALBEDO = clamp(color, 0.0, 1.0) * (1.0 - horizon);
+	EMISSION = horizon_color * horizon_energy * horizon;
+	ALPHA = clamp(mix(alpha, 1.0, horizon), 0.0, 1.0);
 	ROUGHNESS = clamp(roughness_value + (ripple_a.x - 0.5) * 0.08, 0.0, 1.0);
 	METALLIC = 0.0;
 	SPECULAR = 0.5;
