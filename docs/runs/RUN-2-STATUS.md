@@ -126,6 +126,22 @@
   - **Keep the golden-summer grass:** "That's a good color for the grass in summer."
   - **The haze is enough,** but "there should also be other landscape features similar to those in our playable space" on the far hills: trees, rock, water, perhaps a distant settlement. That is the generator's scenery (Lane C).
 
+## The fifth session (8 October, late night, DiamondAge)
+
+- **The founder's playtest round: climbing, swimming and fish.** See [RUN-2-CLIMB-SWIM.md](RUN-2-CLIMB-SWIM.md) for the request, the founder's answers and the lanes' packets.
+- **The contract change:** a shell part may be collision-only (`"drawn": false`, `04aa6b2`). It is used for the trees' hidden climbing poles and crown caps (Codex brief 19).
+- **The founder on landscape versions (decided, for later):**
+  - **What the players get:**
+    - players may look at several versions of their room's landscape, each from a different seed;
+    - they can keep a limited number: "five or 10, if that would end up eating into memory space".
+  - **The integrator's note:**
+    - a stored version is a full room export (the garage's is about 23 MB), so ten are about 230 MB per room, on disk, not in memory;
+    - a seed alone is a few bytes, but rebuilding from it takes about 35 s;
+    - the recommendation: keep up to 10 full versions with delete, so switching is instant;
+    - each version keeps its own save, because saves are keyed by the room file's fingerprint.
+  - **Today:** the generator already takes `--seed` (default `20261008`), and the same room and seed always give the same bytes. This belongs with the setup questions when they become UI.
+- **The founder's question for Lane P's list:** whether to save where the player and the Gubble stand. Today the save keeps the avatars' identities only, so a load starts at the spawn.
+
 ## The next session
 
 1. **The characters: a drawing-to-character converter, as a blind A/B** (the founder's top new direction; see the fourth session).
