@@ -103,6 +103,10 @@ echo "== landscape harness (package format and views; its Blender tests skip wit
 if (cd "$REPO" && python3 -B -S -m unittest pipeline.landscape.harness.tests.test_harness > "$LOG/harness.log" 2>&1); then
   echo "PASS landscape harness: $(grep -E '^Ran' "$LOG/harness.log") $(grep -E '^OK' "$LOG/harness.log")"
 else cat "$LOG/harness.log"; failed=1; fi
+echo "== landscape generator (determinism and the design's principles on corpus rooms)"
+if (cd "$REPO" && python3 -B -m unittest pipeline.landscape.generator.tests.test_generator > "$LOG/landscape_generator.log" 2>&1); then
+  echo "PASS landscape generator: $(grep -E '^Ran' "$LOG/landscape_generator.log") $(grep -E '^OK' "$LOG/landscape_generator.log")"
+else echo "FAIL landscape generator"; tail -20 "$LOG/landscape_generator.log"; failed=1; fi
 
 echo "== $([ $failed -eq 0 ] && echo GREEN || echo RED)"
 exit $failed

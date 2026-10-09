@@ -14,6 +14,13 @@ window/stretch/mode="canvas_items"
 [dotnet]
 project/assembly_name="EnFractal"
 
+[layer_names]
+
+3d_physics/layer_1="world"
+3d_physics/layer_2="player"
+3d_physics/layer_3="companion"
+3d_physics/layer_4="water"
+
 [physics]
 
 3d/physics_engine="Jolt Physics"
