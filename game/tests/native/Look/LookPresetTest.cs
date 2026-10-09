@@ -82,6 +82,7 @@ public partial class LookPresetTest : Node3D
             await CheckLandscape(preset, room);
             await CheckPondLife(preset);
             await CheckRealOpenSea(preset);
+            CheckLandUpClose(preset);
             MaterialLibrary.Configure(preset);
             GD.Print($"NATIVE_LOOK: {_checks - _failures}/{_checks} checks passed; preset reader and look numbers, role materials and shader uniforms, grade, season tint and reduced global tint, clock at every minute, solar model, sun only through the window, night levels and lamps, golden-hour cool fill, depth of field and focus, post effect parameters, bake stand-ins, room dressing, grade cache, renderer notice, the landscape's role marks and baked colours, open land, water you can see into and the fish in it, each view's blur, the open sea and its distant islands, and the focus highlight");
             GetTree().Quit(_failures == 0 ? 0 : 1);

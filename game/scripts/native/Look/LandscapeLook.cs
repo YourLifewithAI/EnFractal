@@ -42,6 +42,11 @@ public static class LandscapeLook
     public const string ShaderPath = "res://shaders/painterly_land.gdshader";
     /// <summary>Still and flowing water wear this shader instead: a glaze you can see into (Run 2, the founder's playtest round).</summary>
     public const string WaterShaderPath = "res://shaders/painterly_water.gdshader";
+    /// <summary>
+    /// How strongly the brush's finer marks come in close up (painterly_land's close_detail): the shoulder camera's ground and the
+    /// cliff beside the diorama camera read as brushwork rather than a smooth wash (the founder's F2 playtest, Run 2).
+    /// </summary>
+    public const float CloseDetail = 1.2f;
     /// <summary>Meta on a mesh whose surfaces wear landscape materials.</summary>
     public const string LandscapePaintedMeta = "look_landscape_painted";
 

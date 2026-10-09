@@ -78,6 +78,8 @@ uniform float cavity_darkening = 0.35;
 uniform float stroke_normal_gain = 0.2;
 uniform float mark_fade_start = 0.15;
 uniform float mark_fade_end = 0.45;
+// Close up, the brush's finer marks (a stroke 7% of the role's mark, a grain 2.2% of it) come in: 0 leaves them out.
+uniform float close_detail : hint_range(0.0, 3.0) = 1.0;
 
 group_uniforms haze;
 // Aerial perspective for what stands out at sea (the distant islands, OpenSea): with distance the land gives way, up to
@@ -252,6 +254,18 @@ void fragment() {
 		+ (strokes.x - 0.5) * tone_strokes * d_strokes + (bristle.x - 0.5) * tone_bristle * d_bristle;
 	vec3 bump = strokes.yzw * 0.6 * d_strokes + bristle.yzw * 0.3 * d_bristle;
 	float warm_bias = 0.0;
+	// Close up (the 10 cm eye, the shoulder camera a hand's width over the ground, the cliff beside the diorama camera) the
+	// role's marks are many pixels wide and read as a smooth, blurred-looking wash: the brush's finer strokes and grain come in,
+	// so near ground reads as brushwork. Like every mark they fade with distance, and they cost nothing where they would be
+	// finer than a pixel.
+	float d_fine = detail(s * 0.07, footprint) * close_detail;
+	if (d_fine > 0.0) {
+		vec4 fine = stroke_noise(pb + seed * 2.3, grain, stroke_stretch * 1.6, s * 0.07);
+		float d_finest = detail(s * 0.022, footprint);
+		vec4 finest = d_finest > 0.0 ? noise_r(pb / (s * 0.022) + vec3(4.1, 2.7, 8.3)) : vec4(0.5, 0.0, 0.0, 0.0);
+		tone += ((fine.x - 0.5) * 1.0 + (finest.x - 0.5) * 0.5 * d_finest) * tone_bristle * d_fine;
+		bump += (fine.yzw * 0.3 + finest.yzw * 0.12 * d_finest) * d_fine;
+	}
 
 	if (kind == K_MEADOW) {
 		// Grass: blades combed one way, soft tufts of lighter grass, patches that turn toward yellow or toward blue-green.
