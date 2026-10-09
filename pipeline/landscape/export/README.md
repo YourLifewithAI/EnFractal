@@ -23,7 +23,8 @@ the validator subprocess needs the repository's existing contract dependencies.
 | All populated objects | Named `obj:<id>`, individual assets, final dimensions, original mass, yaw quaternion, terrain support when present; `carriable` maps to `physics.movable` |
 | Cottages, towers, fences, boulders, crates, lanterns | Named fixed scatter entities with box collision (plants remain decorative); custom masonry/roof or non-plant forms at least 0.3 m also qualify |
 | Dense plants and tree crowns | Merged by role into non-colliding static shell meshes; no per-instance game nodes |
-| Tree trunks / small rocks | Bark trunk cones and coarse rock ellipsoids merged into colliding shell GLBs; simple kit geometry, not canopy collision |
+| Tree trunks / small rocks | Original bark trunk cones and coarse rock ellipsoids retain their colliding `scatter_solid` shell GLBs |
+| Trees (bark plus foliage, excluding small plants) | Two merged `ground`, colliding shell parts, `shell:tree_climb_bark` and `shell:tree_climb_foliage`: an open pole continuing each trunk and coarse one-sided upper crown caps with flat perches. Lane P must hide these GLB scenes after creating collision; see below. Fixed populated trees keep their original asset visuals and use hidden shell trunk collision instead of a canopy box |
 | Scatter exceeding entity budget | After reserving all populated objects, first landmarks in package order use remaining slots up to 512; the rest keep their drawn geometry in merged shell meshes |
 | Source spawns | Same x/z and ids; y is the highest terrain triangle hit, including roofs of caves; missing ground fails. Yaw faces the horizontally nearest carriable/movable populated object or cottage/tower (including merged buildings), using Godot +Y rotation with -Z forward. Equal distances use package order (objects, then scatter); no destination or a coincident nearest destination keeps source yaw |
 | Setup | Latitude/bearing in `site`; solar noon 12 because package time is apparent solar time; full answers in `extensions.x_landscape_setup` |
@@ -37,6 +38,37 @@ At 0.5 kg or less both avatars can carry it. Reach, free hands, protection, othe
 objects resting on it, and physical clearance remain host checks. Export is not a
 fetch or navigation certificate. Scatter masses are fixed at 100 kg and immovable.
 Assets remain `draft`; their licensing is explicitly unverified, not newly granted.
+
+Tree poles reuse the trunk's top perimeter, overlap it by 1 cm and finish 5 mm
+below the highest cap's flat perch, 1.5 cm below the visual crown top. Broadleaf
+caps approximate each lobe's upper quarter. Conifers get only their highest
+tier's upper half; lower skirts stay decorative. Each cap has 12 collar sectors
+and a flat top fan (36 triangles). Needle tips become small flat perches with a
+radius at least the pole radius plus 2.5 cm, allowing the 2 cm capsule to stand
+beside the pole. Caps have no underside, bottom or vertical edge wall. All glTF
+front faces (CCW) point upward and outward, including horizontal top faces.
+
+Clearance is **12 cm above terrain**, the 10 cm walker plus 2 cm of margin.
+The exporter clips terrain triangles to each cap's entire footprint rectangle
+and uses its highest terrain point, including interior peaks and overhangs,
+rather than sampling only beneath the trunk. Low lobes that cannot clear this
+height are omitted; the highest crown must clear it or export fails before any
+output is written. Clearance and pole offsets apply after instance transforms,
+so nonuniform scale does not shrink the margin. Carriable trees fail explicitly:
+their merged static colliders cannot follow a moved entity. Shrubs, grass, ferns
+and flowers get no climbing geometry; other collision and all source visuals
+remain unchanged. Tree count never adds more than two shell parts/files.
+
+**Lane P integration required:** `RoomBuilder.BuildShellPart` currently draws
+every loaded GLB. After extracting collision, set `scene.Visible = false` for
+parts whose ids start with `shell:tree_climb_` (exact diff in the brief 19 report).
+This preserves navigation's world-layer collision while hiding both poles and
+caps, without changing the contract. The caps rely on `CreateTrimeshShape()`
+producing one-sided concave collision with `BackfaceCollision = false`, and the
+glTF importer converting front-face winding into Godot's convention. The report
+also makes that setting explicit. Jolt inside-up traversal and topping out are
+unverified here; Lane P tests them in-game. Until that diff is applied, these
+new shell meshes will be visible.
 
 GLBs contain one primitive per primary harness role, `NORMAL` and `COLOR_0`, no
 external resources, and identity scene nodes. Material `extras.role` preserves the
@@ -60,9 +92,10 @@ a shader that ignores vertex colour. The report proposes preserving plain import
 materials until Lane L's role loader exists. Season, day and solar time in the setup
 extension also await Lane L. Exported terrain may have open edges: their exact
 endpoints are recorded in `extensions.x_landscape_terrain_open_edges`; this is a
-diagnostic, not a closure proof. The current avatar has fall recovery but no bounds
-barrier. The report proposes Lane P's four bounds colliders for the reference and
-garage perimeter, without a contract change. Internal holes, concave cut-outs,
+diagnostic, not a closure proof. The body now enforces horizontal room bounds
+through `SmallPlayerController.WithinBounds` (velocity limiting) and
+`HoldInsideBounds` (post-move clamping), alongside fall recovery. No perimeter
+collider export is required. Internal holes, concave cut-outs,
 terrain connectivity, collision and navigation still require game testing.
 
 Identical ordered packages and arguments produce identical bytes, with a fixed

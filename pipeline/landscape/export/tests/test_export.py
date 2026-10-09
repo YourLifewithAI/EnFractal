@@ -16,6 +16,8 @@ from pipeline.landscape.harness.kit import SIZES, prototype
 from pipeline.landscape.harness.package import read_package, write_package
 from pipeline.landscape.export import export_room
 from pipeline.landscape.export.mesh import encode, ground, transform
+from pipeline.landscape.export.mesh import cross
+from pipeline.landscape.export.trees import TerrainHeights, climbing_parts, is_tree, WALK_CLEARANCE_M
 
 ROOT = Path(__file__).resolve().parents[4]
 ROOM = ROOT/'pipeline/landscape/corpus/rooms/garage_nominal'
@@ -53,6 +55,23 @@ def read_glb(path=None, data=None):
 def triangles(parts):
     return collections.Counter(tuple(tuple(p['positions'][i]) for i in t)
                                for p in parts for t in p['triangles'])
+
+
+def components(parts):
+    """Independent connected components of the exported indexed geometry."""
+    result = []
+    for p in parts:
+        groups = []
+        for face in p['triangles']:
+            touching = [g for g in groups if set(face) & g]
+            merged = set(face).union(*touching)
+            groups = [g for g in groups if g not in touching]+[merged]
+        for group in groups:
+            indices = sorted(group)
+            remap = {old: new for new, old in enumerate(indices)}
+            result.append(dict(role=p['role'], positions=[p['positions'][i] for i in indices],
+                               triangles=[[remap[i] for i in t] for t in p['triangles'] if t[0] in group]))
+    return result
 
 
 class ExportTests(unittest.TestCase):
@@ -453,6 +472,144 @@ class ExportTests(unittest.TestCase):
         self.assertEqual(stats['objects'], 512)
         self.assertEqual(stats['merged_scatter'], 2)
         self.assertEqual(stats['scatter_solid_triangles'], 2*sum(len(p['triangles']) for p in prototype('boulder')))
+
+    def tree_meshes(self):
+        result = []
+        for part in self.manifest['shell']['parts']:
+            if part['id'].startswith('shell:tree_climb_'):
+                self.assertEqual(part['role'], 'ground')
+                self.assertTrue(part['collides'])
+                result.extend(read_glb(self.out/part['geometry']['mesh'])[1])
+        return result
+
+    def test_every_reference_tree_has_a_continuous_pole_and_top_perch(self):
+        exported = components(self.tree_meshes())
+        poles = [p for p in exported if p['role'] == 'bark']
+        caps = [p for p in exported if p['role'] == 'foliage']
+        records = [r for r in self.package['scatter'] if r['prototype'] in ('broadleaf', 'conifer')]
+        self.assertEqual(len(poles), len(records))
+        self.assertEqual(self.stats['tree_count'], len(records))
+        self.assertEqual(len(caps), 6)  # Five broadleaf lobes; highest conifer tier.
+        for record in records:
+            with self.subTest(tree=record['prototype']):
+                original = transform(prototype(record['prototype']), record['scale'],
+                                     record['position_m'], record['yaw_deg'])
+                bark = next(p for p in original if p['role'] == 'bark')
+                trunk_top = max(v[1] for v in bark['positions'])
+                radius = max(math.hypot(v[0]-record['position_m'][0], v[2]-record['position_m'][2])
+                             for v in bark['positions'] if abs(v[1]-trunk_top) < 1e-8)
+                x, _, z = record['position_m']
+                pole = min(poles, key=lambda p: math.hypot(p['positions'][0][0]-x, p['positions'][0][2]-z))
+                self.assertAlmostEqual(min(v[1] for v in pole['positions']), trunk_top-.01, places=6)
+                crown_top = max(v[1] for p in original if p['role'] == 'foliage' for v in p['positions'])
+                self.assertAlmostEqual(max(v[1] for v in pole['positions']), crown_top-.015, places=6)
+                # Kit fitting can make a trunk elliptical; preserve its actual
+                # top perimeter rather than assuming every radius is equal.
+                top_vertices = [v for v in bark['positions'] if abs(v[1]-trunk_top) < 1e-8]
+                tx = (min(v[0] for v in top_vertices)+max(v[0] for v in top_vertices))/2
+                tz = (min(v[2] for v in top_vertices)+max(v[2] for v in top_vertices))/2
+                expected_xz = {(round(v[0],6),round(v[2],6)) for v in bark['positions']
+                               if abs(v[1]-trunk_top) < 1e-8 and math.hypot(v[0]-tx,v[2]-tz) > 1e-8}
+                actual_xz = {(round(v[0],6),round(v[2],6)) for v in pole['positions']}
+                self.assertEqual(actual_xz, expected_xz)
+                self.assertAlmostEqual(ground(caps, x, z), crown_top-.01, places=6)
+                # A flat perch supports the capsule beside the climbing pole.
+                self.assertAlmostEqual(ground(caps, x+radius+.02, z), crown_top-.01, places=6)
+        self.assertLessEqual(self.stats['shell_parts'], 128)
+        self.assertLessEqual(self.stats['files']-1, 2048)
+
+    def test_exported_caps_have_only_upward_outward_front_faces(self):
+        for cap_part in components(self.tree_meshes()):
+            if cap_part['role'] != 'foliage':
+                continue
+            vs = cap_part['positions']
+            cx = (min(v[0] for v in vs)+max(v[0] for v in vs))/2
+            cz = (min(v[2] for v in vs)+max(v[2] for v in vs))/2
+            flat_faces = 0
+            for face in cap_part['triangles']:
+                a, b, c = [vs[i] for i in face]
+                n = cross([b[i]-a[i] for i in range(3)], [c[i]-a[i] for i in range(3)])
+                self.assertGreater(n[1], 0)  # glTF CCW front; no underside/bottom.
+                radial = [(a[0]+b[0]+c[0])/3-cx, (a[2]+b[2]+c[2])/3-cz]
+                self.assertGreaterEqual(n[0]*radial[0]+n[2]*radial[1], -1e-9)
+                if abs(n[0])+abs(n[2]) < 1e-8:
+                    flat_faces += 1
+            self.assertGreater(flat_faces, 0)
+
+    def test_exported_caps_clear_walkers_over_reference_terrain(self):
+        terrain = [p for r in self.package['terrain'] for p in self.meshes[r['mesh']]]
+        for part in self.tree_meshes():
+            if part['role'] != 'foliage':
+                continue
+            for face in part['triangles']:
+                points = [part['positions'][i] for i in face]
+                points += [[sum(v[i] for v in points)/3 for i in range(3)]]
+                for x, y, z in points:
+                    floor = ground(terrain, x, z)
+                    if floor is not None:
+                        self.assertGreaterEqual(y-floor, WALK_CLEARANCE_M-1e-6)
+
+    def test_sloped_terrain_clearance_uses_the_whole_crown_not_trunk_sample(self):
+        terrain = [dict(role='stone', positions=[[-1,0,-1],[1,.55,-1],[1,.55,1],[-1,0,1]],
+                        triangles=[[0,2,1],[0,3,2]])]
+        # Also test rotation and nonuniform scale with a tree rooted above ground.
+        tree = transform(prototype('broadleaf'), [.8,1.1,1.3], [0,.28,0], 37)
+        parts = climbing_parts('broadleaf', tree, TerrainHeights(terrain))
+        for cap_part in parts[1:]:
+            x0 = min(v[0] for v in cap_part['positions'])
+            x1 = max(v[0] for v in cap_part['positions'])
+            z0 = min(v[2] for v in cap_part['positions'])
+            z1 = max(v[2] for v in cap_part['positions'])
+            # Independent analytic maximum of this planar slope's footprint.
+            floor_max = max(ground(terrain, x, z) for x in (x0,x1) for z in (z0,z1))
+            self.assertGreaterEqual(min(v[1] for v in cap_part['positions'])-floor_max,
+                                    WALK_CLEARANCE_M-1e-8)
+
+    def test_terrain_rectangle_query_includes_an_interior_peak(self):
+        terrain = [dict(role='stone', positions=[[-1,0,-1],[1,0,-1],[1,0,1],[-1,0,1],[.1,.64,0]],
+                        triangles=[[0,1,4],[1,2,4],[2,3,4],[3,0,4]])]
+        heights = TerrainHeights(terrain)
+        self.assertAlmostEqual(heights.maximum((-.2,.2,-.2,.2)), .64)
+        parts = climbing_parts('broadleaf', prototype('broadleaf'), heights)
+        for p in parts[1:]:
+            # Each cap stays above the terrain at all vertices and centroids.
+            for face in p['triangles']:
+                vs = [p['positions'][i] for i in face]
+                for v in vs+[[sum(v[i] for v in vs)/3 for i in range(3)]]:
+                    self.assertGreaterEqual(v[1]-ground(terrain,v[0],v[2]), .12-1e-8)
+
+    def test_shrubs_grass_ferns_and_flowers_get_no_climbing_geometry(self):
+        for name in ('shrub','grass_tuft','fern','flower_clump','rock','boulder'):
+            self.assertFalse(is_tree(name, prototype(name)))
+            self.assertEqual(climbing_parts(name, prototype(name), None), [])
+
+    def test_only_decorative_plants_export_no_tree_shell(self):
+        package = self.scratch/'plants-package'
+        records = [dict(prototype=name, position_m=[0,0,0], yaw_deg=0, scale=[1,1,1])
+                   for name in ('shrub','grass_tuft','fern','flower_clump')]
+        write_package(package, ROOM, meshes={'land': self.meshes['land']}, setup=dict(SETUP),
+                      generator={'name':'test','version':'1'}, terrain=[{'mesh':'land'}], scatter=records)
+        out = self.scratch/'landscape_plants'
+        stats = export_room(package, ROOM, out.name, out)
+        room = json.loads((out/'room.json').read_bytes())
+        self.assertEqual(stats['tree_count'], 0)
+        self.assertEqual(stats['tree_climb_triangles'], 0)
+        self.assertFalse(any(p['id'].startswith('shell:tree_climb_') for p in room['shell']['parts']))
+
+    def test_fixed_populated_tree_uses_hidden_trunk_instead_of_canopy_box(self):
+        package = self.scratch/'populated-tree-package'
+        write_package(package, ROOM, meshes={'land': self.meshes['land']}, setup=dict(SETUP),
+                      generator={'name':'test','version':'1'}, terrain=[{'mesh':'land'}],
+                      objects=[dict(id='tree',kind='decor',prototype='conifer',position_m=[0,0,0],
+                                    yaw_deg=45,size_m=SIZES['conifer'],mass_kg=100,carriable=False)])
+        out = self.scratch/'landscape_populated_tree'
+        stats = export_room(package, ROOM, out.name, out)
+        room = json.loads((out/'room.json').read_bytes())
+        asset = json.loads((out/room['objects'][0]['asset']).read_bytes())
+        self.assertEqual(stats['tree_count'], 1)
+        self.assertEqual(asset['collision']['kind'], 'none')
+        self.assertFalse(asset['physics']['movable'])
+        self.assertEqual(len([p for p in room['shell']['parts'] if p['id'].startswith('shell:tree_climb_')]), 2)
 
 
 if __name__ == '__main__':
