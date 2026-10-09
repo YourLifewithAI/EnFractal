@@ -1,52 +1,88 @@
 # The garage as land: the landscape generator (C5)
 
-Renders: [sheet.png](renders/sheet.png) (final settings), [scan_17_draft_sheet.png](renders/scan_17_draft_sheet.png). Seed `20261008`.
+Renders: [sheet.png](renders/sheet.png) (final), [scan_17_draft_sheet.png](renders/scan_17_draft_sheet.png), [corpus_contact_sheet.png](renders/corpus_contact_sheet.png), [corpus_variants_sheet.png](renders/corpus_variants_sheet.png). Seed `20261008`.
 
 ## How the room becomes land
-- **Geology.** Every box is uplift on one 3 cm grid, merged by a smooth maximum. Confident kinds pick forms (couch escarpment, shelf crag, desk terrace, easel needle); low confidence falls back to proportions and spreads less far. **Soft kinds are hills:** a summit ridge, spurs with gullies, a bench, and a long lee tail all hills share (high country toward the pass). **Territory:** a form may not rise over a neighbour about as sure as itself; a support's certainty includes what it carries. Three rounds of stream-power erosion branch the gullies.
-- **Shell.** Walls become a vegetated ridge ring along the floor outline (any polygon), highest farthest from the outlet so the land drains to the pass. It rises behind objects against the wall, never over them, and runs into the shared surround as a moss skirt (no seam). Distant hills surround the land. Nothing is shaped to a camera.
-- **Water, ecology, people** are as in gen_b; the hamlet search relaxes step by step when a room offers no ideal site. Paths keep an 11 cm lane clear; a yard item no lane reaches is left out.
-
-## What changed and why
-The founder's favourites are kept: detail, garage features legible in the land, a believable surround. gen_a's checks are folded in. Of gen_b's six weak points, four are fixed; bridges are not built and the laundry is generated but dropped (see Weak). Harness: smooth shading and the overview cutaway (see its README).
+- **Geology.** Every box is uplift on a 3 cm grid, merged smoothly. Confident kinds pick forms; low confidence spreads less. Soft kinds are hills (summit ridge, spurs, gullies, a shared lee tail). A form gives way to a sure neighbour outside its own box, and every landform is at least 18 cm wide. Three rounds of erosion.
+- **Shell.** A grassy ridge ring follows the floor outline and is highest far from the outlet. It rises behind objects against the wall and sinks into the shared surround without a seam. Distant hills surround the land. Nothing is shaped to a camera.
+- **Water.** A spring, a brook, a tarn whose shore stays inside the walls, and a river out through the door's pass.
+- **People.**
+  - A hamlet where water, flat ground and shelter meet; its demands relax step by step if a room offers no ideal site, but it never covers an object.
+  - Cottages keep lanes apart and have level forecourts.
+  - Graded 17 cm paths, with a level timber footbridge where one must cross a stream.
+  - Woodpiles and a laundry line in reachable yards.
+  - Where a body cannot reach the crate or a door, the land is cut and filled to grade.
 
 ## Checks
 ```
-python -B -m pipeline.landscape.generator.generate --room pipeline/landscape/corpus/rooms/garage_nominal --out <pkg>
-python -B -m pipeline.landscape.generator.checks --package <pkg> --room pipeline/landscape/corpus/rooms/garage_nominal
-python -B -m unittest pipeline.landscape.generator.tests.test_generator -v   # 7 tests OK (207 s)
+python -B -m pipeline.landscape.generator.generate --room <room> --out <pkg>
+python -B -m pipeline.landscape.generator.checks --package <pkg> --room <room>
+python -B -m unittest pipeline.landscape.generator.tests.test_generator -v   # 8 tests OK
 ```
+garage_nominal:
 ```
-GROUNDED built=6 worst_hang_m=-0.0020 worst_sunk_m=0.0061 failures=0
-WALK to apple_crate 6.446 m, 8.76 deg, step 0.0009 m; back carrying 6.446 m, 11.9 deg
-WALK cottage doors 0-2: 6.315 / 6.813 / 6.267 m
+GROUNDED built=9 worst_hang_m=-0.0020 worst_sunk_m=0.0114 failures=0
+WALK crate 6.045 m (7.52 deg), back carrying 6.045 m (11.15 deg); doors 5.93/6.61/5.97 m;
+     woodpiles 6.42/6.13/6.79 m; laundry 6.45 m
 CHECKS water=True grounded=True walk=True footprints=True overall=True
 ```
-Walk method: A* on a 2.5 cm lattice of the decoded triangles (topmost hit). An 11 cm disc must be clear of water, trunks, rocks and buildings, on faces of 20° or less. Every edge is sampled each centimetre (step 0.02 m).
+The walk is an A* search on a 2.5 cm lattice of the decoded triangles plus footbridge decks. An 11 cm disc must be dry, clear of obstacles and on faces of 20° or less, and every edge is sampled each centimetre (step 0.02 m).
 
-| Object | Form | Box top | Land top | Δ | Rise |
-|---|---|---|---|---|---|
-| couch_1 | ridge | 0.830 | 0.896 | +0.066 | 0.596 |
-| bean_bag_1 / _2 | hill | 0.65 / 0.60 | 0.786 / 0.735 | +0.136 / +0.135 | 0.68 / 0.64 |
-| bicycle_1 | fin | 1.050 | 1.051 | +0.001 | 0.966 |
-| bin_1 | stack | 0.500 | 0.574 | +0.074 | 0.455 |
-| cardboard_box_1 | mesa | 0.300 | 0.390 | +0.090 | 0.222 |
-| desk_1 | mesa | 0.750 | 0.991 | +0.241 | 0.652 |
-| easel_1 | spire | 1.650 | 1.730 | +0.080 | 1.193 |
-| french_press_1 | spire | 0.966 | 0.912 | −0.054 | 0.191 |
-| jar_1 | cap (snow) | 2.140 | 2.142 | +0.002 | 0.122 |
-| laptop_1 | slab | 0.790 | 0.970 | +0.180 | 0.220 |
-| monitor_1 | crag | 1.170 | 1.158 | −0.012 | 0.408 |
-| office_chair_1 | knoll | 1.050 | 1.077 | +0.027 | 0.854 |
-| shelving_unit_1 | crag | 2.020 | 2.177 | +0.157 | 1.863 |
-| storage_tote_1 | mesa | 0.380 | 0.452 | +0.072 | 0.373 |
-| table_1 | mesa | 0.720 | 0.821 | +0.101 | 0.713 |
+Garage grounding (box top → land top, Δ):
 
-**Scan 17:** every footprint reads (desk +0.142, was +0.599). Water and grounding pass. **The walk fails:** the doors and crate are unreachable with 11 cm clearance.
+| Object | Box top | Land top | Δ |
+|---|---|---|---|
+| couch | 0.830 | 0.896 | +0.066 |
+| bean bags | 0.650 / 0.600 | 0.786 / 0.735 | +0.136 / +0.135 |
+| bicycle | 1.050 | 1.051 | +0.001 |
+| bin | 0.500 | 0.574 | +0.074 |
+| box | 0.300 | 0.390 | +0.090 |
+| desk | 0.750 | 0.991 | +0.241 |
+| easel | 1.650 | 1.730 | +0.080 |
+| french press | 0.966 | 0.912 | −0.054 |
+| jar | 2.140 | 2.142 | +0.002 |
+| laptop | 0.790 | 0.970 | +0.180 |
+| monitor | 1.170 | 1.158 | −0.012 |
+| chair | 1.050 | 1.077 | +0.027 |
+| shelf | 2.020 | 2.177 | +0.157 |
+| tote | 0.380 | 0.452 | +0.072 |
+| table | 0.720 | 0.821 | +0.101 |
+
+## Corpus (water / grounded / walk / footprints, walk to crate in m, invented)
+
+Every room invents a tarn and a river.
+
+| Room | Checks | Walk | Invented beyond the tarn and river |
+|---|---|---|---|
+| awkward_l_nominal | all pass | 5.447 | 2 cottages, footbridge, laundry, 2 woodpiles |
+| awkward_l_scan_17 | all pass | 4.364 | 2 cottages, footbridge, laundry, 1 woodpile |
+| awkward_l_scan_73 | all pass | 6.345 | 2 cottages, footbridge, laundry, 2 woodpiles |
+| bedroom_nominal | **water FAIL** | 1.415 | 1 cottage, laundry, 1 woodpile |
+| bedroom_scan_17 | all pass | 1.566 | 2 cottages, laundry, 2 woodpiles |
+| bedroom_scan_73 | all pass | 6.66 | 3 cottages, laundry, 2 woodpiles |
+| garage_nominal | all pass | 6.045 | 3 cottages, laundry, 3 woodpiles |
+| garage_scan_17 | all pass | 3.405 | 3 cottages, laundry, 3 woodpiles |
+| garage_scan_73 | all pass | 4.193 | 3 cottages, laundry, 2 woodpiles |
+| home_office_nominal | all pass | 6.584 | 2 cottages, laundry, 2 woodpiles |
+| home_office_scan_17 | all pass | 4.194 | 3 cottages, laundry, 3 woodpiles |
+| home_office_scan_73 | all pass | 6.948 | 2 cottages, laundry, 2 woodpiles |
+| kitchen_nominal | all pass | 1.314 | 3 cottages, laundry, 3 woodpiles |
+| kitchen_scan_17 | all pass | 1.613 | 3 cottages, laundry, 3 woodpiles |
+| kitchen_scan_73 | all pass | 4.165 | 3 cottages, laundry, 2 woodpiles |
+| living_room_nominal | all pass | 4.363 | 3 cottages, laundry, 2 woodpiles |
+| living_room_scan_17 | all pass | 5.773 | 3 cottages, laundry, 2 woodpiles |
+| living_room_scan_73 | all pass | 4.387 | 3 cottages, laundry, 3 woodpiles |
+| near_empty_nominal | all pass | 3.066 | 3 cottages, footbridge, laundry, 3 woodpiles |
+| near_empty_scan_17 | all pass | 4.3 | 3 cottages, laundry, 3 woodpiles |
+| near_empty_scan_73 | all pass | 3.84 | 3 cottages, laundry, 3 woodpiles |
+| workshop_nominal | **walk FAIL** | – | 3 cottages, laundry, 3 woodpiles |
+| workshop_scan_17 | all pass | 4.999 | 2 cottages, laundry, 1 woodpile |
+| workshop_scan_73 | all pass | 3.57 | 3 cottages, laundry, 3 woodpiles |
 
 ## Weak
-- The laundry line and woodpiles are generated but dropped as unreachable in the garage; the lantern loses to the path lane.
-- No bridge or ford yet.
-- Scan 17's walk fails.
+- bedroom_nominal's tarn edge is breached at 3 points.
+- workshop_nominal's walk is blocked beside a small protected landform.
+- Every room gets a tarn at water "some".
 - In the SW overview the high country's flank fills the near side.
-- Hills still look rounded up close.
+- Hills are still rounded up close.
+- Some player eyes face a hillside (spawn facing belongs to the exporter).
