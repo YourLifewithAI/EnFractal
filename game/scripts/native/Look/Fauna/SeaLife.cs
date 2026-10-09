@@ -81,8 +81,45 @@ public partial class SeaLife : Node3D
         multimesh.Buffer = _buffer;
     }
 
-    /// <summary>Whether a school can live at a point: the open sea there, outside the playable water, deep enough.</summary>
-    public bool Habitable(Vector2 point) => !_sea.InPlayArea(point) && !RoomSea.Inside(_sea.Coast, point) && _sea.LevelM - _sea.OpenSeaBedAt(point) >= MinDepthM;
+    /// <summary>Habitat answers are kept per cell of this size (metres), at most HabitatCacheCells of them.</summary>
+    public const float HabitatCellM = 0.2f;
+    public const int HabitatCacheCells = 4096;
+    private readonly Dictionary<(int, int), bool> _habitat = new();
+
+    /// <summary>
+    /// Whether a fish can be at a point: the sea outside the playable water, and real water there at least MinDepthM deep, asked the
+    /// way the bodies ask (RoomWater.At, then RoomSea.OpenWater) at the cell's middle, so a rock standing out of the sea or a shallow
+    /// shoal is no habitat (Codex Astra's review: the polygons and the made-up bed alone always said yes). Answers are cached per
+    /// cell, a bounded number of them. Outside a world (no physics yet) only the sea's own bed is asked.
+    /// </summary>
+    public bool Habitable(Vector2 point)
+    {
+        if (!point.IsFinite() || _sea.InPlayArea(point) || RoomSea.Inside(_sea.Coast, point)) return false;
+        var key = ((int)Mathf.Floor(point.X / HabitatCellM), (int)Mathf.Floor(point.Y / HabitatCellM));
+        if (_habitat.TryGetValue(key, out var known)) return known;
+        var middle = new Vector2((key.Item1 + 0.5f) * HabitatCellM, (key.Item2 + 0.5f) * HabitatCellM);
+        bool habitable;
+        if (!IsInsideTree() || GetWorld3D()?.DirectSpaceState is not { } space) habitable = _sea.LevelM - _sea.OpenSeaBedAt(middle) >= MinDepthM;
+        else
+        {
+            var at = new Vector3(middle.X, _sea.LevelM - 0.01f, middle.Y);
+            var column = RoomWater.At(space, at, 0.05f, 0.05f);
+            if (!column.Wet) column = _sea.OpenWater(space, at, 0.05f, 0.05f);
+            habitable = column.Wet && Mathf.Abs(column.SurfaceY - _sea.LevelM) < 0.003f && column.DepthM >= MinDepthM;
+            // Clearance a fish needs: the first ground straight down from a metre over the sea lies at least MinDepthM under its
+            // surface (a sea stack standing out of the water, a ledge or a shoal is no habitat, whatever the column's bed ray saw).
+            if (habitable)
+            {
+                using var down = PhysicsRayQueryParameters3D.Create(new Vector3(middle.X, _sea.LevelM + 1f, middle.Y), new Vector3(middle.X, _sea.LevelM - RoomWater.BedSearchM, middle.Y), RoomBuilder.WorldLayer);
+                down.HitBackFaces = false;
+                using var hit = space.IntersectRay(down);
+                if (hit.Count > 0 && hit["position"].AsVector3().Y > _sea.LevelM - MinDepthM) habitable = false;
+            }
+        }
+        if (_habitat.Count >= HabitatCacheCells) _habitat.Clear();
+        _habitat[key] = habitable;
+        return habitable;
+    }
 
     /// <summary>A school's place near a swimmer: open water PlaceNearM to PlaceFarM off, ahead if it can, mid-water; null if none.</summary>
     public Vector3? PlaceNear(Vector3 swimmer, Vector3 ahead)
@@ -115,7 +152,12 @@ public partial class SeaLife : Node3D
                 _anchors[school] = PlaceNear(at, ahead);
                 if (_anchors[school] is { } placed)
                     foreach (var fish in _fish)
-                        if (fish.School == school) { fish.Position = placed + fish.Offset; fish.Velocity = Vector3.Zero; }
+                        if (fish.School == school)
+                        {
+                            var spot = placed + fish.Offset;
+                            fish.Position = Habitable(new Vector2(spot.X, spot.Z)) ? spot : placed;
+                            fish.Velocity = Vector3.Zero;
+                        }
             }
         foreach (var fish in _fish)
         {
@@ -126,7 +168,14 @@ public partial class SeaLife : Node3D
             var away = fish.Position - at;
             if (away.Length() < FleeM) want = away.Normalized() * DartMps;
             fish.Velocity = fish.Velocity.Lerp(want.LimitLength(DartMps), Mathf.Clamp(dt * 3f, 0f, 1f));
+            var was = fish.Position;
             fish.Position += fish.Velocity * dt;
+            // Never over rock or a shoal: a fish that would leave real water turns back toward its school instead.
+            if (!Habitable(new Vector2(fish.Position.X, fish.Position.Z)))
+            {
+                fish.Position = was;
+                fish.Velocity = (home - was).LimitLength(1f) * CruiseMps;
+            }
             var flat = new Vector2(fish.Position.X, fish.Position.Z);
             fish.Position.Y = Mathf.Clamp(fish.Position.Y, _sea.OpenSeaBedAt(flat) + 0.03f, _sea.LevelM - 0.03f);
             fish.Phase += dt * (4f + 10f * fish.Velocity.Length() / DartMps);
