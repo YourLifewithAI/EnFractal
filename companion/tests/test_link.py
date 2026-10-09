@@ -435,7 +435,7 @@ class Loopback(unittest.IsolatedAsyncioTestCase):
             parse_session(json.dumps(document).encode())
 
 
-SPINNER = example("command_creation_place_spinner")["args"]["source"]
+SAMPLE = example("command_creation_place_trigger_light")["args"]["source"]
 
 
 class CanonicalFrames(LinkCase):
@@ -447,7 +447,7 @@ class CanonicalFrames(LinkCase):
 
     @staticmethod
     def spelled_out(count: int) -> dict:
-        source = copy.deepcopy(SPINNER)
+        source = copy.deepcopy(SAMPLE)
         source["parts"][0]["profile_m"] = [-0.0] * count  # canonical: 0
         return command("creation.place", {"source": source, "placement": {"position_m": [0.5, 0, 0.5]}}, "c-1")
 

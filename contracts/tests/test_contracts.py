@@ -670,7 +670,7 @@ class SemanticTests(unittest.TestCase):
         self.assertProblem(self.rewrite(flip), "must face upward")
 
     def test_creation_source_size_limit(self):
-        command = validate.load_strict(EXAMPLES / "messages" / "valid" / "command_creation_place_spinner.json")
+        command = validate.load_strict(EXAMPLES / "messages" / "valid" / "command_creation_place_trigger_light.json")
         command["args"]["source"]["parts"][0]["material"] = "x" * 40000
         self.assertProblem(validate.schema_errors(command), "exceeds 32768 bytes")
 

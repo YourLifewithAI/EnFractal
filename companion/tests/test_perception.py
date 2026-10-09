@@ -14,7 +14,7 @@ from support import COMPANION, PLAYER, HostPolicy, command, contract_problems, c
 
 from enfractal_companion import perception
 
-SPINNER = example("command_creation_place_spinner")["args"]["source"]
+SAMPLE = example("command_creation_place_trigger_light")["args"]["source"]
 
 BEHIND_THE_TABLE = [-0.9, 0.0, -1.4]  # the 75 cm table stands between the companion and the rest of the room
 BEHIND_THE_BOX = [1.6, 0.0, 0.2]  # the box hides the book, the doorstop and the player
@@ -151,13 +151,13 @@ class EverySurface(PerceptionCase):
                 self.assertNotIn("nobody can see", published)
 
     def test_no_command_can_name_anything_out_of_sight(self):
-        placed = self.host.player_command(command("creation.place", {"source": SPINNER,
+        placed = self.host.player_command(command("creation.place", {"source": SAMPLE,
                                                                      "placement": {"position_m": [0.5, 0, 0.5]}}, "p-place"))
         creation = placed["created"][0]
         self.hide_behind(BEHIND_THE_TABLE)  # from here only the table is in sight
         for hidden in self.HIDDEN + ("obj:box", creation):
             self.assertNotIn(hidden, self.host.perceived(COMPANION))
-        into = {"source": dict(SPINNER, name="Glider")}
+        into = {"source": dict(SAMPLE, name="Glider")}
         glow = {"capability": "glow", "params": {"intensity": 1}, "area": {"center_m": [0, 0.3, 0], "radius_m": 1},
                 "duration_s": 5}
         attempts = [

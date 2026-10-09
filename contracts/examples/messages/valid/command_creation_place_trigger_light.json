@@ -1,19 +1,19 @@
 {
   "schema": "enfractal.command",
   "version": 1,
-  "action_id": "spinner-0002",
+  "action_id": "light-0002",
   "room_id": "garage_example",
   "op": "creation.place",
   "args": {
     "source": {
       "schema": "enfractal.creation",
       "version": 1,
-      "name": "Spinner",
-      "seed": 51,
+      "name": "Trigger light",
+      "seed": 11,
       "mount": "ground",
       "parts": [
         {
-          "id": "foot",
+          "id": "base",
           "shape": "cylinder",
           "position_m": [
             0,
@@ -26,14 +26,14 @@
             0
           ],
           "size_m": [
-            1.1,
+            2,
             0.3,
-            1.1
+            2
           ],
           "material": "stone"
         },
         {
-          "id": "pole",
+          "id": "post",
           "shape": "cylinder",
           "position_m": [
             0,
@@ -53,11 +53,11 @@
           "material": "wood"
         },
         {
-          "id": "rotor",
-          "shape": "rotor",
+          "id": "bulb",
+          "shape": "sphere",
           "position_m": [
             0,
-            1.6,
+            1.7,
             0
           ],
           "rotation_deg": [
@@ -66,49 +66,37 @@
             0
           ],
           "size_m": [
-            2,
-            0.18,
-            2
+            0.4,
+            0.4,
+            0.4
           ],
           "material": "copper"
         }
       ],
       "nodes": [
         {
-          "id": "beat",
-          "op": "timer",
-          "part_id": "pole",
+          "id": "near",
+          "op": "proximity",
+          "part_id": "bulb",
           "params": {
-            "interval_s": 3
+            "radius_m": 1.5,
+            "interval_s": 1
           }
         },
         {
-          "id": "turn",
-          "op": "spin",
-          "part_id": "rotor",
-          "params": {
-            "speed_rpm": 30,
-            "duration_s": 2.5
-          }
-        },
-        {
-          "id": "signal",
+          "id": "glow",
           "op": "light",
-          "part_id": "pole",
+          "part_id": "bulb",
           "params": {
-            "intensity": 0.4,
-            "duration_s": 2.5
+            "intensity": 0.8,
+            "duration_s": 2
           }
         }
       ],
       "edges": [
         {
-          "from": "beat",
-          "to": "turn"
-        },
-        {
-          "from": "beat",
-          "to": "signal"
+          "from": "near",
+          "to": "glow"
         }
       ]
     },

@@ -69,7 +69,7 @@ class PrincipalSmuggling(HostCase):
         self.assertRefused(self.send(message), "field_unknown", "$.args.source.principal")
 
     def test_refuses_principal_hidden_inside_a_creation_part(self):
-        message = retarget(example("command_creation_place_spinner"), GARAGE_TO_TEST_ROOM)
+        message = retarget(example("command_creation_place_trigger_light"), GARAGE_TO_TEST_ROOM)
         message["args"]["placement"] = {"position_m": [0.5, 0, 0.5]}
         message["args"]["source"]["parts"][0]["principal"] = PLAYER
         result = self.send(message)
@@ -79,8 +79,8 @@ class PrincipalSmuggling(HostCase):
     def test_refuses_approved_by_or_owner_hidden_in_creation_nodes(self):
         for key in ("approved_by", "owner", "Principal"):
             with self.subTest(key=key):
-                message = retarget(example("command_creation_place_spinner"), GARAGE_TO_TEST_ROOM)
-                message["action_id"] = f"spinner-{key}"
+                message = retarget(example("command_creation_place_trigger_light"), GARAGE_TO_TEST_ROOM)
+                message["action_id"] = f"light-{key}"
                 message["args"]["placement"] = {"position_m": [0.5, 0, 0.5]}
                 message["args"]["source"]["nodes"][0]["params"][key] = PLAYER
                 self.assertRefused(self.send(message), "field_unknown")
@@ -542,7 +542,7 @@ class Observation(HostCase):
 
 class SizeLimits(HostCase):
     def big_source(self, part_text: int) -> dict:
-        source = copy.deepcopy(example("command_creation_place_spinner")["args"]["source"])
+        source = copy.deepcopy(example("command_creation_place_trigger_light")["args"]["source"])
         source["parts"] = [{"id": f"p{i}", "shape": "box", "position_m": [0, 0, 0], "rotation_deg": [0, 0, 0],
                             "size_m": [0.1, 0.1, 0.1], "material": "wood", "label": "x" * part_text} for i in range(24)]
         source["nodes"], source["edges"] = [], []

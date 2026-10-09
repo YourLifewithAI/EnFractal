@@ -16,7 +16,7 @@
       "version": 1,
       "ok": true,
       "op": "creation.place",
-      "action_id": "spinner-0002",
+      "action_id": "light-0002",
       "principal": "companion:local",
       "room_id": "garage_example",
       "revision": 5,

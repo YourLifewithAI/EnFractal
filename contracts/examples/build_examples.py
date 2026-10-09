@@ -257,6 +257,8 @@ def result(op, action_id, principal, revision, at, **extra):
 
 
 def build_state(out: Path, room_path: Path) -> None:
+    # The saved room's creation:00000001. The pre-Run-2 state below is pinned byte for byte as it was written (a record
+    # of a save), so its creation stays as written; the message examples place the neutral creation_trigger_light.json.
     spinner = json.loads((FIXTURES / "creation_spinner.json").read_text(encoding="utf-8"))
     state = {
         "schema": "enfractal.room_state", "version": 1, "room_id": "garage_example",
@@ -399,7 +401,7 @@ def query(op, query_id, args):
 
 def build_messages(out: Path) -> None:
     glider = json.loads((FIXTURES / "creation_storm_glider.json").read_text(encoding="utf-8"))
-    spinner = json.loads((FIXTURES / "creation_spinner.json").read_text(encoding="utf-8"))
+    sample = json.loads((FIXTURES / "creation_trigger_light.json").read_text(encoding="utf-8"))
     at = "2026-10-06T00:05:00Z"
     bean, clutter = BEAN, CLUTTER
     valid = {
@@ -408,10 +410,10 @@ def build_messages(out: Path) -> None:
         "command_set_part_shape_only": command("entity.set_part", "open-cabinet-0001", {"target": "obj:shelving_left", "part_id": "left_door", "value": 1.0},
                                                note="Structural example only: the example shelving has no parts, so a host answers invalid_args."),
         "command_move_preview": command("entity.place", "move-beanbag-0003", {"target": "obj:bean_bag", "placement": {"position_m": [1.4, 0.0, 0.2]}}, expected_entities={"obj:bean_bag": 2}, preview=True),
-        "command_creation_place_spinner": command("creation.place", "spinner-0002", {"source": spinner, "placement": {"position_m": [0.8, 1.79, -2.5], "on": "obj:shelving_right"}}),
+        "command_creation_place_trigger_light": command("creation.place", "light-0002", {"source": sample, "placement": {"position_m": [0.8, 1.79, -2.5], "on": "obj:shelving_right"}}),
         "command_transform_bean_bag_into_glider": command("entity.transform", "dragonish-0001", {"target": "obj:bean_bag", "into": {"source": glider}},
                                                           expected_entities={"obj:bean_bag": 2}, note="Companion: you asked for something that can fly."),
-        "command_lock_spinner": command("protect.lock", "lock-spinner-0002", {"targets": ["creation:00000001"]}, expected_entities={"creation:00000001": 2}),
+        "command_lock_creation": command("protect.lock", "lock-creation-0002", {"targets": ["creation:00000001"]}, expected_entities={"creation:00000001": 2}),
         "command_companion_fetch": command("goal.set", "fetch-paint-0001", {"actor": "avatar:companion", "goal": "fetch", "target": "obj:paint_clutter"}),
         "command_companion_follow": command("goal.set", "follow-0001", {"actor": "avatar:companion", "goal": "follow"}),
         "command_stop_everything": command("goal.stop", "stop-0001", {}),
@@ -426,7 +428,7 @@ def build_messages(out: Path) -> None:
         "query_describe_room": query("room.describe", "q-0001", {}),
         "query_entities_near_player": query("entities.list", "q-0002", {"filter": {"near": {"center_m": [-0.5, 0.0, 0.4], "radius_m": 2.0}, "affordance": "climbable"}, "limit": 20}),
         "query_observe_companion": query("observe", "q-0003", {"actor": "avatar:companion", "radius_m": 3.0}),
-        "query_receipt_lookup": query("receipt.lookup", "q-0004", {"action_id": "spinner-0002"}),
+        "query_receipt_lookup": query("receipt.lookup", "q-0004", {"action_id": "light-0002"}),
         "query_approval_status": query("approval.status", "q-0005", {"request_id": APPROVAL_REQUEST}),
         "query_capabilities_list": query("capabilities.list", "q-0006", {"category": "air", "limit": 20}),
         "result_grab_ok": result("entity.grab", "grab-beanbag-0003", "player:local", 5, at, affected=["obj:bean_bag"]),
@@ -440,7 +442,7 @@ def build_messages(out: Path) -> None:
                                                "at_utc": at},
         "result_target_protected": {"schema": "enfractal.result", "version": 1, "ok": False, "op": "entity.remove", "action_id": "remove-0001",
                                     "principal": "companion:local", "room_id": "garage_example", "revision": 4, "replayed": False, "preview": False,
-                                    "error": {"code": "target_protected", "message": "The spinner is protected. Only the player can unlock it.", "field_path": "$.args.target", "retryable": False},
+                                    "error": {"code": "target_protected", "message": "The creation is protected. Only the player can unlock it.", "field_path": "$.args.target", "retryable": False},
                                     "at_utc": at},
         "result_approval_required": {"schema": "enfractal.result", "version": 1, "ok": False, "op": "entity.transform", "action_id": "dragonish-0002",
                                      "principal": "companion:local", "room_id": "garage_example", "revision": 4, "replayed": False, "preview": False,
@@ -461,7 +463,7 @@ def build_messages(out: Path) -> None:
                                  "at_utc": at},
         "result_receipt_lookup": {"schema": "enfractal.result", "version": 1, "ok": True, "op": "receipt.lookup", "query_id": "q-0004",
                                   "principal": "companion:local", "room_id": "garage_example", "revision": 5, "replayed": False, "preview": False,
-                                  "data": {"found": True, "receipt": result("creation.place", "spinner-0002", "companion:local", 5, at, created=["creation:00000002"])},
+                                  "data": {"found": True, "receipt": result("creation.place", "light-0002", "companion:local", 5, at, created=["creation:00000002"])},
                                   "at_utc": at},
     }
     valid["result_capabilities_list"] = {"schema": "enfractal.result", "version": 1, "ok": True, "op": "capabilities.list", "query_id": "q-0006",

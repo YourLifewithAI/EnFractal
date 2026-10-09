@@ -153,7 +153,7 @@ class NothingHeld(NoHoldsCase):
         self.assertRefused(self.send(command("effect.start", {"capability": "glow", "params": {"intensity": 1},
                                                               "area": {"center_m": [0, 0.3, 0], "radius_m": 1},
                                                               "duration_s": 60}, "glow-4")), "budget_exceeded")
-        source = example("command_creation_place_spinner")["args"]["source"]
+        source = example("command_creation_place_trigger_light")["args"]["source"]
         first = self.send(command("creation.place", {"source": source, "placement": {"position_m": [0.5, 0, 0.5]}}, "c-1"))
         self.assertTrue(first["ok"], first)
         self.assertRefused(self.send(command("creation.place", {"source": source, "placement": {"position_m": [0.6, 0, 0.5]}},
@@ -184,8 +184,8 @@ class UndoIsOnlyForTheCompanionsOwnChanges(NoHoldsCase):
         self.assertEqual(self.host.entities["obj:book"].position, [0.3, 0, 0.3])
 
     def test_companion_undo_cannot_take_away_the_players_creation(self):
-        spinner = example("command_creation_place_spinner")["args"]["source"]
-        placed = self.host.player_command(command("creation.place", {"source": spinner,
+        sample = example("command_creation_place_trigger_light")["args"]["source"]
+        placed = self.host.player_command(command("creation.place", {"source": sample,
                                                                      "placement": {"position_m": [0.5, 0, 0.5]}}, "p-place"))
         self.send(command("entity.place", {"target": "obj:book", "placement": {"position_m": [0.3, 0, 0.3]}}, "move-1"))
         result = self.send(command("room.undo", {"to_revision": 0}, "undo-1", expected_revision=2))

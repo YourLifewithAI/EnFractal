@@ -1,7 +1,7 @@
 {
   "schema": "enfractal.command",
   "version": 1,
-  "action_id": "lock-spinner-0002",
+  "action_id": "lock-creation-0002",
   "room_id": "garage_example",
   "op": "protect.lock",
   "args": {
