@@ -297,6 +297,16 @@
   - Lane L: the views' blur, the endless sea's surface, the focus highlight.
   - Codex brief 22 (GPT-6 Astra): the characters' second round.
   - Codex brief 23 (GPT-6.1 Sol): things you can pick up.
+- **Merged and pushed** (`e052e84`):
+  - Codex brief 22 in two runs. The first kept every front outline, so the family's "wider" notes went unmet; in the second, a player's notes in the description may reshape the outline. The five round-two characters are in `C:\dev\EnFractal-art\characters\out\round2\`, and their sheets were sent to the founder.
+  - Lane P part 1: the Gubble steady beside a climber; the climb sampler (5 of 5); the open sea with no edge; B back to the jetty from anywhere; a far net at 1 km. Lane C's island fix round came back with it.
+  - Codex brief 23: woodpiles become logs, and small stones and crates are movable (27 loose things in the garage, a cap of 64). The landscape check now treats loose things as found, not promised, and checks that they rest where they were put.
+  - Lane L part 1: each view blurs its own way (`x_look_views`); the endless sea's surface, with distant islands that hold their place; `LookDirector.SetFocusHighlight`.
+  - **v2 is the default style** (`RoomWorld.DefaultStyleVersion = 2`; v2 is still a draft) so the founder sees the new blur. A room pinned to v1 still opens in v1. The integrator's push of `0cedf26` went up with `RoomDataTest` failing under v2; `cd2425d` and Lane L's `4d64b80` fixed it within the hour.
+  - **Tests on `e052e84`:** landscape 44/44, room data 56/56, look 1038/1038, small avatar 265/265, and the engine runner green on `b17fe1b`. The navigation suite's re-bake timing failed at 39 to 44 ms against 33 while three lanes loaded the machine. Every cell size was about 2.3 times slower, and the same runtime code measured 19.6 ms an hour earlier, so the integrator judged it load. **Rerun it on a quiet machine.**
+- **The founder's installed landscape** was refreshed from that fixture (`room.json` `0F0B0F0F…`, 27 loose things). The previous copy is in `%APPDATA%\Godot\app_userdata\EnFractal\room-backups\landscape_garage_nominal-20261009-before-open-sea`.
+- **Codex reviews of Lane P part 1** (Sol against Astra, the A/B log's fifth trial) found 4 and 5 issues. Lane P is fixing them before diving.
+- **Open for the founder:** the far net at 1 km (it brings a swimmer home as B does).
 
 ## The next session
 
