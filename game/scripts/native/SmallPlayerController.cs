@@ -135,6 +135,8 @@ public partial class SmallPlayerController : CharacterBody3D
     public int BoundsStops { get; private set; }
     public Vector3 CreationVelocity => _creationVelocity;
     public bool HasCreationGuard { get; private set; }
+    /// <summary>Ticks on which a creation guard took back the creation's share of a move.</summary>
+    public int CreationGuardStops { get; private set; }
 
     // ---- Climbing and swimming (founder's playtest, 8 October: "climbing cliffs and climbing trees", "it should feel
     // like you're swimming when you're in deep water"). The numbers are starting points for the founder to tune by feel.
@@ -257,6 +259,35 @@ public partial class SmallPlayerController : CharacterBody3D
     public event System.Action<SmallPlayerController>? WentHome;
     /// <summary>Where B goes, for the HUD: the jetty, else the beach, else the start.</summary>
     public string HomeName => Sea?.JettyData != null ? "the jetty" : Sea != null && Sea.Beaches.Count > 0 ? "the beach" : "the start";
+    // ---- Diving (the founder's son, 9 October: "dive into the water and swim down under the surface"). Hold Ctrl to dive and
+    // Space to rise; under water W swims the way you look (F1 and F2). No breath limit and no harm (the island's rule: no
+    // punishment). Let go and the body drifts slowly up, so nobody gets stuck on the bottom. Nothing goes through the bed,
+    // the open-sea bed included, which has no collider. The founder tunes these by playing.
+
+    /// <summary>Under water, the swim's speed is this share of the swim at the surface (the plain swim 0.19 m/s, 0.32 with Shift).</summary>
+    [Export] public float DiveSpeedFactor { get; set; } = 1.0f;
+    /// <summary>How fast Ctrl takes a diver down, and Space up.</summary>
+    [Export] public float DiveSinkMps { get; set; } = 0.12f;
+    [Export] public float DiveRiseMps { get; set; } = 0.15f;
+    /// <summary>With no key held under water, the body drifts up this fast.</summary>
+    [Export] public float DriftUpMps { get; set; } = 0.03f;
+    /// <summary>A swimmer this far under its floating depth is diving; above it, the surface's own float takes over.</summary>
+    public const float DiveStartM = 0.01f;
+    /// <summary>True on a tick the body swam under the surface (Ctrl held, or still on its way back up from a dive).</summary>
+    public bool IsDiving { get; private set; }
+    /// <summary>Whether the eye is under the water's surface (a read for the look's view under water).</summary>
+    public bool EyeUnderWater => Water.Wet && GlobalPosition.Y + EyeHeightM < Water.SurfaceY;
+    /// <summary>Ticks spent diving, and dives begun.</summary>
+    public int DiveTicks { get; private set; }
+    public int DiveStarts { get; private set; }
+
+    /// <summary>Dive input from a caller other than the keyboard (Ctrl and Space); retained until replaced.</summary>
+    public void SetDiveInput(bool down, bool up)
+    {
+        _diveDown = down;
+        _diveUp = up;
+    }
+
     /// <summary>Whether the body is out past the island's reef (the open sea).</summary>
     public bool AtSea => Sea != null && Sea.PastReefM(new Vector2(GlobalPosition.X, GlobalPosition.Z)) > 0;
 
@@ -317,6 +348,9 @@ public partial class SmallPlayerController : CharacterBody3D
     private float _visualYaw;
     private float _hoverClock;
     private float _homeTime = -1;
+    private bool _diveDown;
+    private bool _diveUp;
+    private bool _wasDiving;
     private bool _homeArrived;
 
     public override void _Ready()
@@ -483,6 +517,20 @@ public partial class SmallPlayerController : CharacterBody3D
         BoundsStops++;
     }
 
+    /// <summary>A floating body out past the far net is put back on it, and its outward speed stops.</summary>
+    private void HoldInsideFarNet()
+    {
+        var flat = new Vector2(GlobalPosition.X, GlobalPosition.Z) - Sea!.MiddleM;
+        var reach = flat.Length();
+        if (reach <= FarNetM || reach <= 0) return;
+        var outward = flat / reach;
+        var held = Sea.MiddleM + outward * FarNetM;
+        GlobalPosition = new Vector3(held.X, GlobalPosition.Y, held.Y);
+        var along = Velocity.X * outward.X + Velocity.Z * outward.Y;
+        if (along > 0) Velocity -= new Vector3(outward.X, 0, outward.Y) * along;
+        BoundsStops++;
+    }
+
     /// <summary>The trusted host's gravity and wind. Accepts only a valid profile with a newer revision.</summary>
     public bool SetWorldPhysics(Dictionary profile)
     {
@@ -610,6 +658,20 @@ public partial class SmallPlayerController : CharacterBody3D
         return true;
     }
 
+    /// <summary>
+    /// Put a floating body here, held in the air, if the whole capsule fits (the Gubble beside a player on a crowded jetty).
+    /// Only for a body that floats: anything else would fall.
+    /// </summary>
+    protected bool TryPlaceFloating(Vector3 feetPosition)
+    {
+        if (!_ready || !Floats || !feetPosition.IsFinite() || !CapsuleFits(feetPosition)) return false;
+        GlobalPosition = feetPosition;
+        ResetPhysicsInterpolation();
+        StopClimbingAndSwimming();
+        Velocity = Vector3.Zero;
+        return true;
+    }
+
     /// <summary>Back to the last safe footing, else the spawn. While a creation moves the body, a checkpoint the guard refuses is skipped.</summary>
     public bool Recover()
     {
@@ -661,6 +723,8 @@ public partial class SmallPlayerController : CharacterBody3D
         UpdateHomeTrip(dt);
         var control = InputEnabled && !GoingHome ? _control : Vector2.Zero;
         var sprint = _sprint;
+        var diveDown = InputEnabled && !GoingHome && _diveDown;
+        var diveUp = InputEnabled && !GoingHome && _diveUp;
         if (GoingHome) _jumpBuffer = 0;
         if (InputEnabled && ReadKeyboard && !GoingHome)
         {
@@ -668,6 +732,8 @@ public partial class SmallPlayerController : CharacterBody3D
                 (Input.IsPhysicalKeyPressed(Key.D) ? 1 : 0) - (Input.IsPhysicalKeyPressed(Key.A) ? 1 : 0),
                 (Input.IsPhysicalKeyPressed(Key.W) ? 1 : 0) - (Input.IsPhysicalKeyPressed(Key.S) ? 1 : 0)).LimitLength();
             sprint = Input.IsPhysicalKeyPressed(Key.Shift);
+            diveDown = Input.IsPhysicalKeyPressed(Key.Ctrl);
+            diveUp = Input.IsPhysicalKeyPressed(Key.Space);
         }
         var onFloor = IsOnFloor();
         _coyote = onFloor ? CoyoteTimeS : Mathf.Max(0, _coyote - dt);
@@ -688,13 +754,17 @@ public partial class SmallPlayerController : CharacterBody3D
         wish.Y = 0;
         var before = GlobalPosition;
         SampleWater(dt);
+        _wasDiving = IsDiving;
+        IsDiving = false;
         if (_climbing) Climb(dt, control);
         else if (Floats) Hover(dt, wish, sprint);
-        else if (UpdateSwimming()) Swim(dt, wish, sprint);
+        else if (UpdateSwimming()) Swim(dt, wish, sprint, control, diveDown, diveUp);
         else Walk(dt, wish, sprint, onFloor);
         HoldInsideBounds();
-        // The far net, hours of swimming out: home as by B (a floating body follows the player, and comes home with them).
+        // The far net, hours of swimming out: home as by B. A floating body (the Gubble, sent off on its own) is held at the
+        // net instead, as at a wall (Codex Astra's review), and says blocked through its goal.
         if (Sea != null && !Floats && !GoingHome && new Vector2(GlobalPosition.X, GlobalPosition.Z).DistanceTo(Sea.MiddleM) > FarNetM) BeginHome();
+        if (Sea != null && Floats) HoldInsideFarNet();
         // Project the creation contribution along contacts the same way MoveAndSlide projects motion.
         for (var index = 0; index < GetSlideCollisionCount(); index++)
         {
@@ -704,11 +774,16 @@ public partial class SmallPlayerController : CharacterBody3D
         }
         if (HasCreationGuard && !GuardAllows(GlobalPosition))
         {
-            // Creation motion may not carry the body into space it is not allowed to be pushed into.
-            GlobalPosition = before;
-            Velocity = Vector3.Zero;
+            // Creation motion may not carry the body into space it is not allowed to be pushed into; the body's own walking,
+            // swimming and climbing may, as they may with no creation about (Codex Sol's review of the open sea: a worn
+            // glider's guard took back every whole move past the room's old bounds, a wall again). Only the creation's share
+            // of this tick's move is taken back, and its motion stops.
+            var creationStep = _creationApplied * dt;
+            if (creationStep.LengthSquared() > 0) MoveAndCollide(-creationStep);
+            Velocity -= _creationApplied;
             _creationApplied = Vector3.Zero;
             _creationVelocity = Vector3.Zero;
+            CreationGuardStops++;
         }
         var actual = GlobalPosition - before;
         if (!_climbing) actual.Y = 0;
@@ -827,12 +902,28 @@ public partial class SmallPlayerController : CharacterBody3D
         WentHome?.Invoke(this);
     }
 
-    /// <summary>Stand at a spot, or the nearest of a few beside it (inland first), facing inland.</summary>
+    /// <summary>How far under a home's spot (the jetty's deck, a beach's sand) its landing may be found.</summary>
+    public const float HomeDropM = 0.06f;
+
+    /// <summary>
+    /// Stand at a spot, or the nearest of a few beside it (inland first), facing inland. A landing must be dry ground within
+    /// HomeDropM under the spot (Codex Astra's review: the seabed under a jetty's root was taken as home, under water), and
+    /// not out past half the far net (Codex Sol's review: room data put there would start trip after trip).
+    /// </summary>
     private bool LandAt(Vector3 spot, Vector3 inland, string name)
     {
+        bool Near(Vector3 at) => Sea == null || new Vector2(at.X, at.Z).DistanceTo(Sea.MiddleM) <= FarNetM * 0.5f;
+        if (!spot.IsFinite() || !Near(spot)) return false;
+        var space = GetWorld3D().DirectSpaceState;
+        bool Dry(Vector3 feet)
+        {
+            var water = RoomWater.At(space, feet, BodyHeightM, 0.005f, GetRid());
+            if (!water.Wet && Sea != null) water = Sea.OpenWater(space, feet, BodyHeightM, 0.005f, GetRid());
+            return !water.Wet || water.Under(feet) <= 0;
+        }
         var side = inland.Cross(Vector3.Up);
         foreach (var offset in new[] { Vector3.Zero, inland * 0.06f, side * 0.06f, -side * 0.06f, inland * 0.12f, side * 0.12f, -side * 0.12f, inland * 0.2f })
-            if (TryTeleportTo(spot + offset))
+            if (Near(spot + offset) && FindSupportedPosition(spot + offset, out var feet) && feet.Y >= spot.Y - HomeDropM && Dry(feet) && TryTeleportTo(feet))
             {
                 Rotation = new Vector3(0, Mathf.Atan2(-inland.X, -inland.Z), 0);
                 LastHome = name;
@@ -968,9 +1059,12 @@ public partial class SmallPlayerController : CharacterBody3D
         }
         var space = GetWorld3D().DirectSpaceState;
         var below = Mathf.Max(0.02f, -Velocity.Y * dt + 0.02f);
-        Water = RoomWater.At(space, GlobalPosition, BodyHeightM * 4, below, GetRid());
+        // A diver looks up as far as the surface it went down from.
+        var above = BodyHeightM * 4;
+        if (_swimming && Water.Wet) above = Mathf.Max(above, Water.SurfaceY - GlobalPosition.Y + 0.05f);
+        Water = RoomWater.At(space, GlobalPosition, above, below, GetRid());
         // Where the water meshes stop, out past the island, the sea itself answers.
-        if (!Water.Wet && Sea != null) Water = Sea.OpenWater(space, GlobalPosition, BodyHeightM * 4, below, GetRid());
+        if (!Water.Wet && Sea != null) Water = Sea.OpenWater(space, GlobalPosition, above, below, GetRid());
         // Where a sea mesh runs on past the generated floor (no bed within RoomWater.BedSearchM), the open sea's bed.
         else if (Water.Wet && Sea != null && Water.BedY <= Water.SurfaceY - RoomWater.BedSearchM + 1e-4f)
             Water = Water with { BedY = Mathf.Max(Water.BedY, Sea.OpenSeaBedAt(new Vector2(GlobalPosition.X, GlobalPosition.Z))) };
@@ -1038,8 +1132,14 @@ public partial class SmallPlayerController : CharacterBody3D
     /// body rises back to the surface. A jump at the surface leaps out with the land jump's take-off. A steep bank pushed
     /// into is grabbed and climbed out of; a shelving shore is walked out of (UpdateSwimming).
     /// </summary>
-    private void Swim(float dt, Vector3 wish, bool sprint)
+    private void Swim(float dt, Vector3 wish, bool sprint, Vector2 control, bool diveDown, bool diveUp)
     {
+        // Only a dive takes the body under: a fall or a plunge is still caught at the surface (CatchInWater).
+        if (diveDown || (_wasDiving && GlobalPosition.Y < Water.SurfaceY - SwimFloatDepthM - DiveStartM))
+        {
+            Dive(dt, control, sprint, diveDown, diveUp);
+            return;
+        }
         _coyote = 0;
         _swimClock += dt;
         var feet = GlobalPosition;
@@ -1064,6 +1164,37 @@ public partial class SmallPlayerController : CharacterBody3D
         Velocity = total;
         MoveAndSlide();
         if (_swimming) TryGrab(dt, wish, deliberate: true, heldBack: HeldBack(feet, wish, WalkSpeedMps * SwimSpeedFactor, dt));
+    }
+
+    /// <summary>
+    /// Under water: W swims the way you look (the view's pitch, the eye's in F1 and the shoulder camera's, which follows it,
+    /// in F2; in F3 and F4 across the view, level), A and D across; Ctrl down, Space up; no key, a slow drift up. The water's
+    /// drag eases every change. The bed holds the body: the room's ground by collision, the open-sea bed by this clamp.
+    /// </summary>
+    private void Dive(float dt, Vector2 control, bool sprint, bool down, bool up)
+    {
+        _coyote = 0;
+        _jumpBuffer = 0;
+        if (!_wasDiving) DiveStarts++;
+        IsDiving = true;
+        DiveTicks++;
+        Vector3 wish;
+        if (MovementFrameYaw is { } frameYaw) wish = new Basis(Vector3.Up, frameYaw) * new Vector3(control.X, 0, -control.Y);
+        else wish = GlobalBasis * (new Basis(Vector3.Right, EyeCamera.Rotation.X) * Vector3.Forward * control.Y + Vector3.Right * control.X);
+        var desired = wish.LimitLength() * WalkSpeedMps * (sprint ? 1.0f : SwimSpeedFactor) * DiveSpeedFactor;
+        if (down) desired.Y -= DiveSinkMps;
+        if (up) desired.Y += DiveRiseMps;
+        if (!down && !up && control.LengthSquared() < 0.01f) desired.Y = DriftUpMps;
+        var velocity = Velocity.MoveToward(desired, SwimAccelerationMps2 * dt);
+        Velocity = WithCreation(velocity, dt);
+        MoveAndSlide();
+        // Nothing goes through the bed (the open-sea bed has no collider).
+        var bed = Water.BedY + SafeMarginM * 2;
+        if (Water.Wet && GlobalPosition.Y < bed)
+        {
+            GlobalPosition = new Vector3(GlobalPosition.X, bed, GlobalPosition.Z);
+            if (Velocity.Y < 0) Velocity = new Vector3(Velocity.X, 0, Velocity.Z);
+        }
     }
 
     // ---- climbing ----

@@ -196,7 +196,7 @@ public partial class RoomHud : CanvasLayer
         _keyHelp = new VBoxContainer { Name = "KeyHelp", Visible = false }; help.AddChild(_keyHelp);
         _moveKeys = new Label { Name = "MoveKeys", Text = MoveKeys };
         _keyHelp.AddChild(_moveKeys);
-        _keyHelp.AddChild(new Label { Text = "Climb: keep walking into a steep face, W up, S down, A/D across, Space lets go · Swim: deep water floats you, Space leaps" });
+        _keyHelp.AddChild(new Label { Text = "Climb: keep walking into a steep face, W up, S down, A/D across, Space lets go · Swim: deep water floats you, Space leaps · Dive: hold Ctrl, Space rises, W swims the way you look, let go to drift up" });
         _keyHelp.AddChild(new Label { Text = "1 follow · 2 wait · 3 come · 4 stop · 5 point: the Gubble floats after you, over water and up cliffs" });
         _keyHelp.AddChild(new Label { Text = "F1 eye · F2 shoulder · F3 diorama: mouse orbits, wheel zooms, WASD follows the view · F4 isometric: Q/E turn the view" });
         _keyHelp.AddChild(new Label { Text = "T time of day · Shift+T season (each steps round to the real clock) · L lamps · O observe (a very tight tilt-shift view, best from F3 or F4) · C customize" });
