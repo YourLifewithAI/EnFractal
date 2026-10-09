@@ -96,6 +96,13 @@ def build_plan(photo, description, reading, debug_overlay=None):
         if p.get('parent') and p['parent'] not in names:
             raise SystemExit(f"reading: {p['name']} has an unknown parent {p['parent']}")
 
+    # Every seed in the reading: a piece's area must not swallow another piece's seed.
+    all_seeds = []
+    for p in parts:
+        for i, piece in enumerate(p['pieces']):
+            for seed in piece.get('seeds', []) + piece.get('minus_seeds', []):
+                all_seeds.append(((p['name'], i), seed))
+
     # 1. The shapes, in working pixels. A banded piece (a rainbow) becomes one piece per stripe.
     shapes = {}
     part_mask = {}
@@ -104,11 +111,16 @@ def build_plan(photo, description, reading, debug_overlay=None):
         pieces = []
         own = np.zeros((sheet.h, sheet.w), bool)
         for i, piece in enumerate(p['pieces']):
-            piece = dict(piece, name=f"{p['name']}[{i}]")
+            piece = dict(piece, name=f"{p['name']}[{i}]",
+                         others=[seed for key, seed in all_seeds if key != (p['name'], i)])
             kind = piece.get('kind', 'puff')
             if kind in ('puff', 'sticker'):
                 limit = 0.45 if kind == 'puff' else 0.06
-                mask = drawing.blob(sheet, piece, notes) if piece.get('blob') else                     drawing.region(sheet, piece, notes, limit)
+                # A sticker (a pad, an eye) is smaller than the part it sits on; if it fills it, it leaked.
+                host = own if own.any() else part_mask.get(p.get('parent'), np.zeros(1, bool))
+                max_area = 0.6 * host.sum() if kind == 'sticker' and host.any() else None
+                mask = drawing.blob(sheet, piece, notes) if piece.get('blob') else \
+                    drawing.region(sheet, piece, notes, limit, max_area)
                 for other in piece.get('minus_parts', []):
                     mask &= ~part_mask.get(other, False)
                 if piece.get('bands'):
@@ -135,6 +147,48 @@ def build_plan(photo, description, reading, debug_overlay=None):
         part_mask[p['name']] = own
         expanded.append(dict(p, pieces=pieces))
     parts = expanded
+
+    # A part lies under its own stickers (pads on a paw), and a feature-only part (an eye) lies on its parent:
+    # the body grows under them, so a pad drawn across the paw's edge still has paw beneath it.
+    for p in parts:
+        stickers = np.zeros((sheet.h, sheet.w), bool)
+        for i, piece in enumerate(p['pieces']):
+            if piece.get('kind') == 'sticker':
+                stickers |= shapes[(p['name'], i)][1]
+        if not stickers.any():
+            continue
+        host = p['name'] if part_mask[p['name']].any() else p.get('parent')
+        if not host or not part_mask.get(host, np.zeros(1, bool)).any():
+            continue
+        host_part = next(q for q in parts if q['name'] == host)
+        puffs = [i for i, piece in enumerate(host_part['pieces']) if piece.get('kind', 'puff') == 'puff']
+        first = max(puffs, key=lambda i: shapes[(host, i)][1].sum())
+        grown = drawing.fill_holes(shapes[(host, first)][1] | stickers)
+        shapes[(host, first)] = ('mask', grown)
+        part_mask[host] = part_mask[host] | grown
+
+    # Tubes (a tail drawn as one line) reach into what they hang from.
+    for p in parts:
+        parent = p.get('parent')
+        if not parent or not part_mask.get(parent, np.zeros(1, bool)).any():
+            continue
+        for i, piece in enumerate(p['pieces']):
+            kind, shape = shapes[(p['name'], i)]
+            if piece.get('kind') != 'tube' or not len(shape[0]):
+                continue
+            pts, half = shape
+            py, px = np.nonzero(part_mask[parent])
+            best = None
+            for x, y in pts[:: max(1, len(pts) // 200)]:
+                d2 = (px - x) ** 2 + (py - y) ** 2
+                j = int(np.argmin(d2))
+                if best is None or d2[j] < best[0]:
+                    best = (d2[j], (x, y), (px[j], py[j]))
+            (x0, y0), (x1, y1) = best[1], best[2]
+            n = int(math.hypot(x1 - x0, y1 - y0)) + 1
+            if n > 1:
+                link = np.array([(x0 + (x1 - x0) * t / n, y0 + (y1 - y0) * t / n) for t in range(n + 1)])
+                shapes[(p['name'], i)] = ('line', (np.concatenate([pts, link]), half))
 
     # Limbs, horns and props continue into whatever they grow out of, so joints are solid, not pinched.
     by_name = {p['name']: p for p in parts}

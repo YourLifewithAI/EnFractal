@@ -11,9 +11,11 @@ import math
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageOps
 
-WORK = 1000          # long side of the working crop, pixels
+WORK = 1200          # long side of the working crop, pixels
 MAX_CLOSE = 7        # widest pencil gap we bridge, in working pixels
-LINE_RATIO = 0.5     # a pixel darker than this fraction of the local paper is a drawn line
+# A pixel darker than this fraction of the local paper is a drawn line. Firm pen first; light pencil if the firm
+# reading leaves the areas open (the light level also counts pencil shading as line, so it comes second).
+LINE_LEVELS = (0.5, 0.8, 0.9)
 
 
 # ---------------------------------------------------------------- the photo
@@ -37,31 +39,40 @@ class Sheet:
         paper = crop.filter(ImageFilter.MaxFilter(21)).filter(ImageFilter.GaussianBlur(25))
         ratio = np.asarray(crop, np.float64) / np.maximum(np.asarray(paper, np.float64), 1.0)
         self.ratio = ratio
-        ink = ratio < LINE_RATIO
-        # Drop single-pixel speckle (paper grain), keep every real stroke.
-        ink = _open(ink, 1) | (ink & _erode(_dilate(ink, 1), 1) & (ratio < LINE_RATIO * 0.6))
-        self.ink = ink
+        self._ink = {}
+        self.ink = self.ink_at(0)
         # Only the inside of the figure box counts; the margin keeps flood fills from leaking around the edge.
-        self.inside = np.zeros_like(ink)
+        self.inside = np.zeros(ratio.shape, bool)
         fx0, fy0 = self.to_px((x0, y0))
         fx1, fy1 = self.to_px((x1, y1))
         self.inside[max(0, fy0):min(self.h, fy1 + 1), max(0, fx0):min(self.w, fx1 + 1)] = True
         self._walls = {}
+        self.rim = self.inside & ~_erode(self.inside, 1)
+
+    def ink_at(self, level):
+        if level not in self._ink:
+            t = LINE_LEVELS[level]
+            ink = self.ratio < t
+            # Drop speckle (paper grain), keep every real stroke.
+            ink = _open(ink, 1) | (ink & (self.ratio < t * 0.6))
+            self._ink[level] = ink
+        return self._ink[level]
 
     def silhouette(self, close=3):
         """Everything the figure's outer lines enclose (the lines included)."""
         if 'silhouette' not in self._walls:
-            free = ~self.walls(close)
+            free = ~self.walls(close, len(LINE_LEVELS) - 1)
             seed = np.zeros_like(free)
             seed[0, :] = seed[-1, :] = seed[:, 0] = seed[:, -1] = True
             outside = grow(free | ~self.inside, seed)
             self._walls["silhouette"] = ~_dilate(outside, close) & self.inside
         return self._walls['silhouette']
 
-    def walls(self, close):
-        if close not in self._walls:
-            self._walls[close] = (_dilate(self.ink, close) if close else self.ink) | ~self.inside
-        return self._walls[close]
+    def walls(self, close, level=0):
+        if (close, level) not in self._walls:
+            ink = self.ink_at(level)
+            self._walls[(close, level)] = (_dilate(ink, close) if close else ink) | ~self.inside
+        return self._walls[(close, level)]
 
     def to_px(self, point):
         """Photo fractions to working pixels (x, y), rounded."""
@@ -215,15 +226,18 @@ def _nearest_free(walls, seed, radius):
 
 # ---------------------------------------------------------------- what the interpretation points at
 
-def region(sheet, spec, notes, max_fraction=0.45):
-    """An enclosed area of the drawing, from seeds; the outline or ellipse cuts leaks or stands in for missing lines."""
-    total = _region(sheet, spec, notes, max_fraction)
+def region(sheet, spec, notes, max_fraction=0.45, max_area=None):
+    """An enclosed area of the drawing, from seeds; the outline or ellipse cuts leaks or stands in for missing lines.
+    An area that runs out to the figure's box, or grows past max_fraction of it (or past max_area pixels), leaked
+    through a gap in the pencil: the next try bridges wider gaps or counts fainter lines."""
+    total = _region(sheet, spec, notes, max_fraction, max_area)
     for s in spec.get('minus_seeds', []):
-        total &= ~_region(sheet, {'seeds': [s], 'name': spec.get('name', '?') + ' (minus)'}, notes, 0.45)
+        total &= ~_region(sheet, {'seeds': [s], 'name': spec.get('name', '?') + ' (minus)',
+                                  'others': spec.get('seeds', [])}, notes, 0.45)
     return total
 
 
-def _region(sheet, spec, notes, max_fraction):
+def _region(sheet, spec, notes, max_fraction, max_area=None):
     hint = None
     if spec.get('outline'):
         hint = sheet.polygon_mask(spec['outline'])
@@ -237,22 +251,34 @@ def _region(sheet, spec, notes, max_fraction):
     seeds = [sheet.to_px(s) for s in spec.get('seeds', [])]
     figure_area = sheet.inside.sum()
     total = np.zeros((sheet.h, sheet.w), bool)
+    others = [sheet.to_px(s) for s in spec.get('others', [])]
     for seed in seeds:
-        found = None
-        for close in range(0, MAX_CLOSE + 1):
-            walls = sheet.walls(close)
+        found = relaxed = None
+        tries = [(level, close) for level in range(len(LINE_LEVELS)) for close in range(0, MAX_CLOSE + 1)]
+        for level, close in tries:
+            walls = sheet.walls(close, level)
             start = _nearest_free(walls, seed, 6 + close * 2)
             if start is None:
                 continue
             area = flood(walls, start)
-            touches = area[0, :].any() or area[-1, :].any() or area[:, 0].any() or area[:, -1].any()
+            touches = (area & sheet.rim).any()
             leaked = touches or area.sum() > max_fraction * figure_area
+            if max_area is not None and area.sum() > max_area:
+                leaked = True
             if hint is not None and area.sum() > 3.0 * max(hint.sum(), 1):
                 leaked = True
-            if not leaked:
+            if not leaked and area.sum() >= 12:
+                # An area that swallows another piece's seed ran through a gap in the line between them.
+                if any(0 <= y < sheet.h and 0 <= x < sheet.w and area[y, x] for x, y in others):
+                    if relaxed is None:
+                        relaxed = (area, close)
+                    continue
                 # Back out to the middle of the line, so neighbouring areas meet.
                 found = _dilate(area, close + 1)
                 break
+        if found is None and relaxed is not None:
+            notes.append(f"{spec.get('name', '?')}: seed {seed} shares its area with another piece")
+            found = _dilate(relaxed[0], relaxed[1] + 1)
         if found is None:
             if hint is not None:
                 notes.append(f"{spec.get('name', '?')}: seed {seed} leaked; used the outline")
@@ -312,29 +338,34 @@ def stroke(sheet, spec, notes):
         notes.append(f"{spec.get('name', '?')}: a line needs a box or points; skipped")
         return np.zeros((0, 2)), 1.0
     box = sheet.box_mask(spec['box'])
-    ink = sheet.ink & sheet.inside
-    keep = np.zeros_like(ink)
-    seen = np.zeros_like(ink)
-    ys, xs = np.nonzero(ink & box)
-    for y, x in zip(ys, xs):
-        if seen[y, x]:
-            continue
-        comp = component(ink, (int(x), int(y)))
-        seen |= comp
-        inside = (comp & box).sum()
-        if inside >= 0.6 * comp.sum():
-            keep |= comp
-        elif inside >= 6:
-            # A long line passing through the box (a face outline): keep only if the box asks for everything.
-            if spec.get('take_all'):
+    for level in range(len(LINE_LEVELS)):
+        ink = sheet.ink_at(level) & sheet.inside
+        keep = np.zeros_like(ink)
+        seen = np.zeros_like(ink)
+        ys, xs = np.nonzero(ink & box)
+        for y, x in zip(ys, xs):
+            if seen[y, x]:
+                continue
+            comp = component(ink, (int(x), int(y)))
+            seen |= comp
+            inside = (comp & box).sum()
+            if inside >= 0.6 * comp.sum():
+                keep |= comp
+            elif inside >= 6 and spec.get('take_all'):
+                # A long line passing through the box (an outline the stroke touches): take the part in the box.
                 keep |= comp & box
-    if not spec.get('keep_solid'):
-        # Solid inked areas (a filled pupil) are stickers of their own, not lines: peel them off.
-        keep &= ~_dilate(_open(keep, 5), 2)
+        if not spec.get('keep_solid'):
+            # Solid inked areas (a filled pupil) are stickers of their own, not lines: peel them off.
+            keep &= ~_dilate(_open(keep, 5), 2)
+        if keep.sum() >= 10:
+            break
     if not keep.any():
         notes.append(f"{spec.get('name', '?')}: no lines found in its box")
         return np.zeros((0, 2)), 1.0
-    skel = skeleton(_close(keep, 1))
+    ky, kx = np.nonzero(keep)
+    y0, x0 = max(0, ky.min() - 2), max(0, kx.min() - 2)
+    skel = np.zeros_like(keep)
+    skel[y0:ky.max() + 3, x0:kx.max() + 3] = skeleton(_close(keep[y0:ky.max() + 3, x0:kx.max() + 3], 1))
     ys, xs = np.nonzero(skel)
     half = max(1.0, keep.sum() / max(1, len(xs)) / 2.0)
     order = np.lexsort((xs, ys))
