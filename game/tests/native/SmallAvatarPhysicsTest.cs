@@ -6,6 +6,7 @@ using System.Text;
 using System.Threading.Tasks;
 using EnFractal.Native;
 using EnFractal.Native.Navigation;
+using EnFractal.Native.Room;
 
 namespace EnFractal.Tests;
 
@@ -80,6 +81,9 @@ public partial class SmallAvatarPhysicsTest : Node3D
             await TestCompanion();
             await TestNavigation();
             await TestGroundContact();
+            await TestClimbing();
+            await TestSwimming();
+            await TestClimbableTree();
             var metrics = await RunJitterSuite(1.0f, new Vector3(0, 0, 30));
             CheckJitter(metrics);
             if (OS.GetCmdlineUserArgs().Contains("--jitter-spike"))
@@ -87,7 +91,7 @@ public partial class SmallAvatarPhysicsTest : Node3D
                 var scaled = await RunJitterSuite(10.0f, new Vector3(0, 0, 200));
                 GD.Print(JitterReport(metrics, scaled));
             }
-            GD.Print($"NATIVE_SMALL_AVATAR: {_checks - _failures}/{_checks} checks passed; 10 cm body, room gravity profiles, steps, jitter and companion steering; not final art, feel or AI integration");
+            GD.Print($"NATIVE_SMALL_AVATAR: {_checks - _failures}/{_checks} checks passed; 10 cm body, room gravity profiles, steps, climbing, swimming, jitter and companion steering; not final art, feel or AI integration");
             GetTree().Quit(_failures == 0 ? 0 : 1);
         }
         catch (System.Exception exception)
@@ -241,14 +245,19 @@ public partial class SmallAvatarPhysicsTest : Node3D
         Check(_player.TryTeleportTo(new Vector3(-0.5f, 0.003f, 0)), "curb route has supported spawn");
         _player.Rotation = Vector3.Zero;
         var steps = _player.StepsClimbed;
+        var grabs = _player.Grabs;
         _player.SetControlInput(Vector2.Right, sprint: true);
         var highest = 0.0f;
         for (var i = 0; i < 120; i++) { await Frames(1); highest = Mathf.Max(highest, _player.GlobalPosition.Y); }
         _player.SetControlInput(Vector2.Zero);
         Check(_player.GlobalPosition.X > 0.45f, $"crosses a 1.5 cm curb without a jump (position={_player.GlobalPosition}, floor={_player.IsOnFloor()})");
         Check(highest > 0.012f && highest < 0.03f && _player.StepsClimbed > steps, $"curb traversal uses bounded step lift (height={highest}, steps={_player.StepsClimbed - steps})");
+        Check(_player.Grabs == grabs && !_player.IsClimbing, "walking into a step it can step up never grabs it as a climb");
         await Frames(15);
 
+        // The step and the jump, as before climbing: with climbing off, the 3 cm barrier and the 4 cm book block a walker
+        // (a sustained push now climbs them; TestClimbing covers that).
+        _player.CanClimb = false;
         // 3 cm barrier: above the 2 cm step, so it blocks unless jumped.
         Check(_player.TryTeleportTo(new Vector3(-0.5f, 0.003f, -0.6f)), "barrier route has supported spawn");
         _player.SetControlInput(Vector2.Right);
@@ -282,6 +291,7 @@ public partial class SmallAvatarPhysicsTest : Node3D
         _player.SetControlInput(Vector2.Zero);
         Check(coyote && _player.JumpsStarted == jumps + 1, "a jump just after walking off an edge still happens (coyote time)");
         await Frames(40);
+        _player.CanClimb = true;
 
         // The 6 mm rug: walked onto and off without a jump or a stumble.
         Check(_player.TryTeleportTo(new Vector3(-0.9f, 0.003f, -2.2f)), "rug route has supported spawn");
@@ -768,6 +778,613 @@ public partial class SmallAvatarPhysicsTest : Node3D
         await Frames(10);
     }
 
+
+    // ---- climbing and swimming (founder's playtest round, 8 October) ----
+
+    /// <summary>A static body on the world layer, as the room's colliders are.</summary>
+    private StaticBody3D Solid(Vector3 position, Shape3D shape)
+    {
+        var body = new StaticBody3D { Position = position, CollisionLayer = 1, CollisionMask = 0 };
+        body.AddChild(new CollisionShape3D { Shape = shape });
+        AddChild(body);
+        return body;
+    }
+
+    /// <summary>A prism of a convex side profile (x, y pairs) swept from z - halfZ to z + halfZ.</summary>
+    private static ConvexPolygonShape3D Prism(float halfZ, params Vector2[] profile) =>
+        new() { Points = profile.SelectMany(p => new[] { new Vector3(p.X, p.Y, -halfZ), new Vector3(p.X, p.Y, halfZ) }).ToArray() };
+
+    private float VisualFacingDot(Vector3 direction) => (-_player.GetNode<Node3D>("OriginalPrototypeBody").GlobalBasis.Z).Normalized().Dot(direction);
+
+    /// <summary>Hold forward until the body has climbed and pulled itself over (or the frames run out); report what happened.</summary>
+    private async Task<(int GrabFrame, int FirstBlocked, float Speed, bool FacedWall, bool Upright)> ClimbUntilOver(Vector3 wallDirection, int maxFrames)
+    {
+        var grabs = _player.Grabs;
+        var pulls = _player.PullOvers;
+        int frame = 0, grabFrame = -1, firstBlocked = -1;
+        float? startY = null;
+        int startFrame = 0, lastFrame = 0;
+        var lastY = 0.0f;
+        var faced = true;
+        var upright = true;
+        _player.SetControlInput(new Vector2(0, 1));
+        for (; frame < maxFrames; frame++)
+        {
+            await Frames(1);
+            if (firstBlocked < 0 && _player.IsBlocked && !_player.IsClimbing) firstBlocked = frame;
+            if (grabFrame < 0 && _player.Grabs > grabs) grabFrame = frame;
+            upright &= _player.GlobalBasis.Y.Dot(Vector3.Up) > 0.9999f && _player.EyeCamera.GlobalBasis.Y.Dot(Vector3.Up) > 0.999f;
+            if (_player.IsClimbing && !_player.IsPullingOver && frame - grabFrame > 15)
+            {
+                faced &= VisualFacingDot(wallDirection) > 0.9f;
+                if (startY == null) { startY = _player.GlobalPosition.Y; startFrame = frame; }
+                lastY = _player.GlobalPosition.Y;
+                lastFrame = frame;
+            }
+            if (_player.PullOvers > pulls && !_player.IsClimbing && _player.IsOnFloor()) break;
+        }
+        _player.SetControlInput(Vector2.Zero);
+        var speed = startY is { } y0 && lastFrame > startFrame ? (lastY - y0) / ((lastFrame - startFrame) / 60.0f) : 0;
+        return (grabFrame, firstBlocked, speed, faced, upright);
+    }
+
+    private async Task TestClimbing()
+    {
+        var a = new Vector3(0, 0, -40);
+        Solid(a + new Vector3(0, -0.05f, 0), new BoxShape3D { Size = new Vector3(6, 0.1f, 6) });
+        // A vertical face 25 cm tall (a cottage wall, a cliff), its west face at x = -1.15.
+        Solid(a + new Vector3(-1.0f, 0.125f, 0), new BoxShape3D { Size = new Vector3(0.3f, 0.25f, 0.6f) });
+        // A 70 degree face 25 cm tall with a plateau on top, its foot at x = -1.15.
+        var run70 = 0.25f / Mathf.Tan(Mathf.DegToRad(70));
+        Solid(a + new Vector3(0, 0, 1.2f), Prism(0.3f, new Vector2(-1.15f, 0), new Vector2(-0.85f, 0), new Vector2(-0.85f, 0.25f), new Vector2(-1.15f + run70, 0.25f)));
+        // A walkable 40 degree ramp with a top, its foot at x = -1.15.
+        var rise40 = 0.3f * Mathf.Tan(Mathf.DegToRad(40));
+        Solid(a + new Vector3(0, 0, -1.2f), Prism(0.3f, new Vector2(-1.15f, 0), new Vector2(-0.55f, 0), new Vector2(-0.55f, rise40), new Vector2(-0.85f, rise40)));
+        await Frames(3);
+        var facingEast = new Vector3(0, -Mathf.Pi * 0.5f, 0);
+
+        // The vertical face: walk in, grab after a deliberate push, climb slowly facing it, pull over the top.
+        Check(_player.TryTeleportTo(a + new Vector3(-1.5f, 0.003f, 0)), "the climbing fixture admits the player");
+        _player.Rotation = facingEast;
+        var (grab, blocked, speed, faced, upright) = await ClimbUntilOver(Vector3.Right, 600);
+        var top = _player.GlobalPosition - a;
+        Report(grab > 0 && blocked >= 0 && grab - blocked >= Mathf.FloorToInt(_player.ClimbGrabDelayS * 60) - 1,
+            $"walking into a vertical face grabs it only after a deliberate push ({(grab - blocked) / 60.0f:0.00} s against it)");
+        Report(speed > 0.10f && speed < 0.13f, $"the body climbs a vertical face slowly, against a walk of {_player.WalkSpeedMps:0.00} m/s (climb {speed:0.000} m/s)");
+        Check(faced && upright, "while climbing the visible body faces the face; the capsule and the eye stay upright");
+        Report(_player.IsOnFloor() && !_player.IsClimbing && Mathf.Abs(top.Y - 0.25f) < 0.006f && top.X > -1.15f + 0.01f,
+            $"at the top the body pulls itself over and stands on the ledge (feet at {Text(top)})");
+
+        // Letting go: jump kicks the body off the face, and it lands below.
+        Check(_player.TryTeleportTo(a + new Vector3(-1.5f, 0.003f, 0)), "back to the foot of the vertical face");
+        _player.Rotation = facingEast;
+        _player.SetControlInput(new Vector2(0, 1));
+        for (var i = 0; i < 300 && !(_player.IsClimbing && _player.GlobalPosition.Y - a.Y > 0.08f); i++) await Frames(1);
+        var held = _player.GlobalPosition;
+        var releases = _player.ClimbReleases;
+        _player.SetControlInput(Vector2.Zero, jump: true);
+        await Frames(2);
+        _player.SetControlInput(Vector2.Zero);
+        var awayFrames = 0;
+        for (; awayFrames < 120 && !_player.IsOnFloor(); awayFrames++) await Frames(1);
+        Report(_player.ClimbReleases == releases + 1 && !_player.IsClimbing && _player.IsOnFloor() && _player.GlobalPosition.X < held.X - 0.01f && _player.GlobalPosition.Y - a.Y < 0.01f,
+            $"jump lets go with a kick away from the face and the body lands below (from {held.Y - a.Y:0.000} m, {_player.GlobalPosition.X - held.X:0.000} m back, {awayFrames} frames)");
+
+        // Climbing down to the foot of the face steps off into walking.
+        Check(_player.TryTeleportTo(a + new Vector3(-1.5f, 0.003f, 0)), "back to the foot again");
+        _player.Rotation = facingEast;
+        _player.SetControlInput(new Vector2(0, 1));
+        for (var i = 0; i < 300 && !(_player.IsClimbing && _player.GlobalPosition.Y - a.Y > 0.06f); i++) await Frames(1);
+        _player.SetControlInput(new Vector2(0, -1));
+        var down = 0;
+        for (; down < 120 && _player.IsClimbing; down++) await Frames(1);
+        await Frames(10);
+        _player.SetControlInput(Vector2.Zero);
+        Check(!_player.IsClimbing && _player.IsOnFloor() && _player.GlobalPosition.Y - a.Y < 0.006f, $"climbing down to the ground steps off into walking ({down} frames)");
+
+        // A 70 degree face: climbed along its slope and topped out onto the plateau.
+        Check(_player.TryTeleportTo(a + new Vector3(-1.5f, 0.003f, 1.2f)), "the 70 degree face's foot admits the player");
+        _player.Rotation = facingEast;
+        (grab, _, speed, faced, _) = await ClimbUntilOver(Vector3.Right, 600);
+        top = _player.GlobalPosition - a;
+        Report(grab > 0 && faced && _player.IsOnFloor() && Mathf.Abs(top.Y - 0.25f) < 0.006f,
+            $"a 70 degree face is climbed (rising {speed:0.000} m/s) and topped out onto its plateau (feet at {Text(top)})");
+
+        // No grab from a walkable slope: pushing into the 40 degree ramp's foot, and walking up it (from past its crease,
+        // as the jitter suite does: the crease from flat ground to 40 degrees holds the body, as it did before climbing).
+        Check(_player.TryTeleportTo(a + new Vector3(-1.5f, 0.003f, -1.2f)), "the walkable ramp's foot admits the player");
+        _player.Rotation = facingEast;
+        var grabs = _player.Grabs;
+        _player.SetControlInput(new Vector2(0, 1));
+        await Frames(150);
+        var pushedFoot = _player.Grabs == grabs && !_player.IsClimbing;
+        Check(_player.TryTeleportTo(a + new Vector3(-1.10f, 0.06f, -1.2f)), "the player stands on the walkable ramp");
+        _player.Rotation = facingEast;
+        _player.SetControlInput(new Vector2(0, 1));
+        await Frames(90);
+        _player.SetControlInput(Vector2.Zero);
+        await Frames(10);
+        Report(pushedFoot && _player.Grabs == grabs && _player.IsOnFloor() && _player.GlobalPosition.Y - a.Y > rise40 - 0.01f,
+            $"a walkable 40 degree slope is never grabbed: pushed into at its foot, and walked up to its top (feet at {Text(_player.GlobalPosition - a)})");
+
+        // Brushing along a face at a shallow angle never grabs it.
+        Check(_player.TryTeleportTo(a + new Vector3(-1.175f, 0.003f, -0.28f)), "the player stands beside the vertical face");
+        var along = new Vector3(Mathf.Sin(Mathf.DegToRad(30)), 0, Mathf.Cos(Mathf.DegToRad(30)));
+        _player.Rotation = new Vector3(0, Mathf.Atan2(-along.X, -along.Z), 0);
+        grabs = _player.Grabs;
+        _player.SetControlInput(new Vector2(0, 1));
+        await Frames(100);
+        _player.SetControlInput(Vector2.Zero);
+        Check(_player.Grabs == grabs && !_player.IsClimbing, "walking along a face, 30 degrees into it, brushes past without grabbing");
+
+        // Carrying: climbing takes both hands.
+        Check(_player.TryTeleportTo(a + new Vector3(-1.5f, 0.003f, 0)), "back to the vertical face to carry");
+        _player.Rotation = facingEast;
+        _player.HandsFull = () => true;
+        grabs = _player.Grabs;
+        _player.SetControlInput(new Vector2(0, 1));
+        await Frames(150);
+        _player.SetControlInput(Vector2.Zero);
+        _player.HandsFull = null;
+        Check(_player.Grabs == grabs && !_player.IsClimbing && _player.GlobalPosition.Y - a.Y < 0.006f, "a body carrying something does not grab a face");
+
+        // Low gravity: a leap into a face grabs it in mid-air.
+        Check(_player.SetWorldPhysics(Preset("room_floaty", _player.WorldPhysicsRevision + 1)), "floaty gravity for the leap");
+        Check(_player.TryTeleportTo(a + new Vector3(-1.27f, 0.003f, 0)), "the player stands a few centimetres from the face");
+        _player.Rotation = facingEast;
+        await Frames(5);
+        grabs = _player.Grabs;
+        _player.SetControlInput(new Vector2(0, 1), jump: true);
+        var grabbedAt = float.NaN;
+        for (var i = 0; i < 120 && float.IsNaN(grabbedAt); i++)
+        {
+            await Frames(1);
+            if (_player.Grabs > grabs) grabbedAt = _player.GlobalPosition.Y - a.Y;
+        }
+        _player.SetControlInput(Vector2.Zero, jump: true);
+        await Frames(2);
+        _player.SetControlInput(Vector2.Zero);
+        for (var i = 0; i < 300 && !_player.IsOnFloor(); i++) await Frames(1);
+        Report(grabbedAt > 0.02f, $"in floaty gravity a leap into a face grabs it in mid-air (at {grabbedAt:0.000} m)");
+        Check(_player.SetWorldPhysics(Preset("room_tuned", _player.WorldPhysicsRevision + 1)), "back to tuned gravity");
+        await Frames(10);
+
+        // A face that starts above a step, at head height (a crown lobe hanging over a perch, a ledge's underside): the
+        // body pushing into it is grabbed and climbed, never left stuck (Lane P fix round: the old single ray at 2.4 cm missed it).
+        Solid(a + new Vector3(-1.0f, 0.175f, 2.4f), new BoxShape3D { Size = new Vector3(0.3f, 0.25f, 0.6f) });
+        await Frames(2);
+        Check(_player.TryTeleportTo(a + new Vector3(-1.5f, 0.003f, 2.4f)), "the player stands before a face that starts 5 cm up");
+        _player.Rotation = facingEast;
+        (grab, _, _, _, _) = await ClimbUntilOver(Vector3.Right, 600);
+        top = _player.GlobalPosition - a;
+        Report(grab > 0 && _player.IsOnFloor() && Mathf.Abs(top.Y - 0.30f) < 0.006f,
+            $"a face starting at head height is grabbed and climbed to its top, never a trap (feet at {Text(top)})");
+
+        // The bounds' top holds a climber: no pull-over onto a ledge where the head would leave the room.
+        Check(_player.SetPlayableBounds(new Aabb(a + new Vector3(-3, -1, -3), new Vector3(6, 1.0f + 0.25f + _player.BodyHeightM - 0.02f, 6))), "bounds whose top is 2 cm under a head standing on the face's top");
+        Check(_player.TryTeleportTo(a + new Vector3(-1.5f, 0.003f, 0)), "back to the vertical face under the low bounds");
+        _player.Rotation = facingEast;
+        var pullsUnderTop = _player.PullOvers;
+        var highestHead = float.MinValue;
+        _player.SetControlInput(new Vector2(0, 1));
+        for (var i = 0; i < 360; i++)
+        {
+            await Frames(1);
+            highestHead = Mathf.Max(highestHead, _player.GlobalPosition.Y + _player.BodyHeightM - a.Y);
+        }
+        _player.SetControlInput(Vector2.Zero, jump: true);
+        await Frames(2);
+        _player.SetControlInput(Vector2.Zero);
+        await Frames(60);
+        Report(_player.PullOvers == pullsUnderTop && highestHead <= 0.25f + _player.BodyHeightM - 0.02f + 0.001f,
+            $"the bounds' top holds a climber: no pull-over that would lift the head out of the room (highest head {highestHead:0.000} m, bound {0.25f + _player.BodyHeightM - 0.02f:0.000} m)");
+        Check(_player.SetPlayableBounds(new Aabb(new Vector3(-1000, -100, -1000), new Vector3(2000, 200, 2000))), "the bounds open again");
+
+        // Creation forces act on a climber: a lift carries it up along the face, a push away from the face lets it go.
+        Check(_player.TryTeleportTo(a + new Vector3(-1.5f, 0.003f, 0)), "back to the vertical face for creation forces");
+        _player.Rotation = facingEast;
+        _player.SetControlInput(new Vector2(0, 1));
+        for (var i = 0; i < 300 && !(_player.IsClimbing && _player.GlobalPosition.Y - a.Y > 0.05f); i++) await Frames(1);
+        _player.SetControlInput(Vector2.Zero);
+        await Frames(5);
+        var hung = _player.GlobalPosition;
+        _player.SetCreationEffects(new Vector3(0, 0.15f, 0), 0, new Callable(this, MethodName.AllowAll));
+        await Frames(60);
+        var lifted = _player.GlobalPosition.Y - hung.Y;
+        var stillClimbing = _player.IsClimbing;
+        _player.SetCreationEffects(new Vector3(-3.0f, 0, 0), 0, new Callable(this, MethodName.AllowAll));
+        var pushedOff = false;
+        for (var i = 0; i < 60 && !pushedOff; i++) { await Frames(1); pushedOff = !_player.IsClimbing; }
+        await Frames(10);
+        _player.SetCreationEffects(Vector3.Zero, 0, new Callable());
+        for (var i = 0; i < 300 && !_player.IsOnFloor(); i++) await Frames(1);
+        Report(lifted > 0.03f && stillClimbing && pushedOff && _player.GlobalPosition.X < hung.X - 0.01f,
+            $"a creation lift carries a climber up the face ({lifted * 100:0.0} cm in 1 s, still climbing {stillClimbing}) and a push away from the face lets it go (let go {pushedOff}, {(hung.X - _player.GlobalPosition.X) * 100:0.0} cm away)");
+    }
+
+    public bool AllowAll(Vector3 position) => true;
+
+    /// <summary>
+    /// A pool, 20 cm deep with its water 2 cm below the rim: a shelving 20 degree shore on the west, a vertical bank on the
+    /// east. Its surface is the room's kind of water collider (RoomWater, layer 4).
+    /// </summary>
+    private async Task TestSwimming()
+    {
+        var b = new Vector3(0, 0, -50);
+        const float surface = -0.02f;
+        const float bed = -0.2f;
+        Solid(b + new Vector3(-1.0f, -0.125f, 0), new BoxShape3D { Size = new Vector3(2.0f, 0.25f, 3.0f) });
+        Solid(b + new Vector3(2.2f, -0.125f, 0), new BoxShape3D { Size = new Vector3(2.0f, 0.25f, 3.0f) });
+        Solid(b + new Vector3(0.6f, -0.125f, -1.0f), new BoxShape3D { Size = new Vector3(1.2f, 0.25f, 1.0f) });
+        Solid(b + new Vector3(0.6f, -0.125f, 1.0f), new BoxShape3D { Size = new Vector3(1.2f, 0.25f, 1.0f) });
+        Solid(b + new Vector3(0.6f, -0.225f, 0), new BoxShape3D { Size = new Vector3(1.2f, 0.05f, 1.0f) });
+        Solid(b, Prism(0.5f, new Vector2(0, 0), new Vector2(0, bed), new Vector2(0.55f, bed)));
+        var sheet = new SurfaceTool();
+        sheet.Begin(Mesh.PrimitiveType.Triangles);
+        foreach (var corner in new[] { new Vector2(0, -0.5f), new Vector2(1.2f, -0.5f), new Vector2(1.2f, 0.5f), new Vector2(0, -0.5f), new Vector2(1.2f, 0.5f), new Vector2(0, 0.5f) })
+            sheet.AddVertex(new Vector3(corner.X, surface, corner.Y));
+        var water = RoomWater.CreateCollider(new[] { ((Shape3D)sheet.Commit().CreateTrimeshShape(), Transform3D.Identity) });
+        water.Position = b;
+        AddChild(water);
+        await Frames(3);
+
+        // RoomWater's questions, and everything else looking straight through the water.
+        var space = GetWorld3D().DirectSpaceState;
+        var middle = b + new Vector3(0.8f, 0, 0);
+        var above = RoomWater.SurfaceAbove(space, middle + Vector3.Up * (bed + 0.01f));
+        var below = RoomWater.SurfaceBelow(space, middle + Vector3.Up * 0.3f);
+        var depth = RoomWater.DepthAt(space, middle + Vector3.Up * surface);
+        Report(above is { } up && Mathf.Abs(up - surface) < 0.001f && below is { } dn && Mathf.Abs(dn - surface) < 0.001f && Mathf.Abs(depth - (surface - bed)) < 0.002f,
+            $"RoomWater finds the surface from below and above and the depth to the bed (above {above:0.000}, below {below:0.000}, depth {depth:0.000} m)");
+        // A pond's rim: the exported sheet ends a few millimetres under or over the bank (Lane C's check of the garage). Standing
+        // there is dry ground, not water with no bed.
+        foreach (var (rimX, rimY) in new[] { (-0.5f, -0.003f), (-0.2f, 0.003f) })
+        {
+            var rimSheet = new SurfaceTool();
+            rimSheet.Begin(Mesh.PrimitiveType.Triangles);
+            foreach (var corner in new[] { new Vector2(-0.1f, -1.2f), new Vector2(0.1f, -1.2f), new Vector2(0.1f, -1.0f), new Vector2(-0.1f, -1.2f), new Vector2(0.1f, -1.0f), new Vector2(-0.1f, -1.0f) })
+                rimSheet.AddVertex(new Vector3(rimX + corner.X, rimY, corner.Y));
+            var rim = RoomWater.CreateCollider(new[] { ((Shape3D)rimSheet.Commit().CreateTrimeshShape(), Transform3D.Identity) });
+            rim.Position = b;
+            AddChild(rim);
+        }
+        await Frames(2);
+        var underRim = RoomWater.At(space, b + new Vector3(-0.5f, 0.001f, -1.1f), 0.4f, 0.02f);
+        var overRim = RoomWater.At(space, b + new Vector3(-0.2f, 0.001f, -1.1f), 0.4f, 0.02f);
+        var stillPool = RoomWater.At(space, middle + Vector3.Up * (bed + 0.001f), 0.4f, 0.02f);
+        Check(!underRim.Wet && !overRim.Wet && stillPool.Wet && Mathf.Abs(stillPool.DepthM - (surface - bed)) < 0.002f,
+            "at a pond's rim, where the sheet ends 3 mm under or over the bank, the ground is dry; the pool is still water to its bed");
+        var anyRay = space.IntersectRay(PhysicsRayQueryParameters3D.Create(middle + Vector3.Up * 0.3f, middle + Vector3.Down * 0.5f));
+        var worldRay = space.IntersectRay(PhysicsRayQueryParameters3D.Create(middle + Vector3.Up * 0.3f, middle + Vector3.Down * 0.5f, 1));
+        Check(anyRay.Count > 0 && Mathf.Abs(anyRay["position"].AsVector3().Y - bed) < 0.001f && worldRay.Count > 0 && Mathf.Abs(worldRay["position"].AsVector3().Y - bed) < 0.001f,
+            "a default ray (every layer, no areas) and a world-layer ray pass through the water to the bed: sight, reach, drops and the sun never meet it");
+        var poolNavigation = RoomNavigation.Create(this, this, new Aabb(b + new Vector3(-0.4f, -0.3f, -0.45f), new Vector3(2.0f, 0.5f, 0.9f)), WorldScaleProfile.Companion, 0.01f);
+        for (var i = 0; i < 30 && !poolNavigation.IsReady; i++) await Frames(1);
+        var onBed = poolNavigation.ClosestPoint(middle + Vector3.Up * (bed + 0.01f));
+        var onWater = poolNavigation.ClosestPoint(middle + Vector3.Up * surface);
+        Report(poolNavigation.IsReady && Mathf.Abs(onBed.Y - (b.Y + bed)) < 0.03f && onWater.DistanceTo(middle + Vector3.Up * surface) > 0.1f,
+            $"the navigation bake ignores the water: the pool's walkable floor is its bed (y {onBed.Y - b.Y:0.000} m), and nothing walkable lies on the surface (nearest {onWater.DistanceTo(middle + Vector3.Up * surface):0.000} m away)");
+        poolNavigation.QueueFree();
+
+        // Wade in down the shelving shore: slower as the water deepens, then swimming at the surface where it is over the head.
+        Check(_player.TryTeleportTo(b + new Vector3(-0.35f, 0.003f, 0)), "the swimming fixture admits the player");
+        _player.Rotation = new Vector3(0, -Mathf.Pi * 0.5f, 0);
+        var starts = _player.SwimStarts;
+        var dry = 0.0f;
+        var wading = 0.0f;
+        var wadeDepth = 0.0f;
+        var swimStartX = float.NaN;
+        var previous = _player.GlobalPosition;
+        _player.SetControlInput(new Vector2(0, 1));
+        for (var i = 0; i < 240 && _player.GlobalPosition.X - b.X < 0.6f; i++)
+        {
+            await Frames(1);
+            var here = _player.GlobalPosition;
+            var planar = new Vector2(here.X - previous.X, here.Z - previous.Z).Length() * 60;
+            previous = here;
+            var under = _player.Water.Under(here);
+            if (here.X - b.X < -0.08f && here.X - b.X > -0.25f) dry = planar;
+            if (!_player.IsSwimming && under > 0.035f && under < 0.05f && _player.IsOnFloor()) { wading = planar; wadeDepth = under; }
+            if (float.IsNaN(swimStartX) && _player.SwimStarts > starts) swimStartX = here.X - b.X;
+        }
+        var swimSpeedFrom = _player.GlobalPosition;
+        await Frames(30);
+        var swim = new Vector2(_player.GlobalPosition.X - swimSpeedFrom.X, _player.GlobalPosition.Z - swimSpeedFrom.Z).Length() * 2;
+        var feet = _player.GlobalPosition.Y - b.Y;
+        var tilt = Mathf.RadToDeg(Mathf.Acos(Mathf.Clamp(_player.GetNode<Node3D>("OriginalPrototypeBody").GlobalBasis.Y.Normalized().Dot(Vector3.Up), -1, 1)));
+        Report(wading > 0 && wading < dry * 0.9f && wading > dry * 0.6f, $"wading slows the body gradually ({wading:0.000} m/s in {wadeDepth * 100:0.0} cm of water, {dry:0.000} m/s dry)");
+        Report(_player.IsSwimming && !float.IsNaN(swimStartX) && swimStartX > 0.2f && swimStartX < 0.4f,
+            $"water over the head floats the body: it swims from x={swimStartX:0.00} m, where the water is {(-(bed / 0.55f) * swimStartX) - (-surface):0.000} m deep");
+        Report(swim > _player.WalkSpeedMps * 0.5f && swim < _player.WalkSpeedMps * 0.7f, $"swimming is slower than walking ({swim:0.000} m/s, {swim / _player.WalkSpeedMps:0.00} of the walk)");
+        Report(Mathf.Abs(feet - (surface - _player.SwimFloatDepthM)) < 0.008f && feet + 0.087f > surface + 0.015f,
+            $"the swimmer stays at the surface with the eye above the water (feet {feet:0.000} m, eye {feet + 0.087f - surface:0.000} m above the surface)");
+        Report(tilt > 60f && tilt < 85f && _player.GlobalBasis.Y.Dot(Vector3.Up) > 0.9999f && _player.EyeCamera.GlobalBasis.Y.Dot(Vector3.Up) > 0.999f,
+            $"the visible body tips to lie along the water ({tilt:0} degrees); the capsule and the eye stay upright");
+
+        // Swim on into the steep east bank: grab it and climb out.
+        var grabs = _player.Grabs;
+        var pulls = _player.PullOvers;
+        _player.SetControlInput(new Vector2(0, 1));
+        for (var i = 0; i < 900 && !(_player.PullOvers > pulls && _player.IsOnFloor() && !_player.IsClimbing); i++) await Frames(1);
+        _player.SetControlInput(Vector2.Zero);
+        var outside = _player.GlobalPosition - b;
+        Report(_player.Grabs > grabs && _player.IsOnFloor() && !_player.IsSwimming && Mathf.Abs(outside.Y) < 0.006f && outside.X > 1.2f,
+            $"swimming into a steep bank grabs it and climbs out onto the land (feet at {Text(outside)})");
+
+        // Back into deep water, then out up the shelving shore on foot.
+        _player.GlobalPosition = b + new Vector3(0.8f, surface - _player.SwimFloatDepthM, 0);
+        _player.Velocity = Vector3.Zero;
+        _player.Rotation = new Vector3(0, Mathf.Pi * 0.5f, 0);
+        await Frames(10);
+        grabs = _player.Grabs;
+        var swimming = _player.IsSwimming;
+        _player.SetControlInput(new Vector2(0, 1));
+        for (var i = 0; i < 900 && _player.GlobalPosition.X - b.X > -0.15f; i++) await Frames(1);
+        _player.SetControlInput(Vector2.Zero);
+        await Frames(10);
+        Report(swimming && _player.Grabs == grabs && !_player.IsSwimming && _player.IsOnFloor() && Mathf.Abs(_player.GlobalPosition.Y - b.Y) < 0.006f,
+            $"a swimmer walks out up a shelving shore (feet at {Text(_player.GlobalPosition - b)})");
+
+        // Climbing down a bank into deep water hands the body to swimming before the eye goes under: a wall 22 cm above the
+        // water on the east bank, its face running on down to the bed.
+        Solid(b + new Vector3(1.35f, 0.1f, -0.35f), new BoxShape3D { Size = new Vector3(0.3f, 0.2f, 0.2f) });
+        await Frames(2);
+        _player.GlobalPosition = b + new Vector3(1.2f - _player.BodyRadiusM - 0.0015f, 0.06f, -0.35f);
+        _player.Velocity = Vector3.Zero;
+        _player.Rotation = new Vector3(0, -Mathf.Pi * 0.5f, 0);
+        grabs = _player.Grabs;
+        _player.SetControlInput(new Vector2(0, 1));
+        for (var i = 0; i < 30 && _player.Grabs == grabs; i++) await Frames(1);
+        var grabbedBank = _player.Grabs > grabs;
+        _player.SetControlInput(new Vector2(0, -1));
+        var eyeUnder = 0;
+        var handedOver = false;
+        for (var i = 0; i < 240 && !handedOver; i++)
+        {
+            await Frames(1);
+            if (_player.GlobalPosition.Y + _player.EyeCamera.Position.Y < b.Y + surface - 0.001f) eyeUnder++;
+            handedOver = _player.IsSwimming && !_player.IsClimbing;
+        }
+        _player.SetControlInput(Vector2.Zero);
+        await Frames(60);
+        Report(grabbedBank && handedOver && eyeUnder == 0 && _player.IsSwimming,
+            $"climbing down a bank into deep water hands the body to swimming, the eye never under (grabbed {grabbedBank}, handed over {handedOver}, ticks with the eye under: {eyeUnder})");
+
+        // Creation forces act on a swimmer: a push carries it across the water.
+        var drifting = _player.GlobalPosition;
+        _player.SetCreationEffects(new Vector3(-0.6f, 0, 0), 0, new Callable(this, MethodName.AllowAll));
+        await Frames(60);
+        _player.SetCreationEffects(Vector3.Zero, 0, new Callable());
+        var drift = drifting.X - _player.GlobalPosition.X;
+        Report(drift > 0.05f && _player.IsSwimming, $"a creation push carries a swimmer across the water ({drift * 100:0.0} cm in 1 s)");
+
+        // Dry ground under a raised basin of water stays dry: walking under it never swims.
+        Solid(b + new Vector3(-1.0f, 0.27f, 1.0f), new BoxShape3D { Size = new Vector3(0.4f, 0.02f, 0.4f) });
+        var basinSheet = new SurfaceTool();
+        basinSheet.Begin(Mesh.PrimitiveType.Triangles);
+        foreach (var corner in new[] { new Vector2(-1.2f, 0.8f), new Vector2(-0.8f, 0.8f), new Vector2(-0.8f, 1.2f), new Vector2(-1.2f, 0.8f), new Vector2(-0.8f, 1.2f), new Vector2(-1.2f, 1.2f) })
+            basinSheet.AddVertex(new Vector3(corner.X, 0.38f, corner.Y));
+        var basin = RoomWater.CreateCollider(new[] { ((Shape3D)basinSheet.Commit().CreateTrimeshShape(), Transform3D.Identity) });
+        basin.Position = b;
+        AddChild(basin);
+        await Frames(2);
+        Check(_player.TryTeleportTo(b + new Vector3(-1.5f, 0.003f, 1.0f)), "the player stands beside a raised basin");
+        _player.Rotation = new Vector3(0, -Mathf.Pi * 0.5f, 0);
+        var swamDry = 0;
+        _player.SetControlInput(new Vector2(0, 1));
+        for (var i = 0; i < 180; i++)
+        {
+            await Frames(1);
+            if (_player.IsSwimming) swamDry++;
+        }
+        _player.SetControlInput(Vector2.Zero);
+        Report(swamDry == 0 && _player.IsOnFloor() && _player.GlobalPosition.X - b.X > -0.7f,
+            $"walking under a raised basin of water never swims (swimming ticks {swamDry}, ends at {Text(_player.GlobalPosition - b)})");
+
+        // A high, fast fall into deep water: the water catches the body before the eye goes under, every tick.
+        // Six drop heights 1.5 cm apart, so one of them meets the surface just after a tick and moves 9 cm through it in the next.
+        Check(_player.SetWorldPhysics(Preset("room_real", _player.WorldPhysicsRevision + 1)), "real gravity for the high fall");
+        var underTicks = 0;
+        var impact = 0.0f;
+        var allSwimming = true;
+        for (var drop = 0; drop < 6; drop++)
+        {
+            _player.GlobalPosition = b + new Vector3(0.8f, 1.5f + drop * 0.015f, 0);
+            _player.Velocity = Vector3.Zero;
+            for (var i = 0; i < 100; i++)
+            {
+                await Frames(1);
+                impact = Mathf.Max(impact, -_player.Velocity.Y);
+                if (_player.GlobalPosition.Y + _player.EyeCamera.Position.Y < b.Y + surface - 0.001f) underTicks++;
+            }
+            allSwimming &= _player.IsSwimming;
+        }
+        Report(underTicks == 0 && allSwimming, $"six 1.5 m falls into deep water at {impact:0.0} m/s never put the eye under, at any tick (ticks under: {underTicks})");
+
+        // A fall into deep water lands in it, in all three gravities: no fall recovery, and the body floats back up.
+        foreach (var preset in new[] { "room_tuned", "room_real", "room_floaty" })
+        {
+            Check(_player.SetWorldPhysics(Preset(preset, _player.WorldPhysicsRevision + 1)), $"{preset} gravity for the fall");
+            _player.GlobalPosition = b + new Vector3(0.8f, 0.35f, 0);
+            _player.Velocity = Vector3.Zero;
+            var recoveries = _player.Recoveries;
+            var lowest = float.MaxValue;
+            var fastest = 0.0f;
+            for (var i = 0; i < 300; i++)
+            {
+                await Frames(1);
+                lowest = Mathf.Min(lowest, _player.GlobalPosition.Y - b.Y);
+                fastest = Mathf.Max(fastest, -_player.Velocity.Y);
+            }
+            var at = _player.GlobalPosition - b;
+            Report(_player.IsSwimming && lowest > bed + 0.005f && Mathf.Abs(at.X - 0.8f) < 0.01f && Mathf.Abs(at.Y - (surface - _player.SwimFloatDepthM)) < 0.008f && _player.Recoveries == recoveries,
+                $"{preset}: a 35 cm fall into deep water is broken by it ({fastest:0.00} m/s, deepest feet {lowest:0.000} m over a bed at {bed:0.00}) and floats back to the surface");
+            if (preset != "room_tuned") continue;
+            // Jump at the surface: a leap out with the land jump's take-off, and back into the water.
+            var jumps = _player.JumpsStarted;
+            var highest = float.MinValue;
+            _player.SetControlInput(Vector2.Zero, jump: true);
+            for (var i = 0; i < 120; i++)
+            {
+                await Frames(1);
+                highest = Mathf.Max(highest, _player.GlobalPosition.Y - b.Y);
+            }
+            Report(_player.JumpsStarted == jumps + 1 && highest > surface - _player.SwimFloatDepthM + 0.05f && _player.IsSwimming,
+                $"jump at the surface leaps out of the water (feet up to {highest:0.000} m) and the water takes the body back");
+        }
+        Check(_player.SetWorldPhysics(Preset("room_tuned", _player.WorldPhysicsRevision + 1)), "back to tuned gravity after the falls");
+        Check(_player.TryTeleportTo(new Vector3(-2, 0.003f, 3.2f)) && !_player.IsSwimming, "a teleport out of the water ends the swim");
+        await Frames(10);
+    }
+
+    private static string Text(Vector3 v) => string.Create(CultureInfo.InvariantCulture, $"({v.X:0.000}, {v.Y:0.000}, {v.Z:0.000})");
+
+    /// <summary>
+    /// A tree as Codex brief 19 exports it, through RoomData and RoomBuilder: a drawn bark trunk, a hidden climbing pole
+    /// ("drawn": false) continuing it up through the leaves to just below the crown's top, and a hidden one-sided cap on the
+    /// crown. Written as a copy of the test room with the tree's meshes added as pinned GLB files. The builder must leave
+    /// the hidden parts out of the scene and keep their collision one-sided; a climber goes up the trunk and the pole,
+    /// passes up through the cap from inside, and stands on top.
+    /// </summary>
+    private async Task TestClimbableTree()
+    {
+        const string roomPath = "user://tests/lane_p_tree/test_room";
+        var directory = ProjectSettings.GlobalizePath(roomPath);
+        if (System.IO.Directory.Exists(directory)) System.IO.Directory.Delete(directory, true);
+        System.IO.Directory.CreateDirectory(directory + "/shell");
+        var source = ProjectSettings.GlobalizePath("res://rooms/test_room");
+        foreach (var file in System.IO.Directory.GetFiles(source + "/objects", "*.json", System.IO.SearchOption.AllDirectories))
+        {
+            var target = directory + "/objects/" + System.IO.Path.GetRelativePath(source + "/objects", file).Replace('\\', '/');
+            System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(target)!);
+            System.IO.File.Copy(file, target);
+        }
+        // The tree stands on the test room's floor at (1.2, 0, 1.0): trunk 15 cm, pole to 30 cm, crown top 32 cm.
+        var foot = new Vector3(1.5f, 0, 1.0f);
+        var trunk = new MeshInstance3D { Mesh = new CylinderMesh { TopRadius = 0.02f, BottomRadius = 0.02f, Height = 0.15f, RadialSegments = 12, Rings = 1 }, Position = foot + Vector3.Up * 0.075f };
+        var pole = new MeshInstance3D { Mesh = new CylinderMesh { TopRadius = 0.012f, BottomRadius = 0.012f, Height = 0.15f, RadialSegments = 8, Rings = 1 }, Position = foot + Vector3.Up * 0.225f };
+        var cap = new SurfaceTool();
+        cap.Begin(Mesh.PrimitiveType.Triangles);
+        const int segments = 12;
+        var apex = foot + Vector3.Up * 0.32f;
+        for (var i = 0; i < segments; i++)
+        {
+            Vector3 Rim(int k) => foot + new Vector3(Mathf.Cos(k * Mathf.Tau / segments) * 0.12f, 0.27f, Mathf.Sin(k * Mathf.Tau / segments) * 0.12f);
+            var (p, q) = (Rim(i), Rim(i + 1));
+            var outward = (q - apex).Cross(p - apex).Normalized();
+            if (outward.Y < 0) outward = -outward;
+            // Godot's front faces wind clockwise seen from the front (RoomBuilder.Triangle): outward and upward only.
+            if ((p - apex).Cross(q - apex).Dot(outward) > 0) (p, q) = (q, p);
+            foreach (var vertex in new[] { apex, p, q }) { cap.SetNormal(outward); cap.AddVertex(vertex); }
+        }
+        var crown = new MeshInstance3D { Mesh = cap.Commit() };
+        var puddle = new SurfaceTool();
+        puddle.Begin(Mesh.PrimitiveType.Triangles);
+        foreach (var corner in new[] { new Vector2(-1.6f, -1.2f), new Vector2(-1.2f, -1.2f), new Vector2(-1.2f, -0.8f), new Vector2(-1.6f, -1.2f), new Vector2(-1.2f, -0.8f), new Vector2(-1.6f, -0.8f) })
+            puddle.AddVertex(new Vector3(corner.X, 0.01f, corner.Y));
+        var water = new MeshInstance3D { Mesh = puddle.Commit() };
+        var added = new List<(string Id, string File, MeshInstance3D Mesh, bool Drawn, bool Collides, string Role, string Material)>
+        {
+            ("shell:test_tree_bark", "shell/test_tree_bark.glb", trunk, true, true, "ground", "bark"),
+            ("shell:tree_climb_bark", "shell/tree_climb_bark.glb", pole, false, true, "ground", "bark"),
+            ("shell:tree_climb_foliage", "shell/tree_climb_foliage.glb", crown, false, true, "ground", "foliage"),
+            ("shell:test_puddle", "shell/test_puddle.glb", water, true, false, "backdrop", "water"),
+        };
+        var manifest = System.Text.Json.Nodes.JsonNode.Parse(System.IO.File.ReadAllText(source + "/room.json"))!.AsObject();
+        var parts = manifest["shell"]!["parts"]!.AsArray();
+        var files = manifest["files"]!.AsArray();
+        foreach (var (id, file, mesh, drawn, collides, role, material) in added)
+        {
+            var holder = new Node3D { Name = "Export" };
+            AddChild(holder);
+            holder.AddChild(mesh);
+            var document = new GltfDocument();
+            var state = new GltfState();
+            document.AppendFromScene(holder, state);
+            var bytes = document.GenerateBuffer(state);
+            holder.QueueFree();
+            System.IO.File.WriteAllBytes(directory + "/" + file, bytes);
+            var part = new System.Text.Json.Nodes.JsonObject
+            {
+                ["id"] = id, ["role"] = role, ["geometry"] = new System.Text.Json.Nodes.JsonObject { ["kind"] = "mesh", ["mesh"] = file },
+                ["collides"] = collides, ["material_role"] = material, ["base_color"] = "#6f5a44",
+            };
+            if (!drawn) part["drawn"] = false;
+            parts.Add(part);
+            files.Add(new System.Text.Json.Nodes.JsonObject { ["path"] = file, ["sha256"] = System.Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes)).ToLowerInvariant(), ["bytes"] = bytes.Length });
+        }
+        System.IO.File.WriteAllText(directory + "/room.json", manifest.ToJsonString(), new UTF8Encoding(false));
+        RoomData room;
+        try { room = RoomData.Load(roomPath); }
+        catch (System.Exception error)
+        {
+            Check(false, "the test room with a climbable tree loads: " + error.Message);
+            return;
+        }
+        Check(room.Shell.Single(p => p.Id == "shell:tree_climb_bark").Drawn == false && room.Shell.Single(p => p.Id == "shell:test_tree_bark").Drawn,
+            "RoomData reads \"drawn\": false, and a part without it is drawn");
+        var built = RoomBuilder.Build(room);
+        built.Position = new Vector3(0, 0, -70);
+        AddChild(built);
+        await Frames(3);
+        Node3D Part(string id) => built.GetNode<Node3D>("Shell/" + RoomBuilder.NodeName(id));
+        bool Visible(Node3D node) => node.FindChildren("*", "MeshInstance3D", true, false).Count > 0;
+        IEnumerable<ConcavePolygonShape3D> Concave(Node3D node) => node.GetChildren().OfType<CollisionShape3D>().Select(c => c.Shape).OfType<ConcavePolygonShape3D>();
+        Check(!Visible(Part("shell:tree_climb_bark")) && !Visible(Part("shell:tree_climb_foliage")) && Visible(Part("shell:test_tree_bark")) && Visible(Part("shell:test_puddle")),
+            "the builder never shows a part that is not drawn, and shows the rest");
+        Check(Concave(Part("shell:tree_climb_bark")).Any() && Concave(Part("shell:tree_climb_foliage")).Any() &&
+              new[] { "shell:test_tree_bark", "shell:tree_climb_bark", "shell:tree_climb_foliage" }.SelectMany(id => Concave(Part(id))).All(s => !s.BackfaceCollision),
+            "collision-only parts keep their collision, and mesh collision is built one-sided (backface_collision off)");
+        var puddleArea = Part("shell:test_puddle").GetNodeOrNull<Area3D>(RoomWater.ColliderName);
+        Check(puddleArea != null && puddleArea.CollisionLayer == RoomWater.Layer && !puddleArea.Monitoring && Part("shell:test_puddle") is not CollisionObject3D,
+            "a water part gets a query-only collider on the water layer, and no body");
+        var puddleDepth = RoomWater.DepthAt(GetWorld3D().DirectSpaceState, built.Position + new Vector3(-1.4f, 0.02f, -1.0f));
+        Report(Mathf.Abs(puddleDepth - 0.01f) < 0.001f, $"RoomWater measures the built room's water (a 1 cm puddle: {puddleDepth * 100:0.00} cm)");
+        // Refused: a part neither drawn nor colliding.
+        var refused = manifest.DeepClone().AsObject();
+        refused["shell"]!["parts"]!.AsArray().Add(new System.Text.Json.Nodes.JsonObject
+        {
+            ["id"] = "shell:nothing", ["role"] = "backdrop", ["geometry"] = new System.Text.Json.Nodes.JsonObject { ["kind"] = "mesh", ["mesh"] = "shell/tree_climb_bark.glb" },
+            ["collides"] = false, ["drawn"] = false, ["material_role"] = "bark",
+        });
+        System.IO.File.WriteAllText(directory + "/room.json", refused.ToJsonString(), new UTF8Encoding(false));
+        var refusedMessage = "";
+        try { RoomData.Load(roomPath); }
+        catch (RoomLoadException error) { refusedMessage = error.Message; }
+        Check(refusedMessage.Contains("neither drawn nor collides"), "a part neither drawn nor colliding is refused: " + refusedMessage);
+
+        // The climb: up the trunk, up the hidden pole through the leaves, up through the one-sided cap, standing on top.
+        var tree = built.Position + foot;
+        Check(_player.TryTeleportTo(tree + new Vector3(-0.3f, 0.003f, 0)), "the player stands west of the tree");
+        _player.Rotation = new Vector3(0, -Mathf.Pi * 0.5f, 0);
+        var grabs = _player.Grabs;
+        var pulls = _player.PullOvers;
+        var highestClimbing = 0.0f;
+        var frames = 0;
+        _player.SetControlInput(new Vector2(0, 1));
+        for (; frames < 900 && !(_player.PullOvers > pulls && _player.IsOnFloor() && !_player.IsClimbing); frames++)
+        {
+            await Frames(1);
+            if (_player.IsClimbing) highestClimbing = Mathf.Max(highestClimbing, _player.GlobalPosition.Y - tree.Y);
+        }
+        _player.SetControlInput(Vector2.Zero);
+        await Frames(30);
+        var onTop = _player.GlobalPosition - tree;
+        var capHeight = 0.32f - 0.05f * new Vector2(onTop.X, onTop.Z).Length() / 0.12f;
+        Report(_player.Grabs > grabs && _player.PullOvers > pulls && _player.IsOnFloor() && onTop.Y > 0.29f && Mathf.Abs(onTop.Y - capHeight) < 0.01f,
+            $"a climber goes up the trunk and the hidden pole, up through the one-sided cap from inside, and stands on top (feet at {Text(onTop)}, the cap there at {capHeight:0.000} m; climbed to {highestClimbing:0.000} m in {frames / 60.0f:0.0} s)");
+        // From above, the cap holds: a body dropped on it from 10 cm lands on it instead of passing through.
+        _player.GlobalPosition = tree + new Vector3(0.04f, 0.42f, 0);
+        _player.Velocity = Vector3.Zero;
+        await Frames(90);
+        var landed = _player.GlobalPosition - tree;
+        Report(_player.IsOnFloor() && landed.Y > 0.29f, $"a body falling onto the crown lands on the cap (feet at {Text(landed)})");
+        Check(_player.TryTeleportTo(new Vector3(-2, 0.003f, 3.2f)), "back to the companion route after the tree");
+        built.QueueFree();
+        await Frames(5);
+        System.IO.Directory.Delete(ProjectSettings.GlobalizePath("user://tests/lane_p_tree"), true);
+    }
+
     // ---- Jitter: the spike's scenarios, measured on a separate probe body ----
 
     /// <summary>VerticalSpread and Drift are in body-scale metres; Roughness is the largest and RMS second
@@ -784,6 +1401,8 @@ public partial class SmallAvatarPhysicsTest : Node3D
         public override void _Ready()
         {
             ReadKeyboard = false;
+            // The jitter scenarios measure walking: pushing into the book's side must stay a push, not a climb.
+            CanClimb = false;
             WalkSpeedMps *= WorldScale; RunSpeedMps *= WorldScale;
             GroundAccelerationMps2 *= WorldScale; AirAccelerationMps2 *= WorldScale;
             JumpApexM *= WorldScale; MaxJumpApexM *= WorldScale; StepHeightM *= WorldScale; FloorSnapM *= WorldScale; SafeMarginM *= WorldScale;

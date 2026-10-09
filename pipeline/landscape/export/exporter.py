@@ -8,6 +8,7 @@ from pipeline.landscape.harness.package import read_package
 from .materials import CONTRACT_ROLES, PALETTE, hex_color, material
 from .mesh import encode, ground, open_edges, transform
 from .source import source_data
+from .trees import TerrainHeights, climbing_parts, is_tree
 
 CREATED = '2026-10-08T00:00:00Z'
 LANDMARKS = {'cottage', 'tower', 'boulder', 'fence', 'crate', 'lantern'}
@@ -28,8 +29,8 @@ def scatter_policy(name, parts, size):
 
 
 def colliding_parts(name, parts):
-    # Small plants stay decorative. Tree foliage remains decorative too; only
-    # the simple kit trunk (bark cone) collides. Loose kit rocks are low-poly
+    # Small plants stay decorative. Original foliage is still visual only;
+    # tree climbing geometry is added separately. Loose kit rocks are low-poly
     # ellipsoids, merged into one static triangle surface rather than 20k nodes.
     roles = {p['role'] for p in parts}
     if roles & {'foliage', 'bark'}:
@@ -61,7 +62,7 @@ def export_room(package_folder, source_room_folder, room_id, out):
         blobs[path] = data
         return {'path': path, 'sha256': sha(data), 'bytes': len(data)}
 
-    def add_shell(label, parts, role, collides):
+    def add_shell(label, parts, role, collides, drawn=True):
         # One part per role gives the existing loader the closest contract role
         # instead of treating every surface of the landscape as one material.
         groups = {}
@@ -74,10 +75,29 @@ def export_room(package_folder, source_room_folder, room_id, out):
                           'geometry': {'kind': 'mesh', 'mesh': path}, 'collides': collides,
                           'material_role': CONTRACT_ROLES[harness_role],
                           'base_color': hex_color(PALETTE[harness_role])})
+            if not drawn:
+                shell[-1]['drawn'] = False
         counts[label+'_triangles'] = triangle_count(parts)
 
     terrain = [p for r in doc['terrain'] for p in meshes[r['mesh']]]
     add_shell('terrain', terrain, 'ground', True)
+    tree_terrain = None
+    tree_parts = []
+    counts.update(tree_count=0, tree_pole_triangles=0, tree_cap_triangles=0)
+
+    def add_tree(name, transformed, include_trunk=False):
+        nonlocal tree_terrain
+        if not is_tree(name, transformed):
+            return
+        if tree_terrain is None:
+            tree_terrain = TerrainHeights(terrain)
+        climb = climbing_parts(name, transformed, tree_terrain)
+        counts['tree_count'] += 1
+        counts['tree_pole_triangles'] += triangle_count(climb[:1])
+        counts['tree_cap_triangles'] += triangle_count(climb[1:])
+        tree_parts.extend(climb)
+        if include_trunk:
+            tree_parts.extend(p for p in transformed if p['role'] == 'bark')
     # The harness overrides water primitive roles using each water record.
     water = [dict(p, role='still_water' if r['kind'] == 'still' else 'flowing_water')
              for r in doc['water'] for p in meshes[r['mesh']]]
@@ -105,6 +125,8 @@ def export_room(package_folder, source_room_folder, room_id, out):
         parts, original_size = get_prototype(name)
         size = ([original_size[i]*record['scale'][i] for i in range(3)] if scatter else record['size_m'])
         movable = False if scatter else record['carriable']
+        tree = is_tree(name, parts)
+        require(not tree or not movable, 'climbable trees must be fixed (static shell collision)')
         mass = 100.0 if scatter else record['mass_kg']
         require(0 < mass <= 5000, 'object mass must fit asset contract (0,5000] kg')
         require(not movable or mass <= 2.0, 'carriable object exceeds companion carry limit (2 kg)')
@@ -125,7 +147,7 @@ def export_room(package_folder, source_room_folder, room_id, out):
         asset_dir = f'objects/{asset_id}'
         geometry = put(asset_dir+'/mesh.glb', encode(scaled))
         geometry['path'] = 'mesh.glb'
-        collision = 'none' if not colliding_parts(name, parts) and not movable else 'box'
+        collision = 'none' if tree or (not colliding_parts(name, parts) and not movable) else 'box'
         # A canopy box would block paths and collide with every leaf. Vegetation
         # never becomes a landmark entity; populated vegetation uses decoration
         # collision unless explicitly carriable.
@@ -152,6 +174,9 @@ def export_room(package_folder, source_room_folder, room_id, out):
         if name == 'lantern':
             asset['affordances'].append('light_source')
         put(asset_dir+'/asset.json', canonical(asset))
+        if tree:
+            add_tree(name, transform(parts, [size[i]/original_size[i] for i in range(3)],
+                                     record['position_m'], record['yaw_deg']), include_trunk=True)
         _, support = support_at(record['position_m'])
         angle = math.radians(record['yaw_deg'])/2
         objects.append({'id': instance_id, 'asset': asset_dir+'/asset.json', 'display_name': display,
@@ -176,10 +201,15 @@ def export_room(package_folder, source_room_folder, room_id, out):
         # normals, obtained equivalently from transformed face cross products.
         transformed = transform(parts, record['scale'], record['position_m'], record['yaw_deg'],
                                 record.get('tint', (1, 1, 1)))
+        add_tree(name, transformed)
         for source_part, p in zip(parts, transformed):
             (merged_solid if any(source_part is q for q in solid) else merged_visual).append(p)
     add_shell('scatter_visual', merged_visual, 'backdrop', False)
     add_shell('scatter_solid', merged_solid, 'ground', True)
+    # Two merged shell parts regardless of tree count. Lane P hides their GLB
+    # scenes after extracting one-sided trimesh collision (see README/report).
+    # Collision only: the trees' own meshes stay the drawn ones.
+    add_shell('tree_climb', tree_parts, 'ground', True, drawn=False)
     require(len(shell) <= 128, 'output exceeds room shell part limit (128)')
     require(len(blobs) <= 2048, 'output exceeds room file limit (2048)')
     require(len({o['id'] for o in objects}) == len(objects), 'populated id collides with generated scatter entity id')

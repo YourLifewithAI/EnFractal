@@ -133,6 +133,10 @@ public partial class CompanionAvatar : SmallPlayerController
     public override void _Ready()
     {
         ReadKeyboard = false;
+        // The Gubble never climbs or swims (founder, 8 October): it will float over water and up cliffs instead (Lane P,
+        // part 2). Until then its body walks exactly as before, unslowed by water.
+        CanClimb = false;
+        CanSwim = false;
         WalkSpeedMps = CompanionWalkMps;
         RunSpeedMps = CompanionRunMps;
         GroundAccelerationMps2 = CompanionGroundAccelerationMps2;
