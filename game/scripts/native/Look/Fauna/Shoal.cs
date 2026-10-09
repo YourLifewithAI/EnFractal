@@ -48,8 +48,8 @@ public sealed class School
 public sealed class Shoal
 {
     // ---- where fish live (metres; the 10 cm avatar's world) ----
-    /// <summary>A school's home needs water at least this deep (the brief's starting point was 6 cm; 4.5 cm lets today's garage tarn, 5.6 cm at its deepest, hold a school).</summary>
-    public const float HomeDepthM = 0.045f;
+    /// <summary>A school's home needs water at least this deep. The founder (8 October): back to 6 cm once ponds are deep (C6's garage tarn is 23 cm).</summary>
+    public const float HomeDepthM = 0.06f;
     /// <summary>Fish swim anywhere at least this deep, and turn back where it shallows.</summary>
     public const float SwimDepthM = 0.03f;
     /// <summary>A pond needs at least this much home water for any fish, and gets one school per AreaPerSchoolM2 of it.</summary>

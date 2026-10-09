@@ -12,7 +12,7 @@ namespace EnFractal.Native.Look.Fauna;
 /// <code>
 /// var ponds = PondLife.Create(Room.RoomId, Built);
 /// AddChild(ponds);
-/// ponds.SetAvatars(Player, Companion);
+/// ponds.SetAvatars(Player);
 /// </code>
 /// On its first physics frame it surveys the water (PondSurvey: the water shell parts, beds by a downward ray to the world
 /// layer) and places the fish (Shoal: deterministic from the room's id and its water). Every fish is one instance of one
@@ -41,7 +41,8 @@ public partial class PondLife : Node3D
 
     public static PondLife Create(string roomId, Node3D built) => new() { Name = "PondLife", _roomId = roomId, _built = built };
 
-    /// <summary>The bodies the fish dart away from: the player and the companion. Pass them again whenever they change.</summary>
+    /// <summary>The bodies the fish dart away from: the player. Never the Gubble (the companion): the founder (8 October) wants it set
+    /// apart from the world, "like a ghost only the player can see", so no animal reacts to it. Pass them again whenever they change.</summary>
     public void SetAvatars(params Node3D?[] avatars)
     {
         _avatars.Clear();
