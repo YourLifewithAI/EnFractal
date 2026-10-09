@@ -1702,6 +1702,44 @@ public partial class SmallAvatarPhysicsTest : Node3D
         Report(gubbleGap < 0.4f && _companion.HoversOverWater && _companion.GlobalPosition.Y > surface + 0.005f,
             $"the Gubble follows out over the open sea, hovering over it ({gubbleGap:0.00} m from the player, {(_companion.GlobalPosition.Y - b.Y - surface) * 100:0.0} cm over the water)");
 
+        // Diving, out in the open sea past the meshes (the founder's son: "dive into the water and swim down under the surface").
+        _companion.Follow();
+        var bedHere = sea.OpenSeaBedAt(new Vector2(_player.GlobalPosition.X, _player.GlobalPosition.Z));
+        var gubbleLowest = float.PositiveInfinity;
+        var diveStarts = _player.DiveStarts;
+        _player.SetDiveInput(true, false);
+        for (var i = 0; i < 180; i++) { await Frames(1); gubbleLowest = Mathf.Min(gubbleLowest, _companion.GlobalPosition.Y - b.Y); }
+        var dived = surface - (_player.GlobalPosition.Y - b.Y);
+        var eyeUnderWater = _player.EyeUnderWater;
+        var gubbleNear = PlanarDistance(_companion.GlobalPosition, _player.GlobalPosition);
+        Report(_player.IsDiving && _player.IsSwimming && eyeUnderWater && dived > 0.25f && _player.DiveStarts == diveStarts + 1 && gubbleLowest > surface + 0.005f && gubbleNear < 0.4f,
+            $"Ctrl dives: {dived * 100:0} cm under in 3 s, the eye under water, still swimming; the Gubble above the water all the while (lowest {(gubbleLowest - surface) * 100:0.0} cm over it, {gubbleNear:0.00} m away)");
+        var deepest = float.PositiveInfinity;
+        for (var i = 0; i < 600; i++) { await Frames(1); deepest = Mathf.Min(deepest, _player.GlobalPosition.Y - b.Y); gubbleLowest = Mathf.Min(gubbleLowest, _companion.GlobalPosition.Y - b.Y); }
+        Report(deepest >= bedHere - 0.001f && deepest < bedHere + 0.02f && _player.IsSwimming && gubbleLowest > surface + 0.005f,
+            $"held down, a diver reaches the open-sea bed, which has no collider, and never goes through it (deepest feet {deepest:0.000} m, the bed {bedHere:0.000} m)");
+        // Looking up and swimming on: W takes the diver the way they look.
+        _player.SetDiveInput(false, false);
+        _player.EyeCamera.Rotation = new Vector3(0.6f, 0, 0);
+        var lookStart = _player.GlobalPosition;
+        for (var i = 0; i < 120; i++) { _player.SetControlInput(new Vector2(0, 1)); await Frames(1); }
+        _player.SetControlInput(Vector2.Zero);
+        var swam = _player.GlobalPosition - lookStart;
+        Report(swam.Y > 0.08f && swam.X > 0.12f && _player.IsDiving,
+            $"looking up with W held, the diver swims up and on, the way they look ({Text(swam)} in 2 s)");
+        _player.EyeCamera.Rotation = Vector3.Zero;
+        // Let go: a slow drift up; then Space: up to the surface, floating there again.
+        await Frames(30);
+        var driftFrom = _player.GlobalPosition.Y;
+        await Frames(120);
+        var drift = _player.GlobalPosition.Y - driftFrom;
+        _player.SetDiveInput(false, true);
+        for (var i = 0; i < 600 && _player.IsDiving; i++) await Frames(1);
+        _player.SetDiveInput(false, false);
+        await Frames(60);
+        Report(drift > 0.04f && drift < 0.08f && !_player.IsDiving && _player.IsSwimming && Mathf.Abs(_player.GlobalPosition.Y - (surface - _player.SwimFloatDepthM)) < 0.01f && !_player.EyeUnderWater,
+            $"let go, a diver drifts slowly up ({drift * 100:0.0} cm in 2 s); Space brings them up to float at the surface again");
+
         // A worn glider (Codex Sol's review): the invention runtime sets its effect every tick while the body is inside the
         // room's bounds, with a guard that refuses anywhere outside them (creation_authority.gd _point_authorized), and clears it
         // outside. The guard took back every whole move across the old bounds, swimming included: a wall again.
