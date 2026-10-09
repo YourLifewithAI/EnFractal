@@ -157,10 +157,9 @@ public partial class LandscapePlayTest : Node3D
     private const float EdgeInsetM = 0.10f;
 
     /// <summary>
-    /// The island's edge on the generated garage (the founder, 9 October: "My daughter hates the invisible wall"). From the
-    /// water off a beach, out past the reef: a swimmer who stops is carried back by the current; one who swims on washes up on
-    /// the nearest beach, standing on the sand facing inland, with the bounds never holding them back; the Gubble comes too.
-    /// The bounds' top stands well over the highest land, and the Gubble sent out past the bounds stays inside them, hovering.
+    /// The open sea round the generated garage (the founder, 9 October: "the kids want to be able to swim forever"). From the
+    /// water off a beach, out past the reef, the bounds and the water meshes: nothing turns the swimmer back and the Gubble
+    /// follows; B takes them home to the jetty, standing and facing inland. The bounds' top stands well over the highest land.
     /// </summary>
     private async Task TestSeaEdge(RoomSea sea)
     {
@@ -199,42 +198,50 @@ public partial class LandscapePlayTest : Node3D
         Send(Command(NextId("follow"), "goal.set", new JsonObject { ["actor"] = CompanionAvatar, ["goal"] = "follow" }), Player);
         Check(companion.TryTeleportTo(beach.WashAshoreM + Vector3.Up * 0.01f), "the Gubble waits on the beach");
 
-        // The current: a swimmer who stops out there is carried back toward the island.
+        // The open sea: swim on out at the fast swim, past the reef, the playable water, the bounds and the water meshes,
+        // to 1.5 m past the bounds. Nothing carries the swimmer back or washes them ashore; the sea holds them up out there.
         player.SetControlInput(Vector2.Zero);
         player.GlobalPosition = start + Vector3.Down * player.SwimFloatDepthM;
         player.Velocity = Vector3.Zero;
         player.ResetPhysicsInterpolation();
-        await Frames(10);
-        var pastBefore = sea.PastReefM(new Vector2(player.GlobalPosition.X, player.GlobalPosition.Z));
-        var washes = player.WashAshores;
-        await Frames(240);
-        var pastAfter = sea.PastReefM(new Vector2(player.GlobalPosition.X, player.GlobalPosition.Z));
-        Measure($"LANDSCAPE_SEA a swimmer stopped {pastBefore:0.00} m past the reef is carried to {pastAfter:0.00} m in 4 s (swimming {player.IsSwimming}, current {player.SeaCurrent.Length():0.000} m/s)");
-        Check(player.IsSwimming && pastAfter < pastBefore - 0.05f && player.WashAshores == washes, "past the reef the current carries a swimmer who stops back toward the island");
-
-        // Swim on out: washed up on the nearest beach, standing, facing inland; the bounds never hold the swimmer back.
         player.Rotation = new Vector3(0, Mathf.Atan2(-outward.X, -outward.Z), 0);
+        await Frames(10);
+        var trips = player.HomeTrips;
         var stops = player.BoundsStops;
-        player.SetControlInput(new Vector2(0, 1));
         var frames = 0;
-        var left = Vector2.Zero;
-        for (; frames < 3600 && (player.WashAshores == washes || player.WashingAshore); frames++)
+        var dry = 0;
+        var eyeUnder = 0;
+        var beyond = float.NegativeInfinity;
+        for (; frames < 3600 && beyond < 1.5f; frames++)
         {
+            player.SetControlInput(new Vector2(0, 1), sprint: true);
             await Frames(1);
-            if (player.WashAshores == washes) left = new Vector2(player.GlobalPosition.X, player.GlobalPosition.Z);
+            beyond = Outside(bounds, player.GlobalPosition, 0);
+            if (!player.IsSwimming) dry++;
+            if (player.Water.Wet && player.GlobalPosition.Y + player.EyeCamera.Position.Y < player.Water.SurfaceY - 0.001f) eyeUnder++;
         }
         player.SetControlInput(Vector2.Zero);
-        await Frames(30);
-        var nearest = sea.NearestBeach(left)!.Value;
-        var landed = player.GlobalPosition - nearest.WashAshoreM;
-        Measure($"LANDSCAPE_SEA swam out {frames / 60.0f:0.0} s and washed up on {player.LastBeachId} (nearest to where it left the water: {nearest.Id}), {new Vector2(landed.X, landed.Z).Length():0.00} m from its spot, facing {Mathf.RadToDeg(player.Rotation.Y):0} deg, on floor {player.IsOnFloor()}, bound stops {player.BoundsStops - stops}");
-        Check(player.WashAshores == washes + 1 && player.LastBeachId == nearest.Id && player.IsOnFloor() && !player.IsSwimming && new Vector2(landed.X, landed.Z).Length() < 0.15f &&
-            Mathf.Abs(Mathf.AngleDifference(player.Rotation.Y, Mathf.DegToRad(nearest.YawDeg))) < 0.01f && player.BoundsStops == stops,
-            "swimming on past the current, the player washes up on the nearest beach, standing on the sand facing inland, never held by the bounds");
+        await Frames(60);
         var gap = PlanarDistance(companion.GlobalPosition, player.GlobalPosition);
-        Check(gap < 0.4f, $"the Gubble comes too ({gap:0.00} m from the player)");
+        Measure($"LANDSCAPE_SEA swam out {frames / 60.0f:0.0} s to {beyond:0.00} m past the bounds: taken home {player.HomeTrips - trips} times, bound stops {player.BoundsStops - stops}, ticks not swimming {dry}, eye under {eyeUnder}; " +
+                $"the water {player.Water.DepthM:0.00} m deep there; the Gubble {gap:0.00} m away, {(companion.GlobalPosition.Y - sea.LevelM) * 100:0.0} cm over the water");
+        Check(beyond >= 1.5f && player.HomeTrips == trips && player.BoundsStops == stops && dry == 0 && eyeUnder == 0 && player.IsSwimming,
+            "the sea has no edge: the swimmer swims on past the reef, the bounds and the water meshes, held up by the open sea, never turned back or washed ashore");
+        Check(gap < 0.4f && companion.HoversOverWater && companion.GlobalPosition.Y > sea.LevelM + 0.005f, "the Gubble follows out over the open sea, hovering over it");
 
-        // The Gubble sent a metre past the bounds over the open sea: it stays inside them, hovering over the water.
+        // B, out there: home to the jetty's landward end, standing, facing inland; the Gubble beside.
+        Check(player.RequestHome(), "B starts the way home");
+        await Frames(100);
+        var jetty = sea.JettyData;
+        var inland = jetty is { } j ? new Vector3(j.RootM.X - j.EndM.X, 0, j.RootM.Z - j.EndM.Z).Normalized() : Vector3.Zero;
+        var fromRoot = jetty is { } k ? PlanarDistance(player.GlobalPosition, k.RootM) : float.NaN;
+        gap = PlanarDistance(companion.GlobalPosition, player.GlobalPosition);
+        Measure($"LANDSCAPE_SEA B: home to {player.LastHome}, {fromRoot:0.00} m from the jetty's root at {(jetty is { } r ? Text(r.RootM) : "none")}, facing {Mathf.RadToDeg(player.Rotation.Y):0} deg (inland {Mathf.RadToDeg(Mathf.Atan2(-inland.X, -inland.Z)):0}), on floor {player.IsOnFloor()}; the Gubble {gap:0.00} m away");
+        Check(jetty != null && player.HomeTrips == trips + 1 && player.LastHome == "jetty" && fromRoot < 0.25f && player.IsOnFloor() && !player.IsSwimming &&
+              Mathf.Abs(Mathf.AngleDifference(player.Rotation.Y, Mathf.Atan2(-inland.X, -inland.Z))) < 0.01f && gap < 0.4f,
+            "B takes the player home from the open sea: standing at the jetty's landward end, facing inland, the Gubble beside");
+
+        // The Gubble sent past the bounds over the open sea: it floats out there, hovering over the water.
         var far = start + outward * 10;
         companion.GoTo(new Aabb(new Vector3(Mathf.Clamp(far.X, bounds.Position.X - 1, bounds.End.X + 1), sea.LevelM, Mathf.Clamp(far.Z, bounds.Position.Z - 1, bounds.End.Z + 1)), Vector3.Zero), CommandHost.GoToStopM);
         var worstOut = float.NegativeInfinity;
@@ -246,7 +253,7 @@ public partial class LandscapePlayTest : Node3D
             if (companion.HoversOverWater) lowest = Mathf.Min(lowest, companion.GlobalPosition.Y - sea.LevelM);
         }
         Measure($"LANDSCAPE_SEA the Gubble sent past the bounds over the sea: furthest {worstOut * 100:0.0} cm past, lowest {lowest * 100:0.0} cm over the water, intent {companion.CurrentIntent}, blocked {companion.GoalBlocked}");
-        Check(worstOut <= 0.001f && lowest > 0.005f && companion.WashAshores == 0, "the Gubble floats out over the sea and is never lost: inside the bounds, over the water");
+        Check(lowest > 0.005f && companion.HoversOverWater, "the Gubble floats out over the open sea past the bounds, hovering over the water");
         companion.Stop();
         Check(player.TryTeleportTo(_world.Room.SpawnFor("player").PositionM) && companion.TryTeleportTo(_world.Room.SpawnFor("companion").PositionM), "both bodies back at their spawns");
         player.Rotation = new Vector3(0, Mathf.DegToRad(_world.Room.SpawnFor("player").YawDeg), 0);
@@ -501,15 +508,22 @@ public partial class LandscapePlayTest : Node3D
     /// centimetres of it along one of eight headings, and standable terrain at its top 6 to 30 cm higher, well inside the
     /// bounds, with nothing over any of it (a tree's crown over the foot is a tree, not a cliff: the fix round found the
     /// search had been standing the body on crown caps).
+    /// <para>
+    /// Two kinds are left out (Lane P, the open sea round). A foot under the sea is a swimmer's bank, never walked to. And a
+    /// top lower than the face's crest is no top: past a knife-edge ridge the line falls away down its far side, and the
+    /// gentler ground down there is not where a climber pulls over (the reshaped garage's (-2.39, 0.068, 1.07): a crest
+    /// 22 cm up, 44 to 59 degrees beyond it, beside a 50 cm needle the climber went on up and fell from).
+    /// </para>
     /// </summary>
     private List<Cliff> FindCliffs()
     {
         var bounds = _world.Room.Bounds;
+        var seaLevel = _world.Room.Sea?.LevelM ?? float.NegativeInfinity;
         var found = new List<Cliff>();
         for (var x = bounds.Position.X + 0.4f; x < bounds.End.X - 0.4f; x += 0.1f)
             for (var z = bounds.Position.Z + 0.4f; z < bounds.End.Z - 0.4f; z += 0.1f)
             {
-                if (FirstFromAbove(x, z) is not { Terrain: true } foot || foot.Slope > 30f) continue;
+                if (FirstFromAbove(x, z) is not { Terrain: true } foot || foot.Slope > 30f || foot.Point.Y < seaLevel) continue;
                 for (var heading = 0; heading < 8; heading++)
                 {
                     var direction = new Vector3(Mathf.Cos(heading * Mathf.Pi / 4), 0, Mathf.Sin(heading * Mathf.Pi / 4));
@@ -517,6 +531,7 @@ public partial class LandscapePlayTest : Node3D
                     var faceStarted = false;
                     var flat = 0;
                     Vector3? top = null;
+                    var crest = float.NegativeInfinity;
                     for (var r = 0.02f; r <= 0.5f; r += 0.01f)
                     {
                         var at = foot.Point + direction * r;
@@ -527,6 +542,9 @@ public partial class LandscapePlayTest : Node3D
                             else if (r > 0.05f) break;
                             continue;
                         }
+                        // Over a crest and down its far side: not a cliff with a top.
+                        if (here.Point.Y < crest - 0.02f) { top = null; break; }
+                        crest = Mathf.Max(crest, here.Point.Y);
                         steepest = Mathf.Max(steepest, here.Slope);
                         if (here.Slope <= 35f) { flat++; top ??= here.Point; if (flat >= 5) break; }
                         else if (here.Slope > 45f) { flat = 0; top = null; }
@@ -745,9 +763,14 @@ public partial class LandscapePlayTest : Node3D
             return;
         }
         var player = _world.Player;
+        var companion = _world.Companion;
         var hud = _world.GetNode<RoomHud>("RoomHud");
         hud.SetViewMode(1);
         Check(player.TryTeleportTo(tree.Start), "the player back at the foot of the tree, for the keys");
+        // The founder's video (9 October): the Gubble on follow beside this climb shook, its HUD line flipping every few frames.
+        Send(Command(NextId("follow"), "goal.set", new JsonObject { ["actor"] = CompanionAvatar, ["goal"] = "follow" }), Player);
+        var side = new Vector3(-tree.Toward.Z, 0, tree.Toward.X) * EnFractal.Native.CompanionAvatar.FollowSideM;
+        if (!companion.TryTeleportTo(tree.Start + side)) companion.TryTeleportTo(tree.Start - side);
         player.Rotation = new Vector3(0, Mathf.Atan2(-tree.Toward.X, -tree.Toward.Z), 0);
         await Frames(10);
         var camera = player.GetNode<SpringArm3D>("FollowCameraArm").GetNode<Camera3D>("FollowCamera");
@@ -763,9 +786,14 @@ public partial class LandscapePlayTest : Node3D
         player.ReadKeyboard = true;
         Input.ParseInputEvent(new InputEventKey { PhysicalKeycode = Key.W, Keycode = Key.W, Pressed = true });
         var lastY = player.GlobalPosition.Y;
+        var floatStarts = companion.FloatStarts;
+        var wasFloating = companion.FloatingThere;
+        var hudFlips = 0;
         for (; frames < 1800 && !(player.PullOvers > pulls && player.IsOnFloor() && !player.IsClimbing); frames++)
         {
             await Frames(1);
+            if (companion.FloatingThere != wasFloating) hudFlips++;
+            wasFloating = companion.FloatingThere;
             var y = player.GlobalPosition.Y;
             // Once on the trunk, the mouse turns the view 25 degrees, as a player looking round does.
             if (player.IsClimbing && !turned)
@@ -797,6 +825,17 @@ public partial class LandscapePlayTest : Node3D
                 $"the follow camera came within {nearestCamera * 100:0.0} cm of the head (its arm is {player.BodyHeightM * 3.2f * 100:0} cm); standing on {(standingOn.Length > 0 ? standingOn : "nothing")}");
         Check(reached && downTicks == 0, "with the keys and the follow camera, a tree is climbed to its crown and W never carries the climber down");
         Check(nearestCamera > player.BodyHeightM * 3.2f * 0.5f, "the tree's hidden climbing parts never pull the follow camera in");
+        await Frames(90);
+        for (var i = 0; i < 90; i++)
+        {
+            await Frames(1);
+            if (companion.FloatingThere != wasFloating) hudFlips++;
+            wasFloating = companion.FloatingThere;
+        }
+        var level = companion.GlobalPosition.Y - player.GlobalPosition.Y;
+        Measure($"LANDSCAPE_TREE_GUBBLE on follow beside the keyed climb and 3 s on the crown: it started to float {companion.FloatStarts - floatStarts} times and its HUD line flipped {hudFlips} times; it ends {level * 100:0.0} cm off the player's height, {PlanarDistance(companion.GlobalPosition, player.GlobalPosition):0.00} m away");
+        Check(hudFlips <= 4 && Mathf.Abs(level) <= EnFractal.Native.CompanionAvatar.LevelGapM, "the Gubble follows a climber up a tree steadily and settles level with them on the crown");
+        companion.Stop();
         Check(player.TryTeleportTo(_world.Room.SpawnFor("player").PositionM), "the player back at the spawn after the keyed climb");
         await Frames(10);
     }

@@ -85,6 +85,7 @@ public partial class SmallAvatarPhysicsTest : Node3D
             await TestSwimming();
             await TestClimbableTree();
             await TestGubbleFloats();
+            await TestGubbleBesideAClimber();
             await TestSeaEdge();
             var metrics = await RunJitterSuite(1.0f, new Vector3(0, 0, 30));
             CheckJitter(metrics);
@@ -1529,10 +1530,92 @@ public partial class SmallAvatarPhysicsTest : Node3D
     }
 
     /// <summary>
-    /// The island's edge (the founder, 9 October: "My daughter hates the invisible wall"; no punishment at the edge). A 1 m
-    /// island in a 60 cm deep sea, its reef 1.2 m out and the playable water to 2 m, the room's bounds at 3 m. Past the reef a
-    /// current carries a swimmer who stops back toward the island; one who swims on washes up on the beach, standing on the
-    /// sand facing inland, without the bounds ever holding them back; the Gubble hovers over the sea out there and comes too.
+    /// The founder's video (9 October, 4 s on a conifer in the island garage, F2): while the player climbed, the HUD flipped
+    /// between "follow" and "follow · floating there" every few frames and the Gubble shook beside the player. A 50 cm cliff
+    /// with its own walkable map: the player climbs it with the Gubble on follow. Floating off to the side is fine; starting
+    /// to float again and again, flipping its mode and shaking up and down are not. Then it settles level with the player on top.
+    /// </summary>
+    private async Task TestGubbleBesideAClimber()
+    {
+        var b = new Vector3(0, 0, -100);
+        // The ground west of the cliff, and the cliff as a ridge, its west face at x = 0.1. The ground stops at the cliff's
+        // foot: under a box standing on a floor, the walkable map keeps the floor (Recast fills no solids), and the place
+        // beside the climber's foot snapped in there.
+        Solid(b + new Vector3(-0.65f, -0.05f, 0), new BoxShape3D { Size = new Vector3(1.5f, 0.1f, 3) });
+        Solid(b + new Vector3(0.3f, 0.2f, 0), new BoxShape3D { Size = new Vector3(0.4f, 0.6f, 3) });
+        var navigation = RoomNavigation.Create(this, this, new Aabb(b + new Vector3(-1.4f, -0.1f, -1.4f), new Vector3(2.8f, 0.8f, 2.8f)),
+            WorldScaleProfile.Companion, _companion.StepHeightM * 0.75f);
+        _companion.BindNavigation(navigation);
+        for (var i = 0; i < 240 && !navigation.IsReady; i++) await Frames(1);
+        Check(navigation.IsReady && _player.TryTeleportTo(b + new Vector3(-0.1f, 0.003f, 0)) && _companion.TryTeleportTo(b + new Vector3(-0.15f, 0.01f, 0.16f)),
+            "the climber's cliff has its walkable map; the player at its foot, the Gubble beside");
+        _player.Rotation = new Vector3(0, -Mathf.Pi * 0.5f, 0);
+        _companion.Follow();
+        await Frames(60);
+        var starts = _companion.FloatStarts;
+        var modeFlips = 0;
+        var restFlips = 0;
+        var shakes = 0;
+        var climbTicks = 0;
+        var wasFloating = _companion.FloatingThere;
+        var wasMoving = _companion.FollowMoving;
+        var lastY = _companion.GlobalPosition.Y;
+        var lastStep = 0.0f;
+        var widest = 0.0f;
+        var pulls = _player.PullOvers;
+        _player.SetControlInput(new Vector2(0, 1));
+        for (var i = 0; i < 900 && !(_player.PullOvers > pulls && _player.IsOnFloor() && !_player.IsClimbing); i++)
+        {
+            await Frames(1);
+            // From the push into the face (where the founder's HUD flickered too) to standing on top.
+            if (_player.IsClimbing) climbTicks++;
+            if (_companion.FloatingThere != wasFloating) modeFlips++;
+            if (_companion.FollowMoving != wasMoving) restFlips++;
+            wasFloating = _companion.FloatingThere;
+            wasMoving = _companion.FollowMoving;
+            // Shaking: the body's height turning from rising to sinking (or back) faster than the bob ever moves it.
+            var step = _companion.GlobalPosition.Y - lastY;
+            if (Mathf.Abs(step) > 0.0005f && Mathf.Abs(lastStep) > 0.0005f && step * lastStep < 0) shakes++;
+            if (Mathf.Abs(step) > 0.0005f) lastStep = step;
+            lastY = _companion.GlobalPosition.Y;
+            widest = Mathf.Max(widest, Mathf.Abs(_companion.GlobalPosition.Y - _player.GlobalPosition.Y));
+        }
+        _player.SetControlInput(Vector2.Zero);
+        var seconds = climbTicks / 60.0f;
+        var floatStarts = _companion.FloatStarts - starts;
+        Report(climbTicks > 120 && floatStarts <= 1 && modeFlips <= 2 && shakes <= 1,
+            $"beside a climber the Gubble floats up with them, steadily: walking in and {seconds:0.0} s of climbing, it started to float {floatStarts} times ({floatStarts / Mathf.Max(seconds, 0.01f):0.0} a second of climbing), " +
+            $"its mode flipped {modeFlips} times, follow stopped and started {restFlips} times, its height turned back {shakes} times; at most {widest * 100:0.0} cm off the climber's height");
+        // On top, at rest: level with the player, its mode settled, holding its height without sinking.
+        await Frames(120);
+        var settledFlips = 0;
+        wasFloating = _companion.FloatingThere;
+        var low = float.PositiveInfinity;
+        var high = float.NegativeInfinity;
+        for (var i = 0; i < 180; i++)
+        {
+            await Frames(1);
+            if (_companion.FloatingThere != wasFloating) settledFlips++;
+            wasFloating = _companion.FloatingThere;
+            low = Mathf.Min(low, _companion.GlobalPosition.Y);
+            high = Mathf.Max(high, _companion.GlobalPosition.Y);
+        }
+        var level = _companion.GlobalPosition.Y - _player.GlobalPosition.Y;
+        Report(_player.IsOnFloor() && _player.GlobalPosition.Y - b.Y > 0.45f && Mathf.Abs(level) <= CompanionAvatar.LevelGapM && settledFlips == 0 && high - low < 3 * SmallPlayerController.HoverBobM,
+            $"with the climber on top, the Gubble settles level with them ({level * 100:0.0} cm off) and stays put (mode flips {settledFlips}, height within {(high - low) * 1000:0.0} mm)");
+        _companion.BindNavigation(_navigation);
+        navigation.QueueFree();
+        _companion.Stop();
+        Check(_player.TryTeleportTo(new Vector3(-2, 0.003f, 3.2f)) && _companion.TryTeleportTo(new Vector3(0.5f, 0.01f, 3.2f)), "both bodies back on the open floor");
+        await Frames(10);
+    }
+
+    /// <summary>
+    /// The open sea (the founder, 9 October: "the kids want to be able to swim forever"; B goes home from anywhere). A 1 m
+    /// island in a 60 cm deep sea, its reef 1.2 m out, the playable water to 2 m, the room's bounds at 3 m and the water meshes
+    /// to 4 m. A swimmer swims on past all of them, nothing carries them, the water holds them up past the meshes and the
+    /// Gubble follows; B takes them to the jetty (else the beach, else the spawn), standing and facing inland, the Gubble too;
+    /// the far net takes them home hours out. Then the body's motion far out, where 32-bit positions get coarse.
     /// </summary>
     private async Task TestSeaEdge()
     {
@@ -1549,76 +1632,121 @@ public partial class SmallAvatarPhysicsTest : Node3D
         AddChild(water);
         Vector2[] Square(float half) => new[] { new Vector2(b.X - half, b.Z - half), new Vector2(b.X + half, b.Z - half), new Vector2(b.X + half, b.Z + half), new Vector2(b.X - half, b.Z + half) };
         var beach = new RoomSea.Beach("test_beach", b + new Vector3(0, 0.001f, 0.3f), 0, b + new Vector3(0, surface, 0.7f));
-        var sea = new RoomSea(surface, Square(0.5f), Square(1.2f), Square(2.0f), new[] { beach });
+        // The jetty runs out east from the island's edge; its landward end on the island, facing inland is facing west.
+        var jetty = new RoomSea.Jetty(b + new Vector3(0.4f, 0.0f, -0.2f), b + new Vector3(0.9f, 0.0f, -0.2f), -90, 0.16f, 0.0f);
+        var sea = new RoomSea(surface, Square(0.5f), Square(1.2f), Square(2.0f), new[] { beach }, jetty);
         await Frames(3);
-        // On the island first: anywhere outside the playable water (the suite's other floors) washes a body ashore at once.
         Check(_player.TryTeleportTo(b + new Vector3(-0.2f, 0.01f, 0.2f)) && _companion.TryTeleportTo(b + new Vector3(0.2f, 0.01f, -0.3f)), "both bodies on the island");
-        var washedBefore = _player.WashAshores;
         _player.SetSea(sea);
         _companion.SetSea(sea);
         Check(_player.SetPlayableBounds(new Aabb(b + new Vector3(-3, -1, -3), new Vector3(6, 3, 6))) && _companion.SetPlayableBounds(new Aabb(b + new Vector3(-3, -1, -3), new Vector3(6, 3, 6))),
             "the island's bounds lie out past the playable water");
         await Frames(3);
-        var current = sea.Current(new Vector2(b.X + 1.9f, b.Z), PlayerControllerCurrent);
-        Check(sea.Current(new Vector2(b.X + 1.0f, b.Z), 1).LengthSquared() == 0 && current.X < -0.05f && Mathf.Abs(current.Y) < 0.001f &&
-            sea.Current(new Vector2(b.X + 1.4f, b.Z), 1).Length() < sea.Current(new Vector2(b.X + 1.8f, b.Z), 1).Length(),
-            $"no current inside the reef; past it, toward the island, growing to the edge of the playable water ({current.X:0.000} m/s at 1.9 m)");
+        var openBed = sea.OpenSeaBedAt(new Vector2(b.X + 4.5f, b.Z));
+        Check(sea.OpenWater(GetWorld3D().DirectSpaceState, b + new Vector3(4.5f, surface - 0.06f, 0), 0.4f, 0.02f) is { Wet: true } open && Mathf.Abs(open.SurfaceY - surface) < 1e-5f && Mathf.Abs(open.BedY - openBed) < 1e-4f &&
+              !sea.OpenWater(GetWorld3D().DirectSpaceState, b + new Vector3(0.2f, surface - 0.06f, 0), 0.4f, 0.02f).Wet &&
+              sea.OpenWater(GetWorld3D().DirectSpaceState, b + new Vector3(3.0f, surface - 0.06f, 0), 0.4f, 0.02f) is { Wet: true } meshed && Mathf.Abs(meshed.BedY - (-0.6f)) < 0.001f,
+            $"past the island the sea answers where the meshes stop: its surface, over the ground there or the open-sea bed ({openBed:0.000} m at 4.5 m); inside the coast it is dry");
 
-        // The Gubble, sent out over the open sea past the playable water: it hovers over the water, never in it, and never washes ashore.
+        // The Gubble, sent out over the open sea past the bounds: it hovers over the water, never in it.
         Check(_companion.TryTeleportTo(b + new Vector3(0.2f, 0.01f, -0.3f)), "the Gubble on the island");
-        _companion.GoTo(new Aabb(b + new Vector3(2.4f, 0, -0.4f), Vector3.Zero), 0.08f);
+        _companion.GoTo(new Aabb(b + new Vector3(3.4f, 0, -0.4f), Vector3.Zero), 0.08f);
         var lowest = float.PositiveInfinity;
         for (var i = 0; i < 600 && _companion.CurrentIntent == "go_to"; i++)
         {
             await Frames(1);
             if (_companion.GlobalPosition.X - b.X > 0.6f) lowest = Mathf.Min(lowest, _companion.GlobalPosition.Y - b.Y);
         }
-        Report(_companion.CurrentIntent == "stay" && _companion.GlobalPosition.X - b.X > 2.2f && _companion.HoversOverWater && lowest > surface + 0.01f && _companion.WashAshores == 0,
-            $"the Gubble floats out over the sea past the playable water, hovering over it (lowest feet {lowest:0.000} m), and is not washed ashore");
+        Report(_companion.CurrentIntent == "stay" && _companion.GlobalPosition.X - b.X > 3.2f && _companion.HoversOverWater && lowest > surface + 0.01f,
+            $"the Gubble floats out over the sea past the bounds, hovering over it (lowest feet {lowest:0.000} m)");
 
-        // The current: a swimmer past the reef who stops is carried back toward the island.
-        _player.SetControlInput(Vector2.Zero);
-        _player.GlobalPosition = b + new Vector3(1.7f, surface - _player.SwimFloatDepthM, 0);
-        _player.Velocity = Vector3.Zero;
-        _player.ResetPhysicsInterpolation();
-        await Frames(10);
-        var drift = _player.GlobalPosition;
-        await Frames(180);
-        var carried = drift.X - _player.GlobalPosition.X;
-        Report(_player.IsSwimming && carried > 0.08f && _player.WashAshores == washedBefore,
-            $"past the reef a swimmer who stops is carried back toward the island ({carried * 100:0.0} cm in 3 s; the current {_player.SeaCurrent.X:0.000} m/s; swimming {_player.IsSwimming}, climbing {_player.IsClimbing}, at {Text(_player.GlobalPosition - b)}, water {_player.Water.DepthM:0.000} m deep)");
-
-        // Washing ashore: swim on out (at the plain swim, slower than the walk) past the current.
+        // Swim on out at the fast swim, past the reef, the playable water, the bounds and the water meshes.
         var stops = _player.BoundsStops;
-        var washes = _player.WashAshores;
+        var trips = _player.HomeTrips;
         _player.GlobalPosition = b + new Vector3(0.6f, surface - _player.SwimFloatDepthM, 0);
         _player.Velocity = Vector3.Zero;
         _player.ResetPhysicsInterpolation();
         _player.Rotation = new Vector3(0, -Mathf.Pi * 0.5f, 0);
         _companion.Follow();
-        _player.SetControlInput(new Vector2(0, 1));
         var furthest = 0.0f;
-        var darkest = 0.0f;
-        var deepest = float.PositiveInfinity;
+        var eyeUnder = 0;
+        var dry = 0;
         var frames = 0;
-        for (; frames < 1800 && (_player.WashAshores == washes || _player.WashingAshore); frames++)
+        for (; frames < 1500 && _player.GlobalPosition.X - b.X < 5.5f; frames++)
         {
+            _player.SetControlInput(new Vector2(0, 1), sprint: true);
             await Frames(1);
-            if (_player.WashAshores == washes) furthest = Mathf.Max(furthest, _player.GlobalPosition.X - b.X);
-            darkest = Mathf.Max(darkest, _player.WashAshoreFade);
-            deepest = Mathf.Min(deepest, _player.GlobalPosition.Y - b.Y);
+            furthest = Mathf.Max(furthest, _player.GlobalPosition.X - b.X);
+            if (_player.Water.Wet && _player.GlobalPosition.Y + _player.EyeCamera.Position.Y < _player.Water.SurfaceY - 0.001f) eyeUnder++;
+            if (!_player.IsSwimming) dry++;
         }
         _player.SetControlInput(Vector2.Zero);
-        await Frames(20);
-        var landed = _player.GlobalPosition - beach.WashAshoreM;
-        Report(_player.WashAshores == washes + 1 && _player.LastBeachId == "test_beach" && _player.IsOnFloor() && !_player.IsSwimming &&
-            new Vector2(landed.X, landed.Z).Length() < 0.15f && Mathf.Abs(Mathf.AngleDifference(_player.Rotation.Y, 0)) < 0.01f && darkest > 0.95f && deepest > -0.7f,
-            $"swimming on past the current, the swimmer washes up on the beach after a fade, standing on the sand facing inland (out to {furthest:0.00} m, after {frames / 60.0f:0.0} s; {Text(landed)} from the beach's spot; fade {darkest:0.00})");
-        Report(_player.BoundsStops == stops && furthest > 1.9f,
-            $"no invisible wall: the swimmer crossed where the old wall stood (the island's edge) out to {furthest:0.00} m without the bounds holding it back ({_player.BoundsStops - stops} bound stops)");
+        // The swim's own glide (3 cm from the fast swim) first, then three seconds of floating still.
+        await Frames(60);
+        var outAt = _player.GlobalPosition;
+        await Frames(180);
+        var drifted = PlanarDistance(_player.GlobalPosition, outAt);
         var gubbleGap = PlanarDistance(_companion.GlobalPosition, _player.GlobalPosition);
-        Report(gubbleGap < 0.3f && _companion.GlobalPosition.X - b.X < 0.6f,
-            $"the Gubble, out over the sea, comes ashore too, beside the player ({gubbleGap:0.00} m away)");
+        Report(_player.HomeTrips == trips && _player.BoundsStops == stops && furthest > 5.4f && _player.IsSwimming && dry == 0 && eyeUnder == 0 &&
+            Mathf.Abs(_player.GlobalPosition.Y - (surface - _player.SwimFloatDepthM)) < 0.01f,
+            $"the sea has no edge: a swimmer swims on past the reef, the playable water, the bounds and the water meshes, out to {furthest:0.00} m in {frames / 60.0f:0.0} s " +
+            $"(taken home {_player.HomeTrips - trips} times, bound stops {_player.BoundsStops - stops}, ticks not swimming {dry}, eye under {eyeUnder}; floating at {Text(_player.GlobalPosition - b)}, the water {_player.Water.DepthM:0.00} m deep)");
+        Report(drifted < 0.01f, $"out there nothing carries a swimmer who stops ({drifted * 100:0.0} cm in 3 s)");
+        Report(gubbleGap < 0.4f && _companion.HoversOverWater && _companion.GlobalPosition.Y > surface + 0.005f,
+            $"the Gubble follows out over the open sea, hovering over it ({gubbleGap:0.00} m from the player, {(_companion.GlobalPosition.Y - b.Y - surface) * 100:0.0} cm over the water)");
+
+        // B, out there: the fade, then standing at the jetty's landward end facing inland, and the Gubble beside.
+        Check(_player.RequestHome() && !_player.RequestHome(), "B starts the way home once (a second press on the way is refused)");
+        var darkest = 0.0f;
+        for (var i = 0; i < 90; i++) { await Frames(1); darkest = Mathf.Max(darkest, _player.HomeFade); }
+        var atJetty = _player.GlobalPosition - jetty.RootM;
+        var inlandYaw = Mathf.Atan2(1, 0);   // facing -X: west, from the jetty's end toward its root
+        Report(_player.HomeTrips == trips + 1 && _player.LastHome == "jetty" && _player.IsOnFloor() && !_player.IsSwimming && !_player.GoingHome &&
+            new Vector2(atJetty.X, atJetty.Z).Length() < 0.21f && Mathf.Abs(Mathf.AngleDifference(_player.Rotation.Y, inlandYaw)) < 0.01f && darkest > 0.95f &&
+            PlanarDistance(_companion.GlobalPosition, _player.GlobalPosition) < 0.3f,
+            $"B takes the swimmer home: standing at the jetty's landward end ({Text(atJetty)} from it) facing inland, after the fade ({darkest:0.00}); the Gubble beside ({PlanarDistance(_companion.GlobalPosition, _player.GlobalPosition):0.00} m)");
+
+        // Without a jetty, the nearest beach; without a sea, the spawn.
+        _player.SetSea(new RoomSea(surface, Square(0.5f), Square(1.2f), Square(2.0f), new[] { beach }));
+        _player.GlobalPosition = b + new Vector3(2.5f, surface - _player.SwimFloatDepthM, 0);
+        _player.ResetPhysicsInterpolation();
+        await Frames(5);
+        _player.RequestHome();
+        await Frames(80);
+        var atBeach = _player.GlobalPosition - beach.WashAshoreM;
+        var beachHome = _player.LastHome == "test_beach" && new Vector2(atBeach.X, atBeach.Z).Length() < 0.15f && _player.IsOnFloor();
+        _player.SetSea(null);
+        _player.ClearPlayableBounds();
+        _player.RequestHome();
+        await Frames(80);
+        Report(beachHome && _player.LastHome == "spawn" && _player.IsOnFloor() && PlanarDistance(_player.GlobalPosition, new Vector3(-2, 0, 3.2f)) < 0.15f,
+            $"with no jetty B goes to the nearest beach; with no sea, to the spawn (at {Text(_player.GlobalPosition)})");
+        _player.SetSea(sea);
+        _player.SetPlayableBounds(new Aabb(b + new Vector3(-3, -1, -3), new Vector3(6, 3, 6)));
+
+        // B while climbing and while carrying is the host's and the hands' matter; here, B in mid-leap: it lands at home.
+        Check(_player.TryTeleportTo(b + new Vector3(-0.2f, 0.01f, 0.2f)), "the player back on the island");
+        await Frames(5);
+        _player.SetControlInput(Vector2.Zero, jump: true);
+        await Frames(4);
+        var leaping = !_player.IsOnFloor() && _player.Velocity.Y > 0;
+        _player.RequestHome();
+        await Frames(80);
+        Report(leaping && _player.LastHome == "jetty" && _player.IsOnFloor() && _player.Velocity.Length() < 0.01f,
+            "B in mid-leap: the leap flies on through the fade, and the body stands at the jetty, still");
+
+        // The far net, hours out: a swimmer who reaches it is taken home as by B.
+        trips = _player.HomeTrips;
+        _player.GlobalPosition = new Vector3(sea.MiddleM.X + _player.FarNetM - 0.1f, surface - _player.SwimFloatDepthM, sea.MiddleM.Y);
+        _player.ResetPhysicsInterpolation();
+        _player.Rotation = new Vector3(0, -Mathf.Pi * 0.5f, 0);
+        for (var i = 0; i < 180 && _player.HomeTrips == trips; i++) { _player.SetControlInput(new Vector2(0, 1), sprint: true); await Frames(1); }
+        _player.SetControlInput(Vector2.Zero);
+        await Frames(80);
+        Report(_player.HomeTrips == trips + 1 && _player.LastHome == "jetty" && _player.IsOnFloor(),
+            $"the far net, {_player.FarNetM / 1000:0.#} km out ({_player.FarNetM / 0.32f / 3600:0.0} h of fast swimming, {_player.FarNetM / 0.19f / 3600:0.0} h at the plain swim), takes a swimmer home");
+
+        await MeasureFarOut(sea, surface);
 
         // The extension is untrusted room data: read only when every loop is bounded, every number finite and each beach in the bounds.
         var room = new Aabb(new Vector3(-5, -1, -5), new Vector3(10, 4, 10));
@@ -1647,7 +1775,57 @@ public partial class SmallAvatarPhysicsTest : Node3D
         await Frames(10);
     }
 
-    private const float PlayerControllerCurrent = SmallPlayerController.SeaCurrentMaxMps;
+    /// <summary>
+    /// 32-bit positions far out (the open sea, 9 October): the swimmer and the Gubble at 1, 2, 5 and 10 km from the island,
+    /// swimming fast. Per tick: how uneven the body's steps are (their spread against the mean step, which smooth motion keeps
+    /// near zero), and how much the Gubble's place beside the player shakes (the second difference of their offset, which the
+    /// camera shows as the Gubble trembling). The float spacing there is printed beside them. The far net (FarNetM) is set
+    /// from these: where both still read as smooth.
+    /// </summary>
+    private async Task MeasureFarOut(RoomSea sea, float surface)
+    {
+        var net = _player.FarNetM;
+        _player.FarNetM = 20000;
+        var lines = new List<string>();
+        var smoothAtNet = false;
+        foreach (var km in new[] { 0.1f, 1f, 2f, 5f, 10f })
+        {
+            var at = new Vector3(sea.MiddleM.X + km * 1000, surface - _player.SwimFloatDepthM, sea.MiddleM.Y);
+            _player.GlobalPosition = at;
+            _player.Velocity = Vector3.Zero;
+            _player.Rotation = new Vector3(0, -Mathf.Pi * 0.5f, 0);
+            _player.ResetPhysicsInterpolation();
+            _companion.GlobalPosition = at + new Vector3(0, 0.1f, 0.16f);
+            _companion.ResetPhysicsInterpolation();
+            _companion.Follow();
+            for (var i = 0; i < 90; i++) { _player.SetControlInput(new Vector2(0, 1), sprint: true); await Frames(1); }
+            var steps = new List<double>();
+            var offsets = new List<Vector3>();
+            var last = _player.GlobalPosition;
+            for (var i = 0; i < 120; i++)
+            {
+                _player.SetControlInput(new Vector2(0, 1), sprint: true);
+                await Frames(1);
+                steps.Add((double)_player.GlobalPosition.X - last.X);
+                offsets.Add(_companion.GlobalPosition - _player.GlobalPosition);
+                last = _player.GlobalPosition;
+            }
+            _player.SetControlInput(Vector2.Zero);
+            var mean = steps.Average();
+            var spread = (steps.Max() - steps.Min()) / mean;
+            var shake = 0.0f;
+            for (var i = 1; i + 1 < offsets.Count; i++) shake = Mathf.Max(shake, (offsets[i + 1] - 2 * offsets[i] + offsets[i - 1]).Length());
+            var spacing = Mathf.Pow(2, Mathf.Floor(Mathf.Log(km * 1000) / Mathf.Log(2)) - 23);
+            lines.Add(string.Create(CultureInfo.InvariantCulture,
+                $"{km:0.#} km: float spacing {spacing * 1000:0.000} mm; step {mean * 1000:0.000} mm a tick, spread {spread * 100:0.0} %; the Gubble's offset shakes {shake * 1000:0.000} mm a tick; swimming {_player.IsSwimming}, the Gubble over water {_companion.HoversOverWater}"));
+            if (Mathf.IsEqualApprox(km * 1000, net)) smoothAtNet = spread < 0.15 && shake < 0.0005f && _player.IsSwimming && _companion.HoversOverWater;
+        }
+        _player.FarNetM = net;
+        foreach (var line in lines) GD.Print("SMALL_AVATAR_FAR_OUT " + line);
+        Report(smoothAtNet, $"at the far net ({net / 1000:0.#} km) a swimmer's steps and the Gubble beside them are still smooth (see SMALL_AVATAR_FAR_OUT)");
+        _companion.Stop();
+        Check(_player.TryTeleportTo(new Vector3(-2, 0.003f, 3.2f)) && _companion.TryTeleportTo(new Vector3(0.5f, 0.01f, 3.2f)), "both bodies back from the open sea");
+    }
 
     // ---- Jitter: the spike's scenarios, measured on a separate probe body ----
 

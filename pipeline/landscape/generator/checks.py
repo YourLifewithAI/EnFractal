@@ -86,12 +86,19 @@ class Terrain:
             if min(u, v, w) < -1e-7:
                 continue
             y = u*a[1]+v*b[1]+w*c[1]
-            if best is None or y > best[0]:
+            # On an edge or vertex several faces meet at one height. Ties
+            # (within 1 micrometre, beyond float32 rounding of a written
+            # package) take the gentlest face, decided by value, never by
+            # triangle order, so the generator's memory and its package agree.
+            if best is None or y > best[0]-1e-6:
                 ux, uy, uz = b[0]-a[0], b[1]-a[1], b[2]-a[2]
                 vx, vy, vz = c[0]-a[0], c[1]-a[1], c[2]-a[2]
                 nx_, ny_, nz_ = uy*vz-uz*vy, uz*vx-ux*vz, ux*vy-uy*vx
                 slope = math.degrees(math.acos(min(1., abs(ny_)/(math.sqrt(nx_*nx_+ny_*ny_+nz_*nz_) or 1e-30))))
-                best = (y, slope)
+                if best is None or y > best[0]+1e-6:
+                    best = (y, slope)
+                else:
+                    best = (max(y, best[0]), min(slope, best[1]))
         top = self.deck(x, z) if self.decks else None
         if top is not None and (best is None or top >= best[0]):
             best = (top, 0.)

@@ -85,8 +85,10 @@ public partial class PlayHudTest : Node
         Check(_world.Companion.CompanionName == CompanionAvatar.DefaultName && tag == "The Gubble" && state.Text.Contains("the Gubble: ", StringComparison.Ordinal) &&
             help.Contains("the Gubble", StringComparison.Ordinal) && !help.Contains("Wisp", StringComparison.Ordinal),
             $"the companion is the Gubble in its name tag ({tag}), the state line and the help ({state.Text})");
-        Check(_hud.FindChild("WashAshoreVeil", true, false) is ColorRect { Color.A: 0, MouseFilter: Control.MouseFilterEnum.Ignore },
-            "the wash-ashore veil is in place, clear and letting clicks through while nobody is washing ashore");
+        Check(_hud.FindChild("HomeVeil", true, false) is ColorRect { Color.A: 0, MouseFilter: Control.MouseFilterEnum.Ignore },
+            "the veil of the way home is in place, clear and letting clicks through while nobody is going home");
+        Check(help.Contains("B back to the start", StringComparison.Ordinal),
+            "the help lists B, home from anywhere, all the time (a room without a sea: back to the start)");
         Check(CompanionAvatar.SavedName("Wisp") == "the Gubble" && CompanionAvatar.SavedName("Pip") == "Pip",
             "a profile or save still naming the companion Wisp (the former default) restores it as the Gubble; a name the player chose stays");
         Check(await WalkTo(player, new Vector2(-0.3f, 0.62f)), "the player walks over to the doorstop on the rug");
