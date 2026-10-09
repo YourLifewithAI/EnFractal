@@ -59,12 +59,14 @@ public partial class PondLife : Node3D
     public void SurveyNow(Func<Vector3, float?> bedBelow)
     {
         Surveyed = true;
+        var clock = System.Diagnostics.Stopwatch.StartNew();
         Ponds = PondSurvey.Survey(_built!, bedBelow);
         Shoal = new Shoal(_roomId, Ponds);
         BuildSchool();
         BuildVeil();
+        clock.Stop();
         var lived = Ponds.Where(p => Shoal.Schools.Any(s => s.Pond == p)).ToArray();
-        Summary = $"{Ponds.Count} bodies of water, {Shoal.Fish.Count} fish in {Shoal.Schools.Count} schools"
+        Summary = $"{Ponds.Count} bodies of water, {Shoal.Fish.Count} fish in {Shoal.Schools.Count} schools, surveyed and placed in {clock.Elapsed.TotalMilliseconds:0} ms"
             + string.Concat(lived.Select(p => $"; pond {p.Index} ({p.Kind}, {p.WetAreaM2:0.00} m2, {p.MaxDepthM * 100f:0.0} cm deep): {Shoal.Schools.Where(s => s.Pond == p).Sum(s => s.Members.Length)} fish"));
         GD.Print("POND_LIFE: " + Summary);
     }
