@@ -10,8 +10,8 @@
       "source": {
         "schema": "enfractal.creation",
         "version": 1,
-        "name": "Storm glider",
-        "seed": 13,
+        "name": "Worn glide",
+        "seed": 3,
         "mount": "avatar",
         "parts": [
           {
@@ -73,26 +73,6 @@
               1.15
             ],
             "material": "leaf"
-          },
-          {
-            "id": "tail",
-            "shape": "wing",
-            "position_m": [
-              0,
-              0.25,
-              1
-            ],
-            "rotation_deg": [
-              0,
-              0,
-              0
-            ],
-            "size_m": [
-              0.8,
-              0.15,
-              1
-            ],
-            "material": "wood"
           }
         ],
         "nodes": [

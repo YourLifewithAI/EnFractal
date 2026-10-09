@@ -368,7 +368,7 @@ class Approvals(FixCase):
         source = retarget(example("command_transform_bean_bag_into_glider"), GARAGE_TO_TEST_ROOM)["args"]["into"]
         transform = self.hold(command("entity.transform", {"target": "obj:book", "into": source}, "tf-1",
                                       expected_entities={"obj:book": 0}))
-        self.assertIn('turn obj:book ("Book", revision 0) into "Storm glider"', transform["approval_needed"]["reason"])
+        self.assertIn('turn obj:book ("Book", revision 0) into "Worn glide"', transform["approval_needed"]["reason"])
         moved = self.send(command("entity.place", {"target": "obj:rug", "placement": {"position_m": [0.1, 0, 0.6]}},
                                   "move-1"))
         self.assertTrue(moved["ok"], moved)  # the companion's own change: the only kind its undo may step back over

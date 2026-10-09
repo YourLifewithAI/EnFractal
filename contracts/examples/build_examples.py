@@ -400,7 +400,7 @@ def query(op, query_id, args):
 
 
 def build_messages(out: Path) -> None:
-    glider = json.loads((FIXTURES / "creation_storm_glider.json").read_text(encoding="utf-8"))
+    glider = json.loads((FIXTURES / "creation_worn_glide.json").read_text(encoding="utf-8"))
     sample = json.loads((FIXTURES / "creation_trigger_light.json").read_text(encoding="utf-8"))
     at = "2026-10-06T00:05:00Z"
     bean, clutter = BEAN, CLUTTER
