@@ -745,9 +745,14 @@ public partial class LandscapePlayTest : Node3D
             return;
         }
         var player = _world.Player;
+        var companion = _world.Companion;
         var hud = _world.GetNode<RoomHud>("RoomHud");
         hud.SetViewMode(1);
         Check(player.TryTeleportTo(tree.Start), "the player back at the foot of the tree, for the keys");
+        // The founder's video (9 October): the Gubble on follow beside this climb shook, its HUD line flipping every few frames.
+        Send(Command(NextId("follow"), "goal.set", new JsonObject { ["actor"] = CompanionAvatar, ["goal"] = "follow" }), Player);
+        var side = new Vector3(-tree.Toward.Z, 0, tree.Toward.X) * EnFractal.Native.CompanionAvatar.FollowSideM;
+        if (!companion.TryTeleportTo(tree.Start + side)) companion.TryTeleportTo(tree.Start - side);
         player.Rotation = new Vector3(0, Mathf.Atan2(-tree.Toward.X, -tree.Toward.Z), 0);
         await Frames(10);
         var camera = player.GetNode<SpringArm3D>("FollowCameraArm").GetNode<Camera3D>("FollowCamera");
@@ -763,9 +768,14 @@ public partial class LandscapePlayTest : Node3D
         player.ReadKeyboard = true;
         Input.ParseInputEvent(new InputEventKey { PhysicalKeycode = Key.W, Keycode = Key.W, Pressed = true });
         var lastY = player.GlobalPosition.Y;
+        var floatStarts = companion.FloatStarts;
+        var wasFloating = companion.FloatingThere;
+        var hudFlips = 0;
         for (; frames < 1800 && !(player.PullOvers > pulls && player.IsOnFloor() && !player.IsClimbing); frames++)
         {
             await Frames(1);
+            if (companion.FloatingThere != wasFloating) hudFlips++;
+            wasFloating = companion.FloatingThere;
             var y = player.GlobalPosition.Y;
             // Once on the trunk, the mouse turns the view 25 degrees, as a player looking round does.
             if (player.IsClimbing && !turned)
@@ -797,6 +807,17 @@ public partial class LandscapePlayTest : Node3D
                 $"the follow camera came within {nearestCamera * 100:0.0} cm of the head (its arm is {player.BodyHeightM * 3.2f * 100:0} cm); standing on {(standingOn.Length > 0 ? standingOn : "nothing")}");
         Check(reached && downTicks == 0, "with the keys and the follow camera, a tree is climbed to its crown and W never carries the climber down");
         Check(nearestCamera > player.BodyHeightM * 3.2f * 0.5f, "the tree's hidden climbing parts never pull the follow camera in");
+        await Frames(90);
+        for (var i = 0; i < 90; i++)
+        {
+            await Frames(1);
+            if (companion.FloatingThere != wasFloating) hudFlips++;
+            wasFloating = companion.FloatingThere;
+        }
+        var level = companion.GlobalPosition.Y - player.GlobalPosition.Y;
+        Measure($"LANDSCAPE_TREE_GUBBLE on follow beside the keyed climb and 3 s on the crown: it started to float {companion.FloatStarts - floatStarts} times and its HUD line flipped {hudFlips} times; it ends {level * 100:0.0} cm off the player's height, {PlanarDistance(companion.GlobalPosition, player.GlobalPosition):0.00} m away");
+        Check(hudFlips <= 4 && Mathf.Abs(level) <= EnFractal.Native.CompanionAvatar.LevelGapM, "the Gubble follows a climber up a tree steadily and settles level with them on the crown");
+        companion.Stop();
         Check(player.TryTeleportTo(_world.Room.SpawnFor("player").PositionM), "the player back at the spawn after the keyed climb");
         await Frames(10);
     }

@@ -85,6 +85,7 @@ public partial class SmallAvatarPhysicsTest : Node3D
             await TestSwimming();
             await TestClimbableTree();
             await TestGubbleFloats();
+            await TestGubbleBesideAClimber();
             await TestSeaEdge();
             var metrics = await RunJitterSuite(1.0f, new Vector3(0, 0, 30));
             CheckJitter(metrics);
@@ -1524,6 +1525,87 @@ public partial class SmallAvatarPhysicsTest : Node3D
         var home = _companion.GlobalPosition - b;
         Report(_companion.CurrentIntent == "stay" && home.X < -0.2f && home.Y > 0 && home.Y < 0.05f,
             $"sent back to the bank, it floats down off the cliff and back over the pool (at {Text(home)} after {frames / 60.0f:0.0} s)");
+        Check(_player.TryTeleportTo(new Vector3(-2, 0.003f, 3.2f)) && _companion.TryTeleportTo(new Vector3(0.5f, 0.01f, 3.2f)), "both bodies back on the open floor");
+        await Frames(10);
+    }
+
+    /// <summary>
+    /// The founder's video (9 October, 4 s on a conifer in the island garage, F2): while the player climbed, the HUD flipped
+    /// between "follow" and "follow · floating there" every few frames and the Gubble shook beside the player. A 50 cm cliff
+    /// with its own walkable map: the player climbs it with the Gubble on follow. Floating off to the side is fine; starting
+    /// to float again and again, flipping its mode and shaking up and down are not. Then it settles level with the player on top.
+    /// </summary>
+    private async Task TestGubbleBesideAClimber()
+    {
+        var b = new Vector3(0, 0, -100);
+        // The ground west of the cliff, and the cliff as a ridge, its west face at x = 0.1. The ground stops at the cliff's
+        // foot: under a box standing on a floor, the walkable map keeps the floor (Recast fills no solids), and the place
+        // beside the climber's foot snapped in there.
+        Solid(b + new Vector3(-0.65f, -0.05f, 0), new BoxShape3D { Size = new Vector3(1.5f, 0.1f, 3) });
+        Solid(b + new Vector3(0.3f, 0.2f, 0), new BoxShape3D { Size = new Vector3(0.4f, 0.6f, 3) });
+        var navigation = RoomNavigation.Create(this, this, new Aabb(b + new Vector3(-1.4f, -0.1f, -1.4f), new Vector3(2.8f, 0.8f, 2.8f)),
+            WorldScaleProfile.Companion, _companion.StepHeightM * 0.75f);
+        _companion.BindNavigation(navigation);
+        for (var i = 0; i < 240 && !navigation.IsReady; i++) await Frames(1);
+        Check(navigation.IsReady && _player.TryTeleportTo(b + new Vector3(-0.1f, 0.003f, 0)) && _companion.TryTeleportTo(b + new Vector3(-0.15f, 0.01f, 0.16f)),
+            "the climber's cliff has its walkable map; the player at its foot, the Gubble beside");
+        _player.Rotation = new Vector3(0, -Mathf.Pi * 0.5f, 0);
+        _companion.Follow();
+        await Frames(60);
+        var starts = _companion.FloatStarts;
+        var modeFlips = 0;
+        var restFlips = 0;
+        var shakes = 0;
+        var climbTicks = 0;
+        var wasFloating = _companion.FloatingThere;
+        var wasMoving = _companion.FollowMoving;
+        var lastY = _companion.GlobalPosition.Y;
+        var lastStep = 0.0f;
+        var widest = 0.0f;
+        var pulls = _player.PullOvers;
+        _player.SetControlInput(new Vector2(0, 1));
+        for (var i = 0; i < 900 && !(_player.PullOvers > pulls && _player.IsOnFloor() && !_player.IsClimbing); i++)
+        {
+            await Frames(1);
+            // From the push into the face (where the founder's HUD flickered too) to standing on top.
+            if (_player.IsClimbing) climbTicks++;
+            if (_companion.FloatingThere != wasFloating) modeFlips++;
+            if (_companion.FollowMoving != wasMoving) restFlips++;
+            wasFloating = _companion.FloatingThere;
+            wasMoving = _companion.FollowMoving;
+            // Shaking: the body's height turning from rising to sinking (or back) faster than the bob ever moves it.
+            var step = _companion.GlobalPosition.Y - lastY;
+            if (Mathf.Abs(step) > 0.0005f && Mathf.Abs(lastStep) > 0.0005f && step * lastStep < 0) shakes++;
+            if (Mathf.Abs(step) > 0.0005f) lastStep = step;
+            lastY = _companion.GlobalPosition.Y;
+            widest = Mathf.Max(widest, Mathf.Abs(_companion.GlobalPosition.Y - _player.GlobalPosition.Y));
+        }
+        _player.SetControlInput(Vector2.Zero);
+        var seconds = climbTicks / 60.0f;
+        var floatStarts = _companion.FloatStarts - starts;
+        Report(climbTicks > 120 && floatStarts <= 1 && modeFlips <= 2 && shakes <= 1,
+            $"beside a climber the Gubble floats up with them, steadily: walking in and {seconds:0.0} s of climbing, it started to float {floatStarts} times ({floatStarts / Mathf.Max(seconds, 0.01f):0.0} a second of climbing), " +
+            $"its mode flipped {modeFlips} times, follow stopped and started {restFlips} times, its height turned back {shakes} times; at most {widest * 100:0.0} cm off the climber's height");
+        // On top, at rest: level with the player, its mode settled, holding its height without sinking.
+        await Frames(120);
+        var settledFlips = 0;
+        wasFloating = _companion.FloatingThere;
+        var low = float.PositiveInfinity;
+        var high = float.NegativeInfinity;
+        for (var i = 0; i < 180; i++)
+        {
+            await Frames(1);
+            if (_companion.FloatingThere != wasFloating) settledFlips++;
+            wasFloating = _companion.FloatingThere;
+            low = Mathf.Min(low, _companion.GlobalPosition.Y);
+            high = Mathf.Max(high, _companion.GlobalPosition.Y);
+        }
+        var level = _companion.GlobalPosition.Y - _player.GlobalPosition.Y;
+        Report(_player.IsOnFloor() && _player.GlobalPosition.Y - b.Y > 0.45f && Mathf.Abs(level) <= CompanionAvatar.LevelGapM && settledFlips == 0 && high - low < 3 * SmallPlayerController.HoverBobM,
+            $"with the climber on top, the Gubble settles level with them ({level * 100:0.0} cm off) and stays put (mode flips {settledFlips}, height within {(high - low) * 1000:0.0} mm)");
+        _companion.BindNavigation(_navigation);
+        navigation.QueueFree();
+        _companion.Stop();
         Check(_player.TryTeleportTo(new Vector3(-2, 0.003f, 3.2f)) && _companion.TryTeleportTo(new Vector3(0.5f, 0.01f, 3.2f)), "both bodies back on the open floor");
         await Frames(10);
     }

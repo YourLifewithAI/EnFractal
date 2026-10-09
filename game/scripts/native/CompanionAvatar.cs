@@ -159,6 +159,10 @@ public partial class CompanionAvatar : SmallPlayerController
     private float? _holdY;
     private Vector3 _goToAim;
     private double _goToAimAge;
+    private Vector3 _playerLast;
+    private Vector3 _playerMotion;
+    private bool _playerSeen;
+    private float _playerStillS;
     private int _goToAimRevision = -1;
 
     public override void _Ready()
@@ -360,6 +364,7 @@ public partial class CompanionAvatar : SmallPlayerController
         var hasPlayer = HasPlayer();
         // Gravity is a world property: the companion lives under the same profile the player was given.
         if (hasPlayer && _player!.WorldPhysicsRevision > WorldPhysicsRevision) SetWorldPhysics(_player.WorldPhysicsProfile);
+        if (hasPlayer) TrackPlayerMotion(dt);
         if (InputEnabled && hasPlayer)
         {
             var playerOffset = Planar(GlobalPosition - _player!.GlobalPosition);
@@ -410,10 +415,17 @@ public partial class CompanionAvatar : SmallPlayerController
     private Vector3 FollowVelocity(Vector3 playerOffset, float dt)
     {
         var distance = playerOffset.Length();
-        var playerVelocity = Planar(_player!.Velocity);
+        // How the player really moves, not the velocity it asks for: pushing into a face before a climb, the asked velocity
+        // flickers between a step and nothing from one tick to the next, and follow started and stopped with it.
+        var playerVelocity = Planar(_playerMotion);
         var playerSpeed = playerVelocity.Length();
-        var moving = playerSpeed > 0.05f;
-        if (moving) _travel = playerVelocity / playerSpeed;
+        var walking = playerSpeed > 0.05f;
+        if (walking) _travel = playerVelocity / playerSpeed;
+        // A climber going up or down the face is on the move too, though not across the ground.
+        var moving = walking || (_player!.IsClimbing && Mathf.Abs(_playerMotion.Y) > 0.05f);
+        // Follow rests only once the player has stood still a moment: a player edging into a face moves every other tick.
+        _playerStillS = moving ? 0 : _playerStillS + dt;
+        var still = _playerStillS >= PlayerStillS;
         var right = _travel.Cross(Vector3.Up);
         var lateral = playerOffset.Dot(right);
         // It changes side only when it is clearly on the other one (1.5 body radii off the line; was 6 cm).
@@ -421,19 +433,33 @@ public partial class CompanionAvatar : SmallPlayerController
         var place = FollowPlace(right);
         var toPlace = Planar(place - GlobalPosition);
         var placeDistance = toPlace.Length();
-        // Something between the companion and its place (it is behind the box): that is out of the band too.
+        // Resting aloft (held at its height beside a climber, or over the drop beside a player up a tree), its place moves away
+        // up and down as well as across.
+        var aloft = _holdY != null;
+        var placeGap = aloft ? (place - GlobalPosition).Length() : placeDistance;
+        // Something between the companion and its place (it is behind the box): that is out of the band too. Floating, or
+        // resting aloft, it goes straight there, so a walk's way round is no matter.
         var routed = PlanRoute(place, 0.05f, dt);
-        var detour = routed && !_route.Direct && _route.LengthM > placeDistance + DetourM && !_floating;
+        var detour = routed && !_route.Direct && _route.LengthM > placeDistance + DetourM && !_floating && !aloft;
         // In a narrow gap the walkable place can be nearer than the band's edge; never chase away from it.
-        var near = Mathf.Min(FollowNearM, Planar(place - _player.GlobalPosition).Length() - 0.02f);
+        var near = Mathf.Min(FollowNearM, Planar(place - _player!.GlobalPosition).Length() - 0.02f);
         // Far above or below the player (up a cliff, in a tree, across the water from a bank) is out of the band too.
         var apart = Mathf.Abs(GlobalPosition.Y - _player.GlobalPosition.Y) > LevelGapM;
         if (!_following)
-            _following = distance > FollowFarM || distance < near || detour || apart || (moving && placeDistance > 0.06f);
-        else if (!moving && !detour && !apart && (placeDistance < 0.02f || (distance > near + 0.02f && distance < FollowFarM - 0.06f)))
+        {
+            _following = distance > FollowFarM || distance < near || detour || apart || (moving && placeGap > 0.06f);
+            if (_following) FloatAltitudeFloorY = _holdY = null;
+        }
+        // Floating, it rests only once level with its place: resting lower, it would hold there and fall behind at once.
+        else if (still && !detour && !apart && (!_floating || Mathf.Abs(GlobalPosition.Y - place.Y) <= WalkLevelM) &&
+                 (placeDistance < 0.02f || (distance > near + 0.02f && distance < FollowFarM - 0.06f)))
             _following = false;
         if (!_following)
         {
+            // Come to rest while floating, it holds its height there, as an arrival by floating does. It used to sink to the
+            // ground below at once, which opened the gap to a climber again and floated it back up, over and over: the founder's
+            // video (9 October) of the HUD flipping between "follow" and "floating there" and the Gubble shaking beside a climber.
+            if (_floating) _holdY = GlobalPosition.Y;
             _floating = false;
             return Vector3.Zero;
         }
@@ -454,6 +480,23 @@ public partial class CompanionAvatar : SmallPlayerController
         if (!moving && desired.Length() < MinApproachMps && placeDistance > 0.005f) desired = desired.Normalized() * MinApproachMps;
         return desired.LimitLength(RunSpeedMps);
     }
+
+    /// <summary>
+    /// The player's motion over the last tick (metres a second): where it went, not the velocity it asked for. A jump of more
+    /// than PlayerJumpM in one tick is a teleport (a recovery, a wash ashore), not motion.
+    /// </summary>
+    private void TrackPlayerMotion(float dt)
+    {
+        var at = _player!.GlobalPosition;
+        var step = at - _playerLast;
+        _playerMotion = _playerSeen && dt > 0 && step.Length() < PlayerJumpM ? step / dt : Vector3.Zero;
+        _playerLast = at;
+        _playerSeen = true;
+    }
+
+    private const float PlayerJumpM = 0.25f;
+    /// <summary>How long the player stands still before follow comes to rest.</summary>
+    public const float PlayerStillS = 0.25f;
 
     /// <summary>The place beside the player on the walkable side: when a wall or furniture covers that side, the other one.</summary>
     private Vector3 FollowPlace(Vector3 right)
@@ -615,7 +658,8 @@ public partial class CompanionAvatar : SmallPlayerController
     private bool ChooseFloat(Vector3 goal, bool routed)
     {
         if (_floating) return true;
-        if (routed && _route.Reaches && Mathf.Abs(_route.Points[^1].Y - goal.Y) <= WalkLevelM &&
+        // A walk starts from the ground under the body: one held aloft (beside a climber, by a player up a tree) floats.
+        if (routed && _route.Reaches && Mathf.Abs(_route.Points[^1].Y - goal.Y) <= WalkLevelM && Mathf.Abs(_route.Points[0].Y - GlobalPosition.Y) <= LevelGapM &&
             _route.LengthM <= (goal - GlobalPosition).Length() * FloatDetourFactor + FloatDetourM) return false;
         _floating = true;
         FloatStarts++;
