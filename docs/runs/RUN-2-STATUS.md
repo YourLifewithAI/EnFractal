@@ -268,6 +268,7 @@
 
 ## The next session
 
+0. **`run2/integration` is merged into `main`** (PR #8, `30ffbb8`, 9 October). The founder asked for the merge first and the playtest after. Keep working on `run2/integration`.
 1. **On DiamondAge, confirm on the pinned SDK:** pull `run2/integration` and run both Windows runners and the WSL suite. Then refresh the founder's installed landscape (`%APPDATA%\Godot\app_userdata\EnFractal\rooms\landscape_garage_nominal`) from a fresh fixture, which is now the island garage.
 2. **The founder's playtest:** the island, the sea edge (swim out past the reef, push on, wash ashore), the floating Gubble (send it up a cliff and across the pond), and the questions above.
 3. **The characters' vote,** as below (the fifth session's list, item 1). The key and `codex/20-character-converter` are only on DiamondAge.
