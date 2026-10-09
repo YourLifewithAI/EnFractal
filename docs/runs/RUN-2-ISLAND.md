@@ -65,7 +65,7 @@ This session ran in a Linux cloud container, not on DiamondAge. That meant no GP
   - The door is a timber jetty with a pass through the reef. Rivers end in the sea.
   - The sea is at −0.02 m: the lagoon 0.22 m deep, the open sea 0.62 m. The reef is 2 cm under the surface, about 0.2 to 1.0 m off the coast. Six distant islands sit out to 60 m.
   - The garage passes every check.
-  - **The corpus fell from 23 to 14 of 24.** Lane C's fix round on it, and on a more ragged coast, is running.
+  - **The corpus fell from 23 to 14 of 24.** Lane C's fix round brought it to 19 but is not merged: on its reshaped garage the landscape check's climbs fail (see RUN-2-STATUS.md, the sixth session). The ragged coast is still to do.
 - **Step 2, the exporter: done by the integrator, in place of Codex brief 21.** Lane C's change request was small, so a Codex round trip on DiamondAge wasn't worth it.
   - The room's `bounds` grow to the playable water past the reef.
   - The game gets a whitelisted, bounded copy of the sea in `extensions.x_landscape_sea`: the sea level, the outlines, the reef, the beaches and the jetty (`pipeline/landscape/export/sea.py`).

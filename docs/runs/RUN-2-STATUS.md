@@ -235,7 +235,10 @@
     - the walkable map bakes the land only (the sea floor had doubled the bake);
     - `RoomSea` checks the untrusted sea record as the exporter does;
     - the landscape check is 42/42 on the island garage.
-  - **`d936c7d`, Lane C's fix round:**
+- **Lane C's fix round was merged (`d936c7d`) and then reverted (`f29854a`), so it is not in `run2/integration`.** On its reshaped garage, the landscape check fails 41/42: the player climbs 3 of 5 sampled cliffs against the 4 needed.
+  - One sampled cliff is under the sea, where a swimmer never reaches it. The sampler should skip faces below sea level.
+  - One land cliff at (-2.39, 0.068, 1.07) is grabbed but not topped.
+  - The fix round stays on `run2/landscape` (PR #10). **To bring it back, revert `f29854a` first, then merge.** What it holds:
     - **The corpus went from 14 to 19 of 24** by Lane C's last run; before the island it was 23.
     - **Still failing:**
       - `awkward_l_scan_17` (walk);
@@ -269,13 +272,13 @@
 2. **The founder's playtest:** the island, the sea edge (swim out past the reef, push on, wash ashore), the floating Gubble (send it up a cliff and across the pond), and the questions above.
 3. **The characters' vote,** as below (the fifth session's list, item 1). The key and `codex/20-character-converter` are only on DiamondAge.
 4. **Lane L's sea look** (GPU): the open sea's colour and depth, foam on the reef, waves at the beaches, the horizon and distant islands, and fish in the sea's deeper water. Within the frame budget and the capture budget.
-5. **Lane C:**
+5. **Lane P, then Lane C:** Lane P makes the climb sampler skip faces below sea level and finds out why the cliff at (-2.39, 0.068, 1.07) isn't topped. Then the integrator brings back Lane C's fix round (revert `f29854a`, merge `run2/landscape`). Then Lane C:
    - the last five corpus rooms;
    - the ragged coast: cove depth and headland reach varying along the coast, the reef's distance varying with it.
 6. **Lane A:** the mock's change request above.
 7. **After the playtest:** promote `x_landscape_sea` into `room-manifest.schema.json`, with examples and tests.
 8. **Then the fifth session's items 4 to 7:** the intro (walls now become the coast), light, the open questions, housekeeping.
-9. **Housekeeping:** close or merge PRs #9 and #10. Their commits are in `run2/integration`, so GitHub may already show them merged.
+9. **Housekeeping:** PR #9 is merged; PR #10 (Lane C's fix round) stays open until it is brought back.
 
 **To run another cloud session:**
 - If the environment still blocks `builds.dotnet.microsoft.com`, install Ubuntu's `dotnet-sdk-8.0` with apt.
