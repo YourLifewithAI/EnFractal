@@ -237,6 +237,10 @@ public partial class CommandHost : Node
         // below them is recovered. A generated landscape's ground stops just past its bounds, with nothing beyond.
         Player?.SetPlayableBounds(Room.Bounds);
         Companion?.SetPlayableBounds(Room.Bounds);
+        // An island's sea: past the reef a current turns a swimmer back, and past the playable water they wash ashore. The
+        // bounds stay only as the last safety net, out past the playable water.
+        Player?.SetSea(Room.Sea);
+        Companion?.SetSea(Room.Sea);
     }
 
     public override void _ExitTree()

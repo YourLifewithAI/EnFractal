@@ -19,6 +19,8 @@ public partial class RoomHud : CanvasLayer
     private const string ProfilePath = "user://single_player/room/avatar_profile_v1.cfg";
     private static readonly Color[] Palette = { new("d28f63"), new("65b9b0"), new("d7b765"), new("a18cc3"), new("75965c") };
     private Label _state = null!;
+    /// <summary>The wash-ashore fade (the sea's edge): a full-screen veil the player's body darkens and lifts.</summary>
+    private ColorRect _washVeil = null!;
     private Label _notice = null!;
     private PanelContainer _footer = null!;
     private VBoxContainer _keyHelp = null!;
@@ -172,6 +174,10 @@ public partial class RoomHud : CanvasLayer
         var hands = new HBoxContainer { Name = "HandActions" }; column.AddChild(hands);
         AddButton(hands, "F Pick up / put down", Hands, 26);
         AddButton(hands, "V Push", Push, 26);
+        _washVeil = new ColorRect { Name = "WashAshoreVeil", Color = new Color(0.06f, 0.13f, 0.18f, 0), MouseFilter = Control.MouseFilterEnum.Ignore };
+        AddChild(_washVeil);
+        _washVeil.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        Player.WashedAshore += _ => _noticeText = "The current carried you back and you washed up on the beach.";
         _footer = new PanelContainer { Name = "HelpFooter", Theme = compactTheme, GrowVertical = Control.GrowDirection.Begin };
         AddChild(_footer);
         _footer.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.BottomWide);
@@ -332,6 +338,7 @@ public partial class RoomHud : CanvasLayer
             (Companion.FloatingThere ? " · floating there" : "") + (Companion.GoalBlocked ? " · path blocked" : "") +
             (holding.Length > 0 ? $"  ·  holding {holding} (F)" : "") + (Look?.Observe == true ? "  ·  observe view (O)" : "");
         _notice.Text = _noticeText;
+        _washVeil.Color = new Color(_washVeil.Color, Player.WashAshoreFade);
         var clock = ClockText();
         _clock.Visible = clock.Length > 0;
         _clock.Text = clock;

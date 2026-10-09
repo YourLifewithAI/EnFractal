@@ -85,6 +85,7 @@ public partial class SmallAvatarPhysicsTest : Node3D
             await TestSwimming();
             await TestClimbableTree();
             await TestGubbleFloats();
+            await TestSeaEdge();
             var metrics = await RunJitterSuite(1.0f, new Vector3(0, 0, 30));
             CheckJitter(metrics);
             if (OS.GetCmdlineUserArgs().Contains("--jitter-spike"))
@@ -1526,6 +1527,127 @@ public partial class SmallAvatarPhysicsTest : Node3D
         Check(_player.TryTeleportTo(new Vector3(-2, 0.003f, 3.2f)) && _companion.TryTeleportTo(new Vector3(0.5f, 0.01f, 3.2f)), "both bodies back on the open floor");
         await Frames(10);
     }
+
+    /// <summary>
+    /// The island's edge (the founder, 9 October: "My daughter hates the invisible wall"; no punishment at the edge). A 1 m
+    /// island in a 60 cm deep sea, its reef 1.2 m out and the playable water to 2 m, the room's bounds at 3 m. Past the reef a
+    /// current carries a swimmer who stops back toward the island; one who swims on washes up on the beach, standing on the
+    /// sand facing inland, without the bounds ever holding them back; the Gubble hovers over the sea out there and comes too.
+    /// </summary>
+    private async Task TestSeaEdge()
+    {
+        var b = new Vector3(0, 0, -80);
+        const float surface = -0.02f;
+        Solid(b + new Vector3(0, -0.3f, 0), new BoxShape3D { Size = new Vector3(1.0f, 0.6f, 1.0f) });        // the island, its top at 0
+        Solid(b + new Vector3(0, -0.65f, 0), new BoxShape3D { Size = new Vector3(8.0f, 0.1f, 8.0f) });       // the sea floor at -0.6
+        var sheet = new SurfaceTool();
+        sheet.Begin(Mesh.PrimitiveType.Triangles);
+        foreach (var corner in new[] { new Vector2(-4, -4), new Vector2(4, -4), new Vector2(4, 4), new Vector2(-4, -4), new Vector2(4, 4), new Vector2(-4, 4) })
+            sheet.AddVertex(new Vector3(corner.X, surface, corner.Y));
+        var water = RoomWater.CreateCollider(new[] { ((Shape3D)sheet.Commit().CreateTrimeshShape(), Transform3D.Identity) });
+        water.Position = b;
+        AddChild(water);
+        Vector2[] Square(float half) => new[] { new Vector2(b.X - half, b.Z - half), new Vector2(b.X + half, b.Z - half), new Vector2(b.X + half, b.Z + half), new Vector2(b.X - half, b.Z + half) };
+        var beach = new RoomSea.Beach("test_beach", b + new Vector3(0, 0.001f, 0.3f), 0, b + new Vector3(0, surface, 0.7f));
+        var sea = new RoomSea(surface, Square(0.5f), Square(1.2f), Square(2.0f), new[] { beach });
+        await Frames(3);
+        // On the island first: anywhere outside the playable water (the suite's other floors) washes a body ashore at once.
+        Check(_player.TryTeleportTo(b + new Vector3(-0.2f, 0.01f, 0.2f)) && _companion.TryTeleportTo(b + new Vector3(0.2f, 0.01f, -0.3f)), "both bodies on the island");
+        var washedBefore = _player.WashAshores;
+        _player.SetSea(sea);
+        _companion.SetSea(sea);
+        Check(_player.SetPlayableBounds(new Aabb(b + new Vector3(-3, -1, -3), new Vector3(6, 3, 6))) && _companion.SetPlayableBounds(new Aabb(b + new Vector3(-3, -1, -3), new Vector3(6, 3, 6))),
+            "the island's bounds lie out past the playable water");
+        await Frames(3);
+        var current = sea.Current(new Vector2(b.X + 1.9f, b.Z), PlayerControllerCurrent);
+        Check(sea.Current(new Vector2(b.X + 1.0f, b.Z), 1).LengthSquared() == 0 && current.X < -0.05f && Mathf.Abs(current.Y) < 0.001f &&
+            sea.Current(new Vector2(b.X + 1.4f, b.Z), 1).Length() < sea.Current(new Vector2(b.X + 1.8f, b.Z), 1).Length(),
+            $"no current inside the reef; past it, toward the island, growing to the edge of the playable water ({current.X:0.000} m/s at 1.9 m)");
+
+        // The Gubble, sent out over the open sea past the playable water: it hovers over the water, never in it, and never washes ashore.
+        Check(_companion.TryTeleportTo(b + new Vector3(0.2f, 0.01f, -0.3f)), "the Gubble on the island");
+        _companion.GoTo(new Aabb(b + new Vector3(2.4f, 0, -0.4f), Vector3.Zero), 0.08f);
+        var lowest = float.PositiveInfinity;
+        for (var i = 0; i < 600 && _companion.CurrentIntent == "go_to"; i++)
+        {
+            await Frames(1);
+            if (_companion.GlobalPosition.X - b.X > 0.6f) lowest = Mathf.Min(lowest, _companion.GlobalPosition.Y - b.Y);
+        }
+        Report(_companion.CurrentIntent == "stay" && _companion.GlobalPosition.X - b.X > 2.2f && _companion.HoversOverWater && lowest > surface + 0.01f && _companion.WashAshores == 0,
+            $"the Gubble floats out over the sea past the playable water, hovering over it (lowest feet {lowest:0.000} m), and is not washed ashore");
+
+        // The current: a swimmer past the reef who stops is carried back toward the island.
+        _player.SetControlInput(Vector2.Zero);
+        _player.GlobalPosition = b + new Vector3(1.7f, surface - _player.SwimFloatDepthM, 0);
+        _player.Velocity = Vector3.Zero;
+        _player.ResetPhysicsInterpolation();
+        await Frames(10);
+        var drift = _player.GlobalPosition;
+        await Frames(180);
+        var carried = drift.X - _player.GlobalPosition.X;
+        Report(_player.IsSwimming && carried > 0.08f && _player.WashAshores == washedBefore,
+            $"past the reef a swimmer who stops is carried back toward the island ({carried * 100:0.0} cm in 3 s; the current {_player.SeaCurrent.X:0.000} m/s; swimming {_player.IsSwimming}, climbing {_player.IsClimbing}, at {Text(_player.GlobalPosition - b)}, water {_player.Water.DepthM:0.000} m deep)");
+
+        // Washing ashore: swim on out (at the plain swim, slower than the walk) past the current.
+        var stops = _player.BoundsStops;
+        var washes = _player.WashAshores;
+        _player.GlobalPosition = b + new Vector3(0.6f, surface - _player.SwimFloatDepthM, 0);
+        _player.Velocity = Vector3.Zero;
+        _player.ResetPhysicsInterpolation();
+        _player.Rotation = new Vector3(0, -Mathf.Pi * 0.5f, 0);
+        _companion.Follow();
+        _player.SetControlInput(new Vector2(0, 1));
+        var furthest = 0.0f;
+        var darkest = 0.0f;
+        var deepest = float.PositiveInfinity;
+        var frames = 0;
+        for (; frames < 1800 && (_player.WashAshores == washes || _player.WashingAshore); frames++)
+        {
+            await Frames(1);
+            if (_player.WashAshores == washes) furthest = Mathf.Max(furthest, _player.GlobalPosition.X - b.X);
+            darkest = Mathf.Max(darkest, _player.WashAshoreFade);
+            deepest = Mathf.Min(deepest, _player.GlobalPosition.Y - b.Y);
+        }
+        _player.SetControlInput(Vector2.Zero);
+        await Frames(20);
+        var landed = _player.GlobalPosition - beach.WashAshoreM;
+        Report(_player.WashAshores == washes + 1 && _player.LastBeachId == "test_beach" && _player.IsOnFloor() && !_player.IsSwimming &&
+            new Vector2(landed.X, landed.Z).Length() < 0.15f && Mathf.Abs(Mathf.AngleDifference(_player.Rotation.Y, 0)) < 0.01f && darkest > 0.95f && deepest > -0.7f,
+            $"swimming on past the current, the swimmer washes up on the beach after a fade, standing on the sand facing inland (out to {furthest:0.00} m, after {frames / 60.0f:0.0} s; {Text(landed)} from the beach's spot; fade {darkest:0.00})");
+        Report(_player.BoundsStops == stops && furthest > 1.9f,
+            $"no invisible wall: the swimmer crossed where the old wall stood (the island's edge) out to {furthest:0.00} m without the bounds holding it back ({_player.BoundsStops - stops} bound stops)");
+        var gubbleGap = PlanarDistance(_companion.GlobalPosition, _player.GlobalPosition);
+        Report(gubbleGap < 0.3f && _companion.GlobalPosition.X - b.X < 0.6f,
+            $"the Gubble, out over the sea, comes ashore too, beside the player ({gubbleGap:0.00} m away)");
+
+        // The extension is untrusted room data: read only when every loop is bounded, every number finite and each beach in the bounds.
+        var room = new Aabb(new Vector3(-5, -1, -5), new Vector3(10, 4, 10));
+        string Extension(string loop, string beachAt, string level = "-0.02") =>
+            "{\"level_m\":" + level + ",\"swim_depth_m\":0.08,\"coast\":{\"outline_m\":[[-1,-1],[1,-1],[1,1]]},\"reef\":{\"outline_m\":" + loop +
+            ",\"crest_y_m\":-0.04,\"band_half_width_m\":0.08,\"passes\":[]},\"play_area\":{\"outline_m\":[[-3,-3],[3,-3],[3,3],[-3,3]]}," +
+            "\"beaches\":[{\"id\":\"beach_00\",\"wash_ashore_m\":" + beachAt + ",\"yaw_deg\":0,\"water_m\":[0,-0.02,1.5]}],\"jetty\":null}";
+        string? Refusal(string json)
+        {
+            try { using var doc = System.Text.Json.JsonDocument.Parse(json); RoomSea.Parse(doc.RootElement, room); return null; }
+            catch (RoomLoadException error) { return error.Message; }
+        }
+        var square = "[[-2,-2],[2,-2],[2,2],[-2,2]]";
+        var huge = "[" + string.Join(",", Enumerable.Repeat("[0,0]", RoomSea.MaxOutlinePoints + 1)) + "]";
+        Check(Refusal(Extension(square, "[0,0.01,0.5]")) == null && Refusal(Extension(huge, "[0,0.01,0.5]")) is { } tooLong && tooLong.Contains("4096") &&
+            Refusal(Extension("[[0,0],[1,1]]", "[0,0.01,0.5]")) != null && Refusal(Extension(square, "[9,0.01,0.5]")) is { } outside && outside.Contains("outside the room's bounds") &&
+            Refusal(Extension(square, "[0,0.01,0.5]", "1e400")) != null && Refusal(Extension(square, "[0,\"x\",0.5]")) != null,
+            "x_landscape_sea is read only when bounded and finite: a loop over 4,096 points, a loop of two, a beach outside the bounds, a number out of range and a non-number are refused");
+
+        _player.SetSea(null);
+        _companion.SetSea(null);
+        _player.ClearPlayableBounds();
+        _companion.ClearPlayableBounds();
+        _companion.Stop();
+        Check(_player.TryTeleportTo(new Vector3(-2, 0.003f, 3.2f)) && _companion.TryTeleportTo(new Vector3(0.5f, 0.01f, 3.2f)), "both bodies back on the open floor");
+        await Frames(10);
+    }
+
+    private const float PlayerControllerCurrent = SmallPlayerController.SeaCurrentMaxMps;
 
     // ---- Jitter: the spike's scenarios, measured on a separate probe body ----
 
