@@ -13,7 +13,7 @@
 | Walk / run | 0.9 / 1.5 m/s | 0.32 / 0.60 m/s | **0.32 / 0.96 m/s** | Run is 3× the walk (was 1.9×): 9.6 body heights per second, a 4 m room in about 4.2 s. Walk kept: the founder did not flag it, and 3.2 body heights per second suits careful exploring and lining up jumps. Measured: 0.314 m walked and 0.891 m run in the first second from a standstill |
 | Ground / air acceleration | 9 / 3 m/s² | 4.0 / 1.4 m/s² | **6.0 / 2.0 m/s²**; air × the world's `air_control` | Keeps the run crisp at the higher speed: measured 10 ticks (0.17 s) to full run speed and 10 ticks to a stop (7.7 cm of slide); walk speed in about 3 ticks. Air control keeps its one-third ratio to the ground |
 | Step height | 0.045 m | 0.02 m | **0.02 m** (20 % of height) | The 6 mm rug is a step; the 4 cm book is a jump |
-| Jump | 1.55 m/s take-off | 6.5 cm apex | **6.5 cm apex**, any gravity | Clears the book with 2.5 cm to spare; take-off speed is computed from gravity and the 60 Hz tick so the apex does not change between presets |
+| Jump | 1.55 m/s take-off | 6.5 cm apex | **6.5 cm apex** in the default gravity and heavier; **higher in lighter gravity**, up to 30 cm | Clears the book with 2.5 cm to spare under every preset. At and above the default gravity the take-off speed is solved from gravity and the 60 Hz tick for a 6.5 cm apex; below it the take-off stays the default's 0.67 m/s, so the leap grows as gravity falls (founder, 8 October), capped at three body heights |
 | Jump buffer / coyote time | none | 0.10 s / 0.08 s | **0.10 s / 0.08 s** | A jump pressed just before landing or just after leaving an edge still happens |
 | Floor snap / safe margin | 0.025 / 0.001 m | 0.015 / 0.001 m | **0.015 / 0.001 m** | Snap follows the rug edge and slopes but never pulls the body down off the book |
 | Terminal fall | 8 m/s | 6 m/s | **6 m/s**, or the world's lower limit | Room-scale falls; floaty air lowers it to 0.6 m/s |
@@ -49,18 +49,22 @@ The companion's tests were rescaled with it; the low passage it must cross witho
 
 ## Gravity: a world property, three presets
 
-`game/scripts/world_physics_profile.gd` owns gravity, the air and wind as bounded, revisioned world rules. Gravity changes how long a jump or fall lasts, never how high the body jumps. Since the first playtest a profile also carries the air: `terminal_fall_mps`, the fastest anything falls (the body's own 6 m/s still caps it), and `air_control`, a multiplier on the body's air acceleration. Bounds: gravity 0.5 to 30 m/s² (was 1 to 30, lowered so floaty fits), fall limit 0.3 to 12 m/s, air control 0.25 to 3, wind at most 1 m/s. The companion now lives under the same profile as the player: when the player's revision is newer, the companion adopts it (before, pressing G changed the player's gravity only).
+`game/scripts/world_physics_profile.gd` owns gravity, the air and wind as bounded, revisioned world rules. Gravity changes how long a jump or fall lasts; since 8 October, gravity lighter than the default also lets the body leap higher, as on the moon (the founder: "I do want to be able to jump higher in the low gravity mode … being able to leap up a hillside would be very satisfying"). Since the first playtest a profile also carries the air: `terminal_fall_mps`, the fastest anything falls (the body's own 6 m/s still caps it), and `air_control`, a multiplier on the body's air acceleration. Bounds: gravity 0.5 to 30 m/s² (was 1 to 30, lowered so floaty fits), fall limit 0.3 to 12 m/s, air control 0.25 to 3, wind at most 1 m/s. The companion now lives under the same profile as the player: when the player's revision is newer, the companion adopts it (before, pressing G changed the player's gravity only).
 
-| Preset | Gravity | Fall limit | Air control | 6.5 cm jump lasts | Fall from the 0.75 m table |
+| Preset | Gravity | Fall limit | Air control | Jump: apex, airtime | Fall from the 0.75 m table |
 |---|---:|---:|---:|---:|---:|
-| `room_tuned` (default) | 3.5 m/s² | 6 m/s | ×1 | 0.37 s (measured 23 ticks) | 0.65 s |
-| `room_real` | 9.8 m/s² | 6 m/s | ×1 | about 0.21 s (measured 13 ticks) | 0.39 s |
-| `room_floaty`, first pass | 1.6 m/s² | 6 m/s | ×1 | 0.55 s | 0.97 s |
-| **`room_floaty`, now** | **0.6 m/s²** | **0.6 m/s** | **×2** | **0.93 s (measured 56 ticks)** | **1.75 s** (1 s to reach 0.6 m/s, then a steady drift) |
+| `room_tuned` (default) | 3.5 m/s² | 6 m/s | ×1 | 6.5 cm, 0.38 s (measured 23 ticks) | 0.65 s |
+| `room_real` | 9.8 m/s² | 6 m/s | ×1 | 6.5 cm, 0.22 s (measured 13 ticks) | 0.39 s |
+| `room_floaty`, first pass | 1.6 m/s² | 6 m/s | ×1 | 6.5 cm, 0.55 s | 0.97 s |
+| `room_floaty`, second pass | 0.6 m/s² | 0.6 m/s | ×2 | 6.5 cm, 0.93 s (measured 56 ticks) | 1.75 s (1 s to reach 0.6 m/s, then a steady drift) |
+| **`room_floaty`, now** (8 October) | **0.6 m/s²** | **0.6 m/s** | **×2** | **30 cm (the cap; 38 cm uncapped), 2.00 s (measured 120 ticks)** | **1.75 s** |
+| half the default (a custom profile) | 1.75 m/s² | 6 m/s | ×1 | 12.5 cm, 0.75 s (measured 45 ticks) | 0.93 s |
 
 Real gravity at 10 cm reads as a hopping insect: a jump is over in a quarter of a second. The tuned preset gives a game-like 0.37 s jump while keeping falls brisk. **Recommendation: `room_tuned`**, confirmed or replaced by the founder in the playtest (key **G** cycles the presets live, through the command host, and prints the active one to the console).
 
 **Floaty, after the first playtest.** The founder found the gravity shifts fun and asked for floaty to be more pronounced. It now hangs for almost a second on the same 6.5 cm jump, a fall drifts down at no more than 0.6 m/s (measured: a 40 cm drop caps at 0.600 m/s and takes 70 ticks), and air steering is doubled, so the body can be guided while it floats. A jump's take-off is 0.27 m/s, below the fall limit, so the limit slows long falls without changing the jump. Tuned and real are unchanged.
+
+**Floaty leaps, 8 October.** The founder wanted to jump higher in low gravity and leap up hillsides. The rule changed: in gravity at or above the default the take-off is still solved for 6.5 cm; below it the legs push off at the default's 0.67 m/s, so half the gravity leaps about twice as high, as on the moon. Floaty's would be 38 cm and 2.3 s, so the body caps a leap at three body heights (30 cm, 2.0 s). Its take-off (0.60 m/s) now matches the 0.6 m/s fall limit, so the descent mirrors the rise. Air control stays doubled: 4 m/s² stops a full run in 0.24 s of a 2 s leap, enough to steer the landing without turning the leap into flight.
 
 **The jump-height rule is kept: gravity never changes how high the body jumps.** Jump height is the body's reach into the room. If floaty also raised the jump, the 30 cm box and other ledges would become reachable in one preset only, and gravity would turn into a level-design key rather than a feel. Floaty changes how the jump feels (hang time, drift, steering) while every obstacle stays the same size. Whether low gravity should ever let the body climb higher is a design choice for the founder, listed under open questions below.
 

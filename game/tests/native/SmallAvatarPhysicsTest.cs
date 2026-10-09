@@ -56,7 +56,7 @@ public partial class SmallAvatarPhysicsTest : Node3D
             Check(companionProfile.IsValid && !ReferenceEquals(companionProfile, WorldScaleProfile.SmallPlayer),
                 "the companion keeps a profile object of its own, separate from the player's");
             Check(Mathf.IsEqualApprox(_companion.StepHeightM, _player.StepHeightM) && Mathf.IsEqualApprox(_companion.FloorSnapM, _player.FloorSnapM) &&
-                Mathf.IsEqualApprox(_companion.JumpApexM, _player.JumpApexM) && Mathf.IsEqualApprox(_companion.FloorSnapLength, _player.FloorSnapLength),
+                Mathf.IsEqualApprox(_companion.JumpApexM, _player.JumpApexM) && Mathf.IsEqualApprox(_companion.MaxJumpApexM, _player.MaxJumpApexM) && Mathf.IsEqualApprox(_companion.FloorSnapLength, _player.FloorSnapLength),
                 "the companion steps, snaps and jumps like the player");
             Check(_companion.RunSpeedMps >= 1.2f * _player.RunSpeedMps, $"the companion's run outpaces the player's so follow can catch up ({_companion.RunSpeedMps:0.00} against {_player.RunSpeedMps:0.00} m/s)");
             var visualFits = true;
@@ -126,14 +126,16 @@ public partial class SmallAvatarPhysicsTest : Node3D
         await Frames(20);
 
         var (apex, airtime) = await MeasureJump();
-        Check(apex > 0.058f && apex < 0.072f, $"tuned jump rises about 6.5 cm, clearing a 4 cm book (apex={apex:0.0000})");
+        Check(apex > 0.058f && apex < 0.072f && Mathf.Abs(_player.JumpApexNowM - _player.JumpApexM) < 0.0005f, $"tuned jump rises about 6.5 cm, clearing a 4 cm book (apex={apex:0.0000})");
+        GD.Print($"SMALL_AVATAR_MEASURED jump room_tuned: gravity {_player.GravityMps2:0.0} m/s2, apex {apex * 100:0.0} cm, airtime {airtime / 60.0:0.00} s ({airtime} ticks; predicted {_player.JumpApexNowM * 100:0.0} cm, {_player.JumpAirtimeS:0.00} s)");
         Report(airtime >= 19 && airtime <= 27, $"tuned jump lasts about 0.38 s (airborne frames={airtime})");
         Check(_player.IsOnFloor(), "jump returns to stable floor");
 
         var revision = _player.WorldPhysicsRevision;
         Check(_player.SetWorldPhysics(Preset("room_real", revision + 1)) && Mathf.IsEqualApprox(_player.GravityMps2, 9.8f), "real gravity profile accepted with a newer revision");
         (apex, airtime) = await MeasureJump();
-        Check(apex > 0.058f && apex < 0.072f, $"real gravity keeps the jump height (apex={apex:0.0000})");
+        Check(apex > 0.058f && apex < 0.072f, $"real gravity, heavier than the default, keeps the 6.5 cm jump (apex={apex:0.0000})");
+        GD.Print($"SMALL_AVATAR_MEASURED jump room_real: gravity {_player.GravityMps2:0.0} m/s2, apex {apex * 100:0.0} cm, airtime {airtime / 60.0:0.00} s ({airtime} ticks; predicted {_player.JumpApexNowM * 100:0.0} cm, {_player.JumpAirtimeS:0.00} s)");
         Report(airtime >= 11 && airtime <= 17, $"real gravity makes the same jump last about 0.23 s (airborne frames={airtime})");
         Check(!_player.SetWorldPhysics(Preset("room_floaty", revision + 1)), "a stale physics revision is refused");
         var invalid = Preset("room_tuned", revision + 5);
@@ -157,8 +159,12 @@ public partial class SmallAvatarPhysicsTest : Node3D
         await Frames(2);
         Check(_companion.WorldPhysicsId == "room_floaty" && Mathf.IsEqualApprox(_companion.GravityMps2, 0.6f), "the companion lives under the same world gravity as the player");
         (apex, airtime) = await MeasureJump();
-        Check(apex > 0.058f && apex < 0.072f, $"floaty gravity keeps the jump height (apex={apex:0.0000})");
-        Report(airtime >= 50 && airtime <= 62, $"floaty gravity makes the same jump last about 0.93 s (airborne frames={airtime})");
+        // Founder, 8 October: "I do want to be able to jump higher in the low gravity mode". Lighter gravity than the default
+        // lets the body leap higher, as on the moon; floaty's would be 38 cm, so the body's 30 cm cap holds it.
+        Check(apex > 0.27f && apex <= _player.MaxJumpApexM + 0.005f && Mathf.Abs(_player.JumpApexNowM - _player.MaxJumpApexM) < 0.001f,
+            $"floaty gravity leaps to the body's 30 cm cap, three body heights (apex={apex:0.0000})");
+        GD.Print($"SMALL_AVATAR_MEASURED jump room_floaty: gravity {_player.GravityMps2:0.0} m/s2, apex {apex * 100:0.0} cm, airtime {airtime / 60.0:0.00} s ({airtime} ticks; predicted {_player.JumpApexNowM * 100:0.0} cm, {_player.JumpAirtimeS:0.00} s)");
+        Report(airtime >= 105 && airtime <= 130, $"the floaty leap lasts about 2 s (airborne frames={airtime})");
         // A fall from 40 cm drifts down at the floaty fall limit instead of accelerating.
         _player.GlobalPosition += Vector3.Up * 0.40f;
         var fastest = 0.0f;
@@ -170,6 +176,19 @@ public partial class SmallAvatarPhysicsTest : Node3D
         Check(_player.CycleWorldPhysics() == "room_tuned", "the presets cycle real, floaty and tuned");
         Check(Mathf.IsEqualApprox(_player.GravityMps2, 3.5f) && Mathf.IsEqualApprox(_player.EffectiveTerminalFallMps, 6.0f) && Mathf.IsEqualApprox(_player.AirControl, 1.0f),
             "cycling returns to the tuned gravity, fall limit and air control");
+        // Between the presets the rule is the moon's: the take-off speed stays the default's, so half the gravity leaps
+        // about twice as high (13 cm, under the cap).
+        var half = Preset("room_tuned", _player.WorldPhysicsRevision + 1);
+        half["id"] = "half_gravity_test";
+        half["gravity_mps2"] = 1.75;
+        Check(_player.SetWorldPhysics(half), "a half-gravity profile is accepted");
+        (apex, airtime) = await MeasureJump();
+        Check(apex > 0.12f && apex < 0.14f, $"half the default gravity leaps about twice as high (apex={apex:0.0000})");
+        GD.Print($"SMALL_AVATAR_MEASURED jump half gravity: gravity {_player.GravityMps2:0.00} m/s2, apex {apex * 100:0.0} cm, airtime {airtime / 60.0:0.00} s ({airtime} ticks)");
+        var halfSpeed = _player.JumpSpeedMps;
+        Check(_player.SetWorldPhysics(Preset("room_tuned", _player.WorldPhysicsRevision + 1)) && Mathf.IsEqualApprox(_player.JumpSpeedMps, halfSpeed),
+            "half the gravity, the same push off the ground as in the default");
+        await Frames(10);
 
         // A jump pressed just before landing still happens; one pressed after walking off an edge too.
         _player.GlobalPosition += Vector3.Up * 0.05f;
@@ -205,7 +224,7 @@ public partial class SmallAvatarPhysicsTest : Node3D
         var highest = baseY;
         var airborne = 0;
         var left = false;
-        for (var i = 0; i < 90; i++)
+        for (var i = 0; i < 180; i++)
         {
             await Frames(1);
             highest = Mathf.Max(highest, _player.GlobalPosition.Y);
@@ -767,7 +786,7 @@ public partial class SmallAvatarPhysicsTest : Node3D
             ReadKeyboard = false;
             WalkSpeedMps *= WorldScale; RunSpeedMps *= WorldScale;
             GroundAccelerationMps2 *= WorldScale; AirAccelerationMps2 *= WorldScale;
-            JumpApexM *= WorldScale; StepHeightM *= WorldScale; FloorSnapM *= WorldScale; SafeMarginM *= WorldScale;
+            JumpApexM *= WorldScale; MaxJumpApexM *= WorldScale; StepHeightM *= WorldScale; FloorSnapM *= WorldScale; SafeMarginM *= WorldScale;
             TerminalFallMps *= WorldScale; MaxCreationSpeedMps *= WorldScale;
             base._Ready();
             ScaleWorldPhysicsForProbe(WorldScale);
