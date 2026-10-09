@@ -133,7 +133,7 @@ public enum LookView { Eye, Shoulder, Diorama, Isometric }
 /// How one view blurs (the founder, 9 October, in the island garage: "players are going to want to see the landscape a little
 /// further out. Maybe the blurring is only for features further out"; in F4, "having the tilt-shift there makes sense").
 /// "miniature" is the preset's own depth of field: a band around the subject and a tilt-shift that grows as the camera looks
-/// down, so a high view reads as a model on a table. "far" keeps everything crisp from the lens's near blur out to
+/// down, so a high view reads as a model on a table. "far" keeps everything crisp from the lens out to
 /// CrispBeyondFocusM past the subject (the whole island around the player), then softens over FarTransitionM, so only the far
 /// shore, the distant islands and the horizon melt, at FarAmount (the bokeh's size; its cost grows with its square).
 /// </summary>

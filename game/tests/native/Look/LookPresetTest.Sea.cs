@@ -33,15 +33,15 @@ public partial class LookPresetTest
         var after = LookDirector.DepthOfFieldFor(v2, 0.32f, down, view: v2.Tuning.BlurFor(LookView.Shoulder));
         GD.Print($"LOOK_INFO: F2 depth of field before: crisp {before.NearDistance:0.###} to {before.FarDistance:0.###} m, fully soft from {before.FarDistance + before.FarTransition:0.##} m, amount {before.Amount:0.###}; after: crisp {after.NearDistance:0.###} to {after.FarDistance:0.##} m, fully soft from {after.FarDistance + after.FarTransition:0.#} m, amount {after.Amount:0.###}");
         Check(before.FarDistance + before.FarTransition < 1.2f, $"before, in F2 the island a metre away was already fully soft ({before.FarDistance + before.FarTransition:0.##} m)");
-        Check(after.FarDistance >= 3f && after.FarDistance + after.FarTransition >= 15f, $"after, the island is crisp to {after.FarDistance:0.#} m and only the far shore, the distant islands and the horizon soften (fully from {after.FarDistance + after.FarTransition:0.#} m)");
+        Check(!after.NearEnabled && after.FarDistance >= 3f && after.FarDistance + after.FarTransition >= 15f, $"after, nothing near is soft and the island is crisp to {after.FarDistance:0.#} m and only the far shore, the distant islands and the horizon soften (fully from {after.FarDistance + after.FarTransition:0.#} m)");
         Check(after.Amount * after.Amount <= before.Amount * before.Amount, $"and the far blur costs no more than before (bokeh amount {after.Amount:0.###} against {before.Amount:0.###})");
         foreach (var view in new[] { LookView.Eye, LookView.Shoulder, LookView.Diorama })
             foreach (var distance in new[] { 0.06f, 0.3f, 1.4f, 2.4f })
                 foreach (var pitch in new[] { 0f, 20f, 45f, 80f })
                 {
                     var dof = LookDirector.DepthOfFieldFor(v2, distance, Mathf.Sin(Mathf.DegToRad(pitch)), 0.15f, distance * 1.5f, view: v2.Tuning.BlurFor(view));
-                    if (!(dof.NearDistance < distance && dof.FarDistance > 1.5f * distance + 2.9f && dof.NearDistance <= v2.NearBlurDistanceM + 1e-4f && dof.FarTransition > 0f && dof.Amount is > 0f and <= 1f))
-                        Check(false, $"a far view keeps the subject and the companion crisp, only the lens's near blur near, and does not tilt: {view} at {distance} m, {pitch} degrees: {dof}");
+                    if (!(!dof.NearEnabled && dof.FarDistance > 1.5f * distance + 2.9f && dof.FarTransition > 0f && dof.Amount is > 0f and <= 1f))
+                        Check(false, $"a far view keeps everything from the lens to past the subject and the companion crisp, and does not tilt: {view} at {distance} m, {pitch} degrees: {dof}");
                 }
         var iso = LookDirector.DepthOfFieldFor(v2, 2.7f, Mathf.Sin(Mathf.DegToRad(RoomHud.IsoPitchDeg)), view: v2.Tuning.BlurFor(LookView.Isometric));
         Check(iso == LookDirector.DepthOfFieldFor(v2, 2.7f, Mathf.Sin(Mathf.DegToRad(RoomHud.IsoPitchDeg))), "F4 keeps exactly the tilt-shift it had");
@@ -208,10 +208,10 @@ public partial class LookPresetTest
         look._Process(1.0 / 60.0);
         Check(look.Highlight.Target == null, "a thing that is freed loses the focus");
         // The overlay chain: a rim on the thing, a light line over a wider dark one; the shaders take what the code sets.
-        var rim = look.Highlight.Overlay;
-        var line = rim.NextPass as ShaderMaterial;
-        var under = line?.NextPass as ShaderMaterial;
-        Check(line != null && under != null && under.GetShaderParameter("width_px").AsSingle() > line.GetShaderParameter("width_px").AsSingle()
+        var under = look.Highlight.Overlay;
+        var line = under.NextPass as ShaderMaterial;
+        var rim = (line?.NextPass as ShaderMaterial)!;
+        Check(line != null && rim == look.Highlight.Rim && under.GetShaderParameter("width_px").AsSingle() > line.GetShaderParameter("width_px").AsSingle()
             && under.GetShaderParameter("line_color").AsColor().Luminance < 0.3f && line.GetShaderParameter("line_color").AsColor().Luminance > 0.8f
             && under.RenderPriority < line.RenderPriority && line.RenderPriority < rim.RenderPriority,
             "the focus is a warm rim over a light line over a wider dark one (it reads on pale sand as on grass)");

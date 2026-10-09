@@ -869,7 +869,7 @@ public partial class LookDirector : Node3D
     /// crispFromM keeps everything from there to the focus crisp (the player's reach, seen from its eye), and
     /// alsoM is a second distance the band stretches to keep crisp (the companion beside the player).
     /// view is how the view blurs (x_look_views): null or "miniature" is all of the above; "far" keeps everything from the
-    /// lens's near blur to crisp_beyond_focus_m past the subject crisp, with no tilt-shift, and softens only what lies beyond.
+    /// lens to crisp_beyond_focus_m past the subject crisp, with no near blur and no tilt-shift, and softens only what lies beyond.
     /// </summary>
     public static DepthOfField DepthOfFieldFor(StylePreset preset, float focusDistance, float lookingDown, float crispFromM = float.PositiveInfinity, float alsoM = float.NaN, bool observe = false, ViewBlur? view = null)
     {
@@ -886,12 +886,12 @@ public partial class LookDirector : Node3D
         var farthest = float.IsFinite(alsoM) && alsoM > 0.05f ? Mathf.Max(d, alsoM) : d;
         if (view is { Far: true } far)
         {
-            // Only a leaf brushing the lens is soft near (never past half the way to the subject); the land stays crisp to the
-            // far start, and the far shore, the distant islands and the horizon soften over the transition.
+            // Nothing near is soft (Godot's near blur smears well past its set distance: in F2 the ground under the camera, in F3
+            // the cliff beside it); the land stays crisp to the far start, and the far shore, the distant islands and the
+            // horizon soften over the transition.
             var lens = Mathf.Min(preset.NearBlurDistanceM, 0.5f * nearest);
             return new DepthOfField(preset.DofEnabled, farthest + far.CrispBeyondFocusM, far.FarTransitionM,
-                preset.DofEnabled && preset.NearBlur > 0f && lens > 0.01f, lens, Mathf.Max(lens * (t.NearTransitionBase - t.NearTransitionPerBlur * preset.NearBlur), 0.01f),
-                far.FarAmount);
+                false, lens, Mathf.Max(lens * (t.NearTransitionBase - t.NearTransitionPerBlur * preset.NearBlur), 0.01f), far.FarAmount);
         }
         var tilt = preset.TiltShiftEnabled ? preset.TiltShiftStrength * Mathf.Clamp(lookingDown * t.TiltPitchGain, 0f, 1f) : 0f;
         var halfBand = 0.5f * preset.FocusBandM * (1f - t.TiltBandNarrowing * tilt);

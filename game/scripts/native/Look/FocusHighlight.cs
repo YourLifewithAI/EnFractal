@@ -14,10 +14,11 @@ public sealed record FocusLook(
     Color LineColor, float LineWidthPx, Color UnderColor, float UnderWidthPx,
     float Breath, float BreathPeriodS)
 {
+    // A rim only at grazing edges and faint (a box's faces keep their own colour), a light warm line over a wider umber one.
     public static readonly FocusLook Default = new(
-        new Color("ffe9b8"), 0.55f, 2.2f, 0.06f,
-        new Color(1f, 0.93f, 0.74f, 0.8f), 1.6f, new Color(0.24f, 0.15f, 0.09f, 0.45f), 3.4f,
-        0.18f, 2.6f);
+        new Color("ffe9b8"), 0.18f, 5f, 0f,
+        new Color(1f, 0.9f, 0.62f, 0.9f), 2.2f, new Color(0.18f, 0.11f, 0.05f, 0.6f), 4.4f,
+        0.15f, 2.6f);
 }
 
 /// <summary>
@@ -34,29 +35,35 @@ public sealed class FocusHighlight
     public Node3D? Target { get; private set; }
     /// <summary>The meshes wearing the focus now.</summary>
     public IReadOnlyList<MeshInstance3D> Lit => _lit.Select(l => l.Mesh).ToArray();
-    public ShaderMaterial Overlay { get; }
+    /// <summary>The overlay every lit mesh wears: the darker, wider line, which chains the light line, which chains the rim.</summary>
+    public ShaderMaterial Overlay => Under;
+    public ShaderMaterial Under { get; }
+    public ShaderMaterial Line { get; }
+    public ShaderMaterial Rim { get; }
 
     private readonly List<(MeshInstance3D Mesh, Material? Before)> _lit = new();
 
     public FocusHighlight(FocusLook? look = null)
     {
         var l = look ?? FocusLook.Default;
-        // The darker, wider line first, the light line over it, then the rim on the thing itself.
-        var under = Line(l.UnderColor, l.UnderWidthPx, l, -2);
-        var line = Line(l.LineColor, l.LineWidthPx, l, -1);
-        line.NextPass = under;
-        Overlay = new ShaderMaterial { Shader = GD.Load<Shader>(RimShaderPath), ResourceName = "focus rim", RenderPriority = 0, NextPass = line };
-        Overlay.SetShaderParameter("rim_color", l.RimColor);
-        Overlay.SetShaderParameter("rim_strength", l.RimStrength);
-        Overlay.SetShaderParameter("rim_power", l.RimPower);
-        Overlay.SetShaderParameter("lift", l.Lift);
-        Overlay.SetShaderParameter("breath", l.Breath);
-        Overlay.SetShaderParameter("breath_period_s", l.BreathPeriodS);
+        // The darker, wider line first (the overlay itself: Godot draws an overlay's first chained pass for certain), the light
+        // line over it, then the rim on the thing itself.
+        Rim = new ShaderMaterial { Shader = GD.Load<Shader>(RimShaderPath), ResourceName = "focus rim", RenderPriority = 0 };
+        Rim.SetShaderParameter("rim_color", l.RimColor);
+        Rim.SetShaderParameter("rim_strength", l.RimStrength);
+        Rim.SetShaderParameter("rim_power", l.RimPower);
+        Rim.SetShaderParameter("lift", l.Lift);
+        Rim.SetShaderParameter("breath", l.Breath);
+        Rim.SetShaderParameter("breath_period_s", l.BreathPeriodS);
+        Line = MakeLine(l.LineColor, l.LineWidthPx, l, -1, "focus line");
+        Line.NextPass = Rim;
+        Under = MakeLine(l.UnderColor, l.UnderWidthPx, l, -2, "focus under-line");
+        Under.NextPass = Line;
     }
 
-    private static ShaderMaterial Line(Color colour, float widthPx, FocusLook look, int priority)
+    private static ShaderMaterial MakeLine(Color colour, float widthPx, FocusLook look, int priority, string name)
     {
-        var material = new ShaderMaterial { Shader = GD.Load<Shader>(LineShaderPath), ResourceName = "focus line", RenderPriority = priority };
+        var material = new ShaderMaterial { Shader = GD.Load<Shader>(LineShaderPath), ResourceName = name, RenderPriority = priority };
         material.SetShaderParameter("line_color", colour);
         material.SetShaderParameter("width_px", widthPx);
         material.SetShaderParameter("breath", look.Breath);

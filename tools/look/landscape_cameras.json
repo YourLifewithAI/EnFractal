@@ -145,7 +145,7 @@
       "id": "land_focus_rock",
       "label": "The focus on rock",
       "purpose": "Run 2: the focus highlight on the apple crate on a rock outcrop.",
-      "focus": { "object": "obj:apple_crate", "at_xz_m": [1.09, -1.78], "camera_offset_m": [0.16, 0.12, -0.22] },
+      "focus": { "object": "obj:apple_crate", "at_xz_m": [0.28, -0.85], "camera_offset_m": [0.16, 0.12, -0.22] },
       "fov_deg": 55,
       "view": "shoulder",
       "hide_player_body": false,
