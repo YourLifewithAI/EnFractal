@@ -55,3 +55,27 @@
 4. The founder's playtest.
 
 Lane P's part 2 can run alongside Lane C, because it touches different files.
+
+## Progress and decisions (9 October, the sixth session, a cloud session)
+
+This session ran in a Linux cloud container, not on DiamondAge. That meant no GPU, no Blender and no Codex. The .NET SDK was Ubuntu's 8.0.131, because the pinned 8.0.425's download host is blocked there; `game/global.json` was overridden locally only. A pinned-SDK run on DiamondAge confirms the round.
+
+- **Step 1, Lane C (Opus): the first pass is merged** (`1e03dea`).
+  - Every room is an island: the coast follows the floor plan, with cliffs, coves, beaches and up to four sea stacks.
+  - The door is a timber jetty with a pass through the reef. Rivers end in the sea.
+  - The sea is at −0.02 m: the lagoon 0.22 m deep, the open sea 0.62 m. The reef is 2 cm under the surface, about 0.2 to 1.0 m off the coast. Six distant islands sit out to 60 m.
+  - The garage passes every check.
+  - **The corpus fell from 23 to 14 of 24.** Lane C's fix round on it, and on a more ragged coast, is running.
+- **Step 2, the exporter: done by the integrator, in place of Codex brief 21.** Lane C's change request was small, so a Codex round trip on DiamondAge wasn't worth it.
+  - The room's `bounds` grow to the playable water past the reef.
+  - The game gets a whitelisted, bounded copy of the sea in `extensions.x_landscape_sea`: the sea level, the outlines, the reef, the beaches and the jetty (`pipeline/landscape/export/sea.py`).
+- **The contract decision: an extension first, not a contract field.**
+  - **Why:** a typed `boundary` field now would freeze names before the edge is built or played. The extension costs nothing to change.
+  - **Condition:** the game validates it when reading, as untrusted data.
+  - **Next:** promote it into `room-manifest.schema.json` once Lane P's edge and the founder's playtest have settled what the game reads.
+- **Step 3, Lane P: the edge has started.** That covers the current, washing ashore, the clamp moved out to the last safety net, and the Gubble coming along. Part 2 (the Gubble floats) is merged (`b324406`).
+- **Step 4, Lane L's sea look, waits for DiamondAge:** the open sea's colour and depth, foam on the reef, waves at the beaches, the horizon and the distant islands.
+- **For the founder:**
+  - the sea level 2 cm under the room's floor;
+  - a reef up to 1.0 m off the coast at convex corners (the plan said 30 to 60 cm);
+  - the first top-down pictures, sent in the session.
