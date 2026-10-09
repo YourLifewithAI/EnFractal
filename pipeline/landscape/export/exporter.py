@@ -7,6 +7,7 @@ from pipeline.landscape.harness.kit import SIZES, prototype
 from pipeline.landscape.harness.package import read_package
 from .materials import CONTRACT_ROLES, PALETTE, hex_color, material
 from .mesh import encode, ground, open_edges, transform
+from .source import source_data
 
 CREATED = '2026-10-08T00:00:00Z'
 LANDMARKS = {'cottage', 'tower', 'boulder', 'fence', 'crate', 'lantern'}
@@ -50,6 +51,7 @@ def export_room(package_folder, source_room_folder, room_id, out):
     require(not out.is_symlink(), 'output symlinks forbidden')
     require(not out.exists() or (out.is_dir() and not any(out.iterdir())), 'output folder must be empty')
     doc, meshes, source, _ = read_package(package_folder, source_room_folder)
+    intro_source = source_data(source, doc['source'], source_room_folder)
     require(doc['terrain'], 'landscape has no terrain')
     require(len(doc['objects']) <= 512, 'room contract allows at most 512 populated objects')
     blobs, shell, objects = {}, [], []
@@ -191,7 +193,8 @@ def export_room(package_folder, source_room_folder, room_id, out):
                         if r['prototype'] in {'cottage', 'tower'})
     spawns = []
     for spawn in source['spawns']:
-        spawn = dict(spawn, position_m=list(spawn['position_m']))
+        spawn = {'id': spawn['id'], 'role': spawn['role'],
+                 'position_m': list(spawn['position_m']), 'yaw_deg': spawn['yaw_deg']}
         y = ground(terrain, spawn['position_m'][0], spawn['position_m'][2])
         require(y is not None, 'spawn '+spawn['id']+' has no terrain underneath')
         spawn['position_m'][1] = y
@@ -219,12 +222,13 @@ def export_room(package_folder, source_room_folder, room_id, out):
         'display_name': room_id.replace('_', ' ').replace('-', ' ').capitalize()[:80],
         'created_utc': CREATED, 'units': 'm', 'axes': 'y_up_neg_z_forward',
         'source': {'kind': 'procedural', 'pipeline': {'name': 'landscape-room-export', 'version': '1'}},
-        'bounds': source['bounds'], 'shell': {'parts': shell, 'openings': []},
+        'bounds': intro_source['bounds'], 'shell': {'parts': shell, 'openings': []},
         'objects': objects, 'spawns': spawns, 'light_hints': lights,
         'site': {'latitude_deg': setup['latitude_deg'], 'neg_z_bearing_deg': setup['neg_z_bearing_deg'],
                  'solar_noon_h': 12},
         'files': [{'path': path, 'sha256': sha(data), 'bytes': len(data)} for path, data in sorted(blobs.items())],
         'extensions': {'x_landscape_setup': setup,
+                       'x_landscape_source': intro_source,
                        'x_landscape_package_sha256': sha((Path(package_folder)/'package.json').read_bytes()),
                        'x_landscape_terrain_open_edges': edges},
     }

@@ -1,4 +1,5 @@
 import collections
+import hashlib
 import json
 import math
 import os
@@ -10,7 +11,7 @@ import sys
 import unittest
 import uuid
 
-from pipeline.landscape.harness.common import PALETTE, SETUP
+from pipeline.landscape.harness.common import PALETTE, SETUP, canonical
 from pipeline.landscape.harness.kit import SIZES, prototype
 from pipeline.landscape.harness.package import read_package, write_package
 from pipeline.landscape.export import export_room
@@ -86,6 +87,162 @@ class ExportTests(unittest.TestCase):
         a = {p.relative_to(self.out).as_posix(): p.read_bytes() for p in self.out.rglob('*') if p.is_file()}
         b = {p.relative_to(other).as_posix(): p.read_bytes() for p in other.rglob('*') if p.is_file()}
         self.assertEqual(a, b)
+
+    def test_reference_source_room_preserves_every_box_wall_and_opening(self):
+        room = json.loads((ROOM/'room.json').read_bytes())
+        inventory = json.loads((ROOM/'inventory.json').read_bytes())
+        source = self.manifest['extensions']['x_landscape_source']
+        self.assertEqual(source['room_id'], room['room_id'])
+        for name in ('room', 'inventory'):
+            self.assertEqual(source[name+'_sha256'], hashlib.sha256((ROOM/(name+'.json')).read_bytes()).hexdigest())
+        self.assertEqual(source['bounds'], room['bounds'])
+        self.assertEqual(len(source['objects']), len(inventory['objects']))
+        self.assertEqual({o['id'] for o in source['objects']}, {o['id'] for o in inventory['objects']})
+        parts = {p['id']: p for p in source['shell']['parts']}
+        walls = [p for p in room['shell']['parts'] if p['role'] == 'wall']
+        self.assertEqual(sum(p['role'] == 'wall' for p in parts.values()), len(walls))
+        for part in room['shell']['parts']:
+            self.assertEqual(parts[part['id']]['geometry'], part['geometry'])
+            if part['role'] == 'wall':
+                ys = [p[1] for p in part['geometry']['points_m']]
+                self.assertEqual(parts[part['id']]['height_m'], max(ys)-min(ys))
+        self.assertEqual(source['shell']['openings'],
+                         sorted([{k: o[k] for k in ('id', 'kind', 'host_part_id', 'center_m', 'size_m')}
+                                 for o in room['shell']['openings']], key=lambda o: o['id']))
+        boxes = {o['id']: o for o in source['objects']}
+        for obj in inventory['objects']:
+            actual = boxes[obj['id']]
+            self.assertEqual(actual['kind'], obj['kind'])
+            self.assertEqual(actual['kind_confidence'], obj['confidence'])
+            self.assertEqual(actual['size_m'], obj['box']['size_m'])
+            for key in ('position_m', 'rotation', 'yaw_deg', 'support'):
+                self.assertEqual(actual[key], obj['placement'][key])
+            self.assertEqual(actual['colours'], sorted(obj['colours'], key=lambda c: (-c['share'], c['hex'])))
+
+    def source_fixture(self, name, room, inventory):
+        source = self.scratch/(name+'-source')
+        os.makedirs(source)
+        (source/'room.json').write_bytes(canonical(room))
+        (source/'inventory.json').write_bytes(canonical(inventory))
+        package = self.scratch/(name+'-package')
+        write_package(package, source, meshes={'land': self.meshes['land']}, setup=dict(SETUP),
+                      generator={'name':'test','version':'1'}, terrain=[{'mesh':'land'}])
+        return source, package, self.scratch/('source_'+name)
+
+    def test_source_labels_and_display_names_never_appear_in_any_output_file(self):
+        room = json.loads((ROOM/'room.json').read_bytes())
+        inventory = json.loads((ROOM/'inventory.json').read_bytes())
+        forbidden = []
+
+        def collect(value):
+            if isinstance(value, dict):
+                for key, child in value.items():
+                    if key in {'label', 'labels', 'display_name', 'display-name'}:
+                        if isinstance(child, str):
+                            forbidden.append(child)
+                        elif isinstance(child, list):
+                            forbidden.extend(v for v in child if isinstance(v, str))
+                    collect(child)
+            elif isinstance(value, list):
+                for child in value:
+                    collect(child)
+
+        collect(room)
+        collect(inventory)
+        for path in self.out.rglob('*'):
+            if path.is_file():
+                for label in forbidden:
+                    self.assertNotIn(label.encode('utf-8'), path.read_bytes(), str(path))
+        # Put unique free text at every dictionary depth, including geometry,
+        # colour and support records. Re-pin the package through its real writer.
+        def inject(value):
+            if isinstance(value, dict):
+                for child in list(value.values()):
+                    inject(child)
+                marker = 'UNTRUSTED_SOURCE_TEXT_'+str(len(forbidden))
+                value['label'] = marker
+                value['display_name'] = marker+' DISPLAY'
+                value['notes'] = [marker+' NOTES']
+                forbidden.extend([marker, marker+' DISPLAY', marker+' NOTES'])
+            elif isinstance(value, list):
+                for child in value:
+                    inject(child)
+
+        inject(room)
+        inject(inventory)
+        source, package, out = self.source_fixture('labels', room, inventory)
+        export_room(package, source, out.name, out)
+        for path in out.rglob('*'):
+            if path.is_file():
+                data = path.read_bytes()
+                for label in forbidden:
+                    self.assertNotIn(label.encode('utf-8'), data, str(path))
+
+    def test_source_records_are_sorted_without_reordering_polygon_points(self):
+        room = json.loads((ROOM/'room.json').read_bytes())
+        inventory = json.loads((ROOM/'inventory.json').read_bytes())
+        room['shell']['parts'].reverse()
+        room['shell']['openings'].reverse()
+        inventory['objects'].reverse()
+        inventory['objects'][0]['colours'] = [{'hex':'#eeeeee', 'share':.2},
+                                            {'hex':'#bbbbbb', 'share':.4}, {'hex':'#aaaaaa', 'share':.4}]
+        source, package, out = self.source_fixture('sorting', room, inventory)
+        export_room(package, source, out.name, out)
+        intro = json.loads((out/'room.json').read_bytes())['extensions']['x_landscape_source']
+        for values in (intro['objects'], intro['shell']['parts'], intro['shell']['openings']):
+            self.assertEqual([v['id'] for v in values], sorted(v['id'] for v in values))
+        box = next(o for o in intro['objects'] if o['id'] == inventory['objects'][0]['id'])
+        self.assertEqual([c['hex'] for c in box['colours']], ['#aaaaaa', '#bbbbbb', '#eeeeee'])
+        floor = next(p for p in intro['shell']['parts'] if p['role'] == 'floor')
+        original = next(p for p in room['shell']['parts'] if p['role'] == 'floor')
+        self.assertEqual(floor['geometry']['points_m'], original['geometry']['points_m'])
+
+    def test_source_scan_pose_alternatives_and_unknown_surface_support(self):
+        room = json.loads((ROOM/'room.json').read_bytes())
+        inventory = json.loads((ROOM/'inventory.json').read_bytes())
+        a, b = inventory['objects'][:2]
+        del a['placement']['rotation']
+        a['placement']['yaw_deg'] = 37
+        a['placement']['support'] = {'kind':'surface', 'height_m':.4, 'target_id':None}
+        del b['placement']['yaw_deg']
+        del b['box']['yaw_deg']
+        b['placement']['rotation'] = [0,0,1,0]  # preserve supplied full rotation
+        source, package, out = self.source_fixture('poses', room, inventory)
+        export_room(package, source, out.name, out)
+        boxes = {o['id']: o for o in json.loads((out/'room.json').read_bytes())['extensions']['x_landscape_source']['objects']}
+        self.assertNotIn('rotation', boxes[a['id']])
+        self.assertEqual(boxes[a['id']]['yaw_deg'], 37)
+        self.assertEqual(boxes[a['id']]['support'], a['placement']['support'])
+        self.assertNotIn('yaw_deg', boxes[b['id']])
+        self.assertEqual(boxes[b['id']]['rotation'], [0,0,1,0])
+
+    def test_source_invalid_numbers_fail_before_output_creation(self):
+        for field, value in (('confidence', 1.1), ('position', 1001), ('size', 0),
+                             ('yaw', 361), ('rotation', 2), ('share', -.1), ('height', 1001),
+                             ('confidence', float('nan')), ('position', float('inf'))):
+            with self.subTest(field=field, value=value):
+                room = json.loads((ROOM/'room.json').read_bytes())
+                inventory = json.loads((ROOM/'inventory.json').read_bytes())
+                obj = inventory['objects'][0]
+                if field == 'confidence': obj['confidence'] = value
+                elif field == 'position': obj['placement']['position_m'][0] = value
+                elif field == 'size': obj['box']['size_m'][0] = value
+                elif field == 'yaw': obj['placement']['yaw_deg'] = value
+                elif field == 'rotation': obj['placement']['rotation'][3] = value
+                elif field == 'share': obj['colours'][0]['share'] = value
+                elif field == 'height': obj['placement']['support']['height_m'] = value
+                # NaN/Infinity are deliberately malformed input, not pinned output.
+                source = self.scratch/('invalid-source-'+uuid.uuid4().hex)
+                os.makedirs(source)
+                (source/'room.json').write_bytes(canonical(room))
+                (source/'inventory.json').write_text(json.dumps(inventory), encoding='utf-8', newline='\n')
+                package = self.scratch/('invalid-source-package-'+uuid.uuid4().hex)
+                write_package(package, source, meshes={'land': self.meshes['land']}, setup=dict(SETUP),
+                              generator={'name':'test','version':'1'}, terrain=[{'mesh':'land'}])
+                out = self.scratch/('source_invalid_'+uuid.uuid4().hex)
+                with self.assertRaises(ValueError):
+                    export_room(package, source, out.name, out)
+                self.assertFalse(out.exists())
 
     def test_terrain_triangles_and_bounds_match_exactly(self):
         original = [p for r in self.package['terrain'] for p in self.meshes[r['mesh']]]
