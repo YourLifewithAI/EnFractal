@@ -6,9 +6,11 @@ Deterministic: the same room, inventory and setup answers give identical bytes.
 """
 import argparse
 import math
+import os
 import random
 import shutil
 import tempfile
+import uuid
 from pathlib import Path
 
 from pipeline.landscape.harness import write_package
@@ -174,9 +176,10 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False):
     # Every object's own footprint keeps its landform: no cottage, path or
     # grading cuts into it (paths go round).
     protect = [False]*grid.n
-    # How far a thin top on an object's landform may weather: well within the
-    # height its footprint is still read by (a third of its height, 15 cm at least).
-    weathers = [math.inf]*grid.n
+    # How low a thin top on an object's landform may weather: never under the
+    # height its footprint is still read by (a third of its height, 15 cm at
+    # least, under its top).
+    floor_at = [-math.inf]*grid.n
     for o in objects:
         if o['parent'] is not None:
             continue
@@ -186,7 +189,7 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False):
             for i in rx_:
                 if rr_dist(*local(o, grid.xs[i], grid.zs[j]), max(o['sx']/2, .06), max(o['sz']/2, .06), .02) <= .03:
                     protect[j*nx+i] = True
-                    weathers[j*nx+i] = min(weathers[j*nx+i], max(.15, o['sy']/3)-.05)
+                    floor_at[j*nx+i] = max(floor_at[j*nx+i], o['top']-max(.15, o['sy']/3)+.04)
     houses = []
     pads = [0.]*grid.n
     fields = [0.]*grid.n
@@ -381,7 +384,8 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False):
             return False
         return jroot is None or math.hypot(grid.xs[q % nx]-jroot[0], grid.zs[q//nx]-jroot[1]) >= .35
     # An object's own landform keeps the height its footprint is read by.
-    planed = give_lips(grid, h, lambda q: h[q] > Sea.SEA_Y+.005 and wet[q] > 0, plane_ok, lambda q: weathers[q])
+    planed = give_lips(grid, h, lambda q: h[q] > Sea.SEA_Y+.005 and wet[q] > 0, plane_ok,
+                       lambda q: max(0., h[q]-floor_at[q]))
     slope = slope_field(grid, h)
     tris = grid.triangles()
     fslope = face_slope_max(grid, h, tris)
@@ -529,6 +533,10 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False):
     # Promise only the beaches a body can walk to from the spawn.
     final = Walker(probe, meshes, terr, room)
     beaches = [b for b in Sea.find_beaches(grid, h, room, coast['coast'], jetty) if final.route((px, pz), b['stand'])[0]]
+    if not beaches:
+        # No beach stretch a body reaches: the harbour's sand beside the jetty.
+        beaches = [b for b in Sea.find_beaches(grid, h, room, coast['coast'], jetty, harbour=True)
+                   if final.route((px, pz), b['stand'])[0]][:1]
     rest = dict(walk_limit_deg=WALK_LIMIT_DEG, step_limit_m=STEP_LIMIT_M,
                                   water_character=water.get('character'), water_why=water.get('why'),
                                   lake=water['lake'], pools=water.get('pools', []),
@@ -548,7 +556,9 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False):
     # its meshes are stored in single precision, and the walk is that strict.
     if beaches:
         from pipeline.landscape.harness import read_package
-        scratch = Path(tempfile.mkdtemp(prefix='landscape-promise-'))
+        # A unique folder by name (tempfile.mkdtemp's owner-only ACL blocks
+        # sandboxed writes on Windows).
+        scratch = Path(tempfile.gettempdir())/('landscape-promise-%d-%s' % (os.getpid(), uuid.uuid4().hex[:12]))
         try:
             written = write(scratch/'package', beaches)
             wdoc, wmeshes, _, _ = read_package(scratch/'package', room_dir)
