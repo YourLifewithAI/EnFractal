@@ -25,6 +25,8 @@ Stop and report it: a failing setup step, a permission prompt, a sandbox limit, 
 
 **Temporary folders in the sandbox.** On Windows, Python 3.13 and later give folders made by `tempfile.mkdtemp` and `tempfile.TemporaryDirectory` an owner-only access list, and the sandbox's restricted token cannot write inside them. Make working folders with `os.makedirs` (in your temp folder or an output folder you were given) and remove them with `shutil.rmtree`.
 
+**Existing suites that use `tempfile`** (the companion's, for one) cannot pass inside the sandbox for that reason. Never change their temp-folder handling to suit the sandbox. Run them before and after your change: every test that passed before must still pass, and the only errors allowed are the same temp-folder denials, in the same tests. The integrator runs the full suite outside the sandbox. For brief writers: the companion's environment is `C:\dev\EnFractal\companion\.venv` with the checkout's `companion/src` first on `PYTHONPATH`, and its tests use `unittest` (brief 24).
+
 ## Never
 
 - Edit `contracts/`, the kernel and command host (`game/scripts/native/Kernel/`), the companion's server and mock (`companion/src/`), `AGENTS.md`, `docs/runs/`, or any lane's files, unless your brief's scope names them.
