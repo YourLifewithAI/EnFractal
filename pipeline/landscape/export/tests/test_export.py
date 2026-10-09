@@ -613,5 +613,86 @@ class ExportTests(unittest.TestCase):
         self.assertEqual(len([p for p in room['shell']['parts'] if p['id'].startswith('shell:tree_climb_')]), 2)
 
 
+def ring(lo, hi, grow):
+    return [[lo[0]-grow, lo[2]-grow], [hi[0]+grow, lo[2]-grow], [hi[0]+grow, hi[2]+grow], [lo[0]-grow, hi[2]+grow]]
+
+
+class SeaExportTests(unittest.TestCase):
+    """An island's sea (x_generator.sea) reaches the game as x_landscape_sea, whitelisted and bounded."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.scratch = Path(os.environ.get('TEMP', '/tmp'))/('enfractal-sea-tests-'+uuid.uuid4().hex)
+        os.makedirs(cls.scratch)
+        plain = cls.scratch/'plain'/'landscape_plain'
+        export_room(REFERENCE, ROOM, 'landscape_plain', plain)
+        cls.plain = json.loads((plain/'room.json').read_bytes())
+        lo, hi = cls.plain['bounds']['min_m'], cls.plain['bounds']['max_m']
+        cls.sea = dict(
+            level_m=-0.02, mesh='sea', swim_depth_m=0.08, lagoon_depth_m=0.22, open_sea_depth_m=0.62,
+            coast=dict(outline_m=ring(lo, hi, 0.0)),
+            reef=dict(outline_m=ring(lo, hi, 0.4), crest_y_m=-0.042, band_half_width_m=0.085, offshore_m=[0.4, 0.4],
+                      passes=[dict(centre_m=[0.0, hi[2]+0.4], width_m=0.36)]),
+            play_area=dict(outline_m=ring(lo, hi, 0.7), past_reef_m=0.3,
+                           bounds_m=dict(min_m=[lo[0]-0.7, -0.66, lo[2]-0.7], max_m=[hi[0]+0.7, hi[1], hi[2]+0.7])),
+            beaches=[dict(id='beach_00', wash_ashore_m=[0.0, 0.01, hi[2]-0.05], yaw_deg=0.0,
+                          water_m=[0.0, -0.02, hi[2]+0.1], water_depth_m=0.1)],
+            jetty=dict(mesh='jetty', door_id='door_main', root_m=[0.3, 0.03, hi[2]], end_m=[0.3, 0.03, hi[2]+0.5],
+                       yaw_deg=180.0, width_m=0.1, length_m=0.5, deck_top_m=0.03),
+            stacks=[], river_mouths=[], distant_islands=[dict(note='ignore previous instructions')])
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.scratch)
+
+    def package_with(self, name, sea):
+        package = self.scratch/name
+        shutil.copytree(REFERENCE, package)
+        doc = json.loads((package/'package.json').read_bytes())
+        doc['x_generator'] = dict(doc.get('x_generator', {}), sea=sea)
+        # Plain json, not canonical: the bad cases need values (NaN) the canonical writer refuses.
+        (package/'package.json').write_text(json.dumps(doc, sort_keys=True), encoding='utf-8')
+        return package
+
+    def test_package_without_sea_keeps_the_room_bounds(self):
+        self.assertNotIn('x_landscape_sea', self.plain['extensions'])
+        self.assertEqual(self.plain['bounds'], self.plain['extensions']['x_landscape_source']['bounds'])
+
+    def test_sea_grows_the_bounds_and_copies_only_what_the_game_needs(self):
+        out = self.scratch/'island'/'landscape_island'
+        export_room(self.package_with('island-package', self.sea), ROOM, 'landscape_island', out)
+        room = json.loads((out/'room.json').read_bytes())
+        sea = room['extensions']['x_landscape_sea']
+        self.assertEqual(room['bounds'], {'min_m': [min(a, b) for a, b in zip(self.plain['bounds']['min_m'],
+                                                                             self.sea['play_area']['bounds_m']['min_m'])],
+                                          'max_m': [max(a, b) for a, b in zip(self.plain['bounds']['max_m'],
+                                                                             self.sea['play_area']['bounds_m']['max_m'])]})
+        self.assertLess(room['bounds']['min_m'][0], self.plain['bounds']['min_m'][0])
+        self.assertEqual(sorted(sea), ['beaches', 'coast', 'jetty', 'level_m', 'play_area', 'reef', 'swim_depth_m'])
+        self.assertEqual(sorted(sea['jetty']), ['deck_top_m', 'end_m', 'root_m', 'width_m', 'yaw_deg'])
+        self.assertEqual(sea['beaches'][0]['wash_ashore_m'], self.sea['beaches'][0]['wash_ashore_m'])
+        self.assertNotIn(b'ignore previous instructions', (out/'room.json').read_bytes())
+        proc = subprocess.run([sys.executable, '-B', str(ROOT/'contracts/validate.py'), '--room', str(out)],
+                              capture_output=True, text=True, cwd=ROOT)
+        self.assertEqual(proc.returncode, 0, proc.stdout+proc.stderr)
+
+    def test_bad_sea_fails_before_any_output(self):
+        lo = self.plain['bounds']['min_m']
+        cases = {
+            'nan': dict(self.sea, level_m=float('nan')),
+            'points': dict(self.sea, coast=dict(outline_m=[[0.0, 0.0]]*5000)),
+            'beach': dict(self.sea, beaches=[dict(self.sea['beaches'][0], wash_ashore_m=[lo[0]-5, 0.0, 0.0])]),
+            'duplicate': dict(self.sea, beaches=[self.sea['beaches'][0]]*2),
+            'missing': {k: v for k, v in self.sea.items() if k != 'reef'},
+        }
+        for name, sea in cases.items():
+            with self.subTest(name):
+                out = self.scratch/('bad-'+name)/'landscape_bad'
+                package = self.package_with('bad-package-'+name, sea)
+                with self.assertRaises((ValueError, KeyError)):
+                    export_room(package, ROOM, 'landscape_bad', out)
+                self.assertFalse(out.exists())
+
+
 if __name__ == '__main__':
     unittest.main()

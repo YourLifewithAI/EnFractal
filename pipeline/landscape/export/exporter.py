@@ -7,6 +7,7 @@ from pipeline.landscape.harness.kit import SIZES, prototype
 from pipeline.landscape.harness.package import read_package
 from .materials import CONTRACT_ROLES, PALETTE, hex_color, material
 from .mesh import encode, ground, open_edges, transform
+from .sea import sea_data
 from .source import source_data
 from .trees import TerrainHeights, climbing_parts, is_tree
 
@@ -53,6 +54,10 @@ def export_room(package_folder, source_room_folder, room_id, out):
     require(not out.exists() or (out.is_dir() and not any(out.iterdir())), 'output folder must be empty')
     doc, meshes, source, _ = read_package(package_folder, source_room_folder)
     intro_source = source_data(source, doc['source'], source_room_folder)
+    # An island's sea (generator v4 on): the bounds grow out past the reef, and the game gets the reef,
+    # the beaches and the jetty. A package without one keeps the room's own bounds.
+    sea = doc.get('x_generator', {}).get('sea') if isinstance(doc.get('x_generator'), dict) else None
+    sea, bounds = sea_data(sea, intro_source['bounds']) if sea is not None else (None, intro_source['bounds'])
     require(doc['terrain'], 'landscape has no terrain')
     require(len(doc['objects']) <= 512, 'room contract allows at most 512 populated objects')
     blobs, shell, objects = {}, [], []
@@ -252,7 +257,7 @@ def export_room(package_folder, source_room_folder, room_id, out):
         'display_name': room_id.replace('_', ' ').replace('-', ' ').capitalize()[:80],
         'created_utc': CREATED, 'units': 'm', 'axes': 'y_up_neg_z_forward',
         'source': {'kind': 'procedural', 'pipeline': {'name': 'landscape-room-export', 'version': '1'}},
-        'bounds': intro_source['bounds'], 'shell': {'parts': shell, 'openings': []},
+        'bounds': bounds, 'shell': {'parts': shell, 'openings': []},
         'objects': objects, 'spawns': spawns, 'light_hints': lights,
         'site': {'latitude_deg': setup['latitude_deg'], 'neg_z_bearing_deg': setup['neg_z_bearing_deg'],
                  'solar_noon_h': 12},
@@ -260,7 +265,8 @@ def export_room(package_folder, source_room_folder, room_id, out):
         'extensions': {'x_landscape_setup': setup,
                        'x_landscape_source': intro_source,
                        'x_landscape_package_sha256': sha((Path(package_folder)/'package.json').read_bytes()),
-                       'x_landscape_terrain_open_edges': edges},
+                       'x_landscape_terrain_open_edges': edges,
+                       **({'x_landscape_sea': sea} if sea is not None else {})},
     }
     blobs['room.json'] = canonical(room)
     # Output creation begins only after package, ids, budgets, and spawns pass.
