@@ -467,6 +467,36 @@ public partial class CommandHost
 
     // ---- the player's hand keys (RoomHud: F and V) ----
 
+    /// <summary>The focus: the thing the next hand key would act on (empty Id for none), its bounds, and the tag's words.</summary>
+    public readonly record struct HandsFocus(string Id, Aabb Box, string Tag);
+
+    /// <summary>
+    /// What F would act on now, and what the keys would do there (RUN-2-OPEN-SEA.md, "Things to touch"): carrying, the thing
+    /// with a walkable top F would set it on (none: F sets it down in front, and nothing is lit); else the thing F would
+    /// pick up, tagged with the keys that work on it, or the honest reason. The same choices PlayerHands and PlayerPush make.
+    /// </summary>
+    public HandsFocus PlayerFocus()
+    {
+        if (Player == null || !IsInstanceValid(Player)) return default;
+        var entities = Entities();
+        if (_held.TryGetValue(PlayerAvatar, out var held))
+        {
+            var support = SandboxControls.SupportAhead(Player, entities, held.Target, PlayerReaches);
+            return support == null ? default : new HandsFocus(support["id"]!.GetValue<string>(), BoundsOf(support),
+                string.Format(SandboxControls.FocusWords.SetOn, HeldName(PlayerAvatar), support["display_name"]!.GetValue<string>()));
+        }
+        var target = SandboxControls.ThingAhead(Player, entities, SandboxRules.CarryLimitKg(PlayerAvatar), MassOf, PlayerReaches);
+        if (target == null) return default;
+        var id = target["id"]!.GetValue<string>();
+        var mass = MassOf(id);
+        var tag = mass <= SandboxRules.CarryLimitKg(PlayerAvatar) ? SandboxControls.FocusWords.PickUpOrPush
+            : mass <= SandboxRules.PushLimitKg(PlayerAvatar) ? SandboxControls.FocusWords.PushOnly : SandboxControls.FocusWords.TooHeavy;
+        return new HandsFocus(id, BoundsOf(target), tag);
+    }
+
+    /// <summary>The built node of a room object (for the focus highlight), or null.</summary>
+    public Node3D? ObjectNodeOf(string id) => ObjectNode(id);
+
     /// <summary>F: pick up what the player faces within reach, or put down what it holds: on the thing it faces if that has a walkable top, else in front of it.</summary>
     public HandsOutcome PlayerHands()
     {

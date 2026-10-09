@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using EnFractal.Native;
 using EnFractal.Native.Kernel;
 using EnFractal.Native.Look;
+using EnFractal.Native.Sandbox;
 
 namespace EnFractal.Tests.Kernel;
 
@@ -92,7 +93,24 @@ public partial class PlayHudTest : Node
         Check(CompanionAvatar.SavedName("Wisp") == "the Gubble" && CompanionAvatar.SavedName("Pip") == "Pip",
             "a profile or save still naming the companion Wisp (the former default) restores it as the Gubble; a name the player chose stays");
         Check(await WalkTo(player, new Vector2(-0.3f, 0.62f)), "the player walks over to the doorstop on the rug");
+        // The focus (RUN-2-OPEN-SEA.md, "Things to touch"): facing away, nothing lit; facing the doorstop, it is lit, and its
+        // tag beside it names the keys, never in the top-right corner kept for the minimap.
+        await Face(player, Vector3.Back);
+        await Frames(40);
+        var look = _hud.Look;
+        Check(_hud.FocusTarget == null && !_hud.FocusTag.Visible && (look == null || look.Highlight.Target == null),
+            "with nothing the hand keys would act on in front, nothing is lit and no tag shows");
         await Face(player, Vector3.Forward);
+        await Frames(40);
+        var tagRect = new Rect2(_hud.FocusTag.Position, _hud.FocusTag.Size);
+        var viewport = _hud.GetViewport().GetVisibleRect().Size;
+        var inCorner = tagRect.End.X > viewport.X - SandboxControls.FocusWords.MinimapWidthPx && tagRect.Position.Y < SandboxControls.FocusWords.MinimapHeightPx;
+        Check(_hud.FocusTarget?.GetMeta("entity_id", "").AsString() == "obj:doorstop" && (look == null || look.Highlight.Target == _hud.FocusTarget) &&
+              _hud.FocusTag.Visible && _hud.FocusTag.Text == SandboxControls.FocusWords.PickUpOrPush && !inCorner,
+            $"facing the doorstop it is lit ({(look == null ? "no look in this run" : "the look's highlight on it")}), its tag \"{_hud.FocusTag.Text}\" at {tagRect.Position}, clear of the minimap's corner");
+        var queries = _hud.FocusQueries;
+        await Frames(60);
+        Check(_hud.FocusQueries - queries <= 3, $"standing still, the focus is asked for at most every half second ({_hud.FocusQueries - queries} times in 1 s)");
         _hud._UnhandledInput(Press(Key.F));
         await Frames(2);
         Check(host.HeldBy(CommandHost.PlayerAvatar) == "obj:doorstop" && notice.Text.StartsWith("Holding Doorstop", StringComparison.Ordinal) && state.Text.Contains("holding Doorstop (F)", StringComparison.Ordinal),
@@ -101,6 +119,9 @@ public partial class PlayHudTest : Node
         Check(await WalkTo(player, new Vector2(0.87f, 0.17f)), "the player carries it across the room to the big box");
         await Face(player, Vector3.Right);
         Check(Entity(host, "obj:doorstop")["held_by"]?.GetValue<string>() == CommandHost.PlayerAvatar, "still holding it on arrival");
+        await Frames(40);
+        Check(_hud.FocusTarget?.GetMeta("entity_id", "").AsString() == "obj:box" && _hud.FocusTag.Text == "F set Doorstop on Cardboard box",
+            $"carrying it, facing the box, the box is lit, where F would set it: \"{_hud.FocusTag.Text}\" on {_hud.FocusTarget?.GetMeta("entity_id", "")}");
         _hud._UnhandledInput(Press(Key.F));
         await Frames(2);
         var onBox = Entity(host, "obj:doorstop");
@@ -119,9 +140,18 @@ public partial class PlayHudTest : Node
         var pushed = Vec(Entity(host, "obj:doorstop")["position_m"]!);
         Check(Mathf.Abs(pushed.X - at.X - 0.2f) < 0.002f && Mathf.Abs(pushed.Y - 0.30f) < 0.0005f && Mathf.Abs(pushed.Z - at.Z) < 0.002f && notice.Text == "Pushed Doorstop.",
             $"V twice pushes it 20 cm along the box's top ({at.X:0.000} to {pushed.X:0.000} m)");
+        await Frames(40);
+        var heavyTag = _hud.FocusTag.Text;
         _hud._UnhandledInput(Press(Key.F));
         await Frames(2);
         Check(host.HeldBy(CommandHost.PlayerAvatar) == null && notice.Text.Contains("too heavy", StringComparison.Ordinal), "F on the big box says it is too heavy: " + notice.Text);
+        Check(heavyTag.Contains("too heavy", StringComparison.Ordinal), $"and its tag said so before the key: \"{heavyTag}\"");
+        // On the way home (B), as while climbing or diving, nothing is lit and no tag shows.
+        Check(_hud.FocusTarget != null && player.RequestHome(), "still facing the box, B starts the way home");
+        await Frames(3);
+        var litOnTheWay = _hud.FocusTarget != null || _hud.FocusTag.Visible || (_hud.Look != null && _hud.Look.Highlight.Target != null);
+        await Frames(80);
+        Check(!litOnTheWay, "during the fade home nothing is lit and the tag is gone");
     }
 
     private static System.Text.Json.Nodes.JsonObject Entity(CommandHost host, string id) => host.Entities().First(e => e["id"]!.GetValue<string>() == id);

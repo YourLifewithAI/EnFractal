@@ -21,6 +21,23 @@ public partial class RoomHud : CanvasLayer
     private Label _state = null!;
     /// <summary>The wash-ashore fade (the sea's edge): a full-screen veil the player's body darkens and lifts.</summary>
     private ColorRect _washVeil = null!;
+    // The focus (RUN-2-OPEN-SEA.md, "Things to touch"): the thing the next hand key would act on, lit by the look, with a tag.
+    private Label _focusTag = null!;
+    private Node3D? _focusNode;
+    private Vector3 _focusTop;
+    private double _focusAge = double.MaxValue;
+    private Vector3 _focusFrom;
+    private float _focusYaw;
+    private string _focusHeld = "";
+    /// <summary>The focus is asked for again at most this often while the player moves or turns, and at least this often anyway (things move).</summary>
+    public const double FocusQueryS = 0.1;
+    public const double FocusRefreshS = 0.5;
+    /// <summary>The thing the focus is on (null for none).</summary>
+    public Node3D? FocusTarget => _focusNode;
+    /// <summary>The focus tag (its words, and whether and where it shows).</summary>
+    public Label FocusTag => _focusTag;
+    /// <summary>Times the focus was asked for (the test keeps it cheap).</summary>
+    public int FocusQueries { get; private set; }
     private Label _moveKeys = null!;
     /// <summary>The movement keys, with B home from anywhere (the founder, 9 October: to the jetty, or the beach, or the start).</summary>
     private string MoveKeys => $"WASD move · Shift run · Space jump · B back to {Player.HomeName} · R recover · G gravity · click to look · Esc release";
@@ -177,6 +194,8 @@ public partial class RoomHud : CanvasLayer
         var hands = new HBoxContainer { Name = "HandActions" }; column.AddChild(hands);
         AddButton(hands, "F Pick up / put down", Hands, 26);
         AddButton(hands, "V Push", Push, 26);
+        _focusTag = new Label { Name = "FocusTag", Visible = false, MouseFilter = Control.MouseFilterEnum.Ignore, Theme = compactTheme };
+        AddChild(_focusTag);
         _washVeil = new ColorRect { Name = "HomeVeil", Color = new Color(0.06f, 0.13f, 0.18f, 0), MouseFilter = Control.MouseFilterEnum.Ignore };
         AddChild(_washVeil);
         _washVeil.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
@@ -348,6 +367,7 @@ public partial class RoomHud : CanvasLayer
             (Companion.FloatingThere ? " · floating there" : "") + (Companion.GoalBlocked ? " · path blocked" : "") +
             (holding.Length > 0 ? $"  ·  holding {holding} (F)" : "") + (Look?.Observe == true ? "  ·  observe view (O)" : "");
         _notice.Text = _noticeText;
+        UpdateFocus(delta);
         _washVeil.Color = new Color(_washVeil.Color, Player.HomeFade);
         _moveKeys.Text = MoveKeys;
         var clock = ClockText();
@@ -355,6 +375,77 @@ public partial class RoomHud : CanvasLayer
         _clock.Text = clock;
         // With the date pinned and the hour left on the real clock, the pin follows real time as the look itself would.
         if (Look != null && TimeStop < 0 && SeasonStop >= 0 && (_clockTimer += delta) > LookDirector.ClockUpdateSeconds) ApplyClock();
+    }
+
+    /// <summary>
+    /// The focus, every frame: the look's highlight on the thing the next hand key would act on, in every view, and the tag
+    /// beside it. None while climbing, diving or on the way home, or with nothing to act on. The host is asked again only
+    /// when the player has moved, turned or picked up or put down, at most every FocusQueryS, and every FocusRefreshS anyway.
+    /// </summary>
+    private void UpdateFocus(double delta)
+    {
+        var host = Host;
+        _focusAge += delta;
+        if (host == null || Player.IsClimbing || Player.IsDiving || Player.GoingHome || Customizing)
+        {
+            SetFocus(null, default, "");
+            _focusAge = double.MaxValue;
+        }
+        else
+        {
+            var held = host.HeldBy(Kernel.CommandHost.PlayerAvatar) ?? "";
+            var changed = Player.GlobalPosition.DistanceSquaredTo(_focusFrom) > 1e-6f || Mathf.Abs(Mathf.AngleDifference(Player.GlobalRotation.Y, _focusYaw)) > 0.02f || held != _focusHeld;
+            if ((changed && _focusAge >= FocusQueryS) || _focusAge >= FocusRefreshS)
+            {
+                _focusAge = 0;
+                _focusFrom = Player.GlobalPosition;
+                _focusYaw = Player.GlobalRotation.Y;
+                _focusHeld = held;
+                FocusQueries++;
+                var focus = host.PlayerFocus();
+                SetFocus(string.IsNullOrEmpty(focus.Id) ? null : host.ObjectNodeOf(focus.Id), focus.Box, focus.Tag ?? "");
+            }
+        }
+        PlaceFocusTag();
+    }
+
+    private void SetFocus(Node3D? node, Aabb box, string tag)
+    {
+        if (node != null && !IsInstanceValid(node)) node = null;
+        if (node != _focusNode)
+        {
+            _focusNode = node;
+            Look?.SetFocusHighlight(node);
+        }
+        // The tag rides over the middle of the thing's top, as an offset from its node, so it follows a push at once.
+        if (node != null) _focusTop = new Vector3(box.GetCenter().X, box.End.Y, box.GetCenter().Z) - node.GlobalPosition;
+        if (node == null) tag = "";
+        if (_focusTag.Text != tag) _focusTag.Text = tag;
+    }
+
+    /// <summary>Beside the thing on screen, never in the top-right corner (the minimap's); hidden when the thing is behind the view.</summary>
+    private void PlaceFocusTag()
+    {
+        var camera = GetViewport().GetCamera3D();
+        if (_focusNode == null || !IsInstanceValid(_focusNode) || camera == null || _focusTag.Text.Length == 0)
+        {
+            _focusTag.Visible = false;
+            return;
+        }
+        var top = _focusNode.GlobalPosition + _focusTop;
+        if (camera.IsPositionBehind(top))
+        {
+            _focusTag.Visible = false;
+            return;
+        }
+        var screen = GetViewport().GetVisibleRect().Size;
+        var size = _focusTag.GetCombinedMinimumSize();
+        var at = camera.UnprojectPosition(top) + new Vector2(Sandbox.SandboxControls.FocusWords.TagRightPx, -Sandbox.SandboxControls.FocusWords.TagUpPx - size.Y);
+        at = new Vector2(Mathf.Clamp(at.X, 0, Mathf.Max(0, screen.X - size.X)), Mathf.Clamp(at.Y, 0, Mathf.Max(0, screen.Y - size.Y)));
+        if (at.X + size.X > screen.X - Sandbox.SandboxControls.FocusWords.MinimapWidthPx && at.Y < Sandbox.SandboxControls.FocusWords.MinimapHeightPx)
+            at.Y = Sandbox.SandboxControls.FocusWords.MinimapHeightPx;
+        _focusTag.Position = at;
+        _focusTag.Visible = true;
     }
 
     public override void _UnhandledInput(InputEvent input)
