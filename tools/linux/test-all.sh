@@ -38,6 +38,14 @@ echo "== native fixtures and room boot"
 run native_contract_probe "Native release probe passed" --headless --path "$P" res://scenes/native_contract_probe.tscn
 run native_small_avatar "checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_small_avatar.tscn
 run native_room_navigation "checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_room_navigation.tscn
+# Play on the land: the garage landscape, generated and exported at test time (derived data, never committed),
+# cached under .cache/landscape-fixture by a hash of the generator, the exporter, the package format and the corpus room.
+LK=$(cd "$REPO" && find pipeline/landscape/generator pipeline/landscape/export pipeline/landscape/harness pipeline/landscape/corpus/rooms/garage_nominal -type f \( -name '*.py' -o -name '*.json' \) -not -path '*/tests/*' -not -path '*/renders/*' -not -path '*/__pycache__/*' | LC_ALL=C sort | xargs sha256sum | sha256sum | cut -c1-16)
+LR="$REPO/.cache/landscape-fixture/$LK/landscape_garage_nominal"
+if [ ! -f "$LR/room.json" ]; then rm -rf "$REPO/.cache/landscape-fixture"; mkdir -p "$REPO/.cache/landscape-fixture/$LK"
+  (cd "$REPO" && python3 -B -m pipeline.landscape.generator.generate --room pipeline/landscape/corpus/rooms/garage_nominal --out "$REPO/.cache/landscape-fixture/$LK/package" && python3 -B -S -m pipeline.landscape.export --package "$REPO/.cache/landscape-fixture/$LK/package" --room pipeline/landscape/corpus/rooms/garage_nominal --room-id landscape_garage_nominal --out "$LR") > "$LOG/landscape_fixture.log" 2>&1 || { echo "FAIL landscape fixture"; tail -15 "$LOG/landscape_fixture.log"; failed=1; }
+fi
+run native_kernel_landscape "NATIVE_KERNEL_LANDSCAPE: [0-9]+/[0-9]+ checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_kernel_landscape.tscn -- --landscape="$LR"
 run native_room_data "checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_room_data.tscn
 run native_look_preset "checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_look_preset.tscn
 run room_boot "ROOM_WORLD_READY" --headless --path "$P" --fixed-fps 60 --quit-after 240 res://scenes/room.tscn
@@ -48,6 +56,21 @@ run native_kernel_command_host "checks passed" --headless --path "$P" --fixed-fp
 if (cd "$REPO" && "$LINUX/contracts-venv/bin/python" -I contracts/validate.py "$HOST_DUMP"/*.json > "$LOG/host_messages.log" 2>&1); then
   echo "PASS command host messages validate: $(tail -1 "$LOG/host_messages.log")"
 else cat "$LOG/host_messages.log"; failed=1; fi
+SANDBOX_DUMP="$LOG/sandbox_messages"; rm -rf "$SANDBOX_DUMP"
+run native_kernel_sandbox "checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_kernel_sandbox.tscn -- --dump="$SANDBOX_DUMP"
+if (cd "$REPO" && "$LINUX/contracts-venv/bin/python" -I contracts/validate.py "$SANDBOX_DUMP"/*.json > "$LOG/sandbox_messages.log" 2>&1); then
+  echo "PASS sandbox messages validate: $(tail -1 "$LOG/sandbox_messages.log")"
+else cat "$LOG/sandbox_messages.log"; failed=1; fi
+JOURNAL_DUMP="$LOG/journal_messages"; rm -rf "$JOURNAL_DUMP"
+run native_kernel_journal "checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_kernel_journal.tscn -- --dump="$JOURNAL_DUMP"
+if (cd "$REPO" && "$LINUX/contracts-venv/bin/python" -I contracts/validate.py "$JOURNAL_DUMP"/*.json > "$LOG/journal_messages.log" 2>&1); then
+  echo "PASS journal messages validate: $(tail -1 "$LOG/journal_messages.log")"
+else cat "$LOG/journal_messages.log"; failed=1; fi
+REBUILD_DUMP="$LOG/rebuild_states"; rm -rf "$REBUILD_DUMP"
+run native_kernel_rebuild "checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_kernel_rebuild.tscn -- --dump="$REBUILD_DUMP"
+if (cd "$REPO" && for s in room_state_before room_state_after; do "$LINUX/contracts-venv/bin/python" -I contracts/validate.py --state "$REBUILD_DUMP/$s.json" --room game/rooms/test_room || exit 1; done > "$LOG/rebuild_states.log" 2>&1); then
+  echo "PASS rebuilt room states validate against the test room: $(tail -1 "$LOG/rebuild_states.log")"
+else cat "$LOG/rebuild_states.log"; failed=1; fi
 echo "== kernel canonical JSON (Python reference)"
 if (cd "$REPO" && "$LINUX/contracts-venv/bin/python" tools/kernel/canonical_json.py --check game/tests/fixtures/kernel > "$LOG/canonical.log" 2>&1 \
     && "$LINUX/contracts-venv/bin/python" -m unittest discover -s tools/kernel >> "$LOG/canonical.log" 2>&1); then
@@ -68,6 +91,22 @@ echo "== roomscan (capture pipeline, CPU only)"
 if (cd "$REPO/pipeline/roomscan" && uv run --locked pytest -q > "$LOG/roomscan.log" 2>&1); then
   echo "PASS roomscan: $(tail -n 1 "$LOG/roomscan.log")"
 else cat "$LOG/roomscan.log"; failed=1; fi
+echo "== landscape corpus (synthetic rooms, read through roomscan)"
+if (cd "$REPO/pipeline/roomscan" && uv run --locked python -B -m unittest discover -s "$REPO/pipeline/landscape/corpus/tests" -t "$REPO" > "$LOG/corpus.log" 2>&1); then
+  echo "PASS landscape corpus: $(grep -E '^Ran' "$LOG/corpus.log")"
+else cat "$LOG/corpus.log"; failed=1; fi
+echo "== landscape exporter (a package to a game room, validated against the contracts)"
+if (cd "$REPO" && "$LINUX/contracts-venv/bin/python" -B -m unittest pipeline.landscape.export.tests.test_export > "$LOG/landscape_export.log" 2>&1); then
+  echo "PASS landscape exporter: $(grep -E '^Ran' "$LOG/landscape_export.log") $(grep -E '^OK' "$LOG/landscape_export.log")"
+else echo "FAIL landscape exporter"; tail -20 "$LOG/landscape_export.log"; failed=1; fi
+echo "== landscape harness (package format and views; its Blender tests skip without Blender)"
+if (cd "$REPO" && python3 -B -S -m unittest pipeline.landscape.harness.tests.test_harness > "$LOG/harness.log" 2>&1); then
+  echo "PASS landscape harness: $(grep -E '^Ran' "$LOG/harness.log") $(grep -E '^OK' "$LOG/harness.log")"
+else cat "$LOG/harness.log"; failed=1; fi
+echo "== landscape generator (determinism and the design's principles on corpus rooms)"
+if (cd "$REPO" && python3 -B -m unittest pipeline.landscape.generator.tests.test_generator > "$LOG/landscape_generator.log" 2>&1); then
+  echo "PASS landscape generator: $(grep -E '^Ran' "$LOG/landscape_generator.log") $(grep -E '^OK' "$LOG/landscape_generator.log")"
+else echo "FAIL landscape generator"; tail -20 "$LOG/landscape_generator.log"; failed=1; fi
 
 echo "== $([ $failed -eq 0 ] && echo GREEN || echo RED)"
 exit $failed

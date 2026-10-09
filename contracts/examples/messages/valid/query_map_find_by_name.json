@@ -1,0 +1,15 @@
+{
+  "schema": "enfractal.query",
+  "version": 1,
+  "query_id": "q-0015",
+  "room_id": "garage_example",
+  "op": "map.find",
+  "args": {
+    "name": "paint",
+    "near_m": [
+      0.0,
+      0.0,
+      0.0
+    ]
+  }
+}

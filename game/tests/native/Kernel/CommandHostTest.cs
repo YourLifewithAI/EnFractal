@@ -23,6 +23,8 @@ public partial class CommandHostTest : Node3D
     private const string TestRoot = "user://tests/command_host";
     private const string Player = CommandHost.PlayerPrincipal;
     private const string Companion = CommandHost.CompanionPrincipal;
+    /// <summary>A well-formed job id no host minted (contracts: common job_id).</summary>
+    private static readonly string UnknownJob = "job-" + new string('a', 26);
     private int _checks;
     private int _failures;
     private int _dumped;
@@ -44,6 +46,10 @@ public partial class CommandHostTest : Node3D
             _dump = OS.GetCmdlineUserArgs().FirstOrDefault(a => a.StartsWith("--dump=", StringComparison.Ordinal))?["--dump=".Length..];
             if (_dump != null) System.IO.Directory.CreateDirectory(_dump);
             RemoveSave();
+            // These checks are of the companion's own line of sight: the host's sweep of both avatars' eyes into the team's map
+            // and the team's shared sight are off here (the journal suite, native_kernel_journal.tscn, runs both).
+            CommandHost.DefaultTeamSightIntervalS = 0;
+            CommandHost.DefaultSharedSight = false;
             _room = RoomData.Load(RoomWorld.DefaultRoom);
             // The game's layout (user://saves/rooms/<room>/<manifest prefix>/inventions.json) under the test folder, with an
             // older manifest's save beside it: the host must tell the player those creations were not loaded.
@@ -96,6 +102,10 @@ public partial class CommandHostTest : Node3D
             Check(_errors.Count == 0, $"no script or engine errors during the suite ({_errors.Count}; first: {_errors.First})");
             GD.Print($"NATIVE_KERNEL_COMMAND_HOST: {_checks - _failures}/{_checks} checks passed; enfractal.command place, revise, remove, lock, goal, stop, physics and checkpoint commands with receipts, ledgers, replay, conflicts, approvals, rate limits, text rules, line of sight, perception memory and goal jobs{(_dump != null ? $"; {_dumped} messages dumped" : "")}");
             RemoveSave();
+            // Let the wrappers this long run left to the finalizer go before the engine tears down: in the Linux container's
+            // .NET, wrappers still pending at exit can abort Godot's shutdown after every check has passed.
+            System.GC.Collect();
+            System.GC.WaitForPendingFinalizers();
             GetTree().Quit(_failures == 0 ? 0 : 1);
         }
         catch (Exception error)
@@ -138,7 +148,8 @@ public partial class CommandHostTest : Node3D
         Check(Ok(Query("capabilities.list", new JsonObject { ["category"] = "air", ["limit"] = 10, ["cursor"] = "0" }, Companion)) &&
             Code(Query("capabilities.list", new JsonObject { ["cursor"] = "7" }, Companion)) == "invalid_args" &&
             Code(Query("capabilities.list", new JsonObject { ["limit"] = 0 }, Companion)) == "request_invalid", "capabilities.list checks its category, limit and cursor");
-        Check(Code(Query("jobs.status", new JsonObject { ["job_id"] = "nothing" }, Companion)) == "target_not_found", "unknown jobs are not found");
+        Check(Code(Query("jobs.status", new JsonObject { ["job_id"] = UnknownJob }, Companion)) == "target_not_found", "unknown jobs are not found");
+        Check(Code(Query("jobs.status", new JsonObject { ["job_id"] = "goal-000001" }, Companion)) == "request_invalid", "a counter is never a job id");
     }
 
     private string TestPlaceReviseAndReplay()
@@ -236,7 +247,7 @@ public partial class CommandHostTest : Node3D
         Check(again["replayed"]!.GetValue<bool>() && _companion.CurrentIntent == "stay", "a goal retry replays its transient receipt and does not run twice");
         Check(Query("receipt.lookup", new JsonObject { ["action_id"] = "goal-0001" }, Companion)["data"]!["receipt"]!["transient"]!.GetValue<bool>(), "receipt.lookup finds transient receipts for the session");
         Check(Code(Send(Command("goal-0002", "goal.set", new JsonObject { ["actor"] = CommandHost.PlayerAvatar, ["goal"] = "follow" }), Companion)) == "actor_denied", "a companion may not direct the player");
-        Check(Code(Send(Command("goal-0003", "goal.set", new JsonObject { ["actor"] = CommandHost.CompanionAvatarId, ["goal"] = "fetch", ["target"] = "obj:book" }), Companion)) == "unsupported_capability", "fetch waits for the embodiment packet");
+        Check(Code(Send(Command("goal-0003", "goal.set", new JsonObject { ["actor"] = CommandHost.CompanionAvatarId, ["goal"] = "fetch", ["target"] = "shell:floor" }), Companion)) == "permission_denied", "fetch refuses what cannot be picked up (the floor), as entity.grab does");
         var point = Send(Command("goal-0004", "goal.set", new JsonObject { ["actor"] = CommandHost.CompanionAvatarId, ["goal"] = "point_at", ["target"] = "obj:table" }), Player);
         await Frames(20);
         Check(Ok(point) && _companion.IsPointing, "the player can direct the companion to point at the table");
@@ -697,7 +708,7 @@ public partial class CommandHostTest : Node3D
     /// <summary>Kernel-host gap P3: the player's avatar is no exception to the companion's line of sight.</summary>
     private async Task TestPlayerOutOfSight()
     {
-        _host.SessionEvent(Companion, "start");
+        _host.ClearPerceptionMemory(Companion);
         await MoveCompanion(BehindTheBox, "behind the box, where the player is out of its sight");
         var player = Aim(CommandHost.PlayerAvatar);
         var nobody = Aim("avatar:nobody");
@@ -727,7 +738,7 @@ public partial class CommandHostTest : Node3D
     /// </summary>
     private async Task TestMemoryRemembering()
     {
-        _host.SessionEvent(Companion, "start");
+        _host.ClearPerceptionMemory(Companion);
         await MoveCompanion(CompanionSpawn, "to its spawn, where the whole room is in sight");
         var before = Listed()["obj:doorstop"];
         var seenAt = _now;
@@ -788,14 +799,14 @@ public partial class CommandHostTest : Node3D
     /// <summary>The mock's suite Staleness: old or changed memories are marked may_be_stale, one bit that never says which.</summary>
     private async Task TestMemoryStaleness()
     {
-        _host.SessionEvent(Companion, "start");
+        _host.ClearPerceptionMemory(Companion);
         var seenAt = await SeenThenHidden();
         _now = seenAt + TimeSpan.FromSeconds(CommandHost.PerceptionMemoryStaleAfterS) - TimeSpan.FromMilliseconds(150);
         Check(Listed()["obj:book"]["may_be_stale"]?.GetValue<bool>() == false, "a memory 59.9 s old is not stale");
         _now = seenAt + TimeSpan.FromSeconds(CommandHost.PerceptionMemoryStaleAfterS) - TimeSpan.FromMilliseconds(50);
         Check(Listed()["obj:book"]["may_be_stale"]?.GetValue<bool>() == true, "at 60 s a memory may be stale");
 
-        _host.SessionEvent(Companion, "start");
+        _host.ClearPerceptionMemory(Companion);
         await SeenThenHidden();
         var remembered = Listed()["obj:doorstop"];
         Send(Command(NextId("lock"), "protect.lock", new JsonObject { ["targets"] = new JsonArray("obj:doorstop") }, expectedEntities: new JsonObject { ["obj:doorstop"] = _host.EntityRevision("obj:doorstop") }), Player);
@@ -804,7 +815,7 @@ public partial class CommandHostTest : Node3D
             "a change out of sight marks it may_be_stale and says nothing else: still unprotected as seen");
         Send(Command(NextId("unlock"), "protect.unlock", new JsonObject { ["targets"] = new JsonArray("obj:doorstop") }, expectedRevision: _host.Revision), Player);
 
-        _host.SessionEvent(Companion, "start");
+        _host.ClearPerceptionMemory(Companion);
         await SeenThenHidden();
         var home = _player.GlobalPosition;
         Check(Listed()[CommandHost.PlayerAvatar]["may_be_stale"]?.GetValue<bool>() == false, "the player is remembered fresh");
@@ -827,7 +838,7 @@ public partial class CommandHostTest : Node3D
     /// <summary>The mock's suite LookingAgain: a thing gone out of sight is forgotten only once its place is seen empty.</summary>
     private async Task TestMemoryLookingAgain()
     {
-        _host.SessionEvent(Companion, "start");
+        _host.ClearPerceptionMemory(Companion);
         var wedge = PlaceCreation("Wedge", WedgeSpot);
         await SeenThenHidden();
         Check(Listed().GetValueOrDefault(wedge)?["seen"]?.GetValue<string>() == "remembered", "the wedge is remembered behind the box");
@@ -865,7 +876,7 @@ public partial class CommandHostTest : Node3D
     private async Task TestMemoryCommands()
     {
         var wedge = PlaceCreation("Wedge", WedgeSpot);
-        _host.SessionEvent(Companion, "start");
+        _host.ClearPerceptionMemory(Companion);
         var seenAt = await SeenThenHidden();
         _now = seenAt + TimeSpan.FromSeconds(3) - TimeSpan.FromMilliseconds(50);
         foreach (var goal in new[] { "look_at", "point_at" })
@@ -875,11 +886,16 @@ public partial class CommandHostTest : Node3D
             Check(Ok(aimed) && CanonicalJson.Text(aimed["data"]!) == CanonicalJson.Text(new JsonObject
             {
                 ["actor"] = CommandHost.CompanionAvatarId, ["goal"] = goal, ["target_seen"] = "remembered", ["last_seen_ago_s"] = 3.0, ["may_be_stale"] = false,
-            }) &&System.Text.RegularExpressions.Regex.IsMatch(aimed["job_id"]?.GetValue<string>() ?? "", @"\Agoal-\d{6}\z") &&
+            }) &&System.Text.RegularExpressions.Regex.IsMatch(aimed["job_id"]?.GetValue<string>() ?? "", @"\Ajob-[a-z2-7]{26}\z") &&
                 _host.RunningGoal(CommandHost.CompanionAvatarId)?.Target == "obj:doorstop", $"{goal} may aim at the remembered doorstop: a job, judged on the memory");
         }
-        Check(Code(Aim("obj:doorstop", "go_to")) == "unsupported_capability" && Code(Aim("obj:doorstop", "fetch")) == "unsupported_capability" &&
-            Code(Aim("obj:doorstop", "come")) == "unsupported_capability", "go_to, fetch and coming to a thing wait for the goal runner (A2), whatever the target");
+        var goTo = Aim("obj:doorstop", "go_to");
+        Check(Ok(goTo) && goTo["data"]?["target_seen"]?.GetValue<string>() == "remembered" && _host.RunningGoal(CommandHost.CompanionAvatarId)?.Goal == "go_to",
+            "go_to may aim at the remembered doorstop: the body walks there, a job judged on the memory");
+        var fetch = Aim("obj:doorstop", "fetch");
+        Check(Ok(fetch) && fetch["data"]?["target_seen"]?.GetValue<string>() == "remembered" && _host.RunningGoal(CommandHost.CompanionAvatarId)?.Goal == "fetch",
+            "fetch may aim at the remembered doorstop: the body walks there first, a job judged on the memory");
+        Check(Code(Aim("obj:doorstop", "come")) == "unsupported_capability", "coming to a thing still waits, whatever the target");
         var inSight = Aim("obj:box");
         Check(Ok(inSight) && inSight["data"]?["target_seen"]?.GetValue<string>() == "now" && inSight["data"]?["last_seen_ago_s"] == null, "a goal at something in sight says so");
         foreach (var goal in new[] { "follow", "stay", "wander" })
@@ -920,7 +936,7 @@ public partial class CommandHostTest : Node3D
     /// </summary>
     private async Task TestGoalJobs()
     {
-        _host.SessionEvent(Companion, "start");
+        _host.ClearPerceptionMemory(Companion);
         await SeenThenHidden();
         var job = Aim("obj:doorstop")["job_id"]?.GetValue<string>() ?? "";
         Check(Canonical(JobData(job)) == Canonical(new JsonObject { ["job_id"] = job, ["state"] = "running" }), "a job is running until the companion arrives");
@@ -985,13 +1001,10 @@ public partial class CommandHostTest : Node3D
         _host.PlayerGoal("stop");
         Check(JobData(follow)?["state"]?.GetValue<string>() == "cancelled", "the player's stop cancels the companion's job");
 
-        // Job ids are numbered per principal: the player's newest id is beyond any of the companion's.
-        var mine = int.Parse(follow["goal-".Length..], System.Globalization.CultureInfo.InvariantCulture);
-        string players;
-        do players = Send(Command(NextId("player-aim"), "goal.set", new JsonObject { ["actor"] = CommandHost.CompanionAvatarId, ["goal"] = "look_at", ["target"] = "obj:box" }), Player)["job_id"]?.GetValue<string>() ?? "goal-999999";
-        while (int.Parse(players["goal-".Length..], System.Globalization.CultureInfo.InvariantCulture) <= mine);
+        // Job ids are opaque random tokens, so the player's never matches one of the companion's.
+        var players = Send(Command(NextId("player-aim"), "goal.set", new JsonObject { ["actor"] = CommandHost.CompanionAvatarId, ["goal"] = "look_at", ["target"] = "obj:box" }), Player)["job_id"]?.GetValue<string>() ?? UnknownJob;
         var foreign = Query("jobs.status", new JsonObject { ["job_id"] = players }, Companion);
-        Check(Code(foreign) == "target_not_found" && foreign["error"]!.ToJsonString() == Query("jobs.status", new JsonObject { ["job_id"] = "goal-999999" }, Companion)["error"]!.ToJsonString() &&
+        Check(players != UnknownJob && Code(foreign) == "target_not_found" && foreign["error"]!.ToJsonString() == Query("jobs.status", new JsonObject { ["job_id"] = UnknownJob }, Companion)["error"]!.ToJsonString() &&
             Ok(Query("jobs.status", new JsonObject { ["job_id"] = players }, Player)), "another principal's job looks like no job");
         _host.PlayerGoal("stop");
 
@@ -1006,7 +1019,7 @@ public partial class CommandHostTest : Node3D
     /// <summary>The mock's suite NeverThroughOthers: memory is filled only from the companion's own sight.</summary>
     private async Task TestMemoryNeverThroughOthers()
     {
-        _host.SessionEvent(Companion, "start");
+        _host.ClearPerceptionMemory(Companion);
         await MoveCompanion(BehindTheBox, "behind the box, where the book is out of its sight");
         var looks = new[]
         {
@@ -1028,15 +1041,21 @@ public partial class CommandHostTest : Node3D
     /// <summary>The mock's suite Bounds: at most the host's number, the least recently seen forgotten first; off; cleared with the session.</summary>
     private async Task TestMemoryBounds()
     {
-        _host.SessionEvent(Companion, "start");
-        _host.PerceptionMemoryLimit = 2;
+        _host.ClearPerceptionMemory(Companion);
+        // Creations are never dropped (review major 6), so the bound leaves room for every creation in the room and two more.
+        var bound = _host.Entities().Count(e => e["kind"]!.GetValue<string>() == "creation") + 2;
+        _host.PerceptionMemoryLimit = bound;
         await MoveCompanion(CompanionSpawn, "to its spawn");
-        var nearest = NearestVisible(2);
-        Check(_host.RememberedIds(Companion).SequenceEqual(new[] { nearest[1], nearest[0] }), $"memory keeps the two nearest of what it saw, the nearer last ({string.Join(", ", _host.RememberedIds(Companion))})");
+        // Past the bound routine things go, never what the team built (review major 6): creations stay, beyond the two.
+        List<string> Routine() => _host.RememberedIds(Companion).Where(id => !id.StartsWith("creation:", StringComparison.Ordinal)).ToList();
+        List<string> NearestRoutine() => NearestVisible(100).Where(id => !id.StartsWith("creation:", StringComparison.Ordinal)).Take(2).ToList();
+        var nearest = NearestRoutine();
+        Check(Routine().TakeLast(2).SequenceEqual(new[] { nearest[1], nearest[0] }) && _host.RememberedIds(Companion).Count <= bound,
+            $"past its bound memory keeps the nearest routine things it saw, the nearer last, and every creation ({string.Join(", ", _host.RememberedIds(Companion))})");
         await MoveCompanion(BehindTheBox, "behind the box");
         _now += TimeSpan.FromSeconds(1);
-        nearest = NearestVisible(2);
-        Check(_host.RememberedIds(Companion).SequenceEqual(new[] { nearest[1], nearest[0] }), "new sightings push out the least recently seen");
+        nearest = NearestRoutine();
+        Check(Routine().TakeLast(2).SequenceEqual(new[] { nearest[1], nearest[0] }) && _host.RememberedIds(Companion).Count <= bound, "new sightings push out the least recently seen routine things");
         Check(Listed().Values.Where(i => i["seen"]?.GetValue<string>() == "remembered").All(i => _host.RememberedIds(Companion).Contains(i["id"]!.GetValue<string>())),
             "only what memory holds is listed as remembered");
 
@@ -1051,7 +1070,7 @@ public partial class CommandHostTest : Node3D
             await SeenThenHidden();
             Check(Listed().ContainsKey("obj:book"), "the book is remembered");
             _host.SessionEvent(Companion, sessionEvent);
-            Check(!Listed().ContainsKey("obj:book"), $"a link session {sessionEvent} clears the companion's memory");
+            Check(Listed().ContainsKey("obj:book"), $"a link session {sessionEvent} keeps the team's map: it is the room's (JOURNAL.md)");
         }
         _host.PlayerGoal("stop");
     }
@@ -1110,7 +1129,7 @@ public partial class CommandHostTest : Node3D
             {
                 var result = Send(Command($"leak-{goal.Replace('_', '-')}", "goal.set", new JsonObject { ["actor"] = CommandHost.CompanionAvatarId, ["goal"] = goal, ["target"] = wedge }), Companion);
                 probe.Add(new JsonObject { ["goal"] = goal, ["ok"] = result["ok"]!.DeepClone(), ["data"] = result["data"]?.DeepClone(), ["job_id"] = result["job_id"]?.DeepClone(), ["affected"] = result["affected"]?.DeepClone(), ["error"] = result["error"]?.DeepClone() });
-                probe.Add(new JsonObject { ["op"] = "jobs.status", ["data"] = Query("jobs.status", new JsonObject { ["job_id"] = result["job_id"]?.GetValue<string>() ?? "goal-999999" }, Companion)["data"]?.DeepClone() });
+                probe.Add(new JsonObject { ["op"] = "jobs.status", ["data"] = Query("jobs.status", new JsonObject { ["job_id"] = result["job_id"]?.GetValue<string>() ?? UnknownJob }, Companion)["data"]?.DeepClone() });
             }
             return Normalised(probe);
         }
@@ -1125,7 +1144,7 @@ public partial class CommandHostTest : Node3D
     /// <summary>The mock's NothingHiddenLeaks, second case: nothing the companion never saw appears through memory.</summary>
     private async Task TestNothingNeverSeenLeaks()
     {
-        _host.SessionEvent(Companion, "start");
+        _host.ClearPerceptionMemory(Companion);
         await MoveCompanion(BehindTheBox, "behind the box");
         Query("observe", new JsonObject { ["actor"] = CommandHost.CompanionAvatarId }, Companion);
         var placed = PlaceCreation("Never seen", OutOfEverySight);
@@ -1135,7 +1154,7 @@ public partial class CommandHostTest : Node3D
         {
             ("room.describe", new JsonObject()), ("entities.list", new JsonObject { ["limit"] = 100 }), ("observe", new JsonObject { ["actor"] = CommandHost.CompanionAvatarId }),
             ("entities.list", new JsonObject { ["limit"] = 100, ["filter"] = new JsonObject { ["near"] = new JsonObject { ["center_m"] = new JsonArray(0, 0, 0), ["radius_m"] = 50 } } }),
-            ("jobs.status", new JsonObject { ["job_id"] = "goal-000001" }),
+            ("jobs.status", new JsonObject { ["job_id"] = UnknownJob }),
         };
         queries.AddRange(hidden.Select(id => ("entity.inspect", new JsonObject { ["target"] = id })));
         var published = string.Join("\n", queries.Select(q => Query(q.Op, q.Args, Companion).ToJsonString()));
@@ -1288,7 +1307,9 @@ public partial class CommandHostTest : Node3D
     {
         static JsonNode? Clean(JsonNode? node) => node switch
         {
-            JsonObject map => new JsonObject(map.Where(p => p.Key != "at_utc").Select(p => KeyValuePair.Create(p.Key, Clean(p.Value)))),
+            // Job ids are opaque random tokens: only whether there is one may be compared between hosts.
+            JsonObject map => new JsonObject(map.Where(p => p.Key != "at_utc").Select(p => KeyValuePair.Create(p.Key,
+                p.Key == "job_id" && p.Value != null ? (JsonNode?)JsonValue.Create("(opaque)") : Clean(p.Value)))),
             JsonArray list => new JsonArray(list.Where(i => i is not JsonObject item || item["id"]?.GetValue<string>() != CommandHost.CompanionAvatarId).Select(Clean).ToArray()),
             JsonValue value when value.TryGetValue<double>(out var number) && value.GetValueKind() == JsonValueKind.Number => JsonValue.Create(Math.Round(number, 3)),
             _ => node?.DeepClone(),
@@ -1328,11 +1349,14 @@ public partial class CommandHostTest : Node3D
         var place = Command("place-0300", "creation.place", new JsonObject { ["source"] = Source("Survivor"), ["placement"] = Placement(-1.5, 0, 0.9) });
         // The companion saw the room and has goal jobs before the reload.
         await SeenThenHidden();
-        Check(_host.RememberedIds(Companion).Contains("obj:book") && Ok(Aim("obj:book")), "before the reload the companion remembers the book and aims at it");
+        var jobBefore = Aim("obj:book");
+        Check(_host.RememberedIds(Companion).Contains("obj:book") && Ok(jobBefore), "before the reload the companion remembers the book and aims at it");
         var first = Send(place, Player);
         var saved = System.IO.File.ReadAllText(ProjectSettings.GlobalizePath(SavePath));
-        Check(saved.Contains("Survivor", StringComparison.Ordinal) && !new[] { "remembered", "last_seen", "may_be_stale", "goal-0" }.Any(word => saved.Contains(word, StringComparison.Ordinal)),
-            "perception memory and goal jobs are never saved");
+        Check(saved.Contains("Survivor", StringComparison.Ordinal) && !new[] { "remembered", "last_seen_ago_s", "job-" }.Any(word => saved.Contains(word, StringComparison.Ordinal)),
+            "goal jobs and the answers' knowledge fields are never saved");
+        Check(saved.Contains("\"obj:book\":{\"entity\"", StringComparison.Ordinal) && saved.Contains("\"last_seen_utc\"", StringComparison.Ordinal),
+            "the team's map is saved with the room: the book as last seen");
         _host.QueueFree();
         await Frames(2);
         Check(_player.WorldPhysicsRequest == null, "a freed host no longer takes the G key");
@@ -1343,8 +1367,9 @@ public partial class CommandHostTest : Node3D
         var again = Send(place, Player);
         Check(again["replayed"]?.GetValue<bool>() == true && again["created"]?[0]?.GetValue<string>() == first["created"]?[0]?.GetValue<string>(), "durable receipts replay after the host and its save are reloaded");
         Check(Code(Send(Command("goal-0001", "goal.set", new JsonObject { ["actor"] = CommandHost.CompanionAvatarId, ["goal"] = "come" }), Companion)) == null, "transient receipts do not survive a new session");
-        Check(!Listed().ContainsKey("obj:book") && _host.RememberedIds(Companion).All(id => id != "obj:book"), "a new room session starts with no perception memory");
-        Check(Code(Query("jobs.status", new JsonObject { ["job_id"] = "goal-000001" }, Companion)) == "target_not_found", "nor any goal job");
+        Check(Listed().GetValueOrDefault("obj:book")?["seen"]?.GetValue<string>() == "remembered" && _host.RememberedIds(Companion).Contains("obj:book"),
+            "a new room session keeps the team's map: the companion still knows the book, as last seen");
+        Check(Code(Query("jobs.status", new JsonObject { ["job_id"] = jobBefore["job_id"]?.GetValue<string>() ?? UnknownJob }, Companion)) == "target_not_found", "nor any goal job");
         _host.PlayerGoal("stop");
         await MoveCompanion(CompanionSpawn, "back to its spawn");
     }

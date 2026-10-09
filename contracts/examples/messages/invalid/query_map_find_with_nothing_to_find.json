@@ -1,0 +1,10 @@
+{
+  "schema": "enfractal.query",
+  "version": 1,
+  "query_id": "q-0019",
+  "room_id": "garage_example",
+  "op": "map.find",
+  "args": {
+    "limit": 3
+  }
+}

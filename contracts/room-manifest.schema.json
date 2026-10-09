@@ -479,6 +479,10 @@
         "collides": {
           "type": "boolean"
         },
+        "drawn": {
+          "description": "Optional, default true. False makes a colliding part collision-only: it is never rendered (a climbing pole hidden inside a tree's leaves, a one-sided cap to stand on). Mesh collision is one-sided: a body passes through a face from behind. A part that is neither drawn nor collides is invalid.",
+          "type": "boolean"
+        },
         "material_role": {
           "$ref": "common.schema.json#/$defs/material_role"
         },

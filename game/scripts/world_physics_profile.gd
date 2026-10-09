@@ -2,8 +2,9 @@ class_name WorldPhysicsProfile
 extends RefCounted
 ## Bounded world physics for the room. Gravity, the air (how fast things fall at most and how much
 ## a body can steer in the air) and wind are world properties a trusted host supplies with a revision;
-## clients cannot grant one. Body properties (size, step, jump height, speeds) live in the C#
-## controller, so changing gravity changes how long a jump lasts, not how high it is.
+## clients cannot grant one. Body properties (size, step, jump, speeds) live in the C# controller.
+## Gravity at or above DEFAULT's keeps the body's 6.5 cm jump, only quicker; lighter gravity lets it leap
+## higher, as on the moon (the take-off speed stays DEFAULT's), up to three body heights.
 ## These presets are game feel, not physical accuracy; see docs/engine/phase3/body-and-physics.md.
 
 const DEFAULT := {
@@ -19,7 +20,7 @@ const DEFAULT := {
 }
 ## Presets the playtest cycles through, in order.
 const PRESET_IDS := ["room_tuned", "room_real", "room_floaty"]
-## Floaty (0.6 m/s2) sits above this; anything lower makes a 6.5 cm jump last well over a second.
+## Floaty (0.6 m/s2) sits above this; anything lower makes every jump and fall drag on.
 const MIN_GRAVITY_MPS2 := 0.5
 const MAX_GRAVITY_MPS2 := 30.0
 const MIN_TERMINAL_FALL_MPS := 0.3
@@ -37,8 +38,9 @@ static func preset(id: String, revision: int) -> Dictionary:
 		"room_real":
 			values["gravity_mps2"] = 9.8
 		"room_floaty":
-			# Founder playtest, 6 October: "make the floaty version even more pronounced". A 6.5 cm jump
-			# lasts about 0.93 s, falls drift down at no more than 0.6 m/s, and air steering is doubled.
+			# Founder playtests, 6 October: "make the floaty version even more pronounced"; 8 October: "I do
+			# want to be able to jump higher in the low gravity mode". A leap rises 30 cm (the body's cap; 38 cm
+			# uncapped) and lasts about 2 s, falls drift down at no more than 0.6 m/s, and air steering is doubled.
 			values["gravity_mps2"] = 0.6
 			values["terminal_fall_mps"] = 0.6
 			values["air_control"] = 2.0

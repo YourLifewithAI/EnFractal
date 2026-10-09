@@ -48,6 +48,7 @@ What must carry over is the message behaviour, which the boundary tests pin down
 """
 from __future__ import annotations
 
+import base64
 import copy
 import hashlib
 import logging
@@ -62,6 +63,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from . import perception, textsafety
+from .mock_journal import JournalMixin
 from .canonical import CanonicalJsonError
 from .contract import (
     COMMAND_SCHEMA,
@@ -84,7 +86,7 @@ STOP_OPS = frozenset({"goal.stop", "effect.stop"})
 TRANSIENT_OPS = frozenset({"entity.grab", "creation.activate", "goal.set", "goal.stop", "effect.start", "effect.stop",
                            "world.set_physics"})
 # Durable, but they change no world state, so they do not move the room revision.
-NO_REVISION_OPS = frozenset({"room.checkpoint"})
+NO_REVISION_OPS = frozenset({"room.checkpoint", "journal.note"})
 # The game's world physics presets (game/scripts/world_physics_profile.gd PRESET_IDS). Player-only, not saved.
 PHYSICS_PRESETS = frozenset({"room_tuned", "room_real", "room_floaty"})
 LOCKABLE_KINDS = frozenset({"object", "creation"})
@@ -97,7 +99,12 @@ REMEMBERED_KINDS = frozenset({"object", "creation", "avatar", "effect"})
 # Goals that only move or turn the companion's own avatar may aim at something it remembers but
 # cannot see now (founder decision, 6 October 2026). The host re-checks when the avatar arrives.
 REMEMBERED_TARGET_GOALS = frozenset({"go_to", "look_at", "point_at", "come", "fetch"})
+# The goals that walk somewhere: a body blocked on them for unreachable_after_s fails them with target_unreachable
+# (the kernel's WalkingGoals; come with no target and go_to a place included, which have no job to report).
+WALKING_GOALS = frozenset({"come", "go_to", "fetch"})
 
+# A come (and a fetch's walk back) ends this far from the player, centre to centre (CompanionAvatar.ComeArrivalM).
+COME_ARRIVAL_M = 0.14
 # Both avatars have the 10 cm body (perception.py): radius 0.02 m, height 0.10 m, as Entity half_extents.
 _BODY = [perception.BODY_RADIUS_M, perception.BODY_HEIGHT_M, perception.BODY_RADIUS_M]
 
@@ -137,7 +144,17 @@ class HostPolicy:
     follow_player_out_of_sight: bool = True  # follow/come keep working when the player is not in sight
     # Perception memory (founder decision, 6 October 2026: the companion remembers what it saw).
     # At most this many entities per companion, least recently seen forgotten first; 0 turns it off.
-    perception_memory_entries: int = 256
+    perception_memory_entries: int = 1024
+    # The team's sight (kernel: SharedSight): for the companion, "in sight now" means either avatar sees it, the
+    # player's avatar is always known, and both avatars' eyes fill the team's map. Tests of one avatar's sight turn it
+    # off, as the kernel's own tests do.
+    shared_sight: bool = True
+    # A walking goal whose body reports blocked this long without a break fails (kernel: UnreachableAfterS).
+    unreachable_after_s: float = 5.0
+    # The host's sight sweep (kernel: DefaultTeamSightIntervalS): both avatars' eyes fill the team's map this often on
+    # the host's own clock, whether or not the companion is asking. The mock sweeps when its clock has moved on this
+    # far by the next request or world change (or on sight_sweep()); 0 turns it off (tests of one avatar's sight).
+    team_sight_interval_s: float = 0.25
     # A remembered entity is flagged may_be_stale after this long, or as soon as it changes.
     perception_memory_stale_after_s: float = 60.0
     max_jobs_per_principal: int = 256  # goal jobs kept for jobs.status, oldest finished dropped first
@@ -319,7 +336,7 @@ def _might_be_stop(raw: bytes) -> bool:
     return b"goal.stop" in raw or b"effect.stop" in raw or b"\\u" in raw
 
 
-class MockHost:
+class MockHost(JournalMixin):
     """The game side of the companion boundary, minus physics."""
 
     def __init__(self, contracts: Contracts, room_dir: Path | None = None, styles_dir: Path | None = None,
@@ -354,15 +371,17 @@ class MockHost:
         self.goals: dict[str, dict] = {}
         self.jobs: OrderedDict[str, dict] = OrderedDict()  # goal jobs for jobs.status, oldest first
         self.holding: dict[str, str] = {}
+        self.facing: dict[str, tuple[float, float]] = {}  # avatar -> the way it faces on the floor (x, z); -Z unless set
         self.checkpoints: list[dict] = []
         self.history: dict[int, dict] = {}
         self.committed_by: dict[int, str] = {}  # revision -> the principal whose command made it
         # Perception memory, per companion principal. In memory only: never in a snapshot, a receipt or a save.
         self.memory: dict[str, PerceptionMemory] = {}
+        self._last_sweep = self.clock.now()
+        self._reset_journal()
         self._creation_counter = 0
         self._effect_counter = 0
         self._checkpoint_counter = 0
-        self._job_counter = 0
         self._load_room()
         self.history[0] = self._snapshot()
 
@@ -455,12 +474,16 @@ class MockHost:
             self.entities[entity_id].display_name = name
 
     def move_avatar(self, avatar_id: str, position: list[float]) -> None:
+        """The avatar walks there, carrying whatever it holds."""
         with self._lock:
+            self._maybe_sweep()  # what the avatars saw where they stood while the time passed
             self.entities[avatar_id].position = list(position)
+            self._carry(avatar_id)
 
     def move_entity(self, entity_id: str, position: list[float]) -> None:
         """The world moving something by itself (physics, the player's hands) between requests."""
         with self._lock:
+            self._maybe_sweep()
             self.entities[entity_id].position = list(position)
 
     def load_room(self, room_dir: Path) -> None:
@@ -470,10 +493,8 @@ class MockHost:
             self._reset_room()
 
     def session_event(self, principal: str, event: str) -> None:
-        """The link reports a companion session starting or ending ("start", "end"). Perception memory
-        never outlives a session: either event clears that companion's memory."""
-        with self._lock:
-            self.memory.pop(principal, None)
+        """The link reports a companion session starting or ending ("start", "end"). Since Run 2 the team's map
+        is the room's (the kernel saves it with the room), so a session no longer clears it; the hook stays."""
 
     # ------------------------------------------------------------------ perception
 
@@ -497,10 +518,46 @@ class MockHost:
                         seen.add(entity.id)
             return seen
 
+    def _team_principal(self) -> str:
+        """The companion whose team the player is on (one team in single player)."""
+        return COMPANION
+
+    def _team_principals(self) -> list[str]:
+        return [COMPANION, PLAYER]
+
+    def _eyes(self, principal: str) -> list[str]:
+        """The principals whose avatars' eyes fill this companion's map: its own, and the player's for the team."""
+        if principal == self._team_principal() and self.policy.shared_sight:
+            return [principal, PLAYER]
+        return [principal]
+
+    def team_sight(self, principal: str) -> set[str]:
+        """What a companion has in sight now: what either of the team's avatars sees, the player always known."""
+        with self._lock:
+            seen = self.perceived(principal)
+            if principal == self._team_principal() and self.policy.shared_sight:
+                seen |= self.perceived(PLAYER)
+                seen.add(self.avatars[PLAYER])
+            return seen
+
+    def sight_sweep(self) -> None:
+        """The host's sight sweep (CommandHost.SightSweep): what each of the team's avatars sees now goes into the
+        team's map, and a place either sees empty drops what was remembered there. It needs no request."""
+        with self._lock:
+            team = self._team_principal()
+            seen = self.perceived(team) | self.perceived(PLAYER)
+            self._look(team, seen, eyes_of=[team, PLAYER])
+            self._last_sweep = self.clock.now()
+
+    def _maybe_sweep(self, now: bool = False) -> None:
+        interval = self.policy.team_sight_interval_s
+        if interval > 0 and (now or self.clock.now() - self._last_sweep >= interval):
+            self.sight_sweep()
+
     def _view_for(self, principal: str, *, for_command: bool) -> set[str] | None:
         if principal.startswith("player:"):
             return None  # the player's own controls and UI see the whole room
-        seen = self.perceived(principal)
+        seen = self.team_sight(principal)
         self._look(principal, seen)
         if for_command and not self.policy.companion_targets_need_perception:
             return None
@@ -518,17 +575,17 @@ class MockHost:
             memory = self.memory[principal] = PerceptionMemory(self.room_id)
         return memory
 
-    def _look(self, principal: str, seen: set[str]) -> None:
-        """Update a companion's memory from what its own avatar sees now. Only this fills memory, and
-        only from that avatar's line of sight: never through the player's avatar or another companion's.
+    def _look(self, principal: str, seen: set[str], eyes_of: list[str] | None = None) -> None:
+        """Update a companion's map from what its team's avatars see now (`seen`, the team's sight). Only the
+        avatars' eyes fill it: never the camera, another team's companion or hidden state.
 
-        - What it remembers but cannot see is checked against the room: any change at all (moved,
-          edited, picked up, locked or gone) marks it changed, which the companion learns only as
-          may_be_stale.
-        - If the place it was last seen is in sight now and it is not there, the companion has looked
-          again: the memory is dropped. Until then, a thing removed out of sight is remembered as it was.
-        - What it sees now is remembered afresh, nearest last, and the least recently seen are
-          forgotten beyond the size bound.
+        - What it remembers but nobody sees now is checked against the room: any change at all (moved, edited,
+          picked up, locked or gone) marks it changed, which the companion learns only as may_be_stale.
+        - If the place it was last seen is in sight of either avatar now and it is not there, the team has looked
+          again: it leaves the map. Until then, a thing removed out of sight is remembered as it was.
+        - What is seen now is remembered afresh, nearest last. Past the bound, routine things out of sight go
+          first, least recently seen, then routine things in sight; what the team built and the targets of running
+          goals and open tasks are never dropped.
         """
         limit = self.policy.perception_memory_entries
         memory = self._memory(principal)
@@ -536,7 +593,9 @@ class MockHost:
             memory.entries.clear()
             return
         avatar = self.entities[self.avatars[principal]]
-        eye = perception.eye_point(avatar.position, "companion")
+        eyes = [perception.eye_point(self.entities[self.avatars[p]].position,
+                                     "player" if p.startswith("player:") else "companion")
+                for p in (eyes_of or self._eyes(principal))]
         occluders = None
         for entity_id, entry in list(memory.entries.items()):
             if entity_id in seen:
@@ -547,17 +606,28 @@ class MockHost:
             if occluders is None:
                 occluders = self._occluders()
             box = entry.view["summary"]["bounds_m"]
-            if perception.visible(eye, entity_id, box["min_m"], box["max_m"], occluders):
+            if any(perception.visible(eye, entity_id, box["min_m"], box["max_m"], occluders) for eye in eyes):
                 del memory.entries[entity_id]
         now = self.clock.now()
         fresh = sorted((self.entities[e] for e in seen
-                        if e != avatar.id and self.entities[e].kind in REMEMBERED_KINDS),
-                       key=lambda e: (-_distance_to_box(eye, e.bounds()), e.id))
+                        if e not in (avatar.id, self.avatars[COMPANION]) and self.entities[e].kind in REMEMBERED_KINDS),
+                       key=lambda e: (-_distance_to_box(eyes[0], e.bounds()), e.id))
         for entity in fresh:
             memory.entries.pop(entity.id, None)
             memory.entries[entity.id] = Remembered(self._perceivable(entity), now, self.revision, entity.mass_kg)
-        while len(memory.entries) > limit:
-            memory.entries.popitem(last=False)
+        # The bound is hard (CommandHost.EvictionOrder): routine things out of sight, routine things in sight,
+        # creations out of the team's sight, creations in sight, each least recently seen first; never a task target.
+        kept = self._kept_targets()
+        order = [i for i in memory.entries if i not in kept]
+        victims = sorted(order, key=lambda i: ((2 if i.startswith("creation:") else 0) + (1 if i in seen else 0),
+                                              order.index(i)))
+        for victim in victims[:max(0, len(memory.entries) - limit)]:
+            del memory.entries[victim]
+
+    def _kept_targets(self) -> set[str]:
+        """The targets of running goals and open tasks: kept on the team's map whatever its bound."""
+        running = {g["target"] for g in self.goals.values() if g.get("target")}
+        return running | self._journal_task_targets()
 
     def _occluders(self) -> list:
         return [(e.id, *perception.padded(e.bounds()["min_m"], e.bounds()["max_m"]))
@@ -610,6 +680,8 @@ class MockHost:
             if not _is_stop(message) and not self._take_token(principal):
                 return self._rate_limited(principal)
             self._expire()
+            # The sweep on the host's clock; a player's own request is the player looking, so it always sweeps.
+            self._maybe_sweep(now=principal.startswith("player:"))
             try:
                 result = self._handle(principal, message)
             except HostError as error:
@@ -812,7 +884,21 @@ class MockHost:
         durable = op not in TRANSIENT_OPS
         moves_revision = durable and op not in NO_REVISION_OPS
         new_revision = self.revision + 1 if moves_revision else None
+        # The journal's facts about creations (built, changed, removed), from the team's knowledge, dated at the revision
+        # the command commits. A change or a removal is judged before it commits: the thing as the team knows it now.
+        target = message["args"].get("target", "") if op in ("creation.revise", "entity.remove") else ""
+        known = self.entities.get(target)
+        before = self._team_view(target) if known is not None and known.kind == "creation" else None
         outcome = handler(principal, message, True, new_revision)
+        if op == "creation.place" and outcome.get("created"):
+            # A new thing is known to the team only if either avatar's eyes reach where it stands.
+            made = self.entities[outcome["created"][0]]
+            box = made.bounds()
+            view = (made.summary(self.text)["display_name"], [(box["min_m"][i] + box["max_m"][i]) / 2 for i in range(3)]) \
+                if self._team_sees_place(box, made.id) else None
+            self._creation_fact(op, principal, approved_by, made.id, view, new_revision)
+        elif known is not None and known.kind == "creation":
+            self._creation_fact(op, principal, approved_by, target, before, new_revision)
         if moves_revision:
             self.revision = new_revision
             self.history[new_revision] = self._snapshot()
@@ -1118,26 +1204,47 @@ class MockHost:
     # Each handler validates first. With apply=False it only predicts the outcome; with apply=True it
     # changes the world. Durable ops receive the new room revision to stamp on what they touch.
 
+    def _grab_problem(self, actor: str, target_id: str, kind: str, movable: bool, protected: bool,
+                      held_by: str | None, mass_kg: float | None) -> HostError | None:
+        """entity.grab's checks, which a fetch applies when it is set (on what the companion sees or remembers) and
+        again when it picks the thing up (on the thing as it is then). None when the avatar may pick it up."""
+        if not movable or kind not in ("object", "creation"):
+            return HostError("permission_denied", "That cannot be picked up.", field_path="$.args.target")
+        if protected:
+            return HostError("target_protected", "That is protected. Only the player can unlock it.", field_path="$.args.target")
+        if held_by and held_by != actor:
+            return HostError("target_busy", "Someone else is holding that.", field_path="$.args.target")
+        if self.holding.get(actor) not in (None, target_id):
+            return HostError("target_busy", "The avatar is already holding something.", field_path="$.args.actor")
+        limit = self.policy.carry_limit_kg.get(actor, 0.0)
+        if mass_kg is not None and mass_kg > limit:
+            return HostError("target_too_heavy", "That is too heavy for this avatar.", field_path="$.args.target",
+                             allowed=limit, actual=mass_kg)
+        return None
+
+    def _take_hold(self, actor: str, target: Entity) -> None:
+        """Picking up leaves the thing where it is; from then on it moves with its holder (_carry)."""
+        target.held_by = actor
+        self.holding[actor] = target.id
+
+    def _carry(self, actor: str) -> None:
+        """Carry: a held thing moves with its holder (it rests where the holder stands, as a drop would leave it).
+        Holding is not saved, so carrying moves no revision."""
+        held = self.entities.get(self.holding.get(actor, ""))
+        if held is not None and not held.removed:
+            held.position = list(self.entities[actor].position)
+
     def _op_entity_grab(self, principal, message, apply, new_revision):
         args = message["args"]
         actor = self._actor(principal, args)
         target = self._require(args["target"], "$.args.target")
-        if not target.movable or target.kind != "object" and target.kind != "creation":
-            raise HostError("permission_denied", "That cannot be picked up.", field_path="$.args.target")
-        if target.protected:
-            raise HostError("target_protected", "That is protected. Only the player can unlock it.", field_path="$.args.target")
-        if target.held_by and target.held_by != actor:
-            raise HostError("target_busy", "Someone else is holding that.", field_path="$.args.target")
-        if self.holding.get(actor) not in (None, target.id):
-            raise HostError("target_busy", "The avatar is already holding something.", field_path="$.args.actor")
-        limit = self.policy.carry_limit_kg.get(actor, 0.0)
-        if target.mass_kg is not None and target.mass_kg > limit:
-            raise HostError("target_too_heavy", "That is too heavy for this avatar.", field_path="$.args.target",
-                            allowed=limit, actual=target.mass_kg)
+        problem = self._grab_problem(actor, target.id, target.kind, target.movable, target.protected, target.held_by,
+                                     target.mass_kg)
+        if problem is not None:
+            raise problem
         if not apply:
             return {"affected": [target.id]}
-        target.held_by = actor
-        self.holding[actor] = target.id
+        self._take_hold(actor, target)
         return {"affected": [target.id]}
 
     def _op_entity_release(self, principal, message, apply, new_revision):
@@ -1148,14 +1255,34 @@ class MockHost:
             raise HostError("invalid_args", "The avatar is not holding anything.", field_path="$.args")
         placement = args.get("placement")
         self._check_placement(placement, "$.args.placement")
+        spot = None if placement else self._drop_spot(actor, self.entities[held_id])
+        if not placement and spot is None:
+            raise HostError("occupied", "There is no room to put it down here. Turn round or step back.", retryable=True)
         if not apply:
             return {"affected": [held_id]}
         held = self.entities[held_id]
-        held.position = list(placement["position_m"]) if placement else list(self.entities[actor].position)
+        held.position = list(placement["position_m"]) if placement else spot
         held.held_by = None
         del self.holding[actor]
         self._touch(held, new_revision)
         return {"affected": [held_id]}
+
+    def _drop_spot(self, actor: str, held: Entity) -> list[float] | None:
+        """A release with no placement sets the thing down in front of the actor (SandboxPhysics.Drop). Only when an
+        avatar stands there (the player a fetch came back to) does it go beside the actor, or behind it. The mock has
+        no walls to refuse a drop, so only avatars are in the way here."""
+        feet = self.entities[actor].position
+        fx, fz = self.facing.get(actor, (0.0, -1.0))
+        hx, height, hz = held.half_extents
+        for cos, sin in ((1.0, 0.0), (0.0, 1.0), (0.0, -1.0), (-1.0, 0.0)):  # front, then a quarter turn each way, then behind
+            dx, dz = fx * cos + fz * sin, -fx * sin + fz * cos  # turned about +Y, as Godot's Rotated(Vector3.Up, angle)
+            reach = perception.BODY_RADIUS_M + abs(dx) * hx + abs(dz) * hz + 0.01
+            spot = [_r(feet[0] + dx * reach), feet[1], _r(feet[2] + dz * reach)]
+            box = {"min_m": [spot[0] - hx, spot[1], spot[2] - hz], "max_m": [spot[0] + hx, spot[1] + height, spot[2] + hz]}
+            if not any(_box_gap(box, other.bounds()) == 0.0 for other in self.entities.values()
+                       if other.kind == "avatar" and other.id != actor and not other.removed):
+                return spot
+        return None
 
     def _op_entity_place(self, principal, message, apply, new_revision):
         args = message["args"]
@@ -1171,6 +1298,11 @@ class MockHost:
         target.position = list(args["placement"]["position_m"])
         self._touch(target, new_revision)
         return {"affected": [target.id]}
+
+    def _op_entity_push(self, principal, message, apply, new_revision):
+        # Not modelled yet (Run 2, P3); a companion naming any avatar but its own is still refused first.
+        self._actor(principal, message["args"])
+        raise HostError("unsupported_capability", "Pushing arrives with the sandbox verbs (Run 2).", field_path="$.op")
 
     def _op_entity_set_part(self, principal, message, apply, new_revision):
         args = message["args"]
@@ -1295,6 +1427,7 @@ class MockHost:
             if target is not None:
                 kind, movable, protected, mass, aim = (target.kind, target.movable, target.protected, target.mass_kg,
                                                        target.bounds())
+                held_by = target.held_by
                 if not principal.startswith("player:"):
                     data["target_seen"] = "now"
             else:
@@ -1307,19 +1440,18 @@ class MockHost:
                 summary = entry.view["summary"]
                 kind, movable, protected, mass, aim = (summary["kind"], summary["movable"], summary["protected"],
                                                        entry.mass_kg, summary["bounds_m"])
+                held_by = summary.get("held_by")
                 data["target_seen"] = "remembered"
                 fields = self._memory_fields(entry)
                 data["last_seen_ago_s"], data["may_be_stale"] = fields["last_seen_ago_s"], fields["may_be_stale"]
             if args["goal"] == "fetch":
+                # entity.grab's checks and limit, judged on what the companion sees or remembers; the pick-up on
+                # arrival checks them again on the thing as it is then.
                 if kind not in ("object", "creation") or not movable:
                     raise HostError("permission_denied", "That cannot be fetched.", field_path="$.args.target")
-                if protected:
-                    raise HostError("target_protected", "That is protected. Only the player can unlock it.",
-                                    field_path="$.args.target")
-                limit = self.policy.carry_limit_kg.get(actor, 0.0)
-                if mass is not None and mass > limit:
-                    raise HostError("target_too_heavy", "That is too heavy for this avatar.", field_path="$.args.target",
-                                    allowed=limit, actual=mass)
+                problem = self._grab_problem(actor, args["target"], kind, movable, protected, held_by, mass)
+                if problem is not None:
+                    raise problem
         if "position_m" in args and not _inside(args["position_m"], self.room_bounds):
             raise HostError("out_of_bounds", "That position is outside the room.", field_path="$.args.position_m")
         if "area" in args:
@@ -1334,17 +1466,25 @@ class MockHost:
             goal["set_by"] = principal
             if aim is not None:
                 # A goal with a target runs as a job: the host re-checks the target when the avatar arrives.
-                outcome["job_id"] = goal["job_id"] = self._start_job(principal, actor, message["action_id"])
+                outcome["job_id"] = goal["job_id"] = self._start_job(principal, actor, message["action_id"],
+                                                                     args["goal"], args["target"])
                 goal["aim_bounds"] = copy.deepcopy(aim)
+            if args["goal"] == "fetch":
+                # A fetch walks to the thing, picks it up, and brings it back to the player. Already in hand, it
+                # only comes back.
+                goal["phase"] = "return" if self.holding.get(actor) == args["target"] else "approach"
             self.goals[actor] = goal
+            if "job_id" in goal:
+                self._task_started(goal["job_id"], self.jobs[goal["job_id"]])
         return outcome
 
     # ------------------------------------------------------------------ goal jobs (the goal runner's side)
 
-    def _start_job(self, principal: str, actor: str, action_id: str) -> str:
-        self._job_counter += 1
-        job_id = f"goal-{self._job_counter:06d}"
-        self.jobs[job_id] = {"principal": principal, "actor": actor, "action_id": action_id, "state": "running"}
+    def _start_job(self, principal: str, actor: str, action_id: str, goal: str, target: str) -> str:
+        # Opaque (contracts: common job_id): 'job-' and 128 random bits in lowercase base32, never a counter.
+        job_id = "job-" + base64.b32encode(secrets.token_bytes(16)).decode("ascii").rstrip("=").lower()
+        self.jobs[job_id] = {"principal": principal, "actor": actor, "action_id": action_id, "state": "running",
+                             "goal": goal, "target": target}
         mine = [k for k, job in self.jobs.items() if job["principal"] == principal and job["state"] != "running"]
         excess = sum(1 for job in self.jobs.values() if job["principal"] == principal) - self.policy.max_jobs_per_principal
         for old in mine[:max(0, excess)]:
@@ -1356,6 +1496,7 @@ class MockHost:
         job = self.jobs.get(goal.get("job_id", "")) if goal else None
         if job is not None and job["state"] == "running":
             job["state"] = "cancelled"
+            self._task_ended(goal["job_id"], "cancelled")
 
     def goal_arrived(self, actor_id: str) -> str:
         """The game's goal runner: the avatar has reached its goal (walked there, or turned to look or
@@ -1366,17 +1507,24 @@ class MockHost:
         - failed, revision_conflict: it is in sight, but has moved since (the companion sees where);
         - failed, target_not_found: it is not in sight. Moved out of sight and gone give the same answer.
 
-        The mock models the arrival check only; carrying a fetched thing back is the Run 2 goal runner's.
+        A fetch arrives twice (contracts/README.md, "The sandbox verbs"). At the thing, after the same re-check,
+        the avatar picks it up with entity.grab's checks and limit (a refusal fails the job with that error), and
+        the job keeps running ("running" is returned). Back beside the player, the job succeeds with the avatar
+        still holding the thing; entity.release puts it down. The mock stands in for the walk back by placing the
+        avatar beside the player, as a come would leave it.
         """
         with self._lock:
             goal = self.goals.get(actor_id)
             job = self.jobs.get(goal.get("job_id", "")) if goal else None
             if job is None or job["state"] != "running":
                 raise KeyError("that avatar has no goal with a target running")
+            if goal.get("phase") == "return":
+                return self._fetch_returned(actor_id, goal, job)
             principal = self._principal_of(actor_id) or job["principal"]
-            seen = self.perceived(principal)
+            # The team's sight, as the host's arrival check (the target the player alone sees is in sight now).
+            seen = self.team_sight(principal)
             if not principal.startswith("player:"):
-                self._look(principal, seen)  # arriving is looking: memory is refreshed or dropped
+                self._look(principal, seen)  # arriving is looking: the team's map is refreshed or dropped
             target = self.entities.get(goal["target"])
             error = None
             if target is None or target.removed or goal["target"] not in seen:
@@ -1385,15 +1533,72 @@ class MockHost:
             elif _box_gap(target.bounds(), goal["aim_bounds"]) > perception.REACH_M:
                 error = HostError("revision_conflict", "The target has moved since it was seen. Observe and try again.",
                                   field_path="$.args.target", retryable=True)
-            del self.goals[actor_id]
-            if error is None:
-                job["state"] = "succeeded"
-            else:
-                job["state"] = "failed"
-                message = {"schema": COMMAND_SCHEMA, "op": "goal.set", "action_id": job["action_id"]}
-                job["result"] = self._fail(job["principal"], message, error)
-            self._emit("goal_finished", {"actor": actor_id, "job_id": goal["job_id"], "state": job["state"]})
-            return job["state"]
+            elif goal["goal"] == "fetch":
+                error = self._grab_problem(actor_id, target.id, target.kind, target.movable, target.protected,
+                                           target.held_by, target.mass_kg)
+                if error is None:
+                    self._take_hold(actor_id, target)
+                    goal["phase"] = "return"
+                    goal["blocked_s"] = 0.0  # the walk back starts afresh (the host resets BlockedS at the pick-up)
+                    self._emit("goal_progress", {"actor": actor_id, "job_id": goal["job_id"], "phase": "return"})
+                    return job["state"]
+            return self._finish_job(actor_id, goal, job, error)
+
+    def goal_blocked(self, actor_id: str, seconds: float) -> str:
+        """The game's goal runner: the avatar's body has reported blocked for `seconds` more without a break. A
+        goal that walks somewhere (come, go_to, fetch; with or without a thing to walk to) blocked for
+        unreachable_after_s fails with target_unreachable and the body stays where it is. Returns the job's state,
+        "stopped" for a walk with no job, or "running" while it keeps trying."""
+        with self._lock:
+            goal = self.goals.get(actor_id)
+            if goal is None or goal["goal"] not in WALKING_GOALS:
+                raise KeyError("that avatar is not walking anywhere")
+            goal["blocked_s"] = goal.get("blocked_s", 0.0) + seconds
+            if goal["blocked_s"] < self.policy.unreachable_after_s:
+                return "running"
+            job = self.jobs.get(goal.get("job_id", ""))
+            if job is None:
+                del self.goals[actor_id]
+                return "stopped"
+            return self._finish_job(actor_id, goal, job, HostError(
+                "target_unreachable", "The companion cannot find a way there from here.", field_path="$.args.target"))
+
+    def goal_moving(self, actor_id: str) -> None:
+        """The body reports it is moving again: the blocked time starts over."""
+        with self._lock:
+            if actor_id in self.goals:
+                self.goals[actor_id]["blocked_s"] = 0.0
+
+    def _fetch_returned(self, actor_id: str, goal: dict, job: dict) -> str:
+        """A fetch back beside the player: it succeeds while the avatar still holds the thing."""
+        error = None
+        if self.holding.get(actor_id) != goal["target"]:
+            error = HostError("target_not_found", "The fetched thing is no longer in hand.", field_path="$.args.target")
+        else:
+            player = self.entities[self.avatars[PLAYER]].position
+            here = self.entities[actor_id].position
+            away = [here[0] - player[0], here[2] - player[2]]
+            length = math.hypot(*away)
+            if length == 0.0:
+                away, length = [1.0, 0.0], 1.0
+            scale = COME_ARRIVAL_M / length
+            self.entities[actor_id].position = [_r(player[0] + away[0] * scale), player[1],
+                                                _r(player[2] + away[1] * scale)]
+            self.facing[actor_id] = (-away[0] / length, -away[1] / length)  # it faces the player it came back to
+            self._carry(actor_id)
+        return self._finish_job(actor_id, goal, job, error)
+
+    def _finish_job(self, actor_id: str, goal: dict, job: dict, error: HostError | None) -> str:
+        del self.goals[actor_id]
+        if error is None:
+            job["state"] = "succeeded"
+        else:
+            job["state"] = "failed"
+            message = {"schema": COMMAND_SCHEMA, "op": "goal.set", "action_id": job["action_id"]}
+            job["result"] = self._fail(job["principal"], message, error)
+        self._task_ended(goal["job_id"], job["state"])
+        self._emit("goal_finished", {"actor": actor_id, "job_id": goal["job_id"], "state": job["state"]})
+        return job["state"]
 
     def _op_goal_stop(self, principal, message, apply, new_revision):
         # Always permitted. Without an actor it stops every actor the principal may direct, their
@@ -1621,9 +1826,9 @@ class MockHost:
         elif op == "observe":
             actor = self._actor(principal, args)
             radius = min(float(args.get("radius_m", self.policy.observe_max_radius_m)), self.policy.observe_max_radius_m)
-            # A companion's own view was taken for this request (and remembered); the player may look
-            # through a companion's eyes too, which never touches that companion's memory.
-            seen = self._view if self._view is not None else self.perceived(self._principal_of(actor) or principal)
+            # observe is the named avatar's own eyes, never the team's (the team's look for this request already
+            # filled the map); the player may look through a companion's eyes too, which fills nothing.
+            seen = self.perceived(self._principal_of(actor) or principal)
             origin = self.entities[actor].position
             visible = []
             for entity_id in seen:
@@ -1674,6 +1879,10 @@ class MockHost:
             if approval.result is not None:
                 data["result"] = copy.deepcopy(approval.result)
             result["data"] = data
+        elif op == "journal.read":
+            result["data"] = self._journal_read(principal, args)
+        elif op == "map.find":
+            result["data"] = self._map_find(principal, args)
         else:  # pragma: no cover - the schema already restricts ops
             raise HostError("request_invalid", "Unknown operation.", field_path="$.op")
         return result

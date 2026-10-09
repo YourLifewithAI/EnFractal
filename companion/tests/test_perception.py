@@ -20,8 +20,13 @@ BEHIND_THE_TABLE = [-0.9, 0.0, -1.4]  # the 75 cm table stands between the compa
 BEHIND_THE_BOX = [1.6, 0.0, 0.2]  # the box hides the book, the doorstop and the player
 
 
+# These suites test one avatar's line of sight, so they turn the team's shared sight and the sight sweep off, as the
+# kernel host's own perception tests do (SharedSight, TeamSightIntervalS); test_team_knowledge.py covers the team's sight.
+ONE_AVATAR = HostPolicy(shared_sight=False, team_sight_interval_s=0.0)
+
+
 class PerceptionCase(unittest.TestCase):
-    policy: HostPolicy | None = None
+    policy: HostPolicy | None = ONE_AVATAR
 
     def setUp(self):
         self.host = new_host(policy=self.policy)
@@ -113,7 +118,7 @@ class LineOfSight(PerceptionCase):
 class EverySurface(PerceptionCase):
     """Founder decision 1 holds for every companion query and every command, not only observe."""
 
-    policy = HostPolicy(companion_messages_per_s=1_000_000)
+    policy = HostPolicy(companion_messages_per_s=1_000_000, shared_sight=False, team_sight_interval_s=0.0)
     HIDDEN = ("obj:book", "obj:doorstop", "avatar:player")  # behind the box, seen from BEHIND_THE_BOX
 
     def test_room_describe_counts_only_what_is_in_sight(self):
@@ -132,8 +137,9 @@ class EverySurface(PerceptionCase):
         queries = [query("room.describe", {}), query("entities.list", {}),
                    query("entities.list", {"filter": {"near": {"center_m": [1.0, 0, 0.5], "radius_m": 20}}}),
                    query("capabilities.list", {}), query("observe", {"actor": "avatar:companion", "radius_m": 20}),
-                   query("jobs.status", {"job_id": "job_1"}), query("receipt.lookup", {"action_id": "a-1"}),
-                   query("approval.status", {"request_id": "0" * 32})]
+                   query("jobs.status", {"job_id": "job-" + "a" * 26}), query("receipt.lookup", {"action_id": "a-1"}),
+                   query("approval.status", {"request_id": "0" * 32}), query("journal.read", {}),
+                   query("map.find", {"name": "book"})]
         queries += [query("entity.inspect", {"target": hidden}) for hidden in self.HIDDEN]
         self.assertEqual({q["op"] for q in queries}, set(contracts().query_ops))
         for i, message in enumerate(queries):
@@ -183,6 +189,7 @@ class EverySurface(PerceptionCase):
         attempts = [query("observe", {"actor": "avatar:player"}),
                     command("entity.grab", {"target": "obj:book", "actor": "avatar:player"}, "a-1"),
                     command("entity.release", {"actor": "avatar:player"}, "a-2"),
+                    command("entity.push", {"target": "obj:book", "distance_m": 0.1, "actor": "avatar:player"}, "a-5"),
                     command("goal.set", {"actor": "avatar:player", "goal": "stay"}, "a-3"),
                     command("goal.stop", {"actor": "avatar:player"}, "a-4")]
         with_actor = {spec.op for spec in contracts().tool_specs() if spec.actor_field}

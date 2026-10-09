@@ -159,13 +159,16 @@ def save_poses(guard: OutputGuard, rel: Path, preds: dict[int, dict[str, np.ndar
 
 
 def load_poses(path: Path) -> dict[int, dict[str, np.ndarray]]:
-    data = np.load(path)
+    with np.load(path) as data:
+        # An .npz decompresses an array each time it is indexed by name: read each one once, not once per photo
+        # (180 photos took 70 s that way, a few seconds this way).
+        arrays = {k: data[k] for k in ("placed", "c2w", "K", "K_model", "pts_cam", "conf", "mask", "batch")}
     out = {}
-    for i in range(len(data["c2w"])):
-        if not bool(data["placed"][i]):
+    for i in range(len(arrays["c2w"])):
+        if not bool(arrays["placed"][i]):
             continue
-        out[i] = {k: data[k][i] for k in ("c2w", "K", "K_model", "pts_cam", "conf", "mask")}
-        out[i]["batch"] = int(data["batch"][i])
+        out[i] = {k: arrays[k][i] for k in ("c2w", "K", "K_model", "pts_cam", "conf", "mask")}
+        out[i]["batch"] = int(arrays["batch"][i])
     return out
 
 

@@ -1,0 +1,242 @@
+{
+  "assumptions": "Room dimensions, palette, placement and unspecified sizes/clearances are assumed.",
+  "bounds": {
+    "colour_channel_shift_max": 24,
+    "low_confidence_range": [
+      0.18,
+      0.38
+    ],
+    "mislabel_count_min": 1,
+    "mislabel_fraction_target_max": 0.25,
+    "position_distance_max_m": 0.1,
+    "size_relative_max": 0.15,
+    "yaw_delta_deg": 0
+  },
+  "dimensions_m": [
+    5.5,
+    2.7,
+    5.8
+  ],
+  "format": "brief14-truth-v1",
+  "lamp_channel_shift": [
+    -15,
+    -2,
+    17
+  ],
+  "neighbour_groups": [],
+  "objects": [
+    {
+      "colour": "#b78376",
+      "confidence": 0.86,
+      "id": "couch_1",
+      "kind": "couch",
+      "position_m": [
+        -0.65,
+        0,
+        -2.375
+      ],
+      "semantic_label": "couch",
+      "size_basis": "kivik",
+      "size_m": [
+        2.28,
+        0.83,
+        0.95
+      ],
+      "support_target": null,
+      "yaw_deg": 180
+    },
+    {
+      "colour": "#ab8b63",
+      "confidence": 0.86,
+      "id": "table_1",
+      "kind": "table",
+      "position_m": [
+        -0.65,
+        0,
+        -0.95
+      ],
+      "semantic_label": "table",
+      "size_basis": "assumed",
+      "size_m": [
+        1.1,
+        0.42,
+        0.6
+      ],
+      "support_target": null,
+      "void": {
+        "basis": "assumed",
+        "position_local_m": [
+          0,
+          0,
+          0
+        ],
+        "size_m": [
+          0.85,
+          0.34,
+          0.42
+        ]
+      },
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#a89983",
+      "confidence": 0.86,
+      "id": "shelving_unit_1",
+      "kind": "shelving unit",
+      "position_m": [
+        2.35,
+        0,
+        2.71
+      ],
+      "semantic_label": "shelving unit",
+      "size_basis": "billy",
+      "size_m": [
+        0.8,
+        2.02,
+        0.28
+      ],
+      "support_target": null,
+      "void": {
+        "basis": "assumed",
+        "position_local_m": [
+          0,
+          0.15,
+          0
+        ],
+        "size_m": [
+          0.66,
+          0.3,
+          0.24
+        ]
+      },
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#303844",
+      "confidence": 0.86,
+      "id": "speaker_1",
+      "kind": "speaker",
+      "position_m": [
+        2.4,
+        0,
+        -1.9
+      ],
+      "semantic_label": "speaker",
+      "size_basis": "assumed",
+      "size_m": [
+        0.2,
+        0.7,
+        0.25
+      ],
+      "support_target": null,
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#748a74",
+      "confidence": 0.86,
+      "id": "bean_bag_1",
+      "kind": "bean bag",
+      "position_m": [
+        -2,
+        0,
+        1.7
+      ],
+      "semantic_label": "bean bag",
+      "size_basis": "assumed",
+      "size_m": [
+        1,
+        0.7,
+        1
+      ],
+      "support_target": null,
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#587655",
+      "confidence": 0.86,
+      "id": "plant_1",
+      "kind": "plant",
+      "position_m": [
+        -2.3,
+        0,
+        -2.25
+      ],
+      "semantic_label": "plant",
+      "size_basis": "assumed",
+      "size_m": [
+        0.4,
+        0.85,
+        0.4
+      ],
+      "support_target": null,
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#b87e48",
+      "confidence": 0.86,
+      "id": "board_game_1",
+      "kind": "board game",
+      "position_m": [
+        -0.65,
+        0.42,
+        -0.95
+      ],
+      "semantic_label": "board game",
+      "size_basis": "assumed",
+      "size_m": [
+        0.3,
+        0.07,
+        0.25
+      ],
+      "support_target": "table_1",
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#dcc8a1",
+      "confidence": 0.86,
+      "id": "lamp_1",
+      "kind": "lamp",
+      "position_m": [
+        2.25,
+        0,
+        1.4
+      ],
+      "semantic_label": "lamp",
+      "size_basis": "assumed",
+      "size_m": [
+        0.35,
+        1.5,
+        0.35
+      ],
+      "support_target": null,
+      "yaw_deg": 0
+    }
+  ],
+  "outline_xz_m": [
+    [
+      -2.75,
+      -2.9
+    ],
+    [
+      2.75,
+      -2.9
+    ],
+    [
+      2.75,
+      2.9
+    ],
+    [
+      -2.75,
+      2.9
+    ]
+  ],
+  "room_type": "living_room",
+  "seed": 73,
+  "tests": [
+    "cohesive warm palette",
+    "low table versus high shelves",
+    "shelf interior void absent from box",
+    "separated seating islands"
+  ],
+  "variant": "scan_73"
+}

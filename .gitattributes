@@ -27,3 +27,9 @@ companion/schemas/*.json text eol=lf
 companion/tests/fixtures/** -text
 docs/companion/proposals/*.diff -text
 docs/look/proposals/*.diff -text
+
+# The synthetic room corpus (brief 14): manifests pin asset bytes, and a test checks the checked-in outputs are fresh.
+pipeline/landscape/corpus/rooms/** -text
+
+# The landscape harness (brief 16): package.json pins every file by SHA-256, and receipts hash the harness sources as bytes, so nothing may change on checkout.
+pipeline/landscape/harness/** -text

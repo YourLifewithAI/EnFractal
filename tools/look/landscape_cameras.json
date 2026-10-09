@@ -1,0 +1,74 @@
+{
+  "schema": "enfractal.look_review_cameras",
+  "version": 1,
+  "room_id": "landscape_garage_nominal",
+  "description": "Review cameras for the garage landscape (Run 2, Lane L: the landscape in the game), in world metres, +Y up, -Z forward. They need a landscape export passed with --room (tools/test-room.ps1 builds one under .cache/landscape-fixture). The player's spawn is (0, 0.088, -3.0); the apple crate and three cottages stand about 5 m on, at z 1.6 to 2.4. The clock is the landscape's own setup answer (summer, day 172, 09:00 apparent solar time, noon at 12 on the clock), so the pictures can be set beside the harness's reference renders; the landscape has no lamps.",
+  "resolution": [1920, 1080],
+  "clock": {
+    "hour": 9.0,
+    "date": "2026-06-21",
+    "lamps": "off",
+    "note": "The landscape package's own setup: summer, day 172 (21 June), 09:00 apparent solar time at 30 degrees north with -Z facing north; the exporter writes solar noon at 12, so the clock reads 09:00."
+  },
+  "cameras": [
+    {
+      "id": "land_eye_spawn",
+      "label": "The 10 cm eye at the spawn",
+      "purpose": "What the 10 cm player sees at the spawn, facing the settlement: the meadow underfoot, the grass and trees ahead, the companion a step away, the hills against the sky. The player's real eye camera and the look's own focus rule for it.",
+      "eye_view": true,
+      "stage": { "player_m": [0.0, 0.095, -3.0], "yaw_deg": 177, "companion_m": [0.16, 0.085, -2.55] }
+    },
+    {
+      "id": "land_crate",
+      "label": "The crate by the cottages",
+      "purpose": "The apple crate the avatars fetch, with the cottages beyond it and both avatars beside it: timber, roof and masonry, the path under them, the meadow around. A close three-quarter view from the spawn side.",
+      "position_m": [0.66, 0.27, 1.16],
+      "look_at_m": [0.08, 0.17, 1.98],
+      "fov_deg": 52,
+      "focus_m": [0.30, 0.15, 1.68],
+      "hide_player_body": false,
+      "stage": { "player_m": [0.31, 0.115, 1.62], "yaw_deg": 172, "companion_m": [0.46, 0.115, 1.66] }
+    },
+    {
+      "id": "land_observe",
+      "label": "The observe view",
+      "purpose": "The HUD's F3 orbit view with the observe switch on (a sliver of sharpness around the player), staged at the crate: the land at its smallest crisp scale.",
+      "hud_view": 2,
+      "observe": true,
+      "stage": { "player_m": [0.31, 0.115, 1.62], "yaw_deg": 172, "companion_m": [0.46, 0.115, 1.66] }
+    },
+    {
+      "id": "land_pond",
+      "label": "Into the tarn",
+      "purpose": "Run 2 (the founder's playtest round): the garage's tarn from its south-west shore, 22 cm up and looking down into it, the player on the bank for scale. Judges water you can see into (the bed through clear shallows, a darker and cooler deep middle, the wet line at the shore) and the fish (small schools in the deep middle, about a fifth of the avatar's height).",
+      "position_m": [0.78, 0.22, 0.62],
+      "look_at_m": [1.17, -0.01, 0.95],
+      "fov_deg": 55,
+      "focus_m": [1.10, -0.01, 0.90],
+      "hide_player_body": false,
+      "stage": { "player_m": [0.40, 0.06, 0.70], "yaw_deg": 300, "companion_m": [0.30, 0.12, 0.50] }
+    },
+    {
+      "id": "land_under",
+      "label": "Under the tarn",
+      "purpose": "Run 2: a camera dipped under the tarn's surface (3 cm down, 2 cm over the bed), looking across it and a little up: the water clouds with distance, the surface is a pale ceiling from below, the fish near the eye stay clear.",
+      "position_m": [0.95, -0.025, 0.80],
+      "look_at_m": [1.50, -0.005, 1.10],
+      "fov_deg": 70,
+      "focus_m": [1.20, -0.02, 0.95],
+      "hide_player_body": false,
+      "stage": { "player_m": [0.40, 0.06, 0.70], "yaw_deg": 300, "companion_m": [0.30, 0.12, 0.50] }
+    },
+    {
+      "id": "land_wide",
+      "label": "A wide view",
+      "purpose": "The whole garage landscape from above its near edge: ridge, stream, trees, the cottages, and the hills and sky beyond. Judges the ground's colour, the haze and exposure at distance, and the horizon.",
+      "position_m": [0.0, 5.2, -7.0],
+      "look_at_m": [0.0, 0.3, 0.6],
+      "fov_deg": 55,
+      "focus_m": [0.0, 0.15, 1.9],
+      "hide_player_body": false,
+      "stage": { "player_m": [0.31, 0.115, 1.62], "yaw_deg": 172, "companion_m": [0.46, 0.115, 1.66] }
+    }
+  ]
+}

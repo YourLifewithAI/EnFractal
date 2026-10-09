@@ -102,14 +102,16 @@ class Surface(unittest.IsolatedAsyncioTestCase):
                 self.assertNotIn('"format"', json.dumps(tool.input_schema))  # no uri/path formats anywhere
 
     @with_harness
-    async def test_offers_no_resources_prompts_completions_or_logging(self):
+    async def test_offers_only_the_journal_resource_and_no_prompts_completions_or_logging(self):
         caps = self.harness.client.server_capabilities
-        self.assertIsNone(caps.resources)
+        self.assertFalse(caps.resources.subscribe)  # one resource, read on demand; no subscriptions
+        self.assertEqual([str(r.uri) for r in (await self.harness.client.list_resources()).resources],
+                         ["enfractal://journal"])
+        with self.assertRaises(MCPError):  # no resource templates
+            await self.harness.client.list_resource_templates()
         self.assertIsNone(caps.prompts)
         self.assertIsNone(caps.completions)
         self.assertIsNone(caps.logging)
-        with self.assertRaises(MCPError):
-            await self.harness.client.list_resources()
         with self.assertRaises(MCPError):
             await self.harness.client.list_prompts()
 

@@ -1,0 +1,378 @@
+{
+  "bounds": {
+    "colour_channel_shift_max": 24,
+    "low_confidence_range": [
+      0.18,
+      0.38
+    ],
+    "mislabel_count_min": 1,
+    "mislabel_fraction_target_max": 0.25,
+    "position_distance_max_m": 0.1,
+    "size_relative_max": 0.15,
+    "yaw_delta_deg": 0
+  },
+  "format": "brief14-corpus-v1",
+  "rooms": [
+    {
+      "files_sha256": {
+        "inventory.json": "ad83427d897f9c8a7df529793842763bb556ee5804e1a1ce4d9e827b9103b0ce",
+        "preview.png": "4bca9097d2448b31004ba8137d7343c499cf2c60e3348ce5a61f49d977e537ab",
+        "room.json": "cb5e1eb42d68509ebeff48de4be70512fbfc6ddd83fc4aa655ce844d8d36d538",
+        "truth.json": "899215cb9aa6d8279669d23712dd24f22cc80694975a403a38b0386140706d0a"
+      },
+      "id": "garage_nominal",
+      "object_count": 16,
+      "room_type": "garage",
+      "seed": null,
+      "variant": "nominal"
+    },
+    {
+      "files_sha256": {
+        "inventory.json": "effa7c73fb6ad518afbcebda46e27f3d747cc94405643d4c0291fc8d0d479c71",
+        "preview.png": "101780414e4039f6fba89691d2801842562c10450eef6a49554ff97f197c59cc",
+        "room.json": "36670d8428104375a426ef03cc848d9a5804c788014c240dd52182ebd2163f49",
+        "truth.json": "0a2182168fb640cdc31fa063fc792b91285a63eb79ba36327dd033ee151ad62b"
+      },
+      "id": "garage_scan_17",
+      "object_count": 16,
+      "room_type": "garage",
+      "seed": 17,
+      "variant": "scan_17"
+    },
+    {
+      "files_sha256": {
+        "inventory.json": "040e47feaf386c49288beb4e197707300690dd336fdc1bc0c763161075345186",
+        "preview.png": "a711e6f454bbcd66d209e4c3e0b83dab991852a4f249e6531444749d2f5ef1dc",
+        "room.json": "5dfc0eb9597a04f1ea3ed0a50ba694851bed991624685d560b45e07d6c3773f8",
+        "truth.json": "3bab639913c8006eb2f467095173ef967e9eb1b5bf7ab72f6c2a9fc6bfde8ee8"
+      },
+      "id": "garage_scan_73",
+      "object_count": 16,
+      "room_type": "garage",
+      "seed": 73,
+      "variant": "scan_73"
+    },
+    {
+      "files_sha256": {
+        "inventory.json": "a251479f98814ae0e1ba1d91b1471c251bb8948aa5811c2f3b4f34d12d84c135",
+        "preview.png": "58fc1e110bdc281f74cebd09a4c9e987ed44cf0fe022e32115e3fecbe375b649",
+        "room.json": "f115530257d427a6c57e079f5757f712e39d9b2d9b61168d08f3d4cd786b0ba6",
+        "truth.json": "1e4f64b8ef6ad3c8c9c64cbf721f6a94625497465e656fa8897e4f2a82e5f7c0"
+      },
+      "id": "bedroom_nominal",
+      "object_count": 6,
+      "room_type": "bedroom",
+      "seed": null,
+      "variant": "nominal"
+    },
+    {
+      "files_sha256": {
+        "inventory.json": "0b561b1327086fe19eba5bc946bd3889b81fc380d37e53e35b9838f579d27cf3",
+        "preview.png": "4861f8cd061a8034ba32d88946417ff29f3989cdf1e5aa14c4fa9a16642a7e66",
+        "room.json": "a408bad1e1306167e734c65f0f88c6b42fbae1370f7b17b81a3aa0ddb983c7c2",
+        "truth.json": "613057344be8c1967c591a0f353e1799c5c485dbdc1e2ff30fd31df525fe5c17"
+      },
+      "id": "bedroom_scan_17",
+      "object_count": 6,
+      "room_type": "bedroom",
+      "seed": 17,
+      "variant": "scan_17"
+    },
+    {
+      "files_sha256": {
+        "inventory.json": "cb9ec2bfe10bb0ca22c3410b594c7c4fae56db1287c31c0769aedf105defbd33",
+        "preview.png": "8194fb3fc499e48df3b0439050a3d0a8d896ceb49c9c46d42c3e610f6c83bb73",
+        "room.json": "9062244ac9e6612811217e8ce0caccb1f3cacc7036352fa7b8c4f3c515fcddb4",
+        "truth.json": "d8890ce743819d8324af6f28c583cd2c36fa80d513fd353a86fb106d9830960a"
+      },
+      "id": "bedroom_scan_73",
+      "object_count": 6,
+      "room_type": "bedroom",
+      "seed": 73,
+      "variant": "scan_73"
+    },
+    {
+      "files_sha256": {
+        "inventory.json": "e9137834e1d945110b13ee41a19478d5e985d00112719a6da37f0d7cf59c15a1",
+        "preview.png": "6688f9cc627979d8e096fa0a9c9db8af1b60b0acfb169018bf50f41878bb9f3d",
+        "room.json": "8ab96f77d8b49a0172f7a32b485a1c8f27ca1578cde9d1fd344abc6aee0e7b18",
+        "truth.json": "3d879d025f05a1a8204f8ee4df48472e61125340292690087f6d80deed22207e"
+      },
+      "id": "kitchen_nominal",
+      "object_count": 11,
+      "room_type": "kitchen",
+      "seed": null,
+      "variant": "nominal"
+    },
+    {
+      "files_sha256": {
+        "inventory.json": "b91cedb6b45a54b5791545a67adfbc0dbd4230d22df64a420faa29ce3da8fcf2",
+        "preview.png": "e7254d9a849f2fe05905d457a2731572df92a3730ba280e68632ca6c341332cd",
+        "room.json": "3f0bdcd60bcc0019770899b6d1326ee5e137a67f7294f7becb6ec9a303aaa3c0",
+        "truth.json": "ed81b7bc0ddbadc96f6fec57eebb84cdb5a861bb80dfdfa4228d353ee573042c"
+      },
+      "id": "kitchen_scan_17",
+      "object_count": 11,
+      "room_type": "kitchen",
+      "seed": 17,
+      "variant": "scan_17"
+    },
+    {
+      "files_sha256": {
+        "inventory.json": "d7d46f3aff889d8b869a4762d7073819afa1aaf8e2450dc12149368bc90b7394",
+        "preview.png": "83f77517b244ab564fa5e1ff74c593dc6657e4ced73f63456983c0a564fee96e",
+        "room.json": "c03ec8fba021d927cf06b41cd5f2153ee6c9bc9f5485894264e6327e2aacf57d",
+        "truth.json": "2ff6bd6d18df85599ffcc591fcc9ef8356759ec060ffcdce4a97585a2c2a21ed"
+      },
+      "id": "kitchen_scan_73",
+      "object_count": 11,
+      "room_type": "kitchen",
+      "seed": 73,
+      "variant": "scan_73"
+    },
+    {
+      "files_sha256": {
+        "inventory.json": "72a8b7f9a251fa303dbd63a9874ff63b9f681e18fb7825a6d705cbd4efe6997d",
+        "preview.png": "942f907de3d497958922793f6d54a9d75f1488ff120c12ac0ef5d61966eb36ba",
+        "room.json": "e953839e3cc21cdfde6aae843f8ff0beff35bbc50c6dab8bd668ea49b1d793fe",
+        "truth.json": "957e0247df974a4fe90ff59700d4e91565e8ef0d28aeabc88606acf9ed87e7ff"
+      },
+      "id": "living_room_nominal",
+      "object_count": 8,
+      "room_type": "living_room",
+      "seed": null,
+      "variant": "nominal"
+    },
+    {
+      "files_sha256": {
+        "inventory.json": "cffc2f876c7c261cddd216042ad5de6bae5e538c7be1fc02819bb6cb9d182ec8",
+        "preview.png": "7e52a366febeb2d56bbdfd70c32dd903c8ae31fc2098a3214bcc96ea0b11e02f",
+        "room.json": "3af251814d9ac31cc7649e79e173158a83bd6b5ed6fca7ba0964c102fffc35c8",
+        "truth.json": "06ba6d5d260f082e79be75f53b5410c0b5c2db760669a9532d19616499557fc8"
+      },
+      "id": "living_room_scan_17",
+      "object_count": 8,
+      "room_type": "living_room",
+      "seed": 17,
+      "variant": "scan_17"
+    },
+    {
+      "files_sha256": {
+        "inventory.json": "b7eca95d03c8b1133b6115ea89f4f274ed3be26c3e4ab5035bf10d2e5d986d8e",
+        "preview.png": "c071cf828d43b38c92d8cfa1c63ed855ef471c360168fe4a5b0f5fe657687677",
+        "room.json": "4207cbf3d6ad7a6ea1a7dda2164bc84a1cf57b39eff90a5a4c76fa98d962e0a4",
+        "truth.json": "03e1586f227cd74cf6902246fb3863e3953e93dd3b8f00098819eb32f5392c26"
+      },
+      "id": "living_room_scan_73",
+      "object_count": 8,
+      "room_type": "living_room",
+      "seed": 73,
+      "variant": "scan_73"
+    },
+    {
+      "files_sha256": {
+        "inventory.json": "f5264653a55d2dcbf14fc9179cf5e709c58174537beb59e3b304f3f752757b3c",
+        "preview.png": "d7392ead904fd16a623364ceb21b070adb8d41df989d9ddf32b44b5e1ab87d6a",
+        "room.json": "714e397f7094521c1bb612c7961d6c5dfee3e10e3b17fc4aaba7a290679aa133",
+        "truth.json": "84b9aa5960a847456d986821cf33e0129ecbeb00fe25406c294a6ce5f7a7cb26"
+      },
+      "id": "home_office_nominal",
+      "object_count": 9,
+      "room_type": "home_office",
+      "seed": null,
+      "variant": "nominal"
+    },
+    {
+      "files_sha256": {
+        "inventory.json": "041e41c7c2c46564f6fa674e457dbbec1500549df34140c7b16ae67706d68ff6",
+        "preview.png": "eb8451ac1e0ee33a96d1f581277f444c42d6f793425ddb6a736bd33ef74369c7",
+        "room.json": "a32e54518112774d1e5bf94d1e046e4bbba047467c1474c30bb1aaa66b569ac1",
+        "truth.json": "9be300c09014fd7de5d0783f19198b6017336844ebd5ccad8f6c353bcf562725"
+      },
+      "id": "home_office_scan_17",
+      "object_count": 9,
+      "room_type": "home_office",
+      "seed": 17,
+      "variant": "scan_17"
+    },
+    {
+      "files_sha256": {
+        "inventory.json": "199277c3dbea2f7207f51385ad244b67522b396d14560afe5d471b07f149cb1d",
+        "preview.png": "9d20e1e1ce66b696bf5166b43696dd63f93ee70ca1454db10ab2c77720fe76e0",
+        "room.json": "e359ac88ba39193ae51683e97626d5ddf41bc94edad8d01a53ce33d24c476ef0",
+        "truth.json": "2768b4748ae68b0df774b123f85a597b97969f0adcde0fd28c5ae75ac1b1d767"
+      },
+      "id": "home_office_scan_73",
+      "object_count": 9,
+      "room_type": "home_office",
+      "seed": 73,
+      "variant": "scan_73"
+    },
+    {
+      "files_sha256": {
+        "inventory.json": "071e7bd91f0b8efef42e7860858cbd43e3e94beda68cef1dd465298c461ecde9",
+        "preview.png": "f0e8ee978a05212928b9029010bb22e06b17ba6d8deff3acf6d44ac0f09af333",
+        "room.json": "c45ded436e7344369c967e989e5942157e79aa999e00a47978712c778d4f79e6",
+        "truth.json": "2ddb2b78a3b7be20ece3b24c263c44fd8e6c0d322f560ded53eb7dc08ddd9434"
+      },
+      "id": "workshop_nominal",
+      "object_count": 41,
+      "room_type": "workshop",
+      "seed": null,
+      "variant": "nominal"
+    },
+    {
+      "files_sha256": {
+        "inventory.json": "b16415a3cfca77f2b80aa278ea58ef8c5949abd895d5b9abad3a31354635c346",
+        "preview.png": "02c582fa498c179e4e6b5e151bf828f329f4bc8a3f2382b878a26eff2cca5c81",
+        "room.json": "bbac4b3f18785b5b46f19b256f10aaf8a82dfd9b8090b0fb940fd003f4a9f5dd",
+        "truth.json": "c93512610e1932b54bc09c63d037a4a7afbaf1fda938945215302444bad656c0"
+      },
+      "id": "workshop_scan_17",
+      "object_count": 41,
+      "room_type": "workshop",
+      "seed": 17,
+      "variant": "scan_17"
+    },
+    {
+      "files_sha256": {
+        "inventory.json": "60f92bcb15ca2db35908c8a85cd9079ce5477f48ad973a7c5b7fbc49fd15a526",
+        "preview.png": "3f007322a75323ed335b5f971445c32d7ac2b29144034a1f07f404e43f9cfbef",
+        "room.json": "380625d82745145b53a8fca3be298ebaf26b09158bf1f9676a86bb01fe91394b",
+        "truth.json": "f5447a9ae5fa24fb4934f75d473d840f932be28dce19f60edb7dc70f7e534b4f"
+      },
+      "id": "workshop_scan_73",
+      "object_count": 41,
+      "room_type": "workshop",
+      "seed": 73,
+      "variant": "scan_73"
+    },
+    {
+      "files_sha256": {
+        "inventory.json": "ba3d1f3ff480863c33b974c228228466f1dae46713b62f413c89e6a460a22f07",
+        "preview.png": "057b0ed9eb2697f99ce60bf51ab0569421f5173e7441ca4313d9263ef6598923",
+        "room.json": "0b0e9e6a3ae1fd8e8c2275053092b88693346d43e0596c3965c93db1f81a4390",
+        "truth.json": "792aeec09c5c96bf41fa15f9b9c5a19a481a47e81db53db7261c1eaf1e472a8c"
+      },
+      "id": "near_empty_nominal",
+      "object_count": 2,
+      "room_type": "near_empty",
+      "seed": null,
+      "variant": "nominal"
+    },
+    {
+      "files_sha256": {
+        "inventory.json": "5a7e3fe7f87ba5c384865cce9536c0dbf7406920bc6bdf25f12134f86c657ef8",
+        "preview.png": "516a24092e7e000fa0205d734a56b4cdd7e219417abe5774d3553d45436ea627",
+        "room.json": "cb71e184a2c42151290ee2abf56d54ffe43063e7e99d26e9a374b2eaa76b6c0f",
+        "truth.json": "22862ee53b554380d96dd34fd2e65a01b2e9ac11f59fa4cd4f9a695739e683ba"
+      },
+      "id": "near_empty_scan_17",
+      "object_count": 2,
+      "room_type": "near_empty",
+      "seed": 17,
+      "variant": "scan_17"
+    },
+    {
+      "files_sha256": {
+        "inventory.json": "1fd5fbd65bf0da890480dbb2ada3d8416b5c65e7d6af02f0628e9b608e45c163",
+        "preview.png": "a4b1d2cf524389d913f08eb703aaaa3018b45074899b350f8197828c8764dad8",
+        "room.json": "6fc525747f21358b3a7847f429afc9a8bf5b41570b878f7838152a996b8abce5",
+        "truth.json": "43f1fb4840e75c0cc47abe1cea33369791a4010e266f5e6e39bb7b81d8ecd7be"
+      },
+      "id": "near_empty_scan_73",
+      "object_count": 2,
+      "room_type": "near_empty",
+      "seed": 73,
+      "variant": "scan_73"
+    },
+    {
+      "files_sha256": {
+        "inventory.json": "a6c4c07c06614b6e0add139944bb00adb7fa18f66fd28a7ed9d5288ecf4081f0",
+        "preview.png": "58b7cacae261c8b34e7ce3c4f3bc7d7df0ad96a8bb9448b39329c8c0bc3f44e6",
+        "room.json": "fb3b094389ee5dde64c9a7a2a023b8093fa8db56ca15f92dcbc81081a97d6d28",
+        "truth.json": "5b8700473e009645c17bc3b7e4418bbc6e0374e3f82f5075cd1d1382bd6b7714"
+      },
+      "id": "awkward_l_nominal",
+      "object_count": 5,
+      "room_type": "awkward_l",
+      "seed": null,
+      "variant": "nominal"
+    },
+    {
+      "files_sha256": {
+        "inventory.json": "7d4d0c5b902178949682eff3c1a78b0ada48920cb296a86f1f654a2e111d7a86",
+        "preview.png": "443db361d0f4d250b936c74355b4958ab8ac0716a0b5239a829cadc2a79b3269",
+        "room.json": "5e22933578d46fadee59ee481545217c4f780db948716d98e3441e3a303b225f",
+        "truth.json": "13cf31811e86f48bf2eb4d48d9de78e438c75abb6c7893e3d4f86307d24a20db"
+      },
+      "id": "awkward_l_scan_17",
+      "object_count": 5,
+      "room_type": "awkward_l",
+      "seed": 17,
+      "variant": "scan_17"
+    },
+    {
+      "files_sha256": {
+        "inventory.json": "6ee4167dd48f7a0d77fd7e0df703f549835ff95f1f2a8e81e7a86c665387c365",
+        "preview.png": "3b31fea8ab0dc2b99c0e51dbf70ba3f57fd00184ca8922f875d93a4f8a99f0c2",
+        "room.json": "23793196eee294d3601dea35eef7d86dd4547afd8fbea0bbfbd029d927fcb19b",
+        "truth.json": "4218a6e029d85bd0b40206ae4e0575e4b56cd59251588127773c245d7df57608"
+      },
+      "id": "awkward_l_scan_73",
+      "object_count": 5,
+      "room_type": "awkward_l",
+      "seed": 73,
+      "variant": "scan_73"
+    }
+  ],
+  "sources": {
+    "assumed": {
+      "note": "Invented room sizes, placements, palettes and all furniture not explicitly sourced; no real room was consulted.",
+      "status": "assumed"
+    },
+    "billy": {
+      "size_whd_m": [
+        0.8,
+        2.02,
+        0.28
+      ],
+      "status": "verified",
+      "url": "https://www.ikea.com/gb/en/p/billy-bookcase-white-00263850/"
+    },
+    "kivik": {
+      "size_whd_m": [
+        2.28,
+        0.83,
+        0.95
+      ],
+      "status": "verified",
+      "url": "https://www.ikea.com/es/en/p/kivik-3-seat-sofa-frame-00519361/"
+    },
+    "malm": {
+      "size_whd_m": [
+        1.76,
+        1.0,
+        2.09
+      ],
+      "status": "verified",
+      "underbed_height_m": 0.21,
+      "url": "https://www.ikea.com/be/en/p/malm-bed-frame-high-white-stained-oak-veneer-s19022549/"
+    },
+    "micke": {
+      "size_whd_m": [
+        1.05,
+        0.75,
+        0.5
+      ],
+      "status": "verified",
+      "url": "https://www.ikea.com/gb/en/p/micke-desk-white-80213074/"
+    },
+    "nkba": {
+      "note": "Pages 4 and 6: work aisle 42 inches (1.0668 m) for one cook, walkway 36 inches (0.9144 m). Guidance, not a compliance claim.",
+      "status": "verified",
+      "url": "https://nkba-ps.com/images/downloads/Awards/nkba_kitchen_planning_guidelines_pre_2023.pdf"
+    }
+  },
+  "synthetic": true
+}

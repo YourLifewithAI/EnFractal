@@ -5,7 +5,7 @@ You are a contractor on EnFractal, working for the integrator: the Claude sessio
 ## How a job works
 
 1. **The founder gives you one brief** from `docs/codex/briefs/`. Do that brief and nothing else. If no brief was named, stop and ask.
-2. **Branch.** Start from `run1/integration` (or the base the brief names) and work on `codex/<brief file name without .md>`, for example `codex/01-linux-suite`. Never commit to or push `main`, `run1/*` or anyone else's branch.
+2. **Branch.** Start from the current run's integration branch, `run2/integration` (or the base the brief names) and work on `codex/<brief file name without .md>`, for example `codex/01-linux-suite`. Never commit to or push `main`, a `run<n>/` branch or anyone else's branch.
 3. **Write only inside the brief's `scope` block.** Its globs list every file you may create or change. Everything else is read-only, however small the fix looks. If the job seems to need a change outside the scope, describe it, with the exact diff, in your report instead. The integrator checks every `codex/` branch with `tools/codex/check_scope.py`, and a branch that touches anything outside its scope is not merged.
 4. **Deliver a report** at the path the brief gives, normally `docs/codex/reports/<brief name>.md`, with the evidence the brief asks for.
 
@@ -18,6 +18,12 @@ You are a contractor on EnFractal, working for the integrator: the Claude sessio
 ## When something blocks you
 
 Stop and report it: a failing setup step, a permission prompt, a sandbox limit, a test that will not pass, a file you would need to edit outside your scope. **Never work around a guard.** That means no disabling of checks, no editing of tests to pass, no retrying the same blocked action, no `--force` or `--no-verify`. A clear "blocked at step 3, here is the output" is a good result.
+
+**Tests you write in this brief are your own work.** When one fails because of a bug in the test itself (a wrong path, an import, a stale expectation of your own), fix it, rerun it and say so in your report. The rule above protects checks that existed before your brief and forbids weakening any check to make it pass; it does not mean stopping at every red line of your own code.
+
+**Outputs stay in your checkout.** The sandbox writes only inside your checkout (and your temp folder). A brief that needs derived outputs kept out of Git (models, renders, packages) names a folder under `captures/` in your checkout, which Git ignores; the integrator copies them out. For brief writers: never point Codex's outputs at a folder outside its checkout (brief 20's first run stopped on that).
+
+**Temporary folders in the sandbox.** On Windows, Python 3.13 and later give folders made by `tempfile.mkdtemp` and `tempfile.TemporaryDirectory` an owner-only access list, and the sandbox's restricted token cannot write inside them. Make working folders with `os.makedirs` (in your temp folder or an output folder you were given) and remove them with `shutil.rmtree`.
 
 ## Never
 

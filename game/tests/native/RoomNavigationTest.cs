@@ -45,14 +45,27 @@ public partial class RoomNavigationTest : Node3D
             Check(route.Reaches && route.LengthM > PlanarDistance(companion.GlobalPosition, player.GlobalPosition) + 0.1f,
                 $"the planned route goes round the box (route {route.LengthM:0.00} m against {PlanarDistance(companion.GlobalPosition, player.GlobalPosition):0.00} m straight)");
 
-            // Without navigation, as in the founder's playtest: stuck on the far side.
+            // Without navigation, as in the founder's playtest, it was stuck on the far side. The Gubble now floats: with no
+            // walkable map it floats straight to the player, over the 30 cm box and never through it.
             companion.BindNavigation(null);
             var sent = host.PlayerGoal("come");
             Check(sent["ok"]!.GetValue<bool>(), "come is accepted from the player through the command host");
-            await Frames(240);
+            var highestOver = 0.0f;
+            var into = false;
+            for (var i = 0; i < 480 && companion.CurrentIntent == "come"; i++)
+            {
+                await Frames(1);
+                // Over the box by more than its radius (its rounded foot may round the edge), the body must be above the top.
+                if (ClearanceFromSquare(companion.GlobalPosition, box, 0.175f - companion.BodyRadiusM) == 0)
+                {
+                    highestOver = Mathf.Max(highestOver, companion.GlobalPosition.Y - box.Y);
+                    into |= companion.GlobalPosition.Y - box.Y < 0.30f - 0.002f;
+                }
+            }
             var gap = PlanarDistance(companion.GlobalPosition, player.GlobalPosition);
-            GD.Print($"ROOM_NAVIGATION_MEASURED without navigation: intent {companion.CurrentIntent}, gap {gap:0.00} m");
-            Check(companion.CurrentIntent == "come" && gap > CompanionAvatar.ComeArrivalM + 0.2f, "local steering alone stays stuck behind the box (the founder's report reproduced)");
+            GD.Print($"ROOM_NAVIGATION_MEASURED without navigation: intent {companion.CurrentIntent}, gap {gap:0.00} m, highest over the box {highestOver:0.000} m");
+            Check(companion.CurrentIntent == "stay" && gap <= CompanionAvatar.ComeArrivalM + 0.02f && highestOver > 0.30f && !into,
+                "without a walkable map the Gubble floats over the big box (never into it) and arrives, instead of staying stuck behind it");
 
             // With the room's navigation: round the box and arrived.
             host.PlayerGoal("stop");
@@ -83,6 +96,7 @@ public partial class RoomNavigationTest : Node3D
             Check(!companion.FollowMoving && gap <= CompanionAvatar.FollowFarM + 0.01f && way.LengthM <= gap + 0.05f,
                 "follow from the far side of the box comes round and rests with nothing between them");
             host.PlayerGoal("stop");
+            await MeasureCellSizes(world);
             Finish();
         }
         catch (System.Exception exception)
@@ -90,6 +104,35 @@ public partial class RoomNavigationTest : Node3D
             GD.PushError("Room navigation test exception: " + exception);
             GetTree().Quit(1);
         }
+    }
+
+    /// <summary>
+    /// The backlog's cell-size question: a re-bake runs in the physics frame (RoomNavigation.Bake), so its time is the stall
+    /// a moved thing causes. Bake the real test room at three cell sizes, a few times each, and print the times; the frame at
+    /// 60 Hz is 16.7 ms. The game's choice is RoomNavigation.CellSizeM.
+    /// </summary>
+    private async Task MeasureCellSizes(RoomWorld world)
+    {
+        foreach (var cell in new[] { 0.01f, 0.02f, 0.03f })
+        {
+            var probe = RoomNavigation.Create(this, world.Built, world.Room.Bounds, WorldScaleProfile.Companion, world.Companion.StepHeightM * 0.75f, cell);
+            await Frames(2);
+            var times = new System.Collections.Generic.List<double> { probe.LastBakeMs };
+            for (var i = 0; i < 3; i++) { probe.Bake(); times.Add(probe.LastBakeMs); }
+            times.Sort();
+            GD.Print(string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                $"ROOM_NAVIGATION_CELL test room, cell {cell * 100:0} cm: median bake {times[times.Count / 2]:0.0} ms (min {times[0]:0.0}, max {times[^1]:0.0}), {probe.PolygonCount} polygons, agent radius {probe.AgentRadiusM:0.000} m"));
+            Check(probe.IsReady && probe.PolygonCount > 0, $"the test room bakes at {cell * 100:0} cm cells");
+            probe.QueueFree();
+            await Frames(2);
+        }
+        var game = world.GetNode<RoomNavigation>("RoomNavigation");
+        var rebakes = new System.Collections.Generic.List<double>();
+        for (var i = 0; i < 5; i++) { game.Bake(); rebakes.Add(game.LastBakeMs); }
+        rebakes.Sort();
+        // Headless here; the founder's machine is faster. The bar is a re-bake well inside two frames, not a stall of many.
+        Check(game.CellM == RoomNavigation.CellSizeM && rebakes[2] < 2 * 1000.0 / 60.0,
+            $"the game's cell ({RoomNavigation.CellSizeM * 100:0} cm) re-bakes the test room within two 60 Hz frames (median {rebakes[2]:0.0} ms)");
     }
 
     private void Finish()

@@ -40,6 +40,8 @@ public partial class LookDirector : Node3D
     public const string SkyShaderPath = "res://shaders/painterly_window_sky.gdshader";
     /// <summary>Meta marking a mesh whose captured materials the look has made painterly (their originals are kept for the GI bake).</summary>
     public const string CapturedPaintedMeta = "look_captured_painted";
+    /// <summary>Meta on a mesh that wears a landscape's water: it is see-through, so it casts no shadow and stays out of the GI bake.</summary>
+    public const string WaterMeta = "look_water";
 
     public StylePreset Preset { get; private set; } = null!;
     public int RoomLightCount { get; private set; }
@@ -49,6 +51,11 @@ public partial class LookDirector : Node3D
     public LookMoment Moment { get; private set; } = null!;
     /// <summary>True once room geometry with a shell has been dressed (and baked, on a GPU).</summary>
     public bool Dressed { get; private set; }
+    /// <summary>
+    /// Whether the room is open land (a landscape: its shell has no wall and no ceiling). On open land a real sky lights the
+    /// land: the sun needs no opening, the sky's own light fills the shade, and there is no closed interior to bake.
+    /// </summary>
+    public bool OpenLand { get; private set; }
     public VoxelGI? Gi { get; private set; }
     public Godot.Environment Environment { get; private set; } = null!;
     /// <summary>The sun by day and the moon by night. Hidden in a room without a sun light hint (no window lets the sun in).</summary>
@@ -81,8 +88,8 @@ public partial class LookDirector : Node3D
     /// The observe view (the founder, 7 October: "the player should be able to switch to a view like that to look at what
     /// they built with their companion"): a very tight tilt-shift band, a sliver of the room crisp around the focus point
     /// with everything nearer and farther melting away, like looking at a model on a table. Focus follows
-    /// FocusOverride (the mouse or a free camera) or else the avatar; the band does not stretch to keep the companion in.
-    /// Eases in and out like every focus change. Off by default; the key that switches it is the HUD's.
+    /// the interpolated player body in third person, ahead of any cursor override; the band does not stretch for the companion.
+    /// Observe tracks depth immediately; ordinary focus eases. Off by default; the HUD supplies its key.
     /// </summary>
     public bool Observe { get; set; }
     /// <summary>Where the clock comes from: the real clock and calendar, the preset's fixed hour and day, or a pin (and who pinned it).</summary>
@@ -144,6 +151,7 @@ public partial class LookDirector : Node3D
         Preset = preset.WithSite(site);
         preset = Preset;
         _room = room;
+        OpenLand = LandscapeLook.IsOpenLand(room);
         SiteNote = siteNote;
         if (siteNote.Length > 0) GD.Print("LOOK: " + siteNote);
         MaterialLibrary.Configure(preset);
@@ -284,7 +292,9 @@ public partial class LookDirector : Node3D
         // a closed box lit by its lamps.
         var sunHint = room.LightHints.FirstOrDefault(h => h.Kind == "sun");
         var hasWindow = room.LightHints.Any(h => h.Kind == "window");
-        SunScale = preset.KeyMode == "sun" ? sunHint?.RelativeIntensity ?? (hasWindow ? 1f : 0f) : 1f;
+        // On open land there is no wall to keep the sun out: a real sky lights the land, so the sun is at full strength even
+        // when the landscape declared no sun hint (the window only ever told where the sun rises).
+        SunScale = preset.KeyMode == "sun" ? sunHint?.RelativeIntensity ?? (hasWindow || OpenLand ? 1f : 0f) : 1f;
         Key = new DirectionalLight3D
         {
             Name = "Key",
@@ -297,8 +307,9 @@ public partial class LookDirector : Node3D
                 4 => DirectionalLight3D.ShadowMode.Parallel4Splits,
                 _ => DirectionalLight3D.ShadowMode.Parallel2Splits,
             },
-            DirectionalShadowMaxDistance = Mathf.Max(s.KeyMinDistanceM, diagonal * s.KeyDistancePerDiagonal),
-            DirectionalShadowSplit1 = s.KeySplit1,
+            // Open land casts its shadows as far as the eye sees them (the hills and trees of the backdrop), not just over a room.
+            DirectionalShadowMaxDistance = OpenLand ? OpenLandLight.ShadowDistanceM : Mathf.Max(s.KeyMinDistanceM, diagonal * s.KeyDistancePerDiagonal),
+            DirectionalShadowSplit1 = OpenLand ? OpenLandLight.ShadowSplit1 : s.KeySplit1,
             DirectionalShadowBlendSplits = true,
             ShadowBias = s.KeyBias,
             ShadowNormalBias = s.KeyNormalBias,
@@ -482,7 +493,9 @@ public partial class LookDirector : Node3D
             + (realClock && Preset.Tuning.Sun.RealClockDaylightSaving ? "; read as standard time" : "");
         Moment = LookClock.At(Preset, hour, day, _moonYaw);
         Key.LightColor = Moment.KeyColor;
-        Key.LightEnergy = Moment.KeyEnergy * SunScale;
+        // On open land the whole ground stands in the sun, where indoors only a patch of floor does: the sun that is bright enough
+        // for that patch would blow out every lit surface, so the open land's sun is a fraction of it (OpenLandLight.SunStrength).
+        Key.LightEnergy = Moment.KeyEnergy * SunScale * (OpenLand ? OpenLandLight.SunStrength : 1f);
         // A summer sun casts a harder shadow than a winter one: the season sets how soft the shadow edge is.
         Key.ShadowBlur = (Preset.Tuning.Shadows.BlurBase + Preset.Tuning.Shadows.BlurPerSoftness * Preset.ShadowSoftness) * Mathf.Lerp(Moment.Look.SunBlur, 1f, Moment.MoonWeight);
         if (_skyMaterial != null) LookSky.Apply(_skyMaterial, LookSky.At(Preset, Moment, _moonYaw));
@@ -495,7 +508,9 @@ public partial class LookDirector : Node3D
         }
         ApplyLamps();
         Environment.AmbientLightColor = Moment.AmbientColor;
-        Environment.AmbientLightEnergy = Moment.AmbientEnergy * Preset.Tuning.Gi.EnvironmentAmbientScale;
+        // Indoors the sky's own light is only what comes through the windows (the VoxelGI interior and the sky fills), so the
+        // environment's ambient is nearly off; on open land the sky is all there is, and its colour of the hour fills the shade.
+        Environment.AmbientLightEnergy = Moment.AmbientEnergy * (OpenLand ? OpenLandLight.AmbientScale : Preset.Tuning.Gi.EnvironmentAmbientScale);
         ApplyGrade(GradeParams.For(Preset, Moment, LampsOn).Quantized(), synchronous);
     }
 
@@ -607,7 +622,10 @@ public partial class LookDirector : Node3D
         if (mesh.MaterialOverride == null) PaintCaptured(mesh, owner);
         if (MaterialLibrary.IsPainterly(mesh.MaterialOverride) || mesh.HasMeta(CapturedPaintedMeta))
         {
-            mesh.SetInstanceShaderParameter("paint_seed", Seed(owner.GetMeta("entity_id").AsString()));
+            // The land's parts (terrain, scenery, merged plants) share world-space marks, so a mark runs on across the parts
+            // that meet; only a prop (a cottage, a crate) gets its own seed.
+            if (!(mesh.HasMeta(LandscapeLook.LandscapePaintedMeta) && owner.HasMeta("surface_role")))
+                mesh.SetInstanceShaderParameter("paint_seed", Seed(owner.GetMeta("entity_id").AsString()));
             if (mesh.Mesh is BoxMesh box)
             {
                 mesh.SetInstanceShaderParameter("box_edges", 1f);
@@ -622,6 +640,12 @@ public partial class LookDirector : Node3D
         // casts no shadow on the side it faces away from, so the sun would pass straight through it (review M4). A closed
         // slab loses nothing.
         mesh.CastShadow = isShell ? GeometryInstance3D.ShadowCastingSetting.DoubleSided : GeometryInstance3D.ShadowCastingSetting.On;
+        // Water you can see into would shade its own bed as a slab: it casts no shadow and is no wall for the bounce.
+        if (mesh.HasMeta(WaterMeta))
+        {
+            mesh.CastShadow = GeometryInstance3D.ShadowCastingSetting.Off;
+            mesh.GIMode = GeometryInstance3D.GIModeEnum.Disabled;
+        }
         return isShell;
     }
 
@@ -637,6 +661,17 @@ public partial class LookDirector : Node3D
         for (var surface = 0; surface < mesh.Mesh.GetSurfaceCount(); surface++)
         {
             if (mesh.GetActiveMaterial(surface) is not BaseMaterial3D source) continue;
+            // A landscape's material (the exporter's, naming its harness role and baking tints and blends into the vertex
+            // colour) keeps its vertex colour inside the painterly treatment of its own harness role.
+            if (LandscapeLook.TryRole(source, out var landRole))
+            {
+                var bake = LandscapeLook.BakeColor(mesh.Mesh, surface, source.AlbedoColor);
+                mesh.SetSurfaceOverrideMaterial(surface, MaterialLibrary.ForLandscape(landRole, source.AlbedoColor, bake));
+                mesh.SetMeta(LandscapeLook.LandscapePaintedMeta, true);
+                if (LandscapeLook.IsWater(landRole)) mesh.SetMeta(WaterMeta, true);
+                painted = true;
+                continue;
+            }
             var role = RoleFor(owner, source.ResourceName);
             mesh.SetSurfaceOverrideMaterial(surface, MaterialLibrary.ForCaptured(role, source.AlbedoColor, source.AlbedoTexture));
             painted = true;
@@ -686,6 +721,7 @@ public partial class LookDirector : Node3D
         Dressed = true;
         Bakes++;
         if (Preset.GiMode != "voxelgi") GiNote = $"gi mode {Preset.GiMode}: no global illumination node";
+        else if (OpenLand) GiNote = "open land: no VoxelGI (a closed interior is what it bakes); the sky's ambient light and the sun light the land";
         else BakeVoxelGi(root);
         if (GiNote.Length > 0) GD.Print("LOOK: " + GiNote);
     }
@@ -705,12 +741,20 @@ public partial class LookDirector : Node3D
             {
                 // A captured mesh's painterly materials sit on its instance; VoxelGI voxelizes the mesh's own glTF materials
                 // (colour and texture) when they are lifted off for the bake.
-                if (mesh is MeshInstance3D { Mesh: not null } captured && captured.HasMeta(CapturedPaintedMeta))
+                if (mesh is MeshInstance3D { Mesh: not null } captured && (captured.HasMeta(CapturedPaintedMeta) || captured.HasMeta(LandscapeLook.LandscapePaintedMeta)))
                     for (var surface = 0; surface < captured.Mesh.GetSurfaceCount(); surface++)
                         if (captured.GetSurfaceOverrideMaterial(surface) is { } painted && MaterialLibrary.IsPainterly(painted))
                         {
                             surfaces.Add((captured, surface, painted));
-                            captured.SetSurfaceOverrideMaterial(surface, null);
+                            // A landscape surface is voxelized as its baked colour (VoxelGI ignores vertex colour, and the glTF
+                            // factor under it is the blends' cream envelope); a captured one as its own glTF material.
+                            if (MaterialLibrary.BakeAlbedo(painted) is { } landColour && painted.HasMeta("landscape"))
+                            {
+                                var landStandIn = new StandardMaterial3D { AlbedoColor = landColour };
+                                landStandIn.SetMeta(BakeStandInMeta, true);
+                                captured.SetSurfaceOverrideMaterial(surface, landStandIn);
+                            }
+                            else captured.SetSurfaceOverrideMaterial(surface, null);
                         }
                 if (MaterialLibrary.BakeAlbedo(mesh.MaterialOverride) is { } albedo)
                 {
@@ -790,7 +834,7 @@ public partial class LookDirector : Node3D
         {
             // A sliver of crisp depth, short ramps and full blur outside it: the tightest tilt-shift the look makes.
             var half = 0.5f * t.ObserveBandM;
-            var nearEdge = Mathf.Max(preset.NearBlurDistanceM, d - half);
+            var nearEdge = Mathf.Max(0.01f, d - half);
             return new DepthOfField(preset.DofEnabled, d + half, t.ObserveFarTransitionM, preset.DofEnabled && nearEdge > 0.01f, nearEdge, t.ObserveNearTransitionM, t.ObserveAmount);
         }
         var nearest = float.IsFinite(alsoM) && alsoM > 0.05f ? Mathf.Min(d, alsoM) : d;
@@ -840,11 +884,11 @@ public partial class LookDirector : Node3D
         var distance = (focusPoint - camera.GlobalPosition).Dot(forward);
         var also = alsoPoint is { } point ? (point - camera.GlobalPosition).Dot(forward) : float.NaN;
         var dof = DepthOfFieldFor(Preset, distance, Mathf.Max(0f, -forward.Y), crispFromM, also, Observe);
-        // Ease toward the wanted band (a moving player, a cursor jumping across the room, the observe view switching on);
-        // a camera the look has not focused before, and a framed review camera (delta 0), take it at once.
+        // Ordinary focus eases. Observe follows the current body/camera depth immediately,
+        // including a mode change on the shared F3/F4 camera; the rig already eases its motion.
         var ease = Preset.Tuning.Dof.FocusEaseS;
         var id = camera.GetInstanceId();
-        if (delta > 0 && ease > 0f && _eased.TryGetValue(id, out var previous)) dof = Ease(previous, dof, 1f - Mathf.Exp((float)(-delta / ease)));
+        if (!Observe && delta > 0 && ease > 0f && _eased.TryGetValue(id, out var previous)) dof = Ease(previous, dof, 1f - Mathf.Exp((float)(-delta / ease)));
         _eased[id] = dof;
         Post?.SetFocus(dof);
         attributes.DofBlurFarEnabled = dof.FarEnabled;
@@ -897,10 +941,12 @@ public partial class LookDirector : Node3D
     /// </summary>
     public Vector3 FocusPointFor(Camera3D camera)
     {
+        var body = FocusBody();
+        if (Observe && body is SmallPlayerController avatar && IsInstanceValid(avatar) && camera != avatar.EyeCamera)
+            return avatar.GetGlobalTransformInterpolated().Origin + Vector3.Up * (avatar.BodyHeightM * 0.5f);
         if (FocusOverride is { } target) return target;
         var forward = -camera.GlobalBasis.Z;
         var dof = Preset.Tuning.Dof;
-        var body = FocusBody();
         if (body != null && IsInstanceValid(body))
         {
             if (body is SmallPlayerController controller)
@@ -940,7 +986,7 @@ public partial class LookDirector : Node3D
         var problems = new List<string>(_warnings);
         if (!Dressed) problems.Add("the room was never dressed");
         var gpu = RenderingServer.GetRenderingDevice() != null;
-        if (gpu && Preset.GiMode == "voxelgi" && (Gi == null || Gi.Data == null)) problems.Add("VoxelGI has no baked data");
+        if (gpu && Preset.GiMode == "voxelgi" && !OpenLand && (Gi == null || Gi.Data == null)) problems.Add("VoxelGI has no baked data");
         var standIns = GetParent()?.FindChildren("*", "GeometryInstance3D", true, false).OfType<GeometryInstance3D>()
             .Count(g => g.MaterialOverride?.HasMeta(BakeStandInMeta) == true) ?? 0;
         if (standIns > 0) problems.Add($"{standIns} mesh(es) still carry VoxelGI bake stand-ins");

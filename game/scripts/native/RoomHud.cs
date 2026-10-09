@@ -19,6 +19,8 @@ public partial class RoomHud : CanvasLayer
     private const string ProfilePath = "user://single_player/room/avatar_profile_v1.cfg";
     private static readonly Color[] Palette = { new("d28f63"), new("65b9b0"), new("d7b765"), new("a18cc3"), new("75965c") };
     private Label _state = null!;
+    /// <summary>The wash-ashore fade (the sea's edge): a full-screen veil the player's body darkens and lifts.</summary>
+    private ColorRect _washVeil = null!;
     private Label _notice = null!;
     private PanelContainer _footer = null!;
     private VBoxContainer _keyHelp = null!;
@@ -122,7 +124,6 @@ public partial class RoomHud : CanvasLayer
         return $"{hour}  ·  {moment.Season}, {date}, " + (SeasonStop >= 0 ? SeasonStops[SeasonStop].Name + " (Shift+T)" : "real date (Shift+T)");
     }
 
-    private bool _observeFocus;
     private Node3D _dioramaPivot = null!;
     private SpringArm3D _dioramaArm = null!;
     private Camera3D _diorama = null!;
@@ -133,6 +134,8 @@ public partial class RoomHud : CanvasLayer
     public override void _Ready()
     {
         Name = "RoomHud";
+        // Place the rendered camera before LookDirector computes its focus depth.
+        ProcessPriority = -1;
         BuildCameras();
         LoadPreferences();
         var theme = new Theme { DefaultFontSize = 18 };
@@ -158,7 +161,7 @@ public partial class RoomHud : CanvasLayer
         AddChild(top);
         var column = new VBoxContainer(); top.AddChild(column);
         column.AddChild(new Label { Text = RoomTitle });
-        _state = new Label(); column.AddChild(_state);
+        _state = new Label { Name = "State" }; column.AddChild(_state);
         _clock = new Label { Visible = false }; column.AddChild(_clock);
         var actions = new HBoxContainer { Name = "CompanionActions" }; column.AddChild(actions);
         AddButton(actions, "1 Follow", () => Goal("follow"), 26);
@@ -167,6 +170,14 @@ public partial class RoomHud : CanvasLayer
         AddButton(actions, "4 Stop", () => Goal("stop"), 26);
         AddButton(actions, "5 Point", PointAhead, 26);
         AddButton(actions, "Customize", ToggleCustomization, 26);
+        // The hand keys send the same sandbox commands the companion uses (CommandHost.PlayerHands, PlayerPush).
+        var hands = new HBoxContainer { Name = "HandActions" }; column.AddChild(hands);
+        AddButton(hands, "F Pick up / put down", Hands, 26);
+        AddButton(hands, "V Push", Push, 26);
+        _washVeil = new ColorRect { Name = "WashAshoreVeil", Color = new Color(0.06f, 0.13f, 0.18f, 0), MouseFilter = Control.MouseFilterEnum.Ignore };
+        AddChild(_washVeil);
+        _washVeil.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        Player.WashedAshore += _ => _noticeText = "The current carried you back and you washed up on the beach.";
         _footer = new PanelContainer { Name = "HelpFooter", Theme = compactTheme, GrowVertical = Control.GrowDirection.Begin };
         AddChild(_footer);
         _footer.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.BottomWide);
@@ -175,19 +186,22 @@ public partial class RoomHud : CanvasLayer
         _helpHint = new Label { Text = "H keys" }; help.AddChild(_helpHint);
         _keyHelp = new VBoxContainer { Name = "KeyHelp", Visible = false }; help.AddChild(_keyHelp);
         _keyHelp.AddChild(new Label { Text = "WASD move · Shift run · Space jump · R recover · G gravity · click to look · Esc release" });
+        _keyHelp.AddChild(new Label { Text = "Climb: keep walking into a steep face, W up, S down, A/D across, Space lets go · Swim: deep water floats you, Space leaps" });
+        _keyHelp.AddChild(new Label { Text = "1 follow · 2 wait · 3 come · 4 stop · 5 point: the Gubble floats after you, over water and up cliffs" });
         _keyHelp.AddChild(new Label { Text = "F1 eye · F2 shoulder · F3 diorama: mouse orbits, wheel zooms, WASD follows the view · F4 isometric: Q/E turn the view" });
         _keyHelp.AddChild(new Label { Text = "T time of day · Shift+T season (each steps round to the real clock) · L lamps · O observe (a very tight tilt-shift view, best from F3 or F4) · C customize" });
+        _keyHelp.AddChild(new Label { Text = "F pick up what you face · F again sets it down in front of you, or on top of what you face (the box, the book) · V push what you face 10 cm" });
         _notice = new Label { Name = "Notice", Text = _noticeText }; help.AddChild(_notice);
         help.MinimumSizeChanged += () => _footer.Size = new Vector2(_footer.Size.X, 0);
         _customization = new PanelContainer { Position = new Vector2(18, 190), Theme = theme, Visible = false };
         AddChild(_customization);
         var options = new VBoxContainer(); _customization.AddChild(options);
         options.AddChild(new Label { Text = "YOUR TWO AVATARS" });
-        var name = new LineEdit { Text = Companion.CompanionName, MaxLength = 40, PlaceholderText = "Companion name", CustomMinimumSize = new Vector2(360, 40) };
+        var name = new LineEdit { Text = Companion.CompanionName, MaxLength = 40, PlaceholderText = "Your companion's name (the Gubble)", CustomMinimumSize = new Vector2(360, 40) };
         options.AddChild(name);
         name.TextChanged += value => Companion.SetDisplayName(value);
         AddButton(options, "Change player color", () => { _playerColor = (_playerColor + 1) % Palette.Length; Player.SetAppearance(Palette[_playerColor]); });
-        AddButton(options, "Change companion color", () => { _companionColor = (_companionColor + 1) % Palette.Length; Companion.SetAppearance(Palette[_companionColor]); });
+        AddButton(options, "Change the Gubble's color", () => { _companionColor = (_companionColor + 1) % Palette.Length; Companion.SetAppearance(Palette[_companionColor]); });
         options.AddChild(new Label { Text = $"Player height: {Player.BodyHeightM * 100:0} cm. Appearance keeps each avatar's identity." });
         AddButton(options, "Save appearance and return", () => { SavePreferences(); ToggleCustomization(); });
         SetViewMode(1);
@@ -228,6 +242,23 @@ public partial class RoomHud : CanvasLayer
         _diorama = new Camera3D { Name = "DioramaCamera", Near = 0.01f, Far = 100, Fov = DioramaFovDeg };
         _dioramaArm.AddChild(_diorama);
         PlaceDioramaRig(snap: true);
+        IgnoreCollisionOnlyParts();
+    }
+
+    /// <summary>
+    /// A shell part that is never drawn ("drawn": false: a tree's hidden climbing pole and crown caps) is no obstacle to a
+    /// camera: the arms pass through it as through the leaves around it. (Founder's playtest, 9 October: inside a crown the
+    /// follow camera was pulled in to the climber's head by the hidden caps.)
+    /// </summary>
+    private void IgnoreCollisionOnlyParts()
+    {
+        if (GetParent() is not RoomWorld { Built: { } built }) return;
+        foreach (var node in built.FindChildren("*", "StaticBody3D", true, false))
+            if (node is StaticBody3D body && body.HasMeta("drawn") && !body.GetMeta("drawn").AsBool())
+            {
+                _arm.AddExcludedObject(body.GetRid());
+                _dioramaArm.AddExcludedObject(body.GetRid());
+            }
     }
 
     public void SetViewMode(int mode)
@@ -302,11 +333,12 @@ public partial class RoomHud : CanvasLayer
     {
         if (ViewMode >= 2) PlaceDioramaRig(snap: false, (float)delta);
         _arm.Rotation = new Vector3(Mathf.Clamp(Player.EyeCamera.Rotation.X - 0.18f, -1.1f, 0.8f), 0, 0);
-        _state.Text = $"{Player.BodyHeightM * 100:0} cm player  ·  gravity {Player.WorldPhysicsId} (G)  ·  {Companion.CompanionName}: {Companion.CurrentIntent}" + (Companion.GoalBlocked ? " · path blocked" : "") + (Look?.Observe == true ? "  ·  observe view (O)" : "");
+        var holding = Host?.HeldName(Kernel.CommandHost.PlayerAvatar) ?? "";
+        _state.Text = $"{Player.BodyHeightM * 100:0} cm player  ·  gravity {Player.WorldPhysicsId} (G)  ·  {Companion.CompanionName}: {Companion.CurrentIntent}" +
+            (Companion.FloatingThere ? " · floating there" : "") + (Companion.GoalBlocked ? " · path blocked" : "") +
+            (holding.Length > 0 ? $"  ·  holding {holding} (F)" : "") + (Look?.Observe == true ? "  ·  observe view (O)" : "");
         _notice.Text = _noticeText;
-        // The observe view looks at what the free camera orbits: focus follows its target, and lets go when the view does.
-        if (Look != null && Look.Observe && ViewMode >= 2) { Look.FocusOverride = _dioramaPivot.GlobalPosition; _observeFocus = true; }
-        else if (_observeFocus) { Look!.FocusOverride = null; _observeFocus = false; }
+        _washVeil.Color = new Color(_washVeil.Color, Player.WashAshoreFade);
         var clock = ClockText();
         _clock.Visible = clock.Length > 0;
         _clock.Text = clock;
@@ -349,6 +381,9 @@ public partial class RoomHud : CanvasLayer
                 case Key.Key3: Goal("come"); break;
                 case Key.Key4: Goal("stop"); break;
                 case Key.Key5: PointAhead(); break;
+                // Hand keys: pick up, put down and push, as commands from the player.
+                case Key.F: Hands(); break;
+                case Key.V: Push(); break;
             }
         }
         if (!Customizing && input is InputEventMouseButton click && click.Pressed && click.ButtonIndex == MouseButton.Left)
@@ -372,10 +407,19 @@ public partial class RoomHud : CanvasLayer
 
     private void PointAhead() => Goal("point_at", Player.GlobalPosition - Player.GlobalBasis.Z * 0.6f + Vector3.Up * 0.05f);
 
+    /// <summary>The room's command host (null in fixtures without one).</summary>
+    private Kernel.CommandHost? Host => GetParent() is { } parent ? Kernel.CommandHost.Of(parent) : null;
+
+    /// <summary>F: pick up what the player faces, or put down what it holds (on what it faces, if that has a top).</summary>
+    private void Hands() => _noticeText = Host?.PlayerHands().Message ?? "The command host is not attached; the hand keys are off.";
+
+    /// <summary>V: push what the player faces.</summary>
+    private void Push() => _noticeText = Host?.PlayerPush().Message ?? "The command host is not attached; the hand keys are off.";
+
     private void Goal(string goal, Vector3? point = null)
     {
         var host = Kernel.CommandHost.Of(GetParent());
-        if (host == null) { _noticeText = "The command host is not attached; companion keys are off."; return; }
+        if (host == null) { _noticeText = $"The command host is not attached; {Companion.CompanionName}'s keys are off."; return; }
         var result = host.PlayerGoal(goal, point);
         if (!result["ok"]!.GetValue<bool>()) _noticeText = result["error"]!["message"]!.GetValue<string>();
     }
@@ -398,8 +442,10 @@ public partial class RoomHud : CanvasLayer
         var companionColor = config.GetValue("profile", "companion_color", 1);
         if (playerColor.VariantType == Variant.Type.Int) _playerColor = Mathf.PosMod(playerColor.AsInt32(), Palette.Length);
         if (companionColor.VariantType == Variant.Type.Int) _companionColor = Mathf.PosMod(companionColor.AsInt32(), Palette.Length);
-        var name = config.GetValue("profile", "companion_name", "Wisp");
-        if (name.VariantType == Variant.Type.String) Companion.SetDisplayName(name.AsString());
+        var name = config.GetValue("profile", "companion_name", CompanionAvatar.DefaultName);
+        // A profile saved while the companion was still called Wisp takes the founder's name for it, the Gubble.
+        if (name.VariantType == Variant.Type.String)
+            Companion.SetDisplayName(CompanionAvatar.SavedName(name.AsString()));
         Player.SetAppearance(Palette[_playerColor]);
         Companion.SetAppearance(Palette[_companionColor]);
     }

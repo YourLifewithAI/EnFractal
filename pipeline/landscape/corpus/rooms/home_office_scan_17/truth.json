@@ -1,0 +1,268 @@
+{
+  "assumptions": "Room dimensions, palette, placement and unspecified sizes/clearances are assumed.",
+  "bounds": {
+    "colour_channel_shift_max": 24,
+    "low_confidence_range": [
+      0.18,
+      0.38
+    ],
+    "mislabel_count_min": 1,
+    "mislabel_fraction_target_max": 0.25,
+    "position_distance_max_m": 0.1,
+    "size_relative_max": 0.15,
+    "yaw_delta_deg": 0
+  },
+  "dimensions_m": [
+    4.4,
+    2.5,
+    4.4
+  ],
+  "format": "brief14-truth-v1",
+  "lamp_channel_shift": [
+    20,
+    4,
+    -16
+  ],
+  "neighbour_groups": [
+    [
+      "office_chair_1",
+      "desk_1",
+      "shelving_unit_1"
+    ]
+  ],
+  "objects": [
+    {
+      "colour": "#354450",
+      "confidence": 0.86,
+      "id": "office_chair_1",
+      "kind": "office chair",
+      "position_m": [
+        -1.6,
+        0,
+        -1.78
+      ],
+      "semantic_label": "office chair",
+      "size_basis": "assumed",
+      "size_m": [
+        0.6,
+        1.1,
+        0.6
+      ],
+      "support_target": null,
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#bbac94",
+      "confidence": 0.86,
+      "id": "desk_1",
+      "kind": "desk",
+      "position_m": [
+        -0.6,
+        0,
+        -1.9
+      ],
+      "semantic_label": "desk",
+      "size_basis": "micke",
+      "size_m": [
+        1.05,
+        0.75,
+        0.5
+      ],
+      "support_target": null,
+      "void": {
+        "basis": "assumed",
+        "position_local_m": [
+          0,
+          0,
+          0
+        ],
+        "size_m": [
+          0.6,
+          0.61,
+          0.38
+        ]
+      },
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#c1b398",
+      "confidence": 0.86,
+      "id": "shelving_unit_1",
+      "kind": "shelving unit",
+      "position_m": [
+        0.52,
+        0,
+        -2.01
+      ],
+      "semantic_label": "shelving unit",
+      "size_basis": "billy",
+      "size_m": [
+        0.8,
+        2.02,
+        0.28
+      ],
+      "support_target": null,
+      "void": {
+        "basis": "assumed",
+        "position_local_m": [
+          0,
+          0.15,
+          0
+        ],
+        "size_m": [
+          0.66,
+          0.3,
+          0.24
+        ]
+      },
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#3a444e",
+      "confidence": 0.86,
+      "id": "laptop_1",
+      "kind": "laptop",
+      "position_m": [
+        -0.75,
+        0.75,
+        -1.88
+      ],
+      "semantic_label": "laptop",
+      "size_basis": "assumed",
+      "size_m": [
+        0.36,
+        0.04,
+        0.26
+      ],
+      "support_target": "desk_1",
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#699089",
+      "confidence": 0.86,
+      "id": "mug_1",
+      "kind": "mug",
+      "position_m": [
+        -0.25,
+        0.75,
+        -1.88
+      ],
+      "semantic_label": "mug",
+      "size_basis": "assumed",
+      "size_m": [
+        0.1,
+        0.11,
+        0.09
+      ],
+      "support_target": "desk_1",
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#ac9c86",
+      "confidence": 0.86,
+      "id": "cabinet_1",
+      "kind": "cabinet",
+      "position_m": [
+        1.6,
+        0,
+        1.7
+      ],
+      "semantic_label": "cabinet",
+      "size_basis": "assumed",
+      "size_m": [
+        1.1,
+        0.8,
+        0.55
+      ],
+      "support_target": null,
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#dee0dc",
+      "confidence": 0.86,
+      "id": "printer_1",
+      "kind": "printer",
+      "position_m": [
+        1.6,
+        0.8,
+        1.7
+      ],
+      "semantic_label": "printer",
+      "size_basis": "assumed",
+      "size_m": [
+        0.4,
+        0.23,
+        0.3
+      ],
+      "support_target": "cabinet_1",
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#b28b57",
+      "confidence": 0.86,
+      "id": "cardboard_box_1",
+      "kind": "cardboard box",
+      "position_m": [
+        -0.9,
+        0,
+        1.65
+      ],
+      "semantic_label": "cardboard box",
+      "size_basis": "assumed",
+      "size_m": [
+        0.45,
+        0.3,
+        0.35
+      ],
+      "support_target": null,
+      "yaw_deg": 0
+    },
+    {
+      "colour": "#aa804c",
+      "confidence": 0.86,
+      "id": "cardboard_box_2",
+      "kind": "cardboard box",
+      "position_m": [
+        -0.9,
+        0.3,
+        1.65
+      ],
+      "semantic_label": "cardboard box",
+      "size_basis": "assumed",
+      "size_m": [
+        0.32,
+        0.2,
+        0.25
+      ],
+      "support_target": "cardboard_box_1",
+      "yaw_deg": 0
+    }
+  ],
+  "outline_xz_m": [
+    [
+      -2.2,
+      -2.2
+    ],
+    [
+      2.2,
+      -2.2
+    ],
+    [
+      2.2,
+      2.2
+    ],
+    [
+      -2.2,
+      2.2
+    ]
+  ],
+  "room_type": "home_office",
+  "seed": 17,
+  "tests": [
+    "chair-desk-bookshelf side by side",
+    "two boxes stacked",
+    "surface electronics",
+    "desk and shelf voids"
+  ],
+  "variant": "scan_17"
+}

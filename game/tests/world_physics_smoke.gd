@@ -1,6 +1,6 @@
 extends SceneTree
 ## Bounded world physics through the real C# body: presets, revisions, gravity, wind and refusal of
-## invalid profiles. Gravity changes how long a fall or jump lasts; the body's jump height does not change.
+## invalid profiles. Gravity changes how long a fall or jump lasts; lighter gravity than the default also lets the body leap higher.
 const GUARD = preload("res://tests/kernel_test_guard.gd")
 ## Fails the suite on any script or engine error (kernel_test_guard.gd).
 var guard = GUARD.new()

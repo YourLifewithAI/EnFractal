@@ -1,0 +1,16 @@
+{
+  "schema": "enfractal.command",
+  "version": 1,
+  "action_id": "push-0001",
+  "room_id": "garage_example",
+  "op": "entity.push",
+  "args": {
+    "target": "obj:bean_bag",
+    "toward_m": [
+      3.0,
+      0.0,
+      0.9
+    ],
+    "distance_m": 0.3
+  }
+}

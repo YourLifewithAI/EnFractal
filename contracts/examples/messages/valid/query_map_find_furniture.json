@@ -1,0 +1,11 @@
+{
+  "schema": "enfractal.query",
+  "version": 1,
+  "query_id": "q-0014",
+  "room_id": "garage_example",
+  "op": "map.find",
+  "args": {
+    "category_group": "furniture",
+    "limit": 3
+  }
+}

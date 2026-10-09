@@ -43,6 +43,8 @@ public partial class RoomNavigation : Node
     public Node3D SourceRoot { get; private set; } = null!;
     /// <summary>The baking box in the source root's space: the room bounds, a little deeper below and above.</summary>
     public Aabb BakeBounds { get; private set; }
+    /// <summary>The horizontal cell of this mesh (CellSizeM unless a measurement asks for another).</summary>
+    public float CellM { get; private set; } = CellSizeM;
     public float AgentRadiusM { get; private set; }
     public float AgentHeightM { get; private set; }
     public float AgentMaxClimbM { get; private set; }
@@ -65,23 +67,25 @@ public partial class RoomNavigation : Node
     /// <summary>The integrator's one-line wiring: bake the built room for the companion and give it the map.</summary>
     public static RoomNavigation Attach(RoomWorld world)
     {
-        var bounds = world.Room.Bounds;
+        // An island bakes its land only: the sea floor out to the reef doubled the bake (garage: 86-114 ms against 50-57 ms),
+        // and nobody walks there (swimmers swim, the Gubble floats).
+        var bounds = world.Room.Sea?.LandBounds(world.Room.Bounds) ?? world.Room.Bounds;
         var navigation = Create(world, world.Built, bounds, WorldScaleProfile.Companion, world.Companion.StepHeightM * 0.75f);
         world.Companion.BindNavigation(navigation);
         return navigation;
     }
 
     /// <param name="maxClimbM">Kept below the body's real step so a planned route never asks for a climb the body might fail.</param>
-    public static RoomNavigation Create(Node parent, Node3D sourceRoot, Aabb bounds, WorldScaleProfile agent, float maxClimbM)
+    public static RoomNavigation Create(Node parent, Node3D sourceRoot, Aabb bounds, WorldScaleProfile agent, float maxClimbM, float cellM = CellSizeM)
     {
         var navigation = new RoomNavigation
         {
-            Name = "RoomNavigation", SourceRoot = sourceRoot,
+            Name = "RoomNavigation", SourceRoot = sourceRoot, CellM = cellM,
             BakeBounds = new Aabb(bounds.Position - new Vector3(0, 0.1f, 0), bounds.Size + new Vector3(0, 0.2f, 0)),
             // Whole cells, as the baker rounds them anyway (and warns when it has to). For the 10 cm companion:
             // 2 + 2 cm clearance is 4 cm, the height 10 cm, and three quarters of its 2 cm step (1.5 cm) rounds
             // down to a 1 cm climb (the 0.24 m body had 8 cm, 24 cm and 3 cm).
-            AgentRadiusM = Cells((float)agent.RadiusMeters + ClearanceM, CellSizeM, up: true),
+            AgentRadiusM = Cells((float)agent.RadiusMeters + ClearanceM, cellM, up: true),
             AgentHeightM = Cells((float)agent.HeightMeters, CellHeightM, up: true),
             AgentMaxClimbM = Mathf.Max(CellHeightM, Cells(maxClimbM, CellHeightM, up: false))
         };
@@ -92,7 +96,7 @@ public partial class RoomNavigation : Node
     public override void _Ready()
     {
         Map = NavigationServer3D.MapCreate();
-        NavigationServer3D.MapSetCellSize(Map, CellSizeM);
+        NavigationServer3D.MapSetCellSize(Map, CellM);
         NavigationServer3D.MapSetCellHeight(Map, CellHeightM);
         NavigationServer3D.MapSetUp(Map, Vector3.Up);
         // Synchronous map updates at the end of each physics frame: a bake is in every route from the next frame.
@@ -148,7 +152,9 @@ public partial class RoomNavigation : Node
             GeometryParsedGeometryType = NavigationMesh.ParsedGeometryType.StaticColliders,
             GeometryCollisionMask = RoomBuilder.WorldLayer,
             GeometrySourceGeometryMode = NavigationMesh.SourceGeometryMode.RootNodeChildren,
-            CellSize = CellSizeM, CellHeight = CellHeightM,
+            CellSize = CellM, CellHeight = CellHeightM,
+            // The default 6 cells, except on finer cells, where Godot clamps the sample distance to 0.1 m (and warns).
+            DetailSampleDistance = Mathf.Max(6.0f, Mathf.Ceil(0.1f / CellM) + 1),
             AgentRadius = AgentRadiusM, AgentHeight = AgentHeightM, AgentMaxClimb = AgentMaxClimbM, AgentMaxSlope = 45.0f,
             // Low ceilings and ledges are not walkable; a low lip within the climb is.
             FilterWalkableLowHeightSpans = true, FilterLedgeSpans = true, FilterLowHangingObstacles = true,

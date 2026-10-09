@@ -32,6 +32,15 @@ var keyboard_enabled := true
 var workshop_enabled := true
 ## Optional: Callable(command: Dictionary) -> Dictionary returning an enfractal.result.
 var command_sink := Callable()
+## Optional: Callable(poses: Dictionary), the command host's scene seam for objects play has moved (the
+## authority's pose_sink). Set before this node enters the tree: a save's poses reach the scene while it loads.
+var object_pose_sink := Callable()
+## Optional: Callable(poses: Dictionary) -> Dictionary, the command host's check of a save's object poses (the
+## authority's pose_check). Set before this node enters the tree.
+var object_pose_check := Callable()
+## Optional: Callable(team: Dictionary) -> Dictionary, the command host's check of a save's journal and discovered map
+## (the authority's team_check). Set before this node enters the tree.
+var team_check := Callable()
 var editor
 var editor_open := false
 var assemblies: Dictionary = {}
@@ -68,6 +77,9 @@ func _ready() -> void:
 	session_token = Crypto.new().generate_random_bytes(8).hex_encode()
 	authority = AUTHORITY.new()
 	var configured: Dictionary = authority.configure(room, Callable(self, "surface_at"), save_path)
+	authority.pose_sink = object_pose_sink
+	authority.pose_check = object_pose_check
+	authority.team_check = team_check
 	var loaded: Dictionary = authority.load_saved() if configured.ok else configured
 	authority.occupancy_query = Callable(self, "_check_occupancy")
 	authority.activation_query = Callable(self, "_check_activation")
@@ -262,6 +274,12 @@ func _clear_body_motion() -> void:
 		body.ClearCreationMotion()
 
 
+## The command host calls this right after a durable commit, so a creation's colliders appear or go at once and the
+## next command's physics queries see the room as the state now is (otherwise they change on the next physics tick).
+func refresh_now() -> void:
+	_refresh()
+
+
 func _refresh() -> void:
 	# A small readiness/revision check avoids copying every saved source 60 times/s.
 	if authority.is_ready() and seen_revision == authority.revision and seen_permissions == authority.permission_revision:
@@ -298,9 +316,11 @@ func _refresh() -> void:
 	local_consent = bool(snapshot.consent[PLAYER])
 	for item in instances.values():
 		var assembly: Node3D = VISUALS.build(item.artifact, item.source.mount == "ground" and item.active)
-		add_child(assembly)
+		# Placed before it enters the tree: its colliders join the physics world where the creation is, so the command
+		# host's queries see them at once (a transform set afterwards reaches the physics server only on the next flush).
 		assembly.position = VISUALS.vector(item.position_m)
 		assembly.rotation.y = deg_to_rad(float(item.yaw_deg))
+		add_child(assembly)
 		assemblies[item.id] = assembly
 		_collect_bodies(assembly)
 	seen_revision = int(snapshot.revision)

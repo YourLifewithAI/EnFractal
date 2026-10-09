@@ -1,0 +1,121 @@
+{
+  "label": "before",
+  "commit": "ed0d4c4",
+  "note": "NVIDIA GeForce RTX 2070 Super; 15 of 8192 MiB in use and 0% utilisation before launch (quiet for 6 s)",
+  "captured_utc": "2026-10-08T23:57:51Z",
+  "engine": "4.7.2-stable (official)",
+  "rendering_method": "forward_plus",
+  "rendering_driver": "vulkan",
+  "adapter": "NVIDIA GeForce RTX 2070 Super",
+  "adapter_driver": "NVIDIA 32.0.15.7680",
+  "target": "offscreen SubViewport (window shows a scaled preview)",
+  "resolution": [
+    1920,
+    1080
+  ],
+  "vsync": "disabled",
+  "warmup_frames": 120,
+  "measured_frames": 300,
+  "style": "storybook_painterly@1",
+  "style_note": "",
+  "room_manifest_sha256": "2ef6bc0eb7a1e5d4bef13e804686e76d856ea61f931080e096f84e99650d3185",
+  "cameras_file": "C:\\dev\\EnFractal-run2\\look\\tools\\look\\landscape_cameras.json",
+  "msaa_3d": "Disabled",
+  "screen_space_aa": "Fxaa",
+  "use_taa": false,
+  "cameras": [
+    {
+      "frames": 300,
+      "frame_ms_mean": 6.418,
+      "frame_ms_p50": 6.378,
+      "frame_ms_p95": 7.395,
+      "frame_ms_p99": 12.419,
+      "frame_ms_max": 14.435,
+      "gpu_ms_mean": 5.595,
+      "gpu_ms_p95": 5.654,
+      "render_cpu_ms_mean": 0.517,
+      "draw_calls_mean": 120,
+      "primitives_mean": 1276149,
+      "video_mem_mib": 366.085,
+      "camera": "land_eye_spawn",
+      "file": "land_eye_spawn.jpg",
+      "image_size": [
+        1920,
+        1080
+      ]
+    },
+    {
+      "frames": 300,
+      "frame_ms_mean": 7.131,
+      "frame_ms_p50": 7.066,
+      "frame_ms_p95": 8.102,
+      "frame_ms_p99": 11.385,
+      "frame_ms_max": 29.851,
+      "gpu_ms_mean": 6.275,
+      "gpu_ms_p95": 6.355,
+      "render_cpu_ms_mean": 0.505,
+      "draw_calls_mean": 129,
+      "primitives_mean": 1274281,
+      "video_mem_mib": 366.085,
+      "camera": "land_crate",
+      "file": "land_crate.jpg",
+      "image_size": [
+        1920,
+        1080
+      ]
+    },
+    {
+      "frames": 300,
+      "frame_ms_mean": 10.065,
+      "frame_ms_p50": 9.923,
+      "frame_ms_p95": 11.159,
+      "frame_ms_p99": 15.535,
+      "frame_ms_max": 43.094,
+      "gpu_ms_mean": 9.099,
+      "gpu_ms_p95": 9.287,
+      "render_cpu_ms_mean": 0.661,
+      "draw_calls_mean": 129,
+      "primitives_mean": 1271488,
+      "video_mem_mib": 366.085,
+      "camera": "land_observe",
+      "file": "land_observe.jpg",
+      "image_size": [
+        1920,
+        1080
+      ]
+    },
+    {
+      "frames": 300,
+      "frame_ms_mean": 6.967,
+      "frame_ms_p50": 6.902,
+      "frame_ms_p95": 8.019,
+      "frame_ms_p99": 12.705,
+      "frame_ms_max": 24.63,
+      "gpu_ms_mean": 6.095,
+      "gpu_ms_p95": 6.176,
+      "render_cpu_ms_mean": 0.523,
+      "draw_calls_mean": 108,
+      "primitives_mean": 982284,
+      "video_mem_mib": 366.085,
+      "camera": "land_wide",
+      "file": "land_wide.jpg",
+      "image_size": [
+        1920,
+        1080
+      ]
+    }
+  ],
+  "look": "storybook_painterly@1 (candidate) sha256=e571b1e6267fb2bc4fc5fdd545331f2bb420c43d370628e71cf80ac93e44ed7a; renderer=forward_plus; key=sun elevation 49.3 yaw 91.9 energy 3.27 (sun at 49.3 degrees, bearing 88.1; moon weight 0; sun scale 1); sky fill none; lamps none; hour 9 day 172 season summer (hour pinned, day pinned (pinned by SetClock)); VoxelGI 6.1 x 2.8 x 7.1 m at subdiv 128 baked in 2225 ms; ssao=True ssil=False glow=True dof=True tilt=0.8; grain 0.05 vignette 0.22 post effect ran; site room (30 degrees latitude, -Z facing 0, solar noon 12 h)",
+  "look_problems": [],
+  "post_effect_check": {
+    "ran": true,
+    "corner_to_centre_darkening": 0.03,
+    "grain_spread": 0.005,
+    "grain_correlation": 0.04,
+    "noise_correlation_scale": 0.005,
+    "centre_pixels_compared": 46656,
+    "passed": true
+  },
+  "player_notice": "",
+  "gpu_during_capture": "GPU memory during capture 15-630 MiB over 42 samples"
+}

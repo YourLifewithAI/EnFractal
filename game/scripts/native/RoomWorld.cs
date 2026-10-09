@@ -1,7 +1,9 @@
 using Godot;
 using System;
 using System.Linq;
+using EnFractal.Native.Companion;
 using EnFractal.Native.Look;
+using EnFractal.Native.Look.Fauna;
 using EnFractal.Native.Room;
 using FileAccess = Godot.FileAccess;
 
@@ -82,6 +84,11 @@ public partial class RoomWorld : Node3D
             Companion.SetSpawnPoint(Companion.Position);
             Companion.BindPlayer(Player);
             Companion.Follow();
+            // Living scenery (Run 2, Lane L): fish in the ponds and the veil under the water. Only the player frightens
+            // fish; the Gubble is set apart from the world, a ghost only the player can see (the founder, 8 October).
+            var pondLife = PondLife.Create(Room.RoomId, Built);
+            AddChild(pondLife);
+            pondLife.SetAvatars(Player);
             AddChild(new RoomHud
             {
                 Player = Player, Companion = Companion, RoomTitle = Room.DisplayName.ToUpperInvariant(),
@@ -90,6 +97,8 @@ public partial class RoomWorld : Node3D
                 Look = Look,
             });
             Kernel.CommandHost.Attach(this);
+            // The player's AI: the companion link in front of the command host (A2).
+            CompanionBridge.Attach(this);
             Navigation.RoomNavigation.Attach(this);
             SetMeta("room_id", Room.RoomId);
             SetMeta("room_manifest_sha256", Room.ManifestSha256);

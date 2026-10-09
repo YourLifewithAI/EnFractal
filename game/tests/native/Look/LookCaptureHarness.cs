@@ -30,6 +30,11 @@ namespace EnFractal.Tests.Look;
 /// User arguments (after "--"): --cameras=PATH --out=DIR [--label=TEXT] [--warmup=N] [--frames=N]
 /// [--only=ID,ID] [--sweep] [--root-viewport] [--commit=TEXT] [--note=TEXT] [--post-check=false]
 /// [--light-checks=false] [--style=PATH] [--allow-problems] [--probe=rooms|window|free-viewport|shimmer] [--garage=DIR]
+/// [--room=DIR|ID] [--jpg=QUALITY]
+///   room  review another room than the test room (a landscape export, a captured room); its cameras file names the cameras
+///   jpg   save JPEG files at that quality (1 to 100) instead of PNGs (a landscape set is committed, one picture under 1 MB)
+/// A camera entry may also stage the avatars first ("stage": player_m, yaw_deg, companion_m: where they stand, which way the
+/// player faces) and may ask for the player's own eye ("eye_view": true: the real eye camera's transform and focus rule).
 /// </summary>
 public partial class LookCaptureHarness : Node
 {
@@ -39,6 +44,9 @@ public partial class LookCaptureHarness : Node
     private Camera3D _camera = null!;
     private RoomWorld _world = null!;
     private Node? _look;
+    // A camera with "hud_view" copies the live HUD rig (F3 or F4) every frame and takes the focus the look would give it there.
+    private RoomHud? _hud;
+    private Camera3D? _mirror;
     private readonly List<Dictionary<string, object>> _results = new();
 
     public override async void _Ready()
@@ -78,10 +86,13 @@ public partial class LookCaptureHarness : Node
             _world = GD.Load<PackedScene>("res://scenes/room.tscn").Instantiate<RoomWorld>();
             // A preset variant for tuning (never a review of record): the room's style is replaced by this file.
             if (Arg("style", "").Length > 0) _world.StylePresetPath = Arg("style", "");
+            // Another room than the test room: a landscape export or a captured room (an id under the user's rooms, or a folder).
+            if (Arg("room", "").Length > 0) _world.RoomDirectory = RoomWorld.ResolveRoom(Arg("room", "").Replace('\\', '/'));
             AddChild(_world);
             for (var i = 0; i < 600 && !_world.WorldReady && _world.LoadError.Length == 0; i++) await NextFrame();
             if (!_world.WorldReady) throw new InvalidOperationException("room did not load: " + _world.LoadError);
             _look = _world.Look;
+            AttachPondLife();
             // Review captures show the room, not the interface: hide the HUD and the companion's floating name.
             foreach (var layer in _world.FindChildren("*", "CanvasLayer", true, false).OfType<CanvasLayer>()) layer.Visible = false;
             foreach (var label in _world.FindChildren("*", "Label3D", true, false).OfType<Label3D>()) label.Visible = false;
@@ -109,8 +120,7 @@ public partial class LookCaptureHarness : Node
                 for (var i = 0; i < warmup; i++) await NextFrame();
                 var timing = await Measure(frames);
                 var image = Grab();
-                var file = $"{id}.png";
-                image.SavePng(System.IO.Path.Combine(outDir, file));
+                var file = Save(image, id, outDir);
                 timing["camera"] = id;
                 timing["file"] = file;
                 timing["image_size"] = new[] { image.GetWidth(), image.GetHeight() };
@@ -135,7 +145,53 @@ public partial class LookCaptureHarness : Node
         }
     }
 
+    /// <summary>
+    /// The fish and the underwater veil (Run 2, Lane L), attached here as RoomWorld will once the integrator wires them (a change
+    /// request), with the avatars to dart from. Found by name, so the harness still captures commits from before they existed.
+    /// </summary>
+    private void AttachPondLife()
+    {
+        if (_world.FindChild("PondLife", true, false) != null) return;
+        var type = Type.GetType("EnFractal.Native.Look.Fauna.PondLife");
+        if (type?.GetMethod("Create")?.Invoke(null, new object[] { _world.Room.RoomId, _world.Built }) is not Node3D life) return;
+        _world.AddChild(life);
+        type.GetMethod("SetAvatars")?.Invoke(life, new object[] { new Node3D?[] { _world.Player, _world.Companion } });
+    }
+
     private string Arg(string name, string fallback) => _args.TryGetValue(name, out var value) ? value : fallback;
+
+    /// <summary>Save a review image as a PNG, or as a JPEG when --jpg=QUALITY says so; returns the file name.</summary>
+    private string Save(Image image, string id, string outDir)
+    {
+        if (Arg("jpg", "").Length > 0)
+        {
+            var name = $"{id}.jpg";
+            image.SaveJpg(System.IO.Path.Combine(outDir, name), int.Parse(Arg("jpg", "90"), CultureInfo.InvariantCulture) / 100f);
+            return name;
+        }
+        var png = $"{id}.png";
+        image.SavePng(System.IO.Path.Combine(outDir, png));
+        return png;
+    }
+
+    /// <summary>Stand the avatars where a camera wants them before it is framed: the player at a spot facing a heading, the companion at a spot.</summary>
+    private void Stage(JsonElement stage)
+    {
+        var yaw = Mathf.DegToRad(stage.TryGetProperty("yaw_deg", out var yawElement) ? (float)yawElement.GetDouble() : 0f);
+        if (stage.TryGetProperty("player_m", out var playerAt))
+        {
+            _world.Player.TryTeleportTo(Vec(playerAt));
+            _world.Player.Rotation = new Vector3(0, yaw, 0);
+            _world.Player.ResetPhysicsInterpolation();
+        }
+        if (stage.TryGetProperty("companion_m", out var companionAt))
+        {
+            _world.Companion.Stay();
+            _world.Companion.TryTeleportTo(Vec(companionAt));
+            _world.Companion.Rotation = new Vector3(0, yaw + Mathf.Pi, 0);
+            _world.Companion.ResetPhysicsInterpolation();
+        }
+    }
 
     private string Require(string name) => _args.TryGetValue(name, out var value) && value.Length > 0
         ? value : throw new ArgumentException($"missing --{name}=...");
@@ -202,6 +258,24 @@ public partial class LookCaptureHarness : Node
 
     private void Frame(JsonElement entry)
     {
+        // Leave the HUD rig a previous camera mirrored.
+        _mirror = null;
+        if (_hud != null && _hud.ViewMode != 1) _hud.SetViewMode(1);
+        if (entry.TryGetProperty("stage", out var stage)) Stage(stage);
+        if (entry.TryGetProperty("eye_view", out var eyeView) && eyeView.GetBoolean())
+        {
+            // The player's own eye, 8.7 cm up, with the look's own focus rule for it (a few body heights ahead).
+            _look?.Set("Observe", false);
+            _camera.CullMask = 0xFFFFFu & ~HiddenBodyLayer;
+            _mirror = _world.Player.EyeCamera;
+            Mirror();
+            return;
+        }
+        if (entry.TryGetProperty("hud_view", out var hudView))
+        {
+            FrameHudRig(entry, hudView.GetInt32());
+            return;
+        }
         var position = Vec(entry.GetProperty("position_m"));
         var lookAt = Vec(entry.GetProperty("look_at_m"));
         _camera.GlobalPosition = position;
@@ -217,10 +291,41 @@ public partial class LookCaptureHarness : Node
         if (_look != null && _look.HasMethod("FrameCamera")) _look.Call("FrameCamera", _camera, focus);
     }
 
+    /// <summary>
+    /// The founder's observe playtest was in the HUD's F3 and F4 views, which no fixed camera shows: the rig is placed by the
+    /// real HUD (pivot on the player, spring arm, lens), and the look's own focus rule for that camera (FocusPointFor, which
+    /// includes whatever the HUD handed it) sets the depth of field, so a change to either shows in the frame.
+    /// </summary>
+    private void FrameHudRig(JsonElement entry, int mode)
+    {
+        _hud ??= _world.FindChildren("*", "CanvasLayer", true, false).OfType<RoomHud>().FirstOrDefault()
+            ?? throw new InvalidOperationException("the room has no HUD to mirror for hud_view");
+        _look?.Set("Observe", entry.TryGetProperty("observe", out var observe) && observe.GetBoolean());
+        _camera.CullMask = 0xFFFFFu;
+        _hud.SetViewMode(mode);
+        _mirror = _hud.DioramaCamera;
+        Mirror();
+    }
+
+    private void Mirror()
+    {
+        if (_mirror == null || !IsInstanceValid(_mirror)) return;
+        _camera.GlobalTransform = _mirror.GlobalTransform;
+        _camera.Fov = _mirror.Fov;
+        _camera.Near = _mirror.Near;
+        _camera.Far = _mirror.Far;
+        if (_look != null && _look.HasMethod("FrameCamera") && _look.HasMethod("FocusPointFor"))
+            _look.Call("FrameCamera", _camera, _look.Call("FocusPointFor", _mirror));
+    }
+
     private static Vector3 Vec(JsonElement array) =>
         new((float)array[0].GetDouble(), (float)array[1].GetDouble(), (float)array[2].GetDouble());
 
-    private async Task NextFrame() => await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+    private async Task NextFrame()
+    {
+        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        Mirror();
+    }
 
     private Image Grab()
     {
