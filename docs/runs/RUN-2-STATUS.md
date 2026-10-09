@@ -352,10 +352,7 @@
 5. **After the playtest settles:** promote `x_landscape_sea` (now with the jetty and `grid_margin_m`) and perhaps `x_landscape_loose` into `room-manifest.schema.json`, with examples and tests.
 6. **If the founder wants it:** the session summary in [docs/ideas/SHARED-IMPROVEMENT.md](../ideas/SHARED-IMPROVEMENT.md) ("a small first step"), as a small packet.
 7. **Then the fifth session's items 4 to 7:** the intro (the walls now become the coast), light (the Gubble's glow and torch), the open questions, housekeeping.
-8. **Housekeeping.** These Codex checkouts are merged or were read-only, so they can go. Hand the founder the commands; auto mode blocks agents from deleting worktrees.
-   - `C:\dev\EnFractal-codex\` `{18-landscape-room-export, 19-climbable-trees, 20-character-converter, 22-characters-round-2, 23-loose-things, 24-mock-floating-gubble}`;
-   - every `review-*` folder there;
-   - `C:\dev\EnFractal-run2\contracts` is detached at a test head (the integrator used it as an idle checkout for runner builds), so check out `run2/contracts` before Lane-contracts work.
+8. **Housekeeping: done at the session's close.** Sixteen Codex checkouts are removed (18, 19, 20, 22, 23, 24 and every `review-*`; all their branches are merged or were read-only, and the character outputs are in `C:\dev\EnFractal-art\characters\out\`). So are five empty leftover folders, and the list was pruned. `C:\dev\EnFractal-run2\contracts` is back on `run2/contracts`. **Left alone:** `C:\dev\EnFractal-codex\daily-journal` (`codex/daily-journal`, not merged), Codex's illustrated making journal (weekly Sunday editions, with its own outputs in `captures/`). It is not part of the runs; ask the founder before touching it.
 
 **To run another cloud session:**
 - If the environment still blocks `builds.dotnet.microsoft.com`, install Ubuntu's `dotnet-sdk-8.0` with apt.
