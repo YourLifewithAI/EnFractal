@@ -150,6 +150,14 @@
     - Linux: GREEN but for the look check, fixed in `6f4f843` and rerun (1002/1002). The generator's 10 tests now run in the Linux suite (about 5 min).
   - **The founder's installed landscape** was refreshed from the fixture (`room.json` `0A71EF16…`). Its save migrates on the first load.
   - **Lane P part 2 (the Gubble floats, then the backlog)** waits for the founder's playtest of climbing and swimming, and for the contest to finish.
+- **The founder's playtest of the round (8 October, late night):**
+  - **Trees:** "I can climb around halfway up and then something happens to the controls and then I seem to be forced to climb down." They could jump onto a broadleaf canopy. Lane P has a fix round on it; the suspects are the follow camera's arm hitting the hidden caps and poles, and the trunk-to-pole seam.
+  - **What works:** "Swimming feels right", they love that the fish swim away, and every cliff can be climbed.
+  - **The grab ("hop on")** is a good choice. Its timing may want refining later, "but not now".
+- **The characters' A/B, first sheets:**
+  - the founder was sent `C:\dev\EnFractal-art\characters\judging\sheet_{cloudpuff,paw_creature}.png`, labelled Converter 1 and 2 by a fresh coin flip (the mapping is in `.git/info/ab-20-key.md`);
+  - **the founder asked for the held-out three (the Gubble, Potato Man, Tomato Man) through both converters too.** The founder and the kids vote on all five tomorrow;
+  - for fairness, a fresh Opus reader per converter follows only that converter's own instructions (conv_a `INTERPRET.md` and `FORMAT.md`, conv_b `READING.md`) to write the readings, and the integrator runs each converter unchanged.
 - **The founder on landscape versions (decided, for later):**
   - **What the players get:**
     - players may look at several versions of their room's landscape, each from a different seed;
