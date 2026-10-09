@@ -989,7 +989,7 @@ public partial class LookPresetTest : Node3D
         look.SetClock(preset.DefaultHour, 279);
         Check(Mathf.IsEqualApprox(look.Key.LightEnergy, afternoonEnergy) && look.Moment.Season == "autumn", "pinning back to the default hour restores the afternoon");
         Check(look.RendererNote.Length == 0 && look.PlayerNotice.Length == 0, "no renderer mismatch is reported under Forward+");
-        Check(look.DescribeLook().Contains("storybook_painterly@1") && look.DescribeLook().Contains("season autumn"), "the look describes itself for review reports");
+        Check(look.DescribeLook().Contains($"{preset.PresetId}@{preset.PresetVersion}") && look.DescribeLook().Contains("season autumn"), "the look describes itself for review reports");
         Check(look.SelfCheck().All(p => p.Contains("VoxelGI") || p.Contains("grain")) && !look.SelfCheck().Any(p => p.Contains("stand-in")), "the self-check finds nothing wrong but the missing GPU");
         objects[0].MaterialOverride = new StandardMaterial3D();
         objects[0].MaterialOverride.SetMeta(LookDirector.BakeStandInMeta, true);

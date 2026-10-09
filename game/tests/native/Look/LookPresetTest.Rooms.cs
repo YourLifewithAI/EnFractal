@@ -50,7 +50,7 @@ public partial class LookPresetTest
         var plain = RoomSite.For(siteless, out var warning);
         Check(!plain.Declared && plain == RoomSite.Fallback && warning.Contains("declares no site"), "a room without a site: the look says so and uses its fallback");
         var (holder, look) = NewDirector(preset, siteless, "SiteFallbackHolder");
-        Check(look.SiteNote.Contains("declares no site") && !look.Warnings.Any(w => w.Contains("site")) && look.DescribeLook().Contains("storybook_painterly@1"),
+        Check(look.SiteNote.Contains("declares no site") && !look.Warnings.Any(w => w.Contains("site")) && look.DescribeLook().Contains($"{preset.PresetId}@{preset.PresetVersion}"),
             "a missing site is information, not a warning: the review capture does not fail on it");
         Check(look.Preset != preset && look.Preset.Sha256 == preset.Sha256 && preset.Tuning.Sun.LatitudeDeg == 30f, "the look works with the preset plus the site; the shared preset object is not changed");
         holder.QueueFree();
@@ -286,9 +286,16 @@ public partial class LookPresetTest
         var t = preset.Tuning.Dof;
         var normal = LookDirector.DepthOfFieldFor(preset, 1.2f, Mathf.Sin(Mathf.DegToRad(40f)));
         var observe = LookDirector.DepthOfFieldFor(preset, 1.2f, Mathf.Sin(Mathf.DegToRad(40f)), observe: true);
-        Check(Mathf.IsEqualApprox(observe.FarDistance - observe.NearDistance, t.ObserveBandM, 0.002f) && observe.FarEnabled && observe.NearEnabled
-            && observe.FarDistance - observe.NearDistance < 0.3f * (normal.FarDistance - normal.NearDistance),
-            $"the observe view's crisp band is a sliver ({(observe.FarDistance - observe.NearDistance) * 100f:0.#} cm, the normal tilt-shift's is {(normal.FarDistance - normal.NearDistance) * 100f:0.#} cm)");
+        // Observe is the tightest band the look makes: narrower than the miniature tilt-shift at any pitch and than every view's
+        // blur at the same depth, and a sliver just wide enough for what it must hold, the whole 10 cm body seen at any pitch
+        // (its depth span, plus 3 cm). v1's 6 cm and v2's 14 cm both are; a band widened past the body is not.
+        var band = observe.FarDistance - observe.NearDistance;
+        var tightest = Enumerable.Range(0, 19).Select(k => LookDirector.DepthOfFieldFor(preset, 1.2f, Mathf.Sin(Mathf.DegToRad(5f * k))))
+            .Concat(Enum.GetValues<LookView>().Select(v => LookDirector.DepthOfFieldFor(preset, 1.2f, Mathf.Sin(Mathf.DegToRad(40f)), view: preset.Tuning.BlurFor(v))))
+            .Min(d => d.FarDistance - (d.NearEnabled ? d.NearDistance : 0f));
+        var bodySpan = 2f * (new Vector2(0.05f, 0.02f).Length() + SmallPlayerController.MaxSeatGapM);
+        Check(Mathf.IsEqualApprox(band, t.ObserveBandM, 0.002f) && observe.FarEnabled && observe.NearEnabled && band < 0.5f * tightest && band <= bodySpan + 0.03f,
+            $"the observe view's crisp band is a sliver ({band * 100f:0.#} cm: under half the tightest other band, {tightest * 100f:0.#} cm, and at most the body's {bodySpan * 100f:0.#} cm depth plus 3 cm; the normal tilt-shift's here is {(normal.FarDistance - normal.NearDistance) * 100f:0.#} cm)");
         Check(observe.FarTransition <= 0.12f && observe.NearTransition <= 0.1f && observe.FarTransition < normal.FarTransition && observe.Amount >= normal.Amount && Mathf.IsEqualApprox(observe.Amount, t.ObserveAmount),
             "with short ramps and full blur outside it");
         Check(observe.NearDistance < 1.2f && observe.FarDistance > 1.2f, "and the band sits on the focus point");
