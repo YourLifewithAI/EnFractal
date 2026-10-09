@@ -62,7 +62,7 @@ def export_room(package_folder, source_room_folder, room_id, out):
         blobs[path] = data
         return {'path': path, 'sha256': sha(data), 'bytes': len(data)}
 
-    def add_shell(label, parts, role, collides):
+    def add_shell(label, parts, role, collides, drawn=True):
         # One part per role gives the existing loader the closest contract role
         # instead of treating every surface of the landscape as one material.
         groups = {}
@@ -75,6 +75,8 @@ def export_room(package_folder, source_room_folder, room_id, out):
                           'geometry': {'kind': 'mesh', 'mesh': path}, 'collides': collides,
                           'material_role': CONTRACT_ROLES[harness_role],
                           'base_color': hex_color(PALETTE[harness_role])})
+            if not drawn:
+                shell[-1]['drawn'] = False
         counts[label+'_triangles'] = triangle_count(parts)
 
     terrain = [p for r in doc['terrain'] for p in meshes[r['mesh']]]
@@ -206,7 +208,8 @@ def export_room(package_folder, source_room_folder, room_id, out):
     add_shell('scatter_solid', merged_solid, 'ground', True)
     # Two merged shell parts regardless of tree count. Lane P hides their GLB
     # scenes after extracting one-sided trimesh collision (see README/report).
-    add_shell('tree_climb', tree_parts, 'ground', True)
+    # Collision only: the trees' own meshes stay the drawn ones.
+    add_shell('tree_climb', tree_parts, 'ground', True, drawn=False)
     require(len(shell) <= 128, 'output exceeds room shell part limit (128)')
     require(len(blobs) <= 2048, 'output exceeds room file limit (2048)')
     require(len({o['id'] for o in objects}) == len(objects), 'populated id collides with generated scatter entity id')

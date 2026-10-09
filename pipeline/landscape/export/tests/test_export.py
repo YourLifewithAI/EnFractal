@@ -479,6 +479,7 @@ class ExportTests(unittest.TestCase):
             if part['id'].startswith('shell:tree_climb_'):
                 self.assertEqual(part['role'], 'ground')
                 self.assertTrue(part['collides'])
+                self.assertIs(part['drawn'], False)
                 result.extend(read_glb(self.out/part['geometry']['mesh'])[1])
         return result
 

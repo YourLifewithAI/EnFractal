@@ -24,7 +24,7 @@ the validator subprocess needs the repository's existing contract dependencies.
 | Cottages, towers, fences, boulders, crates, lanterns | Named fixed scatter entities with box collision (plants remain decorative); custom masonry/roof or non-plant forms at least 0.3 m also qualify |
 | Dense plants and tree crowns | Merged by role into non-colliding static shell meshes; no per-instance game nodes |
 | Tree trunks / small rocks | Original bark trunk cones and coarse rock ellipsoids retain their colliding `scatter_solid` shell GLBs |
-| Trees (bark plus foliage, excluding small plants) | Two merged `ground`, colliding shell parts, `shell:tree_climb_bark` and `shell:tree_climb_foliage`: an open pole continuing each trunk and coarse one-sided upper crown caps with flat perches. Lane P must hide these GLB scenes after creating collision; see below. Fixed populated trees keep their original asset visuals and use hidden shell trunk collision instead of a canopy box |
+| Trees (bark plus foliage, excluding small plants) | Two merged `ground`, colliding shell parts, `shell:tree_climb_bark` and `shell:tree_climb_foliage`: an open pole continuing each trunk and coarse one-sided upper crown caps with flat perches, both `"drawn": false` (collision only). Fixed populated trees keep their original asset visuals and use hidden shell trunk collision instead of a canopy box |
 | Scatter exceeding entity budget | After reserving all populated objects, first landmarks in package order use remaining slots up to 512; the rest keep their drawn geometry in merged shell meshes |
 | Source spawns | Same x/z and ids; y is the highest terrain triangle hit, including roofs of caves; missing ground fails. Yaw faces the horizontally nearest carriable/movable populated object or cottage/tower (including merged buildings), using Godot +Y rotation with -Z forward. Equal distances use package order (objects, then scatter); no destination or a coincident nearest destination keeps source yaw |
 | Setup | Latitude/bearing in `site`; solar noon 12 because package time is apparent solar time; full answers in `extensions.x_landscape_setup` |
@@ -59,16 +59,11 @@ their merged static colliders cannot follow a moved entity. Shrubs, grass, ferns
 and flowers get no climbing geometry; other collision and all source visuals
 remain unchanged. Tree count never adds more than two shell parts/files.
 
-**Lane P integration required:** `RoomBuilder.BuildShellPart` currently draws
-every loaded GLB. After extracting collision, set `scene.Visible = false` for
-parts whose ids start with `shell:tree_climb_` (exact diff in the brief 19 report).
-This preserves navigation's world-layer collision while hiding both poles and
-caps, without changing the contract. The caps rely on `CreateTrimeshShape()`
-producing one-sided concave collision with `BackfaceCollision = false`, and the
-glTF importer converting front-face winding into Godot's convention. The report
-also makes that setting explicit. Jolt inside-up traversal and topping out are
-unverified here; Lane P tests them in-game. Until that diff is applied, these
-new shell meshes will be visible.
+**Collision only:** both tree parts carry `"drawn": false` (the room contract's
+collision-only parts), so the game builds their collision and never renders
+them; the trees' own meshes stay the drawn ones. The caps rely on one-sided mesh
+collision (the contract's rule: a body passes through a face from behind) and
+on the glTF importer keeping front-face winding.
 
 GLBs contain one primitive per primary harness role, `NORMAL` and `COLOR_0`, no
 external resources, and identity scene nodes. Material `extras.role` preserves the
