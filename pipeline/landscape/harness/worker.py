@@ -443,7 +443,10 @@ def main():
         raise ValueError('harness sources changed between launch and render')
     sun=sun_position(doc['setup']['latitude_deg'],doc['setup']['day_of_year'],doc['setup']['solar_time_h'],doc['setup']['neg_z_bearing_deg'])
     make_world(doc['setup'],sun)
-    far_ground(room)
+    # An island package brings its own sea out to the horizon; the shared far
+    # ground (a moss plain at -0.025) would cover it.
+    if not (doc.get('x_generator') or {}).get('sea'):
+        far_ground(room)
     terrain_objects=[]; collision_objects=[]; land_objects=[]
     for category in ['terrain','water','scenery']:
         for index,item in enumerate(doc[category]):
