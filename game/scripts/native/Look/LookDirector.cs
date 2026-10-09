@@ -57,6 +57,15 @@ public partial class LookDirector : Node3D
     /// </summary>
     public bool OpenLand { get; private set; }
     public VoxelGI? Gi { get; private set; }
+    /// <summary>
+    /// The focus highlight (Run 2): the one thing the next key press would act on wears a soft rim and line (FocusLook). The play
+    /// lane says which thing with SetFocusHighlight; things that can't be used stay plain.
+    /// </summary>
+    public FocusHighlight Highlight => _highlight ??= new FocusHighlight();
+    private FocusHighlight? _highlight;
+
+    /// <summary>Put the focus highlight on one thing (its every mesh), or on nothing (null). One thing at a time: the last one is cleared.</summary>
+    public void SetFocusHighlight(Node3D? target) => Highlight.Set(target);
 
     /// <summary>The endless sea past the room's own meshes (OpenSea), once a room with a sea is dressed; null in a room without one.</summary>
     public OpenSea? OpenSea { get; private set; }
@@ -1023,6 +1032,7 @@ public partial class LookDirector : Node3D
     public override void _Process(double delta)
     {
         if (Preset == null) return;
+        _highlight?.Prune();
         CollectLut();
         if (_framesSinceApply++ == 2 && !Dressed)
             Warn("no room geometry with a shell was dressed after the first frames; the look has no GI bake and no shell layer");

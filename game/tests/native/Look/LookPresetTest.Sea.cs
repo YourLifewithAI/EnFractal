@@ -176,4 +176,53 @@ public partial class LookPresetTest
         holder.QueueFree();
         await Frames(1);
     }
+
+    /// <summary>The focus highlight: one thing at a time wears the overlay; switching or clearing gives the meshes back what they had.</summary>
+    private async Task CheckFocusHighlight(StylePreset preset, RoomData room)
+    {
+        var (holder, look) = NewDirector(preset, room, "FocusHolder");
+        Node3D Thing(string name)
+        {
+            var thing = new Node3D { Name = name };
+            thing.AddChild(new MeshInstance3D { Mesh = new BoxMesh { Size = new Vector3(0.04f, 0.03f, 0.03f) } });
+            thing.AddChild(new MeshInstance3D { Mesh = new CylinderMesh { TopRadius = 0.01f, BottomRadius = 0.01f, Height = 0.05f } });
+            holder.AddChild(thing);
+            return thing;
+        }
+        var crate = Thing("Crate");
+        var log = Thing("Log");
+        var earlier = new StandardMaterial3D();
+        var logMeshes = log.GetChildren().OfType<MeshInstance3D>().ToArray();
+        logMeshes[0].MaterialOverlay = earlier;
+        look.SetFocusHighlight(crate);
+        var crateMeshes = crate.GetChildren().OfType<MeshInstance3D>().ToArray();
+        Check(look.Highlight.Target == crate && crateMeshes.All(m => m.MaterialOverlay == look.Highlight.Overlay) && logMeshes.All(m => m.MaterialOverlay != look.Highlight.Overlay),
+            "the focus lights every mesh of the one thing in focus, nothing else");
+        look.SetFocusHighlight(log);
+        Check(crateMeshes.All(m => m.MaterialOverlay == null) && logMeshes.All(m => m.MaterialOverlay == look.Highlight.Overlay), "one thing at a time: moving the focus clears the last one");
+        look.SetFocusHighlight(null);
+        Check(look.Highlight.Target == null && logMeshes[0].MaterialOverlay == earlier && logMeshes[1].MaterialOverlay == null, "no focus: every mesh gets back the overlay it had");
+        look.SetFocusHighlight(crate);
+        crate.QueueFree();
+        await Frames(2);
+        look._Process(1.0 / 60.0);
+        Check(look.Highlight.Target == null, "a thing that is freed loses the focus");
+        // The overlay chain: a rim on the thing, a light line over a wider dark one; the shaders take what the code sets.
+        var rim = look.Highlight.Overlay;
+        var line = rim.NextPass as ShaderMaterial;
+        var under = line?.NextPass as ShaderMaterial;
+        Check(line != null && under != null && under.GetShaderParameter("width_px").AsSingle() > line.GetShaderParameter("width_px").AsSingle()
+            && under.GetShaderParameter("line_color").AsColor().Luminance < 0.3f && line.GetShaderParameter("line_color").AsColor().Luminance > 0.8f
+            && under.RenderPriority < line.RenderPriority && line.RenderPriority < rim.RenderPriority,
+            "the focus is a warm rim over a light line over a wider dark one (it reads on pale sand as on grass)");
+        foreach (var material in new[] { rim, line!, under! })
+        {
+            var declared = material.Shader.GetShaderUniformList().Select(u => u.AsGodotDictionary()["name"].AsString()).ToHashSet();
+            var code = Regex.Replace(material.Shader.Code, @"//[^\n]*", "");
+            Check(declared.Count >= 4 && declared.All(n => !material.GetShaderParameter(n).Equals(default(Variant)) || n == "hull_centre") && code.Contains("unshaded") && code.Contains("depth_draw_never"),
+                $"{material.ResourceName}: every uniform is set, unlit, and it writes no depth");
+        }
+        holder.QueueFree();
+        await Frames(1);
+    }
 }

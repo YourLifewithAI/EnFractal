@@ -75,6 +75,7 @@ public partial class LookPresetTest : Node3D
             CheckViewBlur(v1, observeV2);
             await CheckViewChoice(observeV2, room);
             CheckIslandHolding();
+            await CheckFocusHighlight(preset, room);
             CheckFocusPass(preset);
             CheckSeasonLooks(preset);
             await CheckLightProtections(preset, room);
