@@ -48,11 +48,14 @@ public partial class PlayHudTest : Node
             await TestNoLookNoClock();
             TestNameTag();
             await TestNameTagSize();
+            await TestControlsMap();
+            await TestHelpFollowsMap();
+            await TestRemappedKeys();
             await TestHandKeys();
 
             CommandHost.SaveRoot = CommandHost.DefaultSaveRoot;
             RemoveSaves();
-            GD.Print($"NATIVE_KERNEL_PLAY_HUD: {_checks - _failures}/{_checks} checks passed; H folds the help, Q and E turn the isometric view, T and Shift+T step the time of day and the season back to the real clock, the companion's solid name tag stays small and hides near the camera, and F and V pick up, carry, set down on the box and push");
+            GD.Print($"NATIVE_KERNEL_PLAY_HUD: {_checks - _failures}/{_checks} checks passed; every key is a named input action with today's default and the help reads them (a remapped key changes both what it does and what the help shows), H folds the help, Q and E turn the isometric view, T and Shift+T step the time of day and the season back to the real clock, the companion's solid name tag stays small and hides near the camera, and F and V pick up, carry, set down on the box and push");
             GetTree().Quit(_failures == 0 ? 0 : 1);
         }
         catch (Exception error)
@@ -63,6 +66,331 @@ public partial class PlayHudTest : Node
     }
 
     private static InputEventKey Press(Key key, bool shift = false) => new() { PhysicalKeycode = key, Pressed = true, ShiftPressed = shift };
+
+    // ---- The controls are input actions (game/project.godot, [input]) ----
+
+    /// <summary>Today's bindings, written out here on purpose: the map must hold exactly these until the founder changes a default.</summary>
+    private static readonly (string Action, Key Key, bool Shift)[] DefaultKeys =
+    {
+        ("move_forward", Key.W, false), ("move_back", Key.S, false), ("move_left", Key.A, false), ("move_right", Key.D, false),
+        ("move_sprint", Key.Shift, false), ("move_dive", Key.Ctrl, false), ("jump", Key.Space, false),
+        ("body_recover", Key.R, false), ("body_home", Key.B, false),
+        ("view_eye", Key.F1, false), ("view_shoulder", Key.F2, false), ("view_diorama", Key.F3, false), ("view_iso", Key.F4, false),
+        ("view_observe", Key.O, false), ("iso_turn_left", Key.Q, false), ("iso_turn_right", Key.E, false),
+        ("gubble_follow", Key.Key1, false), ("gubble_stay", Key.Key2, false), ("gubble_come", Key.Key3, false),
+        ("gubble_stop", Key.Key4, false), ("gubble_point", Key.Key5, false),
+        ("hands", Key.F, false), ("push", Key.V, false),
+        ("physics_next", Key.G, false), ("time_step", Key.T, false), ("season_step", Key.T, true), ("lamps", Key.L, false),
+        ("hud_help", Key.H, false), ("hud_customize", Key.C, false), ("mouse_release", Key.Escape, false),
+    };
+
+    private readonly System.Collections.Generic.Dictionary<string, Godot.Collections.Array<InputEvent>> _savedMap = new();
+
+    /// <summary>The map as it was, so a test that remaps keys leaves every later test the defaults.</summary>
+    private void SaveMap()
+    {
+        _savedMap.Clear();
+        foreach (var action in PlayerControls.MapActions()) _savedMap[action] = InputMap.ActionGetEvents(action);
+    }
+
+    private void RestoreMap()
+    {
+        foreach (var (action, events) in _savedMap)
+        {
+            InputMap.ActionEraseEvents(action);
+            foreach (var input in events) InputMap.ActionAddEvent(action, input);
+        }
+    }
+
+    private static void Bind(StringName action, Key key, bool shift = false)
+    {
+        InputMap.ActionEraseEvents(action);
+        InputMap.ActionAddEvent(action, new InputEventKey { PhysicalKeycode = key, ShiftPressed = shift });
+    }
+
+    /// <summary>What an action's key is, as a comparable string: the kind, the key and the modifiers it asks for.</summary>
+    private static string Signature(string action)
+    {
+        var events = InputMap.ActionGetEvents(action);
+        if (events.Count != 1) return $"{events.Count} events";
+        return events[0] switch
+        {
+            InputEventKey key => $"key {key.PhysicalKeycode}/{key.Keycode} mods {key.GetModifiersMask()}",
+            InputEventMouseButton mouse => $"mouse {mouse.ButtonIndex} mods {mouse.GetModifiersMask()}",
+            var other => other.GetType().Name,
+        };
+    }
+
+    /// <summary>Pairs of actions live in the same context on one key. A nested pair (Shift+T over T) is allowed only when the code checks the longer one first.</summary>
+    private static System.Collections.Generic.List<string> KeyConflicts()
+    {
+        var found = new System.Collections.Generic.List<string>();
+        var contexts = new (string Name, ControlContext Live, ControlContext Extra)[]
+        {
+            ("always", ControlContext.Always, 0), ("F3", ControlContext.Always, ControlContext.Diorama),
+            ("F4", ControlContext.Always, ControlContext.Isometric), ("customise", ControlContext.Customize, 0),
+        };
+        foreach (var (name, live, extra) in contexts)
+        {
+            var specs = PlayerControls.Specs.Where(spec => (spec.Live & (live | extra)) != 0).ToArray();
+            for (var i = 0; i < specs.Length; i++)
+                for (var j = i + 1; j < specs.Length; j++)
+                {
+                    var (a, b) = (specs[i].Action, specs[j].Action);
+                    var (ka, kb) = (InputMap.ActionGetEvents(a).FirstOrDefault(), InputMap.ActionGetEvents(b).FirstOrDefault());
+                    if (ka == null || kb == null) { found.Add($"{name}: {(ka == null ? a : b)} has no key"); continue; }
+                    if (Same(ka, kb) is not { } relation) continue;
+                    // relation 0: same key and modifiers; 1: a's modifiers contain b's; -1: b's contain a's.
+                    var allowed = relation switch
+                    {
+                        1 => PlayerControls.CheckedBefore.Any(pair => pair.First == a && pair.Second == b),
+                        -1 => PlayerControls.CheckedBefore.Any(pair => pair.First == b && pair.Second == a),
+                        _ => false,
+                    };
+                    if (!allowed) found.Add($"{name}: {a} and {b} share a key");
+                }
+        }
+        return found;
+    }
+
+    /// <summary>Null when the two are different keys; else how their modifiers relate (see KeyConflicts).</summary>
+    private static int? Same(InputEvent a, InputEvent b)
+    {
+        (long Code, ulong Mods)? Of(InputEvent input) => input switch
+        {
+            InputEventKey key => (((long)(key.PhysicalKeycode != Key.None ? key.PhysicalKeycode : key.Keycode)), (ulong)key.GetModifiersMask()),
+            InputEventMouseButton mouse => (-1000L - (long)mouse.ButtonIndex, (ulong)mouse.GetModifiersMask()),
+            _ => null,
+        };
+        if (Of(a) is not { } x || Of(b) is not { } y || x.Code != y.Code) return null;
+        if (x.Mods == y.Mods) return 0;
+        if ((x.Mods & y.Mods) == y.Mods) return 1;
+        return (x.Mods & y.Mods) == x.Mods ? -1 : null;
+    }
+
+    private async Task TestControlsMap()
+    {
+        SaveMap();
+        try
+        {
+            // The map holds today's keys exactly, and nothing else but the mouse's three.
+            var wrong = DefaultKeys.Where(row =>
+                InputMap.ActionGetEvents(row.Action) is not { Count: 1 } events || events[0] is not InputEventKey key ||
+                key.PhysicalKeycode != row.Key || key.Keycode != Key.None || key.GetModifiersMask() != (row.Shift ? KeyModifierMask.MaskShift : 0)).Select(row => row.Action).ToArray();
+            Check(wrong.Length == 0, "every key action is bound to today's physical key, with only the modifiers it had: " + string.Join(", ", wrong));
+            Check(Signature("mouse_capture") == "mouse Left mods 0" && Signature("view_zoom_in") == "mouse WheelUp mods 0" && Signature("view_zoom_out") == "mouse WheelDown mods 0",
+                "the left button captures the mouse and the wheel zooms: both are actions too");
+            var mapped = PlayerControls.MapActions().ToArray();
+            var named = DefaultKeys.Select(row => row.Action).Concat(new[] { "mouse_capture", "view_zoom_in", "view_zoom_out" }).Order().ToArray();
+            Check(mapped.SequenceEqual(named), $"the map holds exactly the {named.Length} controls (no more, no fewer): {string.Join(", ", mapped.Except(named).Concat(named.Except(mapped)))}");
+            var specs = PlayerControls.Specs.Select(spec => spec.Action.ToString()).Order().ToArray();
+            var constants = typeof(Act).GetFields().Where(f => f.FieldType == typeof(StringName)).Select(f => f.GetValue(null)!.ToString()!).Order().ToArray();
+            Check(specs.SequenceEqual(mapped) && constants.SequenceEqual(mapped), "the map, the list of controls and the action names in code are the same set");
+
+            // The code asks for the map's actions and for no others: record what the two handlers ask while a key that is none of
+            // them goes through the HUD (in F3, where the zoom keys are live) and the body, which also polls its held keys.
+            var player = _world.Player;
+            PlayerControls.Trace = new System.Collections.Generic.HashSet<string>();
+            _hud.SetViewMode(2);
+            _hud._UnhandledInput(Press(Key.Backslash));
+            player._UnhandledInput(Press(Key.Backslash));
+            await Frames(4);
+            var asked = PlayerControls.Trace;
+            PlayerControls.Trace = null;
+            _hud.SetViewMode(1);
+            Check(!asked.Except(mapped).Any(), "every action the code asks for is in the map: " + string.Join(", ", asked.Except(mapped)));
+            Check(!mapped.Except(asked).Any(), "every action in the map is asked for by the code: " + string.Join(", ", mapped.Except(asked)));
+
+            // No two keys of a context are one key.
+            var conflicts = KeyConflicts();
+            Check(conflicts.Count == 0, "no two actions share a key in the same context (always, F3, F4, the appearance panel): " + string.Join("; ", conflicts));
+            Bind(Act.Push, Key.F);
+            Check(KeyConflicts().Any(c => c.Contains("hands", StringComparison.Ordinal) && c.Contains("push", StringComparison.Ordinal)), "and the check does see two actions put on one key");
+            RestoreMap();
+            Bind(Act.IsoTurnLeft, Key.F);
+            Check(KeyConflicts().Any(c => c.StartsWith("F4", StringComparison.Ordinal)) && !KeyConflicts().Any(c => c.StartsWith("F3", StringComparison.Ordinal)),
+                "a key two contexts use for different things is no conflict: F4's turn on the hands' key conflicts in F4 only");
+            RestoreMap();
+            Check(KeyConflicts().Count == 0, "the defaults are back");
+
+            // A synthetic key event that names only the key's meaning (Keycode), not its place, is read as the place, as it was before the actions.
+            var folded = _hud.GetNode<PanelContainer>("HelpFooter").GetChild<VBoxContainer>(0).GetNode<VBoxContainer>("KeyHelp").Visible;
+            _hud._UnhandledInput(new InputEventKey { Keycode = Key.H, Pressed = true });
+            var unfolded = _hud.GetNode<PanelContainer>("HelpFooter").GetChild<VBoxContainer>(0).GetNode<VBoxContainer>("KeyHelp").Visible;
+            _hud._UnhandledInput(new InputEventKey { Keycode = Key.H, Pressed = true });
+            Check(!folded && unfolded && !_hud.GetNode<PanelContainer>("HelpFooter").GetChild<VBoxContainer>(0).GetNode<VBoxContainer>("KeyHelp").Visible,
+                "an event with only a Keycode (no physical key) still presses the key it names");
+        }
+        finally { RestoreMap(); PlayerControls.Trace = null; }
+    }
+
+    /// <summary>The key help, as it reads now: the hint, then each help line in order (the buttons are read separately).</summary>
+    private string[] HelpLines()
+    {
+        var column = _hud.GetNode<PanelContainer>("HelpFooter").GetChild<VBoxContainer>(0);
+        return new[] { column.GetChild<Label>(0).Text }.Concat(column.GetNode<VBoxContainer>("KeyHelp").GetChildren().OfType<Label>().Select(l => l.Text)).ToArray();
+    }
+
+    private string[] ButtonTexts(string row) => _hud.FindChild(row, true, false)!.GetChildren().OfType<Button>().Select(b => b.Text).ToArray();
+
+    /// <summary>The help is built from the map: the same words as before for the default keys, and a remapped key shows in them.</summary>
+    private async Task TestHelpFollowsMap()
+    {
+        SaveMap();
+        try
+        {
+            var home = _world.Player.HomeName;
+            await Frames(2);
+            var expected = new[]
+            {
+                "H keys",
+                $"WASD move · Shift run · Space jump · B back to {home} · R recover · click to look · Esc release",
+                "Climb: keep walking into a steep face, W up, S down, A/D across, Space lets go · Swim: deep water floats you, Space leaps · Dive: hold Ctrl, Space rises, W swims the way you look, let go to drift up",
+                "1 follow · 2 wait · 3 come · 4 stop · 5 point: the Gubble floats after you, over water and up cliffs",
+                "F1 eye · F2 shoulder · F3 diorama: mouse orbits, wheel zooms, WASD follows the view · F4 isometric: Q/E turn the view",
+                "O observe (a very tight tilt-shift view, best from F3 or F4) · C customize",
+                "F pick up what you face · F again sets it down in front of you, or on top of what you face (the box, the book) · V push what you face 10 cm",
+                "Testing",
+                "G gravity · T time of day · Shift+T season (each steps round to the real clock) · L lamps",
+            };
+            var lines = HelpLines();
+            Check(lines.SequenceEqual(expected), "with the default keys the help says what it said before, the testing toggles (G, T, Shift+T, L) now under a \"Testing\" heading:\n" + string.Join("\n", lines.Except(expected)));
+            Check(ButtonTexts("CompanionActions").SequenceEqual(new[] { "1 Follow", "2 Wait", "3 Come", "4 Stop", "5 Point", "Customize" }) &&
+                ButtonTexts("HandActions").SequenceEqual(new[] { "F Pick up / put down", "V Push" }), "and so do the buttons of the top panel");
+            var state = ((Label)_hud.FindChild("State", true, false)!).Text;
+            Check(state.Contains(" (G)", StringComparison.Ordinal) && _hud.ClockText().Contains("real clock (T)", StringComparison.Ordinal) && _hud.ClockText().Contains("real date (Shift+T)", StringComparison.Ordinal),
+                $"and the state and clock lines name G, T and Shift+T: {state} | {_hud.ClockText()}");
+
+            // Every control on a key of its own that is in no other word of the help: each shows its own key, and the old keys are gone.
+            var pool = new[]
+            {
+                Key.F13, Key.F14, Key.F15, Key.F16, Key.F17, Key.F18, Key.F19, Key.F20, Key.F21, Key.F22, Key.F23, Key.F24,
+                Key.Kp0, Key.Kp1, Key.Kp2, Key.Kp3, Key.Kp4, Key.Kp5, Key.Kp6, Key.Kp7, Key.Kp8, Key.Kp9,
+                Key.KpAdd, Key.KpSubtract, Key.KpMultiply, Key.KpDivide, Key.KpPeriod, Key.KpEnter, Key.Insert, Key.Delete, Key.Pause, Key.Pageup, Key.Pagedown,
+            };
+            var actions = PlayerControls.Specs.Select(spec => spec.Action).ToArray();
+            Check(pool.Length >= actions.Length, "enough spare keys to give every control its own");
+            var own = actions.Select((action, i) => (Action: action, Key: pool[i], Name: OS.GetKeycodeString(pool[i]))).ToArray();
+            foreach (var (action, key, _) in own) Bind(action, key);
+            await Frames(2);
+            var text = string.Join("\n", HelpLines());
+            var missing = own.Where(o => !text.Contains(o.Name, StringComparison.Ordinal)).Select(o => $"{o.Action} ({o.Name})").ToArray();
+            Check(missing.Length == 0, $"the help lists every one of the {own.Length} controls with its current key: missing {string.Join(", ", missing)}");
+            Check(!text.Contains("WASD", StringComparison.Ordinal) && !text.Contains("Shift+T", StringComparison.Ordinal) && !text.Contains("Esc", StringComparison.Ordinal) && !text.Contains("click", StringComparison.Ordinal),
+                "and none of the old keys is left in it");
+            Check(ButtonTexts("CompanionActions")[0] == $"{own.First(o => o.Action == Act.GubbleFollow).Name} Follow", "the top panel's buttons follow the map too");
+            var ownLabels = actions.Select(a => (Action: a, Label: PlayerControls.Label(a))).ToArray();
+            Check(own.All(o => ownLabels.First(l => l.Action == o.Action).Label == o.Name), "Label(action) is the action's current key, named as the engine names it");
+            RestoreMap();
+            await Frames(2);
+            Check(HelpLines().SequenceEqual(expected), "and back to the default keys, the help reads as before");
+            Bind(Act.SeasonStep, Key.Y, shift: true);
+            Check(PlayerControls.Label(Act.SeasonStep) == "Shift+Y", "a key with a modifier is named with it");
+        }
+        finally { RestoreMap(); }
+    }
+
+    /// <summary>Remapping an action changes what the key does (the old key goes dead) and what the help says, in the contexts it is live in.</summary>
+    private async Task TestRemappedKeys()
+    {
+        SaveMap();
+        var companion = _world.Companion;
+        try
+        {
+            // A companion key: the default does it, then the same action on another key does it and the old key does not.
+            _hud._UnhandledInput(Press(Key.Key2));
+            Check(companion.CurrentIntent == "stay", "the Gubble waits (2)");
+            _hud._UnhandledInput(Press(Key.Key1));
+            Check(companion.CurrentIntent == "follow", "1 sends it following");
+            _hud._UnhandledInput(Press(Key.Key2));
+            Bind(Act.GubbleFollow, Key.J);
+            await Frames(2);
+            _hud._UnhandledInput(Press(Key.Key1));
+            Check(companion.CurrentIntent == "stay", "with follow on J, 1 does nothing");
+            _hud._UnhandledInput(Press(Key.J));
+            Check(companion.CurrentIntent == "follow", "J sends it following");
+            var echo = Press(Key.Key2); echo.Echo = true;
+            _hud._UnhandledInput(echo);
+            Check(companion.CurrentIntent == "follow", "a held key repeating (echo) does not count as a press");
+            _hud._UnhandledInput(Press(Key.Key2));
+            Check(HelpLines().Any(l => l.StartsWith("J follow · 2 wait · 3 come", StringComparison.Ordinal)) && ButtonTexts("CompanionActions")[0] == "J Follow",
+                "and the help and the button say J follow");
+            RestoreMap();
+
+            // Time of day: T moves to Y, and Shift+T is still the season.
+            var look = _world.Look;
+            Bind(Act.TimeStep, Key.Y);
+            await Frames(2);
+            _hud._UnhandledInput(Press(Key.T));
+            Check(_hud.TimeStop == -1 && _hud.SeasonStop == -1, "with time of day on Y, T steps nothing");
+            _hud._UnhandledInput(Press(Key.Y));
+            Check(_hud.TimeStop == 0 && _hud.SeasonStop == -1, "Y steps the time of day");
+            _hud._UnhandledInput(Press(Key.T, shift: true));
+            Check(_hud.TimeStop == 0 && _hud.SeasonStop == 0, "Shift+T is still the season");
+            Check(HelpLines().Any(l => l.Contains("Y time of day · Shift+T season", StringComparison.Ordinal)) && _hud.ClockText().Contains("dawn (Y)", StringComparison.Ordinal),
+                "and the help and the clock line say Y");
+            for (var i = 0; i < RoomHud.TimeStopNames.Length; i++) _hud._UnhandledInput(Press(Key.Y));
+            for (var i = 0; i < RoomHud.SeasonStops.Length; i++) _hud._UnhandledInput(Press(Key.T, shift: true));
+            await Frames(2);
+            Check(_hud.TimeStop == -1 && _hud.SeasonStop == -1 && look.ClockNote.StartsWith("real clock, real calendar", StringComparison.Ordinal), "both stepped round to the real clock again");
+            RestoreMap();
+
+            // Q and E (here Z and X) belong to F4 alone, wherever they are bound.
+            Bind(Act.IsoTurnLeft, Key.Z);
+            _hud.SetViewMode(3);
+            var yaw = _hud.IsoYaw;
+            _hud._UnhandledInput(Press(Key.Q));
+            Check(Mathf.IsEqualApprox(yaw, _hud.IsoYaw), "with the left turn on Z, Q turns nothing in F4");
+            _hud._UnhandledInput(Press(Key.Z));
+            Check(Mathf.Abs(Mathf.AngleDifference(yaw, _hud.IsoYaw) + Mathf.Pi / 2) < 0.001f, "Z turns the view the way Q did");
+            _hud.SetViewMode(1);
+            yaw = _hud.IsoYaw;
+            _hud._UnhandledInput(Press(Key.Z));
+            Check(Mathf.IsEqualApprox(yaw, _hud.IsoYaw), "and outside F4 Z turns nothing");
+            RestoreMap();
+
+            // The wheel zooms F3 only; moved to keys it zooms the same way, and the wheel goes quiet.
+            Func<MouseButton, InputEventMouseButton> wheel = which => new InputEventMouseButton { ButtonIndex = which, Pressed = true };
+            _hud.SetViewMode(1);
+            var distance = _hud.DioramaDistanceM;
+            _hud._UnhandledInput(wheel(MouseButton.WheelUp));
+            Check(Mathf.IsEqualApprox(distance, _hud.DioramaDistanceM), "the wheel zooms nothing outside F3");
+            _hud.SetViewMode(2);
+            distance = _hud.DioramaDistanceM;
+            _hud._UnhandledInput(wheel(MouseButton.WheelUp));
+            var closer = _hud.DioramaDistanceM;
+            _hud._UnhandledInput(wheel(MouseButton.WheelDown));
+            Check(closer < distance - 0.01f && Mathf.IsEqualApprox(distance, _hud.DioramaDistanceM), $"in F3 the wheel zooms in and out ({distance:0.00} to {closer:0.00} m and back)");
+            Bind(Act.ViewZoomIn, Key.U);
+            await Frames(2);
+            _hud._UnhandledInput(wheel(MouseButton.WheelUp));
+            Check(Mathf.IsEqualApprox(distance, _hud.DioramaDistanceM), "with zoom-in on U the wheel up zooms nothing");
+            _hud._UnhandledInput(Press(Key.U));
+            Check(_hud.DioramaDistanceM < distance - 0.01f, "U zooms in");
+            Check(HelpLines().Any(l => l.Contains("mouse orbits, U/wheel down zooms", StringComparison.Ordinal)), "and the help names both zoom keys");
+            RestoreMap();
+            var zoomed = _hud.DioramaDistanceM;
+            _hud._UnhandledInput(wheel(MouseButton.WheelUp));
+            Check(_hud.DioramaDistanceM < zoomed - 0.01f, "the wheel zooms again with the defaults back");
+            _hud.ZoomDiorama(Mathf.Log(distance / _hud.DioramaDistanceM) / Mathf.Log(0.88f));
+            _hud.SetViewMode(1);
+            Check(Mathf.IsEqualApprox(_hud.DioramaDistanceM, distance), "(the zoom put back where it was)");
+
+            // Esc and the appearance panel: the panel blocks every key but its own two.
+            Bind(Act.HudCustomize, Key.K);
+            _hud._UnhandledInput(Press(Key.C));
+            Check(!_hud.Customizing, "with the panel on K, C opens nothing");
+            _hud._UnhandledInput(Press(Key.K));
+            Check(_hud.Customizing, "K opens the panel");
+            var before = _hud.ViewMode;
+            _hud._UnhandledInput(Press(Key.F3));
+            Check(_hud.ViewMode == before, "and with it open the view keys do nothing");
+            _hud._UnhandledInput(Press(Key.Escape));
+            Check(!_hud.Customizing, "Esc closes the panel");
+            RestoreMap();
+        }
+        finally { RestoreMap(); _hud.SetViewMode(1); if (_hud.Customizing) _hud._UnhandledInput(Press(Key.C)); }
+    }
 
     /// <summary>
     /// P3's acceptance in the real room through the HUD's keys, the same commands the companion sends: the player picks up the

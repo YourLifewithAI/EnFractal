@@ -56,6 +56,7 @@ run native_kernel_command_host "checks passed" --headless --path "$P" --fixed-fp
 if (cd "$REPO" && "$LINUX/contracts-venv/bin/python" -I contracts/validate.py "$HOST_DUMP"/*.json > "$LOG/host_messages.log" 2>&1); then
   echo "PASS command host messages validate: $(tail -1 "$LOG/host_messages.log")"
 else cat "$LOG/host_messages.log"; failed=1; fi
+run native_kernel_play_hud "checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_kernel_play_hud.tscn
 SANDBOX_DUMP="$LOG/sandbox_messages"; rm -rf "$SANDBOX_DUMP"
 run native_kernel_sandbox "checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_kernel_sandbox.tscn -- --dump="$SANDBOX_DUMP"
 if (cd "$REPO" && "$LINUX/contracts-venv/bin/python" -I contracts/validate.py "$SANDBOX_DUMP"/*.json > "$LOG/sandbox_messages.log" 2>&1); then
