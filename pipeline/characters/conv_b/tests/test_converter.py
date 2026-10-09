@@ -1,9 +1,9 @@
-"""Tests for the conv_b converter: determinism, our own test drawing, and the output contract.
+"""Tests for the converter: determinism, our own test drawing, and the output contract.
 
-    python pipeline/characters/conv_b/tests/test_converter.py
+    python <this folder>/tests/test_converter.py
 
-Outputs go to CONV_B_TEST_OUT (default C:\\dev\\EnFractal-art\\characters\\out\\conv_b\\_tests), outside Git. If the
-two judged characters have been built into ...\\out\\conv_b\\<name>\\, their GLBs are checked too.
+Outputs go to CHARACTER_TEST_OUT (default: _tests in this converter's folder under
+C:\\dev\\EnFractal-art\\characters\\out\\), outside Git. Characters already built there are checked too.
 """
 import json
 import os
@@ -19,7 +19,8 @@ CONVERTER = HERE.parent / 'convert.py'
 sys.path.insert(0, str(HERE))
 import make_test_drawing  # noqa: E402
 
-OUT = Path(os.environ.get('CONV_B_TEST_OUT', r'C:\dev\EnFractal-art\characters\out\conv_b\_tests'))
+ART_OUT = Path(r'C:\dev\EnFractal-art\characters\out') / HERE.parent.name
+OUT = Path(os.environ.get('CHARACTER_TEST_OUT', str(ART_OUT / '_tests')))
 BUILT = OUT.parent  # where the judged characters live
 
 

@@ -1,6 +1,6 @@
 """A drawing becomes a character: photo + description + reading -> character.glb, character.json, turntable renders.
 
-    python pipeline/characters/conv_b/convert.py --photo <drawing.jpg> --description <about.txt> \
+    python <this folder>/convert.py --photo <drawing.jpg> --description <about.txt> \
         --reading <reading.json> --out <empty folder> [--no-render]
 
 The reading is the interpretation step (READING.md): which marks are the body, the eyes, an arm, a prop, and which
@@ -290,10 +290,12 @@ def build_plan(photo, description, reading, debug_overlay=None):
                         if 0 <= y < sheet.h and 0 <= x < sheet.w:
                             own[y, x] = True
         if role in JOINTED and parent and part_mask.get(parent, np.zeros(1)).any() and own.any():
-            joint = drawing._dilate(own, 3) & part_mask[parent]
-            if joint.any():
-                jy, jx = np.nonzero(joint)
-                pivot = world(jx.mean(), jy.mean())
+            for reach in (3, 6, 10, 16, 24):  # the line between them can be thick, or a small gap
+                joint = drawing._dilate(own, reach) & part_mask[parent]
+                if joint.any():
+                    jy, jx = np.nonzero(joint)
+                    pivot = world(jx.mean(), jy.mean())
+                    break
         if pivot is None and own.any():
             oy, ox = np.nonzero(own)
             if not parent:
@@ -366,7 +368,7 @@ def main(argv=None):
     report.unlink()
 
     character = {
-        'format': 'enfractal.character/conv_b-1',
+        'format': 'enfractal.character/1',
         'name': plan['name'],
         'about': plan['about'],
         'motion': plan['motion'],

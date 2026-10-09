@@ -357,7 +357,7 @@ def stroke(sheet, spec, notes):
                 continue
             comp = component(ink, (int(x), int(y)))
             seen |= comp
-            if comp.sum() < 10:
+            if comp.sum() < 10 and not spec.get('keep_solid'):
                 continue  # a speck of graphite or paper grain, not a line
             inside = (comp & box).sum()
             if inside >= 0.6 * comp.sum():

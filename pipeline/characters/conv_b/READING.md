@@ -25,8 +25,8 @@ need a home), and keep its expression exactly.
    Decide what to ignore (writing, the binding, stray marks).
 2. Make grid pictures to read positions: the whole sheet, then zoomed crops of the face and any small details.
    Write them to a scratch folder, never into the repository:
-   `python pipeline/characters/conv_b/grid.py <photo> <scratch>/grid.png` and
-   `python pipeline/characters/conv_b/grid.py <photo> <scratch>/face.png 0.40 0.15 0.62 0.32` (x0 y0 x1 y1).
+   `python <this folder>/grid.py <photo> <scratch>/grid.png` and
+   `python <this folder>/grid.py <photo> <scratch>/face.png 0.40 0.15 0.62 0.32` (x0 y0 x1 y1).
 3. Write the reading (format below).
 4. Check it: run the converter with `--no-render --debug-overlay <scratch>/overlay.png`. The overlay colours each
    area it found. Read its `note:` lines. Fix seeds that landed on a line or in the wrong area, and run again.

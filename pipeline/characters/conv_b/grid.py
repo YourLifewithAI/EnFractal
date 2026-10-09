@@ -1,6 +1,6 @@
 """A coordinate grid over (part of) a photo, so whoever writes the reading can read positions off it.
 
-    python pipeline/characters/conv_b/grid.py <photo> <out.png> [x0 y0 x1 y1] [--size 1000]
+    python <this folder>/grid.py <photo> <out.png> [x0 y0 x1 y1] [--size 1000]
 
 x0 y0 x1 y1 are fractions of the photo (default: all of it). Labelled lines every 0.05 (0.01 when zoomed in to
 less than a third of the photo). The picture shows the drawing, so write it to scratch, never into Git.
