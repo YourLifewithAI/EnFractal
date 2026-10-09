@@ -26,6 +26,17 @@ def _constant(path, pattern: str) -> int:
 
 @unittest.skipUnless(COMMAND_HOST.is_file() and AUTHORITY.is_file(), "the kernel host is not in this checkout")
 class PolicyMatchesTheKernel(unittest.TestCase):
+    def test_the_mock_hover_and_default_name_match_the_real_gubble(self):
+        from enfractal_companion.mock_host import HOVER_M
+        body = (REPO / "game/scripts/native/SmallPlayerController.cs").read_text(encoding="utf-8")
+        avatar = (REPO / "game/scripts/native/CompanionAvatar.cs").read_text(encoding="utf-8")
+        hover = re.search(r"\bfloat HoverHeightM \{ get; set; \} = ([0-9.]+)f;", body)
+        self.assertIsNotNone(hover)
+        self.assertEqual(HOVER_M, float(hover.group(1)))
+        name = re.search(r'\bconst string DefaultName = "([^"]+)";', avatar)
+        self.assertIsNotNone(name)
+        self.assertEqual(new_host().entities["avatar:companion"].display_name, name.group(1))
+
     def test_the_default_policy_uses_the_kernel_hosts_numbers(self):
         policy = HostPolicy()
         cs = lambda name: _constant(COMMAND_HOST, rf"\bconst int {name} = (\d+);")  # noqa: E731
