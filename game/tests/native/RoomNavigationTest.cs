@@ -40,6 +40,13 @@ public partial class RoomNavigationTest : Node3D
             var farSide = box + new Vector3(0, 0.01f, -0.45f);
             var host = EnFractal.Native.Kernel.CommandHost.Of(world)!;
             host.PlayerGoal("stop");
+            // No walkable floor inside the box (Lane P's finding, the open sea round): Recast rasterizes surfaces, not solids, so
+            // the floor's top under a box taller than the agent kept a walkable polygon there, and the Gubble's place beside a
+            // climber snapped inside a cliff. The nearest walkable point to the box's middle at floor height is its top or outside it.
+            var inside = navigation!.ClosestPoint(box + new Vector3(0, 0.01f, 0));
+            var underBox = Mathf.Abs(inside.X - box.X) < 0.17f && Mathf.Abs(inside.Z - box.Z) < 0.17f && inside.Y < box.Y + 0.25f;
+            GD.Print($"NAVIGATION_MEASURED the nearest walkable point to the big box's middle at floor height: {inside - box} from the box's foot");
+            Check(!underBox, $"no walkable floor inside the big box: the nearest walkable point to its middle at floor height is {inside - box} from its foot");
             Check(player.TryTeleportTo(playerSpot) && companion.TryTeleportTo(farSide), "player behind the big box, companion on the far side");
             var route = navigation.FindRoute(companion.GlobalPosition, player.GlobalPosition, 0.05f);
             Check(route.Reaches && route.LengthM > PlanarDistance(companion.GlobalPosition, player.GlobalPosition) + 0.1f,
