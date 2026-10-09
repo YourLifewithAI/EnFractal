@@ -705,15 +705,16 @@ public partial class SmallPlayerController : CharacterBody3D
             _pitch = Mathf.Clamp(_pitch - mouse.Relative.Y * 0.0025f, -1.35f, 1.35f);
             EyeCamera.Rotation = new Vector3(_pitch, 0, 0);
         }
-        if (input is InputEventKey key && key.Pressed && !key.Echo)
+        // The controls are input actions (project.godot, [input]); Hit is a fresh press of one, not a held key repeating.
+        var press = PlayerControls.Normalise(input);
+        if (PlayerControls.Fresh(press))
         {
-            var code = key.PhysicalKeycode != Key.None ? key.PhysicalKeycode : key.Keycode;
-            if (code == Key.Space) _jumpBuffer = JumpBufferS;
-            if (code == Key.R) Recover();
-            // B: home, from anywhere (the founder, 9 October): to the jetty, else the nearest beach, else the spawn.
-            if (code == Key.B) RequestHome();
-            // World physics is a world change: G sends world.set_physics through the command host as the player.
-            if (code == Key.G) RequestNextWorldPhysics();
+            if (PlayerControls.Hit(press, Act.Jump)) _jumpBuffer = JumpBufferS;
+            if (PlayerControls.Hit(press, Act.BodyRecover)) Recover();
+            // Home, from anywhere (the founder, 9 October): to the jetty, else the nearest beach, else the spawn.
+            if (PlayerControls.Hit(press, Act.BodyHome)) RequestHome();
+            // World physics is a world change: it sends world.set_physics through the command host as the player.
+            if (PlayerControls.Hit(press, Act.PhysicsNext)) RequestNextWorldPhysics();
         }
     }
 
@@ -733,11 +734,11 @@ public partial class SmallPlayerController : CharacterBody3D
         if (InputEnabled && ReadKeyboard && !GoingHome)
         {
             control = new Vector2(
-                (Input.IsPhysicalKeyPressed(Key.D) ? 1 : 0) - (Input.IsPhysicalKeyPressed(Key.A) ? 1 : 0),
-                (Input.IsPhysicalKeyPressed(Key.W) ? 1 : 0) - (Input.IsPhysicalKeyPressed(Key.S) ? 1 : 0)).LimitLength();
-            sprint = Input.IsPhysicalKeyPressed(Key.Shift);
-            diveDown = Input.IsPhysicalKeyPressed(Key.Ctrl);
-            diveUp = Input.IsPhysicalKeyPressed(Key.Space);
+                (PlayerControls.Held(Act.MoveRight) ? 1 : 0) - (PlayerControls.Held(Act.MoveLeft) ? 1 : 0),
+                (PlayerControls.Held(Act.MoveForward) ? 1 : 0) - (PlayerControls.Held(Act.MoveBack) ? 1 : 0)).LimitLength();
+            sprint = PlayerControls.Held(Act.MoveSprint);
+            diveDown = PlayerControls.Held(Act.MoveDive);
+            diveUp = PlayerControls.Held(Act.Jump);
         }
         var onFloor = IsOnFloor();
         _coyote = onFloor ? CoyoteTimeS : Mathf.Max(0, _coyote - dt);

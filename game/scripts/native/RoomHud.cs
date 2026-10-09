@@ -1,4 +1,5 @@
 using Godot;
+using System.Collections.Generic;
 using System.Globalization;
 using EnFractal.Native.Look;
 
@@ -38,7 +39,6 @@ public partial class RoomHud : CanvasLayer
     public Label FocusTag => _focusTag;
     /// <summary>Times the focus was asked for (the test keeps it cheap).</summary>
     public int FocusQueries { get; private set; }
-    private Label _moveKeys = null!;
     private float _armLength;
     /// <summary>How far over the bed the shoulder camera keeps its lens (the open-sea bed has no collider for the arm to meet).</summary>
     public const float ArmBedClearanceM = 0.02f;
@@ -54,7 +54,11 @@ public partial class RoomHud : CanvasLayer
         return room <= 0 ? 0.01f : Mathf.Clamp(room / -direction.Y, 0.01f, full);
     }
     /// <summary>The movement keys, with B home from anywhere (the founder, 9 October: to the jetty, or the beach, or the start).</summary>
-    private string MoveKeys => $"WASD move · Shift run · Space jump · B back to {Player.HomeName} · R recover · G gravity · click to look · Esc release";
+    private string MoveKeys => $"{PlayerControls.MoveLabel()} move · {K(Act.MoveSprint)} run · {K(Act.Jump)} jump · {K(Act.BodyHome)} back to {Player.HomeName} · {K(Act.BodyRecover)} recover · {K(Act.MouseCapture)} to look · {K(Act.MouseRelease)} release";
+    /// <summary>What an action's key is now, for the words on screen: they follow the input map, so a remapped key shows at once.</summary>
+    private static string K(StringName action) => PlayerControls.Label(action);
+    /// <summary>Every label and button that names a key, with the words it shows now. Rebuilt every frame (RefreshKeyText); a label whose words did not change is not touched.</summary>
+    private readonly List<(System.Action<string> Set, System.Func<string> Words)> _keyTexts = new();
     private Label _notice = null!;
     private PanelContainer _footer = null!;
     private VBoxContainer _keyHelp = null!;
@@ -153,9 +157,9 @@ public partial class RoomHud : CanvasLayer
     {
         if (Look?.Moment is not { } moment) return "";
         var minutes = Mathf.PosMod(Mathf.RoundToInt(moment.Hour * 60f), 24 * 60);
-        var hour = $"{minutes / 60:00}:{minutes % 60:00} " + (TimeStop >= 0 ? TimeStopNames[TimeStop] + " (T)" : "real clock (T)");
+        var hour = $"{minutes / 60:00}:{minutes % 60:00} " + (TimeStop >= 0 ? TimeStopNames[TimeStop] : "real clock") + $" ({K(Act.TimeStep)})";
         var date = new System.DateTime(2026, 1, 1).AddDays(moment.DayOfYear - 1).ToString("d MMM", CultureInfo.InvariantCulture);
-        return $"{hour}  ·  {moment.Season}, {date}, " + (SeasonStop >= 0 ? SeasonStops[SeasonStop].Name + " (Shift+T)" : "real date (Shift+T)");
+        return $"{hour}  ·  {moment.Season}, {date}, " + (SeasonStop >= 0 ? SeasonStops[SeasonStop].Name : "real date") + $" ({K(Act.SeasonStep)})";
     }
 
     private Node3D _dioramaPivot = null!;
@@ -198,16 +202,16 @@ public partial class RoomHud : CanvasLayer
         _state = new Label { Name = "State" }; column.AddChild(_state);
         _clock = new Label { Visible = false }; column.AddChild(_clock);
         var actions = new HBoxContainer { Name = "CompanionActions" }; column.AddChild(actions);
-        AddButton(actions, "1 Follow", () => Goal("follow"), 26);
-        AddButton(actions, "2 Wait", () => Goal("stay"), 26);
-        AddButton(actions, "3 Come", () => Goal("come"), 26);
-        AddButton(actions, "4 Stop", () => Goal("stop"), 26);
-        AddButton(actions, "5 Point", PointAhead, 26);
+        AddKeyButton(actions, () => $"{K(Act.GubbleFollow)} Follow", () => Goal("follow"), 26);
+        AddKeyButton(actions, () => $"{K(Act.GubbleStay)} Wait", () => Goal("stay"), 26);
+        AddKeyButton(actions, () => $"{K(Act.GubbleCome)} Come", () => Goal("come"), 26);
+        AddKeyButton(actions, () => $"{K(Act.GubbleStop)} Stop", () => Goal("stop"), 26);
+        AddKeyButton(actions, () => $"{K(Act.GubblePoint)} Point", PointAhead, 26);
         AddButton(actions, "Customize", ToggleCustomization, 26);
         // The hand keys send the same sandbox commands the companion uses (CommandHost.PlayerHands, PlayerPush).
         var hands = new HBoxContainer { Name = "HandActions" }; column.AddChild(hands);
-        AddButton(hands, "F Pick up / put down", Hands, 26);
-        AddButton(hands, "V Push", Push, 26);
+        AddKeyButton(hands, () => $"{K(Act.Hands)} Pick up / put down", Hands, 26);
+        AddKeyButton(hands, () => $"{K(Act.Push)} Push", Push, 26);
         _focusTag = new Label { Name = "FocusTag", Visible = false, MouseFilter = Control.MouseFilterEnum.Ignore, Theme = compactTheme };
         AddChild(_focusTag);
         _washVeil = new ColorRect { Name = "HomeVeil", Color = new Color(0.06f, 0.13f, 0.18f, 0), MouseFilter = Control.MouseFilterEnum.Ignore };
@@ -225,15 +229,19 @@ public partial class RoomHud : CanvasLayer
         _footer.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.BottomWide);
         _footer.OffsetLeft = 18; _footer.OffsetRight = -18; _footer.OffsetTop = _footer.OffsetBottom = -18;
         var help = new VBoxContainer(); _footer.AddChild(help);
-        _helpHint = new Label { Text = "H keys" }; help.AddChild(_helpHint);
+        _helpHint = new Label(); help.AddChild(_helpHint);
+        _keyTexts.Add((words => _helpHint.Text = words, () => $"{K(Act.HudHelp)} " + (_keyHelp.Visible ? "hide keys" : "keys")));
         _keyHelp = new VBoxContainer { Name = "KeyHelp", Visible = false }; help.AddChild(_keyHelp);
-        _moveKeys = new Label { Name = "MoveKeys", Text = MoveKeys };
-        _keyHelp.AddChild(_moveKeys);
-        _keyHelp.AddChild(new Label { Text = "Climb: keep walking into a steep face, W up, S down, A/D across, Space lets go · Swim: deep water floats you, Space leaps · Dive: hold Ctrl, Space rises, W swims the way you look, let go to drift up" });
-        _keyHelp.AddChild(new Label { Text = "1 follow · 2 wait · 3 come · 4 stop · 5 point: the Gubble floats after you, over water and up cliffs" });
-        _keyHelp.AddChild(new Label { Text = "F1 eye · F2 shoulder · F3 diorama: mouse orbits, wheel zooms, WASD follows the view · F4 isometric: Q/E turn the view" });
-        _keyHelp.AddChild(new Label { Text = "T time of day · Shift+T season (each steps round to the real clock) · L lamps · O observe (a very tight tilt-shift view, best from F3 or F4) · C customize" });
-        _keyHelp.AddChild(new Label { Text = "F pick up what you face · F again sets it down in front of you, or on top of what you face (the box, the book) · V push what you face 10 cm" });
+        // Every key named below comes from the input map (PlayerControls.Label), so a remapped key shows here.
+        AddKeyLine(_keyHelp, () => MoveKeys, "MoveKeys");
+        AddKeyLine(_keyHelp, () => $"Climb: keep walking into a steep face, {K(Act.MoveForward)} up, {K(Act.MoveBack)} down, {K(Act.MoveLeft)}/{K(Act.MoveRight)} across, {K(Act.Jump)} lets go · Swim: deep water floats you, {K(Act.Jump)} leaps · Dive: hold {K(Act.MoveDive)}, {K(Act.Jump)} rises, {K(Act.MoveForward)} swims the way you look, let go to drift up");
+        AddKeyLine(_keyHelp, () => $"{K(Act.GubbleFollow)} follow · {K(Act.GubbleStay)} wait · {K(Act.GubbleCome)} come · {K(Act.GubbleStop)} stop · {K(Act.GubblePoint)} point: the Gubble floats after you, over water and up cliffs");
+        AddKeyLine(_keyHelp, () => $"{K(Act.ViewEye)} eye · {K(Act.ViewShoulder)} shoulder · {K(Act.ViewDiorama)} diorama: mouse orbits, {PlayerControls.ZoomLabel()} zooms, {PlayerControls.MoveLabel()} follows the view · {K(Act.ViewIso)} isometric: {K(Act.IsoTurnLeft)}/{K(Act.IsoTurnRight)} turn the view");
+        AddKeyLine(_keyHelp, () => $"{K(Act.ViewObserve)} observe (a very tight tilt-shift view, best from {K(Act.ViewDiorama)} or {K(Act.ViewIso)}) · {K(Act.HudCustomize)} customize");
+        AddKeyLine(_keyHelp, () => $"{K(Act.Hands)} pick up what you face · {K(Act.Hands)} again sets it down in front of you, or on top of what you face (the box, the book) · {K(Act.Push)} push what you face 10 cm");
+        // The toggles that bend the world for testing, apart from the keys the game is played with.
+        _keyHelp.AddChild(new Label { Name = "TestingHeading", Text = "Testing" });
+        AddKeyLine(_keyHelp, () => $"{K(Act.PhysicsNext)} gravity · {K(Act.TimeStep)} time of day · {K(Act.SeasonStep)} season (each steps round to the real clock) · {K(Act.Lamps)} lamps", "TestingKeys");
         _notice = new Label { Name = "Notice", Text = _noticeText }; help.AddChild(_notice);
         help.MinimumSizeChanged += () => _footer.Size = new Vector2(_footer.Size.X, 0);
         _customization = new PanelContainer { Position = new Vector2(18, 190), Theme = theme, Visible = false };
@@ -250,6 +258,30 @@ public partial class RoomHud : CanvasLayer
         SetViewMode(1);
         if (LookNotice.Length > 0) _noticeText = LookNotice;
         Input.MouseMode = Input.MouseModeEnum.Visible;
+        RefreshKeyText();
+    }
+
+    /// <summary>A help line: its words are rebuilt from the input map every frame.</summary>
+    private void AddKeyLine(Node parent, System.Func<string> words, string name = "")
+    {
+        var label = new Label();
+        if (name.Length > 0) label.Name = name;
+        parent.AddChild(label);
+        _keyTexts.Add((text => label.Text = text, words));
+    }
+
+    /// <summary>A button that names its key: its words are rebuilt from the input map every frame.</summary>
+    private void AddKeyButton(Node parent, System.Func<string> words, System.Action action, int minimumHeight = 38)
+    {
+        var button = new Button { CustomMinimumSize = new Vector2(0, minimumHeight), FocusMode = Control.FocusModeEnum.All };
+        button.Pressed += action;
+        parent.AddChild(button);
+        _keyTexts.Add((text => button.Text = text, words));
+    }
+
+    private void RefreshKeyText()
+    {
+        foreach (var (set, words) in _keyTexts) set(words());
     }
 
     private static void AddButton(Node parent, string text, System.Action action, int minimumHeight = 38)
@@ -379,13 +411,13 @@ public partial class RoomHud : CanvasLayer
         _arm.Rotation = new Vector3(Mathf.Clamp(Player.EyeCamera.Rotation.X - 0.18f, -1.1f, 0.8f), 0, 0);
         _arm.SpringLength = ArmLengthOverBed(_arm.GlobalPosition, _arm.GlobalBasis.Z, _armLength, Player.Water.Wet ? Player.Water.BedY : float.NegativeInfinity, ArmBedClearanceM);
         var holding = Host?.HeldName(Kernel.CommandHost.PlayerAvatar) ?? "";
-        _state.Text = $"{Player.BodyHeightM * 100:0} cm player  ·  gravity {Player.WorldPhysicsId} (G)  ·  {Companion.CompanionName}: {Companion.CurrentIntent}" +
+        _state.Text = $"{Player.BodyHeightM * 100:0} cm player  ·  gravity {Player.WorldPhysicsId} ({K(Act.PhysicsNext)})  ·  {Companion.CompanionName}: {Companion.CurrentIntent}" +
             (Companion.FloatingThere ? " · floating there" : "") + (Companion.GoalBlocked ? " · path blocked" : "") +
-            (holding.Length > 0 ? $"  ·  holding {holding} (F)" : "") + (Look?.Observe == true ? "  ·  observe view (O)" : "");
+            (holding.Length > 0 ? $"  ·  holding {holding} ({K(Act.Hands)})" : "") + (Look?.Observe == true ? $"  ·  observe view ({K(Act.ViewObserve)})" : "");
         _notice.Text = _noticeText;
         UpdateFocus(delta);
         _washVeil.Color = new Color(_washVeil.Color, Player.HomeFade);
-        _moveKeys.Text = MoveKeys;
+        RefreshKeyText();
         var clock = ClockText();
         _clock.Visible = clock.Length > 0;
         _clock.Text = clock;
@@ -466,46 +498,46 @@ public partial class RoomHud : CanvasLayer
 
     public override void _UnhandledInput(InputEvent input)
     {
-        if (input is InputEventKey key && key.Pressed && !key.Echo)
+        // The controls are input actions (project.godot, [input]); Hit is a fresh press of one, not a held key repeating.
+        var press = PlayerControls.Normalise(input);
+        var fresh = PlayerControls.Fresh(press);
+        if (fresh)
         {
-            var code = key.PhysicalKeycode != Key.None ? key.PhysicalKeycode : key.Keycode;
-            if (code == Key.Escape)
+            if (PlayerControls.Hit(press, Act.MouseRelease))
             {
                 if (Customizing) ToggleCustomization();
                 Input.MouseMode = Input.MouseModeEnum.Visible;
             }
-            if (code == Key.C) ToggleCustomization();
+            if (PlayerControls.Hit(press, Act.HudCustomize)) ToggleCustomization();
             if (Customizing) return;
-            switch (code)
+            // One key does one thing, the first below that it is (Shift+T is the season before it is a T).
+            if (PlayerControls.Hit(press, Act.HudHelp))
             {
-                case Key.H:
-                    _keyHelp.Visible = !_keyHelp.Visible;
-                    _helpHint.Text = _keyHelp.Visible ? "H hide keys" : "H keys";
-                    break;
-                case Key.F1: SetViewMode(0); break;
-                case Key.F2: SetViewMode(1); break;
-                case Key.F3: SetViewMode(2); break;
-                case Key.F4: SetViewMode(3); break;
-                case Key.L when Look != null: Look.SetLamps(!Look.LampsOn); break;
-                case Key.O when Look != null: Look.Observe = !Look.Observe; break;
-                case Key.T when key.ShiftPressed: StepSeason(); break;
-                case Key.T: StepTimeOfDay(); break;
-                // Q and E belong to the view: the invention workshop that also bound them is retired (CommandHost).
-                case Key.Q when ViewMode == 3: TurnIso(-1); break;
-                case Key.E when ViewMode == 3: TurnIso(1); break;
-                // Companion keys are goal commands from the player, on the same path as the companion's own.
-                case Key.Key1: Goal("follow"); break;
-                case Key.Key2: Goal("stay"); break;
-                case Key.Key3: Goal("come"); break;
-                case Key.Key4: Goal("stop"); break;
-                case Key.Key5: PointAhead(); break;
-                // Hand keys: pick up, put down and push, as commands from the player.
-                case Key.F: Hands(); break;
-                case Key.V: Push(); break;
+                _keyHelp.Visible = !_keyHelp.Visible;
+                RefreshKeyText();
             }
+            else if (PlayerControls.Hit(press, Act.ViewEye)) SetViewMode(0);
+            else if (PlayerControls.Hit(press, Act.ViewShoulder)) SetViewMode(1);
+            else if (PlayerControls.Hit(press, Act.ViewDiorama)) SetViewMode(2);
+            else if (PlayerControls.Hit(press, Act.ViewIso)) SetViewMode(3);
+            else if (PlayerControls.Hit(press, Act.Lamps) && Look != null) Look.SetLamps(!Look.LampsOn);
+            else if (PlayerControls.Hit(press, Act.ViewObserve) && Look != null) Look.Observe = !Look.Observe;
+            else if (PlayerControls.Hit(press, Act.SeasonStep)) StepSeason();
+            else if (PlayerControls.Hit(press, Act.TimeStep)) StepTimeOfDay();
+            // Q and E belong to the view: the invention workshop that also bound them is retired (CommandHost).
+            else if (PlayerControls.Hit(press, Act.IsoTurnLeft) && ViewMode == 3) TurnIso(-1);
+            else if (PlayerControls.Hit(press, Act.IsoTurnRight) && ViewMode == 3) TurnIso(1);
+            // Companion keys are goal commands from the player, on the same path as the companion's own.
+            else if (PlayerControls.Hit(press, Act.GubbleFollow)) Goal("follow");
+            else if (PlayerControls.Hit(press, Act.GubbleStay)) Goal("stay");
+            else if (PlayerControls.Hit(press, Act.GubbleCome)) Goal("come");
+            else if (PlayerControls.Hit(press, Act.GubbleStop)) Goal("stop");
+            else if (PlayerControls.Hit(press, Act.GubblePoint)) PointAhead();
+            // Hand keys: pick up, put down and push, as commands from the player.
+            else if (PlayerControls.Hit(press, Act.Hands)) Hands();
+            else if (PlayerControls.Hit(press, Act.Push)) Push();
+            else if (PlayerControls.Hit(press, Act.MouseCapture)) Input.MouseMode = Input.MouseModeEnum.Captured;
         }
-        if (!Customizing && input is InputEventMouseButton click && click.Pressed && click.ButtonIndex == MouseButton.Left)
-            Input.MouseMode = Input.MouseModeEnum.Captured;
         if (ViewMode == 2 && !Customizing)
         {
             // The diorama camera owns the mouse in F3; the body does not turn with it (SetMovementFrame).
@@ -514,10 +546,14 @@ public partial class RoomHud : CanvasLayer
                 OrbitDiorama(motion.Relative);
                 GetViewport().SetInputAsHandled();
             }
-            else if (input is InputEventMouseButton wheel && wheel.Pressed &&
-                wheel.ButtonIndex is MouseButton.WheelUp or MouseButton.WheelDown)
+            else if (fresh && PlayerControls.Hit(press, Act.ViewZoomIn))
             {
-                ZoomDiorama(wheel.ButtonIndex == MouseButton.WheelUp ? 1 : -1);
+                ZoomDiorama(1);
+                GetViewport().SetInputAsHandled();
+            }
+            else if (fresh && PlayerControls.Hit(press, Act.ViewZoomOut))
+            {
+                ZoomDiorama(-1);
                 GetViewport().SetInputAsHandled();
             }
         }

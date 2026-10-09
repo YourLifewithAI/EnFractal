@@ -76,6 +76,7 @@ public partial class SmallAvatarPhysicsTest : Node3D
             Check(_companion.CompanionId == "test_companion" && _companion.CompanionName == "Juniper", "appearance/name do not replace companion identity");
 
             await TestMovementAndJump();
+            await TestKeyboardActions();
             await TestObstacles();
             await TestDioramaCamera();
             await TestCompanion();
@@ -101,6 +102,121 @@ public partial class SmallAvatarPhysicsTest : Node3D
         {
             GD.PushError("Native small-avatar test exception: " + exception);
             GetTree().Quit(1);
+        }
+    }
+
+    /// <summary>
+    /// The body's keys are input actions (game/project.godot): the held keys walk, run and jump through the map as W, A, S, D, Shift
+    /// and Space did, the presses (R, G, B) act as before, and a remapped action takes over from its old key. A second body reads
+    /// the keyboard here (the player of these tests is steered by code); the keys go in through Input as the engine would send them.
+    /// </summary>
+    private async Task TestKeyboardActions()
+    {
+        var saved = PlayerControls.MapActions().ToDictionary(action => action, action => InputMap.ActionGetEvents(action));
+        var body = new SmallPlayerController { Name = "KeyboardBody", Position = new Vector3(3.5f, 0.003f, -3f) };
+        AddChild(body);
+        var physicsAsked = new List<string>();
+        body.WorldPhysicsRequest = preset => { physicsAsked.Add(preset); return true; };
+        var down = new HashSet<Key>();
+        void Feed(Key key, bool pressed)
+        {
+            if (pressed) down.Add(key); else down.Remove(key);
+            Input.ParseInputEvent(new InputEventKey { PhysicalKeycode = key, Keycode = key, Pressed = pressed });
+        }
+        void Bind(string action, Key key)
+        {
+            InputMap.ActionEraseEvents(action);
+            InputMap.ActionAddEvent(action, new InputEventKey { PhysicalKeycode = key });
+        }
+        // Hold keys for a while, let go, and report how far the body went.
+        async Task<Vector3> Hold(int frames, params Key[] keys)
+        {
+            var start = body.GlobalPosition;
+            foreach (var key in keys) Feed(key, true);
+            await Frames(frames);
+            foreach (var key in keys) Feed(key, false);
+            await Frames(25);
+            return body.GlobalPosition - start;
+        }
+        async Task<float> Leap(Key key)
+        {
+            var top = body.GlobalPosition.Y;
+            Feed(key, true);
+            for (var i = 0; i < 25; i++) { await Frames(1); top = Mathf.Max(top, body.GlobalPosition.Y); }
+            Feed(key, false);
+            await Frames(40);
+            return top - body.GlobalPosition.Y;
+        }
+        try
+        {
+            await Frames(30);
+            Check(body.IsOnFloor() && body.ReadKeyboard, "a body that reads the keyboard stands on the test floor");
+            var (forward, back, left, right) = (await Hold(30, Key.W), await Hold(30, Key.S), await Hold(30, Key.A), await Hold(30, Key.D));
+            Check(forward.Z < -0.1f && Mathf.Abs(forward.X) < 0.01f && back.Z > 0.1f && Mathf.Abs(back.X) < 0.01f &&
+                left.X < -0.1f && Mathf.Abs(left.Z) < 0.01f && right.X > 0.1f && Mathf.Abs(right.Z) < 0.01f,
+                $"W, S, A and D walk forward, back, left and right through the move actions (W {forward.Z:0.000}, S {back.Z:0.000}, A {left.X:0.000}, D {right.X:0.000} m)");
+            var walked = (await Hold(30, Key.W)).Length();
+            var ran = (await Hold(30, Key.W, Key.Shift)).Length();
+            Check(ran > walked * 1.8f, $"Shift runs: {ran:0.000} m in half a second against {walked:0.000} m");
+            var apex = await Leap(Key.Space);
+            Check(apex > 0.03f && body.IsOnFloor(), $"Space jumps ({apex * 100:0.0} cm) and the body lands");
+
+            // A move action on another key: the new key walks, the old one does not.
+            Bind("move_forward", Key.Y);
+            var newKey = await Hold(30, Key.Y);
+            var oldKey = await Hold(30, Key.W);
+            Check(newKey.Z < -0.1f && oldKey.Length() < 0.01f, $"with move_forward on Y, Y walks ({newKey.Z:0.000} m) and W does nothing ({oldKey.Length():0.000} m)");
+            Bind("jump", Key.X);
+            var jumpNew = await Leap(Key.X);
+            var jumpOld = await Leap(Key.Space);
+            Check(jumpNew > 0.03f && jumpOld < 0.005f, $"with jump on X, X jumps ({jumpNew * 100:0.0} cm) and Space does not ({jumpOld * 100:0.0} cm)");
+            Bind("move_sprint", Key.Z);
+            var walkedAgain = (await Hold(30, Key.Y, Key.Shift)).Length();
+            var ranAgain = (await Hold(30, Key.Y, Key.Z)).Length();
+            Check(ranAgain > walkedAgain * 1.8f, $"with sprint on Z, Z runs ({ranAgain:0.000} m) and Shift does not ({walkedAgain:0.000} m)");
+            foreach (var (action, events) in saved)
+            {
+                InputMap.ActionEraseEvents(action);
+                foreach (var input in events) InputMap.ActionAddEvent(action, input);
+            }
+
+            // The presses: R recovers, G asks for the next world physics, B starts the way home; each on its own key once remapped.
+            var recoveries = body.Recoveries;
+            Feed(Key.R, true); Feed(Key.R, false);
+            await Frames(2);
+            Check(body.Recoveries == recoveries + 1, "R recovers");
+            Bind("body_recover", Key.K);
+            Feed(Key.R, true); Feed(Key.R, false); await Frames(2);
+            var withoutIt = body.Recoveries;
+            Feed(Key.K, true); Feed(Key.K, false); await Frames(2);
+            Check(withoutIt == recoveries + 1 && body.Recoveries == recoveries + 2, "with recover on K, R does nothing and K recovers");
+            Feed(Key.G, true); Feed(Key.G, false);
+            await Frames(2);
+            Check(physicsAsked.Count == 1, "G asks for the next world physics");
+            Bind("physics_next", Key.N);
+            Feed(Key.G, true); Feed(Key.G, false); await Frames(2);
+            var gOnly = physicsAsked.Count;
+            Feed(Key.N, true); Feed(Key.N, false); await Frames(2);
+            Check(gOnly == 1 && physicsAsked.Count == 2, "with it on N, G asks for nothing and N asks");
+            var echo = new InputEventKey { PhysicalKeycode = Key.N, Pressed = true, Echo = true };
+            body._UnhandledInput(echo);
+            Check(physicsAsked.Count == 2, "a held key repeating (echo) is not a press");
+            Feed(Key.B, true); Feed(Key.B, false);
+            await Frames(2);
+            Check(body.GoingHome, "B starts the way home");
+            for (var i = 0; i < 400 && body.GoingHome; i++) await Frames(1);
+            Check(!body.GoingHome, "and the way home ends");
+        }
+        finally
+        {
+            foreach (var key in down.ToArray()) Feed(key, false);
+            foreach (var (action, events) in saved)
+            {
+                InputMap.ActionEraseEvents(action);
+                foreach (var input in events) InputMap.ActionAddEvent(action, input);
+            }
+            body.QueueFree();
+            await Frames(2);
         }
     }
 
