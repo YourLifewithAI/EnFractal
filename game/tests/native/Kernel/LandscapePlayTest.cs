@@ -55,6 +55,7 @@ public partial class LandscapePlayTest : Node3D
             Check(_world.WorldReady, "the landscape room boots: " + _world.LoadError);
             if (!_world.WorldReady) { Finish(); return; }
             _roomId = _world.Room.RoomId;
+            _loose = LooseIds(directory);
             // The test steers the player as a player would; the keyboard (nobody at it) must not override that.
             _world.Player.ReadKeyboard = false;
             _host = CommandHost.Of(_world)!;
@@ -65,6 +66,7 @@ public partial class LandscapePlayTest : Node3D
             await Frames(30);
             // The Gubble floats: it hovers over the land (or water) at its spawn rather than standing on it.
             Check(_world.Player.IsOnFloor() && Hovering(_world.Companion), "the player stands on the land at its spawn, and the Gubble hovers over it");
+            await TestLooseThingsRest();
 
             // "-- --climb-only" runs the climbing checks alone (for tuning them).
             if (!OS.GetCmdlineUserArgs().Contains("--climb-only"))
@@ -397,11 +399,46 @@ public partial class LandscapePlayTest : Node3D
     /// <summary>
     /// What the land promises a visit to, by what the entity is (never by id): a thing to find and carry (movable), or a
     /// dwelling, which the exporter names cottage or tower or builds as a structure with a roof. Fences, boulders and
-    /// lanterns are landmarks.
+    /// lanterns are landmarks. So are the loose things the exporter lists in extensions.x_landscape_loose (Codex brief 23:
+    /// logs from a woodpile, small stones): they are found, perhaps up a cliff, not promised on foot.
     /// </summary>
-    private static bool Promised(ObjectInstance item) =>
-        item.Asset.Movable || item.Asset.Category is "cottage" or "tower" ||
-        (item.Asset.CategoryGroup == "structure" && item.Asset.Materials.Any(m => m.Slot == "roof" || m.Role == "roof"));
+    private bool Promised(ObjectInstance item) =>
+        !_loose.Contains(item.Id) &&
+        (item.Asset.Movable || item.Asset.Category is "cottage" or "tower" ||
+         (item.Asset.CategoryGroup == "structure" && item.Asset.Materials.Any(m => m.Slot == "roof" || m.Role == "roof")));
+
+    private HashSet<string> _loose = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Loose things rest where the exporter put them: a woodpile's stacked logs and the small stones sit still once the
+    /// room has loaded (each one's foot within 5 mm of its manifest position after 1.5 s).
+    /// </summary>
+    private async Task TestLooseThingsRest()
+    {
+        if (_loose.Count == 0) return;
+        await Frames(90);
+        var worst = (Id: "", Gap: 0f);
+        foreach (var item in _world.Room.Objects.Where(o => _loose.Contains(o.Id)))
+        {
+            var box = EntityBox(item.Id);
+            var gap = new Vector3(box.GetCenter().X, box.Position.Y, box.GetCenter().Z).DistanceTo(item.PositionM);
+            if (gap > worst.Gap) worst = (item.Id, gap);
+        }
+        Measure($"LANDSCAPE_LOOSE {_loose.Count} loose things; the furthest from where it was put: {worst.Gap * 1000:0.0} mm ({(worst.Id.Length == 0 ? "none" : worst.Id)})");
+        Check(worst.Gap <= 0.005f, $"the loose things rest where they were put (worst {worst.Gap * 1000:0.0} mm, {worst.Id})");
+    }
+
+    /// <summary>The ids of the room's loose things (extensions.x_landscape_loose.items), or none for an older export.</summary>
+    private static HashSet<string> LooseIds(string directory)
+    {
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        var manifest = System.IO.Path.Combine(directory, "room.json");
+        if (!System.IO.File.Exists(manifest)) return ids;
+        var items = JsonNode.Parse(System.IO.File.ReadAllText(manifest))?["extensions"]?["x_landscape_loose"]?["items"]?.AsArray();
+        foreach (var item in items ?? new JsonArray())
+            if (item?["id"]?.GetValue<string>() is { } id) ids.Add(id);
+        return ids;
+    }
 
     /// <summary>
     /// The shortest route from a point to anywhere beside a box's footprint (the four sides and four corners, a body's
