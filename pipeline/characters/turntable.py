@@ -12,6 +12,7 @@ It prints one line, TURNTABLE {...}, with the character's bounds in metres and w
 """
 import json
 import math
+import struct
 import sys
 from pathlib import Path
 
@@ -42,11 +43,70 @@ def bounds(objects):
     return lo, hi
 
 
+def apply_material_hints(glb):
+    """Opt-in preview only. Unhinted materials and all scene settings stay intact."""
+    raw = glb.read_bytes()
+    length, kind = struct.unpack_from('<I4s', raw, 12)
+    if kind != b'JSON':
+        raise ValueError('GLB must start with its JSON chunk')
+    document = json.loads(raw[20:20 + length])
+    for source in document.get('materials', []):
+        hint = source.get('extras', {}).get('enfractal_material', {})
+        if hint.get('kind') != 'bubble' or hint.get('see_through') is not True:
+            continue
+        material = bpy.data.materials.get(source['name'])
+        if material is None:  # An unused palette entry need not be imported.
+            continue
+        nodes, links = material.node_tree.nodes, material.node_tree.links
+        nodes.clear()
+        output = nodes.new('ShaderNodeOutputMaterial')
+        clear = nodes.new('ShaderNodeBsdfTransparent')
+        film = nodes.new('ShaderNodeBsdfPrincipled')
+        film.inputs['Base Color'].default_value = (1, 1, 1, 1)
+        film.inputs['Roughness'].default_value = 0.12
+        film.inputs['IOR'].default_value = 1.33
+        film.inputs['Transmission Weight'].default_value = 1.0
+        film.inputs['Thin Film Thickness'].default_value = 420
+        film.inputs['Thin Film IOR'].default_value = 1.46
+        # A view-dependent halo, with a clear centre instead of a glass marble.
+        fresnel = nodes.new('ShaderNodeFresnel')
+        fresnel.inputs['IOR'].default_value = 1.2
+        noise = nodes.new('ShaderNodeTexNoise')
+        noise.inputs['Scale'].default_value = 2.8
+        ramp = nodes.new('ShaderNodeValToRGB')
+        aura = hint.get('aura_colour', '#B4EED8')
+        rgb = [int(aura[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+        rgb = [v / 12.92 if v <= 0.04045 else ((v + 0.055) / 1.055) ** 2.4 for v in rgb]
+        stops = [(0.0, (0.8, 0.3, 0.55, 1)), (0.35, (*rgb, 1)),
+                 (0.65, (0.35, 0.55, 1, 1)), (1.0, (1, 0.75, 0.3, 1))]
+        for i, (position, colour) in enumerate(stops):
+            element = ramp.color_ramp.elements[i] if i < 2 else ramp.color_ramp.elements.new(position)
+            element.position, element.color = position, colour
+        links.new(noise.outputs['Fac'], ramp.inputs['Fac'])
+        halo = nodes.new('ShaderNodeEmission')
+        links.new(ramp.outputs['Color'], halo.inputs['Color'])
+        halo.inputs['Strength'].default_value = 0.8
+        rim = nodes.new('ShaderNodeMixShader')
+        rim.inputs[0].default_value = 0.12
+        links.new(halo.outputs[0], rim.inputs[1])
+        links.new(film.outputs[0], rim.inputs[2])
+        edge = nodes.new('ShaderNodeMath')
+        edge.operation = 'POWER'
+        edge.inputs[1].default_value = 1.5
+        links.new(fresnel.outputs['Fac'], edge.inputs[0])
+        mix = nodes.new('ShaderNodeMixShader')
+        links.new(edge.outputs[0], mix.inputs[0])
+        links.new(clear.outputs[0], mix.inputs[1])
+        links.new(rim.outputs[0], mix.inputs[2])
+        links.new(mix.outputs[0], output.inputs['Surface'])
+
+
 def main():
     glb, out, size, samples = arguments()
     out.mkdir(parents=True, exist_ok=True)
     bpy.ops.wm.read_factory_settings(use_empty=True)
     bpy.ops.import_scene.gltf(filepath=str(glb))
+    apply_material_hints(glb)
     meshes = [o for o in bpy.context.scene.objects if o.type == 'MESH']
     if not meshes:
         raise SystemExit(f'{glb}: no meshes')

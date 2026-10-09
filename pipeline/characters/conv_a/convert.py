@@ -85,6 +85,10 @@ def validate(spec):
     for key in ("observations", "uncertainties"):
         if not isinstance(spec[key], list) or not all(isinstance(s, str) for s in spec[key]):
             raise ValueError(f"{key} must be an array of strings")
+    if "applied_notes" in spec:
+        if (not isinstance(spec["applied_notes"], list)
+                or not all(isinstance(s, str) and s.strip() for s in spec["applied_notes"])):
+            raise ValueError("applied_notes must be an array of nonempty strings")
     if not isinstance(spec["colour_reasoning"], str):
         raise ValueError("colour_reasoning required")
     if not 1 <= len(spec["palette"]) <= 64:
@@ -104,6 +108,20 @@ def validate(spec):
             raise ValueError("parents must precede children")
         if not isinstance(part["role"], str):
             raise ValueError("part role required")
+        if part.get("kind", "solid") not in ("solid", "effect"):
+            raise ValueError("part kind must be solid or effect")
+        if part.get("kind") == "effect":
+            hint = part.get("motion_hint", {})
+            if hint.get("kind") not in ("twinkle", "orbit", "drift", "flicker", "pulse"):
+                raise ValueError("effect needs a motion_hint kind")
+            if not isinstance(hint.get("reason"), str):
+                raise ValueError("effect needs a motion reason")
+        if "material_hint" in part:
+            hint = part["material_hint"]
+            if (hint.get("kind") != "bubble" or hint.get("see_through") is not True
+                    or hint.get("rim") != "shimmer"
+                    or not re.fullmatch(r"#[0-9a-fA-F]{6}", hint.get("aura_colour", ""))):
+                raise ValueError("bubble needs see_through, shimmer rim and #RRGGBB aura_colour")
         vector(part["pivot"], 3)
         for shape in part["shapes"]:
             count += 1
@@ -122,7 +140,7 @@ def validate(spec):
                 if np.min(vector(shape["radii"], 3)) <= 0:
                     raise ValueError("ellipsoid radii must be positive")
             elif kind == "volume":
-                if not 0 < float(shape["thickness"]) <= 100000:
+                if "thickness" in shape and not 0 < float(shape["thickness"]) <= 100000:
                     raise ValueError("volume thickness must be positive and bounded")
                 if not 3 <= len(shape["contour"]) <= 64:
                     raise ValueError("volume needs 3 to 64 contour points")
@@ -346,7 +364,9 @@ def cushion_data(points, smooth):
             updated[i] = np.mean(phi[sorted(neighbours[i])])+source[i]
         phi = updated
         phi[fixed] = 0
-    height = np.sqrt(np.maximum(0,phi)/max(phi.max(),1e-9))
+    # Fuller shoulders retain more of the traced width away from the equator.
+    # The outline remains fixed, including its unequal lobes and concavities.
+    height = (np.maximum(0,phi)/max(phi.max(),1e-9))**0.35
     return vertices,faces,fixed,boundary,height
 
 
@@ -354,9 +374,16 @@ def cushion(shape):
     return cushion_data(tuple(tuple(p) for p in shape["contour"]),shape.get("smooth",True))
 
 
+def volume_thickness(shape):
+    """Default to a plush volume; explicit thickness still permits thin marks."""
+    if "thickness" in shape:
+        return shape["thickness"]
+    return 0.95 * float(np.ptp(contour(shape), axis=0).min())
+
+
 def cushion_mesh(shape):
     xy,faces,fixed,boundary,profile = cushion(shape)
-    height = shape["thickness"]/2*profile
+    height = volume_thickness(shape)/2*profile
     height[fixed] = 0
     vertices = np.column_stack((xy,shape["center"][2]+height))
     back = np.arange(len(vertices))
@@ -446,7 +473,7 @@ def front_depth(shape, xy, surfaces):
             inside = (u>=-1e-7)&(v>=-1e-7)&(u+v<=1+1e-7)
             value = (1-u-v)*profile[faces[:,0]]+u*profile[faces[:,1]]+v*profile[faces[:,2]]
             depth.extend(np.max(np.where(inside,value,0),axis=1))
-        d = c[2]+shape["thickness"]/2*np.asarray(depth)
+        d = c[2]+volume_thickness(shape)/2*np.asarray(depth)
     if shape["kind"] == "ellipsoid":
         d = c[2] + h*np.sqrt(np.maximum(0,1-radius2))
     if "surface" in shape:
@@ -485,6 +512,19 @@ class Glb:
             self.colours[name] = len(self.data["materials"])
             self.data["materials"].append({"name":name,"pbrMetallicRoughness":{
                 "baseColorFactor":linear+[1],"metallicFactor":0,"roughnessFactor":0.78}})
+
+    def material(self, colour, part, palette):
+        if "material_hint" not in part:
+            return self.colours[colour]
+        name = part["material_hint"]["kind"] + "__" + part["name"] + "__" + colour
+        if name not in self.colours:
+            base = self.data["materials"][self.colours[colour]]
+            self.colours[name] = len(self.data["materials"])
+            self.data["materials"].append({
+                "name": name, "pbrMetallicRoughness": base["pbrMetallicRoughness"],
+                "extras": {"enfractal_material": {
+                    **part["material_hint"], "fallback_colour": palette[colour]}}})
+        return self.colours[name]
 
     def accessor(self, array, kind, component, target):
         self.binary.extend(b"\0"*((-len(self.binary))%4))
@@ -553,10 +593,17 @@ def build(spec, provenance):
         parent = part["parent"]
         local = pivot-pivots[parent] if parent else pivot
         node = {"name":part["name"],"translation":local.tolist()}
+        hints = {"kind": part.get("kind", "solid")}
+        for key in ("motion_hint", "material_hint"):
+            if key in part:
+                hints[key] = part[key]
+        node["extras"] = {"enfractal_part": hints}
         primitives = []
         for v,f,colour in items:
             # Drawing-to-game mapping reflects all three axes; reverse winding.
-            primitives.append(glb.primitive(world(v)-pivot,f[:,[0,2,1]],colour))
+            primitive = glb.primitive(world(v)-pivot,f[:,[0,2,1]],colour)
+            primitive["material"] = glb.material(colour, part, spec["palette"])
+            primitives.append(primitive)
             triangles += len(f)
         if primitives:
             node["mesh"] = len(glb.data["meshes"])
@@ -566,7 +613,8 @@ def build(spec, provenance):
         glb.data["nodes"][nodes[parent] if parent else 0].setdefault("children",[]).append(index)
         nodes[part["name"]], pivots[part["name"]] = index,pivot
         metadata.append({"name":part["name"],"role":part["role"],"parent":parent,
-                         "node_index":index,"pivot_m":pivot.tolist(),"local_pivot_m":local.tolist()})
+                         "node_index":index,"pivot_m":pivot.tolist(),"local_pivot_m":local.tolist(),
+                         **hints})
     if triangles > 150000:
         raise ValueError("triangle budget exceeded (150000)")
     bounds_min,bounds_max = world(hi),world(lo)
@@ -579,6 +627,8 @@ def build(spec, provenance):
             "collision_hint":{"kind":"capsule","height_m":0.1,"radius_m":0.02,
                               "visual_overhang":bool(width>0.06 or depth>0.06)},
             "provenance":provenance,"uncertainties":spec["uncertainties"]}
+    if "applied_notes" in spec:
+        meta["applied_notes"] = spec["applied_notes"]
     return glb.bytes(),canonical(meta)
 
 
