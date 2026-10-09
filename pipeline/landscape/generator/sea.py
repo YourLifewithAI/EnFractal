@@ -560,11 +560,26 @@ def floor_boundary(room, step=.05):
     return pts
 
 
-def find_beaches(grid, h, room, coast, jetty, limit=5):
+def find_beaches(grid, h, room, coast, jetty, limit=5, harbour=False):
     """Wash-ashore places: the middle of each beach stretch, on dry sand a body
-    can stand on, with swimming water straight off it."""
+    can stand on, with swimming water straight off it. `harbour`: the sandy
+    shore beside the jetty, nearest first (every island has its harbour, so a
+    swimmer always has a beach to come ashore on)."""
     ring = floor_boundary(room)
     n = len(ring)
+    if harbour and jetty is not None:
+        wx, wz = jetty['wall']
+        out = []
+        for x, z, ix, iz in sorted(ring, key=lambda r: (math.hypot(r[0]-wx, r[1]-wz), r[0], r[1])):
+            lateral = abs((x-wx)*jetty['uz']-(z-wz)*jetty['ux'])
+            if lateral < .16 or math.hypot(x-wx, z-wz) > 1.2:
+                continue
+            spot = _ashore(grid, h, x, z, ix, iz)
+            if spot is not None:
+                out.append(spot)
+            if len(out) >= limit:
+                break
+        return out
     good = []
     for x, z, ix, iz in ring:
         c, hl, bw, hw, reef = coast.at(*wall_frame(room, x+ix*.01, z+iz*.01)[1:3])

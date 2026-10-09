@@ -1,5 +1,16 @@
 # The garage as land: the landscape generator (C5)
 
+## Climbing and the last rooms (Run 2, the open sea round, 9 October)
+
+- **What you climb, you can stand on top of** (`climb.py`, Lane P's measurements on the garage). A climber goes up the fall line of a face over 55 degrees from standable ground and over its top; a knife edge or needle is a crest with no 5 cm lip at 35 degrees or less and no standable patch within a body length.
+  - The generator weathers rock too thin to stand on: a 9 cm grey-scale opening of the land, then 15 cm round any knife edge left. It never raises land. Water, banks, paths, the hamlet, the jetty and the sea stay; an object's own landform weathers at most to the height its footprint still reads by.
+  - Spires over 20 cm keep a 5 cm caprock summit (hoodoos, not points); summits are weathered smooth of the flank noise.
+  - Lane P's two examples are gone: the table corner the coast had cut into a sliver, and the knife ridge beside it.
+  - `checks` prints `CLIMB` and `climb=`; it is reported beside `overall`, not in it, because tall crests of object landforms (crags and the chair's tor, 0.4 to 1.9 m up) still fail it in most rooms.
+- **Beaches are promised only if the written package reaches them** (single precision), not only the generator's memory; with none, the harbour's sand beside the jetty is tried.
+- **Corpus: 21 of 24** (the full run gave 18; three rooms lost a footprint to planing, fixed by an absolute weathering floor and rerun with three others, all passing). Fixed: home_office_nominal, living_room_scan_17. Still failing: awkward_l_scan_17 (walk, a cottage door), home_office_scan_73 (the jetty's landing is a pocket below a bluff), living_room_scan_73 (no beach a body reaches; a cottage hangs 1.4 cm).
+- **Not done: the ragged coast.** The coast still reads as a rounded rectangle.
+
 ## The island (Run 2, the island round, 9 October; generator version 4)
 
 Every room is an island in an endless sea (`sea.py`). Synthetic top-down pictures were made outside the repository; no Blender renders yet.
