@@ -283,6 +283,21 @@
     - **Potato Man:** Y; more shape and width, as for Cloudpuff, and golden skin.
     - **Tomato Man:** Y; the family likes the little sparkles, ideally dynamic. Widen it, and give it more of a real tomato shape.
 
+## The seventh session (9 October, midday, DiamondAge)
+
+- **The founder's playtest of the island garage** and the round it led to: [RUN-2-OPEN-SEA.md](RUN-2-OPEN-SEA.md). In short:
+  - the kids want to swim on for ever, and to dive;
+  - the Gubble shakes while the player climbs;
+  - the blur hides too much outside F4;
+  - more things to touch, with a sign of what can be touched.
+- **Merged:** Codex brief 20's winning converter (`conv_a`) into `pipeline/characters/` (its 9 tests pass). `run2/characters` (`conv_b`) is kept for reference.
+- **The round-two inputs** are in `C:\dev\EnFractal-art\characters\round2\` (outside Git): the five drawings, with `stickbear.txt` now naming him.
+- **Dispatched:**
+  - Lane P, part 1: the Gubble's shaking, the climb sampler, the open sea. `run2/play` starts with Lane C's fix round restored.
+  - Lane L: the views' blur, the endless sea's surface, the focus highlight.
+  - Codex brief 22 (GPT-6 Astra): the characters' second round.
+  - Codex brief 23 (GPT-6.1 Sol): things you can pick up.
+
 ## The next session
 
 0. **`run2/integration` is merged into `main`** (PR #8, `30ffbb8`, 9 October). The founder asked for the merge first and the playtest after. Keep working on `run2/integration`.
