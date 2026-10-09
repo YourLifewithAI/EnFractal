@@ -331,7 +331,8 @@ public partial class LookPresetTest
     private static float Spread(Shoal shoal) =>
         shoal.Schools.Where(s => !s.Solitary).Select(s => { var c = Centre(shoal, s); return s.Members.Max(m => Horizontal(shoal.Fish[m].Position - c)); }).DefaultIfEmpty(0f).Max();
 
-    /// <summary>The real garage landscape, when exported: its tarn is found and its deep middle holds fish; the brook and the far lake hold none.</summary>
+    /// <summary>The real garage landscape, when exported: its tarn is found and its deep middle holds fish; fish live only in water deep
+    /// enough for a home (the tarn, and since C6 a river's deep pools), never in the far lake beyond the room.</summary>
     private async Task CheckRealPondLife(StylePreset preset)
     {
         var directory = FindLandscapeFixture();
@@ -350,8 +351,8 @@ public partial class LookPresetTest
         Check(tarn != null && tarn.MaxDepthM > 0.03f && land.Bounds.HasPoint(tarn.Centroid with { Y = 0.1f }), $"the garage's tarn is found inside the room, {tarn?.MaxDepthM * 100f:0.0} cm at its deepest");
         Check(shoal != null && (tarn!.AreaDeeperThan(Shoal.HomeDepthM) < Shoal.MinHomeAreaM2 || shoal.Schools.Any(s => s.Pond == tarn)),
             "where the tarn is deep enough for a home, a school lives in it");
-        Check(shoal != null && shoal.Schools.All(s => s.Pond.Kind == WaterKind.Still && land.Bounds.HasPoint(s.Pond.Centroid with { Y = 0.1f })),
-            "no fish in the garage's shallow brook and river, nor in the far lake beyond the room");
+        Check(shoal != null && shoal.Schools.All(s => s.Pond.MaxDepthM >= Shoal.HomeDepthM && land.Bounds.HasPoint(s.Pond.Centroid with { Y = 0.1f })),
+            "fish only in the garage's water deep enough for a home (the tarn, a river's deep pool), never in the far lake beyond the room");
         if (shoal != null)
         {
             var out_ = 0;
