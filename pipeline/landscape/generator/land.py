@@ -139,9 +139,14 @@ def hill(o, lx, lz, a, b, H, spread):
     return H*(body+bench)
 
 
+MIN_HALF = .09   # a landform narrower than two grid cells would alias away
+
+
 def profile(o, lx, lz, noise):
     """Height above the object's base for a landform of the object's form."""
     a, b, H = o['sx']/2, o['sz']/2, o['sy']
+    if o['parent'] is None:
+        a, b = max(a, MIN_HALF), max(b, MIN_HALF)
     f = o['form']
     k = o.get('reach_k', 1.)
     if f == 'mesa':
@@ -266,7 +271,9 @@ def uplift(grid, objects, base, noise, owner):
                 if o['form'] in ('dome', 'knoll'):
                     p += .12*o['sy']*noise.ridged(x*2.6-k, z*2.6+k, 3)*smooth(p/max(o['sy'], 1e-6)*3)
                 q = j*grid.nx+i
-                if others:
+                if others and rr_dist(*local(o, x, z), o['sx']/2, o['sz']/2, .05) > 0:
+                    # Outside its own box a form gives way to a sure neighbour;
+                    # where two boxes overlap, both keep their height.
                     p = min(p, max(0., territory_cap(o, others, x, z)-base[q]))
                 if parent is not None:
                     plx, plz = local(parent, x, z)

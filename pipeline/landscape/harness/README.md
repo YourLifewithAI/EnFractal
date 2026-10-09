@@ -205,6 +205,9 @@ The package format is unchanged; only how the worker draws it changed.
   cut (a back face) is cut too. Eye views and the slope diagnostic never cut.
   The receipt records `overview_cutaway` with the face counts per view.
 - Cycles' transparent-bounce limit is 64 so camera rays can pass the cut layers.
+- **Tall, narrow rooms.** When no pitch fits a room's full-height envelope at
+  87% width (the corpus home office), the overview steps down to 82%, 77% ...
+  and records `width_fraction`; rooms that fit (the garage) are unchanged.
 
 ## Fixed review rig and receipts
 

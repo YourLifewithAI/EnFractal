@@ -97,19 +97,30 @@ class CheckerCatchesContradictions(unittest.TestCase):
         self.assertFalse(walks[0]['found'])
 
 
-class NoisyScanKeepsItsDesk(unittest.TestCase):
-    """Scan 17: a low-confidence mislabel and a confident neighbour's crag no
-    longer swallow the desk (confidence limits how far a form spreads)."""
+class NoisyScanKeepsItsPlace(unittest.TestCase):
+    """Scan 17: the desk is no longer swallowed (confidence limits spread) and
+    the land gives way so the doors, the crate and the yards are reachable."""
 
-    def test_scan_17_footprints_read(self):
+    def test_scan_17_all_checks(self):
         room = ROOMS/'garage_scan_17'
         out = os.path.join(workdir('s17'), 'pkg')
         generate(room, out)
-        from pipeline.landscape.harness import read_package
-        from pipeline.landscape.harness.common import load_json
-        doc, meshes, manifest, _ = read_package(out, room)
-        ok, rows = checks.footprint_checks(load_json(room/'inventory.json'), checks.Terrain(doc, meshes), manifest)
-        self.assertTrue(ok, [r for r in rows if not r['reads']])
+        result = checks.run(out, room)
+        self.assertTrue(result['footprints_ok'], [r for r in result['footprints'] if not r['reads']])
+        self.assertTrue(result['ok'], [w for w in result['walks'] if not w['found']])
+
+
+class StreamCrossing(unittest.TestCase):
+    """A path that must cross a stream does so on a level footbridge that the
+    walk check uses as ground (near_empty_nominal's hamlet lies across water)."""
+
+    def test_footbridge_carries_the_walk(self):
+        room = ROOMS/'near_empty_nominal'
+        out = os.path.join(workdir('ne'), 'pkg')
+        doc = generate(room, out)
+        self.assertTrue(any(s['prototype'] == 'footbridge' for s in doc['scatter']))
+        result = checks.run(out, room)
+        self.assertTrue(result['ok'], [w for w in result['walks'] if not w['found']])
 
 
 if __name__ == '__main__':

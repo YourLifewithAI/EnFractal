@@ -55,6 +55,17 @@ def project_bounds(view, bounds, lens_mm=40., aspect=16/9):
 
 
 def overview_camera(room, name, sx, sz):
+    """Fit at 87% width; a tall, narrow room that cannot fit at any pitch is
+    framed a little looser (82%, 77%, ...) rather than failing."""
+    for fraction in (.87, .82, .77, .72, .67, .62, .57):
+        try:
+            return _overview_camera(room, name, sx, sz, fraction)
+        except ValueError:
+            continue
+    raise ValueError('manifest full-height bounds cannot fit overview')
+
+
+def _overview_camera(room, name, sx, sz, fraction):
     """Fit manifest floor AND roof bounds, with a fixed 87% horizontal span.
 
     Select the highest pitch that fits the full-height envelope in 16:9.
@@ -73,7 +84,7 @@ def overview_camera(room, name, sx, sz):
         for _ in range(55):
             distance=(near+far)/2; points=project_bounds(at(distance),bounds)
             width=max(p[0] for p in points)-min(p[0] for p in points) if points else math.inf
-            if width>.87: near=distance
+            if width>fraction: near=distance
             else: far=distance
         view=at(far); points=project_bounds(view,bounds)
         ys=[p[1] for p in points]
@@ -81,6 +92,7 @@ def overview_camera(room, name, sx, sz):
             xs=[p[0] for p in points]
             view.update(shift_x=(min(xs)+max(xs))/2-.5,
                         shift_y=(min(ys)-40/720)/(16/9),pitch_deg=pitch)
+            if fraction!=.87: view['width_fraction']=fraction
             return view
     raise ValueError('manifest full-height bounds cannot fit overview')
 

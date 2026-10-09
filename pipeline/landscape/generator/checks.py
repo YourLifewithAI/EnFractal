@@ -51,7 +51,23 @@ class Terrain:
                     for j in range(j0, j1+1):
                         for i in range(i0, i1+1):
                             self.grid.setdefault((i, j), []).append(k)
+        # Footbridge decks are walkable surfaces too: level, at the deck's top.
+        self.decks = []
+        for item in doc.get('scatter', ()):
+            if item['prototype'] != 'footbridge':
+                continue
+            size = [b*s for b, s in zip(doc['prototypes']['footbridge']['size_m'], item['scale'])]
+            a = math.radians(item['yaw_deg'])
+            self.decks.append((item['position_m'][0], item['position_m'][2], math.cos(a), math.sin(a),
+                               size[0]/2, size[2]/2, item['position_m'][1]+size[1]))
         self._memo = {}
+
+    def deck(self, x, z):
+        for x0, z0, c, s, hw, hl, top in self.decks:
+            dx, dz = x-x0, z-z0
+            if abs(c*dx-s*dz) <= hw and abs(s*dx+c*dz) <= hl:
+                return top
+        return None
 
     def hit(self, x, z):
         """(height, slope degrees) of the topmost triangle at (x, z), or None."""
@@ -73,6 +89,9 @@ class Terrain:
                 nx_, ny_, nz_ = uy*vz-uz*vy, uz*vx-ux*vz, ux*vy-uy*vx
                 slope = math.degrees(math.acos(min(1., abs(ny_)/(math.sqrt(nx_*nx_+ny_*ny_+nz_*nz_) or 1e-30))))
                 best = (y, slope)
+        top = self.deck(x, z) if self.decks else None
+        if top is not None and (best is None or top >= best[0]):
+            best = (top, 0.)
         if len(self._memo) < 2_000_000:
             self._memo[key] = best
         return best
@@ -157,7 +176,21 @@ def grounding_checks(doc, terrain):
             base = SIZES[name] if name in SIZES else protos[name]['size_m']
             size = item['size_m'] if category == 'objects' else [b*s for b, s in zip(base, item['scale'])]
             y = item['position_m'][1]
-            if category == 'objects' or name in BUILT:
+            if name == 'footbridge':
+                # Carried by its two ends: the banks under each end of the deck.
+                a = math.radians(item['yaw_deg'])
+                ends = [(item['position_m'][0]+math.sin(a)*f*size[2]*.45, item['position_m'][2]+math.cos(a)*f*size[2]*.45)
+                        for f in (-1, 1)]
+                saved, terrain.decks = terrain.decks, []
+                gs = [terrain.hit(x, z)[0] for x, z in ends]
+                terrain._memo.clear()
+                terrain.decks = saved
+                gap = y-max(gs)          # the deck's underside above its higher bank
+                sunk = max(gs)-(y+size[1])
+                float_bad = gap > .012 or y-min(gs) > .03
+                sunk_bad = sunk > 0
+                kind = 'built'
+            elif category == 'objects' or name in BUILT:
                 gs = [terrain.height(x, z) for x, z in footprint_points(item, size)]
                 gap = y-min(gs)          # >0: some of the base hangs in the air
                 sunk = max(gs)-y         # >0: the ground covers the base
@@ -205,6 +238,8 @@ def obstacles(doc):
         base = SIZES[name] if name in SIZES else protos[name]['size_m']
         size = [b*s for b, s in zip(base, item['scale'])]
         x, _, z = item['position_m']
+        if name == 'footbridge':
+            continue   # walked on, not around
         if name in BUILT:
             out.append(('box', x, z, size[0]/2, size[2]/2, math.radians(item['yaw_deg'])))
         elif name in ('broadleaf', 'conifer'):
@@ -449,8 +484,9 @@ def footprint_checks(inventory, terrain, room):
                             covered = True
                     if not covered:
                         inside.append(terrain.height(x, z))
-                elif .45 <= max(dx, dz) <= .7 and not e['placement']['support'].get('target_id'):
-                    ring.append(terrain.height(x, z))
+                elif .45 <= max(dx, dz) <= .7 and not e['placement']['support'].get('target_id') \
+                        and inside_distance(room, x, z) >= 0:
+                    ring.append(terrain.height(x, z))   # surroundings within the room's floor
         land_top = max(inside)
         land_mean = sum(inside)/len(inside)
         around = sorted(ring)[len(ring)//2] if ring else base
