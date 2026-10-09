@@ -266,11 +266,34 @@
     5. No contract change.
   - **Optional:** "Wisp" becomes "the Gubble" in `contracts/examples/build_examples.py:283`, then rebuild the examples.
 
+## The fifth session's close (9 October, morning, DiamondAge)
+
+- **The sixth session's step 1 is done on DiamondAge's pinned SDK** at `1f41ddd`:
+  - `tools/test-room.ps1` exits 0 (landscape 42/42, look 1002/1002);
+  - `run-engine-tests.ps1` exits 0 (play HUD 86/86, sandbox 159/159, command host 423/423);
+  - the WSL suite is GREEN (generator 12 tests in 645 s, now the suite's slowest part).
+  - The founder's installed landscape is the island garage (`room.json` `CEF8AD2D…`, with `x_landscape_sea`), and the founder is playtesting it.
+- **The characters' vote (the founder and their kids):**
+  - **The result: Y won every character, by every vote.** Unblinded: Y is `conv_a`, **Codex GPT-6 Astra** (A/B log). X is `conv_b`, the Claude Opus agent.
+  - **The paw creature is named Stickbear.**
+  - **The family's notes for the winner's next round:**
+    - **Cloudpuff:** Y, with X's body thickness.
+    - **Stickbear:** Y, with X's colour palette.
+    - **The Gubble:** Y renders better, but it "didn't come out as envisioned". It should be clear like a soap bubble: it shimmers, its outline is visible, "but that's it". Its colour (drawn as lines on Y's white model) "is meant to be more of an aura".
+    - **Potato Man:** Y; more shape and width, as for Cloudpuff, and golden skin.
+    - **Tomato Man:** Y; the family likes the little sparkles, ideally dynamic. Widen it, and give it more of a real tomato shape.
+
 ## The next session
 
-1. **On DiamondAge, confirm on the pinned SDK:** pull `run2/integration` and run both Windows runners and the WSL suite. Then refresh the founder's installed landscape (`%APPDATA%\Godot\app_userdata\EnFractal\rooms\landscape_garage_nominal`) from a fresh fixture, which is now the island garage.
+0. **`run2/integration` is merged into `main`** (PR #8, `30ffbb8`, 9 October). The founder asked for the merge first and the playtest after. Keep working on `run2/integration`.
+1. ~~On DiamondAge, confirm on the pinned SDK~~ **Done** (see "The fifth session's close"). For the record: pull `run2/integration` and run both Windows runners and the WSL suite. Then refresh the founder's installed landscape (`%APPDATA%\Godot\app_userdata\EnFractal\rooms\landscape_garage_nominal`) from a fresh fixture, which is now the island garage.
 2. **The founder's playtest:** the island, the sea edge (swim out past the reef, push on, wash ashore), the floating Gubble (send it up a cliff and across the pond), and the questions above.
-3. **The characters' vote,** as below (the fifth session's list, item 1). The key and `codex/20-character-converter` are only on DiamondAge.
+3. **The characters: the winner's next round.** The vote is held (see "The fifth session's close"). On DiamondAge:
+   - merge `codex/20-character-converter` (`conv_a`, local only) into `pipeline/characters/`, keeping `run2/characters` (`conv_b`) for reference;
+   - a Codex brief folds in the family's notes: fuller depth and width (learn from `conv_b`'s inflation), golden skin, a real tomato shape, Stickbear's palette, effects such as sparkles as separate animatable parts, and the readers' instruction gaps;
+   - Lane L gives the Gubble a soap-bubble look in the game (clear, shimmering, a visible outline, a coloured aura) from a material hint in the GLB.
+
+   The drawings and every character output stay in `C:\dev\EnFractal-art\characters\`, outside Git.
 4. **Lane L's sea look** (GPU): the open sea's colour and depth, foam on the reef, waves at the beaches, the horizon and distant islands, and fish in the sea's deeper water. Within the frame budget and the capture budget.
 5. **Lane P, then Lane C:** Lane P makes the climb sampler skip faces below sea level and finds out why the cliff at (-2.39, 0.068, 1.07) isn't topped. Then the integrator brings back Lane C's fix round (revert `f29854a`, merge `run2/landscape`). Then Lane C:
    - the last five corpus rooms;
