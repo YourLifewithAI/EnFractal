@@ -27,7 +27,8 @@ the validator subprocess needs the repository's existing contract dependencies.
 | Scatter exceeding entity budget | After reserving all populated objects, first landmarks in package order use remaining slots up to 512; the rest keep their drawn geometry in merged shell meshes |
 | Source spawns | Same x/z and ids; y is the highest terrain triangle hit, including roofs of caves; missing ground fails. Yaw faces the horizontally nearest carriable/movable populated object or cottage/tower (including merged buildings), using Godot +Y rotation with -Z forward. Equal distances use package order (objects, then scatter); no destination or a coincident nearest destination keeps source yaw |
 | Setup | Latitude/bearing in `site`; solar noon 12 because package time is apparent solar time; full answers in `extensions.x_landscape_setup` |
-| Indoor lamps / openings | Dropped; one sun hint, plus at most 31 lantern `lamp` hints; no source textures, reference images or location records copied |
+| Source room / inventory | Data-only `extensions.x_landscape_source`: source id and byte SHA-256 pins, bounds, floor/ceiling polygons, wall polygons and vertical heights, openings, and every inventory object's kind/confidence, bottom-centre pose, size, colours and support; records sorted by id |
+| Indoor lamps / playable openings | Dropped from the playable shell; source openings remain in the intro data. One sun hint, plus at most 31 lantern `lamp` hints; no source textures, reference images or location records copied |
 
 Objects with zero mass, mass over 5,000 kg, more than 16 material roles, or ids
 longer than the room contract permits fail cleanly. A `carriable` object above
@@ -68,3 +69,30 @@ Identical ordered packages and arguments produce identical bytes, with a fixed
 export-format creation timestamp. JSON is sorted UTF-8/LF. Every output file other
 than `room.json` is pinned in that manifest, and each asset pins its own GLB.
 No exported package or room belongs in Git.
+
+`x_landscape_source` gives Lane L the rough original room for its future skippable
+15-second intro. It is data, never instructions or live gameplay entities. Its
+`room_id`, `room_sha256` and `inventory_sha256` pin the source files' exact bytes;
+`bounds`, `shell.parts`, `shell.openings` and `objects` need no external files.
+Part geometry retains polygon winding/thickness; walls add `height_m` (vertical
+span of their points). Ceiling polygons are included to support the sky dissolve.
+Objects retain C4's `id`, `kind`, `position_m`, `size_m`, `colours` (hex/share),
+`support` (kind/height/target), and supplied `rotation` and/or `yaw_deg`;
+inventory `confidence` maps to `kind_confidence`. Both the corpus and roomscan
+use these fields. No labels, display names, notes, descriptions, evidence,
+recipes, location metadata or truth oracle are copied.
+
+Coordinates/support heights are finite within +/-1000 m; box sizes are positive
+and at most 1000 m; yaw is within +/-360 degrees, quaternion components within
+[-1,1] with unit-length tolerance 0.001, and confidence/colour shares within [0,1].
+Source lists allow 128 shell parts, 64 openings, 64 points per polygon, 20,000
+inventory objects and three colours per object. Thickness is positive up to 1 m;
+opening dimensions are positive up to 20 m. Invalid data fails before output
+creation. C3 polygon shells are supported; source mesh shell parts fail explicitly
+because copying only a mesh path would leave the intro without its geometry.
+Parts/openings/objects sort by id, colours by descending share then hex; polygon
+points and quaternion components keep their authored order.
+
+The [extension contract](../../../contracts/common.schema.json) allows up to 32
+keys matching `^x_[a-z0-9_]{1,63}$`, with no value shape or byte limit; this export
+uses four keys. Animation, timing and skipping are Lane L's later game work.

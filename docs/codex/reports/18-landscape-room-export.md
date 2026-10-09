@@ -329,3 +329,142 @@ Ran 15 tests in 3.603s
 OK
 VALIDATOR exit=0 OK: 1 item(s) checked, 0 problem(s)
 ```
+
+## Follow-up round 2
+
+Added `source.py` and `extensions.x_landscape_source`: source room id and exact
+room/inventory byte SHA-256 pins, bounds, floor/ceiling polygons, wall polygons
+with vertical heights, openings, and all inventory posed boxes. C4 confidence
+maps to `kind_confidence`; supplied quaternion/yaw, size, hex/share colours and
+floor/object/unknown-surface support are preserved. No labels, display names,
+notes, evidence, recipes or location metadata are copied. Never read `truth.json`.
+Parts, openings and objects sort by id; colours sort by descending share then hex;
+polygon winding stays authored. README documents the mapping and finite numeric
+and list bounds. Source mesh shells explicitly fail: the corpus and C3 scan shell
+format supply polygons.
+
+[The extension schema](../../../contracts/common.schema.json) permits 32 keys
+matching `^x_[a-z0-9_]{1,63}$`, with no payload size/shape limit. Export now uses
+four. Five new tests cover every reference source object/wall/opening and exact
+poses, omitted text throughout the directory, sorting, scan pose alternatives
+and invalid numeric input. The first targeted run caught inherited wholesale
+bounds/spawn copying; fixed those to select required fields, without weakening
+checks. The required full suite ran once at the end: all existing 15 plus five
+new tests pass; reference and garage contract validation pass.
+
+Garage `room.json`: **212,534 -> 228,134 bytes (+15,600)**, measured from fresh
+before/after exports using the same generated package and arguments. Two new
+exports match byte-for-byte; all 33 non-manifest files match the baseline.
+The intro data includes 16 boxes, four walls, one floor, one ceiling and two
+openings. Exports remain in `%TEMP%/enfractal-brief18-round2/`, outside Git.
+No merge, commit, push, sandbox denial, GPU use, paid calls or installs; cost $0.
+No exporter work remains unfinished or needs an out-of-scope diff. Lane L's
+animation/skipping and native game verification remain future work, unverified
+here because Godot is forbidden in this brief.
+
+Raw relevant output (repository root; exit codes shown):
+
+```text
+python -B -S -c "import os; from pathlib import Path; p=Path(os.environ['TEMP'])/'enfractal-brief18-round2'; os.makedirs(p, exist_ok=False); print('SCRATCH', p)"
+exit 0
+SCRATCH C:\Users\blues\AppData\Local\Temp\enfractal-brief18-round2
+
+python -B -m pipeline.landscape.gen_b.generate --room pipeline/landscape/corpus/rooms/garage_nominal --out "$env:TEMP/enfractal-brief18-round2/garage-package"
+exit 0
+GEN_B_PACKAGE C:\Users\blues\AppData\Local\Temp/enfractal-brief18-round2/garage-package meshes 14 scatter 2743 objects 1
+
+python -B -S -m pipeline.landscape.export --package "$env:TEMP/enfractal-brief18-round2/garage-package" --room pipeline/landscape/corpus/rooms/garage_nominal --room-id landscape_garage_nominal --out "$env:TEMP/enfractal-brief18-round2/before/landscape_garage_nominal"
+exit 0
+ROOM_EXPORTED {"bytes": 22781514, "files": 34, "lantern_hints": 0, "merged_scatter": 2740, "objects": 4, "populated_objects": 1, "room_id": "landscape_garage_nominal", "scatter_entities": 3, "scatter_solid_triangles": 3876, "scatter_visual_triangles": 155478, "scenery_triangles": 167926, "shell_parts": 25, "terrain_open_edges": 870, "terrain_triangles": 94066, "water_triangles": 3954}
+
+python -B -S -m unittest pipeline.landscape.export.tests.test_export.ExportTests.test_reference_source_room_preserves_every_box_wall_and_opening pipeline.landscape.export.tests.test_export.ExportTests.test_source_labels_and_display_names_never_appear_in_any_output_file pipeline.landscape.export.tests.test_export.ExportTests.test_source_records_are_sorted_without_reordering_polygon_points pipeline.landscape.export.tests.test_export.ExportTests.test_source_scan_pose_alternatives_and_unknown_surface_support pipeline.landscape.export.tests.test_export.ExportTests.test_source_invalid_numbers_fail_before_output_creation -v
+initial exit 1 (raw relevant failure lines; fixed bounds/spawn text copying)
+test_source_labels_and_display_names_never_appear_in_any_output_file (pipeline.landscape.export.tests.test_export.ExportTests.test_source_labels_and_display_names_never_appear_in_any_output_file) ... FAIL
+  File "C:\dev\EnFractal-codex\18-landscape-room-export\pipeline\landscape\export\tests\test_export.py", line 179, in test_source_labels_and_display_names_never_appear_in_any_output_file
+    self.assertNotIn(label.encode('utf-8'), data, str(path))
+Ran 5 tests in 0.905s
+FAILED (failures=1)
+
+python -B -S -m unittest pipeline.landscape.export.tests.test_export.ExportTests.test_source_labels_and_display_names_never_appear_in_any_output_file -v
+exit 0
+test_source_labels_and_display_names_never_appear_in_any_output_file (pipeline.landscape.export.tests.test_export.ExportTests.test_source_labels_and_display_names_never_appear_in_any_output_file) ... ok
+Ran 1 test in 0.217s
+OK
+
+python -B -S -m pipeline.landscape.export --package "$env:TEMP/enfractal-brief18-round2/garage-package" --room pipeline/landscape/corpus/rooms/garage_nominal --room-id landscape_garage_nominal --out "$env:TEMP/enfractal-brief18-round2/after/landscape_garage_nominal"
+exit 0
+ROOM_EXPORTED {"bytes": 22797114, "files": 34, "lantern_hints": 0, "merged_scatter": 2740, "objects": 4, "populated_objects": 1, "room_id": "landscape_garage_nominal", "scatter_entities": 3, "scatter_solid_triangles": 3876, "scatter_visual_triangles": 155478, "scenery_triangles": 167926, "shell_parts": 25, "terrain_open_edges": 870, "terrain_triangles": 94066, "water_triangles": 3954}
+
+python -B contracts/validate.py --room "$env:TEMP/enfractal-brief18-round2/after/landscape_garage_nominal"
+exit 0
+OK: 1 item(s) checked, 0 problem(s)
+
+python -B -S -m pipeline.landscape.export --package "$env:TEMP/enfractal-brief18-round2/garage-package" --room pipeline/landscape/corpus/rooms/garage_nominal --room-id landscape_garage_nominal --out "$env:TEMP/enfractal-brief18-round2/repeat/landscape_garage_nominal"
+exit 0
+ROOM_EXPORTED {"bytes": 22797114, "files": 34, "lantern_hints": 0, "merged_scatter": 2740, "objects": 4, "populated_objects": 1, "room_id": "landscape_garage_nominal", "scatter_entities": 3, "scatter_solid_triangles": 3876, "scatter_visual_triangles": 155478, "scenery_triangles": 167926, "shell_parts": 25, "terrain_open_edges": 870, "terrain_triangles": 94066, "water_triangles": 3954}
+```
+
+Size/determinism evidence, run through a PowerShell here-string piped to
+`python -B -S -` (exit 0):
+
+```python
+import json, os
+from pathlib import Path
+base = Path(os.environ['TEMP'])/'enfractal-brief18-round2'
+a = base/'after/landscape_garage_nominal'
+b = base/'repeat/landscape_garage_nominal'
+before = base/'before/landscape_garage_nominal'
+files = lambda folder: {p.relative_to(folder).as_posix():p.read_bytes() for p in folder.rglob('*') if p.is_file()}
+x, y, old = files(a), files(b), files(before)
+assert x == y
+assert {k:v for k,v in x.items() if k != 'room.json'} == {k:v for k,v in old.items() if k != 'room.json'}
+print('GARAGE_BYTE_IDENTICAL', len(x), 'files', sum(map(len, x.values())), 'bytes')
+print('GARAGE_ROOM_JSON_BEFORE', len(old['room.json']), 'bytes')
+print('GARAGE_ROOM_JSON_AFTER', len(x['room.json']), 'bytes')
+print('GARAGE_ROOM_JSON_INCREASE', len(x['room.json'])-len(old['room.json']), 'bytes')
+source = json.loads(x['room.json'])['extensions']['x_landscape_source']
+print('GARAGE_SOURCE', len(source['objects']), 'boxes', sum(p['role']=='wall' for p in source['shell']['parts']), 'walls', len(source['shell']['openings']), 'openings')
+print('NON_MANIFEST_FILES_UNCHANGED', len(x)-1)
+```
+
+```text
+GARAGE_BYTE_IDENTICAL 34 files 22797114 bytes
+GARAGE_ROOM_JSON_BEFORE 212534 bytes
+GARAGE_ROOM_JSON_AFTER 228134 bytes
+GARAGE_ROOM_JSON_INCREASE 15600 bytes
+GARAGE_SOURCE 16 boxes 4 walls 2 openings
+NON_MANIFEST_FILES_UNCHANGED 33
+```
+
+Required final suite, raw output:
+
+```text
+python -B -S -m unittest pipeline.landscape.export.tests.test_export -v
+exit 0
+test_broken_input_and_nonempty_output_fail_cleanly (pipeline.landscape.export.tests.test_export.ExportTests.test_broken_input_and_nonempty_output_fail_cleanly) ... ok
+test_byte_deterministic (pipeline.landscape.export.tests.test_export.ExportTests.test_byte_deterministic) ... ok
+test_carryable_object_matches_host_mass_movable_rules (pipeline.landscape.export.tests.test_export.ExportTests.test_carryable_object_matches_host_mass_movable_rules) ... ok
+test_materials_bake_tints_blends_without_double_multiplication (pipeline.landscape.export.tests.test_export.ExportTests.test_materials_bake_tints_blends_without_double_multiplication) ... ok
+test_no_promised_destination_keeps_source_yaw (pipeline.landscape.export.tests.test_export.ExportTests.test_no_promised_destination_keeps_source_yaw) ... ok
+test_nonuniform_scale_and_yaw_are_baked_in_order (pipeline.landscape.export.tests.test_export.ExportTests.test_nonuniform_scale_and_yaw_are_baked_in_order) ... ok
+test_nonuniform_scatter_exports_static_and_entity_geometry (pipeline.landscape.export.tests.test_export.ExportTests.test_nonuniform_scatter_exports_static_and_entity_geometry) ... ok
+test_normals_share_indices_and_preserve_split_creases (pipeline.landscape.export.tests.test_export.ExportTests.test_normals_share_indices_and_preserve_split_creases) ... ok
+test_reference_source_room_preserves_every_box_wall_and_opening (pipeline.landscape.export.tests.test_export.ExportTests.test_reference_source_room_preserves_every_box_wall_and_opening) ... ok
+test_reference_spawns_face_nearest_promised_destination (pipeline.landscape.export.tests.test_export.ExportTests.test_reference_spawns_face_nearest_promised_destination) ... ok
+test_reference_validates_and_all_files_are_pinned (pipeline.landscape.export.tests.test_export.ExportTests.test_reference_validates_and_all_files_are_pinned) ... ok
+test_room_budget_caps_scatter_entities_without_losing_geometry (pipeline.landscape.export.tests.test_export.ExportTests.test_room_budget_caps_scatter_entities_without_losing_geometry) ... ok
+test_scatter_scenery_water_and_setup_policy (pipeline.landscape.export.tests.test_export.ExportTests.test_scatter_scenery_water_and_setup_policy) ... ok
+test_source_invalid_numbers_fail_before_output_creation (pipeline.landscape.export.tests.test_export.ExportTests.test_source_invalid_numbers_fail_before_output_creation) ... ok
+test_source_labels_and_display_names_never_appear_in_any_output_file (pipeline.landscape.export.tests.test_export.ExportTests.test_source_labels_and_display_names_never_appear_in_any_output_file) ... ok
+test_source_records_are_sorted_without_reordering_polygon_points (pipeline.landscape.export.tests.test_export.ExportTests.test_source_records_are_sorted_without_reordering_polygon_points) ... ok
+test_source_scan_pose_alternatives_and_unknown_surface_support (pipeline.landscape.export.tests.test_export.ExportTests.test_source_scan_pose_alternatives_and_unknown_surface_support) ... ok
+test_spawns_choose_by_type_and_horizontal_distance_individually (pipeline.landscape.export.tests.test_export.ExportTests.test_spawns_choose_by_type_and_horizontal_distance_individually) ... ok
+test_spawns_sample_terrain_and_keep_source_xz (pipeline.landscape.export.tests.test_export.ExportTests.test_spawns_sample_terrain_and_keep_source_xz) ... ok
+test_terrain_triangles_and_bounds_match_exactly (pipeline.landscape.export.tests.test_export.ExportTests.test_terrain_triangles_and_bounds_match_exactly) ... ok
+
+----------------------------------------------------------------------
+Ran 20 tests in 2.985s
+
+OK
+VALIDATOR exit=0 OK: 1 item(s) checked, 0 problem(s)
+```
