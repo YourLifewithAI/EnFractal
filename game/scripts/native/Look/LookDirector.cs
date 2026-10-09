@@ -645,6 +645,8 @@ public partial class LookDirector : Node3D
         OpenSea = OpenSea.Build(sea, _room.Bounds, meshes.Where(m => m.HasMeta(WaterMeta)),
             meshes.Where(m => !m.HasMeta(WaterMeta) && m.HasMeta(LandscapeLook.LandscapePaintedMeta)));
         AddChild(OpenSea);
+        // The sea's fish follow the player's body, as depth of field does; never the Gubble.
+        OpenSea.SetSwimmer(() => FocusTarget ?? GetParent()?.GetChildren().OfType<SmallPlayerController>().FirstOrDefault(c => c is not CompanionAvatar));
         if (Moment != null)
         {
             var skyLook = LookSky.At(Preset, Moment, _moonYaw);

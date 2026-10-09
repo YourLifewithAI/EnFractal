@@ -6,6 +6,7 @@ using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using EnFractal.Native;
 using EnFractal.Native.Look;
+using EnFractal.Native.Look.Fauna;
 using EnFractal.Native.Room;
 
 namespace EnFractal.Tests.Look;
@@ -182,6 +183,40 @@ public partial class LookPresetTest
                 $"at {at} the sea's surface is under the swimmer and every island keeps off");
         }
         Check(Mathf.IsEqualApprox(surface.GetShaderParameter("horizon_fade_end_m").AsSingle(), 100f * OpenSea.HorizonFadeEnd), "the far sea turns into the horizon just before the camera's far plane");
+        // The sea's look: the sea's water (and only water at its level) paints the sea's depths and foam; the distant islands wear
+        // their own copy of the backdrop's material, under the haze, wholly the horizon by the far plane (no sliver at the cut).
+        Check(surface.GetShaderParameter("use_sea").AsBool() && Mathf.IsEqualApprox(surface.GetShaderParameter("sea_level").AsSingle(), land.Sea.LevelM)
+            && surface.GetShaderParameter("foam_strength").AsSingle() > 0f && surface.GetShaderParameter("sea_deep_m").AsSingle() > 0.5f,
+            "the sea's water paints the sea's own depths (the lagoon light, the open sea deep) and its foam");
+        var islandMaterial = open.Islands[0].Mesh.GetSurfaceOverrideMaterial(0) as ShaderMaterial;
+        var floorMaterial = open.Floors[0].GetSurfaceOverrideMaterial(0) as ShaderMaterial;
+        Check(islandMaterial != null && floorMaterial != null && islandMaterial != floorMaterial && islandMaterial.GetShaderParameter("haze_max").AsSingle() > 0.3f
+            && floorMaterial.GetShaderParameter("haze_max").AsSingle() == 0f && Mathf.IsEqualApprox(islandMaterial.GetShaderParameter("haze_far_m").AsSingle(), 100f)
+            && open.Islands.All(i => i.Mesh.GetSurfaceOverrideMaterial(0) == islandMaterial),
+            "the distant islands sit under the haze, keep their silhouettes, and are wholly the horizon by the far plane; the floor keeps no haze");
+        // Fish in the sea's deeper water near the swimmer: a fixed number, kept near, never in the playable water, darting from the player.
+        var swimmerNode = new Node3D { Name = "Swimmer" };
+        holder.AddChild(swimmerNode);
+        var life = SeaLife.Create(land.Sea, () => swimmerNode);
+        holder.AddChild(life);
+        var count = life.Fish.Count;
+        foreach (var at in new[] { new Vector3(6f, -0.05f, -12f), new Vector3(60f, -0.05f, -90f), new Vector3(-700f, -0.05f, 400f) })
+        {
+            swimmerNode.GlobalPosition = at;
+            for (var step = 0; step < 30; step++) life.Advance(1f / 30f);
+            var placed = life.Anchors.OfType<Vector3>().ToArray();
+            Check(life.Fish.Count == count && placed.Length == SeaLife.SchoolCount && placed.All(a => new Vector2(a.X - at.X, a.Z - at.Z).Length() <= SeaLife.KeepWithinM && life.Habitable(new Vector2(a.X, a.Z)))
+                && life.Fish.All(f => f.Position.Y < land.Sea.LevelM && f.Position.Y > land.Sea.OpenSeaBedAt(new Vector2(f.Position.X, f.Position.Z))),
+                $"at {at} every school swims in deep open water within {SeaLife.KeepWithinM} m of the swimmer, between the bed and the surface ({count} fish)");
+        }
+        var nearestFish = life.Fish.OrderBy(f => f.Position.DistanceTo(swimmerNode.GlobalPosition)).First();
+        swimmerNode.GlobalPosition = nearestFish.Position + new Vector3(0.05f, 0f, 0f);
+        var before = nearestFish.Position.DistanceTo(swimmerNode.GlobalPosition);
+        for (var step = 0; step < 20; step++) life.Advance(1f / 30f);
+        Check(nearestFish.Position.DistanceTo(swimmerNode.GlobalPosition) > before + 0.08f, "a fish darts from the swimmer who comes close (and the Gubble is never one: SeaLife follows the player alone)");
+        swimmerNode.GlobalPosition = new Vector3(0f, 0.1f, 0f);
+        life.Advance(1f / 30f);
+        Check(life.Anchors.All(a => a == null || life.Habitable(new Vector2(a.Value.X, a.Value.Z))), "on the island the fish stay out in the open sea, never in the playable water");
         look.SetClock(19.5f, 172);
         var horizon = LookSky.At(look.Preset, look.Moment).Horizon;
         Check(surface.GetShaderParameter("horizon_color").AsColor().IsEqualApprox(horizon), "and into the sky's own horizon colour of the hour");

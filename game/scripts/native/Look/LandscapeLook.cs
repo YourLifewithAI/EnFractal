@@ -173,3 +173,18 @@ public sealed record WaterLook(
 
     public static WaterLook For(LandKind kind) => kind == LandKind.FlowingWater ? Flowing : Still;
 }
+
+/// <summary>
+/// How the island's sea is painted over the pond water it shares a material with (Run 2, the sea's look). Depths are metres in the
+/// 10 cm avatar's world: the lagoon (22 cm) reads a light turquoise, the open sea (66 cm and deeper) a deep blue-green, the reef's
+/// crest (2 cm under) breaks white. Foam fills water shallower than FoamDepthM in bands WaveSpacingM of depth apart that drift
+/// shoreward at WaveSpeed bands a second. The distant islands sit under a haze that reaches HazeMax of the horizon's colour
+/// between HazeStartM and HazeEndM, keeping their silhouettes.
+/// </summary>
+public sealed record SeaLook(
+    float DeepM, float ClarityM, Vector3 DeepTint, Color FoamColor, float FoamDepthM, float FoamStrength, float WaveSpacingM, float WaveSpeed,
+    float HazeStartM, float HazeEndM, float HazeMax)
+{
+    public static readonly SeaLook Default = new(0.55f, 0.1f, new Vector3(0.22f, 0.36f, 0.60f), new Color(0.95f, 0.97f, 0.95f), 0.06f, 0.9f, 0.012f, 0.25f,
+        3f, 45f, 0.55f);
+}

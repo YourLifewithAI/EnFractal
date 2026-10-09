@@ -79,6 +79,17 @@ uniform float stroke_normal_gain = 0.2;
 uniform float mark_fade_start = 0.15;
 uniform float mark_fade_end = 0.45;
 
+group_uniforms haze;
+// Aerial perspective for what stands out at sea (the distant islands, OpenSea): with distance the land gives way, up to
+// haze_max, to the sky's own horizon colour, so it sits under the haze yet keeps its silhouette. 0 leaves it off.
+uniform vec3 haze_color : source_color = vec3(0.75, 0.85, 0.93);
+uniform float haze_energy = 1.0;
+uniform float haze_start_m = 0.0;
+uniform float haze_end_m = 1.0;
+uniform float haze_max : hint_range(0.0, 1.0) = 0.0;
+// The camera's far plane: toward it the land turns wholly into the horizon, so an island the far plane cuts leaves no sliver.
+uniform float haze_far_m = 0.0;
+
 // A prop's own seed (a cottage); the land's parts leave it at zero so marks continue across them.
 instance uniform float paint_seed = 0.0;
 
@@ -458,6 +469,12 @@ void fragment() {
 	// The sky seen at a grazing angle in still water: a soft cool rim, no reflection probes needed.
 	float ndv0 = clamp(dot(NORMAL, normalize(VIEW)), 0.0, 1.0);
 	EMISSION = vec3(0.55, 0.74, 0.92) * pow(1.0 - ndv0, 4.0) * sky_rim * 0.35;
+	if (haze_max > 0.0) {
+		float haze = haze_max * smoothstep(haze_start_m, haze_end_m, length(VERTEX));
+		if (haze_far_m > 0.0) haze = max(haze, smoothstep(0.7 * haze_far_m, 0.95 * haze_far_m, length(VERTEX)));
+		ALBEDO *= 1.0 - haze;
+		EMISSION = mix(EMISSION, haze_color * haze_energy, haze);
+	}
 }
 
 void light() {

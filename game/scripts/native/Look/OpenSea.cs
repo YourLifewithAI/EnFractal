@@ -2,6 +2,7 @@ using Godot;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using EnFractal.Native.Look.Fauna;
 using EnFractal.Native.Room;
 
 namespace EnFractal.Native.Look;
@@ -66,6 +67,17 @@ public partial class OpenSea : Node3D
 
     private readonly List<DistantIsland> _islands = new();
     private readonly List<MeshInstance3D> _floors = new();
+    private ShaderMaterial? _islandMaterial;
+    /// <summary>The fish in the sea's deeper water near the swimmer (null until the look names the swimmer).</summary>
+    public SeaLife? Life { get; private set; }
+
+    /// <summary>The sea's fish follow this swimmer (the player; never the Gubble): the look hands it over once the room is dressed.</summary>
+    public void SetSwimmer(Func<Node3D?> swimmer)
+    {
+        if (Life != null) return;
+        Life = SeaLife.Create(Sea, swimmer);
+        AddChild(Life);
+    }
     private readonly List<ShaderMaterial> _water = new();
     private float _far = -1f;
 
@@ -122,6 +134,12 @@ public partial class OpenSea : Node3D
         Vector3[] rim = Array.Empty<Vector3>();
         Color[] rimColours = Array.Empty<Color>();
         Material? floorMaterial = null;
+        // The sea's own look on its water (the lagoon light, the open sea deep, foam on the reef and the beaches).
+        foreach (var material in open._water)
+        {
+            material.SetShaderParameter("use_sea", true);
+            material.SetShaderParameter("sea_level", sea.LevelM);
+        }
         foreach (var mesh in backdrop)
         {
             open.LiftIslands(mesh);
@@ -230,7 +248,7 @@ public partial class OpenSea : Node3D
                 Name = $"DistantIsland{_islands.Count}", Mesh = pieceMesh, MaterialOverride = null, Transform = world,
                 CastShadow = backdrop.CastShadow, GIMode = GeometryInstance3D.GIModeEnum.Disabled,
             };
-            instance.SetSurfaceOverrideMaterial(0, material);
+            instance.SetSurfaceOverrideMaterial(0, IslandMaterial(material));
             instance.SetMeta(LookDirector.DressedMeta, true);
             AddChild(instance);
             _islands.Add(new DistantIsland(instance, offset, keep, world.Origin));
@@ -378,9 +396,28 @@ public partial class OpenSea : Node3D
         return bearing * reach;
     }
 
-    /// <summary>The sky's horizon (its colour and brightness, as the sky shader draws it) for the far sea to turn into.</summary>
+    /// <summary>The distant islands' own copy of the backdrop's painterly material, with the haze (SeaLook) turned on.</summary>
+    private Material? IslandMaterial(Material? material)
+    {
+        if (material is not ShaderMaterial land || !land.HasMeta("landscape")) return material;
+        if (_islandMaterial != null) return _islandMaterial;
+        _islandMaterial = (ShaderMaterial)land.Duplicate();
+        _islandMaterial.ResourceName = "distant islands";
+        var look = SeaLook.Default;
+        _islandMaterial.SetShaderParameter("haze_start_m", look.HazeStartM);
+        _islandMaterial.SetShaderParameter("haze_end_m", look.HazeEndM);
+        _islandMaterial.SetShaderParameter("haze_max", look.HazeMax);
+        return _islandMaterial;
+    }
+
+    /// <summary>The sky's horizon (its colour and brightness, as the sky shader draws it) for the far sea and the islands' haze to turn into.</summary>
     public void SetHorizon(Color horizon, float brightness)
     {
+        if (_islandMaterial != null)
+        {
+            _islandMaterial.SetShaderParameter("haze_color", horizon);
+            _islandMaterial.SetShaderParameter("haze_energy", brightness);
+        }
         foreach (var material in _water)
         {
             material.SetShaderParameter("horizon_color", horizon);
@@ -392,6 +429,7 @@ public partial class OpenSea : Node3D
     {
         if (Mathf.IsEqualApprox(far, _far)) return;
         _far = far;
+        _islandMaterial?.SetShaderParameter("haze_far_m", far);
         foreach (var material in _water)
         {
             material.SetShaderParameter("horizon_fade_start_m", far * HorizonFadeStart);
