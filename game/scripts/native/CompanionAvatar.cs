@@ -17,7 +17,13 @@ namespace EnFractal.Native;
 public partial class CompanionAvatar : SmallPlayerController
 {
     public string CompanionId { get; private set; } = "local_companion";
-    public string CompanionName { get; private set; } = "Wisp";
+    /// <summary>The founder's name for the companion (8 October): the Gubble. The player may rename it in the customization panel.</summary>
+    public const string DefaultName = "the Gubble";
+    /// <summary>The name the companion had before it was the Gubble; a saved profile still holding it takes the new default.</summary>
+    public const string FormerDefaultName = "Wisp";
+    public string CompanionName { get; private set; } = DefaultName;
+    /// <summary>The name tag over the body: the name with a capital, as a name stands on its own ("The Gubble").</summary>
+    public string NameTag => CompanionName.Length > 0 ? char.ToUpperInvariant(CompanionName[0]) + CompanionName[1..] : CompanionName;
     public string CurrentIntent { get; private set; } = "stay";
     public bool GoalBlocked { get; private set; }
     public bool IsPointing => _pointer != null && _pointer.Visible;
@@ -109,6 +115,23 @@ public partial class CompanionAvatar : SmallPlayerController
     /// <summary>The corners of the route last planned (empty when none).</summary>
     public Vector3[] RoutePoints => _route.Points;
 
+    // The Gubble floats (founder, 8 October: "a ghost bubble, set apart from the world"). It walks the planned route while
+    // that reaches its goal, hovering over the ground; when the walk cannot take it there (up a cliff, across water, a long way
+    // round), it floats straight there instead, rising over what is in its way and never through it.
+    /// <summary>A walking route counts as reaching only if it ends this level with its goal (a cliff top over its foot does not).</summary>
+    public const float WalkLevelM = 0.06f;
+    /// <summary>A walk this many times the straight way (and FloatDetourM more) is too long a way round: it floats instead.</summary>
+    public const float FloatDetourFactor = 2.5f;
+    public const float FloatDetourM = 0.5f;
+    /// <summary>Within this height of the player (feet to feet), the companion is level with them: follow rests, come arrives.</summary>
+    public const float LevelGapM = 0.12f;
+    /// <summary>True while the companion floats straight to its goal instead of walking a route.</summary>
+    public bool FloatingThere => _floating;
+    /// <summary>How many times the companion has chosen to float rather than walk.</summary>
+    public int FloatStarts { get; private set; }
+    /// <summary>The point of the go_to box the companion makes for: the side it can reach (meaningful while CurrentIntent is "go_to").</summary>
+    public Vector3 GoToAim => _goToAim;
+
     private SmallPlayerController? _player;
     private Node3D _pointer = null!;
     private Label3D _label = null!;
@@ -130,14 +153,19 @@ public partial class CompanionAvatar : SmallPlayerController
     private Vector3 _progressAnchor;
     private double _progressTime;
     private bool _stuck;
+    private bool _floating;
+    private float? _holdY;
+    private Vector3 _goToAim;
+    private double _goToAimAge;
+    private int _goToAimRevision = -1;
 
     public override void _Ready()
     {
         ReadKeyboard = false;
-        // The Gubble never climbs or swims (founder, 8 October): it will float over water and up cliffs instead (Lane P,
-        // part 2). Until then its body walks exactly as before, unslowed by water.
+        // The Gubble never climbs, swims or walks on the ground (founder, 8 October): it floats, over water and up cliffs.
         CanClimb = false;
         CanSwim = false;
+        Floats = true;
         WalkSpeedMps = CompanionWalkMps;
         RunSpeedMps = CompanionRunMps;
         GroundAccelerationMps2 = CompanionGroundAccelerationMps2;
@@ -154,7 +182,7 @@ public partial class CompanionAvatar : SmallPlayerController
         var h = BodyHeightM;
         _label = new Label3D
         {
-            Name = "CompanionLabel", Text = CompanionName + " · companion",
+            Name = "CompanionLabel", Text = NameTag,
             Position = Vector3.Up * (h * 1.35f), FontSize = 30, OutlineSize = 4, PixelSize = 0.0003f, FixedSize = true,
             Modulate = new Color("f6dfab"), OutlineModulate = new Color("18332d"),
             Billboard = BaseMaterial3D.BillboardModeEnum.Enabled, NoDepthTest = false,
@@ -217,7 +245,7 @@ public partial class CompanionAvatar : SmallPlayerController
         if (string.IsNullOrWhiteSpace(name) || name.Length > 40) return;
         foreach (var c in name) if (char.IsControl(c)) return;
         CompanionName = name.Trim();
-        if (_label != null) _label.Text = CompanionName + " · companion";
+        if (_label != null) _label.Text = NameTag;
     }
 
     public void BindPlayer(SmallPlayerController player) => _player = player;
@@ -244,6 +272,7 @@ public partial class CompanionAvatar : SmallPlayerController
         BeginIntent("go_to");
         _goToTarget = target.Abs();
         _goToArrivalM = Mathf.Max(0.005f, arrivalM);
+        _goToAimRevision = -1;
     }
 
     private void BeginIntent(string intent)
@@ -256,6 +285,8 @@ public partial class CompanionAvatar : SmallPlayerController
         _route = RoomNavigation.Route.None;
         _stuck = false;
         _progressTime = 0;
+        _floating = false;
+        _holdY = null;
         if (_pointer != null) _pointer.Visible = false;
         SetControlInput(Vector2.Zero);
         Velocity = new Vector3(0, Velocity.Y, 0);
@@ -293,6 +324,9 @@ public partial class CompanionAvatar : SmallPlayerController
         var dt = Mathf.Clamp((float)delta, 0, 0.05f);
         GoalBlocked = false;
         FollowingRoute = false;
+        // Walking hovers over the ground and ducks under what is low; only a float rises over things (set by the goals below).
+        RiseOverObstacles = false;
+        FloatAltitudeFloorY = _holdY;
         var desired = Vector3.Zero;
         var hasPlayer = HasPlayer();
         // Gravity is a world property: the companion lives under the same profile the player was given.
@@ -302,8 +336,9 @@ public partial class CompanionAvatar : SmallPlayerController
             var playerOffset = Planar(GlobalPosition - _player!.GlobalPosition);
             if (CurrentIntent == "follow") desired = FollowVelocity(playerOffset, dt);
             // Stay may yield, but an explicit Stop cancels navigation. The player
-            // can still pass because its collision mask excludes the companion.
-            else if (CurrentIntent != "stop" && playerOffset.Length() < YieldM)
+            // can still pass because its collision mask excludes the companion. Floating above or below the player (over
+            // the wall it rose over), it is in nobody's way.
+            else if (CurrentIntent != "stop" && playerOffset.Length() < YieldM && Mathf.Abs(GlobalPosition.Y - _player.GlobalPosition.Y) <= LevelGapM)
                 desired = (playerOffset.LengthSquared() < 0.0001f ? GlobalBasis.X : playerOffset.Normalized()) * WalkSpeedMps;
             else if (CurrentIntent == "come") desired = ComeVelocity(playerOffset, dt);
             else if (CurrentIntent == "go_to") desired = GoToVelocity(dt);
@@ -359,14 +394,28 @@ public partial class CompanionAvatar : SmallPlayerController
         var placeDistance = toPlace.Length();
         // Something between the companion and its place (it is behind the box): that is out of the band too.
         var routed = PlanRoute(place, 0.05f, dt);
-        var detour = routed && !_route.Direct && _route.LengthM > placeDistance + DetourM;
+        var detour = routed && !_route.Direct && _route.LengthM > placeDistance + DetourM && !_floating;
         // In a narrow gap the walkable place can be nearer than the band's edge; never chase away from it.
         var near = Mathf.Min(FollowNearM, Planar(place - _player.GlobalPosition).Length() - 0.02f);
+        // Far above or below the player (up a cliff, in a tree, across the water from a bank) is out of the band too.
+        var apart = Mathf.Abs(GlobalPosition.Y - _player.GlobalPosition.Y) > LevelGapM;
         if (!_following)
-            _following = distance > FollowFarM || distance < near || detour || (moving && placeDistance > 0.06f);
-        else if (!moving && !detour && (placeDistance < 0.02f || (distance > near + 0.02f && distance < FollowFarM - 0.06f)))
+            _following = distance > FollowFarM || distance < near || detour || apart || (moving && placeDistance > 0.06f);
+        else if (!moving && !detour && !apart && (placeDistance < 0.02f || (distance > near + 0.02f && distance < FollowFarM - 0.06f)))
             _following = false;
-        if (!_following) return Vector3.Zero;
+        if (!_following)
+        {
+            _floating = false;
+            return Vector3.Zero;
+        }
+        if (ChooseFloat(place, routed))
+        {
+            RiseOverObstacles = true;
+            FloatAltitudeFloorY = place.Y;
+            var floating = (moving ? playerVelocity : Vector3.Zero) + toPlace * FollowGainPerS;
+            if (!moving && floating.Length() < MinApproachMps && placeDistance > 0.005f) floating = floating.Normalized() * MinApproachMps;
+            return floating.LimitLength(RunSpeedMps);
+        }
         // Honest about a place it cannot reach: it goes as near as the floor allows and says blocked.
         if (routed && !_route.Reaches) GoalBlocked = true;
         if (detour || (routed && !_route.Reaches))
@@ -380,24 +429,57 @@ public partial class CompanionAvatar : SmallPlayerController
     /// <summary>The place beside the player on the walkable side: when a wall or furniture covers that side, the other one.</summary>
     private Vector3 FollowPlace(Vector3 right)
     {
+        // A climbing player: just off the face beside them, where the companion floats while they climb.
+        if (_player!.IsClimbing)
+        {
+            var outward = Planar(_player.ClimbNormal);
+            if (outward.LengthSquared() > 0.0001f) return _player.GlobalPosition + outward.Normalized() * FollowSideM;
+        }
         Vector3 At(float side) => _player!.GlobalPosition + right * (side * FollowSideM) + _travel * FollowLeadM;
         var place = At(_followSide);
         if (!NavigationReady) return place;
+        // How far a place is from the walkable mesh: across, or up and down beyond the level band (the place beside a
+        // player on a crown or a cliff top is over ground far below, the place beside a swimmer over the pond's bed).
+        float Off(Vector3 wanted, Vector3 snapped) =>
+            Mathf.Max(Planar(snapped - wanted).Length(), Mathf.Abs(snapped.Y - wanted.Y) > LevelGapM ? float.PositiveInfinity : 0);
         var snapped = Navigation!.ClosestPoint(place);
-        var offMesh = Planar(snapped - place).Length();
+        var offMesh = Off(place, snapped);
         // Within an agent radius of the walkable mesh, the place is only nudged off a wall (was 8 cm, the old agent radius).
         if (offMesh <= Navigation.AgentRadiusM) return snapped;
         var other = At(-_followSide);
         var otherSnapped = Navigation.ClosestPoint(other);
-        if (Planar(otherSnapped - other).Length() >= offMesh - 0.5f * Navigation.AgentRadiusM) return snapped;
-        _followSide = -_followSide;
-        return otherSnapped;
+        var otherOff = Off(other, otherSnapped);
+        if (otherOff <= Navigation.AgentRadiusM || otherOff < offMesh - 0.5f * Navigation.AgentRadiusM)
+        {
+            _followSide = -_followSide;
+            (place, snapped, offMesh) = (other, otherSnapped, otherOff);
+        }
+        // Far from anything walkable (over water, up a tree, out at sea): the place itself, where the companion floats.
+        return float.IsPositiveInfinity(offMesh) || offMesh > 2 * Navigation.AgentRadiusM ? place : snapped;
     }
 
     private Vector3 ComeVelocity(Vector3 playerOffset, float dt)
     {
         var distance = playerOffset.Length();
         var routed = PlanRoute(_player!.GlobalPosition, ComeArrivalM + 0.05f, dt);
+        if (ChooseFloat(_player.GlobalPosition, routed))
+        {
+            var level = Mathf.Abs(GlobalPosition.Y - _player.GlobalPosition.Y) <= LevelGapM;
+            var clear = ClearTo(_player.GlobalPosition + Vector3.Up * (_player.BodyHeightM * 0.5f), _player.GetRid());
+            if (distance <= ComeArrivalM && level && clear)
+            {
+                ComeArrivedSerial = IntentSerial;
+                ArriveFloating();
+                return Vector3.Zero;
+            }
+            RiseOverObstacles = true;
+            FloatAltitudeFloorY = _player.GlobalPosition.Y;
+            // Not yet level with the player, or something between: it keeps on toward them (up the face in its way, over the
+            // wall and down beside them) until it arrives.
+            if (distance < 1e-4f) return Vector3.Zero;
+            var approach = Mathf.Clamp((distance - ComeArrivalM + 0.02f) * FollowGainPerS, MinApproachMps, RunSpeedMps);
+            return -playerOffset / distance * approach;
+        }
         // Close in a straight line but with a wall or box between does not count as arrived, and neither does a
         // player it cannot reach at all (across a thin wall): that is blocked, honestly (Lane P review).
         var detour = routed && !_route.Direct && _route.LengthM > distance + DetourM;
@@ -421,11 +503,32 @@ public partial class CompanionAvatar : SmallPlayerController
         var here = GlobalPosition;
         var low = _goToTarget.Position;
         var high = _goToTarget.End;
-        var nearest = new Vector3(Mathf.Clamp(here.X, low.X, high.X), here.Y, Mathf.Clamp(here.Z, low.Z, high.Z));
-        var offset = Planar(nearest - here);
-        var distance = offset.Length();
-        var routed = PlanRoute(nearest, _goToArrivalM, dt);
-        var detour = routed && !_route.Direct && _route.LengthM > distance + DetourM;
+        var nearest = new Vector3(Mathf.Clamp(here.X, low.X, high.X), Mathf.Clamp(here.Y, low.Y, high.Y), Mathf.Clamp(here.Z, low.Z, high.Z));
+        var distance = Planar(nearest - here).Length();
+        // The side of the box the walk can reach (backlog: the nearest reachable side, not the nearest side across a wall).
+        var aim = ReachableSide(dt);
+        var routed = PlanRoute(aim, _goToArrivalM, dt);
+        if (ChooseFloat(aim, routed))
+        {
+            // Level with the box: its bottom no higher than the level band over the feet, its top no lower than reach under them.
+            var level = low.Y - here.Y <= LevelGapM && here.Y - high.Y <= ReachM;
+            var clear = ClearTo(nearest + (here - nearest).Normalized() * 0.01f, default);
+            if (distance <= _goToArrivalM && level && clear)
+            {
+                GoToArrivedSerial = IntentSerial;
+                ArriveFloating();
+                return Vector3.Zero;
+            }
+            RiseOverObstacles = true;
+            FloatAltitudeFloorY = low.Y;
+            var toward = Planar(nearest - here);
+            if (distance < 1e-4f) return Vector3.Zero;
+            var approach = Mathf.Clamp((distance - _goToArrivalM + 0.02f) * FollowGainPerS, MinApproachMps, RunSpeedMps);
+            return toward / distance * approach;
+        }
+        var offset = Planar(aim - here);
+        var aimDistance = offset.Length();
+        var detour = routed && !_route.Direct && _route.LengthM > aimDistance + DetourM;
         if (distance <= _goToArrivalM && !detour)
         {
             // Arrived: the command host finishes this go_to's job (the serial tells it which one it was).
@@ -437,7 +540,76 @@ public partial class CompanionAvatar : SmallPlayerController
         if (detour || (routed && !_route.Reaches))
             return RouteVelocity(Mathf.Clamp((_route.LengthM - _goToArrivalM + 0.02f) * FollowGainPerS, MinApproachMps, RunSpeedMps));
         var speed = Mathf.Clamp((distance - _goToArrivalM + 0.02f) * FollowGainPerS, MinApproachMps, RunSpeedMps);
-        return offset / distance * speed;
+        return aimDistance > 0.0001f ? offset / aimDistance * speed : Vector3.Zero;
+    }
+
+    /// <summary>
+    /// Where a go_to makes for: of the walkable points just outside the box's footprint (its sides and corners, and the
+    /// nearest point), the one with the shortest walk that reaches it, chosen again as the map or the body moves on. Without
+    /// a walkable map, or with no side the walk reaches, the nearest point of the footprint (the companion then floats there).
+    /// </summary>
+    private Vector3 ReachableSide(float dt)
+    {
+        var here = GlobalPosition;
+        var low = _goToTarget.Position;
+        var high = _goToTarget.End;
+        var nearest = new Vector3(Mathf.Clamp(here.X, low.X, high.X), Mathf.Clamp(here.Y, low.Y, high.Y), Mathf.Clamp(here.Z, low.Z, high.Z));
+        _goToAimAge += dt;
+        if (!NavigationReady) return _goToAim = nearest;
+        if (_goToAimRevision == Navigation!.Revision && _goToAimAge < 0.5) return _goToAim;
+        _goToAimAge = 0;
+        _goToAimRevision = Navigation.Revision;
+        var centre = _goToTarget.GetCenter();
+        var standOff = Navigation.AgentRadiusM;
+        var best = nearest;
+        var bestLength = float.PositiveInfinity;
+        foreach (var (x, z) in new[] { (-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1), (2, 2) })
+        {
+            var outside = x == 2 ? nearest + Planar(nearest - centre).Normalized() * standOff
+                : new Vector3(x < 0 ? low.X - standOff : x > 0 ? high.X + standOff : centre.X, low.Y, z < 0 ? low.Z - standOff : z > 0 ? high.Z + standOff : centre.Z);
+            var candidate = Navigation.ClosestPoint(outside);
+            var footprint = new Vector3(Mathf.Clamp(candidate.X, low.X, high.X), candidate.Y, Mathf.Clamp(candidate.Z, low.Z, high.Z));
+            // It must stand within the arrival distance of the footprint, level with the box's bottom.
+            if (Planar(candidate - footprint).Length() > _goToArrivalM || Mathf.Abs(candidate.Y - low.Y) > LevelGapM) continue;
+            var route = Navigation.FindRoute(here, candidate, 0.02f);
+            if (!route.Reaches || route.LengthM >= bestLength) continue;
+            best = candidate;
+            bestLength = route.LengthM;
+        }
+        return _goToAim = best;
+    }
+
+    /// <summary>
+    /// Float or walk: the walk while the planned route reaches the goal, level with it, and not a long way round; otherwise
+    /// float. Once floating it floats until the goal changes, it arrives, or follow comes to rest.
+    /// </summary>
+    private bool ChooseFloat(Vector3 goal, bool routed)
+    {
+        if (_floating) return true;
+        if (routed && _route.Reaches && Mathf.Abs(_route.Points[^1].Y - goal.Y) <= WalkLevelM &&
+            _route.LengthM <= (goal - GlobalPosition).Length() * FloatDetourFactor + FloatDetourM) return false;
+        _floating = true;
+        FloatStarts++;
+        return true;
+    }
+
+    /// <summary>Nothing solid between the body's middle and a point (the point's own body left out).</summary>
+    private bool ClearTo(Vector3 point, Rid ignore)
+    {
+        var from = GlobalPosition + Vector3.Up * (BodyHeightM * 0.5f);
+        var query = PhysicsRayQueryParameters3D.Create(from, point, RoomBuilder.BodyMask);
+        var exclude = new Godot.Collections.Array<Rid> { GetRid() };
+        if (ignore.IsValid) exclude.Add(ignore);
+        query.Exclude = exclude;
+        return GetWorld3D().DirectSpaceState.IntersectRay(query).Count == 0;
+    }
+
+    /// <summary>Arrived by floating: it stays, holding its height (beside a player up a tree, it does not sink to the ground below).</summary>
+    private void ArriveFloating()
+    {
+        var height = GlobalPosition.Y;
+        Stay();
+        _holdY = height;
     }
 
     private bool NavigationReady => Navigation != null && GodotObject.IsInstanceValid(Navigation) && Navigation.IsReady;
@@ -487,7 +659,8 @@ public partial class CompanionAvatar : SmallPlayerController
         }
         _progressTime += dt;
         if (_progressTime < StuckAfterS) return;
-        _stuck = Planar(GlobalPosition - _progressAnchor).Length() < StuckDistanceM;
+        // Floating up a cliff or over a wall is progress too.
+        _stuck = (_floating ? GlobalPosition - _progressAnchor : Planar(GlobalPosition - _progressAnchor)).Length() < StuckDistanceM;
         if (_stuck) _routeAge = RouteRefreshS;
         _progressTime = 0;
         _progressAnchor = GlobalPosition;
@@ -497,7 +670,8 @@ public partial class CompanionAvatar : SmallPlayerController
     private void MoveWith(Vector3 desired, float dt)
     {
         var speed = desired.Length();
-        var heading = ChooseClearDirection(desired / speed);
+        // Floating heads straight for its goal (the body rises over or ducks under what is in the way); walking steers locally.
+        var heading = _floating ? desired / speed : ChooseClearDirection(desired / speed);
         if (heading.LengthSquared() == 0)
         {
             GoalBlocked = true;
@@ -545,7 +719,8 @@ public partial class CompanionAvatar : SmallPlayerController
                 candidate = candidate.Normalized();
             }
             var probe = candidate * SteeringProbeM;
-            if (!HasSupportNear(GlobalPosition + probe)) continue;
+            // A floating body needs no ground ahead: off a ledge or over water it hovers over what is there.
+            if (!Floats && !HasSupportNear(GlobalPosition + probe)) continue;
             // Flat travel does not require the extra headroom used for a step.
             if (!TestMove(GlobalTransform, probe, null, SafeMargin)) return candidate;
             var raised = GlobalTransform;

@@ -84,6 +84,7 @@ public partial class SmallAvatarPhysicsTest : Node3D
             await TestClimbing();
             await TestSwimming();
             await TestClimbableTree();
+            await TestGubbleFloats();
             var metrics = await RunJitterSuite(1.0f, new Vector3(0, 0, 30));
             CheckJitter(metrics);
             if (OS.GetCmdlineUserArgs().Contains("--jitter-spike"))
@@ -454,6 +455,8 @@ public partial class SmallAvatarPhysicsTest : Node3D
         Box(new Vector3(2.0f, 0.20f, 4.10f), new Vector3(0.65f, 0.4f, 0.08f));
         Box(new Vector3(1.675f, 0.20f, 4.425f), new Vector3(0.08f, 0.4f, 0.65f));
         Box(new Vector3(2.325f, 0.20f, 4.425f), new Vector3(0.08f, 0.4f, 0.65f));
+        // The Gubble floats over an open pen's walls; a lid makes the pen one it really cannot leave.
+        Box(new Vector3(2.0f, 0.41f, 4.425f), new Vector3(0.73f, 0.02f, 0.73f));
         await Frames(2);
         Check(_companion.TryTeleportTo(new Vector3(2, 0.01f, 4.425f)), "blocked-route fixture admits companion safely");
         _companion.Follow();
@@ -515,14 +518,27 @@ public partial class SmallAvatarPhysicsTest : Node3D
         Check(_player.TryTeleportTo(playerSpot) && _companion.TryTeleportTo(behind), "player in front of the box, companion behind it");
         _player.Rotation = Vector3.Zero;
 
-        // The founder's report, reproduced: local steering alone stays stuck behind the box.
+        // The founder's report was that local steering alone stayed stuck behind the box. Without a walkable map the Gubble
+        // now floats straight there instead, over the 30 cm box, never through it.
         _companion.BindNavigation(null);
         _companion.Come();
         var reported = false;
-        for (var i = 0; i < 240; i++) { await Frames(1); reported |= _companion.GoalBlocked; }
+        var overBox = 0.0f;
+        var intoBox = false;
+        for (var i = 0; i < 360 && _companion.CurrentIntent == "come"; i++)
+        {
+            await Frames(1);
+            reported |= _companion.GoalBlocked;
+            // Over the box by more than its radius (its rounded foot may round the edge), the body must be above the top.
+            if (ClearanceFromSquare(_companion.GlobalPosition, boxCentre, half - _companion.BodyRadiusM) == 0)
+            {
+                overBox = Mathf.Max(overBox, _companion.GlobalPosition.Y);
+                intoBox |= _companion.GlobalPosition.Y < 0.30f - 0.002f;
+            }
+        }
         var gap = PlanarDistance(_companion.GlobalPosition, _player.GlobalPosition);
-        Report(_companion.CurrentIntent == "come" && gap > CompanionAvatar.ComeArrivalM + 0.2f,
-            $"without navigation come stays stuck behind the box, as the founder saw (gap={gap:0.00} m, reported blocked={reported})");
+        Report(_companion.CurrentIntent == "stay" && gap <= CompanionAvatar.ComeArrivalM + 0.02f && overBox > 0.30f && !intoBox,
+            $"without navigation come floats over the box instead of staying stuck behind it as the founder saw (gap={gap:0.00} m, highest over the box {overBox:0.000} m, into it {intoBox})");
 
         // With navigation it walks round the box and arrives, never entering the box.
         _companion.Stop();
@@ -570,8 +586,32 @@ public partial class SmallAvatarPhysicsTest : Node3D
         Box(pen + new Vector3(0.325f, 0.20f, 0), new Vector3(0.08f, 0.4f, 0.65f));
         revision = _navigation.Revision;
         for (var i = 0; i < 120 && _navigation.Revision == revision; i++) await Frames(1);
+        Check(_companion.TryTeleportTo(pen + new Vector3(0, 0.01f, 0)), "companion inside the walled pen");
+        Check(!_navigation.FindRoute(_companion.GlobalPosition, _player.GlobalPosition, CompanionAvatar.ComeArrivalM + 0.05f).Reaches, "the navigation finds no way out of the walled pen");
+        // The Gubble floats: with no walk out, it rises over the 40 cm walls (never through them) and comes to the player.
+        var floatStarts = _companion.FloatStarts;
+        var rises = _companion.RiseTicks;
+        _companion.Come();
+        var through = false;
+        var highest = 0.0f;
+        var penFrames = 0;
+        for (; penFrames < 900 && _companion.CurrentIntent == "come"; penFrames++)
+        {
+            await Frames(1);
+            highest = Mathf.Max(highest, _companion.GlobalPosition.Y);
+            // Inside a wall's footprint below its top would be passing through it.
+            var local = _companion.GlobalPosition - pen;
+            through |= _companion.GlobalPosition.Y < 0.40f && Mathf.Max(Mathf.Abs(local.X), Mathf.Abs(local.Z)) is > 0.285f - 0.02f and < 0.365f + 0.02f &&
+                Mathf.Min(Mathf.Abs(local.X), Mathf.Abs(local.Z)) < 0.365f;
+        }
+        gap = PlanarDistance(_companion.GlobalPosition, _player.GlobalPosition);
+        Report(_companion.FloatStarts > floatStarts && _companion.RiseTicks > rises && highest > 0.40f && !through && _companion.CurrentIntent == "stay" &&
+            gap <= CompanionAvatar.ComeArrivalM + 0.02f,
+            $"with no walk out of a walled pen, the Gubble floats up over the 40 cm wall, never through it, and arrives (highest {highest:0.000} m, {penFrames / 60.0f:0.0} s, gap {gap:0.00} m)");
+        // A lid makes the pen one it really cannot leave: that is reported, and it stays inside.
+        Box(pen + new Vector3(0, 0.41f, 0), new Vector3(0.73f, 0.02f, 0.73f));
+        await Frames(2);
         Check(_companion.TryTeleportTo(pen + new Vector3(0, 0.01f, 0)), "companion inside the closed pen");
-        Check(!_navigation.FindRoute(_companion.GlobalPosition, _player.GlobalPosition, CompanionAvatar.ComeArrivalM + 0.05f).Reaches, "the navigation finds no way out of the closed pen");
         _companion.Come();
         reported = false;
         var escaped = false;
@@ -582,11 +622,12 @@ public partial class SmallAvatarPhysicsTest : Node3D
             escaped |= !Overlaps(_companion.GlobalPosition, pen, 0.285f);
         }
         Report(reported && !escaped && _companion.CurrentIntent == "come",
-            $"an unreachable come reports blocked and never crosses the pen walls (blocked={reported}, escaped={escaped})");
+            $"an unreachable come (a closed pen) reports blocked and never crosses the pen walls or its lid (blocked={reported}, escaped={escaped})");
         _companion.Stop();
 
         // Lane P review: across a thin wall the player can be inside the come distance yet unreachable. That is
-        // blocked, not arrived. A pen of 1 cm walls with the player inside it and the companion 7 cm away outside.
+        // not arrived. A pen of 1 cm walls with the player inside it and the companion 12.5 cm away outside. (The Gubble
+        // floats: it does not arrive through the wall, it rises over it and comes down beside the player.)
         var thin = new Vector3(3.0f, 0, -3.0f);
         Box(thin + new Vector3(0, 0.15f, 0.25f), new Vector3(0.51f, 0.3f, 0.01f));
         Box(thin + new Vector3(0, 0.15f, -0.25f), new Vector3(0.51f, 0.3f, 0.01f));
@@ -594,17 +635,27 @@ public partial class SmallAvatarPhysicsTest : Node3D
         Box(thin + new Vector3(0.25f, 0.15f, 0), new Vector3(0.01f, 0.3f, 0.51f));
         revision = _navigation.Revision;
         for (var i = 0; i < 120 && _navigation.Revision == revision; i++) await Frames(1);
-        Check(_player.TryTeleportTo(thin + new Vector3(0.215f, 0.003f, 0)) && _companion.TryTeleportTo(thin + new Vector3(0.285f, 0.01f, 0)),
+        Check(_player.TryTeleportTo(thin + new Vector3(0.175f, 0.003f, 0)) && _companion.TryTeleportTo(thin + new Vector3(0.30f, 0.01f, 0)),
             "the player inside a thin-walled pen, the companion just outside it");
         await Frames(5);
         var across = PlanarDistance(_companion.GlobalPosition, _player.GlobalPosition);
         Check(!_navigation.FindRoute(_companion.GlobalPosition, _player.GlobalPosition, CompanionAvatar.ComeArrivalM + 0.05f).Reaches,
             "the route ending beside the thin wall does not count as reaching the player behind it");
         _companion.Come();
-        reported = false;
-        for (var i = 0; i < 60; i++) { await Frames(1); reported |= _companion.GoalBlocked; }
-        Report(across <= CompanionAvatar.ComeArrivalM && _companion.CurrentIntent == "come" && reported,
-            $"come across a thin wall reports blocked instead of arrived (distance={across:0.000} m, intent={_companion.CurrentIntent}, blocked={reported})");
+        await Frames(5);
+        Report(across <= CompanionAvatar.ComeArrivalM && _companion.CurrentIntent == "come" && _companion.FloatingThere,
+            $"come across a thin wall does not arrive through it: the walk cannot reach, so the Gubble floats (distance={across:0.000} m, intent={_companion.CurrentIntent})");
+        var wallX = thin.X + 0.25f;
+        var crossedLow = false;
+        var thinFrames = 0;
+        for (; thinFrames < 600 && _companion.CurrentIntent == "come"; thinFrames++)
+        {
+            await Frames(1);
+            // Through the wall: from one side to the other below its 30 cm top.
+            crossedLow |= _companion.GlobalPosition.X < wallX && _companion.GlobalPosition.Y < 0.30f - 0.005f && _companion.GlobalPosition.X > wallX - 0.03f && thinFrames < 30;
+        }
+        Report(_companion.CurrentIntent == "stay" && _companion.GlobalPosition.X < wallX - 0.02f && !crossedLow,
+            $"it floats over the 30 cm wall and arrives on the player's side (at {_companion.GlobalPosition.X - wallX:0.000} m from the wall after {thinFrames / 60.0f:0.0} s)");
         _companion.Stop();
 
         // Lane P review: the re-bake fingerprint hashed shape instance ids, so a shape resized in place went unnoticed.
@@ -665,9 +716,15 @@ public partial class SmallAvatarPhysicsTest : Node3D
                     var how = drop ? "after an 8 mm drop" : "after a teleport";
                     var label = string.Create(CultureInfo.InvariantCulture,
                         $"{body.Name} on the {name} {how}: capsule {(shapeBottom - contact) * 1000:0.00} mm above the surface, visual {(meshBottom - contact) * 1000:0.00} mm (seat {body.SeatGapM * 1000:0.00} mm)");
-                    Report(body.IsOnFloor() && Mathf.Abs(shapeBottom - body.GlobalPosition.Y) < 0.00001f &&
-                        shapeBottom - contact >= -0.0002f && shapeBottom - contact <= SmallPlayerController.MaxSeatGapM &&
-                        meshBottom - contact < 0.001f && meshBottom - contact > -0.0002f, label);
+                    // The Gubble floats (founder, 8 October): it hovers its hover height over the surface, give or take its bob.
+                    if (body.Floats)
+                        Report(!body.IsOnFloor() && body.HoverSupportY is { } top && Mathf.Abs(top - contact) < 0.001f &&
+                            Mathf.Abs(shapeBottom - contact - body.HoverHeightM) <= SmallPlayerController.HoverBobM + 0.0015f && Mathf.Abs(meshBottom - shapeBottom) < 0.0005f,
+                            label + " (hovering)");
+                    else
+                        Report(body.IsOnFloor() && Mathf.Abs(shapeBottom - body.GlobalPosition.Y) < 0.00001f &&
+                            shapeBottom - contact >= -0.0002f && shapeBottom - contact <= SmallPlayerController.MaxSeatGapM &&
+                            meshBottom - contact < 0.001f && meshBottom - contact > -0.0002f, label);
                 }
             }
         // In the air the visual stays on the body: no seat is applied off the ground.
@@ -1394,6 +1451,80 @@ public partial class SmallAvatarPhysicsTest : Node3D
         built.QueueFree();
         await Frames(5);
         System.IO.Directory.Delete(ProjectSettings.GlobalizePath("user://tests/lane_p_tree"), true);
+    }
+
+    /// <summary>
+    /// The Gubble floats (founder, 8 October: "a ghost bubble, set apart from the world"; it never climbs, swims or gets
+    /// stuck). A bank, a 20 cm deep pool and a 30 cm cliff, off the walkable map: sent to the player on the cliff top, it
+    /// hovers over the water (never in it), rises up the cliff's face (never through it) and arrives level with the player,
+    /// then bobs gently in place. Off the walkable map, so the walk cannot reach and it floats.
+    /// </summary>
+    private async Task TestGubbleFloats()
+    {
+        var b = new Vector3(0, 0, -60);
+        const float surface = -0.02f;
+        Solid(b + new Vector3(-0.5f, -0.125f, 0), new BoxShape3D { Size = new Vector3(1.0f, 0.25f, 1.0f) });       // the bank, top at 0
+        Solid(b + new Vector3(0.4f, -0.225f, 0), new BoxShape3D { Size = new Vector3(0.8f, 0.05f, 1.0f) });         // the pool's bed at -0.2
+        Solid(b + new Vector3(1.2f, 0.025f, 0), new BoxShape3D { Size = new Vector3(0.8f, 0.55f, 1.0f) });         // the cliff, top at 0.3
+        var sheet = new SurfaceTool();
+        sheet.Begin(Mesh.PrimitiveType.Triangles);
+        foreach (var corner in new[] { new Vector2(0, -0.5f), new Vector2(0.8f, -0.5f), new Vector2(0.8f, 0.5f), new Vector2(0, -0.5f), new Vector2(0.8f, 0.5f), new Vector2(0, 0.5f) })
+            sheet.AddVertex(new Vector3(corner.X, surface, corner.Y));
+        var water = RoomWater.CreateCollider(new[] { ((Shape3D)sheet.Commit().CreateTrimeshShape(), Transform3D.Identity) });
+        water.Position = b;
+        AddChild(water);
+        await Frames(3);
+        Check(_companion.Floats && !_companion.CanClimb && !_companion.CanSwim && !_player.Floats, "the Gubble floats; the player walks, climbs and swims");
+        Check(_player.TryTeleportTo(b + new Vector3(1.1f, 0.31f, 0)) && _companion.TryTeleportTo(b + new Vector3(-0.3f, 0.01f, 0)),
+            "the player on the cliff top, the Gubble on the far bank of the pool");
+        await Frames(20);
+        var rises = _companion.RiseTicks;
+        var starts = _companion.FloatStarts;
+        _companion.Come();
+        var lowestOverWater = float.PositiveInfinity;
+        var sawWater = false;
+        var intoCliff = false;
+        var wetOrClimbing = false;
+        var frames = 0;
+        for (; frames < 900 && _companion.CurrentIntent == "come"; frames++)
+        {
+            await Frames(1);
+            var at = _companion.GlobalPosition - b;
+            if (at.X > 0.03f && at.X < 0.77f) lowestOverWater = Mathf.Min(lowestOverWater, at.Y);
+            sawWater |= _companion.HoversOverWater;
+            intoCliff |= at.X > 0.8f + _companion.BodyRadiusM && at.Y < 0.30f - 0.002f;
+            wetOrClimbing |= _companion.IsSwimming || _companion.IsClimbing;
+        }
+        var gap = PlanarDistance(_companion.GlobalPosition, _player.GlobalPosition);
+        var level = _companion.GlobalPosition.Y - _player.GlobalPosition.Y;
+        Report(_companion.CurrentIntent == "stay" && _companion.FloatStarts > starts && sawWater && lowestOverWater > surface + 0.01f && !wetOrClimbing,
+            $"the Gubble floats over the pool, never in it (lowest feet over the water {lowestOverWater:0.000} m, the surface at {surface:0.000} m; it never swam or climbed)");
+        // (It rises toward the player's height as it goes, so it may clear the face before meeting it; the pens test the rise up a face.)
+        Report(!intoCliff && gap <= CompanionAvatar.ComeArrivalM + 0.02f && Mathf.Abs(level) <= CompanionAvatar.LevelGapM,
+            $"it rises up the 30 cm cliff, never through it, and arrives level with the player on top (rose over a face for {_companion.RiseTicks - rises} ticks; gap {gap:0.00} m, {level * 100:0.0} cm above the player's feet, {frames / 60.0f:0.0} s)");
+        // At rest it hovers over the cliff top with a gentle bob, neither falling nor drifting off.
+        var low = float.PositiveInfinity;
+        var high = float.NegativeInfinity;
+        var rest = _companion.GlobalPosition;
+        for (var i = 0; i < 180; i++)
+        {
+            await Frames(1);
+            low = Mathf.Min(low, _companion.GlobalPosition.Y);
+            high = Mathf.Max(high, _companion.GlobalPosition.Y);
+        }
+        var support = _companion.HoverSupportY ?? float.NaN;
+        Report(high - low > SmallPlayerController.HoverBobM && high - low < 3 * SmallPlayerController.HoverBobM && PlanarDistance(_companion.GlobalPosition, rest) < 0.01f &&
+            low - support > _companion.HoverHeightM - 2 * SmallPlayerController.HoverBobM,
+            $"at rest it hovers {(low + high) * 0.5f - support:0.000} m over the cliff top and bobs {(high - low) * 1000:0.0} mm, in place");
+        // Back down: sent to a place on the bank, it floats down off the cliff and back over the water.
+        _companion.GoTo(new Aabb(b + new Vector3(-0.3f, 0, 0), Vector3.Zero), 0.08f);
+        frames = 0;
+        for (; frames < 900 && _companion.CurrentIntent == "go_to"; frames++) await Frames(1);
+        var home = _companion.GlobalPosition - b;
+        Report(_companion.CurrentIntent == "stay" && home.X < -0.2f && home.Y > 0 && home.Y < 0.05f,
+            $"sent back to the bank, it floats down off the cliff and back over the pool (at {Text(home)} after {frames / 60.0f:0.0} s)");
+        Check(_player.TryTeleportTo(new Vector3(-2, 0.003f, 3.2f)) && _companion.TryTeleportTo(new Vector3(0.5f, 0.01f, 3.2f)), "both bodies back on the open floor");
+        await Frames(10);
     }
 
     // ---- Jitter: the spike's scenarios, measured on a separate probe body ----

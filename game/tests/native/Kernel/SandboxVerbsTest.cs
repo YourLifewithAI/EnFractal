@@ -70,6 +70,7 @@ public partial class SandboxVerbsTest : Node3D
             await TestHostileSaves();
             await TestFetch();
             await TestFetchStopsAndRefusals();
+            await TestFetchFloating();
             await TestUnreachable();
             GD.Print($"NATIVE_KERNEL_SANDBOX: {_checks - _failures}/{_checks} checks passed; pick up, carry, drop, place with snapping, stack and push through enfractal.command, with receipts, refusals, saved poses and a reload; fetch through the host{(_dump != null ? $"; {_dumped} messages dumped" : "")}");
             RemoveSave();
@@ -502,6 +503,37 @@ public partial class SandboxVerbsTest : Node3D
         Check(Ok(Send(Command(NextId("unlock"), "protect.unlock", new JsonObject { ["targets"] = new JsonArray("obj:doorstop") }, expectedRevision: _host.Revision), Player)), "and unprotects it");
     }
 
+    /// <summary>
+    /// The Gubble floats (founder, 8 October): it fetches the doorstop from the top of the 30 cm box, which no walk reaches,
+    /// by floating up onto the box, picking it up there, and floating down and back to the player, still holding it.
+    /// </summary>
+    private async Task TestFetchFloating()
+    {
+        var box = SandboxControls.Box(Inspect("obj:box", Player));
+        var centre = box.GetCenter();
+        // Earlier checks left things on the box: the first free spot on its top.
+        JsonObject onBox = new();
+        foreach (var (dx, dz) in new[] { (0.0, 0.0), (-0.09, -0.09), (0.09, -0.09), (-0.09, 0.09), (0.09, 0.09) })
+            if (Ok(onBox = Send(Command(NextId("place"), "entity.place", new JsonObject { ["target"] = "obj:doorstop", ["placement"] = Placement(centre.X + dx, box.End.Y, centre.Z + dz, "obj:box") }), Player))) break;
+        Check(Ok(onBox), "the doorstop goes on top of the big box: " + onBox.ToJsonString());
+        await Stand(_player, new Vector3(0.0f, 0.006f, 1.0f), Vector3.Left, "on the rug's south side");
+        await Stand(_companion, new Vector3(-0.5f, 0.006f, 0.9f), Vector3.Right, "on the rug's west side");
+        var starts = _companion.FloatStarts;
+        var highest = 0.0f;
+        var fetch = Send(Command(NextId("fetch"), "goal.set", new JsonObject { ["actor"] = CompanionAvatar, ["goal"] = "fetch", ["target"] = "obj:doorstop" }), Player);
+        var held = await UntilJobEnds(1800, () =>
+        {
+            highest = Mathf.Max(highest, _companion.GlobalPosition.Y);
+            return _host.HeldBy(CompanionAvatar) == "obj:doorstop";
+        });
+        var job = JobStatus(fetch, Player);
+        var planar = new Vector2(_companion.GlobalPosition.X - _player.GlobalPosition.X, _companion.GlobalPosition.Z - _player.GlobalPosition.Z).Length();
+        Check(Ok(fetch) && held && job?["state"]?.GetValue<string>() == "succeeded" && _companion.FloatStarts > starts && highest > box.End.Y - 0.01f &&
+            planar <= EnFractal.Native.CompanionAvatar.ComeArrivalM + 0.02f && _host.HeldBy(CompanionAvatar) == "obj:doorstop",
+            $"the Gubble floats up onto the box (highest feet {highest:0.000} m, the top at {box.End.Y:0.000} m), picks the doorstop up and floats back to the player holding it ({planar:0.00} m away): " + job?.ToJsonString());
+        Check(Ok(Send(Command(NextId("down"), "entity.release", new JsonObject { ["actor"] = CompanionAvatar }), Player)), "and puts it down beside the player");
+    }
+
     /// <summary>A goal whose body has reported blocked for about 5 s fails with target_unreachable, and the body stops trying.</summary>
     private async Task TestUnreachable()
     {
@@ -510,6 +542,8 @@ public partial class SandboxVerbsTest : Node3D
         foreach (var (offset, size) in new[] { (new Vector3(0, 0, -0.05f), new Vector3(0.104f, 0.2f, 0.004f)), (new Vector3(0, 0, 0.05f), new Vector3(0.104f, 0.2f, 0.004f)),
                                                (new Vector3(-0.05f, 0, 0), new Vector3(0.004f, 0.2f, 0.104f)), (new Vector3(0.05f, 0, 0), new Vector3(0.004f, 0.2f, 0.104f)) })
             pen.AddChild(new CollisionShape3D { Position = offset, Shape = new BoxShape3D { Size = size } });
+        // A lid: the Gubble floats over open walls, so only a closed pen is one it really cannot leave.
+        pen.AddChild(new CollisionShape3D { Position = new Vector3(0, 0.102f, 0), Shape = new BoxShape3D { Size = new Vector3(0.104f, 0.004f, 0.104f) } });
         AddChild(pen);
         await Frames(3);
         var fetch = Send(Command(NextId("fetch"), "goal.set", new JsonObject { ["actor"] = CompanionAvatar, ["goal"] = "fetch", ["target"] = "obj:doorstop" }), Player);
