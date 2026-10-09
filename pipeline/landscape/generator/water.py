@@ -80,7 +80,8 @@ def choose_lake(room, objects, spawns, peak, outlet, setup):
                 best = (score, x, z, free)
     if best is None:
         return None
-    r = clamp(best[3]*.9, .3, size)
+    # The whole shore stays inside the walls (rx reaches 1.15 r, the shore 1.35 rx).
+    r = clamp(min(best[3]*.9, (best[3]+.45)/1.6), .3, size)
     return dict(x=best[1], z=best[2], rx=r*1.15, rz=r*.85, yaw=25.)
 
 
@@ -323,7 +324,7 @@ def plan_and_carve(grid, room, objects, h, base, inside, spawns, setup, noise, o
     if lake is not None:
         first = 0
         for k, (x, z) in enumerate(pts):
-            if lake_rho(lake, noise, x, z) >= 1.04:
+            if lake_rho(lake, noise, x, z) >= .95:   # the river starts in the lake, covering its mouth
                 first = max(0, k-1)
                 break
         pts = pts[first:]

@@ -15,9 +15,9 @@ from pipeline.landscape.harness.kit import SIZES
 from .field import Grid, Noise, clamp, distance_field, face_slope_max, lerp, slope_field, smooth
 from .land import (FAR_Y, high_country, inside_distance, local, outside_distance, parse_objects, room_shape,
                    shell_land, sun_shadow, uplift, weather, rr_dist)
-from .life import (STEP_LIMIT_M, WALK_LIMIT_DEG, build_mesh, build_road, find_hamlet, flatten, paint_line,
+from .life import (BRIDGE, grade_line, STEP_LIMIT_M, WALK_LIMIT_DEG, build_mesh, build_road, find_hamlet, flatten, paint_line,
                    paint_path, prototypes, reachable_from, surface, walk)
-from .water import DISTANT_LAKE_Y, choose_outlet, lake_rho, plan_and_carve
+from .water import DISTANT_LAKE_Y, choose_outlet, lake_rho, plan_and_carve, resample
 
 GENERATOR = {'name': 'landscape-generator', 'version': '2'}
 SEED = 20261008
@@ -175,8 +175,27 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False):
     slope = slope_field(grid, h)
     avoid = lambda x, z: clear_of_eyes(views, x, z, .75, (2.3, .5))
     player0 = next((s for s in room['spawns'] if s['role'] == 'player'), room['spawns'][0])['position_m']
-    dry = reachable_from(grid, h, wet, inside, (player0[0], player0[2]))
+    lake = water.get('lake')
+
+    def crossable(q):
+        """A stream a footbridge can span (inside the land, never the lake)."""
+        if not inside[q]:
+            return False
+        return lake is None or lake_rho(lake, noise, grid.xs[q % nx], grid.zs[q//nx]) > 1.15
+    dry = reachable_from(grid, h, wet, inside, (player0[0], player0[2]), crossable=crossable)
     site = find_hamlet(grid, h, slope, wet, inside, spawns, avoid, lambda x, z: inside_distance(room, x, z), dry)
+    # Every object's own footprint keeps its landform: no cottage, path or
+    # grading cuts into it (paths go round).
+    protect = [False]*grid.n
+    for o in objects:
+        if o['parent'] is not None:
+            continue
+        R = math.hypot(o['sx'], o['sz'])/2+.05
+        rx_, rz_ = grid.span(o['cx']-R, o['cx']+R, o['cz']-R, o['cz']+R)
+        for j in rz_:
+            for i in rx_:
+                if rr_dist(*local(o, grid.xs[i], grid.zs[j]), max(o['sx']/2, .06), max(o['sz']/2, .06), .02) <= .03:
+                    protect[j*nx+i] = True
     houses = []
     pads = [0.]*grid.n
     fields = [0.]*grid.n
@@ -198,7 +217,8 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False):
         wx, wz = (best[1], best[2]) if best else (sx, sz-1)
         toward = math.atan2(wz-sz, wx-sx)
         cot = SIZES['cottage']
-        for k, (da, r, sc) in enumerate([(0., .0, .74), (1.9, .5, .68), (-1.75, .48, .64), (3.1, .52, .7)]):
+        for k, (da, r, sc) in enumerate([(0., .0, .74), (1.9, .72, .68), (-1.75, .7, .64), (3.1, .74, .7),
+                                         (1.0, .8, .66), (-.9, .8, .66)]):
             a = toward+da
             x, z = sx+math.cos(a)*r, sz+math.sin(a)*r
             hx, hz = cot[0]*sc/2, cot[2]*sc/2
@@ -210,11 +230,21 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False):
             i, j = grid.nearest(x, z)
             if wet[j*nx+i] < math.hypot(hx, hz)+.06:
                 continue
-            if any(math.hypot(x-hh['x'], z-hh['z']) < .42 for hh in houses):
+            cs, sn = math.cos(math.radians(yaw)), math.sin(math.radians(yaw))
+            if any(protect[grid.nearest(x+cs*lx_+sn*lz_, z-sn*lx_+cs*lz_)[1]*nx+grid.nearest(x+cs*lx_+sn*lz_, z-sn*lx_+cs*lz_)[0]]
+                   for lx_ in (-hx-.08, 0, hx+.08) for lz_ in (-hz-.2, -hz, 0, hz+.08)):
+                continue   # never build over an object's landform
+            # Room for an 11 cm lane (and a yard) between any two cottages.
+            if any(math.hypot(x-hh['x'], z-hh['z']) < math.hypot(hx, hz)+math.hypot(hh['hx'], hh['hz'])+.16
+                   for hh in houses):
                 continue
             if not clear_of_eyes(views, x, z, .6, (2.0, .3)):
                 continue
             level = flatten(grid, h, x, z, hx, hz, yaw)
+            # A level forecourt before the door: the land gives way to the threshold.
+            ya = math.radians(yaw)
+            flatten(grid, h, x-math.sin(ya)*(hz+.12), z-math.cos(ya)*(hz+.12), hx, .1, yaw, margin=.03,
+                    blend=.14, level=level)
             houses.append(dict(x=x, z=z, yaw=yaw, scale=sc, y=level, hx=hx, hz=hz))
             if len(houses) == 3:
                 break
@@ -241,31 +271,87 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False):
     carry = None
     route = None
     roads = []
+    bridges = []
     # Paths keep an 11 cm carrying lane clear of walls: route them that far off.
     near_built = distance_field(grid, blocked)
-    lane_blocked = [d < .07 for d in near_built]
+    lane_blocked = [d < .07 or protect[q] for q, d in enumerate(near_built)]
+    keep_out = [1. if protect[q] else pads[q] for q in range(grid.n)]
     if houses:
         door = houses[0]
         a = math.radians(door['yaw'])
         # In front of the first cottage's door, beside the path.
         fx = door['x']-math.sin(a)*(door['hz']+.12)+math.cos(a)*.13
         fz = door['z']-math.cos(a)*(door['hz']+.12)-math.sin(a)*.13
-        road = build_road(grid, h, wet, inside, lane_blocked, pads, (px, pz), (fx, fz))
+        road = build_road(grid, h, wet, inside, lane_blocked, keep_out, (px, pz), (fx, fz),
+                          crossable=crossable, bridges=bridges)
         if road:
             roads.append(road)
             paint_line(grid, road, paths)
             for hh in houses[1:]:
                 a = math.radians(hh['yaw'])
                 dx_, dz_ = hh['x']-math.sin(a)*(hh['hz']+.08), hh['z']-math.cos(a)*(hh['hz']+.08)
-                r2 = build_road(grid, h, wet, inside, lane_blocked, pads, (fx, fz), (dx_, dz_), .03)
+                r2 = build_road(grid, h, wet, inside, lane_blocked, keep_out, (fx, fz), (dx_, dz_), .075,
+                                crossable=crossable, bridges=bridges)
                 if r2:
                     roads.append(r2)
                     paint_line(grid, r2, paths, .028)
+    # Walk the graded land as a body would (11 cm lane, cottages in the way,
+    # bridges underfoot). Where it cannot reach the crate or a door, the land
+    # gives way: the route a steeper walk finds is cut and filled to grade.
+    if houses and roads:
+        from .checks import Terrain as _T, Walker as _W
+        keep_tris = [list(t) for t in grid.triangles() if inside_tri(grid, inside, t)]
+        wrec = [{'mesh': w['name'], 'kind': w['kind']} for w in water['meshes']]
+        wmesh = {w['name']: [dict(role='still_water', positions=w['positions'], triangles=w['triangles'])]
+                 for w in water['meshes']}
+        cots = [dict(prototype='cottage', position_m=[hh['x'], hh['y'], hh['z']], yaw_deg=hh['yaw'],
+                     scale=[hh['scale']]*3) for hh in houses]
+        decks = [dict(prototype='footbridge', position_m=[b['x'], b['top']-BRIDGE[1], b['z']], yaw_deg=b['yaw'],
+                      scale=[1., 1., b['length']/BRIDGE[2]]) for b in bridges]
+        goals = [(fx, fz)]+[(hh['x']-math.sin(math.radians(hh['yaw']))*(hh['hz']+.08),
+                             hh['z']-math.cos(math.radians(hh['yaw']))*(hh['hz']+.08)) for hh in houses]
+        for _ in range(2):
+            land = {'land': [dict(role='meadow', positions=[[grid.xs[q % nx], h[q], grid.zs[q//nx]] for q in range(grid.n)],
+                                  triangles=keep_tris)], **wmesh}
+            probe0 = dict(terrain=[{'mesh': 'land'}], scenery=[], water=wrec, scatter=cots+decks, objects=[],
+                          prototypes={'footbridge': {'size_m': list(BRIDGE)}})
+            terr0 = _T(probe0, land)
+            strict = _W(probe0, land, terr0, room)
+            loose = _W(probe0, land, terr0, room, limit=40., step=.04)
+            fixed = 0
+            for goal in goals:
+                if strict.route((px, pz), goal)[0]:
+                    continue
+                path = loose.route((px, pz), goal)[0]
+                if path:
+                    grade_line(grid, h, wet, keep_out, resample([(k[0]*terr0.cell, k[1]*terr0.cell) for k in path], .025))
+                    fixed += 1
+            if not fixed:
+                break
+    # Whatever was levelled after the tarn was filled (glades, pads, paths)
+    # may not breach its shore: the rim stands above the water again, except
+    # where a stream carries the water on.
+    if lake is not None:
+        R = max(lake['rx'], lake['rz'])*1.6
+        channel = set()
+        for st in water['streams']:
+            for x_, z_ in st['pts']:
+                if math.hypot(x_-lake['x'], z_-lake['z']) > R+.2:
+                    continue
+                sx_, sz_ = grid.span(x_-st['half']-.05, x_+st['half']+.05, z_-st['half']-.05, z_+st['half']+.05)
+                channel.update(j*nx+i for j in sz_ for i in sx_
+                               if math.hypot(grid.xs[i]-x_, grid.zs[j]-z_) <= st['half']+.05)
+        rx, rz = grid.span(lake['x']-R, lake['x']+R, lake['z']-R, lake['z']+R)
+        for j in rz:
+            for i in rx:
+                q = j*nx+i
+                if q not in channel and 1. <= lake_rho(lake, noise, grid.xs[i], grid.zs[j]) <= 1.35:
+                    h[q] = max(h[q], lake['level']+.006)
     slope = slope_field(grid, h)
     tris = grid.triangles()
     fslope = face_slope_max(grid, h, tris)
     if houses and roads:
-        route = walk(grid, h, fslope, wet, inside, blocked, (px, pz), (fx, fz))
+        route = roads[0]
         if route:
             gy = grid.tri_height(h, fx, fz)
             carry = dict(id='apple_crate', kind='crate', prototype='crate',
@@ -291,12 +377,20 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False):
     for name, (prims, size) in protos.items():
         meshes['proto_'+name] = prims
         proto_records[name] = {'mesh': 'proto_'+name, 'size_m': size}
+    # Footbridges where the paths cross a stream: level decks, ends on the filled banks.
+    for b in bridges:
+        scatter.append(dict(prototype='footbridge', position_m=[round(b['x'], 4), round(b['top']-BRIDGE[1], 4),
+                                                              round(b['z'], 4)],
+                            yaw_deg=round(b['yaw'], 1), scale=[1., 1., round(b['length']/BRIDGE[2], 3)]))
     # ---------------- planting
     # Things a body cannot pass keep an 11 cm carrying lane clear beside every path.
     path_gap = distance_field(grid, [v >= .5 for v in paths])
     plant = Planter(grid, h, fslope, wet, inside, shadow, paths, pads, blocked, base, owner, objects,
                     views, room, rnd, noise, acc)
     plant.path_gap = path_gap
+    plant.bridge_rects = [(b['x'], b['z'], b['yaw'], b['length']) for b in bridges]
+    for b in bridges:
+        plant.occupy(b['x'], b['z'], b['length']/2+.05)
     for hh in houses:
         scatter.append(dict(prototype='cottage', position_m=[round(hh['x'], 4), round(hh['y']-.004, 4), round(hh['z'], 4)],
                             yaw_deg=hh['yaw'], scale=[hh['scale']]*3))
@@ -324,40 +418,73 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False):
     from .checks import YARD, Terrain, Walker, approaches
     probe = dict(terrain=[{'mesh': 'land'}], scenery=[], water=water_records, scatter=scatter,
                  prototypes=proto_records, objects=objects_out)
-    walker = None
-    # Where planting closed the way to the crate or a door, the way is
-    # cleared: whatever stands within a carrying lane of the open route goes.
-    goals = [(carry['position_m'][0], carry['position_m'][2])] if carry else []
-    goals += [(hh['x']-math.sin(math.radians(hh['yaw']))*(hh['hz']+.08),
-               hh['z']-math.cos(math.radians(hh['yaw']))*(hh['hz']+.08)) for hh in houses]
-    for goal in goals:
-        walker = Walker(probe, meshes, Terrain(probe, meshes), room)
-        if walker.route((px, pz), goal)[0]:
-            continue
-        walker.obs = {}
-        path = walker.route((px, pz), goal)[0]
-        if not path:
-            continue
-        pts = [(k[0]*walker.t.cell, k[1]*walker.t.cell) for k in path]
-        for rec in [r for r in scatter if r['prototype'] in BLOCKING and r['prototype'] != 'cottage']:
-            x, z = rec['position_m'][0], rec['position_m'][2]
-            if any(math.hypot(x-a, z-b) < .3 for a, b in pts):
-                one = Walker(dict(probe, scatter=[rec]), meshes, walker.t, room)
-                if any(one.blocked(a, b) for a, b in pts if math.hypot(x-a, z-b) < .3):
-                    scatter.remove(rec)
-        walker = None
-    for rec in [r for r in scatter if r['prototype'] in YARD]:
-        if walker is None:
-            walker = Walker(probe, meshes, Terrain(probe, meshes), room)
+    # Where planting closed the way to the crate, a door or a yard (laundry,
+    # woodpile), the way is cleared: trees, shrubs, stones and fences within a
+    # carrying lane of the route past the buildings are taken out. Only a yard
+    # thing that even a cleared lane cannot reach is left out.
+    keep = {'cottage', 'footbridge'} | set(YARD)
+    terr = Terrain(probe, meshes)
+
+    def size_of(rec):
         base_size = SIZES[rec['prototype']] if rec['prototype'] in SIZES else proto_records[rec['prototype']]['size_m']
-        size = [b*s for b, s in zip(base_size, rec['scale'])]
-        if not any(walker.route((px, pz), g)[0] for g in approaches(rec, size)):
-            scatter.remove(rec)
-            walker = None
+        return [b*s for b, s in zip(base_size, rec['scale'])]
+    targets = [(None, [(carry['position_m'][0], carry['position_m'][2])])] if carry else []
+    targets += [(None, [(hh['x']-math.sin(math.radians(hh['yaw']))*(hh['hz']+.08),
+                         hh['z']-math.cos(math.radians(hh['yaw']))*(hh['hz']+.08))]) for hh in houses]
+    targets += [(rec, approaches(rec, size_of(rec))) for rec in scatter if rec['prototype'] in YARD]
+    dropped = []
+    for rec_, goals_ in targets:
+        if rec_ is not None and rec_ not in scatter:
+            continue
+        full = Walker(probe, meshes, terr, room)
+        if any(full.route((px, pz), g)[0] for g in goals_):
+            continue
+        # Toward the crate or a door even a yard thing may stand aside; toward
+        # a yard, the other yards stay.
+        hold = keep if rec_ is not None else {'cottage', 'footbridge'}
+        fixed = Walker(dict(probe, scatter=[r for r in scatter if r['prototype'] in hold]), meshes, terr, room)
+        path = next((pth for pth in (fixed.route((px, pz), g)[0] for g in goals_) if pth), None)
+        if path:
+            pts = [(k[0]*terr.cell, k[1]*terr.cell) for k in path]
+            for rec in [r for r in scatter if r['prototype'] in BLOCKING and r['prototype'] not in hold and r is not rec_]:
+                x, z = rec['position_m'][0], rec['position_m'][2]
+                near = [(a, b) for a, b in pts if math.hypot(x-a, z-b) < .4]
+                if near:
+                    one = Walker(dict(probe, scatter=[rec]), meshes, terr, room)
+                    if any(one.blocked(a, b) for a, b in near):
+                        scatter.remove(rec)
+                        if rec['prototype'] in YARD:
+                            dropped.append(rec['prototype'])
+        if rec_ is not None and not any(Walker(probe, meshes, terr, room).route((px, pz), g)[0] for g in goals_):
+            # Move the yard rather than lose it: the first level, reachable spot
+            # around any cottage.
+            scatter.remove(rec_)
+            moved = None
+            size = DRYING_LINE if rec_['prototype'] == 'drying_line' else [.09, .044, .1]
+            for hh in houses:
+                if moved:
+                    break
+                a = math.radians(hh['yaw'])
+                c, s_ = math.cos(a), math.sin(a)
+                for lx, lz, turn in [(hh['hx']+.32, -hh['hz']*.6, 90), (-hh['hx']-.32, -hh['hz']*.6, 90),
+                                     (hh['hx']+.32, .1, 90), (-hh['hx']-.32, .1, 90), (0., hh['hz']+.32, 0),
+                                     (hh['hx']+.45, -hh['hz']-.2, 45), (-hh['hx']-.45, -hh['hz']-.2, -45)]:
+                    cand = plant.put(rec_['prototype'], hh['x']+c*lx+s_*lz, hh['z']-s_*lx+c*lz, rec_['scale'],
+                                     hh['yaw']+turn, .02, size, sink=.002, built=True)
+                    if not cand:
+                        continue
+                    one = Walker(dict(probe, scatter=scatter+[cand]), meshes, terr, room)
+                    if any(one.route((px, pz), g)[0] for g in approaches(cand, size_of(cand))) and                             all(one.route((px, pz), g[0])[0] for _, g in targets if _ is None):
+                        moved = cand
+                        break
+            if moved:
+                scatter.append(moved)
+            else:
+                dropped.append(rec_['prototype'])
     extensions = {'x_generator': dict(seed=seed, cell_m=CELL, margin_m=MARGIN,
                                   walk_limit_deg=WALK_LIMIT_DEG, step_limit_m=STEP_LIMIT_M,
                                   lake=water['lake'], spring=[round(v, 3) for v in water.get('spring', (0, 0))],
-                                  hamlet=hamlet,
+                                  hamlet=hamlet, bridges=len(bridges), dropped_yard=dropped,
                                   forms={o['id']: [o['form'], o['form_basis'], o['rock_role']] for o in objects},
                                   grounding=grounding(grid, h, objects, base))}
     doc = write_package(out_dir, room_dir, meshes=meshes, setup=setup, generator=GENERATOR,
@@ -381,7 +508,7 @@ def inside_tri(grid, inside, t):
 
 DRYING_LINE = [.36, .2, .03]
 BLOCKING = {'broadleaf', 'conifer', 'rock', 'boulder', 'shrub', 'cottage', 'woodpile', 'fence', 'lantern',
-            'crate', 'drying_line', 'footbridge'}
+            'crate', 'drying_line'}
 
 
 class Planter:
@@ -429,6 +556,11 @@ class Planter:
         q = self.at(x, z)
         if not self.inside[q] or self.wet[q] < .02+root or self.paths[q] > .2 or self.pads[q] > .05 or self.blocked[q]:
             return None
+        for bx, bz, by, bl in getattr(self, 'bridge_rects', ()):
+            a_ = math.radians(by)
+            dx, dz = x-bx, z-bz
+            if abs(math.cos(a_)*dx-math.sin(a_)*dz) < .12 and abs(math.sin(a_)*dx+math.cos(a_)*dz) < bl/2+.05:
+                return None   # nothing grows under or on a footbridge
         if proto in BLOCKING:
             if proto in ('broadleaf', 'conifer'):
                 r = .045*scale[0]+.01
@@ -473,14 +605,20 @@ class Planter:
             a = math.radians(hh['yaw'])
             c, s = math.cos(a), math.sin(a)
             # Behind each cottage: a woodpile or crates; beside the first, a lantern.
-            for name, lx, lz, sc in [('woodpile', hh['hx']+.06, .08, 1.), ('crate', -hh['hx']-.05, .1, .45)]:
-                if (k+len(name)) % 2 and name == 'crate':
-                    continue
+            # A woodpile stacked against the gable or the back wall, with room to reach it.
+            for lx, lz in [(hh['hx']+.14, .08), (-hh['hx']-.14, .08), (0., hh['hz']+.14), (hh['hx']+.14, -.1)]:
                 x = hh['x']+c*lx+s*lz
                 z = hh['z']-s*lx+c*lz
-                size = SIZES[name] if name in SIZES else [.09, .044, .1]
-                rec = self.put(name, x, z, [sc]*3, hh['yaw']+rnd.uniform(-15, 15), .02, size, sink=.002, clear=.06,
-                               built=True)
+                rec = self.put('woodpile', x, z, [1.]*3, hh['yaw']+rnd.uniform(-15, 15), .02, [.09, .044, .1],
+                               sink=.002, clear=.06, built=True)
+                if rec:
+                    out.append(rec)
+                    break
+            if (k+5) % 2 == 0:
+                x = hh['x']-c*(hh['hx']+.05)+s*.1
+                z = hh['z']+s*(hh['hx']+.05)+c*.1
+                rec = self.put('crate', x, z, [.45]*3, hh['yaw']+rnd.uniform(-15, 15), .02, SIZES['crate'],
+                               sink=.002, clear=.06, built=True)
                 if rec:
                     out.append(rec)
         # Laundry drying on a line in the open beside a cottage.

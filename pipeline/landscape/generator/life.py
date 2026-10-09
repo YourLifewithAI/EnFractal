@@ -126,6 +126,12 @@ def prototypes():
                     tri += [[a_-5, a_-1, a_], [a_-5, a_, a_-4], [a_-5, a_, a_-1], [a_-5, a_-4, a_]]
         line.append(dict(role='cloth', positions=pos, triangles=tri, tints=[tint]*len(pos)))
     out['drying_line'] = (line, [.36, .2, .03])
+    # A footbridge: two stringers and a plank deck, level, no rails to trip on.
+    deck = [dict(role='timber', positions=_box(x, 0., -.15, .016, .02, .3), triangles=_BOX_T) for x in (-.07, .054)]
+    for k in range(12):
+        deck.append(dict(role='wood', positions=_box(-.08, .02, -.15+k*.025+.001, .16, .01, .023),
+                         triangles=_BOX_T, tints=[[1, .9-.04*(k % 3), .8, 1]]*8))
+    out['footbridge'] = (deck, list(BRIDGE))
     return {k: (_fit(v[0], v[1]), v[1]) for k, v in out.items()}
 
 
@@ -256,14 +262,14 @@ def find_hamlet(grid, h, slope, wet, inside, spawns, avoid, indist, reachable=No
     """The best site where water, flat ground and shelter meet; when a room
     offers none, the demands relax a step at a time (steeper ground, farther
     from water) before giving up."""
-    for flat_max, far_water in ((14, 1.2), (17, 1.8), (20, 3.)):
-        site = _find_hamlet(grid, h, slope, wet, inside, spawns, avoid, indist, reachable, flat_max, far_water)
+    for flat_max, far_water, near in ((14, 1.2, .9), (17, 1.8, .9), (20, 3., .9), (24, 9., .6)):
+        site = _find_hamlet(grid, h, slope, wet, inside, spawns, avoid, indist, reachable, flat_max, far_water, near)
         if site is not None:
             return site
     return None
 
 
-def _find_hamlet(grid, h, slope, wet, inside, spawns, avoid, indist, reachable, flat_max, far_water):
+def _find_hamlet(grid, h, slope, wet, inside, spawns, avoid, indist, reachable, flat_max, far_water, near_spawn=.9):
     nx = grid.nx
     best = None
     for j in range(0, grid.nz, 2):
@@ -272,12 +278,12 @@ def _find_hamlet(grid, h, slope, wet, inside, spawns, avoid, indist, reachable, 
             if not inside[q]:
                 continue
             x, z = grid.xs[i], grid.zs[j]
-            if indist(x, z) < .6:
+            if indist(x, z) < (.6 if near_spawn > .8 else .45):
                 continue
             w = wet[q]
             if w < .25 or w > far_water:
                 continue
-            if any(math.hypot(x-s[0], z-s[2]) < .9 for s in spawns):
+            if any(math.hypot(x-s[0], z-s[2]) < near_spawn for s in spawns):
                 continue
             if not avoid(x, z) or (reachable is not None and q not in reachable):
                 continue
@@ -304,8 +310,8 @@ def inside_distance_q(grid, inside, i, j):
     return min(i, j, grid.nx-1-i, grid.nz-1-j)*grid.cell if inside[j*grid.nx+i] else 0.
 
 
-def flatten(grid, h, x, z, hx, hz, yaw, margin=.07, blend=.12):
-    """Level a house pad to its mean height and feather it into the land."""
+def flatten(grid, h, x, z, hx, hz, yaw, margin=.07, blend=.12, level=None):
+    """Level a house pad to its mean height (or a given level) and feather it into the land."""
     a = math.radians(yaw)
     c, s = math.cos(a), math.sin(a)
     R = max(hx, hz)+margin+blend
@@ -317,7 +323,8 @@ def flatten(grid, h, x, z, hx, hz, yaw, margin=.07, blend=.12):
             lx, lz = c*dx-s*dz, s*dx+c*dz
             if abs(lx) <= hx+margin and abs(lz) <= hz+margin:
                 inner.append(h[j*grid.nx+i])
-    level = sorted(inner)[len(inner)//2]
+    if level is None:
+        level = sorted(inner)[len(inner)//2]
     for j in rz:
         for i in rx:
             dx, dz = grid.xs[i]-x, grid.zs[j]-z
@@ -366,15 +373,26 @@ def paint_path(grid, path, mask, width=.035):
 ROAD_GRADE_DEG = 12.
 
 
-def build_road(grid, h, wet, inside, blocked, pads, a, b, width=.04):
+BRIDGE = [.16, .03, .3]   # footbridge prototype: width, deck depth, length (m)
+
+
+def build_road(grid, h, wet, inside, blocked, pads, a, b, width=.085, crossable=None, bridges=None):
     """A worn path is built, not found: route the easiest way, then grade it
-    (cut and fill) so it climbs no steeper than ROAD_GRADE_DEG."""
+    (cut and fill) so it climbs no steeper than ROAD_GRADE_DEG. Where it must
+    cross a stream (never a lake), it crosses once, square to the water, on a
+    level timber footbridge; the banks are filled up to the deck at each end."""
     nx = grid.nx
     s = slope_field(grid, h)
     cost = [1+8*(s[q]/25)**2+(60 if s[q] > 38 else 0) for q in range(grid.n)]
+    if crossable is not None:
+        for q in range(grid.n):
+            if wet[q] < .24 and crossable(q):
+                cost[q] += 40
 
     def blocked_fn(q, p):
-        return (not inside[p]) or blocked[p] or wet[p] < .16
+        if (not inside[p]) or blocked[p]:
+            return True
+        return wet[p] < .24 and not (crossable is not None and crossable(p))
 
     ia, ja = grid.nearest(*a)
     ib, jb = grid.nearest(*b)
@@ -386,10 +404,38 @@ def build_road(grid, h, wet, inside, blocked, pads, a, b, width=.04):
     for _ in range(4):
         g = [sum(g[max(0, k-6):k+7])/len(g[max(0, k-6):k+7]) for k in range(len(g))]
     m = math.tan(math.radians(ROAD_GRADE_DEG))*.03
-    for k in range(1, len(g)):
-        g[k] = min(max(g[k], g[k-1]-m), g[k-1]+m)
-    for k in range(len(g)-2, -1, -1):
-        g[k] = min(max(g[k], g[k+1]-m), g[k+1]+m)
+    wq = [wet[grid.nearest(x, z)[1]*nx+grid.nearest(x, z)[0]] for x, z in pts]
+    decks = []
+    k = 0
+    while k < len(pts):
+        if wq[k] >= .02:
+            k += 1
+            continue
+        k1 = k
+        while k1+1 < len(pts) and wq[k1+1] < .08:
+            k1 += 1
+        a_, b_ = k, k1
+        while a_ > 0 and wq[a_] < .1:
+            a_ -= 1
+        while b_ < len(pts)-1 and wq[b_] < .1:
+            b_ += 1
+        top = max(grid.sample(h, *pts[a_]), grid.sample(h, *pts[b_]))+.012
+        decks.append((a_, b_, top))
+        k = b_+1
+    for a_, b_, top in decks:
+        for kk in range(a_, b_+1):
+            g[kk] = top-.006
+    for _ in range(2):
+        for k in range(1, len(g)):
+            g[k] = min(max(g[k], g[k-1]-m), g[k-1]+m)
+        for k in range(len(g)-2, -1, -1):
+            g[k] = min(max(g[k], g[k+1]-m), g[k+1]+m)
+    if bridges is not None:
+        for a_, b_, top in decks:
+            (xa, za), (xb, zb) = pts[a_], pts[b_]
+            length = math.hypot(xb-xa, zb-za)+.08
+            bridges.append(dict(x=(xa+xb)/2, z=(za+zb)/2, yaw=math.degrees(math.atan2(xb-xa, zb-za)),
+                                length=length, top=top))
     best = {}
     reach = width+.1
     for k, (x, z) in enumerate(pts):
@@ -409,6 +455,36 @@ def build_road(grid, h, wet, inside, blocked, pads, a, b, width=.04):
     return pts
 
 
+def grade_line(grid, h, wet, pads, pts, width=.085):
+    """Cut and fill along a line of points so a body's lane follows it at no
+    more than ROAD_GRADE_DEG and level across (used where a walk proved the
+    land too steep for the way a path must go)."""
+    nx = grid.nx
+    g = [grid.sample(h, x, z) for x, z in pts]
+    for _ in range(4):
+        g = [sum(g[max(0, k-6):k+7])/len(g[max(0, k-6):k+7]) for k in range(len(g))]
+    m = math.tan(math.radians(ROAD_GRADE_DEG))*.025
+    for k in range(1, len(g)):
+        g[k] = min(max(g[k], g[k-1]-m), g[k-1]+m)
+    for k in range(len(g)-2, -1, -1):
+        g[k] = min(max(g[k], g[k+1]-m), g[k+1]+m)
+    best = {}
+    reach = width+.1
+    for k, (x, z) in enumerate(pts):
+        rx, rz = grid.span(x-reach, x+reach, z-reach, z+reach)
+        for j in rz:
+            for i in rx:
+                d = math.hypot(grid.xs[i]-x, grid.zs[j]-z)
+                q = j*nx+i
+                if d <= reach and (q not in best or d < best[q][0]):
+                    best[q] = (d, g[k])
+    for q in sorted(best):
+        d, level = best[q]
+        if pads[q] > .3 or wet[q] < .1:
+            continue
+        h[q] = lerp(h[q], level, 1-smooth((d-width)/(reach-width)))
+
+
 def paint_line(grid, pts, mask, width=.035):
     nx = grid.nx
     for x, z in pts[::2]:
@@ -422,8 +498,9 @@ def paint_line(grid, pts, mask, width=.035):
                     mask[q] = v
 
 
-def reachable_from(grid, h, wet, inside, start, max_slope=38.):
-    """Dry ground a built path could reach from the spawn without a bridge."""
+def reachable_from(grid, h, wet, inside, start, max_slope=38., crossable=None):
+    """Ground a built path could reach from the spawn: dry, or across a stream
+    a footbridge can span (never across a lake)."""
     nx = grid.nx
     s = slope_field(grid, h)
     i, j = grid.nearest(*start)
@@ -436,7 +513,7 @@ def reachable_from(grid, h, wet, inside, start, max_slope=38.):
             ii, jj = i+di, j+dj
             if 0 <= ii < nx and 0 <= jj < grid.nz:
                 p = jj*nx+ii
-                if p not in seen and inside[p] and wet[p] >= .16 and s[p] <= max_slope:
+                if p not in seen and inside[p] and s[p] <= max_slope and                         (wet[p] >= .24 or (crossable is not None and crossable(p))):
                     seen.add(p)
                     stack.append(p)
     return seen
