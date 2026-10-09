@@ -12,6 +12,11 @@ Save its JSON response locally. Follow the same instructions for every drawing;
 the generator contains no character names, filename matching or example lookup.
 Review uncertain anatomy with the player when possible.
 
+Player shape notes take precedence over a literal traced contour. The reader
+reshapes the outline, keeps facial landmarks and wobble, and records the note
+and concrete change in `applied_notes` (see INTERPRET.md and FORMAT.md). The
+offline converter meshes those authored coordinates; it does not parse prose.
+
 One PowerShell command performs the rest (paths containing spaces are supported):
 
 ```powershell
@@ -47,7 +52,7 @@ It triangulates an outline, refines the surface, improves the triangles, then
 smooths an inflated front and back with fixed silhouette boundaries. Small
 features can follow that surface. Volumes default to plush depth (95% of the
 narrower outline dimension), with
-fuller shoulders and unchanged front outlines. Explicit thickness supports
+fuller shoulders and the interpreted front outlines unchanged. Explicit thickness supports
 shallow props and marks. Thickness creates closed solids; all fallback colours
 are material base colours. No textures, raster tracing or image bytes are used.
 Facial ink is thin geometry. The drawing's asymmetries live in the interpretation.

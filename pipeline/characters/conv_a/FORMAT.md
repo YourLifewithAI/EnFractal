@@ -5,6 +5,20 @@ No metre conversion is needed. Width and height must use the same unit.
 The front render preserves image left/right: game X is negative image X,
 game Y is negative image Y, game Z is negative depth. The GLB faces -Z.
 
+Coordinates describe the **interpreted** shape, not a mandatory literal trace.
+Shape/proportion notes in the player's description take precedence over the
+drawn contour: widen, round or reshape it as requested, while retaining the
+face, expression, features, asymmetry and wobble. Keep equal coordinate units;
+change contour landmarks rather than stretching the whole character's face.
+Refit attachments and pivots to the new body. Check front and three-quarter
+views; added depth alone does not satisfy a request for a wider front.
+
+Optional root `applied_notes` is an array of strings, each pairing a description
+note with the concrete interpretation change. Record all notes applied, and
+any unresolved ambiguity in `uncertainties`. It is saved in interpretation.json
+and character.json; the offline converter does not interpret prose or execute
+it. Older interpretations may omit the field.
+
 Root fields (all required):
 
 ```json
@@ -45,7 +59,8 @@ Shapes:
 - `volume`: `contour: [[x,y], ...]` (3–64 points, no repeated last point),
   `center: [x,y,d]`, optional `thickness: positive_number`. The default is
   0.95 times the narrower smoothed contour dimension, with full rounded shoulders
-  and the traced front silhouette unchanged. Explicit thickness is useful for
+  and the interpreted front silhouette unchanged (including note-driven
+  reshaping). Explicit thickness is useful for
   thin marks and shallow props. Center x/y is a descriptive
   landmark; depth sets the middle plane. Concave outlines are supported. The
   contour is smoothed by Catmull–Rom interpolation unless `smooth: false`.

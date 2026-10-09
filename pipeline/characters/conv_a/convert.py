@@ -85,6 +85,10 @@ def validate(spec):
     for key in ("observations", "uncertainties"):
         if not isinstance(spec[key], list) or not all(isinstance(s, str) for s in spec[key]):
             raise ValueError(f"{key} must be an array of strings")
+    if "applied_notes" in spec:
+        if (not isinstance(spec["applied_notes"], list)
+                or not all(isinstance(s, str) and s.strip() for s in spec["applied_notes"])):
+            raise ValueError("applied_notes must be an array of nonempty strings")
     if not isinstance(spec["colour_reasoning"], str):
         raise ValueError("colour_reasoning required")
     if not 1 <= len(spec["palette"]) <= 64:
@@ -623,6 +627,8 @@ def build(spec, provenance):
             "collision_hint":{"kind":"capsule","height_m":0.1,"radius_m":0.02,
                               "visual_overhang":bool(width>0.06 or depth>0.06)},
             "provenance":provenance,"uncertainties":spec["uncertainties"]}
+    if "applied_notes" in spec:
+        meta["applied_notes"] = spec["applied_notes"]
     return glb.bytes(),canonical(meta)
 
 

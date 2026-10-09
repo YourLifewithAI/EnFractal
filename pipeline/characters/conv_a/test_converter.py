@@ -195,6 +195,42 @@ class ConverterTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "aura_colour"):
             validate(spec)
 
+    def test_authored_shape_notes_widen_front_and_survive_replay(self):
+        # Prose is read by the author. The mesher must honour the resulting
+        # contour, retain the notes, and leave facial landmarks unscaled.
+        spec = copy.deepcopy(self.spec)
+        spec["applied_notes"] = [
+            "Wider body: spread the outline sideways while keeping the three eyes."]
+        shape = spec["parts"][0]["shapes"][0]
+        cx = shape["center"][0]
+        shape["contour"] = [[cx + 1.5 * (x - cx), y] for x, y in shape["contour"]]
+        original, _ = make_shape(self.spec["parts"][0]["shapes"][0], {})
+        wider, _ = make_shape(shape, {})
+        self.assertGreater(np.ptp(wider[:, 0]), 1.4 * np.ptp(original[:, 0]))
+        self.assertAlmostEqual(np.ptp(original[:, 1]), np.ptp(wider[:, 1]))
+        self.assertEqual(spec["parts"][1:], self.spec["parts"][1:])
+        source = self.root / "reshaped.json"
+        source.write_bytes(canonical(spec))
+        outputs = []
+        for index in range(2):
+            out = self.root / ("reshaped-" + str(index))
+            convert(self.root / "input/drawing.png", self.root / "input/description.txt",
+                    source, out, render=False)
+            outputs.append(out)
+        for name in ("character.glb", "character.json", "interpretation.json"):
+            self.assertEqual((outputs[0]/name).read_bytes(), (outputs[1]/name).read_bytes())
+        _, meta = audit(outputs[0])
+        self.assertEqual(meta["applied_notes"], spec["applied_notes"])
+        self.assertEqual(read_json(outputs[0]/"interpretation.json")["applied_notes"],
+                         spec["applied_notes"])
+
+    def test_rejects_invalid_applied_notes(self):
+        for notes in ("wider", [None], [""], ["  "]):
+            spec = copy.deepcopy(self.spec)
+            spec["applied_notes"] = notes
+            with self.assertRaisesRegex(ValueError, "applied_notes"):
+                validate(spec)
+
 
 if __name__=="__main__":
     unittest.main(testRunner=unittest.TextTestRunner(stream=sys.stdout,verbosity=2))
