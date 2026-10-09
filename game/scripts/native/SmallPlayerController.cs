@@ -253,8 +253,9 @@ public partial class SmallPlayerController : CharacterBody3D
     {
         MotionMode = MotionModeEnum.Grounded;
         CollisionLayer = 2;
-        // A companion must never become an obstacle trapping direct player control.
-        CollisionMask = 1;
+        // A companion must never become an obstacle trapping direct player control. The hidden layer holds the parts that
+        // are never drawn (a tree's climbing pole and crown caps): the body climbs and stands on them (RoomBuilder.BodyMask).
+        CollisionMask = RoomBuilder.BodyMask;
         SafeMargin = SafeMarginM;
         FloorSnapLength = FloorSnapM;
         FloorMaxAngle = Mathf.DegToRad(45.0f);
@@ -1151,7 +1152,7 @@ public partial class SmallPlayerController : CharacterBody3D
     {
         if (maximumDrop < 0) maximumDrop = BodyHeightM * 0.5f;
         var query = PhysicsRayQueryParameters3D.Create(position + Vector3.Up * (BodyHeightM * 0.25f),
-            position - Vector3.Up * maximumDrop, 1);
+            position - Vector3.Up * maximumDrop, RoomBuilder.BodyMask);
         query.Exclude = new Array<Rid> { GetRid() };
         var hit = GetWorld3D().DirectSpaceState.IntersectRay(query);
         return hit.Count > 0 && hit["normal"].AsVector3().Y >= Mathf.Cos(FloorMaxAngle);
@@ -1161,7 +1162,7 @@ public partial class SmallPlayerController : CharacterBody3D
     {
         result = requested;
         var ray = PhysicsRayQueryParameters3D.Create(requested + Vector3.Up * (BodyHeightM * 0.4f),
-            requested - Vector3.Up * Mathf.Max(0.5f, BodyHeightM * 2), 1);
+            requested - Vector3.Up * Mathf.Max(0.5f, BodyHeightM * 2), RoomBuilder.BodyMask);
         ray.Exclude = new Array<Rid> { GetRid() };
         var hit = GetWorld3D().DirectSpaceState.IntersectRay(ray);
         if (hit.Count == 0 || hit["normal"].AsVector3().Y < Mathf.Cos(FloorMaxAngle)) return false;

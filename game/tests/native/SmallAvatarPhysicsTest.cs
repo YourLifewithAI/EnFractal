@@ -1335,6 +1335,17 @@ public partial class SmallAvatarPhysicsTest : Node3D
         Check(Concave(Part("shell:tree_climb_bark")).Any() && Concave(Part("shell:tree_climb_foliage")).Any() &&
               new[] { "shell:test_tree_bark", "shell:tree_climb_bark", "shell:tree_climb_foliage" }.SelectMany(id => Concave(Part(id))).All(s => !s.BackfaceCollision),
             "collision-only parts keep their collision, and mesh collision is built one-sided (backface_collision off)");
+        // Layer 5, "hidden": the parts never drawn collide on it alone, so sight, reach, placement, drops, the camera arms and
+        // the navigation bake (all world layer only) pass through them, while bodies (RoomBuilder.BodyMask) still climb and stand on them.
+        Check(Part("shell:tree_climb_bark") is StaticBody3D { CollisionLayer: RoomBuilder.HiddenLayer } && Part("shell:tree_climb_foliage") is StaticBody3D { CollisionLayer: RoomBuilder.HiddenLayer } &&
+            Part("shell:test_tree_bark") is StaticBody3D { CollisionLayer: RoomBuilder.WorldLayer } &&
+            (_player.CollisionMask & RoomBuilder.HiddenLayer) != 0 && (_companion.CollisionMask & RoomBuilder.HiddenLayer) != 0,
+            "parts that are never drawn collide on the hidden layer; the drawn trunk on the world layer; both bodies collide with both");
+        var capTop = built.Position + foot + new Vector3(0.06f, 0.5f, 0);
+        var sightRay = GetWorld3D().DirectSpaceState.IntersectRay(PhysicsRayQueryParameters3D.Create(capTop, capTop + Vector3.Down * 0.6f, RoomBuilder.WorldLayer));
+        var bodyRay = GetWorld3D().DirectSpaceState.IntersectRay(PhysicsRayQueryParameters3D.Create(capTop, capTop + Vector3.Down * 0.6f, RoomBuilder.BodyMask));
+        Check(sightRay.Count > 0 && sightRay["position"].AsVector3().Y < built.Position.Y + 0.01f && bodyRay.Count > 0 && bodyRay["position"].AsVector3().Y > built.Position.Y + 0.25f,
+            "a world-layer ray (sight, placement, drops) passes through the hidden crown cap to the floor; a body's ray stops on the cap");
         var puddleArea = Part("shell:test_puddle").GetNodeOrNull<Area3D>(RoomWater.ColliderName);
         Check(puddleArea != null && puddleArea.CollisionLayer == RoomWater.Layer && !puddleArea.Monitoring && Part("shell:test_puddle") is not CollisionObject3D,
             "a water part gets a query-only collider on the water layer, and no body");

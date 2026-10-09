@@ -1,5 +1,6 @@
 using Godot;
 using EnFractal.Native.Navigation;
+using EnFractal.Native.Room;
 
 namespace EnFractal.Native;
 
@@ -144,7 +145,7 @@ public partial class CompanionAvatar : SmallPlayerController
         SetAppearance(new Color("65b9b0"));
         base._Ready();
         CollisionLayer = 4;
-        CollisionMask = 1 | 2;
+        CollisionMask = RoomBuilder.BodyMask | 2;
         _entered = true;
         // The label floats a little above the body; the pointing cue comes from chest height.
         // The name tag is drawn solid, with an alpha cut (founder playtest, 6 October): a see-through tag writes no
