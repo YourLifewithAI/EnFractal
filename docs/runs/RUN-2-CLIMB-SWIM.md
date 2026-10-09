@@ -38,7 +38,8 @@ Judge by feel and by what a player would notice, not by numbers. The numbers bel
 - **Water should feel like water.** The deeper you wade, the slower you go, until the water is over your head and you swim. Swimming is calmer and slower than walking. A fall into deep water is broken by it. You can always get out: walk up a shelving shore or climb a steep bank.
 - **The land should look like it holds that water.** Ponds have shelving shores, drop-offs and a deep middle, not a round bowl. Water still runs downhill, and still water is level, held by its lowest rim.
 - **Fish belong where fish would live:** deep, still water first, perhaps a few in river pools, none in a trickle. They behave like a school: loosely together, turning at the edges, scattering from a swimmer and settling back.
-- **The Gubble is a ghost bubble.** It drifts over water and rises up cliffs. It never climbs, swims or gets stuck.
+- **The Gubble is a ghost bubble, set apart from the world.** It drifts over water and rises up cliffs. It never climbs, swims or gets stuck.
+  It is "like a ghost only the player can see" (the founder): animals never react to it.
 
 ## The shared convention: the water layer
 

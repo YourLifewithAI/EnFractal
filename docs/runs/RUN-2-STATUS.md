@@ -147,6 +147,13 @@
   - **Kept back:** the Gubble, Potato Man and Tomato Man, in `held-out/`. The winner runs on them unchanged.
   - **Contenders:** Codex (GPT-6 Astra) and a Claude Opus agent, folders `conv_a` and `conv_b` by a coin flip. The key is in `.git/info/ab-20-key.md`; never show it to the founder before the verdict.
   - **The instrument:** both are rendered through the shared `pipeline/characters/turntable.py` (Blender, Cycles on the CPU; four views on a mid-tone backdrop).
+- **The founder on Lane L's fish questions (8 October, late night):**
+  - keep the water's clarity as it is;
+  - **the Gubble is set apart from the world,** "like a ghost only the player can see", so fish do not flee it, and neither will other animals;
+  - 23 fish in the garage tarn is fine ("we can always play with populations [...] later");
+  - a school's home goes back to 6 cm now ponds are deep.
+
+  The integrator applied the last two on `run2/look` (`78da261`).
 - **The founder's question for Lane P's list:** whether to save where the player and the Gubble stand. Today the save keeps the avatars' identities only, so a load starts at the spawn.
 
 ## The next session
