@@ -465,6 +465,12 @@ def main():
                                         item.get('tint',(1,1,1)),smooth=name in SIZES and name not in ('crate','cottage','fence','lantern'),
                                         bevel=name in ('crate','cottage','fence','lantern'))
     plan=camera_plan(room,meshes,doc['terrain']); bpy.context.view_layer.update()
+    if config.get('eye'):
+        # A caller's own 10 cm eye (review of one place, such as a pond) takes the window eye's tile.
+        x,z,ax,az=config['eye']; ground=ground_height(meshes,doc['terrain'],x,z)
+        y=(ground if ground is not None else room['bounds']['min_m'][1])+.087
+        plan=[v for v in plan if v['name']!='eye_window']+[dict(name='eye_custom',kind='eye',position_m=[x,y,z],
+              target_m=[ax,y,az],ground_height_m=ground,ground_missing=ground is None)]
     cut_faces=cutaway(land_objects,plan,room)
     bvh=geometry_bvh(collision_objects)
     for view in plan:

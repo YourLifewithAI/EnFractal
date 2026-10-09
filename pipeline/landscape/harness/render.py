@@ -1,5 +1,6 @@
 """Validate and launch the pinned, CPU-only background Blender worker."""
 import argparse
+import math
 import os
 from pathlib import Path
 import shutil
@@ -31,7 +32,7 @@ def find_blender():
     return matches[0].resolve()
 
 
-def render(package,room,label,out,draft=False,settings=None,expect_setup=None,kit_picture=False,views=None):
+def render(package,room,label,out,draft=False,settings=None,expect_setup=None,kit_picture=False,views=None,eye=None):
     start=time.perf_counter()
     package=Path(package).resolve(); room=Path(room).resolve(); out=Path(out).resolve()
     doc=read_package(package,room)[0]  # Reject before creating outputs or starting Blender.
@@ -40,13 +41,15 @@ def render(package,room,label,out,draft=False,settings=None,expect_setup=None,ki
         validate_setup(expected)
         if doc['setup']!=expected: raise ValueError('package setup differs from expected setup')
     if out==package or out.is_relative_to(package): raise ValueError('renders must be outside the hashed package')
+    if eye is not None and (len(eye)!=4 or not all(math.isfinite(v) for v in eye) or eye[:2]==eye[2:]):
+        raise ValueError('eye is x z aim_x aim_z in metres, aiming away from itself')
     if not 0<len(label)<=80 or any(c.upper() not in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 _-.:/' for c in label):
         raise ValueError('label must be 1-80 bitmap-font characters: letters, digits, space, _-.:/')
     blender=find_blender()
     selected=settings or (DRAFT if draft else FINAL)
     previous=None
     if views is not None:
-        names={'overview_ne','overview_sw','overview_se','eye_player','eye_companion','eye_window','slope'}
+        names={'overview_ne','overview_sw','overview_se','eye_player','eye_companion','eye_window','eye_custom','slope'}
         if not views or len(set(views))!=len(views) or not set(views)<=names:
             raise ValueError('views must be unique known view names')
         previous=load_json(out/'receipt.json')
@@ -64,7 +67,7 @@ def render(package,room,label,out,draft=False,settings=None,expect_setup=None,ki
     config={'package':str(package),'room':str(room),'out':str(out),'label':label,
             'settings':selected,'repo':str(Path(__file__).resolve().parents[3]),
             'expected_setup':expected,'harness_revision':harness_revision(),'kit_picture':kit_picture,
-            'views':views,'previous_receipt':previous}
+            'views':views,'previous_receipt':previous,'eye':None if eye is None else [float(v) for v in eye]}
     (scratch/'config.json').write_bytes(canonical(config))
     env=dict(os.environ,BLENDER_USER_CONFIG=str(scratch/'config'),BLENDER_USER_SCRIPTS=str(scratch/'scripts'),
              PYTHONDONTWRITEBYTECODE='1',OMP_NUM_THREADS='4',OIDN_NUM_THREADS='4')
@@ -92,9 +95,11 @@ def main():
     parser.add_argument('--expect-setup',type=Path)
     parser.add_argument('--kit-picture',action='store_true',help='also render a labelled kit catalogue')
     parser.add_argument('--views',nargs='+',help='iteration only: replace named views in a verified existing set')
+    parser.add_argument('--eye',nargs=4,type=float,metavar=('X','Z','AIM_X','AIM_Z'),
+                        help='review only: a 10 cm eye here, looking level toward the aim, replaces eye_window as eye_custom')
     args=parser.parse_args()
     render(args.package,args.room,args.label,args.out,args.draft,
-           expect_setup=args.expect_setup,kit_picture=args.kit_picture,views=args.views)
+           expect_setup=args.expect_setup,kit_picture=args.kit_picture,views=args.views,eye=args.eye)
     print('RENDER_COMPLETE',args.out)
 
 

@@ -2,6 +2,7 @@
 
     python -B -m unittest pipeline.landscape.generator.tests.test_generator -v
 """
+import math
 import os
 import shutil
 import tempfile
@@ -66,6 +67,49 @@ class GarageLandscape(unittest.TestCase):
         self.assertTrue(self.result['footprints_ok'], [f for f in self.result['footprints'] if not f['reads']])
         self.assertEqual(len(self.result['footprints']), 16)
 
+    def test_pond_deep_enough_to_swim_with_a_shore_to_walk_out(self):
+        """The founder's playtest pond, judged from the written package: a deep
+        middle well over the 10 cm head, a shelving shore a swimmer can walk
+        out up (no step on the way steeper than 35 degrees from water over the
+        head to the dry shore), and a drop-off somewhere (a face over 45)."""
+        from pipeline.landscape.harness import read_package
+        doc, meshes, _, _ = read_package(self.a, self.room)
+        terrain = checks.Terrain(doc, meshes)
+        tarn = meshes['tarn'][0]
+        level = tarn['positions'][0][1]
+        xs = [v[0] for v in tarn['positions']]
+        zs = [v[2] for v in tarn['positions']]
+        c = .025
+        cells = {}
+        for i in range(int(min(xs)/c)-2, int(max(xs)/c)+3):
+            for j in range(int(min(zs)/c)-2, int(max(zs)/c)+3):
+                cells[i, j] = level-terrain.height(i*c, j*c)
+        deepest = max(cells.values())
+        self.assertGreaterEqual(deepest, .15)
+        self.assertLessEqual(deepest, .30)
+
+        def grade(a, b):
+            run = c*math.hypot(a[0]-b[0], a[1]-b[1])
+            return math.degrees(math.atan(abs(cells[a]-cells[b])/run))
+        steps = [(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)]
+        seen = {k for k, d in cells.items() if d >= .11}
+        todo = list(seen)
+        shore = False
+        while todo and not shore:
+            k = todo.pop()
+            for di, dj in steps:
+                n = (k[0]+di, k[1]+dj)
+                if n in cells and n not in seen and grade(k, n) <= 35:
+                    if cells[n] <= 0:
+                        shore = True
+                        break
+                    seen.add(n)
+                    todo.append(n)
+        self.assertTrue(shore, 'no shelving way out of the deep water')
+        wet = [k for k, d in cells.items() if d > .02]
+        steepest = max(grade(k, (k[0]+di, k[1]+dj)) for k in wet for di, dj in steps[:4] if (k[0]+di, k[1]+dj) in cells)
+        self.assertGreater(steepest, 45)
+
 
 class CheckerCatchesContradictions(unittest.TestCase):
     """The checks are not vacuous: a broken stream or a floating cottage fails."""
@@ -108,6 +152,24 @@ class NoisyScanKeepsItsPlace(unittest.TestCase):
         result = checks.run(out, room)
         self.assertTrue(result['footprints_ok'], [r for r in result['footprints'] if not r['reads']])
         self.assertTrue(result['ok'], [w for w in result['walks'] if not w['found']])
+
+
+class RoomsDiffer(unittest.TestCase):
+    """Not every room gets a tarn: the room's own floor suggests a tarn, a
+    river with deep pools or a dry upland (no generation; the choice only)."""
+
+    def test_water_follows_the_room(self):
+        from pipeline.landscape.generator.land import parse_objects
+        from pipeline.landscape.generator.water import water_character
+        from pipeline.landscape.harness.common import load_json
+        setup = {'water': 'some'}
+        got = {}
+        for name in ('garage_nominal', 'bedroom_nominal', 'workshop_nominal', 'near_empty_nominal'):
+            room = load_json(ROOMS/name/'room.json')
+            objects = parse_objects(load_json(ROOMS/name/'inventory.json'))
+            got[name] = water_character(room, objects, [s['position_m'] for s in room['spawns']], setup)[0]
+        self.assertEqual(got, {'garage_nominal': 'tarn', 'bedroom_nominal': 'dry', 'workshop_nominal': 'river',
+                               'near_empty_nominal': 'tarn'})
 
 
 class StreamCrossing(unittest.TestCase):

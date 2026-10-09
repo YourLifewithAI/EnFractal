@@ -19,7 +19,7 @@ from .life import (BRIDGE, grade_line, STEP_LIMIT_M, WALK_LIMIT_DEG, build_mesh,
                    paint_path, prototypes, reachable_from, surface, walk)
 from .water import DISTANT_LAKE_Y, choose_outlet, lake_rho, plan_and_carve, resample
 
-GENERATOR = {'name': 'landscape-generator', 'version': '2'}
+GENERATOR = {'name': 'landscape-generator', 'version': '3'}
 SEED = 20261008
 CELL = .03
 MARGIN = 2.1
@@ -324,7 +324,8 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False):
                     continue
                 path = loose.route((px, pz), goal)[0]
                 if path:
-                    grade_line(grid, h, wet, keep_out, resample([(k[0]*terr0.cell, k[1]*terr0.cell) for k in path], .025))
+                    grade_line(grid, h, wet, keep_out, resample([(k[0]*terr0.cell, k[1]*terr0.cell) for k in path], .025),
+                               bridges=bridges)
                     fixed += 1
             if not fixed:
                 break
@@ -335,12 +336,13 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False):
         R = max(lake['rx'], lake['rz'])*1.6
         channel = set()
         for st in water['streams']:
-            for x_, z_ in st['pts']:
+            halves = st['half'] if isinstance(st['half'], list) else [st['half']]*len(st['pts'])
+            for (x_, z_), hw in zip(st['pts'], halves):
                 if math.hypot(x_-lake['x'], z_-lake['z']) > R+.2:
                     continue
-                sx_, sz_ = grid.span(x_-st['half']-.05, x_+st['half']+.05, z_-st['half']-.05, z_+st['half']+.05)
+                sx_, sz_ = grid.span(x_-hw-.05, x_+hw+.05, z_-hw-.05, z_+hw+.05)
                 channel.update(j*nx+i for j in sz_ for i in sx_
-                               if math.hypot(grid.xs[i]-x_, grid.zs[j]-z_) <= st['half']+.05)
+                               if math.hypot(grid.xs[i]-x_, grid.zs[j]-z_) <= hw+.05)
         rx, rz = grid.span(lake['x']-R, lake['x']+R, lake['z']-R, lake['z']+R)
         for j in rz:
             for i in rx:
@@ -483,7 +485,9 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False):
                 dropped.append(rec_['prototype'])
     extensions = {'x_generator': dict(seed=seed, cell_m=CELL, margin_m=MARGIN,
                                   walk_limit_deg=WALK_LIMIT_DEG, step_limit_m=STEP_LIMIT_M,
-                                  lake=water['lake'], spring=[round(v, 3) for v in water.get('spring', (0, 0))],
+                                  water_character=water.get('character'), water_why=water.get('why'),
+                                  lake=water['lake'], pools=water.get('pools', []),
+                                  spring=[round(v, 3) for v in water.get('spring', (0, 0))],
                                   hamlet=hamlet, bridges=len(bridges), dropped_yard=dropped,
                                   forms={o['id']: [o['form'], o['form_basis'], o['rock_role']] for o in objects},
                                   grounding=grounding(grid, h, objects, base))}

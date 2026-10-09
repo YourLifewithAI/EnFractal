@@ -448,21 +448,37 @@ def build_road(grid, h, wet, inside, blocked, pads, a, b, width=.085, crossable=
                     best[q] = (d, g[k])
     for q in sorted(best):
         d, level = best[q]
-        if pads[q] > .3 or wet[q] < .1:
+        if pads[q] > .3 or wet[q] <= 0.:
             continue
         w = 1-smooth((d-width)/(reach-width))
-        h[q] = lerp(h[q], level, w)
+        if wet[q] < .1:
+            # Beside the water a bank is only filled (a footbridge's landing),
+            # never cut toward the water.
+            h[q] = max(h[q], lerp(h[q], level, w))
+        else:
+            h[q] = lerp(h[q], level, w)
     return pts
 
 
-def grade_line(grid, h, wet, pads, pts, width=.085):
+def grade_line(grid, h, wet, pads, pts, width=.085, bridges=()):
     """Cut and fill along a line of points so a body's lane follows it at no
     more than ROAD_GRADE_DEG and level across (used where a walk proved the
-    land too steep for the way a path must go)."""
+    land too steep for the way a path must go). Where the line crosses a
+    footbridge it follows the deck, so the landings are graded up to it."""
     nx = grid.nx
-    g = [grid.sample(h, x, z) for x, z in pts]
+
+    def deck(x, z):
+        for b in bridges:
+            a = math.radians(b['yaw'])
+            dx, dz = x-b['x'], z-b['z']
+            if abs(math.cos(a)*dx-math.sin(a)*dz) <= .1 and abs(math.sin(a)*dx+math.cos(a)*dz) <= b['length']/2+.02:
+                return b['top']-.006
+        return None
+    on_deck = [deck(x, z) for x, z in pts]
+    g = [grid.sample(h, x, z) if d is None else d for (x, z), d in zip(pts, on_deck)]
     for _ in range(4):
         g = [sum(g[max(0, k-6):k+7])/len(g[max(0, k-6):k+7]) for k in range(len(g))]
+    g = [v if d is None else d for v, d in zip(g, on_deck)]
     m = math.tan(math.radians(ROAD_GRADE_DEG))*.025
     for k in range(1, len(g)):
         g[k] = min(max(g[k], g[k-1]-m), g[k-1]+m)
@@ -480,9 +496,11 @@ def grade_line(grid, h, wet, pads, pts, width=.085):
                     best[q] = (d, g[k])
     for q in sorted(best):
         d, level = best[q]
-        if pads[q] > .3 or wet[q] < .1:
+        if pads[q] > .3 or wet[q] <= 0.:
             continue
-        h[q] = lerp(h[q], level, 1-smooth((d-width)/(reach-width)))
+        target = lerp(h[q], level, 1-smooth((d-width)/(reach-width)))
+        # Beside the water a bank is only filled, never cut toward the water.
+        h[q] = max(h[q], target) if wet[q] < .1 else target
 
 
 def paint_line(grid, pts, mask, width=.035):
