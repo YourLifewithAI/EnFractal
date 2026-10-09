@@ -28,7 +28,7 @@ Check every test and fixture that depends on the old name, the old height or the
 
 ## Tools
 
-The companion's own environment: `companion/.venv` (already built; `companion/.venv/Scripts/python.exe -m pytest companion/tests`). No installs, no network, no paid services. `test_real_host.py` needs the game and will skip or fail without it. Say which, and don't change it to pass.
+The integrator's companion environment, with your checkout's source first on the path (as `tools/linux/test-all.sh` does): `$env:PYTHONPATH = "$PWD\companion\src"; C:\dev\EnFractal\companion\.venv\Scripts\python.exe -B -m unittest discover -s companion/tests`. The tests use `unittest`, not pytest. The integrator's baseline in your checkout: `Ran 625 tests`, `OK (skipped=54)`. No installs, no network, no paid services. `test_real_host.py` needs the game and will skip or fail without it. Say which, and don't change it to pass.
 
 ## Budget and delivery
 
