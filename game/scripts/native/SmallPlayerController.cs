@@ -5,8 +5,9 @@ namespace EnFractal.Native;
 
 /// <summary>
 /// The player's 10 cm body. The root is at the feet; the room stays in real metres. Body properties
-/// (size, speeds, step, jump height) live here; gravity and wind are world properties from
-/// scripts/world_physics_profile.gd, so a gravity change alters how long a jump lasts, not how high.
+/// (size, speeds, step, jump) live here; gravity and wind are world properties from
+/// scripts/world_physics_profile.gd. Heavier gravity than the room's default keeps the same jump, only quicker; lighter
+/// gravity lets the body leap higher, as on the moon (see JumpSpeedMps).
 /// Creation effects (friendly wind, worn gliders) arrive through SetCreationEffects from the
 /// invention runtime; this body never decides on its own that an effect is allowed.
 /// The procedural body is an original blockout, not accepted character art.
@@ -26,8 +27,13 @@ public partial class SmallPlayerController : CharacterBody3D
     [Export] public float AirAccelerationMps2 { get; set; } = 2.0f;
     /// <summary>How fast the body turns to face its motion when movement follows a free camera (F3).</summary>
     [Export] public float TurnRateRadPerS { get; set; } = 10.0f;
-    /// <summary>Jump apex above the take-off floor. Clears the 4 cm book with room to spare.</summary>
+    /// <summary>Jump apex above the take-off floor in the room's default gravity and heavier. Clears the 4 cm book with room to spare.</summary>
     [Export] public float JumpApexM { get; set; } = 0.065f;
+    /// <summary>
+    /// The highest leap, in the lightest gravity: three body heights (founder, 8 October: "being able to leap up a hillside
+    /// would be very satisfying"). Without it floaty gravity's leap would be 38 cm and last 2.3 s.
+    /// </summary>
+    [Export] public float MaxJumpApexM { get; set; } = 0.30f;
     [Export] public float StepHeightM { get; set; } = 0.02f;
     [Export] public float FloorSnapM { get; set; } = 0.015f;
     [Export] public float SafeMarginM { get; set; } = 0.001f;
@@ -58,17 +64,45 @@ public partial class SmallPlayerController : CharacterBody3D
     public Vector2 WindMps { get; private set; }
     public string WorldPhysicsId { get; private set; } = "room_tuned";
     public int WorldPhysicsRevision { get; private set; } = -1;
+    /// <summary>The default preset's gravity (world_physics_profile.gd DEFAULT), where the jump's take-off speed is set.</summary>
+    public float ReferenceGravityMps2 { get; private set; } = 3.5f;
     /// <summary>
-    /// Take-off speed whose apex, integrated at the physics tick, is JumpApexM: the discrete apex is
-    /// v^2/2g + v*dt/2, so the jump is equally high under every gravity preset.
+    /// Take-off speed. In the default gravity and heavier it is solved so the apex, integrated at the physics tick, is
+    /// JumpApexM (the discrete apex is v^2/2g + v*dt/2): real gravity keeps the 6.5 cm jump, only quicker. In lighter
+    /// gravity the legs push off as hard as in the default, so the leap rises higher as gravity falls, as on the moon
+    /// (half the gravity, about twice the height), up to MaxJumpApexM.
     /// </summary>
-    public float JumpSpeedMps
+    public float JumpSpeedMps => GravityMps2 >= ReferenceGravityMps2
+        ? SpeedForApex(GravityMps2, JumpApexM)
+        : Mathf.Min(SpeedForApex(ReferenceGravityMps2, JumpApexM), SpeedForApex(GravityMps2, Mathf.Max(JumpApexM, MaxJumpApexM)));
+
+    /// <summary>The apex the jump reaches under the current gravity, integrated at the physics tick.</summary>
+    public float JumpApexNowM
     {
         get
         {
-            var half = GravityMps2 * 0.5f / Engine.PhysicsTicksPerSecond;
-            return -half + Mathf.Sqrt(half * half + 2.0f * GravityMps2 * JumpApexM);
+            var speed = JumpSpeedMps;
+            return speed * speed / (2.0f * GravityMps2) + speed * 0.5f / Engine.PhysicsTicksPerSecond;
         }
+    }
+
+    /// <summary>How long the jump lasts on flat ground: up at the take-off speed, down under the fall limit.</summary>
+    public float JumpAirtimeS
+    {
+        get
+        {
+            var apex = JumpApexNowM;
+            var limit = EffectiveTerminalFallMps;
+            var free = Mathf.Sqrt(2.0f * apex / GravityMps2);
+            var down = free * GravityMps2 <= limit ? free : limit / GravityMps2 + (apex - limit * limit / (2.0f * GravityMps2)) / limit;
+            return JumpSpeedMps / GravityMps2 + down;
+        }
+    }
+
+    private static float SpeedForApex(float gravity, float apex)
+    {
+        var half = gravity * 0.5f / Engine.PhysicsTicksPerSecond;
+        return -half + Mathf.Sqrt(half * half + 2.0f * gravity * apex);
     }
 
     public bool InputEnabled { get; private set; } = true;
@@ -148,6 +182,7 @@ public partial class SmallPlayerController : CharacterBody3D
         };
         AddChild(EyeCamera);
         BuildVisual();
+        ReferenceGravityMps2 = (float)DefaultWorldPhysics()["gravity_mps2"].AsDouble();
         if (WorldPhysicsRevision < 0) ApplyWorldPhysics(DefaultWorldPhysics());
         _spawnPoint = GlobalPosition;
         LastSafePosition = _spawnPoint;
@@ -306,7 +341,7 @@ public partial class SmallPlayerController : CharacterBody3D
 
     /// <summary>The playtest's console line for the active world physics.</summary>
     public void PrintWorldPhysics() =>
-        GD.Print($"PHYSICS_PROFILE {WorldPhysicsId} gravity={GravityMps2:0.##} m/s2 jump={JumpApexM * 100:0.#} cm airtime={2 * JumpSpeedMps / GravityMps2:0.00} s terminal_fall={EffectiveTerminalFallMps:0.##} m/s air_control={AirControl:0.##}");
+        GD.Print($"PHYSICS_PROFILE {WorldPhysicsId} gravity={GravityMps2:0.##} m/s2 jump={JumpApexNowM * 100:0.#} cm airtime={JumpAirtimeS:0.00} s terminal_fall={EffectiveTerminalFallMps:0.##} m/s air_control={AirControl:0.##}");
 
     /// <summary>The active world profile, as the validated dictionary it was accepted from (a copy).</summary>
     public Dictionary WorldPhysicsProfile => _worldPhysics.Duplicate(true);
