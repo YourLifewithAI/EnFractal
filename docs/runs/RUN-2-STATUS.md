@@ -311,7 +311,7 @@
 
 ## The seventh session's close (9 October, afternoon, DiamondAge)
 
-**`run2/integration` holds the whole open-sea round, green.** Every suite passes on Lane C's merge (`4266153`, both runners): small avatar 281/281, navigation 15/15, landscape 47/47, room data 56/56, look 1080/1080, HUD 94/94, sandbox 159/159, command host 423/423, companion 631. The generator's full tests are in "The next session", step 1.
+**`run2/integration` holds the whole open-sea round, green.** Every suite passes on Lane C's merge (`4266153`, both runners): small avatar 281/281, navigation 15/15, landscape 47/47, room data 56/56, look 1080/1080, HUD 94/94, sandbox 159/159, command host 423/423, companion 631. The generator's full tests also pass on it (`Ran 13 tests in 531 s`, OK).
 
 - **Merged since the first status entry:**
   - **Lane P part 2:** the reviews' six fixes, then diving (hold Ctrl, Space rises, W swims where you look, a slow drift up; `DiveSinkMps`, `DiveRiseMps`, `DriftUpMps` and `DiveSpeedFactor` on the player).
@@ -335,7 +335,7 @@
 ## The next session
 
 0. **Read** this page's seventh session and [RUN-2-OPEN-SEA.md](RUN-2-OPEN-SEA.md). Keep working on `run2/integration`; merging into `main` is the founder's call (as PR #8 was).
-1. **On a quiet machine, confirm the generator:** `python -B -m unittest discover -s pipeline/landscape/generator/tests -t .` (about 17 minutes), and the full corpus once. The integrator started both at the session's close; if the result isn't recorded here, rerun them.
+1. **Run the full corpus once** (Lane C last ran it before `cfae377`; 21 of 24 is its estimate). The generator's tests passed on the merge (13 of 13).
 2. **The founder's playtest of the open-sea round** ("EnFractal Landscape"):
    - swim on past the reef, and B home from anywhere;
    - dive (Ctrl, Space, W);
