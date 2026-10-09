@@ -46,9 +46,48 @@ def choose_outlet(room, spawns):
     return dict(x=x, z=z, nx=normal[0], nz=normal[1])
 
 
-def choose_lake(room, objects, spawns, peak, outlet, setup):
+def clear_hollow(room, objects, spawns, x, z):
+    """How far a pond centred here could spread before it met a wall, a
+    landform's foot, a spawn's glade or the land's middle (metres)."""
     lo, hi, _ = room_shape(room)
     cx, cz = (lo[0]+hi[0])/2, (lo[2]+hi[2])/2
+    free = inside_distance(room, x, z)-.45
+    for o in objects:
+        if o['parent']:
+            continue
+        lx, lz = local(o, x, z)
+        free = min(free, rr_dist(lx, lz, o['sx']/2, o['sz']/2, .05)-(.25+.45*o['sy']))
+    for s in spawns:
+        free = min(free, math.hypot(x-s[0], z-s[2])-.9)
+    return min(free, math.hypot(x-cx, z-cz)-.55)
+
+
+def water_character(room, objects, spawns, setup):
+    """What the room suggests: a deep tarn where its floor leaves a broad
+    clear hollow, a dry upland with only a rill where it is small and crowded,
+    otherwise a river with deep pools. Rivers and lakes are opportunities,
+    not required features. Returns (character, why)."""
+    if setup['water'] == 'none':
+        return 'none', 'the player chose no water'
+    lo, hi, _ = room_shape(room)
+    step = .09
+    broad = -1.
+    for a in range(int((hi[0]-lo[0])/step)+1):
+        for b in range(int((hi[2]-lo[2])/step)+1):
+            broad = max(broad, clear_hollow(room, objects, spawns, lo[0]+a*step, lo[2]+b*step))
+    area = (hi[0]-lo[0])*(hi[2]-lo[2])
+    cover = sum(o['sx']*o['sz'] for o in objects if not o['parent'])/area
+    need = {'a_little': 9., 'some': .8, 'plenty': .65}.get(setup['water'], .8)
+    why = 'clear hollow %.2f m, floor %.0f%% covered' % (broad, 100*cover)
+    if broad >= need:
+        return 'tarn', why
+    if broad < .55 and cover >= .2 and setup['water'] != 'plenty':
+        return 'dry', why
+    return 'river', why
+
+
+def choose_lake(room, objects, spawns, peak, outlet, setup):
+    lo, hi, _ = room_shape(room)
     size = {'a_little': .0, 'some': .75, 'plenty': 1.1}.get(setup['water'], 0)
     if size <= 0:
         return None
@@ -59,15 +98,7 @@ def choose_lake(room, objects, spawns, peak, outlet, setup):
     for a in range(nxs+1):
         for b in range(nzs+1):
             x, z = lo[0]+a*step, lo[2]+b*step
-            free = inside_distance(room, x, z)-.45
-            for o in objects:
-                if o['parent']:
-                    continue
-                lx, lz = local(o, x, z)
-                free = min(free, rr_dist(lx, lz, o['sx']/2, o['sz']/2, .05)-(.25+.45*o['sy']))
-            for s in spawns:
-                free = min(free, math.hypot(x-s[0], z-s[2])-.9)
-            free = min(free, math.hypot(x-cx, z-cz)-.55)
+            free = clear_hollow(room, objects, spawns, x, z)
             if free < .3:
                 continue
             # Between the spring's peak and the outlet, nearer the high ground.
@@ -149,19 +180,30 @@ def levels(grid, h, pts, half, start_level=None, floor_level=-1., ignore=None):
         if ignore is not None:
             samples = [p for p in samples if not ignore(*p)]
         if samples:
-            g = min(grid.sample(h, a, b) for a, b in samples)
+            # The second-lowest bank: a single narrow gully crossing the bank
+            # is closed by the bank carve() raises, rather than draining the
+            # whole river into it.
+            gs = sorted(grid.sample(h, a, b) for a, b in samples)
+            g = gs[1] if len(gs) >= 3 else gs[0]
             W = min(W, g-FREEBOARD)
         W = max(W, floor_level)
         out.append(W)
     return out
 
 
-def carve(grid, h, pts, W, half, depth, wet, bank=.6):
-    """Lower the bed under the surface and shape banks by the water's passage."""
+def _each(v, n):
+    return list(v) if isinstance(v, (list, tuple)) else [v]*n
+
+
+def carve(grid, h, pts, W, half, depth, wet, bank=.6, keep=None):
+    """Lower the bed under the surface and shape banks by the water's passage.
+    `half` and `depth` may vary along the stream (a pool widens and deepens
+    it); `keep(q)` marks ground another water body shapes (a tarn's bed)."""
     nx = grid.nx
+    halves, depths = _each(half, len(pts)), _each(depth, len(pts))
     best = {}
-    reach_m = half+.16
     for k, (x, z) in enumerate(pts):
+        reach_m = halves[k]+.16
         rx, rz = grid.span(x-reach_m, x+reach_m, z-reach_m, z+reach_m)
         for j in rz:
             for i in rx:
@@ -170,20 +212,24 @@ def carve(grid, h, pts, W, half, depth, wet, bank=.6):
                     continue
                 q = j*nx+i
                 if q not in best or d < best[q][0]:
-                    best[q] = (d, W[k])
+                    best[q] = (d, k)
     for q in sorted(best):
-        d, level = best[q]
-        if d < half:
-            bed = level-depth*(1-(d/half)**2)-.004
+        d, k = best[q]
+        level, hw, dp = W[k], halves[k], depths[k]
+        if keep is not None and keep(q):
+            continue
+        if d < hw:
+            bed = level-dp*(1-(d/hw)**2)-.004
             h[q] = min(h[q], bed)
         else:
-            h[q] = min(h[q], level+FREEBOARD*.5+bank*(d-half))
+            h[q] = min(h[q], level+FREEBOARD*.5+bank*(d-hw))
             h[q] = max(h[q], level+.004)
-        wet[q] = min(wet[q], max(0., d-half))
+        wet[q] = min(wet[q], max(0., d-hw))
 
 
 def ribbon(pts, W, half):
     """Level cross-sections; returns positions in [left, right] pairs."""
+    halves = _each(half, len(pts))
     pos = []
     for k, (x, z) in enumerate(pts):
         a = pts[max(0, k-1)]
@@ -191,13 +237,15 @@ def ribbon(pts, W, half):
         tx, tz = b[0]-a[0], b[1]-a[1]
         L = math.hypot(tx, tz) or 1.
         nx_, nz_ = -tz/L, tx/L
-        pos.append([x+nx_*half, W[k], z+nz_*half])
-        pos.append([x-nx_*half, W[k], z-nz_*half])
+        hw = halves[k]
+        pos.append([x+nx_*hw, W[k], z+nz_*hw])
+        pos.append([x-nx_*hw, W[k], z-nz_*hw])
     return pos
 
 
 def ribbon_meshes(name, pts, W, half, kind_split=40.):
     """Split a stream into flowing and falling runs by surface gradient."""
+    halves = _each(half, len(pts))
     runs = []
     cur = [0]
     falling = None
@@ -218,7 +266,7 @@ def ribbon_meshes(name, pts, W, half, kind_split=40.):
             continue
         p = [pts[k] for k in idx]
         w = [W[k] for k in idx]
-        pos = ribbon(p, w, half*(1.25 if fall else 1.))
+        pos = ribbon(p, w, [halves[k]*(1.25 if fall else 1.) for k in idx])
         tris = []
         for k in range(len(idx)-1):
             a, b, c, d = 2*k, 2*k+1, 2*k+2, 2*k+3
@@ -228,17 +276,223 @@ def ribbon_meshes(name, pts, W, half, kind_split=40.):
     return meshes
 
 
+# ---------------------------------------------------------------- deep water
+SWIM_DEPTH = (.14, .24)    # a deep middle well over the 10 cm body's head
+WADE_DEPTH = .06           # a shelving shore's wading shelf ends about here
+POOL_DEPTH = (.12, .17)    # a river's deep pools, over the head too
+
+
+def pond_shelves(grid, h, lake, noise, spawns, inflow):
+    """Where the tarn shelves and where it drops off, as a weight per angle in
+    the lake's own frame (1 shelving, 0 a drop-off). The bed continues the
+    land: it shelves where the shore is low open ground (the side a walker
+    comes from) and at the brook's delta, and drops off under rising banks."""
+    a = math.radians(lake['yaw'])
+    c, s = math.cos(a), math.sin(a)
+
+    def world(t, rho):
+        U, V = rho*math.cos(t)*lake['rx'], rho*math.sin(t)*lake['rz']
+        return lake['x']+c*U+s*V, lake['z']-s*U+c*V
+
+    def frame_angle(x, z):
+        dx, dz = x-lake['x'], z-lake['z']
+        return math.atan2((s*dx+c*dz)/lake['rz'], (c*dx-s*dz)/lake['rx'])
+    ts = [math.tau*k/36 for k in range(36)]
+    rise = [sum(grid.sample(h, *world(t, r)) for r in (1.3, 1.6, 1.9))/3-lake['level'] for t in ts]
+    near = min(spawns, key=lambda p: math.hypot(p[0]-lake['x'], p[2]-lake['z']))
+    t_walk = frame_angle(near[0], near[2])
+    k_shelf = min(range(36), key=lambda k: (rise[k]+.04*(1-math.cos(ts[k]-t_walk)), k))
+    t_shelf = ts[k_shelf]
+    t_in = frame_angle(*inflow) if inflow else None
+
+    def bump(t, centre, half_width):
+        d = abs(math.atan2(math.sin(t-centre), math.cos(t-centre)))
+        return 1-smooth((d-half_width*.5)/half_width)
+
+    def weight(t):
+        w = bump(t, t_shelf, math.radians(70))
+        if t_in is not None:
+            w = max(w, .75*bump(t, t_in, math.radians(30)))
+        return w
+    return weight, frame_angle, dict(shelf_deg=round(math.degrees(t_shelf) % 360, 1),
+                                     inflow_deg=None if t_in is None else round(math.degrees(t_in) % 360, 1))
+
+
+def _shelf(w):
+    """(shelf slope, shelf depth, drop slope) for a shelving weight w."""
+    return (lerp(math.tan(math.radians(26)), math.tan(math.radians(10)), w), lerp(.025, WADE_DEPTH, w),
+            lerp(math.tan(math.radians(58)), math.tan(math.radians(30)), w))
+
+
+def pond_reach(w, deep):
+    """How far in from the shore the profile reaches the deep middle."""
+    shelf_slope, shelf_depth, drop_slope = _shelf(w)
+    return shelf_depth/shelf_slope+max(0., deep-shelf_depth)/drop_slope
+
+
+def pond_depth(d, w, deep):
+    """Depth below the surface at d metres in from the shore: a shelf (gentle
+    where it shelves, a narrow ledge at a drop-off), then a drop to the deep
+    middle, met with a soft knee."""
+    shelf_slope, shelf_depth, drop_slope = _shelf(w)
+    shelf_w = shelf_depth/shelf_slope
+    if d <= shelf_w:
+        raw = shelf_slope*d
+    else:
+        raw = shelf_depth+drop_slope*(d-shelf_w)
+    k = .03   # soft minimum against the deep middle
+    if raw >= deep+k:
+        return deep
+    if raw <= deep-k:
+        return raw
+    t = (raw-(deep-k))/(2*k)
+    return lerp(raw, deep, t*t)
+
+
+def channel_cells(grid, streams, margin=.05):
+    """Grid vertices a stream's channel runs through (its banks stay open)."""
+    nx = grid.nx
+    out = set()
+    for st in streams:
+        halves = _each(st['half'], len(st['pts']))
+        for (x, z), hw in zip(st['pts'], halves):
+            r = hw+margin
+            rx, rz = grid.span(x-r, x+r, z-r, z+r)
+            out.update(j*nx+i for j in rz for i in rx if math.hypot(grid.xs[i]-x, grid.zs[j]-z) <= r)
+    return out
+
+
+def deepen_tarn(grid, h, lake, noise, spawns, inflow, setup, wet, channel=frozenset()):
+    """Carve the tarn's bed: shelving shores to wade in from and walk out of,
+    drop-offs under rising banks, and a deep middle to swim in. The surface
+    stays where its lowest rim holds it; only the bed moves."""
+    nx = grid.nx
+    level = lake['level']
+    R = max(lake['rx'], lake['rz'])*1.5
+    rx_, rz_ = grid.span(lake['x']-R, lake['x']+R, lake['z']-R, lake['z']+R)
+    inner = {}
+    for j in rz_:
+        for i in rx_:
+            r = lake_rho(lake, noise, grid.xs[i], grid.zs[j])
+            if r < 1.:
+                inner[j*nx+i] = r
+    weight, frame_angle, info = pond_shelves(grid, h, lake, noise, spawns, inflow)
+
+    def ray(t):
+        """Metres from the centre to the shore along the lake-frame angle t."""
+        wobble = 1+.12*noise(math.cos(t)*1.7+31, math.sin(t)*1.7+7)
+        return wobble*math.hypot(lake['rx']*math.cos(t), lake['rz']*math.sin(t))
+    radius = min(ray(math.tau*k/72) for k in range(72))
+    extra = {'plenty': .03}.get(setup['water'], 0.)
+    deep = clamp(.32*radius+.035+extra, *SWIM_DEPTH)
+    deepest = 0.
+    for q in sorted(inner):
+        x, z = grid.xs[q % nx], grid.zs[q//nx]
+        t = frame_angle(x, z)
+        w = weight(t)
+        R_t = ray(t)
+        # Each ray reaches the deep middle by three quarters of the way in, so
+        # a small pond steepens its shelf rather than losing its deep middle.
+        squeeze = max(1., pond_reach(w, deep)/(.75*R_t))
+        local_deep = deep*(1+.07*noise(x*3.1+41, z*3.1-17))
+        depth = pond_depth((1-inner[q])*R_t*squeeze, w, local_deep)+.004
+        h[q] = level-depth
+        deepest = max(deepest, depth)
+        wet[q] = 0.
+    # A low cut bank stands over each drop-off; open shores stay low.
+    band = {}
+    for j in rz_:
+        for i in rx_:
+            q = j*nx+i
+            if q in inner or q in channel:
+                continue
+            r = lake_rho(lake, noise, grid.xs[i], grid.zs[j])
+            if r < 1.2:
+                band[q] = r
+    for q in sorted(band):
+        x, z = grid.xs[q % nx], grid.zs[q//nx]
+        w = weight(frame_angle(x, z))
+        lip = .022*(1-w)*(1-smooth((band[q]-1.08)/.12))
+        h[q] = max(h[q], level+.006+lip)
+    lake.update(depth=round(deepest, 4), deep_target=round(deep, 4), **info)
+    return lake
+
+
+def pool_sites(room, objects, spawns, pts, W, count, avoid=None):
+    """Deep pools where a river would scour them: below a steep reach where
+    the water slows (a plunge pool) or on a sharp bend. Away from walls,
+    landforms, spawns and each other."""
+    n = len(pts)
+    L = 12   # 0.3 m of stream either side
+    cands = []
+    for k in range(L, n-L):
+        x, z = pts[k]
+        if inside_distance(room, x, z) < .45:
+            continue
+        if any(math.hypot(x-s[0], z-s[2]) < .75 for s in spawns):
+            continue
+        if avoid is not None and avoid(x, z):
+            continue
+        clear = min([rr_dist(*local(o, x, z), o['sx']/2, o['sz']/2, .05) for o in objects if not o['parent']] or [9.])
+        if clear < .45:   # the pool and its banks keep off a landform
+            continue
+        drop_up = W[k-L]-W[k]
+        drop_down = W[k]-W[k+L]
+        ax, az = pts[k][0]-pts[k-L][0], pts[k][1]-pts[k-L][1]
+        bx, bz = pts[k+L][0]-pts[k][0], pts[k+L][1]-pts[k][1]
+        turn = abs(math.atan2(ax*bz-az*bx, ax*bx+az*bz))
+        score = drop_up-1.5*drop_down+.04*turn
+        cands.append((score, -k, k))
+    cands.sort(reverse=True)
+    chosen = []
+    for score, _, k in cands:
+        if len(chosen) >= count:
+            break
+        if score <= .0:
+            break
+        if all(abs(k-c) > 40 for c in chosen):
+            chosen.append(k)
+    return sorted(chosen)
+
+
+def shape_pools(pts, W, half, depth, sites, wet_room):
+    """Widen and deepen the stream at each pool site into a level pool."""
+    n = len(pts)
+    halves, depths = [half]*n, [depth]*n
+    W = list(W)
+    pools = []
+    for k in sites:
+        span = 11
+        k0, k1 = max(0, k-span), min(n-1, k+span)
+        level = W[k1]
+        for m in range(k0, k1+1):
+            W[m] = level
+        hp = .15+.03*wet_room
+        dp = lerp(*POOL_DEPTH, wet_room)
+        for m in range(k0, k1+1):
+            t = (m-k0)/max(1, k1-k0)
+            b = math.sin(math.pi*t)
+            halves[m] = max(halves[m], half+(hp-half)*b**.7)
+            depths[m] = max(depths[m], depth+(dp-depth)*b**.5)
+        pools.append(dict(x=round(pts[k][0], 3), z=round(pts[k][1], 3), level=round(level, 4),
+                          depth=round(dp+.004, 4), half_width=round(hp, 3)))
+    return W, halves, depths, pools
+
+
 def plan_and_carve(grid, room, objects, h, base, inside, spawns, setup, noise, outside_mask):
     """Returns water records, the lake, stream polylines and a wetness map."""
     wet = [9.]*grid.n
-    result = dict(meshes=[], lake=None, streams=[], wet=wet, notes=[])
-    if setup['water'] == 'none':
+    result = dict(meshes=[], lake=None, streams=[], wet=wet, notes=[], pools=[])
+    character, why = water_character(room, objects, spawns, setup)
+    result['character'] = character
+    result['why'] = why
+    if character == 'none':
         return result
     nx = grid.nx
+    outlet = choose_outlet(room, spawns)
     peak_q = max((q for q in range(grid.n) if inside[q]), key=lambda q: (h[q], -q))
     peak = (grid.xs[peak_q % nx], grid.zs[peak_q//nx])
-    outlet = choose_outlet(room, spawns)
-    lake = choose_lake(room, objects, spawns, peak, outlet, setup)
+    lake = choose_lake(room, objects, spawns, peak, outlet, setup) if character == 'tarn' else None
     if lake is None:
         target = (outlet['x'], outlet['z'])
     else:
@@ -254,6 +508,17 @@ def plan_and_carve(grid, room, objects, h, base, inside, spawns, setup, noise, o
         if grid.sample(h, x, z) <= spring_h:
             spring = (x, z)
             break
+    if character != 'tarn':
+        # A river's spring seeps from a hillside as far from where it leaves as
+        # the room allows, so it has the length to run, fall and pool.
+        def off_landforms(x, z):
+            return all(rr_dist(*local(o, x, z), o['sx']/2, o['sz']/2, .05) > .2 for o in objects if not o['parent'])
+        seeps = [q for q in range(0, grid.n, 2) if inside[q] and .15 <= h[q]-base[q] <= .55
+                 and inside_distance(room, grid.xs[q % nx], grid.zs[q//nx]) >= .3
+                 and off_landforms(grid.xs[q % nx], grid.zs[q//nx])]
+        if seeps:
+            q = max(seeps, key=lambda q: (math.hypot(grid.xs[q % nx]-outlet['x'], grid.zs[q//nx]-outlet['z']), -q))
+            spring = (grid.xs[q % nx], grid.zs[q//nx])
     result['spring'] = spring
     result['outlet'] = outlet
     lo, hi, _ = room_shape(room)
@@ -297,6 +562,7 @@ def plan_and_carve(grid, room, objects, h, base, inside, spawns, setup, noise, o
             and (x-outlet['x'])*outlet['nx']+(z-outlet['z'])*outlet['nz'] > .5
 
     streams = []
+    inflow = None
     if lake is not None:
         raw = route(grid, h, base, noise, spring, reach_lake, [(s[0], 0, s[2]) for s in spawns])
         pts = resample(chaikin(raw, 3), .025)
@@ -306,6 +572,7 @@ def plan_and_carve(grid, room, objects, h, base, inside, spawns, setup, noise, o
                 cut = k+1
                 break
         pts = pts[:cut]
+        inflow = pts[-1]
         W = levels(grid, h, pts, .05, floor_level=lake['level'])
         # Ease the last stretch down onto the lake surface.
         total = 0.
@@ -319,8 +586,12 @@ def plan_and_carve(grid, room, objects, h, base, inside, spawns, setup, noise, o
         start = (lake['x'], lake['z'])
     else:
         start = spring
-    raw = route(grid, h, base, noise, start, reach_far, [(s[0], 0, s[2]) for s in spawns])
+    footprints = [(o['cx'], o['cz'], math.hypot(o['sx'], o['sz'])/2+.35) for o in objects if not o['parent']]
+    raw = route(grid, h, base, noise, start, reach_far, [(s[0], 0, s[2]) for s in spawns],
+                avoid=footprints if character != 'tarn' else ())
     pts = resample(chaikin(raw, 3), .025)
+    # A dry upland keeps only a rill; elsewhere a river.
+    name, half, depth = ('rill', .035, .012) if character == 'dry' else ('river', .065, .028)
     if lake is not None:
         first = 0
         for k, (x, z) in enumerate(pts):
@@ -328,18 +599,32 @@ def plan_and_carve(grid, room, objects, h, base, inside, spawns, setup, noise, o
                 first = max(0, k-1)
                 break
         pts = pts[first:]
-        W = levels(grid, h, pts, .065, start_level=lake['level']-.0005, floor_level=DISTANT_LAKE_Y,
+        W = levels(grid, h, pts, half, start_level=lake['level']-.0005, floor_level=DISTANT_LAKE_Y,
                    ignore=lambda x, z: lake_rho(lake, noise, x, z) < 1.03)
     else:
-        W = levels(grid, h, pts, .065, floor_level=DISTANT_LAKE_Y)
+        W = levels(grid, h, pts, half, floor_level=DISTANT_LAKE_Y)
     end = len(pts)
     for k, w in enumerate(W):
         if w <= DISTANT_LAKE_Y+1e-6:
             end = k+1
             break
-    streams.append(dict(name='river', pts=pts[:end], W=W[:end], half=.065, depth=.028))
+    pts, W = pts[:end], W[:end]
+    halves, depths = half, depth
+    if character != 'dry':
+        # Deep pools where the river would scour them: the river's room gets a
+        # few; below a tarn, at most one (the tarn is the deep water there).
+        far_from_lake = None if lake is None else \
+            (lambda x, z: lake_rho(lake, noise, x, z) < 1.9)
+        sites = pool_sites(room, objects, spawns, pts, W, 1 if lake is not None else 3, far_from_lake)
+        W, halves, depths, pools = shape_pools(pts, W, half, depth, sites, 0. if lake is not None else 1.)
+        result['pools'] = pools
+    streams.append(dict(name=name, pts=pts, W=W, half=halves, depth=depths))
+    in_lake = None if lake is None else \
+        (lambda q: lake_rho(lake, noise, grid.xs[q % nx], grid.zs[q//nx]) < 1.)
     for s in streams:
-        carve(grid, h, s['pts'], s['W'], s['half'], s['depth'], wet)
+        carve(grid, h, s['pts'], s['W'], s['half'], s['depth'], wet, keep=in_lake)
+    if lake is not None:
+        deepen_tarn(grid, h, lake, noise, spawns, inflow, setup, wet, channel_cells(grid, streams))
     result['streams'] = streams
     # Water meshes.
     meshes = []
