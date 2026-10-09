@@ -5,7 +5,12 @@ Renders: [sheet.png](renders/sheet.png) (final), [scan_17_draft_sheet.png](rende
 ## How the room becomes land
 - **Geology.** Every box is uplift on a 3 cm grid, merged smoothly. Confident kinds pick forms; low confidence spreads less. Soft kinds are hills (summit ridge, spurs, gullies, a shared lee tail). A form gives way to a sure neighbour outside its own box, and every landform is at least 18 cm wide. Three rounds of erosion.
 - **Shell.** A grassy ridge ring follows the floor outline and is highest far from the outlet. It rises behind objects against the wall and sinks into the shared surround without a seam. Distant hills surround the land. Nothing is shaped to a camera.
-- **Water.** A spring, a brook, a tarn whose shore stays inside the walls, and a river out through the door's pass.
+- **Water (C6).** Each room's floor chooses its water:
+  - **a tarn** where a broad hollow is clear (clear radius 0.8 m or more): shelving shores toward the walker's side and the brook's delta, drop-offs of about 58° under low cut banks, and a deep middle of 14 to 24 cm (the garage's is 23 cm);
+  - **a dry upland** with only a rill where the room is small and crowded (clear radius under 0.55 m and 20% or more of the floor covered);
+  - **otherwise a river** from a far hillside, with up to three deep pools (17 cm) below steep stretches or on bends.
+
+  Levels are held by the lowest rim, and water never runs uphill.
 - **People.**
   - A hamlet where water, flat ground and shelter meet; its demands relax step by step if a room offers no ideal site, but it never covers an object.
   - Cottages keep lanes apart and have level forecourts.
@@ -50,7 +55,9 @@ Garage grounding (box top → land top, Δ):
 
 ## Corpus (water / grounded / walk / footprints, walk to crate in m, invented)
 
-Every room invents a tarn and a river.
+C6 (8 October, late night): 23 of 24 pass. bedroom_scan_73's walk fails because its rill has no footbridge. The table below is C5 part 2's and predates C6's water choice.
+
+In C5, every room invented a tarn and a river.
 
 | Room | Checks | Walk | Invented beyond the tarn and river |
 |---|---|---|---|
