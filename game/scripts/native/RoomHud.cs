@@ -438,7 +438,7 @@ public partial class RoomHud : CanvasLayer
         var name = config.GetValue("profile", "companion_name", CompanionAvatar.DefaultName);
         // A profile saved while the companion was still called Wisp takes the founder's name for it, the Gubble.
         if (name.VariantType == Variant.Type.String)
-            Companion.SetDisplayName(name.AsString() == CompanionAvatar.FormerDefaultName ? CompanionAvatar.DefaultName : name.AsString());
+            Companion.SetDisplayName(CompanionAvatar.SavedName(name.AsString()));
         Player.SetAppearance(Palette[_playerColor]);
         Companion.SetAppearance(Palette[_companionColor]);
     }

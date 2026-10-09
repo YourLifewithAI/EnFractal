@@ -822,7 +822,8 @@ public partial class CommandHost
         {
             if (identities[CompanionAvatarId] is JsonObject companion && Companion != null && IsInstanceValid(Companion))
             {
-                Companion.SetDisplayName(companion["display_name"]!.GetValue<string>());
+                // A save from before the founder named the companion still says Wisp: it is the Gubble now.
+                Companion.SetDisplayName(CompanionAvatar.SavedName(companion["display_name"]!.GetValue<string>()));
                 Companion.SetAppearance(new Color(companion["color"]!.GetValue<string>()));
             }
             if (identities[PlayerAvatar] is JsonObject player && Player != null && IsInstanceValid(Player))

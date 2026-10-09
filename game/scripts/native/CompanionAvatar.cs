@@ -21,6 +21,8 @@ public partial class CompanionAvatar : SmallPlayerController
     public const string DefaultName = "the Gubble";
     /// <summary>The name the companion had before it was the Gubble; a saved profile still holding it takes the new default.</summary>
     public const string FormerDefaultName = "Wisp";
+    /// <summary>A saved name (a profile, a room's save): the former default becomes the Gubble; any other name is the player's choice.</summary>
+    public static string SavedName(string saved) => saved == FormerDefaultName ? DefaultName : saved;
     public string CompanionName { get; private set; } = DefaultName;
     /// <summary>The name tag over the body: the name with a capital, as a name stands on its own ("The Gubble").</summary>
     public string NameTag => CompanionName.Length > 0 ? char.ToUpperInvariant(CompanionName[0]) + CompanionName[1..] : CompanionName;
