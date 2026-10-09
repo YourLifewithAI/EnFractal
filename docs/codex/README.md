@@ -21,6 +21,8 @@ Stop and report it: a failing setup step, a permission prompt, a sandbox limit, 
 
 **Tests you write in this brief are your own work.** When one fails because of a bug in the test itself (a wrong path, an import, a stale expectation of your own), fix it, rerun it and say so in your report. The rule above protects checks that existed before your brief and forbids weakening any check to make it pass; it does not mean stopping at every red line of your own code.
 
+**Outputs stay in your checkout.** The sandbox writes only inside your checkout (and your temp folder). A brief that needs derived outputs kept out of Git (models, renders, packages) names a folder under `captures/` in your checkout, which Git ignores; the integrator copies them out. For brief writers: never point Codex's outputs at a folder outside its checkout (brief 20's first run stopped on that).
+
 **Temporary folders in the sandbox.** On Windows, Python 3.13 and later give folders made by `tempfile.mkdtemp` and `tempfile.TemporaryDirectory` an owner-only access list, and the sandbox's restricted token cannot write inside them. Make working folders with `os.makedirs` (in your temp folder or an output folder you were given) and remove them with `shutil.rmtree`.
 
 ## Never
