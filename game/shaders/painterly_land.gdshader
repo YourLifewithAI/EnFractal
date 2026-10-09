@@ -98,6 +98,8 @@ instance uniform float paint_seed = 0.0;
 varying vec3 obj_pos;
 varying vec3 obj_normal;
 varying vec3 baked_color;
+// How far this pixel has gone into the haze (0 to 1): light() fades the highlight by the same amount.
+varying float haze_v;
 
 float hash12(vec2 p) {
 	vec3 p3 = fract(vec3(p.xyx) * 0.1031);
@@ -485,9 +487,11 @@ void fragment() {
 	// The sky seen at a grazing angle in still water: a soft cool rim, no reflection probes needed.
 	float ndv0 = clamp(dot(NORMAL, normalize(VIEW)), 0.0, 1.0);
 	EMISSION = vec3(0.55, 0.74, 0.92) * pow(1.0 - ndv0, 4.0) * sky_rim * 0.35;
+	haze_v = 0.0;
 	if (haze_max > 0.0) {
 		float haze = haze_max * smoothstep(haze_start_m, haze_end_m, length(VERTEX));
 		if (haze_far_m > 0.0) haze = max(haze, smoothstep(0.7 * haze_far_m, 0.95 * haze_far_m, length(VERTEX)));
+		haze_v = haze;
 		ALBEDO *= 1.0 - haze;
 		EMISSION = mix(EMISSION, haze_color * haze_energy, haze);
 	}
@@ -518,5 +522,5 @@ void light() {
 	float visibility = 0.25 / max((ndl_c * (1.0 - k) + k) * (ndv * (1.0 - k) + k), 1e-4);
 	vec3 f0 = mix(vec3(0.04), ALBEDO, METALLIC);
 	vec3 fresnel = f0 + (1.0 - f0) * pow(1.0 - clamp(dot(VIEW, halfway), 0.0, 1.0), 5.0);
-	SPECULAR_LIGHT += LIGHT_COLOR * ATTENUATION * distribution * visibility * fresnel * ndl_c * specular_strength;
+	SPECULAR_LIGHT += LIGHT_COLOR * ATTENUATION * distribution * visibility * fresnel * ndl_c * specular_strength * (1.0 - haze_v);
 }

@@ -81,6 +81,7 @@ public partial class LookPresetTest : Node3D
             await CheckLightProtections(preset, room);
             await CheckLandscape(preset, room);
             await CheckPondLife(preset);
+            await CheckOpenSeaSynthetic(preset);
             await CheckRealOpenSea(preset);
             CheckLandUpClose(preset);
             MaterialLibrary.Configure(preset);

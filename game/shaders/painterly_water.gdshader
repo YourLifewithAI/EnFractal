@@ -95,6 +95,8 @@ uniform sampler2D depth_texture : hint_depth_texture, filter_nearest, repeat_dis
 varying vec3 obj_pos;
 varying vec3 obj_normal;
 varying vec3 baked_color;
+// How far this pixel has turned into the horizon (0 to 1): light() fades the sun's glint by the same amount.
+varying float horizon_v;
 
 float hash13(vec3 p) {
 	p = fract(p * 0.1031);
@@ -256,6 +258,7 @@ void fragment() {
 	// Into the horizon: the far sea gives way to the sky's own colour, lit by nothing, as the sky is.
 	// Only from above: seen from below, the far underside is the sea's own murk, not the sky (a bright line at the far plane otherwise).
 	float horizon = FRONT_FACING && horizon_fade_end_m > horizon_fade_start_m ? smoothstep(horizon_fade_start_m, horizon_fade_end_m, length(VERTEX)) : 0.0;
+	horizon_v = horizon;
 	ALBEDO = clamp(color, 0.0, 1.0) * (1.0 - horizon);
 	EMISSION = horizon_color * horizon_energy * horizon;
 	ALPHA = clamp(mix(alpha, 1.0, horizon), 0.0, 1.0);
@@ -282,5 +285,5 @@ void light() {
 	float k = alpha * 0.5;
 	float visibility = 0.25 / max((ndl_c * (1.0 - k) + k) * (ndv * (1.0 - k) + k), 1e-4);
 	vec3 fresnel = vec3(0.04) + vec3(0.96) * pow(1.0 - clamp(dot(VIEW, halfway), 0.0, 1.0), 5.0);
-	SPECULAR_LIGHT += LIGHT_COLOR * ATTENUATION * distribution * visibility * fresnel * ndl_c * specular_strength;
+	SPECULAR_LIGHT += LIGHT_COLOR * ATTENUATION * distribution * visibility * fresnel * ndl_c * specular_strength * (1.0 - horizon_v);
 }
