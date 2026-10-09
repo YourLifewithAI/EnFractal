@@ -1597,20 +1597,20 @@ public partial class SmallPlayerController : CharacterBody3D
     protected bool HasSupportNear(Vector3 position, float maximumDrop = -1)
     {
         if (maximumDrop < 0) maximumDrop = BodyHeightM * 0.5f;
-        var query = PhysicsRayQueryParameters3D.Create(position + Vector3.Up * (BodyHeightM * 0.25f),
+        using var query = PhysicsRayQueryParameters3D.Create(position + Vector3.Up * (BodyHeightM * 0.25f),
             position - Vector3.Up * maximumDrop, RoomBuilder.BodyMask);
         query.Exclude = new Array<Rid> { GetRid() };
-        var hit = GetWorld3D().DirectSpaceState.IntersectRay(query);
+        using var hit = GetWorld3D().DirectSpaceState.IntersectRay(query);
         return hit.Count > 0 && hit["normal"].AsVector3().Y >= Mathf.Cos(FloorMaxAngle);
     }
 
     private bool FindSupportedPosition(Vector3 requested, out Vector3 result)
     {
         result = requested;
-        var ray = PhysicsRayQueryParameters3D.Create(requested + Vector3.Up * (BodyHeightM * 0.4f),
+        using var ray = PhysicsRayQueryParameters3D.Create(requested + Vector3.Up * (BodyHeightM * 0.4f),
             requested - Vector3.Up * Mathf.Max(0.5f, BodyHeightM * 2), RoomBuilder.BodyMask);
         ray.Exclude = new Array<Rid> { GetRid() };
-        var hit = GetWorld3D().DirectSpaceState.IntersectRay(ray);
+        using var hit = GetWorld3D().DirectSpaceState.IntersectRay(ray);
         if (hit.Count == 0 || hit["normal"].AsVector3().Y < Mathf.Cos(FloorMaxAngle)) return false;
         // A vertical capsule touches a slope off its centre ray. Raise its lower
         // hemisphere enough to clear the support plane, then check the entire
@@ -1624,13 +1624,15 @@ public partial class SmallPlayerController : CharacterBody3D
     /// <summary>Whether the whole body fits with its feet here (nothing on its mask inside the capsule).</summary>
     private bool CapsuleFits(Vector3 feet)
     {
-        var query = new PhysicsShapeQueryParameters3D
+        using var query = new PhysicsShapeQueryParameters3D
         {
             Shape = _capsule, CollisionMask = CollisionMask,
             Transform = new Transform3D(Basis.Identity, feet + Vector3.Up * (BodyHeightM * 0.5f)),
             Margin = SafeMarginM * 0.5f, Exclude = new Array<Rid> { GetRid() }
         };
-        return GetWorld3D().DirectSpaceState.IntersectShape(query, 1).Count == 0;
+        // Disposed at once: the Gubble's way home tries dozens of spots in one tick, and wrappers left to the finalizer trip Godot's exit.
+        var hits = GetWorld3D().DirectSpaceState.IntersectShape(query, 1);
+        return hits.Count == 0;
     }
 
     private bool TryStep(Vector3 horizontalMotion)
