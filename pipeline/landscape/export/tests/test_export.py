@@ -676,6 +676,16 @@ class SeaExportTests(unittest.TestCase):
                               capture_output=True, text=True, cwd=ROOT)
         self.assertEqual(proc.returncode, 0, proc.stdout+proc.stderr)
 
+    def test_the_generator_margin_travels_with_the_sea(self):
+        package = self.package_with('margin-package', self.sea)
+        doc = json.loads((package/'package.json').read_bytes())
+        doc['x_generator']['margin_m'] = 1.7
+        (package/'package.json').write_text(json.dumps(doc, sort_keys=True), encoding='utf-8')
+        out = self.scratch/'margin'/'landscape_margin'
+        export_room(package, ROOM, 'landscape_margin', out)
+        sea = json.loads((out/'room.json').read_bytes())['extensions']['x_landscape_sea']
+        self.assertEqual(sea['grid_margin_m'], 1.7)
+
     def test_bad_sea_fails_before_any_output(self):
         lo = self.plain['bounds']['min_m']
         cases = {

@@ -58,7 +58,8 @@ def export_room(package_folder, source_room_folder, room_id, out):
     # An island's sea (generator v4 on): the bounds grow out past the reef, and the game gets the reef,
     # the beaches and the jetty. A package without one keeps the room's own bounds.
     sea = doc.get('x_generator', {}).get('sea') if isinstance(doc.get('x_generator'), dict) else None
-    sea, bounds = sea_data(sea, intro_source['bounds']) if sea is not None else (None, intro_source['bounds'])
+    margin = doc['x_generator'].get('margin_m') if sea is not None else None
+    sea, bounds = sea_data(sea, intro_source['bounds'], margin) if sea is not None else (None, intro_source['bounds'])
     require(doc['terrain'], 'landscape has no terrain')
     require(len(doc['objects']) <= 512, 'room contract allows at most 512 populated objects')
     blobs, shell, objects = {}, [], []
