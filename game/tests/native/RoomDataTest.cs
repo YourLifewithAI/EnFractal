@@ -91,7 +91,7 @@ public partial class RoomDataTest : Node3D
             garageBuilt.QueueFree();
 
             var preset = StylePreset.Resolve(RoomWorld.DefaultStyleId, RoomWorld.DefaultStyleVersion, FileAccess.GetSha256(RoomWorld.DefaultStyle));
-            Check(preset.PresetId == "storybook_painterly" && preset.PresetVersion == 1 && preset.Path == "res://styles/storybook_painterly/v1.json", "the seed preset resolves by id and version against its pin");
+            Check(preset.PresetId == "storybook_painterly" && preset.PresetVersion == RoomWorld.DefaultStyleVersion && preset.Path == RoomWorld.DefaultStyle, "the seed preset resolves by id and version against its pin");
             CheckThrows(() => StylePreset.Resolve(RoomWorld.DefaultStyleId, RoomWorld.DefaultStyleVersion, new string('0', 64)), "must never change", "a preset that no longer matches its pin is refused");
             CheckThrows(() => StylePreset.Resolve(RoomWorld.DefaultStyleId, 99), "not found", "a missing preset version is refused");
             Check(preset.RoleRoughness.ContainsKey("wood") && preset.MaxShadowedLights >= 1, "per-role treatments and budgets are read");
@@ -116,11 +116,11 @@ public partial class RoomDataTest : Node3D
             pinned.RoomDirectory = "user://tests/rooms/test_room";
             AddChild(pinned);
             for (var i = 0; i < 120 && !pinned.WorldReady && pinned.LoadError.Length == 0; i++) await Frames(1);
-            Check(pinned.WorldReady && pinned.StyleNote.Contains("unavailable") && pinned.GetMeta("style").AsString() == "storybook_painterly@1",
+            Check(pinned.WorldReady && pinned.StyleNote.Contains("unavailable") && pinned.GetMeta("style").AsString() == $"storybook_painterly@{RoomWorld.DefaultStyleVersion}",
                 "a room whose style pin does not verify opens with the default look and says so: " + pinned.LoadError);
             pinned.QueueFree();
             await Frames(1);
-            WriteCopy(null, b => Replace(b, "\"files\": [", "\"default_style\": {\"preset_id\": \"storybook_painterly\", \"preset_version\": 1, \"preset_sha256\": \"" + FileAccess.GetSha256(RoomWorld.DefaultStyle) + "\"},\n  \"files\": ["));
+            WriteCopy(null, b => Replace(b, "\"files\": [", "\"default_style\": {\"preset_id\": \"storybook_painterly\", \"preset_version\": 1, \"preset_sha256\": \"" + FileAccess.GetSha256(StylePreset.PathFor(RoomWorld.DefaultStyleId, 1)) + "\"},\n  \"files\": ["));
             var verified = GD.Load<PackedScene>("res://scenes/room.tscn").Instantiate<RoomWorld>();
             verified.RoomDirectory = "user://tests/rooms/test_room";
             AddChild(verified);
