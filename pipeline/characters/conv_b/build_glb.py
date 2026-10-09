@@ -113,6 +113,9 @@ def material(hex_colour):
         bsdf.inputs['Base Color'].default_value = (*rgb, 1.0)
         bsdf.inputs['Roughness'].default_value = 0.8
         bsdf.inputs['Metallic'].default_value = 0.0
+        if len(h) == 8:  # #rrggbbaa: see-through (a bubble, a ghost)
+            bsdf.inputs['Alpha'].default_value = int(h[6:8], 16) / 255.0
+            m.surface_render_method = 'BLENDED'
         MATERIALS[hex_colour] = m
     return MATERIALS[hex_colour]
 
@@ -163,9 +166,9 @@ def join(name, objs, pivot):
     obj = mesh_object(name, np.concatenate(verts), np.concatenate(faces))
     mesh = obj.data
     mesh.polygons.foreach_set('material_index', np.concatenate(mats))
-    mesh.polygons.foreach_set('use_smooth', np.ones(len(mesh.polygons), bool))
     for m in slots:
         mesh.materials.append(m)
+    mesh.shade_smooth()
     mesh.update()
     return obj
 
@@ -191,12 +194,15 @@ def main():
             if piece['kind'] == 'tube' and piece.get('behind') and part['parent'] in halfthick:
                 y = y - piece['behind'] * halfthick[part['parent']]
             centres = np.stack([b[:, 0], y, b[:, 1]], axis=1)
-            radii = np.stack([r, r * piece['depth'], r], axis=1)
+            # Depth grows like the square root of the drawn width, so ends and edges come out full and pillowy
+            # instead of pinched to a lens; a thin limb (every ball about the same size) stays a round tube.
+            dmax = max(piece['dmax_m'], 1e-6)
+            radii = np.stack([r, np.sqrt(r * dmax) * piece['depth'], r], axis=1)
             obj = balls_object(f"{part['name']}_{k}", centres, radii)
             thin = min(piece['dmax_m'] * min(1.0, piece['depth']), 0.004)
             voxel = max(0.00016, min(0.0006, thin / 3.0))
             obj.data.materials.append(material(piece['colour']))
-            fuse(obj, voxel, 3, 150, 3000)
+            fuse(obj, voxel, 3, 150, 4000)
             pieces_by_part[part['name']].append(obj)
             halfthick[part['name']] = max(halfthick.get(part['name'], 0.0), piece['dmax_m'] * piece['depth'])
 
