@@ -199,6 +199,12 @@ class Journal(TeamCase):
 
 
 class Unreachable(TeamCase):
+    """Inject the body reporting a true blockage, such as a closed pen with a roof.
+
+    A lone wall or open pen cannot imply blockage for the floating Gubble. This
+    box-only mock does not compute routes; these cases test the host's timer.
+    """
+
     def test_a_walking_goal_blocked_for_5_s_fails_with_target_unreachable(self):
         for goal, args in (("fetch", {"target": "obj:book"}), ("go_to", {"target": "obj:box"}),
                            ("come", {"target": "avatar:player"})):

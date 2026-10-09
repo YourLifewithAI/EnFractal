@@ -35,15 +35,15 @@ from support import (
 from mcp_harness import McpHarness
 
 from enfractal_companion.link import LinkClient
-from enfractal_companion.mock_host import REMEMBERED_TARGET_GOALS
+from enfractal_companion.mock_host import HOVER_M, REMEMBERED_TARGET_GOALS
 from enfractal_companion.server import INSTRUCTIONS
 
 SPINNER = example("command_creation_place_spinner")["args"]["source"]
 
-SPAWN = [0.45, 0.0, 0.6]  # the companion's spawn: the whole test room is in sight
+SPAWN = [0.45, HOVER_M, 0.6]  # the Gubble's hovering spawn: the whole test room is in sight
 BEHIND_THE_BOX = [1.6, 0.0, 0.2]  # the box hides the book, the doorstop and the player
 BEHIND_THE_TABLE = [-0.9, 0.0, -1.4]  # only the table is in sight
-BESIDE_THE_DOORSTOP = [-0.15, 0.0, 0.5]  # within reach of the doorstop at (-0.3, 0, 0.5)
+BESIDE_THE_DOORSTOP = [-0.15, HOVER_M, 0.5]  # within reach of the doorstop at (-0.3, 0, 0.5)
 OUT_OF_EVERY_SIGHT = [-1.7, 0.0, -1.2]  # behind the table: hidden from the spawn, the box and the doorstop
 IN_THE_OPEN = [0.9, 0.0, 1.0]  # on the rug, in sight of the spawn and of the doorstop's place
 
@@ -453,7 +453,10 @@ class NeverThroughOthers(MemoryCase):
 class Bounds(MemoryCase):
     def test_memory_holds_at_most_the_policy_number_of_entities_nearest_kept(self):
         self.host.policy = dataclasses.replace(self.host.policy, perception_memory_entries=2)
-        self.look_around()  # from the spawn the rug it stands on is nearest, then the book
+        # Hover raises the eye enough that the player narrowly beats the book at the spawn.
+        # Move 2 cm toward the book to keep this fixture's rug/book ordering and eviction checks.
+        self.move_to([SPAWN[0], SPAWN[1], SPAWN[2] - 0.02])
+        self.look_around()  # the rug below is nearest, then the book
         self.assertEqual(list(self.host.memory[COMPANION].entries), ["obj:book", "obj:rug"])
         self.move_to(BEHIND_THE_TABLE)  # seeing the table pushes out the book, the older of the two
         remembered = {k for k, v in self.listed().items() if v["seen"] == "remembered"}

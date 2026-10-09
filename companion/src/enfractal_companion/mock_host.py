@@ -105,6 +105,9 @@ WALKING_GOALS = frozenset({"come", "go_to", "fetch"})
 
 # A come (and a fetch's walk back) ends this far from the player, centre to centre (CompanionAvatar.ComeArrivalM).
 COME_ARRIVAL_M = 0.14
+# The Gubble's mean height over its support (SmallPlayerController.HoverHeightM).
+# This box model has no physics tick and does not simulate the real body's 4 mm bob.
+HOVER_M = 0.02
 # Both avatars have the 10 cm body (perception.py): radius 0.02 m, height 0.10 m, as Entity half_extents.
 _BODY = [perception.BODY_RADIUS_M, perception.BODY_HEIGHT_M, perception.BODY_RADIUS_M]
 
@@ -450,7 +453,8 @@ class MockHost(JournalMixin):
         for offset, (principal, avatar) in enumerate(sorted((p, a) for p, a in self.avatars.items() if p != PLAYER)):
             position = list(companion_spawn["position_m"])
             position[0] += 0.15 * offset
-            name = "Wisp" if avatar == "avatar:companion" else avatar.split(":", 1)[1].capitalize()
+            position[1] = _r(position[1] + HOVER_M)
+            name = "the Gubble" if avatar == "avatar:companion" else avatar.split(":", 1)[1].capitalize()
             self.entities[avatar] = Entity(
                 id=avatar, kind="avatar", display_name=name, position=position,
                 half_extents=list(_BODY), affordances=[], movable=False, provenance_kind="hand_authored")
@@ -471,6 +475,10 @@ class MockHost(JournalMixin):
     def rename_entity(self, entity_id: str, name: str) -> None:
         """A player-chosen or captured name. Untrusted: it may say anything."""
         with self._lock:
+            # Match CompanionAvatar.SavedName for a former default supplied by a game-side fixture.
+            # The mock has no saved companion profile reader; other names remain the player's choice.
+            if entity_id == "avatar:companion" and name == "Wisp":
+                name = "the Gubble"
             self.entities[entity_id].display_name = name
 
     def move_avatar(self, avatar_id: str, position: list[float]) -> None:
@@ -1582,7 +1590,7 @@ class MockHost(JournalMixin):
             if length == 0.0:
                 away, length = [1.0, 0.0], 1.0
             scale = COME_ARRIVAL_M / length
-            self.entities[actor_id].position = [_r(player[0] + away[0] * scale), player[1],
+            self.entities[actor_id].position = [_r(player[0] + away[0] * scale), _r(player[1] + HOVER_M),
                                                 _r(player[2] + away[1] * scale)]
             self.facing[actor_id] = (-away[0] / length, -away[1] / length)  # it faces the player it came back to
             self._carry(actor_id)
