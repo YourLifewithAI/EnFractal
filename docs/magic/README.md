@@ -2,6 +2,21 @@
 
 **Status:** a design draft for the founder, 9 October 2026 (a Linux cloud session). Nothing here is built. It comes from the founder's notes and the kids' first wishes the same day, and from five research reports in [research/](research/). Decisions the founder has made are marked **(decided)**; everything else is a proposal.
 
+**The founder's decisions (9 October, evening):**
+- **Fire is ability six,** built right after Bloom.
+- **The wheel works with no AI connected.** The founder: "This is fine for now. It's a placeholder testing system. We need to test them and see what works and what doesn't." So everything here is a starting point for playtests, not a fixed design.
+- **The flower trail is on by default, and the player can turn it off.**
+- **Retire the five geography-era templates now,** keeping the trigger machinery (a Lane P packet, under way).
+- **Evaluate and update the key bindings** (see "The keys").
+
+**Checked against the research** once all five reports were in. These were added in that pass:
+- the refusal that offers what is possible;
+- the instant in-game acknowledgement while the AI thinks;
+- fire's keyed "yes" near the player's builds;
+- saved spells, for later;
+- "magic, not a teammate";
+- the key review.
+
 ## The idea
 
 The Gubble is the player's magic. **Its abilities work through the island's own laws:** the Gubble names an intent and a place, and the land does the rest. "A waterfall here" puts a spring on the high ground, and the water finds its own way down. "Flowers on that hill" seeds the hill, and the sun and water decide where they bloom.
@@ -28,8 +43,11 @@ The player directs the Gubble without words (a tap, a wheel, the number keys) or
 6. **Darkness hides; light reveals.**
    - Nothing punishes: the island's no-punishment rule.
    - Darkness follows *Sky: Children of the Light*, not *Don't Starve*: it holds glow-moss and shy creatures, and the dark never hurts you (research 1).
-7. **Show the hidden inputs.** Dry grass looks yellow and wet ground darker; drifting motes show the wind. Otherwise outcomes feel random (research 1).
-8. **Rules are data, never code.**
+7. **Show the hidden inputs.**
+   - Dry grass looks yellow and wet ground darker; drifting motes show the wind. Otherwise outcomes feel random (research 1).
+   - Chance may change how fast something happens, never what happens: dry grass always burns, at a varying speed.
+8. **Magic, not a teammate.** Players of PUBG's AI ally saw it as a tool far more often than as a teammate (research 2). The Gubble is presented as the player's magic, a companion with powers, not a squadmate whose skill is judged.
+9. **Rules are data, never code.**
    - They are pinned and hashed like style presets.
    - No scripts, URLs or paths.
    - No rule text ever comes from the model or from world text.
@@ -54,6 +72,8 @@ Baba Is You's maker called rule precedence the hardest problem in his game, so i
 
 **How an ability tests a law.** Factorio's recipes declare the planet conditions they need (pressure, gravity), and the engine checks them; the recipe runs no code (research 3). An EnFractal ability does the same: "call a spring" requires `water_evaporates: false`; "snow" requires a snowline.
 
+**A schema sketch** for the engine block, an island's rules, an ability and a cost is in [research 3](research/03-island-rules-and-costs.md). It is the starting point for `island-rules.schema.json`. Its `needs_click` field predates the founder's no-click decision and becomes the tiers: T2 (preview, then commit) and T3 (a keyed "yes").
+
 ## The ground layer
 
 Most of the island's magic acts on one shared field over the land:
@@ -71,11 +91,11 @@ The kids' wishes (9 October): a trail of flowers wherever the Gubble walks, fire
 | | Ability | Engine primitive | Through the land's laws | Tier | First version |
 |---|---|---|---|---|---|
 | 1 | **Glow** | `light.emit` | A real light source (light comes only from real sources). It lights what it reaches and casts shadows. In the dark it reveals glow-moss and shy things | T0 auto, stop ends it | The Gubble glows; it lights a spot; it follows as a lantern; later it lights the hamlet's lanterns |
-| 2 | **Bloom** | `growth.seed` on the ground layer | Flowers only on soil: thick where sun and water are, sparse on dry crests, none on rock, water or sand | The trail is T0 and transient; painting a patch is T1 (auto with undo) | The trail behind the Gubble, blooming and fading after a few seconds (Divinity's "surface on path" is exactly this); paint a patch by dragging |
+| 2 | **Bloom** | `growth.seed` on the ground layer | Flowers only on soil: thick where sun and water are, sparse on dry crests, none on rock, water or sand | The trail is T0 and transient; painting a patch is T1 (auto with undo) | The trail behind the Gubble, blooming and fading after a few seconds (Divinity's "surface on path" is exactly this); **on by default, and the player can turn it off (decided)**. Paint a patch by dragging |
 | 3 | **Bubbles** | `particles.float` (cloud layer) | They rise, drift with the wind and pop on touch | T0 | A stream of bubbles. Later a big bubble lifts a pebble, or carries the player across the pond: physics, not a script |
 | 4 | **Fireworks** | `particles.burst` plus `light.emit` | They light the land for a moment; best at night | T0 | A burst where you point |
 | 5 | **Build** | `kit.assemble` (a ghost draft) | Snaps to flat ground, always enterable, sized for 10 cm figures (BUILDING.md) | The draft changes nothing; the player confirms the build | A bridge or ladder, then a cottage |
-| 6 | **Fire (next)** | `element.ignite` on the ground layer | Needs air and fuel; spreads with dryness and wind; water stops it; burns to ash that regrows green | T2: previews its predicted burn first | After Bloom (see "Fire" below) |
+| 6 | **Fire (decided: right after Bloom)** | `element.ignite` on the ground layer | Needs air and fuel; spreads with dryness and wind; water stops it; burns to ash that regrows green | T2: previews its predicted burn first. T3 (a keyed "yes") when that burn would reach unlocked things the player made | After Bloom (see "Fire" below) |
 
 **Transform and effects: the first rules (proposed).**
 
@@ -91,6 +111,7 @@ The kids' wishes (9 October): a trail of flowers wherever the Gubble walks, fire
 - at first, only unlocked movable things and creations, not the land;
 - is previewed, then commits, as one undo step;
 - stays physical: a log becomes a canoe that floats, a stone a crystal that is a real light.
+- Anything that would touch the player's own builds always gets the preview with its stop ring, whatever the ability's usual tier.
 
 **The command surface today.** `entity.transform`, `effect.start` and `style.set` are in the contract, but the host refuses them ("arrives with the first magic"). `capabilities.list` answers an empty list. The first packet fills `capabilities.list` from the island's abilities and accepts `effect.start` for Glow.
 
@@ -105,6 +126,11 @@ The kids want fire that really catches trees and buildings. It is the best test 
 - **Locks are fireproof,** with a visible shimmer. "Spreads" and "destroys" are separate flags (the GriefPrevention plugin's model).
 - **One fire is one undo step.** Every cell it burns is recorded under the action that lit it. Its random generator is seeded from the room's revision, so the preview, the fire and the undo agree.
 - **A fire budget per principal,** so the Gubble cannot light fires over and over.
+- **Near the player's builds:** when the predicted burn would reach unlocked things the player made, the fire waits for a keyed "yes" (T3). A locked build is never at risk.
+- **Still open:**
+  - burnt creations scorched and repairable, or removed;
+  - fire for the player only at first;
+  - weather as an island law.
 
 ## Triggers: small laws the player and the Gubble make
 
@@ -120,25 +146,44 @@ They are the player's own laws for their island, on the same layer as the island
 
 From research 4 (Apex's ping, Pikmin, marking menus, Valheim, Dragon Quest Builders 2). **Tap does the smart thing; hold shows the choices.** One icon set and one numbering serve the wheel, the number keys and a hotbar, so each teaches the others.
 
-**Today:** the player already directs the Gubble without an AI. Keys 1 to 5 send follow, stay, come, stop and point through `CommandHost.PlayerGoal`, as the player. The wheel extends that to abilities.
+**Today:** the player already directs the Gubble without an AI. Keys 1 to 5 send follow, stay, come, stop and point through `CommandHost.PlayerGoal`, as the player. The wheel extends that to abilities **(decided: it works with no AI connected)**.
 
-| Input | Action (proposed; every key remappable) |
-|---|---|
-| Mouse | Aim; the reticle shows what "this" or "that" is |
-| Right button, tap | **The smart ask** at the aim (rules below) |
-| Right button, hold | **The Gubble wheel:** 8 fixed wedges; it pauses the game; a flick and release works before it is drawn |
-| 1 to 5 | Glow, Bloom, Bubbles, Fireworks, Build at the aim; hold for the ghost, release to cast |
-| Q | Come, then follow (the recall) |
-| X | Stop: cancels the action or the countdown |
-| Z | Undo the Gubble's last change |
-| Enter | The wish box |
-| F, V | The player's own hands (unchanged) |
+### The keys: today and proposed
 
-**Rebinding needed:**
-- today 1 to 5 are the orders above;
-- Q and E turn the view in F4;
-- G cycles world physics;
-- T is the time of day, H help, L lamps, O observe, C customise.
+**How the keys work today** (`RoomHud._UnhandledInput`, `SmallPlayerController`):
+- every key is a hard-coded physical key (the same place on any keyboard layout);
+- none can be remapped;
+- the help panel's text is written separately from the bindings.
+
+| Key | Today | Proposed | Why |
+|---|---|---|---|
+| W A S D, Shift, Space, Ctrl | Move, sprint, jump (rise when diving), dive | Unchanged | |
+| Mouse, left button | Look (F1, F2); orbit (F3); the left button captures the mouse | Unchanged, plus aim. The reticle shows what "this" is | |
+| Right button | Unbound | **Tap: the smart ask. Hold: the Gubble wheel** | The Gubble's own button (Apex's ping) |
+| 1 to 5 | Follow, stay, come, stop, point ahead | **Glow, Bloom, Bubbles, Fireworks, Build** (hold for the ghost, release to cast; unlearned ones shrug) | The orders move to the smart ask, the wheel and Q; "point ahead" becomes the smart ask's "go and look there" |
+| Q, E | Turn the F4 view | **Q: come, then follow** (the recall). E unbound for now | The recall is the most-used order, next to W A S D |
+| [ and ] | Unbound | **Turn the F4 view** (and drag with the middle button) | Q and E move to the Gubble |
+| X | Unbound | **Stop** the Gubble's action or countdown | |
+| Z | Unbound | **Undo** the Gubble's last change | |
+| Enter | Unbound | **The wish box** | |
+| F, V | Pick up or put down, push | Unchanged | The player's own hands |
+| B, R | Home to the jetty, recover | Unchanged | |
+| Mouse wheel | Zoom (F3) | Zoom; **while a ghost shows, it turns the ghost** | |
+| F1 to F4, O | Views, observe | Unchanged | |
+| H, C, Esc | Help, customise, release the mouse | Unchanged | |
+| G | Next world physics (the founder's low-gravity leaps) | Unchanged for now; listed under "testing" in help; later a setting | |
+| T, Shift+T, L | Time of day, season, lamps | Unchanged for now; listed under "testing" in help (time follows the real clock); later a setting | |
+
+**Two steps, so nothing the founder plays loses its key in between:**
+1. **Now (no change in behaviour):**
+   - every binding moves into named input actions in Godot's input map, still physical keys;
+   - the help panel reads its text from the map;
+   - a test checks that no two actions share a key in the same view.
+
+   That gives remappable keys (P5) and makes the next step a change of data.
+2. **With the wheel and Glow:** switch to the proposed defaults above. Moving the orders off 1 to 4 before the wheel and the smart ask exist would leave them with no key.
+
+Every key stays remappable.
 
 **The wheel:** eight fixed slots, never reflowed, because muscle memory needs them fixed. Eight is within the measured limit for reliable flicks.
 
@@ -240,6 +285,16 @@ Wish box ──the player's words──▶ Game host (wish queue) ◀── runn
    - the runner's role can't touch the world;
    - an extra tool aborts the run.
 
+**While the AI thinks.** A bring-your-own AI may take seconds. The game acknowledges a wish the moment it is queued:
+- the Gubble turns and a thinking bubble appears;
+- the wish shows as pending;
+- the game's reflexes (stop, undo) keep working;
+- "done" waits for the host's receipt; until then the claim reads as "still thinking" (research 2).
+
+**When a wish can't be granted.** The Gubble says so with the host's reason and offers what it can do: "I can't make a dragon yet. I can: [bubbles] [fireworks]" (research 4). Roblox's Wish Master found that players wish for things that don't exist; whether to offer the nearest lawful substitute is for playtests to settle.
+
+**Saved spells (later).** A wish that worked could be kept in the journal as a named spell to cast again, without the AI, where the player aims: Infinite Craft's "first discovery", the AI's compositions becoming the player's own magic (research 2). It needs the ability set to settle first.
+
 **The kids:**
 - **The Gubble's words come first from a curated set of lines**, with the AI's own words optional behind a grown-up switch. Free-text filters fail with children: a spelling trick made Fortnite's AI Darth Vader swear, and Epic added a parental switch.
 - **The wish's text goes to the player's AI provider,** so setup is a grown-up's step, with a plain disclosure.
@@ -286,16 +341,17 @@ New with magic:
 
 ## Build order (proposed)
 
-0. **Cleanup** (Lanes P and A, with the integrator for the contract examples).
-   - Retire the five templates.
+0. **Cleanup (approved; under way, Lane P on `run2/retire-templates`).**
+   - Retire the five templates and the old invention workshop UI, which nothing shipped reaches.
    - Give the tests neutral fixtures.
-   - Keep the trigger machinery.
-   - About 33 files reference the templates: the creation compiler, the kernel's golden fixtures, the contract examples (the spinner is the standard sample creation) and the companion tests.
+   - Keep the trigger machinery and the invention runtime that runs creations.
+   - About 33 files reference the templates: the creation compiler, the contract examples (the spinner is the standard sample creation), the companion tests and the GDScript suites.
+0b. **The keys into an input map** (no change in behaviour; see "The keys"). After the cleanup, so the two packets' test runs don't compete for the machine.
 1. **Glow, end to end, with no AI needed.**
    - A first `island-rules.schema.json` and the `storybook_wild` v1 pack, with its ability list.
    - `capabilities.list` and `effect.start` for Glow, within its limits.
    - The Gubble's glow look (Lane L).
-   - Slot 1 and the first wheel wedge.
+   - The right button's smart ask and the first wheel wedge, with the new key defaults.
    - The dusk moment.
    - The acknowledgement, from the receipt.
 2. **The wish path.**
@@ -309,10 +365,14 @@ New with magic:
 
 ## Open questions for the founder
 
-1. **Fire:** the sixth ability, right after Bloom? Burnt creations scorched and repairable, or removed? Fire for the player only at first?
+Answered on 9 October: fire's place (sixth, after Bloom), the wheel without an AI (yes), the flower trail (on by default, can be turned off), and evaluating the keys (the table above, in two steps).
+
+1. **Fire's details:** are burnt creations scorched and repairable, or removed? Fire for the player only at first?
 2. **Weather** (rain and wind) as island laws? Fire and growth want them.
-3. **The flower trail:** always on, as the Gubble's signature, or switched on and off?
-4. **The wish runner:** started by the player, or by the game (which would then launch programs)? Strictly vendor-neutral, or optional extras where a client has them (Claude Code's channels, OpenClaw's webhooks)? And do the AI providers' terms allow a game's runner to drive a CLI signed in with a subscription? That needs checking.
-5. **A wish while another runs:** queue it (proposed), interrupt, or merge?
-6. **The Gubble's words to children:** curated lines only at first, with the AI's own words behind a grown-up switch?
-7. **Keys:** the scheme above moves today's 1 to 5, Q, E and G. Agreed, to be tried in a playtest?
+3. **The wish runner.**
+   - Started by the player, or by the game (which would then launch programs)?
+   - Strictly vendor-neutral, or optional extras where a client has them (Claude Code's channels, OpenClaw's webhooks)?
+   - Do the AI providers' terms allow a game's runner to drive a CLI signed in with a subscription? That needs checking.
+4. **A wish while another runs:** queue it (proposed), interrupt, or merge?
+5. **The Gubble's words to children:** curated lines only at first, with the AI's own words behind a grown-up switch?
+6. **The proposed key defaults** in "The keys": try them in the playtest after the wheel lands?
