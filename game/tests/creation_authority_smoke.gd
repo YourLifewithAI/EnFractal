@@ -127,6 +127,9 @@ func _test_locks() -> void:
 	near_garden.z_m = 379.75
 	_expect_code(host.submit(PLAYER, near_garden), "protected_zone", "assembly footprint cannot cross a locked object")
 	_expect_code(host.preflight(PLAYER, _wind_source(), 0.0, 377.5, 0.0), "protected_zone", "a wind radius cannot reach into a locked object")
+	var revisions_before_refusal := [host.revision, host.permission_revision]
+	_expect_code(host.preflight(PLAYER, _source(), 0.0, 379.75, 0.0), "protected_zone", "a footprint over a locked object is refused at preflight")
+	_expect([host.revision, host.permission_revision] == revisions_before_refusal, "a refused preflight changes no revision (moved from the retired editor smoke)")
 	_expect(not host.can_affect(PLAYER, PLAYER, Vector3(0, 12, 385)), "a locked zone receives no effects")
 	_expect_code(host.submit(COMPANION, _lock(host, "unlock", "companion_unlock", ["obj:garden"])), "unlock_denied", "the companion can never unlock")
 	_expect(host.is_locked("obj:garden") and host.revision == 1, "a refused unlock changes nothing")

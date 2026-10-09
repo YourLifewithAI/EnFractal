@@ -17,7 +17,7 @@ from support import (
 from enfractal_companion.textsafety import hidden_characters
 
 FAST = dict(companion_messages_per_s=1_000_000)
-SPINNER = example("command_creation_place_spinner")["args"]["source"]
+SAMPLE = example("command_creation_place_trigger_light")["args"]["source"]
 
 
 class FixCase(base.HostCase):
@@ -251,7 +251,7 @@ class Numbers(FixCase):
         for _ in range(140):
             node["x"] = {}
             node = node["x"]
-        source = copy.deepcopy(SPINNER)
+        source = copy.deepcopy(SAMPLE)
         source["parts"][0]["shape_hint"] = deep
         result = self.send(command("creation.place", {"source": source, "placement": {"position_m": [0.5, 0, 0.5]}}, "c-1"))
         self.assertRefused(result, "request_invalid")
@@ -269,8 +269,8 @@ class Text(FixCase):
             with self.subTest(value=ascii(value)):
                 result = self.send(command("goal.set", {"actor": "avatar:companion", "goal": "stay"}, "g-1", **{field: value}))
                 self.assertRefused(result, "request_invalid", "$.note")
-        source = copy.deepcopy(SPINNER)
-        source["name"] = "Spinner" + chr(0x3164)
+        source = copy.deepcopy(SAMPLE)
+        source["name"] = "Trigger light" + chr(0x3164)
         result = self.send(command("creation.place", {"source": source, "placement": {"position_m": [0.5, 0, 0.5]}}, "c-1"))
         self.assertRefused(result, "invalid_args", "$.args.source.name")
 
@@ -333,7 +333,7 @@ class Text(FixCase):
         for i, key in enumerate([chr(0xFF50) + "rincipal", "pr" + chr(0x0456) + "ncipal", "principal ", "on_behalf_of",
                                  "approved_by_player", "PRINCIPAL", "pr" + chr(0x0131) + "ncipal", "Owner", "api_token"]):
             with self.subTest(key=ascii(key)):
-                source = copy.deepcopy(SPINNER)
+                source = copy.deepcopy(SAMPLE)
                 source["parts"][0][key] = PLAYER
                 result = self.send(command("creation.place", {"source": source, "placement": {"position_m": [0.5, 0, 0.5]}},
                                            f"sp-{i}"))
@@ -368,7 +368,7 @@ class Approvals(FixCase):
         source = retarget(example("command_transform_bean_bag_into_glider"), GARAGE_TO_TEST_ROOM)["args"]["into"]
         transform = self.hold(command("entity.transform", {"target": "obj:book", "into": source}, "tf-1",
                                       expected_entities={"obj:book": 0}))
-        self.assertIn('turn obj:book ("Book", revision 0) into "Storm glider"', transform["approval_needed"]["reason"])
+        self.assertIn('turn obj:book ("Book", revision 0) into "Worn glide"', transform["approval_needed"]["reason"])
         moved = self.send(command("entity.place", {"target": "obj:rug", "placement": {"position_m": [0.1, 0, 0.6]}},
                                   "move-1"))
         self.assertTrue(moved["ok"], moved)  # the companion's own change: the only kind its undo may step back over
@@ -383,14 +383,14 @@ class Approvals(FixCase):
             self.assertIn("to toybox v1", held["approval_needed"]["reason"])
 
     def test_approval_text_for_a_revision_names_the_new_name_and_place(self):
-        placed = self.host.player_command(command("creation.place", {"source": SPINNER, "placement": {"position_m": [0.5, 0, 0.5]}},
+        placed = self.host.player_command(command("creation.place", {"source": SAMPLE, "placement": {"position_m": [0.5, 0, 0.5]}},
                                                   "p-place"))
         creation = placed["created"][0]
-        source = dict(copy.deepcopy(SPINNER), name="Bigger spinner")
+        source = dict(copy.deepcopy(SAMPLE), name="Bigger light")
         held = self.hold(command("creation.revise", {"target": creation, "source": source,
                                                      "placement": {"position_m": [0.6, 0, 0.4]}}, "rev-1",
                                  expected_entities={creation: 1}))
-        self.assertIn('rebuild it as "Bigger spinner" and move it to (0.6, 0, 0.4)', held["approval_needed"]["reason"])
+        self.assertIn('rebuild it as "Bigger light" and move it to (0.6, 0, 0.4)', held["approval_needed"]["reason"])
 
     def test_another_companions_approval_looks_like_no_approval(self):
         self.host = new_host(clock=self.clock, extra_companions={"companion:visitor": "avatar:visitor"})
@@ -436,9 +436,9 @@ class Budgets(FixCase):
     def test_refuses_creations_beyond_the_room_budget(self):
         self.host.policy = dataclasses.replace(self.host.policy, max_creations=2)
         for i in range(2):
-            self.assertTrue(self.send(command("creation.place", {"source": SPINNER, "placement": {"position_m": [0.5, 0, 0.5]}},
+            self.assertTrue(self.send(command("creation.place", {"source": SAMPLE, "placement": {"position_m": [0.5, 0, 0.5]}},
                                               f"c-{i}"))["ok"])
-        self.assertRefused(self.send(command("creation.place", {"source": SPINNER, "placement": {"position_m": [0.5, 0, 0.5]}},
+        self.assertRefused(self.send(command("creation.place", {"source": SAMPLE, "placement": {"position_m": [0.5, 0, 0.5]}},
                                              "c-2")), "budget_exceeded")
 
     def test_refuses_releasing_with_the_players_avatar(self):

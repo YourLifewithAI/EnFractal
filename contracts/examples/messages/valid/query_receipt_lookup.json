@@ -5,6 +5,6 @@
   "room_id": "garage_example",
   "op": "receipt.lookup",
   "args": {
-    "action_id": "spinner-0002"
+    "action_id": "light-0002"
   }
 }

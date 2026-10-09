@@ -5,6 +5,9 @@ const GUARD = preload("res://tests/kernel_test_guard.gd")
 var guard = GUARD.new()
 
 const COMPILER := preload("res://scripts/creation_compiler.gd")
+## Neutral test creations, one per kind of behaviour: worn glide, used rotor and wind, proximity wind,
+## the proximity-to-light trigger graph, and a timer driving a rotor and a light.
+const FIXTURES := ["fixture_worn_glide", "fixture_use_rotor_wind", "fixture_proximity_wind", "fixture_trigger_light", "fixture_timer_rotor"]
 var failed: Array[String] = []
 var valid_count := 0
 var invalid_count := 0
@@ -16,10 +19,10 @@ func _initialize() -> void:
 
 
 func _run() -> void:
-	var templates := COMPILER.templates()
-	_check(templates.size() == 5, "five data-only templates are present")
-	for source in templates:
-		_valid(source, "template " + source.name)
+	var fixtures := _fixtures()
+	_check(fixtures.size() == 5, "five data-only creation fixtures are present")
+	for source in fixtures:
+		_valid(source, "fixture " + source.name)
 	var minimal := _minimal()
 	_valid(minimal, "inert plinth")
 	var multi := minimal.duplicate(true)
@@ -35,7 +38,7 @@ func _run() -> void:
 		var extent := (2.0 + 1.0) / sqrt(2.0)
 		_check(absf(float(angled_result.artifact.bounds.max[0]) - extent) < 0.00001, "rotated footprint includes the four-metre long edge")
 		_check(absf(float(angled_result.artifact.bounds.min[2]) + extent) < 0.00001, "rotated footprint protects the opposite corner")
-	var boundaries: Dictionary = templates[1].duplicate(true)
+	var boundaries: Dictionary = fixtures[1].duplicate(true)
 	boundaries.seed = 2147483647
 	for node in boundaries.nodes:
 		if node.op == "wind":
@@ -185,7 +188,7 @@ func _run() -> void:
 	bad = minimal.duplicate(true)
 	bad.nodes.append(_node("spin", "spin", {"speed_rpm":20,"duration_s":1}))
 	_invalid(bad, "part_kind", "$.nodes[0].part_id", "spinning nonrotor")
-	bad = templates[1].duplicate(true)
+	bad = fixtures[1].duplicate(true)
 	for node in bad.nodes:
 		if node.op == "wind":
 			node.params.direction = [0, 0.5, 0]
@@ -228,6 +231,15 @@ func _run() -> void:
 		for failure in failed:
 			push_error(failure)
 		quit(guard.exit_code(true))
+
+
+func _fixtures() -> Array:
+	var result: Array = []
+	for fixture in FIXTURES:
+		var source: Variant = JSON.parse_string(FileAccess.get_file_as_string("res://tests/fixtures/creations/%s.json" % fixture))
+		if source is Dictionary:
+			result.append(source)
+	return result
 
 
 func _valid(source: Variant, label: String) -> Dictionary:

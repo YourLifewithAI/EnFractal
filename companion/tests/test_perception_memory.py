@@ -38,7 +38,7 @@ from enfractal_companion.link import LinkClient
 from enfractal_companion.mock_host import HOVER_M, REMEMBERED_TARGET_GOALS
 from enfractal_companion.server import INSTRUCTIONS
 
-SPINNER = example("command_creation_place_spinner")["args"]["source"]
+SAMPLE = example("command_creation_place_trigger_light")["args"]["source"]
 
 SPAWN = [0.45, HOVER_M, 0.6]  # the Gubble's hovering spawn: the whole test room is in sight
 BEHIND_THE_BOX = [1.6, 0.0, 0.2]  # the box hides the book, the doorstop and the player
@@ -266,7 +266,7 @@ class Commands(MemoryCase):
                 self.assertEqual(self.fetch("obj:doorstop", goal)["error"]["code"], "target_not_found")
 
     def test_nothing_that_changes_a_remembered_thing_is_allowed_without_seeing_it(self):
-        placed = self.player("creation.place", {"source": SPINNER, "placement": {"position_m": [0.0, 0.0, 0.3]}})
+        placed = self.player("creation.place", {"source": SAMPLE, "placement": {"position_m": [0.0, 0.0, 0.3]}})
         creation = placed["created"][0]
         self.seen_then_hidden(BEHIND_THE_TABLE)  # only the table is in sight
         remembered = self.listed()
@@ -275,7 +275,7 @@ class Commands(MemoryCase):
         self.assertEqual(remembered["obj:table"]["seen"], "now")
         glow = {"capability": "glow", "params": {"intensity": 1}, "area": {"center_m": [0, 0.3, 0], "radius_m": 1},
                 "duration_s": 5}
-        into = {"source": dict(SPINNER, name="Glider")}
+        into = {"source": dict(SAMPLE, name="Glider")}
         attempts = [
             ("entity.grab", {"target": "obj:doorstop"}, {}),
             ("entity.place", {"target": "obj:doorstop", "placement": {"position_m": [1, 0, 1]}}, {}),
@@ -595,7 +595,7 @@ class NothingHiddenLeaks(MemoryCase):
         self.host.add_world_text("obj:book", "a sign nobody saw")
         self.move_to(BEHIND_THE_BOX)
         self.look_around()
-        placed = self.player("creation.place", {"source": SPINNER, "placement": {"position_m": OUT_OF_EVERY_SIGHT}})
+        placed = self.player("creation.place", {"source": SAMPLE, "placement": {"position_m": OUT_OF_EVERY_SIGHT}})
         self.player("entity.place", {"target": "obj:book", "placement": {"position_m": [0.4, 0.0, 0.1]}},
                     expected_entities={"obj:book": 0})
         hidden = ("obj:book", "obj:doorstop", "avatar:player", placed["created"][0])

@@ -43,8 +43,8 @@ func _initialize() -> void:
 
 
 func _run() -> void:
-	for source in COMPILER.templates():
-		_geometry(source)
+	for fixture in ["fixture_worn_glide", "fixture_use_rotor_wind", "fixture_proximity_wind", "fixture_trigger_light", "fixture_timer_rotor"]:
+		_geometry(JSON.parse_string(FileAccess.get_file_as_string("res://tests/fixtures/creations/%s.json" % fixture)))
 	for shape in COMPILER.registry().shapes:
 		for dimensions in [[4.0,0.1,0.2],[0.1,0.35,4.0],[3.4,0.25,1.3]]:
 			var source := _single(shape, dimensions)
@@ -189,10 +189,7 @@ func _graph_checks() -> void:
 	var actor := TestActor.new()
 	root.add_child(actor)
 	runtime.player = actor
-	runtime.hud = Label.new()
-	runtime.hud_card = PanelContainer.new()
 	runtime._make_field_display()
-	runtime.editor_open = true
 	runtime.seen_revision = 0
 	runtime.seen_permissions = 0
 	assembly = _install(runtime,source)
@@ -204,8 +201,6 @@ func _graph_checks() -> void:
 	_check(runtime.activation_count == 2, "timer fires once when next deadline is reached")
 	_check(runtime.animations.size() <= 1, "repeating timer does not grow duplicate effect jobs")
 	assembly.free()
-	runtime.hud.free()
-	runtime.hud_card.free()
 	actor.free()
 	runtime.free()
 

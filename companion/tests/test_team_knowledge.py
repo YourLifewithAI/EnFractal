@@ -20,7 +20,7 @@ import unittest
 
 from support import COMPANION, PLAYER, FakeClock, HostPolicy, command, contract_problems, contracts, example, new_host, query
 
-SPINNER = example("command_creation_place_spinner")["args"]["source"]
+SAMPLE = example("command_creation_place_trigger_light")["args"]["source"]
 
 BEHIND_THE_TABLE = [-0.9, 0.0, -1.4]  # the companion sees only the table from here
 OUT_OF_EVERY_SIGHT = [-1.7, 0.0, -1.2]  # the player sees only the table (and the companion) from here
@@ -127,7 +127,7 @@ class TheTeamsMap(TeamCase):
 
     def test_eviction_spares_creations_and_task_targets(self):
         self.host.policy = dataclasses.replace(self.host.policy, perception_memory_entries=2)
-        made = self.act("creation.place", {"source": SPINNER, "placement": {"position_m": [0.8, 0.0, 0.9]}}, PLAYER)
+        made = self.act("creation.place", {"source": SAMPLE, "placement": {"position_m": [0.8, 0.0, 0.9]}}, PLAYER)
         self.assertTrue(made["ok"], made)
         creation = made["created"][0]
         self.ask("room.describe")  # both avatars see everything: the bound keeps the creation, the rest is routine
@@ -191,7 +191,7 @@ class Journal(TeamCase):
         self.assertIn("pin_m", task)
 
     def test_creations_built_changed_and_removed_are_facts(self):
-        made = self.act("creation.place", {"source": SPINNER, "placement": {"position_m": [0.8, 0.0, 0.9]}}, PLAYER)
+        made = self.act("creation.place", {"source": SAMPLE, "placement": {"position_m": [0.8, 0.0, 0.9]}}, PLAYER)
         self.assertTrue(made["ok"], made)
         [built] = self.journal(kind="built")["entries"]
         self.assertEqual((built["actor"], built["directed_by"], built["revision"]), (PLAYER, PLAYER, made["revision"]))

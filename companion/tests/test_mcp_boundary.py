@@ -15,7 +15,7 @@ from mcp_harness import McpHarness
 
 from enfractal_companion.textsafety import hidden_characters
 
-SPINNER = example("command_creation_place_spinner")["args"]["source"]
+SAMPLE = example("command_creation_place_trigger_light")["args"]["source"]
 
 
 def harness_test(**harness_kwargs):
@@ -56,7 +56,7 @@ class Refusals(unittest.IsolatedAsyncioTestCase):
 
     @harness_test()
     async def test_refuses_principal_nested_in_a_creation_source_before_sending(self, h):
-        source = copy.deepcopy(SPINNER)
+        source = copy.deepcopy(SAMPLE)
         source["parts"][1]["owner"] = PLAYER
         result = await h.call("creation_place", {"action_id": "c-1", "source": source,
                                                  "placement": {"position_m": [0.5, 0, 0.5]}})
@@ -194,8 +194,8 @@ class Refusals(unittest.IsolatedAsyncioTestCase):
 
     @harness_test()
     async def test_refuses_oversized_arguments_before_sending(self, h):
-        source = copy.deepcopy(SPINNER)
-        source["parts"] = [dict(SPINNER["parts"][0], id=f"p{i}", label="x" * 3000) for i in range(24)]
+        source = copy.deepcopy(SAMPLE)
+        source["parts"] = [dict(SAMPLE["parts"][0], id=f"p{i}", label="x" * 3000) for i in range(24)]
         result = await h.call("entity_transform", {"action_id": "t-1", "target": "obj:box", "into": {"source": source},
                                                    "expected_entities": {"obj:box": 0}})
         self.assertRefused(result, "request_invalid", "$")
@@ -308,7 +308,7 @@ class ReviewFixes(unittest.IsolatedAsyncioTestCase):
 
     @harness_test()
     async def test_refuses_look_alike_authority_keys_in_tool_arguments(self, h):
-        source = copy.deepcopy(SPINNER)
+        source = copy.deepcopy(SAMPLE)
         source["parts"][0]["on_behalf_of"] = PLAYER
         result = await h.call("creation_place", {"action_id": "c-1", "source": source,
                                                  "placement": {"position_m": [0.5, 0, 0.5]}})

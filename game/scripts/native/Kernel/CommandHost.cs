@@ -197,9 +197,6 @@ public partial class CommandHost : Node
         Runtime = (Node3D)GD.Load<GDScript>(RuntimeScript).New().AsGodotObject();
         Runtime.Name = "InventionRuntime";
         Runtime.Set("save_path", SavePath);
-        // The workshop (INVENTIONS panel, editor, keys B F E V Q K) is retired for players: the founder's second
-        // playtest found its Q and E blocking the isometric view's turn keys. The runtime still renders and runs creations.
-        Runtime.Set("workshop_enabled", false);
         Runtime.Call("configure", RoomDictionary(Room), Player!, Companion!);
         // The scene is derived: the authority hands every saved object pose to the room's nodes, while a save loads too.
         Runtime.Set("object_pose_sink", new Callable(this, MethodName.ApplyObjectPoses));

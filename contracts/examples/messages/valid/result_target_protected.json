@@ -11,7 +11,7 @@
   "preview": false,
   "error": {
     "code": "target_protected",
-    "message": "The spinner is protected. Only the player can unlock it.",
+    "message": "The creation is protected. Only the player can unlock it.",
     "field_path": "$.args.target",
     "retryable": false
   },
