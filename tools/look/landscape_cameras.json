@@ -38,6 +38,28 @@
       "stage": { "player_m": [0.31, 0.115, 1.62], "yaw_deg": 172, "companion_m": [0.46, 0.115, 1.66] }
     },
     {
+      "id": "land_pond",
+      "label": "Into the tarn",
+      "purpose": "Run 2 (the founder's playtest round): the garage's tarn from its south-west shore, 22 cm up and looking down into it, the player on the bank for scale. Judges water you can see into (the bed through clear shallows, a darker and cooler deep middle, the wet line at the shore) and the fish (small schools in the deep middle, about a fifth of the avatar's height).",
+      "position_m": [0.78, 0.22, 0.62],
+      "look_at_m": [1.17, -0.01, 0.95],
+      "fov_deg": 55,
+      "focus_m": [1.10, -0.01, 0.90],
+      "hide_player_body": false,
+      "stage": { "player_m": [0.40, 0.06, 0.70], "yaw_deg": 300, "companion_m": [0.30, 0.12, 0.50] }
+    },
+    {
+      "id": "land_under",
+      "label": "Under the tarn",
+      "purpose": "Run 2: a camera dipped under the tarn's surface (3 cm down, 2 cm over the bed), looking across it and a little up: the water clouds with distance, the surface is a pale ceiling from below, the fish near the eye stay clear.",
+      "position_m": [0.95, -0.025, 0.80],
+      "look_at_m": [1.50, -0.005, 1.10],
+      "fov_deg": 70,
+      "focus_m": [1.20, -0.02, 0.95],
+      "hide_player_body": false,
+      "stage": { "player_m": [0.40, 0.06, 0.70], "yaw_deg": 300, "companion_m": [0.30, 0.12, 0.50] }
+    },
+    {
       "id": "land_wide",
       "label": "A wide view",
       "purpose": "The whole garage landscape from above its near edge: ridge, stream, trees, the cottages, and the hills and sky beyond. Judges the ground's colour, the haze and exposure at distance, and the horizon.",

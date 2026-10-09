@@ -40,6 +40,8 @@ public partial class LookDirector : Node3D
     public const string SkyShaderPath = "res://shaders/painterly_window_sky.gdshader";
     /// <summary>Meta marking a mesh whose captured materials the look has made painterly (their originals are kept for the GI bake).</summary>
     public const string CapturedPaintedMeta = "look_captured_painted";
+    /// <summary>Meta on a mesh that wears a landscape's water: it is see-through, so it casts no shadow and stays out of the GI bake.</summary>
+    public const string WaterMeta = "look_water";
 
     public StylePreset Preset { get; private set; } = null!;
     public int RoomLightCount { get; private set; }
@@ -638,6 +640,12 @@ public partial class LookDirector : Node3D
         // casts no shadow on the side it faces away from, so the sun would pass straight through it (review M4). A closed
         // slab loses nothing.
         mesh.CastShadow = isShell ? GeometryInstance3D.ShadowCastingSetting.DoubleSided : GeometryInstance3D.ShadowCastingSetting.On;
+        // Water you can see into would shade its own bed as a slab: it casts no shadow and is no wall for the bounce.
+        if (mesh.HasMeta(WaterMeta))
+        {
+            mesh.CastShadow = GeometryInstance3D.ShadowCastingSetting.Off;
+            mesh.GIMode = GeometryInstance3D.GIModeEnum.Disabled;
+        }
         return isShell;
     }
 
@@ -660,6 +668,7 @@ public partial class LookDirector : Node3D
                 var bake = LandscapeLook.BakeColor(mesh.Mesh, surface, source.AlbedoColor);
                 mesh.SetSurfaceOverrideMaterial(surface, MaterialLibrary.ForLandscape(landRole, source.AlbedoColor, bake));
                 mesh.SetMeta(LandscapeLook.LandscapePaintedMeta, true);
+                if (LandscapeLook.IsWater(landRole)) mesh.SetMeta(WaterMeta, true);
                 painted = true;
                 continue;
             }

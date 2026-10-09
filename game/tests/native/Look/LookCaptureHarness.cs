@@ -92,6 +92,7 @@ public partial class LookCaptureHarness : Node
             for (var i = 0; i < 600 && !_world.WorldReady && _world.LoadError.Length == 0; i++) await NextFrame();
             if (!_world.WorldReady) throw new InvalidOperationException("room did not load: " + _world.LoadError);
             _look = _world.Look;
+            AttachPondLife();
             // Review captures show the room, not the interface: hide the HUD and the companion's floating name.
             foreach (var layer in _world.FindChildren("*", "CanvasLayer", true, false).OfType<CanvasLayer>()) layer.Visible = false;
             foreach (var label in _world.FindChildren("*", "Label3D", true, false).OfType<Label3D>()) label.Visible = false;
@@ -142,6 +143,19 @@ public partial class LookCaptureHarness : Node
             GD.PushError("Look capture failed: " + error);
             GetTree().Quit(1);
         }
+    }
+
+    /// <summary>
+    /// The fish and the underwater veil (Run 2, Lane L), attached here as RoomWorld will once the integrator wires them (a change
+    /// request), with the avatars to dart from. Found by name, so the harness still captures commits from before they existed.
+    /// </summary>
+    private void AttachPondLife()
+    {
+        if (_world.FindChild("PondLife", true, false) != null) return;
+        var type = Type.GetType("EnFractal.Native.Look.Fauna.PondLife");
+        if (type?.GetMethod("Create")?.Invoke(null, new object[] { _world.Room.RoomId, _world.Built }) is not Node3D life) return;
+        _world.AddChild(life);
+        type.GetMethod("SetAvatars")?.Invoke(life, new object[] { new Node3D?[] { _world.Player, _world.Companion } });
     }
 
     private string Arg(string name, string fallback) => _args.TryGetValue(name, out var value) ? value : fallback;
