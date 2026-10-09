@@ -39,6 +39,20 @@ public partial class RoomHud : CanvasLayer
     /// <summary>Times the focus was asked for (the test keeps it cheap).</summary>
     public int FocusQueries { get; private set; }
     private Label _moveKeys = null!;
+    private float _armLength;
+    /// <summary>How far over the bed the shoulder camera keeps its lens (the open-sea bed has no collider for the arm to meet).</summary>
+    public const float ArmBedClearanceM = 0.02f;
+
+    /// <summary>
+    /// The shoulder arm's length so its end stays ArmBedClearanceM over the water's bed (Codex Astra's review: at the open-sea
+    /// bed, looking up, the camera went 15 cm under it). The arm runs from origin along direction (unit) for up to full.
+    /// </summary>
+    public static float ArmLengthOverBed(Vector3 origin, Vector3 direction, float full, float bedY, float clearance)
+    {
+        if (!float.IsFinite(bedY) || direction.Y >= -1e-4f) return full;
+        var room = origin.Y - (bedY + clearance);
+        return room <= 0 ? 0.01f : Mathf.Clamp(room / -direction.Y, 0.01f, full);
+    }
     /// <summary>The movement keys, with B home from anywhere (the founder, 9 October: to the jetty, or the beach, or the start).</summary>
     private string MoveKeys => $"WASD move · Shift run · Space jump · B back to {Player.HomeName} · R recover · G gravity · click to look · Esc release";
     private Label _notice = null!;
@@ -251,6 +265,7 @@ public partial class RoomHud : CanvasLayer
         var height = Player.BodyHeightM;
         _arm = new SpringArm3D { Name = "FollowCameraArm", Position = new Vector3(Player.BodyRadiusM * 2.2f, height * 0.8f, 0), SpringLength = height * 3.2f, Margin = height * 0.1f, CollisionMask = 1 };
         Player.AddChild(_arm);
+        _armLength = _arm.SpringLength;
         _arm.AddExcludedObject(Player.GetRid());
         _shoulder = new Camera3D { Name = "FollowCamera", Near = 0.005f, Far = 100, Fov = 68 };
         _arm.AddChild(_shoulder);
@@ -362,6 +377,7 @@ public partial class RoomHud : CanvasLayer
     {
         if (ViewMode >= 2) PlaceDioramaRig(snap: false, (float)delta);
         _arm.Rotation = new Vector3(Mathf.Clamp(Player.EyeCamera.Rotation.X - 0.18f, -1.1f, 0.8f), 0, 0);
+        _arm.SpringLength = ArmLengthOverBed(_arm.GlobalPosition, _arm.GlobalBasis.Z, _armLength, Player.Water.Wet ? Player.Water.BedY : float.NegativeInfinity, ArmBedClearanceM);
         var holding = Host?.HeldName(Kernel.CommandHost.PlayerAvatar) ?? "";
         _state.Text = $"{Player.BodyHeightM * 100:0} cm player  ·  gravity {Player.WorldPhysicsId} (G)  ·  {Companion.CompanionName}: {Companion.CurrentIntent}" +
             (Companion.FloatingThere ? " · floating there" : "") + (Companion.GoalBlocked ? " · path blocked" : "") +

@@ -254,6 +254,35 @@ public partial class LandscapePlayTest : Node3D
             "the sea has no edge: the swimmer swims on past the reef, the bounds and the water meshes, held up by the open sea, never turned back or washed ashore");
         Check(gap < 0.4f && companion.HoversOverWater && companion.GlobalPosition.Y > sea.LevelM + 0.005f, "the Gubble follows out over the open sea, hovering over it");
 
+        // Diving out there, in F2 (Codex's reviews): W with the shoulder camera level swims level, not up; and at the open-sea
+        // bed, which no arm collides with, looking up, the camera stays over the bed.
+        var hud = _world.GetNode<RoomHud>("RoomHud");
+        hud.SetViewMode(1);
+        player.SetDiveInput(true, false);
+        await Frames(120);
+        player.SetDiveInput(false, false);
+        player.EyeCamera.Rotation = new Vector3(0.18f, 0, 0);   // the shoulder camera looks 0.18 rad under the eye: level
+        await Frames(10);
+        var levelFrom = player.GlobalPosition;
+        for (var i = 0; i < 60; i++) { player.SetControlInput(new Vector2(0, 1)); await Frames(1); }
+        player.SetControlInput(Vector2.Zero);
+        var levelRise = player.GlobalPosition.Y - levelFrom.Y;
+        player.EyeCamera.Rotation = Vector3.Zero;
+        player.SetDiveInput(true, false);
+        await Frames(600);
+        var bedThere = player.Water.BedY;
+        player.EyeCamera.Rotation = new Vector3(0.8f, 0, 0);
+        await Frames(10);
+        var followCamera = player.GetNode<SpringArm3D>("FollowCameraArm").GetNode<Camera3D>("FollowCamera");
+        var lensOverBed = followCamera.GlobalPosition.Y - bedThere;
+        player.SetDiveInput(false, true);
+        for (var i = 0; i < 900 && player.IsDiving; i++) await Frames(1);
+        player.SetDiveInput(false, false);
+        player.EyeCamera.Rotation = Vector3.Zero;
+        hud.SetViewMode(0);
+        Measure($"LANDSCAPE_SEA diving in F2: W with the shoulder camera level rose {levelRise * 100:0.0} cm in 1 s; at the bed ({bedThere:0.000} m), looking up, the shoulder camera {lensOverBed * 100:0.0} cm over it");
+        Check(Mathf.Abs(levelRise) < 0.01f && lensOverBed > 0.01f, "in F2, W swims where the shoulder camera looks, and the camera never goes under the open-sea bed");
+
         // B, out there: home to the jetty's landward end, standing, facing inland; the Gubble beside.
         Check(player.RequestHome(), "B starts the way home");
         await Frames(100);

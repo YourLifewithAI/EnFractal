@@ -80,11 +80,11 @@ public sealed class RoomSea
     }
 
     /// <summary>The generator's grid from the source room's bounds; without them, the playable water's box round the coast's middle.</summary>
-    private static (Vector2 Centre, float Start) OpenSeaFrame(Aabb? source, Vector2[] playArea, Vector2 middle)
+    private static (Vector2 Centre, float Start) OpenSeaFrame(Aabb? source, Vector2[] playArea, Vector2 middle, float marginM = GeneratorMarginM)
     {
         if (source is { } room)
         {
-            var half = new Vector2(room.Size.X, room.Size.Z) * 0.5f + new Vector2(GeneratorMarginM, GeneratorMarginM);
+            var half = new Vector2(marginM, marginM) + new Vector2(room.Size.X, room.Size.Z) * 0.5f;
             return (new Vector2(room.GetCenter().X, room.GetCenter().Z), Mathf.Min(half.X, half.Y) - 0.25f);
         }
         float reach = float.PositiveInfinity;
@@ -138,7 +138,9 @@ public sealed class RoomSea
         var coast = Loop(Obj(sea, "coast"), "outline_m");
         var playArea = Loop(Obj(sea, "play_area"), "outline_m");
         var middle = Middle(coast);
-        var (centre, start) = OpenSeaFrame(source, playArea, middle);
+        // The generator's margin, when the exporter writes it (x_landscape_sea.grid_margin_m); else generate.py's own 1.7 m.
+        var margin = sea.TryGetProperty("grid_margin_m", out _) ? Num(sea, "grid_margin_m", 0, 100) : GeneratorMarginM;
+        var (centre, start) = OpenSeaFrame(source, playArea, middle, margin);
         return new RoomSea
         {
             LevelM = Num(sea, "level_m", -10, 10), SwimDepthM = Num(sea, "swim_depth_m", 0, 10),
@@ -176,7 +178,7 @@ public sealed class RoomSea
     /// world-layer ground under the surface or else the open-sea bed. Ground at or above the surface (a sea stack's top) is
     /// dry, as RoomWater.At has it. RoomWater.Column.Dry otherwise.
     /// </summary>
-    public RoomWater.Column OpenWater(PhysicsDirectSpaceState3D space, Vector3 point, float aboveM, float belowM, Rid exclude = default)
+    public RoomWater.Column OpenWater(PhysicsDirectSpaceState3D space, Vector3 point, float aboveM, float belowM, Rid exclude = default, bool throughRoof = false)
     {
         if (!point.IsFinite() || LevelM > point.Y + aboveM || LevelM < point.Y - belowM) return RoomWater.Column.Dry;
         var flat = new Vector2(point.X, point.Z);
@@ -188,9 +190,19 @@ public sealed class RoomSea
         using var query = PhysicsRayQueryParameters3D.Create(top, new Vector3(point.X, LevelM - RoomWater.BedSearchM, point.Z), RoomBuilder.WorldLayer);
         if (exclude.IsValid) query.Exclude = new Godot.Collections.Array<Rid> { exclude };
         query.HitBackFaces = false;
+        var real = false;
         using (var hit = space.IntersectRay(query))
-            if (hit.Count > 0) bedY = hit["position"].AsVector3().Y;
-        if (bedY > LevelM - RoomWater.RimM || bedY > point.Y + RoomWater.BedToleranceM) return RoomWater.Column.Dry;
+            if (hit.Count > 0) { bedY = hit["position"].AsVector3().Y; real = true; }
+        // A body already in the sea under a roof (a shelf): the bed is what lies under the body (Codex's reviews).
+        if (throughRoof && real && bedY > point.Y + RoomWater.BedToleranceM && bedY <= LevelM - RoomWater.RimM)
+        {
+            query.From = new Vector3(point.X, point.Y + RoomWater.BedToleranceM, point.Z);
+            using var under = space.IntersectRay(query);
+            (bedY, real) = under.Count > 0 ? (under["position"].AsVector3().Y, true) : (OpenSeaBedAt(flat), false);
+        }
+        if (bedY > LevelM - RoomWater.RimM) return RoomWater.Column.Dry;
+        // The open-sea bed has no collider: a body under it (off a deep ledge) is still in the sea, and the bed holds it up.
+        if (real && bedY > point.Y + RoomWater.BedToleranceM) return RoomWater.Column.Dry;
         return new RoomWater.Column(true, LevelM, bedY);
     }
 
