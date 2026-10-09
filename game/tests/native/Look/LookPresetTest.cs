@@ -74,8 +74,9 @@ public partial class LookPresetTest : Node3D
             CheckFocusPass(preset);
             CheckSeasonLooks(preset);
             await CheckLightProtections(preset, room);
+            await CheckLandscape(preset, room);
             MaterialLibrary.Configure(preset);
-            GD.Print($"NATIVE_LOOK: {_checks - _failures}/{_checks} checks passed; preset reader and look numbers, role materials and shader uniforms, grade, season tint and reduced global tint, clock at every minute, solar model, sun only through the window, night levels and lamps, golden-hour cool fill, depth of field and focus, post effect parameters, bake stand-ins, room dressing, grade cache, renderer notice");
+            GD.Print($"NATIVE_LOOK: {_checks - _failures}/{_checks} checks passed; preset reader and look numbers, role materials and shader uniforms, grade, season tint and reduced global tint, clock at every minute, solar model, sun only through the window, night levels and lamps, golden-hour cool fill, depth of field and focus, post effect parameters, bake stand-ins, room dressing, grade cache, renderer notice, the landscape's role marks and baked colours, open land");
             GetTree().Quit(_failures == 0 ? 0 : 1);
         }
         catch (Exception exception)

@@ -49,6 +49,11 @@ public partial class LookDirector : Node3D
     public LookMoment Moment { get; private set; } = null!;
     /// <summary>True once room geometry with a shell has been dressed (and baked, on a GPU).</summary>
     public bool Dressed { get; private set; }
+    /// <summary>
+    /// Whether the room is open land (a landscape: its shell has no wall and no ceiling). On open land a real sky lights the
+    /// land: the sun needs no opening, the sky's own light fills the shade, and there is no closed interior to bake.
+    /// </summary>
+    public bool OpenLand { get; private set; }
     public VoxelGI? Gi { get; private set; }
     public Godot.Environment Environment { get; private set; } = null!;
     /// <summary>The sun by day and the moon by night. Hidden in a room without a sun light hint (no window lets the sun in).</summary>
@@ -144,6 +149,7 @@ public partial class LookDirector : Node3D
         Preset = preset.WithSite(site);
         preset = Preset;
         _room = room;
+        OpenLand = LandscapeLook.IsOpenLand(room);
         SiteNote = siteNote;
         if (siteNote.Length > 0) GD.Print("LOOK: " + siteNote);
         MaterialLibrary.Configure(preset);
@@ -284,7 +290,9 @@ public partial class LookDirector : Node3D
         // a closed box lit by its lamps.
         var sunHint = room.LightHints.FirstOrDefault(h => h.Kind == "sun");
         var hasWindow = room.LightHints.Any(h => h.Kind == "window");
-        SunScale = preset.KeyMode == "sun" ? sunHint?.RelativeIntensity ?? (hasWindow ? 1f : 0f) : 1f;
+        // On open land there is no wall to keep the sun out: a real sky lights the land, so the sun is at full strength even
+        // when the landscape declared no sun hint (the window only ever told where the sun rises).
+        SunScale = preset.KeyMode == "sun" ? sunHint?.RelativeIntensity ?? (hasWindow || OpenLand ? 1f : 0f) : 1f;
         Key = new DirectionalLight3D
         {
             Name = "Key",
@@ -297,8 +305,9 @@ public partial class LookDirector : Node3D
                 4 => DirectionalLight3D.ShadowMode.Parallel4Splits,
                 _ => DirectionalLight3D.ShadowMode.Parallel2Splits,
             },
-            DirectionalShadowMaxDistance = Mathf.Max(s.KeyMinDistanceM, diagonal * s.KeyDistancePerDiagonal),
-            DirectionalShadowSplit1 = s.KeySplit1,
+            // Open land casts its shadows as far as the eye sees them (the hills and trees of the backdrop), not just over a room.
+            DirectionalShadowMaxDistance = OpenLand ? OpenLandLight.ShadowDistanceM : Mathf.Max(s.KeyMinDistanceM, diagonal * s.KeyDistancePerDiagonal),
+            DirectionalShadowSplit1 = OpenLand ? OpenLandLight.ShadowSplit1 : s.KeySplit1,
             DirectionalShadowBlendSplits = true,
             ShadowBias = s.KeyBias,
             ShadowNormalBias = s.KeyNormalBias,
@@ -482,7 +491,9 @@ public partial class LookDirector : Node3D
             + (realClock && Preset.Tuning.Sun.RealClockDaylightSaving ? "; read as standard time" : "");
         Moment = LookClock.At(Preset, hour, day, _moonYaw);
         Key.LightColor = Moment.KeyColor;
-        Key.LightEnergy = Moment.KeyEnergy * SunScale;
+        // On open land the whole ground stands in the sun, where indoors only a patch of floor does: the sun that is bright enough
+        // for that patch would blow out every lit surface, so the open land's sun is a fraction of it (OpenLandLight.SunStrength).
+        Key.LightEnergy = Moment.KeyEnergy * SunScale * (OpenLand ? OpenLandLight.SunStrength : 1f);
         // A summer sun casts a harder shadow than a winter one: the season sets how soft the shadow edge is.
         Key.ShadowBlur = (Preset.Tuning.Shadows.BlurBase + Preset.Tuning.Shadows.BlurPerSoftness * Preset.ShadowSoftness) * Mathf.Lerp(Moment.Look.SunBlur, 1f, Moment.MoonWeight);
         if (_skyMaterial != null) LookSky.Apply(_skyMaterial, LookSky.At(Preset, Moment, _moonYaw));
@@ -495,7 +506,9 @@ public partial class LookDirector : Node3D
         }
         ApplyLamps();
         Environment.AmbientLightColor = Moment.AmbientColor;
-        Environment.AmbientLightEnergy = Moment.AmbientEnergy * Preset.Tuning.Gi.EnvironmentAmbientScale;
+        // Indoors the sky's own light is only what comes through the windows (the VoxelGI interior and the sky fills), so the
+        // environment's ambient is nearly off; on open land the sky is all there is, and its colour of the hour fills the shade.
+        Environment.AmbientLightEnergy = Moment.AmbientEnergy * (OpenLand ? OpenLandLight.AmbientScale : Preset.Tuning.Gi.EnvironmentAmbientScale);
         ApplyGrade(GradeParams.For(Preset, Moment, LampsOn).Quantized(), synchronous);
     }
 
@@ -607,7 +620,10 @@ public partial class LookDirector : Node3D
         if (mesh.MaterialOverride == null) PaintCaptured(mesh, owner);
         if (MaterialLibrary.IsPainterly(mesh.MaterialOverride) || mesh.HasMeta(CapturedPaintedMeta))
         {
-            mesh.SetInstanceShaderParameter("paint_seed", Seed(owner.GetMeta("entity_id").AsString()));
+            // The land's parts (terrain, scenery, merged plants) share world-space marks, so a mark runs on across the parts
+            // that meet; only a prop (a cottage, a crate) gets its own seed.
+            if (!(mesh.HasMeta(LandscapeLook.LandscapePaintedMeta) && owner.HasMeta("surface_role")))
+                mesh.SetInstanceShaderParameter("paint_seed", Seed(owner.GetMeta("entity_id").AsString()));
             if (mesh.Mesh is BoxMesh box)
             {
                 mesh.SetInstanceShaderParameter("box_edges", 1f);
@@ -637,6 +653,16 @@ public partial class LookDirector : Node3D
         for (var surface = 0; surface < mesh.Mesh.GetSurfaceCount(); surface++)
         {
             if (mesh.GetActiveMaterial(surface) is not BaseMaterial3D source) continue;
+            // A landscape's material (the exporter's, naming its harness role and baking tints and blends into the vertex
+            // colour) keeps its vertex colour inside the painterly treatment of its own harness role.
+            if (LandscapeLook.TryRole(source, out var landRole))
+            {
+                var bake = LandscapeLook.BakeColor(mesh.Mesh, surface, source.AlbedoColor);
+                mesh.SetSurfaceOverrideMaterial(surface, MaterialLibrary.ForLandscape(landRole, source.AlbedoColor, bake));
+                mesh.SetMeta(LandscapeLook.LandscapePaintedMeta, true);
+                painted = true;
+                continue;
+            }
             var role = RoleFor(owner, source.ResourceName);
             mesh.SetSurfaceOverrideMaterial(surface, MaterialLibrary.ForCaptured(role, source.AlbedoColor, source.AlbedoTexture));
             painted = true;
@@ -686,6 +712,7 @@ public partial class LookDirector : Node3D
         Dressed = true;
         Bakes++;
         if (Preset.GiMode != "voxelgi") GiNote = $"gi mode {Preset.GiMode}: no global illumination node";
+        else if (OpenLand) GiNote = "open land: no VoxelGI (a closed interior is what it bakes); the sky's ambient light and the sun light the land";
         else BakeVoxelGi(root);
         if (GiNote.Length > 0) GD.Print("LOOK: " + GiNote);
     }
@@ -705,12 +732,20 @@ public partial class LookDirector : Node3D
             {
                 // A captured mesh's painterly materials sit on its instance; VoxelGI voxelizes the mesh's own glTF materials
                 // (colour and texture) when they are lifted off for the bake.
-                if (mesh is MeshInstance3D { Mesh: not null } captured && captured.HasMeta(CapturedPaintedMeta))
+                if (mesh is MeshInstance3D { Mesh: not null } captured && (captured.HasMeta(CapturedPaintedMeta) || captured.HasMeta(LandscapeLook.LandscapePaintedMeta)))
                     for (var surface = 0; surface < captured.Mesh.GetSurfaceCount(); surface++)
                         if (captured.GetSurfaceOverrideMaterial(surface) is { } painted && MaterialLibrary.IsPainterly(painted))
                         {
                             surfaces.Add((captured, surface, painted));
-                            captured.SetSurfaceOverrideMaterial(surface, null);
+                            // A landscape surface is voxelized as its baked colour (VoxelGI ignores vertex colour, and the glTF
+                            // factor under it is the blends' cream envelope); a captured one as its own glTF material.
+                            if (MaterialLibrary.BakeAlbedo(painted) is { } landColour && painted.HasMeta("landscape"))
+                            {
+                                var landStandIn = new StandardMaterial3D { AlbedoColor = landColour };
+                                landStandIn.SetMeta(BakeStandInMeta, true);
+                                captured.SetSurfaceOverrideMaterial(surface, landStandIn);
+                            }
+                            else captured.SetSurfaceOverrideMaterial(surface, null);
                         }
                 if (MaterialLibrary.BakeAlbedo(mesh.MaterialOverride) is { } albedo)
                 {
@@ -942,7 +977,7 @@ public partial class LookDirector : Node3D
         var problems = new List<string>(_warnings);
         if (!Dressed) problems.Add("the room was never dressed");
         var gpu = RenderingServer.GetRenderingDevice() != null;
-        if (gpu && Preset.GiMode == "voxelgi" && (Gi == null || Gi.Data == null)) problems.Add("VoxelGI has no baked data");
+        if (gpu && Preset.GiMode == "voxelgi" && !OpenLand && (Gi == null || Gi.Data == null)) problems.Add("VoxelGI has no baked data");
         var standIns = GetParent()?.FindChildren("*", "GeometryInstance3D", true, false).OfType<GeometryInstance3D>()
             .Count(g => g.MaterialOverride?.HasMeta(BakeStandInMeta) == true) ?? 0;
         if (standIns > 0) problems.Add($"{standIns} mesh(es) still carry VoxelGI bake stand-ins");

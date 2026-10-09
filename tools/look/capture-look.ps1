@@ -22,6 +22,8 @@ fails the capture after the files are written; pass -AllowProblems to keep the e
 
 -Style PATH renders with a preset variant instead of the room's style (for tuning; never a review of record), and a draft under review such as game/styles/storybook_painterly/v2.json; -Only ID,ID renders just those cameras and -NoLightChecks skips the light checks, which is all a probe or a tuning variant needs (Run 2's capture budget).
 
+-Room DIR reviews a room other than the test room (a landscape export: tools/test-room.ps1 builds the garage landscape under .cache/landscape-fixture; -Room landscape finds it) with -Cameras tools/look/landscape_cameras.json; -Jpg QUALITY writes JPEGs of that quality instead of PNGs (the landscape pictures are committed and each stays under 1 MB).
+
 -Probe NAME runs a GPU probe instead of the review captures (rooms, window, free-viewport, shimmer: see
 LookCaptureHarness.Probes.cs) and writes probe_NAME.json (and a few images) into -OutDir. With -Baseline the same probe code
 runs against that commit, which is how before and after evidence is made.
@@ -48,7 +50,9 @@ param(
     [switch]$AllowProblems,
     [switch]$NoLightChecks,
     [string]$Style = '',
-    [string]$Probe = ''
+    [string]$Probe = '',
+    [string]$Room = '',
+    [int]$Jpg = 0
 )
 $ErrorActionPreference = 'Stop'
 
@@ -144,6 +148,16 @@ if ($RootViewport) { $userArgs += '--root-viewport' }
 if ($AllowProblems) { $userArgs += '--allow-problems' }
 if ($NoLightChecks) { $userArgs += '--light-checks=false' }
 if ($Style) { $userArgs += "--style=$(([System.IO.Path]::GetFullPath($Style, $repository)) -replace '\\', '/')" }
+if ($Room) {
+    if ($Room -eq 'landscape') {
+        $found = Get-ChildItem -LiteralPath (Join-Path $repository '.cache/landscape-fixture') -Directory -ErrorAction Stop |
+            ForEach-Object { Join-Path $_.FullName 'landscape_garage_nominal' } | Where-Object { Test-Path -LiteralPath (Join-Path $_ 'room.json') } | Select-Object -First 1
+        if (-not $found) { throw 'No landscape fixture under .cache/landscape-fixture: run tools/test-room.ps1 once to build it.' }
+        $Room = $found
+    }
+    $userArgs += "--room=$(([System.IO.Path]::GetFullPath($Room, $repository)) -replace '\\', '/')"
+}
+if ($Jpg -gt 0) { $userArgs += "--jpg=$Jpg" }
 $engineArgs = @('--path', $projectPath, '--disable-vsync')
 if ($RootViewport) { $engineArgs += @('--resolution', '1920x1080', '--position', '0,0') }
 else { $engineArgs += @('--resolution', '960x540', '--position', '40,40') }
