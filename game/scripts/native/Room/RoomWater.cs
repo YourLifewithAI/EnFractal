@@ -83,7 +83,11 @@ public static class RoomWater
     /// solid, lies between its surface and the point is not the point's water (dry ground under a raised basin): dry too.
     /// Water with no ground within BedSearchM under it is deep. The body asks this once a tick at its feet.
     /// </summary>
-    public static Column At(PhysicsDirectSpaceState3D space, Vector3 point, float aboveM = SearchM, float belowM = 0.05f, Rid exclude = default)
+    /// <para>
+    /// throughRoof: for a body already in this water (a swimmer, a diver), ground over the point is a roof (a shelf it is
+    /// under), not the bed: the bed is then looked for under the point (Codex's reviews of diving).
+    /// </para>
+    public static Column At(PhysicsDirectSpaceState3D space, Vector3 point, float aboveM = SearchM, float belowM = 0.05f, Rid exclude = default, bool throughRoof = false)
     {
         if (!point.IsFinite()) return Column.Dry;
         var surface = Surface(space, point + Vector3.Up * aboveM, point + Vector3.Down * belowM);
@@ -108,6 +112,13 @@ public static class RoomWater
             bed.To += aside;
             using var again = space.IntersectRay(bed);
             bedHit = again.Count > 0 ? again["position"].AsVector3().Y : null;
+        }
+        if (throughRoof && bedHit is { } roof && roof > point.Y + BedToleranceM && roof <= level - RimM)
+        {
+            bed.From = new Vector3(point.X, point.Y + BedToleranceM, point.Z);
+            bed.To = new Vector3(point.X, level - BedSearchM, point.Z);
+            using var under = space.IntersectRay(bed);
+            bedHit = under.Count > 0 ? under["position"].AsVector3().Y : null;
         }
         if (bedHit is not { } bedY) return new Column(true, level, level - BedSearchM);
         if (bedY > level - RimM || bedY > point.Y + BedToleranceM) return Column.Dry;

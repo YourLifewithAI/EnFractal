@@ -348,6 +348,10 @@ public partial class SmallPlayerController : CharacterBody3D
     private float _visualYaw;
     private float _hoverClock;
     private float _homeTime = -1;
+    private Vector3 _ownVelocity;
+    private Vector3 _creationPushed;
+    private float _swimSurfaceY = float.NaN;
+    private bool _openSeaWater;
     private bool _diveDown;
     private bool _diveUp;
     private bool _wasDiving;
@@ -753,6 +757,8 @@ public partial class SmallPlayerController : CharacterBody3D
         else wish = GlobalBasis * local;
         wish.Y = 0;
         var before = GlobalPosition;
+        _ownVelocity = Vector3.Zero;
+        _creationPushed = Vector3.Zero;
         SampleWater(dt);
         _wasDiving = IsDiving;
         IsDiving = false;
@@ -772,15 +778,17 @@ public partial class SmallPlayerController : CharacterBody3D
             if (_creationApplied.Dot(normal) < 0) _creationApplied = _creationApplied.Slide(normal);
             if (_creationVelocity.Dot(normal) < 0) _creationVelocity = _creationVelocity.Slide(normal);
         }
-        if (HasCreationGuard && !GuardAllows(GlobalPosition))
+        if (HasCreationGuard && _creationPushed != Vector3.Zero && !GuardAllows(GlobalPosition))
         {
             // Creation motion may not carry the body into space it is not allowed to be pushed into; the body's own walking,
             // swimming and climbing may, as they may with no creation about (Codex Sol's review of the open sea: a worn
-            // glider's guard took back every whole move past the room's old bounds, a wall again). Only the creation's share
-            // of this tick's move is taken back, and its motion stops.
-            var creationStep = _creationApplied * dt;
-            if (creationStep.LengthSquared() > 0) MoveAndCollide(-creationStep);
-            Velocity -= _creationApplied;
+            // glider's guard took back every whole move past the room's old bounds, a wall again). The tick is moved again
+            // from where it began with the body's own motion alone, and the creation's motion stops. (Taking back only the
+            // creation's share after the move missed a push that ended against a wall: the slide had already cut it away.)
+            GlobalPosition = before;
+            Velocity = _ownVelocity;
+            if (_ownVelocity.LengthSquared() > 0) MoveAndSlide();
+            Velocity = _ownVelocity;
             _creationApplied = Vector3.Zero;
             _creationVelocity = Vector3.Zero;
             CreationGuardStops++;
@@ -1042,6 +1050,8 @@ public partial class SmallPlayerController : CharacterBody3D
         var total = own + _creationVelocity;
         if (_creationGlideLimit > 0) total.Y = Mathf.Max(total.Y, -_creationGlideLimit);
         _creationApplied = total - own;
+        _ownVelocity = own;
+        _creationPushed = _creationApplied;
         return total;
     }
 
@@ -1059,15 +1069,25 @@ public partial class SmallPlayerController : CharacterBody3D
         }
         var space = GetWorld3D().DirectSpaceState;
         var below = Mathf.Max(0.02f, -Velocity.Y * dt + 0.02f);
-        // A diver looks up as far as the surface it went down from.
+        // A diver looks up as far as the surface it went down from, and under a roof (a shelf it dives beneath) the water is
+        // still its water, with the bed under it (Codex's reviews: the shelf's top was taken for the bed, above the diver).
         var above = BodyHeightM * 4;
-        if (_swimming && Water.Wet) above = Mathf.Max(above, Water.SurfaceY - GlobalPosition.Y + 0.05f);
-        Water = RoomWater.At(space, GlobalPosition, above, below, GetRid());
+        if (_swimming && float.IsFinite(_swimSurfaceY)) above = Mathf.Max(above, _swimSurfaceY - GlobalPosition.Y + 0.05f);
+        Water = RoomWater.At(space, GlobalPosition, above, below, GetRid(), throughRoof: _swimming);
         // Where the water meshes stop, out past the island, the sea itself answers.
-        if (!Water.Wet && Sea != null) Water = Sea.OpenWater(space, GlobalPosition, above, below, GetRid());
+        _openSeaWater = false;
+        if (!Water.Wet && Sea != null)
+        {
+            Water = Sea.OpenWater(space, GlobalPosition, above, below, GetRid(), throughRoof: _swimming);
+            _openSeaWater = Water.Wet;
+        }
         // Where a sea mesh runs on past the generated floor (no bed within RoomWater.BedSearchM), the open sea's bed.
         else if (Water.Wet && Sea != null && Water.BedY <= Water.SurfaceY - RoomWater.BedSearchM + 1e-4f)
+        {
             Water = Water with { BedY = Mathf.Max(Water.BedY, Sea.OpenSeaBedAt(new Vector2(GlobalPosition.X, GlobalPosition.Z))) };
+            _openSeaWater = true;
+        }
+        _swimSurfaceY = Water.Wet ? Water.SurfaceY : _swimming ? _swimSurfaceY : float.NaN;
     }
 
     /// <summary>
@@ -1180,7 +1200,7 @@ public partial class SmallPlayerController : CharacterBody3D
         DiveTicks++;
         Vector3 wish;
         if (MovementFrameYaw is { } frameYaw) wish = new Basis(Vector3.Up, frameYaw) * new Vector3(control.X, 0, -control.Y);
-        else wish = GlobalBasis * (new Basis(Vector3.Right, EyeCamera.Rotation.X) * Vector3.Forward * control.Y + Vector3.Right * control.X);
+        else wish = ViewForward() * control.Y + GlobalBasis.X * control.X;
         var desired = wish.LimitLength() * WalkSpeedMps * (sprint ? 1.0f : SwimSpeedFactor) * DiveSpeedFactor;
         if (down) desired.Y -= DiveSinkMps;
         if (up) desired.Y += DiveRiseMps;
@@ -1188,14 +1208,32 @@ public partial class SmallPlayerController : CharacterBody3D
         var velocity = Velocity.MoveToward(desired, SwimAccelerationMps2 * dt);
         Velocity = WithCreation(velocity, dt);
         MoveAndSlide();
-        // Nothing goes through the bed (the open-sea bed has no collider).
-        var bed = Water.BedY + SafeMarginM * 2;
+        // Nothing goes through the bed (the open-sea bed has no collider). Out in the open sea, the bed is the one where the
+        // body is now: swimming off a deep ledge, the open-sea bed beyond stands higher (Codex Sol's review).
+        var bedY = Water.BedY;
+        if (_openSeaWater && Sea != null && Sea.OpenWater(GetWorld3D().DirectSpaceState, GlobalPosition, Water.SurfaceY - GlobalPosition.Y + 0.05f, 0.05f, GetRid(), throughRoof: true) is { Wet: true } there)
+            bedY = there.BedY;
+        var bed = bedY + SafeMarginM * 2;
         if (Water.Wet && GlobalPosition.Y < bed)
         {
             GlobalPosition = new Vector3(GlobalPosition.X, bed, GlobalPosition.Z);
             if (Velocity.Y < 0) Velocity = new Vector3(Velocity.X, 0, Velocity.Z);
         }
     }
+
+    /// <summary>
+    /// The way W swims under water: the active view's forward when it is this body's own camera (the eye in F1, the shoulder
+    /// camera in F2, which looks a little lower than the eye: Codex's review found F2's W swimming upward), else the eye's.
+    /// </summary>
+    private Vector3 ViewForward()
+    {
+        var camera = IsInsideTree() ? GetViewport().GetCamera3D() : null;
+        if (camera != null && IsAncestorOf(camera)) return -camera.GlobalBasis.Z.Normalized();
+        return GlobalBasis * (new Basis(Vector3.Right, EyeCamera.Rotation.X) * Vector3.Forward);
+    }
+
+    /// <summary>Where the body started (its spawn): the companion's last place to come home to.</summary>
+    protected Vector3 SpawnPoint => _spawnPoint;
 
     // ---- climbing ----
 
@@ -1365,6 +1403,8 @@ public partial class SmallPlayerController : CharacterBody3D
         alongSide = alongSide.LengthSquared() > 1e-4f ? alongSide.Normalized() : right;
         var velocity = (alongUp * up + alongSide * side).LimitLength(1) * ClimbSpeedMps - normal * ClimbStickMps + along;
         _creationApplied = along;
+        _ownVelocity = velocity - along;
+        _creationPushed = along;
         var horizontal = WithinBounds(new Vector3(velocity.X, 0, velocity.Z), dt);
         Velocity = new Vector3(horizontal.X, velocity.Y, horizontal.Z);
         MoveAndSlide();
@@ -1557,20 +1597,20 @@ public partial class SmallPlayerController : CharacterBody3D
     protected bool HasSupportNear(Vector3 position, float maximumDrop = -1)
     {
         if (maximumDrop < 0) maximumDrop = BodyHeightM * 0.5f;
-        var query = PhysicsRayQueryParameters3D.Create(position + Vector3.Up * (BodyHeightM * 0.25f),
+        using var query = PhysicsRayQueryParameters3D.Create(position + Vector3.Up * (BodyHeightM * 0.25f),
             position - Vector3.Up * maximumDrop, RoomBuilder.BodyMask);
         query.Exclude = new Array<Rid> { GetRid() };
-        var hit = GetWorld3D().DirectSpaceState.IntersectRay(query);
+        using var hit = GetWorld3D().DirectSpaceState.IntersectRay(query);
         return hit.Count > 0 && hit["normal"].AsVector3().Y >= Mathf.Cos(FloorMaxAngle);
     }
 
     private bool FindSupportedPosition(Vector3 requested, out Vector3 result)
     {
         result = requested;
-        var ray = PhysicsRayQueryParameters3D.Create(requested + Vector3.Up * (BodyHeightM * 0.4f),
+        using var ray = PhysicsRayQueryParameters3D.Create(requested + Vector3.Up * (BodyHeightM * 0.4f),
             requested - Vector3.Up * Mathf.Max(0.5f, BodyHeightM * 2), RoomBuilder.BodyMask);
         ray.Exclude = new Array<Rid> { GetRid() };
-        var hit = GetWorld3D().DirectSpaceState.IntersectRay(ray);
+        using var hit = GetWorld3D().DirectSpaceState.IntersectRay(ray);
         if (hit.Count == 0 || hit["normal"].AsVector3().Y < Mathf.Cos(FloorMaxAngle)) return false;
         // A vertical capsule touches a slope off its centre ray. Raise its lower
         // hemisphere enough to clear the support plane, then check the entire
@@ -1584,13 +1624,15 @@ public partial class SmallPlayerController : CharacterBody3D
     /// <summary>Whether the whole body fits with its feet here (nothing on its mask inside the capsule).</summary>
     private bool CapsuleFits(Vector3 feet)
     {
-        var query = new PhysicsShapeQueryParameters3D
+        using var query = new PhysicsShapeQueryParameters3D
         {
             Shape = _capsule, CollisionMask = CollisionMask,
             Transform = new Transform3D(Basis.Identity, feet + Vector3.Up * (BodyHeightM * 0.5f)),
             Margin = SafeMarginM * 0.5f, Exclude = new Array<Rid> { GetRid() }
         };
-        return GetWorld3D().DirectSpaceState.IntersectShape(query, 1).Count == 0;
+        // Disposed at once: the Gubble's way home tries dozens of spots in one tick, and wrappers left to the finalizer trip Godot's exit.
+        var hits = GetWorld3D().DirectSpaceState.IntersectShape(query, 1);
+        return hits.Count == 0;
     }
 
     private bool TryStep(Vector3 horizontalMotion)

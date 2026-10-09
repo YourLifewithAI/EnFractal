@@ -162,6 +162,7 @@ public partial class RoomNavigation : Node
         };
         var source = new NavigationMeshSourceGeometryData3D();
         NavigationServer3D.ParseSourceGeometryData(mesh, source, SourceRoot);
+        ObstructSolids(SourceRoot, source);
         if (source.HasData()) NavigationServer3D.BakeFromSourceGeometryData(mesh, source);
         NavigationServer3D.RegionSetTransform(_region, SourceRoot.GlobalTransform);
         NavigationServer3D.RegionSetNavigationMesh(_region, mesh);
@@ -172,6 +173,32 @@ public partial class RoomNavigation : Node
         LastBakeMs = watch.Elapsed.TotalMilliseconds;
         GD.Print(string.Create(System.Globalization.CultureInfo.InvariantCulture,
             $"ROOM_NAVIGATION bake {Revision}: {PolygonCount} polygons in {LastBakeMs:0.0} ms (agent radius {AgentRadiusM:0.000} m, height {AgentHeightM:0.00} m, climb {AgentMaxClimbM:0.000} m)"));
+    }
+
+    /// <summary>
+    /// Recast rasterizes surfaces, not solids: the floor's top under a box standing on it stayed walkable whenever the box was
+    /// taller than the agent (Lane P, the open sea round: the place beside a climber snapped inside a cliff, and the test
+    /// room's big box held a walkable polygon at its foot). Every upright box on the world layer taller than the agent is
+    /// a projected obstruction from its foot up to two cells under its top, so its top stays walkable and nothing under it is.
+    /// Only boxes: a ramp's or a hull's slope is walkable ground.
+    /// </summary>
+    private void ObstructSolids(Node node, NavigationMeshSourceGeometryData3D source)
+    {
+        if (node is StaticBody3D body && (body.CollisionLayer & RoomBuilder.WorldLayer) != 0)
+            foreach (var child in body.GetChildren())
+            {
+                if (child is not CollisionShape3D { Disabled: false, Shape: BoxShape3D box } shape) continue;
+                var transform = shape.GlobalTransform;
+                if (Mathf.Abs(transform.Basis.Y.Normalized().Dot(Vector3.Up)) < 0.999f) continue;
+                var half = box.Size * 0.5f;
+                var corners = new[] { new Vector3(-half.X, -half.Y, -half.Z), new Vector3(half.X, -half.Y, -half.Z), new Vector3(half.X, -half.Y, half.Z), new Vector3(-half.X, -half.Y, half.Z) }
+                    .Select(c => transform * c).ToArray();
+                var bottom = corners.Min(c => c.Y);
+                var height = Mathf.Abs((transform.Basis.Y * box.Size.Y).Y) - 2 * CellHeightM;
+                if (height + 2 * CellHeightM <= AgentHeightM || height <= 0) continue;
+                source.AddProjectedObstruction(corners, bottom, height, false);
+            }
+        foreach (var child in node.GetChildren()) ObstructSolids(child, source);
     }
 
     /// <summary>

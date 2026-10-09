@@ -275,18 +275,12 @@ public partial class CompanionAvatar : SmallPlayerController
         var forward = -player.GlobalBasis.Z;
         // Beside them on whichever side has room, then a little farther round (Codex Sol's review: with the four spots by a
         // crowded jetty taken, the Gubble was left out at sea for good); with nowhere to stand, floating over their head.
-        var placed = false;
-        foreach (var ring in new[] { FollowSideM, 0.25f, 0.35f })
+        if (!PlaceNearHome(player))
         {
-            for (var k = 0; k < 8 && !placed; k++)
-            {
-                var angle = k * Mathf.Pi / 4;
-                placed = TryTeleportTo(player.GlobalPosition + (right * Mathf.Cos(angle) + forward * Mathf.Sin(angle)) * ring);
-            }
-            if (placed) break;
+            // Nowhere at all near home (Codex Sol's review: tall things all round it): it keeps trying while the player stays.
+            _homePending = true;
+            return;
         }
-        for (var up = 1; up <= 4 && !placed; up++) placed = TryPlaceFloating(player.GlobalPosition + Vector3.Up * (player.BodyHeightM * up + HoverHeightM));
-        if (!placed) return;
         _route = RoomNavigation.Route.None;
         _floating = false;
         // A height it held out there (resting aloft, an arrival by floating) means nothing at home.
@@ -294,6 +288,34 @@ public partial class CompanionAvatar : SmallPlayerController
         if (CurrentIntent == "follow") _following = false;
         WentHomeWithPlayer++;
     }
+
+    /// <summary>
+    /// Beside the player on whichever side has room, then farther round out to a metre; with nowhere to stand, floating over
+    /// their head or over one of those spots; last, at its own spawn.
+    /// </summary>
+    private bool PlaceNearHome(SmallPlayerController player)
+    {
+        var right = player.GlobalBasis.X;
+        var forward = -player.GlobalBasis.Z;
+        foreach (var ring in new[] { FollowSideM, 0.25f, 0.35f, 0.5f, 0.75f, 1.0f })
+            for (var k = 0; k < 8; k++)
+            {
+                var angle = k * Mathf.Pi / 4;
+                if (TryTeleportTo(player.GlobalPosition + (right * Mathf.Cos(angle) + forward * Mathf.Sin(angle)) * ring)) return true;
+            }
+        foreach (var ring in new[] { 0.0f, FollowSideM, 0.35f, 0.75f })
+            for (var k = 0; k < (ring == 0 ? 1 : 8); k++)
+            {
+                var angle = k * Mathf.Pi / 4;
+                var spot = player.GlobalPosition + (right * Mathf.Cos(angle) + forward * Mathf.Sin(angle)) * ring;
+                for (var up = 1; up <= 6; up++)
+                    if (TryPlaceFloating(spot + Vector3.Up * (player.BodyHeightM * up + HoverHeightM))) return true;
+            }
+        return TryTeleportTo(SpawnPoint) || TryPlaceFloating(SpawnPoint + Vector3.Up * HoverHeightM);
+    }
+
+    private bool _homePending;
+    private double _homePendingAge;
 
     /// <summary>Times the Gubble came home with the player (B, the far net).</summary>
     public int WentHomeWithPlayer { get; private set; }
@@ -370,6 +392,17 @@ public partial class CompanionAvatar : SmallPlayerController
     {
         if (!_entered) return;
         var dt = Mathf.Clamp((float)delta, 0, 0.05f);
+        if (_homePending && HasPlayer() && (_homePendingAge += dt) >= 0.5)
+        {
+            _homePendingAge = 0;
+            if (!_player!.GoingHome && PlaceNearHome(_player))
+            {
+                _homePending = false;
+                FloatAltitudeFloorY = _holdY = null;
+                _floating = false;
+                WentHomeWithPlayer++;
+            }
+        }
         GoalBlocked = false;
         FollowingRoute = false;
         // Walking hovers over the ground and ducks under what is low; only a float rises over things (set by the goals below).
@@ -545,14 +578,27 @@ public partial class CompanionAvatar : SmallPlayerController
         return float.IsPositiveInfinity(offMesh) || offMesh > 2 * Navigation.AgentRadiusM ? place : snapped;
     }
 
+    /// <summary>
+    /// Where come makes for: the player, or for a player under water (a diver), the spot over them at the surface, where a
+    /// swimmer floats (Codex Sol's review: the Gubble hovered over a diver for ever, never level with them).
+    /// </summary>
+    private Vector3 ComeTarget()
+    {
+        var at = _player!.GlobalPosition;
+        var water = _player.Water;
+        if (water.Wet && at.Y < water.SurfaceY - _player.SwimFloatDepthM) at.Y = water.SurfaceY - _player.SwimFloatDepthM;
+        return at;
+    }
+
     private Vector3 ComeVelocity(Vector3 playerOffset, float dt)
     {
         var distance = playerOffset.Length();
-        var routed = PlanRoute(_player!.GlobalPosition, ComeArrivalM + 0.05f, dt);
-        if (ChooseFloat(_player.GlobalPosition, routed))
+        var target = ComeTarget();
+        var routed = PlanRoute(target, ComeArrivalM + 0.05f, dt);
+        if (ChooseFloat(target, routed))
         {
-            var level = Mathf.Abs(GlobalPosition.Y - _player.GlobalPosition.Y) <= LevelGapM;
-            var clear = ClearTo(_player.GlobalPosition + Vector3.Up * (_player.BodyHeightM * 0.5f), _player.GetRid());
+            var level = Mathf.Abs(GlobalPosition.Y - target.Y) <= LevelGapM;
+            var clear = target.Y > _player!.GlobalPosition.Y + 0.001f || ClearTo(_player.GlobalPosition + Vector3.Up * (_player.BodyHeightM * 0.5f), _player.GetRid());
             if (distance <= ComeArrivalM && level && clear)
             {
                 ComeArrivedSerial = IntentSerial;
@@ -560,7 +606,7 @@ public partial class CompanionAvatar : SmallPlayerController
                 return Vector3.Zero;
             }
             RiseOverObstacles = true;
-            FloatAltitudeFloorY = _player.GlobalPosition.Y;
+            FloatAltitudeFloorY = target.Y;
             // Not yet level with the player, or something between: it keeps on toward them (up the face in its way, over the
             // wall and down beside them) until it arrives.
             if (distance < 1e-4f) return Vector3.Zero;

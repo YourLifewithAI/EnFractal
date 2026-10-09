@@ -351,6 +351,20 @@ public partial class SmallAvatarPhysicsTest : Node3D
         start = _player.GlobalPosition;
         await Frames(20);
         Check(Mathf.Abs(_player.GlobalPosition.X - start.X) < 0.003f, "no creation-induced drift after the effect is removed");
+        // A wall just inside the refused side (Codex's reviews): the tick that crosses the guard ends against it, and the slide
+        // had already cut the push away, so nothing was taken back. Idle, pushed by a creation alone, it must stay out.
+        Box(new Vector3(-0.922f, 0.05f, 5.0f), new Vector3(0.1f, 0.1f, 0.3f));
+        Check(_player.TryTeleportTo(new Vector3(-1.3f, 0.003f, 5.0f)), "the player before the wall beyond its guard");
+        await Frames(10);
+        var crossedTo = float.NegativeInfinity;
+        for (var i = 0; i < 150; i++)
+        {
+            _player.SetCreationEffects(new Vector3(4.0f, 0, 0), 0, new Callable(this, MethodName.GuardKeepsXBelowMinusOne));
+            await Frames(1);
+            crossedTo = Mathf.Max(crossedTo, _player.GlobalPosition.X);
+        }
+        _player.SetCreationEffects(Vector3.Zero, 0, new Callable());
+        Report(crossedTo <= -1.0f + 0.0005f, $"a creation push never carries the body past its guard, even into a wall just beyond it (furthest x {crossedTo:0.0000}; the guard at -1.0000, the wall stops the body at about -0.995)");
         Check(_player.TryTeleportTo(new Vector3(-2, 0.003f, 3.2f)), "back to the companion route");
         await Frames(10);
     }
@@ -1627,6 +1641,7 @@ public partial class SmallAvatarPhysicsTest : Node3D
         Solid(b + new Vector3(0, -0.3f, 0), new BoxShape3D { Size = new Vector3(1.0f, 0.6f, 1.0f) });        // the island, its top at 0
         Solid(b + new Vector3(0, -0.65f, 0), new BoxShape3D { Size = new Vector3(8.0f, 0.1f, 8.0f) });       // the sea floor at -0.6
         Solid(b + new Vector3(0, -1.05f, 6.5f), new BoxShape3D { Size = new Vector3(1.0f, 0.1f, 1.0f) });    // a deep ledge past the meshes, its top at -1.0
+        Solid(b + new Vector3(3.0f, -0.25f, 2.0f), new BoxShape3D { Size = new Vector3(0.6f, 0.06f, 0.6f) });  // an offshore shelf, its top at -0.22, 32 cm over the floor
         var sheet = new SurfaceTool();
         sheet.Begin(Mesh.PrimitiveType.Triangles);
         foreach (var corner in new[] { new Vector2(-4, -4), new Vector2(4, -4), new Vector2(4, 4), new Vector2(-4, -4), new Vector2(4, 4), new Vector2(-4, 4) })
@@ -1740,6 +1755,76 @@ public partial class SmallAvatarPhysicsTest : Node3D
         Report(drift > 0.04f && drift < 0.08f && !_player.IsDiving && _player.IsSwimming && Mathf.Abs(_player.GlobalPosition.Y - (surface - _player.SwimFloatDepthM)) < 0.01f && !_player.EyeUnderWater,
             $"let go, a diver drifts slowly up ({drift * 100:0.0} cm in 2 s); Space brings them up to float at the surface again");
 
+        // Come to a deep diver (Codex Sol's review): the Gubble, over the water, could never be level with them and never arrived.
+        _player.GlobalPosition = b + new Vector3(2.4f, surface - _player.SwimFloatDepthM, -2.0f);
+        _player.ResetPhysicsInterpolation();
+        _player.SetDiveInput(true, false);
+        await Frames(150);
+        _player.SetDiveInput(false, false);
+        _companion.GlobalPosition = b + new Vector3(3.0f, surface + 0.03f, -2.4f);
+        _companion.ResetPhysicsInterpolation();
+        var cameSerial = _companion.ComeArrivedSerial;
+        _companion.Come();
+        for (var i = 0; i < 360 && _companion.CurrentIntent == "come"; i++) { _player.SetDiveInput(false, false); await Frames(1); }
+        var diverDepth = surface - (_player.GlobalPosition.Y - b.Y);
+        Report(_companion.CurrentIntent == "stay" && _companion.ComeArrivedSerial != cameSerial && _companion.GlobalPosition.Y > b.Y + surface,
+            $"come to a diver {diverDepth * 100:0} cm down arrives over them at the surface ({PlanarDistance(_companion.GlobalPosition, _player.GlobalPosition):0.00} m away, intent {_companion.CurrentIntent})");
+        _player.SetDiveInput(false, true);
+        for (var i = 0; i < 600 && _player.IsDiving; i++) await Frames(1);
+        _player.SetDiveInput(false, false);
+
+        // Under a shelf (Codex's reviews): the shelf's top is a roof over the diver, not the bed; diving on under it and out
+        // the far side, the body swims all the way, and comes up past it.
+        _player.GlobalPosition = b + new Vector3(2.45f, surface - _player.SwimFloatDepthM, 2.0f);
+        _player.ResetPhysicsInterpolation();
+        _player.Rotation = new Vector3(0, -Mathf.Pi * 0.5f, 0);
+        _player.EyeCamera.Rotation = Vector3.Zero;
+        await Frames(10);
+        var notSwimming = 0;
+        var underShelf = 0;
+        _player.SetDiveInput(true, false);
+        for (var i = 0; i < 200; i++) { await Frames(1); if (!_player.IsSwimming) notSwimming++; }
+        for (var i = 0; i < 360; i++)
+        {
+            _player.SetDiveInput(false, false);
+            _player.SetControlInput(new Vector2(0, 1));
+            await Frames(1);
+            if (!_player.IsSwimming) notSwimming++;
+            var x = _player.GlobalPosition.X - b.X;
+            if (x > 2.72f && x < 3.28f) underShelf++;
+        }
+        _player.SetControlInput(Vector2.Zero);
+        _player.SetDiveInput(false, true);
+        for (var i = 0; i < 600 && _player.IsDiving; i++) { await Frames(1); if (!_player.IsSwimming) notSwimming++; }
+        _player.SetDiveInput(false, false);
+        await Frames(30);
+        Report(notSwimming == 0 && underShelf > 30 && _player.IsSwimming && !_player.EyeUnderWater && _player.GlobalPosition.X - b.X > 3.3f,
+            $"a diver swims on under an offshore shelf and out past it, never out of the water ({underShelf} ticks under it, {notSwimming} not swimming), and comes up beyond it (at {Text(_player.GlobalPosition - b)})");
+
+        // Off a deep ledge (Codex Sol's review): from the -1 m ledge past the meshes, sideways off it, where the open-sea bed
+        // (no collider) stands higher: still in the sea, held up by that bed, never through it.
+        _player.GlobalPosition = b + new Vector3(0.2f, surface - _player.SwimFloatDepthM, 6.5f);
+        _player.ResetPhysicsInterpolation();
+        _player.Rotation = new Vector3(0, -Mathf.Pi * 0.5f, 0);
+        _player.SetDiveInput(true, false);
+        for (var i = 0; i < 600; i++) await Frames(1);
+        var onLedge = _player.GlobalPosition.Y - b.Y;
+        var offNotSwimming = 0;
+        var lowestOff = float.PositiveInfinity;
+        for (var i = 0; i < 240; i++)
+        {
+            _player.SetControlInput(new Vector2(0, 1));
+            await Frames(1);
+            if (!_player.IsSwimming) offNotSwimming++;
+            if (_player.GlobalPosition.X - b.X > 0.55f) lowestOff = Mathf.Min(lowestOff, _player.GlobalPosition.Y - b.Y - sea.OpenSeaBedAt(new Vector2(_player.GlobalPosition.X, _player.GlobalPosition.Z)));
+        }
+        _player.SetControlInput(Vector2.Zero);
+        _player.SetDiveInput(false, true);
+        for (var i = 0; i < 900 && _player.IsDiving; i++) await Frames(1);
+        _player.SetDiveInput(false, false);
+        Report(onLedge < -0.98f && offNotSwimming == 0 && lowestOff > -0.005f && _player.IsSwimming,
+            $"off the -1 m ledge sideways a diver stays in the sea, on the open-sea bed and never through it (on the ledge at {onLedge:0.000} m; off it, lowest {lowestOff * 1000:0.0} mm from that bed; ticks not swimming {offNotSwimming})");
+
         // A worn glider (Codex Sol's review): the invention runtime sets its effect every tick while the body is inside the
         // room's bounds, with a guard that refuses anywhere outside them (creation_authority.gd _point_authorized), and clears it
         // outside. The guard took back every whole move across the old bounds, swimming included: a wall again.
@@ -1773,6 +1858,31 @@ public partial class SmallAvatarPhysicsTest : Node3D
             new Vector2(atJetty.X, atJetty.Z).Length() < 0.21f && Mathf.Abs(Mathf.AngleDifference(_player.Rotation.Y, inlandYaw)) < 0.01f && darkest > 0.95f &&
             PlanarDistance(_companion.GlobalPosition, _player.GlobalPosition) < 0.3f,
             $"B takes the swimmer home: standing at the jetty's landward end ({Text(atJetty)} from it) facing inland, after the fade ({darkest:0.00}); the Gubble beside ({PlanarDistance(_companion.GlobalPosition, _player.GlobalPosition):0.00} m)");
+
+        // A booth round home (Codex Sol's review): thick walls over the three near rings and a thick roof just over the
+        // player's head, with only the player's own spot clear. The Gubble on Stay out at sea still comes home, farther round or at its spawn.
+        var booth = new List<StaticBody3D>();
+        foreach (var (centre, size) in new[]
+        {
+            (new Vector3(0.22f, 0.15f, 0), new Vector3(0.36f, 0.3f, 0.8f)), (new Vector3(-0.22f, 0.15f, 0), new Vector3(0.36f, 0.3f, 0.8f)),
+            (new Vector3(0, 0.15f, 0.22f), new Vector3(0.08f, 0.3f, 0.36f)), (new Vector3(0, 0.15f, -0.22f), new Vector3(0.08f, 0.3f, 0.36f)),
+            (new Vector3(0, 0.36f, 0), new Vector3(0.8f, 0.5f, 0.8f)),
+        })
+            booth.Add(Solid(jetty.RootM + centre, new BoxShape3D { Size = size }));
+        await Frames(2);
+        _companion.Stay();
+        _companion.GlobalPosition = b + new Vector3(4.6f, surface + 0.03f, 1.0f);
+        _companion.ResetPhysicsInterpolation();
+        _player.GlobalPosition = b + new Vector3(4.6f, surface - _player.SwimFloatDepthM, 0.6f);
+        _player.ResetPhysicsInterpolation();
+        await Frames(20);
+        _player.RequestHome();
+        await Frames(120);
+        var boothGap = PlanarDistance(_companion.GlobalPosition, _player.GlobalPosition);
+        Report(_player.LastHome == "jetty" && PlanarDistance(_player.GlobalPosition, jetty.RootM) < 0.05f && boothGap < 1.2f && !_companion.HoversOverWater,
+            $"in a booth at home with only the player's spot clear, the Gubble on Stay far out still comes home ({boothGap:0.00} m from the player, at {Text(_companion.GlobalPosition - b)})");
+        foreach (var wall in booth) wall.QueueFree();
+        await Frames(2);
 
         // The Gubble left on Stay far out at sea, with the four spots beside home it used to try all taken (Codex Sol's review):
         // it still comes home, beside the player or over their head, its old height forgotten.
