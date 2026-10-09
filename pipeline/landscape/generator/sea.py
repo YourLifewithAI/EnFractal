@@ -40,34 +40,7 @@ def _door(room):
     cx, cz = (lo[0]+hi[0])/2, (lo[2]+hi[2])/2
     ix, iz = o['x']+(cx-o['x'])*.05, o['z']+(cz-o['z'])*.05
     s, px, pz, ox, oz = wall_frame(room, ix, iz)
-    return dict(id=o['id'], x=px, z=pz, nx=ox, nz=oz, width=o['width'], door_x=px, door_z=pz)
-
-
-def _place_jetty(room, door, objects):
-    """The jetty and its harbour stand at the door, unless a landform stands
-    behind it (a cabinet scanned in front of the door): then they slide along
-    the door's wall to the nearest place a path can come down to the water."""
-    if door is None:
-        return None
-    nx_, nz_ = door['nx'], door['nz']
-    ax, az = -nz_, nx_
-    solid = [o for o in objects if o['sy'] >= .1]
-
-    def clear(px, pz):
-        # Still the door's own wall, well clear of its ends.
-        for f in (-.45, 0., .45):
-            s, _, _, ox, oz = wall_frame(room, px+ax*f-nx_*.05, pz+az*f-nz_*.05)
-            if abs(s+.05) > .01 or ox*nx_+oz*nz_ < .99:
-                return False
-        return all(rr_dist(*local(o, px-nx_*t, pz-nz_*t), o['sx']/2, o['sz']/2, .03) > .3
-                   for o in solid for t in (.05, .2, .35, .5))
-    for k in range(0, 61):
-        for sign in ((1,) if k == 0 else (1, -1)):
-            off = sign*k*.05
-            px, pz = door['x']+ax*off, door['z']+az*off
-            if clear(px, pz):
-                return dict(door, x=px, z=pz)
-    return door
+    return dict(id=o['id'], x=px, z=pz, nx=ox, nz=oz, width=o['width'])
 
 
 def _shore(d, hl, bw):
@@ -96,7 +69,7 @@ class Coast:
         self.room, self.noise = room, noise
         self.objects = [o for o in objects if o['parent'] is None and o['sy'] >= .05]
         self.spawns = [(s[0], s[2], max(0., -wall_frame(room, s[0], s[2])[0])) for s in spawns]
-        self.door = _place_jetty(room, _door(room), self.objects)
+        self.door = _door(room)
         self.memo = {}
 
     def at(self, px, pz):
@@ -122,9 +95,7 @@ class Coast:
         hl = 0.
         for o in self.objects:
             d = rr_dist(*local(o, px, pz), o['sx']/2, o['sz']/2, .03)
-            # A taller landform spreads farther, so it meets the sea as a cliff from farther in.
-            reach = .5+.35*min(o['sy'], 1.5)
-            hl = max(hl, smooth((reach-d)/.3)*smooth((o['sy']-.05)/.15))
+            hl = max(hl, smooth((.5-d)/.3)*smooth((o['sy']-.05)/.15))
         hl = max(hl, .8*smooth((n.fbm(px*.9+5, pz*.9-3, 2)-.3)/.15))
         n1 = n.fbm(px*2.2+13, pz*2.2-7, 3)
         n2 = n(px*5.5-3, pz*5.5+11)
@@ -590,7 +561,7 @@ def find_beaches(grid, h, room, coast, jetty, limit=5):
         order = sorted(run, key=lambda k: abs(run.index(k)-len(run)/2))
         for k in order:
             x, z, ix, iz = ring[k]
-            if jetty is not None and abs((x-jetty['wall'][0])*jetty['uz']-(z-jetty['wall'][1])*jetty['ux']) < .2 \
+            if jetty is not None and abs((x-jetty['wall'][0])*jetty['uz']-(z-jetty['wall'][1])*jetty['ux']) < .3 \
                     and math.hypot(x-jetty['wall'][0], z-jetty['wall'][1]) < .6:
                 continue
             spot = _ashore(grid, h, x, z, ix, iz)

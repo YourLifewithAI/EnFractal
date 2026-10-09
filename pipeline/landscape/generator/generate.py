@@ -355,13 +355,6 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False):
                     h[q] = max(h[q], lake['level']+.006)
     # Paths and grading may have filled round the jetty's landing: level it again under the deck.
     Sea.land_jetty(grid, h, jetty)
-    # Grading toward the beaches and the jetty may have nicked a cottage's pad or
-    # forecourt: level them again at the cottage's own floor.
-    for hh in houses:
-        flatten(grid, h, hh['x'], hh['z'], hh['hx'], hh['hz'], hh['yaw'], level=hh['y'])
-        ya = math.radians(hh['yaw'])
-        flatten(grid, h, hh['x']-math.sin(ya)*(hh['hz']+.12), hh['z']-math.cos(ya)*(hh['hz']+.12), hh['hx'], .1,
-                hh['yaw'], margin=.03, blend=.14, level=hh['y'])
     slope = slope_field(grid, h)
     tris = grid.triangles()
     fslope = face_slope_max(grid, h, tris)

@@ -6,7 +6,6 @@ import math
 import os
 import shutil
 import tempfile
-import uuid
 import unittest
 from pathlib import Path
 
@@ -17,15 +16,9 @@ ROOT = Path(__file__).resolve().parents[4]
 ROOMS = ROOT/'pipeline'/'landscape'/'corpus'/'rooms'
 
 
-# One folder per run, so two overlapping runs (two lanes, or a lane and the
-# integrator's suite) never share or delete each other's packages. Plain
-# os.makedirs with a unique name: tempfile.mkdtemp's owner-only ACL blocks
-# sandboxed writes on Windows.
-RUN_DIR = os.path.join(tempfile.gettempdir(), 'landscape_generator_tests-%d-%s' % (os.getpid(), uuid.uuid4().hex[:12]))
-
-
 def workdir(name):
-    path = os.path.join(RUN_DIR, name)
+    # Plain os.makedirs: tempfile.mkdtemp's owner-only ACL blocks sandboxed writes.
+    path = os.path.join(tempfile.gettempdir(), 'landscape_generator_tests', name)
     shutil.rmtree(path, ignore_errors=True)
     os.makedirs(path)
     return path
@@ -43,7 +36,7 @@ def garage():
 
 
 def tearDownModule():
-    shutil.rmtree(RUN_DIR, ignore_errors=True)
+    shutil.rmtree(os.path.join(tempfile.gettempdir(), 'landscape_generator_tests'), ignore_errors=True)
 
 
 def tree(folder):
