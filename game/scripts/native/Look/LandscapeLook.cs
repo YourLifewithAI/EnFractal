@@ -46,7 +46,7 @@ public static class LandscapeLook
     /// How strongly the brush's finer marks come in close up (painterly_land's close_detail): the shoulder camera's ground and the
     /// cliff beside the diorama camera read as brushwork rather than a smooth wash (the founder's F2 playtest, Run 2).
     /// </summary>
-    public const float CloseDetail = 1.2f;
+    public const float CloseDetail = 2.8f;
     /// <summary>Meta on a mesh whose surfaces wear landscape materials.</summary>
     public const string LandscapePaintedMeta = "look_landscape_painted";
 
@@ -190,6 +190,6 @@ public sealed record SeaLook(
     float DeepM, float ClarityM, Vector3 DeepTint, Color FoamColor, float FoamDepthM, float FoamStrength, float WaveSpacingM, float WaveSpeed,
     float HazeStartM, float HazeEndM, float HazeMax)
 {
-    public static readonly SeaLook Default = new(0.55f, 0.1f, new Vector3(0.22f, 0.36f, 0.60f), new Color(0.95f, 0.97f, 0.95f), 0.06f, 0.9f, 0.012f, 0.25f,
+    public static readonly SeaLook Default = new(0.55f, 0.1f, new Vector3(0.22f, 0.36f, 0.60f), new Color(0.95f, 0.97f, 0.95f), 0.07f, 0.9f, 0.012f, 0.25f,
         3f, 45f, 0.55f);
 }

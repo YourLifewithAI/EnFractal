@@ -79,7 +79,7 @@ uniform float stroke_normal_gain = 0.2;
 uniform float mark_fade_start = 0.15;
 uniform float mark_fade_end = 0.45;
 // Close up, the brush's finer marks (a stroke 7% of the role's mark, a grain 2.2% of it) come in: 0 leaves them out.
-uniform float close_detail : hint_range(0.0, 3.0) = 1.0;
+uniform float close_detail : hint_range(0.0, 4.0) = 1.0;
 
 group_uniforms haze;
 // Aerial perspective for what stands out at sea (the distant islands, OpenSea): with distance the land gives way, up to
@@ -223,7 +223,9 @@ void fragment() {
 	vec3 n = normalize(obj_normal);
 	vec3 axis_n = face_axis(n);
 	vec2 pl = plane_of(p, axis_n);
-	float footprint = max(length(fwidth(p)), 1e-5);
+	// A pixel's footprint on the surface: the geometric mean of its two screen axes. The longer axis alone (as the room's
+	// materials take it) faded every mark on ground seen at a grazing angle, so the ground under a low camera read as a smear.
+	float footprint = max(sqrt(length(dFdx(p)) * length(dFdy(p))), 1e-5);
 	vec3 seed = fract(vec3(paint_seed) * vec3(0.1731, 0.0577, 0.1113)) * 37.0;
 	vec3 pw = p + seed;
 	vec2 plw = pl + seed.xy;

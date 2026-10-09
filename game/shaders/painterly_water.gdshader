@@ -225,7 +225,7 @@ void fragment() {
 			float phase = depth_m / wave_spacing_m + TIME * wave_speed + wash.x * 1.6;
 			float crest = smoothstep(0.5, 0.88, fract(phase)) * (1.0 - smoothstep(0.88, 1.0, fract(phase)));
 			float broken = smoothstep(0.25, 0.65, ripple_b.x * 0.55 + wash.x * 0.45);
-			float foam = clamp(shallow * (0.25 + 0.75 * crest) * broken * foam_strength, 0.0, 1.0);
+			float foam = clamp(pow(shallow, 0.7) * (0.45 + 0.55 * crest) * broken * foam_strength, 0.0, 1.0);
 			color = mix(color, foam_color, foam);
 			alpha = max(alpha, foam * 0.95);
 		}
@@ -254,7 +254,8 @@ void fragment() {
 	n = normalize(n - tangential * stroke_normal_strength * stroke_normal_gain);
 
 	// Into the horizon: the far sea gives way to the sky's own colour, lit by nothing, as the sky is.
-	float horizon = horizon_fade_end_m > horizon_fade_start_m ? smoothstep(horizon_fade_start_m, horizon_fade_end_m, length(VERTEX)) : 0.0;
+	// Only from above: seen from below, the far underside is the sea's own murk, not the sky (a bright line at the far plane otherwise).
+	float horizon = FRONT_FACING && horizon_fade_end_m > horizon_fade_start_m ? smoothstep(horizon_fade_start_m, horizon_fade_end_m, length(VERTEX)) : 0.0;
 	ALBEDO = clamp(color, 0.0, 1.0) * (1.0 - horizon);
 	EMISSION = horizon_color * horizon_energy * horizon;
 	ALPHA = clamp(mix(alpha, 1.0, horizon), 0.0, 1.0);
