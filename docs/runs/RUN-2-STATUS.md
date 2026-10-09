@@ -309,7 +309,60 @@
 - **Open for the founder:** the far net at 1 km (it brings a swimmer home as B does).
 - **On record for later** (the founder, not to build now): [docs/ideas/SHARED-IMPROVEMENT.md](../ideas/SHARED-IMPROVEMENT.md), on how good ideas spread and fun is verified at scale, and how agents meet safely with proof of ownership and trust.
 
+## The seventh session's close (9 October, afternoon, DiamondAge)
+
+**`run2/integration` holds the whole open-sea round, green.** Every suite passes on Lane C's merge (`4266153`, both runners): small avatar 281/281, navigation 15/15, landscape 47/47, room data 56/56, look 1080/1080, HUD 94/94, sandbox 159/159, command host 423/423, companion 631. The generator's full tests are in "The next session", step 1.
+
+- **Merged since the first status entry:**
+  - **Lane P part 2:** the reviews' six fixes, then diving (hold Ctrl, Space rises, W swims where you look, a slow drift up; `DiveSinkMps`, `DiveRiseMps`, `DriftUpMps` and `DiveSpeedFactor` on the player).
+  - **Lane P part 3:** the focus (Lane L's highlight on the thing the next F acts on, with a tag such as "F pick up · V push"; the wording is in `SandboxControls.FocusWords`); tall boxes keep the walk map off the floor under them; the second reviews' fixes. The open-sea floor follows the generator's: level − 0.66 − 0.6·t²(3−2t), with t = clamp((r − r0)/12, 0, 1).
+  - **Lane L parts 2 and 3:** one sea floor on `RoomSea.OpenSeaBedAt`; the sea's look (depth colours, beach waves, reef foam, islands under the haze, 21 fish near the swimmer); the view under the sea, which asks physics; the land's brushwork up close (partial: the meadow's long strokes still converge); then the reviews' eight fixes, with 12 checks that always run.
+  - **Codex brief 24:** the mock host's Gubble floats (Lane A's change request).
+  - **Exporter:** `x_landscape_sea.grid_margin_m` (the generator's margin, which `RoomSea` reads).
+  - **Lane C:** "what you climb, you can stand on top of" (`generator/climb.py`): rock too thin to stand on is planed, and spires keep a flat summit. Beaches are promised only where a body reaches them in the package. The corpus went from 19 to 21 of 24 (the full corpus was not rerun after `cfae377`).
+- **Reviews:** six Codex review pairs this session (the A/B log's trials 5 to 7). Every finding was checked against the source; all were real but one, which didn't reproduce, and the lanes fixed them. The pairs come out about even, each catching what the other misses, so keep running both.
+- **The founder's installed landscape** is the garage from `4266153` (`room.json` `723B8D6A…`, 32 loose things). Earlier copies are in `%APPDATA%\Godot\app_userdata\EnFractal\room-backups\`.
+- **Not done:**
+  - Lane C: the ragged coast; `awkward_l_scan_17` (a cottage door not reached on foot), `home_office_scan_73` (the jetty landing cut off by a steep bank), `living_room_scan_73` (no reachable beach, and a cottage hangs 1.4 cm).
+  - Lane L's change request: export each distant island as its own part with records (generator and exporter).
+- **Open for the founder:**
+  - **The far net at 1 km:** it brings a swimmer home as B does. Keep it?
+  - **The close-range ground in F2:** is the brushwork enough, or does it want a pass of its own?
+  - **Lane C's climb check:** should it gate the corpus? The tops of tall object landforms (crags and the chair's backrest, 0.4 to 1.9 m) still fail it in most rooms.
+  - **The characters' second round:** the family's verdict on the five sheets (sent today).
+  - **v2:** it is the default but still a draft. After the playtest, make it a candidate?
+
 ## The next session
+
+0. **Read** this page's seventh session and [RUN-2-OPEN-SEA.md](RUN-2-OPEN-SEA.md). Keep working on `run2/integration`; merging into `main` is the founder's call (as PR #8 was).
+1. **On a quiet machine, confirm the generator:** `python -B -m unittest discover -s pipeline/landscape/generator/tests -t .` (about 17 minutes), and the full corpus once. The integrator started both at the session's close; if the result isn't recorded here, rerun them.
+2. **The founder's playtest of the open-sea round** ("EnFractal Landscape"):
+   - swim on past the reef, and B home from anywhere;
+   - dive (Ctrl, Space, W);
+   - the focus and its tag on logs, stones and the crate;
+   - the blur in F1 to F4; the sea's look and the view under water;
+   - the Gubble beside a climber and at sea.
+
+   Then the questions above.
+3. **Lane C:** the ragged coast (its plan: slow variation along the shore for cove depth and headland reach, with the reef's distance following, and coves never cutting into a landform); the three failing rooms; the climb gate, per the founder; distant islands as their own parts (with an exporter change).
+4. **The characters,** after the family's verdict:
+   - commit the final 3D models (the founder approved models, never drawings or renders of them);
+   - in the game, a character choice per player, bouncy procedural motion from `character.json`'s motion hints and effect parts, and the same collision capsule;
+   - Lane L's soap-bubble shader for the Gubble from the `bubble` material hint.
+5. **After the playtest settles:** promote `x_landscape_sea` (now with the jetty and `grid_margin_m`) and perhaps `x_landscape_loose` into `room-manifest.schema.json`, with examples and tests.
+6. **If the founder wants it:** the session summary in [docs/ideas/SHARED-IMPROVEMENT.md](../ideas/SHARED-IMPROVEMENT.md) ("a small first step"), as a small packet.
+7. **Then the fifth session's items 4 to 7:** the intro (the walls now become the coast), light (the Gubble's glow and torch), the open questions, housekeeping.
+8. **Housekeeping.** These Codex checkouts are merged or were read-only, so they can go. Hand the founder the commands; auto mode blocks agents from deleting worktrees.
+   - `C:\dev\EnFractal-codex\` `{18-landscape-room-export, 19-climbable-trees, 20-character-converter, 22-characters-round-2, 23-loose-things, 24-mock-floating-gubble}`;
+   - every `review-*` folder there;
+   - `C:\dev\EnFractal-run2\contracts` is detached at a test head (the integrator used it as an idle checkout for runner builds), so check out `run2/contracts` before Lane-contracts work.
+
+**To run another cloud session:**
+- If the environment still blocks `builds.dotnet.microsoft.com`, install Ubuntu's `dotnet-sdk-8.0` with apt.
+- Link `.cache/linux/dotnet` to `/usr/lib/dotnet`, run the rest of `tools/linux/setup-toolchain.sh` by hand (the Godot download, the two Python environments), and set `game/global.json` to `8.0.131` under `git update-index --skip-worktree`.
+- Push lane branches as soon as they commit: a container restart loses running agents.
+
+## The sixth session's next steps (9 October, for the record)
 
 0. **`run2/integration` is merged into `main`** (PR #8, `30ffbb8`, 9 October). The founder asked for the merge first and the playtest after. Keep working on `run2/integration`.
 1. ~~On DiamondAge, confirm on the pinned SDK~~ **Done** (see "The fifth session's close"). For the record: pull `run2/integration` and run both Windows runners and the WSL suite. Then refresh the founder's installed landscape (`%APPDATA%\Godot\app_userdata\EnFractal\rooms\landscape_garage_nominal`) from a fresh fixture, which is now the island garage.
@@ -328,11 +381,6 @@
 7. **After the playtest:** promote `x_landscape_sea` into `room-manifest.schema.json`, with examples and tests.
 8. **Then the fifth session's items 4 to 7:** the intro (walls now become the coast), light, the open questions, housekeeping.
 9. **Housekeeping:** PR #9 is merged. GitHub shows PR #10 (Lane C's fix round) as merged too, because the reverted merge is in the history, but its changes are not in `run2/integration` until `f29854a` is reverted.
-
-**To run another cloud session:**
-- If the environment still blocks `builds.dotnet.microsoft.com`, install Ubuntu's `dotnet-sdk-8.0` with apt.
-- Link `.cache/linux/dotnet` to `/usr/lib/dotnet`, run the rest of `tools/linux/setup-toolchain.sh` by hand (the Godot download, the two Python environments), and set `game/global.json` to `8.0.131` under `git update-index --skip-worktree`.
-- Push lane branches as soon as they commit: a container restart loses running agents.
 
 ## The fifth session's next steps (9 October, for the record)
 
