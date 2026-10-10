@@ -42,7 +42,8 @@ namespace EnFractal.Tests.Look;
 /// A camera may set its own hour ("hour", the review clock's date) and light the Gubble's glows before it is framed ("glows": id,
 /// on: "companion" for a halo or at_m for a wisp at a point, radius_m, intensity; the look's StartGlow, as the host calls it).
 /// A wisp's "at_xz_m" stands it on the ground there instead (a ray down). "spark_s": T casts the glows again T seconds before the
-/// picture, to catch the spark from the Gubble in flight.
+/// picture, to catch the spark from the Gubble in flight. An entry's "kind" may be "bubbles" or "fireworks" (StartBubbles,
+/// StartFireworks: same fields); "settle_s": T lets the effects run T seconds before the warm-up, so a stream has reached its spot.
 /// </summary>
 public partial class LookCaptureHarness : Node
 {
@@ -129,6 +130,11 @@ public partial class LookCaptureHarness : Node
                     && SetClock(hour.GetDouble(), DayOfYear(reviewClock.GetProperty("date").GetString()!));
                 Frame(entry);
                 LightGlows(entry);
+                if (entry.TryGetProperty("settle_s", out var settleS))
+                {
+                    var lit = Time.GetTicksUsec();
+                    while ((Time.GetTicksUsec() - lit) / 1e6 < settleS.GetDouble()) await NextFrame();
+                }
                 for (var i = 0; i < warmup; i++) await NextFrame();
                 var timing = await Measure(frames);
                 if (entry.TryGetProperty("spark_s", out var sparkS))
@@ -221,7 +227,7 @@ public partial class LookCaptureHarness : Node
     private void LightGlows(JsonElement entry)
     {
         if (_look == null || !_look.HasMethod("StartGlow")) return;
-        foreach (var id in _glows) _look.Call("StopGlow", id);
+        foreach (var id in _glows) _look.Call(_look.HasMethod("StopEffect") ? "StopEffect" : "StopGlow", id);
         _glows.Clear();
         if (entry.ValueKind != JsonValueKind.Object || !entry.TryGetProperty("glows", out var glows)) return;
         foreach (var glow in glows.EnumerateArray())
@@ -231,7 +237,10 @@ public partial class LookCaptureHarness : Node
             var at = onGubble ? Vector3.Zero : glow.TryGetProperty("at_xz_m", out var xz) ? Ground((float)xz[0].GetDouble(), (float)xz[1].GetDouble()) : Vec(glow.GetProperty("at_m"));
             var radius = glow.TryGetProperty("radius_m", out var r) ? (float)r.GetDouble() : 0.6f;
             var intensity = glow.TryGetProperty("intensity", out var i) ? (float)i.GetDouble() : 0.6f;
-            var started = _look.Call("StartGlow", id, onGubble ? _world.Companion : new Variant(), at, radius, intensity).AsBool();
+            var kind = glow.TryGetProperty("kind", out var k) ? k.GetString() : "glow";
+            var method = kind switch { "bubbles" => "StartBubbles", "fireworks" => "StartFireworks", _ => "StartGlow" };
+            if (!_look.HasMethod(method)) continue;
+            var started = _look.Call(method, id, onGubble ? _world.Companion : new Variant(), at, radius, intensity).AsBool();
             if (!started) throw new InvalidOperationException($"the look refused the review glow {id}");
             _glows.Add(id);
         }
