@@ -159,6 +159,37 @@ class GarageLandscape(unittest.TestCase):
         self.assertGreater(cliffs, 5)
         self.assertGreater(beaches, 5)
 
+    def test_clean_coast(self):
+        """The founder, 10 October: beaches with smooth gradual transitions into
+        deep ocean, sheer cliffs plummeting deep into it, and no walls offshore:
+        no reef rocks or stacks near the surface, no distant islands."""
+        from pipeline.landscape.harness import read_package
+        doc, meshes, room, _ = read_package(self.a, self.room)
+        sea = doc['x_generator']['sea']
+        level = sea['level_m']
+        off = self.result['sea']['offshore']
+        self.assertEqual(off['walls'], 0, off['worst'])
+        self.assertEqual(sea['stacks'], [])
+        self.assertEqual(sea['distant_islands'], [])
+        self.assertLess(max(v[1] for p in meshes['distant_islands'] for v in p['positions']), level-.6)
+        # The reef line is the shelf's edge under water, not rock near the surface.
+        self.assertLessEqual(sea['reef']['crest_y_m'], level-.2)
+        # Cliffs drop into deep water: a short way off their faces it is over half a metre deep.
+        self.assertGreater(off['cliff_feet'], 20)
+        self.assertGreater(off['cliff_foot_depth_m'][1], .5)
+        # Each promised beach shelves from dry sand into deep water without rising again.
+        land = checks.Terrain(dict(doc, terrain=[{'mesh': 'land'}]), meshes)
+        for b in sea['beaches']:
+            (bx, _, bz), (wx, _, wz) = b['wash_ashore_m'], b['water_m']
+            L = math.hypot(wx-bx, wz-bz)
+            ux, uz = (wx-bx)/L, (wz-bz)/L
+            ys = [land.height(bx+ux*k*.01, bz+uz*k*.01) for k in range(400)]
+            deep = next(k for k, y in enumerate(ys) if level-y >= .6)
+            rises = max(y-min(ys[:k+1]) for k, y in enumerate(ys[:deep+1]))
+            steepest = max(math.degrees(math.atan(abs(b_-a_)/.01)) for a_, b_ in zip(ys[:deep], ys[1:deep+1]))
+            self.assertLess(rises, .005, b['id'])
+            self.assertLess(steepest, 30, b['id'])
+
 
 class LShapedIsland(unittest.TestCase):
     """An L-shaped room becomes an L-shaped island: the notch is sea, both arms land."""
@@ -210,6 +241,33 @@ class CheckerCatchesContradictions(unittest.TestCase):
         beach['water_m'] = list(beach['wash_ashore_m'])
         ok, _ = checks.sea_checks(doc, meshes, terrain, load_json(room/'room.json'))
         self.assertFalse(ok)
+
+    def test_rock_offshore_fails(self):
+        """A rock raised near the surface out past the coast (a reef's rocks, a
+        sea stack) is a wall offshore: the sea check fails and names it."""
+        from pipeline.landscape.harness import read_package
+        from pipeline.landscape.harness.common import load_json
+        room = ROOMS/'garage_nominal'
+        doc, meshes, _, _ = read_package(garage(), room)
+        play = doc['x_generator']['sea']['play_area']['outline_m']
+        level = doc['x_generator']['sea']['level_m']
+        # In from the playable water's edge toward the room's middle, where the water is over 0.3 m deep.
+        x0, z0 = play[0]
+        cx, cz = sum(p[0] for p in play)/len(play), sum(p[1] for p in play)/len(play)
+        terrain = checks.Terrain(doc, meshes)
+        rx, rz = next((x0+(cx-x0)*f, z0+(cz-z0)*f) for f in (k*.01 for k in range(2, 40))
+                      if level-terrain.height(x0+(cx-x0)*f, z0+(cz-z0)*f) > .3)
+        raised = 0
+        for part in meshes['land']:
+            for v in part['positions']:
+                if math.hypot(v[0]-rx, v[2]-rz) < .06:
+                    v[1] = level-.03
+                    raised += 1
+        self.assertGreater(raised, 3)
+        terrain = checks.Terrain(doc, meshes)
+        ok, rows = checks.sea_checks(doc, meshes, terrain, load_json(room/'room.json'))
+        self.assertFalse(ok)
+        self.assertGreaterEqual(rows['offshore']['walls'], 1, rows['offshore'])
 
 
 class NoisyScanKeepsItsPlace(unittest.TestCase):

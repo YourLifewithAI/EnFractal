@@ -1,5 +1,64 @@
 # The garage as land: the landscape generator (C5)
 
+## The clean coast (Run 2, Bubbles and Fireworks round, 10 October; generator version 5)
+
+The founder, after swimming out from the garage island: "We have the land meet the sea on mostly beaches with smooth gradual transitions into deep ocean and sheer cliffs plummeting deep into the ocean but not with weird walls off shore."
+
+- **Nothing stands offshore** (`sea.py`):
+  - the reef's rock band and the rocks breaking the surface are gone;
+  - so are the sea stacks;
+  - so are the distant islands. The far sea floor mesh keeps its name `distant_islands` and its floor (the game's `RoomSea.OpenSeaBedAt`), with nothing rising from it.
+- **The reef line is the shelf's edge under water.** Off the soft shores a shelf at the lagoon's depth (0.22 m) runs out to it, then falls to the open sea (0.62 m) over 0.7 m (was 0.4 m), so the slope is gentler.
+- **Cliffs plummet into deep water.** At a cliff's foot there is no shelf: the 72 degree face runs straight down to the open sea's floor.
+- **Mostly beaches between the headlands.** The low 30 degree rocky shore now takes 2 to 18% of a room's coast (was 4 to 39%). Headlands still go where furniture stands near a wall, so a crowded room like the garage keeps a mostly cliffed coast (see "For the founder").
+- **The seabed** is scree, with rock at a cliff's foot; no ring marks the reef line.
+- **Kept:**
+  - the jetty, its harbour and the pass in the data;
+  - B home;
+  - the beaches' walk-out and wade-in (8 degree wading shelf, then 22 degrees);
+  - the swim and dive depths;
+  - the climbs;
+  - the promised beaches.
+
+### The package's `x_generator.sea`
+
+The fields are unchanged, so the exporter's `x_landscape_sea`, `RoomSea` and `OpenSea` need no change. Three values change:
+- `reef.crest_y_m` is the shelf's nominal floor, `level - 0.22` (was `level - 0.022`, the rock's crest). The game only prints it.
+- `stacks` is `[]`.
+- `distant_islands` is `[]`.
+
+### Checks
+
+`sea` gains `offshore`. The sea is the water joined to the grid's edge. Everything else, plus the sea within 0.1 m of the surface (a body's height), is the island and its shallows. Shallows not joined to the island the player stands on are walls offshore: reef rocks, a stack, a rock breaking the surface. The check fails on any.
+
+It also reports `cliff_foot_depth_m`: the depth 0.3 m out from each coast face over 60 degrees (min, median).
+
+### The garage, before and after
+
+| | Before (`90d1f1d`) | After |
+|---|---|---|
+| Walls offshore | 7: four stacks up to 0.32 m above the sea, three reef stretches breaking it by 3 cm | none |
+| Cliffs: depth 0.1 / 0.2 / 0.3 / 0.8 m out (median) | 0.21 / 0.22 / 0.20 / 0.59 m (a lagoon at the foot) | 0.32 / 0.60 / 0.62 / 0.61 m |
+| beach_00, walking out | 8 cm deep at 0.63 m, then a reef ridge 9 cm high (a 77 degree step) | 8 cm deep at 0.63 m, 22 cm at 0.98 m, 60 cm at 1.92 m; never steeper than 22 degrees, never rising |
+| Distant islands | six, up to 2.6 m high | none; the far floor lies at -0.68 m |
+| Coast (garage) | 79% cliff, 10% beach-like, 11% between | unchanged |
+
+### Corpus: 23 of 24 pass all checks (was 21 of 24 at `90d1f1d`)
+
+- **Fixed:**
+  - awkward_l_scan_17 (walk, a cottage door);
+  - living_room_scan_73 (grounding and the beach);
+  - workshop_nominal now also meets the climb principle.
+- **Still failing: home_office_scan_73.** Its jetty landing is unreachable, as before. A woodpile and the promised beach on the west coast are now unreachable too. A new beach there blends into a short stretch of rocky shore and leaves a bluff 2 to 4 cm high (35 to 38 degrees) between the beach and the plain. That bluff cuts off a strip the walk used to cross. Starting the rocky shore's steep rise half a metre inland, like the beach's, did not fix it; left for the next round.
+- **No room has a wall offshore.**
+- **Cliff feet:** in 22 rooms the water 0.3 m off the coast's steep faces is 0.59 to 0.62 m deep (median). In awkward_l nominal and scan 73 it is 0.23 to 0.24 m. The measure counts every face over 60 degrees at the waterline, so those two are not yet explained.
+
+Command, per room, as before; the run uses `generate` then `checks` on each of the 24 rooms.
+
+### For the founder
+
+"Mostly beaches": crowded rooms still have mostly cliffed coasts, because furniture near a wall makes a headland. The garage measures 74% headland from its furniture. Shorter headlands would give more beach but cut into the landforms' footprints. That is the founder's call to make by playing.
+
 ## Climbing and the last rooms (Run 2, the open sea round, 9 October)
 
 - **What you climb, you can stand on top of** (`climb.py`, Lane P's measurements on the garage). A climber goes up the fall line of a face over 55 degrees from standable ground and over its top; a knife edge or needle is a crest with no 5 cm lip at 35 degrees or less and no standable patch within a body length.

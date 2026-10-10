@@ -2,24 +2,35 @@
 
 Every room is an island in an endless sea. The island keeps the room's floor
 plan; its coast runs near the walls: cliffs and headlands where landforms meet
-the wall line, coves with beaches between them, a low rocky shore elsewhere,
-and sea stacks off the headlands. A reef with breaking rocks rings the island a
-short swim offshore; past it the sea deepens toward distant islands. The door
-becomes a jetty in a small harbour, and a pass through the reef lies before it.
+the wall line, coves with beaches between them, a low rocky shore elsewhere.
+
+The clean coast (the founder, 10 October: "the land meet[s] the sea on mostly
+beaches with smooth gradual transitions into deep ocean and sheer cliffs
+plummeting deep into the ocean but not with weird walls off shore"):
+- beaches shelve gently from dry sand through a wading shelf into deep water;
+- cliffs drop straight down into deep water, with no shelf at their foot;
+- nothing stands offshore: no reef of rocks, no sea stacks, no distant islands.
+
+The reef is still the island's line in the data (`x_generator.sea.reef`, the
+game's `RoomSea.Reef`): it is now the shelf's edge under water, where the
+lagoon's shelf off the soft shores starts down to the open sea. The door becomes
+a jetty in a small harbour, and the pass before it is kept in the data.
 
 All heights are metres in the room frame (y up, -Z forward). SEA_Y is the sea
 level. Polygons are [x, z] pairs with the room floor polygons' winding.
 """
 import math
-import random
 
-from .field import bell, clamp, lerp, rr_dist, smooth
+from .field import clamp, lerp, rr_dist, smooth
 from .land import local, openings, point_in_poly, room_shape, wall_frame
 
 SEA_Y = -.02            # the sea's surface, a little under the room's floor (y 0)
 LAGOON_DEPTH = .22      # the lagoon between the coast and the reef: well over the 10 cm head
 DEEP_DEPTH = .62        # the open sea past the reef
-REEF_OFFSHORE = (.3, .6)   # the reef's distance off the coast (metres; a short swim at 10 cm)
+REEF_OFFSHORE = (.3, .6)   # the shelf's edge (the reef line) off the coast (metres; a short swim at 10 cm)
+BEACH_NOISE = .4        # the coast between headlands is beach where its noise is over -BEACH_NOISE+.25
+SHELF_FALL = .7         # off the soft shores, the shelf falls to the open sea over this run past its edge
+CLIFF_DEEP = (.35, .35)  # headland weight where the shelf gives way to deep water at a cliff's foot (start, run)
 PLAY_PAST_REEF = .3     # the playable sea reaches this far past the reef's crest
 JETTY_WIDTH = .16
 JETTY_DECK = .05        # deck top above the sea
@@ -130,7 +141,9 @@ class Coast:
         n2 = n(px*5.5-3, pz*5.5+11)
         cove = -.12-.16*smooth((n1+.1)/.5)-.05*n2
         head = .1+.14*smooth((n1+.3)/.6)+.04*n2
-        bw = (1-hl)*smooth((n.fbm(px*1.3-17, pz*1.3+29, 2)+.12)/.25)
+        # Mostly beaches between the headlands (the founder, 10 October); a low
+        # rocky shore only where this noise runs low.
+        bw = (1-hl)*smooth((n.fbm(px*1.3-17, pz*1.3+29, 2)+BEACH_NOISE)/.25)
         c = lerp(cove, head, hl)
         hw = 0.
         if self.door is not None:
@@ -147,10 +160,10 @@ class Coast:
 
 
 def carve_coast(grid, room, h, base, noise, objects, spawns, seed):
-    """Shape the coast, the lagoon, the reef and the stacks into h. Returns the
-    plan: per-vertex wall offset s, coast offset c, reef offset, beach weight,
-    the sea stacks, the jetty and the coast reader."""
-    rnd = random.Random(seed+11)
+    """Shape the coast, the shelf and the deep water into h. Returns the plan:
+    per-vertex wall offset s, coast offset c, the shelf's edge (the reef line),
+    beach weight, the jetty and the coast reader. Nothing stands offshore: no
+    reef rocks and no sea stacks (`stacks` stays, empty, for the package)."""
     coast = Coast(room, objects, [s for s in spawns], noise)
     nx = grid.nx
     S, C, R, BW, HL, PX, PZ, NX, NZ = ([0.]*grid.n for _ in range(9))
@@ -159,24 +172,8 @@ def carve_coast(grid, room, h, base, noise, objects, spawns, seed):
         s, px, pz, ox, oz = wall_frame(room, x, z)
         c, hl, bw, hw, reef = coast.at(px, pz)
         S[q], C[q], R[q], BW[q], HL[q], PX[q], PZ[q], NX[q], NZ[q] = s, c, reef, bw, hl, px, pz, ox, oz
-    # Sea stacks off the headlands, between the cliffs and the reef.
+    # No sea stacks: nothing stands offshore (the founder, 10 October).
     stacks = []
-    cands = sorted(set((round(PX[q], 2), round(PZ[q], 2)) for q in range(0, grid.n, 7) if HL[q] > .55 and abs(S[q]) < .05))
-    rnd.shuffle(cands)
-    for px, pz in cands:
-        if len(stacks) >= 4:
-            break
-        if any(math.hypot(px-a['wx'], pz-a['wz']) < 1.0 for a in stacks):
-            continue
-        c, hl, bw, hw, reef = coast.at(px, pz)
-        r = .04+.025*rnd.random()
-        # Clear of the cliff foot and of the reef, so it stands alone in the lagoon.
-        off = c+.2+r+.06*rnd.random()
-        if off+r+.18 > reef:
-            continue
-        ux, uz = _outward(room, px, pz)
-        stacks.append(dict(wx=px, wz=pz, x=round(px+ux*off, 4), z=round(pz+uz*off, 4),
-                           r=round(r, 4), top=round(SEA_Y+.12+.22*rnd.random(), 4)))
     # The jetty: from a landing in the harbour, square to the door's wall, out over the lagoon.
     jetty = None
     if coast.door is not None:
@@ -193,30 +190,17 @@ def carve_coast(grid, room, h, base, noise, objects, spawns, seed):
         s, c, reef = S[q], C[q], R[q]
         d = s-c
         n = noise(x*3.7+5, z*3.7-9)
-        floor = SEA_Y-(LAGOON_DEPTH+.04*n)
+        # Off the soft shores a shelf at the lagoon's depth runs out to the reef
+        # line, then falls gradually to the open sea. At a cliff's foot there is
+        # no shelf: the face plummets into deep water.
         past = s-reef
-        floor -= (DEEP_DEPTH-LAGOON_DEPTH)*smooth((past-.05)/.4)
+        shelf = SEA_Y-(LAGOON_DEPTH+.04*n)-(DEEP_DEPTH-LAGOON_DEPTH)*smooth((past+.1)/SHELF_FALL)
+        deep = SEA_Y-(DEEP_DEPTH+.04*n)
+        floor = lerp(shelf, deep, smooth((HL[q]-CLIFF_DEEP[0])/CLIFF_DEEP[1]))
         cap = max(_shore(d, HL[q], BW[q]), floor)
-        v = min(h[q], cap)
-        # The reef: a band of rock just under the surface, with rocks breaking it.
-        t = abs(past)/.085
-        if t < 1:
-            rocks = .055*smooth((noise.fbm(x*6.1-3, z*6.1+8, 2)-.12)/.25)
-            crest = SEA_Y-.022+rocks
-            if jetty is not None:
-                # A pass through the reef before the jetty, for boats one day.
-                ax = abs((x-jetty['wall'][0])*jetty['uz']-(z-jetty['wall'][1])*jetty['ux'])
-                crest = lerp(crest, SEA_Y-.14, 1-smooth((ax-.18)/.12))
-            v = max(v, crest-(1-bell(t))*.4)
-        for st in stacks:
-            r = math.hypot(x-st['x'], z-st['z'])
-            if r < st['r']+.3:
-                wob = 1+.18*noise(x*14+st['x'], z*14-st['z'])
-                top = st['top']-.04*(r/st['r'])**2
-                v = max(v, top if r < st['r']*wob else top-T72*(r-st['r']*wob)*3.)
-        h[q] = v
+        h[q] = min(h[q], cap)
         if d > .03:
-            sea_cap[q] = v
+            sea_cap[q] = h[q]
     plan = dict(s=S, c=C, reef=R, bw=BW, hl=HL, stacks=stacks, jetty=jetty, coast=coast, sea_cap=sea_cap)
     return plan
 
@@ -312,20 +296,15 @@ def sea_surface(grid, sea, far=60.):
 
 
 def distant_islands(grid, room, noise, seed, far=60.):
-    """The sea floor beyond the grid and distant islands rising out of the sea
-    where the far hills were: unreachable, shaped for a viewer anywhere."""
-    rnd = random.Random(seed+23)
+    """The sea floor beyond the grid, out toward the horizon (the package's
+    scenery mesh keeps its name `distant_islands`). No islands rise from it any
+    more: the founder chose a clean backdrop (10 October), and the game's look
+    already lays the far floor flat at RoomSea.OpenSeaBedAt. The record list is
+    empty."""
     x0, x1, z0, z1 = grid.xs[0], grid.xs[-1], grid.zs[0], grid.zs[-1]
     cx, cz = (x0+x1)/2, (z0+z1)/2
     r0 = min(x1-cx, z1-cz)-.25
     islands = []
-    a0 = rnd.random()*math.tau
-    count = 6
-    for k in range(count):
-        a = a0+math.tau*(k+.15+.7*rnd.random())/count
-        dist = r0+5.+14.*rnd.random()
-        islands.append(dict(x=cx+math.cos(a)*dist, z=cz+math.sin(a)*dist, r=1.6+3.4*rnd.random(),
-                            top=.5+2.*rnd.random(), stretch=.7+.6*rnd.random(), turn=rnd.random()*math.pi))
     radii = [r0+.4*k+.014*k*k for k in range(46)]
     radii = [r for r in radii if r < far*.9]
     ring = 200
@@ -335,14 +314,6 @@ def distant_islands(grid, room, noise, seed, far=60.):
             a = math.tau*k/ring
             x, z = cx+math.cos(a)*r, cz+math.sin(a)*r
             y = SEA_Y-DEEP_DEPTH-.04-.6*smooth((r-r0)/12.)
-            for isl in islands:
-                dx, dz = x-isl['x'], z-isl['z']
-                c, s = math.cos(isl['turn']), math.sin(isl['turn'])
-                u, v = (c*dx-s*dz)/isl['r'], (s*dx+c*dz)/(isl['r']*isl['stretch'])
-                rho = math.hypot(u, v)*(1+.22*noise.fbm(x*.31+isl['x'], z*.31-isl['z'], 3))
-                if rho < 1.6:
-                    rise = (isl['top']+.5)*bell(rho/1.6)**1.2+.25*isl['top']*noise.ridged(x*.4, z*.4)*bell(rho/1.2)
-                    y = max(y, SEA_Y-.5+rise)
             pos.append([round(x, 4), round(y, 4), round(z, 4)])
     for m in range(len(radii)-1):
         for k in range(ring):
@@ -357,9 +328,7 @@ def distant_islands(grid, room, noise, seed, far=60.):
         g = clamp(.75+.1*noise(v[0], v[2]))
         f = smooth((y+.02)/.25)
         tints.append([round(lerp(1, g*.82, f), 4), round(lerp(.95, g*.9, f), 4), round(lerp(.85, g, f), 4), 1])
-    record = [dict(x=round(i['x'], 3), z=round(i['z'], 3), radius_m=round(i['r'], 3),
-                   top_m=round(SEA_Y-.5+i['top']+.5, 3)) for i in islands]
-    return [dict(role='moss', positions=pos, triangles=tri, tints=tints, blend_role='rock', blend_weights=blend)], record
+    return [dict(role='moss', positions=pos, triangles=tri, tints=tints, blend_role='rock', blend_weights=blend)], islands
 
 
 def _box(x0, x1, y0, y1, w0, w1):
@@ -681,8 +650,9 @@ def walk_out_ok(grid, h, stand, water):
 
 
 def sand_and_seabed(grid, h, plan, sea, weights, tints):
-    """Beaches are sand; the shallows sandy; the deeper seabed rock and scree;
-    the reef rough rock. Overrides the land's own surface there."""
+    """Beaches are sand; the shallows sandy; the deeper seabed scree, and rock
+    at a cliff's foot. No ring marks the reef line (it is only the shelf's edge
+    under water). Overrides the land's own surface there."""
     nx = grid.nx
     for q in range(grid.n):
         y = h[q]
@@ -693,12 +663,9 @@ def sand_and_seabed(grid, h, plan, sea, weights, tints):
         under = SEA_Y-y if sea[q] else 0.
         if under > .04 or (sea[q] and sand < .5):
             deep = smooth((under-.05)/.18)
-            reef = abs(plan['s'][q]-plan['reef'][q]) < .085
-            rough = 'rock' if reef else 'scree'
+            rough = 'rock' if plan['hl'][q] > .5 else 'scree'
             w = {'gravel': (1-deep)*.8, rough: max(.2, deep)}
             t = tuple(lerp(1., c, deep) for c in (.86, .9, .92))
-            if reef:
-                t = (.98, .9, .84)
             sw = 1.
         elif sand > 0:
             w = {'gravel': 1.}
