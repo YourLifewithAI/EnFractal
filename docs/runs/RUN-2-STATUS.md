@@ -448,6 +448,35 @@
   - the wheel says it is the Gubble's;
   - moonlight alone is dark;
   - **the sea wraps round to home,** and the distant islands go. This replaces the 9 October rule that they stay on the horizon.
+- **The baseline on the pinned SDK:** both Windows runners GREEN on `ca6656d` (about 9 min). That was the eighth session's open item.
+- **Merged** (`17782b7`, both Windows runners GREEN on the merge):
+  - **Lane P part 1** (`run2/glow2-play`, Opus):
+    - the free cursor, with a left drag to look (4 px threshold; F3 orbits; F4 ignores a drag);
+    - Glow where you point, dark or not, with the Gubble coming within reach and sight first (`CommandHost.EffectSpot`, read-only);
+    - the cast gesture;
+    - screen-space words on the Gubble;
+    - "The Gubble's magic" wheel;
+    - change requests 2, 3 and 6;
+    - play HUD 216 to 243.
+  - **Lane L** (`run2/glow2-look`, Opus):
+    - the wisp's heart is light, not an object;
+    - the spark from the Gubble;
+    - moonlight is dark (a moonlit room 0.54 to 0.44);
+    - the distant islands are laid flat;
+    - a sea mist, and the wrap's seam `OpenSea.SeamFor` (garage 17.63 m from the centre, about 65 s past the reef);
+    - `RecolorGlows`;
+    - look 1135 to 1138.
+    - **No captures yet:** the founder's game was open throughout. Its script is `scratchpad\lane-l\captures.ps1` in this session's scratch folder.
+  - **The integrator applied change request 5:** the HUD's `RecolourGlows` asks the look.
+- **The founder's verdict (late night):**
+  - "I can now cast a glow anywhere I want and it's clearly tied to the Gubble."
+  - Two decisions: Bubbles and Fireworks next, and a clean coast.
+  - An idea: the Gubble grows RPG-style.
+
+  The next round is in [RUN-2-BUBBLES-FIREWORKS.md](RUN-2-BUBBLES-FIREWORKS.md).
+- **Open for the founder (from Lane P part 1):**
+  - a drag in F4 does nothing (it turns with `[` and `]`);
+  - after a far cast, the Gubble stays by its light.
 
 ## The next session
 
