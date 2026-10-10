@@ -32,8 +32,6 @@ public sealed class DuskMoment
 
     private double _sinceCheck = CheckEveryS;
     private double _sinceShown;
-    /// <summary>A light reading is needed before the next dark counts: after the second showing, until it has been light.</summary>
-    private bool _waitForLight;
 
     /// <summary>
     /// Time passes: lightLevel is read at most every CheckEveryS (and only while the dusk moment can still show), and usedGlow says
@@ -60,18 +58,17 @@ public sealed class DuskMoment
         if (!Dark)
         {
             // Light again: the next dark is a new dusk.
-            _waitForLight = false;
             if (!Showing) Shown = 0;
             return step;
         }
-        if (Showing || _waitForLight) return step;
+        // The first showing, and one more if ignored; after two, only a light reading (above) lets the next dark count.
+        if (Showing) return step;
         if (Shown == 0 || (Shown == 1 && _sinceShown >= RepeatAfterS))
         {
             Shown++;
             TotalShown++;
             Showing = true;
             _sinceShown = 0;
-            if (Shown >= 2) _waitForLight = true;
             return Step.Show;
         }
         return step;
