@@ -151,7 +151,7 @@ They are the player's own laws for their island, on the same layer as the island
 
 From research 4 (Apex's ping, Pikmin, marking menus, Valheim, Dragon Quest Builders 2). **Tap does the smart thing; hold shows the choices.** One icon set and one numbering serve the wheel, the number keys and a hotbar, so each teaches the others.
 
-**Today:** the player already directs the Gubble without an AI. Keys 1 to 5 send follow, stay, come, stop and point through `CommandHost.PlayerGoal`, as the player. The wheel extends that to abilities **(decided: it works with no AI connected)**.
+**Built (10 October, the Glow round):** the smart ask on the right button, the wheel, 1 for Glow, Q for the recall, X for stop and [ and ] for the F4 view are in `run2/integration`, sent as the player's commands through the host, with no AI needed **(decided: the wheel works with no AI connected)**. Before the round, keys 1 to 5 sent follow, stay, come, stop and point.
 
 ### The keys: today and proposed
 
@@ -179,7 +179,7 @@ From research 4 (Apex's ping, Pikmin, marking menus, Valheim, Dragon Quest Build
 | G | Next world physics (the founder's low-gravity leaps) | Unchanged for now; listed under "testing" in help; later a setting | |
 | T, Shift+T, L | Time of day, season, lamps | Unchanged for now; listed under "testing" in help (time follows the real clock); later a setting | |
 
-**Two steps, so nothing the founder plays loses its key in between:**
+**Two steps, so nothing the founder plays loses its key in between** (both done: step 1 in PR #14, step 2 in the Glow round):
 1. **Now (no change in behaviour):**
    - every binding moves into named input actions in Godot's input map, still physical keys;
    - the help panel reads its text from the map;
@@ -377,13 +377,13 @@ New with magic:
 
 ## Build order (proposed)
 
-0. **Cleanup (approved; under way, Lane P on `run2/retire-templates`).**
+0. **Cleanup (done, PR #13).**
    - Retire the five templates and the old invention workshop UI, which nothing shipped reaches.
    - Give the tests neutral fixtures.
    - Keep the trigger machinery and the invention runtime that runs creations.
    - About 33 files reference the templates: the creation compiler, the contract examples (the spinner is the standard sample creation), the companion tests and the GDScript suites.
-0b. **The keys into an input map** (no change in behaviour; see "The keys"). After the cleanup, so the two packets' test runs don't compete for the machine.
-1. **Glow, end to end, with no AI needed.**
+0b. **The keys into an input map** (done, PR #14).
+1. **Glow, end to end, with no AI needed** (built in the Glow round, [RUN-2-GLOW.md](../runs/RUN-2-GLOW.md); the founder's playtest next).
    - A first `island-rules.schema.json` and the `storybook_wild` v1 pack, with its ability list.
    - `capabilities.list` and `effect.start` for Glow, within its limits.
    - The Gubble's glow look (Lane L).
