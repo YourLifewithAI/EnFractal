@@ -435,7 +435,8 @@ public partial class CompanionAvatar : SmallPlayerController
     private Vector3 _castDirection = Vector3.Forward;
     private readonly System.Collections.Generic.List<(Node3D Node, Transform3D Pose)> _rest = new();
     private readonly System.Collections.Generic.List<(GeometryInstance3D Mesh, Material? Before)> _dimmed = new();
-    private static readonly StandardMaterial3D DimOverlay = new()
+    // One per body, never static: a Godot object held by a static field outlives the engine's C# bindings at exit (a fatal error).
+    private readonly StandardMaterial3D DimOverlay = new()
     {
         ResourceName = "gubble dim", AlbedoColor = new Color(0.02f, 0.03f, 0.05f, DimAlpha), ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
         Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
