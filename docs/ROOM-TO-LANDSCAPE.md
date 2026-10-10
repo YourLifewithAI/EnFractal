@@ -24,15 +24,16 @@ The founder's decision, 9 October. The founder's daughter disliked the invisible
   - Nothing stops the player invisibly. The sea shows where their world ends.
 - **The coast is ragged: a mix of beaches and cliffs.**
   - Where furniture stood against a wall, the land meets the sea as a cliff or headland. A bookshelf can become a sea cliff with a castle on top.
-  - Between those, coves and beaches slope into the water, with rocks and sea stacks offshore.
+  - Between those, coves and beaches shelve gently into deep water, and cliffs drop straight into it. Nothing stands offshore: no reef of rocks and no sea stacks (the founder, 10 October: "not with weird walls off shore").
   - Let geology choose: hard rock stands as cliffs, and soft ground slopes into beaches.
 - **The door becomes a jetty or a harbour.** It is the place where travel to other islands will one day begin. The windows still tell where the sun rises.
 - **Water runs downhill to the sea.** Rivers end in estuaries, or in waterfalls over sea cliffs. Ponds may still sit in hollows inland.
 - **The sea has no edge** (the founder, after the kids' playtest, 9 October: "the kids want to be able to swim forever"):
-  - a reef with breaking waves, a short swim offshore, marks the island's own waters;
+  - the edge of the island's shelf, under water a short swim offshore, marks the island's own waters;
   - past it, the open sea goes on for as long as a swimmer likes. Nothing turns them back, and nothing falls off the world.
+  - **it wraps round to home** (the founder, 9 October, night): swim far enough out, past where the mist hides the island, and you come back to your own island from the other side.
 - **Home is the jetty.** One key (B) brings the player back to the shore at the jetty's landward end from anywhere: out at sea, up a mountain, or in a town they are building.
-- **Distant islands on the horizon** give depth, with the same kinds of trees, rock and settlements as the playable land. For now they stay distant: however far you swim, they stay on the horizon.
+- **No distant islands for now** (the founder, 10 October): the horizon is open sea. Other players' islands may stand there later (below).
 - **Later:**
   - every room a player scans becomes an island, so a house becomes an archipelago, reached by jetty, boat, bridge or the Gubble's magic;
   - the open sea may become a random search of the shared world, its distant islands standing for other players' islands and roughly shaped like them;
@@ -72,4 +73,4 @@ Build one complete synthetic garage landscape: sky, horizon, connected ground, a
 
 1. **May the new sky light the land beyond the real windows, while keeping their eastern exposure meaningful?** Yes. Please add real light but the window can inform where the sun rises.
 2. **Should the first landscape feel mostly wild with a few settlements, or visibly inhabited throughout?** For now, mostly wild with a few settlements.
-3. **How should the world end, instead of an invisible wall?** As an island in an endless sea (9 October). The door becomes a jetty or a harbour; the coast is a ragged mix of beaches and cliffs; a reef marks the island's waters, and past it the sea is open for ever (9 October, after the kids' playtest); B brings the player home to the jetty.
+3. **How should the world end, instead of an invisible wall?** As an island in an endless sea (9 October). The door becomes a jetty or a harbour; the coast is a ragged mix of beaches and cliffs; the shelf's edge under water marks the island's waters, and past it the sea is open for ever (9 October, after the kids' playtest); B brings the player home to the jetty.
