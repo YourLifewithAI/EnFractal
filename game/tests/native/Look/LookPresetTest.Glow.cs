@@ -175,13 +175,13 @@ public partial class LookPresetTest
         Check(spark != null && head != null && head.GlobalPosition.IsEqualApprox(from) && wisp.Position.IsEqualApprox(restAt) && wispLight.LightEnergy == 0f && !wispHalo.Visible && core is { Visible: false }
             && look.FindChildren("*", "Light3D", true, false).Count == lights + 1 && look.EstimateLightAt(point).Glows > 0f,
             "cast at a point, the glow leaves the Gubble as a spark from its middle; the wisp waits at its spot, unlit, with no light of the spark's own; the light level counts it at once");
-        Check(spark!.GetChildren().OfType<MeshInstance3D>().Count() == GlowLook.SparkEmbers + 1 && spark.GetChildren().OfType<MeshInstance3D>().All(m => m.CastShadow == GeometryInstance3D.ShadowCastingSetting.Off
+        Check(spark != null && spark.GetChildren().OfType<MeshInstance3D>().Count() == GlowLook.SparkEmbers + 1 && spark.GetChildren().OfType<MeshInstance3D>().All(m => m.CastShadow == GeometryInstance3D.ShadowCastingSetting.Off
             && m.MaterialOverride is StandardMaterial3D { EmissionEnabled: true, BlendMode: BaseMaterial3D.BlendModeEnum.Add } sm && sm.Emission.IsEqualApprox(wispLight.LightColor)),
             "the spark is a head and its embers, soft light in the glow's colour that casts no shadow");
         var line = restAt - from;
         var highest = 0f;
         var flight = 0f;
-        while (look.GlowSpark("effect:wisp") != null && flight < 2f)
+        while (head != null && look.GlowSpark("effect:wisp") != null && flight < 2f)
         {
             var at = head!.GlobalPosition;
             var along = Mathf.Clamp((at - from).Dot(line) / line.LengthSquared(), 0f, 1f);
@@ -192,7 +192,7 @@ public partial class LookPresetTest
         var expected = Mathf.Min(GlowLook.SparkMaxS, GlowLook.SparkBaseS + GlowLook.SparkSecondsPerM * from.DistanceTo(restAt));
         Check(flight <= expected + 1.5f / 60f && flight >= expected - 1.5f / 60f && flight < 1f && highest > GlowLook.SparkArcMinM,
             $"the spark arcs ({highest * 100f:0.#} cm over the straight line) to the spot in {flight:0.##} s, well under a second");
-        Check(!IsInstanceValid(spark) && wisp.GetNodeOrNull("Spark") == null && wispHalo.Visible && core!.Visible && wispLight.LightEnergy < GlowLook.Energy(0.6f) * 0.5f,
+        Check(spark != null && !IsInstanceValid(spark) && wisp.GetNodeOrNull("Spark") == null && wispHalo.Visible && core!.Visible && wispLight.LightEnergy < GlowLook.Energy(0.6f) * 0.5f,
             $"as it lands the spark is gone and the wisp blooms there, its light coming up ({wispLight.LightEnergy:0.###})");
         for (var i = 0; i < 30; i++) look._Process(1.0 / 60.0);
         Check(Mathf.IsEqualApprox(wispLight.LightEnergy, GlowLook.Energy(0.6f)) && wispHalo.Scale.X > 1f - GlowLook.BreathAmount - 1e-4f,

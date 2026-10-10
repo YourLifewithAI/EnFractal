@@ -220,6 +220,47 @@
       "view": "eye",
       "hide_player_body": true,
       "stage": { "player_m": [6.0, -0.06, -11.8], "yaw_deg": 180, "companion_m": [6.3, 0.1, -11.6] }
+    },
+    {
+      "id": "land_glow_wisp",
+      "label": "The Gubble's glow at a spot, at night (F2)",
+      "purpose": "Run 2, the Glow playtest round: a wisp cast half a metre ahead on the meadow at 23:00, seen over the shoulder. The founder saw a black orb in its middle; it must read as light with no object, in the Gubble's colour, lighting the ground around it.",
+      "hud_view": 1,
+      "hour": 23.0,
+      "glows": [{ "id": "wisp", "at_xz_m": [0.12, -2.4] }],
+      "stage": { "player_m": [0.0, 0.095, -2.9], "yaw_deg": 180, "companion_m": [0.14, 0.085, -2.85] }
+    },
+    {
+      "id": "land_glow_halo",
+      "label": "The glow on the Gubble, at night (F3)",
+      "purpose": "Run 2, the Glow playtest round: the halo on the Gubble at 23:00 from the diorama: a soft painterly halo and a pool of light on the ground under it.",
+      "hud_view": 2,
+      "hud_pitch_deg": 32,
+      "hour": 23.0,
+      "glows": [{ "id": "halo", "on": "companion" }],
+      "stage": { "player_m": [0.0, 0.095, -2.9], "yaw_deg": 180, "companion_m": [0.14, 0.085, -2.85] }
+    },
+    {
+      "id": "land_glow_spark",
+      "label": "The spark from the Gubble, in flight (F2)",
+      "purpose": "Run 2, the Glow playtest round: a glow cast about a metre ahead, caught 0.2 s after the cast: a spark in the glow's colour arcing from the Gubble to the spot (before this round there was no spark: the wisp was simply there).",
+      "hud_view": 1,
+      "hour": 23.0,
+      "glows": [{ "id": "spark", "at_xz_m": [-0.35, -1.85] }],
+      "spark_s": 0.2,
+      "stage": { "player_m": [0.0, 0.095, -2.9], "yaw_deg": 180, "companion_m": [0.14, 0.085, -2.85] }
+    },
+    {
+      "id": "land_sea_seam",
+      "label": "At the seam, looking home",
+      "purpose": "Run 2, the Glow playtest round: the sea wraps round to home, so from the seam (17.6 m from the island's centre on this island) the mist must hide the island wholly in every view; the horizon is only sea and sky. Before this round the island and the distant islands stood clear here.",
+      "position_m": [0.5, 0.12, -18.2],
+      "look_at_m": [0.0, 0.25, 0.0],
+      "fov_deg": 68,
+      "focus_m": [0.5, 0.1, -17.9],
+      "view": "shoulder",
+      "hide_player_body": false,
+      "stage": { "player_m": [0.5, -0.05, -17.9], "yaw_deg": 180, "companion_m": [0.8, 0.1, -17.7] }
     }
   ]
 }
