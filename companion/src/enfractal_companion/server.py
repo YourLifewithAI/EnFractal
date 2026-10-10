@@ -71,9 +71,9 @@ INSTRUCTIONS = (
     "succeeds once you are back beside the player, still holding the thing; entity_release puts it down. "
     "goal_stop always works. "
     "The island's abilities are your magic (capabilities_list): effect_start casts one through your avatar. Glow is a "
-    "light: targets [\"avatar:companion\"] lights you and follows you (self); no targets lights a spot at area.center_m "
-    "within your reach and in sight of you or the player (point). effect_stop ends it by its effect id; goal_stop ends "
-    "your glows too. "
+    "light, bubbles a stream of bubbles, fireworks a burst with a brief flash: targets [\"avatar:companion\"] casts it on "
+    "you and it follows you (self); no targets casts it at a spot at area.center_m within the ability's reach and in "
+    "sight of you or the player (point). effect_stop ends one by its effect id; goal_stop ends your effects too. "
     "Anything that changes a thing needs it in sight now. Unlocking protected things and undoing the player's "
     "changes are the player's alone and are not available to you."
 )

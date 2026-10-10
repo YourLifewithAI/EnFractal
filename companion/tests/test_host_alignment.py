@@ -11,8 +11,8 @@ import json
 import re
 import unittest
 
-from support import (BEHIND_BOX, COMPANION, GUBBLE, IN_THE_OPEN, OUT_OF_REACH, OUTSIDE_ROOM, FakeClock, HostPolicy, command,
-                     contract_problems, glow, new_host, query)
+from support import (BEHIND_BOX, COMPANION, FAR_IN_SIGHT, GUBBLE, IN_THE_OPEN, OUT_OF_REACH, OUTSIDE_ROOM, FakeClock,
+                     HostPolicy, cast, command, contract_problems, glow, new_host, query)
 
 BEHIND_THE_BOX = [1.6, 0.0, 0.2]  # the box hides the book from the companion; the player at its spawn still sees it
 HIDDEN_SPOT = [-0.9, 0.0, -1.42]  # behind the table: neither avatar sees it from beside the player
@@ -26,8 +26,15 @@ def block(name: str) -> dict:
 
 
 EFFECT_ID = re.compile(r"effect:[a-z2-7]{26}")
+# capabilities.list's items for storybook_wild v2 (game/rules/storybook_wild/v2.json), in the order both hosts list them.
 GLOW_SUMMARY = {"capability": "glow", "category": "light", "params": {"intensity": {"min": 0.2, "max": 1.0}},
                 "area_radius_max_m": 1.5, "duration_max_s": 600}
+BUBBLES_SUMMARY = {"capability": "bubbles", "category": "float", "params": {"intensity": {"min": 0.2, "max": 1.0}},
+                   "area_radius_max_m": 1.0, "duration_max_s": 60}
+FIREWORKS_SUMMARY = {"capability": "fireworks", "category": "burst", "params": {"intensity": {"min": 0.3, "max": 1.0}},
+                     "area_radius_max_m": 2.0, "duration_max_s": 6}
+# An ability storybook_wild v2 does not grant (Bloom, the growth slot, comes later).
+LACKING = "bloom"
 
 
 def refusal(result: dict):
@@ -149,19 +156,29 @@ class AlignmentScenarios:
         outcome = {
             "all": await listed({}),
             "light": await listed({"category": "light"}),
+            "float": await listed({"category": "float"}),
+            "burst": await listed({"category": "burst"}),
             "air": await listed({"category": "air"}),
             "first page of one": await listed({"limit": 1, "cursor": "0"}),
-            "past the last": await listed({"limit": 1, "cursor": "1"}),
-            "beyond the end": await listed({"cursor": "2"}),
+            "the next page": await listed({"limit": 1, "cursor": "1"}),
+            "the last page": await listed({"limit": 1, "cursor": "2"}),
+            "past the last": await listed({"limit": 1, "cursor": "3"}),
+            "the rest from the second": await listed({"cursor": "1"}),
+            "beyond the end": await listed({"cursor": "4"}),
             "a signed cursor": await listed({"cursor": "+0"}),
             "a cursor of words": await listed({"cursor": "next"}),
         }
         self.assertEqual(outcome, {
-            "all": {"items": [GLOW_SUMMARY]},
+            "all": {"items": [BUBBLES_SUMMARY, FIREWORKS_SUMMARY, GLOW_SUMMARY]},
             "light": {"items": [GLOW_SUMMARY]},
+            "float": {"items": [BUBBLES_SUMMARY]},
+            "burst": {"items": [FIREWORKS_SUMMARY]},
             "air": {"items": []},
-            "first page of one": {"items": [GLOW_SUMMARY]},
+            "first page of one": {"items": [BUBBLES_SUMMARY], "next_cursor": "1"},
+            "the next page": {"items": [FIREWORKS_SUMMARY], "next_cursor": "2"},
+            "the last page": {"items": [GLOW_SUMMARY]},
             "past the last": {"items": []},
+            "the rest from the second": {"items": [FIREWORKS_SUMMARY, GLOW_SUMMARY]},
             "beyond the end": ("invalid_args", "$.args.cursor"),
             "a signed cursor": ("invalid_args", "$.args.cursor"),
             "a cursor of words": ("invalid_args", "$.args.cursor"),
@@ -229,7 +246,7 @@ class AlignmentScenarios:
             "a thing in sight": glow("x", targets=["obj:rug"]),
             "itself and a thing": glow("x", targets=[GUBBLE, "obj:rug"]),
             "a thing that is not there": glow("x", targets=["obj:zz_not_here"]),
-            "an ability the island lacks": glow("x", capability="bubbles"),
+            "an ability the island lacks": glow("x", capability=LACKING),
             "a param it does not take": glow("x", params={"speed": 1}),
             "too bright": glow("x", params={"intensity": 1.5}),
             "a word for a number": glow("x", params={"intensity": "bright"}),
@@ -240,8 +257,8 @@ class AlignmentScenarios:
             "outside the room": glow("x", at=OUTSIDE_ROOM),
             "a spot neither avatar sees": glow("x", at=BEHIND_BOX),
             # Two problems at once: the kernel's order of checks decides.
-            "unseen target and unknown ability": glow("x", capability="bubbles", targets=["obj:zz_not_here"]),
-            "unknown ability and the player": glow("x", capability="bubbles", targets=["avatar:player"]),
+            "unseen target and unknown ability": glow("x", capability=LACKING, targets=["obj:zz_not_here"]),
+            "unknown ability and the player": glow("x", capability=LACKING, targets=["avatar:player"]),
             "the player and too bright": glow("x", targets=["avatar:player"], params={"intensity": 1.5}),
             "too bright and beyond reach": glow("x", at=OUT_OF_REACH, params={"intensity": 1.5}),
         }
@@ -298,17 +315,146 @@ class AlignmentScenarios:
         self.assertEqual(outcome, expected)
         self.assertGreater(outcome["beyond its reach: bounds"][1], 2.0)
 
-    async def test_a_glow_ends_at_its_duration(self):
+    async def test_each_kind_ends_at_its_duration(self):
+        """A glow, a stream of bubbles and a firework each end at their own duration_s; a longer one still runs."""
         await self.companion_home()
         await self.stop_all_glows()
-        brief = await self.ask(glow(self.next_id("glow"), duration=1))
-        longer = await self.ask(glow(self.next_id("glow"), at=IN_THE_OPEN, duration=60))
+        brief = [await self.ask(cast(kind, self.next_id(kind), duration=1)) for kind in ("glow", "bubbles", "fireworks")]
+        longer = await self.ask(cast("bubbles", self.next_id("bubbles"), at=IN_THE_OPEN, duration=60))
         await self.wait(2.0)
-        outcome = {"started": (refusal(brief), refusal(longer)),
-                   "the brief one has ended": await self.stop_one(brief["created"][0]),
+        outcome = {"started": ([refusal(r) for r in brief], refusal(longer)),
+                   "the brief ones have ended": [await self.stop_one(r["created"][0]) for r in brief if r["ok"]],
                    "the longer one still runs": await self.stop_one(longer["created"][0])}
-        self.assertEqual(outcome, {"started": ("ok", "ok"), "the brief one has ended": ([], 0),
+        self.assertEqual(outcome, {"started": (["ok", "ok", "ok"], "ok"), "the brief ones have ended": [([], 0)] * 3,
                                    "the longer one still runs": (longer["created"], 1)})
+
+    # ----- Bubbles and Fireworks (docs/runs/RUN-2-BUBBLES-FIREWORKS.md piece 5): the same rules, on both hosts -----
+
+    async def test_the_companion_casts_bubbles_and_fireworks_on_itself_and_at_a_spot(self):
+        """Each on the Gubble (self, the pack's defaults filling the params left out) and at a spot in sight; Fireworks
+        reach further than Bubbles; a preview starts nothing; goal.stop ends every kind the companion cast."""
+        await self.companion_home()
+        await self.stop_all_glows()
+        bubbles = await self.ask(cast("bubbles", self.next_id("bubbles"), params={}))
+        stream = await self.ask(cast("bubbles", self.next_id("bubbles"), at=IN_THE_OPEN, params={"intensity": 1},
+                                     radius=1.0, duration=60))
+        burst = await self.ask(cast("fireworks", self.next_id("fireworks"), params={}, radius=1.0, duration=6))
+        rocket = await self.ask(cast("fireworks", self.next_id("fireworks"), at=FAR_IN_SIGHT, params={"intensity": 0.3},
+                                     radius=2.0, duration=6))
+        too_far = await self.ask(cast("bubbles", self.next_id("bubbles"), at=FAR_IN_SIGHT))
+        preview = await self.ask(cast("fireworks", self.next_id("fireworks"), at=IN_THE_OPEN, preview=True))
+
+        def about(result):
+            data = result.get("data", {})
+            return (refusal(result), result.get("transient"), bool(EFFECT_ID.fullmatch(data.get("effect", ""))),
+                    data.get("capability"), data.get("category"), data.get("target"), data.get("params"),
+                    data.get("area", {}).get("radius_m"), data.get("duration_s"))
+
+        started = [r["created"][0] for r in (bubbles, stream, burst, rocket) if r["ok"]]
+        stop = await self.ask(command("goal.stop", {}, self.next_id("stop")))
+        outcome = {
+            "bubbles on itself": about(bubbles),
+            "bubbles at a spot": about(stream),
+            "the stream's spot": stream.get("data", {}).get("area", {}).get("center_m"),
+            "fireworks over itself": about(burst),
+            "fireworks at a far spot": about(rocket),
+            "the rocket's spot": rocket.get("data", {}).get("area", {}).get("center_m"),
+            "bubbles at the far spot": (refusal(too_far), too_far.get("error", {}).get("allowed"),
+                                        too_far.get("error", {}).get("retryable")),
+            "preview": (refusal(preview), preview["preview"], "created" in preview, "effect" in preview.get("data", {}),
+                        preview.get("data", {}).get("category")),
+            "goal.stop ends every kind": stop["ok"] and set(started) <= set(stop["affected"]),
+            "nothing left to stop": [await self.stop_one(e) for e in started],
+        }
+        self.assertEqual(outcome, {
+            "bubbles on itself": ("ok", True, True, "bubbles", "float", "self", {"intensity": 0.6}, 0.5, 20),
+            "bubbles at a spot": ("ok", True, True, "bubbles", "float", "point", {"intensity": 1}, 1.0, 60),
+            "the stream's spot": IN_THE_OPEN,
+            "fireworks over itself": ("ok", True, True, "fireworks", "burst", "self", {"intensity": 0.8}, 1.0, 6),
+            "fireworks at a far spot": ("ok", True, True, "fireworks", "burst", "point", {"intensity": 0.3}, 2.0, 6),
+            "the rocket's spot": FAR_IN_SIGHT,
+            "bubbles at the far spot": (("out_of_bounds", "$.args.area.center_m"), 2.0, True),
+            "preview": ("ok", True, False, False, "burst"),
+            "goal.stop ends every kind": True,
+            "nothing left to stop": [([], 0)] * 4,
+        })
+
+    async def test_the_companion_cannot_cast_bubbles_or_fireworks_beyond_the_islands_rules(self):
+        """Bubbles' and Fireworks' own bounds, reach and max_active, with the kernel's codes, fields and numbers; the
+        player and other things are never targets; one ability's cap leaves the others free."""
+        await self.companion_home()
+        await self.stop_all_glows()
+        cases = {
+            "bubbles on the player": cast("bubbles", "x", targets=["avatar:player"]),
+            "fireworks on the player": cast("fireworks", "x", targets=["avatar:player"]),
+            "bubbles on a thing in sight": cast("bubbles", "x", targets=["obj:rug"]),
+            "fireworks on itself and a thing": cast("fireworks", "x", targets=[GUBBLE, "obj:rug"]),
+            "fireworks on a thing that is not there": cast("fireworks", "x", targets=["obj:zz_not_here"]),
+            "a param bubbles do not take": cast("bubbles", "x", params={"speed": 1}),
+            "bubbles too thick": cast("bubbles", "x", params={"intensity": 1.5}),
+            "fireworks too faint": cast("fireworks", "x", params={"intensity": 0.25}),
+            "bubbles too wide": cast("bubbles", "x", radius=1.2),
+            "fireworks too wide": cast("fireworks", "x", radius=2.5),
+            "bubbles too long": cast("bubbles", "x", duration=90),
+            "fireworks too long": cast("fireworks", "x", duration=8),
+            "fireworks outside the room": cast("fireworks", "x", at=OUTSIDE_ROOM),
+            "fireworks at a spot neither avatar sees": cast("fireworks", "x", at=BEHIND_BOX),
+            "the player and too thick": cast("bubbles", "x", targets=["avatar:player"], params={"intensity": 1.5}),
+        }
+        bounded = ("bubbles too thick", "fireworks too faint", "bubbles too wide", "fireworks too wide", "bubbles too long",
+                   "fireworks too long")
+        outcome = {}
+        for label, message in cases.items():
+            message["action_id"] = self.next_id("no")
+            result = await self.ask(message)
+            outcome[label] = refusal(result)
+            if label in bounded:
+                outcome[label + ": bounds"] = (result["error"].get("allowed"), result["error"].get("actual"))
+        # The caps, each ability's own while the others run. Fireworks last at most 6 s: they start and stop well inside that.
+        streams = [await self.ask(cast("bubbles", self.next_id("bubbles"), at=at)) for at in (None, IN_THE_OPEN)]
+        third = await self.ask(cast("bubbles", self.next_id("bubbles"), at=[0.5, 0.0, 0.9]))
+        rockets = [await self.ask(cast("fireworks", self.next_id("fireworks"), at=at, duration=6))
+                   for at in (None, IN_THE_OPEN, FAR_IN_SIGHT)]
+        fourth = await self.ask(cast("fireworks", self.next_id("fireworks"), duration=6))
+        outcome["three fireworks"] = [refusal(r) for r in rockets]
+        outcome["a fourth"] = (refusal(fourth), fourth.get("error", {}).get("allowed"), fourth.get("error", {}).get("actual"))
+        outcome["the fireworks stop by id"] = [(await self.stop_one(r["created"][0]))[1] for r in rockets if r["ok"]]
+        light = await self.ask(glow(self.next_id("glow")))
+        outcome["two streams"] = [refusal(r) for r in streams]
+        outcome["a third stream"] = (refusal(third), third.get("error", {}).get("allowed"), third.get("error", {}).get("actual"))
+        outcome["a glow still fits"] = refusal(light)
+        outcome["the rest stop by id"] = [(await self.stop_one(r["created"][0]))[1] for r in streams + [light] if r["ok"]]
+        expected = {
+            "bubbles on the player": ("permission_denied", "$.args.targets"),
+            "fireworks on the player": ("permission_denied", "$.args.targets"),
+            "bubbles on a thing in sight": ("permission_denied", "$.args.targets"),
+            "fireworks on itself and a thing": ("permission_denied", "$.args.targets"),
+            "fireworks on a thing that is not there": ("target_not_found", "$.args.targets"),
+            "a param bubbles do not take": ("invalid_args", "$.args.params.speed"),
+            "bubbles too thick": ("invalid_args", "$.args.params.intensity"),
+            "bubbles too thick: bounds": ([0.2, 1.0], 1.5),
+            "fireworks too faint": ("invalid_args", "$.args.params.intensity"),
+            "fireworks too faint: bounds": ([0.3, 1.0], 0.25),
+            "bubbles too wide": ("invalid_args", "$.args.area.radius_m"),
+            "bubbles too wide: bounds": (1.0, 1.2),
+            "fireworks too wide": ("invalid_args", "$.args.area.radius_m"),
+            "fireworks too wide: bounds": (2.0, 2.5),
+            "bubbles too long": ("invalid_args", "$.args.duration_s"),
+            "bubbles too long: bounds": (60, 90),
+            "fireworks too long": ("invalid_args", "$.args.duration_s"),
+            "fireworks too long: bounds": (6, 8),
+            "fireworks outside the room": ("out_of_bounds", "$.args.area.center_m"),
+            "fireworks at a spot neither avatar sees": ("target_not_found", "$.args.area.center_m"),
+            "the player and too thick": ("permission_denied", "$.args.targets"),
+            "three fireworks": ["ok", "ok", "ok"],
+            "a fourth": (("budget_exceeded", "$.args.capability"), 3, 3),
+            "the fireworks stop by id": [1, 1, 1],
+            "two streams": ["ok", "ok"],
+            "a third stream": (("budget_exceeded", "$.args.capability"), 2, 2),
+            "a glow still fits": "ok",
+            "the rest stop by id": [1, 1, 1],
+        }
+        self.assertEqual(outcome, expected)
 
 
 class AlignmentOnTheMock(AlignmentScenarios, unittest.IsolatedAsyncioTestCase):

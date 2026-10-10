@@ -121,10 +121,44 @@ class GlowMatchesTheKernel(unittest.TestCase):
         from enfractal_companion.mock_host import rules_path
         self.assertIn('=> $"res://rules/{rulesId}/v{rulesVersion}.json";', _text(RULES))
         path = rules_path()
-        self.assertEqual(path, REPO / "game" / "rules" / "storybook_wild" / "v1.json")
+        self.assertEqual(path, REPO / "game" / "rules" / "storybook_wild" / "v2.json")
         host = new_host()
         self.assertEqual((host.rules.rules_id, host.rules.rules_version, host.rules.sha256),
-                         ("storybook_wild", 1, hashlib.sha256(path.read_bytes()).hexdigest()))
+                         ("storybook_wild", 2, hashlib.sha256(path.read_bytes()).hexdigest()))
+        self.assertEqual([(a.capability, a.primitive) for a in host.rules.abilities],
+                         [("glow", "light.emit"), ("bubbles", "particles.float"), ("fireworks", "particles.burst")])
+
+    def test_the_mock_loads_the_primitives_the_kernel_carries_out(self):
+        """The mock checks a pack against the island-rules schema; the kernel against its own table of primitives
+        (IslandRules.Primitives) and then hands each to the look by primitive (StartLook). All three must name the same
+        primitives with the same outer limits, or one host would load a pack the other refuses."""
+        import json
+        schema = json.loads((REPO / "contracts" / "island-rules.schema.json").read_bytes())
+        in_schema = {}
+        for rule in schema["$defs"]["ability"].get("allOf", []):
+            primitive = rule.get("if", {}).get("properties", {}).get("primitive", {}).get("const")
+            if primitive is None:
+                continue
+            then = rule["then"]["properties"]
+            in_schema[primitive] = (
+                then["category"]["const"],
+                {name: (p["properties"]["min"]["minimum"], p["properties"]["max"]["maximum"])
+                 for name, p in then["params"]["properties"].items()},
+                then["reach_m"]["maximum"], then["area_radius_max_m"]["maximum"], then["duration_max_s"]["maximum"],
+                then["max_active"]["maximum"])
+        table = _match(RULES, r"Primitives = new Dictionary<string, PrimitiveLimits>\(StringComparer\.Ordinal\)\s*\{([\s\S]*?)\n    \};")
+        in_kernel = {}
+        for entry in re.finditer(r'\["([a-z.]+)"\] = new\("([a-z]+)", new Dictionary<string, \(double, double\)>\(StringComparer\.Ordinal\) '
+                                 r'\{ ([^}]*) \}, ([0-9.]+), ([0-9.]+), ([0-9.]+), (\d+)\)', table):
+            params = {name: (float(low), float(high))
+                      for name, low, high in re.findall(r'\["([a-z_]+)"\] = \(([0-9.]+), ([0-9.]+)\)', entry.group(3))}
+            in_kernel[entry.group(1)] = (entry.group(2), params, float(entry.group(4)), float(entry.group(5)),
+                                         float(entry.group(6)), int(entry.group(7)))
+        self.assertEqual(len(in_kernel), table.count("] = new("), "a kernel primitive this test could not read")
+        self.assertEqual(in_kernel, in_schema)
+        self.assertEqual(sorted(in_kernel), ["light.emit", "particles.burst", "particles.float"])
+        start_look = _method(_text(EFFECTS), "private bool StartLook(")
+        self.assertEqual(sorted(re.findall(r'"([a-z]+\.[a-z]+)" => look\.Start\w+\(', start_look)), sorted(in_kernel))
 
     def test_reserved_param_names_are_the_contracts_everywhere(self):
         import json
