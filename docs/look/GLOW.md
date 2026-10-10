@@ -31,6 +31,7 @@
 - **The aura colour** is Lane P's `CompanionAvatar.SetAuraColor`, which the HUD's colour button sets. Call `RecolorGlows()` after it so running glows follow.
 
 **Budgets:**
+- **Effects at once.** Since the Bubbles and Fireworks round the look's cap is 8 effects of every kind together ([EFFECTS.md](EFFECTS.md)); glows alone still stop at 8.
 - **Glows at once.** The look draws at most **8** glows, the schema's outer limit on `max_active`, so the look never refuses a glow that a pack allows. A ninth new id returns false and draws nothing. Replacing an id that's already in use always works.
 - **Shadows:**
   - **A halo never casts a shadow.** Its light sits inside the Gubble's body, which would swallow it. A shadow that moves every frame is also the most expensive kind.

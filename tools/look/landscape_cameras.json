@@ -261,6 +261,69 @@
       "view": "shoulder",
       "hide_player_body": false,
       "stage": { "player_m": [0.5, -0.05, -17.9], "yaw_deg": 180, "companion_m": [0.8, 0.1, -17.7] }
+    },
+    {
+      "id": "land_bubbles_day",
+      "label": "Bubbles blown at a spot, by day (F2)",
+      "purpose": "Run 2, Bubbles and Fireworks: the Gubble blows a stream of bubbles half a metre ahead at 09:00; they rise, drift with the breeze and pop on the land. Soap bubbles: a thin rim, a faint rainbow sheen, a highlight.",
+      "hud_view": 1,
+      "glows": [{ "id": "bubbles", "kind": "bubbles", "at_xz_m": [0.15, -2.35], "radius_m": 0.25, "intensity": 1.0 }],
+      "settle_s": 2.0,
+      "stage": { "player_m": [0.0, 0.095, -2.9], "yaw_deg": 180, "companion_m": [0.14, 0.085, -2.85] }
+    },
+    {
+      "id": "land_bubbles_night",
+      "label": "Bubbles at night, by the Gubble's glow (F2)",
+      "purpose": "Run 2, Bubbles and Fireworks: the same stream at 23:00 with the Gubble's halo lit. Bubbles make no light of their own, so they show only where a real light (the halo, the moon) catches them.",
+      "hour": 23.0,
+      "hud_view": 1,
+      "glows": [{ "id": "bubbles", "kind": "bubbles", "at_xz_m": [0.15, -2.35], "radius_m": 0.25, "intensity": 1.0 }, { "id": "halo", "on": "companion" }],
+      "settle_s": 2.0,
+      "stage": { "player_m": [0.0, 0.095, -2.9], "yaw_deg": 180, "companion_m": [0.14, 0.085, -2.85] }
+    },
+    {
+      "id": "land_fireworks_rocket",
+      "label": "The rocket leaving the Gubble, at night",
+      "purpose": "Run 2, Bubbles and Fireworks: 0.35 s after the cast, a rocket with a trail of embers climbing from the Gubble toward the spot.",
+      "hour": 23.0,
+      "position_m": [0.5, 0.25, -3.8],
+      "look_at_m": [0.1, 0.55, -2.1],
+      "fov_deg": 64,
+      "focus_m": [0.14, 0.15, -2.85],
+      "view": "shoulder",
+      "hide_player_body": false,
+      "glows": [{ "id": "fireworks", "kind": "fireworks", "at_xz_m": [0.1, -2.0], "radius_m": 0.6, "intensity": 0.8 }],
+      "spark_s": 0.35,
+      "stage": { "player_m": [0.0, 0.095, -2.9], "yaw_deg": 180, "companion_m": [0.14, 0.085, -2.85] }
+    },
+    {
+      "id": "land_fireworks_night",
+      "label": "The burst and its flash, at night",
+      "purpose": "Run 2, Bubbles and Fireworks: 0.8 s after the cast, the burst 0.8 m above the spot in the Gubble's colour, its flash lighting the land below for a moment.",
+      "hour": 23.0,
+      "position_m": [0.5, 0.25, -3.8],
+      "look_at_m": [0.1, 0.55, -2.1],
+      "fov_deg": 64,
+      "focus_m": [0.14, 0.15, -2.85],
+      "view": "shoulder",
+      "hide_player_body": false,
+      "glows": [{ "id": "fireworks", "kind": "fireworks", "at_xz_m": [0.1, -2.0], "radius_m": 0.6, "intensity": 0.8 }],
+      "spark_s": 0.8,
+      "stage": { "player_m": [0.0, 0.095, -2.9], "yaw_deg": 180, "companion_m": [0.14, 0.085, -2.85] }
+    },
+    {
+      "id": "land_fireworks_day",
+      "label": "The burst by day",
+      "purpose": "Run 2, Bubbles and Fireworks: the same burst at 09:00. Best at night; by day it must still read against the sky.",
+      "position_m": [0.5, 0.25, -3.8],
+      "look_at_m": [0.1, 0.55, -2.1],
+      "fov_deg": 64,
+      "focus_m": [0.14, 0.15, -2.85],
+      "view": "shoulder",
+      "hide_player_body": false,
+      "glows": [{ "id": "fireworks", "kind": "fireworks", "at_xz_m": [0.1, -2.0], "radius_m": 0.6, "intensity": 0.8 }],
+      "spark_s": 0.8,
+      "stage": { "player_m": [0.0, 0.095, -2.9], "yaw_deg": 180, "companion_m": [0.14, 0.085, -2.85] }
     }
   ]
 }

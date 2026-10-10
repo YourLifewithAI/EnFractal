@@ -1035,6 +1035,7 @@ public partial class LookDirector : Node3D
     public override void _Process(double delta)
     {
         UpdateGlows(delta);
+        UpdateEffects(delta);
         if (Preset == null) return;
         _highlight?.Prune();
         CollectLut();

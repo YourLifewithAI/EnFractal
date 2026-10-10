@@ -249,12 +249,19 @@ public partial class LookDirector
     /// <summary>
     /// Give every running glow the colour a restart would give it now (GlowLook.LightColor of the aura of the body it follows, or for
     /// a wisp of the Gubble's): its light, its halo, a wisp's heart and a spark in flight, in place, so a wisp keeps its spot and its
-    /// effect id. The HUD calls this when the Gubble's colour changes. Returns how many glows it recoloured.
+    /// effect id; bubbles and fireworks take it for their next bubbles and sparks. The HUD calls this when the Gubble's colour
+    /// changes. Returns how many effects it recoloured.
     /// </summary>
     public int RecolorGlows()
     {
         foreach (var glow in _glowOrder) Paint(glow, GlowLook.LightColor(AuraOf(glow.Follow ?? CompanionBody())));
-        return _glowOrder.Count;
+        // Bubbles and fireworks take it too: new bubbles and sparks, and a flash that is lit.
+        foreach (var effect in _effectOrder)
+        {
+            effect.Color = GlowLook.LightColor(AuraOf(effect.Follow ?? CompanionBody()));
+            if (effect.Flash != null && IsInstanceValid(effect.Flash)) effect.Flash.LightColor = effect.Color;
+        }
+        return _glowOrder.Count + _effectOrder.Count;
     }
 
     private static void Paint(Glow glow, Color color)
@@ -282,8 +289,10 @@ public partial class LookDirector
         if (string.IsNullOrEmpty(effectId) || effectId.Length > 128 || !float.IsFinite(radiusM) || !float.IsFinite(intensity)) return false;
         if (follow != null && (!IsInstanceValid(follow) || follow.IsQueuedForDeletion() || !follow.IsInsideTree())) return false;
         if (follow == null && !(float.IsFinite(center.X) && float.IsFinite(center.Y) && float.IsFinite(center.Z))) return false;
-        if (!_glows.ContainsKey(effectId) && _glows.Count >= GlowLook.MaxGlows) return false;
+        // The look's cap counts every effect (glows, bubbles, fireworks): the engine's 8 a room.
+        if (!HasEffect(effectId) && (EffectCount >= EffectLook.MaxEffects || _glows.Count >= GlowLook.MaxGlows)) return false;
         FreeGlow(effectId);
+        FreeEffect(effectId);
         var glow = BuildGlow(effectId, follow, center, Mathf.Clamp(radiusM, GlowLook.MinRadiusM, GlowLook.MaxRadiusM), Mathf.Clamp(intensity, GlowLook.MinIntensity, GlowLook.MaxIntensity));
         _glows[effectId] = glow;
         _glowOrder.Add(glow);
@@ -617,6 +626,8 @@ public partial class LookDirector
         windows = Mathf.Clamp(open - key - sky - bounce, 0f, windows);
         foreach (var glow in _glowOrder)
             glows += GlowLook.PointLight(glow.Energy, glow.Light.LightColor, glow.RadiusM, glow.Light.OmniAttenuation, GlowPosition(glow, drawing: false).DistanceTo(position));
+        // The fireworks' flashes count too, briefly: only while one is lit.
+        glows += FlashesAt(position);
         return new LightEstimate(key, sky, bounce, lamps, windows, glows, visibility, keySeen);
     }
 
