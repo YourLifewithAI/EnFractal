@@ -713,6 +713,56 @@ class McpClientOnTheRealHost(RealHostCase):
             unlock = await client.call_tool("goal_set", {"action_id": fresh_id("x"), "goal": "stay", "principal": "player:local"})
             self.assertEqual(unlock.structured_content["error"]["code"], "field_unknown")
 
+    async def test_an_mcp_client_glows_through_the_real_host(self):
+        """Glow through the MCP server and the kernel host: the island's rules listed, the companion's own light and a
+        light at a spot it can see, the player and other things refused as targets, reserved names refused before
+        anything is sent, and the glows stopped by id."""
+        from mcp import Client
+        await self.settle_rate()
+        async with Client(server_parameters("--session-file", str(GAME.session_path)), mode="auto") as client:
+            async def call(name, arguments):
+                result = (await client.call_tool(name, arguments)).structured_content
+                self.results.append(result)
+                await asyncio.sleep(0.05)
+                return result
+
+            def code(result):
+                return "ok" if result["ok"] else (result["error"]["code"], result["error"].get("field_path"))
+
+            come = await call("goal_set", {"action_id": fresh_id("come"), "goal": "come", "target": "avatar:player"})
+            for _ in range(120):
+                if (await call("jobs_status", {"job_id": come["job_id"]}))["data"]["state"] != "running":
+                    break
+                await asyncio.sleep(0.25)
+            await call("effect_stop", {"effect": "all"})
+            light = {"capability": "glow", "params": {}, "area": {"center_m": [0, 0, 0], "radius_m": 0.5}, "duration_s": 30}
+            listed = await call("capabilities_list", {})
+            own = await call("effect_start", {"action_id": fresh_id("glow"), **light, "targets": ["avatar:companion"]})
+            spot = await call("effect_start", {"action_id": fresh_id("glow"), **light,
+                                               "area": {"center_m": [0.6, 0, 1.0], "radius_m": 0.5}})
+            outcome = {
+                "listed": [item["capability"] for item in listed["data"]["items"]],
+                "self": (code(own), own.get("data", {}).get("target"), own.get("data", {}).get("params")),
+                "point": (code(spot), spot.get("data", {}).get("target")),
+                "the player": code(await call("effect_start", {"action_id": fresh_id("no"), **light, "targets": ["avatar:player"]})),
+                "a thing": code(await call("effect_start", {"action_id": fresh_id("no"), **light, "targets": ["obj:rug"]})),
+                "principal in params": code(await call("effect_start", {"action_id": fresh_id("no"), **light,
+                                                                         "params": {"principal": "player:local"}})),
+                "actor in params": code(await call("effect_start", {"action_id": fresh_id("no"), **light, "params": {"actor": 1}})),
+                "stops": [(await call("effect_stop", {"effect": r["created"][0]}))["data"]["effects_stopped"]
+                          for r in (own, spot) if r["ok"]],
+            }
+            self.assertEqual(outcome, {
+                "listed": ["glow"],
+                "self": ("ok", "self", {"intensity": 0.6}),
+                "point": ("ok", "point"),
+                "the player": ("permission_denied", "$.args.targets"),
+                "a thing": ("permission_denied", "$.args.targets"),
+                "principal in params": ("field_unknown", "$.params.principal"),
+                "actor in params": ("request_invalid", "$.args.params"),
+                "stops": [1, 1],
+            })
+
 
 if __name__ == "__main__":
     unittest.main()
