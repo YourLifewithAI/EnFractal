@@ -40,9 +40,10 @@ It loads a real room (`game/rooms/test_room` by default) through the room contra
 - a companion's `room.undo` steps back only over revisions its own commands made: undoing the
   player's changes is the player's alone;
 - unknown, removed, foreign and unperceived entity ids all fail with the same `target_not_found`;
-- the island's abilities come from its rules pack, the one the kernel host loads (game/rules/storybook_wild/v1.json,
-  checked fail-closed): `capabilities.list` answers from it, and `effect.start` follows the kernel's rules, order of
-  refusals, codes and result data (CommandHostEffects.cs). The Gubble carries every ability out: a companion may
+- the island's abilities come from its rules pack, the one the kernel host loads (game/rules/storybook_wild/v2.json:
+  Glow, Bubbles and Fireworks; checked fail-closed): `capabilities.list` answers from it, and `effect.start` follows the
+  kernel's rules, order of refusals, codes and result data (CommandHostEffects.cs), the same for every primitive
+  (light.emit, particles.float, particles.burst). The Gubble carries every ability out: a companion may
   target only its own avatar (self) or name no targets (a point within reach and in the team's sight); effect ids are
   opaque; effects end at their duration, on `effect.stop` (the player any, a companion its own) and on a `goal.stop`
   that covers the Gubble. Effects are not entities: no query lists them, as on the kernel host;
@@ -123,8 +124,9 @@ DEFAULT_STYLES_DIR = DEFAULT_REPO_ROOT / "game" / "styles"
 
 # The island's rules (contracts/island-rules.schema.json): the abilities effect.start casts and capabilities.list lists,
 # read from the same pack the kernel host loads (RoomWorld.DefaultRulesId and DefaultRulesVersion, res://rules/<id>/v<N>.json).
+# v2 (Bubbles and Fireworks round) adds particles.float and particles.burst, which both hosts carry out.
 DEFAULT_RULES_ID = "storybook_wild"
-DEFAULT_RULES_VERSION = 1
+DEFAULT_RULES_VERSION = 2
 DEFAULT_RULES_DIR = DEFAULT_REPO_ROOT / "game" / "rules"
 # A pack is small (at most 32 abilities); anything larger is refused before it is parsed (IslandRules.MaxPackBytes).
 MAX_RULES_PACK_BYTES = 65536
@@ -359,7 +361,7 @@ class Ability:
     primitive: str
     cast_by: frozenset[str]  # "player" and or "companion"
     tier: str  # auto, auto_undo, preview_commit or keyed_yes
-    targets: frozenset[str]  # "self" (the effect follows the Gubble) and or "point" (a light at area.center_m)
+    targets: frozenset[str]  # "self" (the effect follows the Gubble) and or "point" (the effect at area.center_m)
     reach_m: float
     params: dict[str, tuple[float, float, float]]  # name -> (min, max, default), in ordinal order
     area_radius_default_m: float
@@ -1789,8 +1791,10 @@ class MockHost(JournalMixin):
 
     # ------------------------------------------------------------------ the island's abilities (effects)
     # The kernel's CommandHostEffects.cs: the pack says which abilities exist and their bounds; effect.start casts one,
-    # carried out by the Gubble, as the player or as the companion. v1 has one primitive, light.emit: Glow, a light that
-    # follows the Gubble (targets: its own avatar) or floats at a spot within its reach and in the team's sight.
+    # carried out by the Gubble, as the player or as the companion. Three primitives, one set of rules: light.emit (Glow, a
+    # light), particles.float (Bubbles, a stream) and particles.burst (Fireworks, a burst with a brief flash). Each follows
+    # the Gubble (targets: its own avatar) or plays at a spot within the ability's reach and in the team's sight. The
+    # kernel hands each to the look by primitive (StartLook); the mock draws nothing, so its rules are all there is.
 
     def _stoppable(self, principal: str) -> list[ActiveEffect]:
         """The effects a stop by principal covers: the player's covers every effect, a companion's only its own."""

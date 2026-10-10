@@ -714,9 +714,9 @@ class McpClientOnTheRealHost(RealHostCase):
             self.assertEqual(unlock.structured_content["error"]["code"], "field_unknown")
 
     async def test_an_mcp_client_glows_through_the_real_host(self):
-        """Glow through the MCP server and the kernel host: the island's rules listed, the companion's own light and a
-        light at a spot it can see, the player and other things refused as targets, reserved names refused before
-        anything is sent, and the glows stopped by id."""
+        """Glow, Bubbles and Fireworks through the MCP server and the kernel host: the island's rules listed, the
+        companion's own light and a light at a spot it can see, bubbles and fireworks on itself and at a spot, the player
+        and other things refused as targets, reserved names refused before anything is sent, and each stopped by id."""
         from mcp import Client
         await self.settle_rate()
         async with Client(server_parameters("--session-file", str(GAME.session_path)), mode="auto") as client:
@@ -740,27 +740,45 @@ class McpClientOnTheRealHost(RealHostCase):
             own = await call("effect_start", {"action_id": fresh_id("glow"), **light, "targets": ["avatar:companion"]})
             spot = await call("effect_start", {"action_id": fresh_id("glow"), **light,
                                                "area": {"center_m": [0.6, 0, 1.0], "radius_m": 0.5}})
+            stream = await call("effect_start", {"action_id": fresh_id("bubbles"), **light, "capability": "bubbles",
+                                                 "targets": ["avatar:companion"], "duration_s": 20})
+            rocket = await call("effect_start", {"action_id": fresh_id("fireworks"), **light, "capability": "fireworks",
+                                                 "area": {"center_m": [0.6, 0, 1.0], "radius_m": 1.0}, "duration_s": 6})
             outcome = {
                 "listed": [item["capability"] for item in listed["data"]["items"]],
                 "self": (code(own), own.get("data", {}).get("target"), own.get("data", {}).get("params")),
                 "point": (code(spot), spot.get("data", {}).get("target")),
+                "bubbles on itself": (code(stream), stream.get("data", {}).get("category"), stream.get("data", {}).get("target")),
+                "fireworks at a spot": (code(rocket), rocket.get("data", {}).get("category"), rocket.get("data", {}).get("target")),
+                # Stopped at once: a firework lasts at most 6 s.
+                "stops": [(await call("effect_stop", {"effect": r["created"][0]}))["data"]["effects_stopped"]
+                          for r in (own, spot, stream, rocket) if r["ok"]],
+            }
+            await asyncio.sleep(3.5)  # the adapter allows 10 commands at once, then 2 a second
+            outcome |= {
                 "the player": code(await call("effect_start", {"action_id": fresh_id("no"), **light, "targets": ["avatar:player"]})),
+                "bubbles on the player": code(await call("effect_start", {"action_id": fresh_id("no"), **light,
+                                                                           "capability": "bubbles", "targets": ["avatar:player"]})),
                 "a thing": code(await call("effect_start", {"action_id": fresh_id("no"), **light, "targets": ["obj:rug"]})),
+                "fireworks too long": code(await call("effect_start", {"action_id": fresh_id("no"), **light,
+                                                                        "capability": "fireworks", "duration_s": 8})),
                 "principal in params": code(await call("effect_start", {"action_id": fresh_id("no"), **light,
                                                                          "params": {"principal": "player:local"}})),
                 "actor in params": code(await call("effect_start", {"action_id": fresh_id("no"), **light, "params": {"actor": 1}})),
-                "stops": [(await call("effect_stop", {"effect": r["created"][0]}))["data"]["effects_stopped"]
-                          for r in (own, spot) if r["ok"]],
             }
             self.assertEqual(outcome, {
-                "listed": ["glow"],
+                "listed": ["bubbles", "fireworks", "glow"],
                 "self": ("ok", "self", {"intensity": 0.6}),
                 "point": ("ok", "point"),
+                "bubbles on itself": ("ok", "float", "self"),
+                "fireworks at a spot": ("ok", "burst", "point"),
                 "the player": ("permission_denied", "$.args.targets"),
+                "bubbles on the player": ("permission_denied", "$.args.targets"),
                 "a thing": ("permission_denied", "$.args.targets"),
+                "fireworks too long": ("invalid_args", "$.args.duration_s"),
                 "principal in params": ("field_unknown", "$.params.principal"),
                 "actor in params": ("request_invalid", "$.args.params"),
-                "stops": [1, 1],
+                "stops": [1, 1, 1, 1],
             })
 
 

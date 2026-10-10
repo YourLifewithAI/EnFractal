@@ -471,7 +471,7 @@ _OP_DESCRIPTIONS = {
     "room.describe": "Describe the current room: name, revision, bounds, style and counts of what the companion can see now.",
     "entities.list": "List the entities the companion's avatar can see (paged). Filter by kind, category group, affordance, provenance or distance.",
     "entity.inspect": "Inspect one entity the companion's avatar can see, by id: summary, parts and who protected it.",
-    "capabilities.list": "List the island's abilities, the magic effect_start casts (for example glow, a light): each one's category, its numeric params with their min and max, area_radius_max_m and duration_max_s. The island's rules decide which exist; a capability not listed is refused.",
+    "capabilities.list": "List the island's abilities, the magic effect_start casts (for example glow, a light; bubbles, a stream of bubbles; fireworks, a burst with a brief flash): each one's category, its numeric params with their min and max, area_radius_max_m and duration_max_s. The island's rules decide which exist; a capability not listed is refused.",
     "observe": "What the companion's own avatar can perceive within a radius: visible entities and words seen in the world.",
     "jobs.status": "Status of a job by job_id, such as a goal with a target (goal_set returns its job_id): running, succeeded, failed with the reason, or cancelled.",
     "receipt.lookup": "Ask whether one of your earlier actions committed, by its action_id. Use this before retrying.",
@@ -487,8 +487,8 @@ _OP_DESCRIPTIONS = {
     "creation.activate": "Trigger a creation's interact behaviour.",
     "protect.lock": "Protect entities so they resist changes. Only the player can unlock them. Destructive: name expected_entities or expected_revision.",
     "goal.set": "Give the companion's own avatar a goal: follow, stay, come, look_at, point_at, go_to, fetch or wander. look_at, point_at and go_to need a target or position_m; fetch needs a target. go_to, look_at, point_at, come and fetch may aim at something the companion remembers seeing but cannot see now: the result says target_seen 'remembered', and the game re-checks when the avatar arrives (poll jobs_status with the job_id). Other goals, and every command that changes a thing, need it in sight now.",
-    "goal.stop": "Stop the companion's goals and the effects it carries out (your glows). Always permitted.",
-    "effect.start": "Cast one of the island's abilities (capabilities_list), carried out by your own avatar. Glow is a real light, in one of two ways: self, targets [your avatar id], and the light follows you; or point, no targets, and the light floats at area.center_m, which must be within the ability's reach of your avatar (an out_of_bounds refusal gives it in error.allowed) and in sight of you or the player. You may target nothing but your own avatar. params, area.radius_m and duration_s must stay inside the ability's bounds; omitted params take the island's defaults. The result's created names the effect id; it ends after duration_s, or with effect_stop. A few abilities wait for the player's yes (approval_required).",
+    "goal.stop": "Stop the companion's goals and the effects it carries out (your glows, bubbles and fireworks). Always permitted.",
+    "effect.start": "Cast one of the island's abilities (capabilities_list), carried out by your own avatar: glow (a real light), bubbles (a stream of bubbles) or fireworks (a burst of sparks with a brief flash), as the island grants them. Each works in one of two ways: self, targets [your avatar id], and the effect follows you (bubbles stream from you, fireworks burst over you); or point, no targets, and the effect plays at area.center_m (a light floats there, bubbles blow toward it, a rocket bursts above it), which must be within the ability's reach of your avatar (an out_of_bounds refusal gives it in error.allowed) and in sight of you or the player. You may target nothing but your own avatar. params, area.radius_m and duration_s must stay inside the ability's bounds; omitted params take the island's defaults. The result's created names the effect id; it ends after duration_s, or with effect_stop. A few abilities wait for the player's yes (approval_required).",
     "effect.stop": "Stop one of your effects by its effect id, or 'all' of yours. Always permitted: an id that is not running, or not yours, stops nothing.",
     "style.set": "Switch the room to another style preset version. The game may hold it for the player's approval.",
     "room.checkpoint": "Record a checkpoint of the room.",
@@ -502,15 +502,15 @@ _OP_DESCRIPTIONS = {
 # Words for arguments whose contract description says too little for a model to use them without guessing.
 _ARG_DESCRIPTIONS = {
     "effect.start": {
-        "capability": "The ability's name, as capabilities_list gives it (for example glow).",
-        "params": "The ability's numeric parameters by name (glow: intensity), each inside the min and max capabilities_list gives. Leave one out, or send {}, for the island's default.",
-        "area": "center_m: the spot for a point effect, in room metres (with targets [your avatar id] the light follows you instead). radius_m: how far the light reaches, at most the ability's area_radius_max_m.",
+        "capability": "The ability's name, as capabilities_list gives it (for example glow, bubbles or fireworks).",
+        "params": "The ability's numeric parameters by name (glow, bubbles and fireworks: intensity), each inside the min and max capabilities_list gives. Leave one out, or send {}, for the island's default.",
+        "area": "center_m: the spot for a point effect, in room metres (with targets [your avatar id] the effect follows you instead). radius_m: how far the effect reaches (the light, the bubbles' drift, the burst's spread), at most the ability's area_radius_max_m.",
         "duration_s": "How long it lasts, in seconds, at most the ability's duration_max_s. It then ends by itself.",
         "targets": "For self, exactly your own avatar id (avatar:companion): the effect follows you. Leave it out for a point at area.center_m. No other target is accepted.",
     },
     "effect.stop": {"effect": "The effect id from effect_start's created, or 'all' for every effect of yours."},
     "capabilities.list": {
-        "category": "Only abilities of this category (for example light).",
+        "category": "Only abilities of this category (for example light, float or burst).",
         "cursor": "The next_cursor of the previous page.",
     },
 }

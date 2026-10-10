@@ -130,6 +130,7 @@ IN_THE_OPEN = [0.6, 0.0, 1.0]  # on the rug, in plain sight and within the Gubbl
 BEHIND_BOX = [1.45, 0.0, 0.15]  # within reach, but the box hides it from both avatars
 OUT_OF_REACH = [-1.6, 0.0, -1.2]  # inside the room, more than 2 m from the Gubble
 OUTSIDE_ROOM = [0.6, 0.0, 1.6]  # past the room's far wall (z 1.5)
+FAR_IN_SIGHT = [1.7, 0.0, -1.3]  # in plain sight, beyond Glow's and Bubbles' 2 m reach but inside Fireworks' 4 m
 
 
 def glow(action_id: str, *, at: list[float] | None = None, params: dict | None = None, radius: float = 0.5,
@@ -143,6 +144,17 @@ def glow(action_id: str, *, at: list[float] | None = None, params: dict | None =
     elif at is None:
         args["targets"] = [GUBBLE]
     return command("effect.start", args, action_id, **extra)
+
+
+# A duration each of storybook_wild v2's abilities allows (Fireworks lasts at most 6 s).
+CAST_DURATION_S = {"glow": 60, "bubbles": 20, "fireworks": 4}
+
+
+def cast(capability: str, action_id: str, *, duration: float | None = None, **kwargs) -> dict:
+    """An effect.start of any of the shipped pack's abilities, shaped as glow() shapes it: on the Gubble unless `at`
+    names a spot. The duration defaults to one the ability allows."""
+    return glow(action_id, capability=capability, duration=CAST_DURATION_S.get(capability, 4) if duration is None else duration,
+                **kwargs)
 
 
 def example(name: str, kind: str = "valid") -> dict:
