@@ -76,7 +76,7 @@ Real gravity at 10 cm reads as a hopping insect: a jump is over in a quarter of 
 |---|---|---|---|
 | F1 | Eye | 8.7 cm up, 72° lens | Mouse turns the body and looks up and down |
 | F2 | Over the shoulder | 8 cm up, 32 cm behind on a spring arm, 68° lens | As F1; the arm pitches with the look |
-| F3 | **Diorama** (was a frozen reference view) | A high-angle orbit centred on the player's middle: 50° down at 0.9 m by default, 38° lens | Mouse orbits round the player and tilts between **20° and 80°** down; the wheel zooms between **0.30 and 2.4 m** (about 12 % a notch); W A S D move relative to the view and the body turns to face its motion |
+| F3 | **Diorama** (was a frozen reference view) | A high-angle orbit centred on the player's middle: 50° down at 0.9 m by default, 38° lens | A left drag orbits round the player and tilts between **20° and 80°** down; the wheel zooms between **0.30 and 2.4 m** (about 12 % a notch); W A S D move relative to the view and the body turns to face its motion |
 
 The diorama rig is not attached to the body, so it orbits without turning it, and its pivot eases after the body (a jump or a step does not jolt the view). It is a `SpringArm3D` with a 2 cm sphere that collides with world geometry only (layer 1), so walls, furniture and the ceiling hold the lens on the player's side instead of letting it pass through; the test checks it under a 12 cm deck. The narrow lens and the look's depth of field are what make it read as a miniature: `LookDirector` focuses whichever camera is current on the player (`FocusTarget`), and its tilt-shift narrows the in-focus band and strengthens the blur as the camera looks down, so the high angle gets the strongest miniature effect. The orbit's yaw, pitch and distance persist across F3 visits within a session; entering F3 starts behind the player.
 
@@ -206,7 +206,7 @@ Since 7 October, key **G** sends `world.set_physics` (contract `7e2c779`) throug
 
 ## Founder playtest (ten minutes)
 
-Run `pwsh -NoProfile -File run-room.ps1`. Click the window to capture the mouse.
+Run `pwsh -NoProfile -File run-room.ps1`. The cursor is free (since the Glow playtest, 9 October): hold the left button and drag to look around.
 
 | Key | Does |
 |---|---|
@@ -215,7 +215,7 @@ Run `pwsh -NoProfile -File run-room.ps1`. Click the window to capture the mouse.
 | Space | Jump (6.5 cm) |
 | R | Recover to the last safe footing |
 | **G** | Cycle gravity: tuned (3.5) → real (9.8) → floaty (0.6, slow falls, more air steering) → tuned; the console prints which |
-| F1 / F2 / F3 | Eye camera / over-the-shoulder / **diorama**: in F3 the mouse orbits, the wheel zooms, and W A S D move relative to the view |
+| F1 / F2 / F3 | Eye camera / over-the-shoulder / **diorama**: in F3 a left drag orbits, the wheel zooms, and W A S D move relative to the view |
 | 1 2 3 4 5 | Companion: follow, stay, come, stop, point ahead |
 | F4 | Isometric view; **Q** and **E** turn it a quarter turn (the invention workshop that also bound them is gone) |
 | L | Lamps on or off |
@@ -287,7 +287,7 @@ Depth of field needs no change without TAA (its jitter shows no noise in the cap
 
 ## Next playtest checklist
 
-Run `pwsh -NoProfile -File run-room.ps1` and click the window to capture the mouse.
+Run `pwsh -NoProfile -File run-room.ps1`; hold the left button and drag to look around.
 
 1. **Shift** while walking with **W**: does the run now feel like a real change of pace, and does it start and stop crisply?
 2. **G** twice to reach floaty (the console prints `room_floaty gravity=0.6`). **Space** next to the book: does the jump hang about a second? Hold a direction in the air: can you steer it? Walk off the box edge or the book: is the slow drift fun or too slow? **G** again returns to tuned.
@@ -299,7 +299,7 @@ Run `pwsh -NoProfile -File run-room.ps1` and click the window to capture the mou
 
 ## Carry playtest (Run 2, P3)
 
-Run `pwsh -NoProfile -File run-room.ps1` and click the window to capture the mouse. The room remembers where things are put (`%APPDATA%\Godot\app_userdata\EnFractal\saves\rooms\test_room\`); delete that folder to start over.
+Run `pwsh -NoProfile -File run-room.ps1`; hold the left button and drag to look around. The room remembers where things are put (`%APPDATA%\Godot\app_userdata\EnFractal\saves\rooms\test_room\`); delete that folder to start over.
 
 | Key | Does |
 |---|---|
