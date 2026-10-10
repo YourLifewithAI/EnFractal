@@ -74,7 +74,7 @@ public partial class LookPresetTest : Node3D
             await CheckObservePlayerTracking(observeV2, room);
             CheckViewBlur(v1, observeV2);
             await CheckViewChoice(observeV2, room);
-            CheckIslandHolding();
+            CheckSeaMist();
             await CheckFocusHighlight(preset, room);
             CheckFocusPass(preset);
             CheckSeasonLooks(preset);
@@ -86,7 +86,7 @@ public partial class LookPresetTest : Node3D
             CheckLandUpClose(preset);
             await CheckGlow(preset, room);
             MaterialLibrary.Configure(preset);
-            GD.Print($"NATIVE_LOOK: {_checks - _failures}/{_checks} checks passed; preset reader and look numbers, role materials and shader uniforms, grade, season tint and reduced global tint, clock at every minute, solar model, sun only through the window, night levels and lamps, golden-hour cool fill, depth of field and focus, post effect parameters, bake stand-ins, room dressing, grade cache, renderer notice, the landscape's role marks and baked colours, open land, water you can see into and the fish in it, each view's blur, the open sea and its distant islands, the focus highlight, and the Gubble's glow and the light-level estimate");
+            GD.Print($"NATIVE_LOOK: {_checks - _failures}/{_checks} checks passed; preset reader and look numbers, role materials and shader uniforms, grade, season tint and reduced global tint, clock at every minute, solar model, sun only through the window, night levels and lamps, golden-hour cool fill, depth of field and focus, post effect parameters, bake stand-ins, room dressing, grade cache, renderer notice, the landscape's role marks and baked colours, open land, water you can see into and the fish in it, each view's blur, the open sea, its mist and the seam (no distant islands), the focus highlight, and the Gubble's glow and the light-level estimate");
             GetTree().Quit(_failures == 0 ? 0 : 1);
         }
         catch (Exception exception)

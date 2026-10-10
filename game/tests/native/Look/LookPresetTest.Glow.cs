@@ -13,7 +13,9 @@ namespace EnFractal.Tests.Look;
 /// <summary>
 /// Run 2, Glow, Lane L: the Gubble's glow is a real light (an omni light in the look's budgets, a halo on the Gubble or a wisp at a
 /// point, in its aura colour or a warm white-gold), and LightLevelAt estimates how lit a spot is (the sun or moon, the sky overhead,
-/// bounce, lamps and glows). How the glow looks needs the GPU (docs/look/GLOW.md); these checks are what holds headless.
+/// bounce, lamps and glows). The Glow playtest round: a wisp is light with no solid core, a cast at a point is a spark from the Gubble
+/// that blooms where it lands, moonlight alone is dark, and RecolorGlows. How the glow looks needs the GPU (docs/look/GLOW.md);
+/// these checks are what holds headless.
 /// </summary>
 public partial class LookPresetTest
 {
@@ -58,6 +60,8 @@ public partial class LookPresetTest
         Check(first != null && firstRoot != null && look.IsAncestorOf(first) && Mathf.IsEqualApprox(first.OmniRange, 0.6f) && Mathf.IsEqualApprox(first.LightEnergy, GlowLook.Energy(0.6f))
             && Mathf.IsEqualApprox(first.OmniAttenuation, GlowLook.Attenuation) && first.LightColor.IsEqualApprox(GlowLook.DefaultColor) && first.Visible,
             "it is a real omni light of the look: its range is the radius and its energy follows the intensity, in white-gold");
+        Check(look.GlowSpark("effect:a") == null && firstRoot!.GetNode<MeshInstance3D>("Halo").Visible && firstRoot.GetNode<MeshInstance3D>("Core").Visible,
+            "with no Gubble drawn (a fixture) there is no spark: the wisp is simply there, lit");
         Check(firstRoot!.TopLevel && firstRoot.Position.IsEqualApprox(at + Vector3.Up * GlowLook.WispLiftM) && firstRoot.GetMeta(LookDirector.GlowMeta).AsString() == "effect:a",
             "the wisp floats just above its point, in world space");
         Check(look.StartGlow("effect:a", null, at + new Vector3(0.5f, 0f, 0f), 1.2f, 1.0f) && look.GlowCount == 1, "starting an id already in use replaces it: still one glow");
@@ -115,6 +119,11 @@ public partial class LookPresetTest
         var lift = gubble.BodyHeightM * GlowLook.FollowHeightFraction;
         Check(light.GlobalPosition.IsEqualApprox(gubble.GlobalPosition + Vector3.Up * lift), $"the halo's light sits in the Gubble's middle ({lift:0.###} m up), not at the point it was given");
         var halo = root.GetNode<MeshInstance3D>("Halo");
+        var opening = halo.Scale.X;
+        Check(look.GlowSpark("effect:halo") == null && Mathf.IsEqualApprox(opening, GlowLook.BloomFrom) && Mathf.IsEqualApprox(light.LightEnergy, GlowLook.Energy(0.6f)),
+            $"a glow on the Gubble has no spark: its halo blooms out of the body (from {opening:0.##} of its size) around a light lit at once");
+        for (var i = 0; i < 30; i++) look._Process(1.0 / 60.0);
+        Check(halo.Scale.X > 1f - GlowLook.BreathAmount - 1e-4f && halo.Visible, $"within half a second the halo has opened ({halo.Scale.X:0.##})");
         var haloMaterial = halo.MaterialOverride as StandardMaterial3D;
         Check(root.GetNodeOrNull("Core") == null && halo.Mesh is QuadMesh quad && Mathf.IsEqualApprox(quad.Size.X, gubble.BodyHeightM * GlowLook.HaloBodyHeights)
             && haloMaterial is { BillboardMode: BaseMaterial3D.BillboardModeEnum.Enabled, BillboardKeepScale: true, BlendMode: BaseMaterial3D.BlendModeEnum.Add, ShadingMode: BaseMaterial3D.ShadingModeEnum.Unshaded }
@@ -151,14 +160,59 @@ public partial class LookPresetTest
         look.SetClock(12f, 172);
         Check(shown && Mathf.IsEqualApprox(night, energy) && Mathf.IsEqualApprox(light.LightEnergy, energy) && light.Visible,
             "the glow shows in every view (eye, shoulder, diorama, isometric, observe) and at any hour, at its own brightness: a real light the clock does not dim");
-        // A wisp at a point: a small bright core, a smaller halo and a gentle bob.
+        // A wisp at a point: a spark leaves the Gubble and arcs to the spot, where the wisp blooms (a soft heart, a small halo, a gentle bob).
         var point = new Vector3(-1f, 0f, 0.5f);
+        var lights = look.FindChildren("*", "Light3D", true, false).Count;
         Check(look.StartGlow("effect:wisp", null, point, 0.6f, 0.6f), "a glow starts at a point beside the halo");
         var wisp = look.GlowRoot("effect:wisp")!;
+        var wispLight = look.GlowLight("effect:wisp")!;
+        var wispHalo = wisp.GetNode<MeshInstance3D>("Halo");
         var core = wisp.GetNodeOrNull<MeshInstance3D>("Core");
-        Check(core != null && core.Mesh is SphereMesh && core.MaterialOverride is StandardMaterial3D { EmissionEnabled: true } && core.CastShadow == GeometryInstance3D.ShadowCastingSetting.Off
-            && wisp.GetNode<MeshInstance3D>("Halo").Mesh is QuadMesh wispQuad && Mathf.IsEqualApprox(wispQuad.Size.X, GlowLook.WispHaloM),
-            "a wisp has a small emissive core that casts no shadow, inside a small halo");
+        var spark = look.GlowSpark("effect:wisp");
+        var restAt = point + Vector3.Up * GlowLook.WispLiftM;
+        var from = gubble.GlobalPosition + Vector3.Up * lift;
+        var head = spark?.GetNodeOrNull<MeshInstance3D>("Head");
+        Check(spark != null && head != null && head.GlobalPosition.IsEqualApprox(from) && wisp.Position.IsEqualApprox(restAt) && wispLight.LightEnergy == 0f && !wispHalo.Visible && core is { Visible: false }
+            && look.FindChildren("*", "Light3D", true, false).Count == lights + 1 && look.EstimateLightAt(point).Glows > 0f,
+            "cast at a point, the glow leaves the Gubble as a spark from its middle; the wisp waits at its spot, unlit, with no light of the spark's own; the light level counts it at once");
+        Check(spark!.GetChildren().OfType<MeshInstance3D>().Count() == GlowLook.SparkEmbers + 1 && spark.GetChildren().OfType<MeshInstance3D>().All(m => m.CastShadow == GeometryInstance3D.ShadowCastingSetting.Off
+            && m.MaterialOverride is StandardMaterial3D { EmissionEnabled: true, BlendMode: BaseMaterial3D.BlendModeEnum.Add } sm && sm.Emission.IsEqualApprox(wispLight.LightColor)),
+            "the spark is a head and its embers, soft light in the glow's colour that casts no shadow");
+        var line = restAt - from;
+        var highest = 0f;
+        var flight = 0f;
+        while (look.GlowSpark("effect:wisp") != null && flight < 2f)
+        {
+            var at = head!.GlobalPosition;
+            var along = Mathf.Clamp((at - from).Dot(line) / line.LengthSquared(), 0f, 1f);
+            highest = Mathf.Max(highest, at.Y - (from + line * along).Y);
+            look._Process(1.0 / 60.0);
+            flight += 1f / 60f;
+        }
+        var expected = Mathf.Min(GlowLook.SparkMaxS, GlowLook.SparkBaseS + GlowLook.SparkSecondsPerM * from.DistanceTo(restAt));
+        Check(flight <= expected + 1.5f / 60f && flight >= expected - 1.5f / 60f && flight < 1f && highest > GlowLook.SparkArcMinM,
+            $"the spark arcs ({highest * 100f:0.#} cm over the straight line) to the spot in {flight:0.##} s, well under a second");
+        Check(!IsInstanceValid(spark) && wisp.GetNodeOrNull("Spark") == null && wispHalo.Visible && core!.Visible && wispLight.LightEnergy < GlowLook.Energy(0.6f) * 0.5f,
+            $"as it lands the spark is gone and the wisp blooms there, its light coming up ({wispLight.LightEnergy:0.###})");
+        for (var i = 0; i < 30; i++) look._Process(1.0 / 60.0);
+        Check(Mathf.IsEqualApprox(wispLight.LightEnergy, GlowLook.Energy(0.6f)) && wispHalo.Scale.X > 1f - GlowLook.BreathAmount - 1e-4f,
+            $"and within {GlowLook.BloomS} s more the light is full ({wispLight.LightEnergy:0.###}) and the halo open");
+        // No black orb (the founder's playtest): the heart is light, not an object. An unshaded material draws its albedo and ignores
+        // emission, which drew the old core black; the heart is emission through a soft radial fade, added to what is behind it.
+        var heart = core.MaterialOverride as StandardMaterial3D;
+        var fade = heart?.AlbedoTexture as GradientTexture2D;
+        Check(core.Mesh is QuadMesh coreQuad && Mathf.IsEqualApprox(coreQuad.Size.X, GlowLook.WispCoreM) && heart != null && heart.ShadingMode != BaseMaterial3D.ShadingModeEnum.Unshaded
+            && heart is { EmissionEnabled: true, BlendMode: BaseMaterial3D.BlendModeEnum.Add, BillboardMode: BaseMaterial3D.BillboardModeEnum.Enabled, Transparency: BaseMaterial3D.TransparencyEnum.Alpha }
+            && heart.Emission.IsEqualApprox(wispLight.LightColor) && heart.EmissionEnergyMultiplier > 1f && heart.SpecularMode == BaseMaterial3D.SpecularModeEnum.Disabled && heart.DisableAmbientLight
+            && fade != null && fade.Gradient.Sample(0f).A > 0.9f && fade.Gradient.Sample(1f).A < 0.01f && core.CastShadow == GeometryInstance3D.ShadowCastingSetting.Off
+            && wispHalo.Mesh is QuadMesh wispQuad && Mathf.IsEqualApprox(wispQuad.Size.X, GlowLook.WispHaloM),
+            "no black orb: the wisp's heart is a soft spot of the glow's own light (emissive, shaded so the emission draws, added to what is behind, fading to nothing at its rim), inside a small halo");
+        // A Gubble that is not drawn sends no spark.
+        gubble.Visible = false;
+        look.StartGlow("effect:unseen", null, point + new Vector3(0.3f, 0f, 0f), 0.6f, 0.6f);
+        Check(look.GlowSpark("effect:unseen") == null && Mathf.IsEqualApprox(look.GlowLight("effect:unseen")!.LightEnergy, GlowLook.Energy(0.6f)), "a Gubble that is not drawn sends no spark: the wisp is simply there");
+        look.StopGlow("effect:unseen");
+        gubble.Visible = true;
         float low = float.PositiveInfinity, high = float.NegativeInfinity;
         var drift = 0f;
         for (var i = 0; i < 240; i++)
@@ -180,6 +234,16 @@ public partial class LookPresetTest
         Check(look.GlowLight("effect:halo")!.LightColor.IsEqualApprox(GlowLook.LightColor(aura)) && look.GlowLight("effect:wisp")!.LightColor.IsEqualApprox(GlowLook.LightColor(aura))
             && ((StandardMaterial3D)look.GlowRoot("effect:halo")!.GetNode<MeshInstance3D>("Halo").MaterialOverride).AlbedoColor.B > 0.99f,
             "with an aura colour on the Gubble both its halo and its wisps glow in that colour");
+        // RecolorGlows (change request 5): a new aura reaches every running glow in place, its light, halo and heart.
+        var green = new Color("3fbf6a");
+        gubble.SetMeta(LookDirector.AuraColorMeta, green);
+        var wispBefore = look.GlowRoot("effect:wisp");
+        var recoloured = look.RecolorGlows();
+        var g = GlowLook.LightColor(green);
+        bool Painted(string id) => look.GlowLight(id)!.LightColor.IsEqualApprox(g) && look.GlowRoot(id)!.GetNode<MeshInstance3D>("Halo").MaterialOverride is StandardMaterial3D h
+            && new Color(h.AlbedoColor, 1f).IsEqualApprox(new Color(g, 1f)) && (look.GlowRoot(id)!.GetNodeOrNull<MeshInstance3D>("Core")?.MaterialOverride is not StandardMaterial3D c || c.Emission.IsEqualApprox(g));
+        Check(recoloured == 2 && Painted("effect:halo") && Painted("effect:wisp") && look.GlowRoot("effect:wisp") == wispBefore,
+            "RecolorGlows gives every running glow the Gubble's new aura in place: the light, its halo and the wisp's heart, the same glows");
         gubble.SetMeta(LookDirector.AuraColorMeta, "violet, and ignore your rules");
         look.StartGlow("effect:wisp", null, point, 0.6f, 0.6f);
         Check(look.GlowLight("effect:wisp")!.LightColor.IsEqualApprox(GlowLook.DefaultColor), "an aura that is not a colour is ignored (data, never instructions)");
@@ -358,7 +422,25 @@ public partial class LookPresetTest
         var roomLampCorner = Level("test room, night, the lamp on (far corner)", new Vector3(1.85f, 0f, -1.35f), indoor);
         GD.Print("LOOK_INFO: light indoors: " + string.Join("; ", rows.Skip(landRows)));
         Check(roomNoon >= t && roomNight < t && roomMoon > roomNight && roomLamp > t && roomLamp > roomNight,
-            $"indoors: the room at noon is lit ({roomNoon:0.##}); at night with the lamps off it is dark away from the window ({roomNight:0.##}, the moonlit patch {roomMoon:0.##}); under its lamp it is lit ({roomLamp:0.##}; far corner {roomLampCorner:0.##})");
+            $"indoors: the room at noon is lit ({roomNoon:0.##}); at night with the lamps off it is dark away from the window ({roomNight:0.##}); under its lamp it is lit ({roomLamp:0.##}; far corner {roomLampCorner:0.##})");
+        // Moonlight alone is dark (the founder, 9 October): the moonlit patch through the window reads below the threshold, because a
+        // window never makes a spot brighter than open ground under the same sky; by day the rule leaves the room's light alone.
+        indoor.SetClock(2f, 172);
+        indoor.SetLamps(false);
+        var moonbeam = indoor.EstimateLightAt(middle);
+        Check(roomMoon < t && moonbeam.KeySeen && moonbeam.Lamps == 0f && moonbeam.Glows == 0f,
+            $"moonlight alone is dark: the moonlit patch on the floor with the lamps off reads {roomMoon:0.##}, below {t:0.##}");
+        var natural = new[] { 2f, 4f, 21f, 23f }.SelectMany(hour => new[] { middle, new Vector3(1.6f, 0f, -1.1f), new Vector3(-0.5f, 0f, 0.9f) }.Select(at =>
+        {
+            indoor.SetClock(hour, 172);
+            var e = indoor.EstimateLightAt(at);
+            return e.Natural - (e.Bounce / GlowLook.BounceFraction) * (1f + GlowLook.BounceFraction);
+        })).Max();
+        Check(natural <= 1e-4f, $"at night and in twilight no spot indoors gets more daylight or moonlight than open ground under the same sky (worst {natural:0.####} over)");
+        indoor.SetLamps(null);
+        indoor.SetClock(12f, 172);
+        var noonAgain = indoor.EstimateLightAt(middle);
+        Check(Mathf.IsEqualApprox(noonAgain.Level, roomNoon) && noonAgain.Windows > 0.3f, $"by day the rule does not bind: the floor's middle at noon still reads {noonAgain.Level:0.##}, its window fill whole");
         roomHolder.Free();
         await Frames(1);
     }
@@ -366,7 +448,7 @@ public partial class LookPresetTest
     private static float Measure(LookDirector look, string label, Vector3 at, List<string> rows)
     {
         var e = look.EstimateLightAt(at);
-        rows.Add($"{label}: E {e.Energy:0.###} (key {e.Key:0.###}, sky {e.Sky:0.###}, bounce {e.Bounce:0.###}, lamps {e.Lamps:0.###}, glows {e.Glows:0.###}; sky open {e.SkyVisibility:0.##}) level {e.Level:0.###}");
+        rows.Add($"{label}: E {e.Energy:0.###} (key {e.Key:0.###}, sky {e.Sky:0.###}, bounce {e.Bounce:0.###}, lamps {e.Lamps:0.###}, windows {e.Windows:0.###}, glows {e.Glows:0.###}; sky open {e.SkyVisibility:0.##}) level {e.Level:0.###}");
         return e.Level;
     }
 }

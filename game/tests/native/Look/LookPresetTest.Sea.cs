@@ -13,8 +13,8 @@ namespace EnFractal.Tests.Look;
 
 /// <summary>
 /// Run 2, the open sea round (Lane L): each view's blur (the island crisp in F1 to F3, the tilt-shift kept in F4 and observe), the
-/// endless sea's surface and bed past the room's meshes, the distant islands that hold their place on the horizon, and the focus
-/// highlight's API.
+/// endless sea's surface and bed past the room's meshes, the mist that hides the island from the seam out (no distant islands: the
+/// sea wraps round to home), and the focus highlight's API.
 /// </summary>
 public partial class LookPresetTest
 {
@@ -83,51 +83,48 @@ public partial class LookPresetTest
         await Frames(1);
     }
 
-    /// <summary>Distant islands hold their place on the horizon: never closer than they keep, however a swimmer comes at them; unmoved near home.</summary>
-    private void CheckIslandHolding()
+    /// <summary>
+    /// The sea mist and the seam (the Glow playtest: the sea wraps round to home, so the island must be wholly hidden, in every view,
+    /// where Lane P's wrap moves the swimmer): none at the island, closing in smoothly, and from the seam out nothing of the island
+    /// within the island's reach can show to any play camera. The seam is about a minute's swim past the island.
+    /// </summary>
+    private void CheckSeaMist()
     {
-        var home = new Vector2(5.1f, 9.18f);
-        const float keep = 6.2f;
-        Check(OpenSea.IslandOffset(home, keep, Vector2.Zero) == home && OpenSea.IslandOffset(home, keep, new Vector2(-3f, 2f)) == home,
-            "from the home island the distant island stands where the generator put it");
-        var nearest = float.PositiveInfinity;
-        var continuous = true;
-        for (var angle = 0; angle < 360; angle += 5)
+        const float reach = 6f;
+        var seam = reach + OpenSea.SeamPastIslandM;
+        Check(OpenSea.MistFor(0f, reach) == 0f && OpenSea.MistFor(reach, reach) == 0f && OpenSea.MistFor(seam, reach) == 1f && OpenSea.MistFor(5000f, reach) == 1f,
+            "no mist on the island or at its edge; full mist from the seam out, however far");
+        var (clearBegin, clearEnd) = OpenSea.MistFog(0f, 100f);
+        Check(clearBegin >= 100f - 1e-3f && clearEnd > clearBegin, $"with no mist the fog begins at the far plane ({clearBegin:0.#} m): nothing drawn is touched, so turning it on is no jump");
+        var smooth = true;
+        var lastMist = 0f;
+        var (lastBegin, lastEnd) = OpenSea.MistFog(0f, 100f);
+        for (var d = 0f; d <= seam + 5f; d += 0.01f)
         {
-            var heading = Vector2.FromAngle(Mathf.DegToRad(angle));
-            var last = OpenSea.IslandOffset(home, keep, Vector2.Zero);
-            for (var s = 0.1f; s < 2000f; s *= 1.05f)
-            {
-                var swimmer = heading * s;
-                var at = OpenSea.IslandOffset(home, keep, swimmer);
-                nearest = Mathf.Min(nearest, at.DistanceTo(swimmer));
-                var step = swimmer.DistanceTo(heading * (s / 1.05f));
-                continuous &= at.DistanceTo(last) <= step + Mathf.Sqrt(2f * keep * step) + 1e-3f;
-                continuous &= at.Length() >= home.Length() - 1e-3f;
-                last = at;
-            }
+            var mist = OpenSea.MistFor(d, reach);
+            var (begin, end) = OpenSea.MistFog(mist, 100f);
+            smooth &= mist >= lastMist && mist - lastMist < 0.005f && begin <= lastBegin + 1e-4f && end <= lastEnd + 1e-4f && lastEnd - end < 0.6f && begin < end;
+            (lastMist, lastBegin, lastEnd) = (mist, begin, end);
         }
+        Check(smooth, "swimming out, the mist only thickens and closes in, a little at a time (no jump anywhere)");
+        var (fullBegin, fullEnd) = OpenSea.MistFog(1f, 100f);
+        Check(Mathf.IsEqualApprox(fullEnd, OpenSea.MistFullM) && Mathf.IsEqualApprox(fullBegin, OpenSea.MistNearM) && fullBegin > 0.5f,
+            $"at full mist the swimmer's own water is clear to {fullBegin:0.#} m and everything past {fullEnd:0.#} m is wholly the mist");
+        // Every play camera at the seam: the swimmer at the seam on any bearing, the camera anywhere within CameraReachM of it (F1 to F4,
+        // F3 orbiting, observe), and any point of the island within its reach: always at least the full mist's distance away.
+        var hidden = true;
+        for (var a = 0; a < 360; a += 5)
         {
-            // Out wide past the island's side, round behind it and back toward home through where it was: no jump, never reached.
-            var path = new[] { new Vector2(12f, 0f), new Vector2(20f, 20f), new Vector2(8f, 30f), new Vector2(4f, 6f), Vector2.Zero };
-            var last = OpenSea.IslandOffset(home, keep, Vector2.Zero);
-            for (var leg = 0; leg < path.Length; leg++)
-                for (var t = 0f; t <= 1f; t += 0.002f)
-                {
-                    var from = path[(leg + path.Length - 1) % path.Length];
-                    var swimmer = from.Lerp(path[leg], t);
-                    var at = OpenSea.IslandOffset(home, keep, swimmer);
-                    var step = from.DistanceTo(path[leg]) * 0.002f;
-                    nearest = Mathf.Min(nearest, at.DistanceTo(swimmer));
-                    continuous &= at.DistanceTo(last) <= step + Mathf.Sqrt(2f * keep * step) + 1e-3f;
-                    last = at;
-                }
+            var swimmer = Vector2.FromAngle(Mathf.DegToRad(a)) * seam;
+            foreach (var offset in new[] { Vector2.Zero, new Vector2(OpenSea.CameraReachM, 0f), new Vector2(0f, -OpenSea.CameraReachM), Vector2.FromAngle(Mathf.DegToRad(a + 180)) * OpenSea.CameraReachM })
+                hidden &= (swimmer + offset).Length() - reach >= OpenSea.MistFullM - 1e-3f;
         }
-        Check(nearest >= keep - 1e-3f, $"swimming any way, as far as 2 km, the island's centre never comes nearer than {keep} m (nearest {nearest:0.###} m)");
-        Check(continuous, "it slides without jumping (no faster than a swimmer slipping past its side makes it) and only ever outward from the home island (never through it)");
+        Check(hidden && OpenSea.CameraReachM >= RoomHud.IsoDistanceM + 0.5f && OpenSea.CameraReachM >= RoomHud.DioramaMaxDistanceM + 0.5f, $"from the seam ({seam:0.#} m for an island reaching {reach} m) no play camera is nearer the island than {OpenSea.MistFullM} m: wholly hidden in every view");
+        var minute = OpenSea.SeamPastIslandM / OpenSea.SwimMps;
+        Check(minute is > 45f and < 80f && Mathf.IsEqualApprox(OpenSea.SwimMps, 0.32f * 0.6f), $"the seam is about a minute's swim past the island ({minute:0} s at {OpenSea.SwimMps} m/s)");
     }
 
-    /// <summary>The real island garage, when exported: the surface follows the camera and leaves the room's sea to it, the bed lies under the backdrop's floor, the islands are lifted out and keep off.</summary>
+    /// <summary>The real island garage, when exported: the surface follows the camera and leaves the room's sea to it, the bed lies under the backdrop's floor with the distant islands laid flat on it, and the mist hides the island from the seam out.</summary>
     private async Task CheckRealOpenSea(StylePreset preset)
     {
         var directory = FindLandscapeFixture();
@@ -165,11 +162,18 @@ public partial class LookPresetTest
         var floorArrays = floorMesh.Mesh.SurfaceGetArrays(0);
         var floorVertices = floorArrays[(int)Mesh.ArrayType.Vertex].AsVector3Array();
         var floorTop = floorArrays[(int)Mesh.ArrayType.Index].AsInt32Array().Select(i => (floorMesh.GlobalTransform * floorVertices[i]).Y).DefaultIfEmpty(float.NaN).Max();
-        // The garage's six islands (the package's records) come out as five pieces: two share a shoal above the cut and move as one.
-        Check(open.Islands.Count >= 5 && floorTop < land.Sea.LevelM - OpenSea.IslandCutM + 0.25f,
-            $"the distant islands are lifted out of the backdrop as {open.Islands.Count} pieces, and what stays (the floor) lies deep under the water (top {floorTop:0.###} m)");
-        Check(open.Islands.All(i => i.KeepM >= i.HomeOffset.Length() - open.HomeReachM - 1e-3f && i.HomeOffset.Length() > open.HomeReachM), "each keeps off at least as far as it looks from the edge of the home waters");
-        // Far out at sea: the surface and bed come along, the islands keep off.
+        // No distant islands (the Glow playtest: the horizon is only sea and sky): the generator's six islands lie flat on the bed with
+        // the rest of the backdrop's floor, and nothing of the backdrop stands up anywhere.
+        var standing = holder.FindChildren("*", "MeshInstance3D", true, false).OfType<MeshInstance3D>().Where(m => m.Name.ToString().StartsWith("DistantIsland")).ToArray();
+        Check(standing.Length == 0 && floorTop < land.Sea.LevelM - OpenSea.IslandCutM + 0.25f,
+            $"no distant islands: the backdrop's floor, islands and all, lies deep under the water (top {floorTop:0.###} m)");
+        // The seam on the real garage: the island's reach (its reef or its room's corners) plus the mist and the cameras' reach.
+        var seam = OpenSea.SeamFor(land.Sea, land.Bounds);
+        var reef = land.Sea.Reef.Max(p => p.DistanceTo(land.Sea.OpenSeaCentreM));
+        GD.Print($"LOOK_INFO: the seam on the island garage: {seam:0.##} m from the island's centre ({land.Sea.OpenSeaCentreM}); the island reaches {open.IslandReachM:0.##} m, the reef {reef:0.##} m; from the reef's farthest point a swim of {(seam - reef) / OpenSea.SwimMps:0} s");
+        Check(Mathf.IsEqualApprox(open.SeamM, seam) && open.SeamCentre == land.Sea.OpenSeaCentreM && open.IslandReachM >= reef && seam - reef < 20f,
+            $"the open sea's seam ({open.SeamM:0.##} m) is the room's (SeamFor), measured from the open sea's centre, past the reef by a minute or so of swimming");
+        // Far out at sea: the surface and bed come along, and the mist follows the swimmer's distance from the island.
         var camera = new Camera3D { Far = 100f };
         holder.AddChild(camera);
         foreach (var at in new[] { new Vector3(0f, 0.1f, -3.9f), new Vector3(40f, 0.05f, -70f), new Vector3(-600f, 0.05f, 900f), new Vector3(8.9f, 0.05f, -6.3f) })
@@ -177,23 +181,26 @@ public partial class LookPresetTest
             camera.GlobalPosition = at;
             open.Follow(camera);
             var swimmer = new Vector2(at.X, at.Z);
-            var nearest = open.Islands.Min(i => (new Vector2(i.Mesh.GlobalPosition.X, i.Mesh.GlobalPosition.Z) - new Vector2(i.BasePosition.X, i.BasePosition.Z) + open.Home + i.HomeOffset).DistanceTo(swimmer) - i.KeepM);
+            var expected = OpenSea.MistFor(swimmer.DistanceTo(open.SeamCentre), open.IslandReachM);
             Check(new Vector2(open.Surface.GlobalPosition.X, open.Surface.GlobalPosition.Z).IsEqualApprox(swimmer) && Mathf.IsEqualApprox(open.Surface.GlobalPosition.Y, land.Sea.LevelM)
-                && nearest >= -1e-3f,
-                $"at {at} the sea's surface is under the swimmer and every island keeps off");
+                && Mathf.IsEqualApprox(open.Mist, expected) && look.Environment.FogEnabled == expected > 0f,
+                $"at {at} the sea's surface is under the swimmer and the mist is {open.Mist:0.##}");
         }
+        // At the seam: the look's own environment draws the full mist as depth fog in the horizon's colour, off the sky.
+        camera.GlobalPosition = new Vector3(open.SeamCentre.X + open.SeamM, 0.05f, open.SeamCentre.Y);
+        open.Follow(camera);
+        var env = look.Environment;
+        Check(env.FogEnabled && env.FogMode == Godot.Environment.FogModeEnum.Depth && Mathf.IsEqualApprox(env.FogDensity, 1f) && Mathf.IsEqualApprox(env.FogDepthEnd, OpenSea.MistFullM)
+            && env.FogSkyAffect == 0f && env.FogSunScatter == 0f && env.FogAerialPerspective == 0f,
+            $"at the seam the mist is whole from {env.FogDepthEnd:0.#} m, on everything but the sky");
+        camera.GlobalPosition = new Vector3(0.3f, 0.1f, 0.2f);
+        open.Follow(camera);
+        Check(!env.FogEnabled && open.Mist == 0f, "back on the island the mist is gone");
         Check(Mathf.IsEqualApprox(surface.GetShaderParameter("horizon_fade_end_m").AsSingle(), 100f * OpenSea.HorizonFadeEnd), "the far sea turns into the horizon just before the camera's far plane");
-        // The sea's look: the sea's water (and only water at its level) paints the sea's depths and foam; the distant islands wear
-        // their own copy of the backdrop's material, under the haze, wholly the horizon by the far plane (no sliver at the cut).
+        // The sea's look: the sea's water (and only water at its level) paints the sea's depths and foam.
         Check(surface.GetShaderParameter("use_sea").AsBool() && Mathf.IsEqualApprox(surface.GetShaderParameter("sea_level").AsSingle(), land.Sea.LevelM)
             && surface.GetShaderParameter("foam_strength").AsSingle() > 0f && surface.GetShaderParameter("sea_deep_m").AsSingle() > 0.5f,
             "the sea's water paints the sea's own depths (the lagoon light, the open sea deep) and its foam");
-        var islandMaterial = open.Islands[0].Mesh.GetSurfaceOverrideMaterial(0) as ShaderMaterial;
-        var floorMaterial = open.Floors[0].GetSurfaceOverrideMaterial(0) as ShaderMaterial;
-        Check(islandMaterial != null && floorMaterial != null && islandMaterial != floorMaterial && islandMaterial.GetShaderParameter("haze_max").AsSingle() > 0.3f
-            && floorMaterial.GetShaderParameter("haze_max").AsSingle() == 0f && Mathf.IsEqualApprox(islandMaterial.GetShaderParameter("haze_far_m").AsSingle(), 100f)
-            && open.Islands.All(i => i.Mesh.GetSurfaceOverrideMaterial(0) == islandMaterial),
-            "the distant islands sit under the haze, keep their silhouettes, and are wholly the horizon by the far plane; the floor keeps no haze");
         // Fish in the sea's deeper water near the swimmer: a fixed number, kept near, never in the playable water, darting from the player.
         var swimmerNode = new Node3D { Name = "Swimmer" };
         holder.AddChild(swimmerNode);
@@ -237,7 +244,8 @@ public partial class LookPresetTest
         Check(pondLife.VeilPondsFor().All(p => Mathf.Abs(p.Level - land.Sea.LevelM) > 0.003f), "the ponds' veil leaves the sea to the open sea's own, so the two never stack");
         look.SetClock(19.5f, 172);
         var horizon = LookSky.At(look.Preset, look.Moment).Horizon;
-        Check(surface.GetShaderParameter("horizon_color").AsColor().IsEqualApprox(horizon), "and into the sky's own horizon colour of the hour");
+        Check(surface.GetShaderParameter("horizon_color").AsColor().IsEqualApprox(horizon) && look.Environment.FogLightColor.IsEqualApprox(horizon),
+            "the far sea and the mist turn into the sky's own horizon colour of the hour");
         holder.QueueFree();
         await Frames(1);
     }

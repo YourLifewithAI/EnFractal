@@ -13,9 +13,9 @@ namespace EnFractal.Tests.Look;
 /// <summary>
 /// The open sea on synthetic geometry and physics, so its protections hold whether or not a landscape has been exported (Codex's
 /// second-opinion reviews of Lane L's open sea round, Sol and Astra): the view under water asks physics' own water-column questions
-/// (a dry shelf, a submerged ceiling, the shoreline); the distant islands retreat from the swimmer, not the camera, and hold still
-/// to the millimetre near the far net; an island split by mesh seams stays one island; geometry the look cannot split is left
-/// untouched; the far sea's and the hazed islands' highlights fade with their colour; and the sea's fish keep to real water.
+/// (a dry shelf, a submerged ceiling, the shoreline); the backdrop's distant islands are laid flat on the bed (the Glow playtest: the
+/// horizon is only sea and sky), and a backdrop the look cannot lay flat is hidden; the mist goes by the swimmer, not the camera; the
+/// far sea's highlights fade with its colour; and the sea's fish keep to real water.
 /// </summary>
 public partial class LookPresetTest
 {
@@ -156,53 +156,43 @@ public partial class LookPresetTest
             Check(open.Veil.Visible == PhysicsUnder(eye), $"the view under water agrees with physics {name} (veil {open.Veil.Visible}, physics {PhysicsUnder(eye)})");
         }
 
-        // 4. An island split by mesh seams stays one island; 5. the floor lies on the bed; the islands stand where they were.
-        Check(open.Islands.Count == 2 && open.Note.Length == 0, $"two islands, each built in halves with their own seam vertices, are lifted out as two islands ({open.Islands.Count}): {open.Note}");
+        // 4. No distant islands: both islands (each built in halves with their own seam vertices) lie flat on the bed with the floor.
+        var top = backdrop.Mesh.SurfaceGetArrays(0)[(int)Mesh.ArrayType.Vertex].AsVector3Array().Select(v => backdrop.GlobalTransform * v)
+            .Max(v => v.Y - sea.OpenSeaBedAt(new Vector2(v.X, v.Z)));
+        Check(top < 1e-4f && open.Note.Length == 0 && holder.FindChildren("DistantIsland*", "", true, false).Count == 0,
+            $"the backdrop's islands are laid flat on the bed with its floor, nothing standing above it ({top * 1000f:0.###} mm): {open.Note}");
 
-        // 2. The islands retreat from the swimmer, not the camera: switching F1 to F4, or orbiting F3, moves none of them.
+        // 2. The mist goes by the swimmer, not the camera: switching F1 to F4, or orbiting F3, never changes it.
         var swimmer = new Node3D { Name = "SynthSwimmer" };
         holder.AddChild(swimmer);
         open.SetSwimmer(() => swimmer);
-        var island = open.Islands.OrderBy(i => i.HomeOffset.X).Last();
-        var bearing = island.HomeOffset.Normalized();
-        foreach (var along in new[] { island.HomeOffset.Length() - island.KeepM - 0.02f, island.HomeOffset.Length() - island.KeepM + 0.3f, island.HomeOffset.Length() + 3f })
+        open.Atmosphere = new Godot.Environment();
+        foreach (var along in new[] { open.IslandReachM - 0.5f, open.IslandReachM + 4f, open.SeamM, open.SeamM + 30f })
         {
-            var at = open.Home + bearing * along;
-            swimmer.GlobalPosition = new Vector3(at.X, -0.02f, at.Y);
-            var placed = new List<Vector3>();
+            swimmer.GlobalPosition = new Vector3(open.SeamCentre.X + along, -0.02f, open.SeamCentre.Y);
+            var mists = new List<(float Mist, float End)>();
             foreach (var offset in new[] { new Vector3(0f, 0.09f, 0f), new Vector3(0.1f, 0.13f, 0.3f), new Vector3(2.2f, 1.5f, 0f), new Vector3(-1.0f, 1.0f, 0.9f), new Vector3(0.7f, 2.2f, -0.6f) })
             {
                 camera.GlobalPosition = swimmer.GlobalPosition + offset;
                 open.Follow(camera);
-                placed.Add(island.Mesh.GlobalPosition);
-                Check(open.Islands.All(i => new Vector2(camera.GlobalPosition.X, camera.GlobalPosition.Z).DistanceTo(IslandCentre(open, i)) > 0.5f * i.KeepM),
-                    $"no play camera ({offset} off the swimmer) ever stands inside an island");
+                mists.Add((open.Mist, open.Atmosphere.FogEnabled ? open.Atmosphere.FogDepthEnd : float.PositiveInfinity));
             }
-            Check(placed.All(p => p.IsEqualApprox(placed[0])), $"with the swimmer {along:0.0} m out along an island's bearing, every view (F1, F2, F4, F3 orbiting) sees it in one place");
+            Check(mists.All(m => m == mists[0]) && Mathf.IsEqualApprox(mists[0].Mist, OpenSea.MistFor(along, open.IslandReachM)),
+                $"with the swimmer {along:0.0} m out, every view (F1, F2, F4, F3 orbiting) has the same mist ({mists[0].Mist:0.##})");
         }
 
-        // 3. Near the far net an island holds still to the millimetre: the sideways distance is computed directly, in double precision.
-        var worst = 0.0;
-        foreach (var keep in new[] { 6.2f, 3.0f })
-            for (var k = 0; k < 4000; k++)
-            {
-                // A swimmer 995 m out along the island's bearing, sliding sideways a millimetre a step across the island's keep.
-                var homeOffset = new Vector2(10f, 0.3f);
-                var b = homeOffset.Normalized();
-                var camera2 = b * 995f + new Vector2(-b.Y, b.X) * (keep - 2f + k * 0.001f);
-                var got = OpenSea.IslandOffset(homeOffset, keep, camera2);
-                worst = Math.Max(worst, (got - ReferenceOffset(homeOffset, keep, camera2)).Length());
-            }
-        Check(worst < 0.002, $"near the 1 km net an island stands within 2 mm of where exact arithmetic puts it (worst {worst * 1000:0.###} mm)");
-
-        // 5. Geometry the look cannot split is left exactly as it was: its islands are not flattened into the floor.
-        var unindexed = SyntheticBackdrop(holder, indexed: false);
-        var before = unindexed.Mesh.SurfaceGetArrays(0)[(int)Mesh.ArrayType.Vertex].AsVector3Array().Max(v => v.Y);
-        var rejected = OpenSea.Build(sea, bounds, new[] { water }, new[] { unindexed });
+        // 5. A backdrop the look cannot lay flat (more than one surface) is hidden, not left standing on the horizon, and the look says why.
+        var twoSurfaces = SyntheticBackdrop(holder);
+        var extra = (ArrayMesh)twoSurfaces.Mesh;
+        extra.AddSurfaceFromArrays(Mesh.PrimitiveType.Triangles, extra.SurfaceGetArrays(0));
+        var rejected = OpenSea.Build(sea, bounds, new[] { water }, new[] { twoSurfaces });
         holder.AddChild(rejected);
-        var after = unindexed.Mesh.SurfaceGetArrays(0)[(int)Mesh.ArrayType.Vertex].AsVector3Array().Max(v => v.Y);
-        Check(Mathf.IsEqualApprox(before, after) && rejected.Islands.Count == 0 && rejected.Note.Length > 0,
-            $"an unindexed backdrop is left untouched, islands and all (top {after:0.##} m, was {before:0.##} m), and the look says why: {rejected.Note}");
+        Check(!twoSurfaces.Visible && rejected.Note.Contains("hidden"), $"a backdrop of two surfaces is hidden, islands and all, and the look says why: {rejected.Note}");
+        var unindexed = SyntheticBackdrop(holder, indexed: false);
+        var flat = OpenSea.Build(sea, bounds, new[] { water }, new[] { unindexed });
+        holder.AddChild(flat);
+        var unindexedTop = unindexed.Mesh.SurfaceGetArrays(0)[(int)Mesh.ArrayType.Vertex].AsVector3Array().Max(v => v.Y - sea.OpenSeaBedAt(new Vector2(v.X, v.Z)));
+        Check(unindexed.Visible && unindexedTop < 1e-4f, "an unindexed backdrop is laid flat too");
 
         // 7. The sea's fish keep to real water: never in a rock standing out of the sea or over a shoal shallower than they need.
         var life = SeaLife.Create(sea, () => swimmer);
@@ -213,28 +203,12 @@ public partial class LookPresetTest
         for (var step = 0; step < 90; step++) life.Advance(1f / 30f);
         Check(life.Fish.All(f => f.Position.Y < -500f || life.Habitable(new Vector2(f.Position.X, f.Position.Z))), "and every fish stays over real water as it swims");
 
-        // 6. Highlights fade with the colour: the far sea's and the hazed islands' specular go into the horizon with them.
+        // 6. Highlights fade with the colour: the far sea's (and the land shader's haze, kept for later) specular go into the horizon with them.
         var waterCode = Regex.Replace(GD.Load<Shader>(LandscapeLook.WaterShaderPath).Code, @"//[^\n]*", "");
         var landCode = Regex.Replace(GD.Load<Shader>(LandscapeLook.ShaderPath).Code, @"//[^\n]*", "");
         Check(Regex.IsMatch(waterCode, @"SPECULAR_LIGHT\s*\+=[^;]*\(1\.0\s*-\s*horizon_v\)") && Regex.IsMatch(landCode, @"SPECULAR_LIGHT\s*\+=[^;]*\(1\.0\s*-\s*haze_v\)"),
             "the far sea's and the hazed islands' highlights fade into the horizon with their colour");
         holder.QueueFree();
         await Frames(1);
-    }
-
-    private static Vector2 IslandCentre(OpenSea open, OpenSea.DistantIsland island) =>
-        open.Home + island.HomeOffset + new Vector2(island.Mesh.GlobalPosition.X - island.BasePosition.X, island.Mesh.GlobalPosition.Z - island.BasePosition.Z);
-
-    /// <summary>The island rule in double precision: along its bearing, never behind the swimmer, keep metres off.</summary>
-    private static Vector2 ReferenceOffset(Vector2 homeOffset, float keepM, Vector2 at)
-    {
-        double hx = homeOffset.X, hz = homeOffset.Y, cx = at.X, cz = at.Y, keep = keepM;
-        var distance = Math.Sqrt(hx * hx + hz * hz);
-        double bx = hx / distance, bz = hz / distance;
-        var along = cx * bx + cz * bz;
-        var aside = -cx * bz + cz * bx;
-        var reach = Math.Max(distance, along);
-        if (Math.Abs(aside) < keep) reach = Math.Max(reach, along + Math.Sqrt(keep * keep - aside * aside));
-        return new Vector2((float)(bx * reach), (float)(bz * reach));
     }
 }
