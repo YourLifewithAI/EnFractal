@@ -8,6 +8,7 @@ Every run is built by parallel agent lanes. A lane **edits only the paths it own
 |---|---|
 | `contracts/**` | The agreements between tracks; see [contracts/README.md](../../contracts/README.md) |
 | `AGENTS.md`, `CLAUDE.md`, `README.md`, `docs/ROOM-SCALE-DIRECTION.md`, `docs/runs/**`, `docs/CLEANUP-PLAN.md` | Plans and agent rules |
+| `game/rules/**` | Island rules packs (`contracts/island-rules.schema.json`), written through contract rounds |
 | `game/project.godot`, `game/export_presets.cfg`, `game/EnFractal.csproj`, `game/EnFractal.sln`, `game/global.json` | Project-wide settings |
 | `.gitattributes`, `.gitignore` | Line-ending pins and ignore rules |
 | `run-engine-tests.ps1`, `run-room.ps1`, `tools/*.ps1`, `tools/native-toolchain.lock.json`, `tools/linux/**` | Toolchain and the test lists every lane runs |
