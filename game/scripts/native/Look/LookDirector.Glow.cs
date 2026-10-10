@@ -144,9 +144,10 @@ public readonly record struct LightEstimate(float Key, float Sky, float Bounce, 
 public partial class LookDirector
 {
     /// <summary>
-    /// The level below which the game counts a place as dark (the dusk moment, "aimed at a dark spot, glow there"). On the default
-    /// preset at the fallback site: summer noon on open ground is about 0.88, under a big overhang at noon 0, a moonlit night outdoors
-    /// about 0.2, and the default glow lifts any spot within half its radius above 0.6 (docs/look/GLOW.md has the table).
+    /// The level below which the game counts a place as dark (the dusk moment, "aimed at a dark spot, glow there"): light 0.2 on the
+    /// curve. On the default preset at the fallback site: summer noon on open ground is 0.99, the golden hour 0.75, under a big
+    /// overhang at noon 0.43, 30 minutes after an October sunset 0.46, a moonlit night outdoors 0.32, and the default glow lifts a
+    /// night spot half its radius away to 0.76 (docs/look/GLOW.md has the table).
     /// </summary>
     public const float DarkThreshold = 0.5f;
     /// <summary>The meta an avatar carries its aura colour in (a Color): the glow takes it. Lane P's to set (see docs/look/GLOW.md).</summary>
@@ -263,7 +264,7 @@ public partial class LookDirector
         var haloSize = follow == null ? GlowLook.WispHaloM : body != null ? body.BodyHeightM * GlowLook.HaloBodyHeights : GlowLook.HaloDefaultM;
         glow.Halo = new MeshInstance3D
         {
-            Name = "Halo", Mesh = new QuadMesh { Size = new Vector2(haloSize, haloSize) }, MaterialOverride = HaloMaterial(id, color, intensity),
+            Name = "Halo", Mesh = new QuadMesh { Size = new Vector2(haloSize, haloSize) }, MaterialOverride = HaloMaterial(color, intensity),
             CastShadow = GeometryInstance3D.ShadowCastingSetting.Off, GIMode = GeometryInstance3D.GIModeEnum.Disabled,
         };
         glow.Root.AddChild(glow.Halo);
@@ -288,7 +289,7 @@ public partial class LookDirector
     }
 
     /// <summary>A soft, painterly halo: a camera-facing disc in the glow's colour, added to what is behind it, with a faint brighter rim.</summary>
-    private StandardMaterial3D HaloMaterial(string id, Color color, float intensity) => new()
+    private StandardMaterial3D HaloMaterial(Color color, float intensity) => new()
     {
         ResourceName = "glow halo", ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
         Transparency = BaseMaterial3D.TransparencyEnum.Alpha, BlendMode = BaseMaterial3D.BlendModeEnum.Add,
@@ -331,7 +332,7 @@ public partial class LookDirector
             return origin + Vector3.Up * glow.Lift;
         }
         if (!drawing) return glow.Center;
-        return glow.Center + Vector3.Up * (GlowLook.BobAmplitudeM * Mathf.Sin((float)(_glowClock * Mathf.Tau / GlowLook.BobPeriodS) + glow.Phase));
+        return glow.Center + Vector3.Up * (GlowLook.BobAmplitudeM * (float)Math.Sin(_glowClock * Math.Tau / GlowLook.BobPeriodS + glow.Phase));
     }
 
     private void UpdateGlows(double delta)
@@ -344,7 +345,7 @@ public partial class LookDirector
             // A halo whose body is gone goes with it.
             if (glow.Follow != null && !IsInstanceValid(glow.Follow)) { StopGlow(glow.Id); continue; }
             glow.Root.Position = GlowPosition(glow, drawing: true);
-            var breath = 1f + GlowLook.BreathAmount * Mathf.Sin((float)(_glowClock * Mathf.Tau / GlowLook.BreathPeriodS) + glow.Phase);
+            var breath = 1f + GlowLook.BreathAmount * (float)Math.Sin(_glowClock * Math.Tau / GlowLook.BreathPeriodS + glow.Phase);
             glow.Halo.Scale = new Vector3(breath, breath, breath);
         }
     }
