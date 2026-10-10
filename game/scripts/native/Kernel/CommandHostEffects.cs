@@ -12,7 +12,9 @@ namespace EnFractal.Native.Kernel;
 /// <summary>
 /// The island's abilities (Run 2, Glow; docs/runs/RUN-2-GLOW.md section 2). The island's rules pack (IslandRules) says
 /// which abilities exist and their bounds; effect.start casts one, carried out by the Gubble, through the one command
-/// path, as the player (the HUD's PlayerEffect) or as the companion. v1 has one primitive, light.emit: Glow, a real light
+/// path, as the player (the HUD's PlayerEffect) or as the companion. The primitives: light.emit (Glow, a real light), and since
+/// the Bubbles and Fireworks round particles.float (Bubbles) and particles.burst (Fireworks), cosmetic effects the look draws
+/// (LookDirector.StartBubbles, StartFireworks). Glow was the first: a real light
 /// that follows the Gubble (targets: its own avatar) or floats at a spot within its reach and in the team's sight.
 /// - Bounds: params, radius and duration inside the ability's; omitted params take the pack's defaults.
 /// - Who: cast_by names the principals that may cast it; a companion may target only its own avatar, and no one any
@@ -208,8 +210,8 @@ public partial class CommandHost
         if (preview)
         {
             // A preview is honest about the look too: it says now what the start would meet.
-            if (look != null && look.GlowCount >= GlowLook.MaxGlows)
-                throw new Refusal("budget_exceeded", "The game cannot show another light right now; stop one first.", "$.args.capability", retryable: true);
+            if (look != null && look.EffectCount >= EffectLook.MaxEffects)
+                throw new Refusal("budget_exceeded", "The game cannot show another effect right now; stop one first.", "$.args.capability", retryable: true);
             var previewed = Previewed("effect.start", principal, actionId);
             previewed["data"] = EffectData(plan, null, null);
             return previewed;
@@ -217,15 +219,28 @@ public partial class CommandHost
         // 'effect:' and 26 lowercase base32 characters (130 random bits): opaque, like job ids, never a counter.
         var id = "effect:" + System.Security.Cryptography.RandomNumberGenerator.GetString("abcdefghijklmnopqrstuvwxyz234567", 26);
         var intensity = plan.Params.TryGetValue("intensity", out var level) ? level : 1.0;
-        // The look lights it first: if it cannot, the command is refused and nothing is left half-started.
-        if (look != null && !look.StartGlow(id, plan.Self ? Companion : null, plan.Centre, (float)plan.RadiusM, (float)intensity))
+        // The look draws it first: if it cannot, the command is refused and nothing is left half-started.
+        if (look != null && !StartLook(look, plan, id, (float)intensity))
         {
-            look.StopGlow(id);
-            throw new Refusal("budget_exceeded", "The game cannot show another light right now; stop one first.", "$.args.capability", retryable: true);
+            look.StopEffect(id);
+            throw new Refusal("budget_exceeded", "The game cannot show another effect right now; stop one first.", "$.args.capability", retryable: true);
         }
         var expires = Clock() + TimeSpan.FromSeconds(plan.DurationS);
         _effects.Add(new ActiveEffect { Id = id, Capability = plan.Ability.Capability, Principal = principal, FollowsCompanion = plan.Self, Expires = expires });
         return Transient("effect.start", principal, actionId, fingerprint, new JsonArray(id), EffectData(plan, id, expires), created: new JsonArray(id), approvedBy: approvedBy);
+    }
+
+    /// <summary>The look's call for the ability's primitive: Glow lights, Bubbles blow, Fireworks burst. A primitive the look has no call for draws nothing.</summary>
+    private bool StartLook(LookDirector look, EffectPlan plan, string id, float intensity)
+    {
+        var follow = plan.Self ? Companion : null;
+        return plan.Ability.Primitive switch
+        {
+            "light.emit" => look.StartGlow(id, follow, plan.Centre, (float)plan.RadiusM, intensity),
+            "particles.float" => look.StartBubbles(id, follow, plan.Centre, (float)plan.RadiusM, intensity),
+            "particles.burst" => look.StartFireworks(id, follow, plan.Centre, (float)plan.RadiusM, intensity),
+            _ => false,
+        };
     }
 
     private JsonObject EffectData(EffectPlan plan, string? id, DateTime? expires)
@@ -249,7 +264,7 @@ public partial class CommandHost
         foreach (var effect in ending.ToList())
         {
             if (!_effects.Remove(effect)) continue;
-            if (LookHook != null && IsInstanceValid(LookHook)) LookHook.StopGlow(effect.Id);
+            if (LookHook != null && IsInstanceValid(LookHook)) LookHook.StopEffect(effect.Id);
             ended.Add(effect.Id);
         }
         return ended;
@@ -284,7 +299,7 @@ public partial class CommandHost
     private void EndAllEffects()
     {
         EndEffects(_effects.ToList());
-        if (LookHook != null && IsInstanceValid(LookHook) && !LookHook.IsQueuedForDeletion()) LookHook.StopAllGlows();
+        if (LookHook != null && IsInstanceValid(LookHook) && !LookHook.IsQueuedForDeletion()) LookHook.StopAllEffects();
     }
 
     /// <summary>capabilities.list from the island's rules: capability_summary items by capability, filtered by category, paged by cursor.</summary>

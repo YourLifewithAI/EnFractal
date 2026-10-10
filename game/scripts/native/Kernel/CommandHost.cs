@@ -71,8 +71,8 @@ public partial class CommandHost : Node
     /// <summary>A come, go_to or fetch whose body has reported blocked this long without a break fails with target_unreachable.</summary>
     public const double UnreachableAfterS = 5.0;
     /// <summary>
-    /// The engine's cap on active effects per room, whatever the ability: 8. It is the most glows the look draws at once
-    /// (GlowLook.MaxGlows), so the look never refuses a glow for count that the host admitted; it is the schema's outer
+    /// The engine's cap on active effects per room, whatever the ability: 8. It is the most effects of every kind the look draws
+    /// at once (EffectLook.MaxEffects), so the look never refuses an effect for count that the host admitted; it is the schema's outer
     /// max_active for light.emit; and it is the omni lights Godot's Mobile renderer shades per mesh, so a spot lit by every
     /// effect still shows each one. Later abilities share it.
     /// </summary>

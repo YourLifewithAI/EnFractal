@@ -22,7 +22,7 @@ public partial class RoomWorld : Node3D
     public static readonly string DefaultStyle = StylePreset.PathFor(DefaultStyleId, DefaultStyleVersion);
     /// <summary>The island's rules every room uses until a room names its own (res://rules/&lt;id&gt;/v&lt;N&gt;.json).</summary>
     public const string DefaultRulesId = "storybook_wild";
-    public const int DefaultRulesVersion = 1;
+    public const int DefaultRulesVersion = 2;
     [Export] public string RoomDirectory { get; set; } = DefaultRoom;
     /// <summary>Overrides the room's pinned style when set (tests, previews).</summary>
     [Export] public string StylePresetPath { get; set; } = "";

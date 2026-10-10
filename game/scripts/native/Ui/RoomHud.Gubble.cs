@@ -91,6 +91,21 @@ public partial class RoomHud
     public IslandAbility? SlotAbility(int slot) =>
         slot is < 0 or >= 5 ? null : Host?.Rules?.Abilities.Where(a => a.Category == GubbleMagic.SlotCategories[slot]).OrderBy(a => a.Capability, StringComparer.Ordinal).FirstOrDefault();
 
+    /// <summary>
+    /// The help's line for the ability keys, from the island's pack: the slots it has, cast where you point, and the keys of the
+    /// slots it lacks, still to come ("1 Glow, 3 Bubbles, 4 Fireworks where you point ... · 2/5 magic still to come").
+    /// </summary>
+    private string MagicKeysLine()
+    {
+        var known = Enumerable.Range(0, Act.GubbleSlots.Length).Where(i => SlotAbility(i) != null).Select(i => $"{K(Act.GubbleSlots[i])} {SlotName(i)}").ToArray();
+        var later = Enumerable.Range(0, Act.GubbleSlots.Length).Where(i => SlotAbility(i) == null).Select(i => K(Act.GubbleSlots[i])).ToArray();
+        var parts = new System.Collections.Generic.List<string>();
+        if (known.Length > 0) parts.Add($"{string.Join(", ", known)} where you point (it comes closer first if it must; at the sky, on itself)");
+        if (later.Length > 0) parts.Add($"{string.Join("/", later)} magic still to come");
+        parts.Add("it floats after you, over water and up cliffs");
+        return string.Join(" · ", parts);
+    }
+
     /// <summary>A slot's name: the island's display_name for it, else the engine's.</summary>
     private string SlotName(int slot) => SlotAbility(slot) is { } ability ? KernelJson.DisplayText(ability.DisplayName, 24) : GubbleMagic.SlotNames[slot];
 
@@ -303,7 +318,7 @@ public partial class RoomHud
         var result = host.PlayerEffect(ability.Capability, point);
         if (!Answer(result, wiggle: false)) return;
         // The look's spark leaves the Gubble now (StartGlow, inside the cast): the gesture starts with it.
-        Companion.CastGesture(point);
+        Companion.CastGesture(point, ability.Category);
         if (ability.Category == "light") UsedGlow();
     }
 

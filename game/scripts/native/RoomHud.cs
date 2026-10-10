@@ -248,7 +248,7 @@ public partial class RoomHud : CanvasLayer
         // The Gubble's keys, under its name (the Glow playtest: the player should see whose magic this is).
         AddKeyLine(_keyHelp, () => $"{Companion.NameTag}, your companion:", "GubbleHeading");
         AddKeyLine(_keyHelp, () => $"{K(Act.GubbleAsk)} asks for what fits where you point (wait or follow, fetch or put down, light the dark, go and look); hold it for the wheel · {K(Act.GubbleRecall)} come, then follow · {K(Act.GubbleStop)} stop", "GubbleKeys");
-        AddKeyLine(_keyHelp, () => $"{K(Act.GubbleSlot1)} {SlotName(0)} where you point (it comes closer first if it must; at the sky, on itself) · {K(Act.GubbleSlot2)}/{K(Act.GubbleSlot3)}/{K(Act.GubbleSlot4)}/{K(Act.GubbleSlot5)} magic still to come · it floats after you, over water and up cliffs", "GubbleSlots");
+        AddKeyLine(_keyHelp, MagicKeysLine, "GubbleSlots");
         // The toggles that bend the world for testing, apart from the keys the game is played with.
         _keyHelp.AddChild(new Label { Name = "TestingHeading", Text = "Testing" });
         AddKeyLine(_keyHelp, () => $"{K(Act.PhysicsNext)} gravity · {K(Act.TimeStep)} time of day · {K(Act.SeasonStep)} season (each steps round to the real clock) · {K(Act.Lamps)} lamps", "TestingKeys");

@@ -443,6 +443,14 @@ public partial class CompanionAvatar : SmallPlayerController
     public const double ShrugS = 0.6;
     /// <summary>The cast: a quick lean toward the spot (a toss) that peaks at CastPeakFraction, then settles; the look's spark leaves at its start.</summary>
     public const double CastS = 0.55;
+    /// <summary>Bubbles: a slower, longer lean, blowing the stream (the look's bubbles leave at once and keep coming).</summary>
+    public const double BlowS = 0.9;
+    /// <summary>Fireworks: a quick toss as the rocket leaves (the look's rocket leaves at once and bursts 0.35 to 1 s later).</summary>
+    public const double TossS = 0.4;
+    /// <summary>How long the cast gesture plays for each ability category (the look's timing, docs/look/EFFECTS.md).</summary>
+    public static double CastSeconds(string category) => category switch { "float" => BlowS, "burst" => TossS, _ => CastS };
+    /// <summary>The category of the last cast gesture (its timing).</summary>
+    public string LastCastCategory { get; private set; } = "";
     public const float CastPeakFraction = 0.25f;
     /// <summary>How far the body leans toward the spot it casts at, in radians.</summary>
     public const float CastLeanRad = 0.38f;
@@ -484,13 +492,14 @@ public partial class CompanionAvatar : SmallPlayerController
     /// a glow on itself (toward null). Call it as the cast starts: the look's spark leaves the body then (StartGlow), and the
     /// lean peaks CastPeakFraction into the gesture, so the body follows through as the spark flies.
     /// </summary>
-    public void CastGesture(Vector3? toward)
+    public void CastGesture(Vector3? toward, string category = "light")
     {
         LastCastToward = toward;
+        LastCastCategory = category;
         var direction = toward is { } spot && spot.IsFinite() && IsInsideTree() ? ToLocal(spot) : Vector3.Zero;
         direction.Y = 0;
         _castDirection = direction.LengthSquared() > 1e-6f ? direction.Normalized() : Vector3.Forward;
-        Play(toward == null ? Gesture.CastSelf : Gesture.Cast, CastS);
+        Play(toward == null ? Gesture.CastSelf : Gesture.Cast, CastSeconds(category));
     }
 
     /// <summary>Dim or undim the body: an overlay on its drawn meshes.</summary>

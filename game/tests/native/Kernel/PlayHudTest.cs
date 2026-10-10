@@ -278,7 +278,7 @@ public partial class PlayHudTest : Node
                 "F pick up what you face · F again sets it down in front of you, or on top of what you face (the box, the book) · V push what you face 10 cm",
                 "The Gubble, your companion:",
                 "right-click asks for what fits where you point (wait or follow, fetch or put down, light the dark, go and look); hold it for the wheel · Q come, then follow · X stop",
-                "1 Glow where you point (it comes closer first if it must; at the sky, on itself) · 2/3/4/5 magic still to come · it floats after you, over water and up cliffs",
+                "1 Glow, 3 Bubbles, 4 Fireworks where you point (it comes closer first if it must; at the sky, on itself) · 2/5 magic still to come · it floats after you, over water and up cliffs",
                 "Testing",
                 "G gravity · T time of day · Shift+T season (each steps round to the real clock) · L lamps",
             };
@@ -689,7 +689,7 @@ public partial class PlayHudTest : Node
             "1 aimed at nothing casts Glow on the Gubble itself (a halo that follows it), and the Gubble lifts as it lights");
         _hud._UnhandledInput(Press(Key.X));
         Check(host.ActiveEffectIds.Count == 0 && look.GlowCount == 0 && companion.CurrentIntent == "stop", "X stops the Gubble and ends its glows (goal.stop)");
-        foreach (var key in new[] { Key.Key2, Key.Key3, Key.Key4, Key.Key5 })
+        foreach (var key in new[] { Key.Key2, Key.Key5 })
         {
             var receipts = host.TransientReceiptCount(CommandHost.PlayerPrincipal);
             _hud._UnhandledInput(Press(key));
@@ -697,6 +697,25 @@ public partial class PlayHudTest : Node
                   host.TransientReceiptCount(CommandHost.PlayerPrincipal) == receipts && host.ActiveEffectIds.Count == 0,
                 $"{OS.GetKeycodeString(key)}: a slot this island has no ability for shrugs \"not yet\" and sends nothing");
         }
+        // 3 and 4: Bubbles and Fireworks (storybook_wild v2), through Glow's cast path: on the Gubble at nothing, else where you point.
+        _hud.AimRayForTests = Air();
+        _hud._UnhandledInput(Press(Key.Key3));
+        var bubbles = host.ActiveEffectIds.LastOrDefault();
+        Check(bubbles != null && look.KindOf(bubbles) == LookDirector.EffectKind.Bubbles && _hud.Cue.Icon == GubbleMagic.SlotIcons[2] && _hud.Cue.State == "done" &&
+              companion.LastGesture == CompanionAvatar.Gesture.CastSelf && companion.LastCastCategory == "float",
+            "3 aimed at nothing: Bubbles from the Gubble itself, its bubble showing their icon, the Gubble lifting as they rise");
+        var spot = FloorNearGubble(0.4f);
+        _hud.AimRayForTests = Down(spot);
+        _hud._UnhandledInput(Press(Key.Key4));
+        var fireworks = host.ActiveEffectIds.LastOrDefault();
+        Check(fireworks != null && fireworks != bubbles && look.KindOf(fireworks) == LookDirector.EffectKind.Fireworks && _hud.Cue.Icon == GubbleMagic.SlotIcons[3] && _hud.Cue.State == "done" &&
+              companion.LastGesture == CompanionAvatar.Gesture.Cast && companion.LastCastToward is { } toward && toward.DistanceTo(spot) < 0.001f && companion.LastCastCategory == "burst",
+            "4 aimed at the floor: Fireworks at the spot, the Gubble tossing the rocket toward it (a quicker gesture)");
+        Check(CompanionAvatar.CastSeconds("float") > CompanionAvatar.CastSeconds("light") && CompanionAvatar.CastSeconds("burst") < CompanionAvatar.CastSeconds("light"),
+            "the gesture blows longer for Bubbles and tosses quicker for Fireworks");
+        _hud._UnhandledInput(Press(Key.X));
+        Check(host.ActiveEffectIds.Count == 0 && look.EffectCount == 0, "X ends the bubbles and the fireworks with the Gubble's goal");
+        _hud.AimRayForTests = Air();
         _hud._UnhandledInput(Press(Key.Q));
         Check(companion.CurrentIntent == "come", "Q calls the Gubble (come)");
         var followed = false;
@@ -810,9 +829,11 @@ public partial class PlayHudTest : Node
         var labels = _hud.Wheel.WedgeLabels.Select(l => l.Text).ToArray();
         Check(labels[0] == "☀\n1 Glow" && labels[2] == "‖\nStay" && labels[5] == "✋\nFetch" && labels[6] == "↩\nCome (Q)",
             "Glow is up (the pack's light ability, its display_name), Stay right, Fetch lower left, Come left: " + string.Join(" | ", labels).Replace("\n", " "));
-        Check(new[] { 1, 3, 4, 7 }.All(i => labels[i] == $"{GubbleMagic.Wedges[i].Icon}\n{GubbleMagic.Wedges[i].Slot + 1} {GubbleMagic.Wedges[i].Name}\n{GubbleWheel.LackingWords}" &&
+        Check(labels[1] == "✸\n4 Fireworks" && labels[7] == "○\n3 Bubbles" && _hud.Wheel.WedgeLabels[1].Modulate.A == 1f && _hud.Wheel.WedgeLabels[7].Modulate.A == 1f,
+            "Fireworks (upper right) and Bubbles (upper left) are the island's now, bright in their fixed places: " + labels[1].Replace("\n", " ") + " | " + labels[7].Replace("\n", " "));
+        Check(new[] { 3, 4 }.All(i => labels[i] == $"{GubbleMagic.Wedges[i].Icon}\n{GubbleMagic.Wedges[i].Slot + 1} {GubbleMagic.Wedges[i].Name}\n{GubbleWheel.LackingWords}" &&
               _hud.Wheel.WedgeLabels[i].Modulate.A < 0.5f && !labels[i].Contains(GubbleMagic.UnknownIcon, StringComparison.Ordinal)),
-            "Fireworks, Bloom, Build and Bubbles, which this island lacks, stay dim in their fixed places with their names and \"not yet\", never a \"?\": " + labels[1].Replace("\n", " "));
+            "Bloom and Build, which this island lacks, stay dim in their fixed places with their names and \"not yet\", never a \"?\": " + labels[3].Replace("\n", " "));
         Check(_hud.Wheel.Title.Text == "The Gubble's magic" && _hud.Wheel.Title.IsVisibleInTree() && companion.AuraColor is { } aura && _hud.Wheel.Rim.IsEqualApprox(new Color(aura, 1)),
             $"the wheel says whose it is: \"{_hud.Wheel.Title.Text}\" over it, its rim the Gubble's aura colour");
         var intent = companion.CurrentIntent;

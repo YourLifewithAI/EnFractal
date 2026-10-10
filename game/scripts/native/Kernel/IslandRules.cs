@@ -76,6 +76,8 @@ public sealed class IslandRules
     public static readonly IReadOnlyDictionary<string, PrimitiveLimits> Primitives = new Dictionary<string, PrimitiveLimits>(StringComparer.Ordinal)
     {
         ["light.emit"] = new("light", new Dictionary<string, (double, double)>(StringComparer.Ordinal) { ["intensity"] = (0.05, 2.0) }, 5, 3, 600, 8),
+        ["particles.float"] = new("float", new Dictionary<string, (double, double)>(StringComparer.Ordinal) { ["intensity"] = (0.05, 2.0) }, 5, 3, 120, 4),
+        ["particles.burst"] = new("burst", new Dictionary<string, (double, double)>(StringComparer.Ordinal) { ["intensity"] = (0.05, 2.0) }, 8, 3, 10, 4),
     };
 
     public string RulesId { get; private init; } = "";
