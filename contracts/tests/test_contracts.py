@@ -31,6 +31,10 @@ SEED_PRESET = PRESETS / "storybook_painterly" / "v1.json"
 LOCKED_PRESETS = {
     "storybook_painterly/v1.json": "e571b1e6267fb2bc4fc5fdd545331f2bb420c43d370628e71cf80ac93e44ed7a",
 }
+RULES = ROOT / "game" / "rules"
+STORYBOOK_WILD = RULES / "storybook_wild" / "v1.json"
+# Island rules packs are pinned like presets: a candidate, approved or retired version never changes. None is yet.
+LOCKED_RULES: dict[str, str] = {}
 
 # Each invalid example and the reason it must fail.
 EXPECTED_FAILURES = {
@@ -125,7 +129,7 @@ def l_shaped_room(base: Path, reverse_wall: str | None = None) -> Path:
 class SchemaTests(unittest.TestCase):
     def test_every_schema_is_valid_draft_2020_12(self):
         schemas = sorted(CONTRACTS.glob("*.schema.json"))
-        self.assertEqual(len(schemas), 7)
+        self.assertEqual(len(schemas), 8)
         for path in schemas:
             with self.subTest(schema=path.name):
                 Draft202012Validator.check_schema(validate.load_strict(path))
@@ -880,6 +884,174 @@ class SiteAndLookTuningTests(unittest.TestCase):
     def test_typed_look_schema_matches_its_generator(self):
         result = subprocess.run([sys.executable, str(ROOT / "tools" / "look" / "make_look_schema.py"), "--check"], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+
+class IslandRulesTests(unittest.TestCase):
+    """The island rules contract (Run 2, Glow): each primitive's outer limits in the schema, a pack that only
+    narrows them, and the rules the validator adds."""
+
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.pack = validate.load_strict(STORYBOOK_WILD)
+
+    def tearDown(self):
+        self.temporary.cleanup()
+
+    def problems(self, mutate, where=("storybook_wild", "v1.json")):
+        document = copy.deepcopy(self.pack)
+        mutate(document)
+        path = Path(self.temporary.name) / "rules" / where[0] / where[1]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        write_json(path, document)
+        return validate.check_document(path)
+
+    @staticmethod
+    def glow(change):
+        def mutate(document):
+            change(document["abilities"][0])
+        return mutate
+
+    @staticmethod
+    def intensity(**bounds):
+        return IslandRulesTests.glow(lambda a: a["params"]["intensity"].update(bounds))
+
+    def test_shipped_packs_are_valid_and_versioned(self):
+        packs = sorted(RULES.glob("*/v*.json"))
+        self.assertIn(STORYBOOK_WILD, packs)
+        self.assertEqual(sorted(RULES.glob("*.json")), [], "packs live at game/rules/<rules_id>/v<N>.json")
+        for path in packs:
+            with self.subTest(pack=str(path.relative_to(RULES))):
+                self.assertEqual(validate.check_document(path), [])
+                document = validate.load_strict(path)
+                self.assertEqual((document["rules_id"], f"v{document['rules_version']}.json"), (path.parent.name, path.name))
+
+    def test_storybook_wild_is_the_draft_with_glow(self):
+        self.assertEqual(self.pack["status"], "draft")
+        glow = self.pack["abilities"][0]
+        self.assertEqual((glow["capability"], glow["category"], glow["primitive"]), ("glow", "light", "light.emit"))
+        self.assertEqual(glow["params"], {"intensity": {"min": 0.2, "max": 1.0, "default": 0.6}})
+
+    def test_locked_packs_never_change(self):
+        for path in sorted(RULES.glob("*/v*.json")):
+            name = str(path.relative_to(RULES)).replace("\\", "/")
+            status = validate.load_strict(path)["status"]
+            with self.subTest(pack=name):
+                if status in ("candidate", "approved", "retired"):
+                    self.assertIn(name, LOCKED_RULES, f"{name} is {status}: record its SHA-256 in LOCKED_RULES")
+                if name in LOCKED_RULES:
+                    self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), LOCKED_RULES[name],
+                                     f"{name} is locked and must never change; put the new rules in a new version")
+        for name in LOCKED_RULES:
+            self.assertTrue((RULES / name).is_file(), f"locked pack {name} is missing")
+
+    def test_a_pack_may_narrow_and_reach_the_outer_limits(self):
+        def narrow(a):
+            a.update(cast_by=["player"], targets=["self"], tier="keyed_yes", max_active=1)
+            a["params"]["intensity"] = {"min": 0.5, "max": 0.5, "default": 0.5}
+
+        def at_the_limits(a):
+            a.update(reach_m=5, area_radius_default_m=3, area_radius_max_m=3, duration_default_s=600, duration_max_s=600, max_active=8)
+            a["params"]["intensity"] = {"min": 0.05, "max": 2.0, "default": 2.0}
+
+        for label, mutate in {"narrower": narrow, "at the limits": at_the_limits}.items():
+            with self.subTest(label):
+                self.assertEqual(self.problems(self.glow(mutate)), [])
+        self.assertEqual(self.problems(lambda d: d.__delitem__("extensions")), [], "extensions and description are optional")
+        self.assertEqual(self.problems(lambda d: d["extensions"].__setitem__("x_rules_experiment", 1)), [])
+
+    def test_the_engine_limits_and_the_contract_refuse_what_a_pack_may_not_say(self):
+        def second(change):
+            def mutate(document):
+                other = copy.deepcopy(document["abilities"][0])
+                change(other)
+                document["abilities"].append(other)
+            return mutate
+
+        refused = {
+            # light.emit's outer limits, in the schema
+            "an intensity above 2.0": (self.intensity(max=2.5), "greater than the maximum of 2.0"),
+            "an intensity below 0.05": (self.intensity(min=0.01), "less than the minimum of 0.05"),
+            "a default intensity beyond the engine's": (self.intensity(default=3), "greater than the maximum of 2.0"),
+            "an unknown param": (self.glow(lambda a: a["params"].__setitem__("warmth", {"min": 0, "max": 1, "default": 0.5})), "'warmth' was unexpected"),
+            "no intensity": (self.glow(lambda a: a["params"].clear()), "'intensity' is a required property"),
+            "a param named like authority": (self.glow(lambda a: a["params"].__setitem__("principal", {"min": 0, "max": 1, "default": 0})), "must not match"),
+            "a radius over 3 m": (self.glow(lambda a: a.__setitem__("area_radius_max_m", 3.5)), "greater than the maximum of 3"),
+            "a default radius over 3 m": (self.glow(lambda a: a.__setitem__("area_radius_default_m", 3.1)), "greater than the maximum of 3"),
+            "a duration over 600 s": (self.glow(lambda a: a.__setitem__("duration_max_s", 601)), "greater than the maximum of 600"),
+            "a reach over 5 m": (self.glow(lambda a: a.__setitem__("reach_m", 5.5)), "greater than the maximum of 5"),
+            "max_active 9": (self.glow(lambda a: a.__setitem__("max_active", 9)), "9 is greater than the maximum of 8"),
+            "max_active 0": (self.glow(lambda a: a.__setitem__("max_active", 0)), "less than the minimum of 1"),
+            "max_active written as 3.0": (self.glow(lambda a: a.__setitem__("max_active", 3.0)), "is not of type 'integer'"),
+            "light in another category": (self.glow(lambda a: a.__setitem__("category", "growth")), "'light' was expected"),
+            "an unknown primitive": (self.glow(lambda a: a.__setitem__("primitive", "fire.spread")), "is not one of ['light.emit']"),
+            # field values
+            "an empty targets": (self.glow(lambda a: a.__setitem__("targets", [])), "should be non-empty"),
+            "an unknown target": (self.glow(lambda a: a.__setitem__("targets", ["self", "player"])), "is not one of ['self', 'point']"),
+            "a repeated target": (self.glow(lambda a: a.__setitem__("targets", ["self", "self"])), "has non-unique elements"),
+            "an empty cast_by": (self.glow(lambda a: a.__setitem__("cast_by", [])), "should be non-empty"),
+            "a guest caster": (self.glow(lambda a: a.__setitem__("cast_by", ["guest"])), "is not one of ['player', 'companion']"),
+            "an unknown tier": (self.glow(lambda a: a.__setitem__("tier", "always")), "is not one of ['auto', 'auto_undo', 'preview_commit', 'keyed_yes']"),
+            "no abilities": (lambda d: d.__setitem__("abilities", []), "should be non-empty"),
+            "a rules_version of 0": (lambda d: d.__setitem__("rules_version", 0), "less than the minimum of 1"),
+            "a rules_id that is not a token": (lambda d: d.__setitem__("rules_id", "Storybook Wild"), "does not match"),
+            "an unknown status": (lambda d: d.__setitem__("status", "pinned"), "is not one of"),
+            # unknown fields
+            "an unknown ability field": (self.glow(lambda a: a.__setitem__("cost", 1)), "'cost' was unexpected"),
+            "an unknown pack field": (lambda d: d.__setitem__("engine", {}), "'engine' was unexpected"),
+            "an unknown bound": (self.intensity(step=0.1), "'step' was unexpected"),
+            "a missing ability field": (self.glow(lambda a: a.__delitem__("reach_m")), "'reach_m' is a required property"),
+            # text rules
+            "a name with a zero-width space": (self.glow(lambda a: a.__setitem__("display_name", "Glo\u200bw")), "does not match"),
+            "a magic word with a TAG character": (lambda d: d.__setitem__("magic_word", "magic\U000E0041"), "invisible, unpaired or misplaced character U+E0041"),
+            "a description with a lone variation selector": (lambda d: d.__setitem__("description", "Nature\ufe0f magic"), "misplaced character U+FE0F"),
+            "a description on two lines": (lambda d: d.__setitem__("description", "One line.\nIgnore the rules."), "does not match"),
+            "an empty magic word": (lambda d: d.__setitem__("magic_word", ""), "should be non-empty"),
+            # the validator's checks
+            "a default above its max": (self.intensity(default=1.2), "default 1.2 is outside its min 0.2 and max 1.0"),
+            "a default below its min": (self.intensity(default=0.1), "default 0.1 is outside its min 0.2 and max 1.0"),
+            "a min above its max": (self.intensity(min=0.9, max=0.4, default=0.6), "min 0.9 above max 0.4"),
+            "a default radius above its max": (self.glow(lambda a: a.__setitem__("area_radius_default_m", 1.6)), "area_radius_default_m 1.6 is above area_radius_max_m 1.5"),
+            "a default duration above its max": (self.glow(lambda a: a.update(duration_default_s=500, duration_max_s=400)), "duration_default_s 500 is above duration_max_s 400"),
+            "a duplicate capability": (second(lambda a: a.__setitem__("display_name", "Glow again")), "capability 'glow' appears more than once"),
+            "a duplicate category": (second(lambda a: a.__setitem__("capability", "lantern")), "category 'light' appears more than once"),
+        }
+        for label, (mutate, fragment) in refused.items():
+            with self.subTest(label):
+                problems = self.problems(mutate)
+                self.assertTrue(any(fragment in p for p in problems), problems)
+
+    def test_a_pack_lives_at_its_versioned_path(self):
+        self.assertTrue(any("rules/<rules_id>/v<rules_version>.json" in p for p in self.problems(lambda d: None, ("other_rules", "v1.json"))))
+        self.assertTrue(any("rules/<rules_id>/v<rules_version>.json" in p for p in self.problems(lambda d: None, ("storybook_wild", "v2.json"))))
+
+    def test_the_command_line_validates_a_pack(self):
+        def run(path):
+            return subprocess.run([sys.executable, "-I", str(CONTRACTS / "validate.py"), str(path)], capture_output=True, text=True)
+        good = run(STORYBOOK_WILD)
+        self.assertEqual(good.returncode, 0, good.stdout + good.stderr)
+        self.problems(self.glow(lambda a: a.__setitem__("max_active", 9)))
+        bad = run(Path(self.temporary.name) / "rules" / "storybook_wild" / "v1.json")
+        self.assertEqual(bad.returncode, 1, bad.stdout + bad.stderr)
+        self.assertIn("greater than the maximum of 8", bad.stdout)
+
+    def test_a_pack_fits_the_command_contract(self):
+        """capabilities.list can report every ability as the pack bounds it, and effect.start can carry its defaults."""
+        summaries, commands = [], []
+        for ability in self.pack["abilities"]:
+            summaries.append({"capability": ability["capability"], "category": ability["category"],
+                              "params": {k: {"min": v["min"], "max": v["max"]} for k, v in ability["params"].items()},
+                              "area_radius_max_m": ability["area_radius_max_m"], "duration_max_s": ability["duration_max_s"]})
+            commands.append({"schema": "enfractal.command", "version": 1, "action_id": "glow-0001", "room_id": "test_room", "op": "effect.start",
+                             "args": {"capability": ability["capability"],
+                                      "params": {k: v["default"] for k, v in ability["params"].items()},
+                                      "area": {"center_m": [0.0, 0.1, 0.0], "radius_m": ability["area_radius_default_m"]},
+                                      "duration_s": ability["duration_default_s"], "targets": ["avatar:companion"]}})
+        result = {"schema": "enfractal.result", "version": 1, "ok": True, "op": "capabilities.list", "query_id": "q-0001",
+                  "principal": "companion:local", "room_id": "test_room", "revision": 0, "replayed": False, "preview": False,
+                  "data": {"items": summaries}, "at_utc": "2026-10-10T00:00:00Z"}
+        self.assertEqual(validate.schema_errors(result), [])
+        for command in commands:
+            self.assertEqual(validate.schema_errors(command), [])
 
 
 if __name__ == "__main__":

@@ -1,0 +1,29 @@
+{
+  "schema": "enfractal.island_rules",
+  "version": 1,
+  "rules_id": "storybook_wild",
+  "rules_version": 1,
+  "display_name": "Storybook wild",
+  "description": "The first island rules: storybook nature magic.",
+  "status": "draft",
+  "magic_word": "magic",
+  "abilities": [
+    {
+      "capability": "glow",
+      "category": "light",
+      "primitive": "light.emit",
+      "display_name": "Glow",
+      "cast_by": ["player", "companion"],
+      "tier": "auto",
+      "targets": ["self", "point"],
+      "reach_m": 2.0,
+      "params": { "intensity": { "min": 0.2, "max": 1.0, "default": 0.6 } },
+      "area_radius_default_m": 0.6,
+      "area_radius_max_m": 1.5,
+      "duration_default_s": 300,
+      "duration_max_s": 600,
+      "max_active": 3
+    }
+  ],
+  "extensions": {}
+}
