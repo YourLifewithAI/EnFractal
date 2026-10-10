@@ -39,7 +39,8 @@ from .canonical import CanonicalJsonError
 from .contract import (COMMAND_SCHEMA, CONTRACT_VERSION, PACKAGE_DIR, QUERY_SCHEMA, Contracts, ToolSpec, dumps_compact,
                        find_forbidden_key, is_authority_key, value_problems)
 from .link import LinkClient, LinkError, SessionInfo, default_session_path
-from .refusals import HostError, base_result, failure, forbidden_key_error, map_schema_errors, value_error
+from .refusals import (HostError, base_result, effect_args_error, failure, forbidden_key_error, map_schema_errors,
+                       value_error)
 
 log = logging.getLogger("enfractal.companion")
 
@@ -239,7 +240,10 @@ class Adapter:
                 field_path="$", allowed=limit, actual=size))
         errors = list(self.contracts.iter_errors(message))
         if errors:
-            return skeleton, self._refusal(message, map_schema_errors(errors))
+            error = map_schema_errors(errors)
+            if spec.op == "effect.start":
+                error = effect_args_error(error)  # the host's codes for effect.start's arguments
+            return skeleton, self._refusal(message, error)
         for problem in self.contracts.size_problems(message):  # creation sources
             return skeleton, self._refusal(message, HostError("budget_exceeded", "The creation is larger than the size limit."))
         return message, None

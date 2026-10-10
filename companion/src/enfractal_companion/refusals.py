@@ -97,6 +97,20 @@ def map_schema_errors(errors) -> HostError:
     return HostError(code, message, field_path=textsafety.field_path(path), allowed=allowed, actual=actual)
 
 
+def effect_args_error(error: HostError) -> HostError:
+    """effect.start's arguments as the kernel host types them (its CheckArgs and CheckEffectArgs): a contract violation
+    in them is request_invalid, and every problem in params is one, at $.args.params (reserved names included)."""
+    path = error.field_path or ""
+    if error.code != "invalid_args" or not path.startswith("$.args."):
+        return error
+    if path.startswith("$.args.params"):
+        return HostError("request_invalid", "Effect parameters are bounded scalars under plain lowercase names; "
+                         "identity and authority names are refused.", field_path="$.args.params")
+    if path.startswith("$.args.area.center_m"):
+        path = "$.args.area.center_m"
+    return HostError("request_invalid", error.message, field_path=path)
+
+
 def base_result(*, principal: str, room_id: str, revision: int, at_utc: str, message: Any,
                 known_ops: frozenset[str] | tuple[str, ...]) -> dict:
     """The fields every result carries. Echoes only what is well-formed: an unknown op becomes 'invalid'."""

@@ -610,9 +610,23 @@ class AlignmentOnTheRealHost(AlignmentScenarios, RealHostCase):
 
     async def ask(self, client_or_message, message: dict | None = None) -> dict:
         client, message = (self.link, client_or_message) if message is None else (client_or_message, message)
+        # The glow scenarios send many messages: keep under the host's 30 a second.
+        pause = getattr(self, "_last_ask", 0.0) + 0.04 - time.monotonic()
+        if pause > 0:
+            await asyncio.sleep(pause)
+        self._last_ask = time.monotonic()
         result = await client.request(message)
         self.results.append(result)
         return result
+
+    async def companion_home(self) -> None:
+        """Beside the player (a come), where support.py's glow spots are in reach, in sight or hidden as named."""
+        back = await self.ask(companion_goal("come", fresh_id("come"), target="avatar:player"))
+        self.assertTrue(back["ok"], back)
+        self.assertEqual((await self.job_state(self.link, back["job_id"], 30))["state"], "succeeded")
+
+    async def wait(self, seconds: float) -> None:
+        await asyncio.sleep(seconds)
 
     async def companion_to(self, position: list[float]) -> None:
         """go_to a place has no job to poll: wait until the body has stopped near the place."""
