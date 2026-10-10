@@ -378,6 +378,54 @@
 - **The Glow round has started** ([RUN-2-GLOW.md](RUN-2-GLOW.md), the shared spec):
   - **running now:** the contract round (`run2/glow-contract`: `island-rules.schema.json` and `game/rules/storybook_wild/v1.json`) and Lane L (`run2/glow-look`: `StartGlow`/`StopGlow` and `LightLevelAt`);
   - **next:** Lane P part 1 (the host) once the contract merges, then Lane P part 2 (the HUD: the smart ask, the wheel, the new keys, the dusk moment) and Lane A (the mock host).
+- **The Glow round is built and merged** ([RUN-2-GLOW.md](RUN-2-GLOW.md); the full suite GREEN on everything combined before the push):
+  - **The contract round** (`b0e1234`):
+    - `contracts/island-rules.schema.json`, with `light.emit`'s outer limits in the schema;
+    - `game/rules/storybook_wild/v1.json` (Glow only, draft);
+    - contracts went from 65 to 73 tests.
+  - **Lane L** (`4758c4d`):
+    - `LookDirector.StartGlow`, `StopGlow` and `StopAllGlows`: a real light, a halo on the Gubble or a bobbing wisp at a spot, in the aura colour or warm white-gold;
+    - `LightLevelAt` with `DarkThreshold` 0.5: noon in the open 0.99, under an overhang at noon 0.43, dusk 0.46, moonlit night 0.32; a glow lifts a spot 0.3 m away to 0.76;
+    - look went from 1080 to 1135 checks, and `docs/look/GLOW.md` is the founder's note.
+  - **Lane P part 1** (`e388659`):
+    - the rules loader, fail-closed (`Kernel/IslandRules.cs`), with `capabilities.list` answered from the pack;
+    - `effect.start` for glow, on the Gubble or at a point within 2 m and in sight; a companion targets only its own avatar;
+    - `effect.stop`, and `goal.stop` ending the Gubble's effects (the contract's rule);
+    - `PlayerEffect`, the look hook and `CompanionAvatar.AuraColor`;
+    - the engine cap is 8 effects per room;
+    - command host went from 423 to 541 checks.
+  - **Lane A** (`b520d61`):
+    - the mock host reads the same pack and matches the host's refusals, codes and data;
+    - effects are no longer mock entities;
+    - glow scenarios run identically on the mock and the real host;
+    - the tool descriptions say what self and point mean;
+    - companion went from 631 to 661 tests.
+  - **Lane P part 2** (`04c892d`):
+    - the right button: a tap is the smart ask, a hold is the Gubble wheel (8 fixed slots by category);
+    - 1 casts Glow, Q recalls, X stops, and [ and ] turn the F4 view;
+    - the thought bubble, whose "done" waits for the host's result;
+    - the profile's colour becomes the Gubble's aura;
+    - the dusk moment: once, once more if ignored, never after a cast (`has_used_glow` in the profile);
+    - play HUD went from 140 to 216 checks.
+- **For the founder's playtest, on DiamondAge:**
+  - right-click on things (the Gubble, a log, a shady spot, open ground), and hold it for the wheel;
+  - 1 for Glow, Q, X;
+  - the glow's halo and wisp in F1 to F4 and observe;
+  - T to night for the dusk hint;
+  - customise to change the Gubble's colour (the glow follows it).
+
+  None of this could be seen in the cloud session: the glyphs, the wheel's feel (a 0.25 s hold, a 24 px flick), the bubble's placement, and whether 0.5 matches what looks dark.
+- **Lane L's question for the founder:** indoors at night with the lamps off, a moonlit patch reads 0.54, so it counts as lit. Should moonlight alone count as dark?
+- **Change requests waiting:**
+  1. **Contract (Lane A):** optional `reach_m`, `targets` and param `default` in `capability_summary`, so a model learns Glow's reach without being refused first.
+  2. **Kernel (from the HUD):** `PlayerGoal(goal, point, target)`. Until it exists, the HUD's fetch builds its own `goal.set`.
+  3. **`CommandHostSandbox.PlayerHands`:** "F sets it down…" should read its key from `PlayerControls`.
+  4. **Journal:** a host-written entry kind for the game's tips (such as `tip`, with fixed lines), so the dusk hint can go into the journal. It needs a contract change.
+  5. **Lane L:** `LookDirector.RecolorGlows()`. Today the HUD recolours the look's nodes itself.
+  6. **`CompanionAvatar`:** public `Shiver`, `Shake` and `Dim`. Today the HUD moves the drawn body's parts.
+
+  Items 5 and 6 are layering debt: one lane reaching into another's nodes.
+- **Decided by the integrator:** effects don't appear in `entities.list` (the host's behaviour; the mock now follows it). The receipt gives the id, and `effect.stop` takes `all`.
 - **Open for the founder:**
   - PR #12;
   - fire's details: burnt creations scorched or removed, fire for the player only at first;
@@ -389,14 +437,20 @@
 
 ## The next session
 
-**Glow first** (the eighth session's round; see [RUN-2-GLOW.md](RUN-2-GLOW.md)):
-- **Merge the contract round** (`run2/glow-contract`), then dispatch Lane P part 1, the host.
-- **Merge Lane L's glow** (`run2/glow-look`) once its report is checked.
-- **Then Lane P part 2 (the HUD) and Lane A.**
+**Glow is built** (see the eighth session). Next:
 - **On DiamondAge:**
   - the pinned-SDK runners on everything merged since `9eecaf0`;
-  - Lane L's glow captures;
-  - the founder's playtest of the new keys and the dusk moment.
+  - refresh the founder's installed landscape;
+  - the founder's playtest of Glow and the new keys (the list in the eighth session);
+  - Lane L's captures of the glow.
+- **The change requests above,** in one small round, after the playtest.
+- **Then the build order's step 2, the wish path** ([docs/magic/README.md](../magic/README.md), PR #12):
+  - the wish box, the host's wish queue, the link roles and `companion.say`;
+  - the wish runner (Claude Code and Codex templates first);
+  - the wish ledger's local record;
+  - the wish benchmark built from the kids' five wishes.
+
+  Check first whether the AI providers' terms allow a game's runner to drive a CLI signed in with a subscription.
 
 The seventh session's list continues:
 
