@@ -10,8 +10,8 @@ using EnFractal.Native.Sandbox;
 namespace EnFractal.Tests.Kernel;
 
 /// <summary>
-/// The second playtest's fix round, in the real room with the real look and HUD: Q and E turn the isometric view (the
-/// invention workshop that also bound them is gone), T and Shift+T step the time of day and the season through the day's
+/// The second playtest's fix round, in the real room with the real look and HUD: [ and ] turn the isometric view (Q and E
+/// were theirs until the Gubble's keys arrived), T and Shift+T step the time of day and the season through the day's
 /// own light and the solstices and equinoxes and end back on the real clock, the HUD says what the clock is, and the
 /// companion's name tag is drawn solid so depth of field and temporal anti-aliasing cannot blur it. Keys are handed to the
 /// HUD as the engine would hand them; nothing here needs a window, so it runs headless like the other room tests.
@@ -20,6 +20,9 @@ public partial class PlayHudTest : Node
 {
     /// <summary>The room's saves for this suite: the hand keys keep durable receipts, so they never touch the player's own saves.</summary>
     private const string HudSaves = "user://tests/play_hud/saves";
+    /// <summary>The suite's own player profile, so it never touches the player's: written before the room boots, with the Gubble's colour 3.</summary>
+    private const string HudProfile = "user://tests/play_hud/profile/avatar_profile_v1.cfg";
+    private const int ProfileGubbleColour = 3;
     private int _checks;
     private int _failures;
     private RoomWorld _world = null!;
@@ -31,6 +34,8 @@ public partial class PlayHudTest : Node
         {
             RemoveSaves();
             CommandHost.SaveRoot = HudSaves;
+            RoomHud.ProfilePath = HudProfile;
+            WriteProfile(new Godot.Collections.Dictionary { ["version"] = 1, ["player_color"] = 0, ["companion_color"] = ProfileGubbleColour, ["companion_name"] = "the Gubble" });
             _world = GD.Load<PackedScene>("res://scenes/room.tscn").Instantiate<RoomWorld>();
             AddChild(_world);
             for (var i = 0; i < 900 && !_world.WorldReady && _world.LoadError.Length == 0; i++) await Frames(1);
@@ -52,10 +57,21 @@ public partial class PlayHudTest : Node
             await TestHelpFollowsMap();
             await TestRemappedKeys();
             await TestHandKeys();
+            await TestGubbleReady();
+            TestAuraFromProfile();
+            TestDuskLogic();
+            await TestDuskInRoom();
+            await TestGubbleKeys();
+            await TestSmartAsk();
+            await TestWheel();
+            await TestAcknowledgement();
+            await TestAuraRecolours();
+            await TestProfileField();
 
             CommandHost.SaveRoot = CommandHost.DefaultSaveRoot;
+            RoomHud.ProfilePath = RoomHud.DefaultProfilePath;
             RemoveSaves();
-            GD.Print($"NATIVE_KERNEL_PLAY_HUD: {_checks - _failures}/{_checks} checks passed; every key is a named input action with today's default and the help reads them (a remapped key changes both what it does and what the help shows), H folds the help, Q and E turn the isometric view, T and Shift+T step the time of day and the season back to the real clock, the companion's solid name tag stays small and hides near the camera, and F and V pick up, carry, set down on the box and push");
+            GD.Print($"NATIVE_KERNEL_PLAY_HUD: {_checks - _failures}/{_checks} checks passed; every key is a named input action with the Glow round's defaults and the help reads them (a remapped key changes both what it does and what the help shows), H folds the help, [ and ] turn the isometric view, T and Shift+T step the time of day and the season back to the real clock, the companion's solid name tag stays small and hides near the camera, F and V pick up, carry, set down on the box and push, the right button's tap asks what fits the frozen aim and its hold opens the wheel, 1 casts Glow, Q recalls, X stops, the Gubble's bubble answers with the host's result, its glow takes its colour, and the dusk moment teaches Glow once");
             GetTree().Quit(_failures == 0 ? 0 : 1);
         }
         catch (Exception error)
@@ -69,16 +85,20 @@ public partial class PlayHudTest : Node
 
     // ---- The controls are input actions (game/project.godot, [input]) ----
 
-    /// <summary>Today's bindings, written out here on purpose: the map must hold exactly these until the founder changes a default.</summary>
+    /// <summary>
+    /// Today's bindings (the magic design's "The keys", step 2), written out here on purpose: the map must hold exactly these until
+    /// the founder changes a default. Enter is kept for the wish box: nothing is on it.
+    /// </summary>
     private static readonly (string Action, Key Key, bool Shift)[] DefaultKeys =
     {
         ("move_forward", Key.W, false), ("move_back", Key.S, false), ("move_left", Key.A, false), ("move_right", Key.D, false),
         ("move_sprint", Key.Shift, false), ("move_dive", Key.Ctrl, false), ("jump", Key.Space, false),
         ("body_recover", Key.R, false), ("body_home", Key.B, false),
         ("view_eye", Key.F1, false), ("view_shoulder", Key.F2, false), ("view_diorama", Key.F3, false), ("view_iso", Key.F4, false),
-        ("view_observe", Key.O, false), ("iso_turn_left", Key.Q, false), ("iso_turn_right", Key.E, false),
-        ("gubble_follow", Key.Key1, false), ("gubble_stay", Key.Key2, false), ("gubble_come", Key.Key3, false),
-        ("gubble_stop", Key.Key4, false), ("gubble_point", Key.Key5, false),
+        ("view_observe", Key.O, false), ("iso_turn_left", Key.Bracketleft, false), ("iso_turn_right", Key.Bracketright, false),
+        ("gubble_recall", Key.Q, false), ("gubble_stop", Key.X, false),
+        ("gubble_slot_1", Key.Key1, false), ("gubble_slot_2", Key.Key2, false), ("gubble_slot_3", Key.Key3, false),
+        ("gubble_slot_4", Key.Key4, false), ("gubble_slot_5", Key.Key5, false),
         ("hands", Key.F, false), ("push", Key.V, false),
         ("physics_next", Key.G, false), ("time_step", Key.T, false), ("season_step", Key.T, true), ("lamps", Key.L, false),
         ("hud_help", Key.H, false), ("hud_customize", Key.C, false), ("mouse_release", Key.Escape, false),
@@ -173,15 +193,18 @@ public partial class PlayHudTest : Node
         SaveMap();
         try
         {
-            // The map holds today's keys exactly, and nothing else but the mouse's three.
+            // The map holds today's keys exactly, and nothing else but the mouse's four.
             var wrong = DefaultKeys.Where(row =>
                 InputMap.ActionGetEvents(row.Action) is not { Count: 1 } events || events[0] is not InputEventKey key ||
                 key.PhysicalKeycode != row.Key || key.Keycode != Key.None || key.GetModifiersMask() != (row.Shift ? KeyModifierMask.MaskShift : 0)).Select(row => row.Action).ToArray();
             Check(wrong.Length == 0, "every key action is bound to today's physical key, with only the modifiers it had: " + string.Join(", ", wrong));
             Check(Signature("mouse_capture") == "mouse Left mods 0" && Signature("view_zoom_in") == "mouse WheelUp mods 0" && Signature("view_zoom_out") == "mouse WheelDown mods 0",
                 "the left button captures the mouse and the wheel zooms: both are actions too");
+            Check(Signature("gubble_ask") == "mouse Right mods 0", "the right button is the Gubble's ask (tap) and wheel (hold): " + Signature("gubble_ask"));
+            Check(!PlayerControls.MapActions().Any(a => InputMap.ActionGetEvents(a).Any(e => e is InputEventKey { PhysicalKeycode: Key.Enter or Key.KpEnter } || e is InputEventKey { Keycode: Key.Enter or Key.KpEnter })),
+                "Enter is kept free for the wish box: no action is on it");
             var mapped = PlayerControls.MapActions().ToArray();
-            var named = DefaultKeys.Select(row => row.Action).Concat(new[] { "mouse_capture", "view_zoom_in", "view_zoom_out" }).Order().ToArray();
+            var named = DefaultKeys.Select(row => row.Action).Concat(new[] { "mouse_capture", "view_zoom_in", "view_zoom_out", "gubble_ask" }).Order().ToArray();
             Check(mapped.SequenceEqual(named), $"the map holds exactly the {named.Length} controls (no more, no fewer): {string.Join(", ", mapped.Except(named).Concat(named.Except(mapped)))}");
             var specs = PlayerControls.Specs.Select(spec => spec.Action.ToString()).Order().ToArray();
             var constants = typeof(Act).GetFields().Where(f => f.FieldType == typeof(StringName)).Select(f => f.GetValue(null)!.ToString()!).Order().ToArray();
@@ -246,16 +269,17 @@ public partial class PlayHudTest : Node
                 "H keys",
                 $"WASD move · Shift run · Space jump · B back to {home} · R recover · click to look · Esc release",
                 "Climb: keep walking into a steep face, W up, S down, A/D across, Space lets go · Swim: deep water floats you, Space leaps · Dive: hold Ctrl, Space rises, W swims the way you look, let go to drift up",
-                "1 follow · 2 wait · 3 come · 4 stop · 5 point: the Gubble floats after you, over water and up cliffs",
-                "F1 eye · F2 shoulder · F3 diorama: mouse orbits, wheel zooms, WASD follows the view · F4 isometric: Q/E turn the view",
+                "right-click asks the Gubble what fits where you aim (wait or follow, fetch, light the dark, go and look); hold it for the wheel · Q come, then follow · X stop",
+                "1 Glow: where you aim in the dark, else on the Gubble · 2/3/4/5 magic still to come · the Gubble floats after you, over water and up cliffs",
+                "F1 eye · F2 shoulder · F3 diorama: mouse orbits, wheel zooms, WASD follows the view · F4 isometric: [/] turn the view",
                 "O observe (a very tight tilt-shift view, best from F3 or F4) · C customize",
                 "F pick up what you face · F again sets it down in front of you, or on top of what you face (the box, the book) · V push what you face 10 cm",
                 "Testing",
                 "G gravity · T time of day · Shift+T season (each steps round to the real clock) · L lamps",
             };
             var lines = HelpLines();
-            Check(lines.SequenceEqual(expected), "with the default keys the help says what it said before, the testing toggles (G, T, Shift+T, L) now under a \"Testing\" heading:\n" + string.Join("\n", lines.Except(expected)));
-            Check(ButtonTexts("CompanionActions").SequenceEqual(new[] { "1 Follow", "2 Wait", "3 Come", "4 Stop", "5 Point", "Customize" }) &&
+            Check(lines.SequenceEqual(expected), "with the default keys the help names the new keys (the Gubble's ask, Q, X, 1 to 5, [ and ]), the testing toggles (G, T, Shift+T, L) under a \"Testing\" heading:\n" + string.Join("\n", lines.Except(expected)));
+            Check(ButtonTexts("CompanionActions").SequenceEqual(new[] { "Follow", "Wait", "Q Come", "X Stop", "1 Glow", "Customize" }) &&
                 ButtonTexts("HandActions").SequenceEqual(new[] { "F Pick up / put down", "V Push" }), "and so do the buttons of the top panel");
             var state = ((Label)_hud.FindChild("State", true, false)!).Text;
             Check(state.Contains(" (G)", StringComparison.Ordinal) && _hud.ClockText().Contains("real clock (T)", StringComparison.Ordinal) && _hud.ClockText().Contains("real date (Shift+T)", StringComparison.Ordinal),
@@ -267,6 +291,7 @@ public partial class PlayHudTest : Node
                 Key.F13, Key.F14, Key.F15, Key.F16, Key.F17, Key.F18, Key.F19, Key.F20, Key.F21, Key.F22, Key.F23, Key.F24,
                 Key.Kp0, Key.Kp1, Key.Kp2, Key.Kp3, Key.Kp4, Key.Kp5, Key.Kp6, Key.Kp7, Key.Kp8, Key.Kp9,
                 Key.KpAdd, Key.KpSubtract, Key.KpMultiply, Key.KpDivide, Key.KpPeriod, Key.KpEnter, Key.Insert, Key.Delete, Key.Pause, Key.Pageup, Key.Pagedown,
+                Key.Home, Key.End, Key.Numlock, Key.Scrolllock,
             };
             var actions = PlayerControls.Specs.Select(spec => spec.Action).ToArray();
             Check(pool.Length >= actions.Length, "enough spare keys to give every control its own");
@@ -278,7 +303,11 @@ public partial class PlayHudTest : Node
             Check(missing.Length == 0, $"the help lists every one of the {own.Length} controls with its current key: missing {string.Join(", ", missing)}");
             Check(!text.Contains("WASD", StringComparison.Ordinal) && !text.Contains("Shift+T", StringComparison.Ordinal) && !text.Contains("Esc", StringComparison.Ordinal) && !text.Contains("click", StringComparison.Ordinal),
                 "and none of the old keys is left in it");
-            Check(ButtonTexts("CompanionActions")[0] == $"{own.First(o => o.Action == Act.GubbleFollow).Name} Follow", "the top panel's buttons follow the map too");
+            Check(ButtonTexts("CompanionActions")[2] == $"{own.First(o => o.Action == Act.GubbleRecall).Name} Come", "the top panel's buttons follow the map too");
+            Check(_hud.DuskHintLabel.Text == $"{own.First(o => o.Action == Act.GubbleSlot1).Name} or {own.First(o => o.Action == Act.GubbleAsk).Name}: Light!", "and so does the dusk hint: " + _hud.DuskHintLabel.Text);
+            Check(SandboxControls.FocusWords.PickUpOrPush == $"{own.First(o => o.Action == Act.Hands).Name} pick up · {own.First(o => o.Action == Act.Push).Name} push" &&
+                string.Format(SandboxControls.FocusWords.SetOn, "A", "B") == $"{own.First(o => o.Action == Act.Hands).Name} set A on B",
+                "and so do the focus tag's words (the hand keys F and V were written into them)");
             var ownLabels = actions.Select(a => (Action: a, Label: PlayerControls.Label(a))).ToArray();
             Check(own.All(o => ownLabels.First(l => l.Action == o.Action).Label == o.Name), "Label(action) is the action's current key, named as the engine names it");
             RestoreMap();
@@ -298,23 +327,22 @@ public partial class PlayHudTest : Node
         try
         {
             // A companion key: the default does it, then the same action on another key does it and the old key does not.
-            _hud._UnhandledInput(Press(Key.Key2));
-            Check(companion.CurrentIntent == "stay", "the Gubble waits (2)");
-            _hud._UnhandledInput(Press(Key.Key1));
-            Check(companion.CurrentIntent == "follow", "1 sends it following");
-            _hud._UnhandledInput(Press(Key.Key2));
-            Bind(Act.GubbleFollow, Key.J);
+            _hud._UnhandledInput(Press(Key.Q));
+            Check(companion.CurrentIntent == "come", "Q calls the Gubble (come)");
+            _hud._UnhandledInput(Press(Key.X));
+            Check(companion.CurrentIntent == "stop", "X stops it");
+            _hud._UnhandledInput(Press(Key.Q));
+            Bind(Act.GubbleStop, Key.J);
             await Frames(2);
-            _hud._UnhandledInput(Press(Key.Key1));
-            Check(companion.CurrentIntent == "stay", "with follow on J, 1 does nothing");
+            _hud._UnhandledInput(Press(Key.X));
+            Check(companion.CurrentIntent != "stop", "with stop on J, X does nothing");
             _hud._UnhandledInput(Press(Key.J));
-            Check(companion.CurrentIntent == "follow", "J sends it following");
-            var echo = Press(Key.Key2); echo.Echo = true;
+            Check(companion.CurrentIntent == "stop", "J stops it");
+            var echo = Press(Key.Q); echo.Echo = true;
             _hud._UnhandledInput(echo);
-            Check(companion.CurrentIntent == "follow", "a held key repeating (echo) does not count as a press");
-            _hud._UnhandledInput(Press(Key.Key2));
-            Check(HelpLines().Any(l => l.StartsWith("J follow · 2 wait · 3 come", StringComparison.Ordinal)) && ButtonTexts("CompanionActions")[0] == "J Follow",
-                "and the help and the button say J follow");
+            Check(companion.CurrentIntent == "stop", "a held key repeating (echo) does not count as a press");
+            Check(HelpLines().Any(l => l.EndsWith("Q come, then follow · J stop", StringComparison.Ordinal)) && ButtonTexts("CompanionActions")[3] == "J Stop",
+                "and the help and the button say J stop");
             RestoreMap();
 
             // Time of day: T moves to Y, and Shift+T is still the season.
@@ -335,14 +363,14 @@ public partial class PlayHudTest : Node
             Check(_hud.TimeStop == -1 && _hud.SeasonStop == -1 && look.ClockNote.StartsWith("real clock, real calendar", StringComparison.Ordinal), "both stepped round to the real clock again");
             RestoreMap();
 
-            // Q and E (here Z and X) belong to F4 alone, wherever they are bound.
+            // [ and ] (here Z) belong to F4 alone, wherever they are bound.
             Bind(Act.IsoTurnLeft, Key.Z);
             _hud.SetViewMode(3);
             var yaw = _hud.IsoYaw;
-            _hud._UnhandledInput(Press(Key.Q));
-            Check(Mathf.IsEqualApprox(yaw, _hud.IsoYaw), "with the left turn on Z, Q turns nothing in F4");
+            _hud._UnhandledInput(Press(Key.Bracketleft));
+            Check(Mathf.IsEqualApprox(yaw, _hud.IsoYaw), "with the left turn on Z, [ turns nothing in F4");
             _hud._UnhandledInput(Press(Key.Z));
-            Check(Mathf.Abs(Mathf.AngleDifference(yaw, _hud.IsoYaw) + Mathf.Pi / 2) < 0.001f, "Z turns the view the way Q did");
+            Check(Mathf.Abs(Mathf.AngleDifference(yaw, _hud.IsoYaw) + Mathf.Pi / 2) < 0.001f, "Z turns the view the way [ did");
             _hud.SetViewMode(1);
             yaw = _hud.IsoYaw;
             _hud._UnhandledInput(Press(Key.Z));
@@ -482,6 +510,431 @@ public partial class PlayHudTest : Node
         Check(!litOnTheWay, "during the fade home nothing is lit and the tag is gone");
     }
 
+    // ---- The Glow round: the Gubble's keys, the smart ask, the wheel, the bubble, the aura and the dusk moment ----
+
+    private static InputEventMouseButton RightButton(bool pressed) => new() { ButtonIndex = MouseButton.Right, Pressed = pressed };
+
+    private static InputEventMouseMotion Motion(Vector2 relative) => new() { Relative = relative };
+
+    /// <summary>A tap of the ask button: down and up at once, the pointer still.</summary>
+    private void Tap()
+    {
+        _hud._UnhandledInput(RightButton(true));
+        _hud._UnhandledInput(RightButton(false));
+    }
+
+    /// <summary>A ray straight down onto a spot, from 30 cm above it.</summary>
+    private static (Vector3, Vector3) Down(Vector3 spot) => (spot + Vector3.Up * 0.3f, spot + Vector3.Down * 0.3f);
+
+    /// <summary>A ray that meets nothing: 1 cm of air in front of the player's eye.</summary>
+    private (Vector3, Vector3) Air()
+    {
+        var eye = _world.Player.EyeCamera.GlobalPosition;
+        return (eye, eye + Vector3.Up * 0.01f);
+    }
+
+    /// <summary>The ray from the player's eye through the Gubble's middle.</summary>
+    private (Vector3, Vector3) AtGubble()
+    {
+        var companion = _world.Companion;
+        var middle = companion.GlobalPosition + Vector3.Up * (companion.BodyHeightM * 0.5f);
+        var eye = _world.Player.EyeCamera.GlobalPosition;
+        return (eye, eye + (middle - eye).Normalized() * 3f);
+    }
+
+    /// <summary>
+    /// A spot near the Gubble, at least metres from it, that a tap would not fetch: the floor, or a thing on it that is not
+    /// carryable (the Gubble waits on the rug, which is). Nearest first, eight ways round, within Glow's 2 m.
+    /// </summary>
+    private Vector3 FloorNearGubble(float metres)
+    {
+        var host = CommandHost.Of(_world)!;
+        var at = _world.Companion.GlobalPosition;
+        var candidates = new[] { 0f, 0.15f, 0.35f, 0.6f, 0.9f, 1.2f }.SelectMany(extra => Enumerable.Range(0, 8).Select(i =>
+            at + new Vector3(Mathf.Sin(i * Mathf.Pi / 4), 0, Mathf.Cos(i * Mathf.Pi / 4)) * (metres + extra)));
+        foreach (var spot in candidates)
+        {
+            _hud.AimRayForTests = (spot + Vector3.Up * 0.3f, spot + Vector3.Down * 0.5f);
+            var aim = _hud.AimNow();
+            // The floor, or a thing lying on it that is not carryable (the rug the Gubble waits on).
+            if (aim.Hit && !aim.AtGubble && _hud.DecideAsk(aim).Rule is not (GubbleMagic.AskRule.Fetch or GubbleMagic.AskRule.Toggle) &&
+                host.Room.Bounds.HasPoint(aim.Point + Vector3.Up * 0.001f)) return aim.Point;
+        }
+        GD.Print("PLAY_HUD_INFO: no bare spot found near the Gubble at " + at);
+        return at;
+    }
+
+    /// <summary>The Gubble beside the player, waiting, nothing running, by day, aimed at nothing.</summary>
+    private async Task TestGubbleReady()
+    {
+        var host = CommandHost.Of(_world)!;
+        var companion = _world.Companion;
+        _hud.LightForTests = _ => 0.9f;
+        _hud.AimRayForTests = Air();
+        host.PlayerGoal("follow");
+        for (var i = 0; i < 600 && companion.GlobalPosition.DistanceTo(_world.Player.GlobalPosition) > 0.4f; i++) await Frames(1);
+        host.PlayerGoal("stop");
+        host.PlayerGoal("stay");
+        await Frames(10);
+        Check(companion.GlobalPosition.DistanceTo(_world.Player.GlobalPosition) <= 0.4f && host.ActiveEffectIds.Count == 0,
+            $"(the Gubble waits beside the player, {companion.GlobalPosition.DistanceTo(_world.Player.GlobalPosition):0.00} m away, no glows running)");
+    }
+
+    /// <summary>The profile's Gubble colour is its aura: the glow will take it (CompanionAvatar.SetAuraColor).</summary>
+    private void TestAuraFromProfile()
+    {
+        var companion = _world.Companion;
+        Check(companion.AppearanceColor.ToHtml(false) == "a18cc3" && companion.AuraColor is { } aura && aura.IsEqualApprox(companion.AppearanceColor) &&
+              companion.GetMeta(LookDirector.AuraColorMeta).AsColor().IsEqualApprox(aura),
+            $"the profile's companion_color ({ProfileGubbleColour}) is the Gubble's body and its aura, carried in the meta the look reads ({companion.AuraColor?.ToHtml(false)})");
+    }
+
+    /// <summary>The dusk moment's clock, alone: by day nothing; dark, it shows; ignored 20 s, once more; then it waits for the next dusk; a cast ends it.</summary>
+    private void TestDuskLogic()
+    {
+        float? level = 0.9f;
+        var dusk = new DuskMoment();
+        int shows = 0, hides = 0;
+        void Run(double seconds, bool used = false)
+        {
+            for (var t = 0; t < (int)Math.Round(seconds * 60); t++)
+            {
+                var step = dusk.Update(1.0 / 60, () => level, LookDirector.DarkThreshold, used);
+                if (step == DuskMoment.Step.Show) shows++;
+                if (step == DuskMoment.Step.Hide) hides++;
+            }
+        }
+        Run(60);
+        Check(shows == 0 && dusk.Checks is >= 239 and <= 241, $"dusk moment: by day it never shows, and the light is read four times a second ({dusk.Checks} readings in 60 s)");
+        level = 0.3f;
+        Run(1);
+        Check(shows == 1 && dusk.Showing, "the first time it is dark, the hint shows");
+        Run(DuskMoment.ShowsForS);
+        Check(hides == 1 && !dusk.Showing && shows == 1, $"it goes after {DuskMoment.ShowsForS} s, and does not come straight back");
+        Run(DuskMoment.RepeatAfterS - DuskMoment.ShowsForS);
+        Check(shows == 2 && dusk.Showing, "ignored for 20 s, it shows once more");
+        Run(60);
+        Check(shows == 2 && !dusk.Showing, "then it waits: no third time in the same dark");
+        level = 0.9f;
+        Run(1);
+        level = 0.3f;
+        Run(1);
+        Check(shows == 3 && dusk.Showing, "light, then dark again: the next dusk shows it again");
+        Run(1, used: true);
+        Check(!dusk.Showing && hides == 3, "casting Glow hides it at once");
+        for (var i = 0; i < 4; i++)
+        {
+            level = i % 2 == 0 ? 0.9f : 0.3f;
+            Run(30, used: true);
+        }
+        Check(shows == 3, "and after a cast it never shows again, through days and nights");
+        level = null;
+        var quiet = new DuskMoment();
+        for (var t = 0; t < 600; t++) quiet.Update(1.0 / 60, () => level, LookDirector.DarkThreshold, false);
+        Check(!quiet.Showing && quiet.TotalShown == 0, "without a light reading (no look) it never shows");
+    }
+
+    /// <summary>The dusk moment in the room: the hint beside the Gubble with the real keys, the shiver and the dim, and 1 ends it for good.</summary>
+    private async Task TestDuskInRoom()
+    {
+        var companion = _world.Companion;
+        _hud.ResetDuskForTests();
+        _hud.LightForTests = _ => 0.9f;
+        await Frames(30);
+        Check(!_hud.DuskHintLabel.Visible && _hud.Dusk.TotalShown == 0 && !_hud.HasUsedGlow, "by day no hint shows, and this player has never cast Glow");
+        Check(_hud.Look != null && _hud.LightAt(_world.Player.GlobalPosition) == 0.9f && (_hud.LightForTests = null) == null &&
+              _hud.LightAt(_world.Player.GlobalPosition) == _hud.Look.LightLevelAt(_world.Player.GlobalPosition), "(the HUD reads the look's LightLevelAt, unless a test says otherwise)");
+        _hud.LightForTests = _ => 0.2f;
+        await Frames(20);
+        var camera = _hud.GetViewport().GetCamera3D();
+        var beside = camera.UnprojectPosition(companion.GlobalPosition);
+        Check(_hud.DuskHintLabel.Visible && _hud.DuskHintLabel.Text == "1 or right-click: Light!" && (_hud.DuskHintLabel.Position - beside).Length() < 160,
+            $"dark at the player: one hint beside the Gubble, with the real keys: \"{_hud.DuskHintLabel.Text}\" at {_hud.DuskHintLabel.Position} (the Gubble at {beside})");
+        Check(_hud.Cue.Dimmed && _hud.Cue.LastGesture == GubbleCue.Gesture.Shiver && _hud.Cue.Icon == GubbleMagic.SlotIcons[0],
+            "the Gubble shivers and dims, a sun in its thought bubble");
+        _hud.AimRayForTests = Air();
+        _hud._UnhandledInput(Press(Key.Key1));
+        await Frames(2);
+        Check(_hud.HasUsedGlow && !_hud.DuskHintLabel.Visible && !_hud.Cue.Dimmed, "1 casts Glow: the hint goes and the Gubble brightens");
+        Check(ProfileValue("has_used_glow").VariantType == Variant.Type.Bool && ProfileValue("has_used_glow").AsBool() && ProfileValue("companion_color").AsInt32() == ProfileGubbleColour,
+            "the profile keeps has_used_glow, and the rest of it as it was saved");
+        _hud.LightForTests = _ => 0.9f;
+        await Frames(30);
+        _hud.LightForTests = _ => 0.2f;
+        await Frames(60);
+        Check(!_hud.DuskHintLabel.Visible && _hud.Dusk.TotalShown == 1, "and it never shows again, the next dusk included");
+        _hud._UnhandledInput(Press(Key.X));
+        _hud.LightForTests = _ => 0.9f;
+    }
+
+    /// <summary>The new default keys: 1 Glow on the Gubble by day, X stop (ending the glows), 2 to 5 shrug, Q come then follow.</summary>
+    private async Task TestGubbleKeys()
+    {
+        var host = CommandHost.Of(_world)!;
+        var companion = _world.Companion;
+        var look = _world.Look;
+        _hud.LightForTests = _ => 0.9f;
+        _hud.AimRayForTests = Air();
+        _hud._UnhandledInput(Press(Key.Key1));
+        var ids = host.ActiveEffectIds;
+        Check(ids.Count == 1 && look.GlowRoot(ids[0]) is { } halo && halo.GetNodeOrNull("Core") == null && look.GlowCount == 1,
+            "1 casts Glow on the Gubble itself (a halo that follows it) when the aim is not a dark spot");
+        _hud._UnhandledInput(Press(Key.X));
+        Check(host.ActiveEffectIds.Count == 0 && look.GlowCount == 0 && companion.CurrentIntent == "stop", "X stops the Gubble and ends its glows (goal.stop)");
+        foreach (var key in new[] { Key.Key2, Key.Key3, Key.Key4, Key.Key5 })
+        {
+            var receipts = host.TransientReceiptCount(CommandHost.PlayerPrincipal);
+            _hud._UnhandledInput(Press(key));
+            Check(_hud.Cue.State == "shrug" && _hud.Cue.Reason == GubbleMagic.NotYet && _hud.Cue.LastGesture == GubbleCue.Gesture.Shrug &&
+                  host.TransientReceiptCount(CommandHost.PlayerPrincipal) == receipts && host.ActiveEffectIds.Count == 0,
+                $"{OS.GetKeycodeString(key)}: a slot this island has no ability for shrugs \"not yet\" and sends nothing");
+        }
+        _hud._UnhandledInput(Press(Key.Q));
+        Check(companion.CurrentIntent == "come", "Q calls the Gubble (come)");
+        var followed = false;
+        for (var i = 0; i < 600 && !followed; i++)
+        {
+            await Frames(1);
+            followed = companion.CurrentIntent == "follow";
+        }
+        Check(followed, "and once beside the player it follows: the recall");
+        _hud._UnhandledInput(Press(Key.X));
+        _hud._UnhandledInput(Press(Key.Q));
+        _hud._UnhandledInput(Press(Key.X));
+        await Frames(60);
+        Check(companion.CurrentIntent == "stop", "a newer order (X) cancels the recall's follow");
+    }
+
+    /// <summary>Each smart-ask rule, the first match winning, the reticle's tag before the press, and the target frozen at the press.</summary>
+    private async Task TestSmartAsk()
+    {
+        var host = CommandHost.Of(_world)!;
+        var companion = _world.Companion;
+        _hud.LightForTests = _ => 0.9f;
+        host.PlayerGoal("stay");
+        // 1. Aimed at the Gubble: switch stay and follow.
+        _hud.AimRayForTests = AtGubble();
+        await Frames(10);
+        Check(_hud.AskPreview.Rule == GubbleMagic.AskRule.Toggle && _hud.AskTag.Visible && _hud.AskTag.Text == "right-click: → follow me",
+            $"aimed at the Gubble while it waits, the reticle's tag says a tap will ask it to follow: \"{_hud.AskTag.Text}\"");
+        Tap();
+        Check(companion.CurrentIntent == "follow", "a tap on the Gubble: it follows");
+        _hud.AimRayForTests = AtGubble();
+        Tap();
+        Check(companion.CurrentIntent == "stay", "another tap on it: it waits");
+        // 2. Aimed at a carryable thing: fetch it, the target frozen at the press.
+        var door = SandboxControls.Box(Entity(host, "obj:doorstop"));
+        _hud.AimRayForTests = Down(new Vector3(door.GetCenter().X, door.End.Y, door.GetCenter().Z));
+        await Frames(10);
+        Check(_hud.AskPreview.Rule == GubbleMagic.AskRule.Fetch && _hud.AskPreview.Target == "obj:doorstop" && _hud.AskTag.Text == "right-click: ✋ fetch it",
+            $"aimed at the doorstop, a tap will fetch it; the tag names no thing: \"{_hud.AskTag.Text}\"");
+        _hud.LightForTests = _ => 0.2f;
+        Check(_hud.DecideAsk(_hud.AimNow()).Rule == GubbleMagic.AskRule.Fetch, "a carryable thing in the dark is still fetched: the first rule that matches wins");
+        _hud.LightForTests = _ => 0.9f;
+        _hud._UnhandledInput(RightButton(true));
+        var floor = FloorNearGubble(0.3f);
+        _hud.AimRayForTests = Down(floor);
+        _hud._UnhandledInput(RightButton(false));
+        Check(host.RunningGoal(CommandHost.CompanionAvatarId) is { } fetch && fetch.Goal == "fetch" && fetch.Target == "obj:doorstop",
+            "the target froze at the press: the aim moved to the floor before the release, and the Gubble still goes to fetch the doorstop");
+        await Frames(3);
+        Check(_hud.Cue.State == "thinking" && _hud.Cue.Icon == GubbleMagic.FetchIcon, "and its bubble waits for the job: no \"done\" on the receipt alone");
+        _hud._UnhandledInput(Press(Key.X));
+        await Frames(2);
+        Check(host.RunningGoal(CommandHost.CompanionAvatarId) == null && host.HeldBy(CommandHost.CompanionAvatarId) == null, "(X calls the fetch off)");
+        // 3. A dark spot within Glow's reach: glow there (a wisp at the spot).
+        _hud.LightForTests = _ => 0.2f;
+        floor = FloorNearGubble(0.3f);
+        _hud.AimRayForTests = Down(floor);
+        await Frames(10);
+        Check(_hud.AskPreview.Rule == GubbleMagic.AskRule.Glow && _hud.AskTag.Text == "right-click: ☀ glow there", $"aimed at a dark spot near the Gubble, a tap will light it: \"{_hud.AskTag.Text}\"");
+        Tap();
+        var ids = host.ActiveEffectIds;
+        Check(ids.Count == 1 && _world.Look.GlowRoot(ids[0])?.GetNodeOrNull("Core") != null && _hud.Cue.State == "done",
+            $"a tap lights it: a wisp floats at the spot ({_hud.Cue.State}: {_hud.Cue.Reason})");
+        var far = _world.Companion.GlobalPosition + Vector3.Right * 3f;
+        Check(_hud.DecideAsk(new GubbleMagic.Aim(true, far, null, false)).Rule == GubbleMagic.AskRule.Look, "a dark spot beyond Glow's reach (2 m): go and look instead");
+        _hud._UnhandledInput(Press(Key.X));
+        // 4. Otherwise: go and look there (the old point order, aimed).
+        _hud.LightForTests = _ => 0.9f;
+        floor = FloorNearGubble(0.35f);
+        _hud.AimRayForTests = Down(floor);
+        await Frames(10);
+        Check(_hud.AskPreview.Rule == GubbleMagic.AskRule.Look && _hud.AskTag.Text == "right-click: ◎ go and look", $"by day, aimed at the floor: go and look: \"{_hud.AskTag.Text}\"");
+        Tap();
+        Check(companion.CurrentIntent == "go_to", "a tap sends the Gubble there");
+        var pointed = false;
+        for (var i = 0; i < 600 && !pointed; i++)
+        {
+            await Frames(1);
+            pointed = companion.CurrentIntent == "point";
+        }
+        Check(pointed && companion.IsPointing && companion.LookTarget.DistanceTo(floor) < 0.01f && _hud.Cue.State == "done", "and there it looks and points at the spot (point is reachable)");
+        // Nothing hit: nothing to ask.
+        _hud.AimRayForTests = Air();
+        await Frames(10);
+        var intent = companion.CurrentIntent;
+        Check(_hud.AskPreview.Rule == GubbleMagic.AskRule.None && !_hud.AskTag.Visible, "aimed at nothing, the reticle offers nothing");
+        Tap();
+        Check(companion.CurrentIntent == intent && _hud.Cue.State == "shrug", "and a tap there only shrugs");
+        _hud._UnhandledInput(Press(Key.X));
+    }
+
+    /// <summary>The wheel: a flick picks before it is drawn, a hold opens it and pauses, the centre cancels, a wedge is chosen on release, "?" shrugs.</summary>
+    private async Task TestWheel()
+    {
+        var host = CommandHost.Of(_world)!;
+        var companion = _world.Companion;
+        _hud.LightForTests = _ => 0.9f;
+        _hud.AimRayForTests = Down(FloorNearGubble(0.3f));
+        host.PlayerGoal("follow");
+        _hud._UnhandledInput(RightButton(true));
+        _hud._UnhandledInput(Motion(new Vector2(60, 4)));
+        var drawn = _hud.Wheel.Open;
+        _hud._UnhandledInput(RightButton(false));
+        Check(!drawn && companion.CurrentIntent == "stay" && !GetTree().Paused, "a flick right and release picks Stay before the wheel is even drawn");
+        _hud._UnhandledInput(RightButton(true));
+        await Frames(4);
+        Check(!_hud.Wheel.Open && !GetTree().Paused, "a short hold has not opened it yet");
+        await Frames(20);
+        Check(_hud.Wheel.Open && _hud.Wheel.Visible && GetTree().Paused, "held, the wheel opens and the game pauses");
+        var labels = _hud.Wheel.WedgeLabels.Select(l => l.Text).ToArray();
+        Check(labels[0] == "☀\n1 Glow" && labels[2] == "‖\nStay" && labels[5] == "✋\nFetch" && labels[6] == "↩\nCome (Q)",
+            "Glow is up (the pack's light ability, its display_name), Stay right, Fetch lower left, Come left: " + string.Join(" | ", labels).Replace("\n", " "));
+        Check(new[] { 1, 3, 4, 7 }.All(i => labels[i] == "?" && _hud.Wheel.WedgeLabels[i].Modulate.A < 0.5f),
+            "Fireworks, Bloom, Build and Bubbles, which this island lacks, are a dim \"?\" in their fixed places");
+        var intent = companion.CurrentIntent;
+        var effects = host.ActiveEffectIds.Count;
+        _hud._UnhandledInput(Motion(new Vector2(6, -4)));
+        _hud._UnhandledInput(RightButton(false));
+        Check(!_hud.Wheel.Open && !GetTree().Paused && companion.CurrentIntent == intent && host.ActiveEffectIds.Count == effects,
+            "let go in the centre: it cancels, nothing is asked, the game resumes");
+        _hud._UnhandledInput(RightButton(true));
+        await Frames(20);
+        _hud._UnhandledInput(Motion(new Vector2(3, -90)));
+        Check(_hud.Wheel.Hovered == 0, "moving up hovers Glow");
+        _hud._UnhandledInput(RightButton(false));
+        Check(host.ActiveEffectIds.Count == effects + 1 && !GetTree().Paused, "held, moved to Glow and let go: the Gubble glows (the aim was not dark: on itself)");
+        _hud._UnhandledInput(RightButton(true));
+        await Frames(20);
+        _hud._UnhandledInput(Motion(new Vector2(70, 70)));
+        _hud._UnhandledInput(RightButton(false));
+        Check(_hud.Cue.State == "shrug" && _hud.Cue.Reason == GubbleMagic.NotYet && host.ActiveEffectIds.Count == effects + 1, "a \"?\" wedge (Bloom) shrugs \"not yet\" and casts nothing");
+        _hud._UnhandledInput(RightButton(true));
+        _hud._UnhandledInput(Motion(new Vector2(-60, 0)));
+        _hud._UnhandledInput(RightButton(false));
+        Check(companion.CurrentIntent is "come" or "follow", "Come (left) is the recall: " + companion.CurrentIntent);
+        _hud._UnhandledInput(RightButton(true));
+        _hud._UnhandledInput(Motion(new Vector2(-50, 50)));
+        _hud._UnhandledInput(RightButton(false));
+        Check(_hud.Cue.State == "shrug" && _hud.Cue.Reason == GubbleMagic.NothingToFetch, "Fetch (lower left) aimed at the floor: nothing to fetch, nothing sent");
+        _hud._UnhandledInput(RightButton(true));
+        await Frames(20);
+        intent = companion.CurrentIntent;
+        _hud._UnhandledInput(Press(Key.C));
+        Check(_hud.Wheel.Open && GetTree().Paused && !_hud.Customizing, "while the wheel is open the other keys wait (C opens no panel)");
+        _hud._UnhandledInput(Press(Key.Escape));
+        Check(!_hud.Wheel.Held && !_hud.Wheel.Open && !GetTree().Paused && companion.CurrentIntent == intent, "Esc cancels the wheel and resumes the game");
+        _hud._UnhandledInput(RightButton(false));
+        Check(companion.CurrentIntent == intent && !GetTree().Paused, "and the button's release after it asks nothing");
+        _hud._UnhandledInput(Press(Key.X));
+    }
+
+    /// <summary>The bubble: the icon at once, "done" on the host's result, a refusal as a head-shake with the host's reason (never a name).</summary>
+    private async Task TestAcknowledgement()
+    {
+        var host = CommandHost.Of(_world)!;
+        var companion = _world.Companion;
+        _hud.LightForTests = _ => 0.9f;
+        _hud.AimRayForTests = Air();
+        _hud._UnhandledInput(Press(Key.Key1));
+        Check(_hud.Cue.Icon == GubbleMagic.SlotIcons[0] && _hud.Cue.State == "done" && _hud.Cue.Bubble.Visible && _hud.Cue.Bubble.Text == "( ☀ ✓ )",
+            $"at once, the Gubble's thought bubble shows the ability's icon, and the host's receipt makes it done: \"{_hud.Cue.Bubble.Text}\"");
+        Check(_hud.Cue.Bubble.AlphaCut != Label3D.AlphaCutMode.Disabled && _hud.Cue.Bubble.Billboard == BaseMaterial3D.BillboardModeEnum.Enabled &&
+              _hud.Cue.Bubble.GetParent() == companion.GetNode("CompanionLabel") && _hud.Cue.LastGesture == GubbleCue.Gesture.Wiggle,
+            "drawn solid like the name tag, over it, with a happy wiggle");
+        var max = host.Rules!.Ability("glow")!.MaxActive;
+        for (var i = 0; i < max * 2 && host.ActiveEffectIds.Count < max; i++) _hud._UnhandledInput(Press(Key.Key1));
+        companion.SetDisplayName("Pip the Brave");
+        _hud._UnhandledInput(Press(Key.Key1));
+        const string reason = "As many of these are running as the island allows";
+        Check(_hud.Cue.State == "refused" && _hud.Cue.Reason == reason && _hud.Cue.ReasonLabel.Visible && _hud.Cue.ReasonLabel.Text == reason &&
+              _hud.Cue.LastGesture == GubbleCue.Gesture.Shake && _hud.Cue.Bubble.Text == "( ☀ ✕ )",
+            $"one glow more than the island allows: a head-shake and the host's reason, short, beside the bubble: \"{_hud.Cue.Reason}\"");
+        Check(!_hud.Cue.Reason.Contains("Pip", StringComparison.Ordinal) && host.ActiveEffectIds.Count == max, "the reason is the host's, never a name (the Gubble renamed Pip says the same), and nothing more was lit");
+        companion.SetDisplayName(CompanionAvatar.DefaultName);
+        Check(GubbleMagic.ShortReason("That spot is beyond the Gubble's reach; it must come closer first.") == "That spot is beyond the Gubble's reach" &&
+              GubbleMagic.ShortReason(new string('a', 90)).Length == 60 && GubbleMagic.ShortReason(null) == "can't", "a reason is cut to its first clause, at most 60 characters");
+        await Frames((int)(GubbleCue.ShowS * 60) + 20);
+        Check(!_hud.Cue.Bubble.Visible && !_hud.Cue.ReasonLabel.Visible && _hud.Cue.State == "", $"after {GubbleCue.ShowS} s the bubble clears");
+        _hud._UnhandledInput(Press(Key.X));
+    }
+
+    /// <summary>A colour change recolours a running glow at once: the same effect, the new aura.</summary>
+    private async Task TestAuraRecolours()
+    {
+        var host = CommandHost.Of(_world)!;
+        var companion = _world.Companion;
+        var look = _world.Look;
+        _hud.LightForTests = _ => 0.9f;
+        _hud.AimRayForTests = Air();
+        _hud._UnhandledInput(Press(Key.Key1));
+        _hud.LightForTests = _ => 0.2f;
+        _hud.AimRayForTests = Down(FloorNearGubble(0.3f));
+        _hud._UnhandledInput(Press(Key.Key1));
+        var ids = host.ActiveEffectIds.ToArray();
+        var before = companion.AuraColor!.Value;
+        Check(ids.Length == 2 && ids.All(id => look.GlowLight(id)!.LightColor.IsEqualApprox(GlowLook.LightColor(before))) && look.GlowRoot(ids[1])!.GetNodeOrNull("Core") != null,
+            "a halo on the Gubble and a wisp at a dark spot (1 aimed there) both take the Gubble's aura colour");
+        _hud._UnhandledInput(Press(Key.C));
+        var change = _hud.FindChildren("*", "Button", true, false).OfType<Button>().First(b => b.Text == "Change the Gubble's color");
+        change.EmitSignal(BaseButton.SignalName.Pressed);
+        _hud._UnhandledInput(Press(Key.C));
+        await Frames(2);
+        var after = companion.AuraColor!.Value;
+        var colour = GlowLook.LightColor(after);
+        bool Recoloured(string id) => look.GlowRoot(id) is { } root && look.GlowLight(id)!.LightColor.IsEqualApprox(colour) &&
+            root.GetNode<MeshInstance3D>("Halo").MaterialOverride is StandardMaterial3D halo && new Color(halo.AlbedoColor, 1).IsEqualApprox(new Color(colour, 1)) &&
+            (root.GetNodeOrNull<MeshInstance3D>("Core")?.MaterialOverride is not StandardMaterial3D core || core.Emission.IsEqualApprox(colour));
+        Check(!after.IsEqualApprox(before) && after.IsEqualApprox(companion.AppearanceColor), $"the customise panel's colour button changes the Gubble's aura with its colour ({before.ToHtml(false)} to {after.ToHtml(false)})");
+        Check(host.ActiveEffectIds.SequenceEqual(ids) && ids.All(Recoloured), "and both running glows take the new colour at once: the light, its halo, the wisp's heart, the same effects");
+        for (var i = 0; i < 4; i++) _hud.RecolourGlows();
+        // Back to the profile's colour: the palette has five.
+        _hud._UnhandledInput(Press(Key.C));
+        for (var i = 0; i < 4; i++) change.EmitSignal(BaseButton.SignalName.Pressed);
+        _hud._UnhandledInput(Press(Key.C));
+        Check(companion.AppearanceColor.ToHtml(false) == "a18cc3", "(the colour put back)");
+        _hud._UnhandledInput(Press(Key.X));
+        _hud.LightForTests = _ => 0.9f;
+    }
+
+    /// <summary>has_used_glow in the profile: a fresh HUD reading it knows; a missing or wrong-typed value is false.</summary>
+    private async Task TestProfileField()
+    {
+        Check(ProfileValue("has_used_glow").VariantType == Variant.Type.Bool && ProfileValue("has_used_glow").AsBool(), "the profile on disk says has_used_glow = true");
+        async Task<bool> Fresh()
+        {
+            var world = new Node3D();
+            AddChild(world);
+            var player = new SmallPlayerController { ReadKeyboard = false };
+            world.AddChild(player);
+            var companion = new CompanionAvatar();
+            world.AddChild(companion);
+            var hud = new RoomHud { Player = player, Companion = companion, RoomTitle = "PROFILE" };
+            world.AddChild(hud);
+            await Frames(2);
+            var used = hud.HasUsedGlow;
+            world.QueueFree();
+            await Frames(1);
+            return used;
+        }
+        Check(await Fresh(), "a new session reading that profile knows Glow was cast (the dusk moment will not show)");
+        WriteProfile(new Godot.Collections.Dictionary { ["version"] = 1, ["companion_color"] = ProfileGubbleColour, ["has_used_glow"] = "yes" });
+        Check(!await Fresh(), "a has_used_glow that is not a boolean is not believed");
+        WriteProfile(new Godot.Collections.Dictionary { ["version"] = 1, ["companion_color"] = ProfileGubbleColour });
+        Check(!await Fresh(), "and a profile without it (every profile before this round) means never cast");
+    }
+
     private static System.Text.Json.Nodes.JsonObject Entity(CommandHost host, string id) => host.Entities().First(e => e["id"]!.GetValue<string>() == id);
 
     private static Vector3 Vec(System.Text.Json.Nodes.JsonNode node) => new((float)node[0]!.GetValue<double>(), (float)node[1]!.GetValue<double>(), (float)node[2]!.GetValue<double>());
@@ -514,8 +967,25 @@ public partial class PlayHudTest : Node
 
     private static void RemoveSaves()
     {
-        var directory = ProjectSettings.GlobalizePath(HudSaves);
-        if (System.IO.Directory.Exists(directory)) System.IO.Directory.Delete(directory, true);
+        foreach (var path in new[] { HudSaves, HudProfile.GetBaseDir() })
+        {
+            var directory = ProjectSettings.GlobalizePath(path);
+            if (System.IO.Directory.Exists(directory)) System.IO.Directory.Delete(directory, true);
+        }
+    }
+
+    private static void WriteProfile(Godot.Collections.Dictionary values)
+    {
+        DirAccess.MakeDirRecursiveAbsolute(ProjectSettings.GlobalizePath(HudProfile.GetBaseDir()));
+        var config = new ConfigFile();
+        foreach (var (key, value) in values) config.SetValue("profile", key.AsString(), value);
+        config.Save(HudProfile);
+    }
+
+    private static Variant ProfileValue(string key)
+    {
+        var config = new ConfigFile();
+        return config.Load(HudProfile) == Error.Ok ? config.GetValue("profile", key, new Variant()) : new Variant();
     }
 
     private async Task TestFoldedHelp()
@@ -548,17 +1018,20 @@ public partial class PlayHudTest : Node
     {
         _hud.SetViewMode(3);
         var yaw = _hud.IsoYaw;
-        _hud._UnhandledInput(Press(Key.E));
-        Check(Mathf.Abs(Mathf.AngleDifference(yaw, _hud.IsoYaw) - Mathf.Pi / 2) < 0.001f, "E turns the isometric view a quarter turn");
-        _hud._UnhandledInput(Press(Key.Q));
-        _hud._UnhandledInput(Press(Key.Q));
-        Check(Mathf.Abs(Mathf.AngleDifference(yaw, _hud.IsoYaw) + Mathf.Pi / 2) < 0.001f, "Q turns it a quarter turn the other way");
+        _hud._UnhandledInput(Press(Key.Bracketright));
+        Check(Mathf.Abs(Mathf.AngleDifference(yaw, _hud.IsoYaw) - Mathf.Pi / 2) < 0.001f, "] turns the isometric view a quarter turn");
+        _hud._UnhandledInput(Press(Key.Bracketleft));
+        _hud._UnhandledInput(Press(Key.Bracketleft));
+        Check(Mathf.Abs(Mathf.AngleDifference(yaw, _hud.IsoYaw) + Mathf.Pi / 2) < 0.001f, "[ turns it a quarter turn the other way");
         Check(_world.Player.MovementFrameYaw is { } frame && Mathf.IsEqualApprox(frame, _hud.IsoYaw), "movement follows the turned view");
+        yaw = _hud.IsoYaw;
+        _hud._UnhandledInput(Press(Key.E));
+        Check(Mathf.IsEqualApprox(yaw, _hud.IsoYaw), "E no longer turns the view (it is free for now)");
         _hud.SetViewMode(1);
         var before = _hud.IsoYaw;
-        _hud._UnhandledInput(Press(Key.Q));
-        _hud._UnhandledInput(Press(Key.E));
-        Check(Mathf.IsEqualApprox(before, _hud.IsoYaw), "outside the isometric view Q and E turn nothing");
+        _hud._UnhandledInput(Press(Key.Bracketleft));
+        _hud._UnhandledInput(Press(Key.Bracketright));
+        Check(Mathf.IsEqualApprox(before, _hud.IsoYaw), "outside the isometric view [ and ] turn nothing");
     }
 
     private void TestWorkshopGone()
@@ -566,8 +1039,8 @@ public partial class PlayHudTest : Node
         var texts = _world.FindChildren("*", "Label", true, false).OfType<Label>().Select(l => l.Text).ToArray();
         Check(!texts.Any(t => t.Contains("INVENTIONS", StringComparison.Ordinal) || t.Contains("worn design", StringComparison.Ordinal)), "the room shows no INVENTIONS panel");
         var help = string.Join("\n", texts);
-        Check(help.Contains("Q/E turn the view", StringComparison.Ordinal) && help.Contains("T time of day", StringComparison.Ordinal) && help.Contains("Shift+T season", StringComparison.Ordinal),
-            "the help lines name Q and E, T and Shift+T");
+        Check(help.Contains("[/] turn the view", StringComparison.Ordinal) && help.Contains("T time of day", StringComparison.Ordinal) && help.Contains("Shift+T season", StringComparison.Ordinal),
+            "the help lines name [ and ], T and Shift+T");
         Check(!help.Contains("B Build", StringComparison.Ordinal), "and say nothing of the retired build keys");
     }
 
