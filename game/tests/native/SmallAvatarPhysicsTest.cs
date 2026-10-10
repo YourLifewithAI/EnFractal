@@ -2061,7 +2061,13 @@ public partial class SmallAvatarPhysicsTest : Node3D
         Report(leaping && _player.LastHome == "jetty" && _player.IsOnFloor() && _player.Velocity.Length() < 0.01f,
             "B in mid-leap: the leap flies on through the fade, and the body stands at the jetty, still");
 
-        // The far net, hours out: a swimmer who reaches it is taken home as by B.
+        // The sea wraps round to home (the founder, 9 October, late night): out past the wrap, a swimmer comes in from the other side.
+        await TestWrap(sea, surface, b);
+
+        // The far net, hours out: a swimmer who reaches it is taken home as by B. (The wrap, a minute out, is set aside for it:
+        // it stays the last safety net, for a body the wrap does not take.)
+        var wrapAt = _player.WrapM;
+        _player.WrapM = float.PositiveInfinity;
         trips = _player.HomeTrips;
         _player.GlobalPosition = new Vector3(sea.MiddleM.X + _player.FarNetM - 0.1f, surface - _player.SwimFloatDepthM, sea.MiddleM.Y);
         _player.ResetPhysicsInterpolation();
@@ -2090,6 +2096,7 @@ public partial class SmallAvatarPhysicsTest : Node3D
         _companion.Stop();
 
         await MeasureFarOut(sea, surface);
+        _player.WrapM = wrapAt;
 
         // The extension is untrusted room data: read only when every loop is bounded, every number finite and each beach in the bounds.
         var room = new Aabb(new Vector3(-5, -1, -5), new Vector3(10, 4, 10));
@@ -2122,6 +2129,105 @@ public partial class SmallAvatarPhysicsTest : Node3D
         _companion.Stop();
         Check(_player.TryTeleportTo(new Vector3(-2, 0.003f, 3.2f)) && _companion.TryTeleportTo(new Vector3(0.5f, 0.01f, 3.2f)), "both bodies back on the open floor");
         await Frames(10);
+    }
+
+    /// <summary>
+    /// The sea wraps round to home: the wrap lies past the look's seam; a swimmer going out past it is put opposite through the
+    /// island's centre at the same distance and height, with the same heading and speed, so it swims back in, and never wraps
+    /// straight back; the Gubble following comes too, beside them; a Gubble waiting on the island stays, and a come still finds
+    /// the player across the seam; B takes a wrapped swimmer home.
+    /// </summary>
+    private async Task TestWrap(RoomSea sea, float surface, Vector3 b)
+    {
+        var bounds = new Aabb(b + new Vector3(-3, -1, -3), new Vector3(6, 3, 6));
+        var seam = EnFractal.Native.Look.OpenSea.SeamFor(sea, bounds);
+        Check(Mathf.IsEqualApprox(_player.WrapM, seam + SmallPlayerController.WrapPastSeamM) && _player.WrapM > seam,
+            $"the wrap lies {SmallPlayerController.WrapPastSeamM} m past the look's seam ({seam:0.00} m from the island's centre): {_player.WrapM:0.00} m");
+        var centre = sea.OpenSeaCentreM;
+        var east = new Vector3(1, 0, 0);
+        Vector3 Out(float metres) => new Vector3(centre.X, 0, centre.Y) + east * metres + Vector3.Up * (surface - _player.SwimFloatDepthM);
+        _player.GlobalPosition = Out(_player.WrapM - 0.25f);
+        _player.Velocity = Vector3.Zero;
+        _player.ResetPhysicsInterpolation();
+        _player.Rotation = new Vector3(0, -Mathf.Pi * 0.5f, 0);
+        _companion.GlobalPosition = _player.GlobalPosition + new Vector3(-0.05f, 0.08f, 0.15f);
+        _companion.ResetPhysicsInterpolation();
+        _companion.Follow();
+        await Frames(2);
+        var wraps = _player.Wraps;
+        var carried = _companion.WrappedWithPlayer;
+        var heading = _player.Rotation.Y;
+        var before = Vector3.Zero;
+        var offset = Vector3.Zero;
+        for (var i = 0; i < 600 && _player.Wraps == wraps; i++)
+        {
+            before = _player.GlobalPosition;
+            offset = _companion.GlobalPosition - _player.GlobalPosition;
+            _player.SetControlInput(new Vector2(0, 1), sprint: true);
+            await Frames(1);
+        }
+        var after = _player.GlobalPosition;
+        var gubbleOffset = _companion.GlobalPosition - after;
+        var flatAfter = new Vector2(after.X, after.Z) - centre;
+        Report(_player.Wraps == wraps + 1 && flatAfter.X < 0 && Mathf.Abs(flatAfter.Length() - _player.WrapM) < 0.05f && Mathf.Abs(after.Y - before.Y) < 0.01f &&
+               Mathf.IsEqualApprox(heading, _player.Rotation.Y) && _player.Velocity.X > 0.1f && _player.IsSwimming,
+            $"out past the wrap the swimmer comes in from the opposite side, {flatAfter.Length():0.00} m out, at the same height, heading the same way, still swimming (now toward the island)");
+        Report(_companion.WrappedWithPlayer == carried + 1 && gubbleOffset.DistanceTo(offset) < 0.08f && _companion.CurrentIntent == "follow",
+            $"the Gubble following comes too, keeping its place beside the swimmer ({gubbleOffset.DistanceTo(offset) * 100:0.0} cm from it)");
+        for (var i = 0; i < 120; i++) { _player.SetControlInput(new Vector2(0, 1), sprint: true); await Frames(1); }
+        _player.SetControlInput(Vector2.Zero);
+        var inward = new Vector2(_player.GlobalPosition.X, _player.GlobalPosition.Z).DistanceTo(centre);
+        Report(_player.Wraps == wraps + 1 && inward < _player.WrapM - 0.3f, $"and it swims on in, never wrapping straight back ({inward:0.00} m out after 2 s)");
+
+        // Turned round and swum out the other way: it wraps again, back to the first side.
+        _player.Rotation = new Vector3(0, Mathf.Pi * 0.5f, 0);
+        for (var i = 0; i < 900 && _player.Wraps == wraps + 1; i++) { _player.SetControlInput(new Vector2(0, 1), sprint: true); await Frames(1); }
+        _player.SetControlInput(Vector2.Zero);
+        Report(_player.Wraps == wraps + 2 && _player.GlobalPosition.X > centre.X, "turned round and swum out the other way, it wraps back again: the sea has no edge either way");
+
+        // Out past the wrap already, floating still or swimming in: never wrapped. Only going out wraps.
+        wraps = _player.Wraps;
+        _player.GlobalPosition = Out(_player.WrapM + 0.5f);
+        _player.Velocity = Vector3.Zero;
+        _player.ResetPhysicsInterpolation();
+        await Frames(30);
+        var stillThere = _player.Wraps == wraps;
+        _player.Rotation = new Vector3(0, Mathf.Pi * 0.5f, 0);
+        for (var i = 0; i < 60; i++) { _player.SetControlInput(new Vector2(0, 1), sprint: true); await Frames(1); }
+        _player.SetControlInput(Vector2.Zero);
+        Report(stillThere && _player.Wraps == wraps && _player.GlobalPosition.X > centre.X,
+            "a swimmer out past the wrap, floating still or swimming in, is never wrapped: only going out wraps (no flicker back and forth)");
+
+        // A Gubble waiting on the island stays there; a come still finds the player across the seam.
+        Check(_companion.TryTeleportTo(b + new Vector3(0.2f, 0.01f, -0.3f)), "the Gubble back on the island, waiting");
+        _companion.Stay();
+        _player.GlobalPosition = Out(_player.WrapM - 0.25f);
+        _player.ResetPhysicsInterpolation();
+        _player.Rotation = new Vector3(0, -Mathf.Pi * 0.5f, 0);
+        carried = _companion.WrappedWithPlayer;
+        var waitingAt = _companion.GlobalPosition;
+        wraps = _player.Wraps;
+        for (var i = 0; i < 600 && _player.Wraps == wraps; i++) { _player.SetControlInput(new Vector2(0, 1), sprint: true); await Frames(1); }
+        _player.SetControlInput(Vector2.Zero);
+        await Frames(30);
+        Report(_player.Wraps == wraps + 1 && _companion.WrappedWithPlayer == carried && _companion.GlobalPosition.DistanceTo(waitingAt) < 0.05f,
+            "a Gubble waiting on the island, far from the swimmer, stays where it waits");
+        _companion.Come();
+        var arrived = false;
+        for (var i = 0; i < 3000 && !arrived; i++)
+        {
+            await Frames(1);
+            arrived = _companion.ComeArrivedSerial == _companion.IntentSerial || (_companion.CurrentIntent == "stay" && PlanarDistance(_companion.GlobalPosition, _player.GlobalPosition) < 0.3f);
+        }
+        Report(arrived && PlanarDistance(_companion.GlobalPosition, _player.GlobalPosition) < 0.3f,
+            $"a come across the seam: the Gubble floats over the island to the swimmer on the far side and arrives ({PlanarDistance(_companion.GlobalPosition, _player.GlobalPosition):0.00} m away)");
+
+        // B from out past the seam still goes home.
+        var trips = _player.HomeTrips;
+        _player.RequestHome();
+        await Frames(80);
+        Report(_player.HomeTrips == trips + 1 && _player.LastHome == "jetty" && _player.IsOnFloor(), "B from out past the wrap takes the swimmer home to the jetty");
+        _companion.Stop();
     }
 
     /// <summary>

@@ -30,6 +30,21 @@ public partial class GubbleCue : Control
     public string State { get; private set; } = "";
     /// <summary>The short text beside the bubble: the host's reason after a refusal, "not yet" after a shrug, else "".</summary>
     public string Reason { get; private set; } = "";
+    /// <summary>
+    /// What the Gubble holds (its display name, made safe by the host), or "": while nothing else shows, the bubble says it
+    /// (the founder's playtest: the Gubble should say what it carries). The HUD sets it every frame from the host.
+    /// </summary>
+    public string Holding
+    {
+        get => _holding;
+        set
+        {
+            if (_holding == (value ?? "")) return;
+            _holding = value ?? "";
+            Redraw();
+        }
+    }
+    private string _holding = "";
     /// <summary>The Gubble's gestures and dim (CompanionAvatar's own), as the cue last asked.</summary>
     public CompanionAvatar.Gesture LastGesture => Companion?.LastGesture ?? CompanionAvatar.Gesture.None;
     public bool Dimmed => Companion?.Dimmed ?? false;
@@ -121,7 +136,7 @@ public partial class GubbleCue : Control
         if (Bubble == null) return;
         var text = State switch
         {
-            "" => "",
+            "" => _holding.Length > 0 ? $"( {GubbleMagic.FetchIcon} {_holding} )" : "",
             "done" => $"( {Icon} {GubbleMagic.DoneMark} )",
             "refused" => $"( {Icon} {GubbleMagic.RefusedMark} )",
             _ => $"( {Icon} )",
@@ -159,7 +174,7 @@ public partial class GubbleCue : Control
     private void Place()
     {
         if (Bubble == null) return;
-        var top = State.Length > 0 ? TagTopOnScreen() : null;
+        var top = Bubble.Text.Length > 0 ? TagTopOnScreen() : null;
         Bubble.Visible = top != null && Bubble.Text.Length > 0;
         ReasonLabel.Visible = Bubble.Visible && Reason.Length > 0;
         if (top is not { } anchor) return;

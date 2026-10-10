@@ -245,6 +245,23 @@ public partial class SmallPlayerController : CharacterBody3D
     /// </summary>
     public const float DefaultFarNetM = 1000.0f;
     public float FarNetM { get; set; } = DefaultFarNetM;
+
+    // ---- The sea wraps round to home (the founder, 9 October, late night): swim far enough out and you come back to your own
+    // island from the other side, through the mist. The horizon is only sea and sky; other islands come later by the jetty.
+
+    /// <summary>How far past the look's seam (OpenSea.SeamFor: from there out the mist wholly hides the island) the wrap is. The founder tunes it.</summary>
+    public const float WrapPastSeamM = 1.5f;
+    /// <summary>
+    /// The wrap's distance from the island's centre (RoomSea.OpenSeaCentreM): a swimmer going out past it comes in from the opposite
+    /// side at the same distance, heading the same way, so it swims back toward the island. The seam plus WrapPastSeamM, set with the
+    /// sea and the room's bounds (about 19 m on the garage, a minute and a few seconds' swim from the reef); infinite without a sea.
+    /// A test seam: the far-net suites set it infinite.
+    /// </summary>
+    public float WrapM { get; set; } = float.PositiveInfinity;
+    /// <summary>Times this body has wrapped round.</summary>
+    public int Wraps { get; private set; }
+    /// <summary>Raised when the body wraps round, with the move it made: what travels with it (the Gubble, the cameras) moves the same.</summary>
+    public event System.Action<SmallPlayerController, Vector3>? Wrapped;
     /// <summary>The fade out on the way home, then the fade back in.</summary>
     public const float HomeFadeS = 0.6f;
     /// <summary>Trips home so far (B, the far net).</summary>
@@ -458,14 +475,46 @@ public partial class SmallPlayerController : CharacterBody3D
         var radius = (float)Profile.RadiusMeters;
         if (!bounds.Position.IsFinite() || !bounds.Size.IsFinite() || bounds.Size.X <= radius * 2 || bounds.Size.Z <= radius * 2 || bounds.Size.Y <= 0) return false;
         PlayableBounds = bounds;
+        PlaceWrap();
         return true;
     }
 
     /// <summary>Test seam for the body suites: no playable bounds again.</summary>
-    internal void ClearPlayableBounds() => PlayableBounds = null;
+    internal void ClearPlayableBounds()
+    {
+        PlayableBounds = null;
+        PlaceWrap();
+    }
 
     /// <summary>The trusted host's sea for this room (null for none).</summary>
-    public void SetSea(RoomSea? sea) => Sea = sea;
+    public void SetSea(RoomSea? sea)
+    {
+        Sea = sea;
+        PlaceWrap();
+    }
+
+    /// <summary>The wrap from the sea and the bounds (OpenSea.SeamFor needs both): beyond the seam, or nowhere.</summary>
+    private void PlaceWrap() =>
+        WrapM = Sea != null && PlayableBounds is { } bounds ? EnFractal.Native.Look.OpenSea.SeamFor(Sea, bounds) + WrapPastSeamM : float.PositiveInfinity;
+
+    /// <summary>
+    /// The wrap, after the move: a swimmer (not a floating body: the Gubble travels with the player instead) out past WrapM and still
+    /// going out is put at the point opposite through the island's centre, at the same distance and height, keeping its heading and
+    /// speed, so it is now coming in. Going out is what decides it, so a swimmer just wrapped never wraps straight back.
+    /// </summary>
+    private void WrapRound()
+    {
+        if (Sea == null || Floats || GoingHome || !float.IsFinite(WrapM)) return;
+        var flat = new Vector2(GlobalPosition.X, GlobalPosition.Z) - Sea.OpenSeaCentreM;
+        var reach = flat.Length();
+        if (reach <= WrapM) return;
+        if (Velocity.X * flat.X + Velocity.Z * flat.Y <= 0) return;
+        var move = new Vector3(-2f * flat.X, 0, -2f * flat.Y);
+        GlobalPosition += move;
+        ResetPhysicsInterpolation();
+        Wraps++;
+        Wrapped?.Invoke(this, move);
+    }
 
     /// <summary>
     /// Whether the bounds hold the body at their sides. Not round an island: its land never reaches them and the sea has no
@@ -777,6 +826,7 @@ public partial class SmallPlayerController : CharacterBody3D
         else if (UpdateSwimming()) Swim(dt, wish, sprint, control, diveDown, diveUp);
         else Walk(dt, wish, sprint, onFloor);
         HoldInsideBounds();
+        WrapRound();
         // The far net, hours of swimming out: home as by B. A floating body (the Gubble, sent off on its own) is held at the
         // net instead, as at a wall (Codex Astra's review), and says blocked through its goal.
         if (Sea != null && !Floats && !GoingHome && new Vector2(GlobalPosition.X, GlobalPosition.Z).DistanceTo(Sea.MiddleM) > FarNetM) BeginHome();

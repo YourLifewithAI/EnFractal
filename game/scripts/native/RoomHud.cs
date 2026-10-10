@@ -222,6 +222,8 @@ public partial class RoomHud : CanvasLayer
         _washVeil = new ColorRect { Name = "HomeVeil", Color = new Color(0.06f, 0.13f, 0.18f, 0), MouseFilter = Control.MouseFilterEnum.Ignore };
         AddChild(_washVeil);
         _washVeil.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        // The sea wraps round: the high views' rig, eased every frame, is put straight on the player again, never swept across the island.
+        Player.Wrapped += (_, _) => { if (ViewMode >= 2) PlaceDioramaRig(snap: true); };
         Player.WentHome += body => _noticeText = body.LastHome switch
         {
             "jetty" => "Home: back at the jetty.",
@@ -245,7 +247,7 @@ public partial class RoomHud : CanvasLayer
         AddKeyLine(_keyHelp, () => $"{K(Act.Hands)} pick up what you face · {K(Act.Hands)} again sets it down in front of you, or on top of what you face (the box, the book) · {K(Act.Push)} push what you face 10 cm");
         // The Gubble's keys, under its name (the Glow playtest: the player should see whose magic this is).
         AddKeyLine(_keyHelp, () => $"{Companion.NameTag}, your companion:", "GubbleHeading");
-        AddKeyLine(_keyHelp, () => $"{K(Act.GubbleAsk)} asks for what fits where you point (wait or follow, fetch, light the dark, go and look); hold it for the wheel · {K(Act.GubbleRecall)} come, then follow · {K(Act.GubbleStop)} stop", "GubbleKeys");
+        AddKeyLine(_keyHelp, () => $"{K(Act.GubbleAsk)} asks for what fits where you point (wait or follow, fetch or put down, light the dark, go and look); hold it for the wheel · {K(Act.GubbleRecall)} come, then follow · {K(Act.GubbleStop)} stop", "GubbleKeys");
         AddKeyLine(_keyHelp, () => $"{K(Act.GubbleSlot1)} {SlotName(0)} where you point (it comes closer first if it must; at the sky, on itself) · {K(Act.GubbleSlot2)}/{K(Act.GubbleSlot3)}/{K(Act.GubbleSlot4)}/{K(Act.GubbleSlot5)} magic still to come · it floats after you, over water and up cliffs", "GubbleSlots");
         // The toggles that bend the world for testing, apart from the keys the game is played with.
         _keyHelp.AddChild(new Label { Name = "TestingHeading", Text = "Testing" });
