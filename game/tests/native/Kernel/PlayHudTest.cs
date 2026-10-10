@@ -68,6 +68,7 @@ public partial class PlayHudTest : Node
             await TestReadableWords();
             await TestLookDrag();
             await TestGlowWherePointed();
+            await TestPutDown();
             await TestAuraRecolours();
             await TestProfileField();
 
@@ -276,7 +277,7 @@ public partial class PlayHudTest : Node
                 "O observe (a very tight tilt-shift view, best from F3 or F4) · C customize (Esc closes it)",
                 "F pick up what you face · F again sets it down in front of you, or on top of what you face (the box, the book) · V push what you face 10 cm",
                 "The Gubble, your companion:",
-                "right-click asks for what fits where you point (wait or follow, fetch, light the dark, go and look); hold it for the wheel · Q come, then follow · X stop",
+                "right-click asks for what fits where you point (wait or follow, fetch or put down, light the dark, go and look); hold it for the wheel · Q come, then follow · X stop",
                 "1 Glow where you point (it comes closer first if it must; at the sky, on itself) · 2/3/4/5 magic still to come · it floats after you, over water and up cliffs",
                 "Testing",
                 "G gravity · T time of day · Shift+T season (each steps round to the real clock) · L lamps",
@@ -1106,6 +1107,102 @@ public partial class PlayHudTest : Node
         _hud.AimRayForTests = Air();
     }
 
+
+    /// <summary>The Gubble fetches the doorstop and comes back holding it (the job done); true when it holds it.</summary>
+    private async Task<bool> GubbleFetchesDoorstop()
+    {
+        var host = CommandHost.Of(_world)!;
+        var fetch = host.PlayerGoal("fetch", target: "obj:doorstop");
+        if (!fetch["ok"]!.GetValue<bool>()) { GD.Print("PLAY_HUD_INFO: fetch refused: " + fetch.ToJsonString()); return false; }
+        for (var i = 0; i < 2400 && (host.RunningGoal(CommandHost.CompanionAvatarId) != null || host.HeldBy(CommandHost.CompanionAvatarId) == null); i++) await Frames(1);
+        return host.HeldBy(CommandHost.CompanionAvatarId) == "obj:doorstop" && host.RunningGoal(CommandHost.CompanionAvatarId) == null;
+    }
+
+    /// <summary>Bare floor (no room thing) between min and max metres from the Gubble, inside the room, or null.</summary>
+    private Vector3? BareFloorAway(float min, float max)
+    {
+        var host = CommandHost.Of(_world)!;
+        var at = _world.Companion.GlobalPosition;
+        for (var d = min; d <= max; d += 0.1f)
+            for (var i = 0; i < 16; i++)
+            {
+                var spot = at + new Vector3(Mathf.Sin(i * Mathf.Pi / 8), 0, Mathf.Cos(i * Mathf.Pi / 8)) * d;
+                if (!host.Room.Bounds.Grow(-0.1f).HasPoint(new Vector3(spot.X, host.Room.Bounds.GetCenter().Y, spot.Z))) continue;
+                _hud.AimRayForTests = (spot + Vector3.Up * 0.3f, spot + Vector3.Down * 0.5f);
+                var aim = _hud.AimNow();
+                if (aim.Hit && !aim.AtGubble && aim.Entity == null && aim.Point.Y < 0.02f && at.DistanceTo(aim.Point) >= min) return aim.Point;
+            }
+        return null;
+    }
+
+    /// <summary>
+    /// The Gubble puts things down (the founder's playtest: "there's not a simple command for that yet"). While it holds something
+    /// its bubble says what; a tap aimed at the Gubble is "put it down here" and at a spot "put it there" (it goes there first); the
+    /// wheel's Fetch is Put down; each through the host's entity.release, as the player.
+    /// </summary>
+    private async Task TestPutDown()
+    {
+        var host = CommandHost.Of(_world)!;
+        var companion = _world.Companion;
+        _hud.SetViewMode(1);
+        _hud.LightForTests = _ => 0.9f;
+        var empty = host.PlayerPutDown();
+        Check(!_hud.GubbleHolds && !empty["ok"]!.GetValue<bool>() && empty["error"]?["message"]?.GetValue<string>() == "This avatar is not holding anything.",
+            "with empty hands there is nothing to put down: the host says so (entity.release, as the player, through the Gubble's avatar)");
+        Check(await GubbleFetchesDoorstop(), "the Gubble fetches the doorstop and comes back holding it");
+        _hud.Cue.Clear();
+        await Frames(2);
+        var name = host.HeldName(CommandHost.CompanionAvatarId);
+        Check(_hud.GubbleHolds && name == "Doorstop" && _hud.Cue.Bubble.Text == $"( {GubbleMagic.FetchIcon} {name} )",
+            $"while it holds something, its bubble says what: \"{_hud.Cue.Bubble.Text}\"");
+        _hud.AimRayForTests = AtGubble();
+        await Frames(10);
+        Check(_hud.AskPreview.Rule == GubbleMagic.AskRule.PutHere && _hud.AskTag.Text == "right-click: ↓ put it down here",
+            $"aimed at the Gubble while it holds something, a tap will have it put it down here: \"{_hud.AskTag.Text}\"");
+        if (BareFloorAway(0.5f, 1.2f) is not { } spot)
+        {
+            Check(false, "a bare floor spot half a metre or more from the Gubble, to point at");
+            return;
+        }
+        _hud.AimRayForTests = Down(spot);
+        await Frames(10);
+        Check(_hud.AskPreview.Rule == GubbleMagic.AskRule.PutThere && _hud.AskTag.Text == "right-click: ↓ put it there",
+            $"aimed at a spot, a tap will have it put it there: \"{_hud.AskTag.Text}\"");
+        _hud._UnhandledInput(RightButton(true));
+        await Frames(20);
+        var wedge = _hud.Wheel.WedgeLabels[GubbleMagic.Wedges.ToList().FindIndex(w => w.Kind == GubbleMagic.WedgeKind.Fetch)].Text;
+        _hud._UnhandledInput(RightButton(false));
+        Check(wedge == $"{GubbleMagic.PutDownIcon}\n{GubbleMagic.PutDownName}" && !GetTree().Paused, "and the wheel's Fetch wedge is Put down: " + wedge.Replace("\n", " "));
+
+        Tap();
+        Check(_hud.PutWaiting && companion.CurrentIntent == "go_to" && _hud.GubbleHolds,
+            $"a tap on a spot {companion.GlobalPosition.DistanceTo(spot):0.00} m away, out of its reach: it sets off there, still holding the doorstop");
+        for (var i = 0; i < 1800 && _hud.PutWaiting; i++) await Frames(1);
+        var put = Vec(Entity(host, "obj:doorstop")["position_m"]!);
+        Check(!_hud.PutWaiting && !_hud.GubbleHolds && PlanarDistance(put, spot) < 0.12f && _hud.Cue.State == "done",
+            $"and there it puts the doorstop down where you pointed ({PlanarDistance(put, spot):0.00} m from the spot)");
+        await Frames(2);
+        Check(_hud.Cue.Bubble.Text != $"( {GubbleMagic.FetchIcon} Doorstop )", "its bubble no longer says it holds the doorstop");
+
+        Check(await GubbleFetchesDoorstop(), "it fetches the doorstop again");
+        _hud.AimRayForTests = AtGubble();
+        _hud._UnhandledInput(RightButton(true));
+        _hud._UnhandledInput(Motion(new Vector2(-50, 50)));
+        _hud._UnhandledInput(RightButton(false));
+        await Frames(10);
+        var down = Vec(Entity(host, "obj:doorstop")["position_m"]!);
+        Check(!_hud.GubbleHolds && host.HeldBy(CommandHost.CompanionAvatarId) == null && PlanarDistance(down, companion.GlobalPosition) < 0.3f && _hud.Cue.State == "done",
+            $"the wheel's Put down, aimed at the Gubble, puts it down in front of it ({PlanarDistance(down, companion.GlobalPosition):0.00} m away)");
+        _hud._UnhandledInput(RightButton(true));
+        await Frames(20);
+        wedge = _hud.Wheel.WedgeLabels[GubbleMagic.Wedges.ToList().FindIndex(w => w.Kind == GubbleMagic.WedgeKind.Fetch)].Text;
+        _hud._UnhandledInput(RightButton(false));
+        Check(wedge == $"{GubbleMagic.FetchIcon}\nFetch", "with its hands empty again the wedge is Fetch");
+        _hud._UnhandledInput(Press(Key.X));
+        _hud.AimRayForTests = Air();
+    }
+
+    private static float PlanarDistance(Vector3 a, Vector3 b) => new Vector2(a.X - b.X, a.Z - b.Z).Length();
 
     /// <summary>A colour change recolours a running glow at once: the same effect, the new aura.</summary>
     private async Task TestAuraRecolours()

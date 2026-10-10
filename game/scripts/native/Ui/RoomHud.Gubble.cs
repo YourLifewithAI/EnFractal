@@ -57,6 +57,13 @@ public partial class RoomHud
     /// <summary>A cast waiting for the Gubble to come closer: the walk's serial, the slot, the ability and the spot.</summary>
     private (int Serial, int Slot, string Capability, Vector3 Point)? _castAfter;
     private double _castCheckAge;
+    /// <summary>A put-down waiting for the Gubble to get there: the walk's serial and the spot.</summary>
+    private (int Serial, Vector3 Point)? _putAfter;
+    private double _putCheckAge;
+    /// <summary>A put-down waiting for the Gubble to get within reach of its spot (tests).</summary>
+    public bool PutWaiting => _putAfter != null;
+    /// <summary>Whether the Gubble holds something now (the host's word).</summary>
+    public bool GubbleHolds => Host?.HeldBy(CommandHost.CompanionAvatarId) != null;
     /// <summary>A cast waiting for the Gubble to come within reach and sight of its spot (tests).</summary>
     public bool CastWaiting => _castAfter != null;
     private CommandHost? _listening;
@@ -152,7 +159,7 @@ public partial class RoomHud
     }
 
     /// <summary>The smart ask for an aim (GubbleMagic.Decide).</summary>
-    public GubbleMagic.Ask DecideAsk(GubbleMagic.Aim aim) => GubbleMagic.Decide(aim, Carryable, DarkWithinReach);
+    public GubbleMagic.Ask DecideAsk(GubbleMagic.Aim aim) => GubbleMagic.Decide(aim, Carryable, DarkWithinReach, GubbleHolds);
 
     /// <summary>The reticle's tag, asked at the focus's pace: what a tap would do, beside the reticle.</summary>
     private void UpdateAskTag(double delta)
@@ -187,7 +194,13 @@ public partial class RoomHud
         AskFrozen = DecideAsk(AimNow());
         _wheel.SetOwner($"{Companion.NameTag}'s magic", Companion.AuraColor ?? Companion.AppearanceColor);
         _wheel.SetWedges(slot => SlotAbility(slot) is { } ability ? KernelJson.DisplayText(ability.DisplayName, 24) : null,
-            wedge => wedge.Kind == GubbleMagic.WedgeKind.Come ? $"{wedge.Icon}\n{wedge.Name} ({K(Act.GubbleRecall)})" : $"{wedge.Icon}\n{wedge.Name}");
+            wedge => wedge.Kind switch
+            {
+                GubbleMagic.WedgeKind.Come => $"{wedge.Icon}\n{wedge.Name} ({K(Act.GubbleRecall)})",
+                // While the Gubble holds something, Fetch is Put down (at the spot the press froze, or here).
+                GubbleMagic.WedgeKind.Fetch when GubbleHolds => $"{GubbleMagic.PutDownIcon}\n{GubbleMagic.PutDownName}",
+                _ => $"{wedge.Icon}\n{wedge.Name}",
+            });
         _wheel.Begin(AimScreenPoint());
     }
 
@@ -226,6 +239,8 @@ public partial class RoomHud
             case GubbleMagic.AskRule.Fetch: Fetch(ask.Target); break;
             case GubbleMagic.AskRule.Glow: CastSlot(0, ask.Aim); break;
             case GubbleMagic.AskRule.Look: GoAndLook(ask.Point); break;
+            case GubbleMagic.AskRule.PutHere: PutDown(null); break;
+            case GubbleMagic.AskRule.PutThere: PutDown(ask.Point); break;
             default: _cue.Shrug(GubbleMagic.UnknownIcon, GubbleMagic.NothingThere); break;
         }
     }
@@ -240,6 +255,9 @@ public partial class RoomHud
             case GubbleMagic.WedgeKind.Ability: CastSlot(wedge.Slot, aim); break;
             case GubbleMagic.WedgeKind.Come: Recall(); break;
             case GubbleMagic.WedgeKind.Stay: Order("stay"); break;
+            case GubbleMagic.WedgeKind.Fetch when GubbleHolds:
+                PutDown(aim.Hit && !aim.AtGubble ? aim.Point : null);
+                break;
             case GubbleMagic.WedgeKind.Fetch:
                 if (aim.Entity != null) Fetch(aim.Entity);
                 else _cue.Shrug(GubbleMagic.FetchIcon, GubbleMagic.NothingToFetch);
@@ -371,6 +389,7 @@ public partial class RoomHud
         _lookAfter = null;
         _fetchJob = null;
         _castAfter = null;
+        _putAfter = null;
     }
 
     /// <summary>A goal's job ended (the host's event): a fetch's result, or a walk that could not arrive.</summary>
@@ -393,7 +412,7 @@ public partial class RoomHud
             }
             else _cue.Clear();
         }
-        else if ((_lookAfter != null || _castAfter != null) && state == "failed") _goalFailed = true;
+        else if ((_lookAfter != null || _castAfter != null || _putAfter != null) && state == "failed") _goalFailed = true;
     }
 
     /// <summary>Each frame: the recall's follow and the look after a walk, when their walks arrive.</summary>
@@ -430,6 +449,66 @@ public partial class RoomHud
             else if (Companion.IntentSerial != look.Serial) _lookAfter = null;
         }
         UpdateCastAfter();
+        UpdatePutAfter();
+        // The bubble says what the Gubble holds while nothing else shows.
+        _cue.Holding = Host?.HeldName(CommandHost.CompanionAvatarId) ?? "";
+    }
+
+    // ---- putting down what the Gubble holds ----
+
+    /// <summary>
+    /// Put down what the Gubble holds, as the player's command (entity.release through its avatar): here, in front of it (no spot),
+    /// or at a spot. A spot out of its reach sends it there first (a go_to); on the way, as soon as the host says the put-down would
+    /// work (a preview), it stops and puts it down. A spot the host refuses for another reason (outside the room) is refused at once.
+    /// </summary>
+    public void PutDown(Vector3? spot)
+    {
+        var host = Host;
+        if (host == null) { _noticeText = $"The command host is not attached; {Companion.CompanionName}'s keys are off."; return; }
+        ClearChains();
+        if (!GubbleHolds) { _cue.Shrug(GubbleMagic.PutDownIcon, GubbleMagic.NothingHeld); return; }
+        _cue.Think(GubbleMagic.PutDownIcon);
+        if (spot is not { } at) { Answer(host.PlayerPutDown()); return; }
+        var trial = host.PlayerPutDown(at, preview: true);
+        if (trial["ok"]!.GetValue<bool>()) { Answer(host.PlayerPutDown(at)); return; }
+        var error = trial["error"];
+        var outOfReach = error?["code"]?.GetValue<string>() == "out_of_bounds" && error?["retryable"]?.GetValue<bool>() == true;
+        if (!outOfReach) { Answer(trial); return; }
+        var walk = host.PlayerGoal("go_to", at);
+        if (!walk["ok"]!.GetValue<bool>()) { Answer(walk); return; }
+        _goalFailed = false;
+        _putCheckAge = 0;
+        _putAfter = (Companion.IntentSerial, at);
+    }
+
+    /// <summary>The put-down waiting for the Gubble's walk: as UpdateCastAfter, asking the host's preview on the way.</summary>
+    private void UpdatePutAfter()
+    {
+        if (_putAfter is not { } put || Host is not { } host) return;
+        var arrived = Companion.GoToArrivedSerial == put.Serial;
+        if (!arrived && _goalFailed)
+        {
+            _putAfter = null;
+            _goalFailed = false;
+            _cue.Refuse(host.LastGoalError(CommandHost.CompanionAvatarId) ?? GubbleMagic.CannotGetThere);
+            return;
+        }
+        if (!arrived && Companion.IntentSerial != put.Serial)
+        {
+            _putAfter = null;
+            return;
+        }
+        if (!arrived)
+        {
+            _putCheckAge += GetProcessDeltaTime();
+            if (_putCheckAge < FocusQueryS) return;
+            _putCheckAge = 0;
+            if (!host.PlayerPutDown(put.Point, preview: true)["ok"]!.GetValue<bool>()) return;
+        }
+        _putAfter = null;
+        if (!arrived) host.PlayerGoal("stay");
+        _cue.Think(GubbleMagic.PutDownIcon);
+        Answer(host.PlayerPutDown(put.Point));
     }
 
     /// <summary>

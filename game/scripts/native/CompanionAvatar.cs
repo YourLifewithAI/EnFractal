@@ -272,9 +272,37 @@ public partial class CompanionAvatar : SmallPlayerController
 
     public void BindPlayer(SmallPlayerController player)
     {
-        if (_player != null && GodotObject.IsInstanceValid(_player)) _player.WentHome -= PlayerWentHome;
+        if (_player != null && GodotObject.IsInstanceValid(_player))
+        {
+            _player.WentHome -= PlayerWentHome;
+            _player.Wrapped -= PlayerWrapped;
+        }
         _player = player;
         player.WentHome += PlayerWentHome;
+        player.Wrapped += PlayerWrapped;
+    }
+
+    /// <summary>When the player wraps round the sea, a Gubble this close to them (or following them) comes too: never stranded across the seam.</summary>
+    public const float WrapWithPlayerWithinM = 2.0f;
+    /// <summary>Times the Gubble wrapped round with the player.</summary>
+    public int WrappedWithPlayer { get; private set; }
+
+    /// <summary>
+    /// The player wrapped round the sea by move: following them, or within WrapWithPlayerWithinM of where they were, the Gubble
+    /// moves the same, keeping its place beside them (and what it holds rides with it). Otherwise it stays, and a come or a fetch
+    /// still finds the player where they are now.
+    /// </summary>
+    private void PlayerWrapped(SmallPlayerController player, Vector3 move)
+    {
+        _playerLast += move;
+        if (!IsInsideTree() || !GodotObject.IsInstanceValid(player)) return;
+        if (CurrentIntent != "follow" && GlobalPosition.DistanceTo(player.GlobalPosition - move) > WrapWithPlayerWithinM) return;
+        GlobalPosition += move;
+        ResetPhysicsInterpolation();
+        _progressAnchor += move;
+        _route = RoomNavigation.Route.None;
+        _goToAimRevision = -1;
+        WrappedWithPlayer++;
     }
 
     /// <summary>

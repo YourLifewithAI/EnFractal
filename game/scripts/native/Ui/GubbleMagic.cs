@@ -25,6 +25,12 @@ public static class GubbleMagic
     public const string StopIcon = "■";
     public const string LookIcon = "◎";
     public const string FetchIcon = "✋";
+    /// <summary>Put down what the Gubble holds (the wheel's Fetch wedge while it holds something, and the smart ask).</summary>
+    public const string PutDownIcon = "↓";
+    /// <summary>The Fetch wedge's name while the Gubble holds something.</summary>
+    public const string PutDownName = "Put down";
+    /// <summary>A put-down asked of a Gubble holding nothing: the HUD's own words (no command was sent).</summary>
+    public const string NothingHeld = "holding nothing";
     public const string DoneMark = "✓";
     public const string RefusedMark = "✕";
     public const string UnknownIcon = "?";
@@ -72,8 +78,8 @@ public static class GubbleMagic
     /// <summary>The wedge of an ability slot (0-based).</summary>
     public static int WedgeOfSlot(int slot) => Array.FindIndex(Wedges, w => w.Kind == WedgeKind.Ability && w.Slot == slot);
 
-    /// <summary>The smart ask's rules, the first that matches wins.</summary>
-    public enum AskRule { None, Toggle, Fetch, Glow, Look }
+    /// <summary>The smart ask's rules, the first that matches wins. While the Gubble holds something: put it down here, or put it there.</summary>
+    public enum AskRule { None, Toggle, Fetch, Glow, Look, PutHere, PutThere }
 
     /// <summary>What the aim is on: whether it hit anything, where, the room entity it hit (an id, never a name), and whether it is the Gubble.</summary>
     public readonly record struct Aim(bool Hit, Vector3 Point, string? Entity, bool AtGubble);
@@ -87,10 +93,14 @@ public static class GubbleMagic
 
     /// <summary>
     /// The smart ask (the first rule that matches wins): aimed at the Gubble, switch stay and follow; at a carryable thing, fetch it;
-    /// at a dark spot within Glow's reach, glow there; otherwise go and look there. Nothing hit: nothing to ask.
+    /// at a dark spot within Glow's reach, glow there; otherwise go and look there. Nothing hit: nothing to ask. While the Gubble
+    /// holds something (the founder's playtest: it could pick a thing up but not put it down), aimed at the Gubble it puts it down
+    /// here, and aimed at a spot it puts it there.
     /// </summary>
-    public static Ask Decide(Aim aim, Func<string, bool> carryable, Func<Vector3, bool> darkWithinReach)
+    public static Ask Decide(Aim aim, Func<string, bool> carryable, Func<Vector3, bool> darkWithinReach, bool gubbleHolds = false)
     {
+        if (gubbleHolds && aim.AtGubble) return new(AskRule.PutHere, aim);
+        if (gubbleHolds) return new(aim.Hit ? AskRule.PutThere : AskRule.None, aim);
         if (aim.AtGubble) return new(AskRule.Toggle, aim);
         if (aim.Entity != null && carryable(aim.Entity)) return new(AskRule.Fetch, aim);
         if (!aim.Hit) return new(AskRule.None, aim);
@@ -105,6 +115,8 @@ public static class GubbleMagic
         AskRule.Fetch => $"{FetchIcon} fetch it",
         AskRule.Glow => $"{SlotIcons[0]} {glowName.ToLowerInvariant()} there",
         AskRule.Look => $"{LookIcon} go and look",
+        AskRule.PutHere => $"{PutDownIcon} put it down here",
+        AskRule.PutThere => $"{PutDownIcon} put it there",
         _ => "",
     };
 

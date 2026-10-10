@@ -427,6 +427,38 @@ public partial class LandscapePlayTest : Node3D
             player.GlobalPosition = new Vector3(offshore.X, sea.LevelM - player.SwimFloatDepthM, offshore.Z) + outward.Cross(Vector3.Up) * 0.3f;
             player.ResetPhysicsInterpolation();
             await Frames(30);
+            // The sea wraps round (Lane P, the Glow playtest round): out past the wrap with the Gubble following, carrying the
+            // crate, in the high view. Both come in from the far side together, the crate riding with the Gubble, and the view
+            // is put straight on the player rather than swept across the island.
+            var hud = _world.GetNode<RoomHud>("RoomHud");
+            var seam = EnFractal.Native.Look.OpenSea.SeamFor(sea, _world.Room.Bounds);
+            var centre = sea.OpenSeaCentreM;
+            var away2 = (new Vector2(offshore.X, offshore.Z) - centre).Normalized();
+            var away = new Vector3(away2.X, 0, away2.Y);
+            player.GlobalPosition = new Vector3(centre.X, sea.LevelM - player.SwimFloatDepthM, centre.Y) + away * (player.WrapM - 0.2f);
+            player.ResetPhysicsInterpolation();
+            player.Rotation = new Vector3(0, Mathf.Atan2(-away.X, -away.Z), 0);
+            companion.GlobalPosition = player.GlobalPosition + Vector3.Up * 0.12f - away * 0.15f;
+            companion.ResetPhysicsInterpolation();
+            Send(Command(NextId("follow"), "goal.set", new JsonObject { ["actor"] = CompanionAvatar, ["goal"] = "follow" }), Player);
+            hud.SetViewMode(2);
+            await Frames(5);
+            var wraps = player.Wraps;
+            for (var i = 0; i < 600 && player.Wraps == wraps; i++) { player.SetControlInput(new Vector2(0, 1), sprint: true); await Frames(1); }
+            player.SetControlInput(Vector2.Zero);
+            await Frames(1);
+            var lens = hud.DioramaCamera.GlobalPosition.DistanceTo(player.GlobalPosition);
+            var rides = PlanarDistance(CrateBox().GetCenter(), companion.GlobalPosition);
+            var beside = PlanarDistance(companion.GlobalPosition, player.GlobalPosition);
+            var reefOut = sea.Reef.Length > 0 ? sea.Reef.Max(r => r.DistanceTo(centre)) : 0f;
+            Measure($"LANDSCAPE_SEA the wrap {player.WrapM:0.00} m from the island's centre (the look's seam {seam:0.00} m, the reef's farthest {reefOut:0.00} m): " +
+                $"{(player.WrapM - reefOut) / 0.19f:0} s from the reef at the plain swim, {(player.WrapM - reefOut) / 0.32f:0} s at the fast swim; after it the Gubble {beside:0.00} m away, " +
+                $"the crate {rides:0.00} m from it, the F3 lens {lens:0.00} m from the player");
+            Check(player.Wraps == wraps + 1 && beside < 0.5f && _host.HeldBy(CompanionAvatar) == "obj:apple_crate" && rides < 0.3f && lens < RoomHud.DioramaMaxDistanceM + 0.5f,
+                "out past the wrap the swimmer comes in from the far side with the Gubble beside it, the crate it carries riding with it, and the F3 view put straight on them");
+            hud.SetViewMode(0);
+            Send(Command(NextId("stay"), "goal.set", new JsonObject { ["actor"] = CompanionAvatar, ["goal"] = "stay" }), Player);
+            await Frames(5);
             player.RequestHome();
             await Frames(100);
             var crateGap = PlanarDistance(CrateBox().GetCenter(), companion.GlobalPosition);

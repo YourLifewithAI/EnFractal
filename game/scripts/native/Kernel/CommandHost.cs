@@ -405,14 +405,27 @@ public partial class CommandHost : Node
         return result;
     }
 
-    private JsonObject PlayerCommand(string op, JsonObject args)
+    private JsonObject PlayerCommand(string op, JsonObject args, bool preview = false)
     {
         var command = new JsonObject
         {
             ["schema"] = "enfractal.command", ["version"] = 1, ["action_id"] = $"hud-{_session}-{++_counter}",
             ["room_id"] = Room.RoomId, ["op"] = op, ["args"] = args,
         };
+        if (preview) command["preview"] = true;
         return HandleObject(CanonicalJson.Text(command), PlayerPrincipal);
+    }
+
+    /// <summary>
+    /// The player's order to the Gubble to put down what it holds (entity.release through the Gubble's avatar, as the player): in
+    /// front of it (no spot), or at a spot (placement.position_m), where the room's physics settles it. preview: only whether it
+    /// would work now, changing nothing (the HUD asks it on the Gubble's way there). The host checks reach and room as ever.
+    /// </summary>
+    public JsonObject PlayerPutDown(Vector3? at = null, bool preview = false)
+    {
+        var args = new JsonObject { ["actor"] = CompanionAvatarId };
+        if (at is { } spot) args["placement"] = new JsonObject { ["position_m"] = KernelJson.Vector(spot) };
+        return PlayerCommand("entity.release", args, preview);
     }
 
     /// <summary>The player's click: commit the held command under its original principal, recorded as approved by the player.</summary>
