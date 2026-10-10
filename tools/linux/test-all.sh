@@ -81,8 +81,8 @@ echo "== contracts"
 if (cd "$REPO" && "$LINUX/contracts-venv/bin/python" -m unittest discover -s contracts/tests > "$LOG/contracts.log" 2>&1); then
   echo "PASS contracts: $(grep -E '^Ran' "$LOG/contracts.log")"
 else cat "$LOG/contracts.log"; failed=1; fi
-if (cd "$REPO" && "$LINUX/contracts-venv/bin/python" -I contracts/validate.py game/rooms/test_room game/styles/*/v*.json > "$LOG/validate.log" 2>&1); then
-  echo "PASS shipped rooms and presets validate"
+if (cd "$REPO" && "$LINUX/contracts-venv/bin/python" -I contracts/validate.py game/rooms/test_room game/styles/*/v*.json game/rules/*/v*.json > "$LOG/validate.log" 2>&1); then
+  echo "PASS shipped rooms, presets and island rules validate"
 else cat "$LOG/validate.log"; failed=1; fi
 echo "== companion"
 if (cd "$REPO" && PYTHONPATH="$REPO/companion/src" "$LINUX/companion-venv/bin/python" -m unittest discover -s companion/tests > "$LOG/companion.log" 2>&1); then

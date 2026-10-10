@@ -6,12 +6,13 @@ Usage:
   python contracts/validate.py --room game/rooms/test_room
   python contracts/validate.py --state path/to/state.json --room path/to/room_dir
   python contracts/validate.py --check-style-pins game/rooms/<room>     # also verify style pins
+  python contracts/validate.py game/rules/storybook_wild/v1.json        # an island rules pack
   python contracts/validate.py --pin FILE                                # print a file's SHA-256 pin
 
 A directory containing room.json is validated as a room: the manifest, every asset.json it
 references, every listed file (hash, size, self-contained GLB), and the semantic rules JSON
-Schema cannot express. A .json file is validated by its own 'schema' field. Exit status is 0
-only when everything passes. Requires the packages in contracts/requirements.txt.
+Schema cannot express. A .json file is validated by its own 'schema' field (a style preset or an
+island rules pack is one such file). Exit status is 0 only when everything passes. Requires the packages in contracts/requirements.txt.
 """
 from __future__ import annotations
 
@@ -36,6 +37,7 @@ from referencing.jsonschema import DRAFT202012
 CONTRACTS_DIR = Path(__file__).resolve().parent
 REPO_ROOT = CONTRACTS_DIR.parent
 STYLES_DIR = REPO_ROOT / "game" / "styles"
+RULES_DIR = REPO_ROOT / "game" / "rules"
 SCHEMA_FILES = {
     "enfractal.room": "room-manifest.schema.json",
     "enfractal.asset": "asset.schema.json",
@@ -44,6 +46,7 @@ SCHEMA_FILES = {
     "enfractal.query": "game-command.schema.json",
     "enfractal.result": "game-command.schema.json",
     "enfractal.room_state": "room-state.schema.json",
+    "enfractal.island_rules": "island-rules.schema.json",
 }
 MESSAGE_LIMITS = {"enfractal.command": 65536, "enfractal.query": 65536, "enfractal.result": 262144}
 CREATION_SOURCE_LIMIT = 32768
@@ -611,6 +614,40 @@ def check_style(preset: dict, label: str, path: Path | None = None) -> list[str]
     return problems
 
 
+# ---------- island rules ----------
+
+def rules_path(rules_id: str, version: int, rules_dir: Path = RULES_DIR) -> Path:
+    return rules_dir / rules_id / f"v{version}.json"
+
+
+def check_rules(pack: dict, label: str, path: Path | None = None) -> list[str]:
+    """What the island rules schema cannot express. The schema holds each primitive's outer limits; this checks
+    that a pack is consistent inside them: one ability per capability and per category, each default inside its
+    range, and each default radius and duration at most its maximum. Text rules ran with the schema."""
+    problems = []
+    capabilities = [ability["capability"] for ability in pack["abilities"]]
+    for name in sorted({c for c in capabilities if capabilities.count(c) > 1}):
+        problems.append(f"{label}: capability {name!r} appears more than once; capabilities are unique within a pack")
+    categories = [ability["category"] for ability in pack["abilities"]]
+    for name in sorted({c for c in categories if categories.count(c) > 1}):
+        problems.append(f"{label}: category {name!r} appears more than once; categories are unique within a pack")
+    for index, ability in enumerate(pack["abilities"]):
+        where = f"{label}: abilities[{index}] ({ability['capability']})"
+        for name, bounds in ability["params"].items():
+            if bounds["min"] > bounds["max"]:
+                problems.append(f"{where}: param {name} has min {bounds['min']} above max {bounds['max']}")
+            elif not bounds["min"] <= bounds["default"] <= bounds["max"]:
+                problems.append(f"{where}: param {name} default {bounds['default']} is outside its min {bounds['min']} and max {bounds['max']}")
+        if ability["area_radius_default_m"] > ability["area_radius_max_m"]:
+            problems.append(f"{where}: area_radius_default_m {ability['area_radius_default_m']} is above area_radius_max_m {ability['area_radius_max_m']}")
+        if ability["duration_default_s"] > ability["duration_max_s"]:
+            problems.append(f"{where}: duration_default_s {ability['duration_default_s']} is above duration_max_s {ability['duration_max_s']}")
+    if path is not None and path.parent.parent.name == "rules":
+        if path.parent.name != pack["rules_id"] or path.name != f"v{pack['rules_version']}.json":
+            problems.append(f"{label}: a rules pack lives at rules/<rules_id>/v<rules_version>.json")
+    return problems
+
+
 # ---------- room state ----------
 
 def check_state(state: dict, label: str, room_dir: Path | None = None, check_style_pins: bool = False, styles_dir: Path = STYLES_DIR) -> list[str]:
@@ -783,6 +820,8 @@ def check_document(path: Path, check_style_pins: bool = False) -> list[str]:
         return check_asset(document, path.parent, label)
     if kind == "enfractal.style":
         return check_style(document, label, path)
+    if kind == "enfractal.island_rules":
+        return check_rules(document, label, path)
     if kind == "enfractal.room_state":
         return check_state(document, label, check_style_pins=check_style_pins)
     return check_message(document, label)

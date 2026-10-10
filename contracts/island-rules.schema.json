@@ -1,0 +1,318 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.enfractal.invalid/v1/island-rules.schema.json",
+  "title": "EnFractal island rules",
+  "description": "An island's own laws as data: the abilities the island grants, each carried out by one engine primitive, with its bounds, who may cast it, what it may target and its safety tier. Written by the integrator and by theme packs through contract rounds; read by the host's rules loader, the mock host and later the HUD. Stored as game/rules/<rules_id>/v<rules_version>.json (loaded as res://rules/<rules_id>/v<rules_version>.json). A seed or draft version may be edited in place; once a version is candidate or approved, or anything pins it, its file never changes and a change means a new version file. A pack can only narrow the engine's limits: each primitive's outer limits are the if/then rules under $defs/ability, and an ability's bounds must sit inside them. A command must then sit inside the ability's bounds. contracts/validate.py checks what a schema cannot: unique capabilities and categories, each default inside its range, and each default radius and duration at most its maximum.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "version",
+    "rules_id",
+    "rules_version",
+    "display_name",
+    "status",
+    "magic_word",
+    "abilities"
+  ],
+  "properties": {
+    "schema": {
+      "const": "enfractal.island_rules"
+    },
+    "version": {
+      "type": "integer",
+      "const": 1
+    },
+    "rules_id": {
+      "$ref": "common.schema.json#/$defs/token"
+    },
+    "rules_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "display_name": {
+      "allOf": [
+        {
+          "$ref": "common.schema.json#/$defs/display_text"
+        },
+        {
+          "maxLength": 80
+        }
+      ],
+      "minLength": 1
+    },
+    "description": {
+      "allOf": [
+        {
+          "$ref": "common.schema.json#/$defs/display_text"
+        },
+        {
+          "maxLength": 500
+        }
+      ]
+    },
+    "status": {
+      "description": "seed: starting values, not reviewed; draft: in development; candidate: submitted for review; approved: passed review; retired: kept for old saves. As for style presets: a candidate, approved or pinned version never changes.",
+      "enum": [
+        "seed",
+        "draft",
+        "candidate",
+        "approved",
+        "retired"
+      ]
+    },
+    "magic_word": {
+      "description": "What the island calls its magic (a tech island might say 'tech'). Shown to people and models; untrusted text like every name.",
+      "allOf": [
+        {
+          "$ref": "common.schema.json#/$defs/display_text"
+        },
+        {
+          "maxLength": 40
+        }
+      ],
+      "minLength": 1
+    },
+    "abilities": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "items": {
+        "$ref": "#/$defs/ability"
+      }
+    },
+    "extensions": {
+      "$ref": "common.schema.json#/$defs/extensions"
+    }
+  },
+  "$defs": {
+    "ability": {
+      "description": "One ability: an engine primitive with the island's narrower bounds.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "capability",
+        "category",
+        "primitive",
+        "display_name",
+        "cast_by",
+        "tier",
+        "targets",
+        "reach_m",
+        "params",
+        "area_radius_default_m",
+        "area_radius_max_m",
+        "duration_default_s",
+        "duration_max_s",
+        "max_active"
+      ],
+      "properties": {
+        "capability": {
+          "description": "The name effect.start and capabilities.list use. Unique within a pack.",
+          "$ref": "common.schema.json#/$defs/token"
+        },
+        "category": {
+          "description": "What kind of magic the ability is. Unique within a pack; the primitive fixes it (light.emit is light). The HUD places abilities on its wheel by category, with slots fixed by the engine: light 1, growth 2, float 3, burst 4, build 5. That mapping is the HUD's rule, not this contract's, so category stays a token here.",
+          "$ref": "common.schema.json#/$defs/token"
+        },
+        "primitive": {
+          "description": "The engine primitive that carries the ability out. Each primitive's outer limits are an if/then rule below.",
+          "enum": [
+            "light.emit"
+          ]
+        },
+        "display_name": {
+          "allOf": [
+            {
+              "$ref": "common.schema.json#/$defs/display_text"
+            },
+            {
+              "maxLength": 80
+            }
+          ],
+          "minLength": 1
+        },
+        "cast_by": {
+          "description": "Which principals may cast it. The companion may target only its own avatar.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "player",
+              "companion"
+            ]
+          }
+        },
+        "tier": {
+          "description": "Its safety tier, LIVE-VOICE.md's T0 to T3: auto (T0, runs at once), auto_undo (T1, runs at once with an undo snapshot), preview_commit (T2, a preview that commits unless stopped), keyed_yes (T3, the host holds it for the player's spoken or keyed yes).",
+          "enum": [
+            "auto",
+            "auto_undo",
+            "preview_commit",
+            "keyed_yes"
+          ]
+        },
+        "targets": {
+          "description": "What it may be cast on. self: the effect follows the caster's avatar (effect.start targets that avatar). point: the effect stays at area.center_m (effect.start names no targets).",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "self",
+              "point"
+            ]
+          }
+        },
+        "reach_m": {
+          "description": "How far from the caster's avatar a point effect may be centred.",
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 10
+        },
+        "params": {
+          "description": "Each numeric parameter's inclusive range and its default; the host fills an omitted parameter with its default. Names follow effect.start params, and names that look like identity or authority are refused there and here.",
+          "type": "object",
+          "maxProperties": 16,
+          "propertyNames": {
+            "pattern": "^[a-z][a-z0-9_]{0,31}$",
+            "not": {
+              "enum": [
+                "principal",
+                "action_id",
+                "approval",
+                "approval_id",
+                "approved",
+                "owner",
+                "owner_id",
+                "room_id",
+                "actor",
+                "grant",
+                "role"
+              ]
+            }
+          },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "min",
+              "max",
+              "default"
+            ],
+            "properties": {
+              "min": {
+                "type": "number",
+                "minimum": -1000000,
+                "maximum": 1000000
+              },
+              "max": {
+                "type": "number",
+                "minimum": -1000000,
+                "maximum": 1000000
+              },
+              "default": {
+                "type": "number",
+                "minimum": -1000000,
+                "maximum": 1000000
+              }
+            }
+          }
+        },
+        "area_radius_default_m": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 10
+        },
+        "area_radius_max_m": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 10
+        },
+        "duration_default_s": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 600
+        },
+        "duration_max_s": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 600
+        },
+        "max_active": {
+          "description": "At most this many of this ability active at once. The host also caps active effects per room.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64
+        }
+      },
+      "allOf": [
+        {
+          "description": "light.emit, a real light (an omni light following the caster or floating at a point). Its outer limits: intensity only, from 0.05 to 2.0; radius at most 3 m; duration at most 600 s (the command contract's own maximum); at most 8 active; reach at most 5 m; category light.",
+          "if": {
+            "required": [
+              "primitive"
+            ],
+            "properties": {
+              "primitive": {
+                "const": "light.emit"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "category": {
+                "const": "light"
+              },
+              "params": {
+                "required": [
+                  "intensity"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "intensity": {
+                    "properties": {
+                      "min": {
+                        "minimum": 0.05,
+                        "maximum": 2.0
+                      },
+                      "max": {
+                        "minimum": 0.05,
+                        "maximum": 2.0
+                      },
+                      "default": {
+                        "minimum": 0.05,
+                        "maximum": 2.0
+                      }
+                    }
+                  }
+                }
+              },
+              "reach_m": {
+                "maximum": 5
+              },
+              "area_radius_default_m": {
+                "maximum": 3
+              },
+              "area_radius_max_m": {
+                "maximum": 3
+              },
+              "duration_default_s": {
+                "maximum": 600
+              },
+              "duration_max_s": {
+                "maximum": 600
+              },
+              "max_active": {
+                "maximum": 8
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}
