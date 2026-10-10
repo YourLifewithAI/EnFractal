@@ -71,6 +71,99 @@ class PolicyMatchesTheKernel(unittest.TestCase):
         self.assertEqual(gd("MAX_TRANSIENT_PER_PRINCIPAL"), policy.max_transient_receipts_per_principal)
 
 
+KERNEL = REPO / "game" / "scripts" / "native"
+EFFECTS = KERNEL / "Kernel" / "CommandHostEffects.cs"
+RULES = KERNEL / "Kernel" / "IslandRules.cs"
+
+
+def _text(path) -> str:
+    return path.read_text(encoding="utf-8")
+
+
+def _match(path, pattern: str) -> str:
+    match = re.search(pattern, _text(path))
+    if match is None:
+        raise AssertionError(f"{path.name} no longer declares {pattern!r}; update this test with the kernel")
+    return match.group(1)
+
+
+def _method(source: str, signature: str) -> str:
+    """The body of one C# method: from its signature to the next member at the same indentation."""
+    start = source.index(signature)
+    end = re.search(r"\n    (?:private|public|internal)\b", source[start + len(signature):])
+    return source[start:start + len(signature) + (end.start() if end else len(source))]
+
+
+@unittest.skipUnless(EFFECTS.is_file() and RULES.is_file(), "the kernel host's abilities are not in this checkout")
+class GlowMatchesTheKernel(unittest.TestCase):
+    """The island's abilities (Run 2, Glow): the mock's effect.start and capabilities.list against the kernel's."""
+
+    def test_the_effect_numbers_are_the_kernels(self):
+        from enfractal_companion import mock_host as m
+        expected = {
+            "max_active_effects": _constant(COMMAND_HOST, r"\bconst int MaxActiveEffects = (\d+);"),
+            "CAPABILITIES_DEFAULT_LIMIT": _constant(COMMAND_HOST, r"\bconst int CapabilitiesDefaultLimit = (\d+);"),
+            "EFFECT_SIGHT_HALF_WIDTH_M": float(_match(COMMAND_HOST, r"\bconst float EffectSightHalfWidthM = ([0-9.]+)f;")),
+            "WISP_LIFT_M": float(_match(KERNEL / "Look" / "LookDirector.Glow.cs", r"\bconst float WispLiftM = ([0-9.]+)f;")),
+            "MAX_RULES_PACK_BYTES": _constant(RULES, r"\bconst int MaxPackBytes = (\d+);"),
+            "DEFAULT_RULES_ID": _match(KERNEL / "RoomWorld.cs", r'\bconst string DefaultRulesId = "([a-z0-9_]+)";'),
+            "DEFAULT_RULES_VERSION": _constant(KERNEL / "RoomWorld.cs", r"\bconst int DefaultRulesVersion = (\d+);"),
+            "SEA_EXTENSION": _match(KERNEL / "Room" / "RoomSea.cs", r'\bconst string ExtensionName = "([a-z0-9_]+)";'),
+            "GUBBLE": _match(COMMAND_HOST, r'\bconst string CompanionAvatarId = "([a-z:]+)";'),
+            "EFFECT_ID_ALPHABET": _match(EFFECTS, r'"effect:" \+ System\.Security\.Cryptography\.RandomNumberGenerator\.GetString\("([a-z2-7]+)", \d+\)'),
+            "EFFECT_ID_LENGTH": int(_match(EFFECTS, r'RandomNumberGenerator\.GetString\("[a-z2-7]+", (\d+)\)')),
+        }
+        actual = {name: getattr(HostPolicy(), name) if name == "max_active_effects" else getattr(m, name) for name in expected}
+        self.assertEqual(actual, expected)
+
+    def test_the_mock_reads_the_pack_the_kernel_loads(self):
+        import hashlib
+        from enfractal_companion.mock_host import rules_path
+        self.assertIn('=> $"res://rules/{rulesId}/v{rulesVersion}.json";', _text(RULES))
+        path = rules_path()
+        self.assertEqual(path, REPO / "game" / "rules" / "storybook_wild" / "v1.json")
+        host = new_host()
+        self.assertEqual((host.rules.rules_id, host.rules.rules_version, host.rules.sha256),
+                         ("storybook_wild", 1, hashlib.sha256(path.read_bytes()).hexdigest()))
+
+    def test_reserved_param_names_are_the_contracts_everywhere(self):
+        import json
+        command_schema = json.loads((REPO / "contracts" / "game-command.schema.json").read_bytes())
+        rules_schema = json.loads((REPO / "contracts" / "island-rules.schema.json").read_bytes())
+        contract = command_schema["$defs"]["args"]["effect.start"]["properties"]["params"]["propertyNames"]["not"]["enum"]
+        pack = rules_schema["$defs"]["ability"]["properties"]["params"]["propertyNames"]["not"]["enum"]
+        pattern = r"ReservedParams = \{ ([^}]+) \};"
+        kernel = [re.findall(r'"([a-z_]+)"', _match(path, pattern)) for path in (COMMAND_HOST, RULES)]
+        self.assertEqual([contract, kernel[0], kernel[1]], [pack, pack, pack])
+
+    def test_the_mock_checks_effect_start_in_the_kernels_order_and_words(self):
+        """The codes PlanEffect throws, in order, are the mock's _plan_effect's; and every refusal message and field
+        path the mock gives for the abilities is the kernel's, word for word."""
+        import ast
+        import inspect
+        import textwrap
+        from enfractal_companion.mock_host import MockHost
+        kernel = _method(_text(EFFECTS), "private EffectPlan PlanEffect(")
+        mock = inspect.getsource(MockHost._plan_effect)
+        self.assertEqual(re.findall(r'HostError\("(\w+)"', mock), re.findall(r'new Refusal\("(\w+)"', kernel))
+        words = set()
+        for function in (MockHost._plan_effect, MockHost._op_effect_start, MockHost._op_effect_stop):
+            tree = ast.parse(textwrap.dedent(inspect.getsource(function)))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Call) and getattr(node.func, "id", "") == "HostError":
+                    for value in list(node.args[1:2]) + [k.value for k in node.keywords if k.arg == "field_path"]:
+                        for constant in ast.walk(value):
+                            if isinstance(constant, ast.Constant) and isinstance(constant.value, str):
+                                words.add(constant.value)
+        source = _text(EFFECTS)
+        self.assertGreater(len(words), 20)
+        self.assertEqual(sorted(w for w in words if w not in source), [])
+        # capabilities.list's one refusal, a cursor it did not give.
+        cursor = "That cursor is not from this list."
+        self.assertIn(cursor, _method(source, "private JsonObject Capabilities("))
+        self.assertIn(cursor, inspect.getsource(MockHost._query))
+
+
 class DefaultPolicyBoundaries(unittest.TestCase):
     """The default policy at the kernel's boundaries (the mechanisms are tested with small numbers elsewhere)."""
 

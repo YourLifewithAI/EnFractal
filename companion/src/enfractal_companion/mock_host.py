@@ -40,6 +40,12 @@ It loads a real room (`game/rooms/test_room` by default) through the room contra
 - a companion's `room.undo` steps back only over revisions its own commands made: undoing the
   player's changes is the player's alone;
 - unknown, removed, foreign and unperceived entity ids all fail with the same `target_not_found`;
+- the island's abilities come from its rules pack, the one the kernel host loads (game/rules/storybook_wild/v1.json,
+  checked fail-closed): `capabilities.list` answers from it, and `effect.start` follows the kernel's rules, order of
+  refusals, codes and result data (CommandHostEffects.cs). The Gubble carries every ability out: a companion may
+  target only its own avatar (self) or name no targets (a point within reach and in the team's sight); effect ids are
+  opaque; effects end at their duration, on `effect.stop` (the player any, a companion its own) and on a `goal.stop`
+  that covers the Gubble. Effects are not entities: no query lists them, as on the kernel host;
 - world text is emitted only in contract fields and sanitised (textsafety.py);
 - every result is validated before it leaves; one that would not validate becomes `internal_error`.
 
@@ -75,7 +81,8 @@ from .contract import (
     is_authority_key,
     value_problems,
 )
-from .refusals import HostError, base_result, failure, forbidden_key_error, map_schema_errors, value_error
+from .refusals import (HostError, base_result, effect_args_error, failure, forbidden_key_error, map_schema_errors,
+                       value_error)
 
 log = logging.getLogger("enfractal.mock_host")
 
@@ -114,11 +121,26 @@ _BODY = [perception.BODY_RADIUS_M, perception.BODY_HEIGHT_M, perception.BODY_RAD
 DEFAULT_ROOM_DIR = DEFAULT_REPO_ROOT / "game" / "rooms" / "test_room"
 DEFAULT_STYLES_DIR = DEFAULT_REPO_ROOT / "game" / "styles"
 
-# Effect capabilities the mock supports: name -> (category, {param: (min, max)}).
-CAPABILITIES: dict[str, tuple[str, dict[str, tuple[float, float]]]] = {
-    "wind_field": ("air", {"speed_mps": (0.0, 5.0), "direction_deg": (0.0, 360.0)}),
-    "glow": ("light", {"intensity": (0.0, 1.0)}),
-}
+# The island's rules (contracts/island-rules.schema.json): the abilities effect.start casts and capabilities.list lists,
+# read from the same pack the kernel host loads (RoomWorld.DefaultRulesId and DefaultRulesVersion, res://rules/<id>/v<N>.json).
+DEFAULT_RULES_ID = "storybook_wild"
+DEFAULT_RULES_VERSION = 1
+DEFAULT_RULES_DIR = DEFAULT_REPO_ROOT / "game" / "rules"
+# A pack is small (at most 32 abilities); anything larger is refused before it is parsed (IslandRules.MaxPackBytes).
+MAX_RULES_PACK_BYTES = 65536
+# capabilities.list pages this many when no limit is given (CommandHost.CapabilitiesDefaultLimit).
+CAPABILITIES_DEFAULT_LIMIT = 50
+# A point effect's place must be in the team's sight: a column twice EFFECT_SIGHT_HALF_WIDTH_M wide over the centre
+# (CommandHost.EffectSightHalfWidthM), as tall as the wisp floats above it (GlowLook.WispLiftM).
+EFFECT_SIGHT_HALF_WIDTH_M = 0.02
+WISP_LIFT_M = 0.06
+# Effect ids: 'effect:' and 26 lowercase base32 characters (130 random bits), opaque like job ids, never a counter.
+EFFECT_ID_ALPHABET = "abcdefghijklmnopqrstuvwxyz234567"
+EFFECT_ID_LENGTH = 26
+# A room with the landscape sea has no walls to keep a point effect inside (RoomSea.ExtensionName).
+SEA_EXTENSION = "x_landscape_sea"
+# The avatar that carries out every ability the player casts (the Gubble).
+GUBBLE = "avatar:companion"
 
 RECOMMENDED_HELD_OPS = frozenset({"entity.remove", "entity.transform", "creation.revise", "room.undo", "style.set"})
 
@@ -161,9 +183,9 @@ class HostPolicy:
     # A remembered entity is flagged may_be_stale after this long, or as soon as it changes.
     perception_memory_stale_after_s: float = 60.0
     max_jobs_per_principal: int = 256  # goal jobs kept for jobs.status, oldest finished dropped first
-    # Effects (open founder question: may companion effects touch the player's avatar?).
-    companion_effects_may_target_player: bool = True
-    max_effects_per_principal: int = 4
+    # Effects: the island's rules (the pack) bound each ability and its max_active; the engine also caps the active
+    # effects in a room, whatever the ability and whoever cast them (kernel: MaxActiveEffects). Tests lower it.
+    max_active_effects: int = 8
     max_creations: int = 32
     carry_limit_kg: dict[str, float] = field(default_factory=lambda: {"avatar:player": 0.5, "avatar:companion": 2.0})
     history_depth: int = 64
@@ -231,7 +253,6 @@ class Entity:
     texts: list[str] = field(default_factory=list)
     explicit_bounds: dict | None = None
     created_by: str | None = None
-    expires_at: float | None = None  # effects only
 
     def bounds(self) -> dict:
         if self.explicit_bounds is not None:
@@ -329,6 +350,104 @@ class PerceptionMemory:
     entries: OrderedDict = field(default_factory=OrderedDict)  # entity id -> Remembered
 
 
+@dataclass(frozen=True)
+class Ability:
+    """One ability of an island (contracts/island-rules.schema.json $defs/ability), as the kernel's IslandAbility."""
+
+    capability: str
+    category: str
+    primitive: str
+    cast_by: frozenset[str]  # "player" and or "companion"
+    tier: str  # auto, auto_undo, preview_commit or keyed_yes
+    targets: frozenset[str]  # "self" (the effect follows the Gubble) and or "point" (a light at area.center_m)
+    reach_m: float
+    params: dict[str, tuple[float, float, float]]  # name -> (min, max, default), in ordinal order
+    area_radius_default_m: float
+    area_radius_max_m: float
+    duration_default_s: float
+    duration_max_s: float
+    max_active: int
+
+
+@dataclass(frozen=True)
+class IslandRules:
+    """An island's own laws as data: the abilities it grants (the kernel's IslandRules)."""
+
+    rules_id: str
+    rules_version: int
+    abilities: tuple[Ability, ...]
+    sha256: str
+
+    def ability(self, capability: str | None) -> Ability | None:
+        return next((a for a in self.abilities if a.capability == capability), None)
+
+
+class RulesError(ValueError):
+    """A rules pack that does not pass the checks. The message names the problem, never the pack's text."""
+
+
+def rules_path(rules_id: str = DEFAULT_RULES_ID, rules_version: int = DEFAULT_RULES_VERSION,
+               rules_dir: Path = DEFAULT_RULES_DIR) -> Path:
+    return Path(rules_dir) / rules_id / f"v{rules_version}.json"
+
+
+def parse_rules(contracts: Contracts, pack: Any, raw: bytes | None = None, path: Path | None = None) -> IslandRules:
+    """Check a pack fail-closed, as the kernel's loader does: the island-rules schema (with each primitive's outer
+    limits) and contracts/validate.py's extra checks (unique capabilities and categories, defaults inside their
+    ranges, the pack at its own path). Any problem refuses the whole pack."""
+    validate = contracts.validate
+    if not hasattr(validate, "check_rules"):
+        raise RulesError("these contracts have no island rules")
+    try:
+        problems = validate.schema_errors(pack, "enfractal.island_rules")
+        if not problems:
+            problems = validate.check_rules(pack, "rules", path)
+    except Exception as error:  # a validator that cannot read it refuses it
+        raise RulesError(f"the pack could not be checked ({type(error).__name__})") from None
+    if problems:
+        raise RulesError(f"the pack does not pass its checks ({len(problems)} problems)")
+    abilities = tuple(Ability(
+        capability=a["capability"], category=a["category"], primitive=a["primitive"], cast_by=frozenset(a["cast_by"]),
+        tier=a["tier"], targets=frozenset(a["targets"]), reach_m=float(a["reach_m"]),
+        params={name: (float(b["min"]), float(b["max"]), float(b["default"])) for name, b in sorted(a["params"].items())},
+        area_radius_default_m=float(a["area_radius_default_m"]), area_radius_max_m=float(a["area_radius_max_m"]),
+        duration_default_s=float(a["duration_default_s"]), duration_max_s=float(a["duration_max_s"]),
+        max_active=int(a["max_active"])) for a in pack["abilities"])
+    body = raw if raw is not None else contracts.canonical_bytes(pack)
+    return IslandRules(pack["rules_id"], int(pack["rules_version"]), abilities, hashlib.sha256(body).hexdigest())
+
+
+def load_rules(contracts: Contracts, path: Path) -> IslandRules:
+    """Load and check the pack at `path` (game/rules/<rules_id>/v<N>.json). Raises RulesError for any problem."""
+    path = Path(path)
+    try:
+        raw = path.read_bytes()
+    except OSError:
+        raise RulesError("there is no rules pack there") from None
+    if not raw or len(raw) > MAX_RULES_PACK_BYTES:
+        raise RulesError(f"a rules pack is 1 to {MAX_RULES_PACK_BYTES} bytes")
+    try:
+        pack = contracts.validate.load_strict(path)
+    except Exception:
+        raise RulesError("the rules pack is not strict JSON") from None
+    return parse_rules(contracts, pack, raw, path)
+
+
+@dataclass
+class ActiveEffect:
+    """One running effect. In memory only, like the kernel's: never an entity, a snapshot, a receipt's store or a save."""
+
+    id: str
+    capability: str
+    principal: str  # who cast it: the player may stop any effect, a companion only its own
+    carrier: str  # the avatar that carries it out (the Gubble)
+    follows: bool  # self: the light follows its carrier; otherwise it stays at centre
+    centre: list[float]
+    radius_m: float
+    params: dict[str, float]
+    expires_at: float
+
+
 def _is_stop(message: Any) -> bool:
     return isinstance(message, dict) and message.get("schema") == COMMAND_SCHEMA and message.get("op") in STOP_OPS
 
@@ -343,7 +462,8 @@ class MockHost(JournalMixin):
     """The game side of the companion boundary, minus physics."""
 
     def __init__(self, contracts: Contracts, room_dir: Path | None = None, styles_dir: Path | None = None,
-                 policy: HostPolicy | None = None, clock=None, extra_companions: dict[str, str] | None = None):
+                 policy: HostPolicy | None = None, clock=None, extra_companions: dict[str, str] | None = None,
+                 rules_file: Path | None = None):
         self.contracts = contracts
         self.policy = policy or HostPolicy()
         self.clock = clock or SystemClock()
@@ -359,7 +479,12 @@ class MockHost(JournalMixin):
         self._view: set[str] | None = None  # what the current requester may name; None means everything
         self.listeners: list[Callable[[str, dict], None]] = []
         self._known_ops = frozenset(contracts.command_ops) | frozenset(contracts.query_ops)
+        # The island's rules (the kernel's CommandHost.Rules): None when the pack did not load, and then no abilities.
+        self.rules: IslandRules | None = None
+        self.rules_notice = ""
         self._reset_room()
+        # As RoomWorld hands the kernel host its rules (LoadRules), read before the server locks itself down.
+        self.load_rules(rules_file or rules_path())
 
     def _reset_room(self) -> None:
         """Everything that belongs to one loaded room, perception memory included."""
@@ -383,7 +508,8 @@ class MockHost(JournalMixin):
         self._last_sweep = self.clock.now()
         self._reset_journal()
         self._creation_counter = 0
-        self._effect_counter = 0
+        # The running effects, oldest first. Effects are not entities: no query lists them (as on the kernel host).
+        self.effects: OrderedDict[str, ActiveEffect] = OrderedDict()
         self._checkpoint_counter = 0
         self._load_room()
         self.history[0] = self._snapshot()
@@ -499,6 +625,31 @@ class MockHost(JournalMixin):
         with self._lock:
             self.room_dir = Path(room_dir)
             self._reset_room()
+
+    def load_rules(self, path: Path) -> None:
+        """Load the island's rules from a pack file (the kernel's LoadRules). A pack that fails leaves no abilities,
+        never a crash, and says why in rules_notice."""
+        try:
+            rules, notice = load_rules(self.contracts, path), ""
+        except RulesError as error:
+            rules, notice = None, f"The island's rules did not load, so the Gubble has no abilities: {error}."
+        self.use_rules(rules, notice)
+
+    def use_rules(self, rules: IslandRules | dict | None, notice: str = "") -> None:
+        """Use these rules (a checked IslandRules, or a pack to check; None for none). Effects started under the old
+        rules end (the kernel's UseRules)."""
+        with self._lock:
+            if isinstance(rules, dict):
+                rules = parse_rules(self.contracts, rules)
+            self._end_effects(list(self.effects.values()))
+            self.rules = rules
+            self.rules_notice = "" if rules is not None else (notice or "This island has no rules, so the Gubble has no abilities.")
+
+    def active_effect_ids(self) -> list[str]:
+        """The running effects' ids, oldest first (the kernel's ActiveEffectIds)."""
+        with self._lock:
+            self._expire_effects()
+            return list(self.effects)
 
     def session_event(self, principal: str, event: str) -> None:
         """The link reports a companion session starting or ending ("start", "end"). Since Run 2 the team's map
@@ -791,7 +942,10 @@ class MockHost(JournalMixin):
                             field_path="$", allowed=limit, actual=canonical_size)
         errors = list(self.contracts.iter_errors(message))
         if errors:
-            raise map_schema_errors(errors)
+            error = map_schema_errors(errors)
+            if message.get("schema") == COMMAND_SCHEMA and message.get("op") == "effect.start":
+                error = effect_args_error(error)
+            raise error
         for path, source in creation_sources(message):
             size = len(self.contracts.canonical_bytes(source))
             if size > self.contracts.creation_source_limit:
@@ -848,7 +1002,7 @@ class MockHost(JournalMixin):
             result.update(prediction)
             result.pop("transient", None)
             return result
-        if principal != PLAYER and op in self.policy.companion_approval_ops:
+        if principal != PLAYER and (op in self.policy.companion_approval_ops or self._keyed_yes(message)):
             return self._hold(principal, message, fingerprint, prediction)
         if op not in TRANSIENT_OPS and op != "room.checkpoint":
             self._check_receipt_room(principal)
@@ -886,6 +1040,14 @@ class MockHost(JournalMixin):
             replay["at_utc"] = utc(self.clock.now())
             return replay
         return None
+
+    def _keyed_yes(self, message: dict) -> bool:
+        """An ability of tier keyed_yes (T3) waits for the player's yes when a companion asks, whatever the policy's
+        held set: the island's rules say so (the kernel's NeedsApproval)."""
+        if message["op"] != "effect.start" or self.rules is None:
+            return False
+        ability = self.rules.ability(message["args"].get("capability"))
+        return ability is not None and ability.tier == "keyed_yes"
 
     def _commit(self, principal: str, message: dict, handler, approved_by: str | None = None) -> dict:
         op = message["op"]
@@ -1010,6 +1172,9 @@ class MockHost(JournalMixin):
             revision = entity.revision if entity else 0
             return f'{entity_id} ("{name}", revision {revision})'
 
+        if op == "effect.start":
+            # The prompt names the capability token only, as the kernel host's does.
+            return f"The companion asks to use {args['capability']}. Approve or deny it in the game."
         if op == "entity.remove":
             what = f"remove {named(args['target'])} from the room"
         elif op == "entity.transform":
@@ -1124,9 +1289,7 @@ class MockHost(JournalMixin):
                 self._emit("approval_decided", {"request_id": approval.request_id, "state": approval.state})
         finally:
             self._view = view
-        for entity in list(self.entities.values()):
-            if entity.kind == "effect" and not entity.removed and entity.expires_at is not None and now >= entity.expires_at:
-                entity.removed = True
+        self._expire_effects()
 
     # ------------------------------------------------------------------ helpers
 
@@ -1609,74 +1772,188 @@ class MockHost(JournalMixin):
         return job["state"]
 
     def _op_goal_stop(self, principal, message, apply, new_revision):
-        # Always permitted. Without an actor it stops every actor the principal may direct, their
-        # goals and their effects; the player's stop therefore stops the companion as well.
+        # Always permitted. Without an actor it stops every actor the principal may direct and their goals; the
+        # player's stop therefore stops the companion as well. The Gubble carries out the island's abilities, so a
+        # stop that covers it also ends the effects this principal may stop (the kernel's StopCompanionEffects).
         args = message["args"]
         actors = [self._actor(principal, args)] if "actor" in args else sorted(self._directable(principal))
-        owners = {self._principal_of(actor) for actor in actors}
-        stopped_effects = sorted(e.id for e in self.entities.values()
-                                 if e.kind == "effect" and not e.removed and e.created_by in owners)
-        if apply:
-            for actor in actors:
-                self._cancel_job(actor)
-                self.goals.pop(actor, None)
-            for effect_id in stopped_effects:
-                self.entities[effect_id].removed = True
-        return {"affected": actors + stopped_effects}
+        carriers = {a for a in actors if a != self.avatars[PLAYER]}
+        ending = [e for e in self._stoppable(principal) if e.carrier in carriers]
+        if not apply:
+            return {}  # a preview of a stop says nothing (the kernel's Previewed)
+        for actor in actors:
+            self._cancel_job(actor)
+            self.goals.pop(actor, None)
+        ended = self._end_effects(ending)
+        return {"affected": actors + ended, "data": {"effects_stopped": len(ended)}}
+
+    # ------------------------------------------------------------------ the island's abilities (effects)
+    # The kernel's CommandHostEffects.cs: the pack says which abilities exist and their bounds; effect.start casts one,
+    # carried out by the Gubble, as the player or as the companion. v1 has one primitive, light.emit: Glow, a light that
+    # follows the Gubble (targets: its own avatar) or floats at a spot within its reach and in the team's sight.
+
+    def _stoppable(self, principal: str) -> list[ActiveEffect]:
+        """The effects a stop by principal covers: the player's covers every effect, a companion's only its own."""
+        self._expire_effects()
+        return [e for e in self.effects.values() if principal.startswith("player:") or e.principal == principal]
+
+    def _end_effects(self, ending: list[ActiveEffect]) -> list[str]:
+        ended = []
+        for effect in ending:
+            if self.effects.pop(effect.id, None) is not None:
+                ended.append(effect.id)
+        return ended
+
+    def _expire_effects(self) -> None:
+        """An effect ends at its duration (the host's clock)."""
+        now = self.clock.now()
+        self._end_effects([e for e in self.effects.values() if now >= e.expires_at])
+
+    def _carrier(self, principal: str) -> str:
+        """The avatar that carries out what the principal casts: the Gubble for the player, a companion's own avatar."""
+        return GUBBLE if principal.startswith("player:") else self.avatars[principal]
+
+    def _team_sees_spot(self, centre: list[float], principal: str, carrier: str) -> bool:
+        """Whether the place a point effect would float is in sight now: of the Gubble's eyes, or the player's (the
+        team's sight, or the player's own cast). A column EFFECT_SIGHT_HALF_WIDTH_M either side of the centre, as tall
+        as the wisp floats above it."""
+        low = [centre[0] - EFFECT_SIGHT_HALF_WIDTH_M, centre[1], centre[2] - EFFECT_SIGHT_HALF_WIDTH_M]
+        high = [centre[0] + EFFECT_SIGHT_HALF_WIDTH_M, centre[1] + WISP_LIFT_M, centre[2] + EFFECT_SIGHT_HALF_WIDTH_M]
+        eyes = [(carrier, "companion")]
+        if principal.startswith("player:") or (self.policy.shared_sight and principal == self._team_principal()):
+            eyes.append((self.avatars[PLAYER], "player"))
+        occluders = self._occluders()
+        for avatar_id, kind in eyes:
+            avatar = self.entities.get(avatar_id)
+            if avatar is None or avatar.removed:
+                continue
+            if perception.visible(perception.eye_point(avatar.position, kind), "effect:place", low, high, occluders):
+                return True
+        return False
+
+    def _plan_effect(self, principal: str, args: dict) -> dict:
+        """effect.start checked against the rules, the caster, the targets, the bounds, the place and the caps, in that
+        order, with the kernel's codes (PlanEffect). Runs before any hold, so a held request is one that can start."""
+        self._expire_effects()
+        player = principal.startswith("player:")
+        # The companion names only what the team has in sight now (the kernel's CheckPerceived, before the rules).
+        for target_id in args.get("targets", []):
+            if not player and self._entity(target_id) is None:
+                raise _not_found("$.args.targets")
+        if self.rules is None:
+            raise HostError("unsupported_capability", "This island's rules did not load, so it grants no abilities.",
+                            field_path="$.args.capability")
+        ability = self.rules.ability(args["capability"])
+        if ability is None:
+            raise HostError("unsupported_capability", "This island has no ability by that name. Call capabilities.list.",
+                            field_path="$.args.capability")
+        if ("player" if player else "companion") not in ability.cast_by:
+            raise HostError("permission_denied", "This island does not let the player cast that." if player
+                            else "This island does not let the companion cast that.", field_path="$.args.capability")
+        # Targets: the Gubble's own avatar (self, the light follows it) or none (point). Nothing else, from anyone.
+        carrier = self._carrier(principal)
+        targets = list(args.get("targets", []))
+        own = targets != []
+        if own and targets != [carrier]:
+            if player:
+                raise HostError("invalid_args", "This ability lights the Gubble or a spot; it cannot be cast on that.",
+                                field_path="$.args.targets")
+            raise HostError("permission_denied", "A companion's ability may target only its own avatar.",
+                            field_path="$.args.targets")
+        if own and "self" not in ability.targets:
+            raise HostError("invalid_args", "This ability cannot be cast on the Gubble itself; name no targets and a spot.",
+                            field_path="$.args.targets", allowed=sorted(ability.targets))
+        if not own and "point" not in ability.targets:
+            raise HostError("invalid_args", "This ability lights only the Gubble itself; name its avatar in targets.",
+                            field_path="$.args.targets", allowed=sorted(ability.targets))
+        # Bounds: every param the ability's, within its range; omitted ones take the defaults.
+        params: dict[str, float] = {}
+        for name in sorted(args["params"]):
+            value, path = args["params"][name], textsafety.field_path(["args", "params", name])
+            if name not in ability.params:
+                raise HostError("invalid_args", "This ability takes no parameter by that name.", field_path=path,
+                                allowed=list(ability.params))
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise HostError("invalid_args", "This parameter is a number.", field_path=path)
+            low, high, _default = ability.params[name]
+            if not low <= value <= high:
+                raise HostError("invalid_args", "This parameter is out of the ability's range.", field_path=path,
+                                allowed=[low, high], actual=value)
+            params[name] = float(value)
+        for name, (_low, _high, default) in ability.params.items():
+            params.setdefault(name, default)
+        radius = float(args["area"]["radius_m"])
+        if radius > ability.area_radius_max_m:
+            raise HostError("invalid_args", "The area is larger than the ability allows.", field_path="$.args.area.radius_m",
+                            allowed=ability.area_radius_max_m, actual=radius)
+        duration = float(args["duration_s"])
+        if duration > ability.duration_max_s:
+            raise HostError("invalid_args", "That is longer than the ability lasts.", field_path="$.args.duration_s",
+                            allowed=ability.duration_max_s, actual=duration)
+        # The Gubble carries every ability out.
+        body = self.entities.get(carrier)
+        if body is None or body.removed:
+            raise HostError("not_ready", "The Gubble is not in the room.", retryable=True)
+        centre = [_r(v) for v in (body.position if own else args["area"]["center_m"])]
+        if not own:
+            # A spot: inside the room, within the Gubble's reach, and in the team's sight now (where the wisp will float).
+            if SEA_EXTENSION not in self.room.get("extensions", {}) and not _inside(centre, self.room_bounds):
+                raise HostError("out_of_bounds", "That spot is outside the room.", field_path="$.args.area.center_m")
+            distance = math.dist(body.position, centre)
+            if distance > ability.reach_m:
+                raise HostError("out_of_bounds", "That spot is beyond the Gubble's reach; it must come closer first.",
+                                field_path="$.args.area.center_m", retryable=True, allowed=ability.reach_m,
+                                actual=round(distance, 3))
+            if not self._team_sees_spot(centre, principal, carrier):
+                raise HostError("target_not_found", "Neither of you can see that spot now. Look there first.",
+                                field_path="$.args.area.center_m")
+        # Caps: the ability's own (whoever cast them), then the room's.
+        mine = sum(1 for e in self.effects.values() if e.capability == ability.capability)
+        if mine >= ability.max_active:
+            raise HostError("budget_exceeded", "As many of these are running as the island allows; stop one first.",
+                            field_path="$.args.capability", allowed=ability.max_active, actual=mine)
+        if len(self.effects) >= self.policy.max_active_effects:
+            raise HostError("budget_exceeded", "As many effects are running as the room allows; stop one first.",
+                            field_path="$.args.capability", allowed=self.policy.max_active_effects, actual=len(self.effects))
+        return {"ability": ability, "self": own, "carrier": carrier, "centre": centre, "radius_m": radius,
+                "duration_s": duration, "params": params}
+
+    @staticmethod
+    def _effect_data(plan: dict, effect_id: str | None = None, expires_at: float | None = None) -> dict:
+        data: dict = {}
+        if effect_id is not None:
+            data["effect"] = effect_id
+        data.update({"capability": plan["ability"].capability, "category": plan["ability"].category,
+                     "target": "self" if plan["self"] else "point", "params": dict(plan["params"]),
+                     "area": {"center_m": list(plan["centre"]), "radius_m": plan["radius_m"]}, "duration_s": plan["duration_s"]})
+        if expires_at is not None:
+            data["expires_utc"] = utc(expires_at)
+        return data
 
     def _op_effect_start(self, principal, message, apply, new_revision):
-        args = message["args"]
-        capability = CAPABILITIES.get(args["capability"])
-        if capability is None:
-            raise HostError("unsupported_capability", "The game has no effect by that name. Call capabilities_list.",
-                            field_path="$.args.capability")
-        bounds = capability[1]
-        for name, value in args["params"].items():
-            if name not in bounds:
-                raise HostError("invalid_args", "That effect does not take a parameter by that name.",
-                                field_path=textsafety.field_path(["args", "params", name]))
-            low, high = bounds[name]
-            if isinstance(value, bool) or not isinstance(value, (int, float)) or not low <= value <= high:
-                raise HostError("invalid_args", "An effect parameter is out of range.",
-                                field_path=textsafety.field_path(["args", "params", name]), allowed=[low, high])
-        if not _inside(args["area"]["center_m"], self.room_bounds):
-            raise HostError("out_of_bounds", "The effect's centre is outside the room.", field_path="$.args.area.center_m")
-        for i, target_id in enumerate(args.get("targets", [])):
-            target = self._require(target_id, f"$.args.targets[{i}]")
-            if target.protected:
-                raise HostError("target_protected", "A target is protected. Only the player can unlock it.",
-                                field_path=f"$.args.targets[{i}]")
-            if target.id == "avatar:player" and not principal.startswith("player:") \
-                    and not self.policy.companion_effects_may_target_player:
-                raise HostError("permission_denied", "Companion effects may not target the player.",
-                                field_path=f"$.args.targets[{i}]")
-        live = [e for e in self.entities.values() if e.kind == "effect" and not e.removed and e.created_by == principal]
-        if len(live) >= self.policy.max_effects_per_principal:
-            raise HostError("budget_exceeded", "Too many of your effects are running; stop one first.",
-                            allowed=self.policy.max_effects_per_principal, actual=len(live))
+        plan = self._plan_effect(principal, message["args"])
         if not apply:
-            return {}
-        self._effect_counter += 1
-        effect_id = f"effect:{self._effect_counter:04d}"
-        centre, radius = args["area"]["center_m"], args["area"]["radius_m"]
-        self.entities[effect_id] = Entity(
-            id=effect_id, kind="effect", display_name=args["capability"].replace("_", " "), position=list(centre),
-            half_extents=[0, 0, 0], affordances=[], movable=False,
-            provenance_kind="ai_created" if principal.startswith("companion:") else "player_created",
-            explicit_bounds={"min_m": [_clamp(c - radius) for c in centre], "max_m": [_clamp(c + radius) for c in centre]},
-            created_by=principal, expires_at=self.clock.now() + float(args["duration_s"]))
-        return {"created": [effect_id], "affected": [effect_id]}
+            return {"data": self._effect_data(plan)}  # a preview says what would start
+        effect_id = "effect:" + "".join(secrets.choice(EFFECT_ID_ALPHABET) for _ in range(EFFECT_ID_LENGTH))
+        expires_at = self.clock.now() + plan["duration_s"]
+        self.effects[effect_id] = ActiveEffect(
+            id=effect_id, capability=plan["ability"].capability, principal=principal, carrier=plan["carrier"],
+            follows=plan["self"], centre=list(plan["centre"]), radius_m=plan["radius_m"], params=dict(plan["params"]),
+            expires_at=expires_at)
+        return {"created": [effect_id], "affected": [effect_id], "data": self._effect_data(plan, effect_id, expires_at)}
 
     def _op_effect_stop(self, principal, message, apply, new_revision):
-        # Always permitted. The player may stop any companion's effects; a companion only its own.
+        # Always permitted: one id, or all that principal may stop (the player any, a companion its own). An unknown
+        # id, or another's, stops nothing and still applies.
         which = message["args"]["effect"]
-        owners = {self._principal_of(avatar) for avatar in self._directable(principal)}
-        stoppable = [e for e in self.entities.values() if e.kind == "effect" and not e.removed and e.created_by in owners]
-        stopping = sorted((e for e in stoppable if which == "all" or e.id == which), key=lambda e: e.id)
-        if apply:
-            for effect in stopping:
-                effect.removed = True
-        return {"affected": [e.id for e in stopping]}
+        ending = [e for e in self._stoppable(principal) if which == "all" or e.id == which]
+        if not apply:
+            return {}  # a preview of a stop says nothing (the kernel's Previewed)
+        ended = self._end_effects(ending)
+        outcome: dict = {"data": {"effects_stopped": len(ended)}}
+        if ended:
+            outcome["affected"] = ended
+        return outcome
 
     def _op_style_set(self, principal, message, apply, new_revision):
         args = message["args"]
@@ -1821,16 +2098,24 @@ class MockHost(JournalMixin):
                 data["protected_by"] = protected_by
             result["data"] = data
         elif op == "capabilities.list":
-            names = sorted(n for n, (cat, _p) in CAPABILITIES.items() if args.get("category") in (None, cat))
-            offset = _cursor(args.get("cursor"))
-            limit = args.get("limit", 50)
-            items = [{"capability": n, "category": CAPABILITIES[n][0],
-                      "params": {p: {"min": lo, "max": hi} for p, (lo, hi) in CAPABILITIES[n][1].items()},
-                      "area_radius_max_m": 10, "duration_max_s": 600}
-                     for n in names[offset:offset + limit]]
-            result["data"] = {"items": items}
-            if offset + limit < len(names):
-                result["data"]["next_cursor"] = str(offset + limit)
+            # From the island's rules: capability_summary items by capability, filtered by category, paged by a
+            # plain decimal offset (the kernel's Capabilities). A cursor it did not give is invalid_args.
+            abilities = sorted(self.rules.abilities if self.rules else (), key=lambda a: a.capability)
+            if "category" in args:
+                abilities = [a for a in abilities if a.category == args["category"]]
+            start = 0
+            if "cursor" in args:
+                cursor = args["cursor"]
+                if not (cursor.isascii() and cursor.isdigit()) or int(cursor) > len(abilities):
+                    raise HostError("invalid_args", "That cursor is not from this list.", field_path="$.args.cursor")
+                start = int(cursor)
+            page = abilities[start:start + args.get("limit", CAPABILITIES_DEFAULT_LIMIT)]
+            result["data"] = {"items": [{
+                "capability": a.capability, "category": a.category,
+                "params": {name: {"min": low, "max": high} for name, (low, high, _default) in a.params.items()},
+                "area_radius_max_m": a.area_radius_max_m, "duration_max_s": a.duration_max_s} for a in page]}
+            if start + len(page) < len(abilities):
+                result["data"]["next_cursor"] = str(start + len(page))
         elif op == "observe":
             actor = self._actor(principal, args)
             radius = min(float(args.get("radius_m", self.policy.observe_max_radius_m)), self.policy.observe_max_radius_m)

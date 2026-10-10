@@ -11,7 +11,7 @@ from pathlib import Path
 
 import test_host_boundary as base
 from support import (
-    COMPANION, GARAGE_TO_TEST_ROOM, PLAYER, REPO, HostPolicy, command, contracts, example, new_host, query, retarget,
+    COMPANION, GARAGE_TO_TEST_ROOM, PLAYER, REPO, HostPolicy, command, contracts, example, glow, new_host, query, retarget,
 )
 
 from enfractal_companion.textsafety import hidden_characters
@@ -416,22 +416,28 @@ class Approvals(FixCase):
 
 class Budgets(FixCase):
     def glow(self, action_id, duration=60):
-        return self.send(command("effect.start", {"capability": "glow", "params": {"intensity": 1},
-                                                  "area": {"center_m": [0, 0.3, 0], "radius_m": 1}, "duration_s": duration},
-                                 action_id))
+        return self.send(glow(action_id, params={"intensity": 1}, radius=1, duration=duration))
 
     def test_effects_expire_after_their_duration(self):
-        self.assertTrue(self.glow("glow-1", duration=5)["ok"])
-        self.assertIn("effect:0001", [i["id"] for i in self.send(query("entities.list", {"filter": {"kind": "effect"}}))["data"]["items"]])
+        started = self.glow("glow-1", duration=5)
+        self.assertTrue(started["ok"], started)
+        self.assertEqual(self.host.active_effect_ids(), started["created"])
+        # Effects are not entities (as on the kernel host): no query lists them, before or after.
+        self.assertEqual(self.send(query("entities.list", {"filter": {"kind": "effect"}}))["data"]["items"], [])
         self.clock.advance(6)
-        self.assertEqual(self.send(query("entities.list", {"filter": {"kind": "effect"}}, "q-2"))["data"]["items"], [])
+        self.assertEqual(self.host.active_effect_ids(), [])
+        stop = self.send(command("effect.stop", {"effect": started["created"][0]}, "stop-1"))
+        self.assertEqual((stop["ok"], stop["data"]["effects_stopped"]), (True, 0))
 
-    def test_refuses_a_fifth_running_effect_until_one_ends(self):
-        for i in range(4):
+    def test_refuses_a_fourth_running_glow_until_one_ends(self):
+        # The pack's max_active for glow is 3, counted across both principals.
+        for i in range(3):
             self.assertTrue(self.glow(f"glow-{i}", duration=5)["ok"])
-        self.assertRefused(self.glow("glow-4"), "budget_exceeded")
+        refused = self.glow("glow-3")
+        self.assertRefused(refused, "budget_exceeded", "$.args.capability")
+        self.assertEqual((refused["error"]["allowed"], refused["error"]["actual"]), (3, 3))
         self.clock.advance(6)
-        self.assertTrue(self.glow("glow-5")["ok"])
+        self.assertTrue(self.glow("glow-4")["ok"])
 
     def test_refuses_creations_beyond_the_room_budget(self):
         self.host.policy = dataclasses.replace(self.host.policy, max_creations=2)

@@ -10,7 +10,7 @@ import unittest
 
 from enfractal_companion.textsafety import hidden_characters
 from support import (
-    COMPANION, GARAGE_TO_TEST_ROOM, PLAYER, FakeClock, HostPolicy, command, contract_problems, example, new_host,
+    COMPANION, GARAGE_TO_TEST_ROOM, PLAYER, FakeClock, HostPolicy, command, contract_problems, example, glow, new_host,
     query, retarget,
 )
 
@@ -53,16 +53,14 @@ class PrincipalSmuggling(HostCase):
         self.assertIsNone(self.host.entities["obj:box"].held_by)
 
     def test_refuses_principal_smuggled_into_effect_parameters(self):
+        # As the kernel host: every reserved parameter name is request_invalid at $.args.params, before the rules.
         message = retarget(example("command_effect_params_smuggle_principal", "invalid"), GARAGE_TO_TEST_ROOM)
-        self.assertRefused(self.send(message), "invalid_args", "$.args.params")
-        for name in ("approved", "owner", "role", "grant", "actor", "room_id"):
+        self.assertRefused(self.send(message), "request_invalid", "$.args.params")
+        for name in ("principal", "approved", "approval_id", "owner", "role", "grant", "actor", "room_id", "action_id"):
             with self.subTest(name=name):
-                result = self.send(command("effect.start", {"capability": "glow", "params": {name: "player:local"},
-                                                             "area": {"center_m": [0, 0.5, 0], "radius_m": 1},
-                                                             "duration_s": 5}, f"glow-{name}"))
-                self.assertFalse(result["ok"])
-                self.assertIn(result["error"]["code"], ("invalid_args", "field_unknown"))
-        self.assertFalse(any(e.kind == "effect" for e in self.host.entities.values()))
+                result = self.send(glow(f"glow-{name}", params={name: "player:local"}))
+                self.assertRefused(result, "request_invalid", "$.args.params")
+        self.assertEqual(self.host.active_effect_ids(), [])
 
     def test_refuses_principal_smuggled_into_a_creation_source(self):
         message = retarget(example("command_creation_source_extra_key", "invalid"), GARAGE_TO_TEST_ROOM)
@@ -149,10 +147,9 @@ class Approvals(HostCase):
         self.assertFalse(self.host.entities["obj:box"].removed)
 
     def test_reserved_parameter_names_cannot_carry_an_approval(self):
-        result = self.send(command("effect.start", {"capability": "glow", "params": {"approval_id": "self-approved"},
-                                                     "area": {"center_m": [0, 0.5, 0], "radius_m": 1}, "duration_s": 5},
-                                   "glow-1"))
-        self.assertRefused(result, "invalid_args")
+        result = self.send(glow("glow-1", params={"approval_id": "self-approved"}))
+        self.assertRefused(result, "request_invalid", "$.args.params")
+        self.assertEqual(self.host.active_effect_ids(), [])
 
     def test_approval_status_of_a_foreign_or_unknown_request_leaks_nothing(self):
         self.hold_remove()
@@ -481,12 +478,12 @@ class PlayerOnly(HostCase):
         for message in (command("entity.grab", {"target": "obj:box"}, "grab-1"),
                         command("entity.place", {"target": "obj:box", "placement": {"position_m": [0, 0, 0]}}, "place-1"),
                         command("entity.remove", {"target": "obj:box"}, "remove-1", expected_entities={"obj:box": 1}),
-                        command("goal.set", {"actor": "avatar:companion", "goal": "fetch", "target": "obj:box"}, "fetch-1"),
-                        command("effect.start", {"capability": "wind_field", "params": {"speed_mps": 1},
-                                                 "area": {"center_m": [1, 0.3, 0.2], "radius_m": 1}, "duration_s": 5,
-                                                 "targets": ["obj:box"]}, "wind-1")):
+                        command("goal.set", {"actor": "avatar:companion", "goal": "fetch", "target": "obj:box"}, "fetch-1")):
             with self.subTest(op=message["op"]):
                 self.assertRefused(self.send(message), "target_protected")
+        # An ability is never cast on an object, locked or not: a companion's may target only its own avatar.
+        self.assertRefused(self.send(glow("glow-1", targets=["obj:box"])), "permission_denied", "$.args.targets")
+        self.assertEqual(self.host.active_effect_ids(), [])
 
     def test_refuses_world_physics_from_the_companion(self):
         for preview in (False, True):
@@ -587,7 +584,7 @@ class SizeLimits(HostCase):
                 self.assertFalse(result["ok"])
                 self.assertIn(result["error"]["code"], ("request_invalid", "field_unknown", "invalid_args"))
         self.assertEqual(self.host.goals, {})
-        self.assertFalse(any(e.kind == "effect" for e in self.host.entities.values()))
+        self.assertEqual(self.host.active_effect_ids(), [])
 
     def test_refuses_duplicate_keys_and_non_finite_numbers(self):
         for raw in (b'{"schema":"enfractal.command","schema":"enfractal.query"}',
@@ -688,13 +685,11 @@ class ContractShape(HostCase):
 
     def test_goal_and_effect_receipts_are_transient_and_edits_are_durable(self):
         goal = self.send(command("goal.set", {"actor": "avatar:companion", "goal": "follow"}, "follow-1"))
-        wind = self.send(command("effect.start", {"capability": "wind_field", "params": {"speed_mps": 1.5},
-                                                  "area": {"center_m": [0, 0.3, 0], "radius_m": 1.5}, "duration_s": 20},
-                                 "wind-1"))
+        light = self.send(glow("glow-1", radius=1.5, duration=20))
         grab = self.send(command("entity.grab", {"target": "obj:book"}, "grab-1"))
         lock = self.send(command("protect.lock", {"targets": ["obj:box"]}, "lock-1", expected_entities={"obj:box": 0}))
-        self.assertEqual([r["transient"] for r in (goal, wind, grab, lock)], [True, True, True, False])
-        self.assertEqual(wind["created"], ["effect:0001"])
+        self.assertEqual([r["transient"] for r in (goal, light, grab, lock)], [True, True, True, False])
+        self.assertEqual(light["created"], self.host.active_effect_ids())
         self.assertEqual(self.host.revision, 1)
         self.assertEqual(self.host.entities["obj:box"].revision, 1)
 
