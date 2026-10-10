@@ -506,7 +506,7 @@
   - **The new garage fixture** is `.cache\landscape-fixture\e6c74f80f02d14ef\` (`room.json` `60AF4E47…`).
 - **Not done this session:**
   - **No captures or renders:** the founder played throughout. Lane L's script is `scratchpad\lane-l\captures.ps1` (6 glow and sea views, 5 effect views); Lane C's is `scratchpad\lane-c\render-coast.sh`. Both are in this session's scratch folder. Rerun them from the lanes' worktrees if that folder is gone.
-  - **Possibly not done: refreshing the founder's installed landscape** (see the closing note below).
+  - **Refreshing the founder's installed landscape waited for the game to close.** Check `%APPDATA%\Godot\app_userdata\EnFractal\rooms\landscape_garage_nominal\room.json`: `60AF4E47…` means it is done, and `723B8D6A…` means it is still the old coast.
 - **For the founder to judge:**
   - the bubbles (do they read as soap, and should they stay unlit at night?);
   - the fireworks (burst height, flash strength, a new rocket every 3.5 s);
@@ -519,7 +519,7 @@
 
 **Glow, Bubbles and Fireworks are built** (the ninth session). Next:
 - **On DiamondAge:**
-  - refresh the founder's installed landscape from the new fixture if the ninth session's closing note says it wasn't, keeping the old copy in `room-backups\`;
+  - refresh the founder's installed landscape from the new fixture if its `room.json` isn't `60AF4E47…` yet, keeping the old copy in `room-backups\`;
   - the founder's playtest: the clean coast, the wrap, put down, Bubbles and Fireworks (the list above);
   - Lane L's and Lane C's captures, when the founder isn't playing.
 - **Then the founder's call:**
