@@ -477,17 +477,60 @@
 - **Open for the founder (from Lane P part 1):**
   - a drag in F4 does nothing (it turns with `[` and `]`);
   - after a far cast, the Gubble stays by its light.
+- **The Bubbles and Fireworks round is merged** ([RUN-2-BUBBLES-FIREWORKS.md](RUN-2-BUBBLES-FIREWORKS.md)). Both Windows runners are GREEN on the batch: command host 544, play HUD 258, companion 675, small avatar 305, navigation 15, landscape 48, room data 56, look 1165.
+  - **The contract round** (Opus):
+    - `particles.float` and `particles.burst` in the schema;
+    - the `storybook_wild` **v2** pack (Glow, Bubbles at 2 m reach and 2 active, Fireworks at 4 m and 3 active). v1 is unchanged, because the host's loader refuses unknown primitives as a whole;
+    - contracts 73 to 78.
+  - **Lane P part 2:**
+    - **the wrap:** `WrapM` is the seam plus `WrapPastSeamM` 1.5 m, so 19.13 m on the garage (73 s past the reef). Only going outward wraps. The Gubble comes along when following or within 2 m, with what it carries;
+    - **put down:** `CommandHost.PlayerPutDown`, `entity.release` as the player through the Gubble, with a preview on the way;
+    - small avatar 295 to 305, play HUD 243 to 255.
+  - **Lane L:**
+    - `StartBubbles`, `StartFireworks` and `StopEffect`, with one cap of 8 across kinds (`docs/look/EFFECTS.md`);
+    - bubbles blown from the Gubble that pop on touch;
+    - a rocket from the Gubble bursting 0.8 m above the spot, its 0.7 s flash counted by `LightLevelAt`;
+    - look 1138 to 1165.
+  - **Lane P part 3:**
+    - the host's primitives and look hooks;
+    - keys 3 and 4 and the wheel's wedges;
+    - the gesture by kind;
+    - `RoomWorld.DefaultRulesVersion` 2 (a one-line grant);
+    - command host 541 to 544.
+  - **Lane A:** the mock on v2, at parity for both abilities (companion 661 to 675). The integrator applied its optional wording change ("This ability works on the Gubble…") on the host and the mock together.
+  - **Lane C:** the clean coast (generator v5).
+    - No reef rocks, sea stacks or distant islands; the reef line is now the shelf's edge under water. Cliffs plunge into deep water (0.60 m deep 0.2 m out), and beaches slope at 22° at most. The format is unchanged.
+    - The corpus went from 21 to 23 of 24. `home_office_scan_73` still fails (its jetty and a new beach are unreachable).
+    - Two rooms' cliffs reach only 0.24 m deep, not yet explained.
+    - **The integrator applied its change request:** `docs/ROOM-TO-LANDSCAPE.md` now describes the clean coast and the wrap.
+  - **The new garage fixture** is `.cache\landscape-fixture\e6c74f80f02d14ef\` (`room.json` `60AF4E47…`).
+- **Not done this session:**
+  - **No captures or renders:** the founder played throughout. Lane L's script is `scratchpad\lane-l\captures.ps1` (6 glow and sea views, 5 effect views); Lane C's is `scratchpad\lane-c\render-coast.sh`. Both are in this session's scratch folder. Rerun them from the lanes' worktrees if that folder is gone.
+  - **Possibly not done: refreshing the founder's installed landscape** (see the closing note below).
+- **For the founder to judge:**
+  - the bubbles (do they read as soap, and should they stay unlit at night?);
+  - the fireworks (burst height, flash strength, a new rocket every 3.5 s);
+  - the gesture timing;
+  - the wrap distance, and whether a Gubble walking to a spot within 2 m comes across the seam;
+  - more beach (shorter headlands; the garage is 79% cliff);
+  - sound, with the "touches".
 
 ## The next session
 
-**Glow is built** (see the eighth session). Next:
+**Glow, Bubbles and Fireworks are built** (the ninth session). Next:
 - **On DiamondAge:**
-  - the pinned-SDK runners on everything merged since `9eecaf0`;
-  - refresh the founder's installed landscape;
-  - the founder's playtest of Glow and the new keys (the list in the eighth session);
-  - Lane L's captures of the glow.
-- **The change requests above,** in one small round, after the playtest.
-- **Then the build order's step 2, the wish path** ([docs/magic/README.md](../magic/README.md), PR #12):
+  - refresh the founder's installed landscape from the new fixture if the ninth session's closing note says it wasn't, keeping the old copy in `room-backups\`;
+  - the founder's playtest: the clean coast, the wrap, put down, Bubbles and Fireworks (the list above);
+  - Lane L's and Lane C's captures, when the founder isn't playing.
+- **Then the founder's call:**
+  - the Gubble's growth: the founder's RPG idea, more of an ability as you play, plus "touches" (sound, air, fire, ice). Draft it as a section of the magic design for the founder to read; design drafts go to Codex Astra first, by the A/B log;
+  - Bloom and the ground layer, the magic design's step 4;
+  - the wish path below.
+- **Housekeeping:**
+  - retire `storybook_wild` v1 and lock its hash (both hosts load v2), contract change request 4 from the contract round;
+  - Lane C's `home_office_scan_73` and the two shallow-cliff rooms;
+  - contract change requests 1 and 4 from the eighth session.
+- **The build order's step 2, the wish path** ([docs/magic/README.md](../magic/README.md), PR #12):
   - the wish box, the host's wish queue, the link roles and `companion.say`;
   - the wish runner (Claude Code and Codex templates first);
   - the wish ledger's local record;
