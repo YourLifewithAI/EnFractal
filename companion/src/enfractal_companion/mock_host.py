@@ -1860,7 +1860,7 @@ class MockHost(JournalMixin):
         own = targets != []
         if own and targets != [carrier]:
             if player:
-                raise HostError("invalid_args", "This ability lights the Gubble or a spot; it cannot be cast on that.",
+                raise HostError("invalid_args", "This ability works on the Gubble or at a spot; it cannot be cast on that.",
                                 field_path="$.args.targets")
             raise HostError("permission_denied", "A companion's ability may target only its own avatar.",
                             field_path="$.args.targets")
@@ -1868,7 +1868,7 @@ class MockHost(JournalMixin):
             raise HostError("invalid_args", "This ability cannot be cast on the Gubble itself; name no targets and a spot.",
                             field_path="$.args.targets", allowed=sorted(ability.targets))
         if not own and "point" not in ability.targets:
-            raise HostError("invalid_args", "This ability lights only the Gubble itself; name its avatar in targets.",
+            raise HostError("invalid_args", "This ability works only on the Gubble itself; name its avatar in targets.",
                             field_path="$.args.targets", allowed=sorted(ability.targets))
         # Bounds: every param the ability's, within its range; omitted ones take the defaults.
         params: dict[str, float] = {}

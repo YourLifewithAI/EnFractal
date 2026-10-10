@@ -125,13 +125,13 @@ public partial class CommandHost
         var self = targets.Count > 0;
         if (self && (targets.Count != 1 || targets[0] != CompanionAvatarId))
             throw principal == PlayerPrincipal
-                ? new Refusal("invalid_args", "This ability lights the Gubble or a spot; it cannot be cast on that.", "$.args.targets")
+                ? new Refusal("invalid_args", "This ability works on the Gubble or at a spot; it cannot be cast on that.", "$.args.targets")
                 : new Refusal("permission_denied", "A companion's ability may target only its own avatar.", "$.args.targets");
         if (self && !ability.Targets.Contains("self"))
             throw new Refusal("invalid_args", "This ability cannot be cast on the Gubble itself; name no targets and a spot.", "$.args.targets",
                 allowed: new JsonArray(ability.Targets.OrderBy(t => t, StringComparer.Ordinal).Select(t => (JsonNode?)JsonValue.Create(t)).ToArray()));
         if (!self && !ability.Targets.Contains("point"))
-            throw new Refusal("invalid_args", "This ability lights only the Gubble itself; name its avatar in targets.", "$.args.targets",
+            throw new Refusal("invalid_args", "This ability works only on the Gubble itself; name its avatar in targets.", "$.args.targets",
                 allowed: new JsonArray(ability.Targets.OrderBy(t => t, StringComparer.Ordinal).Select(t => (JsonNode?)JsonValue.Create(t)).ToArray()));
         // Bounds: every param the ability's, within its range; omitted ones take the defaults.
         var parameters = new SortedDictionary<string, double>(StringComparer.Ordinal);
