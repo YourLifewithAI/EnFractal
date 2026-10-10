@@ -11,7 +11,8 @@ namespace EnFractal.Native;
 /// The player's controls for the Gubble (RUN-2-GLOW.md section 4; the magic design's "The keys", step 2). Every order and cast is
 /// the player's own command through the host, carried out by the Gubble, on the one command path the AI also uses:
 /// - the ask button (right-click): a tap is the smart ask at the aim, the target frozen at the press; a hold is the wheel;
-/// - 1 to 5 the ability slots by category (1 Glow: at the aimed spot when it is dark and within reach, else on the Gubble);
+/// - 1 to 5 the ability slots by category (1 Glow: where the cursor points, the Gubble coming closer first when the spot is out
+///   of its reach or sight; pointed at nothing, on the Gubble);
 /// - Q come, then follow (the recall); X stop (goal.stop, which ends its glows too).
 /// The Gubble's thought bubble answers at once with the icon, "done" only on the host's result, and a refusal with the host's
 /// reason (GubbleCue). The dusk moment teaches Glow the first time it gets dark (DuskMoment); the profile keeps has_used_glow.
@@ -24,6 +25,8 @@ public partial class RoomHud
     public const uint GubbleLayer = 4;
     /// <summary>A ray passing this close to the Gubble's middle, in body radii, is aimed at the Gubble (it is small).</summary>
     public const float GubbleAimRadii = 1.6f;
+    /// <summary>Coming closer to cast, the Gubble stops and casts once the spot is this much inside its reach (and in sight).</summary>
+    public const float ApproachMarginM = 0.15f;
 
     public GubbleWheel Wheel => _wheel;
     public GubbleCue Cue => _cue;
@@ -51,6 +54,11 @@ public partial class RoomHud
     private int? _recallSerial;
     private (int Serial, Vector3 Point)? _lookAfter;
     private string? _fetchJob;
+    /// <summary>A cast waiting for the Gubble to come closer: the walk's serial, the slot, the ability and the spot.</summary>
+    private (int Serial, int Slot, string Capability, Vector3 Point)? _castAfter;
+    private double _castCheckAge;
+    /// <summary>A cast waiting for the Gubble to come within reach and sight of its spot (tests).</summary>
+    public bool CastWaiting => _castAfter != null;
     private CommandHost? _listening;
     private bool _goalFailed;
 
@@ -92,12 +100,8 @@ public partial class RoomHud
         SlotAbility(0) is { } light && light.Targets.Contains("point") && Companion != null && IsInstanceValid(Companion) &&
         Companion.GlobalPosition.DistanceTo(point) <= light.ReachM && LightAt(point) is { } level && level < LookDirector.DarkThreshold;
 
-    /// <summary>The reticle on screen: the middle while the mouse is captured (F1, F2), else the pointer.</summary>
-    private Vector2 AimScreenPoint()
-    {
-        var viewport = GetViewport();
-        return Input.MouseMode == Input.MouseModeEnum.Captured ? viewport.GetVisibleRect().GetCenter() : viewport.GetMousePosition();
-    }
+    /// <summary>The aim on screen: the cursor in every view (it is always free); while a drag hides it, where it was pressed.</summary>
+    public Vector2 AimScreenPoint() => _drag.Dragging ? _drag.Anchor : GetViewport().GetMousePosition();
 
     /// <summary>
     /// What the aim is on now: the ray from the view through the reticle meets the world, the room's things and the Gubble (the
@@ -179,7 +183,9 @@ public partial class RoomHud
     /// <summary>The ask button went down: the aim freezes now, and the hold (the wheel) starts.</summary>
     private void BeginAsk()
     {
+        EndDrag();
         AskFrozen = DecideAsk(AimNow());
+        _wheel.SetOwner($"{Companion.NameTag}'s magic", Companion.AuraColor ?? Companion.AppearanceColor);
         _wheel.SetWedges(slot => SlotAbility(slot) is { } ability ? KernelJson.DisplayText(ability.DisplayName, 24) : null,
             wedge => wedge.Kind == GubbleMagic.WedgeKind.Come ? $"{wedge.Icon}\n{wedge.Name} ({K(Act.GubbleRecall)})" : $"{wedge.Icon}\n{wedge.Name}");
         _wheel.Begin(AimScreenPoint());
@@ -206,8 +212,9 @@ public partial class RoomHud
 
     public override void _Notification(int what)
     {
-        // A release the window never sees (it lost focus) must not leave the game paused under the wheel.
+        // A release the window never sees (it lost focus) must not leave the game paused under the wheel, or a drag held.
         if (what == NotificationApplicationFocusOut && _wheel != null && _wheel.Held) CancelAsk();
+        if (what == NotificationApplicationFocusOut) EndDrag();
     }
 
     /// <summary>The smart ask's rule, carried out.</summary>
@@ -241,8 +248,11 @@ public partial class RoomHud
     }
 
     /// <summary>
-    /// An ability slot (0-based): the island's ability in that category, cast by the player and carried out by the Gubble, at the
-    /// aimed spot when it is dark and within reach, else on the Gubble itself. A slot the island has no ability for shrugs.
+    /// An ability slot (0-based): the island's ability in that category, cast by the player and carried out by the Gubble, where
+    /// the player points, dark or not (the Glow playtest, 9 October); pointed at nothing (the sky, past the aim's range) or at the
+    /// Gubble, on the Gubble itself. A spot beyond the ability's reach or out of the team's sight sends the Gubble closer first,
+    /// then it casts (UpdateChains). The host still checks reach and sight on the cast itself. A slot the island has no ability
+    /// for shrugs.
     /// </summary>
     public void CastSlot(int slot, GubbleMagic.Aim aim)
     {
@@ -254,12 +264,43 @@ public partial class RoomHud
             _cue.Shrug(icon);
             return;
         }
+        ClearChains();
         _cue.Think(icon);
-        Vector3? point = slot == 0 ? (aim.Hit && !aim.AtGubble && DarkWithinReach(aim.Point) ? aim.Point : null)
-            : aim.Hit && !aim.AtGubble && ability.Targets.Contains("point") ? aim.Point : null;
+        Vector3? point = aim.Hit && !aim.AtGubble && ability.Targets.Contains("point") ? aim.Point : null;
         if (point == null && !ability.Targets.Contains("self") && aim.Hit) point = aim.Point;
+        if (point is { } spot && host.EffectSpot(ability.Capability, spot) is { } place && (!place.InReach || !place.InSight))
+        {
+            ComeCloserAndCast(slot, ability, spot);
+            return;
+        }
+        Cast(slot, ability, point);
+    }
+
+    /// <summary>The cast itself, as the player's command; done, the Gubble tosses its light toward the spot (or lifts, on itself).</summary>
+    private void Cast(int slot, IslandAbility ability, Vector3? point)
+    {
+        var host = Host;
+        if (host == null) return;
+        _cue.Think(GubbleMagic.SlotIcons[slot]);
         var result = host.PlayerEffect(ability.Capability, point);
-        if (Answer(result) && ability.Category == "light") UsedGlow();
+        if (!Answer(result, wiggle: false)) return;
+        // The look's spark leaves the Gubble now (StartGlow, inside the cast): the gesture starts with it.
+        Companion.CastGesture(point);
+        if (ability.Category == "light") UsedGlow();
+    }
+
+    /// <summary>
+    /// The spot is beyond the Gubble's reach or out of sight: it goes there (a go_to, as the go-and-look does), and on the way,
+    /// as soon as the spot is within its reach and in sight, it stops and casts. A walk that cannot get there says so.
+    /// </summary>
+    private void ComeCloserAndCast(int slot, IslandAbility ability, Vector3 spot)
+    {
+        var host = Host!;
+        var result = host.PlayerGoal("go_to", spot);
+        if (!result["ok"]!.GetValue<bool>()) { Answer(result); return; }
+        _goalFailed = false;
+        _castCheckAge = 0;
+        _castAfter = (Companion.IntentSerial, slot, ability.Capability, spot);
     }
 
     /// <summary>A goal order (follow, stay, stop) as the player's command.</summary>
@@ -308,22 +349,16 @@ public partial class RoomHud
         ClearChains();
         _cue.Think(GubbleMagic.FetchIcon);
         if (target == null) { _cue.Shrug(GubbleMagic.FetchIcon, GubbleMagic.NothingToFetch); return; }
-        var command = new JsonObject
-        {
-            ["schema"] = "enfractal.command", ["version"] = 1, ["action_id"] = "hud-ask-" + Guid.NewGuid().ToString("N")[..24],
-            ["room_id"] = host.Room.RoomId, ["op"] = "goal.set",
-            ["args"] = new JsonObject { ["actor"] = CommandHost.CompanionAvatarId, ["goal"] = "fetch", ["target"] = target },
-        };
-        var result = host.HandleObject(CanonicalJson.Text(command), CommandHost.PlayerPrincipal);
+        var result = host.PlayerGoal("fetch", target: target);
         if (!result["ok"]!.GetValue<bool>()) { Answer(result); return; }
         _fetchJob = result["job_id"]?.GetValue<string>();
         if (_fetchJob == null) _cue.Done();
     }
 
-    /// <summary>The host's result on the bubble: done, or a head-shake with the host's reason. True when it was done.</summary>
-    private bool Answer(JsonObject result)
+    /// <summary>The host's result on the bubble: done (with a wiggle, unless the caller gestures), or a head-shake with the host's reason. True when it was done.</summary>
+    private bool Answer(JsonObject result, bool wiggle = true)
     {
-        if (result["ok"]!.GetValue<bool>()) { _cue.Done(); return true; }
+        if (result["ok"]!.GetValue<bool>()) { _cue.Done(wiggle); return true; }
         var reason = result["error"]?["message"]?.GetValue<string>();
         _cue.Refuse(reason);
         if (reason != null) _noticeText = reason;
@@ -335,6 +370,7 @@ public partial class RoomHud
         _recallSerial = null;
         _lookAfter = null;
         _fetchJob = null;
+        _castAfter = null;
     }
 
     /// <summary>A goal's job ended (the host's event): a fetch's result, or a walk that could not arrive.</summary>
@@ -357,7 +393,7 @@ public partial class RoomHud
             }
             else _cue.Clear();
         }
-        else if (_lookAfter != null && state == "failed") _goalFailed = true;
+        else if ((_lookAfter != null || _castAfter != null) && state == "failed") _goalFailed = true;
     }
 
     /// <summary>Each frame: the recall's follow and the look after a walk, when their walks arrive.</summary>
@@ -393,6 +429,41 @@ public partial class RoomHud
             }
             else if (Companion.IntentSerial != look.Serial) _lookAfter = null;
         }
+        UpdateCastAfter();
+    }
+
+    /// <summary>
+    /// The cast waiting for the Gubble to come closer: it casts as soon as the spot is ApproachMarginM inside its reach and in sight
+    /// (checked at the focus's pace), stopping where it is, or when its walk arrives; a walk that fails says so with the host's
+    /// reason; a newer order drops it.
+    /// </summary>
+    private void UpdateCastAfter()
+    {
+        if (_castAfter is not { } cast || Host is not { } host) return;
+        var arrived = Companion.GoToArrivedSerial == cast.Serial;
+        if (!arrived && _goalFailed)
+        {
+            _castAfter = null;
+            _goalFailed = false;
+            _cue.Refuse(host.LastGoalError(CommandHost.CompanionAvatarId) ?? GubbleMagic.CannotGetThere);
+            return;
+        }
+        if (!arrived && Companion.IntentSerial != cast.Serial)
+        {
+            _castAfter = null;
+            return;
+        }
+        if (!arrived)
+        {
+            _castCheckAge += GetProcessDeltaTime();
+            if (_castCheckAge < FocusQueryS) return;
+            _castCheckAge = 0;
+            if (host.EffectSpot(cast.Capability, cast.Point, ApproachMarginM) is not { InReach: true, InSight: true }) return;
+        }
+        _castAfter = null;
+        // Near enough on the way: it stops there (it stays, as after any walk) and casts.
+        if (!arrived) host.PlayerGoal("stay");
+        if (SlotAbility(cast.Slot) is { } ability && ability.Capability == cast.Capability) Cast(cast.Slot, ability, cast.Point);
     }
 
     // ---- the dusk moment ----

@@ -62,11 +62,13 @@ public static class Act
     public static readonly StringName TimeStep = "time_step";
     public static readonly StringName SeasonStep = "season_step";
     public static readonly StringName Lamps = "lamps";
-    // The panels and the mouse.
+    // The panels and the mouse. The cursor is always free (the Glow playtest, 9 October): it is the aim in every view.
     public static readonly StringName HudHelp = "hud_help";
     public static readonly StringName HudCustomize = "hud_customize";
+    /// <summary>Esc: closes the appearance panel, cancels the wheel or a drag. (Its map name is from when it freed the captured mouse.)</summary>
     public static readonly StringName MouseRelease = "mouse_release";
-    public static readonly StringName MouseCapture = "mouse_capture";
+    /// <summary>Hold and drag to look around (the left button); a click without a drag does nothing. (Its map name is from when a click captured the mouse.)</summary>
+    public static readonly StringName LookDrag = "mouse_capture";
 }
 
 /// <summary>Where an action is live. The keys of one context must not share a key; two contexts may.</summary>
@@ -112,7 +114,7 @@ public static class PlayerControls
         new(Act.HudHelp, ControlContext.Always),
         new(Act.HudCustomize, ControlContext.Always | ControlContext.Customize),
         new(Act.MouseRelease, ControlContext.Always | ControlContext.Customize),
-        new(Act.MouseCapture, ControlContext.Always),
+        new(Act.LookDrag, ControlContext.Always),
     };
 
     /// <summary>
@@ -184,6 +186,13 @@ public static class PlayerControls
     {
         var keys = new[] { Act.MoveForward, Act.MoveLeft, Act.MoveBack, Act.MoveRight }.Select(Label).ToArray();
         return keys.All(key => key.Length == 1) ? string.Concat(keys) : string.Join("/", keys);
+    }
+
+    /// <summary>The look drag as the help says it: "drag" when it is the left button, else its button or key and "drag" ("middle-click drag").</summary>
+    public static string DragLabel()
+    {
+        var label = Label(Act.LookDrag);
+        return label == "click" ? "drag" : label + " drag";
     }
 
     /// <summary>The zoom keys together: "wheel" when they are the wheel's two directions, else both ("U/I").</summary>

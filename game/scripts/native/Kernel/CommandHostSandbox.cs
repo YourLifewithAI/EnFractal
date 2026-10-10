@@ -521,7 +521,7 @@ public partial class CommandHost
         var target = SandboxControls.ThingAhead(Player, entities, SandboxRules.CarryLimitKg(PlayerAvatar), MassOf, PlayerReaches);
         if (target == null) return new(false, "Nothing to pick up within reach. Walk up to something and face it.");
         var grabbed = PlayerSandbox("entity.grab", new JsonObject { ["target"] = target["id"]!.GetValue<string>() });
-        return Outcome(grabbed, $"Holding {HeldName(PlayerAvatar)}. F sets it down in front of you, or on top of what you face.");
+        return Outcome(grabbed, $"Holding {HeldName(PlayerAvatar)}. {PlayerControls.Label(Act.Hands)} sets it down in front of you, or on top of what you face.");
     }
 
     /// <summary>V: push what the player faces within reach, HandPushM along the player's facing.</summary>
