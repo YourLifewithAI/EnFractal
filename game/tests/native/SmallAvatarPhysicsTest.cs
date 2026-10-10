@@ -2185,6 +2185,19 @@ public partial class SmallAvatarPhysicsTest : Node3D
         _player.SetControlInput(Vector2.Zero);
         Report(_player.Wraps == wraps + 2 && _player.GlobalPosition.X > centre.X, "turned round and swum out the other way, it wraps back again: the sea has no edge either way");
 
+        // Out past the wrap already, floating still or swimming in: never wrapped. Only going out wraps.
+        wraps = _player.Wraps;
+        _player.GlobalPosition = Out(_player.WrapM + 0.5f);
+        _player.Velocity = Vector3.Zero;
+        _player.ResetPhysicsInterpolation();
+        await Frames(30);
+        var stillThere = _player.Wraps == wraps;
+        _player.Rotation = new Vector3(0, Mathf.Pi * 0.5f, 0);
+        for (var i = 0; i < 60; i++) { _player.SetControlInput(new Vector2(0, 1), sprint: true); await Frames(1); }
+        _player.SetControlInput(Vector2.Zero);
+        Report(stillThere && _player.Wraps == wraps && _player.GlobalPosition.X > centre.X,
+            "a swimmer out past the wrap, floating still or swimming in, is never wrapped: only going out wraps (no flicker back and forth)");
+
         // A Gubble waiting on the island stays there; a come still finds the player across the seam.
         Check(_companion.TryTeleportTo(b + new Vector3(0.2f, 0.01f, -0.3f)), "the Gubble back on the island, waiting");
         _companion.Stay();
