@@ -23,9 +23,22 @@ public partial class CompanionAvatar : SmallPlayerController
     public const string FormerDefaultName = "Wisp";
     /// <summary>A saved name (a profile, a room's save): the former default becomes the Gubble; any other name is the player's choice.</summary>
     public static string SavedName(string saved) => saved == FormerDefaultName ? DefaultName : saved;
+
+    /// <summary>
+    /// Sets or clears the aura colour, carried as the node meta LookDirector.AuraColorMeta that the look reads when a glow starts
+    /// (docs/look/GLOW.md): restart a glow to recolour it.
+    /// </summary>
+    public void SetAuraColor(Color? color)
+    {
+        AuraColor = color;
+        if (color is { } c) SetMeta(EnFractal.Native.Look.LookDirector.AuraColorMeta, c);
+        else if (HasMeta(EnFractal.Native.Look.LookDirector.AuraColorMeta)) RemoveMeta(EnFractal.Native.Look.LookDirector.AuraColorMeta);
+    }
     public string CompanionName { get; private set; } = DefaultName;
     /// <summary>The name tag over the body: the name with a capital, as a name stands on its own ("The Gubble").</summary>
     public string NameTag => CompanionName.Length > 0 ? char.ToUpperInvariant(CompanionName[0]) + CompanionName[1..] : CompanionName;
+    /// <summary>The Gubble's aura colour (the family's note), if it has one: its glow takes it. Null: the look's warm white-gold.</summary>
+    public Color? AuraColor { get; private set; }
     public string CurrentIntent { get; private set; } = "stay";
     public bool GoalBlocked { get; private set; }
     public bool IsPointing => _pointer != null && _pointer.Visible;
