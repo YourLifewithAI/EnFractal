@@ -70,6 +70,17 @@ public partial class CommandHost : Node
     public const float GoToStopM = 0.08f;
     /// <summary>A come, go_to or fetch whose body has reported blocked this long without a break fails with target_unreachable.</summary>
     public const double UnreachableAfterS = 5.0;
+    /// <summary>
+    /// The engine's cap on active effects per room, whatever the ability: 8. It is the most glows the look draws at once
+    /// (GlowLook.MaxGlows), so the look never refuses a glow for count that the host admitted; it is the schema's outer
+    /// max_active for light.emit; and it is the omni lights Godot's Mobile renderer shades per mesh, so a spot lit by every
+    /// effect still shows each one. Later abilities share it.
+    /// </summary>
+    public const int MaxActiveEffects = 8;
+    /// <summary>capabilities.list pages this many items when no limit is given (as entities.list).</summary>
+    public const int CapabilitiesDefaultLimit = 50;
+    /// <summary>A point effect's place must be in the team's sight: a column twice this wide (metres) over the centre, as tall as the wisp floats above it.</summary>
+    public const float EffectSightHalfWidthM = 0.02f;
     public static readonly TimeSpan ApprovalLifetime = TimeSpan.FromMinutes(5);
     public const string RuntimeScript = "res://scripts/invention_runtime.gd";
 
@@ -175,8 +186,13 @@ public partial class CommandHost : Node
     private Func<string, bool>? _previousPhysicsSink;
 
     /// <summary>The integrator's one-line wiring: RoomWorld calls CommandHost.Attach(this) once its room, player and companion exist.</summary>
-    public static CommandHost Attach(RoomWorld world) =>
-        Create(world, world.Room, world.Player, world.Companion, world.Look?.Preset, SavePathFor(world.Room));
+    public static CommandHost Attach(RoomWorld world)
+    {
+        var host = Create(world, world.Room, world.Player, world.Companion, world.Look?.Preset, SavePathFor(world.Room));
+        // The island's abilities light the room through its look (glows); RoomWorld then hands the host its rules (LoadRules).
+        host.LookHook = world.Look;
+        return host;
+    }
 
     public static CommandHost Create(Node parent, RoomData room, SmallPlayerController? player, CompanionAvatar? companion, StylePreset? style, string savePath)
     {
@@ -243,6 +259,8 @@ public partial class CommandHost : Node
     public override void _ExitTree()
     {
         if (_teamDirty) SaveTeam();
+        // The room unloads: its effects end, and the look's glows with them.
+        EndAllEffects();
         // A host freed while another is attached (a test's second host) hands the key back.
         if (Player != null && IsInstanceValid(Player) && Player.WorldPhysicsRequest == _physicsSink) Player.WorldPhysicsRequest = _previousPhysicsSink;
     }
@@ -272,6 +290,8 @@ public partial class CommandHost : Node
     {
         // A lapse shows at once: the prompt never offers a request whose entities have changed.
         foreach (var approval in _approvals.Values) Refresh(approval);
+        // An effect ends at its duration, and its light with it.
+        ExpireEffects();
         if (_prompt == null || _promptText == null) return;
         var next = PendingApprovals.FirstOrDefault();
         _prompt.Visible = next != null;
@@ -473,6 +493,8 @@ public partial class CommandHost : Node
             if (unsupported != null) throw new Refusal("unsupported_capability", unsupported, "$.op");
             if (!StopOps.Contains(op)) CheckExpectations(root, op, args, principal);
             CheckPerceived(op, args, principal);
+            // An ability is checked against the island's rules before anything else happens, a hold included.
+            var effect = op == "effect.start" ? PlanEffect(args, principal) : null;
             if (approvedBy == null && !preview && principal == CompanionPrincipal && NeedsApproval(op, args, out var reason, out var touched))
                 return Hold(root, principal, actionId, fingerprint, op, reason, touched);
             var meta = new Godot.Collections.Dictionary { ["fingerprint"] = fingerprint, ["op"] = op, ["at_utc"] = Now() };
@@ -485,6 +507,7 @@ public partial class CommandHost : Node
                 "creation.activate" => Activate(args, principal, actionId, fingerprint, meta, preview),
                 "goal.set" => GoalSet(args, principal, actionId, fingerprint, preview),
                 "goal.stop" => GoalStop(args, principal, actionId, fingerprint, preview),
+                "effect.start" => EffectStart(effect!, principal, actionId, fingerprint, preview, approvedBy),
                 "effect.stop" => EffectStop(args, principal, actionId, fingerprint, preview),
                 "room.checkpoint" => Checkpoint(args, principal, actionId, meta, preview),
                 "world.set_physics" => SetPhysics(args, principal, actionId, fingerprint, preview),
@@ -718,6 +741,13 @@ public partial class CommandHost : Node
             affected.Add(CompanionAvatarId);
         }
         var stopped = Runtime.Call("stop_effects", whose).AsInt32();
+        // The Gubble carries out the island's abilities: a stop that covers it ends the effects this principal may stop.
+        if (whose != PlayerPrincipal)
+            foreach (var ended in StopCompanionEffects(principal))
+            {
+                affected.Add(ended);
+                stopped++;
+            }
         return Transient("goal.stop", principal, actionId, fingerprint, affected, new JsonObject { ["effects_stopped"] = stopped });
     }
 
@@ -725,10 +755,13 @@ public partial class CommandHost : Node
     {
         var effect = Str(args, "effect")!;
         if (preview) return Previewed("effect.stop", principal, actionId);
-        // Creation effects have no effect: ids yet, so a named effect is already stopped. "all" is everything for
-        // the player and the companion's own effects for the companion.
+        // Creation effects have no effect: ids yet, so for them a named effect is already stopped. "all" is everything
+        // for the player and the companion's own effects for the companion; the island's abilities (glows) go the same
+        // way, by id or all. An unknown id, or one the companion may not stop, stops nothing and still applies.
         var stopped = effect == "all" ? Runtime.Call("stop_effects", principal == PlayerPrincipal ? "" : principal).AsInt32() : 0;
-        return Transient("effect.stop", principal, actionId, fingerprint, new JsonArray(), new JsonObject { ["effects_stopped"] = stopped });
+        var ended = StopEffects(principal, effect);
+        return Transient("effect.stop", principal, actionId, fingerprint, new JsonArray(ended.Select(id => (JsonNode?)JsonValue.Create(id)).ToArray()),
+            new JsonObject { ["effects_stopped"] = stopped + ended.Count });
     }
 
     /// <summary>room.checkpoint: compacts the durable ledger in the authority. It changes no world state and never fails for a full ledger.</summary>
@@ -780,13 +813,16 @@ public partial class CommandHost : Node
     /// A transient receipt for the session. Never fails: each principal keeps its latest MaxTransientPerPrincipal and
     /// the oldest is forgotten, so a full store can never turn an action that already happened into a refusal.
     /// </summary>
-    private JsonObject Transient(string op, string principal, string actionId, string fingerprint, JsonArray affected, JsonObject? data, string? jobId = null)
+    private JsonObject Transient(string op, string principal, string actionId, string fingerprint, JsonArray affected, JsonObject? data, string? jobId = null,
+        JsonArray? created = null, string? approvedBy = null)
     {
         // Only ops that change no saved state answer with a transient receipt (P8: never entity.release).
         if (!TransientOps.Contains(op)) throw new InvalidOperationException(op + " keeps a durable receipt");
         var result = Result(op, principal, actionId, null, true);
         result["transient"] = true;
         if (affected.Count > 0) result["affected"] = affected;
+        if (created is { Count: > 0 }) result["created"] = created;
+        if (approvedBy != null) result["approved_by"] = approvedBy;
         if (jobId != null) result["job_id"] = jobId;
         if (data != null) result["data"] = data;
         var key = principal + "|" + actionId;
@@ -875,6 +911,13 @@ public partial class CommandHost : Node
     {
         reason = "";
         touched = new Dictionary<string, int>();
+        // An ability of tier keyed_yes (T3) waits for the player's yes when the companion asks; the prompt names the capability token only.
+        if (op == "effect.start")
+        {
+            if (Rules?.Ability(Str(args, "capability")) is not { Tier: "keyed_yes" } ability) return false;
+            reason = $"The companion asks to use {ability.Capability}. Approve or deny it in the game.";
+            return true;
+        }
         if (op is not ("entity.remove" or "creation.revise")) return false;
         var target = Str(args, "target")!;
         var instance = Instance(target);
@@ -1051,14 +1094,6 @@ public partial class CommandHost : Node
         var data = new JsonObject { ["entity"] = entity };
         if (LockOwners().TryGetValue(target, out var owner)) data["protected_by"] = owner;
         return data;
-    }
-
-    /// <summary>Effect capabilities as contract capability_summary items: none until effect.start arrives (Run 3), kernel-host-gaps P1.</summary>
-    private static JsonObject Capabilities(JsonElement args)
-    {
-        if (args.TryGetProperty("cursor", out var cursor) && cursor.GetString() != "0")
-            throw new Refusal("invalid_args", "That cursor is not from this list.", "$.args.cursor");
-        return new JsonObject { ["items"] = new JsonArray() };
     }
 
     private JsonObject Observe(JsonElement args, string principal)
@@ -1988,7 +2023,8 @@ public partial class CommandHost : Node
             throw new Refusal("request_invalid", "A revision changes the source, the placement or both.", "$.args");
         if (args.TryGetProperty("targets", out var targets))
         {
-            if (targets.ValueKind != JsonValueKind.Array || targets.GetArrayLength() is < 1 or > 64)
+            // effect.start may name no targets (a point); every other op names at least one.
+            if (targets.ValueKind != JsonValueKind.Array || targets.GetArrayLength() > 64 || (targets.GetArrayLength() < 1 && op != "effect.start"))
                 throw new Refusal("request_invalid", "targets lists 1 to 64 entity ids.", "$.args.targets");
             var names = targets.EnumerateArray().Select(t => t.ValueKind == JsonValueKind.String ? t.GetString()! : "").ToArray();
             if (names.Any(n => !EntityId.IsMatch(n)) || names.Distinct().Count() != names.Length)
@@ -2040,6 +2076,7 @@ public partial class CommandHost : Node
             foreach (var parameter in parameters.EnumerateObject())
                 if (!ParamName.IsMatch(parameter.Name) || ReservedParams.Contains(parameter.Name) || parameter.Value.ValueKind is JsonValueKind.Object or JsonValueKind.Array or JsonValueKind.Null)
                     throw new Refusal("request_invalid", "Effect parameters are bounded scalars under plain lowercase names; identity and authority names are refused.", "$.args.params");
+            CheckEffectArgs(args);
         }
     }
 
@@ -2176,7 +2213,6 @@ public partial class CommandHost : Node
     {
         "entity.set_part" => "Moving parts of objects (a lid, a door) is not available yet.",
         "entity.transform" => "Transforming objects arrives with the first magic (Run 3).",
-        "effect.start" => "Free-standing effects arrive with the first magic (Run 3).",
         "style.set" => "Restyling the room from a command arrives with the look runtime.",
         "room.undo" => "Undo arrives with room saves (Run 3).",
         "goal.set" when Str(args, "goal") is "wander" => "Wandering is not available yet.",

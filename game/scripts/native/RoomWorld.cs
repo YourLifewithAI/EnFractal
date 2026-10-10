@@ -20,6 +20,9 @@ public partial class RoomWorld : Node3D
     public const string DefaultStyleId = "storybook_painterly";
     public const int DefaultStyleVersion = 2;
     public static readonly string DefaultStyle = StylePreset.PathFor(DefaultStyleId, DefaultStyleVersion);
+    /// <summary>The island's rules every room uses until a room names its own (res://rules/&lt;id&gt;/v&lt;N&gt;.json).</summary>
+    public const string DefaultRulesId = "storybook_wild";
+    public const int DefaultRulesVersion = 1;
     [Export] public string RoomDirectory { get; set; } = DefaultRoom;
     /// <summary>Overrides the room's pinned style when set (tests, previews).</summary>
     [Export] public string StylePresetPath { get; set; } = "";
@@ -96,7 +99,7 @@ public partial class RoomWorld : Node3D
                 LookNotice = string.Join(" ", new[] { StyleNote, Look.PlayerNotice }.Where(note => note.Length > 0)),
                 Look = Look,
             });
-            Kernel.CommandHost.Attach(this);
+            Kernel.CommandHost.Attach(this).LoadRules(DefaultRulesId, DefaultRulesVersion);
             // The player's AI: the companion link in front of the command host (A2).
             CompanionBridge.Attach(this);
             Navigation.RoomNavigation.Attach(this);
