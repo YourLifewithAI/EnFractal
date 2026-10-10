@@ -25,7 +25,7 @@ from .water import channel_cells, choose_outlet, lake_rho, plan_and_carve, resam
 from . import sea as Sea
 from .climb import give_lips
 
-GENERATOR = {'name': 'landscape-generator', 'version': '4'}
+GENERATOR = {'name': 'landscape-generator', 'version': '5'}
 SEED = 20261008
 CELL = .03
 MARGIN = 1.7   # the sea out past the reef and the playable water; beyond it the far sea mesh
@@ -602,7 +602,9 @@ def describe_sea(grid, h, room, coast, jetty, beaches, islands, player0, streams
         level_m=Sea.SEA_Y, mesh='sea', swim_depth_m=Sea.SWIM_DEPTH,
         lagoon_depth_m=Sea.LAGOON_DEPTH, open_sea_depth_m=Sea.DEEP_DEPTH,
         coast=dict(outline_m=shore),
-        reef=dict(outline_m=reef, crest_y_m=round(Sea.SEA_Y-.022, 4), band_half_width_m=.085,
+        # The reef line is the shelf's edge under water now (the clean coast): its
+        # "crest" is the shelf's nominal floor, a lagoon's depth down, not rock.
+        reef=dict(outline_m=reef, crest_y_m=round(Sea.SEA_Y-Sea.LAGOON_DEPTH, 4), band_half_width_m=.085,
                   offshore_m=[round(min(offs), 3), round(max(offs), 3)],
                   passes=[] if jetty is None else [dict(centre_m=[round(jetty['wall'][0]+jetty['ux']*jetty['reef'], 3),
                                                                   round(jetty['wall'][1]+jetty['uz']*jetty['reef'], 3)],

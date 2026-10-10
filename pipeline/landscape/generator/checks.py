@@ -8,9 +8,11 @@ player's spawn to the carryable object and back within the low-incline and
 step limits (an 8-connected path search on the terrain's vertices, where a
 vertex is walkable only if every triangle touching it is gentle enough); and
 every inventory object's footprint still reads in the land; and the island:
-the sea surrounds it out past the reef, the reef lies a short swim off the
-coast, every promised beach has a shelving shore a swimmer walks out of the
-sea up, and the beaches and the jetty are reachable on foot from the spawn.
+the sea surrounds it out past the reef line (the shelf's edge), which lies a
+short swim off the coast; nothing stands offshore near the surface (no reef
+rocks, no sea stacks); every promised beach has a shelving shore a swimmer
+walks out of the sea up, and the beaches and the jetty are reachable on foot
+from the spawn.
 """
 import argparse
 import heapq
@@ -498,6 +500,108 @@ def walk_checks(doc, meshes, terrain, room):
 
 SWIM_M = .08        # the body floats in water over this depth
 WADE_DEG = 35.      # walking out of water: no step under the surface steeper (the pond's rule)
+NEAR_SURFACE_M = .1  # offshore, nothing may stand within a body's height of the surface (the clean coast)
+
+
+def _land_grid(doc, meshes):
+    """The generator's grid read back from the package's land mesh: (grid, h),
+    or (None, None) for a package without one."""
+    from .field import Grid
+    pts = {}
+    for p in meshes.get('land', ()):
+        for x, y, z in p['positions']:
+            pts[(round(x, 4), round(z, 4))] = y
+    gen = doc.get('x_generator') or {}
+    if not pts or 'cell_m' not in gen:
+        return None, None
+    xs = sorted({k[0] for k in pts})
+    zs = sorted({k[1] for k in pts})
+    grid = Grid(xs[0], zs[0], xs[-1], zs[-1], gen['cell_m'])
+    nx = grid.nx
+    return grid, [pts.get((round(grid.xs[q % nx], 4), round(grid.zs[q//nx], 4)), -math.inf) for q in range(grid.n)]
+
+
+def offshore_checks(doc, meshes, room, level):
+    """The clean coast (the founder, 10 October): no walls offshore. The sea is
+    the water joined to the grid's edge; everything else, and the sea within
+    NEAR_SURFACE_M of the surface, is the island and its shallows. Shallows not
+    joined to the island the player stands on (a reef's rocks, a sea stack, a
+    rock breaking the surface) are walls offshore. Also measured: how deep the
+    water is at the foot of the coast's cliffs (they drop into deep water)."""
+    grid, h = _land_grid(doc, meshes)
+    if grid is None:
+        return False, dict(error='no land grid')
+    nx, nz = grid.nx, grid.nz
+    sea = [False]*grid.n
+    todo = [q for q in range(grid.n) if (q % nx in (0, nx-1) or q//nx in (0, nz-1)) and h[q] < level]
+    for q in todo:
+        sea[q] = True
+    n8 = ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1))
+    while todo:
+        q = todo.pop()
+        i, j = q % nx, q//nx
+        for di, dj in n8:
+            ii, jj = i+di, j+dj
+            if 0 <= ii < nx and 0 <= jj < nz and not sea[jj*nx+ii] and h[jj*nx+ii] < level:
+                sea[jj*nx+ii] = True
+                todo.append(jj*nx+ii)
+    shallow = [not sea[q] or h[q] > level-NEAR_SURFACE_M for q in range(grid.n)]
+    player = next((s for s in room['spawns'] if s['role'] == 'player'), room['spawns'][0])['position_m']
+    pi, pj = grid.nearest(player[0], player[2])
+    seen = [False]*grid.n
+    seen[pj*nx+pi] = True
+    todo = [pj*nx+pi]
+    while todo:
+        q = todo.pop()
+        i, j = q % nx, q//nx
+        for di, dj in n8:
+            ii, jj = i+di, j+dj
+            p = jj*nx+ii
+            if 0 <= ii < nx and 0 <= jj < nz and shallow[p] and not seen[p]:
+                seen[p] = True
+                todo.append(p)
+    walls = []
+    for q0 in range(grid.n):
+        if not shallow[q0] or seen[q0]:
+            continue
+        part, todo = [q0], [q0]
+        seen[q0] = True
+        while todo:
+            q = todo.pop()
+            i, j = q % nx, q//nx
+            for di, dj in n8:
+                ii, jj = i+di, j+dj
+                p = jj*nx+ii
+                if 0 <= ii < nx and 0 <= jj < nz and shallow[p] and not seen[p]:
+                    seen[p] = True
+                    todo.append(p)
+                    part.append(p)
+        if any(sea[q] for q in part):
+            top = max(part, key=lambda q: h[q])
+            walls.append(dict(at=[round(grid.xs[top % nx], 3), round(grid.zs[top//nx], 3)],
+                              top_below_surface_m=round(level-h[top], 3), vertices=len(part)))
+    walls.sort(key=lambda w: w['top_below_surface_m'])
+    # The cliffs' feet: where the coast is a face over 60 degrees, the water a
+    # short way out (0.3 m along the steepest descent).
+    feet = []
+    cell = grid.cell
+    for q in range(grid.n):
+        i, j = q % nx, q//nx
+        if not (0 < i < nx-1 and 0 < j < nz-1) or not (level < h[q] < level+.03) or sea[q]:
+            continue
+        gx = (h[q+1]-h[q-1])/(2*cell)
+        gz = (h[q+nx]-h[q-nx])/(2*cell)
+        g = math.hypot(gx, gz)
+        if g < math.tan(math.radians(60)):
+            continue
+        x, z = grid.xs[i]-gx/g*.3, grid.zs[j]-gz/g*.3
+        ii, jj = grid.nearest(x, z)
+        if sea[jj*nx+ii]:
+            feet.append(level-h[jj*nx+ii])
+    feet.sort()
+    rows = dict(walls=len(walls), worst=walls[:6], near_surface_m=NEAR_SURFACE_M,
+                cliff_feet=len(feet), cliff_foot_depth_m=[round(feet[0], 3), round(feet[len(feet)//2], 3)] if feet else None)
+    return not walls, rows
 
 
 def sea_checks(doc, meshes, terrain, room):
@@ -567,6 +671,9 @@ def sea_checks(doc, meshes, terrain, room):
         ok &= good
     rows['beaches'] = beaches
     ok &= bool(beaches)
+    # The clean coast: nothing offshore within a body's height of the surface.
+    off_ok, rows['offshore'] = offshore_checks(doc, meshes, room, level)
+    ok &= off_ok
     jetty = sea.get('jetty')
     if jetty:
         rx, ry, rz = jetty['root_m']
@@ -653,19 +760,10 @@ def climb_checks(doc, meshes):
     tops out on a knife edge or a needle a body's height up or more fails;
     lower ones are reported."""
     from .climb import knife_edges
-    from .field import Grid
-    pts = {}
-    for p in meshes.get('land', ()):
-        for x, y, z in p['positions']:
-            pts[(round(x, 4), round(z, 4))] = y
-    gen = doc.get('x_generator') or {}
-    if not pts or 'cell_m' not in gen:
+    grid, h = _land_grid(doc, meshes)
+    if grid is None:
         return True, dict(knife_edges=0, worst=[])
-    xs = sorted({k[0] for k in pts})
-    zs = sorted({k[1] for k in pts})
-    grid = Grid(xs[0], zs[0], xs[-1], zs[-1], gen['cell_m'])
     nx = grid.nx
-    h = [pts.get((round(grid.xs[q % nx], 4), round(grid.zs[q//nx], 4)), -math.inf) for q in range(grid.n)]
     level = (_sea(doc) or {}).get('level_m', -math.inf)
     wet = [False]*grid.n
     for rec in doc['water']:
