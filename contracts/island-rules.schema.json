@@ -112,13 +112,15 @@
           "$ref": "common.schema.json#/$defs/token"
         },
         "category": {
-          "description": "What kind of magic the ability is. Unique within a pack; the primitive fixes it (light.emit is light). The HUD places abilities on its wheel by category, with slots fixed by the engine: light 1, growth 2, float 3, burst 4, build 5. That mapping is the HUD's rule, not this contract's, so category stays a token here.",
+          "description": "What kind of magic the ability is. Unique within a pack; the primitive fixes it (light.emit is light, particles.float is float, particles.burst is burst). The HUD places abilities on its wheel by category, with slots fixed by the engine: light 1, growth 2, float 3, burst 4, build 5. That mapping is the HUD's rule, not this contract's, so category stays a token here.",
           "$ref": "common.schema.json#/$defs/token"
         },
         "primitive": {
-          "description": "The engine primitive that carries the ability out. Each primitive's outer limits are an if/then rule below.",
+          "description": "The engine primitive that carries the ability out. Each primitive's outer limits are an if/then rule below. A host loads a pack only when it carries out every primitive the pack names, so a pack that uses a newer primitive is a new pack version.",
           "enum": [
-            "light.emit"
+            "light.emit",
+            "particles.float",
+            "particles.burst"
           ]
         },
         "display_name": {
@@ -155,7 +157,7 @@
           ]
         },
         "targets": {
-          "description": "What it may be cast on. self: the effect follows the caster's avatar (effect.start targets that avatar). point: the effect stays at area.center_m (effect.start names no targets).",
+          "description": "What it may be cast on. The Gubble carries every ability out, whoever casts it. self: the effect follows the Gubble (effect.start targets its avatar). point: the effect is at area.center_m, cast there from where the Gubble stands (effect.start names no targets).",
           "type": "array",
           "minItems": 1,
           "maxItems": 2,
@@ -308,6 +310,130 @@
               },
               "max_active": {
                 "maximum": 8
+              }
+            }
+          }
+        },
+        {
+          "description": "particles.float, a stream of floating particles (Bubbles): from the Gubble while it moves (self), or blown from the Gubble toward a spot (point), rising and drifting with the wind there. Cosmetic: nothing collides with them, and a bubble pops as a look effect when an avatar or the land touches it. intensity is how thick the stream is (1 is the look's standard). Its outer limits: intensity only, from 0.05 to 2.0; radius (how far the particles spread and drift) at most 3 m; duration at most 120 s, because a stream costs particles every frame; at most 4 active, half the room's cap of 8 effects; reach at most 5 m; category float.",
+          "if": {
+            "required": [
+              "primitive"
+            ],
+            "properties": {
+              "primitive": {
+                "const": "particles.float"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "category": {
+                "const": "float"
+              },
+              "params": {
+                "required": [
+                  "intensity"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "intensity": {
+                    "properties": {
+                      "min": {
+                        "minimum": 0.05,
+                        "maximum": 2.0
+                      },
+                      "max": {
+                        "minimum": 0.05,
+                        "maximum": 2.0
+                      },
+                      "default": {
+                        "minimum": 0.05,
+                        "maximum": 2.0
+                      }
+                    }
+                  }
+                }
+              },
+              "reach_m": {
+                "maximum": 5
+              },
+              "area_radius_default_m": {
+                "maximum": 3
+              },
+              "area_radius_max_m": {
+                "maximum": 3
+              },
+              "duration_default_s": {
+                "maximum": 120
+              },
+              "duration_max_s": {
+                "maximum": 120
+              },
+              "max_active": {
+                "maximum": 4
+              }
+            }
+          }
+        },
+        {
+          "description": "particles.burst, a burst of sparks with a brief flash of real light (Fireworks): a small burst over the Gubble (self), or a rocket trail rising from the Gubble and bursting above a spot (point). Cosmetic: nothing collides with the sparks. The flash is one light, so it counts toward the look's light budget and, while it lasts, toward LightLevelAt; with at most one light per effect, the room's cap of 8 effects still bounds the lights. intensity is how big and bright the burst is, sparks and flash together (1 is the look's standard). Its outer limits: intensity only, from 0.05 to 2.0; radius (the burst's spread) at most 3 m; duration (rise, burst and fading sparks) at most 10 s; at most 4 active; reach at most 8 m, because a rocket carries further than a light or a stream; category burst.",
+          "if": {
+            "required": [
+              "primitive"
+            ],
+            "properties": {
+              "primitive": {
+                "const": "particles.burst"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "category": {
+                "const": "burst"
+              },
+              "params": {
+                "required": [
+                  "intensity"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "intensity": {
+                    "properties": {
+                      "min": {
+                        "minimum": 0.05,
+                        "maximum": 2.0
+                      },
+                      "max": {
+                        "minimum": 0.05,
+                        "maximum": 2.0
+                      },
+                      "default": {
+                        "minimum": 0.05,
+                        "maximum": 2.0
+                      }
+                    }
+                  }
+                }
+              },
+              "reach_m": {
+                "maximum": 8
+              },
+              "area_radius_default_m": {
+                "maximum": 3
+              },
+              "area_radius_max_m": {
+                "maximum": 3
+              },
+              "duration_default_s": {
+                "maximum": 10
+              },
+              "duration_max_s": {
+                "maximum": 10
+              },
+              "max_active": {
+                "maximum": 4
               }
             }
           }

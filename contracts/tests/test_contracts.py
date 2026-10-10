@@ -33,6 +33,16 @@ LOCKED_PRESETS = {
 }
 RULES = ROOT / "game" / "rules"
 STORYBOOK_WILD = RULES / "storybook_wild" / "v1.json"
+# v2 adds Bubbles and Fireworks (particles.float, particles.burst). The hosts load v1 until they carry out both.
+STORYBOOK_WILD_V2 = RULES / "storybook_wild" / "v2.json"
+# Each primitive's outer limits, as island-rules.schema.json's if/then rules state them.
+PRIMITIVE_LIMITS = {
+    "light.emit": {"category": "light", "intensity": (0.05, 2.0), "reach_m": 5, "radius_m": 3, "duration_s": 600, "max_active": 8},
+    "particles.float": {"category": "float", "intensity": (0.05, 2.0), "reach_m": 5, "radius_m": 3, "duration_s": 120, "max_active": 4},
+    "particles.burst": {"category": "burst", "intensity": (0.05, 2.0), "reach_m": 8, "radius_m": 3, "duration_s": 10, "max_active": 4},
+}
+# The host's cap on active effects in a room (CommandHost.MaxActiveEffects); no primitive may grant more.
+ROOM_EFFECT_CAP = 8
 # Island rules packs are pinned like presets: a candidate, approved or retired version never changes. None is yet.
 LOCKED_RULES: dict[str, str] = {}
 
@@ -893,12 +903,13 @@ class IslandRulesTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.pack = validate.load_strict(STORYBOOK_WILD)
+        self.v2 = validate.load_strict(STORYBOOK_WILD_V2)
 
     def tearDown(self):
         self.temporary.cleanup()
 
-    def problems(self, mutate, where=("storybook_wild", "v1.json")):
-        document = copy.deepcopy(self.pack)
+    def problems(self, mutate, where=("storybook_wild", "v1.json"), pack=None):
+        document = copy.deepcopy(self.pack if pack is None else pack)
         mutate(document)
         path = Path(self.temporary.name) / "rules" / where[0] / where[1]
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -930,6 +941,127 @@ class IslandRulesTests(unittest.TestCase):
         glow = self.pack["abilities"][0]
         self.assertEqual((glow["capability"], glow["category"], glow["primitive"]), ("glow", "light", "light.emit"))
         self.assertEqual(glow["params"], {"intensity": {"min": 0.2, "max": 1.0, "default": 0.6}})
+        self.assertEqual(len(self.pack["abilities"]), 1, "v1 stays Glow only: the hosts load it until they carry out the particle primitives")
+
+    def test_storybook_wild_v2_adds_bubbles_and_fireworks_and_keeps_glow(self):
+        self.assertEqual((self.v2["rules_id"], self.v2["rules_version"], self.v2["status"]), ("storybook_wild", 2, "draft"))
+        self.assertEqual([(a["capability"], a["category"], a["primitive"]) for a in self.v2["abilities"]],
+                         [("glow", "light", "light.emit"), ("bubbles", "float", "particles.float"), ("fireworks", "burst", "particles.burst")])
+        self.assertEqual(self.v2["abilities"][0], self.pack["abilities"][0], "Glow is unchanged from v1")
+        self.assertEqual({k: v for k, v in self.v2.items() if k not in ("rules_version", "abilities")},
+                         {k: v for k, v in self.pack.items() if k not in ("rules_version", "abilities")})
+        for ability in self.v2["abilities"][1:]:
+            with self.subTest(ability["capability"]):
+                # Glow's pattern: both cast it through the Gubble, on itself or at a spot, at once (T0).
+                self.assertEqual((sorted(ability["cast_by"]), sorted(ability["targets"]), ability["tier"]),
+                                 (["companion", "player"], ["point", "self"], "auto"))
+                self.assertEqual(list(ability["params"]), ["intensity"])
+        self.assertLessEqual(sum(a["max_active"] for a in self.v2["abilities"]), ROOM_EFFECT_CAP,
+                             "the island's own caps fit inside the room's, so one ability never crowds out another")
+
+    def test_every_primitive_has_its_outer_limits(self):
+        """Each primitive the schema names has one if/then rule fixing its category, its only params and every maximum."""
+        ability = validate.load_strict(CONTRACTS / "island-rules.schema.json")["$defs"]["ability"]
+        primitives = ability["properties"]["primitive"]["enum"]
+        rules = {rule["if"]["properties"]["primitive"]["const"]: rule["then"]["properties"] for rule in ability["allOf"]}
+        self.assertEqual(sorted(rules), sorted(primitives), "one if/then rule per primitive, and no rule for a primitive the enum lacks")
+        self.assertEqual(len(ability["allOf"]), len(primitives))
+        self.assertEqual(sorted(rules), sorted(PRIMITIVE_LIMITS))
+        categories = [limits["category"]["const"] for limits in rules.values()]
+        self.assertEqual(len(set(categories)), len(categories), "each primitive fixes its own category")
+        for primitive, limits in rules.items():
+            expected = PRIMITIVE_LIMITS[primitive]
+            with self.subTest(primitive):
+                self.assertEqual(limits["category"]["const"], expected["category"])
+                self.assertFalse(limits["params"]["additionalProperties"])
+                self.assertEqual(limits["params"]["required"], ["intensity"])
+                self.assertEqual(set(limits["params"]["properties"]), {"intensity"})
+                for bound in ("min", "max", "default"):
+                    range_ = limits["params"]["properties"]["intensity"]["properties"][bound]
+                    self.assertEqual((range_["minimum"], range_["maximum"]), expected["intensity"])
+                self.assertEqual(limits["reach_m"]["maximum"], expected["reach_m"])
+                for field in ("area_radius_default_m", "area_radius_max_m"):
+                    self.assertEqual(limits[field]["maximum"], expected["radius_m"])
+                for field in ("duration_default_s", "duration_max_s"):
+                    self.assertEqual(limits[field]["maximum"], expected["duration_s"])
+                self.assertEqual(limits["max_active"]["maximum"], expected["max_active"])
+                self.assertLessEqual(expected["max_active"], ROOM_EFFECT_CAP)
+                for field, base in (("reach_m", "reach_m"), ("area_radius_max_m", "area_radius_max_m"), ("duration_max_s", "duration_max_s")):
+                    self.assertLessEqual(limits[field]["maximum"], ability["properties"][base]["maximum"], "a primitive only narrows the base limits")
+
+    def test_the_particle_primitives_outer_limits(self):
+        """Bubbles and Fireworks may reach their primitive's limits and never pass them, each limit refused on its own."""
+        def ability_of(index, change):
+            def mutate(document):
+                change(document["abilities"][index])
+            return mutate
+
+        def problems(mutate):
+            return self.problems(mutate, ("storybook_wild", "v2.json"), self.v2)
+
+        for index, primitive in ((1, "particles.float"), (2, "particles.burst")):
+            limits = PRIMITIVE_LIMITS[primitive]
+            low, high = limits["intensity"]
+
+            def at_the_limits(a, limits=limits, low=low, high=high):
+                a.update(reach_m=limits["reach_m"], area_radius_default_m=limits["radius_m"], area_radius_max_m=limits["radius_m"],
+                         duration_default_s=limits["duration_s"], duration_max_s=limits["duration_s"], max_active=limits["max_active"])
+                a["params"]["intensity"] = {"min": low, "max": high, "default": high}
+
+            with self.subTest(primitive, case="at the limits"):
+                self.assertEqual(problems(ability_of(index, at_the_limits)), [])
+            other = "light" if limits["category"] != "light" else "float"
+            refused = {
+                "an intensity above its maximum": (lambda a: a["params"]["intensity"].update(max=high + 0.5), f"greater than the maximum of {high}"),
+                "an intensity below its minimum": (lambda a: a["params"]["intensity"].update(min=low / 2), f"less than the minimum of {low}"),
+                "an unknown param": (lambda a: a["params"].__setitem__("rate", {"min": 0, "max": 1, "default": 0.5}), "'rate' was unexpected"),
+                "no intensity": (lambda a: a["params"].clear(), "'intensity' is a required property"),
+                "a reach past its limit": (lambda a: a.__setitem__("reach_m", limits["reach_m"] + 0.5), f"greater than the maximum of {limits['reach_m']}"),
+                "a radius past its limit": (lambda a: a.__setitem__("area_radius_max_m", limits["radius_m"] + 0.5), f"greater than the maximum of {limits['radius_m']}"),
+                "a default radius past its limit": (lambda a: a.__setitem__("area_radius_default_m", limits["radius_m"] + 0.1), f"greater than the maximum of {limits['radius_m']}"),
+                "a duration past its limit": (lambda a: a.update(duration_max_s=limits["duration_s"] + 1), f"greater than the maximum of {limits['duration_s']}"),
+                "a default duration past its limit": (lambda a: a.update(duration_default_s=limits["duration_s"] + 1, duration_max_s=limits["duration_s"] + 1),
+                                                      f"greater than the maximum of {limits['duration_s']}"),
+                "max_active past its limit": (lambda a: a.__setitem__("max_active", limits["max_active"] + 1), f"greater than the maximum of {limits['max_active']}"),
+                "another primitive's category": (lambda a: a.__setitem__("category", other), f"'{limits['category']}' was expected"),
+            }
+            for label, (change, fragment) in refused.items():
+                with self.subTest(primitive, case=label):
+                    found = problems(ability_of(index, change))
+                    self.assertTrue(any(fragment in p for p in found), found)
+        # The limits are the primitive's, not the ability's: a reach a burst may have is too far for a stream or a light.
+        self.assertEqual(problems(ability_of(2, lambda a: a.__setitem__("reach_m", 7))), [])
+        self.assertTrue(any("greater than the maximum of 5" in p for p in problems(ability_of(1, lambda a: a.__setitem__("reach_m", 7)))))
+        self.assertTrue(any("greater than the maximum of 10" in p for p in problems(ability_of(2, lambda a: a.update(duration_default_s=4, duration_max_s=30)))))
+        self.assertEqual(problems(ability_of(0, lambda a: a.__setitem__("duration_max_s", 600))), [], "Glow keeps light.emit's 600 s")
+
+    def test_the_validators_checks_cover_the_new_abilities(self):
+        def problems(mutate):
+            return self.problems(mutate, ("storybook_wild", "v2.json"), self.v2)
+
+        def second_float(document):
+            foam = copy.deepcopy(document["abilities"][1])
+            foam.update(capability="foam", display_name="Foam")
+            document["abilities"].append(foam)
+
+        refused = {
+            "a bubbles default above its max": (lambda d: d["abilities"][1]["params"]["intensity"].update(default=1.2),
+                                                "abilities[1] (bubbles): param intensity default 1.2 is outside its min 0.2 and max 1.0"),
+            "a fireworks min above its max": (lambda d: d["abilities"][2]["params"]["intensity"].update(min=0.9, max=0.5, default=0.6),
+                                              "abilities[2] (fireworks): param intensity has min 0.9 above max 0.5"),
+            "a fireworks default duration above its max": (lambda d: d["abilities"][2].update(duration_default_s=6, duration_max_s=5),
+                                                           "abilities[2] (fireworks): duration_default_s 6 is above duration_max_s 5"),
+            "a bubbles default radius above its max": (lambda d: d["abilities"][1].update(area_radius_default_m=1.2),
+                                                       "abilities[1] (bubbles): area_radius_default_m 1.2 is above area_radius_max_m 1.0"),
+            "a second float ability": (second_float, "category 'float' appears more than once"),
+            "fireworks twice": (lambda d: d["abilities"].append(copy.deepcopy(d["abilities"][2])), "capability 'fireworks' appears more than once"),
+        }
+        for label, (mutate, fragment) in refused.items():
+            with self.subTest(label):
+                found = problems(mutate)
+                self.assertTrue(any(fragment in p for p in found), found)
+        self.assertTrue(any("rules/<rules_id>/v<rules_version>.json" in p for p in self.problems(lambda d: None, ("storybook_wild", "v1.json"), self.v2)),
+                        "v2 lives at v2.json")
 
     def test_locked_packs_never_change(self):
         for path in sorted(RULES.glob("*/v*.json")):
@@ -983,7 +1115,7 @@ class IslandRulesTests(unittest.TestCase):
             "max_active 0": (self.glow(lambda a: a.__setitem__("max_active", 0)), "less than the minimum of 1"),
             "max_active written as 3.0": (self.glow(lambda a: a.__setitem__("max_active", 3.0)), "is not of type 'integer'"),
             "light in another category": (self.glow(lambda a: a.__setitem__("category", "growth")), "'light' was expected"),
-            "an unknown primitive": (self.glow(lambda a: a.__setitem__("primitive", "fire.spread")), "is not one of ['light.emit']"),
+            "an unknown primitive": (self.glow(lambda a: a.__setitem__("primitive", "fire.spread")), "is not one of ['light.emit', 'particles.float', 'particles.burst']"),
             # field values
             "an empty targets": (self.glow(lambda a: a.__setitem__("targets", [])), "should be non-empty"),
             "an unknown target": (self.glow(lambda a: a.__setitem__("targets", ["self", "player"])), "is not one of ['self', 'point']"),
@@ -1036,8 +1168,27 @@ class IslandRulesTests(unittest.TestCase):
 
     def test_a_pack_fits_the_command_contract(self):
         """capabilities.list can report every ability as the pack bounds it, and effect.start can carry its defaults."""
+        for pack in (self.pack, self.v2):
+            with self.subTest(rules_version=pack["rules_version"]):
+                self.check_pack_fits_the_command_contract(pack)
+
+    def test_the_effect_examples_sit_inside_v2s_bounds(self):
+        abilities = {a["capability"]: a for a in self.v2["abilities"]}
+        for name, target in (("command_effect_bubbles_toward_a_spot", "point"), ("command_effect_fireworks_over_the_gubble", "self")):
+            with self.subTest(name):
+                args = validate.load_strict(EXAMPLES / "messages" / "valid" / f"{name}.json")["args"]
+                ability = abilities[args["capability"]]
+                self.assertEqual("self" if args.get("targets") == ["avatar:companion"] else "point" if "targets" not in args else None, target)
+                self.assertIn(target, ability["targets"])
+                for key, value in args["params"].items():
+                    self.assertLessEqual(ability["params"][key]["min"], value)
+                    self.assertLessEqual(value, ability["params"][key]["max"])
+                self.assertLessEqual(args["area"]["radius_m"], ability["area_radius_max_m"])
+                self.assertLessEqual(args["duration_s"], ability["duration_max_s"])
+
+    def check_pack_fits_the_command_contract(self, pack):
         summaries, commands = [], []
-        for ability in self.pack["abilities"]:
+        for ability in pack["abilities"]:
             summaries.append({"capability": ability["capability"], "category": ability["category"],
                               "params": {k: {"min": v["min"], "max": v["max"]} for k, v in ability["params"].items()},
                               "area_radius_max_m": ability["area_radius_max_m"], "duration_max_s": ability["duration_max_s"]})

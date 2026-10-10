@@ -1,0 +1,61 @@
+{
+  "schema": "enfractal.island_rules",
+  "version": 1,
+  "rules_id": "storybook_wild",
+  "rules_version": 2,
+  "display_name": "Storybook wild",
+  "description": "The first island rules: storybook nature magic.",
+  "status": "draft",
+  "magic_word": "magic",
+  "abilities": [
+    {
+      "capability": "glow",
+      "category": "light",
+      "primitive": "light.emit",
+      "display_name": "Glow",
+      "cast_by": ["player", "companion"],
+      "tier": "auto",
+      "targets": ["self", "point"],
+      "reach_m": 2.0,
+      "params": { "intensity": { "min": 0.2, "max": 1.0, "default": 0.6 } },
+      "area_radius_default_m": 0.6,
+      "area_radius_max_m": 1.5,
+      "duration_default_s": 300,
+      "duration_max_s": 600,
+      "max_active": 3
+    },
+    {
+      "capability": "bubbles",
+      "category": "float",
+      "primitive": "particles.float",
+      "display_name": "Bubbles",
+      "cast_by": ["player", "companion"],
+      "tier": "auto",
+      "targets": ["self", "point"],
+      "reach_m": 2.0,
+      "params": { "intensity": { "min": 0.2, "max": 1.0, "default": 0.6 } },
+      "area_radius_default_m": 0.5,
+      "area_radius_max_m": 1.0,
+      "duration_default_s": 20,
+      "duration_max_s": 60,
+      "max_active": 2
+    },
+    {
+      "capability": "fireworks",
+      "category": "burst",
+      "primitive": "particles.burst",
+      "display_name": "Fireworks",
+      "cast_by": ["player", "companion"],
+      "tier": "auto",
+      "targets": ["self", "point"],
+      "reach_m": 4.0,
+      "params": { "intensity": { "min": 0.3, "max": 1.0, "default": 0.8 } },
+      "area_radius_default_m": 1.0,
+      "area_radius_max_m": 2.0,
+      "duration_default_s": 4,
+      "duration_max_s": 6,
+      "max_active": 3
+    }
+  ],
+  "extensions": {}
+}
