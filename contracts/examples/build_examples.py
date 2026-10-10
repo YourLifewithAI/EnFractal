@@ -420,6 +420,12 @@ def build_messages(out: Path) -> None:
         "command_effect_breeze": command("effect.start", "breeze-0001", {"capability": "wind_field", "params": {"speed_mps": 1.5},
                                          "area": {"center_m": [0.0, 0.3, 0.0], "radius_m": 1.5}, "duration_s": 20}),
         "command_effect_stop_all": command("effect.stop", "breeze-stop-0001", {"effect": "all"}),
+        # storybook_wild v2's abilities (game/rules/storybook_wild/v2.json): a point effect names no targets; self targets the Gubble.
+        "command_effect_bubbles_toward_a_spot": command("effect.start", "bubbles-0001", {"capability": "bubbles", "params": {"intensity": 0.8},
+                                                        "area": {"center_m": [0.6, 0.0, -0.9], "radius_m": 0.5}, "duration_s": 20}),
+        "command_effect_fireworks_over_the_gubble": command("effect.start", "fireworks-0001", {"capability": "fireworks", "params": {},
+                                                            "area": {"center_m": [0.0, 0.0, 0.0], "radius_m": 1.0}, "duration_s": 4,
+                                                            "targets": ["avatar:companion"]}),
         "command_style_spaceport": command("style.set", "style-0001", {"preset_id": "spaceport_neon", "preset_version": 1}),
         "command_checkpoint": command("room.checkpoint", "checkpoint-0002", {"label": "Before the dragon"}),
         "command_undo": command("room.undo", "undo-0001", {"to_revision": 2}, expected_revision=4),
