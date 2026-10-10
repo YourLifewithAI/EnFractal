@@ -1,6 +1,6 @@
 # Run 2 status
 
-**Run 2 started on 7 October 2026 (evening, local). The sixth session's handoff was written on 9 October (morning, UTC), in a Linux cloud session; start at "The next session".** Then read [ORCHESTRATION.md](ORCHESTRATION.md) and [AGENTS.md](../../AGENTS.md). [RUN-2-REVISION.md](RUN-2-REVISION.md) is the approved plan (8 October); it supersedes [RUN-2.md](RUN-2.md)'s Lane C, C7, Lane L and Codex sections.
+**Run 2 started on 7 October 2026 (evening, local). The eighth session's handoff was written on 9 October (night, UTC), in a Linux cloud session; start at "The next session".** Then read [ORCHESTRATION.md](ORCHESTRATION.md) and [AGENTS.md](../../AGENTS.md). [RUN-2-REVISION.md](RUN-2-REVISION.md) is the approved plan (8 October); it supersedes [RUN-2.md](RUN-2.md)'s Lane C, C7, Lane L and Codex sections.
 
 ## The founder's new direction: the room becomes a landscape (7 October, late evening)
 
@@ -332,7 +332,73 @@
   - **The characters' second round:** the family's verdict on the five sheets (sent today).
   - **v2:** it is the default but still a draft. After the playtest, make it a candidate?
 
+## The eighth session (9 October, evening, a Linux cloud session)
+
+- **Where it ran:** a claude.ai cloud container with no GPU, Blender, Codex or the founder's files.
+  - The toolchain was set up as "To run another cloud session" says: Ubuntu's .NET SDK 8.0.131 through apt, Godot and the Python environments by hand.
+  - Lanes worked in worktrees under `/home/user/EnFractal-wt/`, each with its own Python environments and symlinks to the shared dotnet and Godot.
+  - The container restarted twice. Nothing committed was lost, because the lanes pushed as they committed.
+  - **Everything merged this session still needs the pinned-SDK runners on DiamondAge.**
+- **The magic design: draft PR #12** (`run2/magic-design`, docs only). It waits on the founder's read. `docs/magic/README.md` holds:
+  - **the four rule layers:** engine, island, abilities, agent. Each only narrows the one above, and a lock beats every island and ability rule;
+  - **the abilities:** Glow, Bloom with the flower trail, Bubbles, Fireworks, Build, then Fire, on a shared ground layer;
+  - **transform and effect rules;**
+  - **triggers:** small laws the player and the Gubble make;
+  - **the controls:** a tap for the smart ask, a wheel of 8 fixed slots, number keys, Glow taught at dusk;
+  - **building a home;**
+  - **the wish path:** a wish box, a host queue and a local wish runner. MCP sampling is deprecated in the 2026-07-28 spec;
+  - **the wish ledger,** which keeps the wishes no island can grant yet;
+  - **costs** per island and mode;
+  - **the build order.**
+
+  `docs/magic/research/` condenses five research reports (Claude agents, web search, $0): systemic rules, AI-driven games, per-world rule packs and costs, companion command UX, and delivering a wish to a bring-your-own AI.
+- **The founder's decisions this session:**
+  - **Abilities work through each island's laws.** Each island has its own theme (storybook magic, sci-fi tech, dragons), and the engine makes every island feel the same.
+  - **Costs:** none in creative mode. In the live, challenge, cooperative and competitive modes they differ by island.
+  - **Light is the first ability,** and the game teaches it when it gets dark.
+  - **The kids' first wishes:** a trail of flowers behind the Gubble, fireworks, bubbles, real fire that catches trees and buildings, and help building a house.
+  - **The ability order:** fire is ability six, right after Bloom.
+  - **The wheel works with no AI connected.** "This is fine for now. It's a placeholder testing system."
+  - **The flower trail** is on by default and can be turned off.
+  - **The Gubble is a teammate that does magic for the player.** It is the player's own AI, brought by the player, or one day provided by the game, pending funding. This replaced the integrator's "magic, not a teammate".
+  - **The wish ledger** (the founder's idea): wishes no island can grant are kept locally, to grow islands that grant them, eventually built by models through data-only theme packs.
+  - **Merges:** retire the templates (PR #13) and the input map (PR #14); begin Glow end to end.
+- **Merged into `run2/integration`** (`734a744`: `e31aef4` and `734a744`, the suite GREEN on the merge before the push):
+  - **PR #13, Lane P (Opus):**
+    - the five geography-era creation templates and the invention workshop are retired;
+    - neutral fixtures in `game/tests/fixtures/creations/` keep the trigger graph tested;
+    - the contract examples' sample creation is a trigger light;
+    - creation authority went from 300 to 302 checks, and the editor's 40 checks went with the workshop.
+  - **PR #14, Lane P (Sonnet):**
+    - every key is a named action in `project.godot`'s `[input]` (33 actions, the same keys) through `Ui/PlayerControls.cs`;
+    - the help reads the map;
+    - G, T, Shift+T and L sit under "Testing";
+    - the play HUD suite joins `tools/linux/test-all.sh`;
+    - play HUD went from 94 to 140 checks, small avatar from 281 to 295.
+- **The Glow round has started** ([RUN-2-GLOW.md](RUN-2-GLOW.md), the shared spec):
+  - **running now:** the contract round (`run2/glow-contract`: `island-rules.schema.json` and `game/rules/storybook_wild/v1.json`) and Lane L (`run2/glow-look`: `StartGlow`/`StopGlow` and `LightLevelAt`);
+  - **next:** Lane P part 1 (the host) once the contract merges, then Lane P part 2 (the HUD: the smart ask, the wheel, the new keys, the dusk moment) and Lane A (the mock host).
+- **Open for the founder:**
+  - PR #12;
+  - fire's details: burnt creations scorched or removed, fire for the player only at first;
+  - weather as an island law;
+  - the wish runner: who starts it, vendor-neutral or with extras, and whether the AI providers' terms allow a game's runner to drive a signed-in CLI (needs checking);
+  - a wish while another runs;
+  - the Gubble's words to children (curated lines first);
+  - trying the new key defaults in a playtest.
+
 ## The next session
+
+**Glow first** (the eighth session's round; see [RUN-2-GLOW.md](RUN-2-GLOW.md)):
+- **Merge the contract round** (`run2/glow-contract`), then dispatch Lane P part 1, the host.
+- **Merge Lane L's glow** (`run2/glow-look`) once its report is checked.
+- **Then Lane P part 2 (the HUD) and Lane A.**
+- **On DiamondAge:**
+  - the pinned-SDK runners on everything merged since `9eecaf0`;
+  - Lane L's glow captures;
+  - the founder's playtest of the new keys and the dusk moment.
+
+The seventh session's list continues:
 
 0. **Read** this page's seventh session and [RUN-2-OPEN-SEA.md](RUN-2-OPEN-SEA.md). Keep working on `run2/integration`; merging into `main` is the founder's call (as PR #8 was).
 1. **Run the full corpus once** (Lane C last ran it before `cfae377`; 21 of 24 is its estimate). The generator's tests passed on the merge (13 of 13).
