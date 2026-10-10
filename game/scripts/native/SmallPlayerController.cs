@@ -696,15 +696,24 @@ public partial class SmallPlayerController : CharacterBody3D
         return recovered;
     }
 
+    /// <summary>How far a pixel of mouse motion turns the view (the feel the captured mouse had).</summary>
+    public const float LookRadiansPerPixel = 0.0025f;
+
+    /// <summary>
+    /// Turn the body and tilt the eye by a mouse motion in pixels: the HUD's look drag in F1 and F2 (the cursor is free otherwise,
+    /// the Glow playtest). Nothing while input is off or a view frame steers movement (F3, F4).
+    /// </summary>
+    public void TurnView(Vector2 relative)
+    {
+        if (!InputEnabled || MovementFrameYaw != null || !relative.IsFinite()) return;
+        RotateY(-relative.X * LookRadiansPerPixel);
+        _pitch = Mathf.Clamp(_pitch - relative.Y * LookRadiansPerPixel, -1.35f, 1.35f);
+        EyeCamera.Rotation = new Vector3(_pitch, 0, 0);
+    }
+
     public override void _UnhandledInput(InputEvent input)
     {
         if (!InputEnabled || !ReadKeyboard) return;
-        if (input is InputEventMouseMotion mouse && Input.MouseMode == Input.MouseModeEnum.Captured && MovementFrameYaw == null)
-        {
-            RotateY(-mouse.Relative.X * 0.0025f);
-            _pitch = Mathf.Clamp(_pitch - mouse.Relative.Y * 0.0025f, -1.35f, 1.35f);
-            EyeCamera.Rotation = new Vector3(_pitch, 0, 0);
-        }
         // The controls are input actions (project.godot, [input]); Hit is a fresh press of one, not a held key repeating.
         var press = PlayerControls.Normalise(input);
         if (PlayerControls.Fresh(press))

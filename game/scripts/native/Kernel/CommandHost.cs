@@ -375,18 +375,27 @@ public partial class CommandHost : Node
     /// <summary>Transient receipts the host keeps for principal this session.</summary>
     public int TransientReceiptCount(string principal) => _transientOrder.TryGetValue(principal, out var order) ? order.Count : 0;
 
-    /// <summary>Manual companion controls (HUD keys) as goal.set / goal.stop commands from the player.</summary>
-    public JsonObject PlayerGoal(string goal, Vector3? point = null)
+    /// <summary>
+    /// Manual companion controls (HUD keys) as goal.set / goal.stop commands from the player: a goal, at a point (position_m) or
+    /// of a room thing by its id (target; fetch). The host checks both as it checks the companion's own.
+    /// </summary>
+    public JsonObject PlayerGoal(string goal, Vector3? point = null, string? target = null)
     {
         var args = new JsonObject { ["actor"] = CompanionAvatarId };
         var op = goal == "stop" ? "goal.stop" : "goal.set";
         if (op == "goal.set")
         {
             args["goal"] = goal;
+            if (target != null) args["target"] = target;
             if (point is { } at) args["position_m"] = KernelJson.Vector(at);
         }
         return PlayerCommand(op, args);
     }
+
+    /// <summary>Why the actor's last goal job failed (the host's own words), or null after one that succeeded.</summary>
+    public string? LastGoalError(string actor) => _lastGoalError.GetValueOrDefault(actor);
+
+    private readonly Dictionary<string, string> _lastGoalError = new(StringComparer.Ordinal);
 
     /// <summary>The G key: world.set_physics from the player (player-only, transient, the revision does not move).</summary>
     public JsonObject PlayerPhysics(string preset)
@@ -1682,6 +1691,8 @@ public partial class CommandHost : Node
         if (_runningGoals.TryGetValue(job.Actor, out var running) && running == job) _runningGoals.Remove(job.Actor);
         job.State = error == null ? "succeeded" : "failed";
         if (error != null) job.Result = Fail("goal.set", job.Principal, job.ActionId, null, error);
+        if (error != null) _lastGoalError[job.Actor] = error.Message;
+        else _lastGoalError.Remove(job.Actor);
         TaskEnded(job);
         GoalFinished?.Invoke(job.Actor, job.Id, job.State);
     }

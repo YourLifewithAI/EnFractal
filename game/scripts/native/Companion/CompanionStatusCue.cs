@@ -24,8 +24,8 @@ public partial class CompanionStatusCue : Label3D
     public override void _Ready()
     {
         Name = "CompanionState";
-        FontSize = 22;
-        OutlineSize = 4;
+        FontSize = 30;
+        OutlineSize = 10;
         PixelSize = 0.0003f;
         FixedSize = true;
         Billboard = BaseMaterial3D.BillboardModeEnum.Enabled;
@@ -33,8 +33,9 @@ public partial class CompanionStatusCue : Label3D
         AlphaCut = AlphaCutMode.Discard;
         AlphaScissorThreshold = 0.5f;
         OutlineModulate = new Color("18332d");
-        // One line below the name tag (offsets are in label pixels, so the gap holds at every distance).
-        Offset = new Vector2(0, -34);
+        // One line below the name tag (offsets are in label pixels, so the gap holds at every distance). As large as the tag,
+        // with a thick dark outline, so it reads over the landscape (the Glow playtest, 9 October).
+        Offset = new Vector2(0, -42);
         Display(State);
     }
 

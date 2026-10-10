@@ -180,6 +180,18 @@ public partial class CommandHost
         return new EffectPlan(ability, self, centre, radius, duration, parameters);
     }
 
+    /// <summary>
+    /// Whether a point effect of this ability could start at a spot now as far as the place goes: within the ability's reach of the
+    /// Gubble (by marginM to spare), and in the team's sight for the player. The HUD asks it to send the Gubble closer first; it
+    /// loosens nothing, as effect.start makes every check again. Null when the island has no such ability or no Gubble is here.
+    /// </summary>
+    public (bool InReach, bool InSight)? EffectSpot(string capability, Vector3 spot, float marginM = 0)
+    {
+        if (Rules?.Ability(capability) is not { } ability || Companion == null || !IsInstanceValid(Companion) || !Companion.IsInsideTree() || !spot.IsFinite())
+            return null;
+        return (Companion.GlobalPosition.DistanceTo(spot) <= ability.ReachM - Math.Max(0, marginM), TeamSeesSpot(spot, PlayerPrincipal));
+    }
+
     /// <summary>Whether the place a point effect would float is in sight now: of the Gubble's eyes, or the player's (the team's sight).</summary>
     private bool TeamSeesSpot(Vector3 centre, string principal)
     {

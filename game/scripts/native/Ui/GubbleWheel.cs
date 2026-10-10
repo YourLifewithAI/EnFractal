@@ -8,6 +8,9 @@ namespace EnFractal.Native;
 /// fixed wedges open around the pointer and the game pauses. Moving the mouse picks a wedge; letting go chooses it. A flick and
 /// release chooses one before the wheel is drawn (an expert never waits for it), and letting go in the centre cancels. A release
 /// before HoldOpenS with no flick is a tap: the smart ask. The wheel only says what was chosen; RoomHud carries it out.
+/// It is the Gubble's (the Glow playtest, 9 October: "the wheel doesn't say whose abilities these are"): a title over it names the
+/// Gubble ("The Gubble's magic"), and its rim is the Gubble's aura colour. Slots the island lacks stay in place, dim, with their
+/// name and "not yet", so they read as still to come rather than broken.
 /// </summary>
 public partial class GubbleWheel : Control
 {
@@ -19,6 +22,13 @@ public partial class GubbleWheel : Control
     public const float CentrePx = 30f;
     /// <summary>The wheel's radius on screen, to the middle of its wedges.</summary>
     public const float RadiusPx = 120f;
+    /// <summary>How far the wheel's disc reaches past the wedges' middles, and the width of its aura-coloured rim.</summary>
+    public const float DiscMarginPx = 44f;
+    public const float RimPx = 6f;
+    /// <summary>A slot the island lacks is drawn at this opacity.</summary>
+    public const float LackingAlpha = 0.45f;
+    /// <summary>The words under a lacking slot's name.</summary>
+    public const string LackingWords = "not yet";
 
     public enum Outcome { None, Tap, Wedge, Cancel }
 
@@ -36,6 +46,13 @@ public partial class GubbleWheel : Control
     private Vector2 _centre;
     private readonly List<Label> _wedgeLabels = new();
     private Label _centreLabel = null!;
+    private Label _title = null!;
+    private Color _rim = new("eec471");
+
+    /// <summary>The title over the wheel: whose magic it is.</summary>
+    public Label Title => _title;
+    /// <summary>The rim's colour: the Gubble's aura.</summary>
+    public Color Rim => _rim;
 
     /// <summary>The words on each wedge now, clockwise from the top (tests).</summary>
     public IReadOnlyList<Label> WedgeLabels => _wedgeLabels;
@@ -59,6 +76,19 @@ public partial class GubbleWheel : Control
         _centreLabel = new Label { Name = "WheelCentre", Text = "cancel", HorizontalAlignment = HorizontalAlignment.Center, MouseFilter = MouseFilterEnum.Ignore };
         _centreLabel.AddThemeFontSizeOverride("font_size", 13);
         AddChild(_centreLabel);
+        _title = new Label { Name = "WheelTitle", HorizontalAlignment = HorizontalAlignment.Center, MouseFilter = MouseFilterEnum.Ignore };
+        _title.AddThemeFontSizeOverride("font_size", 22);
+        _title.AddThemeColorOverride("font_outline_color", new Color("18332d"));
+        _title.AddThemeConstantOverride("outline_size", 6);
+        AddChild(_title);
+    }
+
+    /// <summary>Whose wheel it is: the title over it ("The Gubble's magic") and the rim's colour (its aura).</summary>
+    public void SetOwner(string title, Color rim)
+    {
+        if (_title.Text != title) _title.Text = title;
+        _rim = new Color(rim, 1f);
+        _title.AddThemeColorOverride("font_color", _rim.Lerp(new Color("fff3d6"), 0.35f));
     }
 
     /// <summary>
@@ -73,9 +103,10 @@ public partial class GubbleWheel : Control
             var label = _wedgeLabels[i];
             var name = wedge.Kind == GubbleMagic.WedgeKind.Ability ? abilityName(wedge.Slot) : orderWords(wedge);
             var known = name != null;
-            var text = known ? (wedge.Kind == GubbleMagic.WedgeKind.Ability ? $"{wedge.Icon}\n{wedge.Slot + 1} {name}" : name!) : GubbleMagic.UnknownIcon;
+            var text = known ? (wedge.Kind == GubbleMagic.WedgeKind.Ability ? $"{wedge.Icon}\n{wedge.Slot + 1} {name}" : name!)
+                : $"{wedge.Icon}\n{wedge.Slot + 1} {wedge.Name}\n{LackingWords}";
             if (label.Text != text) label.Text = text;
-            label.Modulate = new Color(1, 1, 1, known ? 1f : 0.35f);
+            label.Modulate = new Color(1, 1, 1, known ? 1f : LackingAlpha);
         }
     }
 
@@ -157,12 +188,16 @@ public partial class GubbleWheel : Control
             _wedgeLabels[i].Position = at - size / 2;
         }
         _centreLabel.Position = _centre - _centreLabel.GetCombinedMinimumSize() / 2;
+        var title = _title.GetCombinedMinimumSize();
+        _title.Position = _centre - new Vector2(title.X / 2, RadiusPx + DiscMarginPx + 6f + title.Y);
     }
 
     public override void _Draw()
     {
         if (!Open) return;
-        DrawCircle(_centre, RadiusPx + 44f, new Color(0.075f, 0.13f, 0.13f, 0.82f));
+        DrawCircle(_centre, RadiusPx + DiscMarginPx, new Color(0.075f, 0.13f, 0.13f, 0.82f));
+        // The rim in the Gubble's aura: the wheel is its.
+        DrawArc(_centre, RadiusPx + DiscMarginPx - RimPx * 0.5f, 0, Mathf.Tau, 96, _rim, RimPx, true);
         DrawCircle(_centre, CentrePx, new Color(0.16f, 0.24f, 0.23f, 0.95f));
         if (Hovered is { } hovered)
         {

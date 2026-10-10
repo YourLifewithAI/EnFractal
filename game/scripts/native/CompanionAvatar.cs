@@ -151,6 +151,8 @@ public partial class CompanionAvatar : SmallPlayerController
     private Node3D _pointer = null!;
     private Label3D _label = null!;
     private const float NameTagHeightFraction = 0.025f;
+    /// <summary>The name tag's dark outline, in label pixels: thick enough to read over a busy landscape (the Glow playtest).</summary>
+    public const int NameTagOutline = 10;
     private const float NameTagHideWithinM = 0.25f;
     private Vector3 _lookTarget;
     private Aabb _goToTarget;
@@ -202,7 +204,7 @@ public partial class CompanionAvatar : SmallPlayerController
         _label = new Label3D
         {
             Name = "CompanionLabel", Text = NameTag,
-            Position = Vector3.Up * (h * 1.35f), FontSize = 30, OutlineSize = 4, PixelSize = 0.0003f, FixedSize = true,
+            Position = Vector3.Up * (h * 1.35f), FontSize = 30, OutlineSize = NameTagOutline, PixelSize = 0.0003f, FixedSize = true,
             Modulate = new Color("f6dfab"), OutlineModulate = new Color("18332d"),
             Billboard = BaseMaterial3D.BillboardModeEnum.Enabled, NoDepthTest = false,
             AlphaCut = Label3D.AlphaCutMode.Discard, AlphaScissorThreshold = 0.5f
@@ -221,6 +223,7 @@ public partial class CompanionAvatar : SmallPlayerController
 
     public override void _Process(double delta)
     {
+        UpdateGesture(delta);
         var camera = GetViewport().GetCamera3D();
         if (camera == null) { _label.Visible = false; return; }
         var cameraTransform = camera.GetCameraTransform();
@@ -399,6 +402,155 @@ public partial class CompanionAvatar : SmallPlayerController
         LookAtPoint(point);
         CurrentIntent = "point";
         if (_pointer != null) _pointer.Visible = true;
+    }
+
+    // ---- Gestures: the Gubble's body answers (the magic design's "What the player sees"), moved here from the HUD ----
+
+    /// <summary>The body's gestures. Each moves only the drawn body (its parts), never the avatar or its collider.</summary>
+    public enum Gesture { None, Shake, Shiver, Wiggle, Shrug, Cast, CastSelf }
+
+    public const double ShakeS = 0.6;
+    public const double ShiverS = 1.2;
+    public const double WiggleS = 0.45;
+    public const double ShrugS = 0.6;
+    /// <summary>The cast: a quick lean toward the spot (a toss) that peaks at CastPeakFraction, then settles; the look's spark leaves at its start.</summary>
+    public const double CastS = 0.55;
+    public const float CastPeakFraction = 0.25f;
+    /// <summary>How far the body leans toward the spot it casts at, in radians.</summary>
+    public const float CastLeanRad = 0.38f;
+    /// <summary>A glow on itself: the body lifts this many body heights and settles.</summary>
+    public const float CastLiftHeights = 0.14f;
+    /// <summary>How dark the body goes when it dims (an overlay's alpha).</summary>
+    public const float DimAlpha = 0.45f;
+
+    /// <summary>The gesture playing now, and the last one played.</summary>
+    public Gesture Playing { get; private set; }
+    public Gesture LastGesture { get; private set; }
+    /// <summary>Where the last cast gesture leaned (the spot), or null for a glow on itself.</summary>
+    public Vector3? LastCastToward { get; private set; }
+    public bool Dimmed { get; private set; }
+
+    private double _gestureAge;
+    private double _gestureS;
+    private Vector3 _castDirection = Vector3.Forward;
+    private readonly System.Collections.Generic.List<(Node3D Node, Transform3D Pose)> _rest = new();
+    private readonly System.Collections.Generic.List<(GeometryInstance3D Mesh, Material? Before)> _dimmed = new();
+    // One per body, never static: a Godot object held by a static field outlives the engine's C# bindings at exit (a fatal error).
+    private readonly StandardMaterial3D DimOverlay = new()
+    {
+        ResourceName = "gubble dim", AlbedoColor = new Color(0.02f, 0.03f, 0.05f, DimAlpha), ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+        Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
+    };
+
+    /// <summary>A refusal: side to side about its upright, no.</summary>
+    public void Shake() => Play(Gesture.Shake, ShakeS);
+    /// <summary>The dusk moment: a fast small tremble.</summary>
+    public void Shiver() => Play(Gesture.Shiver, ShiverS);
+    /// <summary>Done: a happy bounce.</summary>
+    public void Wiggle() => Play(Gesture.Wiggle, WiggleS);
+    /// <summary>Not yet: up and down once.</summary>
+    public void Shrug() => Play(Gesture.Shrug, ShrugS);
+
+    /// <summary>
+    /// The cast (the Glow playtest: "the Gubble placing the glowing effect"): a quick lean toward the spot, a toss, or a lift for
+    /// a glow on itself (toward null). Call it as the cast starts: the look's spark leaves the body then (StartGlow), and the
+    /// lean peaks CastPeakFraction into the gesture, so the body follows through as the spark flies.
+    /// </summary>
+    public void CastGesture(Vector3? toward)
+    {
+        LastCastToward = toward;
+        var direction = toward is { } spot && spot.IsFinite() && IsInsideTree() ? ToLocal(spot) : Vector3.Zero;
+        direction.Y = 0;
+        _castDirection = direction.LengthSquared() > 1e-6f ? direction.Normalized() : Vector3.Forward;
+        Play(toward == null ? Gesture.CastSelf : Gesture.Cast, CastS);
+    }
+
+    /// <summary>Dim or undim the body: an overlay on its drawn meshes.</summary>
+    public void Dim(bool on)
+    {
+        if (on == Dimmed) return;
+        Dimmed = on;
+        if (on && VisualRoot != null)
+        {
+            foreach (var node in VisualRoot.FindChildren("*", "GeometryInstance3D", true, false))
+                if (node is GeometryInstance3D mesh)
+                {
+                    _dimmed.Add((mesh, mesh.MaterialOverlay));
+                    mesh.MaterialOverlay = DimOverlay;
+                }
+            return;
+        }
+        foreach (var (mesh, before) in _dimmed)
+            if (GodotObject.IsInstanceValid(mesh) && mesh.MaterialOverlay == DimOverlay) mesh.MaterialOverlay = before;
+        _dimmed.Clear();
+    }
+
+    private void Play(Gesture gesture, double seconds)
+    {
+        if (VisualRoot == null || !GodotObject.IsInstanceValid(VisualRoot)) return;
+        if (Playing == Gesture.None)
+        {
+            _rest.Clear();
+            foreach (var child in VisualRoot.GetChildren())
+                if (child is Node3D part) _rest.Add((part, part.Transform));
+        }
+        Playing = gesture;
+        LastGesture = gesture;
+        _gestureAge = 0;
+        _gestureS = seconds;
+    }
+
+    /// <summary>0 to 1 and back: up by CastPeakFraction of the gesture, eased down after.</summary>
+    public static float CastEnvelope(float t) => t <= 0 || t >= 1 ? 0f
+        : t < CastPeakFraction ? Mathf.Sin(t / CastPeakFraction * Mathf.Pi * 0.5f) : Mathf.Cos((t - CastPeakFraction) / (1f - CastPeakFraction) * Mathf.Pi * 0.5f);
+
+    /// <summary>The pose of the gesture playing, at t (0 to 1) of it.</summary>
+    private Transform3D GesturePose(float t)
+    {
+        var fade = 1f - t;
+        var h = BodyHeightM;
+        return Playing switch
+        {
+            Gesture.Shake => new Transform3D(new Basis(Vector3.Up, 0.45f * fade * Mathf.Sin(t * Mathf.Tau * 3f)), Vector3.Zero),
+            Gesture.Shiver => new Transform3D(Basis.Identity, new Vector3(0.012f * h * Mathf.Sin(t * Mathf.Tau * 14f), 0, 0)),
+            Gesture.Wiggle => new Transform3D(new Basis(Vector3.Back, 0.18f * fade * Mathf.Sin(t * Mathf.Tau * 2f)), Vector3.Up * (0.08f * h * Mathf.Sin(t * Mathf.Pi))),
+            // The top tips toward the spot: a turn about up x direction. Fast in, slow out, with a little hop.
+            Gesture.Cast => new Transform3D(new Basis(Vector3.Up.Cross(_castDirection).Normalized(), CastLeanRad * CastEnvelope(t)), Vector3.Up * (0.05f * h * Mathf.Sin(t * Mathf.Pi))),
+            Gesture.CastSelf => new Transform3D(Basis.Identity, Vector3.Up * (CastLiftHeights * h * CastEnvelope(t))),
+            _ => new Transform3D(Basis.Identity, Vector3.Up * (0.06f * h * Mathf.Sin(t * Mathf.Pi))),
+        };
+    }
+
+    private void UpdateGesture(double delta)
+    {
+        if (Playing == Gesture.None) return;
+        _gestureAge += delta;
+        var t = (float)(_gestureAge / _gestureS);
+        if (t >= 1f)
+        {
+            RestorePose();
+            return;
+        }
+        // Turned about the body's middle, so a shake turns it in place; a cast's lean tips it about its feet.
+        var pivot = Playing == Gesture.Cast ? Vector3.Zero : Vector3.Up * (BodyHeightM * 0.5f);
+        var about = new Transform3D(Basis.Identity, pivot) * GesturePose(t) * new Transform3D(Basis.Identity, -pivot);
+        foreach (var (node, pose0) in _rest)
+            if (GodotObject.IsInstanceValid(node)) node.Transform = about * pose0;
+    }
+
+    private void RestorePose()
+    {
+        foreach (var (node, pose0) in _rest)
+            if (GodotObject.IsInstanceValid(node)) node.Transform = pose0;
+        _rest.Clear();
+        Playing = Gesture.None;
+    }
+
+    public override void _ExitTree()
+    {
+        RestorePose();
+        Dim(false);
+        base._ExitTree();
     }
 
     public override void _PhysicsProcess(double delta)

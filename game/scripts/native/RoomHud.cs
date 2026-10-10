@@ -56,7 +56,7 @@ public partial class RoomHud : CanvasLayer
         return room <= 0 ? 0.01f : Mathf.Clamp(room / -direction.Y, 0.01f, full);
     }
     /// <summary>The movement keys, with B home from anywhere (the founder, 9 October: to the jetty, or the beach, or the start).</summary>
-    private string MoveKeys => $"{PlayerControls.MoveLabel()} move · {K(Act.MoveSprint)} run · {K(Act.Jump)} jump · {K(Act.BodyHome)} back to {Player.HomeName} · {K(Act.BodyRecover)} recover · {K(Act.MouseCapture)} to look · {K(Act.MouseRelease)} release";
+    private string MoveKeys => $"{PlayerControls.MoveLabel()} move · {K(Act.MoveSprint)} run · {K(Act.Jump)} jump · {K(Act.BodyHome)} back to {Player.HomeName} · {K(Act.BodyRecover)} recover · {PlayerControls.DragLabel()} to look around";
     /// <summary>What an action's key is now, for the words on screen: they follow the input map, so a remapped key shows at once.</summary>
     private static string K(StringName action) => PlayerControls.Label(action);
     /// <summary>Every label and button that names a key, with the words it shows now. Rebuilt every frame (RefreshKeyText); a label whose words did not change is not touched.</summary>
@@ -205,6 +205,8 @@ public partial class RoomHud : CanvasLayer
         _clock = new Label { Visible = false }; column.AddChild(_clock);
         // The Gubble's orders as buttons too: the same commands as the keys, the wheel and the smart ask (RoomHud.Gubble.cs).
         var actions = new HBoxContainer { Name = "CompanionActions" }; column.AddChild(actions);
+        // The Gubble's keys under its name (the Glow playtest: whose abilities these are).
+        AddKeyLine(actions, () => Companion.NameTag + ":", "CompanionName");
         AddButton(actions, "Follow", () => Order("follow"), 26);
         AddButton(actions, "Wait", () => Order("stay"), 26);
         AddKeyButton(actions, () => $"{K(Act.GubbleRecall)} Come", Recall, 26);
@@ -238,11 +240,13 @@ public partial class RoomHud : CanvasLayer
         // Every key named below comes from the input map (PlayerControls.Label), so a remapped key shows here.
         AddKeyLine(_keyHelp, () => MoveKeys, "MoveKeys");
         AddKeyLine(_keyHelp, () => $"Climb: keep walking into a steep face, {K(Act.MoveForward)} up, {K(Act.MoveBack)} down, {K(Act.MoveLeft)}/{K(Act.MoveRight)} across, {K(Act.Jump)} lets go · Swim: deep water floats you, {K(Act.Jump)} leaps · Dive: hold {K(Act.MoveDive)}, {K(Act.Jump)} rises, {K(Act.MoveForward)} swims the way you look, let go to drift up");
-        AddKeyLine(_keyHelp, () => $"{K(Act.GubbleAsk)} asks the Gubble what fits where you aim (wait or follow, fetch, light the dark, go and look); hold it for the wheel · {K(Act.GubbleRecall)} come, then follow · {K(Act.GubbleStop)} stop", "GubbleKeys");
-        AddKeyLine(_keyHelp, () => $"{K(Act.GubbleSlot1)} {SlotName(0)}: where you aim in the dark, else on the Gubble · {K(Act.GubbleSlot2)}/{K(Act.GubbleSlot3)}/{K(Act.GubbleSlot4)}/{K(Act.GubbleSlot5)} magic still to come · the Gubble floats after you, over water and up cliffs", "GubbleSlots");
-        AddKeyLine(_keyHelp, () => $"{K(Act.ViewEye)} eye · {K(Act.ViewShoulder)} shoulder · {K(Act.ViewDiorama)} diorama: mouse orbits, {PlayerControls.ZoomLabel()} zooms, {PlayerControls.MoveLabel()} follows the view · {K(Act.ViewIso)} isometric: {K(Act.IsoTurnLeft)}/{K(Act.IsoTurnRight)} turn the view");
-        AddKeyLine(_keyHelp, () => $"{K(Act.ViewObserve)} observe (a very tight tilt-shift view, best from {K(Act.ViewDiorama)} or {K(Act.ViewIso)}) · {K(Act.HudCustomize)} customize");
+        AddKeyLine(_keyHelp, () => $"{K(Act.ViewEye)} eye · {K(Act.ViewShoulder)} shoulder · {K(Act.ViewDiorama)} diorama: {PlayerControls.DragLabel()} orbits, {PlayerControls.ZoomLabel()} zooms, {PlayerControls.MoveLabel()} follows the view · {K(Act.ViewIso)} isometric: {K(Act.IsoTurnLeft)}/{K(Act.IsoTurnRight)} turn the view");
+        AddKeyLine(_keyHelp, () => $"{K(Act.ViewObserve)} observe (a very tight tilt-shift view, best from {K(Act.ViewDiorama)} or {K(Act.ViewIso)}) · {K(Act.HudCustomize)} customize ({K(Act.MouseRelease)} closes it)");
         AddKeyLine(_keyHelp, () => $"{K(Act.Hands)} pick up what you face · {K(Act.Hands)} again sets it down in front of you, or on top of what you face (the box, the book) · {K(Act.Push)} push what you face 10 cm");
+        // The Gubble's keys, under its name (the Glow playtest: the player should see whose magic this is).
+        AddKeyLine(_keyHelp, () => $"{Companion.NameTag}, your companion:", "GubbleHeading");
+        AddKeyLine(_keyHelp, () => $"{K(Act.GubbleAsk)} asks for what fits where you point (wait or follow, fetch, light the dark, go and look); hold it for the wheel · {K(Act.GubbleRecall)} come, then follow · {K(Act.GubbleStop)} stop", "GubbleKeys");
+        AddKeyLine(_keyHelp, () => $"{K(Act.GubbleSlot1)} {SlotName(0)} where you point (it comes closer first if it must; at the sky, on itself) · {K(Act.GubbleSlot2)}/{K(Act.GubbleSlot3)}/{K(Act.GubbleSlot4)}/{K(Act.GubbleSlot5)} magic still to come · it floats after you, over water and up cliffs", "GubbleSlots");
         // The toggles that bend the world for testing, apart from the keys the game is played with.
         _keyHelp.AddChild(new Label { Name = "TestingHeading", Text = "Testing" });
         AddKeyLine(_keyHelp, () => $"{K(Act.PhysicsNext)} gravity · {K(Act.TimeStep)} time of day · {K(Act.SeasonStep)} season (each steps round to the real clock) · {K(Act.Lamps)} lamps", "TestingKeys");
@@ -413,6 +417,8 @@ public partial class RoomHud : CanvasLayer
 
     public override void _Process(double delta)
     {
+        // A drag whose release the HUD never saw (let go outside the window, a lost focus) ends: the cursor comes back.
+        if (_drag.Pressed && !(DragHeldForTests?.Invoke() ?? PlayerControls.Held(Act.LookDrag))) EndDrag();
         // While the wheel has the game paused, only the wheel's clock runs.
         _wheel.Tick(delta);
         if (GubblePaused) return;
@@ -513,6 +519,28 @@ public partial class RoomHud : CanvasLayer
         // The controls are input actions (project.godot, [input]); Hit is a fresh press of one, not a held key repeating.
         var press = PlayerControls.Normalise(input);
         var fresh = PlayerControls.Fresh(press);
+        // The look drag (the cursor is free): once the pointer has moved LookDrag.StartPx with the button down, the cursor hides
+        // and the motion turns the view as the captured mouse did; the release brings the cursor back where it was pressed.
+        if (_drag.Pressed)
+        {
+            if (input is InputEventMouseMotion dragged)
+            {
+                var turn = _drag.Move(dragged.Relative, out var started);
+                if (started) Input.MouseMode = Input.MouseModeEnum.Captured;
+                if (_drag.Dragging)
+                {
+                    TurnView(turn);
+                    GetViewport().SetInputAsHandled();
+                }
+                return;
+            }
+            if (PlayerControls.Released(press, Act.LookDrag))
+            {
+                EndDrag();
+                GetViewport().SetInputAsHandled();
+                return;
+            }
+        }
         // The ask button held: the mouse is the wheel's (a flick picks a wedge), and its release is the tap or the choice.
         if (_wheel.Held)
         {
@@ -539,10 +567,11 @@ public partial class RoomHud : CanvasLayer
         if (GubblePaused) return;
         if (fresh)
         {
+            // Esc closes the panel and calls off a drag; the cursor is never captured, so there is nothing to free.
             if (PlayerControls.Hit(press, Act.MouseRelease))
             {
                 if (Customizing) ToggleCustomization();
-                Input.MouseMode = Input.MouseModeEnum.Visible;
+                EndDrag();
             }
             if (PlayerControls.Hit(press, Act.HudCustomize)) ToggleCustomization();
             if (Customizing) return;
@@ -571,17 +600,16 @@ public partial class RoomHud : CanvasLayer
             // Hand keys: pick up, put down and push, as commands from the player.
             else if (PlayerControls.Hit(press, Act.Hands)) Hands();
             else if (PlayerControls.Hit(press, Act.Push)) Push();
-            else if (PlayerControls.Hit(press, Act.MouseCapture)) Input.MouseMode = Input.MouseModeEnum.Captured;
+            // The look drag arms on the press; a click that never moves does nothing. F4 turns only with its keys.
+            else if (PlayerControls.Hit(press, Act.LookDrag))
+            {
+                if (DragTurnsView && !_wheel.Held) _drag.Press(GetViewport().GetMousePosition());
+            }
         }
         if (ViewMode == 2 && !Customizing)
         {
-            // The diorama camera owns the mouse in F3; the body does not turn with it (SetMovementFrame).
-            if (input is InputEventMouseMotion motion && Input.MouseMode == Input.MouseModeEnum.Captured)
-            {
-                OrbitDiorama(motion.Relative);
-                GetViewport().SetInputAsHandled();
-            }
-            else if (fresh && PlayerControls.Hit(press, Act.ViewZoomIn))
+            // The diorama camera orbits with the look drag; the body does not turn with it (SetMovementFrame).
+            if (fresh && PlayerControls.Hit(press, Act.ViewZoomIn))
             {
                 ZoomDiorama(1);
                 GetViewport().SetInputAsHandled();
@@ -592,6 +620,32 @@ public partial class RoomHud : CanvasLayer
                 GetViewport().SetInputAsHandled();
             }
         }
+    }
+
+    /// <summary>The look drag: armed by the drag button, turning the view once the pointer has moved.</summary>
+    public LookDrag Drag => _drag;
+    private readonly LookDrag _drag = new();
+    /// <summary>Test seam: whether the drag button is held (events handed straight to the HUD never reach Input's own state).</summary>
+    internal System.Func<bool>? DragHeldForTests { get; set; }
+
+    /// <summary>Whether a drag turns this view: F1 and F2 turn the body and the eye, F3 orbits; F4 turns only by quarter turns.</summary>
+    public bool DragTurnsView => ViewMode != 3;
+
+    /// <summary>A drag's motion, in pixels, as the view's turn: the body and the eye in F1 and F2, the orbit in F3.</summary>
+    public void TurnView(Vector2 relative)
+    {
+        if (ViewMode == 2) OrbitDiorama(relative);
+        else if (ViewMode is 0 or 1) Player.TurnView(relative);
+    }
+
+    /// <summary>The drag ends (released, Esc, the panel, a lost focus): a drag that turned the view gives the cursor back where it was pressed.</summary>
+    private void EndDrag()
+    {
+        if (!_drag.Pressed) return;
+        var anchor = _drag.Anchor;
+        if (!_drag.Release()) return;
+        if (Input.MouseMode == Input.MouseModeEnum.Captured) Input.MouseMode = Input.MouseModeEnum.Visible;
+        GetViewport().WarpMouse(anchor);
     }
 
     /// <summary>Which ability slot key (0-based) the event presses, if any.</summary>
@@ -614,6 +668,7 @@ public partial class RoomHud : CanvasLayer
     private void ToggleCustomization()
     {
         CancelAsk();
+        EndDrag();
         _customization.Visible = !_customization.Visible;
         Player.SetInputEnabled(!_customization.Visible);
         Input.MouseMode = Input.MouseModeEnum.Visible;
