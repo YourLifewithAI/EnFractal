@@ -122,7 +122,7 @@ public static class MaterialLibrary
         SetLand(material, "mark_fade_end", paint.MarkFadeEnd);
         // The brush's finer marks close up (the land up close, Run 2): full strength for every role.
         SetLand(material, "close_detail", LandscapeLook.CloseDetail);
-        // Haze only for what stands out at sea (OpenSea sets it on the distant islands' own copy).
+        // The shader's haze stays off: the sea mist past the island is the environment's fog (OpenSea).
         SetLand(material, "haze_color", new Color(0.75f, 0.85f, 0.93f));
         SetLand(material, "haze_energy", 1f);
         SetLand(material, "haze_start_m", 0f);

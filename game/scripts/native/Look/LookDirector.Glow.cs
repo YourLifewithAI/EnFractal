@@ -1,6 +1,7 @@
 using Godot;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using EnFractal.Native.Room;
 
 namespace EnFractal.Native.Look;
@@ -41,9 +42,41 @@ public static class GlowLook
     public const float HaloDefaultM = 0.45f;
     /// <summary>A wisp floats this far above the point it was cast at (the player aims at a surface), and bobs gently.</summary>
     public const float WispLiftM = 0.06f;
-    public const float WispCoreRadiusM = 0.012f;
+    /// <summary>
+    /// The wisp's heart is light, not an object (the founder's playtest, 9 October: "a light effect in a spot without the black orb
+    /// object"): a soft camera-facing spot this wide, brightest in its middle and fading to nothing at its rim, in the glow's colour.
+    /// </summary>
+    public const float WispCoreM = 0.045f;
     public const float WispHaloM = 0.18f;
+    /// <summary>How bright the heart's emission is, over 1 so the bloom catches it.</summary>
     public const float WispCoreEnergy = 2.5f;
+
+    // ---------- the cast: a spark from the Gubble, then the bloom ----------
+
+    /// <summary>
+    /// A glow cast at a point travels from the Gubble (the founder: "it should come off of the Gubble and land where you point"): a
+    /// spark leaves the Gubble's middle and arcs to the spot in SparkBaseS plus SparkSecondsPerM a metre, at most SparkMaxS (2 m, the
+    /// pack's reach, takes half a second).
+    /// </summary>
+    public const float SparkBaseS = 0.2f;
+    public const float SparkSecondsPerM = 0.15f;
+    public const float SparkMaxS = 0.55f;
+    /// <summary>The arc's height over the straight line: this fraction of the distance, within SparkArcMinM and SparkArcMaxM.</summary>
+    public const float SparkArcFraction = 0.3f;
+    public const float SparkArcMinM = 0.03f;
+    public const float SparkArcMaxM = 0.5f;
+    /// <summary>The spark's size (the wisp's heart's light, smaller), and the embers trailing it, each this much later on the arc.</summary>
+    public const float SparkM = 0.035f;
+    public const int SparkEmbers = 3;
+    public const float SparkEmberLagS = 0.035f;
+    /// <summary>No spark for a spot closer to the Gubble than this: the glow blooms where it is.</summary>
+    public const float SparkMinDistanceM = 0.03f;
+    /// <summary>
+    /// When the spark lands (or at once, for a glow on the Gubble, which blooms out of its body), the halo opens from BloomFrom of its
+    /// size to all of it over BloomS, and a wisp's light comes up from nothing with it.
+    /// </summary>
+    public const float BloomS = 0.3f;
+    public const float BloomFrom = 0.2f;
     public const float BobAmplitudeM = 0.012f;
     public const float BobPeriodS = 3.2f;
     /// <summary>The halo breathes: its size swells and settles by this fraction over the period.</summary>
@@ -77,6 +110,9 @@ public static class GlowLook
     public const float BounceFraction = 0.08f;
     /// <summary>Indoors (a closed room, VoxelGI's interior) the room's lamps and window fills bounce off the walls: their light counts this much more.</summary>
     public const float IndoorBounce = 0.5f;
+    // Moonlight alone is dark (the founder, 9 October): the light through a window (the sun or moon, the sky, its bounce and the
+    // window's sky fill) never makes a spot brighter than open ground under the same sky. At night that keeps a moonbeam on the floor
+    // as dark as a moonlit meadow; by day it never binds (a sunlit floor is far dimmer than the open ground the room's sun stands for).
     /// <summary>
     /// The level curve is perceptual (each doubling of light is the same step): level 0 at LevelFloorEnergy and below (darker than a
     /// moonlit night), level 1 at LevelFullEnergy and above (full sun on open ground), logarithmic between.
@@ -134,10 +170,15 @@ public static class GlowLook
     public static float EnergyForLevel(float level) => LevelFloorEnergy * Mathf.Pow(LevelFullEnergy / LevelFloorEnergy, Mathf.Clamp(level, 0f, 1f));
 }
 
-/// <summary>What LightLevelAt counted at a spot, in the look's light units: the sun or moon, the sky, the room's lamps and windows, and the glows.</summary>
-public readonly record struct LightEstimate(float Key, float Sky, float Bounce, float Lamps, float Glows, float SkyVisibility, bool KeySeen)
+/// <summary>
+/// What LightLevelAt counted at a spot, in the look's light units: the sun or moon, the sky, bounce, the room's lamps, its windows'
+/// sky fill (after the rule that a window never makes a spot brighter than open ground under the same sky), and the glows.
+/// </summary>
+public readonly record struct LightEstimate(float Key, float Sky, float Bounce, float Lamps, float Windows, float Glows, float SkyVisibility, bool KeySeen)
 {
-    public float Energy => Key + Sky + Bounce + Lamps + Glows;
+    public float Energy => Key + Sky + Bounce + Lamps + Windows + Glows;
+    /// <summary>The daylight or moonlight alone: everything but the lamps and the glows.</summary>
+    public float Natural => Key + Sky + Bounce + Windows;
     public float Level => GlowLook.Level(Energy);
 }
 
@@ -170,12 +211,24 @@ public partial class LookDirector
         public float RadiusM;
         public float Intensity;
         public float Phase;
+        /// <summary>The light's full energy: what the light-level estimate counts from the moment the glow starts (the cast's effect is at once; only its drawing travels and blooms).</summary>
+        public float Energy;
+        /// <summary>The spark from the Gubble (its head and embers), while it flies; null for a glow with no spark.</summary>
+        public Node3D? Spark;
+        public Vector3 SparkFrom;
+        public float FlightS;
+        /// <summary>Seconds since the glow started (drawing only).</summary>
+        public float Age;
+        public bool Bloomed;
+        /// <summary>How far the halo has opened (BloomFrom to 1); the breath swells and settles around it.</summary>
+        public float Opened = 1f;
     }
 
     private readonly Dictionary<string, Glow> _glows = new();
     private readonly List<Glow> _glowOrder = new();
     private double _glowClock;
     private GradientTexture2D? _haloTexture;
+    private GradientTexture2D? _heartTexture;
     private RayCast3D? _probe;
 
     /// <summary>How many glows the look is drawing.</summary>
@@ -190,6 +243,30 @@ public partial class LookDirector
     /// <summary>A glow's root node (its light, halo and, for a wisp, its core), for tests and the review harness; null for an unknown id.</summary>
     public Node3D? GlowRoot(string effectId) => effectId != null && _glows.TryGetValue(effectId, out var glow) ? glow.Root : null;
 
+    /// <summary>A glow's spark from the Gubble while it flies (null once it has landed, for a glow on the Gubble, or with no Gubble drawn).</summary>
+    public Node3D? GlowSpark(string effectId) => effectId != null && _glows.TryGetValue(effectId, out var glow) && glow.Spark != null && IsInstanceValid(glow.Spark) ? glow.Spark : null;
+
+    /// <summary>
+    /// Give every running glow the colour a restart would give it now (GlowLook.LightColor of the aura of the body it follows, or for
+    /// a wisp of the Gubble's): its light, its halo, a wisp's heart and a spark in flight, in place, so a wisp keeps its spot and its
+    /// effect id. The HUD calls this when the Gubble's colour changes. Returns how many glows it recoloured.
+    /// </summary>
+    public int RecolorGlows()
+    {
+        foreach (var glow in _glowOrder) Paint(glow, GlowLook.LightColor(AuraOf(glow.Follow ?? CompanionBody())));
+        return _glowOrder.Count;
+    }
+
+    private static void Paint(Glow glow, Color color)
+    {
+        glow.Light.LightColor = color;
+        if (glow.Halo.MaterialOverride is StandardMaterial3D halo) halo.AlbedoColor = new Color(color.R, color.G, color.B, halo.AlbedoColor.A);
+        if (glow.Core?.MaterialOverride is StandardMaterial3D core) core.Emission = color;
+        if (glow.Spark != null && IsInstanceValid(glow.Spark))
+            foreach (var ember in glow.Spark.GetChildren().OfType<MeshInstance3D>())
+                if (ember.MaterialOverride is StandardMaterial3D spark) spark.Emission = color;
+    }
+
     /// <summary>
     /// Start the Gubble's glow, a real light: an omni light reaching radiusM, as bright as intensity (0.05 to 2.0) says. With follow,
     /// a soft halo on that body that moves with it; without, a small wisp floating just above center with a gentle bob. Its colour
@@ -197,6 +274,8 @@ public partial class LookDirector
     /// An id already in use is replaced. Returns false, and draws nothing, when the look already draws MaxGlows other glows or the
     /// call is unusable (an empty id, a number that is not finite, a follow node that is gone or not in the scene).
     /// A halo never casts a shadow (its light sits inside the body); a wisp casts one only while the shadow budget has a slot.
+    /// The glow arrives from the Gubble: a wisp's spark leaves the Gubble (when one is drawn) and arcs to the spot, where the wisp
+    /// blooms and its light comes up; a halo blooms out of the body. The light level counts the glow at once, wherever its drawing is.
     /// </summary>
     public bool StartGlow(string effectId, Node3D? follow, Vector3 center, float radiusM, float intensity)
     {
@@ -243,6 +322,7 @@ public partial class LookDirector
             Lift = body != null ? body.BodyHeightM * GlowLook.FollowHeightFraction : 0f,
             Center = center + Vector3.Up * GlowLook.WispLiftM,
             Phase = Seed(id) / 100f * Mathf.Tau,
+            Energy = GlowLook.Energy(intensity),
         };
         // The glow's nodes stand in world space (top level), so they never inherit the look's transform and need no tree to be placed.
         glow.Root = new Node3D { Name = "Glow_" + RoomBuilder.NodeName(id), TopLevel = true };
@@ -270,22 +350,127 @@ public partial class LookDirector
         glow.Root.AddChild(glow.Halo);
         if (follow == null)
         {
-            // The wisp's own small bright heart: emissive, so the bloom catches it, and no shadow or GI of its own.
+            // The wisp's heart is light, not an object: a soft spot of emission in the glow's colour (bright enough for the bloom),
+            // added to what is behind it and fading to nothing at its rim. No solid core: an unshaded black sphere drew the black orb
+            // the founder saw, because unshaded draws the albedo and ignores emission.
             glow.Core = new MeshInstance3D
             {
-                Name = "Core", Mesh = new SphereMesh { Radius = GlowLook.WispCoreRadiusM, Height = GlowLook.WispCoreRadiusM * 2f, RadialSegments = 16, Rings = 8 },
-                MaterialOverride = new StandardMaterial3D
-                {
-                    ResourceName = "glow core", AlbedoColor = new Color(0f, 0f, 0f), ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
-                    EmissionEnabled = true, Emission = color, EmissionEnergyMultiplier = GlowLook.WispCoreEnergy,
-                },
+                Name = "Core", Mesh = new QuadMesh { Size = new Vector2(GlowLook.WispCoreM, GlowLook.WispCoreM) }, MaterialOverride = HeartMaterial(color, "glow heart"),
                 CastShadow = GeometryInstance3D.ShadowCastingSetting.Off, GIMode = GeometryInstance3D.GIModeEnum.Disabled,
             };
             glow.Root.AddChild(glow.Core);
         }
         glow.Root.Position = GlowPosition(glow, follow != null);
         AddChild(glow.Root);
+        StartCast(glow);
         return glow;
+    }
+
+    /// <summary>
+    /// How the glow arrives. A wisp with the Gubble drawn: a spark leaves the Gubble's middle and arcs to the spot, and the wisp blooms
+    /// as it lands, its light coming up from nothing. A halo blooms out of the Gubble's body (its light is lit at once: it sits inside
+    /// the body). With no Gubble drawn (fixtures, a look without a companion) a wisp is simply there, lit.
+    /// </summary>
+    private void StartCast(Glow glow)
+    {
+        glow.Age = 0f;
+        if (glow.Follow != null)
+        {
+            glow.Opened = GlowLook.BloomFrom;
+            glow.Halo.Scale = Vector3.One * GlowLook.BloomFrom;
+            return;
+        }
+        var gubble = CompanionBody();
+        var drawn = gubble != null && IsInstanceValid(gubble) && gubble.IsInsideTree() && gubble.IsVisibleInTree();
+        var from = drawn ? gubble!.GetGlobalTransformInterpolated().Origin + Vector3.Up * ((gubble as SmallPlayerController)?.BodyHeightM ?? 0f) * GlowLook.FollowHeightFraction : Vector3.Zero;
+        var distance = from.DistanceTo(glow.Center);
+        if (!drawn || !float.IsFinite(distance) || distance < GlowLook.SparkMinDistanceM)
+        {
+            glow.Bloomed = true;
+            return;
+        }
+        glow.SparkFrom = from;
+        glow.FlightS = Mathf.Min(GlowLook.SparkMaxS, GlowLook.SparkBaseS + GlowLook.SparkSecondsPerM * distance);
+        // The spark: a head and a few embers trailing it, all the heart's soft light, no light of its own (the glow's one omni light
+        // waits at the spot), no shadow, no GI. It stands in world space under the glow's root, so stopping the glow frees it.
+        glow.Spark = new Node3D { Name = "Spark", TopLevel = true, Position = from };
+        var material = HeartMaterial(glow.Light.LightColor, "glow spark");
+        for (var i = 0; i <= GlowLook.SparkEmbers; i++)
+        {
+            var size = GlowLook.SparkM * (1f - 0.22f * i);
+            glow.Spark.AddChild(new MeshInstance3D
+            {
+                Name = i == 0 ? "Head" : $"Ember{i}", Mesh = new QuadMesh { Size = new Vector2(size, size) }, MaterialOverride = material, TopLevel = true, Position = from,
+                CastShadow = GeometryInstance3D.ShadowCastingSetting.Off, GIMode = GeometryInstance3D.GIModeEnum.Disabled,
+            });
+        }
+        glow.Root.AddChild(glow.Spark);
+        glow.Light.LightEnergy = 0f;
+        glow.Halo.Visible = false;
+        if (glow.Core != null) glow.Core.Visible = false;
+    }
+
+    /// <summary>Where the spark is a time into its flight: along the straight line from the Gubble to the spot, lifted on an arc.</summary>
+    private static Vector3 SparkAt(Glow glow, float t)
+    {
+        t = Mathf.Clamp(t, 0f, 1f);
+        var distance = glow.SparkFrom.DistanceTo(glow.Center);
+        var arc = Mathf.Clamp(distance * GlowLook.SparkArcFraction, GlowLook.SparkArcMinM, GlowLook.SparkArcMaxM);
+        var eased = t * t * (3f - 2f * t) * 0.35f + t * 0.65f;
+        return glow.SparkFrom.Lerp(glow.Center, eased) + Vector3.Up * (arc * 4f * t * (1f - t));
+    }
+
+    /// <summary>Advance a glow's arrival: the spark's flight, then the bloom (the halo opening and a wisp's light coming up).</summary>
+    private void AdvanceCast(Glow glow, float delta)
+    {
+        if (glow.Bloomed) return;
+        glow.Age += delta;
+        var landed = glow.Age - glow.FlightS;
+        if (glow.Spark != null && IsInstanceValid(glow.Spark))
+        {
+            if (landed < 0f)
+            {
+                var embers = glow.Spark.GetChildren();
+                for (var i = 0; i < embers.Count; i++)
+                    if (embers[i] is Node3D ember) ember.Position = SparkAt(glow, (glow.Age - i * GlowLook.SparkEmberLagS) / glow.FlightS);
+                return;
+            }
+            glow.Spark.Free();
+            glow.Spark = null;
+            glow.Halo.Visible = true;
+            if (glow.Core != null) glow.Core.Visible = true;
+        }
+        var bloom = Mathf.Clamp(Mathf.Max(0f, landed) / GlowLook.BloomS, 0f, 1f);
+        var opened = 1f - (1f - bloom) * (1f - bloom);
+        if (glow.Follow == null) glow.Light.LightEnergy = glow.Energy * bloom * bloom * (3f - 2f * bloom);
+        glow.Opened = Mathf.Lerp(GlowLook.BloomFrom, 1f, opened);
+        if (bloom >= 1f) glow.Bloomed = true;
+    }
+
+    /// <summary>The soft spot of light a wisp's heart and a spark are drawn with: emission in the glow's colour through a radial fade, added to what is behind.</summary>
+    private StandardMaterial3D HeartMaterial(Color color, string name) => new()
+    {
+        ResourceName = name, AlbedoColor = new Color(0f, 0f, 0f, 1f), AlbedoTexture = HeartTexture(),
+        Transparency = BaseMaterial3D.TransparencyEnum.Alpha, BlendMode = BaseMaterial3D.BlendModeEnum.Add,
+        BillboardMode = BaseMaterial3D.BillboardModeEnum.Enabled, BillboardKeepScale = true,
+        EmissionEnabled = true, Emission = color, EmissionEnergyMultiplier = GlowLook.WispCoreEnergy, EmissionTexture = HeartTexture(),
+        SpecularMode = BaseMaterial3D.SpecularModeEnum.Disabled, MetallicSpecular = 0f, Roughness = 1f,
+        DisableAmbientLight = true, DisableReceiveShadows = true,
+    };
+
+    private GradientTexture2D HeartTexture()
+    {
+        if (_heartTexture != null) return _heartTexture;
+        var gradient = new Gradient
+        {
+            Offsets = new[] { 0f, 0.25f, 0.6f, 1f },
+            Colors = new[] { new Color(1f, 1f, 1f, 1f), new Color(0.75f, 0.75f, 0.75f, 0.8f), new Color(0.18f, 0.18f, 0.18f, 0.25f), new Color(0f, 0f, 0f, 0f) },
+        };
+        _heartTexture = new GradientTexture2D
+        {
+            Gradient = gradient, Fill = GradientTexture2D.FillEnum.Radial, FillFrom = new Vector2(0.5f, 0.5f), FillTo = new Vector2(1f, 0.5f), Width = 64, Height = 64,
+        };
+        return _heartTexture;
     }
 
     /// <summary>A soft, painterly halo: a camera-facing disc in the glow's colour, added to what is behind it, with a faint brighter rim.</summary>
@@ -345,7 +530,8 @@ public partial class LookDirector
             // A halo whose body is gone goes with it.
             if (glow.Follow != null && !IsInstanceValid(glow.Follow)) { StopGlow(glow.Id); continue; }
             glow.Root.Position = GlowPosition(glow, drawing: true);
-            var breath = 1f + GlowLook.BreathAmount * (float)Math.Sin(_glowClock * Math.Tau / GlowLook.BreathPeriodS + glow.Phase);
+            AdvanceCast(glow, (float)delta);
+            var breath = glow.Opened * (1f + GlowLook.BreathAmount * (float)Math.Sin(_glowClock * Math.Tau / GlowLook.BreathPeriodS + glow.Phase));
             glow.Halo.Scale = new Vector3(breath, breath, breath);
         }
     }
@@ -385,7 +571,7 @@ public partial class LookDirector
     /// <summary>What LightLevelAt counts at a spot, term by term.</summary>
     public LightEstimate EstimateLightAt(Vector3 position)
     {
-        float key = 0f, sky = 0f, bounce = 0f, lamps = 0f, glows = 0f, visibility = 0f;
+        float key = 0f, sky = 0f, bounce = 0f, lamps = 0f, windows = 0f, glows = 0f, visibility = 0f, open = 0f;
         var keySeen = false;
         var inTree = IsInsideTree();
         var probe = inTree ? Probe() : null;
@@ -397,9 +583,9 @@ public partial class LookDirector
                 var toKey = (inTree ? Key.GlobalBasis.Z : Key.Basis.Z).Normalized();
                 if (toKey.Y > 1e-3f)
                 {
-                    var open = Key.LightEnergy * ColorGrade.Luma(Key.LightColor) * (GlowLook.KeyFloor + (1f - GlowLook.KeyFloor) * toKey.Y);
-                    bounce += open;
-                    if (Clear(probe, origin, toKey)) { keySeen = true; key = open; }
+                    var openKey = Key.LightEnergy * ColorGrade.Luma(Key.LightColor) * (GlowLook.KeyFloor + (1f - GlowLook.KeyFloor) * toKey.Y);
+                    bounce += openKey;
+                    if (Clear(probe, origin, toKey)) { keySeen = true; key = openKey; }
                 }
             }
             var skyEnergy = Moment.AmbientEnergy * ColorGrade.Luma(Moment.AmbientColor) * OpenLandLight.AmbientScale;
@@ -411,6 +597,8 @@ public partial class LookDirector
                 sky = skyEnergy * visibility;
                 bounce += skyEnergy;
             }
+            // What open ground gets under this sky: the whole key, the whole sky and the bounce.
+            open = bounce * (1f + GlowLook.BounceFraction);
             bounce *= GlowLook.BounceFraction;
         }
         // The room's lights stand in the look's own space.
@@ -419,11 +607,17 @@ public partial class LookDirector
             if (lamp.Visible && lamp is OmniLight3D omni)
                 lamps += GlowLook.PointLight(omni.LightEnergy, omni.LightColor, omni.OmniRange, omni.OmniAttenuation, omni.Position.DistanceTo(local));
         foreach (var fill in _skyFills)
-            if (fill.Visible) lamps += SpotAt(fill, local);
-        if (!OpenLand) lamps *= 1f + GlowLook.IndoorBounce;
+            if (fill.Visible) windows += SpotAt(fill, local);
+        if (!OpenLand)
+        {
+            lamps *= 1f + GlowLook.IndoorBounce;
+            windows *= 1f + GlowLook.IndoorBounce;
+        }
+        // A window never makes a spot brighter than open ground under the same sky, so moonlight alone stays dark.
+        windows = Mathf.Clamp(open - key - sky - bounce, 0f, windows);
         foreach (var glow in _glowOrder)
-            glows += GlowLook.PointLight(glow.Light.LightEnergy, glow.Light.LightColor, glow.RadiusM, glow.Light.OmniAttenuation, GlowPosition(glow, drawing: false).DistanceTo(position));
-        return new LightEstimate(key, sky, bounce, lamps, glows, visibility, keySeen);
+            glows += GlowLook.PointLight(glow.Energy, glow.Light.LightColor, glow.RadiusM, glow.Light.OmniAttenuation, GlowPosition(glow, drawing: false).DistanceTo(position));
+        return new LightEstimate(key, sky, bounce, lamps, windows, glows, visibility, keySeen);
     }
 
     /// <summary>A window's sky fill at a spot: the point-light falloff inside Godot's spot cone (1 - rim^angle_attenuation).</summary>

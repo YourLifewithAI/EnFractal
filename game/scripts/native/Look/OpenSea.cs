@@ -18,9 +18,11 @@ namespace EnFractal.Native.Look;
 /// <item>one sea floor: the backdrop's floor and an open-sea bed beyond it out to 1.5 km, both drawn at RoomSea.OpenSeaBedAt, the
 /// bed the swimmers and divers touch (Lane P), so a diver never sees the bed in one place and touches it in another, and the water
 /// past the room's meshes always has a bed to be water over (the depth the water shader reads);</item>
-/// <item>the distant islands hold their place on the horizon (the founder, 9 October: they are never reached or swum through,
-/// like the moon). They are lifted out of the backdrop mesh, each its own silhouette, and slide away along their own bearing
-/// from the home island whenever a swimmer would come closer to one than it looks from the edge of the home waters.</item>
+/// <item>no distant islands (the founder, the Glow playtest, 9 October: the sea wraps round to home, and the horizon is only sea and
+/// sky): the generator's islands in the backdrop are laid flat on the bed with the rest of its floor;</item>
+/// <item>a sea mist past the island: from the island's edge out to SeamM it closes in (the environment's depth fog, in the sky's own
+/// horizon colour), so the island fades into it and is wholly hidden, in every view, from SeamM out. Lane P's wrap (a swimmer past
+/// the seam comes back from the other side) goes beyond SeamM, so no view shows the jump.</item>
 /// </list>
 /// Visual only: it changes no room data, collision or protection. Swimming past the meshes is Lane P's (RoomSea answers there).
 /// </summary>
@@ -32,22 +34,31 @@ public partial class OpenSea : Node3D
     public const float BedReachM = 1500f;
     /// <summary>How many sides the open-sea bed has when the room has no backdrop floor to continue.</summary>
     public const int BedSides = 128;
-    /// <summary>What of the backdrop is an island: every triangle reaching higher than this under the sea's level (deeper is floor).</summary>
+    /// <summary>What of the backdrop was an island: ground reaching higher than this under the sea's level takes the deep floor's colour when it is laid on the bed.</summary>
     public const float IslandCutM = 0.3f;
-    /// <summary>A backdrop mesh is one that reaches this far past the room's sea (the distant islands' ring, not the home island).</summary>
+    /// <summary>A backdrop mesh is one that reaches this far past the room's sea (the generator's sea floor and distant islands, not the home island).</summary>
     public const float BackdropReachM = 20f;
-    /// <summary>However a swimmer comes at an island, its shore stays at least this far off.</summary>
-    public const float ShoreKeepM = 1.5f;
+
+    // ---------- the sea mist and the seam ----------
+
     /// <summary>
-    /// However a camera comes at an island (F4's sits about 2.2 m to the side of the swimmer, F3's orbits it), its shore stays at
-    /// least this far off: a separate, closer rule, so switching views moves no island the swimmer keeps off.
+    /// The swim speed the seam is measured in: the small avatar's walk (0.32 m/s) times its swim factor (0.6). A minute's swim is
+    /// about 11.5 m.
     /// </summary>
-    public const float CameraClearM = 0.3f;
-    /// <summary>The most distant islands the look lifts out of a backdrop, and the most vertices it will split: a mesh past either is left whole.</summary>
-    public const int MaxIslands = 32;
-    public const int MaxBackdropVertices = 400_000;
-    /// <summary>Vertices this close (metres) are one vertex when the look finds an island's pieces (a mesh's normal or UV seams).</summary>
-    public const float WeldM = 1e-4f;
+    public const float SwimMps = 0.192f;
+    /// <summary>How far any play camera stands from the swimmer: F4's arm is 2.7 m, F3's at most 2.4 m, plus the framing's shift toward the Gubble.</summary>
+    public const float CameraReachM = 3.5f;
+    /// <summary>At full mist (from SeamM out), nothing farther than this from the camera shows: wholly the mist (the sky's horizon colour).</summary>
+    public const float MistFullM = 8f;
+    /// <summary>At full mist, the nearest the mist begins, metres from the camera: the swimmer's own water stays clear.</summary>
+    public const float MistNearM = 2f;
+    /// <summary>
+    /// How far past the island's reach (its reef or its room's corners, whichever is farther) the seam lies: a camera there stands at
+    /// least MistFullM from every part of the island, so the island is wholly hidden in every view. 11.5 m is about a minute's swim.
+    /// </summary>
+    public const float SeamPastIslandM = CameraReachM + MistFullM;
+    /// <summary>With no mist (at the island's edge and inside it), the depth fog starts at the camera's far plane times this and is whole at FogClearEnd times it: nothing within the far plane is touched.</summary>
+    public const float FogClearStart = 1.0f, FogClearEnd = 1.5f;
     /// <summary>A water surface within this of the sea's level is the sea's (a pond at another level keeps its own veil).</summary>
     public const float SeaLevelToleranceM = 0.003f;
     /// <summary>Where, as fractions of the camera's far plane, the sea starts and finishes turning into the horizon.</summary>
@@ -55,18 +66,12 @@ public partial class OpenSea : Node3D
     /// <summary>The open bed's colour when there is no backdrop floor to continue: a dark moss, of which deep water lets a tenth through.</summary>
     public static readonly Color BedColor = new(0.30f, 0.34f, 0.28f);
 
-    /// <summary>
-    /// One distant island: its mesh, its centre from the home island's centre, how close its centre may come to a swimmer, how far
-    /// its shore reaches from its centre, and where its mesh stood.
-    /// </summary>
-    public sealed record DistantIsland(MeshInstance3D Mesh, Vector2 HomeOffset, float KeepM, Vector3 BasePosition, float ShoreM = 0f);
-
     public RoomSea Sea { get; private set; } = null!;
     /// <summary>The surface that follows the camera (null when the room's own sea mesh could not be found).</summary>
     public MeshInstance3D? Surface { get; private set; }
     /// <summary>The open-sea bed past the backdrop's floor, out to BedReachM: static, drawn at RoomSea.OpenSeaBedAt.</summary>
     public MeshInstance3D Bed { get; private set; } = null!;
-    /// <summary>The backdrop meshes whose floor now lies at RoomSea.OpenSeaBedAt (their islands lifted out).</summary>
+    /// <summary>The backdrop meshes whose floor now lies at RoomSea.OpenSeaBedAt (their islands laid flat with it).</summary>
     public IReadOnlyList<MeshInstance3D> Floors => _floors;
     /// <summary>The centre of the room's sea (the generated sea's and the backdrop's centre), in XZ.</summary>
     public Vector2 Home { get; private set; }
@@ -74,15 +79,27 @@ public partial class OpenSea : Node3D
     public float HomeReachM { get; private set; }
     /// <summary>The rectangle (x0, z0, x1, z1) the room's own sea mesh covers, which the follow surface leaves to it.</summary>
     public Vector4 Hole { get; private set; }
-    public IReadOnlyList<DistantIsland> Islands => _islands;
+    /// <summary>The island's centre the seam is measured from: the open-sea floor's centre (RoomSea.OpenSeaCentreM), the same for the look and the bodies.</summary>
+    public Vector2 SeamCentre { get; private set; }
+    /// <summary>How far the island reaches from SeamCentre: its reef or its room's corners, whichever is farther.</summary>
+    public float IslandReachM { get; private set; }
+    /// <summary>
+    /// The seam: from this distance from SeamCentre out, the mist wholly hides the island in every view (F1 to F4, observe, above and
+    /// under water). Lane P's wrap goes beyond it. On the island garage it is about 17.6 m, about a minute's swim from the reef.
+    /// </summary>
+    public float SeamM => IslandReachM + SeamPastIslandM;
+    /// <summary>How thick the mist is now, 0 (none: at the island) to 1 (full: from SeamM out), from the swimmer's distance.</summary>
+    public float Mist { get; private set; }
+    /// <summary>The environment the mist is drawn in (the look's own); without one the open sea draws no mist.</summary>
+    public Godot.Environment? Atmosphere { get; set; }
     /// <summary>The camera the sea follows: the one a review or preview framed, else the viewport's current camera.</summary>
     public Camera3D? Camera { get; set; }
     /// <summary>Why the open sea is missing a part (empty when it has them all).</summary>
     public string Note { get; private set; } = "";
 
-    private readonly List<DistantIsland> _islands = new();
     private readonly List<MeshInstance3D> _floors = new();
-    private ShaderMaterial? _islandMaterial;
+    private Color _horizon = new(0.75f, 0.85f, 0.93f);
+    private float _horizonEnergy = 1f;
     private Func<Node3D?>? _swimmer;
     /// <summary>
     /// The view under the sea (Run 2, for diving): the pond life's veil shader over the whole screen, in the sea's colours, with the
@@ -131,8 +148,10 @@ public partial class OpenSea : Node3D
         }
         open.Home = centre;
         open.HomeReachM = sea.Reef.Length > 0 ? sea.Reef.Max(p => p.DistanceTo(centre)) : roomRect.Size.Length() * 0.5f;
+        open.SeamCentre = sea.OpenSeaCentreM;
+        open.IslandReachM = IslandReach(sea, roomBounds);
 
-        // The backdrop: islands lifted out, the floor left where it is; its deepest floor sets the open bed's depth.
+        // The backdrop: its floor, islands and all, laid on the open bed.
         var backdrop = landMeshes.Where(m => m.Mesh != null && m.Mesh.GetSurfaceCount() > 0)
             .Select(m => (Mesh: m, Box: m.GlobalTransform * m.GetAabb()))
             .Where(m => m.Box.Position.X < roomRect.Position.X - BackdropReachM || m.Box.End.X > roomRect.End.X + BackdropReachM)
@@ -158,7 +177,7 @@ public partial class OpenSea : Node3D
         }
         else open.Note = "the room's sea surface was not found among its water, so the open sea has a bed but no surface";
 
-        // Islands lifted out first, then the floor laid on the bed the bodies touch, then the open bed carrying on from its rim.
+        // The floor laid on the bed the bodies touch (the generator's distant islands flat with it), then the open bed carrying on from its rim.
         Vector3[] rim = Array.Empty<Vector3>();
         Color[] rimColours = Array.Empty<Color>();
         Material? floorMaterial = null;
@@ -170,14 +189,13 @@ public partial class OpenSea : Node3D
         }
         foreach (var mesh in backdrop)
         {
-            // Split first, change nothing until the split is known good: geometry the look cannot split is left whole, islands and all.
-            var split = open.SplitIslands(mesh);
-            if (!split.Ok)
+            // A backdrop the look cannot lay flat (more than one surface) is hidden rather than left standing on the horizon.
+            if (mesh.Mesh.GetSurfaceCount() != 1)
             {
-                open.Note = (open.Note.Length > 0 ? open.Note + "; " : "") + split.Reason;
+                mesh.Visible = false;
+                open.Note = (open.Note.Length > 0 ? open.Note + "; " : "") + $"a backdrop mesh ({mesh.Name}) is not one surface, so the look cannot lay it on the bed; it is hidden";
                 continue;
             }
-            open.LiftIslands(mesh, split);
             var (meshRim, meshColours) = open.LayFloor(mesh);
             if (meshRim.Length > rim.Length) (rim, rimColours, floorMaterial) = (meshRim, meshColours, mesh.GetSurfaceOverrideMaterial(0));
         }
@@ -192,6 +210,44 @@ public partial class OpenSea : Node3D
         open.AddChild(open.Bed);
         open.BuildVeil();
         return open;
+    }
+
+    /// <summary>
+    /// How far the island reaches from the open sea's centre (RoomSea.OpenSeaCentreM): the farthest of its reef and its room's corners,
+    /// so every part of the island, its shore, its things and its reef foam, lies within it. Room data only: Lane P's wrap can ask
+    /// it without a look.
+    /// </summary>
+    public static float IslandReach(RoomSea sea, Aabb roomBounds)
+    {
+        var centre = sea.OpenSeaCentreM;
+        var reach = sea.Reef.Length > 0 ? sea.Reef.Max(p => p.DistanceTo(centre)) : 0f;
+        foreach (var x in new[] { roomBounds.Position.X, roomBounds.End.X })
+            foreach (var z in new[] { roomBounds.Position.Z, roomBounds.End.Z })
+                reach = Mathf.Max(reach, new Vector2(x, z).DistanceTo(centre));
+        return reach;
+    }
+
+    /// <summary>The seam for a room's data: from this distance from RoomSea.OpenSeaCentreM out, the mist wholly hides the island in every view.</summary>
+    public static float SeamFor(RoomSea sea, Aabb roomBounds) => IslandReach(sea, roomBounds) + SeamPastIslandM;
+
+    /// <summary>How thick the mist is for a swimmer at a distance from the island's centre: none to the island's reach, full from the seam, smooth between.</summary>
+    public static float MistFor(float distanceM, float islandReachM)
+    {
+        var t = Mathf.Clamp((distanceM - islandReachM) / SeamPastIslandM, 0f, 1f);
+        return float.IsFinite(t) ? t * t * (3f - 2f * t) : 1f;
+    }
+
+    /// <summary>
+    /// The depth fog for a mist (0 to 1) under a camera's far plane: where it begins and where it is whole, metres from the camera.
+    /// With no mist it starts at the far plane (nothing drawn is touched); at full mist it runs from MistNearM to MistFullM. Between,
+    /// both close in geometrically, so the island fades steadily as the swimmer swims out.
+    /// </summary>
+    public static (float Begin, float End) MistFog(float mist, float far)
+    {
+        mist = Mathf.Clamp(mist, 0f, 1f);
+        far = Mathf.Max(far, MistFullM * 2f);
+        float Toward(float from, float to) => from * Mathf.Pow(to / from, mist);
+        return (Toward(far * FogClearStart, MistNearM), Toward(far * FogClearEnd, MistFullM));
     }
 
     /// <summary>A flat square, half-size reach, facing up, in one colour (the water shader takes the colour as its baked colour).</summary>
@@ -229,107 +285,9 @@ public partial class OpenSea : Node3D
         return count == 0 ? new Color(1f, 1f, 1f) : new Color(r / count, g / count, b / count);
     }
 
-    /// <summary>What splitting a backdrop found: its islands' triangle lists, or why it could not be split (and so is left whole).</summary>
-    public sealed record IslandSplit(bool Ok, string Reason, IReadOnlyList<int[]> Pieces)
-    {
-        public static IslandSplit Fail(string reason) => new(false, reason, Array.Empty<int[]>());
-    }
-
     /// <summary>
-    /// Find a backdrop's distant islands without changing anything: every triangle that reaches above IslandCutM under the sea's level,
-    /// in pieces joined through shared and coincident vertices (a normal or UV seam's copies are one vertex), so one island is one
-    /// piece. Only one indexed surface with no custom or skin channels, at most MaxBackdropVertices vertices and MaxIslands pieces,
-    /// can be split; anything else fails, with the reason.
-    /// </summary>
-    public IslandSplit SplitIslands(MeshInstance3D backdrop)
-    {
-        var mesh = backdrop.Mesh;
-        if (mesh == null || mesh.GetSurfaceCount() != 1) return IslandSplit.Fail($"a backdrop mesh ({backdrop.Name}) is not one surface; it is left whole and its islands stay where they are");
-        var arrays = mesh.SurfaceGetArrays(0);
-        if (arrays[(int)Mesh.ArrayType.Index].VariantType != Variant.Type.PackedInt32Array) return IslandSplit.Fail($"a backdrop mesh ({backdrop.Name}) is not indexed; it is left whole and its islands stay where they are");
-        for (var channel = (int)Mesh.ArrayType.Custom0; channel < (int)Mesh.ArrayType.Index; channel++)
-            if (arrays[channel].VariantType != Variant.Type.Nil) return IslandSplit.Fail($"a backdrop mesh ({backdrop.Name}) carries custom or skin channels; it is left whole and its islands stay where they are");
-        var vertices = arrays[(int)Mesh.ArrayType.Vertex].AsVector3Array();
-        var indices = arrays[(int)Mesh.ArrayType.Index].AsInt32Array();
-        if (vertices.Length > MaxBackdropVertices) return IslandSplit.Fail($"a backdrop mesh ({backdrop.Name}) has {vertices.Length} vertices, more than {MaxBackdropVertices}; it is left whole");
-        if (indices.Length % 3 != 0 || indices.Any(i => i < 0 || i >= vertices.Length)) return IslandSplit.Fail($"a backdrop mesh ({backdrop.Name}) has malformed triangles; it is left whole");
-        var world = backdrop.GlobalTransform;
-        var cut = Sea.LevelM - IslandCutM;
-        var parent = Enumerable.Range(0, vertices.Length).ToArray();
-        int Find(int v) { while (parent[v] != v) v = parent[v] = parent[parent[v]]; return v; }
-        void Join(int a, int b) { a = Find(a); b = Find(b); if (a != b) parent[b] = a; }
-        // Coincident vertices are one vertex.
-        var welded = new Dictionary<(long, long, long), int>();
-        for (var v = 0; v < vertices.Length; v++)
-        {
-            var at = vertices[v];
-            var key = ((long)Math.Round(at.X / WeldM), (long)Math.Round(at.Y / WeldM), (long)Math.Round(at.Z / WeldM));
-            if (welded.TryGetValue(key, out var first)) Join(first, v);
-            else welded[key] = v;
-        }
-        var island = new bool[indices.Length / 3];
-        for (var t = 0; t < island.Length; t++)
-        {
-            var (a, b, c) = (indices[3 * t], indices[3 * t + 1], indices[3 * t + 2]);
-            if ((world * vertices[a]).Y <= cut && (world * vertices[b]).Y <= cut && (world * vertices[c]).Y <= cut) continue;
-            island[t] = true;
-            Join(a, b);
-            Join(a, c);
-        }
-        var pieces = Enumerable.Range(0, island.Length).Where(t => island[t]).GroupBy(t => Find(indices[3 * t])).Select(g => g.ToArray()).ToArray();
-        if (pieces.Length > MaxIslands) return IslandSplit.Fail($"a backdrop mesh ({backdrop.Name}) breaks into {pieces.Length} islands, more than {MaxIslands}; it is left whole");
-        return new IslandSplit(true, "", pieces);
-    }
-
-    /// <summary>
-    /// Lift a backdrop's islands out as their own meshes, with the backdrop's material (the backdrop keeps every triangle; LayFloor
-    /// then lays them on the bed), each with its centre, its shore's reach and the distance it keeps.
-    /// </summary>
-    private void LiftIslands(MeshInstance3D backdrop, IslandSplit split)
-    {
-        var mesh = backdrop.Mesh;
-        var arrays = mesh.SurfaceGetArrays(0);
-        var world = backdrop.GlobalTransform;
-        var vertices = arrays[(int)Mesh.ArrayType.Vertex].AsVector3Array();
-        var indices = arrays[(int)Mesh.ArrayType.Index].AsInt32Array();
-        var pieces = split.Pieces;
-        if (pieces.Count == 0) return;
-        var material = backdrop.GetSurfaceOverrideMaterial(0) ?? backdrop.MaterialOverride ?? mesh.SurfaceGetMaterial(0);
-        foreach (var piece in pieces)
-        {
-            var used = piece.SelectMany(t => new[] { indices[3 * t], indices[3 * t + 1], indices[3 * t + 2] }).Distinct().ToArray();
-            var remap = new Dictionary<int, int>();
-            for (var i = 0; i < used.Length; i++) remap[used[i]] = i;
-            var part = new Godot.Collections.Array();
-            part.Resize((int)Mesh.ArrayType.Max);
-            for (var channel = 0; channel < (int)Mesh.ArrayType.Index; channel++)
-                part[channel] = Subset(arrays[channel], used, (Mesh.ArrayType)channel);
-            part[(int)Mesh.ArrayType.Index] = piece.SelectMany(t => new[] { remap[indices[3 * t]], remap[indices[3 * t + 1]], remap[indices[3 * t + 2]] }).ToArray();
-            var pieceMesh = new ArrayMesh();
-            pieceMesh.AddSurfaceFromArrays(Mesh.PrimitiveType.Triangles, part);
-            // Its centre and reach above the water, where a swimmer would see its shore.
-            var above = used.Select(v => world * vertices[v]).Where(p => p.Y > Sea.LevelM).Select(p => new Vector2(p.X, p.Z)).ToArray();
-            if (above.Length == 0) above = used.Select(v => world * vertices[v]).Select(p => new Vector2(p.X, p.Z)).ToArray();
-            var middle = above.Aggregate(Vector2.Zero, (s, p) => s + p) / above.Length;
-            var shore = above.Max(p => p.DistanceTo(middle));
-            var offset = middle - Home;
-            // As close as it looks from the edge of the home waters, and never so close that its shore is reached.
-            var keep = Mathf.Max(offset.Length() - HomeReachM, shore + ShoreKeepM);
-            var instance = new MeshInstance3D
-            {
-                Name = $"DistantIsland{_islands.Count}", Mesh = pieceMesh, MaterialOverride = null, Transform = world,
-                CastShadow = backdrop.CastShadow, GIMode = GeometryInstance3D.GIModeEnum.Disabled,
-            };
-            instance.SetSurfaceOverrideMaterial(0, IslandMaterial(material));
-            instance.SetMeta(LookDirector.DressedMeta, true);
-            AddChild(instance);
-            _islands.Add(new DistantIsland(instance, offset, keep, world.Origin, shore));
-        }
-    }
-
-    /// <summary>
-    /// Lay a backdrop's floor on the bed the bodies touch: every vertex at RoomSea.OpenSeaBedAt under it, facing up, and where an
-    /// island was lifted out its ground takes the deep floor's colour. Returns the floor's rim (its outermost ring of vertices, by
+    /// Lay a backdrop's floor on the bed the bodies touch: every vertex at RoomSea.OpenSeaBedAt under it, facing up, and where a
+    /// distant island stood its ground takes the deep floor's colour (the horizon is only sea and sky). Returns the floor's rim (its outermost ring of vertices, by
     /// angle round Home) and their colours, where the open bed carries on.
     /// </summary>
     private (Vector3[] Rim, Color[] Colours) LayFloor(MeshInstance3D backdrop)
@@ -431,46 +389,6 @@ public partial class OpenSea : Node3D
         return flipped;
     }
 
-    private static Variant Subset(Variant channel, int[] used, Mesh.ArrayType type)
-    {
-        switch (channel.VariantType)
-        {
-            case Variant.Type.Nil: return channel;
-            case Variant.Type.PackedVector3Array: { var a = channel.AsVector3Array(); return used.Select(i => a[i]).ToArray(); }
-            case Variant.Type.PackedVector2Array: { var a = channel.AsVector2Array(); return used.Select(i => a[i]).ToArray(); }
-            case Variant.Type.PackedColorArray: { var a = channel.AsColorArray(); return used.Select(i => a[i]).ToArray(); }
-            case Variant.Type.PackedFloat32Array:
-            {
-                // Tangents: four floats a vertex.
-                var a = channel.AsFloat32Array();
-                var width = type == Mesh.ArrayType.Tangent ? 4 : a.Length / Math.Max(1, used.Max() + 1);
-                return used.SelectMany(i => Enumerable.Range(0, width).Select(k => a[i * width + k])).ToArray();
-            }
-            default: throw new InvalidOperationException($"the open sea cannot split a mesh channel of type {channel.VariantType}");
-        }
-    }
-
-    /// <summary>
-    /// Where an island's centre stands, from the home centre, for a camera at camera (XZ, from the home centre). It only ever slides
-    /// outward along its own bearing from the home island (so it never comes through it), never falls behind the swimmer along that
-    /// bearing (so swimming round it and back never makes it jump), and keeps keepM off the swimmer. From the home waters it stands
-    /// where the generator put it. It moves continuously, at the swimmer's speed or, as a swimmer slips past its side, a little faster.
-    /// </summary>
-    public static Vector2 IslandOffset(Vector2 homeOffset, float keepM, Vector2 camera)
-    {
-        // Double precision, and the sideways distance straight from the perpendicular bearing: near the 1 km net, |c|^2 - along^2
-        // cancelled in float32 and a 5 mm step moved an island 44 cm (Codex Sol's review).
-        double hx = homeOffset.X, hz = homeOffset.Y;
-        var distance = Math.Sqrt(hx * hx + hz * hz);
-        if (distance < 1e-4) return homeOffset;
-        double bx = hx / distance, bz = hz / distance;
-        var along = camera.X * bx + camera.Y * bz;
-        var aside = -camera.X * bz + camera.Y * bx;
-        var reach = Math.Max(distance, along);
-        if (Math.Abs(aside) < keepM) reach = Math.Max(reach, along + Math.Sqrt((double)keepM * keepM - aside * aside));
-        return new Vector2((float)(bx * reach), (float)(bz * reach));
-    }
-
     private void BuildVeil()
     {
         var material = new ShaderMaterial { Shader = GD.Load<Shader>(PondLife.VeilShaderPath), ResourceName = "under the sea", RenderPriority = 100 };
@@ -505,27 +423,15 @@ public partial class OpenSea : Node3D
         return column.Wet && eye.Y < column.SurfaceY && Mathf.Abs(column.SurfaceY - Sea.LevelM) < SeaLevelToleranceM;
     }
 
-    /// <summary>The distant islands' own copy of the backdrop's painterly material, with the haze (SeaLook) turned on.</summary>
-    private Material? IslandMaterial(Material? material)
-    {
-        if (material is not ShaderMaterial land || !land.HasMeta("landscape")) return material;
-        if (_islandMaterial != null) return _islandMaterial;
-        _islandMaterial = (ShaderMaterial)land.Duplicate();
-        _islandMaterial.ResourceName = "distant islands";
-        var look = SeaLook.Default;
-        _islandMaterial.SetShaderParameter("haze_start_m", look.HazeStartM);
-        _islandMaterial.SetShaderParameter("haze_end_m", look.HazeEndM);
-        _islandMaterial.SetShaderParameter("haze_max", look.HazeMax);
-        return _islandMaterial;
-    }
-
-    /// <summary>The sky's horizon (its colour and brightness, as the sky shader draws it) for the far sea and the islands' haze to turn into.</summary>
+    /// <summary>The sky's horizon (its colour and brightness, as the sky shader draws it) for the far sea and the mist to turn into.</summary>
     public void SetHorizon(Color horizon, float brightness)
     {
-        if (_islandMaterial != null)
+        _horizon = horizon;
+        _horizonEnergy = brightness;
+        if (Atmosphere != null)
         {
-            _islandMaterial.SetShaderParameter("haze_color", horizon);
-            _islandMaterial.SetShaderParameter("haze_energy", brightness);
+            Atmosphere.FogLightColor = horizon;
+            Atmosphere.FogLightEnergy = brightness;
         }
         foreach (var material in _water)
         {
@@ -538,7 +444,6 @@ public partial class OpenSea : Node3D
     {
         if (Mathf.IsEqualApprox(far, _far)) return;
         _far = far;
-        _islandMaterial?.SetShaderParameter("haze_far_m", far);
         foreach (var material in _water)
         {
             material.SetShaderParameter("horizon_fade_start_m", far * HorizonFadeStart);
@@ -559,19 +464,33 @@ public partial class OpenSea : Node3D
             var ambient = environment.AmbientLightColor * environment.AmbientLightEnergy;
             veil.SetShaderParameter("light_level", Mathf.Clamp(ambient.Luminance * 1.2f + 0.08f, 0.04f, 1.5f));
         }
-        // The islands keep off the swimmer (a stable reference: the player's body, the same whichever view looks at it), and,
-        // separately and much closer, off the camera, so no view stands inside an island and switching views moves none of them.
+        // The mist thickens with the swimmer's distance from the island (a stable reference: the player's body, the same whichever
+        // view looks at it), so switching views never changes it; a view without a swimmer goes by the camera.
         var body = _swimmer?.Invoke();
         var swimmer = body != null && IsInstanceValid(body) && body.IsInsideTree() ? body.GlobalPosition : at;
-        var fromSwimmer = new Vector2(swimmer.X, swimmer.Z) - Home;
-        var fromCamera = new Vector2(at.X, at.Z) - Home;
-        foreach (var island in _islands)
-        {
-            var bySwimmer = IslandOffset(island.HomeOffset, island.KeepM, fromSwimmer);
-            var byCamera = IslandOffset(island.HomeOffset, island.ShoreM + CameraClearM, fromCamera);
-            var shift = (bySwimmer.LengthSquared() >= byCamera.LengthSquared() ? bySwimmer : byCamera) - island.HomeOffset;
-            island.Mesh.GlobalPosition = island.BasePosition + new Vector3(shift.X, 0f, shift.Y);
-        }
+        ApplyMist(MistFor(new Vector2(swimmer.X, swimmer.Z).DistanceTo(SeamCentre), IslandReachM), camera.Far);
+    }
+
+    /// <summary>Draw the mist: the environment's depth fog in the sky's horizon colour, off the sky, and off entirely while there is none.</summary>
+    private void ApplyMist(float mist, float far)
+    {
+        Mist = mist;
+        if (Atmosphere == null) return;
+        var on = mist > 0f;
+        if (Atmosphere.FogEnabled != on) Atmosphere.FogEnabled = on;
+        if (!on) return;
+        var (begin, end) = MistFog(mist, far);
+        Atmosphere.FogMode = Godot.Environment.FogModeEnum.Depth;
+        Atmosphere.FogDensity = 1f;
+        Atmosphere.FogDepthBegin = begin;
+        Atmosphere.FogDepthEnd = end;
+        Atmosphere.FogDepthCurve = 1f;
+        Atmosphere.FogLightColor = _horizon;
+        Atmosphere.FogLightEnergy = _horizonEnergy;
+        Atmosphere.FogSunScatter = 0f;
+        Atmosphere.FogAerialPerspective = 0f;
+        Atmosphere.FogSkyAffect = 0f;
+        Atmosphere.FogHeightDensity = 0f;
     }
 
     public override void _Process(double delta)

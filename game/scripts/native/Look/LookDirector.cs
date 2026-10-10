@@ -636,7 +636,7 @@ public partial class LookDirector : Node3D
 
     /// <summary>
     /// A room with a sea gets the open sea once its shell is dressed: the surface and bed that follow the camera past the room's own
-    /// meshes, and the distant islands lifted out of the backdrop so they hold their place on the horizon.
+    /// meshes, the backdrop's distant islands laid flat on the bed, and the sea mist that hides the island from the seam out.
     /// </summary>
     private void BuildOpenSea(Node3D root)
     {
@@ -644,6 +644,7 @@ public partial class LookDirector : Node3D
         var meshes = root.FindChildren("*", "MeshInstance3D", true, false).OfType<MeshInstance3D>().Where(m => m.HasMeta(DressedMeta)).ToArray();
         OpenSea = OpenSea.Build(sea, _room.Bounds, meshes.Where(m => m.HasMeta(WaterMeta)),
             meshes.Where(m => !m.HasMeta(WaterMeta) && m.HasMeta(LandscapeLook.LandscapePaintedMeta)));
+        OpenSea.Atmosphere = Environment;
         AddChild(OpenSea);
         // The sea's fish follow the player's body, as depth of field does; never the Gubble.
         OpenSea.SetSwimmer(() => FocusTarget ?? GetParent()?.GetChildren().OfType<SmallPlayerController>().FirstOrDefault(c => c is not CompanionAvatar));
@@ -653,7 +654,7 @@ public partial class LookDirector : Node3D
             OpenSea.SetHorizon(skyLook.Horizon, skyLook.Brightness);
         }
         if (OpenSea.Note.Length > 0) Warn(OpenSea.Note);
-        GD.Print($"LOOK: open sea: surface {(OpenSea.Surface != null ? "follows the camera" : "missing")}, one sea floor at RoomSea.OpenSeaBedAt, {OpenSea.Islands.Count} distant island(s) holding their place");
+        GD.Print($"LOOK: open sea: surface {(OpenSea.Surface != null ? "follows the camera" : "missing")}, one sea floor at RoomSea.OpenSeaBedAt, no distant islands, the mist hiding the island from {OpenSea.SeamM:0.#} m (the seam)");
     }
 
     /// <summary>Dress one mesh; returns true when it is shell geometry that belongs in the GI bake.</summary>

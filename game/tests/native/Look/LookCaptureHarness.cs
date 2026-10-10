@@ -39,6 +39,10 @@ namespace EnFractal.Tests.Look;
 /// name the view a fixed camera stands for ("view": eye, shoulder, diorama or isometric, which blurs its own way), and put the
 /// focus highlight on a room object moved onto a spot ("focus": object, at_xz_m, camera_offset_m: the camera looks at it from
 /// there). Looks without views or the highlight ignore those (the harness finds them by reflection).
+/// A camera may set its own hour ("hour", the review clock's date) and light the Gubble's glows before it is framed ("glows": id,
+/// on: "companion" for a halo or at_m for a wisp at a point, radius_m, intensity; the look's StartGlow, as the host calls it).
+/// A wisp's "at_xz_m" stands it on the ground there instead (a ray down). "spark_s": T casts the glows again T seconds before the
+/// picture, to catch the spark from the Gubble in flight.
 /// </summary>
 public partial class LookCaptureHarness : Node
 {
@@ -52,6 +56,7 @@ public partial class LookCaptureHarness : Node
     private RoomHud? _hud;
     private Camera3D? _mirror;
     private readonly List<Dictionary<string, object>> _results = new();
+    private readonly List<string> _glows = new();
 
     public override async void _Ready()
     {
@@ -120,10 +125,22 @@ public partial class LookCaptureHarness : Node
             {
                 var id = entry.GetProperty("id").GetString()!;
                 if (only.Count > 0 && !only.Contains(id)) continue;
+                var ownHour = entry.TryGetProperty("hour", out var hour) && root.TryGetProperty("clock", out var reviewClock)
+                    && SetClock(hour.GetDouble(), DayOfYear(reviewClock.GetProperty("date").GetString()!));
                 Frame(entry);
+                LightGlows(entry);
                 for (var i = 0; i < warmup; i++) await NextFrame();
                 var timing = await Measure(frames);
+                if (entry.TryGetProperty("spark_s", out var sparkS))
+                {
+                    LightGlows(entry);
+                    var cast = Time.GetTicksUsec();
+                    while ((Time.GetTicksUsec() - cast) / 1e6 < sparkS.GetDouble()) await NextFrame();
+                }
                 var image = Grab();
+                LightGlows(default);
+                if (ownHour && root.TryGetProperty("clock", out var back))
+                    SetClock(back.GetProperty("hour").GetDouble(), DayOfYear(back.GetProperty("date").GetString()!));
                 var file = Save(image, id, outDir);
                 timing["camera"] = id;
                 timing["file"] = file;
@@ -195,6 +212,38 @@ public partial class LookCaptureHarness : Node
             _world.Companion.Rotation = new Vector3(0, yaw + Mathf.Pi, 0);
             _world.Companion.ResetPhysicsInterpolation();
         }
+    }
+
+    /// <summary>
+    /// End the glows the last camera lit and light this camera's ("glows"), through the look's StartGlow as the host calls it: a halo
+    /// on the Gubble or a wisp at a point. Looks without the glow ignore it.
+    /// </summary>
+    private void LightGlows(JsonElement entry)
+    {
+        if (_look == null || !_look.HasMethod("StartGlow")) return;
+        foreach (var id in _glows) _look.Call("StopGlow", id);
+        _glows.Clear();
+        if (entry.ValueKind != JsonValueKind.Object || !entry.TryGetProperty("glows", out var glows)) return;
+        foreach (var glow in glows.EnumerateArray())
+        {
+            var id = "effect:review_" + glow.GetProperty("id").GetString();
+            var onGubble = glow.TryGetProperty("on", out var on) && on.GetString() == "companion";
+            var at = onGubble ? Vector3.Zero : glow.TryGetProperty("at_xz_m", out var xz) ? Ground((float)xz[0].GetDouble(), (float)xz[1].GetDouble()) : Vec(glow.GetProperty("at_m"));
+            var radius = glow.TryGetProperty("radius_m", out var r) ? (float)r.GetDouble() : 0.6f;
+            var intensity = glow.TryGetProperty("intensity", out var i) ? (float)i.GetDouble() : 0.6f;
+            var started = _look.Call("StartGlow", id, onGubble ? _world.Companion : new Variant(), at, radius, intensity).AsBool();
+            if (!started) throw new InvalidOperationException($"the look refused the review glow {id}");
+            _glows.Add(id);
+        }
+    }
+
+    /// <summary>The ground under a spot: the first world-layer surface a ray down from 5 m meets (else the sea's level, 0).</summary>
+    private Vector3 Ground(float x, float z)
+    {
+        var space = _world.GetWorld3D().DirectSpaceState;
+        using var query = PhysicsRayQueryParameters3D.Create(new Vector3(x, 5f, z), new Vector3(x, -5f, z), EnFractal.Native.Room.RoomBuilder.WorldLayer);
+        using var hit = space.IntersectRay(query);
+        return hit.Count > 0 ? hit["position"].AsVector3() : new Vector3(x, 0f, z);
     }
 
     private string Require(string name) => _args.TryGetValue(name, out var value) && value.Length > 0
