@@ -435,6 +435,20 @@
   - the Gubble's words to children (curated lines first);
   - trying the new key defaults in a playtest.
 
+## The ninth session (9 October, night, DiamondAge)
+
+- **The founder's checkout:** `C:\dev\EnFractal` was 28 commits behind (the Glow round, pushed from the cloud). It was fast-forwarded to `ca6656d`. It builds on the pinned SDK (0 warnings), and a headless boot of `landscape_garage_nominal` loads cleanly (`ROOM_WORLD_READY ... objects=37`).
+  - The installed landscape needed no refresh: nothing in the landscape pipeline changed since `4266153`, and `room.json` is still `723B8D6A…`.
+  - **A safe smoke boot:** set `APPDATA` to a scratch folder for the Godot process, so the founder's saves and profile (`has_used_glow`) stay untouched. Boot through the main scene (`--path game -- --room=<id>`): passing `res://scenes/room.tscn` skips `NativeGameBoot` and silently loads `test_room`.
+- **The founder's Glow playtest:** its findings, the causes and the founder's decisions are in [RUN-2-GLOW-PLAYTEST.md](RUN-2-GLOW-PLAYTEST.md). In short:
+  - the cursor goes free, and left-drag looks around;
+  - a cast travels from the Gubble to where you point;
+  - the black orb goes (an unshaded material ignores emission);
+  - the words on the Gubble become readable;
+  - the wheel says it is the Gubble's;
+  - moonlight alone is dark;
+  - **the sea wraps round to home,** and the distant islands go. This replaces the 9 October rule that they stay on the horizon.
+
 ## The next session
 
 **Glow is built** (see the eighth session). Next:
