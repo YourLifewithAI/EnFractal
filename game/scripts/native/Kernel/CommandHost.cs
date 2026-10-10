@@ -70,6 +70,17 @@ public partial class CommandHost : Node
     public const float GoToStopM = 0.08f;
     /// <summary>A come, go_to or fetch whose body has reported blocked this long without a break fails with target_unreachable.</summary>
     public const double UnreachableAfterS = 5.0;
+    /// <summary>
+    /// The engine's cap on active effects per room, whatever the ability: 8. It is the most glows the look draws at once
+    /// (GlowLook.MaxGlows), so the look never refuses a glow for count that the host admitted; it is the schema's outer
+    /// max_active for light.emit; and it is the omni lights Godot's Mobile renderer shades per mesh, so a spot lit by every
+    /// effect still shows each one. Later abilities share it.
+    /// </summary>
+    public const int MaxActiveEffects = 8;
+    /// <summary>capabilities.list pages this many items when no limit is given (as entities.list).</summary>
+    public const int CapabilitiesDefaultLimit = 50;
+    /// <summary>A point effect's place must be in the team's sight: a column twice this wide (metres) over the centre, as tall as the wisp floats above it.</summary>
+    public const float EffectSightHalfWidthM = 0.02f;
     public static readonly TimeSpan ApprovalLifetime = TimeSpan.FromMinutes(5);
     public const string RuntimeScript = "res://scripts/invention_runtime.gd";
 

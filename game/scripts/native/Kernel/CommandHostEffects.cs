@@ -24,18 +24,6 @@ namespace EnFractal.Native.Kernel;
 /// </summary>
 public partial class CommandHost
 {
-    /// <summary>
-    /// The engine's cap on active effects per room, whatever the ability: 8. It is the most glows the look draws at once
-    /// (GlowLook.MaxGlows), so the look never refuses a glow for count that the host admitted; it is the schema's outer
-    /// max_active for light.emit; and it is the omni lights Godot's Mobile renderer shades per mesh, so a spot lit by every
-    /// effect still shows each one. Later abilities share it.
-    /// </summary>
-    public const int MaxActiveEffects = 8;
-    /// <summary>capabilities.list pages this many items when no limit is given (as entities.list).</summary>
-    public const int CapabilitiesDefaultLimit = 50;
-    /// <summary>A point glow's place, seen from either avatar: a column this wide (metres) above the centre, as tall as the wisp floats.</summary>
-    public const float EffectSightHalfWidthM = 0.02f;
-
     /// <summary>The island's rules, or null when none loaded: then there are no abilities, and effect.start says why.</summary>
     public IslandRules? Rules { get; private set; }
     /// <summary>Why the island has no abilities (the pack did not load), for the player; empty when the rules loaded.</summary>
