@@ -38,12 +38,21 @@ public static class Act
     public static readonly StringName IsoTurnLeft = "iso_turn_left";
     /// <summary>F4 only.</summary>
     public static readonly StringName IsoTurnRight = "iso_turn_right";
-    // The companion.
-    public static readonly StringName GubbleFollow = "gubble_follow";
-    public static readonly StringName GubbleStay = "gubble_stay";
-    public static readonly StringName GubbleCome = "gubble_come";
+    // The companion (the magic design's "The keys", step 2). Enter is kept free for the wish box.
+    /// <summary>Tap: the smart ask at the aim. Hold: the Gubble wheel.</summary>
+    public static readonly StringName GubbleAsk = "gubble_ask";
+    /// <summary>Come, then follow (the recall).</summary>
+    public static readonly StringName GubbleRecall = "gubble_recall";
+    /// <summary>Stop the Gubble's goal and its effects (goal.stop).</summary>
     public static readonly StringName GubbleStop = "gubble_stop";
-    public static readonly StringName GubblePoint = "gubble_point";
+    /// <summary>The five ability slots, fixed by category (GubbleSlots): 1 light, 2 growth, 3 float, 4 burst, 5 build.</summary>
+    public static readonly StringName GubbleSlot1 = "gubble_slot_1";
+    public static readonly StringName GubbleSlot2 = "gubble_slot_2";
+    public static readonly StringName GubbleSlot3 = "gubble_slot_3";
+    public static readonly StringName GubbleSlot4 = "gubble_slot_4";
+    public static readonly StringName GubbleSlot5 = "gubble_slot_5";
+    /// <summary>The slot actions in slot order (index 0 is slot 1).</summary>
+    public static readonly StringName[] GubbleSlots = { GubbleSlot1, GubbleSlot2, GubbleSlot3, GubbleSlot4, GubbleSlot5 };
     // The hands.
     /// <summary>Pick up what the player faces, or put down what it holds.</summary>
     public static readonly StringName Hands = "hands";
@@ -94,8 +103,9 @@ public static class PlayerControls
         new(Act.ViewDiorama, ControlContext.Always), new(Act.ViewIso, ControlContext.Always), new(Act.ViewObserve, ControlContext.Always),
         new(Act.ViewZoomIn, ControlContext.Diorama), new(Act.ViewZoomOut, ControlContext.Diorama),
         new(Act.IsoTurnLeft, ControlContext.Isometric), new(Act.IsoTurnRight, ControlContext.Isometric),
-        new(Act.GubbleFollow, ControlContext.Always), new(Act.GubbleStay, ControlContext.Always), new(Act.GubbleCome, ControlContext.Always),
-        new(Act.GubbleStop, ControlContext.Always), new(Act.GubblePoint, ControlContext.Always),
+        new(Act.GubbleAsk, ControlContext.Always), new(Act.GubbleRecall, ControlContext.Always), new(Act.GubbleStop, ControlContext.Always),
+        new(Act.GubbleSlot1, ControlContext.Always), new(Act.GubbleSlot2, ControlContext.Always), new(Act.GubbleSlot3, ControlContext.Always),
+        new(Act.GubbleSlot4, ControlContext.Always), new(Act.GubbleSlot5, ControlContext.Always),
         new(Act.Hands, ControlContext.Always), new(Act.Push, ControlContext.Always),
         new(Act.PhysicsNext, ControlContext.Always), new(Act.TimeStep, ControlContext.Always),
         new(Act.SeasonStep, ControlContext.Always), new(Act.Lamps, ControlContext.Always),
@@ -141,6 +151,13 @@ public static class PlayerControls
     {
         Trace?.Add(action.ToString());
         return input.IsActionPressed(action);
+    }
+
+    /// <summary>Whether the event is the action's button or key letting go (the ask button's tap and hold end on it).</summary>
+    public static bool Released(InputEvent input, StringName action)
+    {
+        Trace?.Add(action.ToString());
+        return input.IsActionReleased(action);
     }
 
     /// <summary>Whether the action is held now (polled).</summary>
@@ -189,7 +206,9 @@ public static class PlayerControls
                 if (position == Key.None) return null;
                 // The label on the key as this keyboard prints it: the key at W's place reads Z on a French one.
                 var shown = KnowsKeyboardLayout ? DisplayServer.KeyboardGetKeycodeFromPhysical(position) : Key.None;
-                var name = position == Key.Escape ? "Esc" : OS.GetKeycodeString(shown != Key.None ? shown : position);
+                var code = shown != Key.None ? shown : position;
+                // A key that prints a character is named by it ("[" rather than "BracketLeft"); the others by the engine's name.
+                var name = code == Key.Escape ? "Esc" : (long)code is >= 33 and <= 126 ? ((char)(long)code).ToString() : OS.GetKeycodeString(code);
                 return Modifiers(key, position) + name;
             }
             case InputEventMouseButton mouse:

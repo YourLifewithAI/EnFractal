@@ -17,7 +17,9 @@ public partial class RoomHud : CanvasLayer
     /// <summary>Set by RoomWorld: what the look and the style pin need the player to know (a renderer fallback, a style that did not verify).</summary>
     public string LookNotice { get; set; } = "";
     public bool Customizing => _customization.Visible;
-    private const string ProfilePath = "user://single_player/room/avatar_profile_v1.cfg";
+    /// <summary>The player's profile (appearance, the Gubble's name and colour, has_used_glow). A test seam: the HUD's tests point it elsewhere.</summary>
+    public static string ProfilePath { get; set; } = DefaultProfilePath;
+    public const string DefaultProfilePath = "user://single_player/room/avatar_profile_v1.cfg";
     private static readonly Color[] Palette = { new("d28f63"), new("65b9b0"), new("d7b765"), new("a18cc3"), new("75965c") };
     private Label _state = null!;
     /// <summary>The wash-ashore fade (the sea's edge): a full-screen veil the player's body darkens and lifts.</summary>
@@ -76,7 +78,7 @@ public partial class RoomHud : CanvasLayer
     public const float DioramaDefaultDistanceM = 1.4f;
     public const float DioramaFovDeg = 40.0f;
     // F4, the isometric view (Look lane, 6 October art direction): the isometric angle, a long narrow lens, and a
-    // heading that turns in quarter turns with Q and E, so the room reads as a diorama from above.
+    // heading that turns in quarter turns with [ and ], so the room reads as a diorama from above.
     public const float IsoPitchDeg = 35.26f;
     public const float IsoDistanceM = 2.7f;
     public const float IsoFovDeg = 30.0f;
@@ -201,12 +203,13 @@ public partial class RoomHud : CanvasLayer
         column.AddChild(new Label { Text = RoomTitle });
         _state = new Label { Name = "State" }; column.AddChild(_state);
         _clock = new Label { Visible = false }; column.AddChild(_clock);
+        // The Gubble's orders as buttons too: the same commands as the keys, the wheel and the smart ask (RoomHud.Gubble.cs).
         var actions = new HBoxContainer { Name = "CompanionActions" }; column.AddChild(actions);
-        AddKeyButton(actions, () => $"{K(Act.GubbleFollow)} Follow", () => Goal("follow"), 26);
-        AddKeyButton(actions, () => $"{K(Act.GubbleStay)} Wait", () => Goal("stay"), 26);
-        AddKeyButton(actions, () => $"{K(Act.GubbleCome)} Come", () => Goal("come"), 26);
-        AddKeyButton(actions, () => $"{K(Act.GubbleStop)} Stop", () => Goal("stop"), 26);
-        AddKeyButton(actions, () => $"{K(Act.GubblePoint)} Point", PointAhead, 26);
+        AddButton(actions, "Follow", () => Order("follow"), 26);
+        AddButton(actions, "Wait", () => Order("stay"), 26);
+        AddKeyButton(actions, () => $"{K(Act.GubbleRecall)} Come", Recall, 26);
+        AddKeyButton(actions, () => $"{K(Act.GubbleStop)} Stop", StopGubble, 26);
+        AddKeyButton(actions, () => $"{K(Act.GubbleSlot1)} {SlotName(0)}", () => CastSlot(0, AimNow()), 26);
         AddButton(actions, "Customize", ToggleCustomization, 26);
         // The hand keys send the same sandbox commands the companion uses (CommandHost.PlayerHands, PlayerPush).
         var hands = new HBoxContainer { Name = "HandActions" }; column.AddChild(hands);
@@ -235,7 +238,8 @@ public partial class RoomHud : CanvasLayer
         // Every key named below comes from the input map (PlayerControls.Label), so a remapped key shows here.
         AddKeyLine(_keyHelp, () => MoveKeys, "MoveKeys");
         AddKeyLine(_keyHelp, () => $"Climb: keep walking into a steep face, {K(Act.MoveForward)} up, {K(Act.MoveBack)} down, {K(Act.MoveLeft)}/{K(Act.MoveRight)} across, {K(Act.Jump)} lets go · Swim: deep water floats you, {K(Act.Jump)} leaps · Dive: hold {K(Act.MoveDive)}, {K(Act.Jump)} rises, {K(Act.MoveForward)} swims the way you look, let go to drift up");
-        AddKeyLine(_keyHelp, () => $"{K(Act.GubbleFollow)} follow · {K(Act.GubbleStay)} wait · {K(Act.GubbleCome)} come · {K(Act.GubbleStop)} stop · {K(Act.GubblePoint)} point: the Gubble floats after you, over water and up cliffs");
+        AddKeyLine(_keyHelp, () => $"{K(Act.GubbleAsk)} asks the Gubble what fits where you aim (wait or follow, fetch, light the dark, go and look); hold it for the wheel · {K(Act.GubbleRecall)} come, then follow · {K(Act.GubbleStop)} stop", "GubbleKeys");
+        AddKeyLine(_keyHelp, () => $"{K(Act.GubbleSlot1)} {SlotName(0)}: where you aim in the dark, else on the Gubble · {K(Act.GubbleSlot2)}/{K(Act.GubbleSlot3)}/{K(Act.GubbleSlot4)}/{K(Act.GubbleSlot5)} magic still to come · the Gubble floats after you, over water and up cliffs", "GubbleSlots");
         AddKeyLine(_keyHelp, () => $"{K(Act.ViewEye)} eye · {K(Act.ViewShoulder)} shoulder · {K(Act.ViewDiorama)} diorama: mouse orbits, {PlayerControls.ZoomLabel()} zooms, {PlayerControls.MoveLabel()} follows the view · {K(Act.ViewIso)} isometric: {K(Act.IsoTurnLeft)}/{K(Act.IsoTurnRight)} turn the view");
         AddKeyLine(_keyHelp, () => $"{K(Act.ViewObserve)} observe (a very tight tilt-shift view, best from {K(Act.ViewDiorama)} or {K(Act.ViewIso)}) · {K(Act.HudCustomize)} customize");
         AddKeyLine(_keyHelp, () => $"{K(Act.Hands)} pick up what you face · {K(Act.Hands)} again sets it down in front of you, or on top of what you face (the box, the book) · {K(Act.Push)} push what you face 10 cm");
@@ -252,9 +256,11 @@ public partial class RoomHud : CanvasLayer
         options.AddChild(name);
         name.TextChanged += value => Companion.SetDisplayName(value);
         AddButton(options, "Change player color", () => { _playerColor = (_playerColor + 1) % Palette.Length; Player.SetAppearance(Palette[_playerColor]); });
-        AddButton(options, "Change the Gubble's color", () => { _companionColor = (_companionColor + 1) % Palette.Length; Companion.SetAppearance(Palette[_companionColor]); });
+        AddButton(options, "Change the Gubble's color", () => { _companionColor = (_companionColor + 1) % Palette.Length; Companion.SetAppearance(Palette[_companionColor]); ApplyAura(); });
         options.AddChild(new Label { Text = $"Player height: {Player.BodyHeightM * 100:0} cm. Appearance keeps each avatar's identity." });
         AddButton(options, "Save appearance and return", () => { SavePreferences(); ToggleCustomization(); });
+        BuildGubbleControls(compactTheme);
+        ApplyAura();
         SetViewMode(1);
         if (LookNotice.Length > 0) _noticeText = LookNotice;
         Input.MouseMode = Input.MouseModeEnum.Visible;
@@ -374,7 +380,7 @@ public partial class RoomHud : CanvasLayer
         DioramaDistanceM = Mathf.Clamp(DioramaDistanceM * Mathf.Pow(0.88f, steps), DioramaMinDistanceM, DioramaMaxDistanceM);
     }
 
-    /// <summary>Turn the isometric view a quarter turn (Q: -1, E: +1).</summary>
+    /// <summary>Turn the isometric view a quarter turn ([: -1, ]: +1).</summary>
     public void TurnIso(int quarterTurns)
     {
         IsoYaw = Mathf.Wrap(IsoYaw + quarterTurns * Mathf.Pi / 2, -Mathf.Pi, Mathf.Pi);
@@ -407,6 +413,9 @@ public partial class RoomHud : CanvasLayer
 
     public override void _Process(double delta)
     {
+        // While the wheel has the game paused, only the wheel's clock runs.
+        _wheel.Tick(delta);
+        if (GubblePaused) return;
         if (ViewMode >= 2) PlaceDioramaRig(snap: false, (float)delta);
         _arm.Rotation = new Vector3(Mathf.Clamp(Player.EyeCamera.Rotation.X - 0.18f, -1.1f, 0.8f), 0, 0);
         _arm.SpringLength = ArmLengthOverBed(_arm.GlobalPosition, _arm.GlobalBasis.Z, _armLength, Player.Water.Wet ? Player.Water.BedY : float.NegativeInfinity, ArmBedClearanceM);
@@ -416,6 +425,9 @@ public partial class RoomHud : CanvasLayer
             (holding.Length > 0 ? $"  ·  holding {holding} ({K(Act.Hands)})" : "") + (Look?.Observe == true ? $"  ·  observe view ({K(Act.ViewObserve)})" : "");
         _notice.Text = _noticeText;
         UpdateFocus(delta);
+        UpdateAskTag(delta);
+        UpdateChains();
+        UpdateDusk(delta);
         _washVeil.Color = new Color(_washVeil.Color, Player.HomeFade);
         RefreshKeyText();
         var clock = ClockText();
@@ -501,6 +513,30 @@ public partial class RoomHud : CanvasLayer
         // The controls are input actions (project.godot, [input]); Hit is a fresh press of one, not a held key repeating.
         var press = PlayerControls.Normalise(input);
         var fresh = PlayerControls.Fresh(press);
+        // The ask button held: the mouse is the wheel's (a flick picks a wedge), and its release is the tap or the choice.
+        if (_wheel.Held)
+        {
+            if (input is InputEventMouseMotion held)
+            {
+                _wheel.Move(held.Relative);
+                GetViewport().SetInputAsHandled();
+                return;
+            }
+            if (PlayerControls.Released(press, Act.GubbleAsk))
+            {
+                EndAsk();
+                GetViewport().SetInputAsHandled();
+                return;
+            }
+            // Esc cancels the wheel; every other key waits while it is held (the game is paused under it).
+            if (fresh && PlayerControls.Hit(press, Act.MouseRelease))
+            {
+                CancelAsk();
+                GetViewport().SetInputAsHandled();
+                return;
+            }
+        }
+        if (GubblePaused) return;
         if (fresh)
         {
             if (PlayerControls.Hit(press, Act.MouseRelease))
@@ -524,15 +560,14 @@ public partial class RoomHud : CanvasLayer
             else if (PlayerControls.Hit(press, Act.ViewObserve) && Look != null) Look.Observe = !Look.Observe;
             else if (PlayerControls.Hit(press, Act.SeasonStep)) StepSeason();
             else if (PlayerControls.Hit(press, Act.TimeStep)) StepTimeOfDay();
-            // Q and E belong to the view: the invention workshop that also bound them is retired (CommandHost).
+            // [ and ] turn the F4 view (Q and E moved to the Gubble's recall and stay free).
             else if (PlayerControls.Hit(press, Act.IsoTurnLeft) && ViewMode == 3) TurnIso(-1);
             else if (PlayerControls.Hit(press, Act.IsoTurnRight) && ViewMode == 3) TurnIso(1);
-            // Companion keys are goal commands from the player, on the same path as the companion's own.
-            else if (PlayerControls.Hit(press, Act.GubbleFollow)) Goal("follow");
-            else if (PlayerControls.Hit(press, Act.GubbleStay)) Goal("stay");
-            else if (PlayerControls.Hit(press, Act.GubbleCome)) Goal("come");
-            else if (PlayerControls.Hit(press, Act.GubbleStop)) Goal("stop");
-            else if (PlayerControls.Hit(press, Act.GubblePoint)) PointAhead();
+            // The Gubble's keys are the player's commands, carried out by the Gubble, on the same path as the companion's own.
+            else if (PlayerControls.Hit(press, Act.GubbleAsk)) { BeginAsk(); GetViewport().SetInputAsHandled(); }
+            else if (PlayerControls.Hit(press, Act.GubbleRecall)) Recall();
+            else if (PlayerControls.Hit(press, Act.GubbleStop)) StopGubble();
+            else if (SlotPressed(press) is { } slot) CastSlot(slot, AimNow());
             // Hand keys: pick up, put down and push, as commands from the player.
             else if (PlayerControls.Hit(press, Act.Hands)) Hands();
             else if (PlayerControls.Hit(press, Act.Push)) Push();
@@ -559,7 +594,13 @@ public partial class RoomHud : CanvasLayer
         }
     }
 
-    private void PointAhead() => Goal("point_at", Player.GlobalPosition - Player.GlobalBasis.Z * 0.6f + Vector3.Up * 0.05f);
+    /// <summary>Which ability slot key (0-based) the event presses, if any.</summary>
+    private static int? SlotPressed(InputEvent press)
+    {
+        for (var i = 0; i < Act.GubbleSlots.Length; i++)
+            if (PlayerControls.Hit(press, Act.GubbleSlots[i])) return i;
+        return null;
+    }
 
     /// <summary>The room's command host (null in fixtures without one).</summary>
     private Kernel.CommandHost? Host => GetParent() is { } parent ? Kernel.CommandHost.Of(parent) : null;
@@ -570,16 +611,9 @@ public partial class RoomHud : CanvasLayer
     /// <summary>V: push what the player faces.</summary>
     private void Push() => _noticeText = Host?.PlayerPush().Message ?? "The command host is not attached; the hand keys are off.";
 
-    private void Goal(string goal, Vector3? point = null)
-    {
-        var host = Kernel.CommandHost.Of(GetParent());
-        if (host == null) { _noticeText = $"The command host is not attached; {Companion.CompanionName}'s keys are off."; return; }
-        var result = host.PlayerGoal(goal, point);
-        if (!result["ok"]!.GetValue<bool>()) _noticeText = result["error"]!["message"]!.GetValue<string>();
-    }
-
     private void ToggleCustomization()
     {
+        CancelAsk();
         _customization.Visible = !_customization.Visible;
         Player.SetInputEnabled(!_customization.Visible);
         Input.MouseMode = Input.MouseModeEnum.Visible;
@@ -596,6 +630,8 @@ public partial class RoomHud : CanvasLayer
         var companionColor = config.GetValue("profile", "companion_color", 1);
         if (playerColor.VariantType == Variant.Type.Int) _playerColor = Mathf.PosMod(playerColor.AsInt32(), Palette.Length);
         if (companionColor.VariantType == Variant.Type.Int) _companionColor = Mathf.PosMod(companionColor.AsInt32(), Palette.Length);
+        var usedGlow = config.GetValue("profile", "has_used_glow", false);
+        if (usedGlow.VariantType == Variant.Type.Bool) HasUsedGlow = usedGlow.AsBool();
         var name = config.GetValue("profile", "companion_name", CompanionAvatar.DefaultName);
         // A profile saved while the companion was still called Wisp takes the founder's name for it, the Gubble.
         if (name.VariantType == Variant.Type.String)
@@ -606,15 +642,36 @@ public partial class RoomHud : CanvasLayer
 
     private void SavePreferences()
     {
-        var directory = ProjectSettings.GlobalizePath("user://single_player/room");
         var config = new ConfigFile();
         config.SetValue("profile", "version", 1);
         config.SetValue("profile", "player_color", _playerColor);
         config.SetValue("profile", "companion_color", _companionColor);
         config.SetValue("profile", "companion_name", Companion.CompanionName);
+        config.SetValue("profile", "has_used_glow", HasUsedGlow);
+        _noticeText = WriteProfile(config) ? "Appearance saved. Room changes are not saved by this placeholder." : "Could not save appearance; current session is still usable.";
+    }
+
+    /// <summary>
+    /// One value written into the profile as it is on disk, the rest left as saved (an unsaved colour or name is not saved with
+    /// it). A profile that does not load is left untouched: the value then lasts this session only.
+    /// </summary>
+    private bool SaveProfileValue(string key, Variant value)
+    {
+        var config = new ConfigFile();
+        var loaded = config.Load(ProfilePath);
+        if (loaded != Error.Ok && loaded != Error.FileNotFound) return false;
+        if (loaded == Error.Ok && (config.GetValue("profile", "version", 0).VariantType != Variant.Type.Int || config.GetValue("profile", "version", 0).AsInt32() != 1)) return false;
+        config.SetValue("profile", "version", 1);
+        config.SetValue("profile", key, value);
+        return WriteProfile(config);
+    }
+
+    /// <summary>The profile is written whole to a temporary file, then moved over the old one.</summary>
+    private static bool WriteProfile(ConfigFile config)
+    {
+        var directory = ProfilePath.GetBaseDir();
         var temporary = ProfilePath + ".tmp";
-        var prepared = DirAccess.MakeDirRecursiveAbsolute(directory) == Error.Ok && config.Save(temporary) == Error.Ok;
-        var committed = prepared && DirAccess.RenameAbsolute(ProjectSettings.GlobalizePath(temporary), ProjectSettings.GlobalizePath(ProfilePath)) == Error.Ok;
-        _noticeText = committed ? "Appearance saved. Room changes are not saved by this placeholder." : "Could not save appearance; current session is still usable.";
+        var prepared = DirAccess.MakeDirRecursiveAbsolute(ProjectSettings.GlobalizePath(directory)) == Error.Ok && config.Save(temporary) == Error.Ok;
+        return prepared && DirAccess.RenameAbsolute(ProjectSettings.GlobalizePath(temporary), ProjectSettings.GlobalizePath(ProfilePath)) == Error.Ok;
     }
 }
