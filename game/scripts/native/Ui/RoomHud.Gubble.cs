@@ -527,22 +527,8 @@ public partial class RoomHud
     }
 
     /// <summary>
-    /// The look reads the aura when a glow starts; a colour change gives every running glow the colour a restart would (the light,
-    /// its halo and a wisp's heart, as GlowLook.LightColor makes it), in place, so a wisp keeps its spot and its effect id.
+    /// The look reads the aura when a glow starts; a colour change gives every running glow the colour a restart would, in place,
+    /// so a wisp keeps its spot and its effect id. The look owns its nodes (LookDirector.RecolorGlows), so the HUD only asks.
     /// </summary>
-    public int RecolourGlows()
-    {
-        if (Look == null || Host == null) return 0;
-        var colour = GlowLook.LightColor(Companion.AuraColor);
-        var count = 0;
-        foreach (var id in Host.ActiveEffectIds)
-        {
-            if (Look.GlowLight(id) is not { } light || Look.GlowRoot(id) is not { } root) continue;
-            light.LightColor = colour;
-            if (root.GetNodeOrNull<MeshInstance3D>("Halo")?.MaterialOverride is StandardMaterial3D halo) halo.AlbedoColor = new Color(colour.R, colour.G, colour.B, halo.AlbedoColor.A);
-            if (root.GetNodeOrNull<MeshInstance3D>("Core")?.MaterialOverride is StandardMaterial3D core) core.Emission = colour;
-            count++;
-        }
-        return count;
-    }
+    public int RecolourGlows() => Look?.RecolorGlows() ?? 0;
 }
