@@ -26,7 +26,7 @@ import sys
 import time
 import unittest
 
-from support import CONTRACTS, COMPANION, SRC, command, contract_problems, query
+from support import CONTRACTS, COMPANION, SRC, command, contract_problems, contracts, query
 from test_host_alignment import AlignmentScenarios
 from test_journal_boundary import JournalBoundaryCases
 from test_link import closed, raw_connect
@@ -119,6 +119,58 @@ class RealHostCase(unittest.IsolatedAsyncioTestCase):
 
 
 # ---------------------------------------------------------------------------- the link, against the C# listener
+
+class WishRunnerBridge(RealHostCase):
+    """The native runner listener is separately authenticated and never enters the game-command route."""
+
+    def runner_client(self) -> LinkClient:
+        client = LinkClient.from_file(GAME.session_path.with_name("wish-runner.json"))
+        self.clients.append(client)
+        return client
+
+    async def test_native_runner_has_a_distinct_token_and_fixed_role_beside_the_companion(self):
+        info = parse_session(GAME.session_path.with_name("wish-runner.json").read_bytes())
+        self.assertNotEqual(info.token, self.info.token)
+        self.assertNotEqual(info.port, self.info.port)
+        runner = self.runner_client()
+        ready = await runner.connect()
+        self.assertEqual((ready["principal"], ready["avatar"], ready["room_id"]), ("runner:local", "", "test_room"))
+        ordinary = self.client()
+        ordinary_ready = await ordinary.connect()
+        self.assertEqual(ordinary_ready["principal"], COMPANION)
+        self.assertTrue((await self.ask(ordinary, query("room.describe", {})))["ok"])
+        self.assertEqual(await runner.request({"op": "wish.wait"}), {"ok": True, "wish": None})
+
+    async def test_native_runner_refuses_world_queries_commands_and_manufactured_player_intent(self):
+        runner = self.runner_client()
+        await runner.connect()
+        for message in (
+            companion_goal("stay", fresh_id("runner-forbidden")),
+            query("observe", {"actor": "avatar:companion"}),
+            {"op": "wish.submit", "args": {"text": "An AI cannot create this player wish"}},
+            {"op": "wish.stop"},
+            {"op": "wish.wait", "principal": COMPANION},
+        ):
+            with self.subTest(op=message["op"]):
+                self.assertEqual(await runner.request(message), {"ok": False, "error": {"code": "permission_denied"}})
+        self.assertEqual(await runner.request({"op": "wish.wait"}), {"ok": True, "wish": None})
+        missing = await runner.request({"op": "wish.update", "args": {
+            "wish_id": "wish:" + "a" * 26, "status": "completed", "result_code": "completed"}})
+        self.assertEqual(missing, {"ok": False, "error": {"code": "target_not_found"}})
+
+    async def test_companion_token_and_messages_do_not_gain_runner_authority(self):
+        info = parse_session(GAME.session_path.with_name("wish-runner.json").read_bytes())
+        wrong = LinkClient(lambda: link.SessionInfo(info.host, info.port, self.info.token, info.room_id))
+        self.clients.append(wrong)
+        with self.assertRaises(LinkError):
+            await wrong.connect()
+        ordinary = self.client()
+        answer = await ordinary.request({"op": "wish.wait"})
+        self.assertFalse(answer["ok"])
+        self.assertEqual(answer["principal"], COMPANION)
+        runner = self.runner_client()
+        self.assertEqual(await runner.request({"op": "wish.wait"}), {"ok": True, "wish": None})
+
 
 class LinkHandshake(RealHostCase):
     async def test_an_authenticated_client_gets_the_companion_principal_from_the_game(self):
@@ -251,8 +303,19 @@ class LinkSessionFile(RealHostCase):
         self.assertEqual((document["schema"], document["version"], document["host"], document["room_id"]),
                          ("enfractal.companion_session", 1, "127.0.0.1", "test_room"))
         self.assertEqual(parse_session(raw).port, self.info.port)
-        # No temporary file left; the ownership lock lives beside the session file.
-        self.assertEqual(sorted(p.name for p in GAME.session_path.parent.iterdir()), ["session.json", "session.lock"])
+        runner_raw = GAME.session_path.with_name("wish-runner.json").read_bytes()
+        self.assertNotIn(b"\r", runner_raw)
+        self.assertFalse(runner_raw.startswith(b"\xef\xbb\xbf"))
+        runner_document = json.loads(runner_raw)
+        runner_info = parse_session(runner_raw)
+        self.assertEqual(set(runner_document), set(document))
+        for field in ("schema", "version", "host", "room_id", "pid"):
+            self.assertEqual(runner_document[field], document[field])
+        self.assertNotEqual(runner_info.token, self.info.token)
+        self.assertNotEqual(runner_info.port, self.info.port)
+        # Only the two role-specific session files and their shared ownership lock remain; no temp files.
+        self.assertEqual(sorted(p.name for p in GAME.session_path.parent.iterdir()),
+                         ["session.json", "session.lock", "wish-runner.json"])
 
     def test_the_game_never_prints_its_token(self):
         self.assertFalse(any(self.info.token in line for line in GAME.lines))
@@ -682,9 +745,14 @@ class McpClientOnTheRealHost(RealHostCase):
         await self.settle_rate()
         async with Client(server_parameters("--session-file", str(GAME.session_path)), mode="auto") as client:
             tools = {tool.name for tool in (await client.list_tools()).tools}
-            self.assertEqual(len(tools), 29)
-            self.assertNotIn("protect_unlock", tools)
-            self.assertNotIn("world_set_physics", tools)
+            current = contracts()
+            player_only = {"protect.unlock", "world.set_physics", "world.set_mode", "glow.configure",
+                           "wish.submit", "wish.stop", "wishes.read"}
+            self.assertEqual(current.player_only_ops, player_only)
+            expected = {op.replace(".", "_") for op in current.command_ops + current.query_ops if op not in player_only}
+            self.assertEqual(tools, expected)
+            for op in player_only:
+                self.assertNotIn(op.replace(".", "_"), tools)
 
             async def call(name, arguments):
                 result = (await client.call_tool(name, arguments)).structured_content
@@ -767,7 +835,7 @@ class McpClientOnTheRealHost(RealHostCase):
                 "actor in params": code(await call("effect_start", {"action_id": fresh_id("no"), **light, "params": {"actor": 1}})),
             }
             self.assertEqual(outcome, {
-                "listed": ["bubbles", "fireworks", "glow"],
+                "listed": ["bloom", "bubbles", "fire", "fireworks", "glow"],
                 "self": ("ok", "self", {"intensity": 0.6}),
                 "point": ("ok", "point"),
                 "bubbles on itself": ("ok", "float", "self"),

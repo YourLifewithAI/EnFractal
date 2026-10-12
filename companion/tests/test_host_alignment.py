@@ -26,15 +26,23 @@ def block(name: str) -> dict:
 
 
 EFFECT_ID = re.compile(r"effect:[a-z2-7]{26}")
-# capabilities.list's items for storybook_wild v2 (game/rules/storybook_wild/v2.json), in the order both hosts list them.
+# capabilities.list's items for storybook_wild v4, including the command route and enforced limits.
 GLOW_SUMMARY = {"capability": "glow", "category": "light", "params": {"intensity": {"min": 0.2, "max": 1.0}},
-                "area_radius_max_m": 1.5, "duration_max_s": 600}
+                "area_radius_max_m": 1.5, "duration_max_s": 600, "reach_m": 2.0, "max_active": 3,
+                "command_op": "effect.start"}
 BUBBLES_SUMMARY = {"capability": "bubbles", "category": "float", "params": {"intensity": {"min": 0.2, "max": 1.0}},
-                   "area_radius_max_m": 1.0, "duration_max_s": 60}
+                   "area_radius_max_m": 1.0, "duration_max_s": 60, "reach_m": 2.0, "max_active": 2,
+                   "command_op": "effect.start"}
 FIREWORKS_SUMMARY = {"capability": "fireworks", "category": "burst", "params": {"intensity": {"min": 0.3, "max": 1.0}},
-                     "area_radius_max_m": 2.0, "duration_max_s": 6}
-# An ability storybook_wild v2 does not grant (Bloom, the growth slot, comes later).
-LACKING = "bloom"
+                     "area_radius_max_m": 2.0, "duration_max_s": 6, "reach_m": 4.0, "max_active": 3,
+                     "command_op": "effect.start"}
+BLOOM_SUMMARY = {"capability": "bloom", "category": "growth", "params": {"intensity": {"min": 0.2, "max": 1.0}},
+                 "area_radius_max_m": 0.6, "duration_max_s": 600, "reach_m": 2.0, "max_active": 1,
+                 "command_op": "nature.cast"}
+FIRE_SUMMARY = {"capability": "fire", "category": "fire", "params": {"intensity": {"min": 0.2, "max": 1.0}},
+                "area_radius_max_m": 1.5, "duration_max_s": 60, "reach_m": 2.0, "max_active": 1,
+                "command_op": "nature.cast"}
+LACKING = "teleport"
 
 
 def refusal(result: dict):
@@ -151,7 +159,12 @@ class AlignmentScenarios:
     async def test_capabilities_list_answers_the_islands_rules(self):
         async def listed(args):
             result = await self.ask(query("capabilities.list", args, self.next_id("q")))
-            return result["data"] if result["ok"] else refusal(result)
+            if not result["ok"]:
+                return refusal(result)
+            # The mock adds an optional native_required marker for its simulation boundary.
+            # test_glow_modes verifies those markers and actual refusals; the shared rule data must match here.
+            return dict(result["data"], items=[{key: value for key, value in item.items() if key != "native_required"}
+                                              for item in result["data"]["items"]])
 
         outcome = {
             "all": await listed({}),
@@ -161,24 +174,24 @@ class AlignmentScenarios:
             "air": await listed({"category": "air"}),
             "first page of one": await listed({"limit": 1, "cursor": "0"}),
             "the next page": await listed({"limit": 1, "cursor": "1"}),
-            "the last page": await listed({"limit": 1, "cursor": "2"}),
-            "past the last": await listed({"limit": 1, "cursor": "3"}),
+            "the last page": await listed({"limit": 1, "cursor": "4"}),
+            "past the last": await listed({"limit": 1, "cursor": "5"}),
             "the rest from the second": await listed({"cursor": "1"}),
-            "beyond the end": await listed({"cursor": "4"}),
+            "beyond the end": await listed({"cursor": "6"}),
             "a signed cursor": await listed({"cursor": "+0"}),
             "a cursor of words": await listed({"cursor": "next"}),
         }
         self.assertEqual(outcome, {
-            "all": {"items": [BUBBLES_SUMMARY, FIREWORKS_SUMMARY, GLOW_SUMMARY]},
+            "all": {"items": [BLOOM_SUMMARY, BUBBLES_SUMMARY, FIRE_SUMMARY, FIREWORKS_SUMMARY, GLOW_SUMMARY]},
             "light": {"items": [GLOW_SUMMARY]},
             "float": {"items": [BUBBLES_SUMMARY]},
             "burst": {"items": [FIREWORKS_SUMMARY]},
             "air": {"items": []},
-            "first page of one": {"items": [BUBBLES_SUMMARY], "next_cursor": "1"},
-            "the next page": {"items": [FIREWORKS_SUMMARY], "next_cursor": "2"},
+            "first page of one": {"items": [BLOOM_SUMMARY], "next_cursor": "1"},
+            "the next page": {"items": [BUBBLES_SUMMARY], "next_cursor": "2"},
             "the last page": {"items": [GLOW_SUMMARY]},
             "past the last": {"items": []},
-            "the rest from the second": {"items": [FIREWORKS_SUMMARY, GLOW_SUMMARY]},
+            "the rest from the second": {"items": [BUBBLES_SUMMARY, FIRE_SUMMARY, FIREWORKS_SUMMARY, GLOW_SUMMARY]},
             "beyond the end": ("invalid_args", "$.args.cursor"),
             "a signed cursor": ("invalid_args", "$.args.cursor"),
             "a cursor of words": ("invalid_args", "$.args.cursor"),
@@ -201,7 +214,7 @@ class AlignmentScenarios:
             "self receipt": (mine.get("transient"), mine.get("created") == mine.get("affected") == [light],
                              bool(EFFECT_ID.fullmatch(light)), data.get("effect") == light),
             "self data": (sorted(data), data.get("capability"), data.get("category"), data.get("target"), data.get("params"),
-                          data.get("area", {}).get("radius_m"), data.get("duration_s")),
+                          data.get("area", {}).get("radius_m"), data.get("duration_s"), data.get("variant"), data.get("touch")),
             "point": refusal(spot),
             "point data": (spot["data"]["target"], spot["data"]["area"], spot["data"]["params"], spot["data"]["duration_s"])
             if spot["ok"] else None,
@@ -221,8 +234,8 @@ class AlignmentScenarios:
         self.assertEqual(outcome, {
             "self": "ok",
             "self receipt": (True, True, True, True),
-            "self data": (["area", "capability", "category", "duration_s", "effect", "expires_utc", "params", "target"],
-                          "glow", "light", "self", {"intensity": 0.6}, 0.5, 60),
+            "self data": (["area", "capability", "category", "duration_s", "effect", "expires_utc", "params", "target", "touch", "variant"],
+                          "glow", "light", "self", {"intensity": 0.6}, 0.5, 60, "lantern", "plain"),
             "point": "ok",
             "point data": ("point", {"center_m": IN_THE_OPEN, "radius_m": 1.5}, {"intensity": 1}, 600),
             "preview": ("ok", True, False, "point", False, False, {"intensity": 0.9}),

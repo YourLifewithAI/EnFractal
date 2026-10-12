@@ -18,7 +18,7 @@ namespace EnFractal.Tests.Kernel;
 /// </summary>
 public partial class CommandHostTest
 {
-    private static readonly string ShippedPack = IslandRules.PathFor(RoomWorld.DefaultRulesId, RoomWorld.DefaultRulesVersion);
+    private static readonly string ShippedPack = IslandRules.PathFor(RoomWorld.DefaultRulesId, 3);
 
     private async Task TestGlow()
     {
@@ -27,7 +27,7 @@ public partial class CommandHostTest
         _player.TryTeleportTo(_room.SpawnFor("player").PositionM + Vector3.Up * 0.008f);
         await Frames(3);
         TestNoRules();
-        _host.LoadRules(RoomWorld.DefaultRulesId, RoomWorld.DefaultRulesVersion);
+        _host.LoadRules(RoomWorld.DefaultRulesId, 3);
         Check(_host.Rules?.RulesId == "storybook_wild" && _host.RulesNotice.Length == 0, "the host loads the shipped rules pack");
         TestCapabilitiesFromRules();
         TestGlowWithNoLook();
@@ -43,7 +43,7 @@ public partial class CommandHostTest
         TestGlowTiers();
         await TestGlowUnload(look);
         TestAura(look);
-        TestGlowGrowth(look);
+        await TestGlowGrowth(look);
         _host.UseRules(null, "The glow checks are over.");
         _host.LookHook = null;
         look.QueueFree();
@@ -74,7 +74,7 @@ public partial class CommandHostTest
 
     private void TestRulesLoader()
     {
-        var shipped = IslandRules.Load(RoomWorld.DefaultRulesId, RoomWorld.DefaultRulesVersion);
+        var shipped = IslandRules.Load(RoomWorld.DefaultRulesId, 3);
         var glow = shipped.Ability("glow");
         var bubbles = shipped.Ability("bubbles");
         var fireworks = shipped.Ability("fireworks");
@@ -174,8 +174,9 @@ public partial class CommandHostTest
         Check(Ok(listed) && items.Count == 3 && glow != null && glow["capability"]!.GetValue<string>() == "glow" && glow["category"]!.GetValue<string>() == "light" &&
             glow["params"]!["intensity"]!["min"]!.GetValue<double>() == 0.2 && glow["params"]!["intensity"]!["max"]!.GetValue<double>() == 1.0 &&
             glow["params"]!["intensity"]!.AsObject().Count == 2 && glow["area_radius_max_m"]!.GetValue<double>() == 1.5 && glow["duration_max_s"]!.GetValue<double>() == 600 &&
-            glow.Count == 5 && listed["data"]!["next_cursor"] == null,
-            "capabilities.list answers the pack's glow as a capability_summary: params {min, max}, area_radius_max_m and duration_max_s");
+            glow.Count == 8 && glow["command_op"]!.GetValue<string>() == "effect.start" && glow["max_active"]!.GetValue<int>() == _host.EffectiveEffectLimit("glow") &&
+            glow["reach_m"]!.GetValue<double>() == 2.0 && listed["data"]!["next_cursor"] == null,
+            "capabilities.list answers the pack's Glow bounds, command path and current earned limit");
         Check(Query("capabilities.list", new JsonObject { ["category"] = "light" }, Companion)["data"]!["items"]!.AsArray().Count == 1 &&
             Query("capabilities.list", new JsonObject { ["category"] = "air" }, Companion)["data"]!["items"]!.AsArray().Count == 0, "capabilities.list filters by category");
         var paged = Query("capabilities.list", new JsonObject { ["limit"] = 1, ["cursor"] = "1" }, Player);
@@ -217,7 +218,7 @@ public partial class CommandHostTest
         Check(Code(Send(Glow("glow-r10", SelfArgs()), Companion)) == "invalid_args", "an ability without self cannot be cast on the Gubble");
         _host.UseRules(Rules(Variant("\"targets\": [\"self\", \"point\"]", "\"targets\": [\"self\"]")));
         Check(Code(Send(Glow("glow-r11", PointArgs(InTheOpen)), Companion)) == "invalid_args", "an ability without point cannot be cast at a spot");
-        _host.LoadRules(RoomWorld.DefaultRulesId, RoomWorld.DefaultRulesVersion);
+        _host.LoadRules(RoomWorld.DefaultRulesId, 3);
         // Targets: the companion's own avatar only, from anyone.
         var rug = SelfArgs();
         rug["targets"] = new JsonArray("obj:rug");
@@ -260,7 +261,7 @@ public partial class CommandHostTest
         _host.UseRules(Rules(Variant("\"cast_by\": [\"player\", \"companion\"]", "\"cast_by\": [\"companion\"]")));
         Check(Code(Send(Glow("glow-c3", SelfArgs()), Player)) == "permission_denied" && _host.ActiveEffectIds.Count == 0, "cast_by without the player: the player's is permission_denied (and new rules ended the old glow)");
         Check(Ok(Send(Glow("glow-c4", SelfArgs()), Companion)), "and the companion's is cast");
-        _host.LoadRules(RoomWorld.DefaultRulesId, RoomWorld.DefaultRulesVersion);
+        _host.LoadRules(RoomWorld.DefaultRulesId, 3);
     }
 
     private async Task TestGlowLifecycle(LookDirector look)
@@ -338,6 +339,7 @@ public partial class CommandHostTest
 
     private void TestGlowCaps(LookDirector look)
     {
+        _host.ConfigureGlowProgress(new GrowthTestStore());
         var ids = Enumerable.Range(0, 3).Select(i => Effect(Send(Glow($"glow-cap-{i}", PointArgs(InTheOpen + new Vector3(0.05f * i, 0, 0))), Companion))).ToList();
         Check(ids.All(i => i.Length > 0) && look.GlowCount == 3, "three glows run at once (the initial learned allowance)");
         var fourth = Send(Glow("glow-cap-3", SelfArgs()), Player);
@@ -376,7 +378,7 @@ public partial class CommandHostTest
             "the player's click starts it, under the companion with approved_by");
         Check(Code(Send(Glow("glow-t2", SelfArgs(new JsonObject { ["intensity"] = 1.4 })), Companion)) == "invalid_args", "a held ability is checked before it is held");
         Check(Ok(Send(Glow("glow-t3", PointArgs(InTheOpen)), Player)), "the player's own keyed_yes glow runs at once");
-        _host.LoadRules(RoomWorld.DefaultRulesId, RoomWorld.DefaultRulesVersion);
+        _host.LoadRules(RoomWorld.DefaultRulesId, 3);
         Check(_host.ActiveEffectIds.Count == 0, "new rules end the glows started under the old");
     }
 
@@ -387,7 +389,7 @@ public partial class CommandHostTest
         host.Clock = () => _now;
         await Frames(2);
         host.LookHook = look;
-        host.LoadRules(RoomWorld.DefaultRulesId, RoomWorld.DefaultRulesVersion);
+        host.LoadRules(RoomWorld.DefaultRulesId, 3);
         var started = host.PlayerEffect("glow");
         Check(Ok(started) && look.GlowCount == 1, "a second host lights a glow: " + Code(started));
         host.QueueFree();

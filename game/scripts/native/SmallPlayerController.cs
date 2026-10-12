@@ -309,6 +309,13 @@ public partial class SmallPlayerController : CharacterBody3D
     public bool AtSea => Sea != null && Sea.PastReefM(new Vector2(GlobalPosition.X, GlobalPosition.Z)) > 0;
 
     public bool IsClimbing => _climbing;
+    /// <summary>Trusted host callbacks for mode consequences. Unbound fixture bodies retain Creative movement.</summary>
+    public System.Func<float, float, bool>? ClimbBudget { get; set; }
+    public System.Action<float, bool>? VitalsTick { get; set; }
+    public System.Action<float, bool>? FallObserved { get; set; }
+    public System.Action<Vector3, Vector3>? ClimbCompleted { get; set; }
+    private float? _vitalsFallPeak;
+    private Vector3? _vitalsClimbStart;
     public bool IsPullingOver => _climbing && _pullPhase > 0;
     public bool IsSwimming => _swimming;
     /// <summary>The face being climbed (outward, unit); meaningful while IsClimbing.</summary>
@@ -704,6 +711,7 @@ public partial class SmallPlayerController : CharacterBody3D
         // With physics interpolation on, a teleport must not be drawn as a glide from the old place to the new one.
         ResetPhysicsInterpolation();
         StopClimbingAndSwimming();
+        ResetVitalsObservation();
         Velocity = Vector3.Zero;
         _jumpBuffer = 0;
         LastSafePosition = position;
@@ -743,6 +751,24 @@ public partial class SmallPlayerController : CharacterBody3D
             }
         ClearCreationMotion();
         return recovered;
+    }
+
+    /// <summary>Injury recovery returns to the room spawn, rather than the last high ledge. Never teleports into solid geometry.</summary>
+    public bool RecoverAtSpawn()
+    {
+        SetControlInput(Vector2.Zero);
+        ClearCreationMotion();
+        if (TryTeleportTo(_spawnPoint)) { Recoveries++; return true; }
+        foreach (var offset in new[] { Vector3.Right, Vector3.Left, Vector3.Forward, Vector3.Back })
+            if (TryTeleportTo(_spawnPoint + offset * BodyHeightM)) { Recoveries++; return true; }
+        return false;
+    }
+
+    /// <summary>Teleports and a change of mode start a new observation; they never manufacture a completed climb or a fall.</summary>
+    public void ResetVitalsObservation()
+    {
+        _vitalsFallPeak = IsInsideTree() ? GlobalPosition.Y : null;
+        _vitalsClimbStart = null;
     }
 
     /// <summary>How far a pixel of mouse motion turns the view (the feel the captured mouse had).</summary>
@@ -863,9 +889,31 @@ public partial class SmallPlayerController : CharacterBody3D
             _waterLeap = false;
         }
         if (!GlobalPosition.IsFinite() || GlobalPosition.Y < _spawnPoint.Y - 12.0f ||
-            (PlayableBounds is { } bounds && GlobalPosition.Y < bounds.Position.Y - RecoverBelowBoundsM)) Recover();
+            (PlayableBounds is { } bounds && GlobalPosition.Y < bounds.Position.Y - RecoverBelowBoundsM))
+        {
+            // The out-of-room safety net is still a fall in consequence modes; report it before teleport resets the observation.
+            if (GlobalPosition.IsFinite() && _vitalsFallPeak is { } peak)
+                FallObserved?.Invoke(Mathf.Max(0, peak - GlobalPosition.Y), false);
+            Recover();
+        }
+        ObserveBodyVitals(dt);
         UpdateVisual(dt);
         VisualRoot.Visible = !EyeCamera.Current;
+    }
+
+    private void ObserveBodyVitals(float dt)
+    {
+        if (Floats || (VitalsTick == null && FallObserved == null)) return;
+        _vitalsFallPeak = Mathf.Max(_vitalsFallPeak ?? GlobalPosition.Y, GlobalPosition.Y);
+        var safelyGrounded = IsOnFloor() && !_climbing && !_swimming && !GoingHome;
+        var caughtByWater = Water.Wet && Water.DepthM >= SwimDepthM && Water.Under(GlobalPosition) >= 0;
+        if (safelyGrounded || caughtByWater)
+        {
+            var height = Mathf.Max(0, _vitalsFallPeak.Value - GlobalPosition.Y);
+            _vitalsFallPeak = GlobalPosition.Y;
+            FallObserved?.Invoke(height, caughtByWater);
+        }
+        VitalsTick?.Invoke(dt, safelyGrounded);
     }
 
     /// <summary>On foot or in the air: the walk, the run, steps, jumps and creation forces, slowed by the water it wades in.</summary>
@@ -1327,7 +1375,7 @@ public partial class SmallPlayerController : CharacterBody3D
     /// </summary>
     private void TryGrab(float dt, Vector3 wish, bool deliberate, bool heldBack)
     {
-        if (!CanClimb || _regrabBlock > 0 || !InputEnabled || wish.LengthSquared() < 0.25f || HandsAreFull())
+        if (!CanClimb || _regrabBlock > 0 || !InputEnabled || wish.LengthSquared() < 0.25f || HandsAreFull() || (ClimbBudget != null && !ClimbBudget(0, 0)))
         {
             _grabPush = 0;
             return;
@@ -1368,6 +1416,7 @@ public partial class SmallPlayerController : CharacterBody3D
         _grabPush += dt;
         if (deliberate && _grabPush < ClimbGrabDelayS) return;
         _climbing = true;
+        _vitalsClimbStart = GlobalPosition;
         _climbNormal = found.Normalized();
         _grabPush = 0;
         _pullPhase = 0;
@@ -1417,6 +1466,12 @@ public partial class SmallPlayerController : CharacterBody3D
         {
             _jumpBuffer = 0;
             LetGo(kick: true);
+            return;
+        }
+        var budgetRise = (_pullPhase > 0 ? PullOverSpeedMps : Mathf.Max(0, control.Y) * ClimbSpeedMps) * dt;
+        if (ClimbBudget != null && !ClimbBudget(dt, budgetRise))
+        {
+            LetGo(kick: false);
             return;
         }
         if (_pullPhase > 0)
@@ -1550,6 +1605,7 @@ public partial class SmallPlayerController : CharacterBody3D
             if (over.Length() <= 0.001f)
             {
                 PullOvers++;
+                CompleteObservedClimb();
                 StopClimbing(Vector3.Zero);
                 return;
             }
@@ -1563,10 +1619,17 @@ public partial class SmallPlayerController : CharacterBody3D
             if (HasSupportNear(GlobalPosition, 0.01f))
             {
                 PullOvers++;
+                CompleteObservedClimb();
                 StopClimbing(Vector3.Zero);
             }
             else _pullPhase = 0;
         }
+    }
+
+    private void CompleteObservedClimb()
+    {
+        if (_vitalsClimbStart is { } start) ClimbCompleted?.Invoke(start, GlobalPosition);
+        _vitalsClimbStart = null;
     }
 
     /// <summary>Jump lets go with a small kick away and up; a lost face just drops the body. Either way the same push does not grab again at once.</summary>
@@ -1581,6 +1644,7 @@ public partial class SmallPlayerController : CharacterBody3D
     private void StopClimbing(Vector3 velocity)
     {
         _climbing = false;
+        _vitalsClimbStart = null;
         _pullPhase = 0;
         _faceLost = 0;
         MotionMode = MotionModeEnum.Grounded;
@@ -1592,6 +1656,7 @@ public partial class SmallPlayerController : CharacterBody3D
     {
         if (_climbing || _swimming) MotionMode = MotionModeEnum.Grounded;
         _climbing = false;
+        _vitalsClimbStart = null;
         _swimming = false;
         _pullPhase = 0;
         _faceLost = 0;

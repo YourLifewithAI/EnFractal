@@ -99,6 +99,8 @@ public partial class CommandHostTest : Node3D
             await TestDurableLedger();
             await TestReloadAtTheReceiptBound();
             await TestGlow();
+            await TestPlayerModes();
+            TestWishes();
             OS.RemoveLogger(_errors);
             Check(_errors.Count == 0, $"no script or engine errors during the suite ({_errors.Count}; first: {_errors.First})");
             GD.Print($"NATIVE_KERNEL_COMMAND_HOST: {_checks - _failures}/{_checks} checks passed; enfractal.command place, revise, remove, lock, goal, stop, physics and checkpoint commands with receipts, ledgers, replay, conflicts, approvals, rate limits, text rules, line of sight, perception memory, goal jobs, the island's rules and glows{(_dump != null ? $"; {_dumped} messages dumped" : "")}");

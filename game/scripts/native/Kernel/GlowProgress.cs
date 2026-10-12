@@ -14,7 +14,7 @@ public sealed class GlowProgressException(string message) : Exception(message);
 /// <summary>
 /// Host-owned progress for the first single-player Glow trial. This is independent of room saves and
 /// physical player traits. Only completed host observations may advance it; model prose is not evidence.
-/// The other four discovery IDs reserve the save vocabulary for their later, implemented behaviours.
+/// Discovery IDs name behaviours verified by the host; strings from commands or journals cannot award them.
 /// </summary>
 public sealed class GlowProgress
 {
@@ -28,51 +28,73 @@ public sealed class GlowProgress
     public const string LanternHint = "lantern_self";
 
     private static readonly string[] DiscoveryOrder = { Lantern, Torch, Bioluminesce, Constellation, Skylight };
-    private static readonly string[] HintOrder = { LanternHint };
+    private static readonly string[] HintOrder = { LanternHint, "torch_high_place", "bioluminesce_water", "constellation_nearby", "skylight_sky" };
+    public static readonly IReadOnlyList<string> Touches = Array.AsReadOnly(new[] { "plain", "air", "ember", "frost", "chime" });
 
     public static GlowProgress Fresh { get; } = new(0, Array.Empty<string>(), Array.Empty<string>());
     public int SuccessfulCasts { get; }
     public IReadOnlyList<string> Discoveries { get; }
     public IReadOnlyList<string> DeliveredHints { get; }
+    public string SelectedTouch { get; }
+    public double SoundVolume { get; }
+    public bool SoundMuted { get; }
     public int ActiveLightAllowance => Discoveries.Count >= 5 ? 5 : Discoveries.Count >= 2 ? 4 : 3;
 
-    private GlowProgress(int successfulCasts, string[] discoveries, string[] deliveredHints)
+    private GlowProgress(int successfulCasts, string[] discoveries, string[] deliveredHints, string touch = "plain", double volume = 0.35, bool muted = false)
     {
         SuccessfulCasts = successfulCasts;
         Discoveries = new ReadOnlyCollection<string>(discoveries);
         DeliveredHints = new ReadOnlyCollection<string>(deliveredHints);
+        SelectedTouch = touch;
+        SoundVolume = volume;
+        SoundMuted = muted;
     }
 
     public bool HasDiscovery(string id) => Discoveries.Contains(id, StringComparer.Ordinal);
 
     /// <summary>
     /// Builds a candidate only. The host must save it successfully before publishing it. A self Glow is
-    /// Lantern; point Glow is counted but does not pretend that an unimplemented variant was discovered.
-    /// A nudge can mention only the implemented Lantern behaviour and is remembered once across reloads.
+    /// Lantern; a plain point Glow counts practice. Other discoveries require AfterObservedCast's
+    /// verified host observation. Curated nudges are remembered once across reloads.
     /// </summary>
-    public GlowProgress AfterCast(bool lantern)
+    public GlowProgress AfterCast(bool lantern) => AfterObservedCast(lantern ? Lantern : null);
+
+    public GlowProgress AfterObservedCast(string? discovery, bool constellation = false)
     {
         var count = Math.Min(MaxSuccessfulCasts, SuccessfulCasts + 1);
         var discoveries = Discoveries.ToList();
         var hints = DeliveredHints.ToList();
-        if (lantern && !HasDiscovery(Lantern)) discoveries.Add(Lantern);
-        if (count >= HintAfterCasts && !discoveries.Contains(Lantern) && !hints.Contains(LanternHint))
-            hints.Add(LanternHint);
+        if (discovery != null && !DiscoveryOrder.Contains(discovery, StringComparer.Ordinal))
+            throw new GlowProgressException("Glow progress has an invalid discovery.");
+        if (discovery != null && !HasDiscovery(discovery)) discoveries.Add(discovery);
+        if (constellation && !discoveries.Contains(Constellation)) discoveries.Add(Constellation);
+        if (count >= HintAfterCasts * (hints.Count + 1))
+            for (var index = 0; index < DiscoveryOrder.Length; index++)
+                if (!discoveries.Contains(DiscoveryOrder[index]) && !hints.Contains(HintOrder[index]))
+                { hints.Add(HintOrder[index]); break; }
         if (count == SuccessfulCasts && discoveries.Count == Discoveries.Count && hints.Count == DeliveredHints.Count)
             return this;
-        return Restore(count, discoveries, hints);
+        return Restore(count, discoveries, hints, SelectedTouch, SoundVolume, SoundMuted);
     }
 
+    public GlowProgress WithConfiguration(string touch, double volume, bool muted) =>
+        Restore(SuccessfulCasts, Discoveries, DeliveredHints, touch, volume, muted);
+
     /// <summary>Validated restoration for the host's local save, never a command or companion input.</summary>
-    public static GlowProgress Restore(int successfulCasts, IEnumerable<string> discoveries, IEnumerable<string> deliveredHints)
+    public static GlowProgress Restore(int successfulCasts, IEnumerable<string> discoveries, IEnumerable<string> deliveredHints,
+        string touch = "plain", double volume = 0.35, bool muted = false)
     {
         if (successfulCasts < 0 || successfulCasts > MaxSuccessfulCasts)
             throw new GlowProgressException("Glow progress has an invalid use count.");
         var found = ValidateIds(discoveries, DiscoveryOrder, "Glow progress has invalid discoveries.");
         var hints = ValidateIds(deliveredHints, HintOrder, "Glow progress has invalid hint records.");
-        if (successfulCasts < found.Length || (hints.Length > 0 && successfulCasts < HintAfterCasts))
+        // A cast may complete both its own variant and the three-point constellation.
+        if (found.Length > successfulCasts + (found.Contains(Constellation) ? 1 : 0) ||
+            (successfulCasts == 0 && found.Length > 0) || successfulCasts < hints.Length * HintAfterCasts)
             throw new GlowProgressException("Glow progress has inconsistent use records.");
-        return new GlowProgress(successfulCasts, found, hints);
+        if (!Touches.Contains(touch, StringComparer.Ordinal) || !double.IsFinite(volume) || volume is < 0 or > 1)
+            throw new GlowProgressException("Glow progress has invalid touch or sound settings.");
+        return new GlowProgress(successfulCasts, found, hints, touch, volume, muted);
     }
 
     private static string[] ValidateIds(IEnumerable<string> values, string[] known, string error)
@@ -104,9 +126,10 @@ public sealed class LocalGlowProgressStore : IGlowProgressStore
 {
     public const string DefaultUserPath = "user://single_player/progression/glow_trial_v1.json";
     public const string SchemaId = "enfractal.glow_progress";
-    public const int Version = 1;
+    public const int Version = 2;
     public const int MaxSaveBytes = 4096;
     private static readonly string[] Fields = { "schema", "version", "successful_casts", "discoveries", "delivered_hints" };
+    private static readonly string[] VersionTwoFields = Fields.Concat(new[] { "touch", "sound_volume", "muted" }).ToArray();
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
 
     private readonly string _path;
@@ -224,18 +247,30 @@ public sealed class LocalGlowProgressStore : IGlowProgressStore
         using (document)
         {
             var root = document.RootElement;
-            if (root.ValueKind != JsonValueKind.Object || root.EnumerateObject().Count() != Fields.Length ||
-                root.EnumerateObject().Any(property => !Fields.Contains(property.Name, StringComparer.Ordinal)))
+            if (root.ValueKind != JsonValueKind.Object)
+                throw new GlowProgressException("Glow progress has unsupported fields.");
+            if (!root.TryGetProperty("version", out var version) || version.ValueKind != JsonValueKind.Number ||
+                !version.TryGetInt32(out var versionNumber) || versionNumber is not (1 or Version))
+                throw new GlowProgressException("Glow progress has an unsupported save version.");
+            var allowedFields = versionNumber == 1 ? Fields : VersionTwoFields;
+            if (root.EnumerateObject().Count() != allowedFields.Length || root.EnumerateObject().Any(property => !allowedFields.Contains(property.Name, StringComparer.Ordinal)))
                 throw new GlowProgressException("Glow progress has unsupported fields.");
             if (root.GetProperty("schema").ValueKind != JsonValueKind.String || root.GetProperty("schema").GetString() != SchemaId)
                 throw new GlowProgressException("Glow progress has an unsupported save format.");
-            var version = root.GetProperty("version");
-            if (version.ValueKind != JsonValueKind.Number || !version.TryGetInt32(out var versionNumber) || versionNumber != Version)
-                throw new GlowProgressException("Glow progress has an unsupported save version.");
             var casts = root.GetProperty("successful_casts");
             if (casts.ValueKind != JsonValueKind.Number || !casts.TryGetInt32(out var count))
                 throw new GlowProgressException("Glow progress has an invalid use count.");
-            return GlowProgress.Restore(count, Ids(root.GetProperty("discoveries"), 5), Ids(root.GetProperty("delivered_hints"), 1));
+            var hints = Ids(root.GetProperty("delivered_hints"), versionNumber == 1 ? 1 : 5);
+            if (versionNumber == 1 && hints.Any(id => id != GlowProgress.LanternHint))
+                throw new GlowProgressException("Glow progress has invalid legacy hint records.");
+            if (versionNumber == 1) return GlowProgress.Restore(count, Ids(root.GetProperty("discoveries"), 5), hints);
+            var touch = root.GetProperty("touch");
+            var volume = root.GetProperty("sound_volume");
+            var muted = root.GetProperty("muted");
+            if (touch.ValueKind != JsonValueKind.String || volume.ValueKind != JsonValueKind.Number ||
+                !volume.TryGetDouble(out var level) || muted.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+                throw new GlowProgressException("Glow progress has invalid touch or sound settings.");
+            return GlowProgress.Restore(count, Ids(root.GetProperty("discoveries"), 5), hints, touch.GetString()!, level, muted.GetBoolean());
         }
     }
 
@@ -249,6 +284,9 @@ public sealed class LocalGlowProgressStore : IGlowProgressStore
             successful_casts = state.SuccessfulCasts,
             discoveries = state.Discoveries,
             delivered_hints = state.DeliveredHints,
+            touch = state.SelectedTouch,
+            sound_volume = state.SoundVolume,
+            muted = state.SoundMuted,
         });
         var bytes = new byte[json.Length + 1];
         json.CopyTo(bytes, 0);

@@ -1,45 +1,21 @@
-# Gubble growth: first implementation
+# Gubble growth runtime playtest
 
-11 October 2026. Branch `codex/gubble-growth-runtime`, based on `run2/integration` at `7173ed0`. The founder authorized beginning the growth design in this chat. The revised design, including the founder's own edits, is on `codex/gubble-growth` at `3ad7965` (`docs/magic/README.md`). Both branches are local review work; the installed game has not been replaced.
+11 October 2026 · `codex/gubble-growth-runtime` · foundation commit `66aeef0` on integration `7173ed0`.
 
-## What works
+The requested playable slice is implemented on one branch: five earned Glow discoveries, four/five-light growth, constellation editing, glowing particles, expressive touches and sound controls; Bloom/trail; saved rain/wind patterns and bounded Fire; Creative/Challenge/Live traits and consequences; and a player-started, vendor-neutral FIFO wish runner. The HUD exposes these through Magic. Player and AI changes use the host, with preview, ownership, protection and approval checks.
 
-A successful Glow on the Gubble discovers Lantern. A new **Glow journal** button shows that discovery and the current light allowance. Ten successful point casts can reveal a curated Lantern hint. Both player and connected companion use the same host checks; previews, refusals, pending approvals and receipt replays earn nothing.
-
-The host saves a small, validated profile independently of room saves and undo. Failed writes cancel the staged light without publishing progress or a receipt. Corrupt saves remain intact; an exclusive write lease and baseline check protect against competing sessions. The journal never accepts model prose or world labels as discovery evidence or display text.
-
-The new v3 rules pack permits at most five Glow lights. The host further limits that to three initially, four after two distinct discoveries, and five after five. The room's eight-effect ceiling remains. V2 is unchanged. Python mock behavior matches the native host.
-
-**Only Lantern is discoverable in play in this build.** The other discovery IDs are reserved for their actual implementations; restored fixtures test the four/five-light limits. No Torch, water illumination, constellation connections, Skylight, touches, mode selection, stamina, damage, weather, Fire or wish runner is claimed as built. Mode-specific profile selection must be added before progression transfers between modes are supported.
+Glow/traits are isolated by mode. Fire preserves scorched creation designs, disables their triggers and quotes repair from the original material parts; other flammable objects can disappear. Atomic nature saves include weather, grouped undo and receipts. AI undo retains ownership checks and player approval for player changes. Wishes require receipt evidence, reject provider prose, cancel promptly, and revoke held work. Separate authenticated runner credentials grant no world authority.
 
 ## Validation
 
-Both full Windows runners passed. Selected raw output follows; complete logs remain in `.cache/growth-validation/engine.log` and `room.log` (ignored).
+Both complete Windows runners passed with a build reporting zero warnings and zero errors. `run-engine-tests.ps1` passed the retained smoke suites, canonical JSON 31/31, command host 669/669, HUD 289/289, sandbox 159/159, journal 101/101, rebuild 56/56, nature 62/62 and the companion run of 722 tests. `tools/test-room.ps1` passed avatar 305/305, navigation 15/15, landscape 48/48, room data 56/56, look 1165/1165 and the room boot probe. Logs are local and ignored: `.cache/growth-validation/engine-release.log` and `room-release.log`.
 
-```text
-./run-engine-tests.ps1
-exit 0
-companion: Ran 685 tests in 153.304s
+The four rules packs validate; v2/v3 bytes are unchanged. Launch scripts parse and the demo configuration points to this checkout. Sound lifecycle tests stop and release active/queued playback before shutdown; strict stderr checks remain enabled.
 
-./tools/test-room.ps1
-exit 0
-NATIVE_KERNEL_LANDSCAPE: 48/48 checks passed; both bodies held inside the bounds, the companion's go_to and fetch and the player's carry on the land, every promised destination reached, cliffs and a tree climbed
-ROOM_WORLD_READY room=test_room shell=9 objects=5 lights=2 style=storybook_painterly@2 spawn=(0, 0.008, 0.6)
+Initial integration failures were corrected: pinned Godot API names, numeric bounds conversion, stale tool/session assertions, runner-facing schemas, preview evidence, replay across operations, Stop with an outstanding reply and audio teardown. Existing companion undo checks were retained. No existing protection test was disabled.
 
-C:\dev\EnFractal\.cache\contracts-venv\Scripts\python.exe contracts/validate.py game/rules/storybook_wild/v3.json
-exit 0
-OK: 1 item(s) checked, 0 problem(s)
+## Playtest and limits
 
-git diff --check
-exit 0, no output
-```
+Run `play-growth.ps1`; follow [the checklist](../../magic/PLAYTEST.md). `start-growth-wishes.ps1 -Demo` exercises wishes without a provider. Live CLI inference remains unverified; the optional Claude adapter uses API authentication, and subscription-driven adapters require separate verification. Balance is provisional. Individual bubble grabbing, weather control, combat/multiplayer and a broader resource economy remain later work. Export includes nature; aggregate import refuses that extension until both stores can be restored transactionally.
 
-Initial failures corrected: missing namespace and ambiguous `FileAccess` imports in new tests; the HUD's former assumption that a pack ceiling equals the current allowance; and the test launch's missing `DOTNET_ROOT`. No existing check was disabled. All engine runs use isolated test saves. Independent native review found no blocker or major issue. No visual playtest or GPU capture was performed, and no paid APIs were called.
-
-## Next slice
-
-Implement each remaining discovery's real behavior and authoritative observation before awarding it, starting with Torch. Add its journal entry and companion parity at the same time. The fourth light then becomes earnable through Lantern plus Torch. Continue with the three-point constellation, water illumination and Skylight before the five-light enhancement. The reviewed numerical thresholds remain playtest tuning.
-
-## Separate session issue
-
-The reported `Responses WebSocket messages must have type response.create.` toast is emitted by the active local Codex router's message-type guard in `C:\Users\blues\tools\codex-router\src\responses-websocket.mjs`. The rejected message type was not logged, so the triggering frame remains unknown. No router source, settings or running service were changed; this diagnosis is not a fix.
+No GPU captures, paid inference, integrator checkout changes or automatic merges were performed. The reported Codex router WebSocket issue remains separate and unfixed.

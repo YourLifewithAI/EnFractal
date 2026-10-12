@@ -47,6 +47,7 @@ public partial class RoomHud
         CancelAsk();
         EndDrag();
         if (!GlowJournalOpen && Customizing) ToggleCustomization();
+        if (!GlowJournalOpen && MagicPanelOpen) SetMagicPanelOpen(false);
         _glowJournal.Visible = !GlowJournalOpen;
         Player.SetInputEnabled(!GlowJournalOpen);
         Input.MouseMode = Input.MouseModeEnum.Visible;
@@ -64,14 +65,36 @@ public partial class RoomHud
             var limit = host.EffectiveEffectLimit("glow");
             lines.Add(limit > 0 ? $"Glow can hold {limit} {(limit == 1 ? "light" : "lights")} at a time." : "Glow is not available on this island.");
             var progress = host.GlowProgress;
-            if (progress.HasDiscovery("lantern"))
-                lines.Add("Lantern\nA light that travels with the Gubble.");
-            else
+            if (progress.Discoveries.Count == 0)
                 lines.Add("Your Glow discoveries will appear here.");
-            // Each future live discovery gets its own curated entry when its behaviour is implemented.
-            // No undiscovered names, hidden conditions or cast counters are revealed by this page.
-            if (!progress.HasDiscovery("lantern") && progress.DeliveredHints.Contains("lantern_self"))
-                lines.Add("A thought from the Gubble\nTry asking me to glow on myself.");
+            foreach (var discovery in progress.Discoveries)
+            {
+                var words = discovery switch
+                {
+                    "lantern" => "Lantern\nA light that travels with the Gubble.",
+                    "torch" => "Torch\nA bright light resting on a high place.",
+                    "bioluminesce" => "Bioluminesce\nTiny living-looking lights gather across the water.",
+                    "constellation" when progress.ActiveLightAllowance >= 5 => "Constellation\nLights joined into your own pattern. You can now move its points and change their links.",
+                    "constellation" => "Constellation\nNearby lights connect into a small pattern.",
+                    "skylight" => "Skylight\nA small star shining above the island.",
+                    _ => "",
+                };
+                if (words.Length > 0) lines.Add(words);
+            }
+            // Only hints already delivered by the host appear. No cast counters or hidden thresholds are revealed.
+            foreach (var hint in progress.DeliveredHints)
+            {
+                var words = hint switch
+                {
+                    "lantern_self" when !progress.HasDiscovery("lantern") => "Try asking me to glow on myself.",
+                    "torch_high_place" when !progress.HasDiscovery("torch") => "I wonder how a light would feel in a high place.",
+                    "bioluminesce_water" when !progress.HasDiscovery("bioluminesce") => "The water might have its own way to shine.",
+                    "constellation_nearby" when !progress.HasDiscovery("constellation") => "Maybe a few nearby lights could make a pattern.",
+                    "skylight_sky" when !progress.HasDiscovery("skylight") => "Could we try a light above us, under the open sky?",
+                    _ => "",
+                };
+                if (words.Length > 0) lines.Add("A thought from the Gubble\n" + words);
+            }
             if (host.GlowProgressNotice.Length > 0) lines.Add(host.GlowProgressNotice);
         }
         var text = string.Join("\n\n", lines);

@@ -121,12 +121,13 @@ class GlowMatchesTheKernel(unittest.TestCase):
         from enfractal_companion.mock_host import rules_path
         self.assertIn('=> $"res://rules/{rulesId}/v{rulesVersion}.json";', _text(RULES))
         path = rules_path()
-        self.assertEqual(path, REPO / "game" / "rules" / "storybook_wild" / "v3.json")
+        self.assertEqual(path, REPO / "game" / "rules" / "storybook_wild" / "v4.json")
         host = new_host()
         self.assertEqual((host.rules.rules_id, host.rules.rules_version, host.rules.sha256),
-                         ("storybook_wild", 3, hashlib.sha256(path.read_bytes()).hexdigest()))
+                         ("storybook_wild", 4, hashlib.sha256(path.read_bytes()).hexdigest()))
         self.assertEqual([(a.capability, a.primitive) for a in host.rules.abilities],
-                         [("glow", "light.emit"), ("bubbles", "particles.float"), ("fireworks", "particles.burst")])
+                         [("glow", "light.emit"), ("bubbles", "particles.float"), ("fireworks", "particles.burst"),
+                          ("bloom", "growth.seed"), ("fire", "element.ignite")])
 
     def test_the_mock_loads_the_primitives_the_kernel_carries_out(self):
         """The mock checks a pack against the island-rules schema; the kernel against its own table of primitives
@@ -156,9 +157,17 @@ class GlowMatchesTheKernel(unittest.TestCase):
                                          float(entry.group(6)), int(entry.group(7)))
         self.assertEqual(len(in_kernel), table.count("] = new("), "a kernel primitive this test could not read")
         self.assertEqual(in_kernel, in_schema)
-        self.assertEqual(sorted(in_kernel), ["light.emit", "particles.burst", "particles.float"])
+        self.assertEqual(sorted(in_kernel), ["element.ignite", "growth.seed", "light.emit", "particles.burst", "particles.float"])
         start_look = _method(_text(EFFECTS), "private bool StartLook(")
-        self.assertEqual(sorted(re.findall(r'"([a-z]+\.[a-z]+)" => look\.Start\w+\(', start_look)), sorted(in_kernel))
+        self.assertEqual(sorted(re.findall(r'"([a-z]+\.[a-z]+)" => look\.Start\w+\(', start_look)),
+                         ["light.emit", "particles.burst", "particles.float"])
+        # Persistent terrain primitives use their own authority path, never a cosmetic effect receipt.
+        plan = _method(_text(EFFECTS), "private EffectPlan PlanEffect(")
+        self.assertIn('capability is "bloom" or "fire"', plan)
+        self.assertIn("Use nature.cast for this ability; preview Fire first.", plan)
+        nature = _text(KERNEL / "Kernel" / "CommandHostNature.cs")
+        self.assertIn('if (op == "nature.cast")', nature)
+        self.assertIn('Rules?.Ability(capability)', nature)
 
     def test_reserved_param_names_are_the_contracts_everywhere(self):
         import json
@@ -171,15 +180,20 @@ class GlowMatchesTheKernel(unittest.TestCase):
         self.assertEqual([contract, kernel[0], kernel[1]], [pack, pack, pack])
 
     def test_the_mock_checks_effect_start_in_the_kernels_order_and_words(self):
-        """The codes PlanEffect throws, in order, are the mock's _plan_effect's; and every refusal message and field
-        path the mock gives for the abilities is the kernel's, word for word."""
+        """Shared checks keep the kernel's order and words. Water surface resnapping needs real terrain;
+        the mock explicitly refuses that variant, as exercised in test_glow_modes."""
         import ast
         import inspect
         import textwrap
         from enfractal_companion.mock_host import MockHost
         kernel = _method(_text(EFFECTS), "private EffectPlan PlanEffect(")
         mock = inspect.getsource(MockHost._plan_effect)
-        self.assertEqual(re.findall(r'HostError\("(\w+)"', mock), re.findall(r'new Refusal\("(\w+)"', kernel))
+        water_start = kernel.index('if (variant == "bioluminesce" && GlowWaterSurfaceAt(centre) is { } surface)')
+        water_end = kernel.index('if (variant == "torch")', water_start)
+        water_checks = kernel[water_start:water_end]
+        self.assertEqual(re.findall(r'new Refusal\("(\w+)"', water_checks), ["out_of_bounds", "target_not_found"])
+        shared_checks = kernel[:water_start] + kernel[water_end:]
+        self.assertEqual(re.findall(r'HostError\("(\w+)"', mock), re.findall(r'new Refusal\("(\w+)"', shared_checks))
         words = set()
         for function in (MockHost._plan_effect, MockHost._op_effect_start, MockHost._op_effect_stop):
             tree = ast.parse(textwrap.dedent(inspect.getsource(function)))

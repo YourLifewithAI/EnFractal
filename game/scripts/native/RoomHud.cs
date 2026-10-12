@@ -267,6 +267,7 @@ public partial class RoomHud : CanvasLayer
         AddButton(options, "Save appearance and return", () => { SavePreferences(); ToggleCustomization(); });
         BuildGubbleControls(compactTheme);
         BuildGlowJournal(actions, theme);
+        BuildMagicPanel(actions, column, theme);
         ApplyAura();
         SetViewMode(1);
         if (LookNotice.Length > 0) _noticeText = LookNotice;
@@ -426,6 +427,7 @@ public partial class RoomHud : CanvasLayer
         _wheel.Tick(delta);
         if (GubblePaused) return;
         RefreshGlowJournal();
+        TickMagicPanel(delta);
         if (ViewMode >= 2) PlaceDioramaRig(snap: false, (float)delta);
         _arm.Rotation = new Vector3(Mathf.Clamp(Player.EyeCamera.Rotation.X - 0.18f, -1.1f, 0.8f), 0, 0);
         _arm.SpringLength = ArmLengthOverBed(_arm.GlobalPosition, _arm.GlobalBasis.Z, _armLength, Player.Water.Wet ? Player.Water.BedY : float.NegativeInfinity, ArmBedClearanceM);
@@ -456,7 +458,7 @@ public partial class RoomHud : CanvasLayer
     {
         var host = Host;
         _focusAge += delta;
-        if (host == null || Player.IsClimbing || Player.IsDiving || Player.GoingHome || Customizing || GlowJournalOpen)
+        if (host == null || Player.IsClimbing || Player.IsDiving || Player.GoingHome || ReadingPanelOpen)
         {
             SetFocus(null, default, "");
             _focusAge = double.MaxValue;
@@ -523,6 +525,7 @@ public partial class RoomHud : CanvasLayer
         // The controls are input actions (project.godot, [input]); Hit is a fresh press of one, not a held key repeating.
         var press = PlayerControls.Normalise(input);
         var fresh = PlayerControls.Fresh(press);
+        if (HandleMagicSpotInput(press, fresh)) { GetViewport().SetInputAsHandled(); return; }
         // The look drag (the cursor is free): once the pointer has moved LookDrag.StartPx with the button down, the cursor hides
         // and the motion turns the view as the captured mouse did; the release brings the cursor back where it was pressed.
         if (_drag.Pressed)
@@ -576,10 +579,11 @@ public partial class RoomHud : CanvasLayer
             {
                 if (Customizing) ToggleCustomization();
                 if (GlowJournalOpen) ToggleGlowJournal();
+                if (MagicPanelOpen) SetMagicPanelOpen(false);
                 EndDrag();
             }
             if (PlayerControls.Hit(press, Act.HudCustomize)) ToggleCustomization();
-            if (Customizing || GlowJournalOpen) return;
+            if (ReadingPanelOpen) return;
             // One key does one thing, the first below that it is (Shift+T is the season before it is a T).
             if (PlayerControls.Hit(press, Act.HudHelp))
             {
@@ -611,7 +615,7 @@ public partial class RoomHud : CanvasLayer
                 if (DragTurnsView && !_wheel.Held) _drag.Press(GetViewport().GetMousePosition());
             }
         }
-        if (ViewMode == 2 && !Customizing && !GlowJournalOpen)
+        if (ViewMode == 2 && !ReadingPanelOpen)
         {
             // The diorama camera orbits with the look drag; the body does not turn with it (SetMovementFrame).
             if (fresh && PlayerControls.Hit(press, Act.ViewZoomIn))
@@ -675,6 +679,7 @@ public partial class RoomHud : CanvasLayer
         CancelAsk();
         EndDrag();
         if (GlowJournalOpen) ToggleGlowJournal();
+        if (MagicPanelOpen) SetMagicPanelOpen(false);
         _customization.Visible = !_customization.Visible;
         Player.SetInputEnabled(!_customization.Visible);
         Input.MouseMode = Input.MouseModeEnum.Visible;

@@ -120,7 +120,9 @@
           "enum": [
             "light.emit",
             "particles.float",
-            "particles.burst"
+            "particles.burst",
+            "growth.seed",
+            "element.ignite"
           ]
         },
         "display_name": {
@@ -434,6 +436,130 @@
               },
               "max_active": {
                 "maximum": 4
+              }
+            }
+          }
+        },
+        {
+          "description": "growth.seed: authoritative bounded nature simulation, through nature.cast. Fire requires preview; protected creations are fireproof.",
+          "if": {
+            "required": [
+              "primitive"
+            ],
+            "properties": {
+              "primitive": {
+                "const": "growth.seed"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "category": {
+                "const": "growth"
+              },
+              "params": {
+                "required": [
+                  "intensity"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "intensity": {
+                    "properties": {
+                      "min": {
+                        "minimum": 0.05,
+                        "maximum": 2.0
+                      },
+                      "max": {
+                        "minimum": 0.05,
+                        "maximum": 2.0
+                      },
+                      "default": {
+                        "minimum": 0.05,
+                        "maximum": 2.0
+                      }
+                    }
+                  }
+                }
+              },
+              "reach_m": {
+                "maximum": 5
+              },
+              "area_radius_default_m": {
+                "maximum": 0.6
+              },
+              "area_radius_max_m": {
+                "maximum": 0.6
+              },
+              "duration_default_s": {
+                "maximum": 600
+              },
+              "duration_max_s": {
+                "maximum": 600
+              },
+              "max_active": {
+                "maximum": 1
+              }
+            }
+          }
+        },
+        {
+          "description": "element.ignite: authoritative bounded nature simulation, through nature.cast. Fire requires preview; protected creations are fireproof.",
+          "if": {
+            "required": [
+              "primitive"
+            ],
+            "properties": {
+              "primitive": {
+                "const": "element.ignite"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "category": {
+                "const": "fire"
+              },
+              "params": {
+                "required": [
+                  "intensity"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "intensity": {
+                    "properties": {
+                      "min": {
+                        "minimum": 0.05,
+                        "maximum": 2.0
+                      },
+                      "max": {
+                        "minimum": 0.05,
+                        "maximum": 2.0
+                      },
+                      "default": {
+                        "minimum": 0.05,
+                        "maximum": 2.0
+                      }
+                    }
+                  }
+                }
+              },
+              "reach_m": {
+                "maximum": 5
+              },
+              "area_radius_default_m": {
+                "maximum": 1.5
+              },
+              "area_radius_max_m": {
+                "maximum": 1.5
+              },
+              "duration_default_s": {
+                "maximum": 60
+              },
+              "duration_max_s": {
+                "maximum": 60
+              },
+              "max_active": {
+                "maximum": 1
               }
             }
           }

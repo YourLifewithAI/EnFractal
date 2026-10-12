@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using EnFractal.Native.Look;
+using EnFractal.Native.Room;
 
 namespace EnFractal.Native.Kernel;
 
@@ -45,6 +46,11 @@ public partial class CommandHost
         public required string Principal { get; init; }
         public bool FollowsCompanion { get; init; }
         public DateTime Expires { get; init; }
+        public Vector3 Centre { get; set; }
+        public string Variant { get; init; } = "plain";
+        public string Touch { get; init; } = "plain";
+        public string? BubbleSource { get; init; }
+        public HashSet<string> Connections { get; } = new(StringComparer.Ordinal);
     }
 
     /// <summary>The running effects, oldest first.</summary>
@@ -88,7 +94,7 @@ public partial class CommandHost
     /// Gubble's own glow (targets its avatar); a point is a light there. The area's radius and the duration are the
     /// pack's defaults, and so are the params (left out). Returns the result for the HUD to show.
     /// </summary>
-    public JsonObject PlayerEffect(string capability, Vector3? point = null)
+    public JsonObject PlayerEffect(string capability, Vector3? point = null, string variant = "auto", string? touch = null)
     {
         var ability = Rules?.Ability(capability);
         var centre = point ?? (Companion != null && IsInstanceValid(Companion) ? Companion.GlobalPosition : Vector3.Zero);
@@ -100,11 +106,30 @@ public partial class CommandHost
             ["duration_s"] = ability?.DurationDefaultS ?? 1.0,
         };
         if (point == null) args["targets"] = new JsonArray(CompanionAvatarId);
+        if (capability == "glow")
+        {
+            args["variant"] = variant;
+            args["touch"] = touch ?? GlowProgress.SelectedTouch;
+        }
         return PlayerCommand("effect.start", args);
     }
 
     /// <summary>An effect.start checked against the island's rules: what it would start.</summary>
-    private sealed record EffectPlan(IslandAbility Ability, bool Self, Vector3 Centre, double RadiusM, double DurationS, SortedDictionary<string, double> Params);
+    private sealed record EffectPlan(IslandAbility Ability, bool Self, Vector3 Centre, double RadiusM, double DurationS, SortedDictionary<string, double> Params,
+        string Variant = "plain", string Touch = "plain", string? BubbleSource = null);
+    private static readonly string[] GlowVariants = { "auto", "plain", "lantern", "torch", "bioluminesce", "skylight", "glowing_bubbles" };
+    public const float ConstellationLinkM = 0.45f;
+    public const float ConstellationPointSeparationM = 0.025f;
+
+    public IReadOnlyList<(string Id, Vector3 Center, string Variant, bool Self)> ActiveGlowPoints
+    {
+        get { ExpireEffects(); return _effects.Where(e => e.Capability == "glow").Select(e => (e.Id, e.Centre, e.Variant, e.FollowsCompanion)).ToArray(); }
+    }
+    public IReadOnlyList<string> GlowConnections(string effect)
+    {
+        ExpireEffects();
+        return _effects.FirstOrDefault(item => item.Id == effect)?.Connections.OrderBy(id => id, StringComparer.Ordinal).ToArray() ?? Array.Empty<string>();
+    }
 
     /// <summary>
     /// Checks an effect.start against the rules, the caster, the targets, the bounds, the place and the caps, in that
@@ -116,6 +141,8 @@ public partial class CommandHost
         if (Rules == null)
             throw new Refusal("unsupported_capability", "This island's rules did not load, so it grants no abilities.", "$.args.capability");
         var capability = Str(args, "capability")!;
+        if (capability is "bloom" or "fire")
+            throw new Refusal("unsupported_capability", "Use nature.cast for this ability; preview Fire first.", "$.args.capability");
         var ability = Rules.Ability(capability)
             ?? throw new Refusal("unsupported_capability", "This island has no ability by that name. Call capabilities.list.", "$.args.capability");
         CheckGlowProgressAvailable(capability);
@@ -182,7 +209,84 @@ public partial class CommandHost
         if (_effects.Count >= EffectLimit)
             throw new Refusal("budget_exceeded", "As many effects are running as the room allows; stop one first.", "$.args.capability",
                 actual: JsonValue.Create(_effects.Count), allowed: JsonValue.Create(EffectLimit));
-        return new EffectPlan(ability, self, centre, radius, duration, parameters);
+        var variant = args.TryGetProperty("variant", out var selectedVariant) ? selectedVariant.GetString()! : "auto";
+        var touch = args.TryGetProperty("touch", out var selectedTouch) ? selectedTouch.GetString()! : GlowProgress.SelectedTouch;
+        string? bubbleSource = null;
+        if (capability == "glow")
+        {
+            variant = ResolveGlowVariant(variant, self, centre);
+            if (variant == "bioluminesce" && GlowWaterSurfaceAt(centre) is { } surface)
+            {
+                centre = new Vector3(centre.X, surface, centre.Z);
+                if (Companion.GlobalPosition.DistanceTo(centre) > ability.ReachM)
+                    throw new Refusal("out_of_bounds", "The water surface is beyond the Gubble's reach.", "$.args.area.center_m");
+                if (!TeamSeesSpot(centre, principal))
+                    throw new Refusal("target_not_found", "Neither of you can see the water surface.", "$.args.area.center_m");
+            }
+            if (variant == "torch")
+            {
+                parameters["intensity"] = Math.Min(ability.Params["intensity"].Max, parameters["intensity"] * 1.65);
+                radius = Math.Min(ability.AreaRadiusMaxM, radius * 1.5);
+            }
+            if (variant == "skylight") radius = ability.AreaRadiusMaxM;
+            if (variant == "glowing_bubbles")
+                bubbleSource = _effects.LastOrDefault(e => e.Capability == "bubbles" &&
+                    (self ? e.FollowsCompanion : !e.FollowsCompanion && e.Centre.DistanceTo(centre) <= ConstellationLinkM))?.Id
+                    ?? throw new Refusal("target_not_found", "Glow needs nearby bubbles to light.", "$.args.variant");
+        }
+        else
+        {
+            if (args.TryGetProperty("variant", out _) || args.TryGetProperty("touch", out _))
+                throw new Refusal("invalid_args", "Glow touches and variants belong to Glow.", "$.args");
+            variant = touch = "plain";
+        }
+        return new EffectPlan(ability, self, centre, radius, duration, parameters, variant, touch, bubbleSource);
+    }
+
+    private string ResolveGlowVariant(string requested, bool self, Vector3 centre)
+    {
+        if (self)
+        {
+            if (requested is "auto" or "plain" or "lantern") return "lantern";
+            if (requested == "glowing_bubbles") return requested;
+            throw new Refusal("invalid_args", "That Glow needs a place on the island.", "$.args.variant");
+        }
+        if (requested == "lantern") throw new Refusal("invalid_args", "Lantern follows the Gubble.", "$.args.variant");
+        var water = GlowWaterSurfaceAt(centre) != null;
+        var torch = !water && GlowHighSurface(centre);
+        if (requested == "auto") return water ? "bioluminesce" : torch ? "torch" : "plain";
+        if (requested == "bioluminesce" && !water)
+            throw new Refusal("invalid_args", "This Glow needs a water surface.", "$.args.area.center_m");
+        if (requested == "torch" && !torch)
+            throw new Refusal("invalid_args", "This Glow needs an elevated surface, tree or building.", "$.args.area.center_m");
+        if (requested == "skylight" && !GlowOpenSky(centre))
+            throw new Refusal("invalid_args", "The sky above that place is covered.", "$.args.area.center_m");
+        return requested;
+    }
+
+    private float? GlowWaterSurfaceAt(Vector3 centre)
+    {
+        var space = GetViewport().World3D.DirectSpaceState;
+        var water = RoomWater.At(space, centre, 0.12f, 0.12f);
+        if (!water.Wet && Room.Sea != null) water = Room.Sea.OpenWater(space, centre, 0.12f, 0.12f);
+        return water.Wet && Math.Abs(water.SurfaceY - centre.Y) <= 0.12f ? water.SurfaceY : null;
+    }
+
+    private bool GlowHighSurface(Vector3 centre)
+    {
+        // Height and a real support ray, never a label such as "tree" supplied by a model.
+        using var query = PhysicsRayQueryParameters3D.Create(centre + Vector3.Up * 0.08f, centre + Vector3.Down * 0.16f, RoomBuilder.BodyMask);
+        using var hit = GetViewport().World3D.DirectSpaceState.IntersectRay(query);
+        if (hit.Count == 0) return false;
+        var ground = Room.Sea?.LevelM ?? Room.Bounds.Position.Y;
+        return hit["position"].AsVector3().Y >= ground + 0.2f;
+    }
+
+    private bool GlowOpenSky(Vector3 centre)
+    {
+        using var query = PhysicsRayQueryParameters3D.Create(centre + Vector3.Up * 0.12f, centre + Vector3.Up * 20f, RoomBuilder.WorldLayer);
+        using var hit = GetViewport().World3D.DirectSpaceState.IntersectRay(query);
+        return hit.Count == 0;
     }
 
     /// <summary>
@@ -229,9 +333,15 @@ public partial class CommandHost
             throw new Refusal("budget_exceeded", "The game cannot show another effect right now; stop one first.", "$.args.capability", retryable: true);
         }
         var expires = Clock() + TimeSpan.FromSeconds(plan.DurationS);
+        var nearby = new List<ActiveEffect>();
+        if (plan.Ability.Capability == "glow" && !plan.Self && plan.Variant is "plain" or "torch")
+            foreach (var point in _effects.Where(e => e.Capability == "glow" && !e.FollowsCompanion && e.Principal == principal && e.Variant is "plain" or "torch"))
+                if (point.Centre.DistanceTo(plan.Centre) is >= ConstellationPointSeparationM and <= ConstellationLinkM &&
+                    nearby.All(other => other.Centre.DistanceTo(point.Centre) >= ConstellationPointSeparationM)) nearby.Add(point);
+        var constellation = nearby.Count >= 2;
         if (plan.Ability.Capability == "glow")
         {
-            try { RecordGlowCast(plan.Self); }
+            try { RecordGlowCast(plan.Variant, constellation); }
             catch
             {
                 // Still in the same command/frame: no successful effect or receipt has been published.
@@ -239,7 +349,18 @@ public partial class CommandHost
                 throw;
             }
         }
-        _effects.Add(new ActiveEffect { Id = id, Capability = plan.Ability.Capability, Principal = principal, FollowsCompanion = plan.Self, Expires = expires });
+        var active = new ActiveEffect { Id = id, Capability = plan.Ability.Capability, Principal = principal, FollowsCompanion = plan.Self, Expires = expires,
+            Centre = plan.Centre, Variant = plan.Variant, Touch = plan.Touch, BubbleSource = plan.BubbleSource };
+        _effects.Add(active);
+        if (constellation)
+        {
+            var group = nearby.Append(active).ToArray();
+            foreach (var first in group)
+                foreach (var second in group)
+                    if (first != second) first.Connections.Add(second.Id);
+            DrawGlowConnections();
+        }
+        if (plan.Ability.Capability == "glow") look?.PlayGlowSound(id);
         return Transient("effect.start", principal, actionId, fingerprint, new JsonArray(id), EffectData(plan, id, expires), created: new JsonArray(id), approvedBy: approvedBy);
     }
 
@@ -249,7 +370,8 @@ public partial class CommandHost
         var follow = plan.Self ? Companion : null;
         return plan.Ability.Primitive switch
         {
-            "light.emit" => look.StartGlow(id, follow, plan.Centre, (float)plan.RadiusM, intensity),
+            "light.emit" => look.StartGlowVariant(id, follow, plan.Centre, (float)plan.RadiusM, intensity, plan.Variant, plan.Touch, plan.BubbleSource,
+                (float)GlowProgress.SoundVolume, GlowProgress.SoundMuted),
             "particles.float" => look.StartBubbles(id, follow, plan.Centre, (float)plan.RadiusM, intensity),
             "particles.burst" => look.StartFireworks(id, follow, plan.Centre, (float)plan.RadiusM, intensity),
             _ => false,
@@ -266,6 +388,7 @@ public partial class CommandHost
         data["params"] = new JsonObject(plan.Params.Select(p => KeyValuePair.Create(p.Key, (JsonNode?)JsonValue.Create(p.Value))));
         data["area"] = new JsonObject { ["center_m"] = KernelJson.Vector(plan.Centre), ["radius_m"] = plan.RadiusM };
         data["duration_s"] = plan.DurationS;
+        if (plan.Ability.Capability == "glow") { data["variant"] = plan.Variant; data["touch"] = plan.Touch; }
         if (expires != null) data["expires_utc"] = KernelJson.Utc(expires.Value);
         return data;
     }
@@ -274,11 +397,19 @@ public partial class CommandHost
     private List<string> EndEffects(IEnumerable<ActiveEffect> ending)
     {
         var ended = new List<string>();
-        foreach (var effect in ending.ToList())
+        var batch = ending.ToList();
+        var sourceIds = batch.Select(effect => effect.Id).ToHashSet(StringComparer.Ordinal);
+        batch.AddRange(_effects.Where(effect => effect.BubbleSource != null && sourceIds.Contains(effect.BubbleSource) && !sourceIds.Contains(effect.Id)));
+        foreach (var effect in batch)
         {
             if (!_effects.Remove(effect)) continue;
             if (LookHook != null && IsInstanceValid(LookHook)) LookHook.StopEffect(effect.Id);
             ended.Add(effect.Id);
+        }
+        if (ended.Count > 0)
+        {
+            foreach (var effect in _effects) effect.Connections.RemoveWhere(ended.Contains);
+            DrawGlowConnections();
         }
         return ended;
     }
@@ -332,10 +463,95 @@ public partial class CommandHost
             ["capability"] = a.Capability, ["category"] = a.Category,
             ["params"] = new JsonObject(a.Params.Select(p => KeyValuePair.Create(p.Key, (JsonNode?)new JsonObject { ["min"] = p.Value.Min, ["max"] = p.Value.Max }))),
             ["area_radius_max_m"] = a.AreaRadiusMaxM, ["duration_max_s"] = a.DurationMaxS,
+            ["command_op"] = a.Primitive is "growth.seed" or "element.ignite" ? "nature.cast" : "effect.start",
+            ["max_active"] = EffectiveEffectLimit(a.Capability), ["reach_m"] = a.ReachM,
         }).ToArray();
         var data = new JsonObject { ["items"] = new JsonArray(items) };
         if (start + page.Count < all.Count) data["next_cursor"] = (start + page.Count).ToString(CultureInfo.InvariantCulture);
         return data;
+    }
+
+    public JsonObject PlayerAdjustGlow(string effect, Vector3? center = null, IReadOnlyList<string>? connections = null)
+    {
+        var args = new JsonObject { ["effect"] = effect };
+        if (center is { } point) args["center_m"] = KernelJson.Vector(point);
+        if (connections != null) args["connections"] = new JsonArray(connections.Select(id => (JsonNode?)JsonValue.Create(id)).ToArray());
+        return PlayerCommand("effect.adjust", args);
+    }
+
+    private JsonObject EffectAdjust(JsonElement args, string principal, string actionId, string fingerprint, bool preview, string? approvedBy = null)
+    {
+        ExpireEffects();
+        CheckGlowProgressAvailable("glow");
+        if (GlowProgress.ActiveLightAllowance < 5)
+            throw new Refusal("permission_denied", "Moving constellation points and changing their links comes with the fifth light.");
+        var id = args.GetProperty("effect").GetString()!;
+        var effect = _effects.FirstOrDefault(e => e.Id == id && e.Capability == "glow")
+            ?? throw new Refusal("target_not_found", "That Glow has ended.", "$.args.effect");
+        if (effect.Principal != principal)
+            throw new Refusal("permission_denied", "A caster can adjust only their own Glow.", "$.args.effect");
+        if (effect.FollowsCompanion || effect.Variant is not ("plain" or "torch"))
+            throw new Refusal("invalid_args", "Only a free constellation point can be adjusted.", "$.args.effect");
+        var centre = args.TryGetProperty("center_m", out var point) ? KernelJson.ReadVector(point) : effect.Centre;
+        var ability = Rules?.Ability("glow") ?? throw new Refusal("unsupported_capability", "This island has no Glow.");
+        if (Companion == null || !IsInstanceValid(Companion) || !Companion.IsInsideTree()) throw new Refusal("not_ready", "The Gubble is not in the room.");
+        if ((Room.Sea == null && !Room.Bounds.Grow(0.001f).HasPoint(centre)) || Companion.GlobalPosition.DistanceTo(centre) > ability.ReachM)
+            throw new Refusal("out_of_bounds", "The point must stay within the Gubble's reach.", "$.args.center_m");
+        if (!TeamSeesSpot(centre, principal)) throw new Refusal("target_not_found", "Neither of you can see that spot.", "$.args.center_m");
+        ResolveGlowVariant(effect.Variant, false, centre);
+        var links = args.TryGetProperty("connections", out var connections)
+            ? connections.EnumerateArray().Select(node => node.GetString()!).ToArray() : effect.Connections.ToArray();
+        foreach (var linkedId in links)
+        {
+            var linked = _effects.FirstOrDefault(e => e.Id == linkedId && e.Id != id && e.Capability == "glow" && !e.FollowsCompanion && e.Variant is "plain" or "torch")
+                ?? throw new Refusal("target_not_found", "A link needs another free Glow point.", "$.args.connections");
+            if (linked.Principal != principal) throw new Refusal("permission_denied", "A caster can link only their own Glow points.", "$.args.connections");
+            if (linked.Centre.DistanceTo(centre) > ability.ReachM)
+                throw new Refusal("out_of_bounds", "Those points are too far apart to connect.", "$.args.connections");
+        }
+        var data = new JsonObject { ["effect"] = id, ["center_m"] = KernelJson.Vector(centre),
+            ["connections"] = new JsonArray(links.Select(link => (JsonNode?)JsonValue.Create(link)).ToArray()) };
+        if (preview)
+        {
+            var result = Previewed("effect.adjust", principal, actionId); result["data"] = data; return result;
+        }
+        var look = LookHook != null && IsInstanceValid(LookHook) && LookHook.IsInsideTree() ? LookHook : null;
+        if (look != null && !look.MoveGlow(id, centre)) throw new Refusal("not_ready", "That Glow cannot be moved right now.");
+        effect.Centre = centre;
+        foreach (var other in _effects) other.Connections.Remove(id);
+        effect.Connections.Clear();
+        foreach (var linkedId in links)
+        {
+            effect.Connections.Add(linkedId);
+            _effects.First(e => e.Id == linkedId).Connections.Add(id);
+        }
+        DrawGlowConnections();
+        return Transient("effect.adjust", principal, actionId, fingerprint, new JsonArray(id), data, approvedBy: approvedBy);
+    }
+
+    private void DrawGlowConnections()
+    {
+        if (LookHook == null || !IsInstanceValid(LookHook)) return;
+        LookHook.SetGlowConnections(_effects.Where(e => e.Capability == "glow").SelectMany(e => e.Connections
+            .Where(other => string.CompareOrdinal(e.Id, other) < 0).Select(other => (e.Id, other))).ToArray());
+    }
+
+    private static void CheckEffectAdjustArgs(JsonElement args)
+    {
+        if (args.ValueKind != JsonValueKind.Object) throw new Refusal("request_invalid", "A Glow adjustment is an object.", "$.args");
+        foreach (var field in args.EnumerateObject())
+            if (field.Name is not ("effect" or "center_m" or "connections"))
+                throw new Refusal("field_unknown", "This argument is not part of a Glow adjustment.", "$.args." + KernelJson.DisplayText(field.Name, 64));
+        if (!args.TryGetProperty("effect", out var id)) throw new Refusal("request_invalid", "Name a Glow effect.", "$.args.effect");
+        if (id.ValueKind != JsonValueKind.String || !EffectId.IsMatch(id.GetString()!))
+            throw new Refusal("request_invalid", "Name a Glow effect.", "$.args.effect");
+        if (!args.TryGetProperty("center_m", out _) && !args.TryGetProperty("connections", out _))
+            throw new Refusal("request_invalid", "Move the point or choose its connections.", "$.args");
+        if (args.TryGetProperty("center_m", out var point)) CheckVector(point, "$.args.center_m");
+        if (args.TryGetProperty("connections", out var links) && (links.ValueKind != JsonValueKind.Array || links.GetArrayLength() > 4 ||
+            links.EnumerateArray().Any(link => link.ValueKind != JsonValueKind.String || !EffectId.IsMatch(link.GetString()!)) ||
+            links.EnumerateArray().Select(link => link.GetString()).Distinct(StringComparer.Ordinal).Count() != links.GetArrayLength()))
+            throw new Refusal("request_invalid", "Connections are up to four different Glow effects.", "$.args.connections");
     }
 
     /// <summary>effect.start's arguments as the contract types them (request_invalid otherwise); the ability's bounds come after, in PlanEffect.</summary>
@@ -366,5 +582,9 @@ public partial class CommandHost
         var duration = args.GetProperty("duration_s");
         if (duration.ValueKind != JsonValueKind.Number || CanonicalJson.ReadNumber(duration) is <= 0 or > 600)
             throw new Refusal("request_invalid", "duration_s is more than 0 and at most 600 seconds.", "$.args.duration_s");
+        if (args.TryGetProperty("variant", out var variant) && (variant.ValueKind != JsonValueKind.String || !GlowVariants.Contains(variant.GetString()!, StringComparer.Ordinal)))
+            throw new Refusal("request_invalid", "Choose a supported Glow variant.", "$.args.variant");
+        if (args.TryGetProperty("touch", out var touch) && (touch.ValueKind != JsonValueKind.String || !GlowProgress.Touches.Contains(touch.GetString()!, StringComparer.Ordinal)))
+            throw new Refusal("request_invalid", "Choose a supported Glow touch.", "$.args.touch");
     }
 }

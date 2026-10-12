@@ -78,6 +78,8 @@ public sealed class IslandRules
         ["light.emit"] = new("light", new Dictionary<string, (double, double)>(StringComparer.Ordinal) { ["intensity"] = (0.05, 2.0) }, 5, 3, 600, 8),
         ["particles.float"] = new("float", new Dictionary<string, (double, double)>(StringComparer.Ordinal) { ["intensity"] = (0.05, 2.0) }, 5, 3, 120, 4),
         ["particles.burst"] = new("burst", new Dictionary<string, (double, double)>(StringComparer.Ordinal) { ["intensity"] = (0.05, 2.0) }, 8, 3, 10, 4),
+        ["growth.seed"] = new("growth", new Dictionary<string, (double, double)>(StringComparer.Ordinal) { ["intensity"] = (0.05, 2.0) }, 5, 0.6, 600, 1),
+        ["element.ignite"] = new("fire", new Dictionary<string, (double, double)>(StringComparer.Ordinal) { ["intensity"] = (0.05, 2.0) }, 5, 1.5, 60, 1),
     };
 
     public string RulesId { get; private init; } = "";

@@ -1,30 +1,41 @@
-"""Game-owned Glow trial progress; never accepted in a companion message or returned as a recipe list.
+"""Game-owned Glow progress; never accepted in a companion message or returned as a recipe list.
 
-The mock keeps this profile in memory across room loads. Native play owns its durable profile. Only
-Lantern has an implemented discovery condition today; the other IDs are reserved for later behaviours
-and allow trusted game-side fixtures to exercise the fourth and fifth light limits.
+The mock keeps a separate profile per mode in memory across room loads. Native play owns durable
+profiles and terrain observations. Model text never supplies discoveries or completed challenges.
 """
 from __future__ import annotations
 
 from collections.abc import Iterable
+import math
 
 
 class GlowProgress:
     MAX_SUCCESSFUL_USES = 1_000_000
     HINT_AFTER_USES = 10
-    _DISCOVERIES = frozenset({"lantern", "torch", "bioluminesce", "constellation", "skylight"})
-    _HINTS = frozenset({"lantern_self"})
+    DISCOVERY_ORDER = ("lantern", "torch", "bioluminesce", "constellation", "skylight")
+    HINT_ORDER = ("lantern_self", "torch_high_place", "bioluminesce_water", "constellation_nearby", "skylight_sky")
+    TOUCHES = frozenset({"plain", "air", "ember", "frost", "chime"})
+    _DISCOVERIES = frozenset(DISCOVERY_ORDER)
+    _HINTS = frozenset(HINT_ORDER)
 
-    def __init__(self, successful_uses: int = 0, discoveries: Iterable[str] = (), delivered_hints: Iterable[str] = ()):
+    def __init__(self, successful_uses: int = 0, discoveries: Iterable[str] = (), delivered_hints: Iterable[str] = (),
+                 touch: str = "plain", sound_volume: float = 0.35, muted: bool = False):
         if type(successful_uses) is not int or not 0 <= successful_uses <= self.MAX_SUCCESSFUL_USES:
             raise ValueError("Glow use count must be a bounded nonnegative integer.")
         known = self._validated_ids(discoveries, self._DISCOVERIES)
         hints = self._validated_ids(delivered_hints, self._HINTS)
-        if successful_uses < len(known) or (hints and successful_uses < self.HINT_AFTER_USES):
+        if (len(known) > successful_uses + ("constellation" in known) or (known and successful_uses == 0)
+                or successful_uses < len(hints) * self.HINT_AFTER_USES):
             raise ValueError("Glow progress has inconsistent use records.")
+        if (type(touch) is not str or touch not in self.TOUCHES or type(sound_volume) not in (int, float) or not math.isfinite(sound_volume)
+                or not 0 <= sound_volume <= 1 or type(muted) is not bool):
+            raise ValueError("Glow progress has invalid touch or sound settings.")
         self._successful_uses = successful_uses
         self._discoveries = known
         self._delivered_hints = hints
+        self.touch = touch
+        self.sound_volume = float(sound_volume)
+        self.muted = muted
 
     @staticmethod
     def _validated_ids(values: Iterable[str], allowed: frozenset[str]) -> frozenset[str]:
@@ -51,8 +62,25 @@ class GlowProgress:
 
     def record_success(self, self_target: bool) -> None:
         """Called by the host only after a new Glow effect starts successfully."""
+        self.record_observed("lantern" if self_target else None)
+
+    def record_observed(self, discovery: str | None, constellation: bool = False) -> None:
+        if discovery is not None and discovery not in self._DISCOVERIES:
+            raise ValueError("Unknown host-observed discovery.")
         self._successful_uses = min(self._successful_uses + 1, self.MAX_SUCCESSFUL_USES)
-        if self_target:
-            self._discoveries = self._discoveries | {"lantern"}
-        if self._successful_uses >= self.HINT_AFTER_USES and "lantern" not in self._discoveries:
-            self._delivered_hints = self._delivered_hints | {"lantern_self"}
+        if discovery:
+            self._discoveries = self._discoveries | {discovery}
+        if constellation:
+            self._discoveries = self._discoveries | {"constellation"}
+        if self._successful_uses >= self.HINT_AFTER_USES * (len(self._delivered_hints) + 1):
+            for known, hint in zip(self.DISCOVERY_ORDER, self.HINT_ORDER):
+                if known not in self._discoveries and hint not in self._delivered_hints:
+                    self._delivered_hints = self._delivered_hints | {hint}
+                    break
+
+    def configured(self, *, touch: str | None = None, sound_volume: float | None = None,
+                   muted: bool | None = None) -> GlowProgress:
+        return GlowProgress(self.successful_uses, self.discoveries, self.delivered_hints,
+                            self.touch if touch is None else touch,
+                            self.sound_volume if sound_volume is None else sound_volume,
+                            self.muted if muted is None else muted)

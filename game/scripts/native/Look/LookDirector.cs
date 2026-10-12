@@ -591,6 +591,7 @@ public partial class LookDirector : Node3D
     public override void _ExitTree()
     {
         GetTree().NodeAdded -= OnNodeAdded;
+        ReleaseGlowAudio();
         Post?.Release();
     }
 

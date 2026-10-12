@@ -8,6 +8,16 @@ namespace EnFractal.Tests.Kernel;
 public partial class PlayHudTest
 {
     private const string HudGlowProfile = "user://tests/play_hud/profile/glow_progress_v1.json";
+    private ulong _lastGlowPlaybackId;
+    private ulong _lastGlowVoiceId;
+
+    private static bool HudAudioResourceAlive(ulong id)
+    {
+        // IsInstanceIdValid creates a managed wrapper too, but does not dispose
+        // it. Release this observation's reference so it cannot retain the sound.
+        using var resource = InstanceFromId(id);
+        return resource != null;
+    }
 
     private async Task TestGlowJournalFresh()
     {
@@ -59,6 +69,10 @@ public partial class PlayHudTest
             "a restored hint uses its curated words and suggests only the implemented self Glow");
         var cast = host.PlayerEffect("glow");
         await Frames(1);
+        var chime = _world.Look.GlowRoot(host.ActiveEffectIds[0])!.GetNode<AudioStreamPlayer3D>("GlowChime");
+        Check(chime.Playing && chime.HasStreamPlayback(), "the learned journal cast starts a real chime before its teardown check");
+        _lastGlowVoiceId = chime.Stream.GetInstanceId();
+        using (var playback = chime.GetStreamPlayback()) _lastGlowPlaybackId = playback.GetInstanceId();
         Check(cast["ok"]!.GetValue<bool>() && host.GlowProgress.HasDiscovery("lantern") &&
               _hud.GlowJournalText.Contains("Lantern\nA light that travels with the Gubble.", StringComparison.Ordinal),
             "a successful host cast records Lantern and the open journal shows its verified discovery");

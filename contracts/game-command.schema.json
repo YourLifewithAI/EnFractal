@@ -86,7 +86,15 @@
         "room.checkpoint",
         "room.undo",
         "journal.note",
-        "world.set_physics"
+        "world.set_physics",
+        "effect.adjust",
+        "glow.configure",
+        "world.set_mode",
+        "nature.cast",
+        "nature.trail",
+        "nature.repair",
+        "wish.submit",
+        "wish.stop"
       ]
     },
     "query_op": {
@@ -100,7 +108,10 @@
         "receipt.lookup",
         "approval.status",
         "journal.read",
-        "map.find"
+        "map.find",
+        "player.status",
+        "nature.describe",
+        "wishes.read"
       ]
     },
     "command": {
@@ -432,6 +443,102 @@
         },
         {
           "if": {
+            "$ref": "#/$defs/is_op/effect.adjust"
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/$defs/args/effect.adjust"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "$ref": "#/$defs/is_op/glow.configure"
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/$defs/args/glow.configure"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "$ref": "#/$defs/is_op/world.set_mode"
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/$defs/args/world.set_mode"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "$ref": "#/$defs/is_op/nature.cast"
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/$defs/args/nature.cast"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "$ref": "#/$defs/is_op/nature.trail"
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/$defs/args/nature.trail"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "$ref": "#/$defs/is_op/nature.repair"
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/$defs/args/nature.repair"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "$ref": "#/$defs/is_op/wish.submit"
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/$defs/args/wish.submit"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "$ref": "#/$defs/is_op/wish.stop"
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/$defs/args/wish.stop"
+              }
+            }
+          }
+        },
+        {
+          "if": {
             "properties": {
               "op": {
                 "$ref": "#/$defs/destructive_ops"
@@ -608,6 +715,42 @@
             "properties": {
               "args": {
                 "$ref": "#/$defs/args/map.find"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "$ref": "#/$defs/is_op/player.status"
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/$defs/args/player.status"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "$ref": "#/$defs/is_op/nature.describe"
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/$defs/args/nature.describe"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "$ref": "#/$defs/is_op/wishes.read"
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/$defs/args/wishes.read"
               }
             }
           }
@@ -1104,6 +1247,84 @@
           "then": {
             "properties": {
               "data": false
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ok": {
+                "const": true
+              },
+              "op": {
+                "const": "player.status"
+              }
+            },
+            "required": [
+              "ok",
+              "op"
+            ]
+          },
+          "then": {
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/$defs/data/player.status"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ok": {
+                "const": true
+              },
+              "op": {
+                "const": "nature.describe"
+              }
+            },
+            "required": [
+              "ok",
+              "op"
+            ]
+          },
+          "then": {
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/$defs/data/nature.describe"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ok": {
+                "const": true
+              },
+              "op": {
+                "const": "wishes.read"
+              }
+            },
+            "required": [
+              "ok",
+              "op"
+            ]
+          },
+          "then": {
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/$defs/data/wishes.read"
+              }
             }
           }
         }
@@ -1751,6 +1972,116 @@
         "required": [
           "op"
         ]
+      },
+      "effect.adjust": {
+        "properties": {
+          "op": {
+            "const": "effect.adjust"
+          }
+        },
+        "required": [
+          "op"
+        ]
+      },
+      "glow.configure": {
+        "properties": {
+          "op": {
+            "const": "glow.configure"
+          }
+        },
+        "required": [
+          "op"
+        ]
+      },
+      "world.set_mode": {
+        "properties": {
+          "op": {
+            "const": "world.set_mode"
+          }
+        },
+        "required": [
+          "op"
+        ]
+      },
+      "nature.cast": {
+        "properties": {
+          "op": {
+            "const": "nature.cast"
+          }
+        },
+        "required": [
+          "op"
+        ]
+      },
+      "nature.trail": {
+        "properties": {
+          "op": {
+            "const": "nature.trail"
+          }
+        },
+        "required": [
+          "op"
+        ]
+      },
+      "nature.repair": {
+        "properties": {
+          "op": {
+            "const": "nature.repair"
+          }
+        },
+        "required": [
+          "op"
+        ]
+      },
+      "wish.submit": {
+        "properties": {
+          "op": {
+            "const": "wish.submit"
+          }
+        },
+        "required": [
+          "op"
+        ]
+      },
+      "wish.stop": {
+        "properties": {
+          "op": {
+            "const": "wish.stop"
+          }
+        },
+        "required": [
+          "op"
+        ]
+      },
+      "player.status": {
+        "properties": {
+          "op": {
+            "const": "player.status"
+          }
+        },
+        "required": [
+          "op"
+        ]
+      },
+      "nature.describe": {
+        "properties": {
+          "op": {
+            "const": "nature.describe"
+          }
+        },
+        "required": [
+          "op"
+        ]
+      },
+      "wishes.read": {
+        "properties": {
+          "op": {
+            "const": "wishes.read"
+          }
+        },
+        "required": [
+          "op"
+        ]
       }
     },
     "args": {
@@ -2123,6 +2454,26 @@
             "items": {
               "$ref": "common.schema.json#/$defs/entity_id"
             }
+          },
+          "variant": {
+            "enum": [
+              "auto",
+              "plain",
+              "lantern",
+              "torch",
+              "bioluminesce",
+              "skylight",
+              "glowing_bubbles"
+            ]
+          },
+          "touch": {
+            "enum": [
+              "plain",
+              "air",
+              "ember",
+              "frost",
+              "chime"
+            ]
           }
         }
       },
@@ -2422,6 +2773,190 @@
             "maximum": 10
           }
         }
+      },
+      "effect.adjust": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "effect": {
+            "type": "string",
+            "pattern": "^effect:[A-Za-z0-9_-]{1,64}$"
+          },
+          "center_m": {
+            "$ref": "common.schema.json#/$defs/vec3"
+          },
+          "connections": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^effect:[A-Za-z0-9_-]{1,64}$"
+            },
+            "maxItems": 4,
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "effect"
+        ],
+        "anyOf": [
+          {
+            "required": [
+              "center_m"
+            ]
+          },
+          {
+            "required": [
+              "connections"
+            ]
+          }
+        ]
+      },
+      "glow.configure": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "touch": {
+            "enum": [
+              "plain",
+              "air",
+              "ember",
+              "frost",
+              "chime"
+            ]
+          },
+          "sound_volume": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "muted": {
+            "type": "boolean"
+          }
+        },
+        "required": [],
+        "minProperties": 1
+      },
+      "world.set_mode": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "mode": {
+            "enum": [
+              "creative",
+              "challenge",
+              "live"
+            ]
+          }
+        },
+        "required": [
+          "mode"
+        ]
+      },
+      "nature.cast": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "capability": {
+            "enum": [
+              "bloom",
+              "fire"
+            ]
+          },
+          "center_m": {
+            "$ref": "common.schema.json#/$defs/vec3"
+          },
+          "radius_m": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 1.5
+          },
+          "duration_s": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 600
+          },
+          "preview_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{32}$"
+          }
+        },
+        "required": [
+          "capability",
+          "center_m",
+          "radius_m",
+          "duration_s"
+        ]
+      },
+      "nature.trail": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
+        ]
+      },
+      "nature.repair": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "target": {
+            "$ref": "common.schema.json#/$defs/entity_id"
+          }
+        },
+        "required": [
+          "target"
+        ]
+      },
+      "wish.submit": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "text": {
+            "allOf": [
+              {
+                "$ref": "common.schema.json#/$defs/display_text"
+              },
+              {
+                "minLength": 1,
+                "maxLength": 280
+              }
+            ]
+          },
+          "aim_id": {
+            "$ref": "common.schema.json#/$defs/entity_id"
+          }
+        },
+        "required": [
+          "text"
+        ]
+      },
+      "wish.stop": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "player.status": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "nature.describe": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "wishes.read": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
       }
     },
     "data": {
@@ -2816,13 +3351,227 @@
             }
           }
         }
+      },
+      "player.status": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "mode": {
+            "enum": [
+              "creative",
+              "challenge",
+              "live"
+            ]
+          },
+          "health": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "max_health": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "stamina": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 3
+          },
+          "max_stamina": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 3
+          },
+          "completed_climbs": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000
+          },
+          "recoveries": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000
+          },
+          "consequences": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "mode",
+          "health",
+          "max_health",
+          "stamina",
+          "max_stamina",
+          "completed_climbs",
+          "recoveries",
+          "consequences"
+        ]
+      },
+      "nature.describe": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "nature_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "trail_enabled": {
+            "type": "boolean"
+          },
+          "weather": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "pattern": {
+                "$ref": "common.schema.json#/$defs/display_text"
+              },
+              "rain": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "wind_mps": {
+                "$ref": "common.schema.json#/$defs/vec3"
+              }
+            },
+            "required": [
+              "pattern",
+              "rain",
+              "wind_mps"
+            ]
+          },
+          "planted_cells": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 16000
+          },
+          "burning_cells": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 200
+          },
+          "wallet": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000
+            }
+          },
+          "scorched": {
+            "type": "array",
+            "items": {
+              "$ref": "common.schema.json#/$defs/entity_id"
+            },
+            "maxItems": 4096
+          },
+          "can_undo": {
+            "type": "boolean"
+          },
+          "notice": {
+            "$ref": "common.schema.json#/$defs/display_text"
+          }
+        },
+        "required": [
+          "nature_revision",
+          "trail_enabled",
+          "weather",
+          "planted_cells",
+          "burning_cells",
+          "wallet",
+          "scorched",
+          "can_undo",
+          "notice"
+        ]
+      },
+      "wishes.read": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "wish_id": {
+                  "type": "string",
+                  "pattern": "^wish:[a-z2-7]{26}$"
+                },
+                "text": {
+                  "allOf": [
+                    {
+                      "$ref": "common.schema.json#/$defs/display_text"
+                    },
+                    {
+                      "maxLength": 280
+                    }
+                  ]
+                },
+                "status": {
+                  "enum": [
+                    "queued",
+                    "running",
+                    "granted",
+                    "partial",
+                    "failed",
+                    "unsupported",
+                    "cancelled"
+                  ]
+                },
+                "action_count": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 32
+                },
+                "refusal_codes": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/error_code"
+                  },
+                  "maxItems": 32
+                },
+                "aim_id": {
+                  "$ref": "common.schema.json#/$defs/entity_id"
+                },
+                "result_code": {
+                  "enum": [
+                    "completed",
+                    "unsupported",
+                    "failed",
+                    "cancelled",
+                    "interrupted"
+                  ]
+                }
+              },
+              "required": [
+                "wish_id",
+                "text",
+                "status",
+                "action_count",
+                "refusal_codes"
+              ]
+            },
+            "maxItems": 81
+          }
+        },
+        "required": [
+          "items"
+        ]
       }
     },
     "player_only_ops": {
       "description": "Ops a companion principal can never perform. The companion adapter must not expose them and the host rejects them from companion principals. Unlocking is always a direct player action, and so is changing the world's physics.",
       "enum": [
         "protect.unlock",
-        "world.set_physics"
+        "world.set_physics",
+        "world.set_mode",
+        "glow.configure",
+        "wish.submit",
+        "wish.stop",
+        "wishes.read"
       ]
     },
     "destructive_ops": {
@@ -2836,7 +3585,7 @@
       ]
     },
     "capability_summary": {
-      "description": "One effect capability the host supports, with the bounds effect.start enforces.",
+      "description": "One capability and its command path, with the current earned active limit and island bounds. Nature abilities use nature.cast; Fire requires a fresh preview before commit.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -2890,6 +3639,25 @@
           "type": "number",
           "exclusiveMinimum": 0,
           "maximum": 600
+        },
+        "command_op": {
+          "enum": [
+            "effect.start",
+            "nature.cast"
+          ]
+        },
+        "max_active": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64
+        },
+        "reach_m": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 10
+        },
+        "native_required": {
+          "type": "boolean"
         }
       }
     },

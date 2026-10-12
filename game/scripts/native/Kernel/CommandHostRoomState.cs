@@ -108,6 +108,7 @@ public partial class CommandHost
                 ["x_play_compacted"] = envelope["compacted"]?.DeepClone() ?? new JsonObject(),
                 ["x_play_checkpoints"] = envelope["checkpoints"]?.DeepClone() ?? new JsonArray(),
                 ["x_play_task_goals"] = new JsonObject(_taskGoals.OrderBy(p => p.Key, StringComparer.Ordinal).Select(p => KeyValuePair.Create(p.Key, (JsonNode?)JsonValue.Create(p.Value)))),
+                ["x_nature_state"] = NatureConfigured ? Nature.ToJson() : null,
             },
         };
     }
@@ -173,6 +174,8 @@ public partial class CommandHost
             if (!Untouched(sightAllowed: false)) return Refused("Only a room with no play yet is rebuilt from room state.");
             if (Normalized(given) is not { } state) return Refused("That is not room state.");
             if (RoomStateProblem(state) is { } problem) return Refused("That room state cannot be rebuilt: " + problem + ".");
+            if (state["extensions"]?["x_nature_state"] is not null)
+                return Refused("This export includes saved nature. Restore its original room and nature save together; rebuilding that sidecar from an export is not supported yet.");
             var envelope = EnvelopeOf(state);
             return Adopt(envelope, envelope["instances"]!.AsArray().Select(i => i!["id"]!.GetValue<string>()).ToList(), Array.Empty<string>(),
                 "The room was rebuilt from its state.", closeOpenTasks: false);

@@ -100,12 +100,13 @@ public partial class CommandHost : Node
     {
         "entity.grab", "entity.release", "entity.place", "entity.push", "entity.set_part", "entity.remove", "entity.transform",
         "creation.place", "creation.revise", "creation.activate", "protect.lock", "protect.unlock",
-        "goal.set", "goal.stop", "effect.start", "effect.stop", "style.set", "room.checkpoint", "room.undo", "world.set_physics", "journal.note",
+        "goal.set", "goal.stop", "effect.start", "effect.stop", "effect.adjust", "glow.configure", "style.set", "room.checkpoint", "room.undo", "world.set_physics", "world.set_mode", "journal.note",
+        "nature.cast", "nature.trail", "nature.repair", "wish.submit", "wish.stop",
     };
     private static readonly HashSet<string> QueryOps = new()
     {
         "room.describe", "entities.list", "entity.inspect", "capabilities.list", "observe", "jobs.status", "receipt.lookup", "approval.status",
-        "journal.read", "map.find",
+        "journal.read", "map.find", "player.status", "nature.describe", "wishes.read",
     };
     private static readonly HashSet<string> DestructiveOps = new() { "entity.remove", "entity.transform", "creation.revise", "protect.lock", "protect.unlock" };
     /// <summary>
@@ -113,10 +114,10 @@ public partial class CommandHost : Node
     /// effects, grabs, activations and, while it is not saved, the world's physics. Never entity.release: putting a
     /// thing down is saved state (kernel-host-gaps P8). Transient() refuses any other op.
     /// </summary>
-    private static readonly HashSet<string> TransientOps = new() { "goal.set", "goal.stop", "effect.start", "effect.stop", "entity.grab", "creation.activate", "world.set_physics" };
+    private static readonly HashSet<string> TransientOps = new() { "goal.set", "goal.stop", "effect.start", "effect.stop", "effect.adjust", "glow.configure", "entity.grab", "creation.activate", "world.set_physics", "world.set_mode", "wish.stop" };
     /// <summary>contracts $defs/player_only_ops: refused from a companion with permission_denied, never held.</summary>
-    private static readonly HashSet<string> PlayerOnlyOps = new() { "protect.unlock", "world.set_physics" };
-    private static readonly HashSet<string> StopOps = new() { "goal.stop", "effect.stop" };
+    private static readonly HashSet<string> PlayerOnlyOps = new() { "protect.unlock", "world.set_physics", "world.set_mode", "glow.configure", "wish.submit", "wish.stop" };
+    private static readonly HashSet<string> StopOps = new() { "goal.stop", "effect.stop", "wish.stop" };
     /// <summary>Goals that only move or turn the companion: they may aim at something it remembers but cannot see now, re-checked on arrival.</summary>
     private static readonly HashSet<string> RememberedTargetGoals = new() { "go_to", "look_at", "point_at", "come", "fetch" };
     /// <summary>What perception memory keeps: everything but the shell, which is always in sight.</summary>
@@ -191,7 +192,10 @@ public partial class CommandHost : Node
         var host = Create(world, world.Room, world.Player, world.Companion, world.Look?.Preset, SavePathFor(world.Room));
         // The island's abilities light the room through its look (glows); RoomWorld then hands the host its rules (LoadRules).
         host.LookHook = world.Look;
-        host.ConfigureGlowProgress(new LocalGlowProgressStore(ProjectSettings.GlobalizePath(DefaultGlowProgressPath)));
+        host.ConfigurePlayerVitals(new LocalPlayerVitalsStore(ProjectSettings.GlobalizePath(DefaultPlayerVitalsPath)));
+        host.ConfigureGlowProgressModes(mode => new LocalGlowProgressStore(ProjectSettings.GlobalizePath(
+            mode == "creative" ? DefaultGlowProgressPath : DefaultGlowProgressPath.Replace(".json", "." + mode + ".json", StringComparison.Ordinal))), host.Mode);
+        host.ConfigureWishes(new LocalWishQueueStore(ProjectSettings.GlobalizePath($"{DefaultWishSaveRoot}/{world.Room.RoomId}.json"), world.Room.RoomId));
         return host;
     }
 
@@ -255,10 +259,13 @@ public partial class CommandHost : Node
         // meshes, B takes the player home to the jetty, and a far net hours out does the same (SmallPlayerController).
         Player?.SetSea(Room.Sea);
         Companion?.SetSea(Room.Sea);
+        BindPlayerVitals();
     }
 
     public override void _ExitTree()
     {
+        UnbindPlayerVitals();
+        WishRunnerSession(false);
         if (_teamDirty) SaveTeam();
         // The room unloads: its effects end, and the look's glows with them.
         EndAllEffects();
@@ -289,6 +296,7 @@ public partial class CommandHost : Node
 
     public override void _Process(double delta)
     {
+        AdvanceNature(delta);
         // A lapse shows at once: the prompt never offers a request whose entities have changed.
         foreach (var approval in _approvals.Values) Refresh(approval);
         // An effect ends at its duration, and its light with it.
@@ -508,16 +516,20 @@ public partial class CommandHost : Node
             var args = root.GetProperty("args");
             var preview = root.TryGetProperty("preview", out var p) && p.ValueKind == JsonValueKind.True;
             CheckArgs(op, args);
+            CheckWishCommandBudget(root, principal);
             // Player-only ops are refused outright from the companion, never held for a click.
             if (PlayerOnlyOps.Contains(op) && principal != PlayerPrincipal)
                 throw new Refusal("permission_denied", op == "protect.unlock"
-                    ? "Only the player can unlock, directly in the game." : "Only the player can change the world's physics, directly in the game.", "$.op");
+                    ? "Only the player can unlock, directly in the game." : "Only the player can choose this setting or submit wishes, directly in the game.", "$.op");
             var unsupported = Unsupported(op, args, principal);
             if (unsupported != null) throw new Refusal("unsupported_capability", unsupported, "$.op");
             if (!StopOps.Contains(op)) CheckExpectations(root, op, args, principal);
             CheckPerceived(op, args, principal);
+            if (op is "entity.grab" or "entity.place" or "entity.push" or "creation.activate" or "creation.revise" && Str(args, "target") is { } natureTarget && IsNatureUnavailable(natureTarget))
+                throw new Refusal("target_busy", "This object has burned or this creation needs repair.", "$.args.target");
             // An ability is checked against the island's rules before anything else happens, a hold included.
             var effect = op == "effect.start" ? PlanEffect(args, principal) : null;
+            if (op == "effect.adjust") EffectAdjust(args, principal, actionId, fingerprint, true, approvedBy);
             if (approvedBy == null && !preview && principal == CompanionPrincipal && NeedsApproval(op, args, out var reason, out var touched))
                 return Hold(root, principal, actionId, fingerprint, op, reason, touched);
             var meta = new Godot.Collections.Dictionary { ["fingerprint"] = fingerprint, ["op"] = op, ["at_utc"] = Now() };
@@ -532,8 +544,15 @@ public partial class CommandHost : Node
                 "goal.stop" => GoalStop(args, principal, actionId, fingerprint, preview),
                 "effect.start" => EffectStart(effect!, principal, actionId, fingerprint, preview, approvedBy),
                 "effect.stop" => EffectStop(args, principal, actionId, fingerprint, preview),
+                "effect.adjust" => EffectAdjust(args, principal, actionId, fingerprint, preview, approvedBy),
+                "glow.configure" => ConfigureGlow(args, principal, actionId, fingerprint, preview),
+                "nature.cast" or "nature.trail" or "nature.repair" => NatureCommand(root, principal, fingerprint, approvedBy),
+                "room.undo" => NatureUndo(root, principal, fingerprint, approvedBy),
+                "wish.submit" => WishSubmit(args, principal, actionId, fingerprint, preview),
+                "wish.stop" => WishStop(principal, actionId, preview),
                 "room.checkpoint" => Checkpoint(args, principal, actionId, meta, preview),
                 "world.set_physics" => SetPhysics(args, principal, actionId, fingerprint, preview),
+                "world.set_mode" => SetMode(args, principal, actionId, fingerprint, preview),
                 "entity.grab" => Grab(args, principal, actionId, fingerprint, preview),
                 "entity.release" => Release(args, principal, actionId, meta, preview),
                 "entity.place" => PlaceObject(args, principal, actionId, meta, preview),
@@ -541,9 +560,15 @@ public partial class CommandHost : Node
                 "journal.note" => Note(args, principal, actionId, meta, preview),
                 _ => throw new Refusal("unsupported_capability", "This operation is not available yet.", "$.op"),
             };
+            ObserveWishCommand(root, result, principal);
             return result;
         }
-        catch (Refusal refusal) { return Fail(op, principal, actionId, null, refusal); }
+        catch (Refusal refusal)
+        {
+            var result = Fail(op, principal, actionId, null, refusal);
+            ObserveWishCommand(root, result, principal);
+            return result;
+        }
     }
 
     private JsonObject PlaceOrRevise(string op, JsonElement args, string principal, string actionId, Godot.Collections.Dictionary meta, bool preview, string? approvedBy)
@@ -900,6 +925,8 @@ public partial class CommandHost : Node
             if (op == "room.checkpoint") replayed["data"] = new JsonObject { ["checkpoint_revision"] = compacted["revision"].AsInt32() };
             return replayed;
         }
+        if (ReplayNature(op, principal, actionId, fingerprint) is { } nature) return nature;
+        if (ReplayWish(principal, actionId, fingerprint) is { } wish) return wish;
         if (!_transient.TryGetValue(principal + "|" + actionId, out var transient)) return null;
         if (transient.Fingerprint != fingerprint)
             throw new Refusal("action_id_conflict", "This action id was already used for different content.", "$.action_id");
@@ -935,9 +962,9 @@ public partial class CommandHost : Node
         reason = "";
         touched = new Dictionary<string, int>();
         // An ability of tier keyed_yes (T3) waits for the player's yes when the companion asks; the prompt names the capability token only.
-        if (op == "effect.start")
+        if (op is "effect.start" or "effect.adjust")
         {
-            if (Rules?.Ability(Str(args, "capability")) is not { Tier: "keyed_yes" } ability) return false;
+            if (Rules?.Ability(op == "effect.adjust" ? "glow" : Str(args, "capability")) is not { Tier: "keyed_yes" } ability) return false;
             reason = $"The companion asks to use {ability.Capability}. Approve or deny it in the game.";
             return true;
         }
@@ -1015,6 +1042,8 @@ public partial class CommandHost : Node
     {
         approval.State = state;
         approval.Result = Fail(approval.Op, approval.Principal, approval.ActionId, null, refusal);
+        using var heldCommand = JsonDocument.Parse(approval.CommandText);
+        ObserveWishCommand(heldCommand.RootElement, approval.Result, approval.Principal);
     }
 
     // ---- queries ----
@@ -1044,6 +1073,9 @@ public partial class CommandHost : Node
                 "jobs.status" => JobStatus(args, principal),
                 "journal.read" => JournalRead(args, principal),
                 "map.find" => MapFind(args, principal),
+                "player.status" => PlayerStatus(),
+                "nature.describe" => NatureSnapshot(),
+                "wishes.read" => WishesRead(principal),
                 _ => throw new Refusal("request_invalid", "That operation does not exist.", "$.op"),
             };
             return result;
@@ -1179,7 +1211,7 @@ public partial class CommandHost : Node
         if (Authority.Call("compacted_receipt", principal, actionId).AsGodotDictionary().Count > 0) return new JsonObject { ["found"] = true, ["compacted"] = true };
         if (_transient.TryGetValue(principal + "|" + actionId, out var transient))
             return new JsonObject { ["found"] = true, ["receipt"] = transient.Result.DeepClone() };
-        return new JsonObject { ["found"] = false };
+        return LookupNature(principal, actionId) ?? WishReceiptLookup(principal, actionId) ?? new JsonObject { ["found"] = false };
     }
 
     /// <summary>A goal's job, for the principal that set it; anyone else's job id, like an unknown one, is target_not_found.</summary>
@@ -1994,6 +2026,9 @@ public partial class CommandHost : Node
 
     private static void CheckArgs(string op, JsonElement args)
     {
+        if (op.StartsWith("nature.", StringComparison.Ordinal)) { CheckNatureArgs(op, args); return; }
+        if (op == "effect.adjust") { CheckEffectAdjustArgs(args); return; }
+        if (op == "glow.configure") { CheckGlowConfigureArgs(args); return; }
         string[] allowed = op switch
         {
             "entity.grab" => new[] { "target", "actor" },
@@ -2008,12 +2043,15 @@ public partial class CommandHost : Node
             "protect.lock" or "protect.unlock" => new[] { "targets" },
             "goal.set" => new[] { "actor", "goal", "target", "position_m", "area", "duration_s" },
             "goal.stop" => new[] { "actor" },
-            "effect.start" => new[] { "capability", "params", "area", "duration_s", "targets" },
+            "effect.start" => new[] { "capability", "params", "area", "duration_s", "targets", "variant", "touch" },
             "effect.stop" => new[] { "effect" },
             "style.set" => new[] { "preset_id", "preset_version" },
             "room.checkpoint" => new[] { "label" },
             "room.undo" => new[] { "to_revision" },
             "world.set_physics" => new[] { "preset" },
+            "world.set_mode" => new[] { "mode" },
+            "wish.submit" => new[] { "text", "aim_id" },
+            "wish.stop" => Array.Empty<string>(),
             "journal.note" => new[] { "text" },
             _ => Array.Empty<string>(),
         };
@@ -2035,11 +2073,21 @@ public partial class CommandHost : Node
             "style.set" => new[] { "preset_id", "preset_version" },
             "room.undo" => new[] { "to_revision" },
             "world.set_physics" => new[] { "preset" },
+            "world.set_mode" => new[] { "mode" },
+            "wish.submit" => new[] { "text" },
             "journal.note" => new[] { "text" },
             _ => Array.Empty<string>(),
         };
         foreach (var name in required)
             if (!args.TryGetProperty(name, out _)) throw new Refusal("request_invalid", $"This operation needs '{name}'.", "$.args." + name);
+        if (op == "world.set_mode" && (args.GetProperty("mode").ValueKind != JsonValueKind.String || !PlayerModesProfile.ValidMode(Str(args, "mode") ?? "")))
+            throw new Refusal("request_invalid", "Choose creative, challenge or live.", "$.args.mode");
+        if (op == "wish.submit")
+        {
+            var text = Str(args, "text");
+            if (text == null || text.Length is < 1 or > 280 || string.IsNullOrWhiteSpace(text)) throw new Refusal("request_invalid", "A wish is one to 280 characters.", "$.args.text");
+            if (args.TryGetProperty("aim_id", out var aim) && (aim.ValueKind != JsonValueKind.String || !EntityId.IsMatch(aim.GetString()!))) throw new Refusal("request_invalid", "aim_id names a known entity.", "$.args.aim_id");
+        }
         if (args.TryGetProperty("target", out var target) && (target.ValueKind != JsonValueKind.String || !EntityId.IsMatch(target.GetString()!)))
             throw new Refusal("request_invalid", "target is an entity id.", "$.args.target");
         if (op == "creation.revise" && !CreationId.IsMatch(target.GetString()!))
@@ -2234,12 +2282,12 @@ public partial class CommandHost : Node
         }
     }
 
-    private static string? Unsupported(string op, JsonElement args, string principal) => op switch
+    private string? Unsupported(string op, JsonElement args, string principal) => op switch
     {
         "entity.set_part" => "Moving parts of objects (a lid, a door) is not available yet.",
         "entity.transform" => "Transforming objects arrives with the first magic (Run 3).",
         "style.set" => "Restyling the room from a command arrives with the look runtime.",
-        "room.undo" => "Undo arrives with room saves (Run 3).",
+        "room.undo" when !NatureConfigured => "This room has no saved nature change to undo.",
         "goal.set" when Str(args, "goal") is "wander" => "Wandering is not available yet.",
         // Today the body follows and comes to the player only; staying by something waits for the goal runner too.
         "goal.set" when Str(args, "goal") is "follow" or "stay" or "come" && Str(args, "target") is { } target && (target != PlayerAvatar || Str(args, "goal") == "stay") =>

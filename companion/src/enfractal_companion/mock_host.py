@@ -40,8 +40,8 @@ It loads a real room (`game/rooms/test_room` by default) through the room contra
 - a companion's `room.undo` steps back only over revisions its own commands made: undoing the
   player's changes is the player's alone;
 - unknown, removed, foreign and unperceived entity ids all fail with the same `target_not_found`;
-- the island's abilities come from its rules pack, the one the kernel host loads (game/rules/storybook_wild/v3.json:
-  Glow, Bubbles and Fireworks; checked fail-closed): `capabilities.list` answers from it, and `effect.start` follows the
+- the island's abilities come from its rules pack, the one the kernel host loads (game/rules/storybook_wild/v4.json:
+  Glow, Bubbles, Fireworks, Bloom and Fire; checked fail-closed): `capabilities.list` answers from it, and `effect.start` follows the
   kernel's rules, order of refusals, codes and result data (CommandHostEffects.cs), the same for every primitive
   (light.emit, particles.float, particles.burst). The Gubble carries every ability out: a companion may
   target only its own avatar (self) or name no targets (a point within reach and in the team's sight); effect ids are
@@ -93,7 +93,7 @@ COMPANION = "companion:local"
 OWN_AVATAR = {PLAYER: "avatar:player", COMPANION: "avatar:companion"}
 STOP_OPS = frozenset({"goal.stop", "effect.stop"})
 TRANSIENT_OPS = frozenset({"entity.grab", "creation.activate", "goal.set", "goal.stop", "effect.start", "effect.stop",
-                           "world.set_physics"})
+                           "world.set_physics", "world.set_mode", "glow.configure", "effect.adjust"})
 # Durable, but they change no world state, so they do not move the room revision.
 NO_REVISION_OPS = frozenset({"room.checkpoint", "journal.note"})
 # The game's world physics presets (game/scripts/world_physics_profile.gd PRESET_IDS). Player-only, not saved.
@@ -125,9 +125,9 @@ DEFAULT_STYLES_DIR = DEFAULT_REPO_ROOT / "game" / "styles"
 
 # The island's rules (contracts/island-rules.schema.json): the abilities effect.start casts and capabilities.list lists,
 # read from the same pack the kernel host loads (RoomWorld.DefaultRulesId and DefaultRulesVersion, res://rules/<id>/v<N>.json).
-# v3 keeps v2's primitives and raises Glow's pack ceiling to five; the team's discoveries earn its current limit.
+# v4 retains Glow's earned five-light ceiling and advertises native nature abilities through their own command route.
 DEFAULT_RULES_ID = "storybook_wild"
-DEFAULT_RULES_VERSION = 3
+DEFAULT_RULES_VERSION = 4
 DEFAULT_RULES_DIR = DEFAULT_REPO_ROOT / "game" / "rules"
 # A pack is small (at most 32 abilities); anything larger is refused before it is parsed (IslandRules.MaxPackBytes).
 MAX_RULES_PACK_BYTES = 65536
@@ -449,6 +449,10 @@ class ActiveEffect:
     radius_m: float
     params: dict[str, float]
     expires_at: float
+    variant: str = "plain"
+    touch: str = "plain"
+    bubble_source: str | None = None
+    connections: set[str] = field(default_factory=set)
 
 
 def _is_stop(message: Any) -> bool:
@@ -486,10 +490,23 @@ class MockHost(JournalMixin):
         self.rules: IslandRules | None = None
         self.rules_notice = ""
         # Team profile, separate from room state and command receipts. Room/rules reloads never erase learning.
-        self.glow_progress = GlowProgress()
+        self.mode = "creative"
+        self._glow_profiles = {mode: GlowProgress() for mode in ("creative", "challenge", "live")}
+        # The box mock has no body tick: these profiles report state, never fabricate physical challenge completion.
+        self._vitals_profiles = {mode: {"health": 100.0, "max_health": 100.0, "stamina": 0.45,
+                                       "max_stamina": 0.45, "completed_climbs": 0, "recoveries": 0}
+                                 for mode in ("creative", "challenge", "live")}
         self._reset_room()
         # As RoomWorld hands the kernel host its rules (LoadRules), read before the server locks itself down.
         self.load_rules(rules_file or rules_path())
+
+    @property
+    def glow_progress(self) -> GlowProgress:
+        return self._glow_profiles[self.mode]
+
+    @glow_progress.setter
+    def glow_progress(self, progress: GlowProgress) -> None:
+        self._glow_profiles[self.mode] = progress
 
     def _reset_room(self) -> None:
         """Everything that belongs to one loaded room, perception memory included."""
@@ -1806,9 +1823,14 @@ class MockHost(JournalMixin):
 
     def _end_effects(self, ending: list[ActiveEffect]) -> list[str]:
         ended = []
-        for effect in ending:
+        sources = {effect.id for effect in ending}
+        batch = list(ending) + [effect for effect in self.effects.values()
+                                if effect.bubble_source in sources and effect.id not in sources]
+        for effect in batch:
             if self.effects.pop(effect.id, None) is not None:
                 ended.append(effect.id)
+        for effect in self.effects.values():
+            effect.connections.difference_update(ended)
         return ended
 
     def _expire_effects(self) -> None:
@@ -1850,6 +1872,8 @@ class MockHost(JournalMixin):
         if self.rules is None:
             raise HostError("unsupported_capability", "This island's rules did not load, so it grants no abilities.",
                             field_path="$.args.capability")
+        if args["capability"] in {"bloom", "fire"}:
+            raise HostError("unsupported_capability", "Use nature.cast for this ability; preview Fire first.", field_path="$.args.capability")
         ability = self.rules.ability(args["capability"])
         if ability is None:
             raise HostError("unsupported_capability", "This island has no ability by that name. Call capabilities.list.",
@@ -1924,8 +1948,50 @@ class MockHost(JournalMixin):
         if len(self.effects) >= self.policy.max_active_effects:
             raise HostError("budget_exceeded", "As many effects are running as the room allows; stop one first.",
                             field_path="$.args.capability", allowed=self.policy.max_active_effects, actual=len(self.effects))
+        variant, touch = args.get("variant", "auto"), args.get("touch", self.glow_progress.touch)
+        bubble_source = None
+        if ability.capability == "glow":
+            variant = self._resolve_glow_variant(variant, own, centre)
+            if variant == "glowing_bubbles":
+                nearby = [effect for effect in self.effects.values() if effect.capability == "bubbles" and
+                          (effect.follows if own else not effect.follows and math.dist(effect.centre, centre) <= 0.45)]
+                if not nearby:
+                    raise HostError("target_not_found", "Glow needs nearby bubbles to light.", field_path="$.args.variant")
+                bubble_source = nearby[-1].id
+        else:
+            if "variant" in args or "touch" in args:
+                raise HostError("invalid_args", "Glow touches and variants belong to Glow.", field_path="$.args")
+            variant = touch = "plain"
+        self._require_mock_primitive(ability)
         return {"ability": ability, "self": own, "carrier": carrier, "centre": centre, "radius_m": radius,
-                "duration_s": duration, "params": params}
+                "duration_s": duration, "params": params, "variant": variant, "touch": touch, "bubble_source": bubble_source}
+
+    @staticmethod
+    def _runtime_required(feature: str) -> None:
+        raise HostError("unsupported_capability", f"{feature} requires the native game runtime; this mock does not simulate it.",
+                        field_path="$.op")
+
+    def _require_mock_primitive(self, ability: Ability) -> None:
+        if ability.primitive not in {"light.emit", "particles.float", "particles.burst"}:
+            self._runtime_required("Terrain growth and fire")
+
+    def _resolve_glow_variant(self, variant: str, own: bool, centre: list[float]) -> str:
+        if own:
+            if variant in {"auto", "plain", "lantern"}:
+                return "lantern"
+            if variant == "glowing_bubbles":
+                return variant
+            raise HostError("invalid_args", "That Glow needs a place on the island.", field_path="$.args.variant")
+        if variant == "lantern":
+            raise HostError("invalid_args", "Lantern follows the Gubble.", field_path="$.args.variant")
+        if variant in {"torch", "bioluminesce", "skylight"}:
+            self._runtime_required("Terrain-aware Glow")
+        # Plain floor wisps are representable here; other auto classification requires real surfaces/water.
+        if variant == "auto":
+            if SEA_EXTENSION in self.room.get("extensions", {}) or centre[1] >= self.room_bounds["min_m"][1] + 0.2:
+                self._runtime_required("Terrain-aware automatic Glow")
+            return "plain"
+        return variant
 
     @staticmethod
     def _effect_data(plan: dict, effect_id: str | None = None, expires_at: float | None = None) -> dict:
@@ -1937,6 +2003,8 @@ class MockHost(JournalMixin):
                      "area": {"center_m": list(plan["centre"]), "radius_m": plan["radius_m"]}, "duration_s": plan["duration_s"]})
         if expires_at is not None:
             data["expires_utc"] = utc(expires_at)
+        if plan["ability"].capability == "glow":
+            data.update(variant=plan["variant"], touch=plan["touch"])
         return data
 
     def _op_effect_start(self, principal, message, apply, new_revision):
@@ -1945,12 +2013,25 @@ class MockHost(JournalMixin):
             return {"data": self._effect_data(plan)}  # a preview says what would start
         effect_id = "effect:" + "".join(secrets.choice(EFFECT_ID_ALPHABET) for _ in range(EFFECT_ID_LENGTH))
         expires_at = self.clock.now() + plan["duration_s"]
+        nearby = []
+        for effect in self.effects.values():
+            if (effect.capability == "glow" and not effect.follows and effect.principal == principal
+                    and effect.variant in {"plain", "torch"} and 0.025 <= math.dist(effect.centre, plan["centre"]) <= 0.45
+                    and all(math.dist(effect.centre, accepted.centre) >= 0.025 for accepted in nearby)):
+                nearby.append(effect)
+        constellation = (plan["ability"].capability == "glow" and not plan["self"]
+                         and plan["variant"] in {"plain", "torch"} and len(nearby) >= 2)
         self.effects[effect_id] = ActiveEffect(
             id=effect_id, capability=plan["ability"].capability, principal=principal, carrier=plan["carrier"],
             follows=plan["self"], centre=list(plan["centre"]), radius_m=plan["radius_m"], params=dict(plan["params"]),
-            expires_at=expires_at)
+            expires_at=expires_at, variant=plan["variant"], touch=plan["touch"], bubble_source=plan["bubble_source"])
         if plan["ability"].capability == "glow":
-            self.glow_progress.record_success(plan["self"])
+            discovery = plan["variant"] if plan["variant"] in {"lantern", "torch", "bioluminesce", "skylight"} else None
+            self.glow_progress.record_observed(discovery, constellation)
+        if constellation:
+            group = nearby + [self.effects[effect_id]]
+            for effect in group:
+                effect.connections.update(other.id for other in group if effect is not other)
         return {"created": [effect_id], "affected": [effect_id], "data": self._effect_data(plan, effect_id, expires_at)}
 
     def _op_effect_stop(self, principal, message, apply, new_revision):
@@ -1965,6 +2046,78 @@ class MockHost(JournalMixin):
         if ended:
             outcome["affected"] = ended
         return outcome
+
+    def _op_glow_configure(self, principal, message, apply, new_revision):
+        if principal != PLAYER:
+            raise HostError("permission_denied", "Only the player chooses Glow's touch and sound settings.")
+        candidate = self.glow_progress.configured(**message["args"])
+        if apply:
+            self.glow_progress = candidate
+        return {"data": {"touch": candidate.touch, "sound_volume": candidate.sound_volume, "muted": candidate.muted}}
+
+    def _op_effect_adjust(self, principal, message, apply, new_revision):
+        self._expire_effects()
+        args = message["args"]
+        if self.glow_progress.earned_light_limit < 5:
+            raise HostError("permission_denied", "Moving constellation points and changing their links comes with the fifth light.")
+        effect = self.effects.get(args["effect"])
+        if effect is None or effect.capability != "glow":
+            raise HostError("target_not_found", "That Glow has ended.", field_path="$.args.effect")
+        if effect.principal != principal:
+            raise HostError("permission_denied", "A caster can adjust only their own Glow.", field_path="$.args.effect")
+        if effect.follows or effect.variant not in {"plain", "torch"}:
+            raise HostError("invalid_args", "Only a free constellation point can be adjusted.", field_path="$.args.effect")
+        centre = list(args.get("center_m", effect.centre))
+        ability = self.rules.ability("glow") if self.rules else None
+        if ability is None:
+            raise HostError("unsupported_capability", "This island has no Glow.")
+        body = self.entities.get(self._carrier(principal))
+        if body is None or body.removed:
+            raise HostError("not_ready", "The Gubble is not in the room.")
+        if ((SEA_EXTENSION not in self.room.get("extensions", {}) and not _inside(centre, self.room_bounds))
+                or math.dist(body.position, centre) > ability.reach_m):
+            raise HostError("out_of_bounds", "The point must stay within the Gubble's reach.", field_path="$.args.center_m")
+        if not self._team_sees_spot(centre, principal, self._carrier(principal)):
+            raise HostError("target_not_found", "Neither of you can see that spot.", field_path="$.args.center_m")
+        self._resolve_glow_variant(effect.variant, False, centre)
+        links = list(args.get("connections", sorted(effect.connections)))
+        for linked_id in links:
+            linked = self.effects.get(linked_id)
+            if (linked is None or linked.id == effect.id or linked.capability != "glow" or linked.follows
+                    or linked.variant not in {"plain", "torch"}):
+                raise HostError("target_not_found", "A link needs another free Glow point.", field_path="$.args.connections")
+            if linked.principal != principal:
+                raise HostError("permission_denied", "A caster can link only their own Glow points.", field_path="$.args.connections")
+            if math.dist(linked.centre, centre) > ability.reach_m:
+                raise HostError("out_of_bounds", "Those points are too far apart to connect.", field_path="$.args.connections")
+        data = {"effect": effect.id, "center_m": centre, "connections": links}
+        if apply:
+            effect.centre = centre
+            for other in self.effects.values():
+                other.connections.discard(effect.id)
+            effect.connections = set(links)
+            for linked_id in links:
+                self.effects[linked_id].connections.add(effect.id)
+        return {"affected": [effect.id], "data": data} if apply else {"data": data}
+
+    def _op_nature_cast(self, principal, message, apply, new_revision):
+        self._runtime_required("Terrain growth, weather and fire")
+
+    def _op_nature_trail(self, principal, message, apply, new_revision):
+        self._runtime_required("The flower trail")
+
+    def _op_nature_repair(self, principal, message, apply, new_revision):
+        self._runtime_required("Scorched creation repair")
+
+    def _op_wish_submit(self, principal, message, apply, new_revision):
+        if principal != PLAYER:
+            raise HostError("permission_denied", "Only the player can start a wish.")
+        self._runtime_required("The wish queue and player-started runner")
+
+    def _op_wish_stop(self, principal, message, apply, new_revision):
+        if principal != PLAYER:
+            raise HostError("permission_denied", "Only the player can stop a wish.")
+        self._runtime_required("The wish queue and player-started runner")
 
     def _op_style_set(self, principal, message, apply, new_revision):
         args = message["args"]
@@ -2010,6 +2163,17 @@ class MockHost(JournalMixin):
                             allowed=sorted(PHYSICS_PRESETS))
         if apply:
             self.physics_preset = preset
+        return {}
+
+    def _op_world_set_mode(self, principal, message, apply, new_revision):
+        if principal != PLAYER:
+            raise HostError("permission_denied", "Only the player chooses the game mode.")
+        mode = message["args"]["mode"]
+        if mode not in self._glow_profiles:
+            raise HostError("invalid_args", "Choose creative, challenge or live.", field_path="$.args.mode")
+        if apply:
+            self._end_effects(list(self.effects.values()))
+            self.mode = mode
         return {}
 
     def _op_room_undo(self, principal, message, apply, new_revision):
@@ -2108,6 +2272,12 @@ class MockHost(JournalMixin):
             if protected_by:
                 data["protected_by"] = protected_by
             result["data"] = data
+        elif op == "player.status":
+            result["data"] = dict(self._vitals_profiles[self.mode], mode=self.mode, consequences=self.mode != "creative")
+        elif op in {"nature.describe", "wishes.read"}:
+            if op == "wishes.read" and principal != PLAYER:
+                raise HostError("permission_denied", "Only the player can read wishes.")
+            self._runtime_required("Nature simulation" if op == "nature.describe" else "The wish queue")
         elif op == "capabilities.list":
             # From the island's rules: capability_summary items by capability, filtered by category, paged by a
             # plain decimal offset (the kernel's Capabilities). A cursor it did not give is invalid_args.
@@ -2124,7 +2294,12 @@ class MockHost(JournalMixin):
             result["data"] = {"items": [{
                 "capability": a.capability, "category": a.category,
                 "params": {name: {"min": low, "max": high} for name, (low, high, _default) in a.params.items()},
-                "area_radius_max_m": a.area_radius_max_m, "duration_max_s": a.duration_max_s} for a in page]}
+                "area_radius_max_m": a.area_radius_max_m, "duration_max_s": a.duration_max_s,
+                "reach_m": a.reach_m,
+                "max_active": min(a.max_active, self.policy.max_active_effects,
+                                  self.glow_progress.earned_light_limit if a.capability == "glow" else a.max_active),
+                "command_op": "nature.cast" if a.primitive in {"growth.seed", "element.ignite"} else "effect.start",
+                "native_required": a.primitive in {"growth.seed", "element.ignite"}} for a in page]}
             if start + len(page) < len(abilities):
                 result["data"]["next_cursor"] = str(start + len(page))
         elif op == "observe":

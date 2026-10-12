@@ -142,12 +142,26 @@ public partial class RoomHud
             to = from + camera.ProjectRayNormal(screen) * AimRangeM;
         }
         if (Player == null || !Player.IsInsideTree() || !from.IsFinite() || !to.IsFinite()) return default;
-        using var query = PhysicsRayQueryParameters3D.Create(from, to, Room.RoomBuilder.WorldLayer | GubbleLayer);
+        using var query = PhysicsRayQueryParameters3D.Create(from, to, Room.RoomBuilder.WorldLayer | GubbleLayer | Room.RoomWater.Layer);
+        query.CollideWithAreas = true;
         query.Exclude = new Godot.Collections.Array<Rid> { Player.GetRid() };
         using var hit = Player.GetWorld3D().DirectSpaceState.IntersectRay(query);
         var hitSomething = hit.Count > 0;
         var point = hitSomething ? hit["position"].AsVector3() : to;
         var collider = hitSomething ? hit["collider"].AsGodotObject() : null;
+        // Open sea continues past the mesh. Pick its real surface only when the shared water query
+        // confirms this column is wet and the surface is in front of the ordinary physics hit.
+        if (Host?.Room.Sea is { } sea && Mathf.Abs(to.Y - from.Y) > .0001f)
+        {
+            var alongSea = (sea.LevelM - from.Y) / (to.Y - from.Y);
+            if (alongSea > 0 && alongSea <= 1)
+            {
+                var seaPoint = from.Lerp(to, alongSea);
+                if ((!hitSomething || from.DistanceSquaredTo(seaPoint) < from.DistanceSquaredTo(point)) &&
+                    sea.OpenWater(Player.GetWorld3D().DirectSpaceState, seaPoint, .01f, .01f, Player.GetRid()).Wet)
+                { hitSomething = true; point = seaPoint; collider = null; }
+            }
+        }
         var atGubble = collider != null && collider == Companion;
         // The Gubble is small: a ray that passes near its middle, before what it hit, is aimed at it.
         if (!atGubble && Companion != null && IsInstanceValid(Companion) && Companion.IsInsideTree())
@@ -160,7 +174,15 @@ public partial class RoomHud
         }
         string? entity = null;
         for (var node = collider as Node; node != null && entity == null; node = node.GetParent())
-            if (node.HasMeta("entity_id") && node.GetMeta("entity_id").AsString() is { } id && id.StartsWith("obj:", StringComparison.Ordinal)) entity = id;
+            if (node.HasMeta("entity_id") && node.GetMeta("entity_id").AsString() is { } id &&
+                (id.StartsWith("obj:", StringComparison.Ordinal) || id.StartsWith("creation:", StringComparison.Ordinal))) entity = id;
+        if (entity == null && collider is Node hitNode && Host is { } host && IsInstanceValid(host.Runtime))
+        {
+            // Compiled creations are indexed by the trusted runtime rather than room-object metadata.
+            foreach (var entry in host.Runtime.Get("assemblies").AsGodotDictionary())
+                if (entry.Value.AsGodotObject() is Node assembly && (assembly == hitNode || assembly.IsAncestorOf(hitNode)))
+                { entity = entry.Key.AsString(); break; }
+        }
         return new GubbleMagic.Aim(hitSomething || atGubble, atGubble && !hitSomething ? Companion!.GlobalPosition : point, atGubble ? null : entity, atGubble);
     }
 
@@ -180,7 +202,7 @@ public partial class RoomHud
     private void UpdateAskTag(double delta)
     {
         _askAge += delta;
-        if (Host == null || Customizing || _wheel.Held)
+        if (Host == null || ReadingPanelOpen || _wheel.Held || ChoosingMagicSpot)
         {
             _askTag.Visible = false;
             return;
@@ -315,7 +337,8 @@ public partial class RoomHud
         var host = Host;
         if (host == null) return;
         _cue.Think(GubbleMagic.SlotIcons[slot]);
-        var result = host.PlayerEffect(ability.Capability, point);
+        if (ability.Capability == "bloom" && point == null) { _cue.Shrug(GubbleMagic.SlotIcons[slot], "choose a spot for flowers"); return; }
+        var result = ability.Capability == "bloom" ? host.PlayerNatureCast("bloom", point!.Value) : host.PlayerEffect(ability.Capability, point);
         if (!Answer(result, wiggle: false)) return;
         // The look's spark leaves the Gubble now (StartGlow, inside the cast): the gesture starts with it.
         Companion.CastGesture(point, ability.Category);
@@ -584,7 +607,7 @@ public partial class RoomHud
             _cue.Dim(false);
             if (_cue.State == "thinking" && _cue.Icon == GubbleMagic.SlotIcons[0]) _cue.Clear();
         }
-        _duskHint.Visible = _dusk.Showing && PlaceBeside(_duskHint, Companion);
+        _duskHint.Visible = _dusk.Showing && !ReadingPanelOpen && PlaceBeside(_duskHint, Companion);
     }
 
     /// <summary>A label beside a body on screen; false when the body is behind the view.</summary>
