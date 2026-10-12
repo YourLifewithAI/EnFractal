@@ -1,6 +1,6 @@
 """The Gubble's abilities: Glow (docs/runs/RUN-2-GLOW.md section 5), then Bubbles and Fireworks
-(docs/runs/RUN-2-BUBBLES-FIREWORKS.md piece 5), storybook_wild v2. The companion's boundary on the mock host and through
-the MCP surface.
+(docs/runs/RUN-2-BUBBLES-FIREWORKS.md piece 5), now with storybook_wild v3's earned Glow allowance.
+The companion's boundary on the mock host and through the MCP surface.
 
 test_host_alignment.py runs the steps the link can drive (the companion's casts, refusals, caps, expiry) on both hosts
 with the same expected outcomes. This file adds what only the mock can stage, each against the kernel host's rules
@@ -226,7 +226,7 @@ class TheGubbleCarriesItOut(GlowCase):
         self.assertNotIn(light, listed)
         self.assertNotIn(wisp, listed)
         self.assertRefused(self.send(query("entity.inspect", {"target": light}, "q-5")), "target_not_found")
-        self.assertEqual((self.host.revision, self.host._snapshot()), before, "glows change no saved state")
+        self.assertEqual((self.host.revision, self.host._snapshot()), before, "Glow learning is separate from room state")
 
 
 class TheTeamsSight(GlowCase):
@@ -384,7 +384,7 @@ class BubblesAndFireworks(GlowCase):
             self.assertEqual(contract_problems(result), [], result)
 
     def test_each_ability_has_its_own_cap_and_the_room_caps_them_all(self):
-        # The pack's caps (3 glows, 2 streams, 3 fireworks) fill the room's 8 exactly, counted across both principals.
+        # Starting Glow allowance (3), pack caps (2 streams, 3 fireworks) fill the room's 8 across both principals.
         for i, (kind, who) in enumerate([("glow", self.player), ("glow", self.send), ("glow", self.send),
                                          ("bubbles", self.player), ("bubbles", self.send),
                                          ("fireworks", self.send), ("fireworks", self.player), ("fireworks", self.send)]):

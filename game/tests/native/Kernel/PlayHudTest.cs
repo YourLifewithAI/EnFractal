@@ -30,11 +30,13 @@ public partial class PlayHudTest : Node
 
     public override async void _Ready()
     {
+        var previousGlowPath = CommandHost.DefaultGlowProgressPath;
         try
         {
             RemoveSaves();
             CommandHost.SaveRoot = HudSaves;
             RoomHud.ProfilePath = HudProfile;
+            CommandHost.DefaultGlowProgressPath = HudGlowProfile;
             WriteProfile(new Godot.Collections.Dictionary { ["version"] = 1, ["player_color"] = 0, ["companion_color"] = ProfileGubbleColour, ["companion_name"] = "the Gubble" });
             _world = GD.Load<PackedScene>("res://scenes/room.tscn").Instantiate<RoomWorld>();
             AddChild(_world);
@@ -44,6 +46,7 @@ public partial class PlayHudTest : Node
             await Frames(10);
             GD.Print($"PLAY_HUD_INFO: physics interpolation {GetTree().PhysicsInterpolation}, TAA {GetViewport().UseTaa}, screen-space AA {GetViewport().ScreenSpaceAA}");
 
+            await TestGlowJournalFresh();
             await TestFoldedHelp();
             TestViewKeys();
             TestWorkshopGone();
@@ -71,15 +74,18 @@ public partial class PlayHudTest : Node
             await TestPutDown();
             await TestAuraRecolours();
             await TestProfileField();
+            await TestGlowJournalLearned();
 
             CommandHost.SaveRoot = CommandHost.DefaultSaveRoot;
             RoomHud.ProfilePath = RoomHud.DefaultProfilePath;
+            CommandHost.DefaultGlowProgressPath = previousGlowPath;
             RemoveSaves();
             GD.Print($"NATIVE_KERNEL_PLAY_HUD: {_checks - _failures}/{_checks} checks passed; every key is a named input action with the Glow round's defaults and the help reads them (a remapped key changes both what it does and what the help shows), H folds the help, [ and ] turn the isometric view, T and Shift+T step the time of day and the season back to the real clock, the companion's solid name tag stays small and hides near the camera, F and V pick up, carry, set down on the box and push, the right button's tap asks what fits the frozen aim and its hold opens the wheel, 1 casts Glow, Q recalls, X stops, the Gubble's bubble answers with the host's result, its glow takes its colour, and the dusk moment teaches Glow once");
             GetTree().Quit(_failures == 0 ? 0 : 1);
         }
         catch (Exception error)
         {
+            CommandHost.DefaultGlowProgressPath = previousGlowPath;
             GD.PushError("Play HUD test exception: " + error);
             GetTree().Quit(1);
         }
@@ -284,7 +290,7 @@ public partial class PlayHudTest : Node
             };
             var lines = HelpLines();
             Check(lines.SequenceEqual(expected), "with the default keys the help says drag where it said click, groups the Gubble's keys (its ask, Q, X, 1 to 5) under its name, and puts the testing toggles (G, T, Shift+T, L) under a \"Testing\" heading:\n" + string.Join("\n", lines.Except(expected)));
-            Check(ButtonTexts("CompanionActions").SequenceEqual(new[] { "Follow", "Wait", "Q Come", "X Stop", "1 Glow", "Customize" }) &&
+            Check(ButtonTexts("CompanionActions").SequenceEqual(new[] { "Follow", "Wait", "Q Come", "X Stop", "1 Glow", "Customize", "Glow journal" }) &&
                 ButtonTexts("HandActions").SequenceEqual(new[] { "F Pick up / put down", "V Push" }), "and so do the buttons of the top panel");
             Check(((Label)_hud.FindChild("CompanionName", true, false)!).Text == "The Gubble:", "and the Gubble's buttons stand under its name");
             var state = ((Label)_hud.FindChild("State", true, false)!).Text;
@@ -892,7 +898,9 @@ public partial class PlayHudTest : Node
               Mathf.Abs(bubbleRect.GetCenter().X - over.X) < 40f && bubbleRect.End.Y <= over.Y && over.Y - bubbleRect.End.Y < 260,
             $"screen text, at least as large as the HUD's own (18 px) and outlined dark, centred just over the Gubble ({bubbleRect} over {over})");
         Check(_hud.Cue.LastGesture == CompanionAvatar.Gesture.CastSelf, "and the Gubble lifts as its own glow comes up (its cast gesture, not the wiggle)");
-        var max = host.Rules!.Ability("glow")!.MaxActive;
+        const int max = 3;
+        Check(host.Rules!.Ability("glow")!.MaxActive == 5 && host.EffectiveEffectLimit("glow") == max,
+            "the new rules permit five earned lights, while this Lantern-only profile still holds three");
         for (var i = 0; i < max * 2 && host.ActiveEffectIds.Count < max; i++) _hud._UnhandledInput(Press(Key.Key1));
         companion.SetDisplayName("Pip the Brave");
         _hud._UnhandledInput(Press(Key.Key1));

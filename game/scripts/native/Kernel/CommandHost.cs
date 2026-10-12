@@ -191,6 +191,7 @@ public partial class CommandHost : Node
         var host = Create(world, world.Room, world.Player, world.Companion, world.Look?.Preset, SavePathFor(world.Room));
         // The island's abilities light the room through its look (glows); RoomWorld then hands the host its rules (LoadRules).
         host.LookHook = world.Look;
+        host.ConfigureGlowProgress(new LocalGlowProgressStore(ProjectSettings.GlobalizePath(DefaultGlowProgressPath)));
         return host;
     }
 

@@ -22,7 +22,8 @@ namespace EnFractal.Native.Kernel;
 /// - Caps: at most max_active of an ability at once, and MaxActiveEffects in the room whatever the ability.
 /// - The receipt is transient, with an opaque effect: id (130 random bits); the effect ends at its duration, on
 ///   effect.stop (one id or all), on goal.stop of the Gubble, when the rules change and when the room unloads.
-/// Effects are never saved: they live with the session, like goals.
+/// Effects are never saved: they live with the session, like goals. Successful Glow uses also advance the
+/// separate single-player growth profile; that profile survives room changes and is not room-undo state.
 /// </summary>
 public partial class CommandHost
 {
@@ -117,6 +118,7 @@ public partial class CommandHost
         var capability = Str(args, "capability")!;
         var ability = Rules.Ability(capability)
             ?? throw new Refusal("unsupported_capability", "This island has no ability by that name. Call capabilities.list.", "$.args.capability");
+        CheckGlowProgressAvailable(capability);
         var role = principal == PlayerPrincipal ? "player" : "companion";
         if (!ability.CastBy.Contains(role))
             throw new Refusal("permission_denied", principal == PlayerPrincipal ? "This island does not let the player cast that." : "This island does not let the companion cast that.", "$.args.capability");
@@ -173,9 +175,10 @@ public partial class CommandHost
         }
         // Caps: the ability's own, then the room's.
         var mine = _effects.Count(e => e.Capability == ability.Capability);
-        if (mine >= ability.MaxActive)
+        var allowance = capability == "glow" ? Math.Min(ability.MaxActive, GlowProgress.ActiveLightAllowance) : ability.MaxActive;
+        if (mine >= allowance)
             throw new Refusal("budget_exceeded", "As many of these are running as the island allows; stop one first.", "$.args.capability",
-                actual: JsonValue.Create(mine), allowed: JsonValue.Create(ability.MaxActive));
+                actual: JsonValue.Create(mine), allowed: JsonValue.Create(allowance));
         if (_effects.Count >= EffectLimit)
             throw new Refusal("budget_exceeded", "As many effects are running as the room allows; stop one first.", "$.args.capability",
                 actual: JsonValue.Create(_effects.Count), allowed: JsonValue.Create(EffectLimit));
@@ -226,6 +229,16 @@ public partial class CommandHost
             throw new Refusal("budget_exceeded", "The game cannot show another effect right now; stop one first.", "$.args.capability", retryable: true);
         }
         var expires = Clock() + TimeSpan.FromSeconds(plan.DurationS);
+        if (plan.Ability.Capability == "glow")
+        {
+            try { RecordGlowCast(plan.Self); }
+            catch
+            {
+                // Still in the same command/frame: no successful effect or receipt has been published.
+                look?.StopEffect(id);
+                throw;
+            }
+        }
         _effects.Add(new ActiveEffect { Id = id, Capability = plan.Ability.Capability, Principal = principal, FollowsCompanion = plan.Self, Expires = expires });
         return Transient("effect.start", principal, actionId, fingerprint, new JsonArray(id), EffectData(plan, id, expires), created: new JsonArray(id), approvedBy: approvedBy);
     }

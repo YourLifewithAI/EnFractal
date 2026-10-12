@@ -43,6 +43,7 @@ public partial class CommandHostTest
         TestGlowTiers();
         await TestGlowUnload(look);
         TestAura(look);
+        TestGlowGrowth(look);
         _host.UseRules(null, "The glow checks are over.");
         _host.LookHook = null;
         look.QueueFree();
@@ -77,23 +78,23 @@ public partial class CommandHostTest
         var glow = shipped.Ability("glow");
         var bubbles = shipped.Ability("bubbles");
         var fireworks = shipped.Ability("fireworks");
-        Check(shipped.RulesVersion == 2 && bubbles is { Category: "float", Primitive: "particles.float", ReachM: 2.0, AreaRadiusDefaultM: 0.5, AreaRadiusMaxM: 1.0, DurationDefaultS: 20, DurationMaxS: 60, MaxActive: 2 } &&
+        Check(shipped.RulesVersion == 3 && bubbles is { Category: "float", Primitive: "particles.float", ReachM: 2.0, AreaRadiusDefaultM: 0.5, AreaRadiusMaxM: 1.0, DurationDefaultS: 20, DurationMaxS: 60, MaxActive: 2 } &&
               fireworks is { Category: "burst", Primitive: "particles.burst", ReachM: 4.0, AreaRadiusDefaultM: 1.0, AreaRadiusMaxM: 2.0, DurationDefaultS: 4, DurationMaxS: 6, MaxActive: 3 } &&
               fireworks.Params["intensity"] == new AbilityParam(0.3, 1.0, 0.8) && bubbles.Params["intensity"] == new AbilityParam(0.2, 1.0, 0.6),
-            "the game reads storybook_wild v2: Bubbles (particles.float) and Fireworks (particles.burst) with their bounds, beside Glow");
+            "the game reads storybook_wild v3: Bubbles (particles.float) and Fireworks (particles.burst) with their bounds, beside Glow");
         Check(shipped.MagicWord == "magic" && shipped.Abilities.Count == 3 && glow != null && glow.Category == "light" && glow.Primitive == "light.emit" &&
             glow.CastBy.SetEquals(new[] { "player", "companion" }) && glow.Targets.SetEquals(new[] { "self", "point" }) && glow.Tier == "auto" && glow.ReachM == 2.0 &&
             glow.Params["intensity"] == new AbilityParam(0.2, 1.0, 0.6) && glow.AreaRadiusDefaultM == 0.6 && glow.AreaRadiusMaxM == 1.5 &&
-            glow.DurationDefaultS == 300 && glow.DurationMaxS == 600 && glow.MaxActive == 3 && shipped.Sha256.Length == 64,
+            glow.DurationDefaultS == 300 && glow.DurationMaxS == 600 && glow.MaxActive == 5 && shipped.Sha256.Length == 64,
             "the rules loader reads the shipped storybook_wild pack: Glow and its bounds");
         // The schema's rules, each refused on its own.
         var schemaCases = new (string Label, byte[] Pack)[]
         {
             ("an unknown top-level field", Variant("\"magic_word\": \"magic\",", "\"magic_word\": \"magic\", \"cheats\": true,")),
-            ("an unknown ability field", Variant("\"max_active\": 3", "\"max_active\": 3, \"owner\": \"companion:local\"")),
+            ("an unknown ability field", Variant("\"max_active\": 5", "\"max_active\": 5, \"owner\": \"companion:local\"")),
             ("a missing required field", Variant("\"tier\": \"auto\",", "")),
             ("a number given as a string", Variant("\"reach_m\": 2.0", "\"reach_m\": \"2.0\"")),
-            ("a fractional max_active", Variant("\"max_active\": 3", "\"max_active\": 2.5")),
+            ("a fractional max_active", Variant("\"max_active\": 5", "\"max_active\": 2.5")),
             ("an unknown tier", Variant("\"tier\": \"auto\"", "\"tier\": \"always\"")),
             ("an unknown status", Variant("\"status\": \"draft\"", "\"status\": \"live\"")),
             ("an unknown principal in cast_by", Variant("\"cast_by\": [\"player\", \"companion\"]", "\"cast_by\": [\"player\", \"guest\"]")),
@@ -122,7 +123,7 @@ public partial class CommandHostTest
             ("a category other than light for light.emit", Variant("\"category\": \"light\"", "\"category\": \"growth\"")),
             ("a reach over light.emit's 5 m", Variant("\"reach_m\": 2.0", "\"reach_m\": 6.0")),
             ("a radius over light.emit's 3 m", Variant("\"area_radius_max_m\": 1.5", "\"area_radius_max_m\": 4.0")),
-            ("max_active over light.emit's 8", Variant("\"max_active\": 3", "\"max_active\": 9")),
+            ("max_active over light.emit's 8", Variant("\"max_active\": 5", "\"max_active\": 9")),
             ("a min above its max", Variant("\"min\": 0.2, \"max\": 1.0, \"default\": 0.6", "\"min\": 0.9, \"max\": 0.5, \"default\": 0.6")),
             ("a default outside its range", Variant("\"default\": 0.6", "\"default\": 1.2")),
             ("a default radius above its maximum", Variant("\"area_radius_default_m\": 0.6", "\"area_radius_default_m\": 1.8")),
@@ -131,8 +132,8 @@ public partial class CommandHostTest
             ("a repeated category", Variant("\"abilities\": [", "\"abilities\": [" + GlowAbility("shine", "light") + ",")),
         };
         foreach (var (label, pack) in limitCases) Check(Refused(pack), "the rules loader refuses " + label);
-        Check(Refused(Encoding.UTF8.GetBytes(PackText()), "storybook_tame", 2) && Refused(Encoding.UTF8.GetBytes(PackText()), "storybook_wild", 1) &&
-            !Refused(Encoding.UTF8.GetBytes(PackText()), "storybook_wild", 2), "a pack must name the id and version its path names");
+        Check(Refused(Encoding.UTF8.GetBytes(PackText()), "storybook_tame", 3) && Refused(Encoding.UTF8.GetBytes(PackText()), "storybook_wild", 1) &&
+            !Refused(Encoding.UTF8.GetBytes(PackText()), "storybook_wild", 3), "a pack must name the id and version its path names");
         Check(!Refused(Variant("\"duration_default_s\": 300", "\"duration_default_s\": 600")) && !Refused(Variant("\"display_name\": \"Glow\"", "\"display_name\": \"Glow ✨\"")),
             "a default at its maximum and an emoji in a name are fine");
         var missing = false;
@@ -338,7 +339,7 @@ public partial class CommandHostTest
     private void TestGlowCaps(LookDirector look)
     {
         var ids = Enumerable.Range(0, 3).Select(i => Effect(Send(Glow($"glow-cap-{i}", PointArgs(InTheOpen + new Vector3(0.05f * i, 0, 0))), Companion))).ToList();
-        Check(ids.All(i => i.Length > 0) && look.GlowCount == 3, "three glows run at once (the pack's max_active)");
+        Check(ids.All(i => i.Length > 0) && look.GlowCount == 3, "three glows run at once (the initial learned allowance)");
         var fourth = Send(Glow("glow-cap-3", SelfArgs()), Player);
         Check(Code(fourth) == "budget_exceeded" && fourth["error"]!["allowed"]!.GetValue<int>() == 3 && look.GlowCount == 3, "a fourth is budget_exceeded, from the player too");
         Check(Ok(Send(Command("glow-cap-stop", "effect.stop", new JsonObject { ["effect"] = "all" }), Player)), "they stop");

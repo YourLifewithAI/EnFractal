@@ -40,7 +40,7 @@ It loads a real room (`game/rooms/test_room` by default) through the room contra
 - a companion's `room.undo` steps back only over revisions its own commands made: undoing the
   player's changes is the player's alone;
 - unknown, removed, foreign and unperceived entity ids all fail with the same `target_not_found`;
-- the island's abilities come from its rules pack, the one the kernel host loads (game/rules/storybook_wild/v2.json:
+- the island's abilities come from its rules pack, the one the kernel host loads (game/rules/storybook_wild/v3.json:
   Glow, Bubbles and Fireworks; checked fail-closed): `capabilities.list` answers from it, and `effect.start` follows the
   kernel's rules, order of refusals, codes and result data (CommandHostEffects.cs), the same for every primitive
   (light.emit, particles.float, particles.burst). The Gubble carries every ability out: a companion may
@@ -71,6 +71,7 @@ from typing import Any, Callable
 
 from . import perception, textsafety
 from .mock_journal import JournalMixin
+from .glow_progress import GlowProgress
 from .canonical import CanonicalJsonError
 from .contract import (
     COMMAND_SCHEMA,
@@ -124,9 +125,9 @@ DEFAULT_STYLES_DIR = DEFAULT_REPO_ROOT / "game" / "styles"
 
 # The island's rules (contracts/island-rules.schema.json): the abilities effect.start casts and capabilities.list lists,
 # read from the same pack the kernel host loads (RoomWorld.DefaultRulesId and DefaultRulesVersion, res://rules/<id>/v<N>.json).
-# v2 (Bubbles and Fireworks round) adds particles.float and particles.burst, which both hosts carry out.
+# v3 keeps v2's primitives and raises Glow's pack ceiling to five; the team's discoveries earn its current limit.
 DEFAULT_RULES_ID = "storybook_wild"
-DEFAULT_RULES_VERSION = 2
+DEFAULT_RULES_VERSION = 3
 DEFAULT_RULES_DIR = DEFAULT_REPO_ROOT / "game" / "rules"
 # A pack is small (at most 32 abilities); anything larger is refused before it is parsed (IslandRules.MaxPackBytes).
 MAX_RULES_PACK_BYTES = 65536
@@ -484,6 +485,8 @@ class MockHost(JournalMixin):
         # The island's rules (the kernel's CommandHost.Rules): None when the pack did not load, and then no abilities.
         self.rules: IslandRules | None = None
         self.rules_notice = ""
+        # Team profile, separate from room state and command receipts. Room/rules reloads never erase learning.
+        self.glow_progress = GlowProgress()
         self._reset_room()
         # As RoomWorld hands the kernel host its rules (LoadRules), read before the server locks itself down.
         self.load_rules(rules_file or rules_path())
@@ -1911,11 +1914,13 @@ class MockHost(JournalMixin):
             if not self._team_sees_spot(centre, principal, carrier):
                 raise HostError("target_not_found", "Neither of you can see that spot now. Look there first.",
                                 field_path="$.args.area.center_m")
-        # Caps: the ability's own (whoever cast them), then the room's.
+        # Caps: the team's earned Glow allowance within the pack's ceiling, then the room's fixed ceiling.
+        ability_limit = min(ability.max_active, self.glow_progress.earned_light_limit) \
+            if ability.capability == "glow" else ability.max_active
         mine = sum(1 for e in self.effects.values() if e.capability == ability.capability)
-        if mine >= ability.max_active:
+        if mine >= ability_limit:
             raise HostError("budget_exceeded", "As many of these are running as the island allows; stop one first.",
-                            field_path="$.args.capability", allowed=ability.max_active, actual=mine)
+                            field_path="$.args.capability", allowed=ability_limit, actual=mine)
         if len(self.effects) >= self.policy.max_active_effects:
             raise HostError("budget_exceeded", "As many effects are running as the room allows; stop one first.",
                             field_path="$.args.capability", allowed=self.policy.max_active_effects, actual=len(self.effects))
@@ -1944,6 +1949,8 @@ class MockHost(JournalMixin):
             id=effect_id, capability=plan["ability"].capability, principal=principal, carrier=plan["carrier"],
             follows=plan["self"], centre=list(plan["centre"]), radius_m=plan["radius_m"], params=dict(plan["params"]),
             expires_at=expires_at)
+        if plan["ability"].capability == "glow":
+            self.glow_progress.record_success(plan["self"])
         return {"created": [effect_id], "affected": [effect_id], "data": self._effect_data(plan, effect_id, expires_at)}
 
     def _op_effect_stop(self, principal, message, apply, new_revision):

@@ -266,6 +266,7 @@ public partial class RoomHud : CanvasLayer
         options.AddChild(new Label { Text = $"Player height: {Player.BodyHeightM * 100:0} cm. Appearance keeps each avatar's identity." });
         AddButton(options, "Save appearance and return", () => { SavePreferences(); ToggleCustomization(); });
         BuildGubbleControls(compactTheme);
+        BuildGlowJournal(actions, theme);
         ApplyAura();
         SetViewMode(1);
         if (LookNotice.Length > 0) _noticeText = LookNotice;
@@ -424,6 +425,7 @@ public partial class RoomHud : CanvasLayer
         // While the wheel has the game paused, only the wheel's clock runs.
         _wheel.Tick(delta);
         if (GubblePaused) return;
+        RefreshGlowJournal();
         if (ViewMode >= 2) PlaceDioramaRig(snap: false, (float)delta);
         _arm.Rotation = new Vector3(Mathf.Clamp(Player.EyeCamera.Rotation.X - 0.18f, -1.1f, 0.8f), 0, 0);
         _arm.SpringLength = ArmLengthOverBed(_arm.GlobalPosition, _arm.GlobalBasis.Z, _armLength, Player.Water.Wet ? Player.Water.BedY : float.NegativeInfinity, ArmBedClearanceM);
@@ -454,7 +456,7 @@ public partial class RoomHud : CanvasLayer
     {
         var host = Host;
         _focusAge += delta;
-        if (host == null || Player.IsClimbing || Player.IsDiving || Player.GoingHome || Customizing)
+        if (host == null || Player.IsClimbing || Player.IsDiving || Player.GoingHome || Customizing || GlowJournalOpen)
         {
             SetFocus(null, default, "");
             _focusAge = double.MaxValue;
@@ -573,10 +575,11 @@ public partial class RoomHud : CanvasLayer
             if (PlayerControls.Hit(press, Act.MouseRelease))
             {
                 if (Customizing) ToggleCustomization();
+                if (GlowJournalOpen) ToggleGlowJournal();
                 EndDrag();
             }
             if (PlayerControls.Hit(press, Act.HudCustomize)) ToggleCustomization();
-            if (Customizing) return;
+            if (Customizing || GlowJournalOpen) return;
             // One key does one thing, the first below that it is (Shift+T is the season before it is a T).
             if (PlayerControls.Hit(press, Act.HudHelp))
             {
@@ -608,7 +611,7 @@ public partial class RoomHud : CanvasLayer
                 if (DragTurnsView && !_wheel.Held) _drag.Press(GetViewport().GetMousePosition());
             }
         }
-        if (ViewMode == 2 && !Customizing)
+        if (ViewMode == 2 && !Customizing && !GlowJournalOpen)
         {
             // The diorama camera orbits with the look drag; the body does not turn with it (SetMovementFrame).
             if (fresh && PlayerControls.Hit(press, Act.ViewZoomIn))
@@ -671,6 +674,7 @@ public partial class RoomHud : CanvasLayer
     {
         CancelAsk();
         EndDrag();
+        if (GlowJournalOpen) ToggleGlowJournal();
         _customization.Visible = !_customization.Visible;
         Player.SetInputEnabled(!_customization.Visible);
         Input.MouseMode = Input.MouseModeEnum.Visible;

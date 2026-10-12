@@ -121,10 +121,10 @@ class GlowMatchesTheKernel(unittest.TestCase):
         from enfractal_companion.mock_host import rules_path
         self.assertIn('=> $"res://rules/{rulesId}/v{rulesVersion}.json";', _text(RULES))
         path = rules_path()
-        self.assertEqual(path, REPO / "game" / "rules" / "storybook_wild" / "v2.json")
+        self.assertEqual(path, REPO / "game" / "rules" / "storybook_wild" / "v3.json")
         host = new_host()
         self.assertEqual((host.rules.rules_id, host.rules.rules_version, host.rules.sha256),
-                         ("storybook_wild", 2, hashlib.sha256(path.read_bytes()).hexdigest()))
+                         ("storybook_wild", 3, hashlib.sha256(path.read_bytes()).hexdigest()))
         self.assertEqual([(a.capability, a.primitive) for a in host.rules.abilities],
                          [("glow", "light.emit"), ("bubbles", "particles.float"), ("fireworks", "particles.burst")])
 
