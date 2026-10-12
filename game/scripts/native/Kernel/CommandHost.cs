@@ -231,6 +231,7 @@ public partial class CommandHost : Node
             // Climbing takes both hands: a player carrying something does not grab a face (SmallPlayerController.HandsFull).
             Player.HandsFull = () => IsInstanceValid(this) && HeldBy(PlayerAvatar) != null;
         }
+        ApplyEcologyVisuals();
         BuildPrompt();
         AddChild(new Sandbox.Carrying { Name = "Carrying", Carried = CarriedNow });
         // The room's bounds are its playable volume (room manifest): neither body walks out of them, and one that falls
@@ -440,6 +441,7 @@ public partial class CommandHost : Node
         try
         {
             CheckEnvelope(root, command: true, stop);
+            if (!stop && actionId?.StartsWith("eco-step-", StringComparison.Ordinal) == true && !_ecologyStep) throw new Refusal("permission_denied", "Reserved simulation action identifier.");
             if (canonical.Length > MaxMessageBytes) throw new Refusal("request_invalid", "A command is at most 65,536 bytes of canonical JSON.");
             CheckText(root, "$", stop);
             var fingerprint = CanonicalJson.Sha256Hex(canonical);
@@ -488,6 +490,8 @@ public partial class CommandHost : Node
                 "creation.activate" => Activate(args, principal, actionId, fingerprint, meta, preview),
                 "goal.set" => GoalSet(args, principal, actionId, fingerprint, preview),
                 "goal.stop" => GoalStop(args, principal, actionId, fingerprint, preview),
+                "entity.set_part" => SetEcology(args, principal, actionId, meta, preview),
+                "effect.start" => StartFire(args, principal, actionId, fingerprint, preview),
                 "effect.stop" => EffectStop(args, principal, actionId, fingerprint, preview),
                 "room.checkpoint" => Checkpoint(args, principal, actionId, meta, preview),
                 "world.set_physics" => SetPhysics(args, principal, actionId, fingerprint, preview),
@@ -720,7 +724,7 @@ public partial class CommandHost : Node
             Companion.Stop();
             affected.Add(CompanionAvatarId);
         }
-        var stopped = Runtime.Call("stop_effects", whose).AsInt32();
+        var stopped = Runtime.Call("stop_effects", whose).AsInt32() + StopFire(whose);
         return Transient("goal.stop", principal, actionId, fingerprint, affected, new JsonObject { ["effects_stopped"] = stopped });
     }
 
@@ -728,9 +732,10 @@ public partial class CommandHost : Node
     {
         var effect = Str(args, "effect")!;
         if (preview) return Previewed("effect.stop", principal, actionId);
-        // Creation effects have no effect: ids yet, so a named effect is already stopped. "all" is everything for
-        // the player and the companion's own effects for the companion.
-        var stopped = effect == "all" ? Runtime.Call("stop_effects", principal == PlayerPrincipal ? "" : principal).AsInt32() : 0;
+        // "all" includes legacy creation effects and fire; named ids select fire effects.
+        // The player can douse everything; the companion can douse only its own effects.
+        var whose = principal == PlayerPrincipal ? "" : principal;
+        var stopped = (effect == "all" ? Runtime.Call("stop_effects", whose).AsInt32() : 0) + StopFire(whose, effect);
         return Transient("effect.stop", principal, actionId, fingerprint, new JsonArray(), new JsonObject { ["effects_stopped"] = stopped });
     }
 
@@ -878,6 +883,8 @@ public partial class CommandHost : Node
     {
         reason = "";
         touched = new Dictionary<string, int>();
+        if (op == "effect.start" && Str(args,"capability") is "wildfire" or "ignition_bolt")
+        { reason = "The Gubble asks to ignite landscape plants or timber; fire can spread. You can douse it with 8."; return true; }
         if (op is not ("entity.remove" or "creation.revise")) return false;
         var target = Str(args, "target")!;
         var instance = Instance(target);
@@ -1056,12 +1063,10 @@ public partial class CommandHost : Node
         return data;
     }
 
-    /// <summary>Effect capabilities as contract capability_summary items: none until effect.start arrives (Run 3), kernel-host-gaps P1.</summary>
-    private static JsonObject Capabilities(JsonElement args)
+    /// <summary>Visual spells and explicit island ignition capabilities, described by the capability contract.</summary>
+    private JsonObject Capabilities(JsonElement args)
     {
-        if (args.TryGetProperty("cursor", out var cursor) && cursor.GetString() != "0")
-            throw new Refusal("invalid_args", "That cursor is not from this list.", "$.args.cursor");
-        return new JsonObject { ["items"] = new JsonArray() };
+        return FireCapabilities(args);
     }
 
     private JsonObject Observe(JsonElement args, string principal)
@@ -1706,6 +1711,8 @@ public partial class CommandHost : Node
     /// </summary>
     public override void _PhysicsProcess(double delta)
     {
+        TickFire(delta);
+        TickEcology(delta);
         SightSweep(delta);
         if (Companion == null || !IsInstanceValid(Companion) || !_runningGoals.TryGetValue(CompanionAvatarId, out var job) || !HostDrivenGoals.Contains(job.Goal)) return;
         if (job.Goal == "fetch" && job.Phase == "approach" && Companion.GoToArrivedSerial == job.Serial)
@@ -2177,9 +2184,9 @@ public partial class CommandHost : Node
 
     private static string? Unsupported(string op, JsonElement args, string principal) => op switch
     {
-        "entity.set_part" => "Moving parts of objects (a lid, a door) is not available yet.",
+        "entity.set_part" when !(Str(args,"part_id") is { } part && (part == "ecology_step" || part.StartsWith("sow_") || part.StartsWith("seed_grown_") || part.StartsWith("seed_plant_") || part.StartsWith("plant_plant_") || part.StartsWith("repair_plant_"))) => "That moving part is not available yet.",
         "entity.transform" => "Transforming objects arrives with the first magic (Run 3).",
-        "effect.start" => "Free-standing effects arrive with the first magic (Run 3).",
+        "effect.start" when Str(args, "capability") is not ("flame" or "firebolt" or "wildfire" or "ignition_bolt") => "This effect is not available. Choose flame or firebolt.",
         "style.set" => "Restyling the room from a command arrives with the look runtime.",
         "room.undo" => "Undo arrives with room saves (Run 3).",
         "goal.set" when Str(args, "goal") is "wander" => "Wandering is not available yet.",

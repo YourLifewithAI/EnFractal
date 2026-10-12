@@ -172,7 +172,7 @@ func submit(principal: String, request: Dictionary, receipt_meta: Dictionary = {
 			return _failure("action_id_conflict", "action_id", "This action ID was already used for different content.")
 		return {"ok": true, "instance_id": "", "revision": int(_compacted[key][0]), "permission_revision": permission_revision, "replayed": true, "compacted": true, "affected": [], "created": []}
 	var op: Variant = request.get("op")
-	if op not in ["place", "revise", "remove", "activate", "lock", "unlock", "checkpoint", "move", "note"]:
+	if op not in ["place", "revise", "remove", "activate", "lock", "unlock", "checkpoint", "move", "note", "ecology"]:
 		return _failure("operation_invalid", "op", "Choose place, revise, remove, activate, lock, unlock, checkpoint, move or note.")
 	var allowed := ["op", "action_id", "expected_revision", "expected_permission_revision"]
 	if op in ["place", "revise"]:
@@ -187,6 +187,8 @@ func submit(principal: String, request: Dictionary, receipt_meta: Dictionary = {
 		allowed.append("label")
 	if op == "move":
 		allowed.append_array(["target", "position_m", "rotation", "bounds"])
+	if op == "ecology":
+		allowed.append_array(["team", "target", "step"])
 	if op == "note":
 		allowed.append_array(["team", "entry_id"])
 	for field in request:
@@ -203,6 +205,8 @@ func submit(principal: String, request: Dictionary, receipt_meta: Dictionary = {
 		return _submit_checkpoint(principal, request.get("label", ""), key, fingerprint, meta)
 	if op == "move":
 		return _submit_move(principal, request, key, fingerprint, meta)
+	if op == "ecology":
+		return _submit_ecology(principal, request, key, fingerprint, meta)
 	if op == "note":
 		return _submit_note(principal, request, key, fingerprint, meta)
 	var instance_id := ""
@@ -381,6 +385,46 @@ func _submit_note(principal: String, request: Dictionary, key: String, fingerpri
 	if not committed.ok:
 		return committed
 	return receipt
+
+
+## Trusted host translation of a validated entity.set_part ecology control. Save and receipt commit together.
+func _submit_ecology(principal: String, request: Dictionary, key: String, fingerprint: String, meta: Dictionary) -> Dictionary:
+	if not request.get("team") is Dictionary or not _room_entities.has(request.get("target", "")) or not request.get("step") is bool:
+		return _failure("request_invalid", "ecology", "Invalid landscape update.")
+	if team_check.is_valid():
+		var checked: Variant = team_check.call(request.team, revision + 1)
+		if not checked is Dictionary or not checked.get("ok", false):
+			return _failure("request_invalid", "ecology", String(checked.get("message", "Invalid landscape state.")) if checked is Dictionary else "Invalid landscape state.")
+	if not request.step and not _receipt_room(principal):
+		return _receipt_limit()
+	var next := _state()
+	next.team = request.team.duplicate(true)
+	next.revision = revision + 1
+	next.receipts = _receipts.duplicate(true)
+	# Keep the last trusted simulation receipt. No external caller can issue a simulation step.
+	if request.step:
+		for old_key in next.receipts.keys():
+			if String(next.receipts[old_key].get("action_id", "")).begins_with("eco-step-"):
+				next.receipts.erase(old_key)
+	var receipt := {"ok": true, "instance_id": "", "revision": next.revision, "permission_revision": permission_revision, "replayed": false, "affected": [], "created": []}
+	next.receipts[key] = {"principal": principal, "action_id": key.get_slice("|", 1), "fingerprint": fingerprint, "receipt": receipt.duplicate(true), "meta": meta}
+	# Marker is not part of the persisted receipt format; identify trusted steps by their reserved host action prefix.
+	var committed := _commit(next)
+	if not committed.ok:
+		return committed
+	return receipt
+
+
+## effect.stop must remain available independently of revision or receipt capacity.
+func stop_ecology(team: Dictionary) -> Dictionary:
+	if not _available():
+		return _failure("save_not_ready", "", "Load the saved room before changing it.")
+	if not team_check.is_valid() or not team_check.call(team, revision + 1).get("ok", false):
+		return _failure("request_invalid", "team", "Invalid landscape state.")
+	var next := _state()
+	next.team = team.duplicate(true)
+	next.revision = revision + 1
+	return _commit(next)
 
 
 ## The team block as last saved ({} before the host wrote one).

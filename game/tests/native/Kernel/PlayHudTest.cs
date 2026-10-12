@@ -48,6 +48,7 @@ public partial class PlayHudTest : Node
             TestNameTag();
             await TestNameTagSize();
             await TestHandKeys();
+            await TestFireAndJournal();
 
             CommandHost.SaveRoot = CommandHost.DefaultSaveRoot;
             RemoveSaves();

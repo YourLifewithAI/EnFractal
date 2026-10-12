@@ -103,6 +103,7 @@ public partial class CommandHost
             ["discovered"] = ExportDiscovered(),
             ["extensions"] = new JsonObject
             {
+                ["x_play_ecology"] = _ecology.DeepClone(),
                 ["x_play_companion_role"] = envelope["roles"]![CompanionPrincipal]!.GetValue<string>(),
                 ["x_play_next_creation"] = envelope["next_id"]!.GetValue<int>(),
                 ["x_play_compacted"] = envelope["compacted"]?.DeepClone() ?? new JsonObject(),
@@ -129,7 +130,7 @@ public partial class CommandHost
     /// <summary>The ops whose receipts are durable (contracts/README.md "Receipts").</summary>
     private static readonly HashSet<string> DurableOps = new()
     {
-        "creation.place", "creation.revise", "entity.remove", "protect.lock", "protect.unlock", "room.checkpoint", "entity.release", "entity.place", "entity.push", "journal.note",
+        "creation.place", "creation.revise", "entity.remove", "protect.lock", "protect.unlock", "room.checkpoint", "entity.release", "entity.place", "entity.push", "journal.note", "entity.set_part",
     };
 
     /// <summary>One canonical angle: a yaw in (-180, 180], so a half-turn either way is the same bytes everywhere.</summary>
@@ -300,6 +301,7 @@ public partial class CommandHost
     private string? ExtensionsProblem(JsonNode extensions, int store)
     {
         if (extensions is not JsonObject x || x.Count > 32) return "the block";
+        if (EcologyProblem(x["x_play_ecology"]) is { } ecologyProblem) return ecologyProblem;
         if (x["x_play_companion_role"] is { } role && StrOf(role) is not ("editor" or "visitor")) return "the companion's role";
         if (x["x_play_next_creation"] is { } next && (!Whole(next, 99999999) || next.GetValue<double>() < 1)) return "the next creation number";
         if (x["x_play_compacted"] is { } compacted)
@@ -389,6 +391,7 @@ public partial class CommandHost
             ["discovered"] = state["discovered"]?.DeepClone() ?? new JsonObject { ["cell_m"] = DiscoverCellM, ["levels"] = new JsonArray(), ["entities"] = new JsonObject() },
             ["task_goals"] = extensions["x_play_task_goals"]?.DeepClone() ?? new JsonObject(),
             ["avatars"] = avatars,
+            ["ecology"] = extensions["x_play_ecology"]?.DeepClone() ?? EmptyEcology(),
         };
         return new JsonObject
         {

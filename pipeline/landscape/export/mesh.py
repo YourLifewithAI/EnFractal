@@ -41,11 +41,11 @@ def transform(primitives, scale=(1, 1, 1), position=(0, 0, 0), yaw=0, tint=(1, 1
     return result
 
 
-def encode(primitives):
+def encode(primitives, split_ecology=True):
     """One primitive per primary role; preserve each input's vertex identity."""
     grouped = {}
     for p in primitives:
-        grouped.setdefault(p['role'], []).append(p)
+        grouped.setdefault((p.get('ecology_id', '') if split_ecology else '', p['role']), []).append(p)
     binary = bytearray()
     doc = {'asset': {'version': '2.0', 'generator': 'EnFractal landscape room exporter v1'},
            'scene': 0, 'scenes': [{'nodes': [0]}], 'nodes': [{'mesh': 0}],
@@ -67,7 +67,7 @@ def encode(primitives):
         binary.extend(data)
         return index
 
-    for role, parts in sorted(grouped.items()):
+    for (ecology_id, role), parts in sorted(grouped.items()):
         blends = sorted({p['blend_role'] for p in parts if 'blend_role' in p})
         mat = material(role, blends)
         base = mat['pbrMetallicRoughness']['baseColorFactor']
@@ -85,9 +85,20 @@ def encode(primitives):
                                for i in range(3)] + [1])
         attrs = {'POSITION': accessor(positions, 'VEC3'), 'NORMAL': accessor(ns, 'VEC3'),
                  'COLOR_0': accessor(colors, 'VEC4')}
-        doc['meshes'][0]['primitives'].append({'attributes': attrs,
+        mesh_index = 0
+        if ecology_id:
+            mesh_index = len(doc['meshes'])
+            doc['meshes'].append({'primitives': []})
+            doc['nodes'].append({'mesh': mesh_index, 'name': 'eco_' + ecology_id})
+            doc['scenes'][0]['nodes'].append(len(doc['nodes']) - 1)
+        doc['meshes'][mesh_index]['primitives'].append({'attributes': attrs,
             'indices': accessor(indices, 'SCALAR', 5125), 'mode': 4, 'material': len(doc['materials'])})
         doc['materials'].append(mat)
+    if not doc['meshes'][0]['primitives']:
+        doc['nodes'][0].pop('mesh')
+        doc['meshes'].pop(0)
+        for node in doc['nodes']:
+            if 'mesh' in node: node['mesh'] -= 1
     doc['buffers'] = [{'byteLength': len(binary)}]
     js = canonical(doc).rstrip(b'\n')
     js += b' ' * (-len(js) % 4)

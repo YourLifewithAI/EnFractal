@@ -541,6 +541,7 @@ public partial class CommandHost
         ["discovered"] = ExportDiscovered(),
         ["task_goals"] = new JsonObject(_taskGoals.OrderBy(p => p.Key, StringComparer.Ordinal).Select(p => KeyValuePair.Create(p.Key, (JsonNode?)JsonValue.Create(p.Value)))),
         ["avatars"] = AvatarIdentities(),
+        ["ecology"] = _ecology.DeepClone(),
     };
 
     /// <summary>The avatars' identities as the save keeps them: the player's colour, the companion's name and colour.</summary>
@@ -663,7 +664,8 @@ public partial class CommandHost
     private string? TeamProblemUnchecked(JsonObject? team, int revision)
     {
         if (team == null) return "not an object";
-        if (team.Any(p => p.Key is not ("journal" or "discovered" or "task_goals" or "avatars"))) return "an unknown block";
+        if (team.Any(p => p.Key is not ("journal" or "discovered" or "task_goals" or "avatars" or "ecology"))) return "an unknown block";
+        if (EcologyProblem(team["ecology"]) is { } ecologyProblem) return ecologyProblem;
         if (team["avatars"] is { } avatars && (avatars is not JsonObject identities || identities.Any(p => p.Key is not (PlayerAvatar or CompanionAvatarId) ||
             p.Value is not JsonObject identity || identity.Count != 2 || !Text(identity["display_name"], 40) ||
             identity["color"]?.GetValueKind() != JsonValueKind.String || !System.Text.RegularExpressions.Regex.IsMatch(identity["color"]!.GetValue<string>(), @"\A#[0-9a-fA-F]{6}\z") ||
@@ -786,7 +788,10 @@ public partial class CommandHost
         _levels.Clear();
         var memory = TeamMemory();
         memory.Clear();
+        _ecology = EmptyEcology();
         if (team == null || team.Count == 0 || TeamProblem(team, Revision) != null) return;
+        _ecology = team["ecology"] is JsonObject ecology ? (JsonObject)ecology.DeepClone() : EmptyEcology();
+        ApplyEcologyVisuals();
         if (team["journal"] is JsonObject journal)
         {
             _openTasks = journal["open_tasks"]!.AsArray().Select(n => (JsonObject)n!.DeepClone()).ToList();

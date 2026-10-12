@@ -46,6 +46,8 @@ if [ ! -f "$LR/room.json" ]; then rm -rf "$REPO/.cache/landscape-fixture"; mkdir
   (cd "$REPO" && python3 -B -m pipeline.landscape.generator.generate --room pipeline/landscape/corpus/rooms/garage_nominal --out "$REPO/.cache/landscape-fixture/$LK/package" && python3 -B -S -m pipeline.landscape.export --package "$REPO/.cache/landscape-fixture/$LK/package" --room pipeline/landscape/corpus/rooms/garage_nominal --room-id landscape_garage_nominal --out "$LR") > "$LOG/landscape_fixture.log" 2>&1 || { echo "FAIL landscape fixture"; tail -15 "$LOG/landscape_fixture.log"; failed=1; }
 fi
 run native_kernel_landscape "NATIVE_KERNEL_LANDSCAPE: [0-9]+/[0-9]+ checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_kernel_landscape.tscn -- --landscape="$LR"
+run native_fire_restoration "FIRE_RESTORATION: [0-9]+/[0-9]+ checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_fire_restoration.tscn -- --island="$LR"
+run native_island_planting "ISLAND_PLANTING: [0-9]+/[0-9]+ checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_island_planting.tscn -- --island="$LR"
 run native_room_data "checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_room_data.tscn
 run native_look_preset "checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_look_preset.tscn
 run room_boot "ROOM_WORLD_READY" --headless --path "$P" --fixed-fps 60 --quit-after 240 res://scenes/room.tscn
@@ -96,7 +98,7 @@ if (cd "$REPO/pipeline/roomscan" && uv run --locked python -B -m unittest discov
   echo "PASS landscape corpus: $(grep -E '^Ran' "$LOG/corpus.log")"
 else cat "$LOG/corpus.log"; failed=1; fi
 echo "== landscape exporter (a package to a game room, validated against the contracts)"
-if (cd "$REPO" && "$LINUX/contracts-venv/bin/python" -B -m unittest pipeline.landscape.export.tests.test_export > "$LOG/landscape_export.log" 2>&1); then
+if (cd "$REPO" && "$LINUX/contracts-venv/bin/python" -B -m unittest discover -s pipeline/landscape/export/tests > "$LOG/landscape_export.log" 2>&1); then
   echo "PASS landscape exporter: $(grep -E '^Ran' "$LOG/landscape_export.log") $(grep -E '^OK' "$LOG/landscape_export.log")"
 else echo "FAIL landscape exporter"; tail -20 "$LOG/landscape_export.log"; failed=1; fi
 echo "== landscape harness (package format and views; its Blender tests skip without Blender)"

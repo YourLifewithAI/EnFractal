@@ -40,6 +40,15 @@ $landscape = Invoke-EnfractalNativeProcess -Toolchain $toolchain -FilePath $tool
     -Arguments @('--headless', '--path', $toolchain.ProjectPath, '--fixed-fps', '60', 'res://tests/native_kernel_landscape.tscn', '--', "--landscape=$landscapeRoom") -TimeoutSeconds 300
 if ($landscape.Stderr -or $landscape.Stdout -notmatch 'NATIVE_KERNEL_LANDSCAPE: \d+/\d+ checks passed') { throw "$($landscape.Stdout)`n$($landscape.Stderr)" }
 Write-Output (($landscape.Stdout.Trim().Split("`n") | Where-Object { $_ -match '^(LANDSCAPE_|NATIVE_KERNEL_LANDSCAPE)' }) -join "`n")
+# Fire, seed collection, replanting, repair and reload use the same generated island and command path.
+$restoration = Invoke-EnfractalNativeProcess -Toolchain $toolchain -FilePath $toolchain.EnginePath `
+    -Arguments @('--headless', '--path', $toolchain.ProjectPath, '--fixed-fps', '60', 'res://tests/native_fire_restoration.tscn', '--', "--island=$landscapeRoom") -TimeoutSeconds 300
+if ($restoration.Stderr -or $restoration.Stdout -notmatch 'FIRE_RESTORATION: \d+/\d+ checks passed') { throw "$($restoration.Stdout)`n$($restoration.Stderr)" }
+Write-Output (($restoration.Stdout.Trim().Split("`n") | Where-Object { $_ -match '^FIRE_RESTORATION:' }) -join "`n")
+$planting = Invoke-EnfractalNativeProcess -Toolchain $toolchain -FilePath $toolchain.EnginePath `
+    -Arguments @('--headless', '--path', $toolchain.ProjectPath, '--fixed-fps', '60', 'res://tests/native_island_planting.tscn', '--', "--island=$landscapeRoom") -TimeoutSeconds 300
+if ($planting.Stderr -or $planting.Stdout -notmatch 'ISLAND_PLANTING: \d+/\d+ checks passed') { throw "$($planting.Stdout)`n$($planting.Stderr)" }
+Write-Output (($planting.Stdout.Trim().Split("`n") | Where-Object { $_ -match '^ISLAND_PLANTING:' }) -join "`n")
 $roomData = Invoke-EnfractalNativeProcess -Toolchain $toolchain -FilePath $toolchain.EnginePath `
     -Arguments @('--headless', '--path', $toolchain.ProjectPath, '--fixed-fps', '60', 'res://tests/native_room_data.tscn') -TimeoutSeconds 90
 if ($roomData.Stderr -or $roomData.Stdout -notmatch 'checks passed') { throw "$($roomData.Stdout)`n$($roomData.Stderr)" }

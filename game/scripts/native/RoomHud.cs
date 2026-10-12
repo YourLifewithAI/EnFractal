@@ -16,9 +16,13 @@ public partial class RoomHud : CanvasLayer
     /// <summary>Set by RoomWorld: what the look and the style pin need the player to know (a renderer fallback, a style that did not verify).</summary>
     public string LookNotice { get; set; } = "";
     public bool Customizing => _customization.Visible;
+    public bool JournalOpen => _journalPresentation?.IsActive == true;
+    private Ui.JournalPanel _journal = null!;
+    private Ui.JournalPresentation _journalPresentation = null!;
     private const string ProfilePath = "user://single_player/room/avatar_profile_v1.cfg";
     private static readonly Color[] Palette = { new("d28f63"), new("65b9b0"), new("d7b765"), new("a18cc3"), new("75965c") };
     private Label _state = null!;
+    private Button _seedChoice = null!;
     /// <summary>The wash-ashore fade (the sea's edge): a full-screen veil the player's body darkens and lifts.</summary>
     private ColorRect _washVeil = null!;
     private Label _notice = null!;
@@ -174,6 +178,18 @@ public partial class RoomHud : CanvasLayer
         var hands = new HBoxContainer { Name = "HandActions" }; column.AddChild(hands);
         AddButton(hands, "F Pick up / put down", Hands, 26);
         AddButton(hands, "V Push", Push, 26);
+        var magic = new HBoxContainer { Name = "MagicActions" }; column.AddChild(magic);
+        AddButton(magic, "6 Place flame", () => CastFire(false), 26);
+        AddButton(magic, "7 Firebolt", () => CastFire(true), 26);
+        AddButton(magic, "8 Douse", StopFire, 26);
+        var tending = new HBoxContainer();
+        magic.GetParent().AddChild(tending);
+        AddButton(tending, "9 Seeds", () => Tend("seed"), 26);
+        AddButton(tending, "0 Plant ahead", PlantSeed, 26);
+        AddButton(tending, "Shift+0 Restore", () => Tend("plant"), 26);
+        AddButton(tending, "B Repair", () => Tend("repair"), 26);
+        _seedChoice = new Button { Text = "N Choose seed (empty)", CustomMinimumSize = new Vector2(0,26) };
+        column.AddChild(_seedChoice); _seedChoice.Pressed += () => Host?.CycleSeed();
         _washVeil = new ColorRect { Name = "WashAshoreVeil", Color = new Color(0.06f, 0.13f, 0.18f, 0), MouseFilter = Control.MouseFilterEnum.Ignore };
         AddChild(_washVeil);
         _washVeil.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
@@ -181,7 +197,7 @@ public partial class RoomHud : CanvasLayer
         _footer = new PanelContainer { Name = "HelpFooter", Theme = compactTheme, GrowVertical = Control.GrowDirection.Begin };
         AddChild(_footer);
         _footer.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.BottomWide);
-        _footer.OffsetLeft = 18; _footer.OffsetRight = -18; _footer.OffsetTop = _footer.OffsetBottom = -18;
+        _footer.OffsetLeft = 18; _footer.OffsetRight = -128; _footer.OffsetTop = _footer.OffsetBottom = -18;
         var help = new VBoxContainer(); _footer.AddChild(help);
         _helpHint = new Label { Text = "H keys" }; help.AddChild(_helpHint);
         _keyHelp = new VBoxContainer { Name = "KeyHelp", Visible = false }; help.AddChild(_keyHelp);
@@ -191,6 +207,7 @@ public partial class RoomHud : CanvasLayer
         _keyHelp.AddChild(new Label { Text = "F1 eye · F2 shoulder · F3 diorama: mouse orbits, wheel zooms, WASD follows the view · F4 isometric: Q/E turn the view" });
         _keyHelp.AddChild(new Label { Text = "T time of day · Shift+T season (each steps round to the real clock) · L lamps · O observe (a very tight tilt-shift view, best from F3 or F4) · C customize" });
         _keyHelp.AddChild(new Label { Text = "F pick up what you face · F again sets it down in front of you, or on top of what you face (the box, the book) · V push what you face 10 cm" });
+        _keyHelp.AddChild(new Label { Text = "J journal · 6 flame · 7 firebolt · 8 douse · 9 collect seeds · N choose seed · 0 plant ahead · Shift+0 restore lost plant · B repair" });
         _notice = new Label { Name = "Notice", Text = _noticeText }; help.AddChild(_notice);
         help.MinimumSizeChanged += () => _footer.Size = new Vector2(_footer.Size.X, 0);
         _customization = new PanelContainer { Position = new Vector2(18, 190), Theme = theme, Visible = false };
@@ -204,6 +221,9 @@ public partial class RoomHud : CanvasLayer
         AddButton(options, "Change the Gubble's color", () => { _companionColor = (_companionColor + 1) % Palette.Length; Companion.SetAppearance(Palette[_companionColor]); });
         options.AddChild(new Label { Text = $"Player height: {Player.BodyHeightM * 100:0} cm. Appearance keeps each avatar's identity." });
         AddButton(options, "Save appearance and return", () => { SavePreferences(); ToggleCustomization(); });
+        _journalPresentation = new Ui.JournalPresentation { FindHost = () => Host, ActivityChanged = JournalActivityChanged };
+        AddChild(_journalPresentation);
+        _journal = _journalPresentation.Panel;
         SetViewMode(1);
         if (LookNotice.Length > 0) _noticeText = LookNotice;
         Input.MouseMode = Input.MouseModeEnum.Visible;
@@ -337,7 +357,10 @@ public partial class RoomHud : CanvasLayer
         _state.Text = $"{Player.BodyHeightM * 100:0} cm player  ·  gravity {Player.WorldPhysicsId} (G)  ·  {Companion.CompanionName}: {Companion.CurrentIntent}" +
             (Companion.FloatingThere ? " · floating there" : "") + (Companion.GoalBlocked ? " · path blocked" : "") +
             (holding.Length > 0 ? $"  ·  holding {holding} (F)" : "") + (Look?.Observe == true ? "  ·  observe view (O)" : "");
-        _notice.Text = _noticeText;
+        if (Host?.Room.Ecology.Count > 0 && _noticeText.StartsWith("Placeholder room"))
+            _noticeText = "Tend the island: collect seeds from living plants, douse fires, then replant or repair.";
+        _notice.Text = Host?.EcologyNotice is { Length: > 0 } ecologyNotice ? ecologyNotice : _noticeText;
+        _seedChoice.Text = Host?.SeedSelectionLabel ?? "N Choose seed (empty)";
         _washVeil.Color = new Color(_washVeil.Color, Player.WashAshoreFade);
         var clock = ClockText();
         _clock.Visible = clock.Length > 0;
@@ -351,6 +374,11 @@ public partial class RoomHud : CanvasLayer
         if (input is InputEventKey key && key.Pressed && !key.Echo)
         {
             var code = key.PhysicalKeycode != Key.None ? key.PhysicalKeycode : key.Keycode;
+            if (code == Key.J || (code == Key.Escape && JournalOpen))
+            {
+                ToggleJournal(); GetViewport().SetInputAsHandled(); return;
+            }
+            if (JournalOpen) return;
             if (code == Key.Escape)
             {
                 if (Customizing) ToggleCustomization();
@@ -381,14 +409,21 @@ public partial class RoomHud : CanvasLayer
                 case Key.Key3: Goal("come"); break;
                 case Key.Key4: Goal("stop"); break;
                 case Key.Key5: PointAhead(); break;
+                case Key.Key6: CastFire(false); break;
+                case Key.Key7: CastFire(true); break;
+                case Key.Key8: StopFire(); break;
+                case Key.Key9: Tend("seed"); break;
+                case Key.Key0: if (key.ShiftPressed) Tend("plant"); else PlantSeed(); break;
+                case Key.N: Host?.CycleSeed(); break;
+                case Key.B: Tend("repair"); break;
                 // Hand keys: pick up, put down and push, as commands from the player.
                 case Key.F: Hands(); break;
                 case Key.V: Push(); break;
             }
         }
-        if (!Customizing && input is InputEventMouseButton click && click.Pressed && click.ButtonIndex == MouseButton.Left)
+        if (!Customizing && !JournalOpen && input is InputEventMouseButton click && click.Pressed && click.ButtonIndex == MouseButton.Left)
             Input.MouseMode = Input.MouseModeEnum.Captured;
-        if (ViewMode == 2 && !Customizing)
+        if (ViewMode == 2 && !Customizing && !JournalOpen)
         {
             // The diorama camera owns the mouse in F3; the body does not turn with it (SetMovementFrame).
             if (input is InputEventMouseMotion motion && Input.MouseMode == Input.MouseModeEnum.Captured)
@@ -406,6 +441,25 @@ public partial class RoomHud : CanvasLayer
     }
 
     private void PointAhead() => Goal("point_at", Player.GlobalPosition - Player.GlobalBasis.Z * 0.6f + Vector3.Up * 0.05f);
+
+    private void ToggleJournal() => _journalPresentation.Toggle();
+
+    private void JournalActivityChanged()
+    {
+        if (JournalOpen && Customizing) _customization.Visible = false;
+        Player.SetInputEnabled(!JournalOpen && !Customizing);
+        Input.MouseMode = Input.MouseModeEnum.Visible;
+    }
+
+    private void Tend(string operation) => MagicResult(Host?.PlayerEcology(operation), operation == "seed" ? "Seed collected. The plant needs a minute to produce another." : operation == "plant" ? "Seed planted. A protected sapling will grow here." : "Damaged structure repaired.");
+    private void PlantSeed() => MagicResult(Host?.PlayerPlantSeed(), "Seed planted ahead. Your new plant is protected and will grow here.");
+    private void CastFire(bool bolt) => MagicResult(Host?.PlayerFire(bolt), bolt ? "Firebolt cast straight ahead." : "Flame placed. It can ignite landscape plants and timber.");
+    private void StopFire() => MagicResult(Host?.PlayerStopFire(), "Fire doused. Burned landscape stays damaged.");
+    private void MagicResult(System.Text.Json.Nodes.JsonObject? result, string success)
+    {
+        _noticeText = result == null ? "Magic is not ready yet." : result["ok"]?.GetValue<bool>() == true
+            ? success : result["error"]?["message"]?.GetValue<string>() ?? "The cast could not be completed.";
+    }
 
     /// <summary>The room's command host (null in fixtures without one).</summary>
     private Kernel.CommandHost? Host => GetParent() is { } parent ? Kernel.CommandHost.Of(parent) : null;

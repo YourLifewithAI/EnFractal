@@ -144,7 +144,7 @@ public partial class CommandHostTest : Node3D
         Check(Code(Query("observe", new JsonObject { ["actor"] = CommandHost.PlayerAvatar }, Companion)) == "actor_denied", "a companion cannot observe through the player's avatar");
         // Kernel-host gap P1 (blocked the Run 2 swap): the contract's items, of capability_summary, and nothing else.
         var capabilities = Query("capabilities.list", new JsonObject(), Companion);
-        Check(Ok(capabilities) && capabilities["data"]!.AsObject().Count == 1 && capabilities["data"]!["items"]!.AsArray().Count == 0, "capabilities.list answers the contract's items: no effects yet");
+        Check(Ok(capabilities) && capabilities["data"]!.AsObject().Count == 1 && capabilities["data"]!["items"]!.AsArray().Count == 2, "capabilities.list advertises flame and firebolt through the contract");
         Check(Ok(Query("capabilities.list", new JsonObject { ["category"] = "air", ["limit"] = 10, ["cursor"] = "0" }, Companion)) &&
             Code(Query("capabilities.list", new JsonObject { ["cursor"] = "7" }, Companion)) == "invalid_args" &&
             Code(Query("capabilities.list", new JsonObject { ["limit"] = 0 }, Companion)) == "request_invalid", "capabilities.list checks its category, limit and cursor");

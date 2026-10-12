@@ -8,6 +8,7 @@ from pipeline.landscape.harness.package import read_package
 from .materials import CONTRACT_ROLES, PALETTE, hex_color, material
 from .mesh import encode, ground, open_edges, transform
 from .sea import sea_data
+from .ecology import tag, bind
 from .source import source_data
 from .trees import TerrainHeights, climbing_parts, is_tree
 
@@ -62,6 +63,7 @@ def export_room(package_folder, source_room_folder, room_id, out):
     require(len(doc['objects']) <= 512, 'room contract allows at most 512 populated objects')
     blobs, shell, objects = {}, [], []
     counts = {}
+    ecology = []
 
     def put(path, data):
         blobs[path] = data
@@ -76,6 +78,7 @@ def export_room(package_folder, source_room_folder, room_id, out):
         for harness_role, group in sorted(groups.items()):
             path = f'shell/{label}_{harness_role}.glb'
             put(path, encode(group))
+            bind(group, f'shell:{label}_{harness_role}', ecology)
             shell.append({'id': f'shell:{label}_{harness_role}', 'role': role,
                           'geometry': {'kind': 'mesh', 'mesh': path}, 'collides': collides,
                           'material_role': CONTRACT_ROLES[harness_role],
@@ -150,7 +153,13 @@ def export_room(package_folder, source_room_folder, room_id, out):
         scaled = transform(parts, scale=[size[i]/original_size[i] for i in range(3)],
                            tint=record.get('tint', (1, 1, 1)))
         asset_dir = f'objects/{asset_id}'
-        geometry = put(asset_dir+'/mesh.glb', encode(scaled))
+        # Metadata uses world-space bounds; GLB geometry remains object-local.
+        world_parts = transform(scaled, position=record['position_m'], yaw=record['yaw_deg'])
+        tag(world_parts, f'plant_o{index:04d}', name, ecology, record['position_m'])
+        for local, world in zip(scaled, world_parts):
+            if 'ecology_id' in world: local['ecology_id'] = world['ecology_id']
+        bind(scaled, instance_id, ecology)
+        geometry = put(asset_dir+'/mesh.glb', encode(scaled, split_ecology=False))
         geometry['path'] = 'mesh.glb'
         collision = 'none' if tree or (not colliding_parts(name, parts) and not movable) else 'box'
         # A canopy box would block paths and collide with every leaf. Vegetation
@@ -193,7 +202,7 @@ def export_room(package_folder, source_room_folder, room_id, out):
         add_object(record, index)
     entity_scatter = 0
     merged_visual, merged_solid = [], []
-    for record in doc['scatter']:
+    for scatter_index, record in enumerate(doc['scatter']):
         name = record['prototype']
         parts, size = get_prototype(name)
         final_size = [size[i]*record['scale'][i] for i in range(3)]
@@ -207,6 +216,7 @@ def export_room(package_folder, source_room_folder, room_id, out):
         transformed = transform(parts, record['scale'], record['position_m'], record['yaw_deg'],
                                 record.get('tint', (1, 1, 1)))
         add_tree(name, transformed)
+        tag(transformed, f'plant_s{scatter_index:04d}', name, ecology, record['position_m'])
         for source_part, p in zip(parts, transformed):
             (merged_solid if any(source_part is q for q in solid) else merged_visual).append(p)
     add_shell('scatter_visual', merged_visual, 'backdrop', False)
@@ -263,6 +273,7 @@ def export_room(package_folder, source_room_folder, room_id, out):
                  'solar_noon_h': 12},
         'files': [{'path': path, 'sha256': sha(data), 'bytes': len(data)} for path, data in sorted(blobs.items())],
         'extensions': {'x_landscape_setup': setup,
+                       'x_landscape_ecology': {'version': 1, 'parts': ecology},
                        'x_landscape_source': intro_source,
                        'x_landscape_package_sha256': sha((Path(package_folder)/'package.json').read_bytes()),
                        'x_landscape_terrain_open_edges': edges,

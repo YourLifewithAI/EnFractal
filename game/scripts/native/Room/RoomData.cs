@@ -100,6 +100,7 @@ public sealed class RoomData
     public StylePin? DefaultStyle { get; private init; }
     /// <summary>The island's sea (extensions.x_landscape_sea, checked on reading), or null: a room without it has no sea edge.</summary>
     public RoomSea? Sea { get; private init; }
+    public IReadOnlyList<EcologyPart> Ecology { get; private init; } = Array.Empty<EcologyPart>();
     /// <summary>Mesh bytes exactly as hash-verified, keyed by full path; the builder never reads them from disk again.</summary>
     public IReadOnlyDictionary<string, byte[]> VerifiedMeshes { get; private init; } = new Dictionary<string, byte[]>();
 
@@ -184,6 +185,7 @@ public sealed class RoomData
             Directory = directory, RoomId = roomId, DisplayName = Display(root, "display_name", 80), DefaultStyle = style, VerifiedMeshes = meshes,
             SourceKind = Str(root.GetProperty("source"), "kind"), ManifestSha256 = Sha256Hex(manifestBytes),
             Bounds = new Aabb(min, max - min), Shell = shell, Objects = objects, Spawns = spawns, LightHints = hints, Openings = openings, Sea = sea,
+            Ecology = RoomEcology.Read(root, shell.Select(p => p.Id).Concat(objects.Select(o => o.Id))),
         };
     }
 
