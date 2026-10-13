@@ -14,8 +14,8 @@ namespace EnFractal.Tests.Kernel;
 /// 7f21aad): nature is room state and survives a rebuild from room state; its receipts are the authority's and a
 /// checkpoint compacts them; a nature change is a room revision and room.undo names room revisions, across both
 /// principals' changes; every nature change needs a role that builds, also when a held one is approved; a companion
-/// learns nothing of a creation the team has not seen; the founder's fire rule; and the companion cannot light a fire
-/// that reaches the player without the player's click.
+/// learns nothing of a creation the team has not seen; and the founder's fire rule as decided through 13 October (the
+/// Gubble's fire near the player is NatureTest.Consequences: no longer held, it hurts and the Gubble hears of it).
 /// </summary>
 public partial class NatureTest
 {
@@ -109,11 +109,11 @@ public partial class NatureTest
 
     /// <summary>
     /// Review major 8: a creation behind a wall that neither avatar has seen. The Gubble's fire would reach it: the host
-    /// knows (it waits for the player's yes), but nothing the Gubble reads names it or counts it.
+    /// knows (in Creative it asks the player once), but nothing the Gubble reads names it or counts it.
     /// </summary>
     private async Task TestUnseenStaysUnseen()
     {
-        await NewWorld(SavePath("unseen"), challenge: true);
+        await NewWorld(SavePath("unseen"));
         var hidden = Build("Hidden shed", -1.5, 0.9);
         var wall = new StaticBody3D { Name = "TestWall", Position = new Vector3(-1.41f, 0.5f, 0.9f), CollisionLayer = RoomBuilder.WorldLayer, CollisionMask = 0 };
         wall.AddChild(new CollisionShape3D { Shape = new BoxShape3D { Size = new Vector3(0.02f, 1f, 1f) } });
@@ -139,18 +139,26 @@ public partial class NatureTest
     }
 
     /// <summary>
-    /// Review major 9, the founder's rule (13 October): in Creative a creation is fireproof and its bounds stop the burn;
-    /// in Challenge it is scorched, after the player's yes; the island's own objects burn down completely and leave the room.
+    /// Review major 9, the founder's rule as decided through 13 October: in Creative, before any fire burns an unlocked
+    /// creation, the player is asked once (no: the burn stops at it; yes: it is scorched, repaired for free); in Challenge
+    /// the player's own fire and the Gubble's scorch it with no ask; the island's own objects burn down completely.
     /// </summary>
     private async Task TestFireRule()
     {
+        var spot = new Vector3(1.35f, 0.01f, 1.2f);
         await NewWorld(SavePath("rule"));
         var shed = Build("Creative shed", 1.5, 1.2);
-        var commit = Fire(Player, new Vector3(1.35f, 0.01f, 1.2f), 0.3, 6, out var preview);
-        Check(shed.Length > 0 && Ok(preview) && preview["data"]?["requires_approval"]?.GetValue<bool>() == false &&
-            !Canonical(preview["data"]?["affected_ids"]).Contains(shed, StringComparison.Ordinal), "in Creative a creation is fireproof: the fire would not touch it and needs no yes");
+        var held = Fire(Player, spot, 0.3, 6, out var preview);
+        var reason = held["approval_needed"]?["reason"]?.GetValue<string>() ?? "";
+        Check(shed.Length > 0 && Ok(preview) && preview["data"]?["requires_approval"]?.GetValue<bool>() == true && Canonical(preview["data"]?["affected_ids"]).Contains(shed, StringComparison.Ordinal) &&
+            Code(held) == "approval_required" && reason.Contains("Is it OK if they burn?", StringComparison.Ordinal),
+            "in Creative a fire that would reach a creation asks the player once, in plain words: " + reason);
+        var requestId = held["approval_needed"]?["request_id"]?.GetValue<string>();
+        var spared = requestId == null ? new JsonObject() : _host.Deny(requestId);
+        Check(Ok(spared) && spared["approved_by"] == null && _host.Nature.Fire != null && _host.PendingApprovals.Count == 0,
+            "the player's no still lights the fire, approving nothing, and nothing asks again: " + Canonical(spared["error"]));
         Steps(14);
-        Check(Ok(commit) && !_host.Nature.Objects.ContainsKey(shed) && _host.Nature.Fire == null, "the fire burns out and the creation is untouched");
+        Check(!_host.Nature.Objects.ContainsKey(shed) && _host.Nature.Fire == null && _host.Nature.Cells.Values.Any(c => c.Ash > 0), "the fire burns, and stops at the spared creation");
         var book = Fire(Player, new Vector3(0.45f, 0.01f, -0.1f), 0.15, 10, out var bookPreview);
         Check(Ok(book) && Canonical(bookPreview["data"]?["affected_ids"]).Contains("obj:book", StringComparison.Ordinal), "a fire by the book would burn it");
         Steps(16);
@@ -158,24 +166,44 @@ public partial class NatureTest
         Check(_host.Nature.Objects.TryGetValue("obj:book", out var ash) && ash.Burn >= 1 && Ok(listed) && !Canonical(listed).Contains("obj:book", StringComparison.Ordinal),
             "the island's own book burns down completely and is gone from the room");
         Check(_host.ExportRoomState()!["entities"]?["obj:book"]?["removed"]?.GetValue<bool>() == true, "room state lists it as removed, at the pose it burned at");
+
+        await NewWorld(SavePath("rule-yes"));
+        var cabin = Build("Creative cabin", 1.5, 1.2);
+        var asked = Fire(Companion, spot, 0.3, 6, out _);
+        var yes = asked["approval_needed"]?["request_id"]?.GetValue<string>() is { } yesId ? _host.Approve(yesId) : new JsonObject();
+        Steps(4);
+        var wallet = _host.Nature.Wallet.ToDictionary(p => p.Key, p => p.Value);
+        Check(Code(asked) == "approval_required" && Ok(yes) && _host.Nature.Objects.TryGetValue(cabin, out var burnt) && burnt.Burn > 0,
+            "in Creative the Gubble's fire asks the same once, and the player's yes lets the creation burn to scorched remains");
+        Steps(12);
+        Check(Ok(_host.PlayerNatureRepair(cabin)) && !_host.Nature.Objects.ContainsKey(cabin) && wallet.All(p => _host.Nature.Wallet[p.Key] == p.Value),
+            "its design is kept, and Creative repairs it for free");
+
+        await NewWorld(SavePath("rule-gubble-no"));
+        var hall = Build("Creative hall", 1.5, 1.2);
+        var gubbleAsks = Fire(Companion, spot, 0.3, 6, out _);
+        var noId = gubbleAsks["approval_needed"]?["request_id"]?.GetValue<string>();
+        var no = noId == null ? new JsonObject() : _host.Deny(noId);
+        var status = noId == null ? new JsonObject() : Send(Query("approval.status", new JsonObject { ["request_id"] = noId }), Companion);
+        Steps(14);
+        Check(Ok(no) && status["data"]?["state"]?.GetValue<string>() == "denied" && status["data"]?["result"]?["ok"]?.GetValue<bool>() == true && !_host.Nature.Objects.ContainsKey(hall),
+            "the player's no to the Gubble's fire spares the creation; the Gubble reads that its ask was denied and its fire lit without it");
+
         await NewWorld(SavePath("rule-challenge"), challenge: true);
         var hut = Build("Challenge hut", 1.5, 1.2);
-        var held = Fire(Player, new Vector3(1.35f, 0.01f, 1.2f), 0.3, 6, out var challengePreview);
-        Check(challengePreview["data"]?["requires_approval"]?.GetValue<bool>() == true && Code(held) == "approval_required", "in Challenge a fire that would reach a creation waits for the player's yes");
-        var requestId = held["approval_needed"]?["request_id"]?.GetValue<string>();
-        var lit = requestId == null ? new JsonObject() : _host.Approve(requestId);
+        var lit = Fire(Player, spot, 0.3, 6, out var challengePreview);
         Steps(4);
-        Check(Ok(lit) && _host.Nature.Objects.TryGetValue(hut, out var scorched) && scorched.Burn > 0 && _host.IsNatureUnavailable(hut), "and the creation is scorched, out of use until repaired");
-    }
+        Check(challengePreview["data"]?["requires_approval"]?.GetValue<bool>() == false && Ok(lit) && _host.PendingApprovals.Count == 0 &&
+            _host.Nature.Objects.TryGetValue(hut, out var scorched) && scorched.Burn > 0 && _host.IsNatureUnavailable(hut),
+            "in Challenge the player's own fire scorches their creation with no warning and no ask; out of use until repaired");
 
-    /// <summary>Review major 10: the companion cannot light a fire whose area reaches the player without the player's click.</summary>
-    private async Task TestCompanionFireNearPlayer()
-    {
-        await NewWorld(SavePath("near-player"), challenge: true);
-        var near = Fire(Companion, new Vector3(0.15f, 0.01f, 0.6f), 0.25, 6, out var preview);
-        Check(Ok(preview) && preview["data"]?["requires_approval"]?.GetValue<bool>() == true && Code(near) == "approval_required" && _host.Nature.Fire == null,
-            "the Gubble's fire that would reach the player waits for the player: " + Code(near));
-        var far = Fire(Companion, new Vector3(0.9f, 0.01f, 1.2f), 0.2, 4, out _);
-        Check(Ok(far) && _host.Nature.Fire != null, "a fire away from the player needs no click");
+        await NewWorld(SavePath("rule-challenge-gubble"), challenge: true);
+        var barn = Build("Challenge barn", 1.5, 1.2);
+        var gubbleLit = Fire(Companion, spot, 0.3, 6, out var gubblePreview);
+        Steps(4);
+        Check(gubblePreview["data"]?["requires_approval"]?.GetValue<bool>() == false && Ok(gubbleLit) && _host.Nature.Objects.TryGetValue(barn, out var charred) && charred.Burn > 0,
+            "and so does the Gubble's fire, with no ask: " + Code(gubbleLit));
+        Check(Code(Send(Command(NextId("lock-scorched"), "protect.lock", new JsonObject { ["targets"] = new JsonArray(barn) }, expectedRevision: _host.Revision), Player)) == "target_busy",
+            "a scorched creation waits for repair before anything else");
     }
 }

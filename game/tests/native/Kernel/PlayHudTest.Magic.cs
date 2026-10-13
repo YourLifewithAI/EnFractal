@@ -7,9 +7,9 @@ using Godot;
 namespace EnFractal.Tests.Kernel;
 
 /// <summary>
-/// The Magic panel: the mode picker, the flower trail toggle, Fire's preview and deliberate hold (no cast without a host
-/// preview, a release cancels, the hold casts exactly what was previewed), the nature Undo button, and the wish queue's
-/// curated words and Stop, all through the host's commands.
+/// The Magic panel: the mode picker, the flower trail toggle, the player's "Let the Gubble use fire", Fire's preview and
+/// deliberate hold (no cast without a host preview, a release cancels, the hold casts exactly what was previewed), the
+/// nature Undo button (Creative only), and the wish queue's curated words and Stop, all through the host's commands.
 /// </summary>
 public partial class PlayHudTest
 {
@@ -27,8 +27,17 @@ public partial class PlayHudTest
         var line = (Label)_hud.FindChild("IslandVitalsLine", true, false)!;
         Check(host.Mode == "challenge" && line.Text.Contains("Stamina 100%", StringComparison.Ordinal) && !line.Text.Contains("0/0", StringComparison.Ordinal),
             "the mode picker uses the host and the small starting stamina reads as a full percentage");
+        var undoButton = (Button)_hud.FindChild("NatureUndoButton", true, false)!;
+        Check(!undoButton.Visible, "in Challenge there is no undo control (undo is Creative's alone)");
         mode.Select(0); mode.EmitSignal(OptionButton.SignalName.ItemSelected, 0L);
-        Check(host.Mode == "creative", "the same picker returns to Creative mode through the host");
+        Check(host.Mode == "creative" && undoButton.Visible, "the same picker returns to Creative mode through the host, and its undo control");
+        var fireSetting = (CheckButton)_hud.FindChild("GubbleFireSetting", true, false)!;
+        Check(fireSetting.ButtonPressed && host.GubbleFireAllowed && fireSetting.Text == "Let the Gubble use fire", "the Magic panel has \"Let the Gubble use fire\", on by default");
+        fireSetting.EmitSignal(BaseButton.SignalName.Toggled, false);
+        Check(!host.GubbleFireAllowed && !fireSetting.ButtonPressed && !CommandHost.LoadGubbleFire(EnFractal.Native.RoomHud.ProfilePath),
+            "switching it off is obeyed by the host and saved in the player's profile");
+        fireSetting.EmitSignal(BaseButton.SignalName.Toggled, true);
+        Check(host.GubbleFireAllowed && CommandHost.LoadGubbleFire(EnFractal.Native.RoomHud.ProfilePath), "and so is switching it back on");
         var trail = (CheckButton)_hud.FindChild("FlowerTrailToggle", true, false)!;
         Check(host.NatureConfigured && trail.ButtonPressed && host.Nature.TrailEnabled, "the flower trail starts enabled and the panel reads the shared nature state");
         trail.EmitSignal(BaseButton.SignalName.Toggled, false);

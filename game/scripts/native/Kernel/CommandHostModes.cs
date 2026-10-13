@@ -7,6 +7,9 @@ using System.Text.Json.Nodes;
 
 namespace EnFractal.Native.Kernel;
 
+/// <summary>What one hurt did: the player's health before and after it, and whether it put them down (an injury recovery at the spawn).</summary>
+public readonly record struct PlayerHarm(float Before, float After, bool Recovered);
+
 /// <summary>The trusted body reports physical observations; commands and model text cannot award traits or set health.</summary>
 public partial class CommandHost
 {
@@ -22,6 +25,10 @@ public partial class CommandHost
     private double _vitalsSaveElapsed;
     private float _damageRestS;
     private float _recoveryGraceS;
+    /// <summary>After an injury recovery, fire cannot hurt the player for NatureLaws.RecoveryFireGraceS (counted in nature steps).</summary>
+    private float _fireGraceS;
+    /// <summary>Where the player last recovered: its ground stays out of the fire while the grace lasts.</summary>
+    private Vector3? _recoveredAt;
     private Func<float, float, bool>? _priorClimbBudget;
     private Action<float, bool>? _priorVitalsTick;
     private Action<float, bool>? _priorFallObserved;
@@ -37,6 +44,7 @@ public partial class CommandHost
             _vitalsDirty = false;
             _damageRestS = 0;
             _recoveryGraceS = 0;
+            _fireGraceS = 0;
             _vitalsSaveElapsed = 0;
             VitalsNotice = "";
             Player?.ResetVitalsObservation();
@@ -150,27 +158,43 @@ public partial class CommandHost
         }
     }
 
-    /// <summary>Trusted hazard hook only: Fire, future critters and future PvP use the same mode rules. No AI damage-setting command exists.</summary>
-    public void ApplyPlayerDamage(float amount, PlayerDamageSource source)
+    /// <summary>
+    /// Trusted hazard hook only: Fire, future critters and future PvP use the same mode rules. No AI damage-setting command
+    /// exists. Creative never hurts; nothing hurts just after a recovery, and fire not for its longer grace. Returns what the
+    /// hurt did (null when it did nothing), so the host can tell the Gubble what its own fire did.
+    /// </summary>
+    public PlayerHarm? ApplyPlayerDamage(float amount, PlayerDamageSource source)
     {
-        if (!Enum.IsDefined(source) || !float.IsFinite(amount) || amount <= 0 || Mode == "creative" || _playerVitalsUnavailable || _recoveryGraceS > 0) return;
+        if (!Enum.IsDefined(source) || !float.IsFinite(amount) || amount <= 0 || Mode == "creative" || _playerVitalsUnavailable || _recoveryGraceS > 0) return null;
+        if (source == PlayerDamageSource.Fire && _fireGraceS > 0) return null;
+        var before = Vitals.Health;
         LastDamageSource = source;
         _damageRestS = 0;
         _playerModes = _playerModes.WithCurrent(Vitals.Damage(amount));
         _vitalsDirty = true;
-        if (Vitals.Health <= 0) RecoverPlayerFromInjury();
+        var after = Vitals.Health;
+        var recovered = after <= 0 && RecoverPlayerFromInjury();
         FlushPlayerVitals();
+        return new PlayerHarm(before, after, recovered);
     }
 
     private void ObservePlayerFall(float landingSpeedMps, bool deepWater) =>
         ApplyPlayerDamage(PlayerVitals.FallDamage(landingSpeedMps, deepWater), PlayerDamageSource.Fall);
 
-    private void RecoverPlayerFromInjury()
+    /// <summary>
+    /// Injury recovery at the spawn: half health and stamina, a moment when nothing hurts and a longer one when fire cannot,
+    /// and the recovery point is never inside a burning area (the ground around it is put out and stays out for the grace).
+    /// </summary>
+    private bool RecoverPlayerFromInjury()
     {
-        if (Player == null || !IsInstanceValid(Player) || !Player.RecoverAtSpawn()) return;
+        if (Player == null || !IsInstanceValid(Player) || !Player.RecoverAtSpawn()) return false;
         _playerModes = _playerModes.WithCurrent(Vitals.Recovered());
         _recoveryGraceS = 1;
+        _fireGraceS = NatureLaws.RecoveryFireGraceS;
+        _recoveredAt = Player.GlobalPosition;
+        MakeRecoverySafe(Player.GlobalPosition);
         _vitalsDirty = true;
+        return true;
     }
 
     private void ObservePlayerClimb(Vector3 start, Vector3 finish)

@@ -49,8 +49,8 @@ public partial class NatureTest
         resting.Bloom(at, 0.1f, 30, 0.6f, Soil, null);
         var frozen = resting.Cells.Values.First().Copy();
         resting.Step(NatureLaws.StepS, Soil, _ => false, _ => false);
-        Check(resting.WeatherS == NatureLaws.StepS && resting.Cells.Values.First().Growth == frozen.Growth && resting.Cells.Values.First().LifeS == frozen.LifeS,
-            "a cell far from both avatars rests unchanged while the weather clock runs");
+        Check(resting.WeatherS == NatureLaws.StepS && resting.Cells.Values.First().Growth == frozen.Growth && resting.Cells.Values.First().LifeS == frozen.LifeS &&
+            resting.Cells.Values.First().RestS == NatureLaws.StepS, "a cell far from both avatars rests unchanged while the weather clock runs, counting the time it missed");
 
         var fire = FreshNature();
         var fireStep = fire.BeginUndo("Fire", 7, Player);
@@ -92,7 +92,75 @@ public partial class NatureTest
         try { ash.Step(float.NaN, Soil, _ => false, _ => true); }
         catch (ArgumentOutOfRangeException) { refused = true; }
         Check(refused, "a step that is not finite is refused");
+        TestTimeAway();
         TestUndoChain();
+    }
+
+    private static bool SameCell(NatureCell a, NatureCell b) =>
+        a.Key == b.Key && a.Moisture == b.Moisture && a.Growth == b.Growth && a.LifeS == b.LifeS && a.Fuel == b.Fuel && a.Ash == b.Ash && a.BurningS == b.BurningS;
+
+    /// <summary>
+    /// Time away (the founder, 13 October): what rests while both avatars are far catches up when one comes back, exactly as
+    /// if it had been simulated all along, in bounded steps; a far fire never rests.
+    /// </summary>
+    private void TestTimeAway()
+    {
+        var at = new Vector3(0.025f, 0, 0.025f);
+        var stayed = FreshNature();
+        stayed.Bloom(at, 0.15f, 120, 0.6f, Soil, null);
+        var left = stayed.Copy();
+        for (var i = 0; i < 100; i++)
+        {
+            stayed.Step(NatureLaws.StepS, Soil, _ => false, _ => true);
+            left.Step(NatureLaws.StepS, Soil, _ => false, _ => false);
+        }
+        Check(left.Cells.Values.All(c => c.RestS == 50 && c.LifeS == 120), "a flower patch left alone rests and counts the 50 s it missed");
+        stayed.Step(NatureLaws.StepS, Soil, _ => false, _ => true);
+        left.Step(NatureLaws.StepS, Soil, _ => false, _ => true);
+        Check(left.Cells.Count == stayed.Cells.Count && left.Cells.Values.All(c => c.RestS == 0 && SameCell(c, stayed.Cells[c.Key])),
+            "on return it catches up in one step to exactly where it would be had it been simulated all along");
+
+        var faded = FreshNature();
+        faded.Bloom(at, 0.15f, 30, 0.6f, Soil, null);
+        var planted = faded.Cells.Count;
+        for (var i = 0; i < 3600; i++) faded.Step(NatureLaws.StepS, Soil, _ => false, _ => false);
+        Check(planted > 0 && faded.Cells.Count == planted, "left alone for half an hour, the patch is still there while no one looks");
+        faded.Step(NatureLaws.StepS, Soil, _ => false, _ => true);
+        Check(faded.Cells.Count == 0, "and has faded away when an avatar comes back");
+
+        // Burnt wood keeps its ash: two hours away, a wide field catches up within the per-step budget, exactly.
+        NatureCell Char(int x, int z) => new() { X = x, Z = z, Surface = "obj:log", Material = "wood", Fertile = false, Fuel = 0.1f, Ash = 1, Moisture = 0.3f };
+        var field = FreshNature();
+        var watched = FreshNature();
+        for (var x = 0; x < 20; x++)
+        for (var z = 0; z < 20; z++)
+        {
+            field.Cells[NatureState.Key(x, z)] = Char(x, z);
+            if (x == 0 && z == 0) watched.Cells[NatureState.Key(x, z)] = Char(x, z);
+        }
+        var away = (int)(2 * 3600 / NatureLaws.StepS);
+        for (var i = 0; i < away; i++)
+        {
+            field.Step(NatureLaws.StepS, Soil, _ => false, _ => false);
+            watched.Step(NatureLaws.StepS, Soil, _ => false, _ => true);
+        }
+        field.Step(NatureLaws.StepS, Soil, _ => false, _ => true);
+        watched.Step(NatureLaws.StepS, Soil, _ => false, _ => true);
+        var waiting = field.Cells.Values.Count(c => c.RestS > 0);
+        var steps = 1;
+        for (; steps < 200 && field.Cells.Values.Any(c => c.RestS > 0); steps++)
+        {
+            field.Step(NatureLaws.StepS, Soil, _ => false, _ => true);
+            watched.Step(NatureLaws.StepS, Soil, _ => false, _ => true);
+        }
+        Check(waiting > 0 && steps > 1 && steps < 200, $"a wide field away for two hours catches up over {steps} steps, never more than the budget at once ({waiting} cells still waiting after the first)");
+        Check(SameCell(field.Cells[NatureState.Key(0, 0)], watched.Cells[NatureState.Key(0, 0)]), "and lands exactly where a watched cell is, the weather it missed replayed");
+
+        var far = FreshNature();
+        far.Ignite(at, 0.45f, 30, 0.6f, 1, new(), Soil, null);
+        var lit = far.Cells.Count;
+        for (var i = 0; i < 20; i++) far.Step(NatureLaws.StepS, Soil, _ => false, _ => false);
+        Check(far.Fire != null && far.Cells.Count > lit && far.Cells.Values.Any(c => c.BurningS > 0), "fire never rests: far from both avatars it keeps burning and spreading");
     }
 
     /// <summary>The undo steps alone: a chain across principals, cut by another kind of change, bounded, and an undo standing for its state.</summary>

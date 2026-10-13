@@ -26,10 +26,13 @@ public partial class NatureTest
         await TestNatureRequests();
     }
 
-    /// <summary>The book burns down with a tree's climbing faces inside it; the verbs that name it find nothing; the undo brings all back.</summary>
+    /// <summary>
+    /// The book burns down with a tree's climbing faces inside it; the verbs that name it find nothing; the undo brings all
+    /// back (in Creative, the only mode with undo); a scorched creation (after Creative's one ask) waits for repair.
+    /// </summary>
     private async Task TestBurntRemains()
     {
-        await NewWorld(SavePath("remains"), challenge: true);
+        await NewWorld(SavePath("remains"));
         var climb = new StaticBody3D { Name = "tree_climb_bark", CollisionLayer = RoomBuilder.HiddenLayer, CollisionMask = 0 };
         climb.SetMeta("entity_id", "shell:tree_climb_bark");
         // One face inside the book's bounds (a pole in a tree that burns), one far away (another tree's).

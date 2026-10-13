@@ -135,7 +135,8 @@ public partial class RoomHud
                 "target_protected" or "permission_denied" => "That place is protected, or this action is not allowed.",
                 "budget_exceeded" => "There is no room for another effect yet. Stop one and try again.",
                 "revision_conflict" or "approval_mismatch" => "Something changed. Choose the spot and preview it again.",
-                "target_busy" => "Let the current action finish, or undo it first.",
+                // The host's own words (they say what is busy, and how the Gubble's fire can be put out).
+                "target_busy" => result["error"]?["message"]?.GetValue<string>() ?? "Let the current action finish first.",
                 "not_ready" => "The journal or connection is not ready. Your earlier progress is safe.",
                 "unsupported_capability" => "That magic is not available here yet.",
                 "invalid_args" => "That magic does not fit this spot, or the materials needed are missing.",

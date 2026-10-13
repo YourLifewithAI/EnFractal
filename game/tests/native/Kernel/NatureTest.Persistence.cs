@@ -22,8 +22,9 @@ public partial class NatureTest
         state.Bloom(new Vector3(0.025f, 0, 0.025f), 0.15f, 30, 0.6f, Soil, null);
         state.Objects["creation:00000001"] = new NatureObject { Id = "creation:00000001", Creation = true, Burn = 0.5f, SourceHash = new string('b', 64), RepairCost = new() { ["wood"] = 2 } };
         state.Objects["obj:book"] = new NatureObject { Id = "obj:book", Burn = 1, PositionM = new Vector3(0.45f, 0, 0.1f), Rotation = Quaternion.Identity };
-        var step = state.BeginUndo("Fire", 5, Player);
-        state.Ignite(new Vector3(0.025f, 0, 0.025f), 0.5f, 9.5f, 0.6f, 5, new() { ["creation:00000001"] = 2 }, Soil, step);
+        var step = state.BeginUndo("Fire", 5, Companion, "challenge");
+        state.Ignite(new Vector3(0.025f, 0, 0.025f), 0.5f, 9.5f, 0.6f, 5, new() { ["creation:00000001"] = 2 }, Soil, step, Companion, Player);
+        state.Cells.Values.First(c => c.BurningS <= 0).RestS = 12.5;
         step.Cells["40:40"] = null;
         step.Objects["obj:rug"] = null;
         step.Objects["creation:00000001"] = new NatureObject { Id = "creation:00000001", Creation = true, Burn = 0.25f, SourceHash = new string('b', 64), RepairCost = new() { ["wood"] = 2 } };
@@ -42,6 +43,17 @@ public partial class NatureTest
         var copy = NatureBlock.Unpack(block);
         Check(copy.Fire!.Revision == 5 && copy.Undo.Single().Cells["40:40"] == null && copy.Undo.Single().Objects["obj:rug"] == null && copy.Objects["obj:book"].BurnedDown &&
             copy.UndoneAt == 4 && copy.Effective(4) == 2, "the fire, the undo step (an absent cell, a created object) and the last undo come back");
+        Check(copy.Fire.Principal == Companion && copy.Fire.DirectedBy == Player && copy.Undo.Single().Mode == "challenge" && !copy.Undo.Single().Undoable &&
+            copy.Cells.Values.Count(c => c.RestS == 12.5) == 1, "so do who lit the fire and at whose direction, the mode a step was recorded in, and a resting cell's missed time");
+        var legacy = Edited(block, b =>
+        {
+            b["fire"]!.AsObject().Remove("principal");
+            b["fire"]!.AsObject().Remove("directed_by");
+            b["undo"]![0]!.AsObject().Remove("mode");
+        });
+        var old = NatureBlock.Problem(legacy, 5, _room) == null ? NatureBlock.Unpack(legacy) : null;
+        Check(old != null && old.Fire!.Principal == Player && old.Undo.Single().Mode == "" && !old.Undo.Single().Undoable,
+            "a block saved before 13 October still loads: its fire counts as the player's (no one is blamed without proof) and its steps cannot be undone");
         byte[] Cells() => Convert.FromBase64String(block["cells"]!.GetValue<string>());
         JsonObject WithCells(byte[] bytes) { var forged = (JsonObject)block.DeepClone(); forged["cells"] = Convert.ToBase64String(bytes); return forged; }
         var swapped = Cells();
@@ -84,11 +96,27 @@ public partial class NatureTest
             ("a fire with no revision", () => Edited(block, b => b["fire"]!["revision"] = 0)),
             ("an undo step by an unknown principal", () => Edited(block, b => b["undo"]![0]!["principal"] = "companion:else")),
             ("an undo step that starts after it ends", () => Edited(block, b => b["undo"]![0]!["base"] = 5)),
+            ("an undo step recorded in no mode there is", () => Edited(block, b => b["undo"]![0]!["mode"] = "sandbox")),
+            ("a fire lit by a stranger", () => Edited(block, b => b["fire"]!["principal"] = "guest:local")),
+            ("a fire that names who lit it but not at whose direction", () => Edited(block, b => b["fire"]!.AsObject().Remove("directed_by"))),
+            ("a resting cell that is not there", () => Edited(block, b => b["rest"] = Rest(9999, 9999, 1))),
+            ("a resting time that is not a number", () => Edited(block, b => b["rest"] = Rest(state.Cells.Values.First().X, state.Cells.Values.First().Z, double.NaN))),
+            ("resting cells that are not base64", () => Edited(block, b => b["rest"] = "!!!")),
             ("an undo standing for a later state", () => Edited(block, b => b["undone"]!["state_of"] = 4)),
             ("an array", () => new JsonArray()),
         };
         foreach (var (label, forge) in forgeries)
             Check(NatureBlock.Problem(forge(), 5, _room) != null, "the strict check refuses a block with " + label);
+    }
+
+    /// <summary>One resting cell's record, as the block keeps it: x, z and its missed seconds.</summary>
+    private static string Rest(int x, int z, double seconds)
+    {
+        var record = new byte[NatureBlock.RestBytes];
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(record, x);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(record.AsSpan(4), z);
+        System.Buffers.Binary.BinaryPrimitives.WriteDoubleLittleEndian(record.AsSpan(8), seconds);
+        return Convert.ToBase64String(record);
     }
 
     private static JsonObject Edited(JsonObject block, Action<JsonObject> edit)

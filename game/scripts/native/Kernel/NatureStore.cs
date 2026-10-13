@@ -21,12 +21,17 @@ namespace EnFractal.Native.Kernel;
 /// - Unit values are 16-bit fixed point (moisture, growth, fuel, ash; light to 2; life to 600 s in centiseconds; burning
 ///   to 60 s in milliseconds); the height is a float32. A value read back packs to the same bits, so a block survives any
 ///   number of save and load round trips byte for byte.
-/// - The undo steps keep their remembered cells the same way, a record flagged absent for a cell that did not exist.
+/// - The undo steps keep their remembered cells the same way, a record flagged absent for a cell that did not exist, and
+///   the mode each was recorded in (only Creative's can be undone; a step saved before 13 October has none and cannot).
+/// - The fire names who lit it and at whose direction (a fire saved before 13 October has neither: it counts as the player's).
+/// - Cells resting far from both avatars keep the time they have not been simulated yet ("rest": 16-byte records of x, z
+///   and the seconds as a float64, sorted by (x, z)), so a reload catches them up as the running game would have.
 /// </summary>
 public static class NatureBlock
 {
     public const int Format = 1;
     public const int CellBytes = 32;
+    public const int RestBytes = 16;
     public const int MaxNames = 4096;
     public const int MaxNameLength = 80;
     /// <summary>Saved weather clocks stay below this (about 300 years of play).</summary>
@@ -70,6 +75,7 @@ public static class NatureBlock
                 ["created"] = new JsonArray(step.Objects.Where(p => p.Value == null).Select(p => p.Key).OrderBy(k => k, StringComparer.Ordinal).Select(k => (JsonNode?)k).ToArray()),
                 ["wallet"] = Wallet(step.Wallet),
                 ["trail"] = Trail(step.TrailEnabled, step.TrailPrincipal, step.TrailRulesSha256),
+                ["mode"] = step.Mode,
             });
         }
         var block = new JsonObject
@@ -83,12 +89,26 @@ public static class NatureBlock
         {
             block["fire"] = new JsonObject
             {
+                ["principal"] = fire.Principal, ["directed_by"] = fire.DirectedBy,
                 ["center_m"] = KernelJson.Vector(fire.Center), ["radius_m"] = KernelJson.Num(fire.RadiusM), ["remaining_s"] = KernelJson.Num(fire.RemainingS),
                 ["intensity"] = KernelJson.Num(fire.Intensity), ["revision"] = fire.Revision,
                 ["authorized"] = new JsonObject(fire.AuthorizedCreations.OrderBy(p => p.Key, StringComparer.Ordinal).Select(p => KeyValuePair.Create(p.Key, (JsonNode?)p.Value))),
             };
         }
         if (state.UndoneAt >= 0) block["undone"] = new JsonObject { ["at"] = state.UndoneAt, ["state_of"] = state.UndoneTo };
+        var resting = state.Cells.Values.Where(c => c.RestS > 0).OrderBy(c => c.X).ThenBy(c => c.Z).ToList();
+        if (resting.Count > 0)
+        {
+            var rest = new byte[resting.Count * RestBytes];
+            for (var i = 0; i < resting.Count; i++)
+            {
+                var record = rest.AsSpan(i * RestBytes, RestBytes);
+                BinaryPrimitives.WriteInt32LittleEndian(record, resting[i].X);
+                BinaryPrimitives.WriteInt32LittleEndian(record[4..], resting[i].Z);
+                BinaryPrimitives.WriteDoubleLittleEndian(record[8..], resting[i].RestS);
+            }
+            block["rest"] = Convert.ToBase64String(rest);
+        }
         return block;
     }
 
@@ -179,6 +199,8 @@ public static class NatureBlock
         {
             state.Fire = new NatureFire
             {
+                Principal = fire["principal"]?.GetValue<string>() ?? CommandHost.PlayerPrincipal,
+                DirectedBy = fire["directed_by"]?.GetValue<string>() ?? fire["principal"]?.GetValue<string>() ?? CommandHost.PlayerPrincipal,
                 Center = Vector(fire["center_m"]!), RadiusM = Float(fire["radius_m"]), RemainingS = Float(fire["remaining_s"]), Intensity = Float(fire["intensity"]),
                 Revision = Int(fire["revision"]),
                 AuthorizedCreations = fire["authorized"]!.AsObject().ToDictionary(p => p.Key, p => Int(p.Value), StringComparer.Ordinal),
@@ -194,6 +216,7 @@ public static class NatureBlock
                 Wallet = ReadWallet(saved["wallet"]!.AsObject()),
                 TrailEnabled = saved["trail"]!["enabled"]!.GetValue<bool>(), TrailPrincipal = saved["trail"]!["by"]!.GetValue<string>(),
                 TrailRulesSha256 = saved["trail"]!["rules_sha256"]!.GetValue<string>(),
+                Mode = saved["mode"]?.GetValue<string>() ?? "",
             };
             foreach (var (id, item) in ReadObjects(saved["objects"]!.AsObject())) step.Objects[id] = item;
             foreach (var id in saved["created"]!.AsArray()) step.Objects[id!.GetValue<string>()] = null;
@@ -203,6 +226,16 @@ public static class NatureBlock
         {
             state.UndoneAt = Int(undone["at"]);
             state.UndoneTo = Int(undone["state_of"]);
+        }
+        if (block["rest"]?.GetValue<string>() is { } rest)
+        {
+            var bytes = Convert.FromBase64String(rest);
+            for (var i = 0; i < bytes.Length / RestBytes; i++)
+            {
+                var record = bytes.AsSpan(i * RestBytes, RestBytes);
+                state.Cells[NatureState.Key(BinaryPrimitives.ReadInt32LittleEndian(record), BinaryPrimitives.ReadInt32LittleEndian(record[4..]))].RestS =
+                    BinaryPrimitives.ReadDoubleLittleEndian(record[8..]);
+            }
         }
         return state;
     }
@@ -285,7 +318,7 @@ public static class NatureBlock
     {
         if (Normalized(node) is not { } block) return "not an object";
         var required = new[] { "format", "cell_m", "weather_s", "changed_at", "trail", "names", "cells", "objects", "wallet", "undo" };
-        if (block.Any(p => !required.Contains(p.Key) && p.Key is not ("fire" or "undone")) || required.Any(k => !block.ContainsKey(k))) return "its fields";
+        if (block.Any(p => !required.Contains(p.Key) && p.Key is not ("fire" or "undone" or "rest")) || required.Any(k => !block.ContainsKey(k))) return "its fields";
         if (!Whole(block["format"], Format) || block["format"]!.GetValue<double>() != Format) return "its format";
         if (!Number(block["cell_m"], 1) || (float)block["cell_m"]!.GetValue<double>() != NatureState.CellM) return "its cell size";
         if (!Number(block["weather_s"], MaxWeatherS) || block["weather_s"]!.GetValue<double>() < 0) return "its weather clock";
@@ -301,6 +334,7 @@ public static class NatureBlock
         if (table.Distinct(StringComparer.Ordinal).Count() != table.Count) return "a name listed twice";
         var cells = CellsProblem(block["cells"], table, room, absentAllowed: false, out var count, out var burning);
         if (cells != null) return "its cells: " + cells;
+        if (block["rest"] is { } rest && RestProblem(rest, block["cells"]!.GetValue<string>()) is { } restWhy) return "its resting cells: " + restWhy;
         if (count > NatureState.MaxCells || burning > NatureState.MaxBurning) return "more cells than the engine allows";
         if (block["objects"] is not JsonObject objects || objects.Count > NatureState.MaxObjects) return "its objects";
         foreach (var (id, item) in objects)
@@ -313,8 +347,11 @@ public static class NatureBlock
         var remembered = 0;
         foreach (var stepNode in undo)
         {
-            if (stepNode is not JsonObject step || step.Count != 9 || new[] { "principal", "revision", "base", "label", "cells", "objects", "created", "wallet", "trail" }.Any(k => !step.ContainsKey(k)))
+            // A step saved before 13 October has no mode (and cannot be undone); a newer one says which mode recorded it.
+            if (stepNode is not JsonObject step || step.Count != (step.ContainsKey("mode") ? 10 : 9) ||
+                new[] { "principal", "revision", "base", "label", "cells", "objects", "created", "wallet", "trail" }.Any(k => !step.ContainsKey(k)))
                 return "an undo step's fields";
+            if (step["mode"] is { } mode && (mode.GetValueKind() != JsonValueKind.String || !PlayerModesProfile.ValidMode(mode.GetValue<string>()))) return "an undo step's mode";
             if (step["principal"]?.GetValueKind() != JsonValueKind.String || step["principal"]!.GetValue<string>() is not (CommandHost.PlayerPrincipal or CommandHost.CompanionPrincipal))
                 return "an undo step's principal";
             if (!Whole(step["revision"], storeRevision) || !Whole(step["base"], storeRevision)) return "an undo step's revisions";
@@ -401,9 +438,38 @@ public static class NatureBlock
         return null;
     }
 
+    /// <summary>The resting cells' record: whole, canonical, sorted and unique, each an existing cell, each time finite and positive.</summary>
+    private static string? RestProblem(JsonNode node, string packedCells)
+    {
+        if (node.GetValueKind() != JsonValueKind.String) return "not a string";
+        var bytes = Convert.FromBase64String(node.GetValue<string>());
+        if (bytes.Length == 0 || bytes.Length % RestBytes != 0 || bytes.Length / RestBytes > NatureState.MaxCells) return "not whole records";
+        if (Convert.ToBase64String(bytes) != node.GetValue<string>()) return "not canonical base64";
+        var cells = Convert.FromBase64String(packedCells);
+        var keys = new HashSet<long>();
+        for (var i = 0; i < cells.Length / CellBytes; i++)
+            keys.Add((long)BinaryPrimitives.ReadInt32LittleEndian(cells.AsSpan(i * CellBytes)) * 100000 + BinaryPrimitives.ReadInt32LittleEndian(cells.AsSpan(i * CellBytes + 4)));
+        long previous = long.MinValue;
+        for (var i = 0; i < bytes.Length / RestBytes; i++)
+        {
+            var record = bytes.AsSpan(i * RestBytes, RestBytes);
+            var order = (long)BinaryPrimitives.ReadInt32LittleEndian(record) * 100000 + BinaryPrimitives.ReadInt32LittleEndian(record[4..]);
+            if (order <= previous) return "out of order or listed twice";
+            previous = order;
+            if (!keys.Contains(order)) return "a cell that is not there";
+            var seconds = BinaryPrimitives.ReadDoubleLittleEndian(record[8..]);
+            if (!double.IsFinite(seconds) || seconds <= 0 || seconds > MaxWeatherS) return "a time";
+        }
+        return null;
+    }
+
     private static string? FireProblem(JsonNode node, int storeRevision, RoomData? room)
     {
-        if (node is not JsonObject fire || fire.Count != 6 || !Vec3(fire["center_m"])) return "its centre";
+        // A fire saved before 13 October has six fields; a newer one names who lit it and at whose direction.
+        if (node is not JsonObject fire || fire.Count != (fire.ContainsKey("principal") ? 8 : 6) || !Vec3(fire["center_m"])) return "its centre";
+        if (fire.ContainsKey("principal") && (fire["principal"]?.GetValueKind() != JsonValueKind.String || fire["principal"]!.GetValue<string>() is not (CommandHost.PlayerPrincipal or CommandHost.CompanionPrincipal) ||
+            fire["directed_by"]?.GetValueKind() != JsonValueKind.String || fire["directed_by"]!.GetValue<string>() is not (CommandHost.PlayerPrincipal or CommandHost.CompanionPrincipal)))
+            return "who lit it";
         if (!Number(fire["radius_m"], MaxFireRadiusM) || fire["radius_m"]!.GetValue<double>() <= 0) return "its radius";
         if (!Number(fire["remaining_s"], MaxFireS) || fire["remaining_s"]!.GetValue<double>() < 0) return "its time";
         if (!Number(fire["intensity"], 2) || fire["intensity"]!.GetValue<double>() < 0.05) return "its intensity";
