@@ -192,11 +192,13 @@ public partial class CommandHost
     /// <summary>
     /// A fall that knocks the player out waits for the knockout tumble (docs/runs/RUN-2-CHARACTERS.md, the tumble) before the
     /// recovery at the spawn moves them: the delay is the body's KnockoutRecoveryDelayS, 0 unless a tumble set it, and control
-    /// is held meanwhile. The recovery then happens on the vitals tick that ends the wait.
+    /// is held meanwhile. The recovery then happens on the vitals tick that ends the wait. Only a body on the floor waits: a
+    /// landing there is where the tumble plays (any landing that knocks out tumbles, whatever its tier), while the out-of-bounds
+    /// net's fall report (the body still falling) has no tumble to wait for and recovers at once.
     /// </summary>
     private bool DelayKnockout(PlayerDamageSource source)
     {
-        if (source != PlayerDamageSource.Fall || Player == null || !IsInstanceValid(Player) || Player.KnockoutRecoveryDelayS <= 0) return false;
+        if (source != PlayerDamageSource.Fall || Player == null || !IsInstanceValid(Player) || Player.KnockoutRecoveryDelayS <= 0 || !Player.IsOnFloor()) return false;
         _pendingRecoveryS = Player.KnockoutRecoveryDelayS;
         Player.HoldControl(_pendingRecoveryS);
         return true;

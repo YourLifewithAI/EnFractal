@@ -24,7 +24,49 @@ public partial class CommandHostTest
         TestModeCommands();
         TestModeLandingCallbacks();
         await TestModeClimbingBody();
+        await TestKnockoutOffTheFloor();
         _host.ConfigurePlayerVitals(new ModeTestStore());
+    }
+
+    /// <summary>
+    /// The characters round's review (minor 4): a knockout's recovery waits for the tumble only where one plays, a body on the floor.
+    /// The out-of-bounds net reports its fall while the body is still falling: no tumble, so the recovery at the spawn is at once,
+    /// and the player is never frozen for the tumble's length with nothing to see.
+    /// </summary>
+    private async Task TestKnockoutOffTheFloor()
+    {
+        _host.ConfigurePlayerVitals(new ModeTestStore());
+        Check(Ok(_host.PlayerMode("challenge")), "the knockout fixture plays in Challenge");
+        var spawn = _room.SpawnFor("player").PositionM;
+        var knockout = PlayerVitals.SafeLandingSpeedMps + (PlayerVitals.MaximumHealth + 1) / PlayerVitals.FallDamagePerMps;
+        _player.KnockoutRecoveryDelayS = 2;
+        try
+        {
+            _player.ReleaseControl();
+            _player.GlobalPosition = spawn + new Vector3(0, 0.25f, 0);
+            _player.Velocity = Vector3.Zero;
+            _player.ResetVitalsObservation();
+            await Frames(3);
+            var falling = !_player.IsOnFloor();
+            var recoveries = _host.Vitals.Recoveries;
+            _player.FallObserved?.Invoke(knockout, false);
+            Check(falling && _host.Vitals.Recoveries == recoveries + 1 && !_host.RecoveryPending && !_player.ControlHeld &&
+                  _player.GlobalPosition.DistanceTo(spawn) < 0.05f,
+                "a knockout reported while the body is still falling (the out-of-bounds net) recovers at the spawn at once: no tumble to wait for, control never held");
+            // Standing again, past the recovery's grace: a knockout on the floor waits for its tumble, control held meanwhile.
+            for (var i = 0; i < 120 && !_player.IsOnFloor(); i++) await Frames(1);
+            _player.VitalsTick?.Invoke(1.1f, true);
+            _player.FallObserved?.Invoke(knockout, false);
+            Check(_player.IsOnFloor() && _host.RecoveryPending && _player.ControlHeld && _host.Vitals.Recoveries == recoveries + 1,
+                "a knockout on the floor waits for the tumble, control held");
+            _player.VitalsTick?.Invoke(2.01f, false);
+            Check(!_host.RecoveryPending && _host.Vitals.Recoveries == recoveries + 2, "and recovers when the wait ends");
+        }
+        finally
+        {
+            _player.KnockoutRecoveryDelayS = 0;
+            _player.ReleaseControl();
+        }
     }
 
     private void TestVitalsModelAndStore()

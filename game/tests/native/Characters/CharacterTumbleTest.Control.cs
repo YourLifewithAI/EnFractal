@@ -181,6 +181,20 @@ public partial class CharacterTumbleTest
         Check(tumble.LastTier == TumbleTier.Tumble && hurt[0].StarsShown && Mathf.Abs(tumble.LastLengthS - TumbleTiers.KnockoutSeconds) <= 1.5f * Dt,
             Inv($"a tumble-tier fall that the host turns into a knockout (its recovery waits KnockoutRecoveryDelayS) tumbles dazed for the knockout's length ({tumble.LastLengthS:0.000} s)"));
         hurt[0].Wearer.Body.QueueFree();
+        // Review minor 4: a fall below the tumble tier that knocks the player out (a stumble's cost from their last health) is the
+        // knockout's tumble too: the host's recovery waits for it, so the body never stands frozen with control held and no tumble.
+        var stumbled = await WatchFalls(origin, new[] { ("tomato_man", 0.42f, false) }, body =>
+        {
+            body.FallObserved = (speed, deep) =>
+            {
+                if (PlayerVitals.FallDamage(speed, deep) > 0) body.HoldControl(body.KnockoutRecoveryDelayS);
+            };
+        }, frames: 220);
+        var knocked = stumbled[0].Wearer.Tumble;
+        Check(knocked.LastTier == TumbleTier.Stumble && knocked.Tumbles == 1 && knocked.EarlyGetUps == 0 && stumbled[0].StarsShown &&
+              Mathf.Abs(knocked.LastLengthS - TumbleTiers.KnockoutSeconds) <= 1.5f * Dt && !stumbled[0].Wearer.Body.ControlHeld,
+            Inv($"a stumble-tier fall that knocks the player out tumbles dazed for the knockout's length while the recovery waits ({knocked.LastTier}, {knocked.LastLengthS:0.000} s)"));
+        stumbled[0].Wearer.Body.QueueFree();
         floor.QueueFree();
         await Frames(2);
     }

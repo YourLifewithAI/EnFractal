@@ -144,12 +144,19 @@ public sealed class CharacterTumble : IPoseLayer<BodyState>
         var now = clock.TimeS;
         if (state.Landed && !state.Floating && !_controller.Floats)
         {
+            // What a host holds the body for beyond this layer's own hold (Challenge's recovery at the spawn waiting for the knockout
+            // tumble of a fall that took the last health), read before this layer holds anything.
+            var ownHold = Math.Max(Math.Max(0, _holdEndS - now), _pending ? _pendingSeconds : 0);
+            var hostHold = _controller.ControlHoldS > ownHold + 0.05f ? _controller.ControlHoldS : 0;
             LastLandingCost = TumbleTiers.Cost(state.LandingSpeedMps, state.LandedInDeepWater);
             LastTier = TumbleTiers.Classify(LastLandingCost);
-            if (LastTier >= TumbleTier.Tumble)
+            // A landing below the tumble tier that knocks the player out (a stumble's cost from their last health) is the knockout's
+            // tumble too: the host's recovery waits for one, and the player must not stand frozen meanwhile.
+            var knockedOut = LastTier == TumbleTier.Stumble && hostHold > TumbleTiers.GetUpSeconds + 0.1f;
+            if (LastTier >= TumbleTier.Tumble || knockedOut)
             {
-                var seconds = TumbleTiers.Seconds(LastTier);
-                var dazed = LastTier == TumbleTier.Knockout;
+                var seconds = knockedOut ? Mathf.Min(hostHold, SmallPlayerController.MaxControlHoldS) : TumbleTiers.Seconds(LastTier);
+                var dazed = knockedOut || LastTier == TumbleTier.Knockout;
                 _controller.HoldControl(seconds);
                 // A host that holds the body longer (Challenge's knockout recovery for a player already hurt) gets the knockout's tumble.
                 if (!dazed && _controller.ControlHoldS > seconds + 0.05f)
