@@ -555,7 +555,7 @@
    - the journal book (J) and the eye icon (I); "Let my AI see" and "Let the Gubble use fire" in Customize.
 
    Open tuning: fire's default size (1.5 m), the Gubble's 31 curated phrases, the eye view's details.
-2. **The 10x world** ([RUN-2-TEN-TIMES.md](RUN-2-TEN-TIMES.md)): S1 (the Gubble getting lost, `run2/gubble-lost`) and S3 (generator speed, `run2/scale-gen`) were started at this session's close. Then S2 (the contract round) and S4 to S7 in parallel. The plan's seven decisions are for the founder.
+2. **The 10x world** ([RUN-2-TEN-TIMES.md](RUN-2-TEN-TIMES.md)): S1 (the Gubble getting lost) is merged (`9b998a3`, both runners GREEN): uncapped route search, a float that finds ground below the bounds and sinks toward its goal, the held height let go, a watchdog; on the 10x island a come from 13 m below now arrives level in 33 s and the routes reach 31% of the walkable land (was 16%). The rest is cut off by slopes over 26.6° in the navigation bake (S7). S3 (generator speed, `run2/scale-gen`) was running at the close. Then S2 (the contract round) and S4 to S7 in parallel. The plan's seven decisions are for the founder.
 3. **The fire rebuild,** after S2 and S5 (plant copies with ids): spread by fuel and wind across the island on plant rows and a 50 cm ground-fuel grid; structures burn down with a rebuild record; replanting with regrowth; loose things vanish. Inputs from 967b583.
 4. **Traits:** the founder reads [docs/world/TRAITS.md](../world/TRAITS.md) and answers its six decisions (the animals' size first); then its first build, rabbits on a meadow with materials as data.
 5. **Playing with the AI:** Claude joins the founder's game as the Gubble through the companion connection (the eyes now work) and reports as a player.
