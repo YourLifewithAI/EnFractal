@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using EnFractal.Native;
+using EnFractal.Native.Kernel;
 using EnFractal.Native.Navigation;
 using EnFractal.Native.Room;
 
@@ -76,6 +77,7 @@ public partial class SmallAvatarPhysicsTest : Node3D
             Check(_companion.CompanionId == "test_companion" && _companion.CompanionName == "Juniper", "appearance/name do not replace companion identity");
 
             await TestMovementAndJump();
+            await TestLandingImpacts();
             await TestKeyboardActions();
             await TestObstacles();
             await TestDioramaCamera();
@@ -102,6 +104,82 @@ public partial class SmallAvatarPhysicsTest : Node3D
         {
             GD.PushError("Native small-avatar test exception: " + exception);
             GetTree().Quit(1);
+        }
+    }
+
+    /// <summary>Actual 1.5 m landings report the final descent speed, including slow air, late gliders and deep water.</summary>
+    private async Task TestLandingImpacts()
+    {
+        var fixture = new Node3D { Name = "LandingImpactFixture", Position = new Vector3(20, 0, 20) };
+        AddChild(fixture);
+        var floor = new StaticBody3D { Position = new Vector3(0, -0.05f, 0), CollisionLayer = RoomBuilder.WorldLayer, CollisionMask = 0 };
+        floor.AddChild(new CollisionShape3D { Shape = new BoxShape3D { Size = new Vector3(4, 0.1f, 4) } });
+        fixture.AddChild(floor);
+        var body = new SmallPlayerController { Name = "LandingBody", ReadKeyboard = false, Position = new Vector3(0, 1.5f, 0) };
+        fixture.AddChild(body);
+        var speed = 0f;
+        var damage = 0f;
+        var observations = 0;
+        var deepWater = false;
+        void ObserveLanding(float landingSpeedMps, bool deep)
+        {
+            speed = Mathf.Max(speed, landingSpeedMps);
+            damage = Mathf.Max(damage, PlayerVitals.FallDamage(landingSpeedMps, deep));
+            observations++;
+            deepWater |= deep;
+        }
+        body.FallObserved = ObserveLanding;
+        void StartFall()
+        {
+            body.GlobalPosition = fixture.GlobalPosition + new Vector3(0, 1.5f, 0);
+            body.Velocity = Vector3.Zero;
+            body.ResetVitalsObservation();
+            speed = 0;
+            damage = 0;
+            observations = 0;
+            deepWater = false;
+        }
+        try
+        {
+            await Frames(100);
+            Check(observations > 0 && body.IsOnFloor() && Mathf.Abs(speed - Mathf.Sqrt(2 * 3.5f * 1.5f)) < 0.08f && Mathf.Abs(damage - 96) < 4,
+                $"a real default-gravity 1.5 m landing reports impact before the floor stops it (speed {speed:0.000} m/s, damage {damage:0.0})");
+            var damageAtRest = damage;
+            body.FallObserved = (landingSpeedMps, deep) => damage += PlayerVitals.FallDamage(landingSpeedMps, deep);
+            await Frames(30);
+            Check(damage == damageAtRest, "standing after an impact does not repeat its damage");
+            body.FallObserved = ObserveLanding;
+
+            Check(body.SetWorldPhysics(Preset("room_floaty", body.WorldPhysicsRevision + 1)), "the landing fixture accepts low gravity");
+            StartFall();
+            await Frames(240);
+            Check(observations > 0 && body.IsOnFloor() && speed > 0 && speed <= 0.601f && damage == 0,
+                $"the same 1.5 m fall in floaty air lands safely (speed {speed:0.000} m/s, damage {damage:0.0})");
+
+            Check(body.SetWorldPhysics(Preset("room_tuned", body.WorldPhysicsRevision + 1)), "the landing fixture restores default gravity");
+            StartFall();
+            for (var i = 0; i < 100 && body.GlobalPosition.Y > fixture.GlobalPosition.Y + 0.5f; i++) await Frames(1);
+            Check(-body.Velocity.Y > PlayerVitals.SafeLandingSpeedMps, "a glider opened late first has an unsafe descent to slow");
+            body.SetCreationEffects(Vector3.Zero, 0.5f, new Callable(this, MethodName.AllowAll));
+            await Frames(120);
+            Check(observations > 0 && body.IsOnFloor() && speed > 0 && speed <= 0.501f && damage == 0,
+                $"a late glider makes the same 1.5 m fall safe by reducing the landing speed (speed {speed:0.000} m/s, damage {damage:0.0})");
+            body.ClearCreationMotion();
+
+            var sheet = new SurfaceTool();
+            sheet.Begin(Mesh.PrimitiveType.Triangles);
+            foreach (var corner in new[] { new Vector2(-1, -1), new Vector2(1, -1), new Vector2(1, 1), new Vector2(-1, -1), new Vector2(1, 1), new Vector2(-1, 1) })
+                sheet.AddVertex(new Vector3(corner.X, 0.2f, corner.Y));
+            fixture.AddChild(RoomWater.CreateCollider(new[] { ((Shape3D)sheet.Commit().CreateTrimeshShape(), Transform3D.Identity) }));
+            StartFall();
+            await Frames(100);
+            Check(observations > 0 && deepWater && body.IsSwimming && damage == 0,
+                $"deep water catches a real high-speed fall without injury (observed speed {speed:0.000} m/s)");
+        }
+        finally
+        {
+            fixture.QueueFree();
+            await Frames(2);
         }
     }
 

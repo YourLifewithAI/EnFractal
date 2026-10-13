@@ -162,7 +162,8 @@ public partial class CommandHost
         FlushPlayerVitals();
     }
 
-    private void ObservePlayerFall(float height, bool deepWater) => ApplyPlayerDamage(PlayerVitals.FallDamage(height, deepWater), PlayerDamageSource.Fall);
+    private void ObservePlayerFall(float landingSpeedMps, bool deepWater) =>
+        ApplyPlayerDamage(PlayerVitals.FallDamage(landingSpeedMps, deepWater), PlayerDamageSource.Fall);
 
     private void RecoverPlayerFromInjury()
     {

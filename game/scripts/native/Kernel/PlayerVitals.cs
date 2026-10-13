@@ -21,7 +21,10 @@ public sealed class PlayerVitals
     public const float HoldingCostPerSecond = 0.01f;
     public const float MinimumChallengeRise = 0.25f;
     public const float SafeFallHeight = 0.30f;
-    public const float FallDamagePerMetre = 80;
+    /// <summary>Free fall through SafeFallHeight under world_physics_profile.gd DEFAULT's 3.5 m/s² gravity.</summary>
+    public static readonly float SafeLandingSpeedMps = MathF.Sqrt(2 * 3.5f * SafeFallHeight);
+    /// <summary>A default-gravity 1.5 m fall lands at about 3.24 m/s and costs about 96 health.</summary>
+    public const float FallDamagePerMps = 53.6f;
     public const int MaximumChallenges = 256;
     public float Health { get; }
     public float MaxHealth => MaximumHealth;
@@ -83,8 +86,10 @@ public sealed class PlayerVitals
         return Restore(Health, Stamina, Challenges.Append(challenge), Recoveries);
     }
 
-    public static float FallDamage(float height, bool deepWater) =>
-        !float.IsFinite(height) || height < 0 || deepWater ? 0 : Math.Clamp((height - SafeFallHeight) * FallDamagePerMetre, 0, MaximumHealth);
+    /// <summary>Injury from downward landing speed in m/s; deep water catches the body without injury.</summary>
+    public static float FallDamage(float landingSpeedMps, bool deepWater) =>
+        !float.IsFinite(landingSpeedMps) || landingSpeedMps < 0 || deepWater ? 0 :
+            Math.Clamp((landingSpeedMps - SafeLandingSpeedMps) * FallDamagePerMps, 0, MaximumHealth);
 }
 
 /// <summary>One local player, three independent mode records. Mode changes never refill a saved mode's vitals.</summary>
