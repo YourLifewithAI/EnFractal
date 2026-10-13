@@ -847,10 +847,11 @@ class TileTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        step, nx, nz = .25, 136, 24
+        step, nx, nz = .25, 104, 72
         heights = [[.3*math.sin(i*.37)+.2*math.cos(j*.61+i*.13)+.05*((i*7919+j*104729) % 13)/13
                     for j in range(nz+1)] for i in range(nx+1)]
-        points = [[-17+i*step, heights[i][j], -3+j*step] for i in range(nx+1) for j in range(nz+1)]
+        # Off the tile lines, so they cut through triangles.
+        points = [[-17.13+i*step, heights[i][j], -9.07+j*step] for i in range(nx+1) for j in range(nz+1)]
         roles = {'meadow': [], 'rock': []}
         for i in range(nx):
             for j in range(nz):
@@ -859,32 +860,63 @@ class TileTests(unittest.TestCase):
                 roles[role] += [[a, b, c], [a, c, d]]
         cls.terrain = [dict(role=role, positions=points, triangles=faces) for role, faces in roles.items()]
         _, tiles = tile_level0(cls.terrain)
-        cls.levels = build_levels(tiles, [step, step*4, step*16])
+        cls.spacings = [step, step*4, step*16]
+        cls.levels = build_levels(tiles, cls.spacings)
+        cls.land = TerrainHeights(cls.terrain)
+        cls.indexes = {}
+
+    def height(self, tile, level, x, z):
+        if (tile, level) not in self.indexes:
+            self.indexes[tile, level] = TerrainHeights(self.surface(tile, level)) if tile in self.levels else None
+        index = self.indexes[tile, level]
+        return None if index is None else index.hit(x, z)[0]
 
     def surface(self, tile, level):
         return [dict(positions=m.pos, triangles=m.tris) for m in self.levels[tile][level].values()]
 
     def test_tiles_of_one_level_meet_without_cracks(self):
-        self.assertEqual(sorted(self.levels), [(-2, -1), (-2, 0), (-1, -1), (-1, 0), (0, -1), (0, 0), (1, -1), (1, 0)])
+        self.assertEqual(sorted(self.levels), [(-2, -1), (-2, 0), (-1, -1), (-1, 0), (0, -1), (0, 0)])
         # Level 0's cut points are the same bits on both sides of a tile line.
-        for left, right, value in (((-1, 0), (0, 0), 0.), ((-2, -1), (-1, -1), -16.), ((0, -1), (1, -1), 16.)):
+        for left, right, value in (((-1, 0), (0, 0), 0.), ((-2, -1), (-1, -1), -16.), ((-1, -1), (0, -1), 0.)):
             a, b = [{p for m in self.levels[t][0].values() for p in m.pos if p[0] == value} for t in (left, right)]
             self.assertTrue(a)
             self.assertEqual(a, b)
-        # Every level's surface is continuous across the lines: the height just either side agrees (a skirt is
-        # vertical, so it is never the ground).
-        for level in range(3):
-            for left, right, value, axis in (((-1, 0), (0, 0), 0., 0), ((-2, -1), (-1, -1), -16., 0),
-                                             ((0, -1), (1, -1), 16., 0), ((-1, -1), (-1, 0), 0., 2),
-                                             ((0, -1), (0, 0), 0., 2)):
-                for k in range(1, 200):
-                    t = (-3 if axis == 0 else -16 if left[0] < 0 else 0)+k*(6 if axis == 0 else 16)/200
+        # Every level's surface is continuous across the lines: where the land is, the height just either side
+        # agrees (a skirt is vertical, so it is never the ground).
+        samples = 0
+        lo = [min(v[i] for v in self.terrain[0]['positions']) for i in range(3)]
+        hi = [max(v[i] for v in self.terrain[0]['positions']) for i in range(3)]
+        for level, spacing in enumerate(self.spacings):
+            for axis, value in ((0, -16.), (0, 0.), (2, 0.)):
+                for k in range(1, 400):
+                    t = lo[2-axis]+k*(hi[2-axis]-lo[2-axis])/400
                     at = [(value-1e-7, t), (value+1e-7, t)] if axis == 0 else [(t, value-1e-7), (t, value+1e-7)]
-                    ya = ground(self.surface(left, level), *at[0])
-                    yb = ground(self.surface(right, level), *at[1])
-                    if ya is None or yb is None:
+                    # A coarse level's own edge may draw in by a cell: sample a cell inside the land's.
+                    if not all(lo[0]+spacing < x < hi[0]-spacing and lo[2]+spacing < z < hi[2]-spacing for x, z in at):
                         continue
-                    self.assertAlmostEqual(ya, yb, delta=1e-5, msg=(level, left, right, t))
+                    ya, yb = [self.height((math.floor(x/16), math.floor(z/16)), level, x, z) for x, z in at]
+                    self.assertIsNotNone(ya, (level, axis, value, t))
+                    self.assertIsNotNone(yb, (level, axis, value, t))
+                    self.assertAlmostEqual(ya, yb, delta=1e-5, msg=(level, axis, value, t))
+                    samples += 1
+        self.assertGreater(samples, 2500)
+
+    def test_level0_is_closed_inside_each_tile(self):
+        # Cut triangles meet their neighbours: inside a tile, level 0's only open edges are the land's own edges.
+        lo = [min(v[i] for v in self.terrain[0]['positions']) for i in range(3)]
+        hi = [max(v[i] for v in self.terrain[0]['positions']) for i in range(3)]
+        for (tx, tz), per_level in self.levels.items():
+            edges = collections.Counter()
+            for mesh in per_level[0].values():
+                for face in mesh.tris:
+                    for a, b in ((face[0], face[1]), (face[1], face[2]), (face[2], face[0])):
+                        edges[tuple(sorted((mesh.pos[a], mesh.pos[b])))] += 1
+            for (a, b), count in edges.items():
+                if count != 1:
+                    continue
+                on_line = any(a[i] == b[i] == v for i, v in ((0, tx*16.), (0, tx*16.+16), (2, tz*16.), (2, tz*16.+16)))
+                on_edge = any(abs(a[i]-b[i]) < 1e-9 and abs(a[i]-v) < 1e-6 for i in (0, 2) for v in (lo[i], hi[i]))
+                self.assertTrue(on_line or on_edge, ((tx, tz), a, b))
 
     def test_coarse_levels_are_lighter_and_skirted_and_level0_is_whole(self):
         triangles_at = [sum(len(m.tris) for tile in self.levels.values() for m in tile[level].values())
