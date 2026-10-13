@@ -113,7 +113,7 @@ order; row n is `plant:<set>-n`.
   0.5 m of one another chain into a grove of at least 3; flowers of one species, reeds,
   ferns and heather within 0.15 m chain into a patch of at least 6. Grass, shrubs and
   stones are in no group. Numbers run from 1 in table order (sets by name, rows in
-  order), every one used. At 10x the garage has 3,294 groups; the biggest are flower
+  order), every one used. At 10x the garage has 3,441 groups; the biggest are flower
   patches of a few thousand.
 
 ## Terrain tiles (the 10x world)
@@ -122,12 +122,18 @@ order; row n is `plant:<set>-n`.
 terrain role's GLB holds a root node `tile_<tx>_<tz>_lod<n>` per 16 m tile and level,
 its own mesh, positions in room metres. Levels are the package's grid
 (`x_generator.cell_m`, else 0.1 m) and 4 and 16 times it: 0.1, 0.4 and 1.6 m at 10x,
-0.03, 0.12 and 0.48 m at 1x.
+0.03, 0.12 and 0.48 m at 1x. At 10x level 0 also holds the generator's 2.5 cm detail
+blocks (`x_generator.detail`, S4): the land is one conforming mesh, cut and clustered
+like the rest.
 
 - **Level 0** is the package's triangles; one crossing a tile line is cut there, each
   cut point interpolated from its edge's lower endpoint so both tiles hold the same
-  bits. Normals and colours are the whole part's (interpolated at cuts), so tile lines
-  do not show. Only level 0 is ground to walk on and has no skirt.
+  bits. Cut points that the GLB stores as one float32 point are one vertex, and a piece
+  left with two equal corners is dropped (near a tile's corner a 2.5 cm cell's diagonal
+  can pass through it). Normals and colours are the whole part's (interpolated at
+  cuts), so tile lines do not show. Only level 0 is ground to walk on and has no skirt.
+  At 10x it covers the package's land exactly: the same area, the same open edges (split
+  where they cross a tile line), no edge shared by more than two triangles.
 - **Levels 1 and 2** cluster the level before's vertices, all roles of a tile together,
   on a grid of the level's spacing (an inside cluster at its points' mean); a point on a
   tile's edge stays on it, clustered along that edge to the member nearest the cell's
@@ -135,13 +141,21 @@ its own mesh, positions in room metres. Levels are the package's grid
   cracks. A role whose triangles all collapse in a tile keeps the level before's (its
   sliver is already covered by the other roles). Each hangs a skirt of its spacing below
   its tile edges to hide the seam against a finer neighbour. At 10x the garage's land
-  is 1.10M, 120k and 11k triangles at the three levels; sampled from above, level 1
-  is 2 mm off level 0 at the median (5 cm at the 95th percentile) and level 2 3 cm
-  (40 cm); the largest misses are on cliff faces.
+  (S4's ground: 0.99M base and 1.55M detail triangles) is 2.58M, 121k and 11k triangles
+  at the three levels (before S4: 1.10M, 120k, 11k); sampled from above, level 1 is
+  1.6 mm off level 0 at the median (4.8 cm at the 95th percentile) and level 2 3.3 cm
+  (39 cm); inside the detail blocks 1.9 mm (4.8 cm) and 2.6 cm (25 cm). The largest
+  misses are on cliff faces.
 - **Encoding:** float positions and normals, `COLOR_0` as normalized bytes, 16-bit
   indices where a node has fewer than 65,536 vertices (other GLBs are unchanged).
 
 ## Speed
+
+The 10x garage (S4's ground: 2.5 million land triangles) exports in 38-40 s and 96 MB on
+a shared machine; the export before S4, back to back, took 30-31 s and 60 MB. The land's
+work runs in two more processes (`landwork.PARTS`: the tiles and open edges, about 22 s;
+the trees' fits, about 18 s) beside `read_package`, the longest of the three; the
+harness checks a mesh's vertices and triangles inline (S4's land: 20 s to 13.5 s).
 
 At 10x a third of the export is the land's (`landwork.py`: tiling, the open-edge
 diagnostic, every scatter tree's fit) and as much again is `read_package`'s

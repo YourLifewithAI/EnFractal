@@ -26,6 +26,7 @@ from pipeline.landscape.harness.common import canonical
 from .materials import PALETTE, material
 
 TILE_M = 16
+_F32 = struct.Struct('<3f')
 LEVEL_STEPS = (4, 16)  # coarser levels: the base grid times these (10x: 0.1, 0.4 and 1.6 m)
 DEFAULT_GRID_M = .1
 
@@ -175,9 +176,15 @@ def tile_level0(terrain):
                     if mesh is None:
                         mesh = tiles[(x, z)][role] = Mesh()
                     for piece in pieces:
+                        # Cut points are one vertex where the GLB stores them as one (float32): near a tile's
+                        # corner, where a fine triangle's edge passes through it, two cut points can differ only
+                        # below float32, and a piece left with two equal corners covers nothing and is dropped.
+                        stored = [_F32.unpack(_F32.pack(*point[:3])) for point in piece]
+                        if stored[0] == stored[1] or stored[1] == stored[2] or stored[0] == stored[2]:
+                            continue
                         face_out = []
-                        for point in piece:
-                            key = ((x, z), point[:3])
+                        for point, position in zip(piece, stored):
+                            key = ((x, z), position)
                             index = cut.get(key)
                             if index is None:
                                 index = cut[key] = len(mesh.pos)

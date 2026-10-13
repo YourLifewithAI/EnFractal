@@ -9,6 +9,19 @@ from .land import dijkstra, inside_distance, local, openings, outside_distance, 
 from . import scale as world
 
 FREEBOARD = .012
+BANK_CUT = .05   # on a magnified room, a bank is cut where the land lies within twice this of it (`bank_height`)
+
+
+def bank_height(h, cap):
+    """The land beside a stream after its bank is shaped (`cap`: the bank's
+    slope from the water). On today's room the land is cut down to the bank.
+    On a magnified room the bank is the body's and a landform the room's: the
+    land is cut where it lies within 5 cm of the bank, eased back to uncut by
+    10 cm above it, and a landform the stream runs beside keeps its face,
+    rising from the water (no wall cut into its foot)."""
+    if world.W == 1 or h-cap <= BANK_CUT:
+        return min(h, cap)
+    return h-max(0., 2*BANK_CUT-(h-cap))
 DISTANT_LAKE_Y = -.015
 
 
@@ -226,7 +239,7 @@ def carve(grid, h, pts, W, half, depth, wet, bank=.6, keep=None):
             bed = level-dp*(1-(d/hw)**2)-.004
             h[q] = min(h[q], bed)
         else:
-            h[q] = min(h[q], level+FREEBOARD*.5+bank*(d-hw))
+            h[q] = bank_height(h[q], level+FREEBOARD*.5+bank*(d-hw))
             h[q] = max(h[q], level+.004)
         wet[q] = min(wet[q], max(0., d-hw))
 
@@ -366,10 +379,12 @@ def channel_cells(grid, streams, margin=.05):
     return out
 
 
-def deepen_tarn(grid, h, lake, noise, spawns, inflow, setup, wet, channel=frozenset()):
+def deepen_tarn(grid, h, lake, noise, spawns, inflow, setup, wet, channel=frozenset(), record=None):
     """Carve the tarn's bed: shelving shores to wade in from and walk out of,
     drop-offs under rising banks, and a deep middle to swim in. The surface
-    stays where its lowest rim holds it; only the bed moves."""
+    stays where its lowest rim holds it; only the bed moves. `record(R,
+    weight, frame_angle, ray, deep)` is told the bed's plan (the 10x world's
+    detail replays it)."""
     nx = grid.nx
     level = lake['level']
     R = max(lake['rx'], lake['rz'])*1.5
@@ -389,6 +404,8 @@ def deepen_tarn(grid, h, lake, noise, spawns, inflow, setup, wet, channel=frozen
     radius = min(ray(math.tau*k/72) for k in range(72))
     extra = {'plenty': .03}.get(setup['water'], 0.)
     deep = clamp(.32*radius+.035+extra, *SWIM_DEPTH)
+    if record is not None:
+        record(R, weight, frame_angle, ray, deep)
     deepest = 0.
     for q in sorted(inner):
         x, z = grid.xs[q % nx], grid.zs[q//nx]
@@ -484,10 +501,11 @@ def shape_pools(pts, W, half, depth, sites, wet_room):
     return W, halves, depths, pools
 
 
-def plan_and_carve(grid, room, objects, h, base, inside, spawns, setup, noise, outside_mask, sea=None):
+def plan_and_carve(grid, room, objects, h, base, inside, spawns, setup, noise, outside_mask, sea=None, detail=None):
     """Returns water records, the lake, stream polylines and a wetness map.
     With a sea (dict: level, goal(q), avoid [(x, z, r)]) the river runs to the
-    sea, never below its level, and the distant lake is gone."""
+    sea, never below its level, and the distant lake is gone. `detail` (the
+    10x world's detail.Detail) is told every carve, to replay it at 2.5 cm."""
     wet = [9.]*grid.n
     result = dict(meshes=[], lake=None, streams=[], wet=wet, notes=[], pools=[])
     character, why = water_character(room, objects, spawns, setup)
@@ -563,6 +581,8 @@ def plan_and_carve(grid, room, objects, h, base, inside, spawns, setup, noise, o
                     h[q] = min(h[q], max(shore, level+.006))
                     wet[q] = min(wet[q], (r-1.0)*min(lake['rx'], lake['rz']))
         result['lake'] = lake
+        if detail is not None:
+            detail.lake_fill(lake, level, ws, R)
 
     # Inflow: spring to lake (or straight to the outlet when there is no lake).
     def reach_lake(q):
@@ -639,8 +659,13 @@ def plan_and_carve(grid, room, objects, h, base, inside, spawns, setup, noise, o
         (lambda q: lake_rho(lake, noise, grid.xs[q % nx], grid.zs[q//nx]) < 1.)
     for s in streams:
         carve(grid, h, s['pts'], s['W'], s['half'], s['depth'], wet, keep=in_lake)
+        if detail is not None:
+            n_ = len(s['pts'])
+            detail.carve(s['pts'], s['W'], _each(s['half'], n_), _each(s['depth'], n_), .6, lake)
     if lake is not None:
-        deepen_tarn(grid, h, lake, noise, spawns, inflow, setup, wet, channel_cells(grid, streams))
+        tarn_rec = None if detail is None else \
+            (lambda R_, weight, frame_angle, ray, deep: detail.tarn_bed(lake, R_, weight, frame_angle, ray, deep, streams))
+        deepen_tarn(grid, h, lake, noise, spawns, inflow, setup, wet, channel_cells(grid, streams), record=tarn_rec)
     result['streams'] = streams
     # Water meshes.
     meshes = []

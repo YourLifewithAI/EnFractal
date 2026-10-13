@@ -1,5 +1,60 @@
 # The garage as land: the landscape generator (C5)
 
+## Ground for the 10x world (Run 2, scale packet S4, 13 October)
+
+The experiment's 10x ground was today's 3 cm samples stretched over 10 cm cells: a 10 cm brook was one cell wide,
+path and material edges showed as triangles, and thin rock was planed 30 cm wide. Now:
+
+- **A 10 cm base with 2.5 cm detail blocks of 1 m** (`detail.py`) round what the body meets: the paths and graded ways,
+  the streams and their banks, the tarn's shore, the beaches' wading shelf, the hamlet, the jetty's landing, the glades
+  and the climbs. On the garage: 483 blocks (about a tenth of the land), 0.78 million fine vertices.
+- **How the detail is made:** every step that shapes the base (the coast, the landing, the tarn, the streams, the
+  glades, the pads, the paths and their grading, the tarn's rim) also records its rule; once the base is done the rules
+  are replayed on the blocks, from today's landforms read at each fine point. Decisions (a level, a path's graded line,
+  a stream's surface) stay the base's; streams and paths are read along their lines, not sample by sample.
+- **Where the body walks** (benches, pads, forecourts, glades, the landing) the blocks keep the base's surface, the one
+  the walk was graded on; only their surface is painted at 2.5 cm there. Elsewhere (banks, beds, shores, the shelf, the
+  lips) the shape is the detail's.
+- **No crack:** a block side that meets base ground has its fine vertices on the straight line between the base
+  vertices, and the base triangle beside it is a fan through them (one plane, no T-junction). The package's land is one
+  conforming mesh: every inner edge is shared by exactly two triangles (`tests.DetailSeams`; on the 10x garage 2.54
+  million triangles, 0 open edges, 88,000 rays across the blocks' sides all find the land).
+- **The package says where:** `x_generator.detail` (`cell_m` 0.025, `block_m`, `origin_m`, `blocks`, `reasons`).
+- **Walks stay fast:** the checks vouch for whole 2.5 cm cells as they do for the base's (`Terrain.plain_slope`);
+  only the seams' fans are read in full. The walk of the yards reads the meshes in single precision from the start, so
+  the beaches are proved on the same reading.
+- **Magnified inside the generator** from the true-size room (`--world-scale 10`; `scale.magnify`): the package's source
+  is the true-size room (its hashes), so the source contract's 20 m opening holds; the harness reads the package against
+  the room magnified by the package's `x_generator.world_scale` (the harness's `magnify_room`, merged with S5), and the
+  exporter exports that magnified room. The x10 room file is gone.
+- **The 10x gaps:**
+  - the hamlet's third door: its forecourt lies 6 cm under the next cottage's, and the cottages were levelled again
+    after grading, over the ramp graded to it. On the 10x world the hamlet is levelled before the walk, and every way
+    graded keeps the forecourts' and the landing's levels;
+  - the reef's distance is the body's (a short swim, the plan's BODY list): the coast it is measured from is the
+    farthest-reaching within .2 and .35 m, not x W; the check's 0.2 to 1.0 m stays (now 0.24 to 0.84 m);
+  - the footprint rule is the room's (the plan's ROOM list: a third of a box's height, 15 cm x W): the check reads its
+    metres x W, as the generator's own protection of a landform's top already did (the laptop reads again);
+  - thin rock is planed at the body's size, 10 cm at 2.5 cm (then 15 cm round a knife edge left), in every block with a
+    face over 55 degrees; the base is no longer planed 30 cm wide. Climb (beside `overall`): 3 crests (S3: 3), an
+    object's protected top, a fin by the river, a coastal rib;
+  - a stream's bank is cut where the land lies within 10 cm of it; a landform it runs beside keeps its face, rising from
+    the water (no 5 m wall cut into a cliff's foot), and a spring cuts nothing behind it;
+  - a path's bench is never narrower than the walk resolves (10.5 cm each side, the 11 cm disc plus one 5 cm step).
+- **1x is unchanged:** byte-identical (four corpus rooms; the 25 unit tests pass).
+
+The 10x garage passes `overall` (walk 5 of 5, sea, footprints 16 of 16, water, grounded). Two yard things (a woodpile
+and the laundry) are still left out at 10x, as in S3. The land is 0.99 million base triangles (5,960 of them fans) and
+1.55 million detail triangles (land.glb 75 MB). Generation, S3's and this run back to back on the same loaded machine:
+184 s and 227 s (S3 alone earlier: 133 s). The detail's own stages: climbs 4 s, detail 11 s, lips 7 s (the base's
+30 cm planing, 13 s, is gone), the surface and the stitched mesh +20 s, the yards' walk over the finer land +10 s,
+writing the bigger land +15 s.
+
+```
+python -B -m pipeline.landscape.generator.generate --room pipeline/landscape/corpus/rooms/garage_nominal --world-scale 10 --out <pkg>
+python -B -m pipeline.landscape.generator.checks --package <pkg> --room pipeline/landscape/corpus/rooms/garage_nominal --world-scale 10
+```
+
 ## Generation fast enough at world scale (Run 2, scale packet S3, 13 October)
 
 The founder moved the game to a 10x world (13 October): the room magnified ten times round today's body. The scale

@@ -72,7 +72,10 @@ class Terrain:
     once. `plain_slope` vouches for a whole bucket of the package's own land
     grid (read back from its mesh and `x_generator.cell_m`): every point there
     hits the land, nothing else on top, no face steeper than the value; the
-    walker skips sampling such ground (`Walker.passable`)."""
+    walker skips sampling such ground (`Walker.passable`). On the 10x world
+    the land's 2.5 cm detail blocks (`x_generator.detail.cell_m`, the same
+    lattice subdivided) are vouched for the same way, cell by fine cell; the
+    seams between them and the base (fans) are read in full."""
 
     def __init__(self, doc, meshes, cell=None, bucket=.1, only=None):
         self.cell = cell if cell is not None else walk_lattice(doc)
@@ -154,7 +157,10 @@ class Terrain:
         self._memo = {}
         self._plain = {}
         self._halves, self._cell_halves, self._corners, self._whole = {}, {}, {}, {}
+        # The detail's fine cells (level 1): the same, on the lattice subdivided.
+        self._cell_halves_f, self._corners_f, self._whole_f = {}, {}, {}
         self._lattice = _MISSING
+        self._fine_cell = ((doc.get('x_generator') or {}).get('detail') or {}).get('cell_m')
         self._lattice_src = (doc, meshes)
         self.walks = {}     # the walkers' shared answers about this ground (Walker._shared)
 
@@ -179,20 +185,24 @@ class Terrain:
                            for j in range(int(floor((z-R)/b)), int(floor((z+R)/b))+1))
         for key in buckets:
             self._plain.pop(key, None)
-        if lat is not None:
-            lx, lz, c = lat
+        for lat_, whole, corners, level in ((lat, self._whole, self._corners, 0),
+                                            (self._fine_lattice(), self._whole_f, self._corners_f, 1)):
+            if lat_ is None:
+                continue
+            lx, lz, c = lat_
             moved = set()
             for x, z in points:
                 ri, rj = round((x-lx)/c), round((z-lz)/c)
                 moved.add((ri, rj))
                 for ci in (ri-1, ri):
                     for cj in (rj-1, rj):
-                        self._whole.pop((ci, cj), None)
-            corners, tris = self._corners, self.tris
+                        whole.pop((ci, cj), None)
+            tris = self.tris
             for key in buckets:
                 for k in self.grid.get(key, ()):
                     t = tris[k]
-                    if not t[8] or k not in self._halves:
+                    got = self._halves.get(k, _MISSING)
+                    if not t[8] or got is _MISSING or (got is not None and got[2] != level):
                         continue
                     for v in t[:3]:
                         p = (round((v[0]-lx)/c), round((v[2]-lz)/c))
@@ -318,6 +328,13 @@ class Terrain:
             ci, cj = int(math.floor(fx)), int(math.floor(fz))
             fx, fz = fx-ci, fz-cj
             halves = self._cell_halves.get((ci, cj))
+            if halves is None and self._fine_cell:
+                # In a detail block: the fine cell's two halves.
+                lx, lz, c = self._fine_lattice()
+                fx, fz = (x-lx)/c, (z-lz)/c
+                ci, cj = int(math.floor(fx)), int(math.floor(fz))
+                fx, fz = fx-ci, fz-cj
+                halves = self._cell_halves_f.get((ci, cj))
             if 1e-4 < fx < 1-1e-4 and 1e-4 < fz < 1-1e-4 and halves is not None and len(halves) == 2:
                 tris = self.tris
                 best = None
@@ -350,6 +367,13 @@ class Terrain:
             self._lattice_src = None
         return self._lattice
 
+    def _fine_lattice(self):
+        """(x0, z0, cell) of the land's detail lattice (the base lattice subdivided), or None."""
+        lat = self._land_lattice()
+        if lat is None or not self._fine_cell:
+            return None
+        return lat[0], lat[1], self._fine_cell
+
     def plain_slope(self, i, j):
         """For bucket (i, j): the steepest land face there when the bucket is
         plain land, else None. Plain: inside the checks' window; every grid
@@ -367,22 +391,30 @@ class Terrain:
 
     def _half(self, k):
         """Read land triangle k as half of a grid cell: ((ci, cj), the corner
-        it misses: 0 (ci, cj), 1 (ci+1, cj), 2 (ci, cj+1), 3 (ci+1, cj+1)), or
-        None when it is not. Its corners are kept: a lattice point met with two
-        different positions is marked broken (the land is not one surface there)."""
+        it misses: 0 (ci, cj), 1 (ci+1, cj), 2 (ci, cj+1), 3 (ci+1, cj+1),
+        level: 0 the land grid, 1 its detail lattice), or None when it is not.
+        Its corners are kept: a lattice point met with two different positions
+        is marked broken (the land is not one surface there)."""
         got = self._halves.get(k, _MISSING)
         if got is not _MISSING:
             return got
-        lx, lz, c = self._land_lattice()
         tol = 1e-3
         t = self.tris[k]
         x0, x1, z0, z1 = t[4], t[5], t[6], t[7]
-        fi, fj = (x0-lx)/c, (z0-lz)/c
-        ri, rj = round(fi), round(fj)
         got = None
-        if abs(fi-ri) <= tol and abs(fj-rj) <= tol and abs((x1-lx)/c-ri-1) <= tol and abs((z1-lz)/c-rj-1) <= tol:
+        for level, lat, corners, cells in ((0, self._land_lattice(), self._corners, self._cell_halves),
+                                           (1, self._fine_lattice(), self._corners_f, self._cell_halves_f)):
+            if lat is None:
+                continue
+            lx, lz, c = lat
+            if abs(x1-x0-c) > 2*tol*c or abs(z1-z0-c) > 2*tol*c:
+                continue    # not one cell of this lattice across
+            fi, fj = (x0-lx)/c, (z0-lz)/c
+            ri, rj = round(fi), round(fj)
+            if not (abs(fi-ri) <= tol and abs(fj-rj) <= tol and abs((x1-lx)/c-ri-1) <= tol and
+                    abs((z1-lz)/c-rj-1) <= tol):
+                continue
             present = 0
-            corners = self._corners
             for v in t[:3]:
                 bx, bz = (1 if v[0] == x1 else 0), (1 if v[2] == z1 else 0)
                 bit = 1 << (bx+2*bz)
@@ -399,32 +431,57 @@ class Terrain:
                     corners[key] = _BROKEN
             if present > 0:
                 missing = (15 & ~present).bit_length()-1
-                got = ((ri, rj), missing)
-                self._cell_halves.setdefault((ri, rj), []).append((k, missing))
+                got = ((ri, rj), missing, level)
+                cells.setdefault((ri, rj), []).append((k, missing))
+            break
         self._halves[k] = got
         return got
 
-    def _cell(self, ci, cj):
-        """(steepest face, lowest corner) of a whole grid cell: both halves on
-        one diagonal, every corner one position; else None."""
+    def _cell(self, ci, cj, level=0):
+        """(steepest face, lowest corner) of a whole grid cell (level 0, or a
+        detail cell, level 1): both halves on one diagonal, every corner one
+        position; else None."""
         key = (ci, cj)
-        got = self._whole.get(key, _MISSING)
+        whole, cells, corners = (self._whole, self._cell_halves, self._corners) if level == 0 else \
+            (self._whole_f, self._cell_halves_f, self._corners_f)
+        got = whole.get(key, _MISSING)
         if got is not _MISSING:
             return got
         got = None
-        halves = self._cell_halves.get(key)
+        halves = cells.get(key)
         if halves is not None and len(halves) == 2 and {halves[0][1], halves[1][1]} in ({0, 3}, {1, 2}):
             ys = []
             for p in ((ci, cj), (ci+1, cj), (ci, cj+1), (ci+1, cj+1)):
-                v = self._corners.get(p)
+                v = corners.get(p)
                 if v is None or v is _BROKEN:
                     ys = None
                     break
                 ys.append(v[1])
             if ys is not None:
                 got = (max(self.slope(halves[0][0]), self.slope(halves[1][0])), min(ys))
-        self._whole[key] = got
+        whole[key] = got
         return got
+
+    def _fine_part(self, ci, cj, X0, X1, Z0, Z1):
+        """(steepest face, lowest corner) of the detail cells inside land cell
+        (ci, cj) that reach the box, when every one of them is whole; else None."""
+        lat = self._fine_lattice()
+        if lat is None:
+            return None
+        lx, lz, c = lat
+        r = int(round(self._land_lattice()[2]/c))
+        floor = math.floor
+        steepest, low = 0., math.inf
+        for fj in range(max(cj*r, int(floor((Z0-lz)/c))), min(cj*r+r-1, int(floor((Z1-lz)/c)))+1):
+            for fi in range(max(ci*r, int(floor((X0-lx)/c))), min(ci*r+r-1, int(floor((X1-lx)/c)))+1):
+                got = self._cell(fi, fj, 1)
+                if got is None:
+                    return None
+                if got[0] > steepest:
+                    steepest = got[0]
+                if got[1] < low:
+                    low = got[1]
+        return steepest, low
 
     def _plain_block(self, bi, bj):
         """Judge a block of buckets at once."""
@@ -446,6 +503,7 @@ class Terrain:
         b, win, eps = self.bucket, self.win, 1e-4
         boxes = self._deck_boxes()
         cell = self._cell
+        fine = self._fine_cell
         for i, j in keys:
             X0, X1, Z0, Z1 = i*b-eps, (i+1)*b+eps, j*b-eps, (j+1)*b+eps
             out = None
@@ -455,6 +513,8 @@ class Terrain:
                 for cj in range(int(math.floor((Z0-lz)/c)), int(math.floor((Z1-lz)/c))+1):
                     for ci in range(int(math.floor((X0-lx)/c)), int(math.floor((X1-lx)/c))+1):
                         got = cell(ci, cj)
+                        if got is None and fine:
+                            got = self._fine_part(ci, cj, X0, X1, Z0, Z1)
                         if got is None:
                             low = None
                             break
@@ -1409,20 +1469,24 @@ WADE_DEG = 35.      # walking out of water: no step under the surface steeper (t
 NEAR_SURFACE_M = .1  # offshore, nothing may stand within a body's height of the surface (the clean coast)
 
 
-def _land_grid(doc, meshes):
+def _land_grid(doc, meshes, points=None):
     """The generator's grid read back from the package's land mesh: (grid, h),
-    or (None, None) for a package without one."""
+    or (None, None) for a package without one. `points`, a dict, is filled
+    with every land vertex's height by its (x, z) rounded to 0.1 mm (the
+    10x world's detail vertices among them)."""
     from .field import Grid
-    pts = {}
+    pts = {} if points is None else points
     for p in meshes.get('land', ()):
         for x, y, z in p['positions']:
             pts[(round(x, 4), round(z, 4))] = y
     gen = doc.get('x_generator') or {}
     if not pts or 'cell_m' not in gen:
         return None, None
-    xs = sorted({k[0] for k in pts})
-    zs = sorted({k[1] for k in pts})
-    grid = Grid(xs[0], zs[0], xs[-1], zs[-1], gen['cell_m'])
+    x0 = min(k[0] for k in pts)
+    z0 = min(k[1] for k in pts)
+    x1 = max(k[0] for k in pts)
+    z1 = max(k[1] for k in pts)
+    grid = Grid(x0, z0, x1, z1, gen['cell_m'])
     nx = grid.nx
     return grid, [pts.get((round(grid.xs[q % nx], 4), round(grid.zs[q//nx], 4)), -math.inf) for q in range(grid.n)]
 
@@ -1593,10 +1657,15 @@ def sea_checks(doc, meshes, terrain, room, floods=None):
     return ok, rows
 
 
-def footprint_checks(inventory, terrain, room):
+def footprint_checks(inventory, terrain, room, W=None):
     """Per object: where its box went and how far the land's rise is from it
-    (inside the walkable floor only)."""
+    (inside the walkable floor only). The reading rule is the room's: on a
+    room magnified x W (the 10x world) its metres (the ring round the box,
+    the sampling step, the 15 and 25 cm the land's top may lie from the box's)
+    are W times today's, as the generator's own protection of a landform's
+    top is (generate's `floor_at`)."""
     from .land import inside_distance
+    W = world.W if W is None else W
     rows = []
     ok = True
     objs = inventory['objects']
@@ -1613,8 +1682,8 @@ def footprint_checks(inventory, terrain, room):
         a = math.radians(b['yaw_deg'])
         c, s = math.cos(a), math.sin(a)
         inside, ring = [], []
-        R = math.hypot(sx, sz)/2+.7
-        step = .03
+        R = math.hypot(sx, sz)/2+.7*W
+        step = .03*W
         k = int(R/step)
         for dj in range(-k, k+1):
             for di in range(-k, k+1):
@@ -1638,7 +1707,7 @@ def footprint_checks(inventory, terrain, room):
                             covered = True
                     if not covered:
                         inside.append(terrain.height(x, z))
-                elif .45 <= max(dx, dz) <= .7 and not e['placement']['support'].get('target_id') \
+                elif .45*W <= max(dx, dz) <= .7*W and not e['placement']['support'].get('target_id') \
                         and inside_distance(room, x, z) >= 0:
                     ring.append(terrain.height(x, z))   # surroundings within the room's floor
         land_top = max(inside)
@@ -1648,7 +1717,7 @@ def footprint_checks(inventory, terrain, room):
         box_rise = top-(around if not e['placement']['support'].get('target_id') else base)
         # Reads if the land rises at least half the box's own rise above its
         # surroundings and its top lies within a third of the box height (min 0.15 m).
-        reads = land_top-top >= -max(.15, sy/3) and land_top-top <= max(.25, sy*.45) \
+        reads = land_top-top >= -max(.15*W, sy/3) and land_top-top <= max(.25*W, sy*.45) \
             and (rise >= .5*min(box_rise, sy) or e['placement']['support'].get('target_id'))
         ok &= bool(reads)
         rows.append(dict(id=e['id'], kind=e['kind'], centre=[round(cx, 2), round(cz, 2)],
@@ -1669,41 +1738,120 @@ def climb_checks(doc, meshes):
     tops out on a knife edge or a needle a body's height up or more fails;
     lower ones are reported."""
     from .climb import knife_edges
-    grid, h = _land_grid(doc, meshes)
+    points = {}
+    grid, h = _land_grid(doc, meshes, points)
     if grid is None:
         return True, dict(knife_edges=0, worst=[])
-    nx = grid.nx
     level = (_sea(doc) or {}).get('level_m', -math.inf)
-    wet = [False]*grid.n
-    for rec in doc['water']:
-        if rec['mesh'] == (_sea(doc) or {}).get('mesh'):
-            continue
-        for p in meshes[rec['mesh']]:
-            vs = p['positions']
-            for t in p['triangles']:
-                a, b, c = vs[t[0]], vs[t[1]], vs[t[2]]
-                rx, rz = grid.span(min(a[0], b[0], c[0]), max(a[0], b[0], c[0]), min(a[2], b[2], c[2]),
-                                   max(a[2], b[2], c[2]))
-                for j in rz:
-                    for i in rx:
-                        if _in_tri(grid.xs[i], grid.zs[j], (a, b, c)) and max(a[1], b[1], c[1]) > h[j*nx+i]:
-                            wet[j*nx+i] = True
+    water = [(vs[t[0]], vs[t[1]], vs[t[2]]) for rec in doc['water'] if rec['mesh'] != (_sea(doc) or {}).get('mesh')
+             for p in meshes[rec['mesh']] for vs in (p['positions'],) for t in p['triangles']]
+    wet = _wet_grid(grid, h, water)
     bad = knife_edges(grid, h, lambda q: h[q] > level+.005 and not wet[q])
+    detail = (doc.get('x_generator') or {}).get('detail')
+    if detail:
+        # The 10x world: in its detail blocks the land is read at 2.5 cm.
+        blocks = {tuple(b) for b in detail['blocks']}
+        bad = [b for b in bad if _block_of(detail, *b['crest']) not in blocks]
+        bad += _fine_climbs(detail, blocks, grid, h, points, water, level, meshes)
+        bad.sort(key=lambda b: (-b['rise'], b['crest']))
     fails = [b for b in bad if b['rise'] >= CLIMB_FAIL_RISE]
     worst = [dict(crest=[round(b['crest'][0], 3), round(b['crest_y'], 3), round(b['crest'][1], 3)],
                   rise_m=round(b['rise'], 3), foot=[round(v, 3) for v in b['foot']]) for b in bad[:8]]
     return not fails, dict(knife_edges=len(bad), failing=len(fails), fail_rise_m=CLIMB_FAIL_RISE, worst=worst)
 
 
+def _wet_grid(grid, h, water):
+    """Which of a grid's vertices lie under inland water (above the land there)."""
+    nx = grid.nx
+    wet = [False]*grid.n
+    for a, b, c in water:
+        rx, rz = grid.span(min(a[0], b[0], c[0]), max(a[0], b[0], c[0]), min(a[2], b[2], c[2]),
+                           max(a[2], b[2], c[2]))
+        for j in rz:
+            for i in rx:
+                if _in_tri(grid.xs[i], grid.zs[j], (a, b, c)) and max(a[1], b[1], c[1]) > h[j*nx+i]:
+                    wet[j*nx+i] = True
+    return wet
+
+
+def _block_of(detail, x, z):
+    size = detail['block_m']
+    return int(math.floor((x-detail['origin_m'][0])/size)), int(math.floor((z-detail['origin_m'][1])/size))
+
+
+FINE_TILE = 4   # detail blocks per side of one fine reading (`_fine_climbs`)
+
+
+def _fine_climbs(detail, blocks, grid, h, points, water, level, meshes):
+    """The climb check in the detail blocks, at 2.5 cm: the blocks holding a
+    face over 55 degrees are read in tiles of up to 4 x 4 blocks, each on a
+    2.5 cm grid reaching a climb's length (0.6 m) past them; heights are the
+    land's own vertices, or the base grid's triangles between them (the
+    seams' fans lie in their planes). Returns the bad climbs whose crest lies
+    in a detail block."""
+    from .climb import FACE_DEG, REACH_M, knife_edges
+    from .field import Grid
+    fc, size = detail['cell_m'], detail['block_m']
+    ox, oz = detail['origin_m']
+    per = int(round(size/fc))
+    # Blocks with a steep face of their own (a fine triangle over 55 degrees).
+    steep = set()
+    tan_face = math.tan(math.radians(FACE_DEG))
+    for p in meshes['land']:
+        vs = p['positions']
+        for t in p['triangles']:
+            a, b, c = vs[t[0]], vs[t[1]], vs[t[2]]
+            if max(a[0], b[0], c[0])-min(a[0], b[0], c[0]) > fc*1.01:
+                continue
+            ux, uy, uz = b[0]-a[0], b[1]-a[1], b[2]-a[2]
+            vx, vy, vz = c[0]-a[0], c[1]-a[1], c[2]-a[2]
+            nx_, ny_, nz_ = uy*vz-uz*vy, uz*vx-ux*vz, ux*vy-uy*vx
+            if math.hypot(nx_, nz_) > tan_face*abs(ny_):
+                blk = _block_of(detail, (a[0]+b[0]+c[0])/3, (a[2]+b[2]+c[2])/3)
+                if blk in blocks:
+                    steep.add(blk)
+    tiles = {}
+    for b in sorted(steep):
+        tiles.setdefault((b[0]//FINE_TILE, b[1]//FINE_TILE), []).append(b)
+    halo = int(math.ceil((REACH_M+.05)/fc))
+    out = []
+    for tile in sorted(tiles):
+        mine = tiles[tile]
+        bi0, bi1 = min(b[0] for b in mine), max(b[0] for b in mine)
+        bj0, bj1 = min(b[1] for b in mine), max(b[1] for b in mine)
+        fi0, fi1 = bi0*per-halo, (bi1+1)*per+halo
+        fj0, fj1 = bj0*per-halo, (bj1+1)*per+halo
+        tg = Grid(ox+fi0*fc, oz+fj0*fc, ox+fi1*fc, oz+fj1*fc, fc)
+        tg.nx, tg.nz = fi1-fi0+1, fj1-fj0+1
+        tg.n = tg.nx*tg.nz
+        tg.xs = [round(ox+fi*fc, 6) for fi in range(fi0, fi1+1)]
+        tg.zs = [round(oz+fj*fc, 6) for fj in range(fj0, fj1+1)]
+        th = []
+        for z in tg.zs:
+            for x in tg.xs:
+                y = points.get((round(x, 4), round(z, 4)))
+                th.append(y if y is not None else grid.tri_height(h, x, z))
+        x_lo, x_hi, z_lo, z_hi = tg.xs[0], tg.xs[-1], tg.zs[0], tg.zs[-1]
+        wet = _wet_grid(tg, th, [w for w in water if max(v[0] for v in w) >= x_lo and min(v[0] for v in w) <= x_hi
+                                  and max(v[2] for v in w) >= z_lo and min(v[2] for v in w) <= z_hi])
+        near = [(ox+(b[0]+.5)*size, oz+(b[1]+.5)*size, .72*size) for b in mine]
+        here = set(mine)
+        for b in knife_edges(tg, th, lambda q: th[q] > level+.005 and not wet[q], near=near):
+            if _block_of(detail, *b['crest']) in here:
+                out.append(b)
+    return out
+
+
 def run(package, room_dir):
+    # A magnified room's package is read against the room magnified (the harness's magnify_room).
     doc, meshes, room, stats = read_package(package, room_dir)
-    inventory = load_json(Path(room_dir)/'inventory.json')
+    inventory = world.magnify_inventory(load_json(Path(room_dir)/'inventory.json'), world_scale(doc))
     terrain = Terrain(doc, meshes)
     w_ok, water, joins = water_checks(doc, meshes, terrain)
     g_ok, ground = grounding_checks(doc, terrain)
     floods = {}
     p_ok, walks = walk_checks(doc, meshes, terrain, room, floods)
-    f_ok, prints = footprint_checks(inventory, terrain, room)
+    f_ok, prints = footprint_checks(inventory, terrain, room, world_scale(doc))
     s_ok, sea = sea_checks(doc, meshes, terrain, room, floods)
     c_ok, climbs = climb_checks(doc, meshes)
     # The climb principle is reported beside the others; it joins `ok` once the
@@ -1722,7 +1870,6 @@ def main():
     args = parser.parse_args()
     if args.world_scale != 1:
         world.set_world(args.world_scale)
-        world.allow_package_limits(args.world_scale)
     result = run(args.package, args.room)
     if args.json:
         Path(args.json).write_text(json.dumps(result, indent=2, sort_keys=True)+'\n', encoding='utf-8', newline='\n')

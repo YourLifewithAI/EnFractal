@@ -183,15 +183,22 @@ def knife_edges(grid, h, standable, min_rise=MIN_RISE, near=None):
                  for i in grid.span(x-r, x+r, z-r, z+r)[0]}
     slope_at = _cell_points(grid, h)
     # Standable patches: a vertex whose four cells are all 35 degrees or
-    # gentler (a 6 cm square a body stands on).
-    patch = [True]*grid.n
-    for j in range(grid.nz-1):
-        for i in range(nx-1):
-            for p in (0, 1):
-                if slope_at(i, j, p) > LIP_DEG:
-                    for q in (j*nx+i, j*nx+i+1, (j+1)*nx+i, (j+1)*nx+i+1):
-                        patch[q] = False
-                    break
+    # gentler (a 6 cm square a body stands on), read where a crest asks.
+    patch = {}
+    nz = grid.nz
+
+    def is_patch(ii, jj):
+        q = jj*nx+ii
+        got = patch.get(q)
+        if got is None:
+            got = True
+            for ci in (ii-1, ii):
+                for cj in (jj-1, jj):
+                    if 0 <= ci < nx-1 and 0 <= cj < nz-1 and (slope_at(ci, cj, 0) > LIP_DEG or
+                                                              slope_at(ci, cj, 1) > LIP_DEG):
+                        got = False
+            patch[q] = got
+        return got
 
     def beside(x, z, y):
         """A climber at a crest pulls over sideways onto a standable patch
@@ -200,7 +207,7 @@ def knife_edges(grid, h, standable, min_rise=MIN_RISE, near=None):
         for jj in rz:
             for ii in rx:
                 q = jj*nx+ii
-                if patch[q] and h[q] >= y-.03 and math.hypot(grid.xs[ii]-x, grid.zs[jj]-z) <= BESIDE_M:
+                if h[q] >= y-.03 and math.hypot(grid.xs[ii]-x, grid.zs[jj]-z) <= BESIDE_M and is_patch(ii, jj):
                     return True
         return False
     bad = {}

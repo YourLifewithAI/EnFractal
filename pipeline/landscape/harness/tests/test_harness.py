@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 from pipeline.landscape.harness.build_reference import ROOM, REFERENCE, build, quad
 from pipeline.landscape.harness.common import FRAME, MAX_BYTES, SETUP, canonical, load_json, sha, harness_revision
-from pipeline.landscape.harness.glb import encode_mesh, decode_mesh
+from pipeline.landscape.harness.glb import check_primitives, encode_mesh, decode_mesh
 from pipeline.landscape.harness.kit import SIZES, prototype
 from pipeline.landscape.harness.package import (read_package, validate_package, footprint_inside, land_factor,
                                               write_package)
@@ -122,6 +122,29 @@ class PackageTests(Workspace):
                 with self.assertRaisesRegex(ValueError,message): validate_package(packages['small'],ROOM)
                 self.assertEqual(validate_package(packages['large'],ROOM)['instances'],6)
 
+    def test_a_magnified_package_is_read_against_its_room_magnified(self):
+        # The 10x world (S4): the source stays the true-size room (its hashes); x_generator.world_scale says how much
+        # it was magnified, and every place is checked against the room magnified that much.
+        self.rejects(lambda d:d['objects'][0].update(position_m=[20,0,-25]))
+        self.mutate(lambda d:(d['objects'][0].update(position_m=[20,0,-25]),d.update(x_generator=dict(world_scale=10.))))
+        doc,_,room,_=read_package(self.folder,ROOM)
+        self.assertEqual(room['bounds'],{'min_m':[-30.,0.,-35.],'max_m':[30.,27.,35.]})
+        self.assertEqual(doc['source']['room_sha256'],sha((ROOM/'room.json').read_bytes()))
+        # The player arrives where the room puts it, magnified; the companion keeps its offset beside it.
+        self.assertEqual([s['position_m'] for s in room['spawns']],[[0.,0.,-30.],[1.,0.,-30.]])
+        for bad in (0,-1,1000,'10',True):
+            with self.subTest(world_scale=bad): self.rejects(lambda d:d['x_generator'].update(world_scale=bad))
+        written=self.work/'written'
+        write_package(written,ROOM,meshes={'land':[quad(-30,30,-35,35,0,'meadow')]},setup=dict(SETUP),
+                      generator=dict(name='test',version='1'),terrain=[dict(mesh='land')],
+                      scatter=[dict(prototype='rock',position_m=[20,0,-25],yaw_deg=0,scale=[1,1,1])],
+                      extensions={'x_generator':{'world_scale':10.}})
+        self.assertEqual(validate_package(written,ROOM)['instances'],1)
+        with self.assertRaisesRegex(ValueError,'outside bounds'):
+            write_package(self.work/'unscaled',ROOM,meshes={'land':[quad(-30,30,-35,35,0,'meadow')]},setup=dict(SETUP),
+                          generator=dict(name='test',version='1'),terrain=[dict(mesh='land')],
+                          scatter=[dict(prototype='rock',position_m=[20,0,-25],yaw_deg=0,scale=[1,1,1])])
+
     def test_setup_pinned_before_blender_or_output(self):
         expected=self.work/'setup.json'; expected.write_bytes(canonical(SETUP))
         self.mutate(lambda d:d['setup'].update(water='none'))
@@ -142,6 +165,26 @@ class PackageTests(Workspace):
         self.assertNotEqual(first['sha256'],harness_revision(source)['sha256'])
         with patch('pipeline.landscape.harness.common.MATERIALS_VERSION',2):
             self.assertNotEqual(first['sha256'],harness_revision(source)['sha256'])
+
+    def test_mesh_checks_refuse_each_bad_value_by_name(self):
+        # check_primitives inlines common.vector for the 10x land's million vertices: the same refusals, by name.
+        p=quad(-1,1,-1,1,0,'meadow')
+        cases=[(lambda v:v['positions'][1].__setitem__(0,1000.5),'invalid number'),
+               (lambda v:v['positions'][1].__setitem__(1,math.nan),'invalid number'),
+               (lambda v:v['positions'][1].__setitem__(2,True),'invalid number'),
+               (lambda v:v['positions'][2].pop(),'invalid vector'),
+               (lambda v:v.update(triangles=[[0,1,4]]),'triangle indices'),
+               (lambda v:v.update(triangles=[[0,1,-1]]),'triangle indices'),
+               (lambda v:v.update(triangles=[[0,1,True]]),'triangle indices'),
+               (lambda v:v.update(triangles=[[0,1]]),'triangle indices'),
+               (lambda v:v.update(triangles=[[0,1,1]]),'degenerate triangle'),
+               (lambda v:v['positions'][2].__setitem__(0,v['positions'][1][0]+1e-12),'degenerate triangle'),
+               (lambda v:v.update(tints=[[1,1,1,1]]*3+[[1,1,1.5,1]]),'invalid number'),
+               (lambda v:v.update(tints=[[1,1,1,.5]]+[[1,1,1.5,1]]*3),'tint alpha must be opaque')]
+        for change,message in cases:
+            v=copy.deepcopy(p); change(v)
+            with self.subTest(message=message),self.assertRaisesRegex(ValueError,message): check_primitives([v])
+        check_primitives([p])
 
     def test_glb_bad_geometry_and_features(self):
         p=quad(-1,1,-1,1,0,'meadow')

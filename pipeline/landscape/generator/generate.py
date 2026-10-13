@@ -22,11 +22,13 @@ from .life import (BRIDGE, grade_line, STEP_LIMIT_M, WALK_LIMIT_DEG, build_mesh,
 from .water import channel_cells, choose_outlet, lake_rho, plan_and_carve, resample
 from . import sea as Sea
 from . import scale as world
-from .climb import give_lips
+from .climb import give_lips, knife_edges
+from .detail import Detail, plane_ok_fine
 
 GENERATOR = {'name': 'landscape-generator', 'version': '5'}
 SEED = 20261008
 CELL = .03
+CELL_W = .1    # the base grid on a magnified room (2.5 cm detail where the body meets the land: detail.py)
 MARGIN = 1.7   # the sea out past the reef and the playable water; beyond it the far sea mesh
 REPO = Path(__file__).resolve().parents[3]
 SETUP_PATH = REPO/'pipeline'/'landscape'/'harness'/'ab-setup.json'
@@ -98,12 +100,17 @@ def grounding(grid, h, objects, base):
     return rows
 
 
-def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=CELL):
+def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=None, detail=None):
     room_dir = Path(room_dir)
     room = load_json(room_dir/'room.json')
     inventory = load_json(room_dir/'inventory.json')
     setup = setup if setup is not None else load_json(SETUP_PATH)
     W = world.W
+    if cell is None:
+        cell = CELL if W == 1 else CELL_W
+    if W != 1:
+        # The 10x world: the true-size room magnified in memory (the package's source stays the true room).
+        room, inventory = world.magnify(room, inventory, W)
     _tick('start')
     noise = Noise(seed, scale=W)
     rnd = random.Random(seed)
@@ -159,24 +166,44 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=
             f = clamp((v-v0)/uc, 0, n-1.000001)
             k = int(f)
             return k, f-k, min(n-1, max(0, int(round((v-v0)/uc))))
-        cols = [part(x/W, ux0, unx) for x in grid.xs]
-        for z in grid.zs:
-            j, v, jn = part(z/W, uz0, unz)
-            r0, r1, rn = j*unx, (j+1)*unx, jn*unx
-            for i, u, inn in cols:
-                a, b, c, d = hu[r0+i], hu[r0+i+1], hu[r1+i], hu[r1+i+1]
-                h.append(((a*(1-u)+b*u)*(1-v)+(c*(1-u)+d*u)*v)*W)
-                a, b, c, d = bu[r0+i], bu[r0+i+1], bu[r1+i], bu[r1+i+1]
-                base.append(((a*(1-u)+b*u)*(1-v)+(c*(1-u)+d*u)*v)*W)
-                owner.append(ou[rn+inn])
-                acc.append(au[rn+inn])
+
+        def landform(xs, zs):
+            """(height, plain, owner, flow) at every (x, z), rows of zs by columns of xs."""
+            cols = [part(x/W, ux0, unx) for x in xs]
+            out = []
+            for z in zs:
+                j, v, jn = part(z/W, uz0, unz)
+                r0, r1, rn = j*unx, (j+1)*unx, jn*unx
+                for i, u, inn in cols:
+                    a, b, c, d = hu[r0+i], hu[r0+i+1], hu[r1+i], hu[r1+i+1]
+                    hv = ((a*(1-u)+b*u)*(1-v)+(c*(1-u)+d*u)*v)*W
+                    a, b, c, d = bu[r0+i], bu[r0+i+1], bu[r1+i], bu[r1+i+1]
+                    out.append((hv, ((a*(1-u)+b*u)*(1-v)+(c*(1-u)+d*u)*v)*W, ou[rn+inn], au[rn+inn]))
+            return out
+        for hv, bv, ov, av in landform(grid.xs, grid.zs):
+            h.append(hv)
+            base.append(bv)
+            owner.append(ov)
+            acc.append(av)
+        # The 10x world's ground: 2.5 cm detail where the body meets the land (detail.py).
+        if detail is None:
+            detail = cell > 1.5*CELL
+        detail = Detail(grid, W, noise, landform) if detail else None
+    else:
+        detail = None
     _tick('landforms')
     # ---------------- the island: the walls become a ragged coast, the door a jetty
+    h_was = h[:] if detail else None
     coast = Sea.carve_coast(grid, room, h, base, noise, objects, spawns, seed, frames)
     del frames
     jetty = coast['jetty']
+    if detail:
+        detail.coast(coast, [q for q in range(grid.n) if h[q] < h_was[q]])
+        del h_was
     _tick('coast')
     Sea.land_jetty(grid, h, jetty)
+    if detail:
+        detail.jetty(jetty)
     avoid_jetty = [] if jetty is None else [(jetty['root'][0], jetty['root'][1], .7)]
 
     def sea_goal(q):
@@ -184,13 +211,15 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=
             return False
         return jetty is None or math.hypot(grid.xs[q % nx]-jetty['root'][0], grid.zs[q//nx]-jetty['root'][1]) > .8
     water = plan_and_carve(grid, room, objects, h, base, inside, spawns, setup, noise, outside,
-                           sea=dict(level=Sea.SEA_Y, goal=sea_goal, avoid=avoid_jetty))
+                           sea=dict(level=Sea.SEA_Y, goal=sea_goal, avoid=avoid_jetty), detail=detail)
     wet = water['wet']
     _tick('water')
     # Banks the streams raised past the waterline go back under the sea.
     for q, v in coast['sea_cap'].items():
         if v < h[q]:
             h[q] = v
+    if detail:
+        detail.sea_cap()
     river_mouths = channel_cells(grid, water['streams'], margin=0.)
     sea = Sea.sea_mask(grid, h, river_mouths)
     for q in range(grid.n):
@@ -201,6 +230,9 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=
     for q in range(grid.n):
         if reach[q] < wet[q]:
             wet[q] = reach[q]
+    if detail:
+        detail.wet_final(wet[:], sea)
+        detail.mark_water_edges(h, coast, water.get('lake'), sea)
     views = eyes(room)
     # Resting places where the review eyes stand: a small level clearing.
     for ex, ez, _, _ in views:
@@ -214,6 +246,8 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=
             for i in rx:
                 d = math.hypot(grid.xs[i]-ex, grid.zs[j]-ez)
                 h[j*nx+i] = lerp(level, h[j*nx+i], smooth((d-R)/blend))
+        if detail:
+            detail.glade(ex, ez, R, blend, level)
     # ---------------- the hamlet: water, flat ground and shelter meet
     slope = slope_field(grid, h)
     avoid = lambda x, z: clear_of_eyes(views, x, z, .75, (2.3, .5))
@@ -293,6 +327,9 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=
             ya = math.radians(yaw)
             flatten(grid, h, x-math.sin(ya)*(hz+.12), z-math.cos(ya)*(hz+.12), hx, .1, yaw, margin=.03,
                     blend=.14, level=level)
+            if detail:
+                detail.flatten(x, z, hx, hz, yaw, .07, .12, level)
+                detail.flatten(x-math.sin(ya)*(hz+.12), z-math.cos(ya)*(hz+.12), hx, .1, yaw, .03, .14, level)
             houses.append(dict(x=x, z=z, yaw=yaw, scale=sc, y=level, hx=hx, hz=hz))
             if len(houses) == 3:
                 break
@@ -312,6 +349,8 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=
                     d = max(abs(lx)-hh['hx'], abs(lz)-hh['hz'], 0.)
                     pads[q] = max(pads[q], .55*(1-smooth(d/.08)))
         hamlet = dict(x=sx, z=sz, water=[wx, wz], houses=len(houses))
+        if detail:
+            detail.hamlet(houses)
     _tick('hamlet')
     if W != 1:
         print('LANDSCAPE_HAMLET', hamlet, 'player', player0, 'lake', water.get('lake') and
@@ -328,6 +367,31 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=
     near_built = distance_field(grid, blocked)
     lane_blocked = [d < .07 or protect[q] for q, d in enumerate(near_built)]
     keep_out = [1. if protect[q] else pads[q] for q in range(grid.n)]
+    # The detail replays each path's cut and fill (its graded line) and its worn surface.
+    on_road = None if detail is None else (lambda pts, g, width, reach: detail.road(pts, g, width, reach))
+    on_grade = None if detail is None else (lambda pts, g, width, reach: detail.road(pts, g, width, reach, grade=True))
+
+    def paint(pts, width=.035):
+        paint_line(grid, pts, paths, width)
+        if detail:
+            detail.paint(pts, width)
+
+    def forecourt(x, z):
+        """The level a path or a graded way keeps where (x, z) lies on a
+        cottage's forecourt or the jetty's landing, else None (the 10x world:
+        the hamlet and the landing are levelled before the land is graded, and
+        the ways graded to them keep their levels, so nothing has to be
+        levelled again over a way the walk was graded for)."""
+        for hh in houses:
+            a = math.radians(hh['yaw'])
+            c, s_ = math.cos(a), math.sin(a)
+            dx, dz = x-(hh['x']-s_*(hh['hz']+.12)), z-(hh['z']-c*(hh['hz']+.12))
+            if abs(c*dx-s_*dz) <= hh['hx']+.03 and abs(s_*dx+c*dz) <= .13:
+                return hh['y']
+        if jetty is not None and math.hypot(x-jetty['root'][0], z-jetty['root'][1]) <= .09:
+            return jetty['top']-.004
+        return None
+    pins = forecourt if detail is not None else None
     if houses:
         door = houses[0]
         a = math.radians(door['yaw'])
@@ -335,27 +399,27 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=
         fx = door['x']-math.sin(a)*(door['hz']+.12)+math.cos(a)*.13
         fz = door['z']-math.cos(a)*(door['hz']+.12)-math.sin(a)*.13
         road = build_road(grid, h, wet, inside, lane_blocked, keep_out, (px, pz), (fx, fz),
-                          crossable=crossable, bridges=bridges)
+                          crossable=crossable, bridges=bridges, record=on_road, pins=pins)
         if road:
             roads.append(road)
-            paint_line(grid, road, paths)
+            paint(road)
             for hh in houses[1:]:
                 a = math.radians(hh['yaw'])
                 dx_, dz_ = hh['x']-math.sin(a)*(hh['hz']+.08), hh['z']-math.cos(a)*(hh['hz']+.08)
                 r2 = build_road(grid, h, wet, inside, lane_blocked, keep_out, (fx, fz), (dx_, dz_), .075,
-                                crossable=crossable, bridges=bridges)
+                                crossable=crossable, bridges=bridges, record=on_road, pins=pins)
                 if r2:
                     roads.append(r2)
-                    paint_line(grid, r2, paths, .028)
+                    paint(r2, .028)
     # A worn path from the spawn down to the jetty's landing.
     if jetty is not None:
         ix, iz = -jetty['ux'], -jetty['uz']
         jetty['stand'] = (jetty['root'][0]+ix*.12, jetty['root'][1]+iz*.12)
         r3 = build_road(grid, h, wet, inside, lane_blocked, keep_out, (px, pz), jetty['stand'], .075,
-                        crossable=crossable, bridges=bridges)
+                        crossable=crossable, bridges=bridges, record=on_road, pins=pins)
         if r3:
             roads.append(r3)
-            paint_line(grid, r3, paths, .028)
+            paint(r3, .028)
     _tick('paths')
     sea_pos, sea_tris = Sea.sea_surface(grid, sea)
     # The checks' walker looks only at the island and its water, not out to the horizon.
@@ -363,6 +427,59 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=
                                                       max_m=[grid.xs[-1], 0, grid.zs[-1]]))), cell_m=cell)
     beaches = Sea.find_beaches(grid, h, room, coast['coast'], jetty)
     shore_goals = [b['stand'] for b in beaches]+([jetty['root']] if jetty is not None else [])
+    def settle(houses_too=True):
+        """What grading may have disturbed, put right: the tarn's rim, the
+        jetty's landing, the cottages' pads and forecourts (`houses_too`)."""
+        # Whatever was levelled after the tarn was filled (glades, pads, paths)
+        # may not breach its shore: the rim stands above the water again, except
+        # where a stream carries the water on.
+        if lake is not None:
+            R = max(lake['rx'], lake['rz'])*1.6
+            channel = set()
+            for st in water['streams']:
+                halves = st['half'] if isinstance(st['half'], list) else [st['half']]*len(st['pts'])
+                for (x_, z_), hw in zip(st['pts'], halves):
+                    if math.hypot(x_-lake['x'], z_-lake['z']) > R+.2:
+                        continue
+                    sx_, sz_ = grid.span(x_-hw-.05, x_+hw+.05, z_-hw-.05, z_+hw+.05)
+                    channel.update(j*nx+i for j in sz_ for i in sx_
+                                   if math.hypot(grid.xs[i]-x_, grid.zs[j]-z_) <= hw+.05)
+            rx, rz = grid.span(lake['x']-R, lake['x']+R, lake['z']-R, lake['z']+R)
+            for j in rz:
+                for i in rx:
+                    q = j*nx+i
+                    if q not in channel and 1. <= lake_rho(lake, noise, grid.xs[i], grid.zs[j]) <= 1.35:
+                        h[q] = max(h[q], lake['level']+.006)
+            if detail:
+                discs = []
+                for st in water['streams']:
+                    halves = st['half'] if isinstance(st['half'], list) else [st['half']]*len(st['pts'])
+                    discs += [(x_, z_, hw+.05) for (x_, z_), hw in zip(st['pts'], halves)
+                              if math.hypot(x_-lake['x'], z_-lake['z']) <= R+.2]
+                detail.tarn_rim(lake, R, discs)
+        # Paths and grading may have filled round the jetty's landing: level it again under the deck.
+        Sea.land_jetty(grid, h, jetty)
+        if detail:
+            detail.jetty(jetty)
+        # Grading toward the beaches and the jetty may have nicked a cottage's pad or
+        # forecourt: level them again at the cottage's own floor.
+        for hh in (houses if houses_too else ()):
+            flatten(grid, h, hh['x'], hh['z'], hh['hx'], hh['hz'], hh['yaw'], level=hh['y'])
+            ya = math.radians(hh['yaw'])
+            flatten(grid, h, hh['x']-math.sin(ya)*(hh['hz']+.12), hh['z']-math.cos(ya)*(hh['hz']+.12), hh['hx'], .1,
+                    hh['yaw'], margin=.03, blend=.14, level=hh['y'])
+            if detail:
+                detail.flatten(hh['x'], hh['z'], hh['hx'], hh['hz'], hh['yaw'], .07, .12, hh['y'])
+                detail.flatten(hh['x']-math.sin(ya)*(hh['hz']+.12), hh['z']-math.cos(ya)*(hh['hz']+.12), hh['hx'], .1,
+                               hh['yaw'], .03, .14, hh['y'])
+
+    if detail is not None:
+        # The 10x world: the hamlet, the landing and the tarn's rim are put
+        # right before the walk, not after it: a cottage levelled again after
+        # grading cut the ramp graded to its neighbour's door (the hamlet's
+        # third door, its forecourt 6 cm under the next cottage's). The ways
+        # graded below keep the forecourts' and the landing's levels (`pins`).
+        settle()
     # Walk the graded land as a body would (11 cm lane, cottages in the way,
     # bridges underfoot). Where it cannot reach the crate or a door, the land
     # gives way: the route a steeper walk finds is cut and filled to grade.
@@ -410,40 +527,13 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=
             for path in (loose.ways((px, pz), failing) if failing else ()):
                 if path:
                     grade_line(grid, h, wet, keep_out, resample([(k[0]*terr0.cell, k[1]*terr0.cell) for k in path], .025),
-                               bridges=bridges)
+                               bridges=bridges, record=on_grade, pins=pins)
                     fixed += 1
             if not fixed:
                 break
     _tick('graded')
-    # Whatever was levelled after the tarn was filled (glades, pads, paths)
-    # may not breach its shore: the rim stands above the water again, except
-    # where a stream carries the water on.
-    if lake is not None:
-        R = max(lake['rx'], lake['rz'])*1.6
-        channel = set()
-        for st in water['streams']:
-            halves = st['half'] if isinstance(st['half'], list) else [st['half']]*len(st['pts'])
-            for (x_, z_), hw in zip(st['pts'], halves):
-                if math.hypot(x_-lake['x'], z_-lake['z']) > R+.2:
-                    continue
-                sx_, sz_ = grid.span(x_-hw-.05, x_+hw+.05, z_-hw-.05, z_+hw+.05)
-                channel.update(j*nx+i for j in sz_ for i in sx_
-                               if math.hypot(grid.xs[i]-x_, grid.zs[j]-z_) <= hw+.05)
-        rx, rz = grid.span(lake['x']-R, lake['x']+R, lake['z']-R, lake['z']+R)
-        for j in rz:
-            for i in rx:
-                q = j*nx+i
-                if q not in channel and 1. <= lake_rho(lake, noise, grid.xs[i], grid.zs[j]) <= 1.35:
-                    h[q] = max(h[q], lake['level']+.006)
-    # Paths and grading may have filled round the jetty's landing: level it again under the deck.
-    Sea.land_jetty(grid, h, jetty)
-    # Grading toward the beaches and the jetty may have nicked a cottage's pad or
-    # forecourt: level them again at the cottage's own floor.
-    for hh in houses:
-        flatten(grid, h, hh['x'], hh['z'], hh['hx'], hh['hz'], hh['yaw'], level=hh['y'])
-        ya = math.radians(hh['yaw'])
-        flatten(grid, h, hh['x']-math.sin(ya)*(hh['hz']+.12), hh['z']-math.cos(ya)*(hh['hz']+.12), hh['hx'], .1,
-                hh['yaw'], margin=.03, blend=.14, level=hh['y'])
+    # On the 10x world only the tarn's rim and the landing are put right again (the ways keep the hamlet's levels).
+    settle(houses_too=detail is None)
     # What you climb, you can stand on top of: rock too thin to stand on (a
     # needle, a knife edge, the sliver where the coast cut a landform's
     # corner) weathers down to a ledge a body stands on (Lane P's climbs on
@@ -456,8 +546,36 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=
             return False
         return jroot is None or math.hypot(grid.xs[q % nx]-jroot[0], grid.zs[q//nx]-jroot[1]) >= .35
     # An object's own landform keeps the height its footprint is read by.
-    planed = give_lips(grid, h, lambda q: h[q] > Sea.SEA_Y+.005 and wet[q] > 0, plane_ok,
-                       lambda q: max(0., h[q]-floor_at[q]))
+    ground = grid
+    if detail is None:
+        planed = give_lips(grid, h, lambda q: h[q] > Sea.SEA_Y+.005 and wet[q] > 0, plane_ok,
+                           lambda q: max(0., h[q]-floor_at[q]))
+    else:
+        # The 10x world: the detail blocks are chosen round the body-sized
+        # features (and round the climbs the base finds: a climb from standable
+        # ground topping out on a knife edge), and every rule is replayed on
+        # them at 2.5 cm. Where the body walks (the paths and graded ways, the
+        # pads and forecourts, the glades, the jetty's landing) the blocks keep
+        # the base's surface, the one the walk above was graded on; only its
+        # surface is painted at 2.5 cm there.
+        bad = knife_edges(grid, h, lambda q: h[q] > Sea.SEA_Y+.005 and wet[q] > 0)
+        _tick('climbs')
+        lip_q = set()
+        for b in bad:
+            cx_, cz_ = b['crest']
+            rx_, rz_ = grid.span(cx_-.35, cx_+.35, cz_-.35, cz_+.35)
+            lip_q.update(j*nx+i for j in rz_ for i in rx_)
+        detail.build(h, objects, sorted(lip_q), wet)
+        detail.walks_on_base(h)
+        detail.merge(h)
+        _tick('detail')
+        # Rock too thin to stand on is planed at the body's size (a 10 cm
+        # opening at 2.5 cm, not 30 cm on the base), in every block holding a
+        # face a climber grabs.
+        planed = detail.lips(h, plane_ok_fine(detail, jroot))
+        detail.merge(h)
+        ground = detail.ground(h)
+        look['detail'] = dict(cell_m=detail.fc)
     _tick('lips')
     slope = slope_field(grid, h)
     tris = grid.triangles()
@@ -465,7 +583,7 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=
     if houses and roads:
         route = roads[0]
         if route:
-            gy = grid.tri_height(h, fx, fz)
+            gy = ground.tri_height(h, fx, fz)
             carry = dict(id='apple_crate', kind='crate', prototype='crate',
                          position_m=[round(fx, 4), round(gy-.002, 4), round(fz, 4)],
                          yaw_deg=round(door['yaw']+20, 1), size_m=[.08, .07, .07],
@@ -477,10 +595,17 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=
     sea = Sea.sea_mask(grid, h, river_mouths)
     weights, tints = Sea.sand_and_seabed(grid, h, coast, sea, weights, tints)
     far_sea, islands = Sea.distant_islands(grid, room, noise, seed)
-    meshes = {'land': build_mesh(grid, h, weights, tints, tris), 'distant_islands': far_sea}
+    if detail is None:
+        meshes = {'land': build_mesh(grid, h, weights, tints, tris), 'distant_islands': far_sea}
+    else:
+        fweights, ftints = detail.surface(objects, shadow, noise, weights, tints)
+        land, counts = detail.assemble(h, weights, tints, fweights, ftints)
+        meshes = {'land': land, 'distant_islands': far_sea}
+        if W != 1:
+            print('LANDSCAPE_DETAIL', counts, flush=True)
     terrain_records = [{'mesh': 'land'}]
     if jetty is not None:
-        meshes['jetty'] = Sea.jetty_mesh(grid, h, jetty)
+        meshes['jetty'] = Sea.jetty_mesh(ground, h, jetty)
         terrain_records.append({'mesh': 'jetty'})
     sea_pos, sea_tris = Sea.sea_surface(grid, sea)
     meshes['sea'] = [dict(role='still_water', positions=sea_pos, triangles=sea_tris)]
@@ -506,6 +631,7 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=
     plant = Planter(grid, h, fslope, wet, inside, shadow, paths, pads, blocked, base, owner, objects,
                     views, room, rnd, noise, acc)
     plant.path_gap = path_gap
+    plant.heights = ground
     plant.sandy = [coast['bw'][q]*(1-coast['hl'][q]) > .3 and h[q] < Sea.SEA_Y+.08 or sea_near[q] < .02
                    for q in range(grid.n)]
     plant.bridge_rects = [(b['x'], b['z'], b['yaw'], b['length']) for b in bridges]
@@ -546,10 +672,17 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=
     # carrying lane of the route past the buildings are taken out. Only a yard
     # thing that even a cleared lane cannot reach is left out.
     keep = {'cottage', 'footbridge'} | set(YARD)
-    terr = Terrain(probe, meshes)
+    walk_meshes = meshes
+    if W != 1:
+        # The 10x world: the walk reads the meshes as the package will hold them
+        # (single precision) from the start, so the promised beaches are proved
+        # on this very reading (`written_walk`), not on a second one.
+        names = {r['mesh'] for r in terrain_records+water_records} | {'distant_islands'}
+        walk_meshes = {k: (as_written(v) if k in names else v) for k, v in meshes.items()}
+    terr = Terrain(probe, walk_meshes)
     # One flood from the spawn per planting state answers every target here,
     # the beaches and the jetty (flooded again only when the planting changes).
-    walks = Walks(probe, meshes, terr, room, (px, pz))
+    walks = Walks(probe, walk_meshes, terr, room, (px, pz))
 
     def size_of(rec):
         base_size = SIZES[rec['prototype']] if rec['prototype'] in SIZES else proto_records[rec['prototype']]['size_m']
@@ -568,7 +701,7 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=
         # Toward the crate or a door even a yard thing may stand aside; toward
         # a yard, the other yards stay.
         hold = keep if rec_ is not None else {'cottage', 'footbridge'}
-        fixed = Walker(dict(probe, scatter=[r for r in scatter if r['prototype'] in hold]), meshes, terr, room)
+        fixed = Walker(dict(probe, scatter=[r for r in scatter if r['prototype'] in hold]), walk_meshes, terr, room)
         path = next((pth for pth in fixed.ways((px, pz), goals_, first=True) if pth), None)
         if path:
             pts = [(k[0]*terr.cell, k[1]*terr.cell) for k in path]
@@ -616,10 +749,10 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=
     _tick('yards')
     # Promise only the beaches a body can walk to from the spawn.
     final = walks.now()
-    beaches = [b for b in Sea.find_beaches(grid, h, room, coast['coast'], jetty) if final.has(b['stand'])]
+    beaches = [b for b in Sea.find_beaches(ground, h, room, coast['coast'], jetty) if final.has(b['stand'])]
     if not beaches:
         # No beach stretch a body reaches: the harbour's sand beside the jetty.
-        beaches = [b for b in Sea.find_beaches(grid, h, room, coast['coast'], jetty, harbour=True)
+        beaches = [b for b in Sea.find_beaches(ground, h, room, coast['coast'], jetty, harbour=True)
                    if final.has(b['stand'])][:1]
     rest = dict(walk_limit_deg=WALK_LIMIT_DEG, step_limit_m=STEP_LIMIT_M,
                                   water_character=water.get('character'), water_why=water.get('why'),
@@ -628,12 +761,15 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=
                                   hamlet=hamlet, bridges=len(bridges), dropped_yard=dropped, planed=dict(vertices=planed[0], deepest_m=round(planed[1], 3), knife_edges_left=len(planed[2])),
                                   forms={o['id']: [o['form'], o['form_basis'], o['rock_role']] for o in objects},
                                   grounding=grounding(grid, h, objects, base))
+    if detail:
+        rest['detail'] = detail.describe()
 
     def write(folder, beaches):
-        sea_doc = describe_sea(grid, h, room, coast, jetty, beaches, islands, player0, water['streams'])
+        sea_doc = describe_sea(grid, h, room, coast, jetty, beaches, islands, player0, water['streams'], ground)
         extensions = {'x_generator': dict(seed=seed, cell_m=cell, margin_m=margin, sea=sea_doc, **rest)}
         if W != 1:
             extensions['x_generator']['world_scale'] = W
+        # The harness validates the places against the room magnified by x_generator.world_scale.
         return write_package(folder, room_dir, meshes=meshes, setup=setup, generator=GENERATOR,
                              terrain=terrain_records, water=water_records,
                              scenery=[{'mesh': 'distant_islands', 'reachable': False}],
@@ -644,12 +780,14 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=
     # will hold them (`as_written`), and the flood's own way to each beach is
     # proved there step by step (flooded again only if a way fails).
     if beaches:
-        sea_doc = describe_sea(grid, h, room, coast, jetty, beaches, islands, player0, water['streams'])
+        sea_doc = describe_sea(grid, h, room, coast, jetty, beaches, islands, player0, water['streams'], ground)
         written = dict(terrain=terrain_records, scenery=[{'mesh': 'distant_islands', 'reachable': False}],
                        water=water_records, scatter=scatter, prototypes=proto_records, objects=objects_out,
-                       x_generator=dict(sea=sea_doc, cell_m=cell, **({'world_scale': W} if W != 1 else {})))
+                       x_generator=dict(sea=sea_doc, cell_m=cell, **({'world_scale': W} if W != 1 else {}),
+                                        **({'detail': rest['detail']} if detail else {})))
         promised = [(rec['wash_ashore_m'][0], rec['wash_ashore_m'][2]) for rec in sea_doc['beaches']]
-        kept = [b for b, ok in zip(beaches, written_walk(final, promised, written, meshes, room, (px, pz))) if ok]
+        kept = [b for b, ok in zip(beaches, written_walk(final, promised, written, meshes, room, (px, pz),
+                                                         *((walk_meshes, terr) if W != 1 else ()))) if ok]
         beaches = kept or beaches
     _tick('beaches')
     doc = write(out_dir, beaches)
@@ -732,7 +870,7 @@ def as_written(primitives):
     return out
 
 
-def written_walk(reach, goals, doc, meshes, room, start):
+def written_walk(reach, goals, doc, meshes, room, start, single=None, terrain=None):
     """Which goals a body reaches on the package as written (`doc` as the
     package will read, its meshes in single precision), without writing it.
     The flood `reach` (the same walk on the generator's own meshes) offers a
@@ -740,7 +878,8 @@ def written_walk(reach, goals, doc, meshes, room, start):
     node and edge by edge, reading only the ground along it. A goal with no
     way, or whose way fails, is answered by flooding the written package."""
     from .checks import CLEAR_R, Terrain, Walker, proves
-    single = {r['mesh']: as_written(meshes[r['mesh']]) for r in doc['terrain']+doc['scenery']+doc['water']}
+    if single is None:
+        single = {r['mesh']: as_written(meshes[r['mesh']]) for r in doc['terrain']+doc['scenery']+doc['water']}
     paths = [reach.path(g) for g in goals]
     cell, b = reach.walker.t.cell, .1
     r = CLEAR_R+.01
@@ -750,14 +889,15 @@ def written_walk(reach, goals, doc, meshes, room, start):
             x0, x1, z0, z1 = (k[0]-1)*cell-r, (k[0]+1)*cell+r, (k[1]-1)*cell-r, (k[1]+1)*cell+r
             only.update((i, j) for i in range(int(math.floor(x0/b)), int(math.floor(x1/b))+1)
                         for j in range(int(math.floor(z0/b)), int(math.floor(z1/b))+1))
-    walker = Walker(doc, single, Terrain(doc, single, only=only), room)
+    # `terrain`: the flood's own reading of these single-precision meshes (the 10x world's walk reads them so).
+    walker = Walker(doc, single, terrain if terrain is not None else Terrain(doc, single, only=only), room)
     out, full = [], None
     for g, path in zip(goals, paths):
         if path is not None and proves(walker, path):
             out.append(True)
             continue
         if full is None:
-            full = Walker(doc, single, Terrain(doc, single), room).reach(start)
+            full = Walker(doc, single, terrain if terrain is not None else Terrain(doc, single), room).reach(start)
         out.append(full.has(g))
     return out
 
@@ -767,7 +907,7 @@ def _godot_yaw(dx, dz):
     return round(math.degrees(math.atan2(-dx, -dz)), 2)+0.   # never -0.0
 
 
-def describe_sea(grid, h, room, coast, jetty, beaches, islands, player0, streams):
+def describe_sea(grid, h, room, coast, jetty, beaches, islands, player0, streams, ground=None):
     """The sea, the reef, the playable water, the beaches and the jetty, for
     the exporter and the game (x_generator.sea). Metres and degrees in the room
     frame; outlines are closed [x, z] loops in the room floor polygons' winding."""
@@ -808,12 +948,13 @@ def describe_sea(grid, h, room, coast, jetty, beaches, islands, player0, streams
         river_mouths=[[round(st['pts'][-1][0], 3), round(st['pts'][-1][1], 3)] for st in streams
                       if st['W'][-1] <= Sea.SEA_Y+1e-6],
         distant_islands=islands)
+    ground = grid if ground is None else ground
     for k, b in enumerate(beaches):
         (x, z), (wx, wz), (ix, iz) = b['stand'], b['water'], b['inward']
-        out['beaches'].append(dict(id='beach_%02d' % k, wash_ashore_m=[round(x, 4), round(grid.tri_height(h, x, z), 4), round(z, 4)],
+        out['beaches'].append(dict(id='beach_%02d' % k, wash_ashore_m=[round(x, 4), round(ground.tri_height(h, x, z), 4), round(z, 4)],
                                    yaw_deg=_godot_yaw(ix, iz),
                                    water_m=[round(wx, 4), Sea.SEA_Y, round(wz, 4)],
-                                   water_depth_m=round(Sea.SEA_Y-grid.tri_height(h, wx, wz), 4)))
+                                   water_depth_m=round(Sea.SEA_Y-ground.tri_height(h, wx, wz), 4)))
     if jetty is not None:
         (rx, rz), (ex, ez) = jetty['root'], jetty['end']
         out['jetty'] = dict(mesh='jetty', door_id=jetty['door_id'], root_m=[round(rx, 4), round(jetty['top'], 4), round(rz, 4)],
@@ -848,6 +989,7 @@ class Planter:
         self.__dict__.update(locals())
         self.taken = []   # (x, z, r)
         self.cells = {}
+        self.heights = grid   # the land's heights as built (detail.Ground on the 10x world)
 
     def occupy(self, x, z, r):
         self.taken.append((x, z, r))
@@ -873,7 +1015,7 @@ class Planter:
         return j*nx+i
 
     def ground(self, x, z, r):
-        g, h = self.grid, self.h
+        g, h = self.heights, self.h
         hs = [g.tri_height(h, x, z)]+[g.tri_height(h, x+r*ca, z+r*sa) for ca, sa in _ROUND]
         return min(hs), max(hs)
 
@@ -909,7 +1051,7 @@ class Planter:
             a = math.radians(yaw)
             c, s = math.cos(a), math.sin(a)
             hx, hz = size[0]*scale[0]/2, size[2]*scale[2]/2
-            hs = [self.grid.tri_height(self.h, x+c*lx+s*lz, z-s*lx+c*lz)
+            hs = [self.heights.tri_height(self.h, x+c*lx+s*lz, z-s*lx+c*lz)
                   for lx in (-hx, 0, hx) for lz in (-hz, 0, hz)]
             lo_, hi_ = min(hs), max(hs)
             if hi_-lo_ > .012:
@@ -1117,15 +1259,17 @@ def main():
     parser.add_argument('--out', required=True)
     parser.add_argument('--setup', default=str(SETUP_PATH))
     parser.add_argument('--seed', type=int, default=SEED)
-    # The scale experiment (scale.py): the room was magnified x W around today's body.
+    # The 10x world (scale.py): the room magnified x W around today's body, in memory.
     parser.add_argument('--world-scale', type=float, default=1.)
-    parser.add_argument('--cell', type=float, default=CELL, help='grid cell (m); coarser for a magnified room')
+    parser.add_argument('--cell', type=float, default=None,
+                        help='base grid cell (m); default %g, or %g on a magnified room' % (CELL, CELL_W))
+    parser.add_argument('--no-detail', action='store_true', help='a magnified room without its 2.5 cm detail')
     args = parser.parse_args()
     if args.world_scale != 1:
         world.set_world(args.world_scale)
-        world.allow_package_limits(args.world_scale)
     t0 = time.perf_counter()
-    doc = generate(args.room, args.out, load_json(args.setup), args.seed, cell=args.cell)
+    doc = generate(args.room, args.out, load_json(args.setup), args.seed, cell=args.cell,
+                   detail=False if args.no_detail else None)
     if args.world_scale != 1:
         print('LANDSCAPE_TIMING generate_s %.1f' % (time.perf_counter()-t0))
     print('LANDSCAPE_PACKAGE', args.out, 'meshes', len(doc['meshes']), 'scatter', len(doc['scatter']),

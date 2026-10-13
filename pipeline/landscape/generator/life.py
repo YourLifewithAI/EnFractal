@@ -383,16 +383,31 @@ def paint_path(grid, path, mask, width=.035):
 
 
 ROAD_GRADE_DEG = 12.
+BENCH_W = .105   # a path's graded half-width on a magnified room, at least (`bench`)
+
+
+def bench(width):
+    """A path's graded half-width (its cut and fill): the body's. On a
+    magnified room it is never narrower than the walk's 11 cm disc plus one
+    step of the walk's 5 cm lattice (5.5 + 5 cm), so the walk resolves the
+    lane the path is graded for wherever it runs (at 2.5 cm a 17 cm bench
+    leaves the disc's centre a 6 cm band, one lattice node on a diagonal)."""
+    return width if world.W == 1 else max(width, BENCH_W)
 
 
 BRIDGE = [.16, .03, .3]   # footbridge prototype: width, deck depth, length (m)
 
 
-def build_road(grid, h, wet, inside, blocked, pads, a, b, width=.085, crossable=None, bridges=None):
+def build_road(grid, h, wet, inside, blocked, pads, a, b, width=.085, crossable=None, bridges=None, record=None,
+               pins=None):
     """A worn path is built, not found: route the easiest way, then grade it
     (cut and fill) so it climbs no steeper than ROAD_GRADE_DEG. Where it must
     cross a stream (never a lake), it crosses once, square to the water, on a
-    level timber footbridge; the banks are filled up to the deck at each end."""
+    level timber footbridge; the banks are filled up to the deck at each end.
+    `record(pts, levels, width, reach)` is told the graded line (the 10x
+    world's detail replays its cut and fill). `pins(x, z)` gives a level the
+    line must keep where it has one (a cottage's forecourt), as a deck's."""
+    width = bench(width)
     nx = grid.nx
     s = slope_field(grid, h)
     cost = [1+8*(s[q]/25)**2+(60 if s[q] > 38 else 0) for q in range(grid.n)]
@@ -437,6 +452,11 @@ def build_road(grid, h, wet, inside, blocked, pads, a, b, width=.085, crossable=
     for a_, b_, top in decks:
         for kk in range(a_, b_+1):
             g[kk] = top-.006
+    if pins is not None:
+        for k, (x, z) in enumerate(pts):
+            v = pins(x, z)
+            if v is not None:
+                g[k] = v
     for _ in range(2):
         for k in range(1, len(g)):
             g[k] = min(max(g[k], g[k-1]-m), g[k-1]+m)
@@ -450,6 +470,8 @@ def build_road(grid, h, wet, inside, blocked, pads, a, b, width=.085, crossable=
                                 length=length, top=top))
     best = {}
     reach = width+.1
+    if record is not None:
+        record(pts, list(g), width, reach)
     for k, (x, z) in enumerate(pts):
         rx, rz = grid.span(x-reach, x+reach, z-reach, z+reach)
         for j in rz:
@@ -472,11 +494,12 @@ def build_road(grid, h, wet, inside, blocked, pads, a, b, width=.085, crossable=
     return pts
 
 
-def grade_line(grid, h, wet, pads, pts, width=.085, bridges=()):
+def grade_line(grid, h, wet, pads, pts, width=.085, bridges=(), record=None, pins=None):
     """Cut and fill along a line of points so a body's lane follows it at no
     more than ROAD_GRADE_DEG and level across (used where a walk proved the
     land too steep for the way a path must go). Where the line crosses a
     footbridge it follows the deck, so the landings are graded up to it."""
+    width = bench(width)
     nx = grid.nx
 
     def deck(x, z):
@@ -487,6 +510,9 @@ def grade_line(grid, h, wet, pads, pts, width=.085, bridges=()):
                 return b['top']-.006
         return None
     on_deck = [deck(x, z) for x, z in pts]
+    if pins is not None:
+        # A level the line must keep (a cottage's forecourt) is held like a deck's.
+        on_deck = [pins(x, z) if d is None else d for (x, z), d in zip(pts, on_deck)]
     g = [grid.sample(h, x, z) if d is None else d for (x, z), d in zip(pts, on_deck)]
     for _ in range(4):
         g = [sum(g[max(0, k-6):k+7])/len(g[max(0, k-6):k+7]) for k in range(len(g))]
@@ -498,6 +524,8 @@ def grade_line(grid, h, wet, pads, pts, width=.085, bridges=()):
         g[k] = min(max(g[k], g[k+1]-m), g[k+1]+m)
     best = {}
     reach = width+.1
+    if record is not None:
+        record(pts, list(g), width, reach)
     for k, (x, z) in enumerate(pts):
         rx, rz = grid.span(x-reach, x+reach, z-reach, z+reach)
         for j in rz:
