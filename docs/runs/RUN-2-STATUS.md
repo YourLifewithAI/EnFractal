@@ -1,6 +1,6 @@
 # Run 2 status
 
-**Run 2 started on 7 October 2026 (evening, local). The eleventh session's handoff was written on 13 October, night (the first Windows machine), on `run2/characters-in-game`; start at "The next session".** Then read [ORCHESTRATION.md](ORCHESTRATION.md) and [AGENTS.md](../../AGENTS.md). [RUN-2-REVISION.md](RUN-2-REVISION.md) is the approved plan (8 October); it supersedes [RUN-2.md](RUN-2.md)'s Lane C, C7, Lane L and Codex sections. [RUN-2-TEN-TIMES.md](RUN-2-TEN-TIMES.md) is the plan for the 10x world (13 October).
+**Run 2 started on 7 October 2026 (evening, local). The latest handoff is the tenth session's close (13 October, evening, DiamondAge), after the eleventh session's characters round was merged; start at "The next session".** Then read [ORCHESTRATION.md](ORCHESTRATION.md) and [AGENTS.md](../../AGENTS.md). [RUN-2-REVISION.md](RUN-2-REVISION.md) is the approved plan (8 October); it supersedes [RUN-2.md](RUN-2.md)'s Lane C, C7, Lane L and Codex sections. [RUN-2-TEN-TIMES.md](RUN-2-TEN-TIMES.md) is the plan for the 10x world (13 October).
 
 ## The founder's new direction: the room becomes a landscape (7 October, late evening)
 
@@ -560,7 +560,55 @@
 - **Open:** the family's verdict on the sheets (Stickbear keeps his arms raised as drawn in every pose; the Gubble's cast tile is washed out by the default halo); the fix round's 5 mm tolerance for leg-IK feet at a tumble's get-up (2 mm everywhere else); the Linux suite was not run (no WSL here); nothing of the tumble or the gaits was judged in play.
 - **Worktrees on this machine,** each with `.cache` junctions to unlink before removing (`[System.IO.Directory]::Delete(path, $false)` on each junction): `C:\dev\EnFractal-run2\characters-{rig,look,choice,gaits,contact,gubble,tumble,sheets,fixes}` (all merged into the hub) and `base-check` (on `run2/invention-exit-fix`).
 
+## The tenth session's close (13 October, evening, DiamondAge)
+
+- **The 10x world is built and installed** ([RUN-2-TEN-TIMES.md](RUN-2-TEN-TIMES.md)). Merged on `run2/integration`, each with both Windows runners GREEN:
+  - S1 the Gubble no longer gets lost (`9b998a3`); S3 generator speed (`99e6f6e`); S2 the contract for plant copies, terrain tiles and `plant:` ids (`7e10fbe`); S7 navigation in 8 m tiles off the main thread (`ca34f4b`); S5 and S6 export and loading of copies and tiles (`4c4e6f6`); S8 play distances: catch-up, faster rises, walked long trips (`bfac79b`); S9 the look: 250 m with haze, 60 m shadows (`792be46`); S10 one shared fixture cache, the scale suite, `tools/smoke-boot.ps1` (`97c515b`); S4 multi-scale ground (`c43af69`); S12a stability: no Godot values left for the finalizer on hot paths, worst windowed frame 9–17 ms (`8f938d9`); S12b memory: copies per tile, terrain collision near the bodies with a coarse far-ground layer for sight and aim (`e390c6c`); the 10x fixture's builder fixed for S4 (`5edb8ee`).
+  - The scale suite on the 10x garage: ready in about 5–7 s, navigation 0.4 s later, 0.93 GB headless at most, a 100 m run and a 72 m come, all GREEN.
+  - **S11, installed (the founder's yes):** `landscape_garage_nominal` in the founder's user folder is now the 10x garage (`room.json` `4182DDCD…`), smoke-booted clean; the 1x copy is in `room-backups\landscape_garage_nominal-20261013-before-10x`. "EnFractal 10x Island" now runs `run-room.ps1 -Room landscape10` (the main line's newest 10x build).
+- **The characters round is merged** (the eleventh session's work on the first Windows machine): `run2/invention-exit-fix` (`8f45cf5`) and `run2/characters-in-game` (`7861c6c`), then `run2/chars-merge` (`daa835a`). Both Windows runners and the Linux suite in WSL are GREEN (small avatar 367/367). Two notes:
+  - **The pen test's "through" was a false alarm:** it measured the body as a flat cylinder, so a rounded foot over the wall's edge counted as passing through at some bob phases (the main line alone failed 3 of 8 timings). It now measures the capsule against each wall.
+  - The merge also fixed a missing `$repository` in `tools/test-room.ps1` and two capture waits that counted frames.
+- **Lessons:**
+  - **Godot runs the C# last built into `game/.godot`, never the source.** A smoke boot right after a merge, without a build, ran stale code and made a new option look broken. Use `tools/smoke-boot.ps1`, which builds first.
+  - Packets that pass alone can still break each other (S10's 10x fixture against S4's magnification; S12a and S12b on the same rays). Run the scale suite (`test-room.ps1 -Scale`) after merging anything in the pipeline or the island's loading.
+- **Discovered: the island was never the founder's real garage.** Every island so far came from the corpus's invented `garage_nominal`. The real capture (`C:\dev\EnFractal-run2\capture\captures\garage\`, 20 objects) was never run through the generator. The founder: the garage's window wall (wall A) faces **east**.
+- **In progress at the close:** `run2/real-garage` (the real garage as the 10x island `landscape_my_garage`, installed locally, never committed) and `run2/intro` (the room-to-island intro, decided 8 October).
+
 ## The next session
+
+1. **Merge the two packets in progress** when they report: `run2/intro` (both runners, the scale suite) and `run2/real-garage` (code only; nothing derived from the real garage in Git). Give the founder a shortcut for `landscape_my_garage`.
+2. **The founder's playtest** of the 10x garage, the characters, and the growth features:
+   - the island's size, the haze and the 250 m view, grass to 40 m (25 m would save about 30 MB);
+   - the Gubble: catch-up beyond 25 m out of sight, rises at up to 1.5 m/s, long comes walked (about 1.5 s a metre);
+   - the characters (gaits, springs, the tumble) and the Gubble without its torch;
+   - the Glow discoveries, Bloom, weather, fire in each mode, modes and undo only in Creative, the journal (J), the eye icon (I).
+3. **Decisions waiting for the founder:**
+   - the traits draft's six (the animals' size first): [docs/world/TRAITS.md](../world/TRAITS.md);
+   - the 10x plan's seven: [RUN-2-TEN-TIMES.md](RUN-2-TEN-TIMES.md);
+   - the eleventh session's: the family's verdict on the five sheets, the 5 mm foot tolerance, the torch round's five.
+4. **The torch round** (planned in the eleventh session; a fresh session, as it recommends).
+5. **The fire rebuild,** now unblocked (S2 and S5 are in): spread by fuel and wind on plant rows and a 50 cm ground-fuel grid; structures burn down with a rebuild record; replanting with regrowth; loose things vanish. Inputs from 967b583.
+6. **The 10x follow-ups:**
+   - generation takes about 4.5 min (the budget is 2);
+   - level-0 terrain is drawn to 48 m and the 2.5 cm path paint is lost at level 1;
+   - route queries take 5–15 ms on the detailed ground;
+   - one fixture build failed once and passed on a retry (the two-process export?);
+   - Windows and Linux exports differ (186 copies at 10x);
+   - the journal's map shows no ground on islands (`ground`, not `floor`);
+   - the look suite's flight camera faces the sea;
+   - the save's GDScript write takes 7–11 ms every 5 s;
+   - memory in a window is still about 1.2 GB on the 10x island.
+7. **Playing with the AI:** Claude joins the founder's game as the Gubble (the eyes work).
+8. **Parked: wishes and speech** (`run2/wishes-live`): the password gate for the grown-ups' test mode, a contract round for its ops (`c64e390`), then merge; it removes Codex's dormant runner.
+9. **Housekeeping:**
+   - remove the finished worktrees, unlinking their `.cache` junctions first, and hand the founder the commands: the Codex ones (`C:\dev\EnFractal-codex\{gubble-growth, gubble-growth-runtime, growth-falls, scratch}`; keep `daily-journal`), and this session's merged Run 2 ones (`growth*`, `journal`, `eyes`, `gubble-view`, `consequences`, `traits`, `gubble-lost`, `scale-gen`, `s*-*`, `chars-merge`, `scale`);
+   - delete the old per-worktree `.cache\landscape-fixture` folders (about 489 MB);
+   - model nature in the companion's mock (removes `NATURE_NOT_IN_THE_MOCK`);
+   - the ninth session's list below (storybook_wild v1, Lane C's corpus failures).
+
+## The eleventh session's next steps (13 October, night, for the record)
+
 
 1. **The founder's playtest of the merged build** ("EnFractal Landscape" and "EnFractal Playtest"):
    - the Glow discoveries, Bloom and the trail, the weather;
