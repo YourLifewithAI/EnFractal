@@ -21,6 +21,31 @@ def inside_polygon(x,z,poly):
     return inside
 
 
+_CONVEX={}
+
+
+def _convex(poly):
+    """Whether a floor polygon (x, z) turns one way at every corner (read once per polygon)."""
+    key=id(poly); got=_CONVEX.get(key)
+    if got is None or got[0] is not poly:
+        n=len(poly); turns=set()
+        for k in range(n):
+            a,b,c=poly[k],poly[(k+1)%n],poly[(k+2)%n]
+            cross=(b[0]-a[0])*(c[2]-b[2])-(b[2]-a[2])*(c[0]-b[0])
+            if abs(cross)>1e-12: turns.add(cross>0)
+        got=_CONVEX[key]=(poly,len(turns)==1,(1. if True in turns else -1.))
+    return got[1]
+
+
+def _inward(poly,x,z):
+    """Least distance of (x, z) inside a convex polygon's edges (negative outside)."""
+    sign=_CONVEX[id(poly)][2]; best=float('inf')
+    for a,b in zip(poly,poly[1:]+poly[:1]):
+        ex,ez=b[0]-a[0],b[2]-a[2]; L=math.hypot(ex,ez)
+        if L>0: best=min(best,sign*(ex*(z-a[2])-ez*(x-a[0]))/L)
+    return best
+
+
 def footprint_inside(position,size,yaw,room):
     lo,hi=room['bounds']['min_m'],room['bounds']['max_m']
     a=math.radians(yaw); c,s=math.cos(a),math.sin(a)
@@ -30,6 +55,10 @@ def footprint_inside(position,size,yaw,room):
     require(lo[1]-1e-6<=position[1] and position[1]+size[1]<=hi[1]+1e-6, 'object outside vertical bounds')
     require(all(lo[0]-1e-6<=x<=hi[0]+1e-6 and lo[2]-1e-6<=z<=hi[2]+1e-6 for x,z in corners), 'object outside bounds')
     floors=[p['geometry']['points_m'] for p in room['shell']['parts'] if p['role']=='floor']
+    # Inside a convex floor by more than a micrometre at all four corners: the whole footprint is inside it.
+    for poly in floors:
+        if _convex(poly) and all(_inward(poly,x,z)>1e-6 for x,z in corners):
+            return
     # Segment partition at every polygon edge intersection also checks concavities.
     for a,b in zip(corners,corners[1:]+corners[:1]):
         cuts=[0.,1.]; dx,dz=b[0]-a[0],b[1]-a[1]
@@ -157,6 +186,19 @@ def read_package(folder, room_folder):
     return doc,meshes,room,stats
 
 
+def allow_world_scale(w):
+    """The scale experiment (generator/scale.py): a room magnified x w holds w^2
+    times today's land, sea and planting at today's density, so the package's
+    byte, triangle and instance limits grow by w^2 for this process only."""
+    from . import common
+    global MAX_BYTES, MAX_TRIANGLES, MAX_INSTANCES, MAX_EXPANDED_TRIANGLES
+    area = float(w)**2
+    MAX_BYTES = common.MAX_BYTES = int(50_000_000*area)
+    MAX_TRIANGLES = common.MAX_TRIANGLES = int(2_000_000*area)
+    MAX_INSTANCES = common.MAX_INSTANCES = int(20_000*area)
+    MAX_EXPANDED_TRIANGLES = common.MAX_EXPANDED_TRIANGLES = int(8_000_000*area)
+
+
 def validate_package(folder,room_folder):
     return read_package(folder,room_folder)[3]
 
@@ -168,7 +210,7 @@ def write_package(folder,room_folder,*,meshes,setup,generator,terrain,water=(),s
     for name,p in sorted(meshes.items()):
         token(name); blobs[name+'.glb']=encode_mesh(p)
     # Decode before validation to catch triangles collapsed by float32 quantization.
-    rounded={name:decode_mesh(blobs[name+'.glb']) for name in meshes}
+    rounded={name:decode_mesh(blobs[name+'.glb'],canonical=False) for name in meshes}
     used={p['role'] for ps in rounded.values() for p in ps}
     used.update(p['blend_role'] for ps in rounded.values() for p in ps if 'blend_role' in p)
     for item in list(scatter)+list(objects):
