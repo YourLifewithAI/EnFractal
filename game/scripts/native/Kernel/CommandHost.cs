@@ -308,6 +308,11 @@ public partial class CommandHost : Node
         EndAllEffects();
         // A host freed while another is attached (a test's second host) hands the key back.
         if (Player != null && IsInstanceValid(Player) && Player.WorldPhysicsRequest == _physicsSink) Player.WorldPhysicsRequest = _previousPhysicsSink;
+        // The room is leaving (the game quits, or a room changes): every Godot value still waiting for the .NET finalizer is freed
+        // now, while the engine is whole and the main thread waits (S12). Left for later, the finalizer frees them on its own thread
+        // while the engine shuts down under it, which crashed at exit before.
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
     }
 
     private static bool HandleObjectOk(JsonObject result) => result["ok"]?.GetValue<bool>() == true;

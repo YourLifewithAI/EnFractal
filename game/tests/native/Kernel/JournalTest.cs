@@ -60,6 +60,7 @@ public partial class JournalTest : Node3D
             await TestTheMapFillsFromBothAvatarsEyes();
             await TestDiscoveryAndBounds();
             await TestDiscoveryNeverStarves();
+            await TestSpreadSweepMatchesWhole();
             await TestTheMapBoundIsHard();
             await TestTasksAndFetch();
             await TestCreationFactsAndForgedNames();

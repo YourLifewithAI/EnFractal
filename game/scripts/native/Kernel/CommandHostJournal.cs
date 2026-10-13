@@ -522,8 +522,25 @@ public partial class CommandHost
             _teamDirty = true;
             return;
         }
-        var saved = Authority.Call(KernelNames.SetTeam, KernelJson.ToVariant(ExportTeam(_notes))).AsGodotDictionary();
-        _teamDirty = !saved["ok"].AsBool();
+        using var team = KernelJson.ToVariant(ExportTeam(_notes));
+        _teamDirty = !SavedOk(Authority.Call(KernelNames.SetTeam, team));
+        // One write of the whole save at a time (S12, each is about 8 ms of the main thread on the 10x island): nature, if it
+        // changes meanwhile, waits a whole throttle from this write and then goes with whatever else waits then.
+        if (!_teamDirty) _natureSaveClock = 0;
+    }
+
+    /// <summary>Whether a save call answered ok; its answer is freed here.</summary>
+    private static bool SavedOk(Variant answer)
+    {
+        using (answer)
+        using (var outcome = answer.AsGodotDictionary())
+        using (var ok = outcome.TryGetValue(SavedKeys.Ok, out var value) ? value : default)
+            return ok.VariantType == Variant.Type.Bool && ok.AsBool();
+    }
+
+    private static class SavedKeys
+    {
+        public static readonly Variant Ok = "ok";
     }
 
     /// <summary>The team block as the save keeps it: room state's journal and discovered, plus the open tasks' goals.</summary>

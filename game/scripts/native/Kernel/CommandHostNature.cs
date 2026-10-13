@@ -887,16 +887,14 @@ public partial class CommandHost
         if (!NatureConfigured || _natureUnavailable || Authority == null || !Authority.Call(KernelNames.IsReady).AsBool()) return;
         if (_migrationOffer != null && !Godot.FileAccess.FileExists(SavePath)) return;
         Nature.TrimUndo();
-        var team = _teamDirty ? KernelJson.ToVariant(ExportTeam(_notes)) : default;
-        var saved = Authority.Call(KernelNames.SetNature, KernelJson.ToVariant(NatureBlock.Pack(Nature)), team).AsGodotDictionary();
-        if (!saved["ok"].AsBool()) return;
+        using var team = _teamDirty ? KernelJson.ToVariant(ExportTeam(_notes)) : default;
+        using var nature = KernelJson.ToVariant(NatureBlock.Pack(Nature));
+        if (!SavedOk(Authority.Call(KernelNames.SetNature, nature, team))) return;
         _natureDirty = false;
         _natureClockMoved = false;
-        if (_teamDirty)
-        {
-            _teamDirty = false;
-            _saveClock = 0;
-        }
+        _teamDirty = false;
+        // One write of the whole save at a time (S12): the team's throttle starts again from this write too.
+        _saveClock = 0;
     }
 
     /// <summary>On exit: whatever changed since the last save, the weather clock included.</summary>

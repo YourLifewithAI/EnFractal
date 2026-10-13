@@ -15,14 +15,17 @@ namespace EnFractal.Native.Kernel;
 ///   sweep began, as the one-tick sweep did;
 /// - then, avatar by avatar, as before: its sight of each thing looked at (Perceive), what it remembers out of sight checked
 ///   (Remember's first half), what it sees remembered afresh and the bound kept (its second half), and the space it discovers;
-/// - each tick does steps until it has used SweepTickBudgetMs, unless it is behind its share of the sweep, so the sweep always
+/// - each tick does steps until it has used DefaultSweepTickBudgetMs, unless it is behind its share of the sweep, so the sweep always
 ///   ends before the next is due; a sweep due every tick (tests, a tiny room) is done whole in its tick, as before.
 /// In a world that does not change during the sweep, its results are the one-tick sweep's.
 /// </summary>
 public partial class CommandHost
 {
     /// <summary>How long a physics tick works on the sweep before leaving the rest to the next tick (while on schedule).</summary>
-    public const double SweepTickBudgetMs = 2.0;
+    public const double DefaultSweepTickBudgetMs = 2.0;
+
+    /// <summary>SweepTickBudgetMs for this host; a test sets 0 to see a sweep spread over all its ticks.</summary>
+    internal double SweepTickBudgetMs { get; set; } = DefaultSweepTickBudgetMs;
 
     /// <summary>The sweep under way, or null between sweeps.</summary>
     private SweepRun? _sweep;

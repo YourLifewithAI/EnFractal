@@ -50,6 +50,7 @@ public partial class PlayHudTest : Node
             await Frames(10);
             GD.Print($"PLAY_HUD_INFO: physics interpolation {GetTree().PhysicsInterpolation}, TAA {GetViewport().UseTaa}, screen-space AA {GetViewport().ScreenSpaceAA}");
 
+            await TestNoFinalizerGarbage();
             await TestGlowJournalFresh();
             await TestMagicPanel();
             await TestFoldedHelp();
