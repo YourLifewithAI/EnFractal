@@ -152,13 +152,24 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=
     if W != 1:
         hu, bu, ou, au = h, base, owner, acc
         h, base, owner, acc = [], [], [], []
-        for q in range(grid.n):
-            xu, zu = grid.xs[q % nx]/W, grid.zs[q//nx]/W
-            h.append(ugrid.sample(hu, xu, zu)*W)
-            base.append(ugrid.sample(bu, xu, zu)*W)
-            i, j = ugrid.nearest(xu, zu)
-            owner.append(ou[j*ugrid.nx+i])
-            acc.append(au[j*ugrid.nx+i])
+        # ugrid.sample and ugrid.nearest, each column's and each row's part worked out once.
+        unx, unz, ux0, uz0, uc = ugrid.nx, ugrid.nz, ugrid.x0, ugrid.z0, ugrid.cell
+
+        def part(v, v0, n):
+            f = clamp((v-v0)/uc, 0, n-1.000001)
+            k = int(f)
+            return k, f-k, min(n-1, max(0, int(round((v-v0)/uc))))
+        cols = [part(x/W, ux0, unx) for x in grid.xs]
+        for z in grid.zs:
+            j, v, jn = part(z/W, uz0, unz)
+            r0, r1, rn = j*unx, (j+1)*unx, jn*unx
+            for i, u, inn in cols:
+                a, b, c, d = hu[r0+i], hu[r0+i+1], hu[r1+i], hu[r1+i+1]
+                h.append(((a*(1-u)+b*u)*(1-v)+(c*(1-u)+d*u)*v)*W)
+                a, b, c, d = bu[r0+i], bu[r0+i+1], bu[r1+i], bu[r1+i+1]
+                base.append(((a*(1-u)+b*u)*(1-v)+(c*(1-u)+d*u)*v)*W)
+                owner.append(ou[rn+inn])
+                acc.append(au[rn+inn])
     _tick('landforms')
     # ---------------- the island: the walls become a ragged coast, the door a jetty
     coast = Sea.carve_coast(grid, room, h, base, noise, objects, spawns, seed, frames)
@@ -823,6 +834,7 @@ def inside_tri(grid, inside, t):
 
 
 DRYING_LINE = [.36, .2, .03]
+_ROUND = tuple((math.cos(a), math.sin(a)) for a in (0, 1.57, 3.14, 4.71))   # a footing's four sides (Planter.ground)
 BLOCKING = {'broadleaf', 'conifer', 'rock', 'boulder', 'shrub', 'cottage', 'woodpile', 'fence', 'lantern',
             'crate', 'drying_line'}
 
@@ -852,13 +864,17 @@ class Planter:
         return True
 
     def at(self, x, z):
-        i, j = self.grid.nearest(x, z)
-        return j*self.grid.nx+i
+        g = self.grid   # grid.nearest, inline
+        nx = g.nx
+        i = int(round((x-g.x0)/g.cell))
+        j = int(round((z-g.z0)/g.cell))
+        i = 0 if i < 0 else nx-1 if i > nx-1 else i
+        j = 0 if j < 0 else g.nz-1 if j > g.nz-1 else j
+        return j*nx+i
 
     def ground(self, x, z, r):
-        g = self.grid
-        pts = [(x, z)]+[(x+r*math.cos(a), z+r*math.sin(a)) for a in (0, 1.57, 3.14, 4.71)]
-        hs = [g.tri_height(self.h, a, b) for a, b in pts]
+        g, h = self.grid, self.h
+        hs = [g.tri_height(h, x, z)]+[g.tri_height(h, x+r*ca, z+r*sa) for ca, sa in _ROUND]
         return min(hs), max(hs)
 
     def fits(self, x, z, size, scale):

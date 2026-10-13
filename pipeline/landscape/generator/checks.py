@@ -306,22 +306,32 @@ class Terrain:
 
     def land_height(self, x, z):
         """`height` at (x, z), read straight from the land grid's own cell
-        where the bucket is plain land and the point lies well inside one half
-        of the cell (by a millionth of it: no other face then takes the point,
-        and nothing else is near its height); else `height`."""
+        where the bucket is plain land and the point lies inside the cell, a
+        ten-thousandth of it clear of its sides: only the cell's two halves
+        can take the point there and nothing else is near its height, so the
+        height is the half's (on their shared diagonal, the higher of the two
+        within a micrometre, as `hit` takes it); else `height`."""
         b = self.bucket
         if self.plain_slope(int(math.floor(x/b)), int(math.floor(z/b))) is not None:
             lx, lz, c = self._lattice
-            halves = self._cell_halves.get((int(math.floor((x-lx)/c)), int(math.floor((z-lz)/c))))
-            if halves is not None and len(halves) == 2:
+            fx, fz = (x-lx)/c, (z-lz)/c
+            ci, cj = int(math.floor(fx)), int(math.floor(fz))
+            fx, fz = fx-ci, fz-cj
+            halves = self._cell_halves.get((ci, cj))
+            if 1e-4 < fx < 1-1e-4 and 1e-4 < fz < 1-1e-4 and halves is not None and len(halves) == 2:
                 tris = self.tris
+                best = None
                 for k, _ in halves:
                     a, b_, cc, det = tris[k][:4]
                     u = ((b_[2]-cc[2])*(x-cc[0])+(cc[0]-b_[0])*(z-cc[2]))/det
                     v = ((cc[2]-a[2])*(x-cc[0])+(a[0]-cc[0])*(z-cc[2]))/det
                     w = 1-u-v
-                    if u >= 1e-6 and v >= 1e-6 and w >= 1e-6:
-                        return u*a[1]+v*b_[1]+w*cc[1]
+                    if u >= -1e-7 and v >= -1e-7 and w >= -1e-7:
+                        y = u*a[1]+v*b_[1]+w*cc[1]
+                        if best is None or y > best:
+                            best = y
+                if best is not None:
+                    return best
         return self.height(x, z)
 
     # ---------------------------------------------------------------- plain ground
@@ -1708,7 +1718,11 @@ def main():
     parser.add_argument('--package', required=True)
     parser.add_argument('--room', required=True)
     parser.add_argument('--json', help='write the full result here')
+    parser.add_argument('--world-scale', type=float, default=1., help='the package was built from a room magnified this much')
     args = parser.parse_args()
+    if args.world_scale != 1:
+        world.set_world(args.world_scale)
+        world.allow_package_limits(args.world_scale)
     result = run(args.package, args.room)
     if args.json:
         Path(args.json).write_text(json.dumps(result, indent=2, sort_keys=True)+'\n', encoding='utf-8', newline='\n')
