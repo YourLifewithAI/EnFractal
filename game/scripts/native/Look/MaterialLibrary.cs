@@ -322,4 +322,140 @@ public static class MaterialLibrary
         var x = Mathf.Clamp((footprintM - paint.MarkFadeStart * sizeM) / ((paint.MarkFadeEnd - paint.MarkFadeStart) * sizeM), 0f, 1f);
         return 1f - x * x * (3f - 2f * x);
     }
+
+    // ---------- the characters (Run 2, characters round, L8; CharacterLook applies these; docs/look/CHARACTERS.md) ----------
+    // A drawn character keeps the family's colours exactly, so none of these glaze, calm or soften a colour, and none needs the
+    // room's preset: their numbers are FeltLook, BubbleLook and CharacterEffectLook, code constants for this round.
+
+    public const string CharacterFeltShaderPath = "res://shaders/character_felt.gdshader";
+    public const string BubbleShaderPath = "res://shaders/bubble.gdshader";
+    public const string BubbleDepthShaderPath = "res://shaders/character_bubble_depth.gdshader";
+    /// <summary>
+    /// The bubble's depth pass draws after every other see-through thing (they all sit at priority 0 or below; the underwater veil,
+    /// at 100, ignores depth), so the outline's depth hides nothing see-through and still reaches depth of field and the focus pass.
+    /// </summary>
+    public const int BubbleDepthRenderPriority = 90;
+
+    private static Shader? _feltShader;
+    private static Shader? _bubbleShader;
+    private static Shader? _bubbleDepthShader;
+    private static readonly Dictionary<(Color, FeltLook), ShaderMaterial> FeltCache = new();
+    private static readonly Dictionary<Color, StandardMaterial3D> InkCache = new();
+    private static readonly HashSet<string> FeltSetNames = new();
+    private static readonly HashSet<string> BubbleSetNames = new();
+    private static readonly HashSet<string> BubbleDepthSetNames = new();
+
+    /// <summary>Every parameter name a character felt material has been given; each must be a uniform of character_felt.gdshader.</summary>
+    public static IReadOnlyCollection<string> FeltParameterNames => FeltSetNames;
+    /// <summary>Every parameter name a bubble material has been given; each must be a uniform of bubble.gdshader.</summary>
+    public static IReadOnlyCollection<string> BubbleParameterNames => BubbleSetNames;
+    /// <summary>Every parameter name a bubble's depth pass has been given; each must be a uniform of character_bubble_depth.gdshader.</summary>
+    public static IReadOnlyCollection<string> BubbleDepthParameterNames => BubbleDepthSetNames;
+
+    private static void SetIn(HashSet<string> names, ShaderMaterial material, string name, Variant value)
+    {
+        names.Add(name);
+        material.SetShaderParameter(name, value);
+    }
+
+    /// <summary>
+    /// The felt figurine treatment of an opaque character part: exactly baseColor (the family chose it), soft and a little fuzzy in
+    /// the light, matte, with a little rim. Shared per colour and look: nothing on it ever changes.
+    /// </summary>
+    public static ShaderMaterial ForCharacterFelt(Color baseColor, FeltLook? look = null)
+    {
+        var l = look ?? FeltLook.Default;
+        if (FeltCache.TryGetValue((baseColor, l), out var cached)) return cached;
+        _feltShader ??= GD.Load<Shader>(CharacterFeltShaderPath);
+        var material = new ShaderMaterial { Shader = _feltShader, ResourceName = $"character felt {baseColor.ToHtml(false)}" };
+        SetIn(FeltSetNames, material, "base_color", baseColor);
+        SetIn(FeltSetNames, material, "wrap_light", l.Wrap);
+        SetIn(FeltSetNames, material, "terminator_warmth", l.TerminatorWarmth);
+        SetIn(FeltSetNames, material, "sheen", l.Sheen);
+        SetIn(FeltSetNames, material, "sheen_power", l.SheenPower);
+        SetIn(FeltSetNames, material, "rim_light", l.RimLight);
+        SetIn(FeltSetNames, material, "rim_power", l.RimPower);
+        SetIn(FeltSetNames, material, "fuzz_strength", l.FuzzStrength);
+        SetIn(FeltSetNames, material, "fuzz_scale_m", l.FuzzScaleM);
+        SetIn(FeltSetNames, material, "tuft_scale_m", l.TuftScaleM);
+        SetIn(FeltSetNames, material, "mark_fade_start", l.MarkFadeStart);
+        SetIn(FeltSetNames, material, "mark_fade_end", l.MarkFadeEnd);
+        material.SetMeta(CharacterLook.RoleMeta, "plain");
+        material.SetMeta("bake_albedo", baseColor);
+        return FeltCache[(baseColor, l)] = material;
+    }
+
+    /// <summary>A drawn line or mark: unshaded in exactly its own dark colour, so it reads as ink at any hour. Shared per colour.</summary>
+    public static StandardMaterial3D ForCharacterInk(Color baseColor)
+    {
+        if (InkCache.TryGetValue(baseColor, out var cached)) return cached;
+        var material = new StandardMaterial3D
+        {
+            ResourceName = $"character ink {baseColor.ToHtml(false)}", ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded, AlbedoColor = baseColor,
+        };
+        material.SetMeta(CharacterLook.RoleMeta, "ink");
+        return InkCache[baseColor] = material;
+    }
+
+    /// <summary>
+    /// An effect part (a sparkle, a flame): its colour, emitting energy times over so the bloom (from 0.9) catches it, unshadowed.
+    /// A new material each time: an aura recolours one character's effects without touching another's.
+    /// </summary>
+    public static StandardMaterial3D ForCharacterEffect(Color color, float energy)
+    {
+        var material = new StandardMaterial3D
+        {
+            ResourceName = "character effect", AlbedoColor = color, EmissionEnabled = true, Emission = color, EmissionEnergyMultiplier = energy,
+            SpecularMode = BaseMaterial3D.SpecularModeEnum.Disabled, MetallicSpecular = 0f, Roughness = 1f, DisableReceiveShadows = true,
+        };
+        material.SetMeta(CharacterLook.RoleMeta, "effect");
+        return material;
+    }
+
+    /// <summary>
+    /// The soap bubble for one bubble part: the film in the fallback colour's light tint with the aura's shimmering rim, and its
+    /// depth pass chained after it (drawn late). A new material each time: the hem's band is the part's own and the aura is the
+    /// character's.
+    /// </summary>
+    public static ShaderMaterial ForBubble(Color fallback, Color aura, BubbleHem hem, BubbleLook? look = null)
+    {
+        var l = look ?? BubbleLook.Default;
+        _bubbleShader ??= GD.Load<Shader>(BubbleShaderPath);
+        _bubbleDepthShader ??= GD.Load<Shader>(BubbleDepthShaderPath);
+        var depth = new ShaderMaterial { Shader = _bubbleDepthShader, ResourceName = "character bubble depth", RenderPriority = BubbleDepthRenderPriority };
+        SetIn(BubbleDepthSetNames, depth, "rim_power", l.RimPower);
+        SetIn(BubbleDepthSetNames, depth, "rim_depth_min", l.RimDepthMin);
+        SetHem(BubbleDepthSetNames, depth, hem, l);
+        var material = new ShaderMaterial { Shader = _bubbleShader, ResourceName = $"character bubble {fallback.ToHtml(false)}", NextPass = depth };
+        SetIn(BubbleSetNames, material, "tint_color", fallback);
+        SetIn(BubbleSetNames, material, "tint_alpha", l.TintAlpha);
+        SetIn(BubbleSetNames, material, "aura_color", aura);
+        SetIn(BubbleSetNames, material, "rim_power", l.RimPower);
+        SetIn(BubbleSetNames, material, "rim_alpha", l.RimAlpha);
+        SetIn(BubbleSetNames, material, "rim_glow", l.RimGlow);
+        SetIn(BubbleSetNames, material, "shimmer", l.Shimmer);
+        SetIn(BubbleSetNames, material, "shimmer_scale_m", l.ShimmerScaleM);
+        SetIn(BubbleSetNames, material, "shimmer_speed", l.ShimmerSpeed);
+        SetIn(BubbleSetNames, material, "iridescence", l.Iridescence);
+        SetIn(BubbleSetNames, material, "film_bands", l.FilmBands);
+        SetIn(BubbleSetNames, material, "back_skin", l.BackSkin);
+        SetIn(BubbleSetNames, material, "roughness_value", l.Roughness);
+        SetIn(BubbleSetNames, material, "specular_strength", l.Specular);
+        SetHem(BubbleSetNames, material, hem, l);
+        material.SetMeta(CharacterLook.RoleMeta, "bubble");
+        return material;
+    }
+
+    private static void SetHem(HashSet<string> names, ShaderMaterial material, BubbleHem hem, BubbleLook look)
+    {
+        SetIn(names, material, "hem_amplitude_m", look.HemAmplitudeM);
+        SetIn(names, material, "hem_waves", look.HemWaves);
+        SetIn(names, material, "hem_speed", look.HemSpeed);
+        SetIn(names, material, "hem_bottom_m", hem.BottomM);
+        SetIn(names, material, "hem_top_m", hem.TopM);
+        SetIn(names, material, "hem_center_m", hem.CenterM);
+    }
+
+    /// <summary>Give a bubble a new aura colour (its rim and shimmer).</summary>
+    public static void SetBubbleAura(ShaderMaterial bubble, Color aura) => SetIn(BubbleSetNames, bubble, "aura_color", aura);
 }
