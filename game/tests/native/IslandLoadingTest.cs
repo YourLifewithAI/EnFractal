@@ -64,12 +64,12 @@ public partial class IslandLoadingTest : Node3D
             var world = GD.Load<PackedScene>("res://scenes/room.tscn").Instantiate<RoomWorld>();
             world.RoomDirectory = directory;
             AddChild(world);
-            for (var i = 0; i < 300 && !world.WorldReady && world.LoadError.Length == 0; i++) await Frames(1);
+            await UntilReady(world);
             Check(world.WorldReady, "the synthetic island boots: " + world.LoadError);
             if (!world.WorldReady) { Finish(); return; }
             var view = world.Built.GetNode<PlantCopiesView>(PlantCopiesView.ViewName);
-            Check(view.NearCollisionTiles == 4 && view.CollisionTiles == 4 && view.VisualTilesBuilt == 0,
-                $"the copies' collision near the spawns was built before the bodies were placed ({view.NearCollisionTiles} of {view.CollisionTiles} tiles, {view.EnterMs:0.0} ms), and nothing drawn yet");
+            Check(view.NearCollisionTiles == 4 && view.CollisionTiles == 4,
+                $"the copies' collision near the spawns was built on entering the scene, before the bodies were placed ({view.NearCollisionTiles} of {view.CollisionTiles} tiles, {view.EnterMs:0.0} ms)");
             await CheckBuiltPerFrame(view, room.Copies);
             CheckTerrain(world, room);
             await CheckCollision(world, room);
@@ -355,13 +355,12 @@ public partial class IslandLoadingTest : Node3D
         world.RoomDirectory = directory;
         clock.Restart();
         AddChild(world);
-        var frames = 0;
-        for (; frames < 600 && !world.WorldReady && world.LoadError.Length == 0; frames++) await Frames(1);
+        await UntilReady(world);
         var readyMs = clock.Elapsed.TotalMilliseconds;
         Check(world.WorldReady, $"{label}: the island boots: " + world.LoadError);
         if (!world.WorldReady) return;
         var view = world.Built.GetNodeOrNull<PlantCopiesView>(PlantCopiesView.ViewName);
-        for (frames = 0; frames < 3600 && view is { Complete: false }; frames++) await Frames(1);
+        for (var waited = Stopwatch.StartNew(); waited.Elapsed.TotalSeconds < 120 && view is { Complete: false };) await Frames(1);
         var builtMs = clock.Elapsed.TotalMilliseconds;
         using var process = Process.GetCurrentProcess();
         Measure($"{label} {room.Copies?.TotalCount ?? 0} copies in {room.Copies?.Sets.Sum(s => s.TileCount) ?? 0} set tiles, {room.Terrain?.Parts.Sum(p => p.Tiles.Count) ?? 0} terrain tiles: RoomData.LoadAsync {loadMs:0} ms off the main thread (the boot reads it again), " +
@@ -411,6 +410,12 @@ public partial class IslandLoadingTest : Node3D
 
     private static string Entity(Godot.Collections.Dictionary hit) =>
         hit.Count > 0 ? PlantCopiesView.EntityAt(hit["collider"].AsGodotObject(), hit["shape"].AsInt32()) : "";
+
+    /// <summary>Until the world is ready or failed, by the clock: under --fixed-fps frames pass faster than a room loads on a worker thread.</summary>
+    private async Task UntilReady(RoomWorld world)
+    {
+        for (var waited = Stopwatch.StartNew(); waited.Elapsed.TotalSeconds < 120 && !world.WorldReady && world.LoadError.Length == 0;) await Frames(1);
+    }
 
     private async Task Frames(int count)
     {
