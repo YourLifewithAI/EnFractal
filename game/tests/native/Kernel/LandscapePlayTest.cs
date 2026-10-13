@@ -78,6 +78,13 @@ public partial class LandscapePlayTest : Node3D
                 Finish();
                 return;
             }
+            // "-- --play-distances" runs the play distances alone (packet S8; see TestPlayDistances).
+            if (OS.GetCmdlineUserArgs().Contains("--play-distances"))
+            {
+                await TestPlayDistances();
+                Finish();
+                return;
+            }
             // "-- --gubble-reach" runs the Gubble's reach alone (packet S1; see TestGubbleReach).
             if (OS.GetCmdlineUserArgs().Contains("--gubble-reach"))
             {
@@ -667,21 +674,12 @@ public partial class LandscapePlayTest : Node3D
         var companion = _world.Companion;
         var player = _world.Player;
         Send(Command(NextId("stop"), "goal.set", new JsonObject { ["actor"] = CompanionAvatar, ["goal"] = "stop" }), Player);
+        // Its travel is what is measured here: no catching up (S8's own check, "-- --play-distances", has that).
+        companion.CatchUpBeyondM = float.PositiveInfinity;
         var spawn = _navigation.ClosestPoint(companion.GlobalPosition);
         // The land on a grid of about 50 by 50, kept where the walkable mesh is.
         var step = Mathf.Max(0.1f, Mathf.Max(bounds.Size.X, bounds.Size.Z) / 50f);
-        var land = new List<Vector3>();
-        var samples = 0;
-        for (var x = bounds.Position.X + step * 0.5f; x < bounds.End.X; x += step)
-            for (var z = bounds.Position.Z + step * 0.5f; z < bounds.End.Z; z += step)
-            {
-                var hit = GetWorld3D().DirectSpaceState.IntersectRay(PhysicsRayQueryParameters3D.Create(new Vector3(x, bounds.End.Y + 1, z), new Vector3(x, bounds.Position.Y - 1, z), RoomBuilder.WorldLayer));
-                if (hit.Count == 0) continue;
-                samples++;
-                var point = hit["position"].AsVector3();
-                var snapped = _navigation.ClosestPoint(point);
-                if (PlanarDistance(snapped, point) <= _navigation.AgentRadiusM + 0.01f && Mathf.Abs(snapped.Y - point.Y) <= 0.03f) land.Add(snapped);
-            }
+        var (land, samples) = LandSamples(bounds, step);
         int reached = 0, reachedCapped = 0;
         float farthest = 0, farthestCapped = 0, widest = 0;
         var farthestWalk = spawn;
@@ -746,6 +744,178 @@ public partial class LandscapePlayTest : Node3D
             $"the Gubble on the highest land ({Text(top)}), the player {top.Y - low.Y:0.0} m below and {PlanarDistance(top, low):0.0} m away");
         await Frames(20);
         await ComeAndWatch($"come down {top.Y - low.Y:0.0} m off the highest land");
+    }
+
+    // ---- play distances (packet S8 of the 10x world, 13 October) ----
+
+    /// <summary>
+    /// "-- --play-distances": what the player and the Gubble do over distances ten times longer, on any island (the 10x island is
+    /// the one that matters; not part of the runner's pass, which plays the 1x fixture): a come from 60 to 70 m travelled all the
+    /// way (time, share walked, worst height over the player); the Gubble rising up onto the highest land; following a player who
+    /// runs 40 m it keeps up and never catches up; left behind and called, out of the player's sight, it catches up beside them,
+    /// out of view, and its AI is told; and a fetch across the island, which never catches up.
+    /// </summary>
+    private async Task TestPlayDistances()
+    {
+        var sea = _world.Room.Sea;
+        var bounds = sea?.LandBounds(_world.Room.Bounds) ?? _world.Room.Bounds;
+        var companion = _world.Companion;
+        var player = _world.Player;
+        _world.GetNode<RoomHud>("RoomHud").SetViewMode(1);
+        Send(Command(NextId("stop"), "goal.set", new JsonObject { ["actor"] = CompanionAvatar, ["goal"] = "stop" }), Player);
+        var spawn = _navigation.ClosestPoint(companion.GlobalPosition);
+        var step = Mathf.Max(0.1f, Mathf.Max(bounds.Size.X, bounds.Size.Z) / 50f);
+        var (land, _) = LandSamples(bounds, step);
+        var widest = land.Max(p => PlanarDistance(p, spawn));
+        async Task Reset(Vector3 gubble)
+        {
+            Send(Command(NextId("stop"), "goal.set", new JsonObject { ["actor"] = CompanionAvatar, ["goal"] = "stop" }), Player);
+            Check(companion.TryTeleportTo(gubble + Vector3.Up * 0.01f), "the Gubble put back at " + Text(gubble));
+            await Frames(10);
+        }
+
+        // A come from 60 to 70 m (four fifths of a smaller island), a walk reaching the player, travelled all the way.
+        companion.CatchUpBeyondM = float.PositiveInfinity;
+        var far = Mathf.Min(65f, widest * 0.9f);
+        var start = land.Where(p => Mathf.Abs(PlanarDistance(p, spawn) - far) <= Mathf.Max(5f, far * 0.08f)).OrderBy(p => Mathf.Abs(PlanarDistance(p, spawn) - far)).Take(60)
+            .FirstOrDefault(p => _navigation.FindRoute(spawn, p, 0.06f).Reaches && player.TryTeleportTo(p + Vector3.Up * 0.003f));
+        Check(start != default, $"the player stands about {far:0} m from the Gubble, a walk away");
+        await Frames(10);
+        var come = await ComeAndWatch($"S8 come from {PlanarDistance(player.GlobalPosition, companion.GlobalPosition):0} m (no catch-up)");
+        Measure(string.Create(CultureInfo.InvariantCulture,
+            $"LANDSCAPE_S8_COME {PlanarDistance(start, spawn):0} m: {come.Seconds:0.0} s, {100 * come.WalkedShare:0}% walked, highest {come.HighestM:0.00} m over the player"));
+
+        // Up onto the highest land: the player on it, the Gubble on land well below and near its foot.
+        var top = land.OrderByDescending(p => p.Y).First();
+        var foot = land.Where(p => top.Y - p.Y > Mathf.Min(8f, bounds.Size.Y * 0.3f)).OrderBy(p => PlanarDistance(p, top)).FirstOrDefault();
+        if (foot != default && player.TryTeleportTo(top + Vector3.Up * 0.003f))
+        {
+            await Reset(foot);
+            var up = await ComeAndWatch($"S8 come up {top.Y - foot.Y:0.0} m onto the highest land from {PlanarDistance(top, foot):0.0} m off (no catch-up)");
+            Measure(string.Create(CultureInfo.InvariantCulture,
+                $"LANDSCAPE_S8_RISE {top.Y - foot.Y:0.0} m up from {PlanarDistance(top, foot):0.0} m off: {up.Seconds:0.0} s, fastest rise up a face {up.FastestRiseMps:0.00} m/s"));
+            // And back down: the player at the foot, the Gubble where it arrived beside them on the top.
+            if (player.TryTeleportTo(foot + Vector3.Up * 0.003f))
+            {
+                Send(Command(NextId("stop"), "goal.set", new JsonObject { ["actor"] = CompanionAvatar, ["goal"] = "stop" }), Player);
+                await Frames(10);
+                Check(PlanarDistance(companion.GlobalPosition, top) < 1f && top.Y - companion.GlobalPosition.Y < 0.2f, "the Gubble on the highest land, beside where the player stood");
+                var down = await ComeAndWatch($"S8 come down {top.Y - foot.Y:0.0} m off the highest land to {PlanarDistance(top, foot):0.0} m off (no catch-up)");
+                Measure(string.Create(CultureInfo.InvariantCulture, $"LANDSCAPE_S8_DROP {top.Y - foot.Y:0.0} m down to {PlanarDistance(top, foot):0.0} m off: {down.Seconds:0.0} s"));
+            }
+        }
+
+        // Following a player who runs 40 m: it keeps up and never needs to catch up.
+        companion.CatchUpBeyondM = EnFractal.Native.CompanionAvatar.CatchUpM;
+        Check(player.TryTeleportTo(spawn + Vector3.Up * 0.003f), "the player back at the Gubble's spawn");
+        await Reset(spawn + new Vector3(0.15f, 0, 0));
+        var run = land.Where(p => Mathf.Abs(PlanarDistance(p, spawn) - 40f) <= 4f).OrderBy(p => Mathf.Abs(PlanarDistance(p, spawn) - 40f)).Take(60)
+            .FirstOrDefault(p => _navigation.FindRoute(spawn, p, 0.06f).Reaches);
+        var catchUps = companion.CatchUps;
+        Send(Command(NextId("follow"), "goal.set", new JsonObject { ["actor"] = CompanionAvatar, ["goal"] = "follow" }), Player);
+        var widestGap = 0f;
+        var ran = await PlayerWalkWatching($"S8 the player runs {PlanarDistance(run, spawn):0} m, the Gubble following", run,
+            () => widestGap = Mathf.Max(widestGap, companion.GlobalPosition.DistanceTo(player.GlobalPosition)));
+        for (var i = 0; i < 300 && companion.FollowMoving; i++) await Frames(1);
+        Measure(string.Create(CultureInfo.InvariantCulture,
+            $"LANDSCAPE_S8_FOLLOW the player ran {ran.DistanceM:0.0} m in {ran.Ticks / 60.0:0.0} s; the Gubble following was at most {widestGap:0.00} m behind, ending {PlanarDistance(companion.GlobalPosition, player.GlobalPosition):0.00} m away; catch-ups {companion.CatchUps - catchUps}"));
+        Check(run != default && ran.Arrived && companion.CatchUps == catchUps && widestGap < EnFractal.Native.CompanionAvatar.CatchUpM,
+            $"following a player who runs {ran.DistanceM:0} m, the Gubble keeps up (at most {widestGap:0.0} m behind) and never catches up");
+
+        // Left behind on stay while the player runs off 40 m, then called to follow out of the player's sight: it catches up.
+        Send(Command(NextId("stay"), "goal.set", new JsonObject { ["actor"] = CompanionAvatar, ["goal"] = "stay" }), Player);
+        var left = companion.GlobalPosition;
+        var from = player.GlobalPosition;
+        var away = land.Where(p => PlanarDistance(p, left) > 38f && PlanarDistance(p, left) < 50f && PlanarDistance(p, from) < 45f)
+            .OrderBy(p => PlanarDistance(p, from)).Take(80).FirstOrDefault(p => _navigation.FindRoute(from, p, 0.06f).Reaches);
+        var off = await PlayerWalkWatching($"S8 the player runs off {PlanarDistance(away, from):0} m, the Gubble staying", away, () => { });
+        var apart = companion.GlobalPosition.DistanceTo(player.GlobalPosition);
+        var seen = companion.BodyInPlayerView(companion.GlobalPosition);
+        catchUps = companion.CatchUps;
+        Send(Command(NextId("follow"), "goal.set", new JsonObject { ["actor"] = CompanionAvatar, ["goal"] = "follow" }), Player);
+        var caughtAfter = -1;
+        var inViewAtArrival = true;
+        var arrivedAt = Vector3.Zero;
+        for (var i = 0; i < 600 && caughtAfter < 0; i++)
+        {
+            await Frames(1);
+            if (companion.CatchUps == catchUps) continue;
+            caughtAfter = i;
+            arrivedAt = companion.GlobalPosition;
+            inViewAtArrival = companion.BodyInPlayerView(arrivedAt);
+        }
+        var notice = Send(new JsonObject { ["schema"] = "enfractal.query", ["version"] = 1, ["query_id"] = "q-" + (++_ids), ["room_id"] = _roomId, ["op"] = "player.status", ["args"] = new JsonObject() },
+            CommandHost.CompanionPrincipal)["notices"]?.AsArray().OfType<JsonObject>().FirstOrDefault(n => n["kind"]?.GetValue<string>() == "caught_up");
+        var besideGap = PlanarDistance(arrivedAt, player.GlobalPosition);
+        var besideLevel = arrivedAt.Y - player.GlobalPosition.Y;
+        var wet = RoomWater.At(GetWorld3D().DirectSpaceState, arrivedAt, RoomWater.SearchM, 0.05f).Wet;
+        for (var i = 0; i < 360 && (companion.FollowMoving || PlanarDistance(companion.GlobalPosition, player.GlobalPosition) > EnFractal.Native.CompanionAvatar.FollowFarM + 0.05f); i++) await Frames(1);
+        var settled = PlanarDistance(companion.GlobalPosition, player.GlobalPosition);
+        Measure(string.Create(CultureInfo.InvariantCulture,
+            $"LANDSCAPE_S8_CATCH_UP the player ran off {off.DistanceM:0.0} m ({apart:0.0} m from the Gubble, which the view {(seen ? "held" : "did not hold")}); called to follow, it caught up after {caughtAfter / 60.0:0.00} s, " +
+            $"reappearing {besideGap:0.00} m from the player, {besideLevel * 100:0.0} cm off their height, {(inViewAtArrival ? "IN VIEW" : "out of view")}, {(wet ? "IN WATER" : "dry")}; " +
+            $"then {settled:0.00} m away following; its AI's notice: {notice?.ToJsonString() ?? "none"}"));
+        Check(away != default && !seen && caughtAfter >= 0 && caughtAfter <= 60 && !inViewAtArrival && !wet && besideGap <= 4.1f && Mathf.Abs(besideLevel) <= EnFractal.Native.CompanionAvatar.LevelGapM &&
+              notice?["distance_m"]?.GetValue<double>() > EnFractal.Native.CompanionAvatar.CatchUpM && settled <= EnFractal.Native.CompanionAvatar.FollowFarM + 0.05f,
+            $"left {apart:0} m behind out of the player's sight and called, the Gubble catches up beside them out of view, dry and level, its AI is told, and it follows on");
+
+        // A fetch across the island: the crate 40 to 60 m off, the player facing away; the way back never catches up.
+        var crate = CrateBox().GetCenter();
+        var stand = land.Where(p => PlanarDistance(p, crate) > 40f && PlanarDistance(p, crate) < 60f).OrderBy(p => Mathf.Abs(PlanarDistance(p, crate) - 50f)).Take(80)
+            .FirstOrDefault(p => _navigation.FindRoute(p, _navigation.ClosestPoint(crate), 0.3f).Reaches && player.TryTeleportTo(p + Vector3.Up * 0.003f));
+        if (stand == default)
+        {
+            Measure("LANDSCAPE_S8_FETCH no land 40 to 60 m from the crate with a walk to it");
+            return;
+        }
+        var facing = Planar(player.GlobalPosition - crate);
+        player.Rotation = new Vector3(0, Mathf.Atan2(-facing.X, -facing.Z), 0);
+        await Reset(stand + player.GlobalBasis.Z * 0.3f);
+        catchUps = companion.CatchUps;
+        var floatsBefore = companion.FloatStarts;
+        var fetch = Send(Command(NextId("fetch"), "goal.set", new JsonObject { ["actor"] = CompanionAvatar, ["goal"] = "fetch", ["target"] = "obj:apple_crate" }), Player);
+        int ticks = 0, floated = 0, outOfSightFar = 0;
+        var trace = new List<string>();
+        for (; ticks < 400 * 60 && _host.RunningGoal(CompanionAvatar) != null; ticks++)
+        {
+            await Frames(1);
+            if (companion.FloatingThere) floated++;
+            if (ticks % 60 == 0 || (companion.GoalBlocked && ticks % 15 == 0))
+                trace.Add(string.Create(CultureInfo.InvariantCulture, $"{ticks / 60.0:0.0}s {companion.CurrentIntent}{(_host.HeldBy(CompanionAvatar) != null ? "+held" : "")}{(companion.FloatingThere ? " float(" + companion.FloatReason + ")" : "")}{(companion.GoalBlocked ? " BLOCKED(" + companion.BlockedReason + ")" : "")} at {Text(companion.GlobalPosition)}"));
+            if (ticks % 30 == 0 && _host.HeldBy(CompanionAvatar) == "obj:apple_crate" && companion.GlobalPosition.DistanceTo(player.GlobalPosition) > EnFractal.Native.CompanionAvatar.CatchUpM &&
+                !companion.BodyInPlayerView(companion.GlobalPosition)) outOfSightFar++;
+        }
+        var job = JobStatus(fetch);
+        Measure(string.Create(CultureInfo.InvariantCulture,
+            $"LANDSCAPE_S8_FETCH the crate {PlanarDistance(stand, crate):0} m off: {job?["state"]?.GetValue<string>() ?? "?"} after {ticks / 60.0:0.0} s, {100.0 * (ticks - floated) / Math.Max(1, ticks):0}% walked " +
+            $"(float starts {companion.FloatStarts - floatsBefore}); carried back far and out of the player's sight on {outOfSightFar} looks; catch-ups {companion.CatchUps - catchUps}"));
+        if (job?["state"]?.GetValue<string>() != "succeeded") Measure("LANDSCAPE_S8_FETCH_TRACE " + string.Join("; ", trace.TakeLast(40)));
+        Check(Ok(fetch) && job?["state"]?.GetValue<string>() == "succeeded" && companion.CatchUps == catchUps,
+            $"the Gubble fetches the crate from {PlanarDistance(stand, crate):0} m across the island, carrying it all the way back (no catch-up): {job?.ToJsonString()}");
+    }
+
+    /// <summary>The player runs to a point (PlayerWalk), with a watcher called each tick.</summary>
+    private Task<Walk> PlayerWalkWatching(string name, Vector3 to, Action each) =>
+        PlayerWalk(name, () => { each(); return to; }, 0.3f, 120 * 60);
+
+    private static Vector3 Planar(Vector3 v) => new(v.X, 0, v.Z);
+
+    /// <summary>The land on a grid of this step over the bounds, kept where the walkable mesh is (on it): the points, and how many columns met land.</summary>
+    private (List<Vector3> Land, int Samples) LandSamples(Aabb bounds, float step)
+    {
+        var land = new List<Vector3>();
+        var samples = 0;
+        for (var x = bounds.Position.X + step * 0.5f; x < bounds.End.X; x += step)
+            for (var z = bounds.Position.Z + step * 0.5f; z < bounds.End.Z; z += step)
+            {
+                var hit = GetWorld3D().DirectSpaceState.IntersectRay(PhysicsRayQueryParameters3D.Create(new Vector3(x, bounds.End.Y + 1, z), new Vector3(x, bounds.Position.Y - 1, z), RoomBuilder.WorldLayer));
+                if (hit.Count == 0) continue;
+                samples++;
+                var point = hit["position"].AsVector3();
+                var snapped = _navigation.ClosestPoint(point);
+                if (PlanarDistance(snapped, point) <= _navigation.AgentRadiusM + 0.01f && Mathf.Abs(snapped.Y - point.Y) <= 0.03f) land.Add(snapped);
+            }
+        return (land, samples);
     }
 
     /// <summary>
@@ -893,13 +1063,23 @@ public partial class LandscapePlayTest : Node3D
         return (worst, worstClean, summary);
     }
 
+    /// <summary>What a come measured: arrived, how long, the share of it the Gubble walked rather than floated, its worst height over the player.</summary>
+    private readonly record struct Trip(bool Arrived, double Seconds, double WalkedShare, float HighestM, float FastestRiseMps);
+
     /// <summary>Send come and watch it through: it must succeed, ending beside the player and level with them, never lost up high.</summary>
-    private async Task ComeAndWatch(string name)
+    private async Task<Trip> ComeAndWatch(string name)
     {
         var companion = _world.Companion;
         var player = _world.Player;
         var floats = companion.FloatStarts;
+        var ends = companion.FloatEnds;
         var replans = companion.HighReplans;
+        var catchUps = companion.CatchUps;
+        // The walk there as the trip starts (how long a way round it is), and the ground covered.
+        var way = _navigation.FindRoute(companion.GlobalPosition, player.GlobalPosition, EnFractal.Native.CompanionAvatar.ComeArrivalM + 0.05f);
+        var straight = PlanarDistance(companion.GlobalPosition, player.GlobalPosition);
+        var covered = 0f;
+        var last = companion.GlobalPosition;
         var come = Send(Command(NextId("come"), "goal.set", new JsonObject { ["actor"] = CompanionAvatar, ["goal"] = "come" }), Player);
         Check(Ok(come), $"{name}: the player calls the Gubble: {Code(come)}");
         // The player's come runs as an unexposed job (no id to ask about): it arrived when the body says this come arrived.
@@ -907,6 +1087,9 @@ public partial class LandscapePlayTest : Node3D
         var highest = float.NegativeInfinity;
         int blocked = 0, longestBlocked = 0, floating = 0, routed = 0, ticks = 0, worstAt = 0;
         double worstTick = 0, totalTick = 0;
+        float fastestRise = 0, lastY = companion.GlobalPosition.Y;
+        var reasons = new SortedSet<string>(StringComparer.Ordinal);
+        var starts = floats;
         var watch = new System.Diagnostics.Stopwatch();
         for (; ticks < 200 * 60 && _host.RunningGoal(CompanionAvatar) != null; ticks++)
         {
@@ -920,16 +1103,25 @@ public partial class LandscapePlayTest : Node3D
             longestBlocked = Math.Max(longestBlocked, blocked);
             if (companion.FloatingThere) floating++;
             if (companion.FollowingRoute) routed++;
+            if (companion.FloatStarts != starts) { starts = companion.FloatStarts; reasons.Add(companion.FloatReason); }
+            if (companion.RisingOver) fastestRise = Mathf.Max(fastestRise, (companion.GlobalPosition.Y - lastY) * 60);
+            lastY = companion.GlobalPosition.Y;
+            covered += PlanarDistance(companion.GlobalPosition, last);
+            last = companion.GlobalPosition;
         }
         var arrived = companion.ComeArrivedSerial == serial;
         var gap = PlanarDistance(companion.GlobalPosition, player.GlobalPosition);
         var level = companion.GlobalPosition.Y - player.GlobalPosition.Y;
+        var walked = ticks - floating;
         Measure(string.Create(CultureInfo.InvariantCulture,
             $"LANDSCAPE_GUBBLE_COME {name}: {(arrived ? "arrived" : "did not arrive, intent " + companion.CurrentIntent)} after {ticks / 60.0:0.0} s, ending {gap:0.00} m away and {level * 100:0.0} cm off the player's height; " +
-            $"walked a route {routed / 60.0:0.0} s, floated {floating / 60.0:0.0} s (float starts {companion.FloatStarts - floats}), highest {highest:0.00} m over the player, " +
-            $"watchdog {companion.HighReplans - replans} times, blocked at most {longestBlocked / 60.0:0.0} s running; a tick {totalTick / Math.Max(1, ticks):0.00} ms on average, worst {worstTick:0.0} ms (tick {worstAt})"));
+            $"{straight:0.0} m straight, the walk there {(way.Reaches ? $"{way.LengthM:0.0} m" : "out of reach")}, {covered:0.0} m covered ({covered / Math.Max(1e-3, ticks / 60.0):0.00} m/s); " +
+            $"walked {walked / 60.0:0.0} s ({100.0 * walked / Math.Max(1, ticks):0}% of the trip; round something on a route {routed / 60.0:0.0} s), floated {floating / 60.0:0.0} s (float starts {companion.FloatStarts - floats}" +
+            $"{(reasons.Count > 0 ? ": " + string.Join(", ", reasons) : "")}; back to walking {companion.FloatEnds - ends}), highest {highest:0.00} m over the player, fastest rise up a face {fastestRise:0.00} m/s, " +
+            $"watchdog {companion.HighReplans - replans} times, blocked at most {longestBlocked / 60.0:0.0} s running, catch-ups {companion.CatchUps - catchUps}; a tick {totalTick / Math.Max(1, ticks):0.00} ms on average, worst {worstTick:0.0} ms (tick {worstAt})"));
         Check(arrived && gap <= EnFractal.Native.CompanionAvatar.ComeArrivalM + 0.03f && Mathf.Abs(level) <= EnFractal.Native.CompanionAvatar.LevelGapM,
             $"{name}: the Gubble arrives beside the player, level with them ({gap:0.00} m away, {level * 100:0.0} cm off their height)");
+        return new Trip(arrived, ticks / 60.0, (double)walked / Math.Max(1, ticks), highest, fastestRise);
     }
 
     // ---- climbing and water on the land (founder's playtest round, 8 October) ----

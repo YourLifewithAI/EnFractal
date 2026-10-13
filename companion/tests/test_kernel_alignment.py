@@ -84,6 +84,18 @@ class PolicyMatchesTheKernel(unittest.TestCase):
         self.assertIn('radius.GetDouble() is <= 0 or > ObserveRadiusMaxM', source)
         self.assertEqual(HostPolicy().observe_max_radius_m, math.inf)
 
+    def test_near_reaches_as_far_in_the_contract_the_kernel_and_the_mock(self):
+        """Play distances (S8): entities.list's near.radius_m is at most 150 m (was 50) in the contract, the kernel and the mock."""
+        import json
+        near = json.loads((REPO / "contracts" / "game-command.schema.json").read_bytes())["$defs"]["args"]["entities.list"]
+        maximum = near["properties"]["filter"]["properties"]["near"]["properties"]["radius_m"]["maximum"]
+        self.assertEqual((maximum, _constant(COMMAND_HOST, r"\bconst int NearRadiusMaxM = (\d+);")), (150, 150))
+        host = new_host()
+        reach = {"filter": {"near": {"center_m": [0, 0, 0], "radius_m": 150}}}
+        self.assertTrue(host.handle(COMPANION, query("entities.list", reach))["ok"])
+        past = host.handle(COMPANION, query("entities.list", {"filter": {"near": {"center_m": [0, 0, 0], "radius_m": 151}}}, "q-2"))
+        self.assertEqual((past["ok"], past["error"]["field_path"]), (False, "$.args.filter.near.radius_m"))
+
     def test_entity_ids_are_the_contracts_in_the_kernel(self):
         """A plant copy's id (plant:<set>-<row>) is well formed in both hosts, so both answer target_not_found for a copy
         they do not know, and both refuse a second spelling of the same copy."""

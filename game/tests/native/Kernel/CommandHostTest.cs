@@ -707,6 +707,11 @@ public partial class CommandHostTest : Node3D
         Check(Ok(Query("observe", new JsonObject { ["actor"] = CommandHost.CompanionAvatarId, ["radius_m"] = CommandHost.ObserveRadiusMaxM }, Companion)) &&
             Code(Query("observe", new JsonObject { ["actor"] = CommandHost.CompanionAvatarId, ["radius_m"] = CommandHost.ObserveRadiusMaxM + 1 }, Companion)) == "request_invalid",
             "observe takes a radius up to 150 m, the contract's maximum, and refuses one past it");
+        JsonObject Near(int radius) => new() { ["filter"] = new JsonObject { ["near"] = new JsonObject { ["center_m"] = new JsonArray(0, 0, 0), ["radius_m"] = radius } } };
+        var across = Query("entities.list", Near(CommandHost.NearRadiusMaxM), Companion);
+        Check(Ok(across) && across["data"]!["items"]!.AsArray().Any(v => v!["id"]!.GetValue<string>() == id) &&
+              Code(Query("entities.list", Near(CommandHost.NearRadiusMaxM + 1), Companion)) == "request_invalid" && CommandHost.NearRadiusMaxM == CommandHost.ObserveRadiusMaxM,
+            "entities.list's near reaches 150 m, as far as observe (S8: it was 50 m), and refuses past it");
         Check(Code(Query("entity.inspect", new JsonObject { ["target"] = "plant:broadleaf-0" }, Companion)) == "target_not_found" &&
             Code(Query("entity.inspect", new JsonObject { ["target"] = "plant:broadleaf-007" }, Companion)) == "request_invalid",
             "a plant copy's id is well formed (one spelling, no leading zeros) and names nothing this room has");

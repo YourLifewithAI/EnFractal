@@ -191,6 +191,70 @@ public partial class CompanionAvatar : SmallPlayerController
     /// <summary>Where it is coming down beside its goal after the watchdog found it stuck up high (null when not).</summary>
     public Vector3? Landing => _landing;
 
+    // ---- Play distances (packet S8 of the 10x world, 13 October): the room magnified ten times round the same body. Every
+    // number here is provisional, for the founder to tune by feel; each says why it is the size it is.
+
+    /// <summary>
+    /// The Gubble catching up (RUN-2-TEN-TIMES.md, the founder's decision 4, its recommended default): following or coming to the
+    /// player, farther than this from them in a straight line, and out of the player's view, it reappears beside them (a ghost
+    /// may), at a spot the view does not hold either, so nothing pops on screen at either end. Room-sized: on the 10x island it is
+    /// about 20 s of the Gubble's run; today's islands (about 7 m across) never reach it. Never in a fetch it is carrying out
+    /// (Come(catchUp: false)), never into a wall (the body must fit) or water, and never where no walk joins the spot to the player.
+    /// </summary>
+    public const float CatchUpM = 25f;
+    /// <summary>The catch-up distance in use (CatchUpM; tests and tuning; PositiveInfinity turns catching up off).</summary>
+    public float CatchUpBeyondM { get; set; } = CatchUpM;
+    /// <summary>How often a Gubble far from the player looks whether it may catch up (a few rays and one short route search).</summary>
+    public const double CatchUpCheckS = 0.5;
+    /// <summary>
+    /// The rings round the player where a catch-up may set the Gubble down, nearest first: from just behind the shoulder camera
+    /// (32 cm behind the player) out past where the high views' cameras stand (1.4 and 2.7 m), so some spot is out of every view.
+    /// Body-sized: beside the player whatever the room.
+    /// </summary>
+    public static readonly float[] CatchUpRingsM = { 0.5f, 0.75f, 1.0f, 1.5f, 2.0f, 3.0f, 4.0f };
+    /// <summary>Times the Gubble caught up with the player.</summary>
+    public int CatchUps { get; private set; }
+    /// <summary>The last catch-up: where it was and where it reappeared.</summary>
+    public (Vector3 From, Vector3 To)? LastCatchUp { get; private set; }
+    /// <summary>Raised on a catch-up with where it was and where it reappeared: the host tells the AI (a caught_up notice).</summary>
+    public event System.Action<Vector3, Vector3>? CaughtUp;
+
+    /// <summary>
+    /// Rising up a tall face (the 10x island's mesas stand 10 to 25 m; at FloatRiseMps, 0.3 m/s, a 20 m face took over a minute).
+    /// A face no taller than this rises at FloatRiseMps as before: today's islands' land stands under 3 m (HoverSupportSearchM).
+    /// </summary>
+    public const float TallFaceM = HoverSupportSearchM;
+    /// <summary>The fastest rise up a tall face: a face this many times TallFaceM tall (and more) rises at it (provisional).</summary>
+    public const float TallFaceRiseMps = 1.5f;
+    /// <summary>Near the top the rise eases: this much speed for each metre still to rise, never below FloatRiseMps.</summary>
+    public const float RiseEasePerS = 1.0f;
+    /// <summary>
+    /// The rise speed up a face faceM tall with remainingM still to rise: baseMps for a face within TallFaceM (unchanged), else in
+    /// proportion to the face's height up to TallFaceRiseMps, easing to baseMps over the last metre or so. A 20 m face takes about
+    /// 15 s (was 67).
+    /// </summary>
+    public static float RiseMpsFor(float remainingM, float faceM, float baseMps)
+    {
+        if (!(faceM > TallFaceM) || !(remainingM > 0)) return baseMps;
+        var cruise = Mathf.Max(baseMps, Mathf.Min(TallFaceRiseMps, baseMps * faceM / TallFaceM));
+        return Mathf.Clamp(remainingM * RiseEasePerS, baseMps, cruise);
+    }
+    /// <summary>The face in the way of the last rise: its height from where the rise began, and how much of it was still to rise.</summary>
+    public float RiseFaceM { get; private set; }
+    public float RiseRemainingM { get; private set; }
+    /// <summary>The fastest rise up a face so far (metres a second; tests).</summary>
+    public float FastestRiseMps { get; private set; }
+
+    /// <summary>Why it last chose to float rather than walk (diagnostics and the long-trip measures): no_route, out_of_reach, goal_off_level, start_off_level or long_way, with the number that decided it, or stuck_walking (a long trip's walk got nowhere).</summary>
+    public string FloatReason { get; private set; } = "";
+    /// <summary>Times a float went back to walking because a walk from where it was then reached the goal (a long trip, S8).</summary>
+    public int FloatEnds { get; private set; }
+    /// <summary>
+    /// Floating on a long trip, it asks this often whether a walk from where it is now reaches the goal, and walks it if so (it used
+    /// to float the rest of the way once it had started: a 72 m come on the 10x island walked 6 s and floated 73).
+    /// </summary>
+    public const double FloatRecheckS = 1.0;
+
     private SmallPlayerController? _player;
     private Node3D _pointer = null!;
     private Label3D _label = null!;
@@ -237,6 +301,20 @@ public partial class CompanionAvatar : SmallPlayerController
     private bool _playerSeen;
     private float _playerStillS;
     private int _goToAimRevision = -1;
+    /// <summary>Whether this goal may catch up (a come for a fetch's way back may not).</summary>
+    private bool _mayCatchUp = true;
+    private double _catchUpAge;
+    /// <summary>FloatRiseMps and FloatSinkMps as set before the body entered the tree: the rise up a face, and the sink down a drop, within TallFaceM.</summary>
+    private float _baseRiseMps;
+    private float _baseSinkMps;
+    /// <summary>The tallest the drop of a long way down has been (null while not coming down one taller than TallFaceM).</summary>
+    private float? _dropFromM;
+    /// <summary>The height a rise up a face began at (null while not rising), and how long since the body last rose over something.</summary>
+    private float? _riseFromY;
+    private double _sinceRiseS;
+    /// <summary>Floating: time since it last asked whether a walk reaches, and whether the route in hand is the answer to that ask.</summary>
+    private double _floatRecheckAge;
+    private bool _recheckTaken;
 
     public override void _Ready()
     {
@@ -249,6 +327,8 @@ public partial class CompanionAvatar : SmallPlayerController
         RunSpeedMps = CompanionRunMps;
         GroundAccelerationMps2 = CompanionGroundAccelerationMps2;
         AirAccelerationMps2 = CompanionAirAccelerationMps2;
+        _baseRiseMps = FloatRiseMps;
+        _baseSinkMps = FloatSinkMps;
         SetAppearance(new Color("65b9b0"));
         base._Ready();
         CollisionLayer = 4;
@@ -438,7 +518,12 @@ public partial class CompanionAvatar : SmallPlayerController
     }
     public void Follow() => BeginIntent("follow");
     public void Stay() => BeginIntent("stay");
-    public void Come() => BeginIntent("come");
+    /// <summary>Come to the player. catchUp false (a fetch's way back with the thing): it never catches up, it travels the whole way.</summary>
+    public void Come(bool catchUp = true)
+    {
+        BeginIntent("come");
+        _mayCatchUp = catchUp;
+    }
     public void Stop() => BeginIntent("stop");
 
     /// <summary>
@@ -472,6 +557,12 @@ public partial class CompanionAvatar : SmallPlayerController
         _holdBeside = _landing = _goal = null;
         _walkFromLanding = _highBlocked = false;
         _landings = 0;
+        _lastLandingAt = _tripGoal = null;
+        _noProgress = false;
+        _mayCatchUp = true;
+        _floatRecheckAge = 0;
+        _recheckTaken = _floatWhenStuck = false;
+        _riseFromY = null;
         if (_pointer != null) _pointer.Visible = false;
         SetControlInput(Vector2.Zero);
         Velocity = new Vector3(0, Velocity.Y, 0);
@@ -689,6 +780,7 @@ public partial class CompanionAvatar : SmallPlayerController
         // Gravity is a world property: the companion lives under the same profile the player was given.
         if (hasPlayer && _player!.WorldPhysicsRevision > WorldPhysicsRevision) SetWorldPhysics(_player.WorldPhysicsProfile);
         if (hasPlayer) TrackPlayerMotion(dt);
+        if (InputEnabled && hasPlayer) CatchUp(dt);
         if (InputEnabled && hasPlayer)
         {
             var playerOffset = Planar(GlobalPosition - _player!.GlobalPosition);
@@ -715,7 +807,8 @@ public partial class CompanionAvatar : SmallPlayerController
         }
         WatchProgress(dt, trying);
         WatchHeight(dt);
-        if (_stuck || _highBlocked) GoalBlocked = true;
+        WatchTrip(dt);
+        if (_stuck || _highBlocked || _noProgress) Blocked(_stuck ? "stuck" : _highBlocked ? "stuck_up_high" : "no_progress");
         if (_hasLookTarget)
         {
             var direction = _lookTarget - GlobalPosition;
@@ -728,6 +821,7 @@ public partial class CompanionAvatar : SmallPlayerController
                 if (Mathf.Abs(toTarget.Dot(Vector3.Up)) < 0.99f) _pointer.LookAt(_lookTarget, Vector3.Up);
             }
         }
+        SetRiseSpeed(desired, dt);
         base._PhysicsProcess(delta);
     }
 
@@ -803,7 +897,7 @@ public partial class CompanionAvatar : SmallPlayerController
             return floating.LimitLength(RunSpeedMps);
         }
         // Honest about a place it cannot reach: it goes as near as the floor allows and says blocked.
-        if (routed && !_route.Reaches) GoalBlocked = true;
+        if (routed && !_route.Reaches) Blocked("out_of_reach");
         if (detour || (routed && !_route.Reaches))
             return RouteVelocity(Mathf.Clamp(_route.LengthM * FollowGainPerS + playerSpeed, MinApproachMps, RunSpeedMps));
         var desired = (moving ? playerVelocity : Vector3.Zero) + toPlace * FollowGainPerS;
@@ -909,7 +1003,7 @@ public partial class CompanionAvatar : SmallPlayerController
             Stay();
             return Vector3.Zero;
         }
-        if (routed && !_route.Reaches) GoalBlocked = true;
+        if (routed && !_route.Reaches) Blocked("out_of_reach");
         if (detour || (routed && !_route.Reaches))
             return RouteVelocity(Mathf.Clamp((_route.LengthM - ComeArrivalM + 0.02f) * FollowGainPerS, MinApproachMps, RunSpeedMps));
         var speed = Mathf.Clamp((distance - ComeArrivalM + 0.02f) * FollowGainPerS, MinApproachMps, RunSpeedMps);
@@ -960,7 +1054,7 @@ public partial class CompanionAvatar : SmallPlayerController
             Stay();
             return Vector3.Zero;
         }
-        if (routed && !_route.Reaches) GoalBlocked = true;
+        if (routed && !_route.Reaches) Blocked("out_of_reach");
         if (detour || (routed && !_route.Reaches))
             return RouteVelocity(Mathf.Clamp((_route.LengthM - _goToArrivalM + 0.02f) * FollowGainPerS, MinApproachMps, RunSpeedMps));
         var speed = Mathf.Clamp((distance - _goToArrivalM + 0.02f) * FollowGainPerS, MinApproachMps, RunSpeedMps);
@@ -1042,14 +1136,68 @@ public partial class CompanionAvatar : SmallPlayerController
     /// </summary>
     private bool ChooseFloat(Vector3 goal, bool routed)
     {
-        if (_floating) return true;
-        // A walk starts from the ground under the body: one held aloft (beside a climber, by a player up a tree) floats.
-        if (routed && _route.Reaches && Mathf.Abs(_route.Points[^1].Y - goal.Y) <= WalkLevelM && Mathf.Abs(_route.Points[0].Y - GlobalPosition.Y) <= LevelGapM &&
-            (_walkFromLanding || _route.LengthM <= (goal - GlobalPosition).Length() * FloatDetourFactor + FloatDetourM)) return false;
+        if (_floating)
+        {
+            // On a long trip it asks now and then whether a walk from where it is now reaches the goal (RecheckWalk): one that
+            // will do, starting where the body is, is walked the rest of the way.
+            if (!_recheckTaken) return true;
+            _recheckTaken = false;
+            if (WhyNotWalk(goal, routed) != null || Planar(_route.Points[0] - GlobalPosition).Length() > Navigation!.AgentRadiusM + 0.1f) return true;
+            _floating = false;
+            FloatEnds++;
+            return false;
+        }
+        var reason = _floatWhenStuck ? "stuck_walking" : WhyNotWalk(goal, routed);
+        _floatWhenStuck = false;
+        if (reason == null) return false;
+        FloatReason = reason;
         _floating = true;
         FloatStarts++;
+        // A search still in flight from the walk was asked from somewhere behind: a float asks afresh (RecheckWalk).
+        _routeRequest = null;
+        _floatRecheckAge = 0;
+        _recheckTaken = false;
         return true;
     }
+
+    /// <summary>
+    /// Why the route in hand will not do for walking to the goal, or null when it will: a walk that reaches it, ends level with it,
+    /// starts from the ground under the body (one held aloft, beside a climber or by a player up a tree, floats) and is not a long
+    /// way round (FloatDetourFactor; taken however long after a landing).
+    /// </summary>
+    private string? WhyNotWalk(Vector3 goal, bool routed)
+    {
+        if (!routed || _route.IsEmpty) return "no_route";
+        if (!_route.Reaches) return "out_of_reach";
+        if (Mathf.Abs(_route.Points[^1].Y - goal.Y) > WalkLevelM) return Why("goal_off_level", _route.Points[^1].Y - goal.Y);
+        if (Mathf.Abs(_route.Points[0].Y - GlobalPosition.Y) > LevelGapM && !HoversLowOverLand(goal, _route.Points[0])) return Why("start_off_level", _route.Points[0].Y - GlobalPosition.Y);
+        if (!_walkFromLanding && _route.LengthM > (goal - GlobalPosition).Length() * FloatDetourFactor + FloatDetourM) return Why("long_way", _route.LengthM / Mathf.Max(0.01f, (goal - GlobalPosition).Length()));
+        return null;
+    }
+
+    private void Blocked(string reason)
+    {
+        GoalBlocked = true;
+        BlockedReason = reason;
+    }
+
+    /// <summary>
+    /// On a long trip (the goal farther than LongRouteM) a walk may start a little above or below the body, within WalkStartM: the
+    /// body hovers over what the walkable map leaves out (a slope steeper than its 45 degrees, a stone, a dip), and walking it
+    /// settles onto the ground as it goes. On the 10x island every float of a 65 m come but those where no walk reached started so,
+    /// 12 to 15 cm off the map, and floated on over the ridges, up to 7 m over the player. A height it holds (beside a climber,
+    /// by a player up a tree) is no walk's start; today's trips are as before.
+    /// </summary>
+    private bool HoversLowOverLand(Vector3 goal, Vector3 start) =>
+        Planar(goal - GlobalPosition).Length() > LongRouteM && _holdY == null && Mathf.Abs(start.Y - GlobalPosition.Y) <= WalkStartM;
+
+    /// <summary>How far above or below the body a long trip's walk may start (HoversLowOverLand): three body heights, body-sized.</summary>
+    public const float WalkStartM = 0.3f;
+
+    private static string Why(string reason, float value) => reason + " " + value.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>Why the body last said blocked (diagnostics): stuck, stuck_up_high, no_progress, out_of_reach or no_clear_heading.</summary>
+    public string BlockedReason { get; private set; } = "";
 
     /// <summary>Nothing solid between the body's middle and a point (the point's own body left out).</summary>
     private bool ClearTo(Vector3 point, Rid ignore)
@@ -1167,12 +1315,13 @@ public partial class CompanionAvatar : SmallPlayerController
             return false;
         }
         _routeAge += dt;
-        // Floating, it goes straight there and no route is used: none is planned (on the magnified island a search for a goal
-        // out of reach covers everywhere the start can walk to, up to about 35 ms, and it came round ten times a second).
-        if (_floating) return !_route.IsEmpty;
         var revision = Navigation!.Revision;
         var length = Mathf.Max(_route.LengthM, Planar(goal - GlobalPosition).Length());
         var slack = length <= LongRouteM ? 0.03f : 0.03f * length / LongRouteM;
+        // Floating, it goes straight there and no route is used: none is planned (on the magnified island a search for a goal
+        // out of reach covers everywhere the start can walk to, up to about 35 ms, and it came round ten times a second), but
+        // on a long trip it asks now and then whether a walk from here reaches.
+        if (_floating) return RecheckWalk(goal, toleranceM, slack, dt);
         TakeRoute(goal, slack);
         bool Usable() => !_route.IsEmpty && _routeRevision == revision && Planar(goal - _routeGoal).Length() <= Mathf.Max(slack, 0.25f * length);
         var due = _route.IsEmpty || _routeRevision != revision || _routeAge >= RouteRefreshFor(length) || Planar(goal - _routeGoal).Length() > slack;
@@ -1194,17 +1343,37 @@ public partial class CompanionAvatar : SmallPlayerController
         return !_route.IsEmpty;
     }
 
-    /// <summary>A finished search becomes the route in use if it was planned on the bake the map holds and for about this goal; else it is dropped.</summary>
-    private void TakeRoute(Vector3 goal, float slack)
+    /// <summary>
+    /// Floating on a long trip (the goal farther than LongRouteM; today's islands never ask, and a float there floats on as
+    /// before), low over the ground and not coming down to a landing or holding a height: every FloatRecheckS it asks whether a
+    /// walk from where it is now reaches the goal, on a worker thread, floating on meanwhile. ChooseFloat walks the answer if it
+    /// will do (S8: a 72 m come on the 10x island floated 73 s of its 80 once it had started to float).
+    /// </summary>
+    private bool RecheckWalk(Vector3 goal, float toleranceM, float slack, float dt)
     {
-        if (_routeRequest is not { IsDone: true } done) return;
+        _floatRecheckAge += dt;
+        if (TakeRoute(goal, slack)) _recheckTaken = true;
+        var low = HoverSupportY is { } ground && GlobalPosition.Y - ground <= WalkStartM;
+        if (_routeRequest == null && _floatRecheckAge >= FloatRecheckS && low && _landing == null && _holdY == null && Planar(goal - GlobalPosition).Length() > LongRouteM)
+        {
+            _floatRecheckAge = 0;
+            _routeRequest = Navigation!.RequestRoute(GlobalPosition, goal, toleranceM, SearchM(GlobalPosition, goal));
+        }
+        return !_route.IsEmpty;
+    }
+
+    /// <summary>A finished search becomes the route in use if it was planned on the bake the map holds and for about this goal; else it is dropped. True when taken.</summary>
+    private bool TakeRoute(Vector3 goal, float slack)
+    {
+        if (_routeRequest is not { IsDone: true } done) return false;
         _routeRequest = null;
-        if (!done.TryTake(out var route) || Planar(goal - done.Goal).Length() > slack) return;
+        if (!done.TryTake(out var route) || Planar(goal - done.Goal).Length() > slack) return false;
         _route = route;
         _routeIndex = 1;
         _routeGoal = done.Goal;
         _routeAge = 0;
         _routeRevision = route.Revision;
+        return true;
     }
 
     /// <summary>How often a route of this length is planned again: RouteRefreshS up to LongRouteM, then in proportion, up to LongRouteRefreshS.</summary>
@@ -1240,6 +1409,50 @@ public partial class CompanionAvatar : SmallPlayerController
         if (_stuck) _routeAge = RouteRefreshS;
         _progressTime = 0;
         _progressAnchor = GlobalPosition;
+        // On a long trip (S8) a body stuck one way tries the other before it says blocked: a walk held by something the walkable
+        // map leaves out floats over it, and a float held at its goal's height asks at once whether a walk from here reaches.
+        if (!_stuck || _goal is not { } goal || Planar(goal - GlobalPosition).Length() <= LongRouteM || _landing != null) return;
+        if (!_floating)
+        {
+            _floatWhenStuck = true;
+            _stuck = false;
+        }
+        else _floatRecheckAge = FloatRecheckS;
+    }
+
+    /// <summary>Walking on a long trip got nowhere for StuckAfterS: the next ChooseFloat floats (stuck_walking).</summary>
+    private bool _floatWhenStuck;
+
+    /// <summary>
+    /// A trip that gets no nearer its goal by NoProgressM for NoProgressS says blocked until it does (S8): whatever it is trying
+    /// (walking, floating, a landing, round and round), the host then gives up honestly after UnreachableAfterS instead of letting
+    /// it wander for ever. Room-sized: a long detour round a 10x mesa still gets nearer within it; today's trips take seconds.
+    /// A goal that moves NoProgressM (a player walking off) starts the count again.
+    /// </summary>
+    public const double NoProgressS = 30;
+    public const float NoProgressM = 1f;
+    private Vector3? _tripGoal;
+    private float _tripBest;
+    private double _tripAge;
+    private bool _noProgress;
+    /// <summary>Where the watchdog last sent it down to a landing (MaxLandings counts per place).</summary>
+    private Vector3? _lastLandingAt;
+
+    private void WatchTrip(float dt)
+    {
+        if (_goal is not { } goal || CurrentIntent is not ("come" or "go_to"))
+        {
+            (_tripGoal, _tripAge, _noProgress) = (null, 0, false);
+            return;
+        }
+        var distance = GlobalPosition.DistanceTo(goal);
+        if (_tripGoal is not { } was || was.DistanceTo(goal) > NoProgressM || distance <= _tripBest - NoProgressM)
+        {
+            (_tripGoal, _tripBest, _tripAge, _noProgress) = (goal, distance, 0, false);
+            return;
+        }
+        _tripAge += dt;
+        _noProgress = _tripAge >= NoProgressS;
     }
 
     private Vector3 _highAnchor;
@@ -1281,13 +1494,141 @@ public partial class CompanionAvatar : SmallPlayerController
         HighReplans++;
         _holdY = null;
         _holdBeside = null;
+        // MaxLandings is per place: a long trip stuck up high again far from where it last came down may come down again (S8).
+        if (_lastLandingAt is { } landedAt && Planar(GlobalPosition - landedAt).Length() > LongRouteM) _landings = 0;
         _landing = _landings < MaxLandings ? LandingBeside(goal) : null;
         if (_landing != null)
         {
+            _lastLandingAt = GlobalPosition;
             _landings++;
             _stuck = false;
         }
         else _highBlocked = true;
+    }
+
+    // ---- catching up (S8) ----
+
+    /// <summary>
+    /// Following or coming (not a fetch's way back), farther than CatchUpBeyondM from the player and out of their view: it
+    /// reappears beside them (CatchUpSpot) and goes on with its goal from there. Looked at every CatchUpCheckS while far.
+    /// </summary>
+    private void CatchUp(float dt)
+    {
+        if (CurrentIntent is not ("follow" or "come") || !_mayCatchUp || _homePending || _player!.GoingHome) { _catchUpAge = 0; return; }
+        if (GlobalPosition.DistanceTo(_player.GlobalPosition) <= CatchUpBeyondM) { _catchUpAge = 0; return; }
+        if ((_catchUpAge += dt) < CatchUpCheckS) return;
+        _catchUpAge = 0;
+        var from = GlobalPosition;
+        if (BodyInPlayerView(from) || CatchUpSpot() is not { } spot || !TryTeleportTo(spot)) return;
+        // Whatever it was doing out there (a float, a held height, a landing, a route) means nothing beside the player.
+        _route = RoomNavigation.Route.None;
+        _routeRequest = null;
+        _sideRequests = null;
+        _floating = _following = _stuck = _highBlocked = _walkFromLanding = _recheckTaken = _floatWhenStuck = false;
+        FloatAltitudeFloorY = _holdY = null;
+        _holdBeside = _landing = null;
+        _landings = 0;
+        _progressTime = 0;
+        _progressAnchor = _highAnchor = GlobalPosition;
+        CatchUps++;
+        LastCatchUp = (from, GlobalPosition);
+        CaughtUp?.Invoke(from, GlobalPosition);
+    }
+
+    /// <summary>
+    /// Where a catch-up sets the Gubble down: on the rings round the player (CatchUpRingsM), nearest first, a spot out of the
+    /// player's view, level with them, dry, where the body fits, and (with the room's walkable map) on it, with a walk from it
+    /// reaching the player. Null when there is none: it travels on and looks again.
+    /// </summary>
+    private Vector3? CatchUpSpot()
+    {
+        var player = _player!;
+        var at = player.GlobalPosition;
+        var space = GetWorld3D().DirectSpaceState;
+        var mapped = NavigationReady;
+        var forward = Planar(-player.GlobalBasis.Z);
+        forward = forward.LengthSquared() > 1e-6f ? forward.Normalized() : Vector3.Forward;
+        foreach (var ring in CatchUpRingsM)
+            for (var k = 0; k < 8; k++)
+            {
+                // Behind the player first: the shoulder camera looks the way they face.
+                var direction = (-forward).Rotated(Vector3.Up, (k % 2 == 0 ? 1 : -1) * ((k + 1) / 2) * Mathf.Pi / 4);
+                var wanted = at + direction * ring;
+                var spot = wanted;
+                if (mapped)
+                {
+                    spot = Navigation!.ClosestPoint(wanted);
+                    if (Planar(spot - wanted).Length() > Navigation.AgentRadiusM + 0.05f) continue;
+                }
+                spot.Y += HoverHeightM;
+                if (Mathf.Abs(spot.Y - at.Y) > LevelGapM || BodyInPlayerView(spot)) continue;
+                if (RoomWater.At(space, spot, RoomWater.SearchM, 0.05f, GetRid()).Wet || (Sea != null && Sea.OpenWater(space, spot, RoomWater.SearchM, 0.05f, GetRid()).Wet)) continue;
+                if (mapped && !Navigation!.FindRoute(spot, at, ComeArrivalM + 0.05f, SearchM(spot, at)).Reaches) continue;
+                return spot;
+            }
+        return null;
+    }
+
+    /// <summary>Whether the player's view holds the Gubble standing here: its middle or its name tag (drawn the same size at any distance).</summary>
+    public bool BodyInPlayerView(Vector3 feet) =>
+        InPlayerView(feet + Vector3.Up * (BodyHeightM * 0.5f)) || InPlayerView(feet + Vector3.Up * (BodyHeightM * 1.35f));
+
+    /// <summary>
+    /// Whether the player's view holds a point: inside the view camera's frustum and far plane, with nothing solid between (the
+    /// player's own body and the Gubble's left out). With no camera, nobody sees.
+    /// </summary>
+    public bool InPlayerView(Vector3 point)
+    {
+        var camera = IsInsideTree() ? GetViewport()?.GetCamera3D() : null;
+        if (camera == null || !camera.IsInsideTree() || !point.IsFinite()) return false;
+        var eye = camera.GlobalPosition;
+        if (camera.IsPositionBehind(point) || !camera.IsPositionInFrustum(point) || eye.DistanceTo(point) > camera.Far) return false;
+        using var query = PhysicsRayQueryParameters3D.Create(eye, point, RoomBuilder.WorldLayer);
+        var exclude = new Godot.Collections.Array<Rid> { GetRid() };
+        if (_player != null && GodotObject.IsInstanceValid(_player)) exclude.Add(_player.GetRid());
+        query.Exclude = exclude;
+        using var hit = GetWorld3D().DirectSpaceState.IntersectRay(query);
+        return hit.Count == 0;
+    }
+
+    // ---- rising up a face, and coming down a long way (S8) ----
+
+    /// <summary>
+    /// Before the body moves: rising over a face last tick (RisingOver), the rise this tick is RiseMpsFor the face's height from
+    /// where the rise began and what is left of it (the top of what stands just ahead, looked for from above); otherwise, and for
+    /// every face within TallFaceM, FloatRiseMps as before. Coming down a drop that began taller than TallFaceM (off a mesa), the
+    /// sink is the same rule turned over; within TallFaceM, FloatSinkMps as before.
+    /// </summary>
+    private void SetRiseSpeed(Vector3 desired, float dt)
+    {
+        FloatRiseMps = _baseRiseMps;
+        FloatSinkMps = _baseSinkMps;
+        // How far it has to come down to the height it settles to (Hover's: over the ground under it, or its goal's height).
+        var settle = HoverSupportY is { } under ? under + HoverHeightM : FloatAltitudeFloorY;
+        if (FloatAltitudeFloorY is { } floor && settle is { } over && floor > over) settle = floor;
+        var drop = settle is { } to ? GlobalPosition.Y - to : 0f;
+        // The drop is as tall as it has been on this way down: floating out over a steep slope, the land falls away as it goes.
+        if (drop <= LevelGapM) _dropFromM = null;
+        else if (drop > TallFaceM) _dropFromM = Mathf.Max(_dropFromM ?? 0f, drop);
+        if (_dropFromM is { } fromM) FloatSinkMps = RiseMpsFor(drop, fromM, _baseSinkMps);
+        _sinceRiseS = RisingOver ? 0 : _sinceRiseS + dt;
+        // The rise is over once the body has not risen over anything for a moment (the bob, a step on the lip).
+        if (_sinceRiseS > 0.5) _riseFromY = null;
+        if (!_floating || !RiseOverObstacles || !RisingOver || Planar(desired).LengthSquared() < 1e-6f) return;
+        var here = GlobalPosition;
+        _riseFromY ??= HoverSupportY ?? here.Y;
+        var column = here + Planar(desired).Normalized() * (BodyRadiusM + 0.03f);
+        var top = PlayableBounds is { } bounds ? bounds.End.Y + 1 : here.Y + 40;
+        if (top <= here.Y) return;
+        using var query = PhysicsRayQueryParameters3D.Create(new Vector3(column.X, top, column.Z), new Vector3(column.X, here.Y, column.Z), RoomBuilder.BodyMask);
+        query.Exclude = new Godot.Collections.Array<Rid> { GetRid() };
+        using var hit = GetWorld3D().DirectSpaceState.IntersectRay(query);
+        if (hit.Count == 0) return;
+        var faceTop = hit["position"].AsVector3().Y + HoverHeightM;
+        RiseFaceM = faceTop - _riseFromY.Value;
+        RiseRemainingM = faceTop - here.Y;
+        FloatRiseMps = RiseMpsFor(RiseRemainingM, RiseFaceM, _baseRiseMps);
+        FastestRiseMps = Mathf.Max(FastestRiseMps, FloatRiseMps);
     }
 
     /// <summary>Move along a world-space velocity: the motion is exact through body-relative input while the body turns smoothly to face it.</summary>
@@ -1298,7 +1639,7 @@ public partial class CompanionAvatar : SmallPlayerController
         var heading = _floating ? desired / speed : ChooseClearDirection(desired / speed);
         if (heading.LengthSquared() == 0)
         {
-            GoalBlocked = true;
+            Blocked("no_clear_heading");
             SetControlInput(Vector2.Zero);
             Velocity = new Vector3(0, Velocity.Y, 0);
             return;
