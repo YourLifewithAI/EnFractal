@@ -227,10 +227,58 @@ public partial class CharacterRigTest
     /// <summary>The engine's spring swings a chain near the frequency the rig tuned it to.</summary>
     private async Task TestSpringFrequency()
     {
-        var holder = new Node3D { Name = "SpringHolder", Position = new Vector3(15, 0, 0) };
+        var (measured, peak, tail, chain) = await SwingLeg("SpringHolder", new Vector3(15, 0, 0), 1f / 60);
+        _legSwingHz = measured;
+        Check(Mathf.Abs(measured / chain.FrequencyHz - 1) < 0.2f,
+            FormattableString.Invariant($"Cloudpuff's dangling leg swings at {measured:0.00} Hz, tuned for {chain.FrequencyHz:0.00} Hz (its {chain.LengthM * 100:0.0} cm pendulum's {chain.PendulumHz:0.00} Hz x 1.61)"));
+        Check(peak > 0.05f && tail < 0.3f * peak, FormattableString.Invariant($"the leg swings when the body jerks and settles ({Mathf.RadToDeg(peak):0.0}° to {Mathf.RadToDeg(tail):0.0}°)"));
+    }
+
+    private float _legSwingHz;
+
+    /// <summary>
+    /// Review major 2: the springs step on the physics tick, the Δt PoseStack.Run tunes them to (the body's ticks run the stack),
+    /// never on the render frame. With the physics tick at 30 Hz under the suite's 60 Hz frames (a 144 Hz display draws 2.4
+    /// frames a 60 Hz tick), Cloudpuff's leg, tuned to the 30 Hz tick, still swings at its tuned frequency and as it does at 60 Hz;
+    /// on render frames its stiffness and drag would act twice a tick and it would swing about √2 times faster.
+    /// </summary>
+    private async Task TestSpringsOnThePhysicsTick()
+    {
+        var probe = Build("cloudpuff");
+        var plain = new Skeleton3D();
+        Check(probe.Skeleton.ModifierCallbackModeProcess == Skeleton3D.ModifierCallbackModeProcessEnum.Physics,
+            $"the rig's modifiers (springs, look-ats, leg IK) run on the physics tick (the engine's default is {plain.ModifierCallbackModeProcess})");
+        plain.Free();
+        probe.Free();
+        var ticks = Engine.PhysicsTicksPerSecond;
+        Engine.PhysicsTicksPerSecond = 30;
+        (float Hz, float Peak, float Tail, SpringChain Chain) slow;
+        try
+        {
+            await Frames(2);
+            slow = await SwingLeg("SpringHolder30", new Vector3(18, 0, 0), 1f / 30);
+        }
+        finally
+        {
+            Engine.PhysicsTicksPerSecond = ticks;
+        }
+        await Frames(2);
+        GD.Print(FormattableString.Invariant($"CHARACTERS_SPRING_TICK: Cloudpuff's leg swings at {_legSwingHz:0.00} Hz with 60 Hz ticks and {slow.Hz:0.00} Hz with 30 Hz ticks under 60 Hz frames (tuned {slow.Chain.FrequencyHz:0.00} Hz)"));
+        Check(Mathf.Abs(slow.Hz / slow.Chain.FrequencyHz - 1) < 0.2f && Mathf.Abs(slow.Hz / _legSwingHz - 1) < 0.12f && slow.Peak > 0.05f && slow.Tail < 0.3f * slow.Peak,
+            FormattableString.Invariant($"with the physics tick at 30 Hz under 60 Hz frames, the leg tuned to the tick swings at {slow.Hz:0.00} Hz (tuned {slow.Chain.FrequencyHz:0.00} Hz; {_legSwingHz:0.00} Hz at 60 Hz) and settles ({Mathf.RadToDeg(slow.Peak):0.0}° to {Mathf.RadToDeg(slow.Tail):0.0}°)"));
+    }
+
+    /// <summary>
+    /// Cloudpuff jerked forward 12 mm and left: its dangling leg's swing frequency (zero crossings over 300 frames of 1/60 s), its
+    /// largest swing and its swing over the last second, with the springs tuned to <paramref name="tunedFor"/> (the tick's Δt).
+    /// </summary>
+    private async Task<(float Hz, float Peak, float Tail, SpringChain Chain)> SwingLeg(string name, Vector3 at, float tunedFor)
+    {
+        var holder = new Node3D { Name = name, Position = at };
         AddChild(holder);
         var body = Build("cloudpuff");
         holder.AddChild(body);
+        body.Secondary.MatchTimestep(tunedFor);
         var chain = body.Secondary.Chains[0];
         var hip = chain.Bones[0];
         var foot = chain.Bones[1];
@@ -254,11 +302,9 @@ public partial class CharacterRigTest
         var measured = crossings.Count >= 3 ? (crossings.Count - 1) / 2f / ((crossings[^1] - crossings[0]) / 60f) : 0;
         var peak = samples.Max(Mathf.Abs);
         var tail = samples.Skip(240).Max(Mathf.Abs);
-        Check(Mathf.Abs(measured / chain.FrequencyHz - 1) < 0.2f,
-            FormattableString.Invariant($"Cloudpuff's dangling leg swings at {measured:0.00} Hz, tuned for {chain.FrequencyHz:0.00} Hz (its {chain.LengthM * 100:0.0} cm pendulum's {chain.PendulumHz:0.00} Hz x 1.61)"));
-        Check(peak > 0.05f && tail < 0.3f * peak, FormattableString.Invariant($"the leg swings when the body jerks and settles ({Mathf.RadToDeg(peak):0.0}° to {Mathf.RadToDeg(tail):0.0}°)"));
         holder.QueueFree();
         await Frames(1);
+        return (measured, peak, tail, chain);
     }
 
     /// <summary>The leg IK, once active, puts the sole on its target; off again, the foot goes back to rest.</summary>

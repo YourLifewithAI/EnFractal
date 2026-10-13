@@ -30,7 +30,10 @@ public static class CharacterRig
         var notes = new List<string>();
         var bones = MakeBones(definition);
 
-        var skeleton = new Skeleton3D { Name = "Skeleton" };
+        // The modifiers (springs, look-ats, leg IK) step on the physics tick: the body's ticks run the pose stack, which tunes the
+        // springs' stiffness and drag to the tick's delta (and contact the wind's force). The engine's default steps them on the
+        // render frame, which made them stiffer, more damped and windier on a faster display. Physics interpolation is off.
+        var skeleton = new Skeleton3D { Name = "Skeleton", ModifierCallbackModeProcess = Skeleton3D.ModifierCallbackModeProcessEnum.Physics };
         foreach (var bone in bones)
         {
             var index = skeleton.AddBone(bone.Name);
