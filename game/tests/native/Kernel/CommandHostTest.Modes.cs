@@ -17,6 +17,7 @@ public partial class CommandHostTest
     {
         TestVitalsModelAndStore();
         TestModeCommands();
+        TestModeLandingCallbacks();
         await TestModeClimbingBody();
         _host.ConfigurePlayerVitals(new ModeTestStore());
     }
@@ -34,9 +35,20 @@ public partial class CommandHostTest
         Check(earned.CompletedClimbs == 1 && Mathf.IsEqualApprox(earned.MaxStamina, 0.55f) && earned.Stamina == climbed.Stamina &&
             ReferenceEquals(earned, earned.CompleteClimb(new string('a', 64))),
             "a distinct climb raises capacity once, without refilling current energy");
-        Check(PlayerVitals.FallDamage(0.2f, false) == 0 && PlayerVitals.FallDamage(0.8f, false) > 0 && PlayerVitals.FallDamage(3, true) == 0 &&
+        var defaultLandingSpeed = MathF.Sqrt(2 * 3.5f * 1.5f);
+        var lowGravityLandingSpeed = MathF.Sqrt(2 * 0.6f * 1.5f);
+        Check(Math.Abs(PlayerVitals.FallDamage(defaultLandingSpeed, false) - 96) < 0.1f &&
+            PlayerVitals.FallDamage(PlayerVitals.SafeLandingSpeedMps, false) == 0,
+            "default-gravity falls retain the 30 cm safe threshold and about 96 damage from 1.5 m");
+        Check(PlayerVitals.FallDamage(lowGravityLandingSpeed, false) == 0 && PlayerVitals.FallDamage(0.5f, false) == 0 &&
+            PlayerVitals.FallDamage(defaultLandingSpeed, true) == 0,
+            "a 1.5 m low-gravity fall, slow glider descent and deep-water landing cause no injury");
+        Check(new[] { float.NaN, float.PositiveInfinity, float.NegativeInfinity, -1f }.All(speed => PlayerVitals.FallDamage(speed, false) == 0) &&
+            PlayerVitals.FallDamage(float.MaxValue, false) == PlayerVitals.MaximumHealth,
+            "invalid landing speeds cause no injury and finite extreme speeds clamp damage to maximum health");
+        Check(PlayerVitals.FallDamage(0.2f, false) == 0 && PlayerVitals.FallDamage(3, false) > 0 &&
             fresh.Damage(200).Health == 0 && fresh.Damage(200).Recovered().Health == 50 && fresh.Damage(200).Recovered().Recoveries == 1,
-            "short falls and deep-water landings are safe; tall falls injure, and recovery leaves half health with a counted return");
+            "slow landings are safe; fast impacts injure, and recovery leaves half health with a counted return");
         var path = ProjectSettings.GlobalizePath($"{TestRoot}/modes/{Guid.NewGuid():N}/player.json");
         var store = new LocalPlayerVitalsStore(path);
         Check(store.Load().Mode == "creative" && !File.Exists(path), "a missing mode profile starts Creative without creating a save");
@@ -87,6 +99,10 @@ public partial class CommandHostTest
             "previewing a mode choice neither changes mode nor saves it");
         Check(Code(Send(choose, Companion)) == "permission_denied" && _host.Mode == "creative", "the companion cannot choose the player's consequences");
         Check(Ok(Send(choose, Player)) && _host.Mode == "challenge", "the player's mode command enters Challenge through the shared command path");
+        _player.FallObserved?.Invoke(0.5f, false);
+        _player.FallObserved?.Invoke(3.24f, true);
+        _player.FallObserved?.Invoke(float.NaN, false);
+        Check(_host.Vitals.Health == 100, "the trusted fall callback ignores slow, deep-water and non-finite landing speeds in Challenge");
         var saves = store.Saves;
         Check(Send(choose, Player)["replayed"]!.GetValue<bool>() && store.Saves == saves, "retrying a successful mode command replays without a second mode change");
         _host.ApplyPlayerDamage(20, PlayerDamageSource.Fire);
@@ -128,6 +144,26 @@ public partial class CommandHostTest
         _host.ConfigurePlayerVitals(new ModeTestStore());
     }
 
+    /// <summary>The trusted body's speed observation follows the same consequences in Challenge and Live.</summary>
+    private void TestModeLandingCallbacks()
+    {
+        foreach (var mode in PlayerModesProfile.Modes)
+        {
+            _host.ConfigurePlayerVitals(new ModeTestStore());
+            Check(Ok(_host.PlayerMode(mode)), $"the landing callback fixture selects {mode}");
+            _player.FallObserved?.Invoke(0.5f, false);
+            _player.FallObserved?.Invoke(0.6f, false);
+            _player.FallObserved?.Invoke(3.24f, true);
+            _player.FallObserved?.Invoke(float.PositiveInfinity, false);
+            Check(_host.Vitals.Health == 100, $"slow glider, floaty-air, deep-water and invalid impacts leave {mode} health intact");
+            _player.FallObserved?.Invoke(MathF.Sqrt(2 * 3.5f * 1.5f), false);
+            var expected = mode == "creative" ? 100 : 4;
+            Check(Math.Abs(_host.Vitals.Health - expected) < 0.1f,
+                $"a default-gravity 1.5 m impact follows {mode} rules through the trusted callback (health {_host.Vitals.Health:0.00})");
+        }
+        _host.ConfigurePlayerVitals(new ModeTestStore());
+    }
+
     private async Task TestModeClimbingBody()
     {
         var fixture = new Node3D { Name = "ModeBodyFixture" };
@@ -165,7 +201,7 @@ public partial class CommandHostTest
         Check(body.ClimbReleases > releases && !body.IsClimbing && vitals.Stamina == 0 && highest < 0.6f && completed == 1,
             $"the real body lets go when exhausted before reaching a 1 m cliff (highest {highest:0.000})");
         var observedFall = 0f;
-        body.FallObserved = (height, deep) => observedFall = Math.Max(observedFall, PlayerVitals.FallDamage(height, deep));
+        body.FallObserved = (landingSpeedMps, deep) => observedFall = Math.Max(observedFall, PlayerVitals.FallDamage(landingSpeedMps, deep));
         body.GlobalPosition = origin + new Vector3(-1, 1, 0);
         body.Velocity = Vector3.Zero;
         body.ResetVitalsObservation();

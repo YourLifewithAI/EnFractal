@@ -312,9 +312,10 @@ public partial class SmallPlayerController : CharacterBody3D
     /// <summary>Trusted host callbacks for mode consequences. Unbound fixture bodies retain Creative movement.</summary>
     public System.Func<float, float, bool>? ClimbBudget { get; set; }
     public System.Action<float, bool>? VitalsTick { get; set; }
+    /// <summary>Trusted body observation: downward speed in m/s just before landing, and whether deep water caught it.</summary>
     public System.Action<float, bool>? FallObserved { get; set; }
     public System.Action<Vector3, Vector3>? ClimbCompleted { get; set; }
-    private float? _vitalsFallPeak;
+    private float _vitalsLandingSpeedMps;
     private Vector3? _vitalsClimbStart;
     public bool IsPullingOver => _climbing && _pullPhase > 0;
     public bool IsSwimming => _swimming;
@@ -767,7 +768,7 @@ public partial class SmallPlayerController : CharacterBody3D
     /// <summary>Teleports and a change of mode start a new observation; they never manufacture a completed climb or a fall.</summary>
     public void ResetVitalsObservation()
     {
-        _vitalsFallPeak = IsInsideTree() ? GlobalPosition.Y : null;
+        _vitalsLandingSpeedMps = 0;
         _vitalsClimbStart = null;
     }
 
@@ -806,6 +807,7 @@ public partial class SmallPlayerController : CharacterBody3D
     {
         if (!_ready) return;
         var dt = Mathf.Clamp((float)delta, 0, 0.05f);
+        _vitalsLandingSpeedMps = 0;
         // Separate last tick's creation contribution from the body's own motion.
         Velocity -= _creationApplied;
         _creationApplied = Vector3.Zero;
@@ -873,6 +875,7 @@ public partial class SmallPlayerController : CharacterBody3D
             // creation's share after the move missed a push that ended against a wall: the slide had already cut it away.)
             GlobalPosition = before;
             Velocity = _ownVelocity;
+            _vitalsLandingSpeedMps = Mathf.Max(0, -Velocity.Y);
             if (_ownVelocity.LengthSquared() > 0) MoveAndSlide();
             Velocity = _ownVelocity;
             _creationApplied = Vector3.Zero;
@@ -892,8 +895,8 @@ public partial class SmallPlayerController : CharacterBody3D
             (PlayableBounds is { } bounds && GlobalPosition.Y < bounds.Position.Y - RecoverBelowBoundsM))
         {
             // The out-of-room safety net is still a fall in consequence modes; report it before teleport resets the observation.
-            if (GlobalPosition.IsFinite() && _vitalsFallPeak is { } peak)
-                FallObserved?.Invoke(Mathf.Max(0, peak - GlobalPosition.Y), false);
+            if (GlobalPosition.IsFinite() && !Floats)
+                FallObserved?.Invoke(_vitalsLandingSpeedMps, false);
             Recover();
         }
         ObserveBodyVitals(dt);
@@ -904,15 +907,10 @@ public partial class SmallPlayerController : CharacterBody3D
     private void ObserveBodyVitals(float dt)
     {
         if (Floats || (VitalsTick == null && FallObserved == null)) return;
-        _vitalsFallPeak = Mathf.Max(_vitalsFallPeak ?? GlobalPosition.Y, GlobalPosition.Y);
         var safelyGrounded = IsOnFloor() && !_climbing && !_swimming && !GoingHome;
         var caughtByWater = Water.Wet && Water.DepthM >= SwimDepthM && Water.Under(GlobalPosition) >= 0;
         if (safelyGrounded || caughtByWater)
-        {
-            var height = Mathf.Max(0, _vitalsFallPeak.Value - GlobalPosition.Y);
-            _vitalsFallPeak = GlobalPosition.Y;
-            FallObserved?.Invoke(height, caughtByWater);
-        }
+            FallObserved?.Invoke(_vitalsLandingSpeedMps, caughtByWater);
         VitalsTick?.Invoke(dt, safelyGrounded);
     }
 
@@ -951,7 +949,12 @@ public partial class SmallPlayerController : CharacterBody3D
             MoveAndSlide();
             Velocity = new Vector3(horizontal.X, Velocity.Y, horizontal.Z);
         }
-        else MoveAndSlide();
+        else
+        {
+            // Capture the final descent after creation forces and the water catch, before the floor stops it.
+            _vitalsLandingSpeedMps = Mathf.Max(0, -Velocity.Y);
+            MoveAndSlide();
+        }
         // A face too steep to stand on, pushed into: grab it (at once in the air, after a deliberate push on the ground).
         var grounded = IsOnFloor();
         TryGrab(dt, wish, deliberate: grounded, heldBack: !grounded || HeldBack(start, wish, WalkSpeedMps, dt));
