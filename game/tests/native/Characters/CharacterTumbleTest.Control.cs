@@ -1,0 +1,273 @@
+using Godot;
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Linq;
+using System.Threading.Tasks;
+using EnFractal.Native;
+using EnFractal.Native.Characters;
+using EnFractal.Native.Kernel;
+
+namespace EnFractal.Tests.Characters;
+
+/// <summary>Control held and released (early by moving, within the bound), the knockout, the hazard entry point, the capsule, the cost.</summary>
+public partial class CharacterTumbleTest
+{
+    private sealed class Watch
+    {
+        public required Wearer Wearer;
+        public required bool Move;
+        public float Height;
+        public double StartS = -1;
+        public double ReleasedS = -1;
+        public double EndS = -1;
+        public bool SuspendedInFlop = true;
+        public bool SawFlop;
+        public bool SawGetUp;
+        public bool ResumedInGetUp = true;
+        public float HeldDrift;
+        public Vector3 HeldFrom;
+        public bool MovedAfter;
+        public bool StarsShown;
+        public bool StarsNearHead = true;
+        public float RootTurned;
+    }
+
+    private async Task<List<Watch>> WatchFalls(Vector3 origin, (string Id, float Height, bool Move)[] falls, Action<SmallPlayerController>? prepare = null, int frames = 260)
+    {
+        var watches = new List<Watch>();
+        for (var i = 0; i < falls.Length; i++)
+            watches.Add(new Watch { Wearer = Wear(falls[i].Id, origin + new Vector3(0.6f * i, falls[i].Height, 0)), Move = falls[i].Move, Height = falls[i].Height });
+        await Frames(1);
+        foreach (var watch in watches)
+        {
+            watch.Wearer.Body.SetWorldPhysics(Preset("room_tuned", watch.Wearer.Body.WorldPhysicsRevision + 1));
+            prepare?.Invoke(watch.Wearer.Body);
+        }
+        for (var frame = 0; frame < frames; frame++)
+        {
+            await Frames(1);
+            foreach (var watch in watches)
+            {
+                var body = watch.Wearer.Body;
+                var tumble = watch.Wearer.Tumble;
+                var now = watch.Wearer.Visual.TimeS;
+                if (watch.StartS < 0 && tumble.IsTumbling)
+                {
+                    watch.StartS = now;
+                    watch.HeldFrom = body.GlobalPosition;
+                    if (watch.Move) body.SetControlInput(Vector2.Up);
+                }
+                if (watch.StartS < 0) continue;
+                var stack = watch.Wearer.Visual.Stack;
+                if (tumble.Phase == TumblePhase.Flop)
+                {
+                    watch.SawFlop = true;
+                    watch.SuspendedInFlop &= stack.IsSuspended(PoseLayer.Gait) && stack.IsSuspended(PoseLayer.Contact) && stack.IsSuspended(PoseLayer.Life);
+                    watch.RootTurned = Mathf.Max(watch.RootTurned, watch.Wearer.Visual.Body.Pose.GetRotation(CharacterBody.RootBone).GetAngle());
+                }
+                if (tumble.Phase == TumblePhase.GetUp)
+                {
+                    watch.SawGetUp = true;
+                    watch.ResumedInGetUp &= !stack.IsSuspended(PoseLayer.Gait) && !stack.IsSuspended(PoseLayer.Contact) && !stack.IsSuspended(PoseLayer.Life);
+                }
+                if (tumble.Dazed && tumble.Stars is { Visible: true } stars)
+                {
+                    watch.StarsShown = true;
+                    var head = watch.Wearer.Visual.Body.Attachment(watch.Wearer.Visual.Body.HeadBone).GlobalPosition;
+                    for (var i = 0; i < TumbleStars.Count; i++)
+                        watch.StarsNearHead &= stars.StarPosition(i).IsFinite() && stars.StarPosition(i).DistanceTo(head) < 0.08f;
+                }
+                if (body.ControlHeld)
+                {
+                    var drift = body.GlobalPosition - watch.HeldFrom;
+                    watch.HeldDrift = Mathf.Max(watch.HeldDrift, new Vector2(drift.X, drift.Z).Length());
+                }
+                else if (watch.ReleasedS < 0) watch.ReleasedS = now;
+                if (watch.EndS < 0 && !tumble.IsTumbling) watch.EndS = now;
+                if (watch.ReleasedS >= 0 && watch.Move && (body.GlobalPosition - watch.HeldFrom).Length() > 0.01f) watch.MovedAfter = true;
+            }
+        }
+        return watches;
+    }
+
+    private async Task TestControl()
+    {
+        var origin = new Vector3(80, 0, 0);
+        var floor = Floor(origin + new Vector3(1.5f, 0, 0), 6);
+        await Frames(1);
+        var falls = new List<(string, float, bool)>();
+        foreach (var id in PlayerCharacters)
+        {
+            falls.Add((id, 0.9f, false));
+            falls.Add((id, 0.9f, true));
+        }
+        var watches = await WatchFalls(origin, falls.ToArray());
+        foreach (var watch in watches)
+        {
+            var name = $"{watch.Wearer.Visual.Body.CharacterId} {(watch.Move ? "moving" : "still")}";
+            var length = watch.Wearer.Tumble.LastLengthS;
+            Check(watch.StartS >= 0 && watch.SawFlop && watch.SawGetUp && watch.EndS > 0, $"{name}: a 0.9 m fall tumbles, flops and gets up");
+            Check(watch.SuspendedInFlop && watch.ResumedInGetUp, $"{name}: Gait, Contact and Life wait while it flops and pose the standing body again for the get-up");
+            Check(watch.RootTurned > 0.3f, Inv($"{name}: physics turns the root bone (by up to {Mathf.RadToDeg(watch.RootTurned):0} degrees)"));
+            if (!watch.Move)
+                Check(Mathf.Abs(length - TumbleTiers.TumbleSeconds) <= 1.5f * Dt && Mathf.Abs((float)(watch.ReleasedS - watch.StartS) - TumbleTiers.TumbleSeconds) <= 2.5f * Dt &&
+                      watch.Wearer.Tumble.EarlyGetUps == 0,
+                    Inv($"{name}: control is held for the whole {TumbleTiers.TumbleSeconds} s tumble (tumbled {length:0.000} s, released after {watch.ReleasedS - watch.StartS:0.000} s)"));
+            else
+                Check(watch.Wearer.Tumble.EarlyGetUps == 1 && length < TumbleTiers.TumbleSeconds - 0.1f && length >= TumbleTiers.TumbleSeconds - TumbleTiers.EarlyGetUpSeconds - 1.5f * Dt &&
+                      Mathf.Abs((float)(watch.ReleasedS - watch.StartS) - length) <= 2.5f * Dt,
+                    Inv($"{name}: moving starts the get-up early, at most {TumbleTiers.EarlyGetUpSeconds} s sooner, then control is released (tumbled {length:0.000} s, released after {watch.ReleasedS - watch.StartS:0.000} s)"));
+            Check(watch.HeldDrift < 0.002f, Inv($"{name}: while control is held the capsule takes no input (drifted {watch.HeldDrift * 1000:0.0} mm)"));
+            if (watch.Move) Check(watch.MovedAfter, $"{name}: released, the body walks off");
+            var pose = watch.Wearer.Visual.Body.Pose;
+            Check(pose.GetRotation(CharacterBody.RootBone).IsEqualApprox(Quaternion.Identity) && pose.GetPosition(CharacterBody.RootBone).IsEqualApprox(watch.Wearer.Visual.Body.Bones[0].RestLocal) &&
+                  pose.NonFiniteWrites == 0 && !watch.Wearer.Tumble.Hull.Active,
+                $"{name}: the get-up blends back to the standing pose exactly and the tumbling body is gone");
+        }
+        foreach (var watch in watches) watch.Wearer.Body.QueueFree();
+        floor.QueueFree();
+        await Frames(2);
+    }
+
+    private async Task TestKnockout()
+    {
+        var origin = new Vector3(90, 0, 0);
+        var floor = Floor(origin + new Vector3(1.5f, 0, 0), 6);
+        await Frames(1);
+        var falls = PlayerCharacters.Select(id => (id, 1.9f, true)).ToArray();
+        var watches = await WatchFalls(origin, falls, frames: 220);
+        foreach (var watch in watches)
+        {
+            var name = watch.Wearer.Visual.Body.CharacterId;
+            var length = watch.Wearer.Tumble.LastLengthS;
+            Check(watch.StartS >= 0 && watch.Wearer.Tumble.LastTier == TumbleTier.Knockout && Mathf.Abs(length - TumbleTiers.KnockoutSeconds) <= 1.5f * Dt &&
+                  watch.Wearer.Tumble.EarlyGetUps == 0 && Mathf.Abs((float)(watch.ReleasedS - watch.StartS) - TumbleTiers.KnockoutSeconds) <= 2.5f * Dt,
+                Inv($"{name}: a knockout tumbles for {TumbleTiers.KnockoutSeconds} s with control held throughout, moving or not (tumbled {length:0.000} s)"));
+            Check(watch.StarsShown && watch.StarsNearHead && watch.Wearer.Tumble.Stars is { Visible: false } stars && stars.GetChildCount() == TumbleStars.Count &&
+                  stars.GetChildren().OfType<MeshInstance3D>().All(m => m.Layers == watch.Wearer.Visual.Body.PartMesh(watch.Wearer.Visual.Body.BodyBone)!.Layers &&
+                      m.MaterialOverride is StandardMaterial3D { EmissionEnabled: true }),
+                $"{name}: dazed stars circle the head for the knockout's length, emissive, on the body's own layers (so never in its own eye), then go");
+        }
+        foreach (var watch in watches) watch.Wearer.Body.QueueFree();
+        // A host that holds the body longer (Challenge's knockout recovery for a player already hurt) gets the knockout's tumble.
+        var hurt = await WatchFalls(origin, new[] { ("potato_man", 0.9f, false) }, body =>
+        {
+            body.FallObserved = (speed, deep) =>
+            {
+                if (PlayerVitals.FallDamage(speed, deep) > 0) body.HoldControl(body.KnockoutRecoveryDelayS);
+            };
+        }, frames: 220);
+        var tumble = hurt[0].Wearer.Tumble;
+        Check(tumble.LastTier == TumbleTier.Tumble && hurt[0].StarsShown && Mathf.Abs(tumble.LastLengthS - TumbleTiers.KnockoutSeconds) <= 1.5f * Dt,
+            Inv($"a tumble-tier fall that the host turns into a knockout (its recovery waits KnockoutRecoveryDelayS) tumbles dazed for the knockout's length ({tumble.LastLengthS:0.000} s)"));
+        hurt[0].Wearer.Body.QueueFree();
+        floor.QueueFree();
+        await Frames(2);
+    }
+
+    private async Task TestHazardEntryPoint()
+    {
+        var origin = new Vector3(100, 0, 0);
+        var floor = Floor(origin);
+        var wearer = Wear("stickbear", origin + new Vector3(0, 0.003f, 0));
+        await Frames(10);
+        var tumble = wearer.Tumble;
+        Check(!tumble.Tumble(new Vector3(float.NaN, 0, 0), 1) && !tumble.Tumble(Vector3.Right, -1) && !tumble.Tumble(Vector3.Right, float.PositiveInfinity) && !wearer.Body.ControlHeld,
+            "Tumble refuses a non-finite push or a length that is not finite and positive, and holds nothing then");
+        Check(tumble.Tumble(new Vector3(0.6f, 0, 0), 1.5f) && wearer.Body.ControlHeld && Mathf.IsEqualApprox(wearer.Body.ControlHoldS, 1.5f),
+            "Tumble(impulse, seconds) knocks a standing body over and holds control for its length at once");
+        await Frames(2);
+        Check(tumble.IsTumbling && !tumble.Dazed && Mathf.IsEqualApprox(tumble.Seconds, 1.5f) && tumble.Hull.Active, "the hazard's tumble flops on the physics body, not dazed below a knockout's length");
+        var again = tumble.Tumble(new Vector3(-0.4f, 0, 0), 2.5f);
+        await Frames(2);
+        Check(again && tumble.Dazed && tumble.Seconds > 2.5f && tumble.Tumbles == 1, Inv($"a second blow while tumbling pushes again and tumbles longer, dazed past a knockout's length ({tumble.Seconds:0.00} s in all)"));
+        await Frames(160);
+        Check(!tumble.IsTumbling && !wearer.Body.ControlHeld && tumble.Tumbles == 1, Inv($"and it ends, control back ({tumble.LastLengthS:0.00} s in all)"));
+        Check(tumble.Tumble(Vector3.Up, 60) && Mathf.IsEqualApprox(wearer.Body.ControlHoldS, SmallPlayerController.MaxControlHoldS), "a very long tumble is held for at most MaxControlHoldS");
+        await Frames(2);
+        // Taken off mid-tumble (the character changed): the tumbling body is freed and the layers resume.
+        wearer.Body.SetBodyVisual(null);
+        await Frames(2);
+        Check(!tumble.IsTumbling && !tumble.Hull.Active && !wearer.Visual.Stack.IsSuspended(PoseLayer.Gait), "a visual taken off mid-tumble frees its tumbling body and resumes its layers");
+        wearer.Body.QueueFree();
+        wearer.Visual.Body.QueueFree();
+        floor.QueueFree();
+        await Frames(2);
+    }
+
+    /// <summary>The same scripted knockout drop (with some drift) twice on the same spot: a plain body, then one wearing a character.</summary>
+    private async Task TestCapsuleUntouched()
+    {
+        var origin = new Vector3(110, 0, 0);
+        var floor = Floor(origin);
+        await Frames(2);
+        var paths = new List<List<Vector3>>();
+        foreach (var dressed in new[] { false, true })
+        {
+            SmallPlayerController body;
+            if (dressed) body = Wear("tomato_man", origin + new Vector3(0, 1.8f, 0)).Body;
+            else
+            {
+                body = new SmallPlayerController { Name = $"Plain{_serial++}", ReadKeyboard = false, Position = origin + new Vector3(0, 1.8f, 0) };
+                AddChild(body);
+            }
+            await Frames(1);
+            body.SetWorldPhysics(Preset("room_tuned", body.WorldPhysicsRevision + 1));
+            body.GlobalPosition = origin + new Vector3(0, 1.8f, 0);
+            body.Velocity = new Vector3(0.15f, 0, -0.05f);
+            var path = new List<Vector3>();
+            for (var frame = 0; frame < 220; frame++)
+            {
+                await Frames(1);
+                path.Add(body.GlobalPosition - origin);
+            }
+            paths.Add(path);
+            Check(!dressed || (body.BodyVisual is CharacterVisual visual && CharacterTumble.Find(visual)!.Tumbles == 1), dressed ? "the dressed body tumbled on that drop" : "the plain body dropped");
+            body.QueueFree();
+            await Frames(2);
+        }
+        var worst = paths[0].Zip(paths[1], (a, b) => a.DistanceTo(b)).Max();
+        Check(worst <= 1e-6f, Inv($"the capsule moves identically with and without the drawn body and its tumble over the same drop (largest difference {worst * 1000:0.000000} mm)"));
+        floor.QueueFree();
+        await Frames(2);
+    }
+
+    /// <summary>The tumble's frame cost: 16 bodies (four of each character) standing, then all tumbling, frame time compared.</summary>
+    private async Task TestFrameCost(bool skipBudget)
+    {
+        var origin = new Vector3(120, 0, 0);
+        var floor = Floor(origin + new Vector3(1, 0, 1), 6);
+        var wearers = new List<Wearer>();
+        for (var i = 0; i < 16; i++) wearers.Add(Wear(PlayerCharacters[i % 4], origin + new Vector3(0.5f * (i % 4), 0.003f, 0.5f * (i / 4))));
+        await Frames(30);
+        async Task<double> FrameMs(int frames)
+        {
+            var times = new List<double>();
+            var clock = Stopwatch.StartNew();
+            for (var f = 0; f < frames; f++)
+            {
+                var before = clock.Elapsed.TotalMilliseconds;
+                await Frames(1);
+                times.Add(clock.Elapsed.TotalMilliseconds - before);
+            }
+            times.Sort();
+            return times[times.Count / 2];
+        }
+        var idle = await FrameMs(45);
+        var seed = 11u;
+        foreach (var wearer in wearers)
+        {
+            wearer.Tumble.NextSeed = seed++;
+            wearer.Tumble.Tumble(new Vector3(0.3f, 0, 0.2f), TumbleTiers.KnockoutSeconds);
+        }
+        await Frames(2);
+        var tumbling = await FrameMs(45);
+        var perTumble = Math.Max(0, tumbling - idle) / wearers.Count;
+        GD.Print(Inv($"TUMBLE_COST median frame {idle:0.000} ms with 16 bodies standing, {tumbling:0.000} ms with all 16 tumbling: {perTumble:0.000} ms per tumble (budget 0.3 ms)"));
+        if (!skipBudget) Check(perTumble <= 0.3, Inv($"a tumble costs at most 0.3 ms of frame time ({perTumble:0.000} ms)"));
+        foreach (var wearer in wearers) wearer.Body.QueueFree();
+        floor.QueueFree();
+        await Frames(2);
+    }
+}
