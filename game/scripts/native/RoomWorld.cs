@@ -68,9 +68,11 @@ public partial class RoomWorld : Node3D
     private System.Threading.Tasks.Task<RoomData>? _loading;
 
     /// <summary>
-    /// "-- --quit-after-ready=N": quit N frames after the world is ready (exit code 0), or as soon as the room fails to load
-    /// (exit code 1). The boot check of the runners and of a smoke boot: Godot's own --quit-after counts frames from the start,
-    /// and frames pass faster than a room loads on its worker thread (under --fixed-fps, a few milliseconds a frame).
+    /// "-- --quit-after-ready=N": quit N frames after the world is ready (exit code 0, after printing ROOM_WORLD_QUIT), or as
+    /// soon as the room fails to load (exit code 1). The boot check of the runners and of a smoke boot (tools/smoke-boot.ps1):
+    /// Godot's own --quit-after counts frames from the start, and frames pass faster than a room loads on its worker thread
+    /// (under --fixed-fps, a few milliseconds a frame). Godot runs the C# last built, never the source: a game built before
+    /// this option ignores it and never quits, so boot checks build first and look for ROOM_WORLD_QUIT (13 October).
     /// </summary>
     private static int? QuitAfterReadyFrames() =>
         OS.GetCmdlineUserArgs().FirstOrDefault(a => a.StartsWith("--quit-after-ready=", StringComparison.Ordinal)) is { } argument &&
@@ -133,11 +135,7 @@ public partial class RoomWorld : Node3D
             DisplayServer.WindowSetTitle($"EnFractal - {Room.DisplayName}");
             WorldReady = true;
             GD.Print($"ROOM_WORLD_READY room={Room.RoomId} shell={Room.Shell.Count} objects={Room.Objects.Count} lights={Look.RoomLightCount} style={preset.PresetId}@{preset.PresetVersion} spawn={Player.Position}");
-            if (QuitAfterReadyFrames() is { } frames)
-            {
-                for (var i = 0; i < frames; i++) await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
-                GetTree().Quit(0);
-            }
+            if (QuitAfterReadyFrames() is { } frames) QuitAfter(frames);
         }
         catch (Exception exception)
         {
@@ -145,6 +143,29 @@ public partial class RoomWorld : Node3D
             GD.PushError("Room failed to load: " + exception.Message);
             if (QuitAfterReadyFrames() != null) GetTree().Quit(1);
         }
+    }
+
+    /// <summary>
+    /// Counted on the scene tree's own frame signal, not on this node, so the quit comes even if the world is freed or replaced
+    /// meanwhile. The wrappers left to the finalizer are let go first: pending at exit, they can abort Godot's shutdown (the
+    /// test suites do the same before they quit).
+    /// </summary>
+    private void QuitAfter(int frames)
+    {
+        var tree = GetTree();
+        var left = frames;
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        Action? tick = null;
+        tick = () =>
+        {
+            if (--left > 0) return;
+            tree.ProcessFrame -= tick;
+            GD.Print(System.FormattableString.Invariant($"ROOM_WORLD_QUIT {frames} frames after ready ({clock.Elapsed.TotalSeconds:0.0} s)"));
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            tree.Quit(0);
+        };
+        tree.ProcessFrame += tick;
     }
 
     /// <summary>
