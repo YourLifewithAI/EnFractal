@@ -1,0 +1,18 @@
+{
+  "schema": "enfractal.command",
+  "version": 1,
+  "action_id": "fire-0010",
+  "room_id": "garage_example",
+  "op": "nature.cast",
+  "args": {
+    "capability": "fire",
+    "center_m": [
+      -0.1,
+      0.0,
+      -1.9
+    ],
+    "radius_m": 0.6,
+    "duration_s": 30,
+    "preview_id": "preview-1"
+  }
+}

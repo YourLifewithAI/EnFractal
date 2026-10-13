@@ -222,6 +222,11 @@ public partial class LookDirector
         public bool Bloomed;
         /// <summary>How far the halo has opened (BloomFrom to 1); the breath swells and settles around it.</summary>
         public float Opened = 1f;
+        public string Variant = "plain", Touch = "plain";
+        public string? BubbleSource;
+        public Vector3 Anchor;
+        public MultiMeshInstance3D? Decoration;
+        public AudioStreamPlayer3D? Chime;
     }
 
     private readonly Dictionary<string, Glow> _glows = new();
@@ -317,7 +322,9 @@ public partial class LookDirector
     {
         if (!_glows.Remove(effectId, out var glow)) return false;
         _glowOrder.Remove(glow);
+        ReleaseGlowSound(glow);
         if (IsInstanceValid(glow.Root)) glow.Root.Free();
+        UpdateGlowLinks();
         return true;
     }
 
@@ -446,8 +453,9 @@ public partial class LookDirector
             }
             glow.Spark.Free();
             glow.Spark = null;
-            glow.Halo.Visible = true;
-            if (glow.Core != null) glow.Core.Visible = true;
+            var visibleSource = glow.Variant is not ("bioluminesce" or "glowing_bubbles");
+            glow.Halo.Visible = visibleSource;
+            if (glow.Core != null) glow.Core.Visible = visibleSource;
         }
         var bloom = Mathf.Clamp(Mathf.Max(0f, landed) / GlowLook.BloomS, 0f, 1f);
         var opened = 1f - (1f - bloom) * (1f - bloom);
@@ -526,6 +534,7 @@ public partial class LookDirector
             return origin + Vector3.Up * glow.Lift;
         }
         if (!drawing) return glow.Center;
+        if (glow.Variant is "bioluminesce" or "skylight" or "glowing_bubbles") return glow.Center;
         return glow.Center + Vector3.Up * (GlowLook.BobAmplitudeM * (float)Math.Sin(_glowClock * Math.Tau / GlowLook.BobPeriodS + glow.Phase));
     }
 
@@ -538,11 +547,13 @@ public partial class LookDirector
             var glow = _glowOrder[i];
             // A halo whose body is gone goes with it.
             if (glow.Follow != null && !IsInstanceValid(glow.Follow)) { StopGlow(glow.Id); continue; }
+            UpdateGlowVariant(glow, (float)delta);
             glow.Root.Position = GlowPosition(glow, drawing: true);
             AdvanceCast(glow, (float)delta);
             var breath = glow.Opened * (1f + GlowLook.BreathAmount * (float)Math.Sin(_glowClock * Math.Tau / GlowLook.BreathPeriodS + glow.Phase));
             glow.Halo.Scale = new Vector3(breath, breath, breath);
         }
+        UpdateGlowLinks();
     }
 
     /// <summary>The shadow slots the preset's budget has left after the sun and the room's windows and lamps (counted whether lit or not).</summary>

@@ -65,7 +65,8 @@ public partial class GubbleCue : Control
         Redraw();
     }
 
-    private static Label MakeLabel(string name, int size)
+    /// <summary>The Gubble's words as screen text: light ink outlined dark, so they read over any landscape (also over its view, RoomHud.GubbleView.cs).</summary>
+    public static Label MakeLabel(string name, int size)
     {
         var label = new Label { Name = name, Visible = false, MouseFilter = MouseFilterEnum.Ignore, HorizontalAlignment = HorizontalAlignment.Center };
         label.AddThemeFontSizeOverride("font_size", size);

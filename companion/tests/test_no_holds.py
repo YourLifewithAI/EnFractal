@@ -72,10 +72,12 @@ class NothingHeld(NoHoldsCase):
         self.assertNotIn("approved_by", result)
         self.assertTrue(self.host.entities["obj:box"].removed)
 
+    # room.undo takes back nature changes only (contracts/README.md "Revisions"): no undo can unlock, relock or move
+    # anything, the companion's least of all.
     def test_companion_undo_cannot_unlock_the_players_lock(self):
         self.lock_as_player("obj:box")
         result = self.send(command("room.undo", {"to_revision": 0}, "undo-1", expected_revision=1))
-        self.assertRefused(result, "target_protected", "$.args.to_revision")
+        self.assertRefused(result, "unsupported_capability", "$.args.to_revision")
         self.assertTrue(self.host.entities["obj:box"].protected)
         self.assertEqual(self.host.entities["obj:box"].protected_by, PLAYER)
 
@@ -85,7 +87,7 @@ class NothingHeld(NoHoldsCase):
                                                     expected_entities={"obj:box": 1}))
         self.assertTrue(unlocked["ok"])
         result = self.send(command("room.undo", {"to_revision": 1}, "undo-1", expected_revision=2))
-        self.assertRefused(result, "target_protected")
+        self.assertRefused(result, "unsupported_capability", "$.args.to_revision")
         self.assertFalse(self.host.entities["obj:box"].protected)
 
     def test_companion_undo_cannot_move_a_protected_entity_back(self):
@@ -93,16 +95,15 @@ class NothingHeld(NoHoldsCase):
                                          "p-move"))
         self.lock_as_player("obj:box")
         result = self.send(command("room.undo", {"to_revision": 0}, "undo-1", expected_revision=2))
-        self.assertRefused(result, "target_protected")
+        self.assertRefused(result, "unsupported_capability", "$.args.to_revision")
         self.assertEqual(self.host.entities["obj:box"].position, [1.2, 0, 0.3])
 
-    def test_companion_undo_of_unprotected_changes_still_works(self):
+    def test_companion_undo_of_its_own_move_is_not_an_undo_either(self):
         self.lock_as_player("obj:box")
         self.send(command("entity.place", {"target": "obj:book", "placement": {"position_m": [0.3, 0, 0.3]}}, "move-1"))
         result = self.send(command("room.undo", {"to_revision": 1}, "undo-1", expected_revision=2))
-        self.assertTrue(result["ok"], result)
-        self.assertEqual(result["affected"], ["obj:book"])
-        self.assertEqual(self.host.entities["obj:book"].position, [0.45, 0.0, 0.1])
+        self.assertRefused(result, "unsupported_capability", "$.args.to_revision")
+        self.assertEqual(self.host.entities["obj:book"].position, [0.3, 0, 0.3])
         self.assertTrue(self.host.entities["obj:box"].protected)
 
     def test_locks_resist_every_changing_command(self):
@@ -165,9 +166,10 @@ class NothingHeld(NoHoldsCase):
             self.assertRefused(result, "invalid_args", "$.args.preset_version")
 
 
-class UndoIsOnlyForTheCompanionsOwnChanges(NoHoldsCase):
-    """Review finding 1 and LIVE-VOICE's "never exposed" list: with nothing held, a companion's room.undo
-    may neither touch protection nor step back over the player's changes."""
+class UndoIsOnlyForNatureChanges(NoHoldsCase):
+    """Review finding 1 and LIVE-VOICE's "never exposed" list, with nothing held: a companion's room.undo may neither
+    touch protection nor step back over the player's changes. Since 13 October room.undo takes back nature changes only
+    (the kernel's NatureUndo; the mock simulates no nature), so every undo of these changes is refused, and nothing moves."""
 
     def place_as_player(self, target, position, action_id):
         result = self.host.player_command(command("entity.place", {"target": target, "placement": {"position_m": position}},
@@ -178,7 +180,7 @@ class UndoIsOnlyForTheCompanionsOwnChanges(NoHoldsCase):
         self.place_as_player("obj:book", [0.3, 0, 0.3], "p-move")
         before = self.world()
         result = self.send(command("room.undo", {"to_revision": 0}, "undo-1", expected_revision=1))
-        self.assertRefused(result, "permission_denied", "$.args.to_revision")
+        self.assertRefused(result, "unsupported_capability", "$.args.to_revision")
         self.assertEqual(self.world(), before)
         self.assertEqual(self.host.entities["obj:book"].position, [0.3, 0, 0.3])
 
@@ -188,33 +190,35 @@ class UndoIsOnlyForTheCompanionsOwnChanges(NoHoldsCase):
                                                                      "placement": {"position_m": [0.5, 0, 0.5]}}, "p-place"))
         self.send(command("entity.place", {"target": "obj:book", "placement": {"position_m": [0.3, 0, 0.3]}}, "move-1"))
         result = self.send(command("room.undo", {"to_revision": 0}, "undo-1", expected_revision=2))
-        self.assertRefused(result, "permission_denied")
+        self.assertRefused(result, "unsupported_capability", "$.args.to_revision")
         self.assertFalse(self.host.entities[placed["created"][0]].removed)
 
-    def test_companion_undo_steps_back_over_its_own_changes_only(self):
+    def test_companion_undo_does_not_step_back_over_its_own_moves_either(self):
         self.place_as_player("obj:rug", [0.1, 0, 0.6], "p-move")
         self.send(command("entity.place", {"target": "obj:book", "placement": {"position_m": [0.3, 0, 0.3]}}, "move-1"))
         self.send(command("entity.place", {"target": "obj:box", "placement": {"position_m": [1.2, 0, 0.3]}}, "move-2"))
-        self.assertRefused(self.send(command("room.undo", {"to_revision": 0}, "undo-0", expected_revision=3)),
-                           "permission_denied")
-        result = self.send(command("room.undo", {"to_revision": 1}, "undo-1", expected_revision=3))
-        self.assertTrue(result["ok"], result)
-        self.assertEqual(result["affected"], ["obj:book", "obj:box"])
-        self.assertEqual(self.host.entities["obj:rug"].position, [0.1, 0, 0.6])
+        before = self.world()
+        for to_revision, action_id in ((0, "undo-0"), (1, "undo-1"), (2, "undo-2")):
+            with self.subTest(to_revision=to_revision):
+                self.assertRefused(self.send(command("room.undo", {"to_revision": to_revision}, action_id, expected_revision=3)),
+                                   "unsupported_capability", "$.args.to_revision")
+        self.assertRefused(self.send(command("room.undo", {"to_revision": 3}, "undo-3", expected_revision=3)),
+                           "invalid_args", "$.args.to_revision")
+        self.assertEqual(self.world(), before)
 
     def test_companion_undo_cannot_remove_even_its_own_lock(self):
         locked = self.send(command("protect.lock", {"targets": ["obj:box"]}, "lock-1", expected_entities={"obj:box": 0}))
         self.assertTrue(locked["ok"])
         result = self.send(command("room.undo", {"to_revision": 0}, "undo-1", expected_revision=1))
-        self.assertRefused(result, "target_protected")
+        self.assertRefused(result, "unsupported_capability", "$.args.to_revision")
         self.assertTrue(self.host.entities["obj:box"].protected)
 
-    def test_the_players_own_undo_is_unrestricted(self):
+    def test_the_players_own_undo_takes_back_nature_changes_only_too(self):
         self.send(command("protect.lock", {"targets": ["obj:box"]}, "lock-1", expected_entities={"obj:box": 0}))
         self.place_as_player("obj:book", [0.3, 0, 0.3], "p-move")
         result = self.host.player_command(command("room.undo", {"to_revision": 0}, "p-undo", expected_revision=2))
-        self.assertTrue(result["ok"], result)
-        self.assertFalse(self.host.entities["obj:box"].protected)
+        self.assertRefused(result, "unsupported_capability", "$.args.to_revision")
+        self.assertTrue(self.host.entities["obj:box"].protected)
 
 
 class StopsAndTheLedgerWithNothingHeld(NoHoldsCase):

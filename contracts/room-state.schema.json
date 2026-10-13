@@ -340,6 +340,7 @@
       }
     },
     "extensions": {
+      "description": "Experiments (common.schema.json). The kernel host writes its own blocks here under x_play_: among them x_play_nature, the island's nature (the ground's cells, what fire did to each object and creation, the team's wallet, the trail, the weather clock and the latest nature changes' undo steps), checked whole before anything is restored. Other readers ignore them.",
       "$ref": "common.schema.json#/$defs/extensions"
     }
   },
@@ -371,6 +372,7 @@
           "minimum": 1
         },
         "removed": {
+          "description": "Gone from the room, kept at the pose it had. An object the island's nature burned down is removed at the pose it burned at (the manifest is never edited); a host that restores it reads why from its nature extension (the kernel host's x_play_nature) and refuses a removal nothing accounts for.",
           "type": "boolean"
         },
         "transform": {

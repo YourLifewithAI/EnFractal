@@ -26,15 +26,28 @@ def block(name: str) -> dict:
 
 
 EFFECT_ID = re.compile(r"effect:[a-z2-7]{26}")
-# capabilities.list's items for storybook_wild v2 (game/rules/storybook_wild/v2.json), in the order both hosts list them.
+# capabilities.list's items for storybook_wild v4, including the command route and enforced limits.
 GLOW_SUMMARY = {"capability": "glow", "category": "light", "params": {"intensity": {"min": 0.2, "max": 1.0}},
-                "area_radius_max_m": 1.5, "duration_max_s": 600}
+                "area_radius_max_m": 1.5, "duration_max_s": 600, "reach_m": 2.0, "max_active": 3,
+                "command_op": "effect.start"}
 BUBBLES_SUMMARY = {"capability": "bubbles", "category": "float", "params": {"intensity": {"min": 0.2, "max": 1.0}},
-                   "area_radius_max_m": 1.0, "duration_max_s": 60}
+                   "area_radius_max_m": 1.0, "duration_max_s": 60, "reach_m": 2.0, "max_active": 2,
+                   "command_op": "effect.start"}
 FIREWORKS_SUMMARY = {"capability": "fireworks", "category": "burst", "params": {"intensity": {"min": 0.3, "max": 1.0}},
-                     "area_radius_max_m": 2.0, "duration_max_s": 6}
-# An ability storybook_wild v2 does not grant (Bloom, the growth slot, comes later).
-LACKING = "bloom"
+                     "area_radius_max_m": 2.0, "duration_max_s": 6, "reach_m": 4.0, "max_active": 3,
+                     "command_op": "effect.start"}
+BLOOM_SUMMARY = {"capability": "bloom", "category": "growth", "params": {"intensity": {"min": 0.2, "max": 1.0}},
+                 "area_radius_max_m": 0.6, "duration_max_s": 600, "reach_m": 2.0, "max_active": 1,
+                 "command_op": "nature.cast"}
+FIRE_SUMMARY = {"capability": "fire", "category": "fire", "params": {"intensity": {"min": 0.2, "max": 1.0}},
+                "area_radius_max_m": 1.5, "duration_max_s": 60, "reach_m": 2.0, "max_active": 1,
+                "command_op": "nature.cast"}
+LACKING = "teleport"
+# The one exception in these scenarios (the integrator, 13 October): the mock does not simulate nature yet. A nature command
+# that passes the kernel's checks runs on the kernel host, and the mock answers it unavailable; so does nature.describe.
+# Only these ops, and only once their checks have passed. The follow-up that models nature in the mock removes it
+# (contracts/README.md, "Known open points").
+NATURE_NOT_IN_THE_MOCK = frozenset({"nature.cast", "nature.trail", "nature.repair", "nature.describe"})
 
 
 def refusal(result: dict):
@@ -64,6 +77,8 @@ class AlignmentScenarios:
 
     # Outcome keys a host cannot yet be held to (each with its reason in the subclass).
     unchecked: tuple[str, ...] = ()
+    # Whether this host simulates nature: the kernel host does; the mock answers it unavailable (NATURE_NOT_IN_THE_MOCK).
+    simulates_nature: bool = False
 
     def next_id(self, prefix: str) -> str:
         self._n = getattr(self, "_n", 0) + 1
@@ -113,12 +128,18 @@ class AlignmentScenarios:
 
         revise = await refused("creation.revise", lambda t: {"target": t, "source": block("Renamed vault")})
         remove = await refused("entity.remove", lambda t: {"target": t})
+        # room.undo takes back nature changes only: a build is not one, and nothing is undone (the kernel's NatureUndo).
+        undo = {to: refusal(await self.ask(command("room.undo", {"to_revision": to}, self.next_id("undo"),
+                                                    expected_revision=placed["revision"])))
+                for to in (placed["revision"] - 1, placed["revision"])}
         after = (await self.ask(query("journal.read", {"limit": 50}, self.next_id("q"))))["data"]
         outcome = {
             "inspect": inspect["ok"] or inspect["error"]["code"],
             "built facts": [(e["line"], "subject" in e, "pin_m" in e) for e in built],
             "revise refused like an unknown id": revise and revise[0],
             "remove refused like an unknown id": remove and remove[0],
+            "undo of the build": undo[placed["revision"] - 1],
+            "undo to now": undo[placed["revision"]],
             "nothing written since": after == before,
             "named anywhere": "Hidden vault" in json.dumps(after) or made in json.dumps(after),
         }
@@ -127,6 +148,8 @@ class AlignmentScenarios:
             "built facts": [("Built something, on its own initiative", False, False)],
             "revise refused like an unknown id": "target_not_found",
             "remove refused like an unknown id": "target_not_found",
+            "undo of the build": ("unsupported_capability", "$.args.to_revision"),
+            "undo to now": ("invalid_args", "$.args.to_revision"),
             "nothing written since": True,
             "named anywhere": False,
         }
@@ -135,6 +158,96 @@ class AlignmentScenarios:
             expected.pop(key)
         self.assertEqual(outcome, expected)
 
+
+
+    # ----- Nature: checked alike on both hosts; nature itself is the one exception (NATURE_NOT_IN_THE_MOCK) -----
+
+    async def test_nature_commands_are_checked_alike_and_nature_itself_is_the_one_exception(self):
+        """Every check the kernel makes before its nature runs gives the same answer on both hosts. Past them, on the mock
+        only, the excepted ops answer unavailable; the kernel host runs them (previews only here, so nothing changes)."""
+        await self.companion_home()
+        bloom = {"capability": "bloom", "center_m": IN_THE_OPEN, "radius_m": 0.25, "duration_s": 30}
+
+        async def sent(op, args, **options):
+            return refusal(await self.ask(command(op, args, self.next_id("nature"), **options)))
+
+        checked = {
+            "an argument it does not know": await sent("nature.cast", {**bloom, "intensity": 2}, preview=True),
+            "an effect, not nature": await sent("nature.cast", {**bloom, "capability": "glow"}, preview=True),
+            "a radius past the engine's": await sent("nature.cast", {**bloom, "radius_m": 2}, preview=True),
+            "a place of two numbers": await sent("nature.cast", {**bloom, "center_m": [0, 0]}, preview=True),
+            "a made-up preview id": await sent("nature.cast", {**bloom, "capability": "fire", "preview_id": "preview-1"}),
+            "a trail that is neither": await sent("nature.trail", {"enabled": "yes"}),
+            "a repair of an object": await sent("nature.repair", {"target": "obj:box"}),
+            "a repair of something unseen": await sent("nature.repair", {"target": "creation:zz-not-here"}),
+            "a stale revision": await sent("nature.trail", {"enabled": False}, expected_revision=10 ** 6, preview=True),
+        }
+        self.assertEqual(checked, {
+            "an argument it does not know": ("field_unknown", "$.args.intensity"),
+            "an effect, not nature": ("request_invalid", "$.args.capability"),
+            "a radius past the engine's": ("request_invalid", "$.args.radius_m"),
+            "a place of two numbers": ("request_invalid", "$.args.center_m"),
+            "a made-up preview id": ("request_invalid", "$.args.preview_id"),
+            "a trail that is neither": ("request_invalid", "$.args.enabled"),
+            "a repair of an object": ("request_invalid", "$.args.target"),
+            "a repair of something unseen": ("target_not_found", "$.args.target"),
+            "a stale revision": ("revision_conflict", "$.expected_revision"),
+        })
+        excepted = {
+            "nature.cast": [await sent("nature.cast", bloom, preview=True),
+                            await sent("nature.cast", {**bloom, "capability": "fire"}, preview=True)],
+            "nature.trail": [await sent("nature.trail", {"enabled": False}, preview=True)],
+            "nature.describe": [refusal(await self.ask(query("nature.describe", {}, self.next_id("q"))))],
+        }
+        self.assertLessEqual(set(excepted), NATURE_NOT_IN_THE_MOCK)
+        for op, answers in excepted.items():
+            for answer in answers:
+                with self.subTest(op=op):
+                    if self.simulates_nature:
+                        # Past the checks above: whatever nature answers, never a malformed request or a missing host.
+                        self.assertNotIn(answer[0] if answer != "ok" else answer, ("request_invalid", "field_unknown", "unavailable"))
+                    else:
+                        self.assertEqual(answer, ("unavailable", "$.op"))
+
+    # ----- The Gubble's eyes (view.look): the same refusals on both hosts; a picture wherever the host can draw -----
+
+    # Whether this host draws pictures: the mock always (a placeholder), the kernel host only with a renderer (never headless).
+    renders: bool = True
+
+    async def test_the_gubbles_eyes_refuse_alike_and_look_when_they_can_draw(self):
+        from enfractal_companion import eyes
+
+        async def looked(args):
+            result = await self.ask(query("view.look", {"actor": "avatar:companion", **args}, self.next_id("look")))
+            if result["ok"]:
+                data = result["data"]
+                return ("ok", data["actor"], sorted(data), data["image"]["untrusted"],
+                        data["image"]["bytes"] <= eyes.LOOK_IMAGE_MAX_BYTES, 0 <= data["view_heading_deg"] < 360)
+            return (result["error"]["code"], result["error"].get("field_path"), result["error"]["message"],
+                    result["error"]["retryable"], "data" in result)
+
+        await self.wait(1.1)  # whatever earlier scenarios spent, a look is available again
+        outcome = {
+            "the player's eyes": await looked({"actor": "avatar:player"}),
+            "tilted too far": (await looked({"pitch_deg": 61}))[:2],
+            "an unknown argument": (await looked({"zoom": 2}))[:2],
+            "a look": await looked({"yaw_deg": 30, "pitch_deg": 20}),
+        }
+        burst = [(await looked({}))[0] for _ in range(eyes.LOOK_BURST + 1)]
+        outcome["a quick burst ends rate limited"] = "rate_limited" in burst
+        facts = ["actor", "eye_m", "fov_deg", "heading_deg", "image", "position_m", "view_heading_deg", "view_pitch_deg"]
+        expected = {
+            "the player's eyes": ("actor_denied", "$.args.actor", eyes.LOOK_ACTOR_MESSAGE, False, False),
+            "tilted too far": ("invalid_args", "$.args.pitch_deg"),
+            "an unknown argument": ("field_unknown", "$.args.zoom"),
+            "a look": ("ok", "avatar:companion", facts, True, True, True) if self.renders
+            else ("unavailable", None, eyes.NO_RENDERER_MESSAGE, False, False),
+            "a quick burst ends rate limited": True,
+        }
+        if self.renders and outcome["a look"][0] == "ok":
+            # time_of_day is there only where the room has a look (the kernel host's island clock).
+            outcome["a look"] = (*outcome["a look"][:2], [k for k in outcome["a look"][2] if k != "time_of_day"], *outcome["a look"][3:])
+        self.assertEqual(outcome, expected)
 
     # ----- Glow (docs/runs/RUN-2-GLOW.md section 5): the island's rules, on both hosts -----
 
@@ -161,24 +274,24 @@ class AlignmentScenarios:
             "air": await listed({"category": "air"}),
             "first page of one": await listed({"limit": 1, "cursor": "0"}),
             "the next page": await listed({"limit": 1, "cursor": "1"}),
-            "the last page": await listed({"limit": 1, "cursor": "2"}),
-            "past the last": await listed({"limit": 1, "cursor": "3"}),
+            "the last page": await listed({"limit": 1, "cursor": "4"}),
+            "past the last": await listed({"limit": 1, "cursor": "5"}),
             "the rest from the second": await listed({"cursor": "1"}),
-            "beyond the end": await listed({"cursor": "4"}),
+            "beyond the end": await listed({"cursor": "6"}),
             "a signed cursor": await listed({"cursor": "+0"}),
             "a cursor of words": await listed({"cursor": "next"}),
         }
         self.assertEqual(outcome, {
-            "all": {"items": [BUBBLES_SUMMARY, FIREWORKS_SUMMARY, GLOW_SUMMARY]},
+            "all": {"items": [BLOOM_SUMMARY, BUBBLES_SUMMARY, FIRE_SUMMARY, FIREWORKS_SUMMARY, GLOW_SUMMARY]},
             "light": {"items": [GLOW_SUMMARY]},
             "float": {"items": [BUBBLES_SUMMARY]},
             "burst": {"items": [FIREWORKS_SUMMARY]},
             "air": {"items": []},
-            "first page of one": {"items": [BUBBLES_SUMMARY], "next_cursor": "1"},
-            "the next page": {"items": [FIREWORKS_SUMMARY], "next_cursor": "2"},
+            "first page of one": {"items": [BLOOM_SUMMARY], "next_cursor": "1"},
+            "the next page": {"items": [BUBBLES_SUMMARY], "next_cursor": "2"},
             "the last page": {"items": [GLOW_SUMMARY]},
             "past the last": {"items": []},
-            "the rest from the second": {"items": [FIREWORKS_SUMMARY, GLOW_SUMMARY]},
+            "the rest from the second": {"items": [BUBBLES_SUMMARY, FIRE_SUMMARY, FIREWORKS_SUMMARY, GLOW_SUMMARY]},
             "beyond the end": ("invalid_args", "$.args.cursor"),
             "a signed cursor": ("invalid_args", "$.args.cursor"),
             "a cursor of words": ("invalid_args", "$.args.cursor"),
@@ -201,7 +314,7 @@ class AlignmentScenarios:
             "self receipt": (mine.get("transient"), mine.get("created") == mine.get("affected") == [light],
                              bool(EFFECT_ID.fullmatch(light)), data.get("effect") == light),
             "self data": (sorted(data), data.get("capability"), data.get("category"), data.get("target"), data.get("params"),
-                          data.get("area", {}).get("radius_m"), data.get("duration_s")),
+                          data.get("area", {}).get("radius_m"), data.get("duration_s"), data.get("variant"), data.get("touch")),
             "point": refusal(spot),
             "point data": (spot["data"]["target"], spot["data"]["area"], spot["data"]["params"], spot["data"]["duration_s"])
             if spot["ok"] else None,
@@ -221,8 +334,8 @@ class AlignmentScenarios:
         self.assertEqual(outcome, {
             "self": "ok",
             "self receipt": (True, True, True, True),
-            "self data": (["area", "capability", "category", "duration_s", "effect", "expires_utc", "params", "target"],
-                          "glow", "light", "self", {"intensity": 0.6}, 0.5, 60),
+            "self data": (["area", "capability", "category", "duration_s", "effect", "expires_utc", "params", "target", "touch", "variant"],
+                          "glow", "light", "self", {"intensity": 0.6}, 0.5, 60, "lantern", "plain"),
             "point": "ok",
             "point data": ("point", {"center_m": IN_THE_OPEN, "radius_m": 1.5}, {"intensity": 1}, 600),
             "preview": ("ok", True, False, "point", False, False, {"intensity": 0.9}),

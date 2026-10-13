@@ -1,6 +1,12 @@
 # Run 2 status
 
-**Run 2 started on 7 October 2026 (evening, local). The eighth session's handoff was written on 9 October (night, UTC), in a Linux cloud session; start at "The next session".** Then read [ORCHESTRATION.md](ORCHESTRATION.md) and [AGENTS.md](../../AGENTS.md). [RUN-2-REVISION.md](RUN-2-REVISION.md) is the approved plan (8 October); it supersedes [RUN-2.md](RUN-2.md)'s Lane C, C7, Lane L and Codex sections.
+**Run 2 started on 7 October 2026 (evening, local). The latest Gubble playtest handoff is the 11 October section below.** The eighth integration session's handoff was written on 9 October (night, UTC), in a Linux cloud session; its earlier starting point is "The next session". Read [ORCHESTRATION.md](ORCHESTRATION.md) and [AGENTS.md](../../AGENTS.md). [RUN-2-REVISION.md](RUN-2-REVISION.md) is the approved plan (8 October); it supersedes [RUN-2.md](RUN-2.md)'s Lane C, C7, Lane L and Codex sections.
+
+## 11 October: Gubble growth playtest branch
+
+The founder asked for Torch, the remaining Glow discoveries and expressive touches, weather, Fire, mode-specific stamina/health and the wish runner together on **`codex/gubble-growth-runtime`**. That implementation is in `C:\dev\EnFractal-codex\gubble-growth-runtime`, based on integration `7173ed0`. It also includes Bloom and the flower trail. The design and the founder's later answers are preserved in [the magic README](../magic/README.md).
+
+Use [the playtest launcher and checklist](../magic/PLAYTEST.md) for this branch's build and saved test profile. The existing desktop shortcuts still launch the integrator checkout. [The implementation report](../codex/reports/gubble-growth-runtime.md) records regression results and practical limits; [the wish runner guide](../../companion/WISH-RUNNER.md) covers the player-started runner and its no-provider demo. Live provider inference, individual bubble grabbing, weather control, combat/multiplayer and the broader resource economy remain later work. The integrator checkout has not been changed or merged.
 
 ## The founder's new direction: the room becomes a landscape (7 October, late evening)
 

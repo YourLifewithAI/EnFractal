@@ -54,7 +54,8 @@ class StdioAcceptance(unittest.IsolatedAsyncioTestCase):
 
                 tools = (await client.list_tools()).tools
                 names = {t.name for t in tools}
-                self.assertEqual(len(tools), 29)
+                self.assertEqual(names, {spec.name for spec in load_contracts().tool_specs()})
+                self.assertEqual(len(tools), len(names))
                 self.assertNotIn("protect_unlock", names)
                 self.assertTrue({"observe", "goal_set", "approval_status"} <= names)
 
@@ -108,7 +109,9 @@ class StdioAcceptance(unittest.IsolatedAsyncioTestCase):
     async def test_server_with_no_game_lists_tools_and_answers_not_ready(self):
         missing = os.path.join(os.path.dirname(__file__), "no-such-dir", "session.json")
         async with Client(server_parameters("--session-file", missing), mode="legacy") as client:
-            self.assertEqual(len((await client.list_tools()).tools), 29)
+            tools = (await client.list_tools()).tools
+            self.assertEqual({tool.name for tool in tools}, {spec.name for spec in load_contracts().tool_specs()})
+            self.assertEqual(len(tools), len(load_contracts().tool_specs()))
             result = (await client.call_tool("observe", {})).structured_content
             self.assertEqual(result["error"]["code"], "not_ready")
             self.assertEqual(contract_problems(result), [])

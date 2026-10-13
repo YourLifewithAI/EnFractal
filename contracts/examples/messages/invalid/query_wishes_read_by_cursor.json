@@ -1,0 +1,10 @@
+{
+  "schema": "enfractal.query",
+  "version": 1,
+  "query_id": "q-0032",
+  "room_id": "garage_example",
+  "op": "wishes.read",
+  "args": {
+    "cursor": "1"
+  }
+}

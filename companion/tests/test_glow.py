@@ -1,6 +1,6 @@
 """The Gubble's abilities: Glow (docs/runs/RUN-2-GLOW.md section 5), then Bubbles and Fireworks
-(docs/runs/RUN-2-BUBBLES-FIREWORKS.md piece 5), storybook_wild v2. The companion's boundary on the mock host and through
-the MCP surface.
+(docs/runs/RUN-2-BUBBLES-FIREWORKS.md piece 5), now with storybook_wild v4's earned Glow allowance and nature routes.
+The companion's boundary on the mock host and through the MCP surface.
 
 test_host_alignment.py runs the steps the link can drive (the companion's casts, refusals, caps, expiry) on both hosts
 with the same expected outcomes. This file adds what only the mock can stage, each against the kernel host's rules
@@ -29,7 +29,8 @@ from enfractal_companion.server import INSTRUCTIONS
 PACK = json.loads(rules_path().read_bytes())
 SPOT_ONLY_THE_PLAYER_SEES = [0.6, 0.0, 0.2]  # with the companion behind the box (below), the box hides it from the companion
 BEHIND_THE_BOX = [1.6, 0.0, 0.2]
-ABILITIES = ["bubbles", "fireworks", "glow"]  # storybook_wild v2, as capabilities.list orders them
+ABILITIES = ["bloom", "bubbles", "fire", "fireworks", "glow"]
+EFFECT_ABILITIES = ["bubbles", "fireworks", "glow"]
 
 
 def variant(**changes) -> dict:
@@ -97,8 +98,9 @@ class TheIslandsRules(GlowCase):
         self.assertEqual(too_bright["error"]["allowed"], [0.3, 0.5])
         listed = self.send(query("capabilities.list", {}))["data"]["items"]
         self.assertEqual([item["capability"] for item in listed], ABILITIES)
-        self.assertEqual(listed[2], {"capability": "glow", "category": "light", "params": {"intensity": {"min": 0.3, "max": 0.5}},
-                                     "area_radius_max_m": 1.0, "duration_max_s": 400})
+        self.assertEqual(listed[-1], {"capability": "glow", "category": "light", "params": {"intensity": {"min": 0.3, "max": 0.5}},
+                                     "area_radius_max_m": 1.0, "duration_max_s": 400, "reach_m": 2.0,
+                                     "max_active": 3, "command_op": "effect.start"})
         started = self.send(glow("c-4", params={}))
         self.assertEqual(started["data"]["params"], {"intensity": 0.4})
 
@@ -226,7 +228,7 @@ class TheGubbleCarriesItOut(GlowCase):
         self.assertNotIn(light, listed)
         self.assertNotIn(wisp, listed)
         self.assertRefused(self.send(query("entity.inspect", {"target": light}, "q-5")), "target_not_found")
-        self.assertEqual((self.host.revision, self.host._snapshot()), before, "glows change no saved state")
+        self.assertEqual((self.host.revision, self.host._snapshot()), before, "Glow learning is separate from room state")
 
 
 class TheTeamsSight(GlowCase):
@@ -316,7 +318,7 @@ class GlowThroughMcp(unittest.IsolatedAsyncioTestCase):
         self.assertIn("default", properties["params"]["description"])
         self.assertIn("effect_start", tools["effect_stop"].input_schema["properties"]["effect"]["description"])
         # Every ability the island grants is named where a model looks first, not only Glow.
-        for name in ABILITIES:
+        for name in EFFECT_ABILITIES:
             with self.subTest(ability=name):
                 for text in (start.description, tools["capabilities_list"].description, INSTRUCTIONS.lower(),
                              properties["capability"]["description"]):
@@ -384,7 +386,7 @@ class BubblesAndFireworks(GlowCase):
             self.assertEqual(contract_problems(result), [], result)
 
     def test_each_ability_has_its_own_cap_and_the_room_caps_them_all(self):
-        # The pack's caps (3 glows, 2 streams, 3 fireworks) fill the room's 8 exactly, counted across both principals.
+        # Starting Glow allowance (3), pack caps (2 streams, 3 fireworks) fill the room's 8 across both principals.
         for i, (kind, who) in enumerate([("glow", self.player), ("glow", self.send), ("glow", self.send),
                                          ("bubbles", self.player), ("bubbles", self.send),
                                          ("fireworks", self.send), ("fireworks", self.player), ("fireworks", self.send)]):
@@ -455,7 +457,7 @@ class BubblesAndFireworksThroughMcp(unittest.IsolatedAsyncioTestCase):
         async with self.harness() as h:
             listed = await h.call("capabilities_list", {})
             self.assertEqual([(i["capability"], i["category"]) for i in listed["data"]["items"]],
-                             [("bubbles", "float"), ("fireworks", "burst"), ("glow", "light")])
+                             [("bloom", "growth"), ("bubbles", "float"), ("fire", "fire"), ("fireworks", "burst"), ("glow", "light")])
             started = {}
             for kind in ("bubbles", "fireworks"):
                 started[kind, "self"] = await h.call("effect_start", self.args(kind, f"{kind}-1", params={}))

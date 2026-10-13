@@ -566,7 +566,8 @@ class NothingHiddenLeaks(MemoryCase):
         for op, args in (("room.describe", {}), ("entities.list", {}), ("entity.inspect", {"target": "obj:doorstop"}),
                          ("observe", {"actor": "avatar:companion"}), ("capabilities.list", {}),
                          ("receipt.lookup", {"action_id": "c-1"}), ("approval.status", {"request_id": "0" * 32}),
-                         ("journal.read", {}), ("map.find", {"name": "doorstop"})):
+                         ("journal.read", {}), ("map.find", {"name": "doorstop"}), ("player.status", {}),
+                         ("nature.describe", {}), ("wishes.read", {}), ("view.look", {"actor": "avatar:companion"})):
             self.probed_ops.add(op)
             result = self.ask(op, args)
             data = copy.deepcopy(result.get("data"))

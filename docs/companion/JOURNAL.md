@@ -94,6 +94,7 @@ What the player said to their AI outside the game (in their harness) is not some
 | **Fell or removed** | A structure breaks apart or is removed | "The house on the big box fell when the box was moved" |
 | **Found** | Modes with resources only: a needed resource is seen while its task's search is active | "Found buttons (3) under the shelf" |
 | **Gathered** | Modes with resources: progress on a task's needs | "Wood: 6 of 10 gathered" |
+| **Consequence** (`consequence`) | The Gubble's action hurt the player (today: its fire, in Challenge or Live). One entry per fire, updated in place if the same fire later puts the player down. The AI's lessons: it reads them back with `journal.read` and kind `consequence` (the founder, 13 October: consequences are feedback the AI learns from) | "The Gubble's fire burned you near "the jetty"." |
 
 **The companion's own notes** (the founder, 7 October). The companion may write notes in its own words, for example "you prefer Victorian" or "the shelf is a good spot for a garden". Notes make it feel like a buddy you play with, not rote AI.
 - **Marked as its own words,** in the companion's hand on the page, never presented as a fact the game verified. The facts in the table above stay host-written.
@@ -107,7 +108,7 @@ A **follow** or **come** shows only as the current state in "Working on" ("follo
 
 **Bounds.**
 - "Working on" holds every open task.
-- The history keeps at most 500 entries per room (*start*). The oldest "Found" and "Gathered" entries for finished tasks go first; "Built" and "Changed" are kept.
+- The history keeps at most 500 entries per room (*start*). The oldest "Found" and "Gathered" entries for finished tasks go first; "Built", "Changed" and "Consequence" are kept.
 
 **Saved with the room.** Unlike today's perception memory, which is cleared with the session, the journal and the discovered map are part of room state. A room the player returns to remembers what was built and explored.
 
@@ -116,7 +117,7 @@ A **follow** or **come** shows only as the current state in "Working on" ("follo
 | Surface | What it answers |
 |---|---|
 | **`journal.note`** (new command, the companion's) | Writes one of its notes. A durable receipt; it changes no world state |
-| **`journal.read`** (new query) | By default, every open task plus the last 20 entries (*start*), newest first. Filters: kind, a subject, since a time. This is the short context a model should read at the start of a session or after a pause |
+| **`journal.read`** (new query) | By default, every open task plus the last 20 entries (*start*), newest first. Filters: kind, a subject, since a time. This is the short context a model should read at the start of a session or after a pause, with its lessons (kind `consequence`) |
 | **The journal as an MCP resource** | The same view as `journal.read` with no filters, at `enfractal://journal`, for harnesses that read resources (built: Lane A, Run 2). Read on demand: no subscription or change notice yet |
 | `entities.list`, `entity.inspect` | Anything the team knows: live if in sight now, otherwise as last seen, with the existing `seen`, `last_seen_ago_s`, `last_seen_revision` and `may_be_stale` fields. `seen: "remembered"` comes to mean "known to the team, not in sight now" |
 | `observe` | Unchanged: what the companion's own eyes see now, for looking and pointing |

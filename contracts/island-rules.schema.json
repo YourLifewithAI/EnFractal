@@ -108,11 +108,11 @@
       ],
       "properties": {
         "capability": {
-          "description": "The name effect.start and capabilities.list use. Unique within a pack.",
+          "description": "The name capabilities.list, effect.start and nature.cast use. Unique within a pack.",
           "$ref": "common.schema.json#/$defs/token"
         },
         "category": {
-          "description": "What kind of magic the ability is. Unique within a pack; the primitive fixes it (light.emit is light, particles.float is float, particles.burst is burst). The HUD places abilities on its wheel by category, with slots fixed by the engine: light 1, growth 2, float 3, burst 4, build 5. That mapping is the HUD's rule, not this contract's, so category stays a token here.",
+          "description": "What kind of magic the ability is. Unique within a pack; the primitive fixes it (light.emit is light, particles.float is float, particles.burst is burst, growth.seed is growth, element.ignite is fire). The HUD places abilities on its wheel by category, with slots fixed by the engine: light 1, growth 2, float 3, burst 4, build 5, fire 6. That mapping is the HUD's rule, not this contract's, so category stays a token here.",
           "$ref": "common.schema.json#/$defs/token"
         },
         "primitive": {
@@ -120,7 +120,9 @@
           "enum": [
             "light.emit",
             "particles.float",
-            "particles.burst"
+            "particles.burst",
+            "growth.seed",
+            "element.ignite"
           ]
         },
         "display_name": {
@@ -434,6 +436,130 @@
               },
               "max_active": {
                 "maximum": 4
+              }
+            }
+          }
+        },
+        {
+          "description": "growth.seed, flowers on the island's ground (Bloom, and the flower trail behind the Gubble): host-simulated room state, cast through nature.cast at a point (never self). They take root only on walkable soil or grass above water, grow with light and moisture and fade after their life. intensity is how far grown they start. Its outer limits: intensity only, from 0.05 to 2.0; radius at most 0.6 m; duration (the flowers' life) at most 600 s; one at a time; reach at most 5 m; category growth.",
+          "if": {
+            "required": [
+              "primitive"
+            ],
+            "properties": {
+              "primitive": {
+                "const": "growth.seed"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "category": {
+                "const": "growth"
+              },
+              "params": {
+                "required": [
+                  "intensity"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "intensity": {
+                    "properties": {
+                      "min": {
+                        "minimum": 0.05,
+                        "maximum": 2.0
+                      },
+                      "max": {
+                        "minimum": 0.05,
+                        "maximum": 2.0
+                      },
+                      "default": {
+                        "minimum": 0.05,
+                        "maximum": 2.0
+                      }
+                    }
+                  }
+                }
+              },
+              "reach_m": {
+                "maximum": 5
+              },
+              "area_radius_default_m": {
+                "maximum": 0.6
+              },
+              "area_radius_max_m": {
+                "maximum": 0.6
+              },
+              "duration_default_s": {
+                "maximum": 600
+              },
+              "duration_max_s": {
+                "maximum": 600
+              },
+              "max_active": {
+                "maximum": 1
+              }
+            }
+          }
+        },
+        {
+          "description": "element.ignite, fire on the island's ground (Fire): host-simulated room state, cast through nature.cast at a point after a preview, one fire at a time, at most 200 cells burning. It needs dry fuel, spreads with dryness and wind, rain puts it out, and burnt ground turns to ash that regrows. What it does to things and avatars is the host's fire rule by game mode (contracts/README.md, \"Nature\"); locks never burn. intensity is how fast it burns. Its outer limits: intensity only, from 0.05 to 2.0; radius at most 1.5 m; duration at most 60 s; one at a time; reach at most 5 m; category fire.",
+          "if": {
+            "required": [
+              "primitive"
+            ],
+            "properties": {
+              "primitive": {
+                "const": "element.ignite"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "category": {
+                "const": "fire"
+              },
+              "params": {
+                "required": [
+                  "intensity"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "intensity": {
+                    "properties": {
+                      "min": {
+                        "minimum": 0.05,
+                        "maximum": 2.0
+                      },
+                      "max": {
+                        "minimum": 0.05,
+                        "maximum": 2.0
+                      },
+                      "default": {
+                        "minimum": 0.05,
+                        "maximum": 2.0
+                      }
+                    }
+                  }
+                }
+              },
+              "reach_m": {
+                "maximum": 5
+              },
+              "area_radius_default_m": {
+                "maximum": 1.5
+              },
+              "area_radius_max_m": {
+                "maximum": 1.5
+              },
+              "duration_default_s": {
+                "maximum": 60
+              },
+              "duration_max_s": {
+                "maximum": 60
+              },
+              "max_active": {
+                "maximum": 1
               }
             }
           }

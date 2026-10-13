@@ -17,8 +17,9 @@ namespace EnFractal.Native.Kernel;
 ///   discovered space of each level (a walkable surface: the floor, an object's top) as 5 cm cells. It is saved with
 ///   the room and survives link sessions.
 /// - The journal writer records goals as tasks (one entry per task, updated in place), finished fetches, and creations
-///   built, changed and removed, with who acted and at whose direction as far as the host can verify it. Not every step,
-///   sight or routine move. Lines come from templates and sanitised names, so a name can never write an entry.
+///   built, changed and removed, with who acted and at whose direction as far as the host can verify it, and the
+///   consequences of the Gubble's actions for the player (kind "consequence": the AI's lessons, read back by kind). Not
+///   every step, sight or routine move. Lines come from templates and sanitised names, so a name can never write an entry.
 /// - journal.note is the sender's own words, marked as such (untrusted), never a fact; journal.read and map.find answer
 ///   only from the journal and the team's map, so nothing undiscovered can leak through them.
 /// Both are kept in the authority's save as the host-owned team block, checked when a save loads.
@@ -54,7 +55,8 @@ public partial class CommandHost
     private static readonly Regex UtcPattern = new(@"\A[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,6})?Z\z", RegexOptions.Compiled);
     private static readonly Regex KnownIdPattern = new(@"\A(obj|creation):[A-Za-z0-9_-]{1,64}\z", RegexOptions.Compiled);
     private static readonly Regex SupportPattern = new(@"\A(shell|obj|creation):[A-Za-z0-9_-]{1,64}\z", RegexOptions.Compiled);
-    private static readonly HashSet<string> JournalKinds = new() { "task", "built", "changed", "removed", "found", "gathered", "note" };
+    /// <summary>The kinds of entry. "consequence" is the host's fact of what the Gubble's actions did to the player (CommandHostConsequences): its lessons.</summary>
+    private static readonly HashSet<string> JournalKinds = new() { "task", "built", "changed", "removed", "found", "gathered", "consequence", "note" };
     private static readonly HashSet<string> Principals = new() { PlayerPrincipal, CompanionPrincipal };
     /// <summary>Goals whose task stays in the history when it ends: a completed action. Following, coming and going somewhere leave none.</summary>
     private static readonly HashSet<string> RecordedGoals = new() { "fetch" };
@@ -135,11 +137,11 @@ public partial class CommandHost
     private static void AddTo(List<JsonObject> history, JsonObject entry)
     {
         history.Add(entry);
-        // The oldest found and gathered entries go first, then other routine ones; built and changed are kept.
+        // The oldest found and gathered entries go first, then other routine ones; built, changed and the lessons (consequence) are kept.
         while (history.Count > MaxHistory)
         {
             var drop = history.FindIndex(e => e["kind"]!.GetValue<string>() is "found" or "gathered");
-            if (drop < 0) drop = history.FindIndex(e => e["kind"]!.GetValue<string>() is not ("built" or "changed"));
+            if (drop < 0) drop = history.FindIndex(e => e["kind"]!.GetValue<string>() is not ("built" or "changed" or "consequence"));
             history.RemoveAt(drop < 0 ? 0 : drop);
         }
     }

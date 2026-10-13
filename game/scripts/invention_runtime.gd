@@ -34,8 +34,13 @@ var object_pose_check := Callable()
 ## Optional: Callable(team: Dictionary) -> Dictionary, the command host's check of a save's journal and discovered map
 ## (the authority's team_check). Set before this node enters the tree.
 var team_check := Callable()
+## Optional: Callable(nature: Dictionary, revision: int) -> Dictionary, the command host's check of a save's nature block
+## (the authority's nature_check). Set before this node enters the tree.
+var nature_check := Callable()
 var assemblies: Dictionary = {}
 var instances: Dictionary = {}
+## Trusted host-derived scorch status. Recipes and commands cannot supply it; repair restores the original graph.
+var nature_disabled_creations: Dictionary = {}
 var fields: Array = []
 var animations: Array = []
 var next_trigger: Dictionary = {}
@@ -70,6 +75,7 @@ func _ready() -> void:
 	authority.pose_sink = object_pose_sink
 	authority.pose_check = object_pose_check
 	authority.team_check = team_check
+	authority.nature_check = nature_check
 	var loaded: Dictionary = authority.load_saved() if configured.ok else configured
 	authority.occupancy_query = Callable(self, "_check_occupancy")
 	authority.activation_query = Callable(self, "_check_activation")
@@ -321,6 +327,8 @@ func activate_creation(id: String, principal := PLAYER) -> Dictionary:
 ## fire (no Use trigger, a busy budget), the receipt is dropped again, so a retry runs instead of
 ## replaying a success that never happened.
 func execute_activation(principal: String, request: Dictionary, receipt_meta: Dictionary = {}) -> Dictionary:
+	if nature_disabled_creations.has(String(request.get("instance_id", ""))):
+		return {"ok": false, "code": "activation_context", "path": "instance_id", "message": "Repair this scorched creation before using it."}
 	var result: Dictionary = authority.submit(principal, request, receipt_meta)
 	if not result.ok or result.get("replayed", false):
 		return result
@@ -378,6 +386,8 @@ func effect_count(principal := "") -> int:
 
 
 func _fire(id: String, trigger: String, principal: String, by := "") -> Dictionary:
+	if nature_disabled_creations.has(id):
+		return {"ok": false, "code": "activation_context", "path": "instance_id", "message": "This creation is scorched."}
 	if by.is_empty():
 		by = principal
 	if not instances.has(id):
@@ -422,10 +432,10 @@ func _physics_process(delta: float) -> void:
 				continue
 			assemblies[id].global_transform = wearer.global_transform
 			assemblies[id].visible = item.owner_id != PLAYER or player.get("EyeCamera") == null or not player.EyeCamera.current
-	fields = fields.filter(func(field): return clock_s < field.until and is_instance_valid(field.part) and instances.has(field.instance_id) and instances[field.instance_id].active)
+	fields = fields.filter(func(field): return not nature_disabled_creations.has(field.instance_id) and clock_s < field.until and is_instance_valid(field.part) and instances.has(field.instance_id) and instances[field.instance_id].active)
 	for id in instances:
 		var item: Dictionary = instances[id]
-		if not item.active:
+		if not item.active or nature_disabled_creations.has(id):
 			continue
 		var parts: Dictionary = assemblies[id].get_meta("parts")
 		for node in item.source.nodes:
@@ -468,6 +478,12 @@ func _step_animations(delta: float) -> void:
 	for animation in animations:
 		if not is_instance_valid(animation.part):
 			continue
+		if nature_disabled_creations.has(animation.instance_id):
+			if animation.op == "light":
+				var scorched_lamp = animation.part.get_node_or_null("Light_" + animation.node_id)
+				if scorched_lamp:
+					scorched_lamp.light_energy = 0.0
+			continue
 		if animation.op == "light":
 			var lamp = animation.part.get_node_or_null("Light_" + animation.node_id)
 			if lamp:
@@ -486,9 +502,13 @@ func effect_at(target: String, position: Vector3) -> Dictionary:
 	var glide := 0.0
 	var body: Node3D = player if target == PLAYER else companion
 	for field in fields:
+		if nature_disabled_creations.has(field.instance_id):
+			continue
 		if _body_allowed(field.owner, target, position, body) and authority.can_affect(field.owner, target, field.part.global_position, field.instance_id) and position.distance_to(field.part.global_position) <= field.radius:
 			acceleration += field.part.get_parent().global_basis * field.part.get_meta("authored_basis") * field.direction * field.acceleration
 	for item in instances.values():
+		if nature_disabled_creations.has(item.id):
+			continue
 		if item.source.mount == "avatar" and item.owner_id == target and _body_allowed(item.owner_id, target, position, body):
 			for node in item.source.nodes:
 				if node.op == "glide":

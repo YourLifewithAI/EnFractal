@@ -1,0 +1,22 @@
+{
+  "schema": "enfractal.result",
+  "version": 1,
+  "ok": true,
+  "op": "room.undo",
+  "action_id": "undo-0001",
+  "principal": "player:local",
+  "room_id": "garage_example",
+  "revision": 5,
+  "replayed": false,
+  "preview": false,
+  "at_utc": "2026-10-06T00:05:00Z",
+  "transient": false,
+  "affected": [
+    "obj:shelving_left"
+  ],
+  "data": {
+    "undone": "Fire, Flower trail",
+    "undone_steps": 0,
+    "requires_approval": false
+  }
+}

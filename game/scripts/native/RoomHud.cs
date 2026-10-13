@@ -243,11 +243,11 @@ public partial class RoomHud : CanvasLayer
         AddKeyLine(_keyHelp, () => MoveKeys, "MoveKeys");
         AddKeyLine(_keyHelp, () => $"Climb: keep walking into a steep face, {K(Act.MoveForward)} up, {K(Act.MoveBack)} down, {K(Act.MoveLeft)}/{K(Act.MoveRight)} across, {K(Act.Jump)} lets go · Swim: deep water floats you, {K(Act.Jump)} leaps · Dive: hold {K(Act.MoveDive)}, {K(Act.Jump)} rises, {K(Act.MoveForward)} swims the way you look, let go to drift up");
         AddKeyLine(_keyHelp, () => $"{K(Act.ViewEye)} eye · {K(Act.ViewShoulder)} shoulder · {K(Act.ViewDiorama)} diorama: {PlayerControls.DragLabel()} orbits, {PlayerControls.ZoomLabel()} zooms, {PlayerControls.MoveLabel()} follows the view · {K(Act.ViewIso)} isometric: {K(Act.IsoTurnLeft)}/{K(Act.IsoTurnRight)} turn the view");
-        AddKeyLine(_keyHelp, () => $"{K(Act.ViewObserve)} observe (a very tight tilt-shift view, best from {K(Act.ViewDiorama)} or {K(Act.ViewIso)}) · {K(Act.HudCustomize)} customize ({K(Act.MouseRelease)} closes it)");
+        AddKeyLine(_keyHelp, () => $"{K(Act.ViewObserve)} observe (a very tight tilt-shift view, best from {K(Act.ViewDiorama)} or {K(Act.ViewIso)}) · {K(Act.HudCustomize)} customize · {K(Act.Journal)} journal ({K(Act.MouseRelease)} closes either)");
         AddKeyLine(_keyHelp, () => $"{K(Act.Hands)} pick up what you face · {K(Act.Hands)} again sets it down in front of you, or on top of what you face (the box, the book) · {K(Act.Push)} push what you face 10 cm");
         // The Gubble's keys, under its name (the Glow playtest: the player should see whose magic this is).
         AddKeyLine(_keyHelp, () => $"{Companion.NameTag}, your companion:", "GubbleHeading");
-        AddKeyLine(_keyHelp, () => $"{K(Act.GubbleAsk)} asks for what fits where you point (wait or follow, fetch or put down, light the dark, go and look); hold it for the wheel · {K(Act.GubbleRecall)} come, then follow · {K(Act.GubbleStop)} stop", "GubbleKeys");
+        AddKeyLine(_keyHelp, () => $"{K(Act.GubbleAsk)} asks for what fits where you point (wait or follow, fetch or put down, light the dark, go and look); hold it for the wheel · {K(Act.GubbleRecall)} come, then follow · {K(Act.GubbleStop)} stop · {K(Act.GubbleEyes)} look through its eyes", "GubbleKeys");
         AddKeyLine(_keyHelp, MagicKeysLine, "GubbleSlots");
         // The toggles that bend the world for testing, apart from the keys the game is played with.
         _keyHelp.AddChild(new Label { Name = "TestingHeading", Text = "Testing" });
@@ -264,8 +264,14 @@ public partial class RoomHud : CanvasLayer
         AddButton(options, "Change player color", () => { _playerColor = (_playerColor + 1) % Palette.Length; Player.SetAppearance(Palette[_playerColor]); });
         AddButton(options, "Change the Gubble's color", () => { _companionColor = (_companionColor + 1) % Palette.Length; Companion.SetAppearance(Palette[_companionColor]); ApplyAura(); });
         options.AddChild(new Label { Text = $"Player height: {Player.BodyHeightM * 100:0} cm. Appearance keeps each avatar's identity." });
+        BuildEyesSetting(options);
         AddButton(options, "Save appearance and return", () => { SavePreferences(); ToggleCustomization(); });
         BuildGubbleControls(compactTheme);
+        BuildMagicPanel(actions, column, theme);
+        // The journal last: the book opens over everything else on screen (RoomHud.Journal.cs). Then the eye icon above its dock,
+        // whose view through the Gubble's eyes covers the whole screen, the book's dock too (RoomHud.GubbleView.cs).
+        BuildJournal();
+        BuildGubbleView(compactTheme);
         ApplyAura();
         SetViewMode(1);
         if (LookNotice.Length > 0) _noticeText = LookNotice;
@@ -356,7 +362,8 @@ public partial class RoomHud : CanvasLayer
         // Enter the isometric view at the quarter-turn heading nearest the player's facing.
         if (mode == 3 && ViewMode != 3) IsoYaw = Mathf.Wrap(Mathf.Snapped(Player.GlobalRotation.Y - Mathf.Pi / 4, Mathf.Pi / 2) + Mathf.Pi / 4, -Mathf.Pi, Mathf.Pi);
         ViewMode = mode;
-        Player.GetNode<Node3D>("OriginalPrototypeBody").Visible = mode != 0;
+        // The body stays drawn in every view: in F1 the player's own eye leaves its layer out (EyeView.PlayerEyeCullMask),
+        // so the Gubble's eye still sees the player.
         if (mode == 0) Player.EyeCamera.MakeCurrent();
         else if (mode == 1) _shoulder.MakeCurrent();
         else
@@ -424,6 +431,8 @@ public partial class RoomHud : CanvasLayer
         // While the wheel has the game paused, only the wheel's clock runs.
         _wheel.Tick(delta);
         if (GubblePaused) return;
+        TickMagicPanel(delta);
+        TickGubbleView();
         if (ViewMode >= 2) PlaceDioramaRig(snap: false, (float)delta);
         _arm.Rotation = new Vector3(Mathf.Clamp(Player.EyeCamera.Rotation.X - 0.18f, -1.1f, 0.8f), 0, 0);
         _arm.SpringLength = ArmLengthOverBed(_arm.GlobalPosition, _arm.GlobalBasis.Z, _armLength, Player.Water.Wet ? Player.Water.BedY : float.NegativeInfinity, ArmBedClearanceM);
@@ -454,7 +463,7 @@ public partial class RoomHud : CanvasLayer
     {
         var host = Host;
         _focusAge += delta;
-        if (host == null || Player.IsClimbing || Player.IsDiving || Player.GoingHome || Customizing)
+        if (host == null || Player.IsClimbing || Player.IsDiving || Player.GoingHome || ReadingPanelOpen)
         {
             SetFocus(null, default, "");
             _focusAge = double.MaxValue;
@@ -521,6 +530,7 @@ public partial class RoomHud : CanvasLayer
         // The controls are input actions (project.godot, [input]); Hit is a fresh press of one, not a held key repeating.
         var press = PlayerControls.Normalise(input);
         var fresh = PlayerControls.Fresh(press);
+        if (HandleMagicSpotInput(press, fresh)) { GetViewport().SetInputAsHandled(); return; }
         // The look drag (the cursor is free): once the pointer has moved LookDrag.StartPx with the button down, the cursor hides
         // and the motion turns the view as the captured mouse did; the release brings the cursor back where it was pressed.
         if (_drag.Pressed)
@@ -569,14 +579,29 @@ public partial class RoomHud : CanvasLayer
         if (GubblePaused) return;
         if (fresh)
         {
+            // While the player looks through the Gubble's eyes, the view's keys are the only keys (RoomHud.GubbleView.cs).
+            // Then the journal's: while the book is open or moving, they are the only keys (RoomHud.Journal.cs).
+            if (HandleGubbleViewKeys(press) || HandleJournalKeys(press))
+            {
+                GetViewport().SetInputAsHandled();
+                return;
+            }
+            // The eye icon's key opens the view from the game and from the appearance and Magic panels, as J opens the book.
+            if (PlayerControls.Hit(press, Act.GubbleEyes))
+            {
+                OpenGubbleView();
+                GetViewport().SetInputAsHandled();
+                return;
+            }
             // Esc closes the panel and calls off a drag; the cursor is never captured, so there is nothing to free.
             if (PlayerControls.Hit(press, Act.MouseRelease))
             {
                 if (Customizing) ToggleCustomization();
+                if (MagicPanelOpen) SetMagicPanelOpen(false);
                 EndDrag();
             }
             if (PlayerControls.Hit(press, Act.HudCustomize)) ToggleCustomization();
-            if (Customizing) return;
+            if (ReadingPanelOpen) return;
             // One key does one thing, the first below that it is (Shift+T is the season before it is a T).
             if (PlayerControls.Hit(press, Act.HudHelp))
             {
@@ -608,7 +633,7 @@ public partial class RoomHud : CanvasLayer
                 if (DragTurnsView && !_wheel.Held) _drag.Press(GetViewport().GetMousePosition());
             }
         }
-        if (ViewMode == 2 && !Customizing)
+        if (ViewMode == 2 && !ReadingPanelOpen)
         {
             // The diorama camera orbits with the look drag; the body does not turn with it (SetMovementFrame).
             if (fresh && PlayerControls.Hit(press, Act.ViewZoomIn))
@@ -630,13 +655,14 @@ public partial class RoomHud : CanvasLayer
     /// <summary>Test seam: whether the drag button is held (events handed straight to the HUD never reach Input's own state).</summary>
     internal System.Func<bool>? DragHeldForTests { get; set; }
 
-    /// <summary>Whether a drag turns this view: F1 and F2 turn the body and the eye, F3 orbits; F4 turns only by quarter turns.</summary>
-    public bool DragTurnsView => ViewMode != 3;
+    /// <summary>Whether a drag turns this view: F1 and F2 turn the body and the eye, F3 orbits; F4 turns only by quarter turns. Through the Gubble's eyes, it turns the Gubble's eye.</summary>
+    public bool DragTurnsView => GubbleViewOpen || ViewMode != 3;
 
-    /// <summary>A drag's motion, in pixels, as the view's turn: the body and the eye in F1 and F2, the orbit in F3.</summary>
+    /// <summary>A drag's motion, in pixels, as the view's turn: the body and the eye in F1 and F2, the orbit in F3, the Gubble's eye through its eyes.</summary>
     public void TurnView(Vector2 relative)
     {
-        if (ViewMode == 2) OrbitDiorama(relative);
+        if (GubbleViewOpen) TurnGubbleEye(relative);
+        else if (ViewMode == 2) OrbitDiorama(relative);
         else if (ViewMode is 0 or 1) Player.TurnView(relative);
     }
 
@@ -671,6 +697,8 @@ public partial class RoomHud : CanvasLayer
     {
         CancelAsk();
         EndDrag();
+        CloseJournalNow();
+        if (MagicPanelOpen) SetMagicPanelOpen(false);
         _customization.Visible = !_customization.Visible;
         Player.SetInputEnabled(!_customization.Visible);
         Input.MouseMode = Input.MouseModeEnum.Visible;
@@ -697,15 +725,26 @@ public partial class RoomHud : CanvasLayer
         Companion.SetAppearance(Palette[_companionColor]);
     }
 
-    private void SavePreferences()
+    /// <summary>
+    /// "Save appearance": the appearance's own fields written into the profile as it is on disk, every other key kept (the
+    /// player's settings "Let my AI see through the Gubble's eyes" and "Let the Gubble use fire" among them). A profile that
+    /// does not load is never overwritten, as for SaveProfileValue: the appearance then lasts this session only.
+    /// </summary>
+    internal void SavePreferences()
     {
         var config = new ConfigFile();
-        config.SetValue("profile", "version", 1);
-        config.SetValue("profile", "player_color", _playerColor);
-        config.SetValue("profile", "companion_color", _companionColor);
-        config.SetValue("profile", "companion_name", Companion.CompanionName);
-        config.SetValue("profile", "has_used_glow", HasUsedGlow);
-        _noticeText = WriteProfile(config) ? "Appearance saved. Room changes are not saved by this placeholder." : "Could not save appearance; current session is still usable.";
+        var loaded = config.Load(ProfilePath);
+        var readable = loaded == Error.FileNotFound || (loaded == Error.Ok &&
+            config.GetValue("profile", "version", 0).VariantType == Variant.Type.Int && config.GetValue("profile", "version", 0).AsInt32() == 1);
+        if (readable)
+        {
+            config.SetValue("profile", "version", 1);
+            config.SetValue("profile", "player_color", _playerColor);
+            config.SetValue("profile", "companion_color", _companionColor);
+            config.SetValue("profile", "companion_name", Companion.CompanionName);
+            config.SetValue("profile", "has_used_glow", HasUsedGlow);
+        }
+        _noticeText = readable && WriteProfile(config) ? "Appearance saved. Room changes are not saved by this placeholder." : "Could not save appearance; current session is still usable.";
     }
 
     /// <summary>

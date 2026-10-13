@@ -121,12 +121,13 @@ class GlowMatchesTheKernel(unittest.TestCase):
         from enfractal_companion.mock_host import rules_path
         self.assertIn('=> $"res://rules/{rulesId}/v{rulesVersion}.json";', _text(RULES))
         path = rules_path()
-        self.assertEqual(path, REPO / "game" / "rules" / "storybook_wild" / "v2.json")
+        self.assertEqual(path, REPO / "game" / "rules" / "storybook_wild" / "v4.json")
         host = new_host()
         self.assertEqual((host.rules.rules_id, host.rules.rules_version, host.rules.sha256),
-                         ("storybook_wild", 2, hashlib.sha256(path.read_bytes()).hexdigest()))
+                         ("storybook_wild", 4, hashlib.sha256(path.read_bytes()).hexdigest()))
         self.assertEqual([(a.capability, a.primitive) for a in host.rules.abilities],
-                         [("glow", "light.emit"), ("bubbles", "particles.float"), ("fireworks", "particles.burst")])
+                         [("glow", "light.emit"), ("bubbles", "particles.float"), ("fireworks", "particles.burst"),
+                          ("bloom", "growth.seed"), ("fire", "element.ignite")])
 
     def test_the_mock_loads_the_primitives_the_kernel_carries_out(self):
         """The mock checks a pack against the island-rules schema; the kernel against its own table of primitives
@@ -156,9 +157,17 @@ class GlowMatchesTheKernel(unittest.TestCase):
                                          float(entry.group(6)), int(entry.group(7)))
         self.assertEqual(len(in_kernel), table.count("] = new("), "a kernel primitive this test could not read")
         self.assertEqual(in_kernel, in_schema)
-        self.assertEqual(sorted(in_kernel), ["light.emit", "particles.burst", "particles.float"])
+        self.assertEqual(sorted(in_kernel), ["element.ignite", "growth.seed", "light.emit", "particles.burst", "particles.float"])
         start_look = _method(_text(EFFECTS), "private bool StartLook(")
-        self.assertEqual(sorted(re.findall(r'"([a-z]+\.[a-z]+)" => look\.Start\w+\(', start_look)), sorted(in_kernel))
+        self.assertEqual(sorted(re.findall(r'"([a-z]+\.[a-z]+)" => look\.Start\w+\(', start_look)),
+                         ["light.emit", "particles.burst", "particles.float"])
+        # Persistent terrain primitives use their own authority path, never a cosmetic effect receipt.
+        plan = _method(_text(EFFECTS), "private EffectPlan PlanEffect(")
+        self.assertIn('capability is "bloom" or "fire"', plan)
+        self.assertIn("Use nature.cast for this ability; preview Fire first.", plan)
+        nature = _text(KERNEL / "Kernel" / "CommandHostNature.cs")
+        self.assertIn('if (op == "nature.cast")', nature)
+        self.assertIn('Rules?.Ability(capability)', nature)
 
     def test_reserved_param_names_are_the_contracts_everywhere(self):
         import json
@@ -171,8 +180,8 @@ class GlowMatchesTheKernel(unittest.TestCase):
         self.assertEqual([contract, kernel[0], kernel[1]], [pack, pack, pack])
 
     def test_the_mock_checks_effect_start_in_the_kernels_order_and_words(self):
-        """The codes PlanEffect throws, in order, are the mock's _plan_effect's; and every refusal message and field
-        path the mock gives for the abilities is the kernel's, word for word."""
+        """The codes PlanEffect throws, in order, are the mock's _plan_effect's, the water surface's two included; and every
+        refusal message and field path the mock gives for the abilities is the kernel's, word for word."""
         import ast
         import inspect
         import textwrap
@@ -196,6 +205,129 @@ class GlowMatchesTheKernel(unittest.TestCase):
         cursor = "That cursor is not from this list."
         self.assertIn(cursor, _method(source, "private JsonObject Capabilities("))
         self.assertIn(cursor, inspect.getsource(MockHost._query))
+
+
+NATURE = KERNEL / "Kernel" / "CommandHostNature.cs"
+
+
+@unittest.skipUnless(NATURE.is_file(), "the kernel host's nature is not in this checkout")
+class NatureMatchesTheKernel(unittest.TestCase):
+    """Nature (contracts/README.md "Nature"). The mock does not simulate it yet: it checks the nature commands as the kernel
+    does before its nature runs, then answers unavailable (the one exception test_host_alignment.py allows). What it does
+    check must be the kernel's: the args (CheckNatureArgs), and room.undo of any change that is not nature's (NatureUndo)."""
+
+    def test_the_mock_checks_the_nature_commands_the_kernel_has(self):
+        from enfractal_companion.mock_host import NATURE_OPS
+        check = _method(_text(NATURE), "private static void CheckNatureArgs(")
+        self.assertEqual(set(re.findall(r'"(nature\.[a-z]+)" =>', check)), set(NATURE_OPS))
+        # Its refusals are field_unknown and request_invalid only, which is what the mock's mapping gives (refusals.py).
+        self.assertEqual(set(re.findall(r'new Refusal\("(\w+)"', check)), {"field_unknown", "request_invalid"})
+
+    def test_the_contract_bounds_the_args_as_the_kernel_does(self):
+        import json
+        defs = json.loads((REPO / "contracts" / "game-command.schema.json").read_bytes())["$defs"]
+        cast = defs["args"]["nature.cast"]["properties"]
+        check = _method(_text(NATURE), "private static void CheckNatureArgs(")
+        self.assertIn('is not ("bloom" or "fire")', check)
+        self.assertEqual(cast["capability"]["enum"], ["bloom", "fire"])
+        self.assertIn('("radius_m", NatureBlock.MaxFireRadiusM), ("duration_s", 600f)', check)
+        radius = float(_match(KERNEL / "Kernel" / "NatureStore.cs", r"\bconst float MaxFireRadiusM = ([0-9.]+)f;"))
+        self.assertEqual((cast["radius_m"]["maximum"], cast["duration_s"]["maximum"]), (radius, 600))
+        self.assertEqual(_match(NATURE, r'PreviewIdPattern = new\(@"\\A([^"]+)\\z"'), defs["preview_id"]["pattern"].strip("^$"))
+        self.assertEqual(_match(COMMAND_HOST, r'CreationId = new\(@"\\A([^"]+)\\z"'), defs["creation_id"]["pattern"].strip("^$"))
+        for op in ("nature.cast", "nature.trail", "nature.repair"):
+            with self.subTest(op=op):
+                allowed = re.search(rf'"{re.escape(op)}" => new\[\] \{{([^}}]*)\}}', check).group(1)
+                self.assertEqual(set(re.findall(r'"([a-z_]+)"', allowed)), set(defs["args"][op]["properties"]))
+
+    def test_room_undo_of_any_other_change_answers_the_kernels_codes_and_words(self):
+        import inspect
+        from enfractal_companion import mock_host
+        undo = _method(_text(NATURE), "private JsonObject NatureUndo(")
+        for words in (mock_host.UNDO_NOT_EARLIER, mock_host.UNDO_ONLY_NATURE):
+            self.assertIn(f'"{words}"', undo)
+        # After the kernel's nature and role checks (not_ready, permission_denied), the refusals the mock gives, in order.
+        in_kernel = re.findall(r'new Refusal\("(\w+)"', undo)
+        self.assertEqual(in_kernel[:2], ["invalid_args", "unsupported_capability"])
+        self.assertEqual(re.findall(r'HostError\("(\w+)"', inspect.getsource(mock_host.MockHost._op_room_undo)), in_kernel[:2])
+        self.assertIn('"room.undo" when !NatureConfigured', _text(COMMAND_HOST))
+
+    def test_outside_creative_undo_is_refused_first_in_the_kernels_words(self):
+        """CommandHost.Unsupported refuses room.undo outside Creative before CheckExpectations; the mock's _check_unsupported
+        does the same before _check_revisions, with the same words."""
+        import inspect
+        from enfractal_companion import mock_host
+        host = _text(COMMAND_HOST)
+        self.assertIn(f'"room.undo" when Mode != "creative" => "{mock_host.UNDO_NOT_IN_THIS_MODE}",', host)
+        execute = _method(host, "private JsonObject Execute(")
+        self.assertLess(execute.index("Unsupported(op, args, principal)"), execute.index("CheckExpectations(root, op, args, principal)"))
+        self.assertIn('throw new Refusal("unsupported_capability", unsupported, "$.op")', execute)
+        command = inspect.getsource(mock_host.MockHost._command)
+        self.assertLess(command.index("self._check_unsupported(message)"), command.index("self._check_revisions(principal, message)"))
+        self.assertEqual(re.findall(r'HostError\("(\w+)"', inspect.getsource(mock_host.MockHost._check_unsupported)), ["unsupported_capability"])
+
+
+EYES = KERNEL / "Kernel" / "CommandHostEyes.cs"
+
+
+def _cs_string(path, name: str) -> str:
+    """A C# string constant's value (the kernel's words use only the escapes \\" and \\\\)."""
+    raw = _match(path, rf'\bpublic const string {name} = "((?:[^"\\]|\\.)*)";')
+    return raw.replace('\\"', '"').replace("\\\\", "\\")
+
+
+@unittest.skipUnless(EYES.is_file(), "the kernel host's eyes are not in this checkout")
+class EyesMatchTheKernel(unittest.TestCase):
+    """The Gubble's eyes (view.look): the mock's numbers and words are the kernel's, and the contract's bounds hold them."""
+
+    def test_the_numbers_are_the_kernels(self):
+        from enfractal_companion import eyes
+        expected = {
+            "LOOK_BURST": _constant(EYES, r"\bconst int LookBurst = (\d+);"),
+            "LOOK_REFILL_S": float(_match(EYES, r"\bconst double LookRefillS = ([0-9.]+);")),
+            "LOOK_IMAGE_MAX_BYTES": _constant(EYES, r"\bconst int LookImageMaxBytes = (\d+);"),
+            "LOOK_WIDTH_PX": _constant(EYES, r"\bconst int LookWidthPx = (\d+);"),
+            "LOOK_HEIGHT_PX": _constant(EYES, r"\bconst int LookHeightPx = (\d+);"),
+            "LOOK_MAX_YAW_DEG": float(_match(EYES, r"\bconst double LookMaxYawDeg = ([0-9.]+);")),
+            "LOOK_MAX_PITCH_DEG": float(_match(EYES, r"\bconst double LookMaxPitchDeg = ([0-9.]+);")),
+            "EYES_PROFILE_KEY": _cs_string(EYES, "EyesProfileKey"),
+            "DEFAULT_GUBBLE_EYES": _match(EYES, r"\bconst bool DefaultGubbleEyes = (true|false);") == "true",
+            "EYE_VERTICAL_FOV_DEG": float(_match(KERNEL / "SmallPlayerController.cs",
+                                                 r'Name = "EyeCamera",[^\n]*\n[^\n]*\bFov = ([0-9.]+)f')),
+        }
+        self.assertEqual({name: getattr(eyes, name) for name in expected}, expected)
+        self.assertEqual((HostPolicy().look_burst, HostPolicy().look_refill_s), (expected["LOOK_BURST"], expected["LOOK_REFILL_S"]))
+
+    def test_the_refusals_are_the_kernels_word_for_word_and_in_its_order(self):
+        import inspect
+        from enfractal_companion import eyes
+        from enfractal_companion.mock_host import MockHost
+        for mock, kernel in (("EYES_OFF_MESSAGE", "EyesOffMessage"), ("NO_RENDERER_MESSAGE", "NoRendererMessage"),
+                             ("LOOK_RATE_MESSAGE", "LookRateMessage"), ("LOOK_ACTOR_MESSAGE", "LookActorMessage")):
+            with self.subTest(message=mock):
+                self.assertEqual(getattr(eyes, mock), _cs_string(EYES, kernel))
+        view_look = _method(_text(EYES), "private JsonObject ViewLook(")
+        in_kernel = [code for code in re.findall(r'new Refusal\("(\w+)"', view_look) if code != "not_ready"]
+        in_mock = re.findall(r'HostError\("(\w+)"', inspect.getsource(MockHost._view_look))
+        # The kernel also refuses a caller that cannot wait for a frame (its synchronous path), which the mock never needs.
+        self.assertEqual(in_kernel, in_mock + ["unavailable"])
+        self.assertEqual(in_mock, ["actor_denied", "permission_denied", "rate_limited", "unavailable"])
+
+    def test_the_contract_bounds_are_the_kernels(self):
+        import json
+        from enfractal_companion import eyes
+        defs = json.loads((REPO / "contracts" / "game-command.schema.json").read_bytes())["$defs"]
+        if "view.look" not in defs["query_op"]["enum"]:
+            self.skipTest("the contract has no view.look yet")
+        args, image = defs["args"]["view.look"]["properties"], defs["data"]["view.look"]["properties"]["image"]["properties"]
+        self.assertEqual((args["yaw_deg"]["minimum"], args["yaw_deg"]["maximum"]), (-eyes.LOOK_MAX_YAW_DEG, eyes.LOOK_MAX_YAW_DEG))
+        self.assertEqual((args["pitch_deg"]["minimum"], args["pitch_deg"]["maximum"]), (-eyes.LOOK_MAX_PITCH_DEG, eyes.LOOK_MAX_PITCH_DEG))
+        self.assertEqual(image["bytes"]["maximum"], eyes.LOOK_IMAGE_MAX_BYTES)
+        self.assertEqual(image["data_base64"]["maxLength"], 4 * -(-eyes.LOOK_IMAGE_MAX_BYTES // 3))
+        self.assertGreaterEqual(image["width_px"]["maximum"], max(eyes.LOOK_WIDTH_PX, eyes.LOOK_HEIGHT_PX))
+        self.assertIn("unavailable", defs["error_code"]["enum"])
+        # The largest picture leaves the result well inside the kernel's 256 KiB answer (and so the link's response frame).
+        self.assertLess(image["data_base64"]["maxLength"] + 8192, _constant(COMMAND_HOST, r"\bconst int MaxResultBytes = (\d+);"))
 
 
 class DefaultPolicyBoundaries(unittest.TestCase):

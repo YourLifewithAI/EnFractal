@@ -253,7 +253,7 @@ class SystemRoot(unittest.TestCase):
         server = printed("--mock")["mcpServers"]["enfractal-companion"]
         code, replies, err = self.run_server(dict(server["env"]))
         tools = next(r for r in replies if r.get("id") == 2)["result"]["tools"]
-        self.assertEqual(len(tools), 29, err)
+        self.assertEqual(len(tools), len(contracts().tool_specs()), err)
         self.assertEqual({t["name"] for t in tools}, {s.name for s in contracts().tool_specs()})
 
     @unittest.skipUnless(ON_WINDOWS, "SYSTEMROOT is a Windows variable")

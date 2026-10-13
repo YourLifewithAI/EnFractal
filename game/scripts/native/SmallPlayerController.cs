@@ -309,6 +309,14 @@ public partial class SmallPlayerController : CharacterBody3D
     public bool AtSea => Sea != null && Sea.PastReefM(new Vector2(GlobalPosition.X, GlobalPosition.Z)) > 0;
 
     public bool IsClimbing => _climbing;
+    /// <summary>Trusted host callbacks for mode consequences. Unbound fixture bodies retain Creative movement.</summary>
+    public System.Func<float, float, bool>? ClimbBudget { get; set; }
+    public System.Action<float, bool>? VitalsTick { get; set; }
+    /// <summary>Trusted body observation: downward speed in m/s just before landing, and whether deep water caught it.</summary>
+    public System.Action<float, bool>? FallObserved { get; set; }
+    public System.Action<Vector3, Vector3>? ClimbCompleted { get; set; }
+    private float _vitalsLandingSpeedMps;
+    private Vector3? _vitalsClimbStart;
     public bool IsPullingOver => _climbing && _pullPhase > 0;
     public bool IsSwimming => _swimming;
     /// <summary>The face being climbed (outward, unit); meaningful while IsClimbing.</summary>
@@ -330,6 +338,12 @@ public partial class SmallPlayerController : CharacterBody3D
     public System.Func<bool>? HandsFull { get; set; }
 
     protected virtual WorldScaleProfile Profile => WorldScaleProfile.SmallPlayer;
+    /// <summary>
+    /// The render layer of this body's drawn parts. The body's own eye camera leaves that layer out of its cull mask, so the
+    /// first-person view (F1) never shows the inside of the head, while every other camera, the Gubble's eye among them, still
+    /// draws the body: a per-camera choice (Look/EyeView.cs), never the body hidden for everyone.
+    /// </summary>
+    protected virtual uint OwnBodyLayer => EnFractal.Native.Look.EyeView.PlayerBodyLayer;
     protected Node3D VisualRoot = null!;
     protected StandardMaterial3D BodyMaterial = null!;
     protected bool HasSafePosition;
@@ -401,6 +415,8 @@ public partial class SmallPlayerController : CharacterBody3D
         };
         AddChild(EyeCamera);
         BuildVisual();
+        EnFractal.Native.Look.EyeView.MarkBody(VisualRoot, OwnBodyLayer);
+        EyeCamera.CullMask = EnFractal.Native.Look.EyeView.AllLayers & ~OwnBodyLayer;
         ReferenceGravityMps2 = (float)DefaultWorldPhysics()["gravity_mps2"].AsDouble();
         if (WorldPhysicsRevision < 0) ApplyWorldPhysics(DefaultWorldPhysics());
         _spawnPoint = GlobalPosition;
@@ -704,6 +720,7 @@ public partial class SmallPlayerController : CharacterBody3D
         // With physics interpolation on, a teleport must not be drawn as a glide from the old place to the new one.
         ResetPhysicsInterpolation();
         StopClimbingAndSwimming();
+        ResetVitalsObservation();
         Velocity = Vector3.Zero;
         _jumpBuffer = 0;
         LastSafePosition = position;
@@ -745,6 +762,24 @@ public partial class SmallPlayerController : CharacterBody3D
         return recovered;
     }
 
+    /// <summary>Injury recovery returns to the room spawn, rather than the last high ledge. Never teleports into solid geometry.</summary>
+    public bool RecoverAtSpawn()
+    {
+        SetControlInput(Vector2.Zero);
+        ClearCreationMotion();
+        if (TryTeleportTo(_spawnPoint)) { Recoveries++; return true; }
+        foreach (var offset in new[] { Vector3.Right, Vector3.Left, Vector3.Forward, Vector3.Back })
+            if (TryTeleportTo(_spawnPoint + offset * BodyHeightM)) { Recoveries++; return true; }
+        return false;
+    }
+
+    /// <summary>Teleports and a change of mode start a new observation; they never manufacture a completed climb or a fall.</summary>
+    public void ResetVitalsObservation()
+    {
+        _vitalsLandingSpeedMps = 0;
+        _vitalsClimbStart = null;
+    }
+
     /// <summary>How far a pixel of mouse motion turns the view (the feel the captured mouse had).</summary>
     public const float LookRadiansPerPixel = 0.0025f;
 
@@ -780,6 +815,7 @@ public partial class SmallPlayerController : CharacterBody3D
     {
         if (!_ready) return;
         var dt = Mathf.Clamp((float)delta, 0, 0.05f);
+        _vitalsLandingSpeedMps = 0;
         // Separate last tick's creation contribution from the body's own motion.
         Velocity -= _creationApplied;
         _creationApplied = Vector3.Zero;
@@ -847,6 +883,7 @@ public partial class SmallPlayerController : CharacterBody3D
             // creation's share after the move missed a push that ended against a wall: the slide had already cut it away.)
             GlobalPosition = before;
             Velocity = _ownVelocity;
+            _vitalsLandingSpeedMps = Mathf.Max(0, -Velocity.Y);
             if (_ownVelocity.LengthSquared() > 0) MoveAndSlide();
             Velocity = _ownVelocity;
             _creationApplied = Vector3.Zero;
@@ -863,9 +900,25 @@ public partial class SmallPlayerController : CharacterBody3D
             _waterLeap = false;
         }
         if (!GlobalPosition.IsFinite() || GlobalPosition.Y < _spawnPoint.Y - 12.0f ||
-            (PlayableBounds is { } bounds && GlobalPosition.Y < bounds.Position.Y - RecoverBelowBoundsM)) Recover();
+            (PlayableBounds is { } bounds && GlobalPosition.Y < bounds.Position.Y - RecoverBelowBoundsM))
+        {
+            // The out-of-room safety net is still a fall in consequence modes; report it before teleport resets the observation.
+            if (GlobalPosition.IsFinite() && !Floats)
+                FallObserved?.Invoke(_vitalsLandingSpeedMps, false);
+            Recover();
+        }
+        ObserveBodyVitals(dt);
         UpdateVisual(dt);
-        VisualRoot.Visible = !EyeCamera.Current;
+    }
+
+    private void ObserveBodyVitals(float dt)
+    {
+        if (Floats || (VitalsTick == null && FallObserved == null)) return;
+        var safelyGrounded = IsOnFloor() && !_climbing && !_swimming && !GoingHome;
+        var caughtByWater = Water.Wet && Water.DepthM >= SwimDepthM && Water.Under(GlobalPosition) >= 0;
+        if (safelyGrounded || caughtByWater)
+            FallObserved?.Invoke(_vitalsLandingSpeedMps, caughtByWater);
+        VitalsTick?.Invoke(dt, safelyGrounded);
     }
 
     /// <summary>On foot or in the air: the walk, the run, steps, jumps and creation forces, slowed by the water it wades in.</summary>
@@ -903,7 +956,12 @@ public partial class SmallPlayerController : CharacterBody3D
             MoveAndSlide();
             Velocity = new Vector3(horizontal.X, Velocity.Y, horizontal.Z);
         }
-        else MoveAndSlide();
+        else
+        {
+            // Capture the final descent after creation forces and the water catch, before the floor stops it.
+            _vitalsLandingSpeedMps = Mathf.Max(0, -Velocity.Y);
+            MoveAndSlide();
+        }
         // A face too steep to stand on, pushed into: grab it (at once in the air, after a deliberate push on the ground).
         var grounded = IsOnFloor();
         TryGrab(dt, wish, deliberate: grounded, heldBack: !grounded || HeldBack(start, wish, WalkSpeedMps, dt));
@@ -1327,7 +1385,7 @@ public partial class SmallPlayerController : CharacterBody3D
     /// </summary>
     private void TryGrab(float dt, Vector3 wish, bool deliberate, bool heldBack)
     {
-        if (!CanClimb || _regrabBlock > 0 || !InputEnabled || wish.LengthSquared() < 0.25f || HandsAreFull())
+        if (!CanClimb || _regrabBlock > 0 || !InputEnabled || wish.LengthSquared() < 0.25f || HandsAreFull() || (ClimbBudget != null && !ClimbBudget(0, 0)))
         {
             _grabPush = 0;
             return;
@@ -1368,6 +1426,7 @@ public partial class SmallPlayerController : CharacterBody3D
         _grabPush += dt;
         if (deliberate && _grabPush < ClimbGrabDelayS) return;
         _climbing = true;
+        _vitalsClimbStart = GlobalPosition;
         _climbNormal = found.Normalized();
         _grabPush = 0;
         _pullPhase = 0;
@@ -1417,6 +1476,12 @@ public partial class SmallPlayerController : CharacterBody3D
         {
             _jumpBuffer = 0;
             LetGo(kick: true);
+            return;
+        }
+        var budgetRise = (_pullPhase > 0 ? PullOverSpeedMps : Mathf.Max(0, control.Y) * ClimbSpeedMps) * dt;
+        if (ClimbBudget != null && !ClimbBudget(dt, budgetRise))
+        {
+            LetGo(kick: false);
             return;
         }
         if (_pullPhase > 0)
@@ -1550,6 +1615,7 @@ public partial class SmallPlayerController : CharacterBody3D
             if (over.Length() <= 0.001f)
             {
                 PullOvers++;
+                CompleteObservedClimb();
                 StopClimbing(Vector3.Zero);
                 return;
             }
@@ -1563,10 +1629,17 @@ public partial class SmallPlayerController : CharacterBody3D
             if (HasSupportNear(GlobalPosition, 0.01f))
             {
                 PullOvers++;
+                CompleteObservedClimb();
                 StopClimbing(Vector3.Zero);
             }
             else _pullPhase = 0;
         }
+    }
+
+    private void CompleteObservedClimb()
+    {
+        if (_vitalsClimbStart is { } start) ClimbCompleted?.Invoke(start, GlobalPosition);
+        _vitalsClimbStart = null;
     }
 
     /// <summary>Jump lets go with a small kick away and up; a lost face just drops the body. Either way the same push does not grab again at once.</summary>
@@ -1581,6 +1654,7 @@ public partial class SmallPlayerController : CharacterBody3D
     private void StopClimbing(Vector3 velocity)
     {
         _climbing = false;
+        _vitalsClimbStart = null;
         _pullPhase = 0;
         _faceLost = 0;
         MotionMode = MotionModeEnum.Grounded;
@@ -1592,6 +1666,7 @@ public partial class SmallPlayerController : CharacterBody3D
     {
         if (_climbing || _swimming) MotionMode = MotionModeEnum.Grounded;
         _climbing = false;
+        _vitalsClimbStart = null;
         _swimming = false;
         _pullPhase = 0;
         _faceLost = 0;
