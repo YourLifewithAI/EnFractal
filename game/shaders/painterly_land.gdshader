@@ -95,9 +95,30 @@ uniform float haze_far_m = 0.0;
 // A prop's own seed (a cottage); the land's parts leave it at zero so marks continue across them.
 instance uniform float paint_seed = 0.0;
 
+// The room-to-island intro (Look/Intro/RoomIntro.cs; docs/ROOM-TO-LANDSCAPE.md): Godot's global shader parameters, declared in
+// game/project.godot ([shader_globals]). At rest intro_rise.w is 0 and none of the intro's code runs, so the land draws exactly
+// as without it. While the intro plays (w 1): x is the land's progress from the room to the island, y the coast's.
+global uniform vec4 intro_rise;
+// The start field's square on the ground: x0, z0, 1 / its width, 1 / its depth (metres).
+global uniform vec4 intro_area;
+// The growing wave: x, z its centre, y the width of its edge (m), w its radius (m).
+global uniform vec4 intro_grow;
+// The start field: r the room's height there (the floor, or the top of a box), g when it starts to rise (0 to 1 of the land's
+// phase), b how much of it is coast (rises with the walls' slump). Half floats, one texel a cell.
+global uniform sampler2D intro_start;
+// The room's own colour there (linear): the floor's, or a box's.
+global uniform sampler2D intro_colour;
+// What the intro does to this instance while it plays: 0 (the default) it grows in from nothing as the wave passes it (a copy, a
+// cottage, a stone: so copies built while the intro plays grow too), 1 the land (drawn from the room's heights rising to its own),
+// 3 nothing (the sea floor, the open sea's bed). The intro marks the land and the still parts, and resets every mark it made when
+// it ends; at rest none of this runs.
+instance uniform float intro_part = 0.0;
+
 varying vec3 obj_pos;
 varying vec3 obj_normal;
 varying vec3 baked_color;
+// The room's colour at this point (rgb) and how much of it shows (a: 1 the room, 0 the island; always 0 at rest).
+varying vec4 intro_room;
 // How far this pixel has gone into the haze (0 to 1): light() fades the highlight by the same amount.
 varying float haze_v;
 
@@ -214,7 +235,50 @@ vec2 plane_of(vec3 p, vec3 axis_n) {
 	return axis_n.y > 0.5 ? p.xz : (axis_n.x > 0.5 ? p.zy : p.xy);
 }
 
+// The land while the intro plays: each vertex drawn between the room's height at its place (the floor, or a box's top) and its
+// own, its normal between the room's slope and its own, by its own moment (the field's g: boxes first, the plains after, the coast
+// with the walls). Positions are moved in world space (MODEL_NORMAL_MATRIX's transpose takes a world direction back to the
+// instance's own space for a rotation and a uniform scale).
+void intro_land(inout vec3 vertex, inout vec3 normal, mat4 model, mat3 model_normal, out vec4 room) {
+	vec3 world = (model * vec4(vertex, 1.0)).xyz;
+	vec2 texel = 1.0 / vec2(textureSize(intro_start, 0));
+	vec2 uv = clamp((world.xz - intro_area.xy) * intro_area.zw, 0.5 * texel, 1.0 - 0.5 * texel);
+	vec4 field = textureLod(intro_start, uv, 0.0);
+	float land = clamp((intro_rise.x - field.g * 0.45) / 0.55, 0.0, 1.0);
+	float coast = clamp((intro_rise.y - field.g * 0.25) / 0.75, 0.0, 1.0);
+	float t = mix(land, coast, field.b);
+	t = t * t * (3.0 - 2.0 * t);
+	float height = mix(field.r, world.y, t);
+	mat3 back = transpose(model_normal);
+	vertex += back * vec3(0.0, height - world.y, 0.0);
+	// The room's slope from the field (forward differences: one texel along x and along z).
+	vec2 cell = texel / max(intro_area.zw, vec2(1e-6));
+	float hx = textureLod(intro_start, uv + vec2(texel.x, 0.0), 0.0).r - field.r;
+	float hz = textureLod(intro_start, uv + vec2(0.0, texel.y), 0.0).r - field.r;
+	vec3 room_normal = normalize(vec3(-hx / cell.x, 1.0, -hz / cell.y));
+	vec3 own = normalize(model_normal * normal);
+	normal = normalize(back * normalize(mix(room_normal, own, t)));
+	room = vec4(textureLod(intro_colour, uv, 0.0).rgb, 1.0 - smoothstep(0.2, 0.85, t));
+}
+
+// A copy or a cottage while the intro plays: it grows from its own foot (its origin) as the wave passes it, with a small
+// overshoot as it arrives; nothing of it is drawn before the wave reaches it.
+void intro_grow_in(inout vec3 vertex, vec3 origin) {
+	float jitter = hash12(origin.xz * 7.31);
+	float g = clamp((intro_grow.w - distance(origin.xz, intro_grow.xz)) / max(intro_grow.y, 1e-3) - jitter * 0.6, 0.0, 1.0);
+	float u = g - 1.0;
+	vertex *= g >= 1.0 ? 1.0 : max(0.0, 1.0 + 2.70158 * u * u * u + 1.70158 * u * u);
+}
+
 void vertex() {
+	intro_room = vec4(0.0);
+	if (intro_rise.w > 0.5) {
+		if (intro_part > 0.5 && intro_part < 1.5) {
+			vec4 room;
+			intro_land(VERTEX, NORMAL, MODEL_MATRIX, MODEL_NORMAL_MATRIX, room);
+			intro_room = room;
+		} else if (intro_part < 0.5) intro_grow_in(VERTEX, MODEL_MATRIX[3].xyz);
+	}
 	obj_pos = VERTEX;
 	obj_normal = NORMAL;
 	baked_color = COLOR.rgb;
@@ -457,6 +521,9 @@ void fragment() {
 		tone += (streak.x - 0.5) * 0.5 * detail(s, footprint);
 	}
 
+	// The intro: the room's own colour, its marks quietened, until the island's colour comes through (0 at rest: unchanged).
+	color = mix(color, intro_room.rgb, intro_room.a);
+	tone *= 1.0 - 0.6 * intro_room.a;
 	// The harness's ramp: dark and cool, the colour, light and warm. The tone moves the colour along it.
 	float t = clamp(0.5 + tone * tone_gain * variation / 0.42, 0.0, 1.0);
 	vec3 low = color * 0.82 + vec3(0.0, 0.005, 0.015) * ramp_gain;

@@ -245,3 +245,26 @@ global_illumination/voxel_gi/quality=1
 camera/depth_of_field/depth_of_field_bokeh_shape=2
 camera/depth_of_field/depth_of_field_bokeh_quality=2
 camera/depth_of_field/depth_of_field_use_jitter=true
+
+[shader_globals]
+
+intro_area={
+"type": "vec4",
+"value": Vector4(0, 0, 0, 0)
+}
+intro_colour={
+"type": "sampler2D",
+"value": ""
+}
+intro_grow={
+"type": "vec4",
+"value": Vector4(0, 0, 0, 0)
+}
+intro_rise={
+"type": "vec4",
+"value": Vector4(1, 1, 0, 0)
+}
+intro_start={
+"type": "sampler2D",
+"value": ""
+}

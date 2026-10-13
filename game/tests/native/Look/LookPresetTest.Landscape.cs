@@ -70,10 +70,16 @@ public partial class LookPresetTest
         var unset = declared.Except(set).ToArray();
         Check(unset.Length == 0, "every uniform of the land shader is set (none left at the shader default): unset " + string.Join(",", unset));
         var source = Regex.Replace(Regex.Replace(shader.Code, @"/\*.*?\*/", "", RegexOptions.Singleline), @"//[^\n]*", "");
-        var declarations = Regex.Matches(source, @"^\s*(?:instance\s+)?uniform\s+\w+\s+(\w+)[^;]*;", RegexOptions.Multiline);
-        var body = Regex.Replace(source, @"^\s*(?:instance\s+)?uniform\s+[^;]*;", "", RegexOptions.Multiline);
+        var declarations = Regex.Matches(source, @"^\s*(?:(?:instance|global)\s+)?uniform\s+\w+\s+(\w+)[^;]*;", RegexOptions.Multiline);
+        var body = Regex.Replace(source, @"^\s*(?:(?:instance|global)\s+)?uniform\s+[^;]*;", "", RegexOptions.Multiline);
         var ignored = declarations.Select(m => m.Groups[1].Value).Where(n => !Regex.IsMatch(body, $@"\b{n}\b")).ToArray();
-        Check(declarations.Count == declared.Count + 1 && ignored.Length == 0, "the land shader reads every uniform it declares (and the one per-instance seed): ignored " + string.Join(",", ignored));
+        // Besides the material's own: two per-instance values (the paint seed, the intro's mark) and the intro's five globals (Look/Intro).
+        string[] Scoped(string scope) => Regex.Matches(source, $@"^\s*{scope}\s+uniform\s+\w+\s+(\w+)", RegexOptions.Multiline).Select(m => m.Groups[1].Value).Order().ToArray();
+        var instances = Scoped("instance");
+        var globals = Scoped("global");
+        Check(declarations.Count == declared.Count + instances.Length + globals.Length && instances.SequenceEqual(new[] { "intro_part", "paint_seed" })
+            && globals.SequenceEqual(new[] { "intro_area", "intro_colour", "intro_grow", "intro_rise", "intro_start" }) && ignored.Length == 0,
+            $"the land shader reads every uniform it declares (and its per-instance seed and intro mark, and the intro's globals: {string.Join(",", instances.Concat(globals))}): ignored " + string.Join(",", ignored));
         var lightFunction = body[body.IndexOf("void light()", StringComparison.Ordinal)..];
         Check(!Regex.IsMatch(lightFunction, @"1\.0\s*-\s*ATTENUATION") && Regex.IsMatch(lightFunction, @"band\s*=[^;]*\*\s*light_warmth\s*;"),
             "the land shader lights like the room's: no light added in a cast shadow, a warm terminator only from warm light");
