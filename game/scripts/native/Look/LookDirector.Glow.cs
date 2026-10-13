@@ -35,8 +35,15 @@ public static class GlowLook
     /// <summary>How far an aura colour is lifted toward white for the light, so even a deep blue aura lights the ground readably.</summary>
     public const float AuraWhiteMix = 0.25f;
 
-    /// <summary>A halo on a body sits at this fraction of the body's height (its middle, a little up).</summary>
+    /// <summary>A halo on a body sits at this fraction of the body's height (its middle, a little up), unless the body names anchors.</summary>
     public const float FollowHeightFraction = 0.55f;
+    /// <summary>
+    /// A drawn body names where its glow sits with these metas, each a Node3D that rides one of its bones (the characters round, K5):
+    /// the halo (the Gubble's aura bone, its middle) and the light (its torch flame: the Gubble carries the light). A wisp's spark
+    /// leaves from the halo's anchor. Without them, FollowHeightFraction of the height, as before.
+    /// </summary>
+    public const string HaloAnchorMeta = "glow_halo_anchor";
+    public const string LightAnchorMeta = "glow_light_anchor";
     /// <summary>The halo's diameter in body heights, around an avatar; around any other node, HaloDefaultM.</summary>
     public const float HaloBodyHeights = 2.0f;
     public const float HaloDefaultM = 0.45f;
@@ -376,7 +383,7 @@ public partial class LookDirector
             };
             glow.Root.AddChild(glow.Core);
         }
-        glow.Root.Position = GlowPosition(glow, follow != null);
+        PlaceGlow(glow, follow != null);
         AddChild(glow.Root);
         StartCast(glow);
         return glow;
@@ -398,7 +405,8 @@ public partial class LookDirector
         }
         var gubble = CompanionBody();
         var drawn = gubble != null && IsInstanceValid(gubble) && gubble.IsInsideTree() && gubble.IsVisibleInTree();
-        var from = drawn ? gubble!.GetGlobalTransformInterpolated().Origin + Vector3.Up * ((gubble as SmallPlayerController)?.BodyHeightM ?? 0f) * GlowLook.FollowHeightFraction : Vector3.Zero;
+        var from = !drawn ? Vector3.Zero : AnchorOf(gubble, GlowLook.HaloAnchorMeta)?.GlobalPosition
+            ?? gubble!.GetGlobalTransformInterpolated().Origin + Vector3.Up * ((gubble as SmallPlayerController)?.BodyHeightM ?? 0f) * GlowLook.FollowHeightFraction;
         var distance = from.DistanceTo(glow.Center);
         if (!drawn || !float.IsFinite(distance) || distance < GlowLook.SparkMinDistanceM)
         {
@@ -524,12 +532,28 @@ public partial class LookDirector
         return value.VariantType == Variant.Type.Color ? value.AsColor() : null;
     }
 
-    /// <summary>Where a glow's light is now: on its body (interpolated for drawing), or floating above its point (bobbing, when drawing).</summary>
+    /// <summary>A body's glow anchor named by a meta (GlowLook.HaloAnchorMeta or LightAnchorMeta), or null when it names none in the tree.</summary>
+    private static Node3D? AnchorOf(Node3D? body, string meta) =>
+        body != null && IsInstanceValid(body) && body.HasMeta(meta) && body.GetMeta(meta).VariantType == Variant.Type.Object &&
+        body.GetMeta(meta).AsGodotObject() is Node3D anchor && IsInstanceValid(anchor) && anchor.IsInsideTree() ? anchor : null;
+
+    /// <summary>Puts a glow's light where GlowPosition says, and a halo on its body's halo anchor (where the body names one).</summary>
+    private void PlaceGlow(Glow glow, bool drawing)
+    {
+        glow.Root.Position = GlowPosition(glow, drawing);
+        if (glow.Follow != null) glow.Halo.Position = AnchorOf(glow.Follow, GlowLook.HaloAnchorMeta) is { } halo ? halo.GlobalPosition - glow.Root.Position : Vector3.Zero;
+    }
+
+    /// <summary>
+    /// Where a glow's light is now: on its body (interpolated for drawing; on the body's light anchor, else its halo anchor, where it
+    /// names them), or floating above its point (bobbing, when drawing).
+    /// </summary>
     private Vector3 GlowPosition(Glow glow, bool drawing)
     {
         if (glow.Follow != null)
         {
             if (!IsInstanceValid(glow.Follow) || !glow.Follow.IsInsideTree()) return glow.Root.Position;
+            if ((AnchorOf(glow.Follow, GlowLook.LightAnchorMeta) ?? AnchorOf(glow.Follow, GlowLook.HaloAnchorMeta)) is { } anchor) return anchor.GlobalPosition;
             var origin = drawing ? glow.Follow.GetGlobalTransformInterpolated().Origin : glow.Follow.GlobalPosition;
             return origin + Vector3.Up * glow.Lift;
         }
@@ -548,7 +572,7 @@ public partial class LookDirector
             // A halo whose body is gone goes with it.
             if (glow.Follow != null && !IsInstanceValid(glow.Follow)) { StopGlow(glow.Id); continue; }
             UpdateGlowVariant(glow, (float)delta);
-            glow.Root.Position = GlowPosition(glow, drawing: true);
+            PlaceGlow(glow, drawing: true);
             AdvanceCast(glow, (float)delta);
             var breath = glow.Opened * (1f + GlowLook.BreathAmount * (float)Math.Sin(_glowClock * Math.Tau / GlowLook.BreathPeriodS + glow.Phase));
             glow.Halo.Scale = new Vector3(breath, breath, breath);
