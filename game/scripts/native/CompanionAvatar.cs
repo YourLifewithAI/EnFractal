@@ -96,8 +96,25 @@ public partial class CompanionAvatar : SmallPlayerController
     /// <summary>The slowest purposeful approach, so the last centimetres never creep (was 0.15 m/s).</summary>
     public const float MinApproachMps = 0.08f;
     public const float CompanionTurnRateRadPerS = 8.0f;
-    /// <summary>A route is planned again at least this often while it is in use.</summary>
+    /// <summary>A route is planned again at least this often while it is in use (a long one less often: RouteRefreshFor).</summary>
     public const double RouteRefreshS = 0.1;
+    /// <summary>
+    /// Routes longer than this (today's islands are about 7 m across) are planned again less often, in proportion to their
+    /// length, up to LongRouteRefreshS, and only once the goal has moved farther, in the same proportion (packet S7: on the
+    /// magnified island a search takes milliseconds of a worker thread, and a goal 40 m off moving 3 cm changes nothing).
+    /// </summary>
+    public const float LongRouteM = 4f;
+    public const double LongRouteRefreshS = 1.0;
+    /// <summary>
+    /// Routes are searched on a worker thread (RoomNavigation.RequestRoute). With no route to steer by meanwhile (the first
+    /// for a goal, or one planned on an older bake), or a short one to plan (within LongRouteM), the tick waits this long for
+    /// it. On a small map (RoomNavigation.IsSmall: today's rooms) it waits for the search, however long (they take well under a
+    /// millisecond), so the route is taken in the tick it is asked for, as before, and a run plays out the same every time.
+    /// </summary>
+    public const double RouteWaitMs = 2;
+
+    /// <summary>How long a tick waits for a search it needs (see RouteWaitMs).</summary>
+    private double RouteWait => Navigation is { IsSmall: true } ? 1000 : RouteWaitMs;
     /// <summary>A route corner closer than this counts as reached (was 0.05 m).</summary>
     public const float CornerReachedM = 0.025f;
     /// <summary>A planned route this much longer than the straight line is a real detour round something (was 0.05 m).</summary>
@@ -129,6 +146,10 @@ public partial class CompanionAvatar : SmallPlayerController
     public bool FollowingRoute { get; private set; }
     /// <summary>The corners of the route last planned (empty when none).</summary>
     public Vector3[] RoutePoints => _route.Points;
+    /// <summary>The bake (RoomNavigation.Revision) the route in use was planned on.</summary>
+    public int RouteRevision => _routeRevision;
+    /// <summary>True on a tick the companion held still because the route it needs was still being searched for.</summary>
+    public bool RoutePending => _routePending;
 
     // The Gubble floats (founder, 8 October: "a ghost bubble, set apart from the world"). It walks the planned route while
     // that reaches its goal, hovering over the ground; when the walk cannot take it there (up a cliff, across water, a long way
@@ -190,6 +211,11 @@ public partial class CompanionAvatar : SmallPlayerController
     private Vector3 _routeGoal;
     private double _routeAge;
     private int _routeRevision = -1;
+    private RoomNavigation.RouteRequest? _routeRequest;
+    private bool _routePending;
+    private RoomNavigation.RouteRequest[]? _sideRequests;
+    private Vector3[] _sideCandidates = System.Array.Empty<Vector3>();
+    private bool _sidePending;
     private Vector3 _progressAnchor;
     private double _progressTime;
     private bool _stuck;
@@ -336,7 +362,9 @@ public partial class CompanionAvatar : SmallPlayerController
         ResetPhysicsInterpolation();
         _progressAnchor += move;
         _route = RoomNavigation.Route.None;
+        _routeRequest = null;
         _goToAimRevision = -1;
+        _sideRequests = null;
         WrappedWithPlayer++;
     }
 
@@ -405,6 +433,8 @@ public partial class CompanionAvatar : SmallPlayerController
     {
         Navigation = navigation;
         _route = RoomNavigation.Route.None;
+        _routeRequest = null;
+        _sideRequests = null;
     }
     public void Follow() => BeginIntent("follow");
     public void Stay() => BeginIntent("stay");
@@ -423,6 +453,7 @@ public partial class CompanionAvatar : SmallPlayerController
         _goToTarget = target.Abs();
         _goToArrivalM = Mathf.Max(0.005f, arrivalM);
         _goToAimRevision = -1;
+        _sideRequests = null;
     }
 
     private void BeginIntent(string intent)
@@ -433,6 +464,7 @@ public partial class CompanionAvatar : SmallPlayerController
         _hasLookTarget = false;
         _following = false;
         _route = RoomNavigation.Route.None;
+        _routeRequest = null;
         _stuck = false;
         _progressTime = 0;
         _floating = false;
@@ -736,6 +768,8 @@ public partial class CompanionAvatar : SmallPlayerController
         // Something between the companion and its place (it is behind the box): that is out of the band too. Floating, or
         // resting aloft, it goes straight there, so a walk's way round is no matter.
         var routed = PlanRoute(place, 0.05f, dt);
+        // The way there is still being searched for, with nothing to steer by: hold still a tick or two, deciding nothing.
+        if (_routePending) return Vector3.Zero;
         var detour = routed && !_route.Direct && _route.LengthM > placeDistance + DetourM && !_floating && !aloft;
         // In a narrow gap the walkable place can be nearer than the band's edge; never chase away from it.
         var near = Mathf.Min(FollowNearM, Planar(place - _player!.GlobalPosition).Length() - 0.02f);
@@ -846,6 +880,7 @@ public partial class CompanionAvatar : SmallPlayerController
         _goal = target;
         if (_landing != null && LandingVelocity() is { } landing) return landing;
         var routed = PlanRoute(target, ComeArrivalM + 0.05f, dt);
+        if (_routePending) return Vector3.Zero;
         if (ChooseFloat(target, routed))
         {
             var level = Mathf.Abs(GlobalPosition.Y - target.Y) <= LevelGapM;
@@ -893,7 +928,10 @@ public partial class CompanionAvatar : SmallPlayerController
         var aim = ReachableSide(dt);
         _goal = aim;
         if (_landing != null && LandingVelocity() is { } landing) return landing;
+        // The side to make for is still being chosen (its routes are searched on a worker): hold still meanwhile.
+        if (_sidePending) return Vector3.Zero;
         var routed = PlanRoute(aim, _goToArrivalM, dt);
+        if (_routePending) return Vector3.Zero;
         if (ChooseFloat(aim, routed))
         {
             // Level with the box: its bottom no higher than the level band over the feet, its top no lower than reach under them.
@@ -933,6 +971,8 @@ public partial class CompanionAvatar : SmallPlayerController
     /// Where a go_to makes for: of the walkable points just outside the box's footprint (its sides and corners, and the
     /// nearest point), the one with the shortest walk that reaches it, chosen again as the map or the body moves on. Without
     /// a walkable map, or with no side the walk reaches, the nearest point of the footprint (the companion then floats there).
+    /// The walks are searched on worker threads, all at once (S7); until a side is chosen on the bake the map holds,
+    /// _sidePending holds the body still.
     /// </summary>
     private Vector3 ReachableSide(float dt)
     {
@@ -941,30 +981,59 @@ public partial class CompanionAvatar : SmallPlayerController
         var high = _goToTarget.End;
         var nearest = new Vector3(Mathf.Clamp(here.X, low.X, high.X), Mathf.Clamp(here.Y, low.Y, high.Y), Mathf.Clamp(here.Z, low.Z, high.Z));
         _goToAimAge += dt;
+        _sidePending = false;
         if (!NavigationReady) return _goToAim = nearest;
         // Floating, it makes for the box itself (GoToVelocity): no side to choose, and no searches to pay for.
         if (_floating) return _goToAim;
-        if (_goToAimRevision == Navigation!.Revision && _goToAimAge < 0.5) return _goToAim;
-        _goToAimAge = 0;
-        _goToAimRevision = Navigation.Revision;
-        var centre = _goToTarget.GetCenter();
-        var standOff = Navigation.AgentRadiusM;
+        if (_sideRequests != null && _sideRequests.All(r => r.IsDone)) ChooseSide(nearest);
+        var revision = Navigation!.Revision;
+        if (_sideRequests == null && (_goToAimRevision != revision || _goToAimAge >= 0.5))
+        {
+            _goToAimAge = 0;
+            var centre = _goToTarget.GetCenter();
+            var standOff = Navigation.AgentRadiusM;
+            var candidates = new System.Collections.Generic.List<Vector3>();
+            foreach (var (x, z) in new[] { (-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1), (2, 2) })
+            {
+                var outside = x == 2 ? nearest + Planar(nearest - centre).Normalized() * standOff
+                    : new Vector3(x < 0 ? low.X - standOff : x > 0 ? high.X + standOff : centre.X, low.Y, z < 0 ? low.Z - standOff : z > 0 ? high.Z + standOff : centre.Z);
+                var candidate = Navigation.ClosestPoint(outside);
+                var footprint = new Vector3(Mathf.Clamp(candidate.X, low.X, high.X), candidate.Y, Mathf.Clamp(candidate.Z, low.Z, high.Z));
+                // It must stand within the arrival distance of the footprint, level with the box's bottom.
+                if (Planar(candidate - footprint).Length() > _goToArrivalM || Mathf.Abs(candidate.Y - low.Y) > LevelGapM) continue;
+                candidates.Add(candidate);
+            }
+            _sideCandidates = candidates.ToArray();
+            _sideRequests = _sideCandidates.Select(c => Navigation.RequestRoute(here, c, 0.02f, SearchM(here, c))).ToArray();
+            // Nothing chosen on this bake yet, or a short way (today's islands): wait for the searches here, briefly.
+            if (_goToAimRevision != revision || Planar(nearest - here).Length() <= LongRouteM || Navigation.IsSmall)
+            {
+                var deadline = System.Diagnostics.Stopwatch.GetTimestamp() + (long)(RouteWait * System.Diagnostics.Stopwatch.Frequency / 1000);
+                foreach (var request in _sideRequests)
+                    request.Wait(Math.Max(0, (deadline - System.Diagnostics.Stopwatch.GetTimestamp()) * 1000.0 / System.Diagnostics.Stopwatch.Frequency));
+                if (_sideRequests.All(r => r.IsDone)) ChooseSide(nearest);
+            }
+        }
+        _sidePending = _goToAimRevision != revision;
+        return _goToAim;
+    }
+
+    /// <summary>Of the searched sides, the shortest walk that reaches one (planned on the bake the map holds); else the nearest point.</summary>
+    private void ChooseSide(Vector3 nearest)
+    {
+        var requests = _sideRequests!;
+        _sideRequests = null;
+        if (requests.Any(r => r.Stale)) return;
         var best = nearest;
         var bestLength = float.PositiveInfinity;
-        foreach (var (x, z) in new[] { (-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1), (2, 2) })
+        for (var i = 0; i < requests.Length; i++)
         {
-            var outside = x == 2 ? nearest + Planar(nearest - centre).Normalized() * standOff
-                : new Vector3(x < 0 ? low.X - standOff : x > 0 ? high.X + standOff : centre.X, low.Y, z < 0 ? low.Z - standOff : z > 0 ? high.Z + standOff : centre.Z);
-            var candidate = Navigation.ClosestPoint(outside);
-            var footprint = new Vector3(Mathf.Clamp(candidate.X, low.X, high.X), candidate.Y, Mathf.Clamp(candidate.Z, low.Z, high.Z));
-            // It must stand within the arrival distance of the footprint, level with the box's bottom.
-            if (Planar(candidate - footprint).Length() > _goToArrivalM || Mathf.Abs(candidate.Y - low.Y) > LevelGapM) continue;
-            var route = Navigation.FindRoute(here, candidate, 0.02f, SearchM(here, candidate));
-            if (!route.Reaches || route.LengthM >= bestLength) continue;
-            best = candidate;
+            if (!requests[i].TryTake(out var route) || !route.Reaches || route.LengthM >= bestLength) continue;
+            best = _sideCandidates[i];
             bestLength = route.LengthM;
         }
-        return _goToAim = best;
+        _goToAim = best;
+        _goToAimRevision = requests.Length > 0 ? requests[0].Revision : Navigation!.Revision;
     }
 
     /// <summary>
@@ -1082,29 +1151,65 @@ public partial class CompanionAvatar : SmallPlayerController
 
     private bool NavigationReady => Navigation != null && GodotObject.IsInstanceValid(Navigation) && Navigation.IsReady;
 
-    /// <summary>Plan a route to the goal, or keep the current one while it is fresh. False when there is no navigation to plan on.</summary>
+    /// <summary>
+    /// Plan a route to the goal, or keep the current one while it is fresh. False when there is no navigation to plan on.
+    /// The search runs on a worker thread (S7). While it runs the route in use is kept, if it was planned on the bake the map
+    /// holds and for about this goal; with none such, _routePending holds the body still, so it never decides to float or walk
+    /// on a route it does not have, or on one planned on an older bake.
+    /// </summary>
     private bool PlanRoute(Vector3 goal, float toleranceM, float dt)
     {
+        _routePending = false;
         if (!NavigationReady)
         {
             _route = RoomNavigation.Route.None;
+            _routeRequest = null;
             return false;
         }
         _routeAge += dt;
         // Floating, it goes straight there and no route is used: none is planned (on the magnified island a search for a goal
         // out of reach covers everywhere the start can walk to, up to about 35 ms, and it came round ten times a second).
         if (_floating) return !_route.IsEmpty;
-        if (_route.IsEmpty || _routeAge >= RouteRefreshS || _routeRevision != Navigation!.Revision || Planar(goal - _routeGoal).Length() > 0.03f)
+        var revision = Navigation!.Revision;
+        var length = Mathf.Max(_route.LengthM, Planar(goal - GlobalPosition).Length());
+        var slack = length <= LongRouteM ? 0.03f : 0.03f * length / LongRouteM;
+        TakeRoute(goal, slack);
+        bool Usable() => !_route.IsEmpty && _routeRevision == revision && Planar(goal - _routeGoal).Length() <= Mathf.Max(slack, 0.25f * length);
+        var due = _route.IsEmpty || _routeRevision != revision || _routeAge >= RouteRefreshFor(length) || Planar(goal - _routeGoal).Length() > slack;
+        if (due && _routeRequest == null)
         {
-            _route = Navigation!.FindRoute(GlobalPosition, goal, toleranceM, SearchM(GlobalPosition, goal));
-            _routeIndex = 1;
-            _routeGoal = goal;
-            _routeAge = 0;
-            _routeRevision = Navigation.Revision;
+            _routeRequest = Navigation.RequestRoute(GlobalPosition, goal, toleranceM, SearchM(GlobalPosition, goal));
+            if (!Usable() || Planar(goal - GlobalPosition).Length() <= LongRouteM || Navigation.IsSmall)
+            {
+                _routeRequest.Wait(RouteWait);
+                TakeRoute(goal, slack);
+            }
+        }
+        if (!Usable())
+        {
+            _routePending = true;
+            return false;
         }
         while (_routeIndex < _route.Points.Length - 1 && Planar(_route.Points[_routeIndex] - GlobalPosition).Length() < CornerReachedM) _routeIndex++;
         return !_route.IsEmpty;
     }
+
+    /// <summary>A finished search becomes the route in use if it was planned on the bake the map holds and for about this goal; else it is dropped.</summary>
+    private void TakeRoute(Vector3 goal, float slack)
+    {
+        if (_routeRequest is not { IsDone: true } done) return;
+        _routeRequest = null;
+        if (!done.TryTake(out var route) || Planar(goal - done.Goal).Length() > slack) return;
+        _route = route;
+        _routeIndex = 1;
+        _routeGoal = done.Goal;
+        _routeAge = 0;
+        _routeRevision = route.Revision;
+    }
+
+    /// <summary>How often a route of this length is planned again: RouteRefreshS up to LongRouteM, then in proportion, up to LongRouteRefreshS.</summary>
+    public static double RouteRefreshFor(float lengthM) =>
+        lengthM <= LongRouteM ? RouteRefreshS : Math.Min(LongRouteRefreshS, RouteRefreshS * lengthM / LongRouteM);
 
     /// <summary>Steer for the next corner of the planned route; zero at its end.</summary>
     private Vector3 RouteVelocity(float speed)
