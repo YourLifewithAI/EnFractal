@@ -266,13 +266,61 @@ public partial class CharacterTumbleTest
         await Frames(2);
     }
 
-    /// <summary>The tumble's frame cost: 16 bodies (four of each character) standing, then all tumbling, frame time compared.</summary>
+    /// <summary>
+    /// Brackets the tumble layer (the stack's last) to count what it allocates on the managed heap: the start probe runs just
+    /// before it (a Gesture layer added after the others), the end probe just after it (a Tumble layer added after it).
+    /// </summary>
+    private sealed class AllocationProbe : IPoseLayer<BodyState>
+    {
+        private readonly AllocationProbe? _start;
+        private readonly CharacterTumble? _tumble;
+        public AllocationProbe(PoseLayer layer, AllocationProbe? start = null, CharacterTumble? tumble = null)
+        {
+            Layer = layer;
+            _start = start;
+            _tumble = tumble;
+        }
+        public PoseLayer Layer { get; }
+        public long Mark;
+        public long Bytes;
+        public long GetUpBytes;
+        public int Ticks;
+        public bool Counting;
+        public void Apply(PoseBuffer pose, in BodyState state, in PoseClock clock)
+        {
+            var now = GC.GetAllocatedBytesForCurrentThread();
+            if (_start == null)
+            {
+                Mark = now;
+                return;
+            }
+            if (!Counting) return;
+            Bytes += now - _start.Mark;
+            if (_tumble?.Phase == TumblePhase.GetUp) GetUpBytes += now - _start.Mark;
+            Ticks++;
+        }
+    }
+
+    /// <summary>
+    /// The tumble's frame cost: 16 bodies (four of each character) standing, then all tumbling, frame time compared through the flop
+    /// and through the get-up (review minor 9: the get-up casts its own rays); and what the tumble layer allocates while it plays.
+    /// </summary>
     private async Task TestFrameCost(bool skipBudget)
     {
         var origin = new Vector3(120, 0, 0);
         var floor = Floor(origin + new Vector3(1, 0, 1), 6);
         var wearers = new List<Wearer>();
-        for (var i = 0; i < 16; i++) wearers.Add(Wear(PlayerCharacters[i % 4], origin + new Vector3(0.5f * (i % 4), 0.003f, 0.5f * (i / 4))));
+        var probes = new List<AllocationProbe>();
+        for (var i = 0; i < 16; i++)
+        {
+            var wearer = Wear(PlayerCharacters[i % 4], origin + new Vector3(0.5f * (i % 4), 0.003f, 0.5f * (i / 4)));
+            var start = new AllocationProbe(PoseLayer.Gesture);
+            var end = new AllocationProbe(PoseLayer.Tumble, start, wearer.Tumble);
+            wearer.Visual.Stack.Add(start);
+            wearer.Visual.Stack.Add(end);
+            probes.Add(end);
+            wearers.Add(wearer);
+        }
         await Frames(30);
         async Task<double> FrameMs(int frames)
         {
@@ -294,11 +342,25 @@ public partial class CharacterTumbleTest
             wearer.Tumble.NextSeed = seed++;
             wearer.Tumble.Tumble(new Vector3(0.3f, 0, 0.2f), TumbleTiers.KnockoutSeconds);
         }
+        // The first two ticks make the tumble's one-time things (each character's measured hull, the stars): not counted.
         await Frames(2);
-        var tumbling = await FrameMs(45);
-        var perTumble = Math.Max(0, tumbling - idle) / wearers.Count;
-        GD.Print(Inv($"TUMBLE_COST median frame {idle:0.000} ms with 16 bodies standing, {tumbling:0.000} ms with all 16 tumbling: {perTumble:0.000} ms per tumble (budget 0.3 ms)"));
-        if (!skipBudget) Check(perTumble <= 0.3, Inv($"a tumble costs at most 0.3 ms of frame time ({perTumble:0.000} ms)"));
+        foreach (var probe in probes) probe.Counting = true;
+        var flopping = await FrameMs(45);
+        var flopped = wearers.All(w => w.Tumble.Phase == TumblePhase.Flop);
+        for (var f = 0; f < 120 && wearers.Any(w => w.Tumble.Phase != TumblePhase.GetUp); f++) await Frames(1);
+        var risingAll = wearers.All(w => w.Tumble.Phase == TumblePhase.GetUp);
+        var rising = await FrameMs(16);
+        var gotUp = wearers.All(w => w.Tumble.Phase == TumblePhase.GetUp);
+        foreach (var probe in probes) probe.Counting = false;
+        var perFlop = Math.Max(0, flopping - idle) / wearers.Count;
+        var perGetUp = Math.Max(0, rising - idle) / wearers.Count;
+        var bytes = probes.Sum(p => p.Bytes);
+        var getUpBytes = probes.Sum(p => p.GetUpBytes);
+        var ticks = probes.Sum(p => p.Ticks);
+        GD.Print(Inv($"TUMBLE_COST median frame {idle:0.000} ms with 16 bodies standing, {flopping:0.000} ms with all 16 flopping, {rising:0.000} ms with all 16 getting up: {perFlop:0.000} and {perGetUp:0.000} ms per tumble (budget 0.3 ms); the tumble layer allocated {bytes} bytes over {ticks} ticks ({getUpBytes} getting up)"));
+        Check(flopped && risingAll && gotUp, "the cost is sampled while all 16 flop and while all 16 get up");
+        Check(bytes == 0 && ticks > 16 * 50, Inv($"the tumble layer allocates nothing per tick while it flops and gets up ({bytes} bytes over {ticks} ticks)"));
+        if (!skipBudget) Check(perFlop <= 0.3 && perGetUp <= 0.3, Inv($"a tumble costs at most 0.3 ms of frame time flopping ({perFlop:0.000} ms) and getting up ({perGetUp:0.000} ms)"));
         foreach (var wearer in wearers) wearer.Body.QueueFree();
         floor.QueueFree();
         await Frames(2);

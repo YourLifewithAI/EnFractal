@@ -349,12 +349,11 @@ public sealed class CharacterTumble : IPoseLayer<BodyState>
         if (_body.IsInsideTree())
         {
             var skeleton = SkeletonGlobal();
-            var world = _body.GetWorld3D();
-            var depth = _hull.DrawnDepth(world, skeleton * RootFrame(pose));
+            var depth = _hull.DrawnDepth(skeleton * RootFrame(pose));
             if (depth != Vector3.Zero)
             {
                 var along = depth.Normalized();
-                var allowed = Mathf.Max(0, _hull.DrawnDepth(world, skeleton * standing).Dot(along));
+                var allowed = Mathf.Max(0, _hull.DrawnDepth(skeleton * standing).Dot(along));
                 var lift = depth.Length() - allowed;
                 if (lift > 0)
                     pose.SetPosition(CharacterBody.RootBone, pose.GetPosition(CharacterBody.RootBone) + skeleton.Basis.Inverse() * (along * lift));
