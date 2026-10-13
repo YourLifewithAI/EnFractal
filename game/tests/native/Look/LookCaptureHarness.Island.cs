@@ -23,6 +23,7 @@ namespace EnFractal.Tests.Look;
 public partial class LookCaptureHarness
 {
     private readonly List<string> _deriveNotes = new();
+    private List<DerivedCamera>? _derived;
 
     /// <summary>The cameras file's entries with every "derive" entry replaced by the island's own cameras (as ordinary entries).</summary>
     private IEnumerable<JsonElement> Entries(JsonElement root)
@@ -31,11 +32,16 @@ public partial class LookCaptureHarness
         {
             if (!entry.TryGetProperty("derive", out var derive)) { yield return entry; continue; }
             var wanted = derive.GetString() ?? "island";
-            // The rays go over the whole land: every tile of its collision is built for a while (TerrainCollision keeps it where the bodies are).
-            TerrainCollision.EnsureAll(_world, holdS: 0.5);
-            var space = _world.GetWorld3D().DirectSpaceState;
-            var derived = IslandCameras.Derive(_world.Room, IslandCameras.RayGround(space, _world.Room.Bounds), IslandCameras.RaySky(space), _deriveNotes);
-            foreach (var note in _deriveNotes) GD.Print("LOOK_CAPTURE derive: " + note);
+            if (_derived == null)
+            {
+                // The rays go over the whole land: every tile of its collision is built for an instant (TerrainCollision keeps
+                // it where the bodies are), once, so later camera lookups never hold the whole land again.
+                TerrainCollision.EnsureAll(_world, holdS: 0.5);
+                var space = _world.GetWorld3D().DirectSpaceState;
+                _derived = IslandCameras.Derive(_world.Room, IslandCameras.RayGround(space, _world.Room.Bounds), IslandCameras.RaySky(space), _deriveNotes);
+                foreach (var note in _deriveNotes) GD.Print("LOOK_CAPTURE derive: " + note);
+            }
+            var derived = _derived;
             foreach (var camera in derived.Where(c => wanted == "island" || c.Id == wanted)) yield return ToEntry(camera);
         }
     }
