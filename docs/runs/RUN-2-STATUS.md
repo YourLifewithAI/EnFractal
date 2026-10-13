@@ -565,7 +565,7 @@
    - remove the merged Run 2 worktrees of this session the same way (`growth-nature`, `growth-wishes`, `journal`, `eyes`, `gubble-view`, `consequences`, `traits`; `growth` can go once nothing is merged through it);
    - model nature in the companion's mock (removes `NATURE_NOT_IN_THE_MOCK`);
    - the ninth session's list below still holds (storybook_wild v1, Lane C's corpus failures, the characters).
-8. **The characters come alive** (planned 13 October, evening, on `run2/characters-in-game`): [RUN-2-CHARACTERS.md](RUN-2-CHARACTERS.md), a proposal for the founder: a rig built at load from each `character.json`, procedural gaits from the motion hints, contact with the land, the Gubble's bubble look and its torch, a character choice per player; three agents a wave, two waves, one reviewer; eight decisions for the founder.
+8. **The characters come alive** (planned 13 October, evening, on `run2/characters-in-game`): [RUN-2-CHARACTERS.md](RUN-2-CHARACTERS.md), a proposal for the founder: a rig built at load from each `character.json`, procedural gaits from the motion hints, contact with the land, the Gubble's bubble look and its torch, a character choice per player, a tumble on falls that would hurt; the founder's eight decisions answered the same evening, three questions open; two waves of three and four agents, one reviewer.
 
 ## The ninth session's next steps (10 October, for the record)
 
