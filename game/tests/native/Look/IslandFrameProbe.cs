@@ -110,6 +110,12 @@ public partial class IslandFrameProbe : Node
                 }
                 GD.Print($"ISLAND_PROBE copies: {copies.TotalCount} copies, {instanceBands} instances in all bands ({instanceBands * 64 / 1048576.0:0} MB of instance buffers on the GPU, three times that in the engine's CPU copies)");
             }
+            {
+                var space = _world.GetWorld3D().DirectSpaceState;
+                var notes = new List<string>();
+                var cameras = IslandCameras.Derive(_world.Room, IslandCameras.RayGround(space, _world.Room.Bounds), IslandCameras.RaySky(space), notes);
+                GD.Print("ISLAND_PROBE island cameras: " + string.Join("; ", cameras.Select(c => $"{c.Id} at {c.PlayerM} facing {c.YawDeg:0}")) + (notes.Count > 0 ? "; notes: " + string.Join("; ", notes) : ""));
+            }
             if (OS.GetCmdlineUserArgs().Contains("--bands-only")) { GetTree().Quit(0); return; }
             using var listener = new GcListener();
             listener.Recording = true;

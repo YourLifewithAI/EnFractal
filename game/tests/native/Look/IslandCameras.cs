@@ -19,8 +19,9 @@ public sealed record DerivedCamera(string Id, string Label, string Purpose, Vect
 /// Every camera is a play view (the HUD's F2 over the shoulder) with the player standing somewhere the data names:
 /// <list type="bullet">
 /// <item><b>spawn</b>: at the player's spawn, facing the island's middle (the spawn's own heading often faces the sea);</item>
-/// <item><b>summit</b>: on the highest ground inside the coast with open sky over it and around it (no crown overhead or beside the
-/// shoulder camera), facing the farthest land: the long view across the island;</item>
+/// <item><b>summit</b>: on the highest ground inside the coast that no tree's crown overhangs within SummitClearM (the copies' rows
+/// say where every tree stands and how wide it grows) and with open sky over it, facing the farthest land: the long view across
+/// the island;</item>
 /// <item><b>hamlet</b>: outside the densest cluster of structures (cottages keep their size at every scale, so the cluster's reach
 /// is in metres: StructureClusterM), on its side toward the island's middle, facing its centre;</item>
 /// <item><b>beach</b>: on the beach nearest the spawn, facing along the coast (sea on one hand, land on the other);</item>
@@ -101,9 +102,9 @@ public static class IslandCameras
         if (samples.Count == 0) notes.Add("summit: no ground found on the land");
         else
         {
-            bool Clear(Vector3 at) => openSky(at) && Enumerable.Range(0, 4).All(i =>
-                ground(new Vector2(at.X, at.Z) + Vector2.FromAngle(i * Mathf.Pi / 2f) * SummitClearM) is not { } around || openSky(around));
-            var clear = samples.OrderByDescending(s => s.Y).Take(256).Where(Clear).Select(s => (Vector3?)s).FirstOrDefault();
+            var crowns = Crowns(room);
+            bool Clear(Vector3 at) => openSky(at) && !crowns.Any(c => c.Centre.DistanceTo(new Vector2(at.X, at.Z)) < c.RadiusM + SummitClearM);
+            var clear = samples.OrderByDescending(s => s.Y).Take(Math.Max(256, samples.Count / 10)).Where(Clear).Select(s => (Vector3?)s).FirstOrDefault();
             if (clear == null) notes.Add("summit: no open sky on the highest ground; the highest point is used");
             var summit = clear ?? samples.MaxBy(s => s.Y);
             var summitFlat = new Vector2(summit.X, summit.Z);
@@ -151,6 +152,23 @@ public static class IslandCameras
                 at, YawToward(sand, along)));
         }
         return cameras.OrderBy(c => Array.IndexOf(Ids, c.Id)).ToList();
+    }
+
+    /// <summary>Where every tree's crown stands on the ground plane and how far it spreads: its row's place and its mesh's half-width times its scale.</summary>
+    public static List<(Vector2 Centre, float RadiusM)> Crowns(RoomData room)
+    {
+        var crowns = new List<(Vector2, float)>();
+        foreach (var set in room.Copies?.Sets.Where(s => s.Kind == PlantKind.Tree) ?? Enumerable.Empty<PlantSet>())
+        {
+            var half = 0.5f * Mathf.Max(set.MeshBounds.Size.X, set.MeshBounds.Size.Z);
+            for (var row = 0; row < set.Count; row++)
+            {
+                var at = set.Position(row);
+                var scale = set.Scale(row);
+                crowns.Add((new Vector2(at.X, at.Z), half * Mathf.Max(scale.X, scale.Z)));
+            }
+        }
+        return crowns;
     }
 
     /// <summary>The ground under a point of a built room: the first shell ground part a ray down meets, past trunks, stones and things.</summary>

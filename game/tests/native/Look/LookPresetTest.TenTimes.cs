@@ -186,8 +186,12 @@ public partial class LookPresetTest
             "the spawn camera stands at the player's spawn, facing the island's middle");
         var samples = IslandCameras.SampleLand(land, ground);
         var summit = Get("summit").PlayerM;
-        Check(samples.Count > 500 && samples.Count(s => s.Y > summit.Y + 1e-4f) < 0.05f * samples.Count && IslandCameras.RaySky(space)(summit) && IslandCameras.OnLand(land, new Vector2(summit.X, summit.Z)),
+        Check(samples.Count > 500 && samples.Count(s => s.Y > summit.Y + 1e-4f) < 0.1f * samples.Count && IslandCameras.RaySky(space)(summit) && IslandCameras.OnLand(land, new Vector2(summit.X, summit.Z)),
             $"the summit camera stands on the island's high ground ({summit.Y:0.###} m; {samples.Count(s => s.Y > summit.Y + 1e-4f)} of {samples.Count} ground samples higher) under open sky");
+        var crowns = IslandCameras.Crowns(land);
+        Check(crowns.Count == land.Copies!.Sets.Where(s => s.Kind == PlantKind.Tree).Sum(s => s.Count) && crowns.All(c => c.RadiusM > 0.02f)
+              && !crowns.Any(c => c.Centre.DistanceTo(new Vector2(summit.X, summit.Z)) < c.RadiusM + IslandCameras.SummitClearM),
+            $"no tree's crown ({crowns.Count} on the island) overhangs the summit camera or its shoulder camera");
         var structures = land.Objects.Where(o => o.Asset.CategoryGroup == "structure").Select(o => new Vector2(o.PositionM.X, o.PositionM.Z)).ToArray();
         var hamlet = new Vector2(Get("hamlet").PlayerM.X, Get("hamlet").PlayerM.Z);
         Check(structures.Length >= 2 && structures.Count(s => s.DistanceTo(hamlet) < IslandCameras.StructureClusterM + IslandCameras.HamletStandOffM) >= 2 && ground(hamlet) != null,
