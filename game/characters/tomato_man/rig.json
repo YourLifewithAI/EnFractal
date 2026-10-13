@@ -1,10 +1,22 @@
 {
   "schema": "enfractal.character.rig",
   "version": 1,
-  "notes": "Hop: springy, high hops; the wand and its sparkles trail. Starting values from the round's profile table, to be tuned by playing.",
+  "notes": "Hop: springy, high hops; the wand and its sparkles trail. Starting values from the round's profile table, to be tuned by playing. K3 (gaits): Godot's spring drag damps a part's world velocity, like air, so a travelling body leaves its springs streaming behind at sin = 2 x damping ratio x speed / (2 pi f x segment), and the controller's 6 m/s2 starts throw soft springs past 90 degrees; the springs here are stiffer and less dragged so parts lag and settle without flipping.",
   "chains": {
+    "hat": {
+      "springiness": 1.4,
+      "damping": 0.8
+    },
+    "foot_screen_left": {
+      "springiness": 1.4,
+      "damping": 0.5
+    },
+    "foot_screen_right": {
+      "springiness": 1.4,
+      "damping": 0.5
+    },
     "wand": {
-      "springiness": 0.8,
+      "springiness": 2.0,
       "damping": 0.7
     }
   },

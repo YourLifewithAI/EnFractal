@@ -1,7 +1,7 @@
 {
   "schema": "enfractal.character.rig",
   "version": 1,
-  "notes": "Float: a slow bob and a soft, wide lean; the sparkles and the torch flame on quick springs. Starting values from the round's profile table, to be tuned by playing.",
+  "notes": "Float: a slow bob and a soft, wide lean; the sparkles and the torch flame on quick springs. Starting values from the round's profile table, to be tuned by playing. K3 (gaits): Godot's spring drag damps a part's world velocity, like air, so a travelling body leaves its springs streaming behind at sin = 2 x damping ratio x speed / (2 pi f x segment), and the controller's 6 m/s2 starts throw soft springs past 90 degrees; the springs here are stiffer and less dragged so parts lag and settle without flipping.",
   "chains": {
     "torch_flame": {
       "springiness": 1.5,
@@ -17,6 +17,8 @@
   "profile": {
     "lean": 1.3,
     "settle": 1.2,
+    "spring_damping": 0.7,
+    "springiness": 2.0,
     "sway": 0.9
   }
 }
