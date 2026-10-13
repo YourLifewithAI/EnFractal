@@ -107,7 +107,7 @@ public static class IslandFixture
                     ["play_area"] = new JsonObject { ["outline_m"] = Loop(x0 - 10, x1 + 10, z0 - 10, z1 + 10) },
                     ["beaches"] = new JsonArray(
                         new JsonObject { ["id"] = "beach_west", ["wash_ashore_m"] = new JsonArray(x0 + 1, Height(x0 + 1, 8), 8), ["water_m"] = new JsonArray(x0 - 1, -0.05, 8), ["yaw_deg"] = 90 },
-                        new JsonObject { ["id"] = "beach_east", ["wash_ashore_m"] = new JsonArray(x1 - 1, Height(x1 - 1, 8), 8), ["water_m"] = new JsonArray(x1 + 1, -0.05, 8), ["yaw_deg"] = -90 }),
+                        new JsonObject { ["id"] = "beach_east", ["wash_ashore_m"] = new JsonArray(x1 - 1, Height(x1 - 1, z1 - 8), z1 - 8), ["water_m"] = new JsonArray(x1 + 1, -0.05, z1 - 8), ["yaw_deg"] = -90 }),
                     ["jetty"] = new JsonObject
                     {
                         ["root_m"] = new JsonArray(root.X, deck, root.Y), ["end_m"] = new JsonArray(x1 + 3, deck, root.Y), ["yaw_deg"] = -90, ["width_m"] = 0.16, ["deck_top_m"] = deck,

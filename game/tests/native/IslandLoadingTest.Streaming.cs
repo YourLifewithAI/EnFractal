@@ -148,6 +148,12 @@ public partial class IslandLoadingTest
         Measure($"ISLAND_GROUND running: {ran:0.0} m in 8 s, feet at most {worst * 1000:0.0} mm under the ground, {missing} ticks without ground under them, {ground.SyncBuilds - syncBefore} tiles built in the tick they were needed");
         Check(ran > 30 && worst < 0.005f && missing == 0 && ground.SyncBuilds == syncBefore,
             $"running at 6 m/s the ground ahead is built before the feet reach it ({ran:0} m; {missing} ticks without ground, {ground.SyncBuilds - syncBefore} built at the last moment)");
+        // Round a body the land answers queries as before: nature's active cells (12 m), the camera's arm, sight close by.
+        var here = player.GlobalPosition;
+        var round = new[] { new Vector3(12, 0, 0), new Vector3(-12, 0, 0), new Vector3(0, 0, 12), new Vector3(0, 0, -12), new Vector3(9, 0, 9), new Vector3(-9, 0, -9) }
+            .Select(o => OnGround(here.X + o.X, Mathf.Clamp(here.Z + o.Z, -31.5f, 31.5f))).ToArray();
+        Check(round.All(p => GroundUnder(p) is { } y && Mathf.Abs(y - p.Y) < 0.05f),
+            "within 12 m of the running player every ray down finds the ground (nature's active cells, the camera's arm and sight nearby are answered as before)");
     }
 
     /// <summary>
