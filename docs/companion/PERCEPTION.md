@@ -34,7 +34,7 @@ geometry does not.
 
 | Surface | Out of sight means |
 |---|---|
-| `observe` | Not in `visible`, and its signs are not in `texts`. Also bounded by the radius (default and maximum 20 m). Things it remembers are listed apart, under `remembered` (below). |
+| `observe` | Not in `visible`, and its signs are not in `texts`. No distance cut-off unless the request gives `radius_m` (at most 150 m, since the 10x world); line of sight is the real limit. Things it remembers are listed apart, under `remembered` (below). |
 | `entities.list` | Not listed as seen now, whatever the filter (`near` included). A remembered thing is listed with `seen: "remembered"`. |
 | `entity.inspect` | A remembered thing answers from memory. Anything never seen (or seen gone) is `target_not_found`, byte-identical to inspecting an id that does not exist. |
 | `room.describe` | Not counted. A count of everything would say how many things are hidden; the counts are what is in sight now. |
