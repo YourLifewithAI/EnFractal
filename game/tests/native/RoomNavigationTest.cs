@@ -104,6 +104,7 @@ public partial class RoomNavigationTest : Node3D
                 "follow from the far side of the box comes round and rests with nothing between them");
             host.PlayerGoal("stop");
             await MeasureCellSizes(world);
+            await TestBeyondTheSearchCap(navigation);
             Finish();
         }
         catch (System.Exception exception)
@@ -140,6 +141,58 @@ public partial class RoomNavigationTest : Node3D
         // Headless here; the founder's machine is faster. The bar is a re-bake well inside two frames, not a stall of many.
         Check(game.CellM == RoomNavigation.CellSizeM && rebakes[2] < 2 * 1000.0 / 60.0,
             $"the game's cell ({RoomNavigation.CellSizeM * 100:0} cm) re-bakes the test room within two 60 Hz frames (median {rebakes[2]:0.0} ms)");
+    }
+
+    /// <summary>
+    /// The founder's walk on the garage island magnified ten times (13 October): the Gubble got lost trying to reach the player.
+    /// Godot's path query gives up after a number of polygons (4,096 by default) and returns a path to the polygon nearest the
+    /// goal found so far; that island bakes to 55,110. Here a 5 m field of 5 cm squares (9,900 polygons, made by hand: Recast
+    /// takes minutes over thousands of pillar holes) on the room navigation's own map, split by a wall whose only gap is at the
+    /// far end. Start and goal stand a hand apart on either side of the wall at its closed end, so the search must cover nearly
+    /// the whole field. The default query stops short; the room's route reaches round the far end.
+    /// </summary>
+    private async Task TestBeyondTheSearchCap(RoomNavigation navigation)
+    {
+        const int count = 100;
+        const float square = 0.05f;
+        const int gap = 8;
+        var origin = new Vector3(100, 0, 0);
+        int At(int i, int j) => i * (count + 1) + j;
+        var vertices = new Vector3[(count + 1) * (count + 1)];
+        for (var i = 0; i <= count; i++)
+            for (var j = 0; j <= count; j++)
+                vertices[At(i, j)] = origin + new Vector3(i * square, 0, j * square);
+        var mesh = new NavigationMesh { CellSize = navigation.CellM, CellHeight = RoomNavigation.CellHeightM, Vertices = vertices };
+        var wall = count / 2;
+        for (var i = 0; i < count; i++)
+            for (var j = 0; j < count; j++)
+                if (i != wall || j >= count - gap) mesh.AddPolygon(new[] { At(i, j), At(i + 1, j), At(i + 1, j + 1), At(i, j + 1) });
+        var region = NavigationServer3D.RegionCreate();
+        NavigationServer3D.RegionSetUseAsyncIterations(region, false);
+        NavigationServer3D.RegionSetMap(region, navigation.Map);
+        NavigationServer3D.RegionSetNavigationMesh(region, mesh);
+        await Frames(3);
+        var cap = new NavigationPathQueryParameters3D().PathSearchMaxPolygons;
+        Check(mesh.GetPolygonCount() > 2 * cap, $"the field has more than twice the default search cap's polygons ({mesh.GetPolygonCount()} against {cap})");
+        var from = origin + new Vector3((wall - 2.5f) * square, 0, 2.5f * square);
+        var to = origin + new Vector3((wall + 3.5f) * square, 0, 2.5f * square);
+        var capped = NavigationServer3D.MapGetPath(navigation.Map, from, to, true);
+        var cappedEnd = capped.Length > 0 ? capped[^1] : from;
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var route = navigation.FindRoute(from, to, 0.05f);
+        var searchMs = watch.Elapsed.TotalMilliseconds;
+        var bounded = navigation.FindRoute(from, to, 0.05f, maxLengthM: 2.0f);
+        var wayRound = 2 * (count - gap) * square;
+        GD.Print(string.Create(System.Globalization.CultureInfo.InvariantCulture,
+            $"ROOM_NAVIGATION_MEASURED beyond the search cap: {mesh.GetPolygonCount()} polygons; start and goal {PlanarDistance(from, to):0.00} m apart across the wall; " +
+            $"the default query ends {PlanarDistance(cappedEnd, to):0.00} m from the goal; the room's route {(route.Reaches ? "reaches" : "does not reach")} it, {route.LengthM:0.00} m long " +
+            $"(the way round about {wayRound:0.0} m), in {searchMs:0.0} ms; held to a 2 m search it {(bounded.Reaches ? "reaches" : "does not reach")}"));
+        Check(PlanarDistance(cappedEnd, to) > 0.1f, "the default query stops short of the goal on this field (the field is beyond its cap)");
+        Check(route.Reaches && route.LengthM > wayRound - 0.5f,
+            $"the room's route reaches the goal round the far end of the wall ({route.LengthM:0.00} m), beyond the default search cap");
+        Check(!bounded.Reaches, "a route held to a search distance shorter than the way round does not reach");
+        NavigationServer3D.FreeRid(region);
+        await Frames(2);
     }
 
     private void Finish()

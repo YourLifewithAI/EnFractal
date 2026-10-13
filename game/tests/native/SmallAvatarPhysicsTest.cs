@@ -89,6 +89,9 @@ public partial class SmallAvatarPhysicsTest : Node3D
             await TestClimbableTree();
             await TestGubbleFloats();
             await TestGubbleBesideAClimber();
+            await TestGubbleOffATallLedge();
+            await TestGubbleLetsAHeldHeightGo();
+            await TestGubbleStuckOverARoof();
             await TestSeaEdge();
             var metrics = await RunJitterSuite(1.0f, new Vector3(0, 0, 30));
             CheckJitter(metrics);
@@ -1814,6 +1817,144 @@ public partial class SmallAvatarPhysicsTest : Node3D
         var level = _companion.GlobalPosition.Y - _player.GlobalPosition.Y;
         Report(_player.IsOnFloor() && _player.GlobalPosition.Y - b.Y > 0.45f && Mathf.Abs(level) <= CompanionAvatar.LevelGapM && settledFlips == 0 && high - low < 3 * SmallPlayerController.HoverBobM,
             $"with the climber on top, the Gubble settles level with them ({level * 100:0.0} cm off) and stays put (mode flips {settledFlips}, height within {(high - low) * 1000:0.0} mm)");
+        _companion.BindNavigation(_navigation);
+        navigation.QueueFree();
+        _companion.Stop();
+        Check(_player.TryTeleportTo(new Vector3(-2, 0.003f, 3.2f)) && _companion.TryTeleportTo(new Vector3(0.5f, 0.01f, 3.2f)), "both bodies back on the open floor");
+        await Frames(10);
+    }
+
+    /// <summary>
+    /// The founder on the magnified island (13 October): the Gubble got lost reaching the player and ended up stuck high in the
+    /// sky, saying it could not get there. Its mesas stand 10 to 25 m over the land; floating off one, the Gubble found no ground
+    /// within the 3 m it looked down and held its height, over the player and never level with them. A 10 m mesa in a room's
+    /// bounds, the Gubble on top and the player on the land 3 m off its foot: come floats off the edge, sinks to the player and
+    /// arrives level, never blocked for long. Then the same without bounds (nothing under it within reach): it settles to the
+    /// player's height instead of holding.
+    /// </summary>
+    private async Task TestGubbleOffATallLedge()
+    {
+        var b = new Vector3(60, 0, -120);
+        Solid(b + new Vector3(0, -0.05f, 0), new BoxShape3D { Size = new Vector3(10, 0.1f, 10) });          // the land, its top at 0
+        Solid(b + new Vector3(-2, 5, 0), new BoxShape3D { Size = new Vector3(2, 10, 2) });                // the mesa, its top at 10 m
+        var bounds = new Aabb(b + new Vector3(-5, -0.1f, -5), new Vector3(10, 12, 10));
+        _companion.BindNavigation(null);
+        foreach (var withBounds in new[] { true, false })
+        {
+            if (withBounds) Check(_player.SetPlayableBounds(bounds) && _companion.SetPlayableBounds(bounds), "the mesa's land has the room's bounds");
+            else { _player.ClearPlayableBounds(); _companion.ClearPlayableBounds(); }
+            Check(_player.TryTeleportTo(b + new Vector3(2, 0.003f, 0)) && _companion.TryTeleportTo(b + new Vector3(-2.3f, 10.01f, 0)),
+                "the Gubble on the 10 m mesa, the player on the land 3 m off its foot");
+            await Frames(20);
+            _companion.Come();
+            var serial = _companion.IntentSerial;
+            var highest = float.NegativeInfinity;
+            var blocked = 0;
+            var longestBlocked = 0;
+            var frames = 0;
+            for (; frames < 3600 && _companion.CurrentIntent == "come"; frames++)
+            {
+                await Frames(1);
+                highest = Mathf.Max(highest, _companion.GlobalPosition.Y - b.Y);
+                blocked = _companion.GoalBlocked ? blocked + 1 : 0;
+                longestBlocked = Mathf.Max(longestBlocked, blocked);
+            }
+            var gap = PlanarDistance(_companion.GlobalPosition, _player.GlobalPosition);
+            var level = _companion.GlobalPosition.Y - _player.GlobalPosition.Y;
+            // Sinking 10 m at today's 0.25 m/s took 40 s and more; far over its height it sinks faster (FarGapMps).
+            Report(_companion.ComeArrivedSerial == serial && gap <= CompanionAvatar.ComeArrivalM + 0.02f && Mathf.Abs(level) <= CompanionAvatar.LevelGapM &&
+                   longestBlocked < 60 && highest < 10.3f && frames < 35 * 60,
+                $"{(withBounds ? "in a room's bounds" : "with no bounds, over nothing within reach")}, come floats the Gubble off a 10 m mesa and down to the player, arriving level within 35 s " +
+                $"(after {frames / 60.0f:0.0} s: {gap:0.00} m away, {level * 100:0.0} cm above their feet; highest {highest:0.00} m; blocked at most {longestBlocked} ticks running)");
+            if (!withBounds) continue;
+            // Left staying high over the land (as when the host gives up on a goal and stops it): it sinks to the land below.
+            _companion.Stay();
+            _companion.GlobalPosition = b + new Vector3(1, 9, 1);
+            _companion.Velocity = Vector3.Zero;
+            _companion.ResetPhysicsInterpolation();
+            await Frames(120);
+            var dropped = 9 - (_companion.GlobalPosition.Y - b.Y);
+            Report(dropped > 1.0f && _companion.HoverSupportY is { } ground && Mathf.Abs(ground - b.Y) < 0.01f,
+                $"left staying 9 m over the land in a room's bounds, the Gubble finds the land and sinks toward it ({dropped:0.00} m in 2 s), never hanging in the sky");
+        }
+        _companion.BindNavigation(_navigation);
+        _companion.Stop();
+        Check(_player.TryTeleportTo(new Vector3(-2, 0.003f, 3.2f)) && _companion.TryTeleportTo(new Vector3(0.5f, 0.01f, 3.2f)), "both bodies back on the open floor");
+        await Frames(10);
+    }
+
+    /// <summary>
+    /// A come that arrives by floating holds its height beside the player (on a pillar top, it does not sink to the ground below).
+    /// While the player stays, it holds; once the player has gone, the hold goes and the Gubble, staying, settles over the ground
+    /// (it used to stay up there for good: one of the ways it ended high in the sky on the magnified island).
+    /// </summary>
+    private async Task TestGubbleLetsAHeldHeightGo()
+    {
+        var b = new Vector3(60, 0, -140);
+        Solid(b + new Vector3(0, -0.05f, 0), new BoxShape3D { Size = new Vector3(3, 0.1f, 3) });           // the ground, its top at 0
+        Solid(b + new Vector3(0, 0.2f, 0), new BoxShape3D { Size = new Vector3(0.06f, 0.4f, 0.06f) });    // a pillar, its top at 0.4 m
+        _companion.BindNavigation(null);
+        Check(_player.TryTeleportTo(b + new Vector3(0, 0.403f, 0)) && _companion.TryTeleportTo(b + new Vector3(0.5f, 0.01f, 0)),
+            "the player on a pillar top 40 cm up, the Gubble on the ground");
+        await Frames(20);
+        _companion.Come();
+        var serial = _companion.IntentSerial;
+        for (var i = 0; i < 600 && _companion.CurrentIntent == "come"; i++) await Frames(1);
+        await Frames(60);
+        var heldAt = _companion.GlobalPosition.Y - b.Y;
+        Report(_companion.ComeArrivedSerial == serial && _companion.HoldingHeight && heldAt > 0.3f,
+            $"come floats the Gubble up beside the player on the pillar, and it holds its height there ({heldAt:0.000} m over the ground)");
+        var releases = _companion.HoldReleases;
+        Check(_player.TryTeleportTo(b + new Vector3(-0.8f, 0.003f, 0.6f)), "the player gets down and walks off");
+        var lowest = float.PositiveInfinity;
+        for (var i = 0; i < 300; i++) { await Frames(1); lowest = Mathf.Min(lowest, _companion.GlobalPosition.Y - b.Y); }
+        var support = (_companion.HoverSupportY ?? float.NaN) - b.Y;
+        Report(_companion.CurrentIntent == "stay" && !_companion.HoldingHeight && _companion.HoldReleases == releases + 1 && lowest < 0.05f && Mathf.Abs(support) < 0.005f,
+            $"with the player gone, the staying Gubble lets the height go and settles over the ground ({lowest:0.000} m over it after 5 s, over ground at {support:0.000} m)");
+        _companion.BindNavigation(_navigation);
+        _companion.Stop();
+        Check(_player.TryTeleportTo(new Vector3(-2, 0.003f, 3.2f)) && _companion.TryTeleportTo(new Vector3(0.5f, 0.01f, 3.2f)), "both bodies back on the open floor");
+        await Frames(10);
+    }
+
+    /// <summary>
+    /// The watchdog for stuck up high. The player stands under a roof (a 1 m slab 30 cm up, open all round), the Gubble on the
+    /// roof: no walk from the roof reaches them, so it floats straight for them and comes to rest over them on the roof, the roof
+    /// between. It used to report blocked until the host gave up ("can't get there"); now it makes for open air beside the
+    /// roof, comes down there and walks in under it to the player.
+    /// </summary>
+    private async Task TestGubbleStuckOverARoof()
+    {
+        var b = new Vector3(60, 0, -160);
+        Solid(b + new Vector3(0, -0.05f, 0), new BoxShape3D { Size = new Vector3(3, 0.1f, 3) });           // the ground, its top at 0
+        Solid(b + new Vector3(0, 0.32f, 0), new BoxShape3D { Size = new Vector3(1, 0.04f, 1) });          // the roof, 30 to 34 cm up
+        var navigation = RoomNavigation.Create(this, this, new Aabb(b + new Vector3(-1.5f, -0.1f, -1.5f), new Vector3(3, 0.6f, 3)),
+            WorldScaleProfile.Companion, _companion.StepHeightM * 0.75f);
+        _companion.BindNavigation(navigation);
+        for (var i = 0; i < 240 && !navigation.IsReady; i++) await Frames(1);
+        Check(navigation.IsReady && _player.TryTeleportTo(b + new Vector3(0, 0.003f, 0)) && _companion.TryTeleportTo(b + new Vector3(0.3f, 0.35f, 0)),
+            "the roof has its walkable map; the player under the roof, the Gubble on it");
+        await Frames(20);
+        var replans = _companion.HighReplans;
+        _companion.Come();
+        var serial = _companion.IntentSerial;
+        var blocked = 0;
+        var longestBlocked = 0;
+        var landed = false;
+        var frames = 0;
+        for (; frames < 1200 && _companion.CurrentIntent == "come"; frames++)
+        {
+            await Frames(1);
+            blocked = _companion.GoalBlocked ? blocked + 1 : 0;
+            longestBlocked = Mathf.Max(longestBlocked, blocked);
+            landed |= _companion.Landing != null;
+        }
+        var gap = PlanarDistance(_companion.GlobalPosition, _player.GlobalPosition);
+        var level = _companion.GlobalPosition.Y - _player.GlobalPosition.Y;
+        Report(_companion.ComeArrivedSerial == serial && gap <= CompanionAvatar.ComeArrivalM + 0.02f && Mathf.Abs(level) <= CompanionAvatar.LevelGapM &&
+               _companion.HighReplans > replans && landed && longestBlocked < 5 * 60,
+            $"stuck on the roof over the player, the Gubble comes down in open air beside it and walks in under it to them " +
+            $"(after {frames / 60.0f:0.0} s: {gap:0.00} m away, {level * 100:0.0} cm off their height; watchdog {_companion.HighReplans - replans} times; blocked at most {longestBlocked} ticks running)");
         _companion.BindNavigation(_navigation);
         navigation.QueueFree();
         _companion.Stop();

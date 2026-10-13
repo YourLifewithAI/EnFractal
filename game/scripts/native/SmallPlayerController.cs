@@ -209,12 +209,17 @@ public partial class SmallPlayerController : CharacterBody3D
     [Export] public float FloatRiseMps { get; set; } = 0.30f;
     [Export] public float FloatSinkMps { get; set; } = 0.25f;
     public const float HoverSpringPerS = 8.0f;
-    /// <summary>How far under a floating body its ground or water is looked for; with none that near it holds its height, never lost.</summary>
+    /// <summary>
+    /// How far under a floating body its ground or water is looked for at least. Within playable bounds it is looked for down to
+    /// their floor (HoverSearchM): the garage island magnified ten times (13 October) has mesas 10 to 25 m over the land, and 3 m
+    /// found nothing past their edges, so the Gubble held its height high over the player and said it could not get there. Over
+    /// nothing even so, it settles toward FloatAltitudeFloorY (the height of where it is going), or else holds its height.
+    /// </summary>
     public const float HoverSupportSearchM = 3.0f;
     /// <summary>
     /// Set each tick by whoever steers a floating body. RiseOverObstacles: something in its way that it cannot duck under is
     /// risen over (up the face, never through it). FloatAltitudeFloorY: it floats no lower than this (up to a player on a cliff
-    /// top or in a tree); null for none.
+    /// top or in a tree), and over nothing at all it settles to this; null for none.
     /// </summary>
     public bool RiseOverObstacles { get; set; }
     public float? FloatAltitudeFloorY { get; set; }
@@ -1061,9 +1066,9 @@ public partial class SmallPlayerController : CharacterBody3D
     /// <summary>
     /// Floating (Floats): the body hovers HoverHeightM over the ground or the water under it, with a gentle bob, and moves at
     /// the walk or the run. Nothing pulls it down: over a ledge or the sea it sinks gently to its height over what is below,
-    /// and over nothing within HoverSupportSearchM it holds its height. Something in its way is ducked under when lowering
-    /// the body to the ground clears it, and otherwise, while RiseOverObstacles is set, risen over: the body slides up the
-    /// face and over the top, never through it. A ceiling holds it down.
+    /// and over nothing within HoverSearchM it settles toward FloatAltitudeFloorY, or holds its height. Something in its way is
+    /// ducked under when lowering the body to the ground clears it, and otherwise, while RiseOverObstacles is set, risen over:
+    /// the body slides up the face and over the top, never through it. A ceiling holds it down.
     /// </summary>
     private void Hover(float dt, Vector3 wish, bool sprint)
     {
@@ -1083,8 +1088,10 @@ public partial class SmallPlayerController : CharacterBody3D
         HoverSupportY = support;
         HoversOverWater = overWater;
         var bob = HoverBobM * Mathf.Sin(_hoverClock * Mathf.Tau / HoverBobPeriodS);
-        var target = support is { } top ? top + HoverHeightM + bob : here.Y;
-        if (FloatAltitudeFloorY is { } floor && float.IsFinite(floor) && floor + bob > target) target = floor + bob;
+        var floor = FloatAltitudeFloorY is { } wanted && float.IsFinite(wanted) ? wanted : (float?)null;
+        // Over nothing within reach: toward the height of where it is going (it used to hold its height there whatever it was).
+        var target = support is { } top ? top + HoverHeightM + bob : floor is { } settle ? settle + bob : here.Y;
+        if (floor is { } lowest && lowest + bob > target) target = lowest + bob;
         // Under a low ceiling, here or just ahead: hover lower (a passage just taller than the body).
         foreach (var column in heading == Vector3.Zero ? new[] { here } : new[] { here, here + ahead })
             if (Ceiling(column) is { } ceiling) target = Mathf.Min(target, ceiling - BodyHeightM - SafeMarginM * 2);
@@ -1107,36 +1114,53 @@ public partial class SmallPlayerController : CharacterBody3D
                 RiseTicks++;
             }
         }
-        var vertical = RisingOver ? FloatRiseMps : Mathf.Clamp((target - here.Y) * HoverSpringPerS, -FloatSinkMps, FloatRiseMps);
+        var rise = FarGapMps(target - here.Y, FloatRiseMps);
+        var vertical = RisingOver ? rise : Mathf.Clamp((target - here.Y) * HoverSpringPerS, -FarGapMps(here.Y - target, FloatSinkMps), rise);
         Velocity = WithCreation(new Vector3(horizontal.X, vertical, horizontal.Z), dt);
         MoveAndSlide();
     }
+
+    /// <summary>
+    /// How deep under a floating body its ground or water is looked for: HoverSupportSearchM, or within playable bounds down to
+    /// their floor, whichever is deeper.
+    /// </summary>
+    public float HoverSearchM => PlayableBounds is { } bounds && float.IsFinite(GlobalPosition.Y)
+        ? Mathf.Max(HoverSupportSearchM, GlobalPosition.Y - bounds.Position.Y + 0.05f) : HoverSupportSearchM;
+
+    /// <summary>
+    /// The rise or the sink toward the height a floating body settles to: FloatRiseMps or FloatSinkMps, and further than
+    /// HoverSupportSearchM from it (the magnified island's mesas; never on today's islands, whose land stands under 3 m) that
+    /// many times faster for each HoverSupportSearchM of the gap, up to the run: 25 m off a mesa took 100 s, and takes about 40.
+    /// </summary>
+    private float FarGapMps(float gapM, float baseMps) =>
+        gapM <= HoverSupportSearchM ? baseMps : Mathf.Min(baseMps * gapM / HoverSupportSearchM, Mathf.Max(baseMps, RunSpeedMps));
 
     /// <summary>How far ahead a floating body feels for something in its way.</summary>
     private float HoverProbeM => BodyRadiusM * 0.5f + 0.005f;
 
     /// <summary>
     /// The highest ground or water surface under the body or just ahead of it, looked for from the body's middle (so a table
-    /// top overhead is a ceiling, not a floor) down HoverSupportSearchM. Null over nothing.
+    /// top overhead is a ceiling, not a floor) down HoverSearchM. Null over nothing.
     /// </summary>
     private float? HoverSupport(Vector3 feet, Vector3 ahead, out bool overWater)
     {
         overWater = false;
         float? best = null;
         var space = GetWorld3D().DirectSpaceState;
+        var depth = HoverSearchM;
         foreach (var column in ahead == Vector3.Zero ? new[] { feet } : new[] { feet, feet + ahead })
         {
             var from = column + Vector3.Up * (BodyHeightM * 0.5f);
             // Disposed at once: these run every tick, and wrappers left to the finalizer pile up (and trip Godot's exit).
-            using var query = PhysicsRayQueryParameters3D.Create(from, column + Vector3.Down * HoverSupportSearchM, RoomBuilder.BodyMask);
+            using var query = PhysicsRayQueryParameters3D.Create(from, column + Vector3.Down * depth, RoomBuilder.BodyMask);
             var exclude = new Array<Rid> { GetRid() };
             query.Exclude = exclude;
             query.HitBackFaces = false;
             using var hit = space.IntersectRay(query);
             if (hit.Count > 0 && (best == null || hit["position"].AsVector3().Y > best)) best = hit["position"].AsVector3().Y;
             // Water is a sheet on its own layer (RoomWater): the highest one under the middle, or over the feet if the body has sunk in.
-            var water = RoomWater.At(space, column + Vector3.Up * (BodyHeightM * 0.5f), BodyHeightM, HoverSupportSearchM, GetRid());
-            if (!water.Wet && Sea != null) water = Sea.OpenWater(space, column + Vector3.Up * (BodyHeightM * 0.5f), BodyHeightM, HoverSupportSearchM, GetRid());
+            var water = RoomWater.At(space, column + Vector3.Up * (BodyHeightM * 0.5f), BodyHeightM, depth, GetRid());
+            if (!water.Wet && Sea != null) water = Sea.OpenWater(space, column + Vector3.Up * (BodyHeightM * 0.5f), BodyHeightM, depth, GetRid());
             if (water.Wet && (best == null || water.SurfaceY > best))
             {
                 best = water.SurfaceY;

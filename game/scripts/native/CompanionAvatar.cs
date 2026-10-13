@@ -147,6 +147,29 @@ public partial class CompanionAvatar : SmallPlayerController
     /// <summary>The point of the go_to box the companion makes for: the side it can reach (meaningful while CurrentIntent is "go_to").</summary>
     public Vector3 GoToAim => _goToAim;
 
+    /// <summary>Whether it holds a height it came to rest at while floating (beside a player up a tree, aloft beside a climber).</summary>
+    public bool HoldingHeight => _holdY != null;
+    /// <summary>
+    /// A come that arrives by floating holds its height beside the player (ArriveFloating). Once the player has moved this far
+    /// from where they stood (or LevelGapM up or down), there is nobody to be beside up there: the hold goes and the Gubble,
+    /// staying, settles over what is under it (the founder on the magnified island, 13 October: it stayed high in the sky).
+    /// </summary>
+    public const float HoldReleaseM = FollowFarM;
+    /// <summary>Times a held height was let go because the player moved away from it.</summary>
+    public int HoldReleases { get; private set; }
+
+    /// <summary>
+    /// The watchdog for "stuck up high" (the founder on the magnified island, 13 October: the Gubble ended up high in the sky,
+    /// saying it could not get there). Floating more than LevelGapM over its goal and moving less than StuckDistanceM in
+    /// StuckAfterS (WatchHeight), something it hovers on holds it up (a roof over the player, a ledge over their head), or a height
+    /// it was holding. It lets the height go and makes for open air beside the goal (LandingBeside): there it sinks, and walks the
+    /// rest. At most MaxLandings times for one goal; with nowhere to come down it says blocked, and the host gives up honestly.
+    /// </summary>
+    public int HighReplans { get; private set; }
+    public const int MaxLandings = 2;
+    /// <summary>Where it is coming down beside its goal after the watchdog found it stuck up high (null when not).</summary>
+    public Vector3? Landing => _landing;
+
     private SmallPlayerController? _player;
     private Node3D _pointer = null!;
     private Label3D _label = null!;
@@ -172,6 +195,15 @@ public partial class CompanionAvatar : SmallPlayerController
     private bool _stuck;
     private bool _floating;
     private float? _holdY;
+    /// <summary>Where the player stood when a come arriving by floating began to hold its height beside them (see HoldReleaseM).</summary>
+    private Vector3? _holdBeside;
+    /// <summary>The goal of this tick's steering (the player, the follow place, the go_to side), for the watchdog's "above it".</summary>
+    private Vector3? _goal;
+    private Vector3? _landing;
+    /// <summary>Set on landing beside the goal: the walk from there is taken however long it is, so it never floats back up.</summary>
+    private bool _walkFromLanding;
+    /// <summary>Landings made for this goal (MaxLandings).</summary>
+    private int _landings;
     private Vector3 _goToAim;
     private double _goToAimAge;
     private Vector3 _playerLast;
@@ -332,6 +364,7 @@ public partial class CompanionAvatar : SmallPlayerController
         _floating = false;
         // A height it held out there (resting aloft, an arrival by floating) means nothing at home.
         FloatAltitudeFloorY = _holdY = null;
+        _holdBeside = _landing = null;
         if (CurrentIntent == "follow") _following = false;
         WentHomeWithPlayer++;
     }
@@ -404,6 +437,9 @@ public partial class CompanionAvatar : SmallPlayerController
         _progressTime = 0;
         _floating = false;
         _holdY = null;
+        _holdBeside = _landing = _goal = null;
+        _walkFromLanding = _highBlocked = false;
+        _landings = 0;
         if (_pointer != null) _pointer.Visible = false;
         SetControlInput(Vector2.Zero);
         Velocity = new Vector3(0, Velocity.Y, 0);
@@ -604,6 +640,7 @@ public partial class CompanionAvatar : SmallPlayerController
             {
                 _homePending = false;
                 FloatAltitudeFloorY = _holdY = null;
+                _holdBeside = _landing = null;
                 _floating = false;
                 WentHomeWithPlayer++;
             }
@@ -612,7 +649,9 @@ public partial class CompanionAvatar : SmallPlayerController
         FollowingRoute = false;
         // Walking hovers over the ground and ducks under what is low; only a float rises over things (set by the goals below).
         RiseOverObstacles = false;
+        ReleaseHoldWhenLeft();
         FloatAltitudeFloorY = _holdY;
+        _goal = null;
         var desired = Vector3.Zero;
         var hasPlayer = HasPlayer();
         // Gravity is a world property: the companion lives under the same profile the player was given.
@@ -643,7 +682,8 @@ public partial class CompanionAvatar : SmallPlayerController
             }
         }
         WatchProgress(dt, trying);
-        if (_stuck) GoalBlocked = true;
+        WatchHeight(dt);
+        if (_stuck || _highBlocked) GoalBlocked = true;
         if (_hasLookTarget)
         {
             var direction = _lookTarget - GlobalPosition;
@@ -686,6 +726,9 @@ public partial class CompanionAvatar : SmallPlayerController
         var place = FollowPlace(right);
         var toPlace = Planar(place - GlobalPosition);
         var placeDistance = toPlace.Length();
+        // Coming down beside its place after the watchdog found it stuck up high: that first.
+        _goal = place;
+        if (_landing != null && LandingVelocity() is { } landing) return landing;
         // Resting aloft (held at its height beside a climber, or over the drop beside a player up a tree), its place moves away
         // up and down as well as across.
         var aloft = _holdY != null;
@@ -701,7 +744,7 @@ public partial class CompanionAvatar : SmallPlayerController
         if (!_following)
         {
             _following = distance > FollowFarM || distance < near || detour || apart || (moving && placeGap > 0.06f);
-            if (_following) FloatAltitudeFloorY = _holdY = null;
+            if (_following) (FloatAltitudeFloorY, _holdY, _holdBeside) = (null, null, null);
         }
         // Floating, it rests only once level with its place: resting lower, it would hold there and fall behind at once.
         else if (still && !detour && !apart && (!_floating || Mathf.Abs(GlobalPosition.Y - place.Y) <= WalkLevelM) &&
@@ -712,8 +755,9 @@ public partial class CompanionAvatar : SmallPlayerController
             // Come to rest while floating, it holds its height there, as an arrival by floating does. It used to sink to the
             // ground below at once, which opened the gap to a climber again and floated it back up, over and over: the founder's
             // video (9 October) of the HUD flipping between "follow" and "floating there" and the Gubble shaking beside a climber.
-            if (_floating) _holdY = GlobalPosition.Y;
+            if (_floating) (_holdY, _holdBeside) = (GlobalPosition.Y, null);
             _floating = false;
+            _walkFromLanding = false;
             return Vector3.Zero;
         }
         if (ChooseFloat(place, routed))
@@ -799,6 +843,8 @@ public partial class CompanionAvatar : SmallPlayerController
     {
         var distance = playerOffset.Length();
         var target = ComeTarget();
+        _goal = target;
+        if (_landing != null && LandingVelocity() is { } landing) return landing;
         var routed = PlanRoute(target, ComeArrivalM + 0.05f, dt);
         if (ChooseFloat(target, routed))
         {
@@ -807,7 +853,7 @@ public partial class CompanionAvatar : SmallPlayerController
             if (distance <= ComeArrivalM && level && clear)
             {
                 ComeArrivedSerial = IntentSerial;
-                ArriveFloating();
+                ArriveFloating(_player.GlobalPosition);
                 return Vector3.Zero;
             }
             RiseOverObstacles = true;
@@ -845,6 +891,8 @@ public partial class CompanionAvatar : SmallPlayerController
         var distance = Planar(nearest - here).Length();
         // The side of the box the walk can reach (backlog: the nearest reachable side, not the nearest side across a wall).
         var aim = ReachableSide(dt);
+        _goal = aim;
+        if (_landing != null && LandingVelocity() is { } landing) return landing;
         var routed = PlanRoute(aim, _goToArrivalM, dt);
         if (ChooseFloat(aim, routed))
         {
@@ -854,7 +902,7 @@ public partial class CompanionAvatar : SmallPlayerController
             if (distance <= _goToArrivalM && level && clear)
             {
                 GoToArrivedSerial = IntentSerial;
-                ArriveFloating();
+                ArriveFloating(null);
                 return Vector3.Zero;
             }
             RiseOverObstacles = true;
@@ -894,6 +942,8 @@ public partial class CompanionAvatar : SmallPlayerController
         var nearest = new Vector3(Mathf.Clamp(here.X, low.X, high.X), Mathf.Clamp(here.Y, low.Y, high.Y), Mathf.Clamp(here.Z, low.Z, high.Z));
         _goToAimAge += dt;
         if (!NavigationReady) return _goToAim = nearest;
+        // Floating, it makes for the box itself (GoToVelocity): no side to choose, and no searches to pay for.
+        if (_floating) return _goToAim;
         if (_goToAimRevision == Navigation!.Revision && _goToAimAge < 0.5) return _goToAim;
         _goToAimAge = 0;
         _goToAimRevision = Navigation.Revision;
@@ -909,7 +959,7 @@ public partial class CompanionAvatar : SmallPlayerController
             var footprint = new Vector3(Mathf.Clamp(candidate.X, low.X, high.X), candidate.Y, Mathf.Clamp(candidate.Z, low.Z, high.Z));
             // It must stand within the arrival distance of the footprint, level with the box's bottom.
             if (Planar(candidate - footprint).Length() > _goToArrivalM || Mathf.Abs(candidate.Y - low.Y) > LevelGapM) continue;
-            var route = Navigation.FindRoute(here, candidate, 0.02f);
+            var route = Navigation.FindRoute(here, candidate, 0.02f, SearchM(here, candidate));
             if (!route.Reaches || route.LengthM >= bestLength) continue;
             best = candidate;
             bestLength = route.LengthM;
@@ -926,7 +976,7 @@ public partial class CompanionAvatar : SmallPlayerController
         if (_floating) return true;
         // A walk starts from the ground under the body: one held aloft (beside a climber, by a player up a tree) floats.
         if (routed && _route.Reaches && Mathf.Abs(_route.Points[^1].Y - goal.Y) <= WalkLevelM && Mathf.Abs(_route.Points[0].Y - GlobalPosition.Y) <= LevelGapM &&
-            _route.LengthM <= (goal - GlobalPosition).Length() * FloatDetourFactor + FloatDetourM) return false;
+            (_walkFromLanding || _route.LengthM <= (goal - GlobalPosition).Length() * FloatDetourFactor + FloatDetourM)) return false;
         _floating = true;
         FloatStarts++;
         return true;
@@ -944,12 +994,90 @@ public partial class CompanionAvatar : SmallPlayerController
         return hit.Count == 0;
     }
 
-    /// <summary>Arrived by floating: it stays, holding its height (beside a player up a tree, it does not sink to the ground below).</summary>
-    private void ArriveFloating()
+    /// <summary>
+    /// Arrived by floating: it stays, holding its height (beside a player up a tree, it does not sink to the ground below) until
+    /// the player it came to (beside, for a come) moves away (HoldReleaseM).
+    /// </summary>
+    private void ArriveFloating(Vector3? beside)
     {
         var height = GlobalPosition.Y;
         Stay();
         _holdY = height;
+        _holdBeside = beside;
+    }
+
+    /// <summary>The player has moved away from where the Gubble began holding its height beside them: the hold goes.</summary>
+    private void ReleaseHoldWhenLeft()
+    {
+        if (_holdY == null || _holdBeside is not { } beside || !HasPlayer()) return;
+        var moved = _player!.GlobalPosition - beside;
+        if (Planar(moved).Length() <= HoldReleaseM && Mathf.Abs(moved.Y) <= LevelGapM) return;
+        _holdY = null;
+        _holdBeside = null;
+        HoldReleases++;
+    }
+
+    /// <summary>
+    /// The longest search a route to a goal needs: a walk longer than FloatDetourFactor times the way there (and FloatDetourM)
+    /// is not taken (the Gubble floats), so searching further only costs (on the magnified island, a goal out of reach meant a
+    /// search of everywhere the start could walk). Twice that, for the search's own measure along polygon edges and slopes.
+    /// </summary>
+    private static float SearchM(Vector3 from, Vector3 goal) => 2 * (from.DistanceTo(goal) * FloatDetourFactor + FloatDetourM);
+
+    /// <summary>
+    /// Where to come down beside a goal the Gubble is stuck high over (the watchdog): of the walkable spots round the goal, nearest
+    /// rings first, one level with the goal, with nothing over it up to the body's height (no roof, no ledge), and from which a
+    /// walk reaches the goal; on the ring, the one nearest the body. Null when there is none.
+    /// </summary>
+    private Vector3? LandingBeside(Vector3 goal)
+    {
+        if (!NavigationReady) return null;
+        var here = GlobalPosition;
+        var space = GetWorld3D().DirectSpaceState;
+        foreach (var ring in LandingRingsM)
+        {
+            Vector3? best = null;
+            for (var k = 0; k < 8; k++)
+            {
+                var angle = k * Mathf.Pi / 4;
+                var spot = Navigation!.ClosestPoint(goal + new Vector3(Mathf.Cos(angle), 0, Mathf.Sin(angle)) * ring);
+                if (Mathf.Abs(spot.Y - goal.Y) > LevelGapM || Planar(spot - goal).Length() > ring + Navigation.AgentRadiusM) continue;
+                if (best is { } kept && Planar(spot - here).Length() >= Planar(kept - here).Length()) continue;
+                using var query = PhysicsRayQueryParameters3D.Create(new Vector3(spot.X, Mathf.Max(here.Y, spot.Y) + BodyHeightM, spot.Z), spot + Vector3.Up * 0.01f, RoomBuilder.BodyMask);
+                query.Exclude = new Godot.Collections.Array<Rid> { GetRid() };
+                using (var hit = space.IntersectRay(query)) if (hit.Count > 0) continue;
+                if (!Navigation.FindRoute(spot, goal, ComeArrivalM, SearchM(spot, goal)).Reaches) continue;
+                best = spot;
+            }
+            if (best != null) return best;
+        }
+        return null;
+    }
+
+    /// <summary>The rings round a goal where the watchdog looks for open air to come down in.</summary>
+    private static readonly float[] LandingRingsM = { FollowSideM, 0.25f, 0.35f, 0.5f, 0.75f, 1.0f, 1.5f, 2.0f };
+
+    /// <summary>
+    /// Making for the landing spot: across to it (rising over what is in the way), then down to it. Level with it, the landing
+    /// is over: null, and the goal's own steering plans again from there, walking the rest.
+    /// </summary>
+    private Vector3? LandingVelocity()
+    {
+        var spot = _landing!.Value;
+        var offset = Planar(spot - GlobalPosition);
+        if (offset.Length() <= CornerReachedM && Mathf.Abs(GlobalPosition.Y - spot.Y) <= LevelGapM)
+        {
+            _landing = null;
+            _floating = false;
+            _walkFromLanding = true;
+            _route = RoomNavigation.Route.None;
+            return null;
+        }
+        _floating = true;
+        RiseOverObstacles = true;
+        FloatAltitudeFloorY = spot.Y;
+        if (offset.Length() <= CornerReachedM) return Vector3.Zero;
+        return offset.Normalized() * Mathf.Clamp(offset.Length() * FollowGainPerS, MinApproachMps, RunSpeedMps);
     }
 
     private bool NavigationReady => Navigation != null && GodotObject.IsInstanceValid(Navigation) && Navigation.IsReady;
@@ -963,9 +1091,12 @@ public partial class CompanionAvatar : SmallPlayerController
             return false;
         }
         _routeAge += dt;
+        // Floating, it goes straight there and no route is used: none is planned (on the magnified island a search for a goal
+        // out of reach covers everywhere the start can walk to, up to about 35 ms, and it came round ten times a second).
+        if (_floating) return !_route.IsEmpty;
         if (_route.IsEmpty || _routeAge >= RouteRefreshS || _routeRevision != Navigation!.Revision || Planar(goal - _routeGoal).Length() > 0.03f)
         {
-            _route = Navigation!.FindRoute(GlobalPosition, goal, toleranceM);
+            _route = Navigation!.FindRoute(GlobalPosition, goal, toleranceM, SearchM(GlobalPosition, goal));
             _routeIndex = 1;
             _routeGoal = goal;
             _routeAge = 0;
@@ -1004,6 +1135,54 @@ public partial class CompanionAvatar : SmallPlayerController
         if (_stuck) _routeAge = RouteRefreshS;
         _progressTime = 0;
         _progressAnchor = GlobalPosition;
+    }
+
+    private Vector3 _highAnchor;
+    private double _highTime;
+    /// <summary>Stuck up high with nowhere to come down: blocked until it moves again (the host then refuses the goal honestly).</summary>
+    private bool _highBlocked;
+
+    /// <summary>
+    /// The watchdog for stuck up high (see HighReplans): floating more than LevelGapM over this tick's goal, and moved less than
+    /// StuckDistanceM in StuckAfterS, whether or not it is trying to move (right over its goal it asks for no motion at all).
+    /// It lets any held height go and comes down in open air beside the goal; with nowhere to come down, or a landing that gets
+    /// nowhere itself, it stays blocked.
+    /// </summary>
+    private void WatchHeight(float dt)
+    {
+        var landing = _landing != null;
+        if (!_floating || _goal is not { } goal || (!landing && GlobalPosition.Y - goal.Y <= LevelGapM))
+        {
+            _highTime = 0;
+            _highAnchor = GlobalPosition;
+            _highBlocked = false;
+            return;
+        }
+        _highTime += dt;
+        if (_highTime < StuckAfterS) return;
+        var moved = GlobalPosition.DistanceTo(_highAnchor);
+        _highTime = 0;
+        _highAnchor = GlobalPosition;
+        _highBlocked = false;
+        if (moved >= StuckDistanceM) return;
+        if (landing)
+        {
+            // Coming down beside the goal and getting nowhere: no more landings for this goal.
+            _landing = null;
+            _landings = MaxLandings;
+            _highBlocked = true;
+            return;
+        }
+        HighReplans++;
+        _holdY = null;
+        _holdBeside = null;
+        _landing = _landings < MaxLandings ? LandingBeside(goal) : null;
+        if (_landing != null)
+        {
+            _landings++;
+            _stuck = false;
+        }
+        else _highBlocked = true;
     }
 
     /// <summary>Move along a world-space velocity: the motion is exact through body-relative input while the body turns smoothly to face it.</summary>
