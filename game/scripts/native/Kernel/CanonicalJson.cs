@@ -81,6 +81,26 @@ public static class CanonicalJson
         return output.ToString();
     }
 
+    /// <summary>The canonical text of an object without some of its own keys: Text of a copy with them removed, made without the copy.</summary>
+    public static string TextWithout(JsonObject map, IReadOnlyCollection<string> leaveOut)
+    {
+        var keys = new List<string>(map.Count);
+        foreach (var (key, _) in map)
+            if (!leaveOut.Contains(key)) keys.Add(key);
+        keys.Sort(CompareCodePoints);
+        var output = new StringBuilder();
+        output.Append('{');
+        for (var index = 0; index < keys.Count; index++)
+        {
+            if (index > 0) output.Append(',');
+            Quote(keys[index], output);
+            output.Append(':');
+            Write(map[keys[index]], output, 1);
+        }
+        output.Append('}');
+        return output.ToString();
+    }
+
     public static byte[] Bytes(JsonElement element) => StrictUtf8.GetBytes(Text(element));
     public static byte[] Bytes(JsonNode? node) => StrictUtf8.GetBytes(Text(node));
     public static string Sha256Hex(byte[] bytes) => Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();

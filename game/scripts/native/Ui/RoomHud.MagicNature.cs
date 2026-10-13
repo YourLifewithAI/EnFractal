@@ -117,7 +117,8 @@ public partial class RoomHud
         RefreshMagicPanel();
     }
 
-    private global::EnFractal.Native.Look.NatureLook? NatureVisual => GetParent()?.GetNodeOrNull<global::EnFractal.Native.Look.NatureLook>("NatureLook");
+    private global::EnFractal.Native.Look.NatureLook? NatureVisual => GetParent()?.GetNodeOrNull<global::EnFractal.Native.Look.NatureLook>(NatureLookPath);
+    private static readonly NodePath NatureLookPath = "NatureLook";
 
     internal void BeginFireConfirmation()
     {

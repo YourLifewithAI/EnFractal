@@ -228,39 +228,47 @@ public partial class CommandHost : Node
     public static string SavePathFor(RoomData room) => $"{SaveRoot}/{room.RoomId}/{room.ManifestSha256[..16]}/inventions.json";
 
     /// <summary>The host attached under a room world, if any.</summary>
-    public static CommandHost? Of(Node world) => world.GetNodeOrNull<CommandHost>("CommandHost");
+    public static CommandHost? Of(Node world) => world.GetNodeOrNull<CommandHost>(PathInWorld);
+
+    /// <summary>
+    /// Node paths and method names kept for the life of the game (S12): a temporary one made from a string for every call is a
+    /// Godot value the .NET finalizer frees later, on its own thread, while the main thread goes on using the engine.
+    /// </summary>
+    private static readonly NodePath PathInWorld = "CommandHost";
+    private static readonly NodePath BuiltPath = "Room";
+    private static readonly NodePath ShellPath = "Room/Shell";
 
     public override void _Ready()
     {
         _session = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(6)).ToLowerInvariant();
         Runtime = (Node3D)GD.Load<GDScript>(RuntimeScript).New().AsGodotObject();
         Runtime.Name = "InventionRuntime";
-        Runtime.Set("save_path", SavePath);
-        Runtime.Call("configure", RoomDictionary(Room), Player!, Companion!);
+        Runtime.Set(KernelNames.SavePath, SavePath);
+        Runtime.Call(KernelNames.Configure, RoomDictionary(Room), Player!, Companion!);
         // The scene is derived: the authority hands every saved object pose to the room's nodes, while a save loads too.
-        Runtime.Set("object_pose_sink", new Callable(this, MethodName.ApplyObjectPoses));
+        Runtime.Set(KernelNames.ObjectPoseSink, new Callable(this, MethodName.ApplyObjectPoses));
         // A save's object poses are checked against the room as it is before they are believed (asset size, collision, support).
-        Runtime.Set("object_pose_check", new Callable(this, MethodName.CheckObjectPoses));
+        Runtime.Set(KernelNames.ObjectPoseCheck, new Callable(this, MethodName.CheckObjectPoses));
         // A save's journal and discovered map are checked before the save is believed.
-        Runtime.Set("team_check", new Callable(this, MethodName.CheckTeam));
+        Runtime.Set(KernelNames.TeamCheck, new Callable(this, MethodName.CheckTeam));
         // So is a save's nature block (NatureBlock): a save is untrusted input.
-        Runtime.Set("nature_check", new Callable(this, MethodName.CheckNature));
+        Runtime.Set(KernelNames.NatureCheck, new Callable(this, MethodName.CheckNature));
         AddChild(Runtime);
-        Authority = Runtime.Get("authority").AsGodotObject();
+        Authority = Runtime.Get(KernelNames.Authority).AsGodotObject();
         // The team's journal and map come back with the room; tasks an earlier session left open are closed (their jobs did not survive it).
         // A room with no save of its own offers the newest earlier save of the same room, until the player answers.
-        if (Authority.Call("is_ready").AsBool() && !Godot.FileAccess.FileExists(SavePath) && Revision == 0) _migrationOffer = NewestOtherSave();
-        LoadTeam(Authority.Call("is_ready").AsBool() ? KernelJson.ToJson(Authority.Call("team")) as JsonObject : null, closeOpenTasks: true);
+        if (Authority.Call(KernelNames.IsReady).AsBool() && !Godot.FileAccess.FileExists(SavePath) && Revision == 0) _migrationOffer = NewestOtherSave();
+        LoadTeam(Authority.Call(KernelNames.IsReady).AsBool() ? KernelJson.ToJson(Authority.Call(KernelNames.Team)) as JsonObject : null, closeOpenTasks: true);
         // The island's nature comes back with the room too (room state); RoomWorld turns its simulation on (ConfigureNature).
         LoadNature();
         // Whatever the load did, the scene shows the authority's state: a save that failed to load leaves the manifest's places.
         ApplyObjectPoses(ObjectPoses());
-        Runtime.Set("command_sink", new Callable(this, MethodName.RuntimeCommand));
+        Runtime.Set(KernelNames.CommandSink, new Callable(this, MethodName.RuntimeCommand));
         SaveNotice = OtherManifestNotice(SavePath);
         if (SaveNotice.Length > 0)
         {
             GD.Print("COMMAND_HOST " + SaveNotice);
-            Runtime.Call("notice", SaveNotice);
+            Runtime.Call(KernelNames.Notice, SaveNotice);
         }
         // The G key sends world.set_physics through this host as the player: one command path for every world change.
         _physicsSink = preset => IsInstanceValid(this) && HandleObjectOk(PlayerPhysics(preset));
@@ -272,6 +280,8 @@ public partial class CommandHost : Node
             Player.HandsFull = () => IsInstanceValid(this) && HeldBy(PlayerAvatar) != null;
         }
         BuildPrompt();
+        // The sight sweep's and perception's rays (S12): one node cast in place, so no ray leaves a Godot value for the finalizer.
+        _sightRay = new SightRay(this, RoomBuilder.WorldLayer);
         AddChild(new Sandbox.Carrying { Name = "Carrying", Carried = CarriedNow });
         // The room's bounds are its playable volume (room manifest): neither body walks out of them, and one that falls
         // below them is recovered. A generated landscape's ground stops just past its bounds, with nothing beyond.
@@ -333,8 +343,8 @@ public partial class CommandHost : Node
         if (next != null) _promptText.Text = next.Reason;
     }
 
-    public int Revision => Authority.Get("revision").AsInt32();
-    private int PermissionRevision => Authority.Get("permission_revision").AsInt32();
+    public int Revision => Authority.Get(KernelNames.Revision).AsInt32();
+    private int PermissionRevision => Authority.Get(KernelNames.PermissionRevision).AsInt32();
     private string Now() => KernelJson.Utc(Clock());
 
     // ---- entry points ----
@@ -643,7 +653,7 @@ public partial class CommandHost : Node
         }
         if (preview)
         {
-            var checkedPlacement = Authority.Call("preflight", principal, source, x, z, yaw, instanceId, y, on, approvedBy ?? "").AsGodotDictionary();
+            var checkedPlacement = Authority.Call(KernelNames.Preflight, principal, source, x, z, yaw, instanceId, y, on, approvedBy ?? "").AsGodotDictionary();
             if (!checkedPlacement["ok"].AsBool()) throw Translate(checkedPlacement);
             var answer = Result(op, principal, actionId, null, true);
             answer["preview"] = true;
@@ -664,7 +674,7 @@ public partial class CommandHost : Node
         if (instanceId.Length > 0) request["instance_id"] = instanceId;
         // The journal's fact goes in the same save as the creation and its receipt (review major 3): the same candidate
         // path the commit takes names the creation and where it will stand.
-        var candidate = Authority.Call("preflight", principal, source, x, z, yaw, instanceId, y, on, approvedBy ?? "").AsGodotDictionary();
+        var candidate = Authority.Call(KernelNames.Preflight, principal, source, x, z, yaw, instanceId, y, on, approvedBy ?? "").AsGodotDictionary();
         if (!candidate["ok"].AsBool()) throw Translate(candidate);
         var id = candidate["instance_id"].AsString();
         (string Name, Vector3 Pin)? view;
@@ -694,7 +704,7 @@ public partial class CommandHost : Node
         if (!target.StartsWith("creation:", StringComparison.Ordinal))
             throw new Refusal("unsupported_capability", target.StartsWith("obj:", StringComparison.Ordinal)
                 ? "Removing room objects arrives with the sandbox verbs (Run 2)." : "That part of the room cannot be removed.", "$.args.target");
-        if (Authority.Call("is_locked", target).AsBool()) throw new Refusal("target_protected", "That is protected. Only the player can unlock it.", "$.args.target");
+        if (Authority.Call(KernelNames.IsLocked, target).AsBool()) throw new Refusal("target_protected", "That is protected. Only the player can unlock it.", "$.args.target");
         if (preview) return Previewed("entity.remove", principal, actionId, target);
         var request = new Godot.Collections.Dictionary
         {
@@ -723,7 +733,7 @@ public partial class CommandHost : Node
         if (preview)
         {
             foreach (var target in targets)
-                if (Authority.Call("is_locked", target).AsBool() == (op == "protect.lock"))
+                if (Authority.Call(KernelNames.IsLocked, target).AsBool() == (op == "protect.lock"))
                     throw new Refusal("invalid_args", op == "protect.lock" ? "That is already protected." : "That is not protected.", "$.args.targets");
             return Previewed(op, principal, actionId, targets);
         }
@@ -746,7 +756,7 @@ public partial class CommandHost : Node
             ["op"] = "activate", ["action_id"] = actionId, ["instance_id"] = target,
             ["expected_revision"] = Revision, ["expected_permission_revision"] = PermissionRevision,
         };
-        var outcome = Runtime.Call("execute_activation", principal, request, meta).AsGodotDictionary();
+        var outcome = Runtime.Call(KernelNames.ExecuteActivation, principal, request, meta).AsGodotDictionary();
         if (!outcome["ok"].AsBool()) throw Translate(outcome);
         return Transient("creation.activate", principal, actionId, fingerprint, new JsonArray(target), null);
     }
@@ -842,7 +852,7 @@ public partial class CommandHost : Node
             Companion.Stop();
             affected.Add(CompanionAvatarId);
         }
-        var stopped = Runtime.Call("stop_effects", whose).AsInt32();
+        var stopped = Runtime.Call(KernelNames.StopEffects, whose).AsInt32();
         // The Gubble carries out the island's abilities: a stop that covers it ends the effects this principal may stop.
         if (whose != PlayerPrincipal)
             foreach (var ended in StopCompanionEffects(principal))
@@ -863,7 +873,7 @@ public partial class CommandHost : Node
         // Creation effects have no effect: ids yet, so for them a named effect is already stopped. "all" is everything
         // for the player and the companion's own effects for the companion; the island's abilities (glows) go the same
         // way, by id or all. An unknown id, or one the companion may not stop, stops nothing and still applies.
-        var stopped = effect == "all" ? Runtime.Call("stop_effects", principal == PlayerPrincipal ? "" : principal).AsInt32() : 0;
+        var stopped = effect == "all" ? Runtime.Call(KernelNames.StopEffects, principal == PlayerPrincipal ? "" : principal).AsInt32() : 0;
         var ended = StopEffects(principal, effect);
         return Transient("effect.stop", principal, actionId, fingerprint, new JsonArray(ended.Select(id => (JsonNode?)JsonValue.Create(id)).ToArray()),
             new JsonObject { ["effects_stopped"] = stopped + ended.Count });
@@ -895,7 +905,7 @@ public partial class CommandHost : Node
                 allowed: new JsonArray(presets.OrderBy(id => id, StringComparer.Ordinal).Select(id => (JsonNode?)JsonValue.Create(id)).ToArray()));
         if (Player == null || !IsInstanceValid(Player)) throw new Refusal("not_ready", "The player's body is not in the room yet.", retryable: true);
         if (preview) return Previewed("world.set_physics", principal, actionId);
-        var profile = script.Call("preset", preset, Player.WorldPhysicsRevision + 1).AsGodotDictionary();
+        var profile = script.Call(KernelNames.Preset, preset, Player.WorldPhysicsRevision + 1).AsGodotDictionary();
         if (!Player.SetWorldPhysics(profile)) throw new Refusal("internal_error", "The game could not change the world's physics.", retryable: true);
         // The companion lives under the same world physics; it would also adopt the player's newer profile next tick.
         if (Companion != null && IsInstanceValid(Companion)) Companion.SetWorldPhysics(profile);
@@ -904,13 +914,13 @@ public partial class CommandHost : Node
 
     private JsonObject Submit(Godot.Collections.Dictionary request, string principal, string actionId, Godot.Collections.Dictionary meta)
     {
-        var outcome = Authority.Call("submit", principal, request, meta).AsGodotDictionary();
+        var outcome = Authority.Call(KernelNames.Submit, principal, request, meta).AsGodotDictionary();
         if (!outcome["ok"].AsBool()) throw Translate(outcome);
         // The scene is derived at once: a placed, revised or removed creation's colliders are where the state says before
         // the next command looks (object poses reach the scene through the authority's pose seam during the commit).
-        Runtime.Call("refresh_now");
+        Runtime.Call(KernelNames.RefreshNow);
         // The first answer is rebuilt from the durable receipt, exactly as every replay will be.
-        var record = Authority.Call("receipt_for", principal, actionId).AsGodotDictionary();
+        var record = Authority.Call(KernelNames.ReceiptFor, principal, actionId).AsGodotDictionary();
         return Durable(record, replayed: false);
     }
 
@@ -961,7 +971,7 @@ public partial class CommandHost : Node
     /// </summary>
     private JsonObject? Replay(string op, string principal, string actionId, string fingerprint)
     {
-        var record = Authority.Call("receipt_for", principal, actionId).AsGodotDictionary();
+        var record = Authority.Call(KernelNames.ReceiptFor, principal, actionId).AsGodotDictionary();
         if (record.Count > 0)
         {
             if (record["fingerprint"].AsString() != fingerprint)
@@ -969,7 +979,7 @@ public partial class CommandHost : Node
             return Durable(record, replayed: true);
         }
         // A checkpoint compacted it: it still replays, and still refuses other content under its id.
-        var compacted = Authority.Call("compacted_receipt", principal, actionId).AsGodotDictionary();
+        var compacted = Authority.Call(KernelNames.CompactedReceipt, principal, actionId).AsGodotDictionary();
         if (compacted.Count > 0)
         {
             if (compacted["fingerprint_prefix"].AsString() != fingerprint[..16])
@@ -1272,9 +1282,9 @@ public partial class CommandHost : Node
     private JsonObject Lookup(JsonElement args, string principal)
     {
         var actionId = Str(args, "action_id")!;
-        var record = Authority.Call("receipt_for", principal, actionId).AsGodotDictionary();
+        var record = Authority.Call(KernelNames.ReceiptFor, principal, actionId).AsGodotDictionary();
         if (record.Count > 0) return new JsonObject { ["found"] = true, ["receipt"] = Durable(record, replayed: false) };
-        if (Authority.Call("compacted_receipt", principal, actionId).AsGodotDictionary().Count > 0) return new JsonObject { ["found"] = true, ["compacted"] = true };
+        if (Authority.Call(KernelNames.CompactedReceipt, principal, actionId).AsGodotDictionary().Count > 0) return new JsonObject { ["found"] = true, ["compacted"] = true };
         if (_transient.TryGetValue(principal + "|" + actionId, out var transient))
             return new JsonObject { ["found"] = true, ["receipt"] = transient.Result.DeepClone() };
         return WishReceiptLookup(principal, actionId) ?? new JsonObject { ["found"] = false };
@@ -1307,49 +1317,193 @@ public partial class CommandHost : Node
     /// <summary>Every entity in the room as contract entity summaries, sorted by id. Names are untrusted data.</summary>
     public List<JsonObject> Entities()
     {
-        var list = new List<JsonObject>();
-        var snapshot = Authority.Call("snapshot", PlayerPrincipal).AsGodotDictionary();
-        var locks = snapshot.ContainsKey("locks") ? snapshot["locks"].AsGodotDictionary() : new Godot.Collections.Dictionary();
+        var list = new List<(string Id, JsonObject Summary)>(Room.Shell.Count + Room.Objects.Count + 4);
+        // The authority's state, read once and copied into C# (S12): no Godot value of it is left for the .NET finalizer.
+        var view = ReadEntitySnapshot();
         var shellProvenance = Room.SourceKind switch { "capture" => "captured_scanned", "procedural" => "procedural", _ => "hand_authored" };
         foreach (var part in Room.Shell)
         {
             var box = ShellBounds(part);
-            list.Add(Summary(part.Id, "shell", Readable(part.Id), null, null, box.GetCenter(), box,
-                part.Role == "floor" ? new[] { "walkable_top" } : Array.Empty<string>(), false, false, shellProvenance, EntityRevision(part.Id)));
+            // A room entity's revision is its play revision, 0 until play changes it (the authority's entity_revision).
+            list.Add((part.Id, Summary(part.Id, "shell", Readable(part.Id), null, null, box.GetCenter(), box,
+                part.Role == "floor" ? WalkableTop : Array.Empty<string>(), false, false, shellProvenance, view.Revisions.GetValueOrDefault(part.Id))));
         }
         // Objects stand where play last put them (the authority's poses), ride over their holder while carried, and
         // otherwise stand where the manifest puts them.
-        var poses = snapshot.ContainsKey("object_poses") ? snapshot["object_poses"].AsGodotDictionary() : new Godot.Collections.Dictionary();
         foreach (var item in Room.Objects)
         {
             // A stock object that burned down is gone from the room (its record stays in nature, for a later rebuild).
             if (IsBurnedDown(item.Id)) continue;
-            var (position, rotation) = PoseOf(item, poses);
+            var (position, rotation) = PoseOf(item, view.Poses);
             var box = Sandbox.SandboxPhysics.Bounds(position, rotation, item.Asset.DimensionsM * item.Scale);
-            var holder = _held.FirstOrDefault(h => h.Value.Target == item.Id).Key;
-            list.Add(Summary(item.Id, "object", item.DisplayName ?? item.Asset.DisplayName, item.Asset.Category, item.Asset.CategoryGroup, position, box,
-                item.Asset.Affordances, item.Asset.Movable, locks.ContainsKey(item.Id), item.Asset.ProvenanceKind, EntityRevision(item.Id), holder));
+            list.Add((item.Id, ObjectSummary(item, position, box, view)));
         }
-        if (snapshot.ContainsKey("instances"))
-            foreach (var (key, value) in snapshot["instances"].AsGodotDictionary())
-            {
-                var instance = value.AsGodotDictionary();
-                var position = instance["position_m"].AsGodotArray();
-                var origin = new Vector3((float)position[0].AsDouble(), (float)position[1].AsDouble(), (float)position[2].AsDouble());
-                var bounds = instance["artifact"].AsGodotDictionary()["bounds"].AsGodotDictionary();
-                var local = new Aabb(ArrayVector(bounds["min"].AsGodotArray()), ArrayVector(bounds["max"].AsGodotArray()) - ArrayVector(bounds["min"].AsGodotArray()));
-                var box = new Transform3D(new Basis(Vector3.Up, Mathf.DegToRad((float)instance["yaw_deg"].AsDouble())), origin) * local;
-                var name = instance["source"].AsGodotDictionary()["name"].AsString();
-                list.Add(Summary(key.AsString(), "creation", name, "creation", null, origin, box, Array.Empty<string>(), false,
-                    locks.ContainsKey(key.AsString()), instance["owner_id"].AsString() == CompanionPrincipal ? "ai_created" : "player_created", instance["revision"].AsInt32()));
-            }
-        foreach (var (id, body, name) in new (string, SmallPlayerController?, string)[] { (PlayerAvatar, Player, "Player"), (CompanionAvatarId, Companion, Companion?.CompanionName ?? "Companion") })
+        foreach (var creation in view.Creations)
+            list.Add((creation.Id, Summary(creation.Id, "creation", creation.Name, "creation", null, creation.Origin, creation.Box, Array.Empty<string>(), false,
+                view.Locked.Contains(creation.Id), creation.AiCreated ? "ai_created" : "player_created", creation.Revision)));
+        AddAvatar(list, PlayerAvatar, Player, "Player");
+        AddAvatar(list, CompanionAvatarId, Companion, Companion?.CompanionName ?? "Companion");
+        // Sorted by id (ids are unique, so the order is the one a stable sort gives).
+        list.Sort(static (a, b) => string.CompareOrdinal(a.Id, b.Id));
+        var entities = new List<JsonObject>(list.Count);
+        foreach (var (_, summary) in list) entities.Add(summary);
+        return entities;
+    }
+
+    private static readonly string[] WalkableTop = { "walkable_top" };
+
+    /// <summary>A room object's summary, where it stands now, as Entities gives it.</summary>
+    private JsonObject ObjectSummary(ObjectInstance item, Vector3 position, Aabb box, EntitySnapshot view)
+    {
+        string? holder = null;
+        foreach (var (actor, held) in _held)
+            if (held.Target == item.Id) { holder = actor; break; }
+        return Summary(item.Id, "object", item.DisplayName ?? item.Asset.DisplayName, item.Asset.Category, item.Asset.CategoryGroup, position, box,
+            item.Asset.Affordances, item.Asset.Movable, view.Locked.Contains(item.Id), item.Asset.ProvenanceKind, view.Revisions.GetValueOrDefault(item.Id), holder);
+    }
+
+    /// <summary>
+    /// The summaries of the room objects within a body's reach (SandboxRules.WithinReach, with a centimetre to spare), exactly as
+    /// Entities gives them: the HUD's focus, asked up to ten times a second, needs nothing else (S12: it built the whole room's).
+    /// </summary>
+    private List<JsonObject> ObjectEntitiesNear(SmallPlayerController body)
+    {
+        var view = ReadEntitySnapshot();
+        var near = new List<JsonObject>();
+        foreach (var item in Room.Objects)
         {
-            if (body == null || !IsInstanceValid(body)) continue;
-            var box = new Aabb(body.GlobalPosition - new Vector3(body.BodyRadiusM, 0, body.BodyRadiusM), new Vector3(body.BodyRadiusM * 2, body.BodyHeightM, body.BodyRadiusM * 2));
-            list.Add(Summary(id, "avatar", name, null, null, body.GlobalPosition, box, Array.Empty<string>(), true, false, "hand_authored", 0));
+            if (IsBurnedDown(item.Id)) continue;
+            var (position, rotation) = PoseOf(item, view.Poses);
+            var box = Sandbox.SandboxPhysics.Bounds(position, rotation, item.Asset.DimensionsM * item.Scale);
+            if (Sandbox.SandboxRules.WithinReach(body, box.Grow(0.01f))) near.Add(ObjectSummary(item, position, box, view));
         }
-        return list.OrderBy(e => e["id"]!.GetValue<string>(), StringComparer.Ordinal).ToList();
+        return near;
+    }
+
+    private static void AddAvatar(List<(string Id, JsonObject Summary)> list, string id, SmallPlayerController? body, string name)
+    {
+        if (body == null || !IsInstanceValid(body)) return;
+        var box = new Aabb(body.GlobalPosition - new Vector3(body.BodyRadiusM, 0, body.BodyRadiusM), new Vector3(body.BodyRadiusM * 2, body.BodyHeightM, body.BodyRadiusM * 2));
+        list.Add((id, Summary(id, "avatar", name, null, null, body.GlobalPosition, box, Array.Empty<string>(), true, false, "hand_authored", 0)));
+    }
+
+    /// <summary>What Entities reads of the authority's snapshot, copied into C#.</summary>
+    private sealed class EntitySnapshot
+    {
+        public readonly HashSet<string> Locked = new(StringComparer.Ordinal);
+        /// <summary>The play revisions of room entities play changed (the others are 0).</summary>
+        public readonly Dictionary<string, int> Revisions = new(StringComparer.Ordinal);
+        /// <summary>The saved poses of the objects play moved, as PoseOf reads them.</summary>
+        public readonly Dictionary<string, (Vector3 Position, Quaternion Rotation)> Poses = new(StringComparer.Ordinal);
+        public readonly List<(string Id, Vector3 Origin, Aabb Box, string Name, bool AiCreated, int Revision)> Creations = new();
+    }
+
+    /// <summary>
+    /// The authority's snapshot (as the player, who reads everything), copied into C#: locks, play revisions, object poses and the
+    /// creations' places. Every Godot dictionary, array and Variant read here is disposed here, on the main thread (S12).
+    /// </summary>
+    private EntitySnapshot ReadEntitySnapshot()
+    {
+        var view = new EntitySnapshot();
+        using var answer = Authority.Call(KernelNames.Snapshot, KernelNames.PlayerArgument);
+        using var snapshot = answer.AsGodotDictionary();
+        using (var locks = ChildDictionary(snapshot, SnapshotKeys.Locks))
+            if (locks != null)
+                foreach (var (key, value) in locks)
+                {
+                    using (key)
+                    using (value)
+                        view.Locked.Add(key.AsString());
+                }
+        using (var revisions = ChildDictionary(snapshot, SnapshotKeys.EntityRevisions))
+            if (revisions != null)
+                foreach (var (key, value) in revisions)
+                {
+                    using (key)
+                    using (value)
+                        view.Revisions[key.AsString()] = value.AsInt32();
+                }
+        using (var poses = ChildDictionary(snapshot, SnapshotKeys.ObjectPoses))
+            if (poses != null)
+                foreach (var (key, value) in poses)
+                {
+                    using (key)
+                    using (value)
+                    using (var pose = value.AsGodotDictionary())
+                    using (var position = ChildArray(pose, SnapshotKeys.PositionM)!)
+                    using (var rotation = ChildArray(pose, SnapshotKeys.Rotation)!)
+                        view.Poses[key.AsString()] = (new Vector3((float)Number(position, 0), (float)Number(position, 1), (float)Number(position, 2)),
+                            new Quaternion((float)Number(rotation, 0), (float)Number(rotation, 1), (float)Number(rotation, 2), (float)Number(rotation, 3)).Normalized());
+                }
+        using (var instances = ChildDictionary(snapshot, SnapshotKeys.Instances))
+            if (instances != null)
+                foreach (var (key, value) in instances)
+                {
+                    using (key)
+                    using (value)
+                    using (var instance = value.AsGodotDictionary())
+                    using (var position = ChildArray(instance, SnapshotKeys.PositionM)!)
+                    using (var artifact = ChildDictionary(instance, SnapshotKeys.Artifact)!)
+                    using (var bounds = ChildDictionary(artifact, SnapshotKeys.Bounds)!)
+                    using (var min = ChildArray(bounds, SnapshotKeys.Min)!)
+                    using (var max = ChildArray(bounds, SnapshotKeys.Max)!)
+                    using (var source = ChildDictionary(instance, SnapshotKeys.Source)!)
+                    {
+                        var origin = new Vector3((float)Number(position, 0), (float)Number(position, 1), (float)Number(position, 2));
+                        var low = new Vector3((float)Number(min, 0), (float)Number(min, 1), (float)Number(min, 2));
+                        var high = new Vector3((float)Number(max, 0), (float)Number(max, 1), (float)Number(max, 2));
+                        var box = new Transform3D(new Basis(Vector3.Up, Mathf.DegToRad((float)Number(instance, SnapshotKeys.YawDeg))), origin) * new Aabb(low, high - low);
+                        view.Creations.Add((key.AsString(), origin, box, Text(source, SnapshotKeys.Name), Text(instance, SnapshotKeys.OwnerId) == CompanionPrincipal,
+                            Integer(instance, SnapshotKeys.Revision)));
+                    }
+                }
+        return view;
+    }
+
+    /// <summary>The snapshot's keys, as Variants made once.</summary>
+    private static class SnapshotKeys
+    {
+        public static readonly Variant Locks = "locks", EntityRevisions = "entity_revisions", ObjectPoses = "object_poses", Instances = "instances",
+            PositionM = "position_m", Rotation = "rotation", Artifact = "artifact", Bounds = "bounds", Min = "min", Max = "max", YawDeg = "yaw_deg",
+            Source = "source", Name = "name", OwnerId = "owner_id", Revision = "revision", LockedBy = "locked_by";
+    }
+
+    /// <summary>A dictionary under a key, as its own wrapper for the caller to dispose (null when there is none).</summary>
+    private static Godot.Collections.Dictionary? ChildDictionary(Godot.Collections.Dictionary parent, Variant key)
+    {
+        if (!parent.TryGetValue(key, out var value)) return null;
+        using (value) return value.VariantType == Variant.Type.Dictionary ? value.AsGodotDictionary() : null;
+    }
+
+    /// <summary>An array under a key, as its own wrapper for the caller to dispose (null when there is none).</summary>
+    private static Godot.Collections.Array? ChildArray(Godot.Collections.Dictionary parent, Variant key)
+    {
+        if (!parent.TryGetValue(key, out var value)) return null;
+        using (value) return value.VariantType == Variant.Type.Array ? value.AsGodotArray() : null;
+    }
+
+    private static double Number(Godot.Collections.Array array, int index)
+    {
+        using var value = array[index];
+        return value.AsDouble();
+    }
+
+    private static double Number(Godot.Collections.Dictionary parent, Variant key)
+    {
+        using var value = parent[key];
+        return value.AsDouble();
+    }
+
+    private static int Integer(Godot.Collections.Dictionary parent, Variant key)
+    {
+        using var value = parent[key];
+        return value.AsInt32();
+    }
+
+    private static string Text(Godot.Collections.Dictionary parent, Variant key)
+    {
+        using var value = parent[key];
+        return value.AsString();
     }
 
     private static JsonObject Summary(string id, string kind, string name, string? category, string? group, Vector3 position, Aabb bounds,
@@ -1359,13 +1513,27 @@ public partial class CommandHost : Node
         {
             ["id"] = id, ["kind"] = kind, ["display_name"] = KernelJson.DisplayText(name, 80), ["position_m"] = KernelJson.Vector(position),
             ["bounds_m"] = KernelJson.Box(bounds),
-            ["affordances"] = new JsonArray(affordances.Where(Affordances.Contains).Distinct().Select(a => (JsonNode?)JsonValue.Create(a)).ToArray()),
+            ["affordances"] = KnownAffordances(affordances),
             ["movable"] = movable, ["protected"] = locked, ["provenance_kind"] = provenance, ["revision"] = Math.Max(0, revision),
         };
         if (category != null) summary["category"] = KernelJson.DisplayText(category, 60);
         if (group != null) summary["category_group"] = group;
         if (heldBy != null) summary["held_by"] = heldBy;
         return summary;
+    }
+
+    /// <summary>The contract's affordances among these, each once, in the order given.</summary>
+    private static JsonArray KnownAffordances(IEnumerable<string> affordances)
+    {
+        var known = new JsonArray();
+        List<string>? seen = null;
+        foreach (var affordance in affordances)
+        {
+            if (!Affordances.Contains(affordance) || (seen?.Contains(affordance) ?? false)) continue;
+            (seen ??= new List<string>(4)).Add(affordance);
+            known.Add(JsonValue.Create(affordance));
+        }
+        return known;
     }
 
     // ---- perception (docs/companion/PERCEPTION.md) ----
@@ -1424,38 +1592,61 @@ public partial class CommandHost : Node
     /// Whether a ray from the body's eye reaches one of the box's 15 samples, or hits inside the box first: an
     /// entity there is in sight, and an empty place there is seen to be empty.
     /// </summary>
-    private static bool SeesBox(SmallPlayerController body, Aabb bounds)
+    private bool SeesBox(SmallPlayerController body, Aabb bounds) => SeesBoxFrom(body, body.EyeCamera.GlobalPosition, body.GetRid(), bounds);
+
+    /// <summary>SeesBox from a given eye, leaving out a given body (the sweep's eyes, as they were when it began).</summary>
+    private bool SeesBoxFrom(SmallPlayerController body, Vector3 eye, Rid exclude, Aabb bounds)
     {
-        var eye = body.EyeCamera.GlobalPosition;
-        var space = body.GetWorld3D().DirectSpaceState;
-        var exclude = new Godot.Collections.Array<Rid> { body.GetRid() };
         var box = bounds.Grow(0.002f);
-        foreach (var sample in Samples(bounds.Position, bounds.End))
-        {
-            var ray = PhysicsRayQueryParameters3D.Create(eye, sample, RoomBuilder.WorldLayer, exclude);
-            var hit = space.IntersectRay(ray);
-            if (hit.Count == 0 || box.HasPoint(hit["position"].AsVector3())) return true;
-        }
+        var (centre, reach) = SampleFrame(bounds.Position, bounds.End);
+        foreach (var offset in SampleOffsets)
+            if (!CastSight(body, eye, centre + reach * offset, exclude, out var hit) || box.HasPoint(hit)) return true;
         return false;
     }
 
-    private static IEnumerable<Vector3> Samples(Vector3 low, Vector3 high)
+    /// <summary>
+    /// The 15 samples of a box, as offsets from its centre in units of SampleFrame's reach: the centre, the eight corners, then
+    /// the six face centres (right, left, up, down, back, forward).
+    /// </summary>
+    private static readonly Vector3[] SampleOffsets =
+    {
+        Vector3.Zero,
+        new(-1, -1, -1), new(-1, -1, 1), new(-1, 1, -1), new(-1, 1, 1), new(1, -1, -1), new(1, -1, 1), new(1, 1, -1), new(1, 1, 1),
+        Vector3.Right, -Vector3.Right, Vector3.Up, -Vector3.Up, Vector3.Back, -Vector3.Back,
+    };
+
+    /// <summary>A box's centre, and how far its samples reach from it: each half-size pulled 1 cm, or a quarter of the size, inside.</summary>
+    private static (Vector3 Centre, Vector3 Reach) SampleFrame(Vector3 low, Vector3 high)
     {
         var centre = (low + high) * 0.5f;
         var size = high - low;
         var reach = new Vector3(Mathf.Max(0, size.X * 0.5f - Mathf.Min(0.01f, size.X * 0.25f)),
             Mathf.Max(0, size.Y * 0.5f - Mathf.Min(0.01f, size.Y * 0.25f)), Mathf.Max(0, size.Z * 0.5f - Mathf.Min(0.01f, size.Z * 0.25f)));
-        yield return centre;
-        foreach (var x in new[] { -1f, 1f })
-        foreach (var y in new[] { -1f, 1f })
-        foreach (var z in new[] { -1f, 1f })
-            yield return centre + reach * new Vector3(x, y, z);
-        foreach (var axis in new[] { Vector3.Right, Vector3.Up, Vector3.Back })
-        {
-            yield return centre + reach * axis;
-            yield return centre - reach * axis;
-        }
+        return (centre, reach);
     }
+
+    /// <summary>The host's sight ray (SightRay), made when the host enters the tree.</summary>
+    private SightRay? _sightRay;
+
+    /// <summary>
+    /// A world-layer ray from an avatar's eye, leaving its own body out: the first surface hit, or false for none. Cast with the
+    /// host's SightRay (no garbage); a host that is not in the tree asks the body's space directly, disposing what that makes.
+    /// </summary>
+    private bool CastSight(SmallPlayerController body, Vector3 from, Vector3 to, Rid exclude, out Vector3 hit)
+    {
+        if (_sightRay is { Ready: true } ray) return ray.Cast(from, to, exclude, out hit);
+        hit = default;
+        var excluded = new Godot.Collections.Array<Rid> { exclude };
+        using var excludedArray = (Godot.Collections.Array)excluded;
+        using var query = PhysicsRayQueryParameters3D.Create(from, to, RoomBuilder.WorldLayer, excluded);
+        using var answer = body.GetWorld3D().DirectSpaceState.IntersectRay(query);
+        if (answer.Count == 0) return false;
+        hit = answer[HitPosition].AsVector3();
+        return true;
+    }
+
+    /// <summary>The key of a ray answer's hit point (a Variant kept, never made for each ray).</summary>
+    private static readonly Variant HitPosition = "position";
 
     /// <summary>
     /// A companion command may name only what the companion can see now (the player's avatar included, P3): anything
@@ -1485,7 +1676,12 @@ public partial class CommandHost : Node
         public int SeenRevision { get; init; }
         /// <summary>It changed in some way since (sticky until seen again); emitted only as may_be_stale.</summary>
         public bool Changed { get; set; }
+        /// <summary>The summary's canonical text without its place (SameAsSeen's), made when first compared. A summary never changes once kept.</summary>
+        public string? UnplacedText { get; set; }
     }
+
+    /// <summary>The fields of a summary that say where it is, which SameAsSeen compares within 5 mm instead.</summary>
+    private static readonly string[] PlaceFields = { "position_m", "bounds_m", "seen" };
 
     /// <summary>What one companion has seen in this room, least recently seen first.</summary>
     private sealed class PerceptionMemory
@@ -1559,16 +1755,38 @@ public partial class CommandHost : Node
         }
         var byId = entities.ToDictionary(e => e["id"]!.GetValue<string>(), StringComparer.Ordinal);
         var owners = LockOwners();
+        var eye = body.EyeCamera.GlobalPosition;
+        var exclude = body.GetRid();
         foreach (var id in memory.Order.ToList())
         {
             // A sweep looks at some things each time: what it did not look at is neither changed nor gone as far as it knows.
             if (sight.Contains(id) || (considered != null && !considered.Contains(id))) continue;
-            var entry = memory.Entries[id];
-            if (!entry.Changed && (!byId.TryGetValue(id, out var now) || !SameAsSeen(entry, now, owners.GetValueOrDefault(id, ""))))
-                entry.Changed = true;
-            if (SeesBox(body, BoundsOf(entry.Summary))) memory.Remove(id);
+            CheckRemembered(memory, id, byId, owners, body, eye, exclude, null);
         }
-        var eye = body.EyeCamera.GlobalPosition;
+        AddFresh(memory, entities, sight, ownAvatar, eye, owners, Revision, copy: true);
+        EvictPastTheBound(memory, sight);
+    }
+
+    /// <summary>
+    /// Remember's first half, for one remembered thing out of sight: marked changed if it is not as it was seen (sticky), and
+    /// dropped when the eye sees its place and it is not there.
+    /// </summary>
+    private void CheckRemembered(PerceptionMemory memory, string id, Dictionary<string, JsonObject> byId, Dictionary<string, string> owners,
+        SmallPlayerController body, Vector3 eye, Rid exclude, Dictionary<JsonObject, string>? unplacedTexts)
+    {
+        if (!memory.Entries.TryGetValue(id, out var entry)) return;
+        if (!entry.Changed && (!byId.TryGetValue(id, out var now) || !SameAsSeen(entry, now, owners.GetValueOrDefault(id, ""), unplacedTexts)))
+            entry.Changed = true;
+        if (SeesBoxFrom(body, eye, exclude, BoundsOf(entry.Summary))) memory.Remove(id);
+    }
+
+    /// <summary>
+    /// Remember's second half: what the eye sees now is remembered afresh, nearest last. The summaries are copied unless they are
+    /// the caller's own and never handed out (the sweep's).
+    /// </summary>
+    private void AddFresh(PerceptionMemory memory, List<JsonObject> entities, HashSet<string> sight, string ownAvatar, Vector3 eye,
+        Dictionary<string, string> owners, int revision, bool copy)
+    {
         var fresh = entities
             .Where(e => sight.Contains(e["id"]!.GetValue<string>()) && e["id"]!.GetValue<string>() != ownAvatar && e["id"]!.GetValue<string>() != CompanionAvatarId && RememberedKinds.Contains(e["kind"]!.GetValue<string>()))
             .OrderByDescending(e => Distance(e, eye)).ThenBy(e => e["id"]!.GetValue<string>(), StringComparer.Ordinal);
@@ -1577,10 +1795,9 @@ public partial class CommandHost : Node
             var id = entity["id"]!.GetValue<string>();
             memory.Add(id, new Remembered
             {
-                Summary = (JsonObject)entity.DeepClone(), ProtectedBy = owners.GetValueOrDefault(id, ""), SeenAt = Clock(), SeenRevision = Revision,
+                Summary = copy ? (JsonObject)entity.DeepClone() : entity, ProtectedBy = owners.GetValueOrDefault(id, ""), SeenAt = Clock(), SeenRevision = revision,
             });
         }
-        EvictPastTheBound(memory, sight);
     }
 
     /// <summary>
@@ -1617,18 +1834,19 @@ public partial class CommandHost : Node
     /// Whether an entity is as the companion saw it: every field the same, and its place within 5 mm (a body at rest on
     /// the floor settles by a fraction of a millimetre, which is no change).
     /// </summary>
-    private static bool SameAsSeen(Remembered entry, JsonObject now, string protectedBy)
+    private static bool SameAsSeen(Remembered entry, JsonObject now, string protectedBy, Dictionary<JsonObject, string>? unplacedTexts = null)
     {
         if (entry.ProtectedBy != protectedBy) return false;
-        static JsonObject Unplaced(JsonObject summary)
+        // Every field but the place compared as canonical text: the remembered side's made once and kept, the side seen now made
+        // once a sweep (S12; it was two deep copies and two texts for every comparison).
+        entry.UnplacedText ??= CanonicalJson.TextWithout(entry.Summary, PlaceFields);
+        string? nowText = null;
+        if (unplacedTexts == null || !unplacedTexts.TryGetValue(now, out nowText))
         {
-            var copy = (JsonObject)summary.DeepClone();
-            copy.Remove("position_m");
-            copy.Remove("bounds_m");
-            copy.Remove("seen");
-            return copy;
+            nowText = CanonicalJson.TextWithout(now, PlaceFields);
+            unplacedTexts?.Add(now, nowText);
         }
-        if (CanonicalJson.Text(Unplaced(entry.Summary)) != CanonicalJson.Text(Unplaced(now))) return false;
+        if (entry.UnplacedText != nowText) return false;
         var was = BoundsOf(entry.Summary);
         var box = BoundsOf(now);
         return ReadNodeVector(entry.Summary["position_m"]!).DistanceTo(ReadNodeVector(now["position_m"]!)) <= 0.005f &&
@@ -1685,10 +1903,18 @@ public partial class CommandHost : Node
     private Dictionary<string, string> LockOwners()
     {
         var owners = new Dictionary<string, string>(StringComparer.Ordinal);
-        var snapshot = Authority.Call("snapshot", PlayerPrincipal).AsGodotDictionary();
-        if (snapshot.ContainsKey("locks"))
-            foreach (var (key, value) in snapshot["locks"].AsGodotDictionary())
-                owners[key.AsString()] = value.AsGodotDictionary()["locked_by"].AsString();
+        // Every Godot value read here is freed here (S12): the sweep asks four times a second.
+        using var answer = Authority.Call(KernelNames.Snapshot, KernelNames.PlayerArgument);
+        using var snapshot = answer.AsGodotDictionary();
+        using var locks = ChildDictionary(snapshot, SnapshotKeys.Locks);
+        if (locks != null)
+            foreach (var (key, value) in locks)
+            {
+                using (key)
+                using (value)
+                using (var lockRecord = value.AsGodotDictionary())
+                    owners[key.AsString()] = Text(lockRecord, SnapshotKeys.LockedBy);
+            }
         return owners;
     }
 
@@ -1919,12 +2145,12 @@ public partial class CommandHost : Node
     {
         if (id == PlayerAvatar) return Player != null ? 0 : -1;
         if (id == CompanionAvatarId) return Companion != null ? 0 : -1;
-        return Authority.Call("entity_revision", id).AsInt32();
+        return Authority.Call(KernelNames.EntityRevision, id).AsInt32();
     }
 
     private Godot.Collections.Dictionary? Instance(string id)
     {
-        var snapshot = Authority.Call("snapshot", PlayerPrincipal).AsGodotDictionary();
+        var snapshot = Authority.Call(KernelNames.Snapshot, KernelNames.PlayerArgument).AsGodotDictionary();
         if (!snapshot.ContainsKey("instances")) return null;
         var instances = snapshot["instances"].AsGodotDictionary();
         return instances.TryGetValue(id, out var item) ? item.AsGodotDictionary() : null;

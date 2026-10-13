@@ -117,6 +117,13 @@ public partial class IslandFrameProbe : Node
                 GD.Print("ISLAND_PROBE island cameras: " + string.Join("; ", cameras.Select(c => $"{c.Id} at {c.PlayerM} facing {c.YawDeg:0}")) + (notes.Count > 0 ? "; notes: " + string.Join("; ", notes) : ""));
             }
             if (OS.GetCmdlineUserArgs().Contains("--bands-only")) { GetTree().Quit(0); return; }
+            if (OS.GetCmdlineUserArgs().Contains("--parts"))
+            {
+                await MeasureParts();
+                GD.Print("ISLAND_PROBE_DONE");
+                GetTree().Quit(0);
+                return;
+            }
             using var listener = new GcListener();
             listener.Recording = true;
             var all = await Measure(frames);

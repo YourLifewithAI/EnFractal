@@ -9,19 +9,36 @@ namespace EnFractal.Native.Kernel;
 /// <summary>Exact conversions between contract JSON and Godot Variants for the GDScript kernel.</summary>
 public static class KernelJson
 {
-    /// <summary>JSON to Variant; every number becomes a double, as in Godot's own parser, but exactly.</summary>
+    /// <summary>
+    /// JSON to Variant; every number becomes a double, as in Godot's own parser, but exactly. The Godot values made on the way
+    /// (each key, each nested dictionary and array) are freed at once, not left to the .NET finalizer (S12); the caller owns, and
+    /// may dispose, the Variant returned.
+    /// </summary>
     public static Variant ToVariant(JsonElement element)
     {
         switch (element.ValueKind)
         {
             case JsonValueKind.Object:
-                var map = new Godot.Collections.Dictionary();
-                foreach (var property in element.EnumerateObject()) map[property.Name] = ToVariant(property.Value);
-                return map;
+            {
+                using var map = new Godot.Collections.Dictionary();
+                foreach (var property in element.EnumerateObject())
+                {
+                    using var key = Variant.CreateFrom(property.Name);
+                    using var item = ToVariant(property.Value);
+                    map[key] = item;
+                }
+                return Variant.CreateFrom(map);
+            }
             case JsonValueKind.Array:
-                var list = new Godot.Collections.Array();
-                foreach (var item in element.EnumerateArray()) list.Add(ToVariant(item));
-                return list;
+            {
+                using var list = new Godot.Collections.Array();
+                foreach (var entry in element.EnumerateArray())
+                {
+                    using var item = ToVariant(entry);
+                    list.Add(item);
+                }
+                return Variant.CreateFrom(list);
+            }
             case JsonValueKind.String: return element.GetString()!;
             case JsonValueKind.Number: return CanonicalJson.ReadNumber(element);
             case JsonValueKind.True: return true;
@@ -37,7 +54,10 @@ public static class KernelJson
         return ToVariant(document.RootElement);
     }
 
-    /// <summary>Variant to JSON. Only JSON-shaped Variants are accepted.</summary>
+    /// <summary>
+    /// Variant to JSON. Only JSON-shaped Variants are accepted. Every Godot value read on the way (each array, dictionary, key and
+    /// item) is freed at once, not left to the .NET finalizer (S12); the Variant given stays the caller's.
+    /// </summary>
     public static JsonNode? ToJson(Variant value)
     {
         switch (value.VariantType)
@@ -52,19 +72,30 @@ public static class KernelJson
             case Variant.Type.String:
             case Variant.Type.StringName: return JsonValue.Create(value.AsString());
             case Variant.Type.Array:
+            {
                 var list = new JsonArray();
-                foreach (var item in value.AsGodotArray()) list.Add(ToJson(item));
+                using var array = value.AsGodotArray();
+                foreach (var item in array)
+                    using (item) list.Add(ToJson(item));
                 return list;
+            }
             case Variant.Type.PackedStringArray:
                 return new JsonArray(value.AsStringArray().Select(s => (JsonNode?)JsonValue.Create(s)).ToArray());
             case Variant.Type.Dictionary:
+            {
                 var map = new JsonObject();
-                foreach (var (key, item) in value.AsGodotDictionary())
+                using var dictionary = value.AsGodotDictionary();
+                foreach (var (key, item) in dictionary)
                 {
-                    if (key.VariantType != Variant.Type.String) throw new CanonicalJsonException("object keys must be strings");
-                    map[key.AsString()] = ToJson(item);
+                    using (key)
+                    using (item)
+                    {
+                        if (key.VariantType != Variant.Type.String) throw new CanonicalJsonException("object keys must be strings");
+                        map[key.AsString()] = ToJson(item);
+                    }
                 }
                 return map;
+            }
             default: throw new CanonicalJsonException($"{value.VariantType} is not a JSON value");
         }
     }
@@ -72,7 +103,16 @@ public static class KernelJson
     public static JsonArray Vector(Vector3 value) => new(Num(value.X), Num(value.Y), Num(value.Z));
 
     /// <summary>A float32 coordinate written with the digits it was given, not float32 noise (0.6f is 0.6, not 0.6000000238).</summary>
-    public static JsonNode Num(float value) => JsonValue.Create(double.Parse(value.ToString("R", System.Globalization.CultureInfo.InvariantCulture), System.Globalization.CultureInfo.InvariantCulture));
+    public static JsonNode Num(float value) => JsonValue.Create(Digits(value));
+
+    /// <summary>The double a float32 reads as when written with its own shortest digits ("R"), formatted without a string (S12: nine a summary).</summary>
+    public static double Digits(float value)
+    {
+        Span<char> text = stackalloc char[32];
+        if (!value.TryFormat(text, out var written, "R", System.Globalization.CultureInfo.InvariantCulture))
+            return double.Parse(value.ToString("R", System.Globalization.CultureInfo.InvariantCulture), System.Globalization.CultureInfo.InvariantCulture);
+        return double.Parse(text[..written], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture);
+    }
 
     public static JsonObject Box(Aabb box) => new() { ["min_m"] = Vector(box.Position), ["max_m"] = Vector(box.End) };
 

@@ -373,47 +373,6 @@ public partial class CommandHost
     /// <summary>The team's map (one team in single player): the store the companion's perception memory became.</summary>
     private PerceptionMemory TeamMemory() => MemoryOf(CompanionPrincipal);
 
-    /// <summary>
-    /// The host's sight sweep: what each avatar's eyes see goes into the team's map, entities and space. Each sweep is
-    /// bounded: at most SweepEntitiesPerAvatar things are looked at per avatar, in turn, and at most DiscoverRaysPerSweep
-    /// cells, nearest first among those not tried lately.
-    /// </summary>
-    private void SightSweep(double delta)
-    {
-        if (TeamSightIntervalS <= 0 || Authority == null || !Authority.Call("is_ready").AsBool()) return;
-        _sightClock += delta;
-        _saveClock += delta;
-        if (_sightClock >= TeamSightIntervalS)
-        {
-            _sightClock = 0;
-            _sweepCount++;
-            var entities = Entities();
-            RefreshLevels(entities);
-            var things = entities.Where(e => e["kind"]!.GetValue<string>() is "object" or "creation").ToList();
-            var turn = things.Count <= SweepEntitiesPerAvatar ? things
-                : Enumerable.Range(0, SweepEntitiesPerAvatar).Select(i => things[(_sweepEntityCursor + i) % things.Count]).ToList();
-            _sweepEntityCursor = things.Count == 0 ? 0 : (_sweepEntityCursor + SweepEntitiesPerAvatar) % things.Count;
-            var looked = entities.Where(e => e["kind"]!.GetValue<string>() is "avatar" or "shell").Concat(turn).ToList();
-            var considered = new HashSet<string>(looked.Select(e => e["id"]!.GetValue<string>()), StringComparer.Ordinal);
-            // What the map remembers that is no longer in the room is looked for too (its place, seen empty, drops it), in turn.
-            var live = new HashSet<string>(entities.Select(e => e["id"]!.GetValue<string>()), StringComparer.Ordinal);
-            var gone = TeamMemory().Order.Where(id => !live.Contains(id)).ToList();
-            if (gone.Count > 0)
-            {
-                foreach (var id in Enumerable.Range(0, Math.Min(SweepEntitiesPerAvatar, gone.Count)).Select(i => gone[(_sweepGoneCursor + i) % gone.Count])) considered.Add(id);
-                _sweepGoneCursor = (_sweepGoneCursor + SweepEntitiesPerAvatar) % gone.Count;
-            }
-            foreach (var (body, avatar) in new (SmallPlayerController?, string)[] { (Player, PlayerAvatar), (Companion, CompanionAvatarId) })
-            {
-                if (body == null || !IsInstanceValid(body) || !body.IsInsideTree()) continue;
-                Remember(body, avatar, entities, Perceive(body, avatar, looked), considered);
-                Discover(body);
-            }
-            _teamDirty = true;
-        }
-        if (_teamDirty && _saveClock >= TeamSaveIntervalS) SaveTeam();
-    }
-
     private int LevelBytes() => _levels.Values.Sum(l => l.Cells.Length);
 
     /// <summary>
@@ -459,11 +418,12 @@ public partial class CommandHost
     /// tried lately; a cell a ray did not reach waits DiscoverRetrySweeps sweeps, so cells never in sight (under a tabletop)
     /// do not starve the rest (review major 4). At most DiscoverCandidatesPerSweep cells are looked at, the levels in turn.
     /// </summary>
-    private void Discover(SmallPlayerController body)
+    private void SelectDiscoverCandidates(Vector3 eye, List<DiscoverCandidate> candidates)
     {
-        var eye = body.EyeCamera.GlobalPosition;
-        var candidates = new List<(int Tried, int Last, float Distance, Level Level, int C, int R, Vector3 Point)>();
-        var levels = _levels.Values.ToList();
+        candidates.Clear();
+        var levels = _discoverLevels;
+        levels.Clear();
+        levels.AddRange(_levels.Values);
         var examined = 0;
         for (var n = 0; n < levels.Count && examined < DiscoverCandidatesPerSweep; n++)
         {
@@ -480,24 +440,37 @@ public partial class CommandHost
                 if (level.Get(c, r) || (tried && _sweepCount - last < DiscoverRetrySweeps)) continue;
                 var point = new Vector3((float)(level.MinX + (c + 0.5) * DiscoverCellM), (float)level.Height + 0.005f, (float)(level.MinZ + (r + 0.5) * DiscoverCellM));
                 var distance = new Vector2(point.X - eye.X, point.Z - eye.Z).Length();
-                if (distance <= DiscoverRadiusM) candidates.Add((tried ? 1 : 0, tried ? last : 0, distance, level, c, r, point));
+                if (distance <= DiscoverRadiusM) candidates.Add(new DiscoverCandidate(tried ? 1 : 0, tried ? last : 0, distance, candidates.Count, level, c, r, point));
             }
         }
-        var space = body.GetWorld3D().DirectSpaceState;
-        var exclude = new Godot.Collections.Array<Rid> { body.GetRid() };
+        levels.Clear();
         // Never-tried cells first, nearest first; then retries, the longest-waiting first. Cells that are never in sight can
-        // never take every ray from cells not yet looked at (review major 7, second review).
-        foreach (var (_, _, _, level, c, r, point) in candidates.OrderBy(x => x.Tried).ThenBy(x => x.Last).ThenBy(x => x.Distance).Take(DiscoverRaysPerSweep))
-        {
-            var hit = space.IntersectRay(PhysicsRayQueryParameters3D.Create(eye, point, RoomBuilder.WorldLayer, exclude));
-            if (hit.Count == 0 || hit["position"].AsVector3().DistanceTo(point) <= 0.015f)
-            {
-                level.Set(c, r);
-                _cellCooldown.Remove((level.Support, r * level.Columns + c));
-            }
-            else _cellCooldown[(level.Support, r * level.Columns + c)] = _sweepCount;
-        }
+        // never take every ray from cells not yet looked at (review major 7, second review). (Ties keep the order the cells were
+        // examined in, as a stable sort would.) The sweep casts at most DiscoverRaysPerSweep of them (DiscoverCell), in this order.
+        candidates.Sort(DiscoverCandidate.Order);
     }
+
+    /// <summary>One candidate cell looked at from the eye: discovered when a ray reaches it, else it waits DiscoverRetrySweeps sweeps.</summary>
+    private void DiscoverCell(SmallPlayerController body, Vector3 eye, Rid exclude, DiscoverCandidate cell)
+    {
+        var (level, c, r, point) = (cell.Level, cell.C, cell.R, cell.Point);
+        if (!CastSight(body, eye, point, exclude, out var hit) || hit.DistanceTo(point) <= 0.015f)
+        {
+            level.Set(c, r);
+            _cellCooldown.Remove((level.Support, r * level.Columns + c));
+        }
+        else _cellCooldown[(level.Support, r * level.Columns + c)] = _sweepCount;
+    }
+
+    /// <summary>A cell Discover may look at, and the order it is looked at in (tried, last tried, distance, then as examined).</summary>
+    private readonly record struct DiscoverCandidate(int Tried, int Last, float Distance, int Examined, Level Level, int C, int R, Vector3 Point)
+    {
+        public static readonly Comparison<DiscoverCandidate> Order = (a, b) =>
+            a.Tried != b.Tried ? a.Tried.CompareTo(b.Tried) : a.Last != b.Last ? a.Last.CompareTo(b.Last)
+            : a.Distance != b.Distance ? a.Distance.CompareTo(b.Distance) : a.Examined.CompareTo(b.Examined);
+    }
+
+    private readonly List<Level> _discoverLevels = new();
 
     /// <summary>Test seam: forget all discovered space (the levels stay, blank) and every cell's tries.</summary>
     internal void ForgetDiscoveredSpace()
@@ -520,11 +493,28 @@ public partial class CommandHost
 
     // ---- saving the team block (journal + discovered + the open tasks' goals) ----
 
+    /// <summary>
+    /// The sweep's throttled save: the team block, with nature in the same write when nature has changed and waits for its own
+    /// throttle (S12: each write is the whole save, about 8 ms of the main thread on the 10x island; two a few seconds apart were two
+    /// hitches). Nature is only ever saved sooner this way, never later.
+    /// </summary>
+    private void SaveTeamOrBoth()
+    {
+        if (!NatureConfigured || _natureUnavailable || !_natureDirty)
+        {
+            SaveTeam();
+            return;
+        }
+        // The team's throttle starts again whatever happens, as SaveTeam's does (a save offer pending writes nothing).
+        _saveClock = 0;
+        SaveNature();
+    }
+
     /// <summary>Save the journal and the map now (a fact, a task or the sweep's throttle). Never while the save is unavailable.</summary>
     private void SaveTeam()
     {
         _saveClock = 0;
-        if (Authority == null || !Authority.Call("is_ready").AsBool()) return;
+        if (Authority == null || !Authority.Call(KernelNames.IsReady).AsBool()) return;
         // While an earlier save is offered and the player has not answered, sightings and tasks wait in memory: writing them
         // would make a save of this room and withdraw the offer (review major 6, second review).
         if (_migrationOffer != null && !Godot.FileAccess.FileExists(SavePath))
@@ -532,7 +522,7 @@ public partial class CommandHost
             _teamDirty = true;
             return;
         }
-        var saved = Authority.Call("set_team", KernelJson.ToVariant(ExportTeam(_notes))).AsGodotDictionary();
+        var saved = Authority.Call(KernelNames.SetTeam, KernelJson.ToVariant(ExportTeam(_notes))).AsGodotDictionary();
         _teamDirty = !saved["ok"].AsBool();
     }
 
@@ -782,6 +772,8 @@ public partial class CommandHost
 
     private void LoadTeamUnchecked(JsonObject? team, bool closeOpenTasks)
     {
+        // A sweep under way read the map and the levels as they were: the next one starts from what is loaded.
+        _sweep = null;
         _openTasks = new(); _history = new(); _notes = new(); _taskGoals = new(StringComparer.Ordinal);
         _taskTargets.Clear();
         _cellCooldown.Clear();

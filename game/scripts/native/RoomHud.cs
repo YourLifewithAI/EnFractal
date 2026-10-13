@@ -58,8 +58,8 @@ public partial class RoomHud : CanvasLayer
     /// <summary>The movement keys, with B home from anywhere (the founder, 9 October: to the jetty, or the beach, or the start).</summary>
     private string MoveKeys => $"{PlayerControls.MoveLabel()} move · {K(Act.MoveSprint)} run · {K(Act.Jump)} jump · {K(Act.BodyHome)} back to {Player.HomeName} · {K(Act.BodyRecover)} recover · {PlayerControls.DragLabel()} to look around";
     /// <summary>What an action's key is now, for the words on screen: they follow the input map, so a remapped key shows at once.</summary>
-    private static string K(StringName action) => PlayerControls.Label(action);
-    /// <summary>Every label and button that names a key, with the words it shows now. Rebuilt every frame (RefreshKeyText); a label whose words did not change is not touched.</summary>
+    private static string K(StringName action) => PlayerControls.KeyLabel(action);
+    /// <summary>Every label and button that names a key, with the words it shows now. Rebuilt when what they are made from changes (RefreshKeyTextIfChanged, every frame).</summary>
     private readonly List<(System.Action<string> Set, System.Func<string> Words)> _keyTexts = new();
     private Label _notice = null!;
     private PanelContainer _footer = null!;
@@ -163,6 +163,10 @@ public partial class RoomHud : CanvasLayer
         var date = new System.DateTime(2026, 1, 1).AddDays(moment.DayOfYear - 1).ToString("d MMM", CultureInfo.InvariantCulture);
         return $"{hour}  ·  {moment.Season}, {date}, " + (SeasonStop >= 0 ? SeasonStops[SeasonStop].Name : "real date") + $" ({K(Act.SeasonStep)})";
     }
+
+    private (float, string, int, string, string, bool, bool, string?, bool)? _stateAsOf;
+    private string? _noticeShown;
+    private (int, int, string?, int, int, int)? _clockAsOf;
 
     private Node3D _dioramaPivot = null!;
     private SpringArm3D _dioramaArm = null!;
@@ -279,7 +283,7 @@ public partial class RoomHud : CanvasLayer
         RefreshKeyText();
     }
 
-    /// <summary>A help line: its words are rebuilt from the input map every frame.</summary>
+    /// <summary>A help line: its words are rebuilt from the input map whenever a key changes.</summary>
     private void AddKeyLine(Node parent, System.Func<string> words, string name = "")
     {
         var label = new Label();
@@ -288,7 +292,7 @@ public partial class RoomHud : CanvasLayer
         _keyTexts.Add((text => label.Text = text, words));
     }
 
-    /// <summary>A button that names its key: its words are rebuilt from the input map every frame.</summary>
+    /// <summary>A button that names its key: its words are rebuilt from the input map whenever a key changes.</summary>
     private void AddKeyButton(Node parent, System.Func<string> words, System.Action action, int minimumHeight = 38)
     {
         var button = new Button { CustomMinimumSize = new Vector2(0, minimumHeight), FocusMode = Control.FocusModeEnum.All };
@@ -300,7 +304,23 @@ public partial class RoomHud : CanvasLayer
     private void RefreshKeyText()
     {
         foreach (var (set, words) in _keyTexts) set(words());
+        _keyTextsAsOf = KeyTextInputs();
     }
+
+    /// <summary>
+    /// Every frame: the key texts again only when something they are made from changed (S12: some twenty strings rebuilt and handed
+    /// to the engine sixty times a second). They are made from the keys' names (PlayerControls.MapVersion), whether the help is open,
+    /// the Gubble's name, the way home and the island's abilities.
+    /// </summary>
+    private void RefreshKeyTextIfChanged()
+    {
+        if (KeyTextInputs() != _keyTextsAsOf) RefreshKeyText();
+    }
+
+    private (int Map, bool Help, string Name, string Home, object? Rules) KeyTextInputs() =>
+        (PlayerControls.MapVersion, _keyHelp.Visible, Companion.CompanionName, Player.HomeName, Host?.Rules);
+
+    private (int Map, bool Help, string Name, string Home, object? Rules)? _keyTextsAsOf;
 
     private static void AddButton(Node parent, string text, System.Action action, int minimumHeight = 38)
     {
@@ -426,6 +446,8 @@ public partial class RoomHud : CanvasLayer
 
     public override void _Process(double delta)
     {
+        // One control's key read from the map again, in turn: a binding changed by anything still shows (PlayerControls.KeyLabel).
+        PlayerControls.Recheck();
         // A drag whose release the HUD never saw (let go outside the window, a lost focus) ends: the cursor comes back.
         if (_drag.Pressed && !(DragHeldForTests?.Invoke() ?? PlayerControls.Held(Act.LookDrag))) EndDrag();
         // While the wheel has the game paused, only the wheel's clock runs.
@@ -436,20 +458,36 @@ public partial class RoomHud : CanvasLayer
         if (ViewMode >= 2) PlaceDioramaRig(snap: false, (float)delta);
         _arm.Rotation = new Vector3(Mathf.Clamp(Player.EyeCamera.Rotation.X - 0.18f, -1.1f, 0.8f), 0, 0);
         _arm.SpringLength = ArmLengthOverBed(_arm.GlobalPosition, _arm.GlobalBasis.Z, _armLength, Player.Water.Wet ? Player.Water.BedY : float.NegativeInfinity, ArmBedClearanceM);
-        var holding = Host?.HeldName(Kernel.CommandHost.PlayerAvatar) ?? "";
-        _state.Text = $"{Player.BodyHeightM * 100:0} cm player  ·  gravity {Player.WorldPhysicsId} ({K(Act.PhysicsNext)})  ·  {Companion.CompanionName}: {Companion.CurrentIntent}" +
-            (Companion.FloatingThere ? " · floating there" : "") + (Companion.GoalBlocked ? " · path blocked" : "") +
-            (holding.Length > 0 ? $"  ·  holding {holding} ({K(Act.Hands)})" : "") + (Look?.Observe == true ? $"  ·  observe view ({K(Act.ViewObserve)})" : "");
-        _notice.Text = _noticeText;
+        // The state line and the notice are written only when what they say changed (S12: no new string every frame).
+        var held = Host?.HeldBy(Kernel.CommandHost.PlayerAvatar);
+        var state = (Player.BodyHeightM, Player.WorldPhysicsId, PlayerControls.MapVersion, Companion.CompanionName, Companion.CurrentIntent,
+            Companion.FloatingThere, Companion.GoalBlocked, held, Look?.Observe == true);
+        if (state != _stateAsOf)
+        {
+            _stateAsOf = state;
+            var holding = Host?.HeldName(Kernel.CommandHost.PlayerAvatar) ?? "";
+            _state.Text = $"{Player.BodyHeightM * 100:0} cm player  ·  gravity {Player.WorldPhysicsId} ({K(Act.PhysicsNext)})  ·  {Companion.CompanionName}: {Companion.CurrentIntent}" +
+                (Companion.FloatingThere ? " · floating there" : "") + (Companion.GoalBlocked ? " · path blocked" : "") +
+                (holding.Length > 0 ? $"  ·  holding {holding} ({K(Act.Hands)})" : "") + (Look?.Observe == true ? $"  ·  observe view ({K(Act.ViewObserve)})" : "");
+        }
+        if (!ReferenceEquals(_noticeShown, _noticeText)) _notice.Text = _noticeShown = _noticeText;
         UpdateFocus(delta);
         UpdateAskTag(delta);
         UpdateChains();
         UpdateDusk(delta);
         _washVeil.Color = new Color(_washVeil.Color, Player.HomeFade);
-        RefreshKeyText();
-        var clock = ClockText();
-        _clock.Visible = clock.Length > 0;
-        _clock.Text = clock;
+        RefreshKeyTextIfChanged();
+        // The clock line likewise: written again when its minute, its steps, its day or a key changed.
+        var moment = Look?.Moment;
+        var clockInputs = (moment == null ? -1 : Mathf.PosMod(Mathf.RoundToInt(moment.Hour * 60f), 24 * 60), moment?.DayOfYear ?? -1, moment?.Season,
+            TimeStop, SeasonStop, PlayerControls.MapVersion);
+        if (clockInputs != _clockAsOf)
+        {
+            _clockAsOf = clockInputs;
+            var clock = ClockText();
+            _clock.Visible = clock.Length > 0;
+            _clock.Text = clock;
+        }
         // With the date pinned and the hour left on the real clock, the pin follows real time as the look itself would.
         if (Look != null && TimeStop < 0 && SeasonStop >= 0 && (_clockTimer += delta) > LookDirector.ClockUpdateSeconds) ApplyClock();
     }
@@ -684,8 +722,20 @@ public partial class RoomHud : CanvasLayer
         return null;
     }
 
-    /// <summary>The room's command host (null in fixtures without one).</summary>
-    private Kernel.CommandHost? Host => GetParent() is { } parent ? Kernel.CommandHost.Of(parent) : null;
+    /// <summary>
+    /// The room's command host (null in fixtures without one), asked for many times a frame: kept while it is still the host under
+    /// the HUD's parent, and found again (by a cached path, no garbage) when it is not.
+    /// </summary>
+    private Kernel.CommandHost? Host
+    {
+        get
+        {
+            var parent = GetParent();
+            if (_host != null && IsInstanceValid(_host) && parent != null && _host.GetParent() == parent) return _host;
+            return _host = parent != null ? Kernel.CommandHost.Of(parent) : null;
+        }
+    }
+    private Kernel.CommandHost? _host;
 
     /// <summary>F: pick up what the player faces, or put down what it holds (on what it faces, if that has a top).</summary>
     private void Hands() => _noticeText = Host?.PlayerHands().Message ?? "The command host is not attached; the hand keys are off.";

@@ -13,6 +13,8 @@ namespace EnFractal.Native;
 /// </summary>
 public partial class GubbleCue : Control
 {
+    /// <summary>The Gubble's name tag under its body, found every frame by a path kept for the game (S12).</summary>
+    private static readonly NodePath TagPath = "CompanionLabel";
     /// <summary>How long a finished answer (done, refused, a shrug) stays before the bubble clears.</summary>
     public const double ShowS = 2.5;
     /// <summary>The bubble's and the reason's text sizes, in pixels: the HUD's own text is 18 (14 in its compact panels).</summary>
@@ -164,7 +166,7 @@ public partial class GubbleCue : Control
         if (Companion == null || !IsInstanceValid(Companion) || !Companion.IsInsideTree() || !IsInsideTree()) return null;
         var camera = GetViewport().GetCamera3D();
         if (camera == null) return null;
-        var tag = Companion.GetNodeOrNull<Node3D>("CompanionLabel");
+        var tag = Companion.GetNodeOrNull<Node3D>(TagPath);
         var at = tag?.GlobalPosition ?? Companion.GlobalPosition + Vector3.Up * Companion.BodyHeightM * 1.35f;
         if (camera.IsPositionBehind(at)) return null;
         // The name tag is 2.5 % of the screen's height, centred on its node (CompanionAvatar).

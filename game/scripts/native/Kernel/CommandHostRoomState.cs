@@ -30,8 +30,8 @@ public partial class CommandHost
     /// <summary>Room state now, in the contract's form. Null while the save is not loaded.</summary>
     public JsonObject? ExportRoomState()
     {
-        if (!Authority.Call("is_ready").AsBool()) return null;
-        var envelope = Normalized(KernelJson.ToJson(Authority.Call("export_envelope")))!;
+        if (!Authority.Call(KernelNames.IsReady).AsBool()) return null;
+        var envelope = Normalized(KernelJson.ToJson(Authority.Call(KernelNames.ExportEnvelope)))!;
         var entities = new SortedDictionary<string, JsonNode?>(StringComparer.Ordinal);
         var locks = envelope["locks"]!.AsObject();
         var revisions = envelope["entity_revisions"]!.AsObject();
@@ -97,7 +97,7 @@ public partial class CommandHost
             results[key] = new JsonObject
             {
                 ["fingerprint"] = record!["fingerprint"]!.GetValue<string>(),
-                ["result"] = Durable(Authority.Call("receipt_for", record["principal"]!.GetValue<string>(), record["action_id"]!.GetValue<string>()).AsGodotDictionary(), replayed: false),
+                ["result"] = Durable(Authority.Call(KernelNames.ReceiptFor, record["principal"]!.GetValue<string>(), record["action_id"]!.GetValue<string>()).AsGodotDictionary(), replayed: false),
             };
         var style = Style ?? StylePreset.Resolve(RoomWorld.DefaultStyleId, RoomWorld.DefaultStyleVersion);
         var extensions = new JsonObject
@@ -172,7 +172,7 @@ public partial class CommandHost
     /// yet and no flower planted by the trail either (review major 4).
     /// </summary>
     private bool Untouched(bool sightAllowed) =>
-        Authority.Call("is_ready").AsBool() && !Godot.FileAccess.FileExists(SavePath) && Revision == 0 && Authority.Call("receipt_count").AsInt32() == 0 &&
+        Authority.Call(KernelNames.IsReady).AsBool() && !Godot.FileAccess.FileExists(SavePath) && Revision == 0 && Authority.Call(KernelNames.ReceiptCount).AsInt32() == 0 &&
         _transient.Count == 0 && _jobs.Count == 0 && _runningGoals.Count == 0 && _held.Count == 0 && _approvals.Count == 0 &&
         _openTasks.Count == 0 && _history.Count == 0 && _notes.Count == 0 && Nature.Untouched(trailAllowed: sightAllowed) &&
         (sightAllowed || (TeamMemory().Entries.Count == 0 && _levels.Values.All(l => l.Count == 0)));
@@ -476,7 +476,7 @@ public partial class CommandHost
     /// </summary>
     private RoomStateOutcome Adopt(JsonObject envelope, IReadOnlyList<string> kept, IReadOnlyList<string> leftBehind, string message, bool closeOpenTasks)
     {
-        var adopted = Authority.Call("adopt_envelope", KernelJson.ToVariant(envelope)).AsGodotDictionary();
+        var adopted = Authority.Call(KernelNames.AdoptEnvelope, KernelJson.ToVariant(envelope)).AsGodotDictionary();
         if (!adopted["ok"].AsBool())
         {
             ApplyObjectPoses(ObjectPoses());
@@ -485,7 +485,7 @@ public partial class CommandHost
         _migrationOffer = null;
         LoadTeam(envelope["team"] as JsonObject, closeOpenTasks);
         LoadNature();
-        Runtime.Call("refresh_now");
+        Runtime.Call(KernelNames.RefreshNow);
         ApplyObjectPoses(ObjectPoses());
         SaveNotice = "";
         return new(true, message, kept, leftBehind);
@@ -515,7 +515,7 @@ public partial class CommandHost
     /// saved over the offer meanwhile. It is withdrawn when the player declines, migrates, or commits play in the new room.
     /// </summary>
     public string? MigrationCandidate() =>
-        _migrationOffer != null && !Godot.FileAccess.FileExists(SavePath) && Authority.Call("is_ready").AsBool() && Revision == 0 && Authority.Call("receipt_count").AsInt32() == 0
+        _migrationOffer != null && !Godot.FileAccess.FileExists(SavePath) && Authority.Call(KernelNames.IsReady).AsBool() && Revision == 0 && Authority.Call(KernelNames.ReceiptCount).AsInt32() == 0
             ? _migrationOffer : null;
 
     /// <summary>The player declines the offer: the earlier save stays as it is, and this room saves its own from now on.</summary>
@@ -736,7 +736,7 @@ public partial class CommandHost
     {
         var position = instance["position_m"]!.AsArray().Select(v => v!.GetValue<double>()).ToArray();
         var yaw = instance["yaw_deg"]!.GetValue<double>();
-        var check = Authority.Call("preflight", instance["owner_id"]!.GetValue<string>(), KernelJson.ToVariant(instance["source"]), position[0], position[2], yaw, "", position[1], "", "").AsGodotDictionary();
+        var check = Authority.Call(KernelNames.Preflight, instance["owner_id"]!.GetValue<string>(), KernelJson.ToVariant(instance["source"]), position[0], position[2], yaw, "", position[1], "", "").AsGodotDictionary();
         if (!check["ok"].AsBool() || Math.Abs(check["position_m"].AsGodotArray()[1].AsDouble() - position[1]) > 1e-5) return null;
         var bounds = check["artifact"].AsGodotDictionary()["bounds"].AsGodotDictionary();
         var low = ArrayVector(bounds["min"].AsGodotArray());

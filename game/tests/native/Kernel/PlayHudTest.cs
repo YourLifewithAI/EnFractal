@@ -159,12 +159,15 @@ public partial class PlayHudTest : Node
             InputMap.ActionEraseEvents(action);
             foreach (var input in events) InputMap.ActionAddEvent(action, input);
         }
+        // Whoever binds keys says so: the HUD's key names are read from the map again at once (PlayerControls.KeyLabel).
+        PlayerControls.MapChanged();
     }
 
     private static void Bind(StringName action, Key key, bool shift = false)
     {
         InputMap.ActionEraseEvents(action);
         InputMap.ActionAddEvent(action, new InputEventKey { PhysicalKeycode = key, ShiftPressed = shift });
+        PlayerControls.MapChanged();
     }
 
     /// <summary>What an action's key is, as a comparable string: the kind, the key and the modifiers it asks for.</summary>

@@ -146,13 +146,16 @@ public partial class RoomHud
             to = from + camera.ProjectRayNormal(screen) * AimRangeM;
         }
         if (Player == null || !Player.IsInsideTree() || !from.IsFinite() || !to.IsFinite()) return default;
-        using var query = PhysicsRayQueryParameters3D.Create(from, to, Room.RoomBuilder.WorldLayer | GubbleLayer | Room.RoomWater.Layer);
+        using var query = PhysicsRayQueryParameters3D.Create(from, to, Room.RoomBuilder.WorldLayer | GubbleLayer | Room.RoomWater.Layer,
+            _aimExclude ??= new Godot.Collections.Array<Rid> { Player.GetRid() });
         query.CollideWithAreas = true;
-        query.Exclude = new Godot.Collections.Array<Rid> { Player.GetRid() };
         using var hit = Player.GetWorld3D().DirectSpaceState.IntersectRay(query);
         var hitSomething = hit.Count > 0;
-        var point = hitSomething ? hit["position"].AsVector3() : to;
-        var collider = hitSomething ? hit["collider"].AsGodotObject() : null;
+        var point = hitSomething ? hit[KernelNames.HitPosition].AsVector3() : to;
+        GodotObject? collider = null;
+        if (hitSomething)
+            using (var answer = hit[KernelNames.HitCollider])
+                collider = answer.AsGodotObject();
         // Open sea continues past the mesh. Pick its real surface only when the shared water query
         // confirms this column is wet and the surface is in front of the ordinary physics hit.
         if (Host?.Room.Sea is { } sea && Mathf.Abs(to.Y - from.Y) > .0001f)
@@ -178,17 +181,32 @@ public partial class RoomHud
         }
         string? entity = null;
         for (var node = collider as Node; node != null && entity == null; node = node.GetParent())
-            if (node.HasMeta("entity_id") && node.GetMeta("entity_id").AsString() is { } id &&
-                (id.StartsWith("obj:", StringComparison.Ordinal) || id.StartsWith("creation:", StringComparison.Ordinal))) entity = id;
+        {
+            if (!node.HasMeta(KernelNames.EntityIdMeta)) continue;
+            using var meta = node.GetMeta(KernelNames.EntityIdMeta);
+            if (meta.AsString() is { } id && (id.StartsWith("obj:", StringComparison.Ordinal) || id.StartsWith("creation:", StringComparison.Ordinal))) entity = id;
+        }
         if (entity == null && collider is Node hitNode && Host is { } host && IsInstanceValid(host.Runtime))
         {
             // Compiled creations are indexed by the trusted runtime rather than room-object metadata.
-            foreach (var entry in host.Runtime.Get("assemblies").AsGodotDictionary())
-                if (entry.Value.AsGodotObject() is Node assembly && (assembly == hitNode || assembly.IsAncestorOf(hitNode)))
-                { entity = entry.Key.AsString(); break; }
+            using var value = host.Runtime.Get(KernelNames.Assemblies);
+            using var assemblies = value.AsGodotDictionary();
+            foreach (var (key, item) in assemblies)
+            {
+                using (key)
+                using (item)
+                    if (item.AsGodotObject() is Node assembly && (assembly == hitNode || assembly.IsAncestorOf(hitNode)))
+                    {
+                        entity = key.AsString();
+                        break;
+                    }
+            }
         }
         return new GubbleMagic.Aim(hitSomething || atGubble, atGubble && !hitSomething ? Companion!.GlobalPosition : point, atGubble ? null : entity, atGubble);
     }
+
+    /// <summary>The player's body as the aim's exclusions, made once (S12).</summary>
+    private Godot.Collections.Array<Rid>? _aimExclude;
 
     /// <summary>Whether a room thing is one the Gubble could carry: movable, within its carry limit, held by no one (the host decides the rest).</summary>
     private bool Carryable(string id)
