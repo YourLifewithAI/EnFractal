@@ -129,5 +129,12 @@ def prototype(name):
     return fit(parts,SIZES[name])
 
 
+_ROLES = {}
+
+
 def roles(name):
-    return {p['role'] for p in prototype(name)}
+    """A kit prototype's material roles (its geometry is built once per name)."""
+    got = _ROLES.get(name)
+    if got is None:
+        got = _ROLES[name] = frozenset(p['role'] for p in prototype(name))
+    return got

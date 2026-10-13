@@ -123,6 +123,52 @@ def climb_from(grid, h, x, z, dx, dz, foot_y, beside=None):
     return None
 
 
+_POINTS = ((.33, .67), (.67, .33))   # where a cell's two faces are read
+
+
+def _cell_points(grid, h):
+    """slope_at(i, j, p): `tri_hit`'s slope at cell (i, j)'s point _POINTS[p],
+    the same arithmetic (the same face picked by the same u and v, its slope
+    worked out once)."""
+    nx, nz, c, x0, z0 = grid.nx, grid.nz, grid.cell, grid.x0, grid.z0
+
+    def axis(vals, origin, n, f):
+        out = []
+        for v in vals[:-1]:
+            fp = (v+c*f-origin)/c
+            k = min(int(fp), n-2)
+            out.append((k, fp-k))
+        return out
+    cols = [axis(grid.xs, x0, nx, f[0]) for f in _POINTS]
+    rows = [axis(grid.zs, z0, nz, f[1]) for f in _POINTS]
+    cache = {}
+    degrees, atan, hypot = math.degrees, math.atan, math.hypot
+
+    def slope_at(i, j, p):
+        i_, u = cols[p][i]
+        j_, v = rows[p][j]
+        q = j_*nx+i_
+        if (i_+j_) % 2 == 0:
+            t = 0 if v > u else 1
+        else:
+            t = 2 if u+v < 1 else 3
+        key = q*4+t
+        s = cache.get(key)
+        if s is None:
+            a, b, cc, d = h[q], h[q+1], h[q+nx], h[q+nx+1]
+            if t == 0:
+                gu, gv = d-cc, cc-a
+            elif t == 1:
+                gu, gv = b-a, d-b
+            elif t == 2:
+                gu, gv = b-a, cc-a
+            else:
+                gu, gv = d-cc, d-b
+            s = cache[key] = degrees(atan(hypot(gu, gv)/c))
+        return s
+    return slope_at
+
+
 def knife_edges(grid, h, standable, min_rise=MIN_RISE, near=None):
     """Climbs that top out on a knife edge or a needle. A climber faces the
     face it climbs: from every steep triangle (over 55 degrees) that starts
@@ -135,13 +181,14 @@ def knife_edges(grid, h, standable, min_rise=MIN_RISE, near=None):
     if near is not None:
         cells = {(i, j) for x, z, r in near for j in grid.span(x-r, x+r, z-r, z+r)[1]
                  for i in grid.span(x-r, x+r, z-r, z+r)[0]}
+    slope_at = _cell_points(grid, h)
     # Standable patches: a vertex whose four cells are all 35 degrees or
     # gentler (a 6 cm square a body stands on).
     patch = [True]*grid.n
     for j in range(grid.nz-1):
         for i in range(nx-1):
-            for fu, fv in ((.33, .67), (.67, .33)):
-                if tri_hit(grid, h, grid.xs[i]+c*fu, grid.zs[j]+c*fv)[1] > LIP_DEG:
+            for p in (0, 1):
+                if slope_at(i, j, p) > LIP_DEG:
                     for q in (j*nx+i, j*nx+i+1, (j+1)*nx+i, (j+1)*nx+i+1):
                         patch[q] = False
                     break
@@ -161,11 +208,10 @@ def knife_edges(grid, h, standable, min_rise=MIN_RISE, near=None):
         for i in range(nx-1):
             if cells is not None and (i, j) not in cells:
                 continue
-            for fu, fv in ((.33, .67), (.67, .33)):
-                x, z = grid.xs[i]+c*fu, grid.zs[j]+c*fv
-                y, s = tri_hit(grid, h, x, z)
-                if s <= FACE_DEG:
+            for p, (fu, fv) in enumerate(_POINTS):
+                if slope_at(i, j, p) <= FACE_DEG:
                     continue
+                x, z = grid.xs[i]+c*fu, grid.zs[j]+c*fv
                 # The way up this face: its steepest ascent.
                 e = .004
                 gx = tri_hit(grid, h, x+e, z)[0]-tri_hit(grid, h, x-e, z)[0] if 0 < x-e and x+e < grid.xs[-1] else 0.
@@ -210,31 +256,20 @@ def plane_thin_tops(grid, h, can_move, half=1, near=None, max_cut=None):
     vertices planed and the deepest cut."""
     nx, nz = grid.nx, grid.nz
 
-    def window_min(f):
-        # Separable: rows then columns.
-        row = [0.]*grid.n
+    def window(f, pick):
+        # Separable: rows then columns, a square of (2*half+1) vertices clipped
+        # at the grid's edge. The edge value repeated past the edge picks the
+        # same as the clipped window (min and max only select).
+        def run(seq):
+            pad = [seq[0]]*half+seq+[seq[-1]]*half
+            return [pick(t) for t in zip(*(pad[d:d+len(seq)] for d in range(2*half+1)))]
+        rows = [run(f[j*nx:(j+1)*nx]) for j in range(nz)]
+        rows = [rows[0]]*half+rows+[rows[-1]]*half
+        out = []
         for j in range(nz):
-            base = j*nx
-            for i in range(nx):
-                row[base+i] = min(f[base+max(0, i-half):base+min(nx-1, i+half)+1])
-        out = [0.]*grid.n
-        for j in range(nz):
-            for i in range(nx):
-                out[j*nx+i] = min(row[jj*nx+i] for jj in range(max(0, j-half), min(nz-1, j+half)+1))
+            out.extend(pick(t) for t in zip(*rows[j:j+2*half+1]))
         return out
-
-    def window_max(f):
-        row = [0.]*grid.n
-        for j in range(nz):
-            base = j*nx
-            for i in range(nx):
-                row[base+i] = max(f[base+max(0, i-half):base+min(nx-1, i+half)+1])
-        out = [0.]*grid.n
-        for j in range(nz):
-            for i in range(nx):
-                out[j*nx+i] = max(row[jj*nx+i] for jj in range(max(0, j-half), min(nz-1, j+half)+1))
-        return out
-    opened = window_max(window_min(h))
+    opened = window(window(h, min), max)
     moved, deepest = 0, 0.
     qs = range(grid.n)
     if near is not None:

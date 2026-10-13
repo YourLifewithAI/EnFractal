@@ -23,6 +23,7 @@ import math
 
 from .field import clamp, lerp, rr_dist, smooth
 from .land import local, openings, point_in_poly, room_shape, wall_frame
+from . import scale as world
 
 SEA_Y = -.02            # the sea's surface, a little under the room's floor (y 0)
 LAGOON_DEPTH = .22      # the lagoon between the coast and the reef: well over the 10 cm head
@@ -89,8 +90,9 @@ def _shore(d, hl, bw):
     meets the beach as a bluff and keeps its own height."""
     cliff = SEA_Y+.015-T72*d
     if d <= 0:
-        beach = SEA_Y+T9*min(-d, .25)+T16*min(max(0., -d-.25), .25)+T72*max(0., -d-.5)
-        rocky = SEA_Y+.01+T30*min(-d, .3)+T72*max(0., -d-.3)
+        W = world.W   # inland runs reach the magnified plain (room); the wading shelf below stays the body's
+        beach = SEA_Y+T9*min(-d, .25*W)+T16*min(max(0., -d-.25*W), .25*W)+T72*max(0., -d-.5*W)
+        rocky = SEA_Y+.01+T30*min(-d, .3*W)+T72*max(0., -d-.3*W)
         if hl > .5:
             return math.inf   # a headland keeps its landform's height to the waterline, then drops
     else:
@@ -118,8 +120,9 @@ class Coast:
         # The reef a short swim off: off the farthest-reaching coast nearby (so a
         # headland next door never brings it close), and farther off a beach, so
         # the beach's shelf reaches swimming water first.
-        near = max([c]+[self._coast(px+dx, pz+dz)[0] for dx, dz in ((.2, 0), (-.2, 0), (0, .2), (0, -.2),
-                                                                       (.35, 0), (-.35, 0), (0, .35), (0, -.35))])
+        W = world.W
+        near = max([c]+[self._coast(px+dx*W, pz+dz*W)[0] for dx, dz in ((.2, 0), (-.2, 0), (0, .2), (0, -.2),
+                                                                           (.35, 0), (-.35, 0), (0, .35), (0, -.35))])
         n = self.noise
         lo = near+lerp(REEF_OFFSHORE[0], .55, bw)
         reef = clamp(.48+.12*n(px*1.1+41, pz*1.1-23), lo, max(lo, c+REEF_OFFSHORE[1]))
@@ -129,18 +132,19 @@ class Coast:
 
     def _coast(self, px, pz):
         n = self.noise
+        W = world.W   # the coast's coves, headlands and harbour are the room's (x W)
         # Headlands where a landform meets the wall line, and a few rocky points.
         hl = 0.
         for o in self.objects:
-            d = rr_dist(*local(o, px, pz), o['sx']/2, o['sz']/2, .03)
+            d = rr_dist(*local(o, px, pz), o['sx']/2, o['sz']/2, .03*W)
             # A taller landform spreads farther, so it meets the sea as a cliff from farther in.
-            reach = .5+.35*min(o['sy'], 1.5)
-            hl = max(hl, smooth((reach-d)/.3)*smooth((o['sy']-.05)/.15))
+            reach = .5*W+.35*min(o['sy'], 1.5*W)
+            hl = max(hl, smooth((reach-d)/(.3*W))*smooth((o['sy']-.05*W)/(.15*W)))
         hl = max(hl, .8*smooth((n.fbm(px*.9+5, pz*.9-3, 2)-.3)/.15))
         n1 = n.fbm(px*2.2+13, pz*2.2-7, 3)
         n2 = n(px*5.5-3, pz*5.5+11)
-        cove = -.12-.16*smooth((n1+.1)/.5)-.05*n2
-        head = .1+.14*smooth((n1+.3)/.6)+.04*n2
+        cove = (-.12-.16*smooth((n1+.1)/.5)-.05*n2)*W
+        head = (.1+.14*smooth((n1+.3)/.6)+.04*n2)*W
         # Mostly beaches between the headlands (the founder, 10 October); a low
         # rocky shore only where this noise runs low.
         bw = (1-hl)*smooth((n.fbm(px*1.3-17, pz*1.3+29, 2)+BEACH_NOISE)/.25)
@@ -148,8 +152,8 @@ class Coast:
         hw = 0.
         if self.door is not None:
             dd = math.hypot(px-self.door['x'], pz-self.door['z'])
-            hw = 1-smooth((dd-self.door['width']/2-.1)/.3)
-        c = lerp(c, -.06, hw)
+            hw = 1-smooth((dd-self.door['width']/2-.1*W)/(.3*W))
+        c = lerp(c, -.06*W, hw)
         hl *= 1-hw
         bw = lerp(bw, 1., hw)
         # Arrivals keep their dry ground: the water stays .4 m from a spawn.
@@ -159,19 +163,20 @@ class Coast:
         return c, hl, bw, hw
 
 
-def carve_coast(grid, room, h, base, noise, objects, spawns, seed):
+def carve_coast(grid, room, h, base, noise, objects, spawns, seed, frames=None):
     """Shape the coast, the shelf and the deep water into h. Returns the plan:
     per-vertex wall offset s, coast offset c, the shelf's edge (the reef line),
     beach weight, the jetty and the coast reader. Nothing stands offshore: no
-    reef rocks and no sea stacks (`stacks` stays, empty, for the package)."""
+    reef rocks and no sea stacks (`stacks` stays, empty, for the package).
+    `frames`: each vertex's `wall_frame`, when the caller has read them."""
     coast = Coast(room, objects, [s for s in spawns], noise)
     nx = grid.nx
-    S, C, R, BW, HL, PX, PZ, NX, NZ = ([0.]*grid.n for _ in range(9))
+    S, C, R, BW, HL = ([0.]*grid.n for _ in range(5))
+    at = coast.at
     for q in range(grid.n):
-        x, z = grid.xs[q % nx], grid.zs[q//nx]
-        s, px, pz, ox, oz = wall_frame(room, x, z)
-        c, hl, bw, hw, reef = coast.at(px, pz)
-        S[q], C[q], R[q], BW[q], HL[q], PX[q], PZ[q], NX[q], NZ[q] = s, c, reef, bw, hl, px, pz, ox, oz
+        s, px, pz, ox, oz = frames[q] if frames is not None else wall_frame(room, grid.xs[q % nx], grid.zs[q//nx])
+        c, hl, bw, hw, reef = at(px, pz)
+        S[q], C[q], R[q], BW[q], HL[q] = s, c, reef, bw, hl
     # No sea stacks: nothing stands offshore (the founder, 10 October).
     stacks = []
     # The jetty: from a landing in the harbour, square to the door's wall, out over the lagoon.
@@ -255,10 +260,12 @@ def sea_mask(grid, h, keep_out=frozenset()):
     return sea
 
 
-def sea_surface(grid, sea, far=60.):
+def sea_surface(grid, sea, far=None):
     """The sea's still surface: every grid triangle touching the sea, then a
     strip from the grid's edge out to the horizon (all at SEA_Y)."""
     nx, nz = grid.nx, grid.nz
+    if far is None:
+        far = 60.*world.W   # the horizon strip reaches as far past the magnified island
     index, pos, tris = {}, [], []
 
     def vid(key, x, z):
@@ -295,7 +302,7 @@ def sea_surface(grid, sea, far=60.):
     return pos, out
 
 
-def distant_islands(grid, room, noise, seed, far=60.):
+def distant_islands(grid, room, noise, seed, far=None):
     """The sea floor beyond the grid, out toward the horizon (the package's
     scenery mesh keeps its name `distant_islands`). No islands rise from it any
     more: the founder chose a clean backdrop (10 October), and the game's look
@@ -303,9 +310,12 @@ def distant_islands(grid, room, noise, seed, far=60.):
     empty."""
     x0, x1, z0, z1 = grid.xs[0], grid.xs[-1], grid.zs[0], grid.zs[-1]
     cx, cz = (x0+x1)/2, (z0+z1)/2
-    r0 = min(x1-cx, z1-cz)-.25
+    W = world.W   # the rings reach out W times as far; the floor's depth is the body's sea
+    if far is None:
+        far = 60.*W
+    r0 = min(x1-cx, z1-cz)-.25*W
     islands = []
-    radii = [r0+.4*k+.014*k*k for k in range(46)]
+    radii = [r0+.4*k*W+.014*k*k*W for k in range(46)]
     radii = [r for r in radii if r < far*.9]
     ring = 200
     pos, tri, tints, blend = [], [], [], []
@@ -313,7 +323,7 @@ def distant_islands(grid, room, noise, seed, far=60.):
         for k in range(ring):
             a = math.tau*k/ring
             x, z = cx+math.cos(a)*r, cz+math.sin(a)*r
-            y = SEA_Y-DEEP_DEPTH-.04-.6*smooth((r-r0)/12.)
+            y = SEA_Y-DEEP_DEPTH-.04-.6*smooth((r-r0)/(12.*W))
             pos.append([round(x, 4), round(y, 4), round(z, 4)])
     for m in range(len(radii)-1):
         for k in range(ring):
@@ -541,7 +551,7 @@ def find_beaches(grid, h, room, coast, jetty, limit=5, harbour=False):
         out = []
         for x, z, ix, iz in sorted(ring, key=lambda r: (math.hypot(r[0]-wx, r[1]-wz), r[0], r[1])):
             lateral = abs((x-wx)*jetty['uz']-(z-wz)*jetty['ux'])
-            if lateral < .16 or math.hypot(x-wx, z-wz) > 1.2:
+            if lateral < .16 or math.hypot(x-wx, z-wz) > 1.2*world.W:
                 continue
             spot = _ashore(grid, h, x, z, ix, iz)
             if spot is not None:
@@ -587,7 +597,8 @@ def find_beaches(grid, h, room, coast, jetty, limit=5, harbour=False):
     for c in cands:
         if len(chosen) >= limit:
             break
-        if all(math.hypot(c[2]['stand'][0]-o[2]['stand'][0], c[2]['stand'][1]-o[2]['stand'][1]) > 1.2 for o in chosen):
+        if all(math.hypot(c[2]['stand'][0]-o[2]['stand'][0], c[2]['stand'][1]-o[2]['stand'][1]) > 1.2*world.W
+               for o in chosen):
             chosen.append(c)
     return [c[2] for c in chosen]
 
@@ -596,11 +607,12 @@ def _ashore(grid, h, x, z, ix, iz):
     """Walk in from the wall line until dry sand a body can stand on; out until
     water a body swims in."""
     stand = None
-    for k in range(0, 90):
-        t = -.4+k*.01
+    W = world.W   # the search window spans the magnified coast's coves
+    for k in range(0, int(90*W)):
+        t = -.4*W+k*.01
         px, pz = x+ix*t, z+iz*t
         y = grid.tri_height(h, px, pz)
-        if y >= max(SEA_Y+.03, .006) and t >= .1:
+        if y >= max(SEA_Y+.03, .006) and t >= .1*W:
             px, pz = px+ix*.05, pz+iz*.05
             # Level enough for the walker's 11 cm disc wherever its lattice puts it.
             if _steepest(grid, h, px, pz) <= 18.5:

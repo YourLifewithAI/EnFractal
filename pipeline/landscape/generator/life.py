@@ -6,6 +6,7 @@ from pipeline.landscape.harness.kit import SIZES
 from .field import clamp, lerp, slope_field, smooth
 from .land import SOFT, dijkstra, geology_tint, inside_distance, local, room_shape
 from .water import chaikin, resample
+from . import scale as world
 
 SNOWLINE = 1.5
 WALK_LIMIT_DEG = 20.   # low-incline planning limit (the body manages 45 degrees)
@@ -142,6 +143,8 @@ def surface(grid, h, base, slope, owner, objects, shadow, wet, acc, outside, pat
     out_t = []
     nx = grid.nx
     wall_tint = (.98, .93, .86)
+    W = world.W   # heights above the plain and the snowline are the room's; wetness the body's
+    rock_tints = {}
     for q in range(grid.n):
         x, z = grid.xs[q % nx], grid.zs[q//nx]
         s = slope[q]
@@ -179,30 +182,36 @@ def surface(grid, h, base, slope, owner, objects, shadow, wet, acc, outside, pat
             for k in weights:
                 weights[k] *= 1-p
             weights['worn_path'] = p
-        if h[q] > SNOWLINE:
-            sn = smooth((h[q]-SNOWLINE)/.22+.3*n1)*(1-smooth((s-58)/10))
+        if h[q] > SNOWLINE*W:
+            sn = smooth((h[q]-SNOWLINE*W)/(.22*W)+.3*n1)*(1-smooth((s-58)/10))
             for k in weights:
                 weights[k] *= 1-sn
             weights['snow'] = sn
         # Tints: dry high grass goes gold, lush low meadow deep green;
         # rock and soil carry the source object's colour.
-        lush = clamp(moist*.7+smooth((.25-rel)/.25)*.3+.15*n1)
+        lush = clamp(moist*.7+smooth((.25*W-rel)/(.25*W))*.3+.15*n1)
         if outside[q]:
             lush = lush*.6
-        tints = {'meadow': (lerp(.97, .86, lush), lerp(.86, 1., lush), lerp(.55, .78, lush)),
-                 'moss': (.9, 1., .9), 'soil': tuple(lerp(1, c, .35) for c in rock_tint),
-                 'gravel': (1., .97, .92), 'scree': tuple(lerp(1, c, .6) for c in rock_tint),
-                 'cliff': rock_tint, 'rock': rock_tint, 'worn_path': (1., .96, .9),
-                 'snow': (1., 1., 1.)}
-        total = sum(weights.values()) or 1.
         top = sorted(((v, k) for k, v in weights.items() if v > 1e-4), reverse=True)[:2]
         if not top:
             top = [(1., 'meadow')]
         tsum = sum(v for v, _ in top)
         tint = [0., 0., 0.]
         for v, k in top:
+            # The tint of each of the two roles kept (only those are worked out).
+            if k == 'meadow':
+                tk = (lerp(.97, .86, lush), lerp(.86, 1., lush), lerp(.55, .78, lush))
+            elif k in ('soil', 'scree'):
+                key = (k, rock_tint)
+                tk = rock_tints.get(key)
+                if tk is None:
+                    tk = rock_tints[key] = tuple(lerp(1, c, .35 if k == 'soil' else .6) for c in rock_tint)
+            elif k in ('cliff', 'rock'):
+                tk = rock_tint
+            else:
+                tk = FIXED_TINTS[k]
             for i in range(3):
-                tint[i] += tints[k][i]*v/tsum
+                tint[i] += tk[i]*v/tsum
         weights = {k: v/tsum for v, k in top}
         sk = skirt[q] if skirt else 0.
         if sk > 0:
@@ -216,8 +225,10 @@ def surface(grid, h, base, slope, owner, objects, shadow, wet, acc, outside, pat
             tint = [lerp(c, 1., sk) for c in tint]
         out_w.append(weights)
         out_t.append(tuple(round(clamp(c), 4) for c in tint))
-        del total
     return out_w, out_t
+
+
+FIXED_TINTS = {'moss': (.9, 1., .9), 'gravel': (1., .97, .92), 'worn_path': (1., .96, .9), 'snow': (1., 1., 1.)}
 
 
 def build_mesh(grid, h, weights, tints, tris):
@@ -358,6 +369,7 @@ def walk(grid, h, face_slope, wet, inside, blocked_mask, a, b, limit=WALK_LIMIT_
 
 def paint_path(grid, path, mask, width=.035):
     nx = grid.nx
+    width = max(width, .6*grid.cell)   # a resolution floor: only bites on a grid coarser than 3 cm
     pts = [(grid.xs[q % nx], grid.zs[q//nx]) for q in path]
     for x, z in pts[::2]:
         rx, rz = grid.span(x-width*2, x+width*2, z-width*2, z+width*2)
@@ -505,6 +517,7 @@ def grade_line(grid, h, wet, pads, pts, width=.085, bridges=()):
 
 def paint_line(grid, pts, mask, width=.035):
     nx = grid.nx
+    width = max(width, .6*grid.cell)   # a resolution floor: only bites on a grid coarser than 3 cm
     for x, z in pts[::2]:
         rx, rz = grid.span(x-width*2, x+width*2, z-width*2, z+width*2)
         for j in rz:

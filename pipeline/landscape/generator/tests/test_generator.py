@@ -191,6 +191,172 @@ class GarageLandscape(unittest.TestCase):
             self.assertLess(steepest, 30, b['id'])
 
 
+class WalkFlood(unittest.TestCase):
+    """One flood from the spawn answers every walk goal, and the shortcuts that
+    make it island-sized (narrowed candidate lists, plain land vouched for)
+    never change an answer: on the garage's package the flood reaches exactly
+    the nodes the walk reaches when every sample is read in full, and the
+    shortest-way search finds a way exactly where the flood says one exists."""
+
+    @classmethod
+    def setUpClass(cls):
+        from pipeline.landscape.harness import read_package
+        cls.room_dir = ROOMS/'garage_nominal'
+        cls.doc, cls.meshes, cls.room, _ = read_package(garage(), cls.room_dir)
+        player = next(s for s in cls.room['spawns'] if s['role'] == 'player')['position_m']
+        cls.start = (player[0], player[2])
+
+    def full_reading(self):
+        """A Terrain that reads every sample in full: its bucket's whole list, nothing vouched for."""
+        terrain = checks.Terrain(self.doc, self.meshes)
+        b = terrain.bucket
+        terrain.candidates = lambda x, z: terrain.grid.get((int(math.floor(x/b)), int(math.floor(z/b))), ())
+        terrain.plain_slope = lambda i, j: None
+        return terrain
+
+    def test_flood_matches_the_full_reading(self):
+        fast = checks.Walker(self.doc, self.meshes, checks.Terrain(self.doc, self.meshes), self.room)
+        slow = checks.Walker(self.doc, self.meshes, self.full_reading(), self.room)
+        a, b = fast.reach(self.start), slow.reach(self.start)
+        self.assertGreater(len(a), 5000)
+        self.assertEqual(a.nodes(), b.nodes())
+        # The vouched-for ground is most of it (otherwise the shortcut is idle).
+        plain = sum(1 for v in fast.t._plain.values() if v is not None and v <= checks.WALK_DEG)
+        self.assertGreater(plain, 1000)
+        # Every reached node's way back is a walk the full reading passes.
+        c = fast.t.cell
+        far = max(a.nodes(), key=lambda k: (len(a.path((k[0]*c, k[1]*c))), k))
+        path = a.path((far[0]*c, far[1]*c))
+        self.assertGreater(len(path), 50)
+        self.assertTrue(checks.proves(slow, path))
+        info = slow.measure(path)
+        self.assertLessEqual(info['max_face_slope_deg'], checks.WALK_DEG)
+        self.assertLessEqual(info['max_step_m'], checks.STEP_M)
+
+    def test_hits_match_the_whole_bucket(self):
+        import random
+        fast, slow = checks.Terrain(self.doc, self.meshes), self.full_reading()
+        rnd = random.Random(5)
+        lo, hi = self.room['bounds']['min_m'], self.room['bounds']['max_m']
+        pts = [(rnd.uniform(lo[0]-1, hi[0]+1), rnd.uniform(lo[2]-1, hi[2]+1)) for _ in range(20000)]
+        # Points on the grid's own lines and corners, where faces meet.
+        pts += [(round(-4.7+.03*i, 6), round(-5.2+.03*j, 6)) for i in range(0, 300, 7) for j in range(0, 340, 7)]
+        for x, z in pts:
+            self.assertEqual(fast.hit(x, z), slow.hit(x, z), (x, z))
+        # Heights read straight from the land grid's cell where it is plain.
+        fresh = checks.Terrain(self.doc, self.meshes)
+        for x, z in pts:
+            a, b = fresh.land_height(x, z), slow.height(x, z)
+            self.assertTrue(a == b or (math.isnan(a) and math.isnan(b)), (x, z, a, b))
+        self.assertGreater(len(fresh._whole), 1000)
+
+    def test_shortest_way_found_exactly_where_the_flood_reaches(self):
+        walker = checks.Walker(self.doc, self.meshes, checks.Terrain(self.doc, self.meshes), self.room)
+        reach = walker.reach(self.start)
+        c = walker.t.cell
+        nodes = sorted(reach.nodes())
+        goals = [(k[0]*c, k[1]*c) for k in nodes[::max(1, len(nodes)//6)]]
+        # And some it does not reach: under the tarn, on a landform's face.
+        tarn = self.meshes['tarn'][0]['positions']
+        goals += [(sum(v[0] for v in tarn)/len(tarn), sum(v[2] for v in tarn)/len(tarn))]
+        goals += [(o['position_m'][0], o['position_m'][2]) for o in self.doc['scatter'] if o['prototype'] == 'cottage']
+        for g in goals:
+            self.assertEqual(walker.route(self.start, g)[0] is not None, reach.has(g), g)
+
+    def test_written_meshes_read_in_single_precision(self):
+        """The generator's beach check reads its meshes as the package will
+        hold them, without writing it: exactly what the harness reads back."""
+        from pipeline.landscape.generator.generate import as_written
+        from pipeline.landscape.harness.glb import decode_mesh, encode_mesh
+        import random
+        rnd = random.Random(3)
+        pos = [[rnd.uniform(-40, 40), rnd.uniform(-1, 3), rnd.uniform(-40, 40)] for _ in range(300)]
+        prims = [dict(role='meadow', positions=pos, triangles=[[k, k+1, k+2] for k in range(0, 297, 3)])]
+        back = decode_mesh(encode_mesh(prims))
+        mine = as_written(prims)
+        self.assertEqual([p['positions'] for p in mine], [p['positions'] for p in back])
+        self.assertNotEqual(mine[0]['positions'], pos)
+
+    def test_land_moved_in_place_reads_like_new(self):
+        """Grading moves the land between two walks: the Terrain told where
+        (`moved`) answers exactly as one built afresh, hits, plain buckets and
+        floods alike."""
+        import copy
+        import random
+        grid, h = checks._land_grid(self.doc, self.meshes)
+        pos = [[grid.xs[q % grid.nx], h[q], grid.zs[q//grid.nx]] for q in range(grid.n)]
+        land = dict(self.meshes, land=[dict(role='meadow', positions=pos, triangles=[list(t) for t in grid.triangles()])])
+        probe = dict(self.doc, terrain=[{'mesh': 'land'}], scenery=[])
+        old = checks.Terrain(probe, land)
+        walker = checks.Walker(probe, land, old, self.room)
+        before = walker.reach(self.start)
+        far = list(sorted(before.nodes()))[len(before)//2]
+        # A cut and a bank across the walk, 30 cm either side of a reached node.
+        c = old.cell
+        moved = []
+        for q in range(grid.n):
+            x, z = pos[q][0], pos[q][2]
+            if abs(x-far[0]*c) < .3 and abs(z-far[1]*c) < .05:
+                pos[q][1] += .04 if x > far[0]*c else -.03
+                moved.append((x, z))
+        self.assertGreater(len(moved), 10)
+        old.moved(moved)
+        fresh = checks.Terrain(probe, dict(land, land=copy.deepcopy(land['land'])))
+        for limit, step in ((checks.WALK_DEG, checks.STEP_M), (40., .04)):
+            a = checks.Walker(probe, land, old, self.room, limit=limit, step=step).reach(self.start)
+            b = checks.Walker(probe, land, fresh, self.room, limit=limit, step=step).reach(self.start)
+            self.assertEqual(a.nodes(), b.nodes(), limit)
+        self.assertNotEqual(before.nodes(), checks.Walker(probe, land, old, self.room).reach(self.start).nodes())
+        rnd = random.Random(9)
+        for _ in range(3000):
+            x, z = far[0]*c+rnd.uniform(-.5, .5), far[1]*c+rnd.uniform(-.3, .3)
+            self.assertEqual(old.hit(x, z), fresh.hit(x, z))
+            b = old.bucket
+            i, j = int(math.floor(x/b)), int(math.floor(z/b))
+            self.assertEqual(old.plain_slope(i, j), fresh.plain_slope(i, j))
+
+    def test_an_obstacle_on_the_way_is_noticed(self):
+        """`holds` proves a flood's way still open with one more obstacle, and
+        refuses it when the obstacle stands on the way."""
+        walker = checks.Walker(self.doc, self.meshes, checks.Terrain(self.doc, self.meshes), self.room)
+        reach = walker.reach(self.start)
+        crate = self.doc['objects'][0]['position_m']
+        path = reach.path((crate[0], crate[2]))
+        self.assertIsNotNone(path)
+        c = walker.t.cell
+        mid = path[len(path)//2]
+        on_way = checks.obstacles(dict(self.doc, scatter=[dict(prototype='boulder', position_m=[mid[0]*c, 0, mid[1]*c],
+                                                                 yaw_deg=0, scale=[.4, .4, .4])]))
+        far = checks.obstacles(dict(self.doc, scatter=[dict(prototype='boulder', position_m=[50., 0, 50.],
+                                                              yaw_deg=0, scale=[.4, .4, .4])]))
+        self.assertFalse(checks.holds(walker, path, on_way))
+        self.assertTrue(checks.holds(walker, path, far))
+
+
+class RoomFrames(unittest.TestCase):
+    """The room read once (`wall_frame`, `inside_distance`) answers exactly
+    as the plain reading, on every corpus room and the garage magnified."""
+
+    def test_same_numbers(self):
+        import random
+        from pipeline.landscape.generator.land import inside_distance, wall_frame, wall_frame_plain
+        from pipeline.landscape.generator.scale import scale_room
+        from pipeline.landscape.harness.common import load_json
+        rooms = [load_json(path/'room.json') for path in sorted(ROOMS.iterdir()) if (path/'room.json').exists()]
+        scale_room(ROOMS/'garage_nominal', workdir('x10'), 10)
+        rooms.append(load_json(Path(RUN_DIR)/'x10'/'room.json'))
+        rnd = random.Random(4)
+        for room in rooms:
+            lo, hi = room['bounds']['min_m'], room['bounds']['max_m']
+            pts = [(rnd.uniform(lo[0]-1, hi[0]+1), rnd.uniform(lo[2]-1, hi[2]+1)) for _ in range(3000)]
+            pts += [(lo[0], lo[2]), (hi[0], hi[2]), (lo[0], (lo[2]+hi[2])/2), (lo[0]+1e-12, lo[2]+3e-7)]
+            for x, z in pts:
+                plain = wall_frame_plain(room, x, z)
+                self.assertEqual(wall_frame(room, x, z), plain, (room['room_id'], x, z))
+                d = inside_distance(room, x, z)
+                self.assertEqual((d, math.copysign(1, d)), (-plain[0], math.copysign(1, -plain[0])), (room['room_id'], x, z))
+
+
 class LShapedIsland(unittest.TestCase):
     """An L-shaped room becomes an L-shaped island: the notch is sea, both arms land."""
 

@@ -1,5 +1,29 @@
 # The garage as land: the landscape generator (C5)
 
+## Generation fast enough at world scale (Run 2, scale packet S3, 13 October)
+
+The founder moved the game to a 10x world (13 October): the room magnified ten times round today's body. The scale
+experiment's 10x garage took 6.9 minutes to generate, and its walk checks gave up on some goals and took others on
+trust. Now:
+
+- **The walk is exact again, island-wide** (`checks.Walker`): one flood from the spawn per planting state answers every
+  goal (the crate, the doors, the yards, the beaches, the jetty); no node budget, nothing taken on trust. The lattice
+  is 2.5 cm on today's room and 5 cm on a magnified one; the body's limits are unchanged (11 cm disc, 2 cm steps sampled
+  each centimetre, 20 degrees). Grading's ways are the same A* searches as before on today's room; on a magnified one a
+  goal shut in a pocket is found so by a small flood back from it, and one least-cost flood serves the others.
+- **The same answers, faster:** the package's own land grid vouches for plain buckets (whole cells, corners shared
+  exactly, nothing on top, no deck, no water), so a node there needs no sample read; answers about the ground are shared
+  by every walk over it; a flood goes on after a lane is cleared; a graded Terrain is updated where the land moved.
+  Tests pin every shortcut against the full reading (and on the 10x garage the fast floods equal the full ones).
+- **The package is written once:** the beach check reads the meshes as the package will hold them (float32) and proves
+  each flood's way there, with no scratch package written and read back.
+- **1x is unchanged:** all 24 corpus rooms come out byte-identical to the generator before this packet (3 to 5 times
+  faster: the garage 136 s to 37 s with three rooms generating at once).
+
+On the 10x garage the generator is no longer the slow part: the harness's `write_package` takes a third of the time
+(see the change request in the S3 report). The checks now see what the experiment did not: the hamlet's third door is
+unreachable at 10x, and the 1x thresholds for the reef's distance, footprints and climbs do not hold there yet.
+
 ## The clean coast (Run 2, Bubbles and Fireworks round, 10 October; generator version 5)
 
 The founder, after swimming out from the garage island: "We have the land meet the sea on mostly beaches with smooth gradual transitions into deep ocean and sheer cliffs plummeting deep into the ocean but not with weird walls off shore."
@@ -191,7 +215,7 @@ WALK crate 6.045 m (7.52 deg), back carrying 6.045 m (11.15 deg); doors 5.93/6.6
      woodpiles 6.42/6.13/6.79 m; laundry 6.45 m
 CHECKS water=True grounded=True walk=True footprints=True overall=True
 ```
-The walk is an A* search on a 2.5 cm lattice of the decoded triangles plus footbridge decks. An 11 cm disc must be dry, clear of obstacles and on faces of 20° or less, and every edge is sampled each centimetre (step 0.02 m).
+The walk is a flood from the spawn on a 2.5 cm lattice (5 cm on a magnified room) of the decoded triangles plus footbridge decks. An 11 cm disc must be dry, clear of obstacles and on faces of 20° or less, and every edge is sampled each centimetre (step 0.02 m).
 
 Garage grounding (box top → land top, Δ):
 

@@ -363,10 +363,8 @@ def _sd_poly(x, z, poly):
     return d, px, pz, ox, oz
 
 
-def wall_frame(room, x, z):
-    """Signed distance to the walkable floor (bounds within the floor polygons;
-    negative inside), the nearest wall point and that wall's outward normal.
-    Works for any floor outline, concave ones included."""
+def wall_frame_plain(room, x, z):
+    """`wall_frame` written plainly (the reference its faster form is tested against)."""
     lo, hi, floors = room_shape(room)
     best = _sd_rect(x, z, lo, hi)
     if floors:
@@ -378,13 +376,126 @@ def wall_frame(room, x, z):
     return best
 
 
+_SHAPES = {}
+
+
+def _shape(room):
+    """The room's bounds and floor outlines, read once per room (edge by edge)."""
+    got = _SHAPES.get(id(room))
+    if got is None or got[0] is not room:
+        lo, hi, floors = room_shape(room)
+        polys = []
+        for poly in floors:
+            edges = []
+            for a, b in zip(poly, poly[1:]+poly[:1]):
+                dx, dz = b[0]-a[0], b[2]-a[2]
+                edges.append((a[0], a[2], b[2], dx, dz, dx*dx+dz*dz, b[0]))
+            polys.append(edges)
+        if len(_SHAPES) > 16:
+            _SHAPES.clear()
+        got = _SHAPES[id(room)] = (room, (lo[0], lo[2], hi[0], hi[2], polys), _floor_holds_bounds(lo, hi, floors))
+    return got[1]
+
+
+def _floor_holds_bounds(lo, hi, floors):
+    """Whether the walkable floor is just the bounds: no outline, or one
+    convex outline holding the bounds a micrometre in from every edge. Then a
+    point inside the bounds is nearer a bound than any outline's edge, and
+    its distance inside the floor is its distance inside the bounds."""
+    if not floors:
+        return True
+    if len(floors) != 1:
+        return False
+    poly = [(p[0], p[2]) for p in floors[0]]
+    n = len(poly)
+    turns = set()
+    for k in range(n):
+        (ax, az), (bx, bz), (cx, cz) = poly[k], poly[(k+1) % n], poly[(k+2) % n]
+        cross = (bx-ax)*(cz-bz)-(bz-az)*(cx-bx)
+        if abs(cross) > 1e-12:
+            turns.add(cross > 0)
+    if len(turns) != 1:
+        return False
+    sign = 1. if True in turns else -1.
+    for (ax, az), (bx, bz) in zip(poly, poly[1:]+poly[:1]):
+        L = math.hypot(bx-ax, bz-az)
+        if L <= 0:
+            continue
+        for x, z in ((lo[0], lo[2]), (lo[0], hi[2]), (hi[0], lo[2]), (hi[0], hi[2])):
+            if sign*((bx-ax)*(z-az)-(bz-az)*(x-ax))/L < 1e-6:
+                return False
+    return True
+
+
+def wall_frame(room, x, z):
+    """Signed distance to the walkable floor (bounds within the floor polygons;
+    negative inside), the nearest wall point and that wall's outward normal.
+    Works for any floor outline, concave ones included. The same arithmetic
+    as `wall_frame_plain`, the room read once."""
+    lo0, lo2, hi0, hi2, polys = _shape(room)
+    a, b = lo0-x, x-hi0
+    dx = b if b > a else a
+    a, b = lo2-z, z-hi2
+    dz = b if b > a else a
+    if dx <= 0 and dz <= 0:
+        k = min((x-lo0, (lo0, z), (-1., 0.)), (hi0-x, (hi0, z), (1., 0.)), (z-lo2, (x, lo2), (0., -1.)),
+                (hi2-z, (x, hi2), (0., 1.)))
+        best = (-k[0], k[1][0], k[1][1], k[2][0], k[2][1])
+    else:
+        px = lo0 if x < lo0 else hi0 if x > hi0 else x
+        pz = lo2 if z < lo2 else hi2 if z > hi2 else z
+        d = math.hypot(x-px, z-pz)
+        best = (d, px, pz, (x-px)/d, (z-pz)/d)
+    if polys:
+        within = least = None
+        hypot = math.hypot
+        for edges in polys:
+            bd = None
+            inside = False
+            for a0, a2, b2, ex, ez, L, _ in edges:
+                if L == 0:
+                    t = 0
+                else:
+                    t = ((x-a0)*ex+(z-a2)*ez)/L
+                    t = 0. if t < 0. else 1. if t > 1. else t
+                px, pz = a0+t*ex, a2+t*ez
+                d = hypot(x-px, z-pz)
+                if bd is None or d < bd:
+                    bd, bx, bz = d, px, pz
+                if (a2 > z) != (b2 > z) and x < ex*(z-a2)/ez+a0:
+                    inside = not inside
+            if bd < 1e-9:
+                c = (0., bx, bz, 0., 0.)
+            else:
+                ox, oz = (x-bx)/bd, (z-bz)/bd
+                c = (-bd, bx, bz, -ox, -oz) if inside else (bd, bx, bz, ox, oz)
+            if c[0] <= 0 and (within is None or c[0] > within[0]):
+                within = c
+            if least is None or c[0] < least[0]:
+                least = c
+        poly = within if within is not None else least
+        if poly[0] > best[0]:
+            best = poly
+    return best
+
+
 def outside_distance(room, x, z):
     """Distance outside the walkable floor (0 inside)."""
     return max(0., wall_frame(room, x, z)[0])
 
 
 def inside_distance(room, x, z):
-    """Distance inside the walkable floor to its nearest wall (negative outside)."""
+    """Distance inside the walkable floor to its nearest wall (negative outside).
+    Inside the bounds of a room whose floor is just its bounds (`_floor_holds_bounds`)
+    that is the nearest bound's distance, the same number `wall_frame` gives."""
+    got = _SHAPES.get(id(room))
+    if got is None or got[0] is not room:
+        _shape(room)
+        got = _SHAPES[id(room)]
+    if got[2]:
+        lo0, lo2, hi0, hi2, _ = got[1]
+        if lo0 <= x <= hi0 and lo2 <= z <= hi2:
+            return min(x-lo0, hi0-x, z-lo2, hi2-z)
     return -wall_frame(room, x, z)[0]
 
 
@@ -591,38 +702,52 @@ def sun_shadow(grid, h, sun_dir, step=3, reach_m=2.6):
     horiz = math.hypot(sx, sz)
     ux, uz = sx/horiz, sz/horiz
     rise = sy/horiz
-    nx = grid.nx
+    nx, nz = grid.nx, grid.nz
     coarse = {}
     dstep = grid.cell*1.5
     nsteps = int(reach_m/dstep)
-    for j in range(0, grid.nz, step):
+    # The march's offsets, worked out once (the same products as step by step).
+    march = [(ux*t, uz*t, rise*t) for t in (k*dstep for k in range(1, nsteps))]
+    x0, z0, cell = grid.x0, grid.z0, grid.cell
+    xs, zs = grid.xs, grid.zs
+    # A rising ray over the highest land meets none after it.
+    top = max(h) if rise > 0 else math.inf
+    for j in range(0, nz, step):
+        z = zs[j]
         for i in range(0, nx, step):
             q = j*nx+i
-            x, z, y0 = grid.xs[i], grid.zs[j], h[q]+.004
+            x, y0 = xs[i], h[q]+.004
             lit = 1.
-            for k in range(1, nsteps):
-                t = k*dstep
-                ii, jj = grid.nearest(x+ux*t, z+uz*t)
-                ground = h[jj*nx+ii]
-                ray = y0+rise*t
-                if ground > ray:
+            for ox, oz, oy in march:
+                if y0+oy > top:
+                    break
+                # grid.nearest, inline
+                ii = int(round((x+ox-x0)/cell))
+                ii = 0 if ii < 0 else nx-1 if ii > nx-1 else ii
+                jj = int(round((z+oz-z0)/cell))
+                jj = 0 if jj < 0 else nz-1 if jj > nz-1 else jj
+                if h[jj*nx+ii] > y0+oy:
                     lit = 0.
                     break
             coarse[(i, j)] = 1.-lit
     out = [0.]*grid.n
-    for j in range(grid.nz):
+    last_i = ((nx-1)//step)*step
+    cols = []
+    for i in range(nx):
+        i0 = (i//step)*step
+        i1 = min(i0+step, last_i)
+        cols.append((i0, i1, 0 if i1 == i0 else (i-i0)/(i1-i0)))
+    for j in range(nz):
         j0 = (j//step)*step
-        j1 = min(j0+step, ((grid.nz-1)//step)*step)
+        j1 = min(j0+step, ((nz-1)//step)*step)
         v = 0 if j1 == j0 else (j-j0)/(j1-j0)
-        for i in range(nx):
-            i0 = (i//step)*step
-            i1 = min(i0+step, ((nx-1)//step)*step)
-            u = 0 if i1 == i0 else (i-i0)/(i1-i0)
+        row = j*nx
+        for i, (i0, i1, u) in enumerate(cols):
             a = coarse[(i0, j0)]
             b = coarse[(i1, j0)]
             c = coarse[(i0, j1)]
             d = coarse[(i1, j1)]
-            out[j*nx+i] = (a*(1-u)+b*u)*(1-v)+(c*(1-u)+d*u)*v
+            out[row+i] = (a*(1-u)+b*u)*(1-v)+(c*(1-u)+d*u)*v
     return out
 
 

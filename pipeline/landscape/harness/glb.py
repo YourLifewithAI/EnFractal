@@ -92,7 +92,9 @@ def encode_mesh(primitives):
             struct.pack('<I4s', len(binary), b'BIN\0') + binary)
 
 
-def decode_mesh(data):
+def decode_mesh(data, canonical=True):
+    """`canonical=False`: the caller has just written `data` with encode_mesh (the writer's own check of float32
+    rounding), so re-encoding it to prove the canonical subset is skipped."""
     try:
         magic, version, length = struct.unpack_from('<4sII', data)
         require((magic, version, length) == (b'glTF', 2, len(data)), 'GLB header')
@@ -136,7 +138,7 @@ def decode_mesh(data):
                 primitive['blend_weights'] = get(attrs['_ROLE_BLEND'], 'SCALAR')
             result.append(primitive)
         check_primitives(result)
-        require(encode_mesh(result) == data, 'GLB must use the documented canonical subset/writer')
+        require(not canonical or encode_mesh(result) == data, 'GLB must use the documented canonical subset/writer')
         return result
     except (KeyError, IndexError, TypeError, struct.error, json.JSONDecodeError) as exc:
         raise ValueError('malformed GLB: ' + str(exc)) from exc
