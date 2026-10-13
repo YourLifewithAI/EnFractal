@@ -53,7 +53,7 @@ public partial class IslandMemoryProbe : Node
             var peakAtLoad = PeakMib();
             GD.Print(string.Create(CultureInfo.InvariantCulture, $"ISLAND_MEMORY_LOAD ready {readyMs:0} ms, copies and navigation {builtMs:0} ms, peak working set {peakAtLoad:0} MiB"));
             // The cameras are worked out from rays over the whole land: every tile of it built for a while.
-            TerrainCollision.EnsureAll(world, holdS: 2);
+            TerrainCollision.EnsureAll(world, holdS: 0.5);
             var space = world.GetWorld3D().DirectSpaceState;
             var notes = new List<string>();
             var cameras = IslandCameras.Derive(world.Room, IslandCameras.RayGround(space, world.Room.Bounds), IslandCameras.RaySky(space), notes)
@@ -69,9 +69,9 @@ public partial class IslandMemoryProbe : Node
             }
             foreach (var camera in cameras)
             {
-                TerrainCollision.EnsureAround(world, camera.PlayerM);
+                TerrainCollision.EnsureAround(world, camera.PlayerM, holdS: 0.5);
                 var moved = Stage(world.Player, camera.PlayerM);
-                GD.Print(FormattableString.Invariant($"ISLAND_MEMORY_STAGE {camera.Id}: the player at {camera.PlayerM} {(moved is { } at ? $"stands at {at}" : "could not stand there or within a metre")}"));
+                GD.Print(FormattableString.Invariant($"ISLAND_MEMORY_STAGE {camera.Id}: the player at {camera.PlayerM} {(moved is { } at ? $"stands at {at}" : "could not stand there or within 4 m, so is put there")}"));
                 world.Player.Rotation = new Vector3(0, Mathf.DegToRad(camera.YawDeg), 0);
                 world.Player.ResetPhysicsInterpolation();
                 world.Companion.Stay();
@@ -102,6 +102,15 @@ public partial class IslandMemoryProbe : Node
                         node.QueueFree();
                         await Record("without " + node.Name, world, settle: 10);
                     }
+                // The parts of the room that might be held more cheaply, one at a time: the water's colliders, the copies' collision.
+                foreach (var water in world.Built.FindChildren("*", "Area3D", true, false).OfType<Area3D>().Where(a => a.GetParent()?.HasMeta("entity_id") == true).ToArray())
+                    water.QueueFree();
+                await Record("without the water's colliders", world, settle: 10);
+                if (view != null)
+                {
+                    view.FreeCollision();
+                    await Record("without the copies' collision", world, settle: 10);
+                }
                 foreach (var child in world.Built.GetChildren().ToArray())
                 {
                     child.QueueFree();
@@ -175,15 +184,18 @@ public partial class IslandMemoryProbe : Node
         catch { return 16; }
     }
 
-    /// <summary>A body at a camera's spot, or the nearest spot within a metre it can stand on (a slope too steep at the spot itself).</summary>
+    /// <summary>A body at a camera's spot, or the nearest spot within 4 m it can stand on (a slope too steep at the spot itself).</summary>
     private static Vector3? Stage(SmallPlayerController body, Vector3 at)
     {
-        foreach (var ring in new[] { 0f, 0.1f, 0.25f, 0.5f, 1f })
+        foreach (var ring in new[] { 0f, 0.1f, 0.25f, 0.5f, 1f, 1.5f, 2f, 3f, 4f })
             for (var k = 0; k < (ring == 0 ? 1 : 12); k++)
             {
                 var spot = at + new Vector3(Mathf.Cos(k * Mathf.Tau / 12), 0, Mathf.Sin(k * Mathf.Tau / 12)) * ring;
                 if (body.TryTeleportTo(spot)) return body.GlobalPosition;
             }
+        // Nowhere to stand (a peak too steep): put there all the same, so the view and the copies are the camera's.
+        body.GlobalPosition = at + Vector3.Up * 0.05f;
+        body.Velocity = Vector3.Zero;
         return null;
     }
 

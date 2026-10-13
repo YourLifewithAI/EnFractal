@@ -46,7 +46,7 @@ public static class DrawDistances
     /// A set's tile is filled once the nearest focus (the camera or an avatar) comes within its range and this much more, so it is
     /// drawn before it can show, and emptied again only past its range and CopyReleaseM (S12b: only copies in reach are held).
     /// </summary>
-    public const float CopyBuildLeadM = 6f, CopyReleaseM = 14f;
+    public const float CopyBuildLeadM = 4f, CopyReleaseM = 10f;
     /// <summary>Where each lighter mesh takes over, as fractions of the set's range, for a set with 1 to 4 meshes.</summary>
     private static readonly float[][] DetailEnds =
     {

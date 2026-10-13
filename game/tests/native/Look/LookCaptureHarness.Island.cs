@@ -32,7 +32,7 @@ public partial class LookCaptureHarness
             if (!entry.TryGetProperty("derive", out var derive)) { yield return entry; continue; }
             var wanted = derive.GetString() ?? "island";
             // The rays go over the whole land: every tile of its collision is built for a while (TerrainCollision keeps it where the bodies are).
-            TerrainCollision.EnsureAll(_world, holdS: 5);
+            TerrainCollision.EnsureAll(_world, holdS: 0.5);
             var space = _world.GetWorld3D().DirectSpaceState;
             var derived = IslandCameras.Derive(_world.Room, IslandCameras.RayGround(space, _world.Room.Bounds), IslandCameras.RaySky(space), _deriveNotes);
             foreach (var note in _deriveNotes) GD.Print("LOOK_CAPTURE derive: " + note);

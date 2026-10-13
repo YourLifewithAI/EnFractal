@@ -289,6 +289,16 @@ public partial class PlantCopiesView : Node3D
         }
     }
 
+    /// <summary>Every copy's collision taken out of the world and freed (measurements: what it holds).</summary>
+    internal void FreeCollision()
+    {
+        foreach (var body in _bodies) PhysicsServer3D.FreeRid(body);
+        foreach (var shape in _shapes) PhysicsServer3D.FreeRid(shape);
+        _bodies.Clear();
+        _shapes.Clear();
+        _shared.Clear();
+    }
+
     /// <summary>
     /// The copy a collision hit belongs to, as its entity id (plant:&lt;set&gt;-&lt;row&gt;), or "" when the collider is not a copy's.
     /// Pass a ray or shape query's "collider" and "shape" (or a KinematicCollision3D's collider and shape index).

@@ -71,6 +71,9 @@ public static class RoomBuilder
         // Everything that draws a file is built: the files' bytes go (a 10x island's are about 40 MB). A second build reads and
         // checks them again; the land's ground stays in the room's data for collision and navigation.
         room.ReleaseMeshBytes();
+        // An island's reading leaves most of C#'s heap as garbage (the files, the manifest, the checks): compacted now, before
+        // the navigation bake and the copies add theirs, the loading's peak is that much lower (S12b).
+        if (room.Copies != null || room.Terrain != null) LoadSettle.Compact("the room's reading");
     }
 
     public static string NodeName(string entityId) =>

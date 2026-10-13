@@ -34,13 +34,13 @@ public partial class LoadSettle : Node
         var navigation = GetParent()?.GetParent()?.GetChildren().OfType<Navigation.RoomNavigation>().FirstOrDefault();
         var arrived = (copies == null || copies.Complete) && (navigation == null || navigation.IsReady);
         if (!arrived && _since.Elapsed.TotalSeconds < GiveUpS) return;
-        Compact();
+        Compact("the loading");
         SetProcess(false);
         QueueFree();
     }
 
     /// <summary>One blocking, compacting, decommitting collection of every generation and the large-object heap.</summary>
-    public static void Compact()
+    public static void Compact(string what)
     {
         var before = GC.GetGCMemoryInfo().HeapSizeBytes;
         var clock = Stopwatch.StartNew();
@@ -48,6 +48,6 @@ public partial class LoadSettle : Node
         GC.Collect(2, GCCollectionMode.Aggressive, blocking: true, compacting: true);
         Last = (clock.Elapsed.TotalMilliseconds, before, GC.GetGCMemoryInfo().HeapSizeBytes);
         GD.Print(FormattableString.Invariant(
-            $"ROOM_SETTLED the loading's garbage compacted away in {Last.Value.PauseMs:0} ms: C#'s heap {before / 1048576.0:0} MB, now {Last.Value.HeapAfter / 1048576.0:0} MB"));
+            $"ROOM_SETTLED {what}'s garbage compacted away in {Last.Value.PauseMs:0} ms: C#'s heap {before / 1048576.0:0} MB, now {Last.Value.HeapAfter / 1048576.0:0} MB"));
     }
 }

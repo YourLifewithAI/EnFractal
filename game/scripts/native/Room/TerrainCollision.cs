@@ -34,7 +34,7 @@ public partial class TerrainCollision : Node3D
     public const string ViewName = "TerrainCollision";
     /// <summary>A node in this group is kept on built ground like a body (something physics moves that is neither a CharacterBody3D nor a RigidBody3D).</summary>
     public const string AnchorGroup = "terrain_anchor";
-    public const float NearM = 20f, LeadS = 1.5f, MaxLeadM = 40f, LeadRadiusM = 8f, SyncM = 4f, PinM = 6f, ReleaseSlackM = 12f;
+    public const float NearM = 16f, LeadS = 1.5f, MaxLeadM = 40f, LeadRadiusM = 8f, SyncM = 4f, PinM = 6f, ReleaseSlackM = 8f;
     public const double ReleaseAfterS = 3.0, BootHoldS = 2.0;
     /// <summary>The physics tick's time for tiles built ahead of the bodies (at least one a tick while any is wanted).</summary>
     public const double BuildBudgetMs = 1.5;
@@ -61,7 +61,6 @@ public partial class TerrainCollision : Node3D
     private readonly List<(Vector3 At, float RadiusM)> _pins = new();
     private readonly List<(Vector3 From, Vector3 To, Vector3 Next)> _bodies = new();
     private readonly List<Tile> _queue = new();
-    private Vector3[][]? _bootFaces;
     private double _timeS, _bodiesForS;
     private Node? _host;
     private double _hostCheckedS = double.NegativeInfinity;
@@ -100,10 +99,15 @@ public partial class TerrainCollision : Node3D
         }
         if (tiles.Count == 0) return null;
         var view = new TerrainCollision { Name = ViewName, _room = room, _tiles = tiles.ToArray(), ProcessPhysicsPriority = int.MinValue };
-        // The boot builds every tile: the ground read on worker threads now, the bodies made as the room enters the scene.
+        // The boot builds every tile: the ground read on worker threads and handed to the physics server now (its faces are
+        // then the server's alone), the bodies made as the room enters the scene.
         var faces = new Vector3[tiles.Count][];
         System.Threading.Tasks.Parallel.For(0, tiles.Count, i => faces[i] = tiles[i].Part.GroundFaces(tiles[i].Index));
-        view._bootFaces = faces;
+        for (var i = 0; i < tiles.Count; i++)
+        {
+            view.Shape(tiles[i], faces[i]);
+            faces[i] = null!;
+        }
         return view;
     }
 
@@ -119,9 +123,8 @@ public partial class TerrainCollision : Node3D
                 PhysicsServer3D.BodySetState(tile.Body, PhysicsServer3D.BodyState.Transform, tile.Owner.GlobalTransform);
                 PhysicsServer3D.BodySetSpace(tile.Body, space);
             }
-            else if (_bootFaces != null) Build(tile, _bootFaces[i]);
+            else if (tile.Shape.IsValid) Build(tile);
         }
-        _bootFaces = null;
     }
 
     public override void _ExitTree()
@@ -325,12 +328,20 @@ public partial class TerrainCollision : Node3D
         private static bool Moves(Node node) => node is CharacterBody3D or RigidBody3D;
     }
 
-    private void Build(Tile tile, Vector3[]? faces = null)
+    /// <summary>A tile's one-sided ground shape on the physics server, from its faces (read from the room's data when not given).</summary>
+    private void Shape(Tile tile, Vector3[]? faces = null)
     {
-        if (tile.Built) return;
+        if (tile.Shape.IsValid) return;
         faces ??= tile.Part.GroundFaces(tile.Index);
         tile.Shape = PhysicsServer3D.ConcavePolygonShapeCreate();
         PhysicsServer3D.ShapeSetData(tile.Shape, new Godot.Collections.Dictionary { ["faces"] = faces, ["backface_collision"] = false });
+        tile.Triangles = faces.Length / 3;
+    }
+
+    private void Build(Tile tile)
+    {
+        if (tile.Built) return;
+        Shape(tile);
         tile.Body = PhysicsServer3D.BodyCreate();
         PhysicsServer3D.BodySetMode(tile.Body, PhysicsServer3D.BodyMode.Static);
         PhysicsServer3D.BodySetCollisionLayer(tile.Body, tile.Layer);
@@ -346,21 +357,22 @@ public partial class TerrainCollision : Node3D
         TilesBuilt++;
         MostTilesBuilt = Math.Max(MostTilesBuilt, TilesBuilt);
         Builds++;
-        TrianglesBuilt += faces.Length / 3;
-        tile.Triangles = faces.Length / 3;
+        TrianglesBuilt += tile.Triangles;
     }
 
     private void Release(Tile tile, bool counted)
     {
-        if (!tile.Built) return;
-        PhysicsServer3D.BodySetSpace(tile.Body, default);
-        PhysicsServer3D.FreeRid(tile.Body);
-        PhysicsServer3D.FreeRid(tile.Shape);
-        tile.Body = default;
+        if (tile.Built)
+        {
+            PhysicsServer3D.BodySetSpace(tile.Body, default);
+            PhysicsServer3D.FreeRid(tile.Body);
+            tile.Body = default;
+            TilesBuilt--;
+            TrianglesBuilt -= tile.Triangles;
+            if (counted) Releases++;
+        }
+        if (tile.Shape.IsValid) PhysicsServer3D.FreeRid(tile.Shape);
         tile.Shape = default;
-        TilesBuilt--;
-        TrianglesBuilt -= tile.Triangles;
-        if (counted) Releases++;
     }
 
     /// <summary>How far a point is from a tile's square, seen from above (0 inside it).</summary>

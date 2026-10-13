@@ -213,7 +213,7 @@ public partial class LookCaptureHarness : Node
         var yaw = Mathf.DegToRad(stage.TryGetProperty("yaw_deg", out var yawElement) ? (float)yawElement.GetDouble() : 0f);
         if (stage.TryGetProperty("player_m", out var playerAt))
         {
-            EnFractal.Native.Room.TerrainCollision.EnsureAround(_world, Vec(playerAt));
+            EnFractal.Native.Room.TerrainCollision.EnsureAround(_world, Vec(playerAt), holdS: 0.5);
             _world.Player.TryTeleportTo(Vec(playerAt));
             _world.Player.Rotation = new Vector3(0, yaw, 0);
             _world.Player.ResetPhysicsInterpolation();
