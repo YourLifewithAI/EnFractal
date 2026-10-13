@@ -79,6 +79,7 @@ public partial class PlayHudTest : Node
             await TestPutDown();
             await TestAuraRecolours();
             await TestProfileField();
+            await TestJournalBook();
             await TestGlowJournalLearned();
 
             // Unload while the final cast's chime is still active. AudioServer
@@ -95,13 +96,16 @@ public partial class PlayHudTest : Node
             }
             Check(!HudAudioResourceAlive(_lastGlowPlaybackId) && !HudAudioResourceAlive(_lastGlowVoiceId),
                 "unloading the world releases its stopped chime playback and generated sound before engine exit");
+            // The journal across boots, in this suite's saves: a note survives a reload; a team that has seen nothing reads nothing.
+            await TestJournalAfterReload();
+            await TestJournalNothingUnseen();
             CommandHost.SaveRoot = CommandHost.DefaultSaveRoot;
             RoomHud.ProfilePath = RoomHud.DefaultProfilePath;
             CommandHost.DefaultGlowProgressPath = previousGlowPath;
             CommandHost.DefaultPlayerVitalsPath = previousVitalsPath;
             CommandHost.DefaultWishSaveRoot = previousWishRoot;
             RemoveSaves();
-            GD.Print($"NATIVE_KERNEL_PLAY_HUD: {_checks - _failures}/{_checks} checks passed; every key is a named input action with the Glow round's defaults and the help reads them (a remapped key changes both what it does and what the help shows), H folds the help, [ and ] turn the isometric view, T and Shift+T step the time of day and the season back to the real clock, the companion's solid name tag stays small and hides near the camera, F and V pick up, carry, set down on the box and push, the right button's tap asks what fits the frozen aim and its hold opens the wheel, 1 casts Glow, Q recalls, X stops, the Gubble's bubble answers with the host's result, its glow takes its colour, and the dusk moment teaches Glow once");
+            GD.Print($"NATIVE_KERNEL_PLAY_HUD: {_checks - _failures}/{_checks} checks passed; every key is a named input action with the Glow round's defaults and the help reads them (a remapped key changes both what it does and what the help shows), H folds the help, [ and ] turn the isometric view, T and Shift+T step the time of day and the season back to the real clock, the companion's solid name tag stays small and hides near the camera, F and V pick up, carry, set down on the box and push, the right button's tap asks what fits the frozen aim and its hold opens the wheel, 1 casts Glow, Q recalls, X stops, the Gubble's bubble answers with the host's result, its glow takes its colour, the dusk moment teaches Glow once, and J or a click opens the journal book at its index, written from the host's data, holding the game until it is back in its dock");
             GetTree().Quit(_failures == 0 ? 0 : 1);
         }
         catch (Exception error)
@@ -134,7 +138,7 @@ public partial class PlayHudTest : Node
         ("gubble_slot_4", Key.Key4, false), ("gubble_slot_5", Key.Key5, false),
         ("hands", Key.F, false), ("push", Key.V, false),
         ("physics_next", Key.G, false), ("time_step", Key.T, false), ("season_step", Key.T, true), ("lamps", Key.L, false),
-        ("hud_help", Key.H, false), ("hud_customize", Key.C, false), ("mouse_release", Key.Escape, false),
+        ("hud_help", Key.H, false), ("hud_customize", Key.C, false), ("journal", Key.J, false), ("mouse_release", Key.Escape, false),
     };
 
     private readonly System.Collections.Generic.Dictionary<string, Godot.Collections.Array<InputEvent>> _savedMap = new();
@@ -182,6 +186,7 @@ public partial class PlayHudTest : Node
         {
             ("always", ControlContext.Always, 0), ("F3", ControlContext.Always, ControlContext.Diorama),
             ("F4", ControlContext.Always, ControlContext.Isometric), ("customise", ControlContext.Customize, 0),
+            ("reading", ControlContext.Reading, 0),
         };
         foreach (var (name, live, extra) in contexts)
         {
@@ -303,7 +308,7 @@ public partial class PlayHudTest : Node
                 $"WASD move · Shift run · Space jump · B back to {home} · R recover · drag to look around",
                 "Climb: keep walking into a steep face, W up, S down, A/D across, Space lets go · Swim: deep water floats you, Space leaps · Dive: hold Ctrl, Space rises, W swims the way you look, let go to drift up",
                 "F1 eye · F2 shoulder · F3 diorama: drag orbits, wheel zooms, WASD follows the view · F4 isometric: [/] turn the view",
-                "O observe (a very tight tilt-shift view, best from F3 or F4) · C customize (Esc closes it)",
+                "O observe (a very tight tilt-shift view, best from F3 or F4) · C customize · J journal (Esc closes either)",
                 "F pick up what you face · F again sets it down in front of you, or on top of what you face (the box, the book) · V push what you face 10 cm",
                 "The Gubble, your companion:",
                 "right-click asks for what fits where you point (wait or follow, fetch or put down, light the dark, go and look); hold it for the wheel · Q come, then follow · X stop",
@@ -313,7 +318,7 @@ public partial class PlayHudTest : Node
             };
             var lines = HelpLines();
             Check(lines.SequenceEqual(expected), "with the default keys the help says drag where it said click, groups the Gubble's keys (its ask, Q, X, 1 to 5) under its name, and puts the testing toggles (G, T, Shift+T, L) under a \"Testing\" heading:\n" + string.Join("\n", lines.Except(expected)));
-            Check(ButtonTexts("CompanionActions").SequenceEqual(new[] { "Follow", "Wait", "Q Come", "X Stop", "1 Glow", "Customize", "Glow journal", "Magic" }) &&
+            Check(ButtonTexts("CompanionActions").SequenceEqual(new[] { "Follow", "Wait", "Q Come", "X Stop", "1 Glow", "Customize", "Magic" }) &&
                 ButtonTexts("HandActions").SequenceEqual(new[] { "F Pick up / put down", "V Push" }), "and so do the buttons of the top panel");
             Check(((Label)_hud.FindChild("CompanionName", true, false)!).Text == "The Gubble:", "and the Gubble's buttons stand under its name");
             var state = ((Label)_hud.FindChild("State", true, false)!).Text;
@@ -367,17 +372,18 @@ public partial class PlayHudTest : Node
             _hud._UnhandledInput(Press(Key.X));
             Check(companion.CurrentIntent == "stop", "X stops it");
             _hud._UnhandledInput(Press(Key.Q));
-            Bind(Act.GubbleStop, Key.J);
+            // (J is the journal's since the journal book: the remapped stop goes on K.)
+            Bind(Act.GubbleStop, Key.K);
             await Frames(2);
             _hud._UnhandledInput(Press(Key.X));
-            Check(companion.CurrentIntent != "stop", "with stop on J, X does nothing");
-            _hud._UnhandledInput(Press(Key.J));
-            Check(companion.CurrentIntent == "stop", "J stops it");
+            Check(companion.CurrentIntent != "stop", "with stop on K, X does nothing");
+            _hud._UnhandledInput(Press(Key.K));
+            Check(companion.CurrentIntent == "stop", "K stops it");
             var echo = Press(Key.Q); echo.Echo = true;
             _hud._UnhandledInput(echo);
             Check(companion.CurrentIntent == "stop", "a held key repeating (echo) does not count as a press");
-            Check(HelpLines().Any(l => l.EndsWith("Q come, then follow · J stop", StringComparison.Ordinal)) && ButtonTexts("CompanionActions")[3] == "J Stop",
-                "and the help and the button say J stop");
+            Check(HelpLines().Any(l => l.EndsWith("Q come, then follow · K stop", StringComparison.Ordinal)) && ButtonTexts("CompanionActions")[3] == "K Stop",
+                "and the help and the button say K stop");
             RestoreMap();
 
             // Time of day: T moves to Y, and Shift+T is still the season.

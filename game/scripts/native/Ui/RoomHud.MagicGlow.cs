@@ -82,7 +82,6 @@ public partial class RoomHud
         if (variant == "lantern") point = null;
         if (variant == "skylight") point ??= Companion.GlobalPosition;
         MagicResult(host.PlayerEffect("glow", point, variant), "The light is glowing.");
-        RefreshGlowJournal();
     }
 
     private void RefreshGlowPage()
