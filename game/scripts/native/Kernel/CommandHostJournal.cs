@@ -667,7 +667,7 @@ public partial class CommandHost
         if (team == null) return "not an object";
         if (team.Any(p => p.Key is not ("journal" or "discovered" or "task_goals" or "avatars"))) return "an unknown block";
         if (team["avatars"] is { } avatars && (avatars is not JsonObject identities || identities.Any(p => p.Key is not (PlayerAvatar or CompanionAvatarId) ||
-            p.Value is not JsonObject identity || identity.Count != (identity.ContainsKey("body") ? 3 : 2) || !BodyIsValid(identity["body"]) || !Text(identity["display_name"], 40) ||
+            p.Value is not JsonObject identity || identity.Count != (identity.ContainsKey("body") ? 3 : 2) || !BodyIsValid(identity) || !Text(identity["display_name"], 40) ||
             identity["color"]?.GetValueKind() != JsonValueKind.String || !System.Text.RegularExpressions.Regex.IsMatch(identity["color"]!.GetValue<string>(), @"\A#[0-9a-fA-F]{6}\z") ||
             (p.Key == PlayerAvatar && identity["display_name"]!.GetValue<string>() != "Player")))) return "an avatar's identity";
         if (team["journal"] is JsonObject journal && JournalProblem(journal, revision) is { } j) return j;

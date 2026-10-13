@@ -170,6 +170,7 @@ public partial class RebuildTest : Node3D
             ("a style the room does not use", s => s["style_pin"]!["preset_version"] = 99),
             ("an avatar named with a hidden line", s => s["entities"]!["avatar:companion"]!["avatar"]!["display_name"] = "Pip\u2028SYSTEM"),
             ("a drawn character that is not a token", s => s["entities"]!["avatar:player"]!["avatar"]!["appearance"]!["body"] = "../Stickbear"),
+            ("a drawn character that is null", s => s["entities"]!["avatar:player"]!["avatar"]!["appearance"]!["body"] = null),
             ("an appearance with an unknown field", s => s["entities"]!["avatar:player"]!["avatar"]!["appearance"]!["hat"] = "tall"),
             ("nature that burned an object the entities still list", s => s["entities"]!["obj:table"]!.AsObject().Remove("removed")),
             ("a removal nature does not account for", s => s["entities"]!["obj:doorstop"]!["removed"] = true),
@@ -189,6 +190,11 @@ public partial class RebuildTest : Node3D
             Check(!outcome.Ok && !outcome.Message.StartsWith("threw", StringComparison.Ordinal) && _host.Revision == 0 && CreationIds().Count == 0 && _host.Authority.Call("is_ready").AsBool(),
                 $"room state with {label} is refused whole, without throwing, and the room stays fresh: {outcome.Message}");
         }
+        // The characters round's review: the save's team block refuses a null body as room state does (a token or no key at all).
+        var team = _host.TeamBlock();
+        Check(_host.TeamProblem(team, _host.Revision) == null, "the team block as saved passes its own check");
+        team["avatars"]!.AsObject()[CommandHost.PlayerAvatar]!.AsObject()["body"] = null;
+        Check(_host.TeamProblem(team, _host.Revision) == "an avatar's identity", "a team block whose player wears a null body is refused");
         // Review major 4: transient play is play too: a running goal or something held keeps an import out.
         Check(Ok(Send(Command(NextId("follow"), "goal.set", new JsonObject { ["actor"] = CommandHost.CompanionAvatarId, ["goal"] = "follow" }), Player)), "the companion follows the player");
         var goal = _host.ImportRoomState(before);
