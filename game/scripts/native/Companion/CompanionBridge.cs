@@ -250,19 +250,25 @@ public partial class CompanionBridge : Node
                 answer.TrySetException(new ObjectDisposedException(nameof(CompanionBridge)));
                 return;
             }
-            try
-            {
-                // The authenticated endpoint assigns the role. No message can promote a runner to a companion.
-                var result = runner ? Host.HandleWishRunner(message) : Host.HandleObject(message, CommandHost.CompanionPrincipal);
-                Answered++;
-                var op = result["op"]?.GetValue<string>() ?? "invalid";
-                // A stop is not planning: the avatar shows the stop at once.
-                if (!runner) _lastRequestS = op is "goal.stop" or "effect.stop" ? double.NegativeInfinity : Seconds();
-                answer.TrySetResult(CanonicalJson.Text(result));
-            }
-            catch (Exception error) { answer.TrySetException(error); }
+            // The authenticated endpoint assigns the role. No message can promote a runner to a companion. A look (view.look)
+            // waits a frame or two for its picture on the main thread; everything else answers at once.
+            _ = Answer(runner, message, answer);
         });
         return answer.Task;
+    }
+
+    private async Task Answer(bool runner, string message, TaskCompletionSource<string> answer)
+    {
+        try
+        {
+            var result = runner ? Host.HandleWishRunner(message) : await Host.HandleObjectAsync(message, CommandHost.CompanionPrincipal);
+            Answered++;
+            var op = result["op"]?.GetValue<string>() ?? "invalid";
+            // A stop is not planning: the avatar shows the stop at once.
+            if (!runner) _lastRequestS = op is "goal.stop" or "effect.stop" ? double.NegativeInfinity : Seconds();
+            answer.TrySetResult(CanonicalJson.Text(result));
+        }
+        catch (Exception error) { answer.TrySetException(error); }
     }
 
     private void OnSession(string name)

@@ -106,7 +106,7 @@ public partial class CommandHost : Node
     private static readonly HashSet<string> QueryOps = new()
     {
         "room.describe", "entities.list", "entity.inspect", "capabilities.list", "observe", "jobs.status", "receipt.lookup", "approval.status",
-        "journal.read", "map.find", "player.status", "nature.describe", "wishes.read",
+        "journal.read", "map.find", "player.status", "nature.describe", "wishes.read", "view.look",
     };
     private static readonly HashSet<string> DestructiveOps = new() { "entity.remove", "entity.transform", "creation.revise", "protect.lock", "protect.unlock" };
     /// <summary>
@@ -1076,6 +1076,7 @@ public partial class CommandHost : Node
                 "player.status" => PlayerStatus(),
                 "nature.describe" => NatureSnapshot(),
                 "wishes.read" => WishesRead(principal),
+                "view.look" => ViewLook(args, principal),
                 _ => throw new Refusal("request_invalid", "That operation does not exist.", "$.op"),
             };
             return result;
@@ -2197,6 +2198,7 @@ public partial class CommandHost : Node
             "approval.status" => new[] { "request_id" },
             "journal.read" => new[] { "kind", "about", "since_utc", "cursor", "limit" },
             "map.find" => new[] { "category_group", "name", "near_m", "limit" },
+            "view.look" => new[] { "actor", "yaw_deg", "pitch_deg" },
             _ => Array.Empty<string>(),
         };
         foreach (var property in args.EnumerateObject())
@@ -2213,6 +2215,9 @@ public partial class CommandHost : Node
                     throw new Refusal("request_invalid", "actor is an avatar id.", "$.args.actor");
                 if (args.TryGetProperty("radius_m", out var radius) && (radius.ValueKind != JsonValueKind.Number || radius.GetDouble() is <= 0 or > 20))
                     throw new Refusal("request_invalid", "radius_m is between 0 and 20.", "$.args.radius_m");
+                break;
+            case "view.look":
+                CheckLookArgs(args);
                 break;
             case "receipt.lookup":
                 if (!args.TryGetProperty("action_id", out var action) || action.ValueKind != JsonValueKind.String || !ActionId.IsMatch(action.GetString()!))
