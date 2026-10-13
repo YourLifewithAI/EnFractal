@@ -288,14 +288,14 @@ class Detail:
     def carve(self, pts, W, halves, depths, bank, keep_lake):
         """water.carve at each fine vertex: the nearest stream sample within
         its reach (the first on a tie), its surface, bed and bank."""
-        from .water import FREEBOARD, bank_height, lake_rho
+        from .water import BANK_CUT, FREEBOARD, bank_height, lake_rho
         noise = self.noise
         for (x, z), hw in zip(pts, halves):
             r = hw+.16+.05
             self.mark_box(x-r, x+r, z-r, z+r, 'stream')
 
         def run():
-            H, X, Z, wet = self.h, self.x, self.z, self.wet
+            H, X, Z, wet, face = self.h, self.x, self.z, self.wet, self.face
             last = len(pts)-1
             for k, (d, k_, t) in self._along(pts, lambda m: halves[m]+.16).items():
                 k1 = min(k_+1, last)
@@ -312,7 +312,10 @@ class Detail:
                     bed = level-dp*(1-(d/hw)**2)-.004
                     H[k] = min(H[k], bed)
                 else:
-                    H[k] = bank_height(H[k], level+FREEBOARD*.5+bank*(d-hw))
+                    cap = level+FREEBOARD*.5+bank*(d-hw)
+                    if H[k]-cap > 2*BANK_CUT:
+                        face[k] = True     # a landform's face the stream runs beside, not its bank
+                    H[k] = bank_height(H[k], cap)
                     H[k] = max(H[k], level+.004)
                 wet[k] = min(wet[k], max(0., d-hw))
         self.op(run)
@@ -578,6 +581,7 @@ class Detail:
         self.h, self.base, self.owner, self.acc = H, BASE, OWN, ACC
         self.wet = [9.]*n
         self.bench = [0.]*n
+        self.face = [False]*n
         self.pads = [0.]*n
         self.paths = [0.]*n
         self.blocked = [False]*n
@@ -800,10 +804,13 @@ class Detail:
         """Per fine vertex, the steepest fine face touching it."""
         from .field import face_slope_max
         out = [0.]*self.n
+        tris = None
         for b in self.blocks:
             bg = self.block_grid(b)
+            if tris is None:
+                tris = bg.triangles()    # every block's cells are the same, by local index
             ids = self.loc[b]
-            got = face_slope_max(bg, self.local(b, self.h), bg.triangles())
+            got = face_slope_max(bg, self.local(b, self.h), tris)
             for p, s in enumerate(got):
                 k = ids[p]
                 if s > out[k]:
@@ -1038,11 +1045,14 @@ class Detail:
 
 def plane_ok_fine(detail, jroot):
     """generate's `plane_ok` at a fine vertex: water, its banks, paths, the
-    hamlet, the jetty's landing and the sea past the waterline stay."""
+    hamlet, the jetty's landing and the sea past the waterline stay. A
+    landform's face a stream runs beside (no bank of it: `Detail.carve`) is
+    rock like any other: a fin of it left between the water and lower ground
+    is planed."""
     d = detail
 
     def ok(k):
-        if d.wet[k] < .04 or d.paths[k] >= .3 or d.pads[k] > 0 or d.blocked[k] or d.S[k] > d.C[k]:
+        if (d.wet[k] < .04 and not (d.face[k] and d.wet[k] > 0)) or d.paths[k] >= .3 or d.pads[k] > 0 or d.blocked[k] or d.S[k] > d.C[k]:
             return False
         return jroot is None or math.hypot(d.x[k]-jroot[0], d.z[k]-jroot[1]) >= .35
     return ok

@@ -59,7 +59,14 @@ lattice (today's density per square metre: about W^2 times more of them);
 riparian trees by a body-sized stream; the walker's 2.5 cm lattice.
 
 RESOLUTION FLOORS (x the cell, only bite when the cell is coarser than today's
-3 cm): painted path widths; the outline simplification.
+3 cm): painted path widths on the base (the detail paints at the body's width);
+the outline simplification. On a magnified room a path's graded bench is never
+narrower than the walk resolves (10.5 cm each side: its 11 cm disc plus one
+step of its 5 cm lattice).
+
+THE GROUND (detail.py): a 10 cm base grid with 2.5 cm detail blocks of 1 m
+where the body meets the land, every rule that shapes the base replayed on them,
+stitched without a crack; where the body walks they keep the base's surface.
 
 THE WALKER (checks.py) keeps the body's limits on a magnified room (the 11 cm
 disc, 2 cm steps sampled each centimetre, 20 degrees) on a 5 cm lattice (today
