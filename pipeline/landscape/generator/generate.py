@@ -10,6 +10,7 @@ import os
 import random
 import shutil
 import tempfile
+import time
 import uuid
 from pathlib import Path
 
@@ -23,6 +24,7 @@ from .life import (BRIDGE, grade_line, STEP_LIMIT_M, WALK_LIMIT_DEG, build_mesh,
                    paint_path, prototypes, reachable_from, surface, walk)
 from .water import channel_cells, choose_outlet, lake_rho, plan_and_carve, resample
 from . import sea as Sea
+from . import scale as world
 from .climb import give_lips
 
 GENERATOR = {'name': 'landscape-generator', 'version': '5'}
@@ -33,6 +35,19 @@ REPO = Path(__file__).resolve().parents[3]
 SETUP_PATH = REPO/'pipeline'/'landscape'/'harness'/'ab-setup.json'
 
 
+_T0 = [None]
+
+
+def _tick(label):
+    """Stage timings for the scale experiment (printed only for a magnified room)."""
+    if world.W == 1:
+        return
+    now = time.perf_counter()
+    if _T0[0] is None:
+        _T0[0] = now
+    print('LANDSCAPE_STAGE %-10s %7.1f s' % (label, now-_T0[0]), flush=True)
+
+
 def eyes(room):
     """Where the review eyes and figures stand, so planting keeps them clear."""
     lo, hi, _ = room_shape(room)
@@ -41,7 +56,7 @@ def eyes(room):
     for s in room['spawns']:
         x, _, z = s['position_m']
         ax, az = cx, cz
-        if math.hypot(cx-x, cz-z) < 1.5:
+        if math.hypot(cx-x, cz-z) < 1.5*world.W:
             ax, az = max([(cx, lo[2]), (hi[0], cz), (cx, hi[2]), (lo[0], cz)],
                          key=lambda p: math.hypot(p[0]-x, p[1]-z))
         out.append((x, z, ax, az))
@@ -86,43 +101,70 @@ def grounding(grid, h, objects, base):
     return rows
 
 
-def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False):
+def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=CELL):
     room_dir = Path(room_dir)
     room = load_json(room_dir/'room.json')
     inventory = load_json(room_dir/'inventory.json')
     setup = setup if setup is not None else load_json(SETUP_PATH)
-    noise = Noise(seed)
+    W = world.W
+    _tick('start')
+    noise = Noise(seed, scale=W)
     rnd = random.Random(seed)
     objects = parse_objects(inventory)
     lo, hi, _ = room_shape(room)
-    grid = Grid(lo[0]-MARGIN, lo[2]-MARGIN, hi[0]+MARGIN, hi[2]+MARGIN, CELL)
+    # The grid's margin holds the coast's widest headland (x W), the reef, the
+    # playable water and the shelf's fall past it (body).
+    margin = MARGIN+.28*(W-1)
+    grid = Grid(lo[0]-margin, lo[2]-margin, hi[0]+margin, hi[2]+margin, cell)
     nx = grid.nx
     spawns = [s['position_m'] for s in room['spawns']]
     inside = [wall_frame(room, grid.xs[q % nx], grid.zs[q//nx])[0] <= 0 for q in range(grid.n)]
     outlet = choose_outlet(room, spawns)
     diag = math.hypot(hi[0]-lo[0], hi[2]-lo[2])
+    # World scale: the plain, the landforms and their weathering are today's
+    # island exactly: computed on the unmagnified room on today's 3 cm grid (its
+    # own margin, unmagnified noise and boxes), then magnified onto this grid
+    # (bilinear between today's samples, which lie 3 cm x W apart; heights x W).
+    ugrid, unoise, uobjects = grid, noise, objects
+    if W != 1:
+        ugrid = Grid(lo[0]/W-MARGIN, lo[2]/W-MARGIN, hi[0]/W+MARGIN, hi[2]/W+MARGIN, CELL)
+        unoise = Noise(seed)
+        uobjects = [dict(o, cx=o['cx']/W, cz=o['cz']/W, base=o['base']/W, top=o['top']/W, sx=o['sx']/W,
+                         sy=o['sy']/W, sz=o['sz']/W) for o in objects]
     # The plain: living ground tilting gently toward the pass where water leaves.
     base = []
-    for q in range(grid.n):
-        x, z = grid.xs[q % nx], grid.zs[q//nx]
-        t = clamp(math.hypot(x-outlet['x'], z-outlet['z'])/diag)
-        base.append(.035+.055*t+.018*noise.fbm(x*.55+2, z*.55-1, 3))
-    owner = [-1]*grid.n
+    for q in range(ugrid.n):
+        x, z = ugrid.xs[q % ugrid.nx], ugrid.zs[q//ugrid.nx]
+        t = clamp(math.hypot(x*W-outlet['x'], z*W-outlet['z'])/diag)
+        base.append(.035+.055*t+.018*unoise.fbm(x*.55+2, z*.55-1, 3))
+    owner = [-1]*ugrid.n
     # One lee for the whole land: soft hills trail their long gentle side the
     # way the land drains, from the high country toward the pass, so every
     # hill shares the same weathering, like crag-and-tail country.
     hx_, hz_ = high_country(room, outlet)
-    for o in objects:
+    for o, uo in zip(objects, uobjects):
         a = math.radians(o['yaw'])
         dx, dz = outlet['x']-hx_, outlet['z']-hz_
-        o['tail'] = math.atan2(math.sin(a)*dx+math.cos(a)*dz, math.cos(a)*dx-math.sin(a)*dz)
-    h = uplift(grid, objects, base, noise, owner)
+        o['tail'] = uo['tail'] = math.atan2(math.sin(a)*dx+math.cos(a)*dz, math.cos(a)*dx-math.sin(a)*dz)
+    h = uplift(ugrid, uobjects, base, unoise, owner)
     outside = [not v for v in inside]
-    slope = slope_field(grid, h)
-    h, acc = weather(grid, h, outside, slope, noise)
+    slope = slope_field(ugrid, h)
+    h, acc = weather(ugrid, h, outside, slope, unoise)
+    if W != 1:
+        hu, bu, ou, au = h, base, owner, acc
+        h, base, owner, acc = [], [], [], []
+        for q in range(grid.n):
+            xu, zu = grid.xs[q % nx]/W, grid.zs[q//nx]/W
+            h.append(ugrid.sample(hu, xu, zu)*W)
+            base.append(ugrid.sample(bu, xu, zu)*W)
+            i, j = ugrid.nearest(xu, zu)
+            owner.append(ou[j*ugrid.nx+i])
+            acc.append(au[j*ugrid.nx+i])
+    _tick('landforms')
     # ---------------- the island: the walls become a ragged coast, the door a jetty
     coast = Sea.carve_coast(grid, room, h, base, noise, objects, spawns, seed)
     jetty = coast['jetty']
+    _tick('coast')
     Sea.land_jetty(grid, h, jetty)
     avoid_jetty = [] if jetty is None else [(jetty['root'][0], jetty['root'][1], .7)]
 
@@ -133,6 +175,7 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False):
     water = plan_and_carve(grid, room, objects, h, base, inside, spawns, setup, noise, outside,
                            sea=dict(level=Sea.SEA_Y, goal=sea_goal, avoid=avoid_jetty))
     wet = water['wet']
+    _tick('water')
     # Banks the streams raised past the waterline go back under the sea.
     for q, v in coast['sea_cap'].items():
         if v < h[q]:
@@ -183,13 +226,13 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False):
     for o in objects:
         if o['parent'] is not None:
             continue
-        R = math.hypot(o['sx'], o['sz'])/2+.05
+        R = math.hypot(o['sx'], o['sz'])/2+.05*W
         rx_, rz_ = grid.span(o['cx']-R, o['cx']+R, o['cz']-R, o['cz']+R)
         for j in rz_:
             for i in rx_:
-                if rr_dist(*local(o, grid.xs[i], grid.zs[j]), max(o['sx']/2, .06), max(o['sz']/2, .06), .02) <= .03:
+                if rr_dist(*local(o, grid.xs[i], grid.zs[j]), max(o['sx']/2, .06*W), max(o['sz']/2, .06*W), .02*W) <= .03*W:
                     protect[j*nx+i] = True
-                    floor_at[j*nx+i] = max(floor_at[j*nx+i], o['top']-max(.15, o['sy']/3)+.04)
+                    floor_at[j*nx+i] = max(floor_at[j*nx+i], o['top']-max(.15*W, o['sy']/3)+.04*W)
     houses = []
     pads = [0.]*grid.n
     fields = [0.]*grid.n
@@ -258,6 +301,10 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False):
                     d = max(abs(lx)-hh['hx'], abs(lz)-hh['hz'], 0.)
                     pads[q] = max(pads[q], .55*(1-smooth(d/.08)))
         hamlet = dict(x=sx, z=sz, water=[wx, wz], houses=len(houses))
+    _tick('hamlet')
+    if W != 1:
+        print('LANDSCAPE_HAMLET', hamlet, 'player', player0, 'lake', water.get('lake') and
+              {k: round(v, 2) for k, v in water['lake'].items() if k in ('x', 'z', 'rx', 'rz')}, flush=True)
     # ---------------- paths (built and graded) and the carryable object
     paths = [0.]*grid.n
     player = next((s for s in room['spawns'] if s['role'] == 'player'), room['spawns'][0])
@@ -298,6 +345,7 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False):
         if r3:
             roads.append(r3)
             paint_line(grid, r3, paths, .028)
+    _tick('paths')
     sea_pos, sea_tris = Sea.sea_surface(grid, sea)
     # The checks' walker looks only at the island and its water, not out to the horizon.
     look = dict(sea=dict(play_area=dict(bounds_m=dict(min_m=[grid.xs[0], 0, grid.zs[0]],
@@ -343,6 +391,7 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False):
                     fixed += 1
             if not fixed:
                 break
+    _tick('graded')
     # Whatever was levelled after the tarn was filled (glades, pads, paths)
     # may not breach its shore: the rim stands above the water again, except
     # where a stream carries the water on.
@@ -386,6 +435,7 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False):
     # An object's own landform keeps the height its footprint is read by.
     planed = give_lips(grid, h, lambda q: h[q] > Sea.SEA_Y+.005 and wet[q] > 0, plane_ok,
                        lambda q: max(0., h[q]-floor_at[q]))
+    _tick('lips')
     slope = slope_field(grid, h)
     tris = grid.triangles()
     fslope = face_slope_max(grid, h, tris)
@@ -398,7 +448,7 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False):
                          yaw_deg=round(door['yaw']+20, 1), size_m=[.08, .07, .07],
                          mass_kg=.12, carriable=True, tint=[1., .82, .7])
             objects_out.append(carry)
-    shadow = sun_shadow(grid, h, water_sun(setup))
+    shadow = sun_shadow(grid, h, water_sun(setup), reach_m=2.6*W)
     weights, tints = surface(grid, h, base, fslope, owner, objects, shadow, wet, acc, outside,
                              paths, pads, fields, noise)
     sea = Sea.sea_mask(grid, h, river_mouths)
@@ -426,6 +476,7 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False):
         scatter.append(dict(prototype='footbridge', position_m=[round(b['x'], 4), round(b['top']-BRIDGE[1], 4),
                                                               round(b['z'], 4)],
                             yaw_deg=round(b['yaw'], 1), scale=[1., 1., round(b['length']/BRIDGE[2], 3)]))
+    _tick('surface')
     # ---------------- planting
     # Things a body cannot pass keep an 11 cm carrying lane clear beside every path.
     path_gap = distance_field(grid, [v >= .5 for v in paths])
@@ -461,6 +512,7 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False):
                                   for k in range(steps+1)], lane, .02)
         plant.path_gap = distance_field(grid, [v >= .5 for v in lane])
     scatter += plant.everything()
+    _tick('planting')
     # Promise only what a body can reach: a yard thing no 11 cm lane reaches
     # from the spawn is left out (the same walk the checks run).
     from .checks import YARD, Terrain, Walker, approaches
@@ -530,6 +582,7 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False):
                 scatter.append(moved)
             else:
                 dropped.append(rec_['prototype'])
+    _tick('yards')
     # Promise only the beaches a body can walk to from the spawn.
     final = Walker(probe, meshes, terr, room)
     beaches = [b for b in Sea.find_beaches(grid, h, room, coast['coast'], jetty) if final.route((px, pz), b['stand'])[0]]
@@ -547,7 +600,9 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False):
 
     def write(folder, beaches):
         sea_doc = describe_sea(grid, h, room, coast, jetty, beaches, islands, player0, water['streams'])
-        extensions = {'x_generator': dict(seed=seed, cell_m=CELL, margin_m=MARGIN, sea=sea_doc, **rest)}
+        extensions = {'x_generator': dict(seed=seed, cell_m=cell, margin_m=margin, sea=sea_doc, **rest)}
+        if W != 1:
+            extensions['x_generator']['world_scale'] = W
         return write_package(folder, room_dir, meshes=meshes, setup=setup, generator=GENERATOR,
                              terrain=terrain_records, water=water_records,
                              scenery=[{'mesh': 'distant_islands', 'reachable': False}],
@@ -568,7 +623,9 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False):
             beaches = kept or beaches
         finally:
             shutil.rmtree(scratch, ignore_errors=True)
+    _tick('beaches')
     doc = write(out_dir, beaches)
+    _tick('written')
     if return_state:
         return doc, dict(grid=grid, h=h, route=route, carry=carry, houses=houses)
     return doc
@@ -590,7 +647,9 @@ def describe_sea(grid, h, room, coast, jetty, beaches, islands, player0, streams
 
     def outline(f):
         loop = Sea.main_loop(Sea.contour(grid, f), at)
-        return [[round(x, 3), round(z, 3)] for x, z in Sea.oriented(Sea.simplify(loop, .01), sign)]
+        # Simplified to a third of a cell (1 cm on today's 3 cm grid).
+        tol = .01 if grid.cell <= CELL else grid.cell/3
+        return [[round(x, 3), round(z, 3)] for x, z in Sea.oriented(Sea.simplify(loop, tol), sign)]
     shore = outline([Sea.SEA_Y-v for v in h])
     reef = outline([coast['s'][q]-coast['reef'][q] for q in range(grid.n)])
     play = outline([coast['s'][q]-coast['reef'][q]-Sea.PLAY_PAST_REEF for q in range(grid.n)])
@@ -800,6 +859,7 @@ class Planter:
         return out
 
     def everything(self):
+        W = world.W
         g = self.grid
         out = []
         rnd = self.rnd
@@ -825,16 +885,16 @@ class Planter:
             q, rel, s, w, sh, o = env(x, z)
             if s > 30 or not clear_of_eyes(self.views, x, z, .45, (1.1, .25)):
                 continue
-            edge = smooth((.9-inside_distance(self.room, x, z))/.6)
+            edge = smooth((.9*W-inside_distance(self.room, x, z))/(.6*W))
             riparian = smooth((.55-w)/.35)*(w > .06)
-            high = smooth((rel-.18)/.25)
+            high = smooth((rel-.18*W)/(.25*W))
             n = noise.fbm(x*1.6+9, z*1.6, 3)
             groves = smooth((n+.05)/.35)
-            hills = smooth((rel-.04)/.1)*(1-smooth((rel-.5)/.2))
+            hills = smooth((rel-.04*W)/(.1*W))*(1-smooth((rel-.5*W)/(.2*W)))
             p_broad = .6*riparian+.22*groves*(1-high)*(1-edge)+.3*hills*groves
             p_con = .6*high*(1-smooth((s-26)/8))+.55*edge*groves+.2*groves*(sh > .5)
             u = rnd.random()
-            if u < p_con*.6 and self.h[q] < 1.45:
+            if u < p_con*.6 and self.h[q] < 1.45*W:
                 sc = .38+.3*rnd.random()
                 scale = [sc, sc*(.9+.3*rnd.random()), sc]
                 if self.free(x, z, .1*sc+.06):
@@ -892,7 +952,7 @@ class Planter:
             if sh > .55 and u < .5:
                 sc = .2+.15*rnd.random()
                 rec = self.put('fern', x, z, [sc, sc, sc], yaw, .03, SIZES['fern'], tint=(.8, 1, .85), sink=.004)
-            elif rel > .3 and sh < .4 and w > .5 and u < .55:
+            elif rel > .3*W and sh < .4 and w > .5 and u < .55:
                 sc = .8+.5*rnd.random()
                 rec = self.put('heather', x, z, [sc, sc, sc], yaw, .03, [.13, .022, .13], sink=.003)
             elif sh < .35 and u < .16+.12*smooth((.8-w)/.6):
@@ -921,8 +981,19 @@ def main():
     parser.add_argument('--out', required=True)
     parser.add_argument('--setup', default=str(SETUP_PATH))
     parser.add_argument('--seed', type=int, default=SEED)
+    # The scale experiment (scale.py): the room was magnified x W around today's body.
+    parser.add_argument('--world-scale', type=float, default=1.)
+    parser.add_argument('--cell', type=float, default=CELL, help='grid cell (m); coarser for a magnified room')
     args = parser.parse_args()
-    doc = generate(args.room, args.out, load_json(args.setup), args.seed)
+    if args.world_scale != 1:
+        world.set_world(args.world_scale)
+        world.allow_package_limits(args.world_scale)
+    t0 = time.perf_counter()
+    doc = generate(args.room, args.out, load_json(args.setup), args.seed, cell=args.cell)
+    if args.world_scale != 1:
+        from .checks import BUDGET_HITS, UNVERIFIED
+        print('LANDSCAPE_TIMING generate_s %.1f walks_over_budget %d walks_taken_on_trust %d' % (
+            time.perf_counter()-t0, BUDGET_HITS[0], UNVERIFIED[0]))
     print('LANDSCAPE_PACKAGE', args.out, 'meshes', len(doc['meshes']), 'scatter', len(doc['scatter']),
           'objects', len(doc['objects']))
 

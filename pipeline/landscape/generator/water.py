@@ -6,6 +6,7 @@ import math
 
 from .field import clamp, lerp, rr_dist, smooth
 from .land import dijkstra, inside_distance, local, openings, outside_distance, room_shape
+from . import scale as world
 
 FREEBOARD = .012
 DISTANT_LAKE_Y = -.015
@@ -17,7 +18,7 @@ def lake_rho(lake, noise, x, z):
     c, s = math.cos(a), math.sin(a)
     u, v = (c*dx-s*dz)/lake['rx'], (s*dx+c*dz)/lake['rz']
     ang = math.atan2(v, u)
-    wobble = 1+.12*noise(math.cos(ang)*1.7+31, math.sin(ang)*1.7+7)
+    wobble = 1+.12*noise.raw(math.cos(ang)*1.7+31, math.sin(ang)*1.7+7)   # an angle, not a place
     return math.hypot(u, v)/wobble
 
 
@@ -51,15 +52,16 @@ def clear_hollow(room, objects, spawns, x, z):
     landform's foot, a spawn's glade or the land's middle (metres)."""
     lo, hi, _ = room_shape(room)
     cx, cz = (lo[0]+hi[0])/2, (lo[2]+hi[2])/2
-    free = inside_distance(room, x, z)-.45
+    W = world.W   # walls, landforms and the land's middle are the room's; a spawn's glade the body's
+    free = inside_distance(room, x, z)-.45*W
     for o in objects:
         if o['parent']:
             continue
         lx, lz = local(o, x, z)
-        free = min(free, rr_dist(lx, lz, o['sx']/2, o['sz']/2, .05)-(.25+.45*o['sy']))
+        free = min(free, rr_dist(lx, lz, o['sx']/2, o['sz']/2, .05*W)-(.25*W+.45*o['sy']))
     for s in spawns:
         free = min(free, math.hypot(x-s[0], z-s[2])-.9)
-    return min(free, math.hypot(x-cx, z-cz)-.55)
+    return min(free, math.hypot(x-cx, z-cz)-.55*W)
 
 
 def water_character(room, objects, spawns, setup):
@@ -70,49 +72,51 @@ def water_character(room, objects, spawns, setup):
     if setup['water'] == 'none':
         return 'none', 'the player chose no water'
     lo, hi, _ = room_shape(room)
-    step = .09
+    W = world.W
+    step = .09*W
     broad = -1.
     for a in range(int((hi[0]-lo[0])/step)+1):
         for b in range(int((hi[2]-lo[2])/step)+1):
             broad = max(broad, clear_hollow(room, objects, spawns, lo[0]+a*step, lo[2]+b*step))
     area = (hi[0]-lo[0])*(hi[2]-lo[2])
     cover = sum(o['sx']*o['sz'] for o in objects if not o['parent'])/area
-    need = {'a_little': 9., 'some': .8, 'plenty': .65}.get(setup['water'], .8)
+    need = {'a_little': 9., 'some': .8, 'plenty': .65}.get(setup['water'], .8)*W
     why = 'clear hollow %.2f m, floor %.0f%% covered' % (broad, 100*cover)
     if broad >= need:
         return 'tarn', why
-    if broad < .55 and cover >= .2 and setup['water'] != 'plenty':
+    if broad < .55*W and cover >= .2 and setup['water'] != 'plenty':
         return 'dry', why
     return 'river', why
 
 
 def choose_lake(room, objects, spawns, peak, outlet, setup):
     lo, hi, _ = room_shape(room)
-    size = {'a_little': .0, 'some': .75, 'plenty': 1.1}.get(setup['water'], 0)
+    W = world.W   # the tarn's size and where it may lie are the room's; its depths the body's
+    size = {'a_little': .0, 'some': .75, 'plenty': 1.1}.get(setup['water'], 0)*W
     if size <= 0:
         return None
     best = None
-    step = .09
+    step = .09*W
     nxs = int((hi[0]-lo[0])/step)
     nzs = int((hi[2]-lo[2])/step)
     for a in range(nxs+1):
         for b in range(nzs+1):
             x, z = lo[0]+a*step, lo[2]+b*step
             free = clear_hollow(room, objects, spawns, x, z)
-            if free < .3:
+            if free < .3*W:
                 continue
             # Between the spring's peak and the outlet, nearer the high ground.
             px, pz = peak
             ox, oz = outlet['x'], outlet['z']
             line = abs((ox-px)*(pz-z)-(px-x)*(oz-pz))/max(1e-6, math.hypot(ox-px, oz-pz))
             toward_outlet = math.hypot(x-ox, z-oz)
-            score = min(free, size)-.25*line+.05*min(toward_outlet, 3.)
+            score = min(free, size)-.25*line+.05*min(toward_outlet, 3.*W)
             if best is None or score > best[0]+1e-9:
                 best = (score, x, z, free)
     if best is None:
         return None
     # The whole shore stays inside the walls (rx reaches 1.15 r, the shore 1.35 rx).
-    r = clamp(min(best[3]*.9, (best[3]+.45)/1.6), .3, size)
+    r = clamp(min(best[3]*.9, (best[3]+.45*W)/1.6), .3*W, size)
     return dict(x=best[1], z=best[2], rx=r*1.15, rz=r*.85, yaw=25.)
 
 
@@ -149,7 +153,7 @@ def route(grid, h, base, noise, start, goal_test, spawns, avoid=(), step=2):
     cost = [0.]*grid.n
     for q in range(grid.n):
         x, z = grid.xs[q % nx], grid.zs[q//nx]
-        rel = max(0., h[q]-base[q]-.025)
+        rel = max(0., (h[q]-base[q])/world.W-.025)   # climbing cost per unmagnified metre
         c = 1+30*rel+.45*(noise(x*2.7+50, z*2.7)+1)
         for s in spawns:
             c += 40*max(0., 1-math.hypot(x-s[0], z-s[2])/1.1)
@@ -380,7 +384,7 @@ def deepen_tarn(grid, h, lake, noise, spawns, inflow, setup, wet, channel=frozen
 
     def ray(t):
         """Metres from the centre to the shore along the lake-frame angle t."""
-        wobble = 1+.12*noise(math.cos(t)*1.7+31, math.sin(t)*1.7+7)
+        wobble = 1+.12*noise.raw(math.cos(t)*1.7+31, math.sin(t)*1.7+7)
         return wobble*math.hypot(lake['rx']*math.cos(t), lake['rz']*math.sin(t))
     radius = min(ray(math.tau*k/72) for k in range(72))
     extra = {'plenty': .03}.get(setup['water'], 0.)
@@ -427,14 +431,15 @@ def pool_sites(room, objects, spawns, pts, W, count, avoid=None):
     cands = []
     for k in range(L, n-L):
         x, z = pts[k]
-        if inside_distance(room, x, z) < .45:
+        if inside_distance(room, x, z) < .45*world.W:
             continue
         if any(math.hypot(x-s[0], z-s[2]) < .75 for s in spawns):
             continue
         if avoid is not None and avoid(x, z):
             continue
-        clear = min([rr_dist(*local(o, x, z), o['sx']/2, o['sz']/2, .05) for o in objects if not o['parent']] or [9.])
-        if clear < .45:   # the pool and its banks keep off a landform
+        clear = min([rr_dist(*local(o, x, z), o['sx']/2, o['sz']/2, .05*world.W) for o in objects if not o['parent']]
+                    or [9.])
+        if clear < .45*world.W:   # the pool and its banks keep off a landform
             continue
         drop_up = W[k-L]-W[k]
         drop_down = W[k]-W[k+L]
@@ -503,10 +508,11 @@ def plan_and_carve(grid, room, objects, h, base, inside, spawns, setup, noise, o
     # about 40% of the peak's rise (snowmelt seeps out of the rock there).
     dx, dz = target[0]-peak[0], target[1]-peak[1]
     L = math.hypot(dx, dz) or 1
-    spring_h = base[peak_q]+min(.55, .4*(h[peak_q]-base[peak_q]))
+    ws = world.W   # (W is the water's levels below)
+    spring_h = base[peak_q]+min(.55*ws, .4*(h[peak_q]-base[peak_q]))
     spring = peak
     for k in range(1, 400):
-        x, z = peak[0]+dx/L*k*.02, peak[1]+dz/L*k*.02
+        x, z = peak[0]+dx/L*k*(.02*ws), peak[1]+dz/L*k*(.02*ws)
         if grid.sample(h, x, z) <= spring_h:
             spring = (x, z)
             break
@@ -514,9 +520,9 @@ def plan_and_carve(grid, room, objects, h, base, inside, spawns, setup, noise, o
         # A river's spring seeps from a hillside as far from where it leaves as
         # the room allows, so it has the length to run, fall and pool.
         def off_landforms(x, z):
-            return all(rr_dist(*local(o, x, z), o['sx']/2, o['sz']/2, .05) > .2 for o in objects if not o['parent'])
-        seeps = [q for q in range(0, grid.n, 2) if inside[q] and .15 <= h[q]-base[q] <= .55
-                 and inside_distance(room, grid.xs[q % nx], grid.zs[q//nx]) >= .3
+            return all(rr_dist(*local(o, x, z), o['sx']/2, o['sz']/2, .05*ws) > .2*ws for o in objects if not o['parent'])
+        seeps = [q for q in range(0, grid.n, 2) if inside[q] and .15*ws <= h[q]-base[q] <= .55*ws
+                 and inside_distance(room, grid.xs[q % nx], grid.zs[q//nx]) >= .3*ws
                  and off_landforms(grid.xs[q % nx], grid.zs[q//nx])]
         if seeps:
             q = max(seeps, key=lambda q: (math.hypot(grid.xs[q % nx]-outlet['x'], grid.zs[q//nx]-outlet['z']), -q))
@@ -546,7 +552,7 @@ def plan_and_carve(grid, room, objects, h, base, inside, spawns, setup, noise, o
                     h[q] = min(h[q], level-depth)
                     wet[q] = 0.
                 elif r < 1.35:
-                    shore = level+.004+.10*(r-1.0)
+                    shore = level+.004+.10*ws*(r-1.0)
                     if h[q] < level+.006:
                         h[q] = level+.006
                     h[q] = min(h[q], max(shore, level+.006))
@@ -591,7 +597,7 @@ def plan_and_carve(grid, room, objects, h, base, inside, spawns, setup, noise, o
         start = (lake['x'], lake['z'])
     else:
         start = spring
-    footprints = [(o['cx'], o['cz'], math.hypot(o['sx'], o['sz'])/2+.35) for o in objects if not o['parent']]
+    footprints = [(o['cx'], o['cz'], math.hypot(o['sx'], o['sz'])/2+.35*ws) for o in objects if not o['parent']]
     raw = route(grid, h, base, noise, start, goal, [(s[0], 0, s[2]) for s in spawns],
                 avoid=(footprints if character != 'tarn' else [])+sea_avoid)
     pts = resample(chaikin(raw, 3), .025)
