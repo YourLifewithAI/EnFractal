@@ -82,6 +82,9 @@ class Terrain:
         self.win = win = window(doc)
         grid, tris = self.grid, self.tris
         floor = math.floor
+        only_rows = {}
+        for i, j in only or ():
+            only_rows.setdefault(j, set()).add(i)
         self.land = None
         for rec in doc['terrain']+doc['scenery']:
             is_land = rec['mesh'] == 'land'
@@ -109,21 +112,24 @@ class Terrain:
                     else:
                         i0, i1, j0, j1 = int(floor(x0/bucket)), int(floor(x1/bucket)), int(floor(z0/bucket)), \
                             int(floor(z1/bucket))
-                    if only is not None and not any((i, j) in only for j in range(j0, j1+1) for i in range(i0, i1+1)):
-                        continue
+                    if only is not None:
+                        keys = [(i, j) for j in range(j0, j1+1) if j in only_rows
+                                for i in range(i0, i1+1) if i in only_rows[j]]
+                        if not keys:
+                            continue
+                    else:
+                        keys = [(i, j) for j in range(j0, j1+1) for i in range(i0, i1+1)]
                     k = len(tris)
                     tris.append((a, b, c, det, x0, x1, z0, z1, is_land))
-                    for j in range(j0, j1+1):
-                        for i in range(i0, i1+1):
-                            cell_ = grid.get((i, j))
-                            if cell_ is None:
-                                grid[(i, j)] = [k]
-                            else:
-                                cell_.append(k)
+                    for key in keys:
+                        cell_ = grid.get(key)
+                        if cell_ is None:
+                            grid[key] = [k]
+                        else:
+                            cell_.append(k)
+        # With `only`, just those buckets are read (a corridor round a few walks): elsewhere hit() would be wrong, so
+        # nothing is filed there and it says None.
         self.only = only
-        if only is not None:
-            # Only these buckets are read (a corridor round a few walks): elsewhere hit() would be wrong, so it says None.
-            self.grid = {key: v for key, v in grid.items() if key in only}
         self.slopes = {}
         self._sub = {}
         # Footbridge decks are walkable surfaces too: level, at the deck's top.
@@ -184,7 +190,7 @@ class Terrain:
                             corners[p] = (v[0], v[1], v[2])
         # Walkers: a node reads the buckets within a disc's or an edge's reach.
         for got in self.walks.values():
-            i0, j0, ni, nj = got[-1]
+            i0, j0, ni, nj = got['lat']
             c = self.cell
             Rn = R+b+max(CLEAR_R, c)+c
             nodes = set()
@@ -194,14 +200,18 @@ class Terrain:
                         base = i*nj
                         nodes.update(base+j for j in range(max(0, int(floor((z-Rn)/c))-j0),
                                                            min(nj, int(floor((z+Rn)/c))+2-j0)))
-            if len(got) == 6:
-                _, _, ground, safe, edges, _ = got
+            if 'ground' in got:
+                ground, edges = got['ground'], got['edges']
                 for n in nodes:
-                    ground[n] = safe[n] = 0
+                    ground[n] = 0
                     for d in range(8):
                         edges.pop(n*8+d, None)
+            elif 'slope' in got:
+                slope = got['slope']
+                for n in nodes:
+                    slope[n] = -1.
             else:
-                heights = got[1]
+                heights = got['heights']
                 for n in nodes:
                     heights.pop(n, None)
 
@@ -283,6 +293,26 @@ class Terrain:
     def height(self, x, z):
         r = self.hit(x, z)
         return math.nan if r is None else r[0]
+
+    def land_height(self, x, z):
+        """`height` at (x, z), read straight from the land grid's own cell
+        where the bucket is plain land and the point lies well inside one half
+        of the cell (by a millionth of it: no other face then takes the point,
+        and nothing else is near its height); else `height`."""
+        b = self.bucket
+        if self.plain_slope(int(math.floor(x/b)), int(math.floor(z/b))) is not None:
+            lx, lz, c = self._lattice
+            halves = self._cell_halves.get((int(math.floor((x-lx)/c)), int(math.floor((z-lz)/c))))
+            if halves is not None and len(halves) == 2:
+                tris = self.tris
+                for k, _ in halves:
+                    a, b_, cc, det = tris[k][:4]
+                    u = ((b_[2]-cc[2])*(x-cc[0])+(cc[0]-b_[0])*(z-cc[2]))/det
+                    v = ((cc[2]-a[2])*(x-cc[0])+(a[0]-cc[0])*(z-cc[2]))/det
+                    w = 1-u-v
+                    if u >= 1e-6 and v >= 1e-6 and w >= 1e-6:
+                        return u*a[1]+v*b_[1]+w*cc[1]
+        return self.height(x, z)
 
     # ---------------------------------------------------------------- plain ground
     def _land_lattice(self):
@@ -734,7 +764,7 @@ class Walker:
     edge from it need no reading: each sample hits that land, gentle enough,
     dry, and a centimetre of it rises less than a step."""
 
-    def __init__(self, doc, meshes, terrain, room, limit=WALK_DEG, step=STEP_M):
+    def __init__(self, doc, meshes, terrain, room, limit=WALK_DEG, step=STEP_M, index=None):
         from .land import inside_distance
         self.t = terrain
         self.room = room
@@ -742,7 +772,7 @@ class Walker:
         self.step = step
         self.scale = world_scale(doc)
         self.inside = lambda x, z: inside_distance(room, x, z)
-        self.obs = obstacle_index(obstacles(doc))
+        self.obs = obstacle_index(obstacles(doc)) if index is None else index   # `index`: obstacle_index of doc's scatter
         win = window(doc, .2)
         # The water's index depends only on the water records, the meshes and the
         # window: Walkers over the same package share it (the generator builds
@@ -784,17 +814,18 @@ class Walker:
         self.i0, self.j0, self.ni, self.nj = i0, j0, ni, nj
         self.state = bytearray(ni*nj)    # this walker's answer per node: 0 unread, 1 standable, 2 not
         # Shared by every Walker over this ground, water, room and limits.
-        key = (id(self.wbuck), id(room), limit, step)
-        shared = terrain.walks.get(key)
-        if shared is None or shared[0] is not self.wbuck or shared[1] is not room:
-            shared = terrain.walks[key] = (self.wbuck, room, bytearray(ni*nj), bytearray(ni*nj), {},
-                                           (i0, j0, ni, nj))
-        _, _, self.ground, self.safe, self.edges, _ = shared
-        hkey = ('heights', id(room))
-        got = terrain.walks.get(hkey)
-        if got is None or got[0] is not room:
-            got = terrain.walks[hkey] = (room, {}, (i0, j0, ni, nj))
-        self.heights = got[1]
+        lat = (i0, j0, ni, nj)
+
+        def shared(key, make):
+            got = terrain.walks.get(key)
+            if got is None or got['wbuck'] is not self.wbuck or got['room'] is not room:
+                got = terrain.walks[key] = dict(make(), wbuck=self.wbuck, room=room, lat=lat)
+            return got
+        got = shared(('walk', id(self.wbuck), id(room), limit, step), lambda: dict(ground=bytearray(ni*nj), edges={}))
+        self.ground, self.edges = got['ground'], got['edges']
+        # The steepest plain face within a node's reach (inf: not plain, or water), for every limit.
+        self.nslope = shared(('slope', id(self.wbuck), id(room)), lambda: dict(slope=array('d', [-1.])*(ni*nj)))['slope']
+        self.heights = shared(('heights', id(self.wbuck), id(room)), lambda: dict(heights={}))['heights']
         inside = _INSIDE.get((id(room), c))
         if inside is None or inside[0] is not room:
             if len(_INSIDE) > 8:
@@ -866,40 +897,44 @@ class Walker:
     def _is_safe(self, n):
         """Whether every bucket within a disc's or an edge's reach of the node
         is plain land no steeper than the limit, with no water: its disc and
-        every edge from it pass without a reading (judged 32 nodes at a time)."""
-        s = self.safe[n]
-        if not s:
-            self._safe_run(n//self.nj//_RUN, n % self.nj)
-            s = self.safe[n]
-        return s == 1
+        every edge from it pass without a reading (judged 32 nodes at a time,
+        once for every limit)."""
+        v = self.nslope[n]
+        if v < 0:
+            self._slope_run(n//self.nj//_RUN, n % self.nj)
+            v = self.nslope[n]
+        return v <= self.limit
 
-    def _safe_run(self, ci, j):
+    def _slope_run(self, ci, j):
         t, nj = self.t, self.nj
         c, b, eps = t.cell, t.bucket, 1e-9
         r = max(CLEAR_R, c)
         z = (j+self.j0)*c
-        floor = math.floor
+        floor, inf = math.floor, math.inf
         jbs = range(int(floor((z-r-eps)/b)), int(floor((z+r+eps)/b))+1)
-        limit, wbuck, plain = self.limit, self.wbuck, t.plain_slope
+        wbuck, plain = self.wbuck, t.plain_slope
         cols = {}
-        safe = self.safe
+        out = self.nslope
         for k in range(ci*_RUN, min(self.ni, (ci+1)*_RUN)):
             x = (self.i0+k)*c
-            ok = 1
+            steepest = 0.
             for ib in range(int(floor((x-r-eps)/b)), int(floor((x+r+eps)/b))+1):
                 col = cols.get(ib)
                 if col is None:
-                    col = True
+                    col = 0.
                     for jb in jbs:
                         s = plain(ib, jb)
-                        if s is None or s > limit or (ib, jb) in wbuck:
-                            col = False
+                        if s is None or (ib, jb) in wbuck:
+                            col = inf
                             break
+                        if s > col:
+                            col = s
                     cols[ib] = col
-                if not col:
-                    ok = 2
-                    break
-            safe[k*nj+j] = ok
+                if col > steepest:
+                    steepest = col
+                    if col == inf:
+                        break
+            out[k*nj+j] = steepest
 
     def _ground(self, x, z):
         """The disc's ground: every sample on a face no steeper than the limit, and dry."""
@@ -960,7 +995,7 @@ class Walker:
         if h is None:
             i, j = self.ij(n)
             c = self.t.cell
-            h = self.heights[n] = self.t.height(i*c, j*c)
+            h = self.heights[n] = self.t.land_height(i*c, j*c)
         return h
 
     # ---------------------------------------------------------------- walks
@@ -969,39 +1004,65 @@ class Walker:
         s = self.node(self.key(*start))
         parent = array('i', [-2])*(self.ni*self.nj)
         count = 0
+        queue = deque()
         if s is not None and self._stand(s):
             parent[s] = -1
             count = 1
-            queue = deque((s,))
-            pop, push = queue.popleft, queue.append
-            state, stand, pass_ = self.state, self._stand, self._pass
-            nj, safe, vouch = self.nj, self.safe, self.vouch
-            steps = tuple(enumerate(zip(self.d8, N8)))
-            while queue:
-                k = pop()
-                free = vouch and self._is_safe(k)
-                for d, (step, (di, dj)) in steps:
-                    n = k+step
+            queue.append(s)
+        return Reach(self, s, parent, self._flood(parent, queue, count))
+
+    def reach_on(self, earlier, opened):
+        """The flood `earlier` (made with more obstacles) carried on with this
+        walker's: `opened` are the obstacles taken out since. Taking an
+        obstacle out only frees nodes in its lane, so every node newly reached
+        is reached through a step from a node already reached next to that
+        lane; the flood goes on from those."""
+        if not earlier.count:
+            return self.reach(self.ij(earlier.start)) if earlier.start is not None else earlier
+        parent = array('i', earlier.parent)
+        c, nj, ni = self.t.cell, self.nj, self.ni
+        floor = math.floor
+        seeds = set()
+        for o in opened:
+            r = (o[3] if o[0] == 'disc' else math.hypot(o[3], o[4]))+CLEAR_R+c
+            for i in range(max(0, int(floor((o[1]-r)/c))-self.i0-1), min(ni, int(floor((o[1]+r)/c))-self.i0+2)):
+                for j in range(max(0, int(floor((o[2]-r)/c))-self.j0-1), min(nj, int(floor((o[2]+r)/c))-self.j0+2)):
+                    n = i*nj+j
                     if parent[n] != -2:
+                        seeds.add(n)
+        queue = deque(sorted(seeds))
+        return Reach(self, earlier.start, parent, self._flood(parent, queue, earlier.count))
+
+    def _flood(self, parent, queue, count):
+        pop, push = queue.popleft, queue.append
+        state, stand, pass_ = self.state, self._stand, self._pass
+        nj, vouch = self.nj, self.vouch
+        steps = tuple(enumerate(zip(self.d8, N8)))
+        while queue:
+            k = pop()
+            free = vouch and self._is_safe(k)
+            for d, (step, (di, dj)) in steps:
+                n = k+step
+                if parent[n] != -2:
+                    continue
+                s_ = state[n]
+                if not (s_ == 1 if s_ else stand(n)):
+                    continue
+                if di and dj:
+                    o = k+di*nj
+                    s_ = state[o]
+                    if not (s_ == 1 if s_ else stand(o)):
                         continue
-                    s_ = state[n]
-                    if not (s_ == 1 if s_ else stand(n)):
+                    o = k+dj
+                    s_ = state[o]
+                    if not (s_ == 1 if s_ else stand(o)):
                         continue
-                    if di and dj:
-                        o = k+di*nj
-                        s_ = state[o]
-                        if not (s_ == 1 if s_ else stand(o)):
-                            continue
-                        o = k+dj
-                        s_ = state[o]
-                        if not (s_ == 1 if s_ else stand(o)):
-                            continue
-                    if not (free or pass_(k, d)):
-                        continue
-                    parent[n] = k
-                    count += 1
-                    push(n)
-        return Reach(self, s, parent, count)
+                if not (free or pass_(k, d)):
+                    continue
+                parent[n] = k
+                count += 1
+                push(n)
+        return count
 
     def ways(self, start, goals, first=False):
         """A least-cost way (lattice keys; length plus twice the climb) from

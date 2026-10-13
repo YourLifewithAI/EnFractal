@@ -243,6 +243,12 @@ class WalkFlood(unittest.TestCase):
         pts += [(round(-4.7+.03*i, 6), round(-5.2+.03*j, 6)) for i in range(0, 300, 7) for j in range(0, 340, 7)]
         for x, z in pts:
             self.assertEqual(fast.hit(x, z), slow.hit(x, z), (x, z))
+        # Heights read straight from the land grid's cell where it is plain.
+        fresh = checks.Terrain(self.doc, self.meshes)
+        for x, z in pts:
+            a, b = fresh.land_height(x, z), slow.height(x, z)
+            self.assertTrue(a == b or (math.isnan(a) and math.isnan(b)), (x, z, a, b))
+        self.assertGreater(len(fresh._whole), 1000)
 
     def test_shortest_way_found_exactly_where_the_flood_reaches(self):
         walker = checks.Walker(self.doc, self.meshes, checks.Terrain(self.doc, self.meshes), self.room)
@@ -325,6 +331,30 @@ class WalkFlood(unittest.TestCase):
                                                               yaw_deg=0, scale=[.4, .4, .4])]))
         self.assertFalse(checks.holds(walker, path, on_way))
         self.assertTrue(checks.holds(walker, path, far))
+
+
+class RoomFrames(unittest.TestCase):
+    """The room read once (`wall_frame`, `inside_distance`) answers exactly
+    as the plain reading, on every corpus room and the garage magnified."""
+
+    def test_same_numbers(self):
+        import random
+        from pipeline.landscape.generator.land import inside_distance, wall_frame, wall_frame_plain
+        from pipeline.landscape.generator.scale import scale_room
+        from pipeline.landscape.harness.common import load_json
+        rooms = [load_json(path/'room.json') for path in sorted(ROOMS.iterdir()) if (path/'room.json').exists()]
+        scale_room(ROOMS/'garage_nominal', workdir('x10'), 10)
+        rooms.append(load_json(Path(RUN_DIR)/'x10'/'room.json'))
+        rnd = random.Random(4)
+        for room in rooms:
+            lo, hi = room['bounds']['min_m'], room['bounds']['max_m']
+            pts = [(rnd.uniform(lo[0]-1, hi[0]+1), rnd.uniform(lo[2]-1, hi[2]+1)) for _ in range(3000)]
+            pts += [(lo[0], lo[2]), (hi[0], hi[2]), (lo[0], (lo[2]+hi[2])/2), (lo[0]+1e-12, lo[2]+3e-7)]
+            for x, z in pts:
+                plain = wall_frame_plain(room, x, z)
+                self.assertEqual(wall_frame(room, x, z), plain, (room['room_id'], x, z))
+                d = inside_distance(room, x, z)
+                self.assertEqual((d, math.copysign(1, d)), (-plain[0], math.copysign(1, -plain[0])), (room['room_id'], x, z))
 
 
 class LShapedIsland(unittest.TestCase):

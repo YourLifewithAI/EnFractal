@@ -393,8 +393,38 @@ def _shape(room):
             polys.append(edges)
         if len(_SHAPES) > 16:
             _SHAPES.clear()
-        got = _SHAPES[id(room)] = (room, (lo[0], lo[2], hi[0], hi[2], polys))
+        got = _SHAPES[id(room)] = (room, (lo[0], lo[2], hi[0], hi[2], polys), _floor_holds_bounds(lo, hi, floors))
     return got[1]
+
+
+def _floor_holds_bounds(lo, hi, floors):
+    """Whether the walkable floor is just the bounds: no outline, or one
+    convex outline holding the bounds a micrometre in from every edge. Then a
+    point inside the bounds is nearer a bound than any outline's edge, and
+    its distance inside the floor is its distance inside the bounds."""
+    if not floors:
+        return True
+    if len(floors) != 1:
+        return False
+    poly = [(p[0], p[2]) for p in floors[0]]
+    n = len(poly)
+    turns = set()
+    for k in range(n):
+        (ax, az), (bx, bz), (cx, cz) = poly[k], poly[(k+1) % n], poly[(k+2) % n]
+        cross = (bx-ax)*(cz-bz)-(bz-az)*(cx-bx)
+        if abs(cross) > 1e-12:
+            turns.add(cross > 0)
+    if len(turns) != 1:
+        return False
+    sign = 1. if True in turns else -1.
+    for (ax, az), (bx, bz) in zip(poly, poly[1:]+poly[:1]):
+        L = math.hypot(bx-ax, bz-az)
+        if L <= 0:
+            continue
+        for x, z in ((lo[0], lo[2]), (lo[0], hi[2]), (hi[0], lo[2]), (hi[0], hi[2])):
+            if sign*((bx-ax)*(z-az)-(bz-az)*(x-ax))/L < 1e-6:
+                return False
+    return True
 
 
 def wall_frame(room, x, z):
@@ -455,7 +485,17 @@ def outside_distance(room, x, z):
 
 
 def inside_distance(room, x, z):
-    """Distance inside the walkable floor to its nearest wall (negative outside)."""
+    """Distance inside the walkable floor to its nearest wall (negative outside).
+    Inside the bounds of a room whose floor is just its bounds (`_floor_holds_bounds`)
+    that is the nearest bound's distance, the same number `wall_frame` gives."""
+    got = _SHAPES.get(id(room))
+    if got is None or got[0] is not room:
+        _shape(room)
+        got = _SHAPES[id(room)]
+    if got[2]:
+        lo0, lo2, hi0, hi2, _ = got[1]
+        if lo0 <= x <= hi0 and lo2 <= z <= hi2:
+            return min(x-lo0, hi0-x, z-lo2, hi2-z)
     return -wall_frame(room, x, z)[0]
 
 

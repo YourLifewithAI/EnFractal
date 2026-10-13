@@ -527,7 +527,7 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=
     _tick('planting')
     # Promise only what a body can reach: a yard thing no 11 cm lane reaches
     # from the spawn is left out (the same walk the checks run).
-    from .checks import YARD, Terrain, Walker, approaches
+    from .checks import YARD, Terrain, Walker, approaches, blocks, obstacles
     probe = dict(terrain=terrain_records, scenery=[], water=water_records, scatter=scatter,
                  prototypes=proto_records, objects=objects_out, x_generator=look)
     # Where planting closed the way to the crate, a door or a yard (laundry,
@@ -569,18 +569,16 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=
                 ix, iz = int(math.floor(x/.4)), int(math.floor(z/.4))
                 near = [(a, b) for di in (-1, 0, 1) for dj in (-1, 0, 1) for a, b in near_path.get((ix+di, iz+dj), ())
                         if math.hypot(x-a, z-b) < .4]
-                if near:
-                    one = Walker(dict(probe, scatter=[rec]), meshes, terr, room)
-                    if any(one.blocked(a, b) for a, b in near):
-                        scatter.remove(rec)
-                        walks.changed()
-                        if rec['prototype'] in YARD:
-                            dropped.append(rec['prototype'])
+                if near and any(blocks(o, a, b) for o in obstacles(dict(probe, scatter=[rec])) for a, b in near):
+                    scatter.remove(rec)
+                    walks.changed(removed=rec)
+                    if rec['prototype'] in YARD:
+                        dropped.append(rec['prototype'])
         if rec_ is not None and not any(walks.now().has(g) for g in goals_):
             # Move the yard rather than lose it: the first level, reachable spot
             # around any cottage.
             scatter.remove(rec_)
-            walks.changed()
+            walks.changed(removed=rec_)
             moved = None
             size = DRYING_LINE if rec_['prototype'] == 'drying_line' else [.09, .044, .1]
             for hh in houses:
@@ -653,21 +651,44 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=
 class Walks:
     """The walk from the spawn over the planted island: one flood per
     planting state (the scatter list as it stands), answering every target,
-    beach and the jetty until something is taken out or put in (`changed`)."""
+    beach and the jetty until something is taken out (`changed(removed)`: the
+    flood goes on from where the lane opened) or put in (`changed()`)."""
 
     def __init__(self, probe, meshes, terrain, room, start):
         self.probe, self.meshes, self.terrain, self.room, self.start = probe, meshes, terrain, room, start
         self._now = None
         self._with = {}
+        self._index = None
+        self._opened = []
 
-    def changed(self):
-        self._now = None
+    def changed(self, removed=None):
+        from .checks import CLEAR_R, obstacles
         self._with = {}
+        if removed is None or self._now is None:
+            self._now, self._index, self._opened = None, None, []
+            return
+        # The obstacle index without it (the same lists a fresh index would hold, in order).
+        index = dict(self._index)
+        for o in obstacles(dict(self.probe, scatter=[removed])):
+            r = o[3] if o[0] == 'disc' else math.hypot(o[3], o[4])
+            for i in range(int(math.floor((o[1]-r-CLEAR_R)/.2)), int(math.floor((o[1]+r+CLEAR_R)/.2))+1):
+                for j in range(int(math.floor((o[2]-r-CLEAR_R)/.2)), int(math.floor((o[2]+r+CLEAR_R)/.2))+1):
+                    got = list(index[(i, j)])
+                    got.remove(o)
+                    index[(i, j)] = got
+            self._opened.append(o)
+        self._index = index
 
     def now(self):
-        from .checks import Walker
+        from .checks import Walker, obstacle_index, obstacles
         if self._now is None:
-            self._now = Walker(self.probe, self.meshes, self.terrain, self.room).reach(self.start)
+            self._index = obstacle_index(obstacles(self.probe))
+            self._now = Walker(self.probe, self.meshes, self.terrain, self.room, index=self._index).reach(self.start)
+            self._opened = []
+        elif self._opened:
+            walker = Walker(self.probe, self.meshes, self.terrain, self.room, index=self._index)
+            self._now = walker.reach_on(self._now, self._opened)
+            self._opened = []
         return self._now
 
     def reaches_with(self, extra, goal):
