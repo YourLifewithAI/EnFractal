@@ -60,12 +60,24 @@ public partial class LandscapePlayTest : Node3D
             _world.Player.ReadKeyboard = false;
             _host = CommandHost.Of(_world)!;
             _navigation = _world.GetNode<RoomNavigation>("RoomNavigation");
-            for (var i = 0; i < 30 && !_navigation.IsReady; i++) await Frames(1);
+            // The bake runs on worker threads (packet S7): a small island is ready when the room is, a magnified one a few
+            // seconds later, in the background.
+            var waited = System.Diagnostics.Stopwatch.StartNew();
+            while (!_navigation.IsReady && waited.Elapsed.TotalSeconds < 120) await Frames(1);
             Check(_navigation.IsReady, "the landscape bakes a navigation mesh for the companion");
-            Measure($"LANDSCAPE_NAVIGATION {_navigation.PolygonCount} polygons, bake {_navigation.LastBakeMs:0} ms, climb {_navigation.AgentMaxClimbM:0.000} m, radius {_navigation.AgentRadiusM:0.000} m");
+            Measure(string.Create(CultureInfo.InvariantCulture,
+                $"LANDSCAPE_NAVIGATION {_navigation.PolygonCount} polygons in {_navigation.TileCount} tiles ({_navigation.TileColumns} x {_navigation.TileRows}), {_navigation.IslandCount} islands; " +
+                $"bake {_navigation.LastBakeMs:0} ms on worker threads ({_navigation.LastBakeMainThreadMs:0.0} ms of the main thread), ready {waited.Elapsed.TotalSeconds:0.0} s after the room; climb {_navigation.AgentMaxClimbM:0.000} m, radius {_navigation.AgentRadiusM:0.000} m"));
             await Frames(30);
             // The Gubble floats: it hovers over the land (or water) at its spawn rather than standing on it.
             Check(_world.Player.IsOnFloor() && Hovering(_world.Companion), "the player stands on the land at its spawn, and the Gubble hovers over it");
+            // "-- --rebake" times a re-bake alone (packet S7; see TestReBakeDoesNotHold).
+            if (OS.GetCmdlineUserArgs().Contains("--rebake"))
+            {
+                await TestReBakeDoesNotHold();
+                Finish();
+                return;
+            }
             // "-- --gubble-reach" runs the Gubble's reach alone (packet S1; see TestGubbleReach).
             if (OS.GetCmdlineUserArgs().Contains("--gubble-reach"))
             {
@@ -84,6 +96,7 @@ public partial class LandscapePlayTest : Node3D
                 await TestCompanionFetches();
                 await TestDestinations();
                 await TestNavigationClimb();
+                await TestReBakeDoesNotHold();
             }
             MeasureWater();
             await TestClimbACliff();
@@ -613,11 +626,12 @@ public partial class LandscapePlayTest : Node3D
                 if (slope <= 45f) samples.Add((hit["position"].AsVector3(), slope));
             }
         var spawn = _world.Room.SpawnFor("player").PositionM;
-        var twoCm = RoomNavigation.Create(this, _world.Built, bounds, WorldScaleProfile.Companion, 0.02f);
+        var oneCm = RoomNavigation.Create(this, _world.Built, bounds, WorldScaleProfile.Companion, 0.01f);
         var fineCells = RoomNavigation.Create(this, _world.Built, bounds, WorldScaleProfile.Companion, 0.01f, cellM: 0.01f);
-        for (var i = 0; i < 30 && !(twoCm.IsReady && fineCells.IsReady); i++) await Frames(1);
-        Measure($"LANDSCAPE_NAVIGATION bakes: 2 cm cells climb 0.01 m {_navigation.LastBakeMs:0} ms, climb 0.02 m {twoCm.LastBakeMs:0} ms; 1 cm cells climb 0.01 m {fineCells.LastBakeMs:0} ms");
-        foreach (var (name, mesh) in new[] { ("climb 0.010 m on 2 cm cells (the game's)", _navigation), ("climb 0.020 m on 2 cm cells (the body's step)", twoCm), ("climb 0.010 m on 1 cm cells", fineCells) })
+        var waited = System.Diagnostics.Stopwatch.StartNew();
+        while (!(oneCm.IsReady && fineCells.IsReady) && waited.Elapsed.TotalSeconds < 60) await Frames(1);
+        Measure($"LANDSCAPE_NAVIGATION bakes: 2 cm cells climb 0.02 m (the game's) {_navigation.LastBakeMs:0} ms, climb 0.01 m {oneCm.LastBakeMs:0} ms; 1 cm cells climb 0.01 m {fineCells.LastBakeMs:0} ms");
+        foreach (var (name, mesh) in new[] { ("climb 0.020 m on 2 cm cells (the game's: the body's step)", _navigation), ("climb 0.010 m on 2 cm cells (before S7)", oneCm), ("climb 0.010 m on 1 cm cells", fineCells) })
         {
             int covered = 0, reached = 0, steep = 0, steepCovered = 0;
             foreach (var (point, slope) in samples)
@@ -633,7 +647,7 @@ public partial class LandscapePlayTest : Node3D
         }
         var worst = samples.Count == 0 ? 0 : samples.Max(s => s.Slope);
         Check(samples.Count > 0 && worst <= 45f, "the land has body-walkable ground to measure");
-        twoCm.QueueFree();
+        oneCm.QueueFree();
         fineCells.QueueFree();
     }
 
@@ -697,6 +711,9 @@ public partial class LandscapePlayTest : Node3D
             $"its routes reach {reached} ({100f * reached / Mathf.Max(1, land.Count):0}%, out to {farthest:0.0} m); Godot's default capped query reached {reachedCapped} ({100f * reachedCapped / Mathf.Max(1, land.Count):0}%, out to {farthestCapped:0.0} m); " +
             $"a route that reaches {hitMs / Mathf.Max(1, reached):0.0} ms on average (worst {hitWorst:0.0}), a goal out of reach {missMs / Mathf.Max(1, misses):0.0} ms (worst {missWorst:0.0})"));
         Check(reached >= reachedCapped && farthest >= farthestCapped, "the Gubble's routes reach at least as far across the island as the default capped query did");
+        await MeasureWalkableReach(bounds, step, spawn);
+        await MeasureRouteRequests(land, spawn);
+        await TestReBakeDoesNotHold();
 
         // Come along the longest walk the survey found (on the magnified island, past where the capped query reached).
         if (farthest > 1f && player.TryTeleportTo(farthestWalk + Vector3.Up * 0.003f))
@@ -729,6 +746,151 @@ public partial class LandscapePlayTest : Node3D
             $"the Gubble on the highest land ({Text(top)}), the player {top.Y - low.Y:0.0} m below and {PlanarDistance(top, low):0.0} m away");
         await Frames(20);
         await ComeAndWatch($"come down {top.Y - low.Y:0.0} m off the highest land");
+    }
+
+    /// <summary>
+    /// The share of the land a body could walk on that the Gubble's routes reach from its spawn, judged without the mesh (S7):
+    /// the same grid, kept where the ground is no steeper than the body's 45 degrees, dry, and open for a body's height over it.
+    /// Measured on the game's mesh (the body's 2 cm step for a climb) and, beside it, on a bake with the 1 cm climb it had.
+    /// </summary>
+    private async Task MeasureWalkableReach(Aabb bounds, float step, Vector3 spawn)
+    {
+        var space = GetWorld3D().DirectSpaceState;
+        var walkable = new List<Vector3>();
+        for (var x = bounds.Position.X + step * 0.5f; x < bounds.End.X; x += step)
+            for (var z = bounds.Position.Z + step * 0.5f; z < bounds.End.Z; z += step)
+            {
+                var hit = space.IntersectRay(PhysicsRayQueryParameters3D.Create(new Vector3(x, bounds.End.Y + 1, z), new Vector3(x, bounds.Position.Y - 1, z), RoomBuilder.WorldLayer));
+                if (hit.Count == 0 || hit["normal"].AsVector3().Y < Mathf.Cos(Mathf.DegToRad(45f))) continue;
+                var point = hit["position"].AsVector3();
+                if (RoomWater.At(space, point + Vector3.Up * 0.001f, 0.4f, 0.02f).Wet) continue;
+                if (space.IntersectRay(PhysicsRayQueryParameters3D.Create(point + Vector3.Up * 0.005f, point + Vector3.Up * 0.10f, RoomBuilder.WorldLayer)).Count > 0) continue;
+                walkable.Add(point);
+            }
+        var before = RoomNavigation.Create(this, _world.Built, bounds, WorldScaleProfile.Companion, 0.01f);
+        var waited = System.Diagnostics.Stopwatch.StartNew();
+        while (!before.IsReady && waited.Elapsed.TotalSeconds < 120) await Frames(1);
+        foreach (var (name, mesh) in new[] { ("the game's mesh, climb 0.020 m (the body's step)", _navigation), ("a 0.010 m climb, as before S7", before) })
+        {
+            var from = mesh.ClosestPoint(spawn);
+            int on = 0, reached = 0;
+            foreach (var point in walkable)
+            {
+                var snapped = mesh.ClosestPoint(point);
+                if (PlanarDistance(snapped, point) > mesh.AgentRadiusM + 0.01f || Mathf.Abs(snapped.Y - point.Y) > 0.03f) continue;
+                on++;
+                if (mesh.FindRoute(from, point, 0.06f).Reaches) reached++;
+            }
+            Measure(string.Create(CultureInfo.InvariantCulture,
+                $"LANDSCAPE_WALKABLE_REACH {name}: {mesh.PolygonCount} polygons in {mesh.TileCount} tiles, {mesh.IslandCount} islands, baked in {mesh.LastBakeMs:0} ms; " +
+                $"of {walkable.Count} body-walkable places on a {step:0.00} m grid (slope at most 45 degrees, dry, open overhead) {on} on the mesh ({100f * on / Mathf.Max(1, walkable.Count):0}%), " +
+                $"{reached} reached from the Gubble's spawn ({100f * reached / Mathf.Max(1, walkable.Count):0}% of the walkable land, {100f * reached / Mathf.Max(1, on):0}% of it on the mesh)"));
+        }
+        before.QueueFree();
+        await Frames(2);
+    }
+
+    /// <summary>
+    /// The searches the Gubble now makes (RoomNavigation.RequestRoute, S7): what asking costs the main thread, and how long the
+    /// worker takes, for a route that reaches and one out of reach.
+    /// </summary>
+    private async Task MeasureRouteRequests(List<Vector3> land, Vector3 spawn)
+    {
+        double askTotal = 0, askWorst = 0, hitTotal = 0, hitWorst = 0, missTotal = 0, missWorst = 0;
+        int hits = 0, misses = 0;
+        var frequency = (double)System.Diagnostics.Stopwatch.Frequency;
+        foreach (var point in land)
+        {
+            var asked = System.Diagnostics.Stopwatch.GetTimestamp();
+            var request = _navigation.RequestRoute(spawn, point, 0.06f);
+            var ask = (System.Diagnostics.Stopwatch.GetTimestamp() - asked) * 1000 / frequency;
+            request.Wait(10_000);
+            var done = (System.Diagnostics.Stopwatch.GetTimestamp() - asked) * 1000 / frequency;
+            askTotal += ask;
+            askWorst = Math.Max(askWorst, ask);
+            if (request.TryTake(out var route) && route.Reaches) { hits++; hitTotal += done; hitWorst = Math.Max(hitWorst, done); }
+            else { misses++; missTotal += done; missWorst = Math.Max(missWorst, done); }
+        }
+        Measure(string.Create(CultureInfo.InvariantCulture,
+            $"LANDSCAPE_ROUTE_REQUESTS {land.Count} searches from the Gubble's spawn on a worker thread: asking costs the main thread {askTotal / Math.Max(1, land.Count):0.000} ms on average (worst {askWorst:0.000}); " +
+            $"a route that reaches is found in {hitTotal / Math.Max(1, hits):0.0} ms (worst {hitWorst:0.0}), a goal out of reach answered in {missTotal / Math.Max(1, misses):0.0} ms (worst {missWorst:0.0})"));
+        Check(askWorst < 4, $"asking for a route never costs the main thread 4 ms (worst {askWorst:0.000} ms)");
+        // The nearest walkable point, which the Gubble asks for each tick (its place beside the player) and the sides of a go_to.
+        double nearTotal = 0, nearWorst = 0;
+        foreach (var point in land)
+        {
+            var asked = System.Diagnostics.Stopwatch.GetTimestamp();
+            _navigation.ClosestPoint(point + new Vector3(0.3f, 0.05f, 0.2f));
+            var ms = (System.Diagnostics.Stopwatch.GetTimestamp() - asked) * 1000 / frequency;
+            nearTotal += ms;
+            nearWorst = Math.Max(nearWorst, ms);
+        }
+        Measure(string.Create(CultureInfo.InvariantCulture,
+            $"LANDSCAPE_CLOSEST_POINT {land.Count} nearest walkable points on the main thread: {nearTotal / Math.Max(1, land.Count):0.000} ms on average (worst {nearWorst:0.000})"));
+        await Frames(1);
+    }
+
+    /// <summary>
+    /// A re-bake after something moves bakes only the tiles round it, on worker threads (S7; the experiment's re-bake was a
+    /// 0.36 s hitch): a movable thing is moved half a metre and back, and every physics tick meanwhile is timed, with the
+    /// navigation's own share of it (reading the scene, waiting at most RoomNavigation.TickWaitMs, handing tiles to the map).
+    /// </summary>
+    private async Task TestReBakeDoesNotHold()
+    {
+        var thing = _world.Built.GetNode("Objects").GetChildren().OfType<StaticBody3D>()
+            .FirstOrDefault(n => n.GetMeta("movable", false).AsBool() && (n.CollisionLayer & RoomBuilder.WorldLayer) != 0);
+        if (thing == null)
+        {
+            Measure("LANDSCAPE_REBAKE no movable thing to move");
+            return;
+        }
+        // The same number of ticks with nothing re-baked, for comparison (headless ticks hold garbage collections of their own).
+        var idle = await TimeTicks(60, () => false);
+        Measure(string.Create(CultureInfo.InvariantCulture, $"LANDSCAPE_REBAKE_IDLE 60 ticks with no re-bake: {idle.Summary}"));
+        var home = thing.GlobalTransform;
+        foreach (var (name, pose) in new[] { ("moved 0.5 m", home.Translated(new Vector3(0.5f, 0, 0))), ("moved back", home) })
+        {
+            var revision = _navigation.Revision;
+            await Frames(2);
+            _navigation.WorstTickMs = 0;
+            EnFractal.Native.Sandbox.Carrying.Place(thing, pose);
+            var ticks = await TimeTicks(3600, () => _navigation.Revision != revision);
+            Measure(string.Create(CultureInfo.InvariantCulture,
+                $"LANDSCAPE_REBAKE {thing.Name} {name}: re-baked {_navigation.LastTilesBaked} of {_navigation.TileCount} tiles in {_navigation.LastBakeMs:0} ms on worker threads, {_navigation.LastBakeMainThreadMs:0.0} ms of the main thread in all, " +
+                $"in the map {_navigation.LastLiveFrame - _navigation.LastAppliedFrame} ticks after its last tiles went to it; the navigation's worst tick {_navigation.WorstTickMs:0.00} ms; {ticks.Summary}"));
+            // A small map's re-bake lands on its set tick (RoomNavigation.SmallReBakeTicks): 100 ms at 60 Hz, but headless, faster
+            // than real time, the tick waits for it there, so only a large map is held to the 4 ms here.
+            Check(_navigation.Revision > revision && _navigation.LastTilesBaked < Math.Max(2, _navigation.TileCount) && (_navigation.IsSmall || _navigation.WorstTickMs < 4.0),
+                $"{thing.Name} {name}: re-baked only the tiles round it ({_navigation.LastTilesBaked} of {_navigation.TileCount}){(_navigation.IsSmall ? "" : " without holding a tick 4 ms")} (the navigation's worst tick {_navigation.WorstTickMs:0.00} ms)");
+        }
+    }
+
+    /// <summary>Whole physics ticks timed until a condition holds (and three more): the worst, the worst with no garbage collection in it, the navigation server's own step, and the collections.</summary>
+    private async Task<(double Worst, double WorstClean, string Summary)> TimeTicks(int limit, Func<bool> done)
+    {
+        var frame = new System.Diagnostics.Stopwatch();
+        var times = new List<double>();
+        double worst = 0, worstClean = 0, worstServer = 0;
+        int collected = 0, after = 0;
+        var paused = GC.GetTotalPauseDuration();
+        while (times.Count < limit && after < 3)
+        {
+            if (done()) after++;
+            var collections = GC.CollectionCount(0);
+            frame.Restart();
+            await Frames(1);
+            var ms = frame.Elapsed.TotalMilliseconds;
+            times.Add(ms);
+            worst = Math.Max(worst, ms);
+            worstServer = Math.Max(worstServer, Performance.GetMonitor(Performance.Monitor.TimeNavigationProcess) * 1000);
+            if (GC.CollectionCount(0) != collections) collected++;
+            else worstClean = Math.Max(worstClean, ms);
+        }
+        times.Sort();
+        var summary = string.Create(CultureInfo.InvariantCulture,
+            $"over {times.Count} ticks the median whole tick {times[times.Count / 2]:0.0} ms, the worst {worst:0.0} ms, the worst with no garbage collection in it {worstClean:0.0} ms; " +
+            $"the navigation server's own step at most {worstServer:0.00} ms; {collected} ticks held collections, pausing {(GC.GetTotalPauseDuration() - paused).TotalMilliseconds:0.0} ms in all");
+        return (worst, worstClean, summary);
     }
 
     /// <summary>Send come and watch it through: it must succeed, ending beside the player and level with them, never lost up high.</summary>
