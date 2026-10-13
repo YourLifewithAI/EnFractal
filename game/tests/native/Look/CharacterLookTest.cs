@@ -233,6 +233,10 @@ public partial class CharacterLookTest : Node3D
         body.SetMeta(LookDirector.AuraColorMeta, "not a colour");
         CharacterLook.Recolor(root);
         Check(bubble.GetShaderParameter("aura_color").AsColor() == GubbleHintAura, "a meta that is not a colour is ignored");
+        Check(CharacterLook.SetLightLevel(root, 0.25f) == 3 && result.Of(CharacterSurfaceRole.Bubble).All(s => ((ShaderMaterial)s.Material).GetShaderParameter("light_level").AsSingle() == 0.25f)
+            && CharacterLook.SetLightLevel(root, 7f) == 3 && bubble.GetShaderParameter("light_level").AsSingle() == 1f
+            && CharacterLook.SetLightLevel(root, float.NaN) == 3 && bubble.GetShaderParameter("light_level").AsSingle() == 1f,
+            "SetLightLevel tells every bubble how lit its place is, held to 0 to 1 (not a number: lit)");
         var other = new Node3D();
         other.SetMeta(LookDirector.AuraColorMeta, orange);
         CharacterLook.Recolor(root, other);
@@ -400,6 +404,10 @@ public partial class CharacterLookTest : Node3D
         string Modes(string s) => Regex.Match(s, @"render_mode([^;]*);").Groups[1].Value;
         Check(Modes(bubble).Contains("depth_draw_never") && Modes(bubble).Contains("cull_disabled") && Modes(bubble).Contains("blend_premul_alpha") && !Modes(bubble).Contains("world_vertex_coords"),
             "the bubble draws both skins, see-through, writes no depth itself and works in object space");
+        // The budget (0.15 ms at 1080p): lit, the forward pass's lights, soft shadows and VoxelGI cones cost the film 0.54 ms at a
+        // play distance on the founder's card (docs/look/CHARACTERS.md); unshaded, it follows the place's light through light_level.
+        Check(Modes(bubble).Contains("unshaded") && Modes(bubble).Contains("shadows_disabled") && Regex.IsMatch(Function(bubble, "void fragment()"), @"\blight_level\b"),
+            "the bubble is unshaded for its budget and takes the place's light from light_level");
         Check(Modes(depth).Contains("depth_draw_always") && Modes(depth).Contains("cull_back") && Modes(depth).Contains("unshaded") && !Modes(depth).Contains("world_vertex_coords")
             && Regex.IsMatch(Function(depth, "void fragment()"), @"<\s*rim_depth_min\)\s*discard") && Regex.IsMatch(Function(depth, "void fragment()"), @"ALPHA\s*=\s*0\.0"),
             "the depth pass writes the front skin's depth at the rim only and draws no colour");

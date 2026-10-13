@@ -17,18 +17,19 @@ public sealed record FeltLook(
 }
 
 /// <summary>
-/// The soap bubble (bubble.gdshader). HemFraction is the share of the lowest bubble part's height that ripples (a fifth); the hem's
-/// height is in metres in object space. DefaultAura is used only when neither the body's aura_color nor the hint names a colour.
+/// The soap bubble (bubble.gdshader). RimGlow is the share of the rim that stays in the dark (the aura's own light); Glint and
+/// GlintSize the drawn glint. HemFraction is the share of the lowest bubble part's height that ripples (a fifth); the hem's height
+/// is in metres in object space. DefaultAura is used only when neither the body's aura_color nor the hint names a colour.
 /// RimDepthMin is the Fresnel rim above which the depth pass writes the outline's depth.
 /// </summary>
 public sealed record BubbleLook(
     float TintAlpha, float RimPower, float RimAlpha, float RimGlow, float Shimmer, float ShimmerScaleM, float ShimmerSpeed,
-    float Iridescence, float FilmBands, float BackSkin, float Roughness, float Specular,
+    float Iridescence, float FilmBands, float BackSkin, float Glint, float GlintSize,
     float HemFraction, float HemAmplitudeM, float HemWaves, float HemSpeed, float RimDepthMin, Color DefaultAura)
 {
     public static readonly BubbleLook Default = new(
-        0.08f, 2.4f, 0.6f, 0.3f, 0.35f, 0.025f, 0.25f,
-        0.3f, 1.4f, 0.55f, 0.15f, 0.5f,
+        0.08f, 2.4f, 0.6f, 0.35f, 0.35f, 0.025f, 0.25f,
+        0.45f, 1.4f, 0.55f, 0.6f, 0.06f,
         0.2f, 0.0012f, 3f, 0.4f, 0.3f, new Color("b4eed8"));
 }
 
@@ -199,6 +200,23 @@ public static partial class CharacterLook
                         break;
                 }
             }
+        return changed;
+    }
+
+    /// <summary>
+    /// Tell the character's bubble how lit its place is (0 dark to 1 lit; the look's LightLevelAt is the natural source): the film is
+    /// unshaded for its budget, so this is how its tint and glint follow the light. Returns how many bubble materials took it.
+    /// </summary>
+    public static int SetLightLevel(Node3D visualRoot, float level)
+    {
+        var changed = 0;
+        foreach (var mesh in Meshes(visualRoot))
+            for (var surface = 0; surface < mesh.Mesh.GetSurfaceCount(); surface++)
+                if (mesh.GetSurfaceOverrideMaterial(surface) is ShaderMaterial bubble && bubble.HasMeta(RoleMeta) && bubble.GetMeta(RoleMeta).AsString() == "bubble")
+                {
+                    MaterialLibrary.SetBubbleLight(bubble, float.IsFinite(level) ? Mathf.Clamp(level, 0f, 1f) : 1f);
+                    changed++;
+                }
         return changed;
     }
 

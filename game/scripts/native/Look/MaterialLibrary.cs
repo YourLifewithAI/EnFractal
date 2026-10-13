@@ -439,8 +439,9 @@ public static class MaterialLibrary
         SetIn(BubbleSetNames, material, "iridescence", l.Iridescence);
         SetIn(BubbleSetNames, material, "film_bands", l.FilmBands);
         SetIn(BubbleSetNames, material, "back_skin", l.BackSkin);
-        SetIn(BubbleSetNames, material, "roughness_value", l.Roughness);
-        SetIn(BubbleSetNames, material, "specular_strength", l.Specular);
+        SetIn(BubbleSetNames, material, "glint", l.Glint);
+        SetIn(BubbleSetNames, material, "glint_size", l.GlintSize);
+        SetIn(BubbleSetNames, material, "light_level", 1f);
         SetHem(BubbleSetNames, material, hem, l);
         material.SetMeta(CharacterLook.RoleMeta, "bubble");
         return material;
@@ -458,4 +459,7 @@ public static class MaterialLibrary
 
     /// <summary>Give a bubble a new aura colour (its rim and shimmer).</summary>
     public static void SetBubbleAura(ShaderMaterial bubble, Color aura) => SetIn(BubbleSetNames, bubble, "aura_color", aura);
+
+    /// <summary>Tell a bubble how lit its place is (0 to 1): the film is unshaded, so its tint and glint follow this.</summary>
+    public static void SetBubbleLight(ShaderMaterial bubble, float level) => SetIn(BubbleSetNames, bubble, "light_level", level);
 }
