@@ -19,6 +19,10 @@ $gaits = Invoke-EnfractalNativeProcess -Toolchain $toolchain -FilePath $toolchai
     -Arguments @('--headless', '--path', $toolchain.ProjectPath, '--fixed-fps', '60', 'res://tests/native_character_gaits.tscn') -TimeoutSeconds 300
 if ($gaits.Stderr -or $gaits.Stdout -notmatch 'NATIVE_CHARACTER_GAITS: \d+/\d+ checks passed') { throw "$($gaits.Stdout)`n$($gaits.Stderr)" }
 Write-Output (($gaits.Stdout.Trim().Split("`n") | Where-Object { $_ -match '^(GAITS_CPU|NATIVE_CHARACTER_GAITS)' }) -join "`n")
+$contact = Invoke-EnfractalNativeProcess -Toolchain $toolchain -FilePath $toolchain.EnginePath `
+    -Arguments @('--headless', '--path', $toolchain.ProjectPath, '--fixed-fps', '60', 'res://tests/native_character_contact.tscn') -TimeoutSeconds 120
+if ($contact.Stderr -or $contact.Stdout -notmatch 'NATIVE_CHARACTER_CONTACT: \d+/\d+ checks passed') { throw "$($contact.Stdout)`n$($contact.Stderr)" }
+Write-Output (($contact.Stdout.Trim().Split("`n") | Where-Object { $_ -match '^(CHARACTERS_INTRUSION|NATIVE_CHARACTER_CONTACT)' }) -join "`n")
 $navigation = Invoke-EnfractalNativeProcess -Toolchain $toolchain -FilePath $toolchain.EnginePath `
     -Arguments @('--headless', '--path', $toolchain.ProjectPath, '--fixed-fps', '60', 'res://tests/native_room_navigation.tscn') -TimeoutSeconds 90
 if ($navigation.Stderr -or $navigation.Stdout -notmatch 'checks passed') { throw "$($navigation.Stdout)`n$($navigation.Stderr)" }

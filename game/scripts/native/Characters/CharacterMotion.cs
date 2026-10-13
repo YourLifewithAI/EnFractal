@@ -1,5 +1,6 @@
 using System;
 using Godot;
+using EnFractal.Native.Characters.Contact;
 using EnFractal.Native.Characters.Gaits;
 
 namespace EnFractal.Native.Characters;
@@ -20,5 +21,6 @@ public static class CharacterMotion
         ArgumentNullException.ThrowIfNull(visual);
         ArgumentNullException.ThrowIfNull(body);
         CharacterGaits.Install(visual);
+        CharacterContact.Install(visual, body, pointOfInterest);
     }
 }

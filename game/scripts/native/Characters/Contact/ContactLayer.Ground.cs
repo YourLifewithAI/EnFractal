@@ -306,9 +306,15 @@ public sealed partial class ContactLayer
         Squash = squash;
         if (squash > 1e-5f)
         {
-            var y = 1 - squash;
-            var xz = 1 / Mathf.Sqrt(y);
-            pose.MultiplyScale(root, new Vector3(xz, y, xz));
+            // The gait may already squash or stretch the root: together they stay within MaxSquash of rest (springs misbehave
+            // under larger scales; K3's note at the merge, 13 October).
+            var current = pose.GetScale(root).Y;
+            var y = current > 1e-4f ? Mathf.Max(current * (1 - squash), 1 - MaxSquash) / current : 1 - squash;
+            if (y < 1)
+            {
+                var xz = 1 / Mathf.Sqrt(y);
+                pose.MultiplyScale(root, new Vector3(xz, y, xz));
+            }
         }
     }
 

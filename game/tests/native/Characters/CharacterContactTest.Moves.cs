@@ -244,7 +244,9 @@ public partial class CharacterContactTest
             var swinging = calm[s.Id].Length;
             var downwind = Enumerable.Range(0, swinging).Sum(i => windy[s.Id][i].X - calm[s.Id][i].X);
             var lean = swinging == 0 ? 0 : Enumerable.Range(0, swinging).Average(i => Mathf.RadToDeg(calm[s.Id][i].AngleTo(windy[s.Id][i])));
-            Report(force.IsEqualApprox(ContactLayer.WindForce(new Vector2(0.4f, 0), 1f / 60)) && force.X > 0 && (swinging == 0 || (downwind > 0 && lean > 3 && lean < 45)),
+            // A gentle breeze leans soft parts a few degrees and stiff ones (a held wand, sparkles on K3's stiffer springs) about one:
+            // the wind must reach every swinging chain downwind, by at least a degree on average (3 before K3's retune, 13 October).
+            Report(force.IsEqualApprox(ContactLayer.WindForce(new Vector2(0.4f, 0), 1f / 60)) && force.X > 0 && (swinging == 0 || (downwind > 0 && lean > 1 && lean < 45)),
                 FormattableString.Invariant($"{s.Id} in a 0.4 m/s breeze along +X: the springs' external force is {force}; {swinging} swinging chains lean {lean:0.0}° on average, their tips {downwind * 1000:0.0} mm downwind in all"));
         }
         foreach (var s in _subjects) Check(s.Body.SetWorldPhysics(Preset("room_tuned", s.Body.WorldPhysicsRevision + 1)), $"{s.Id}: calm again");
