@@ -11,6 +11,10 @@ $avatar = Invoke-EnfractalNativeProcess -Toolchain $toolchain -FilePath $toolcha
     -Arguments @('--headless', '--path', $toolchain.ProjectPath, '--fixed-fps', '60', 'res://tests/native_small_avatar.tscn') -TimeoutSeconds 90
 if ($avatar.Stderr -or $avatar.Stdout -notmatch 'checks passed') { throw "$($avatar.Stdout)`n$($avatar.Stderr)" }
 Write-Output $avatar.Stdout.Trim()
+$characters = Invoke-EnfractalNativeProcess -Toolchain $toolchain -FilePath $toolchain.EnginePath `
+    -Arguments @('--headless', '--path', $toolchain.ProjectPath, '--fixed-fps', '60', 'res://tests/native_characters.tscn') -TimeoutSeconds 120
+if ($characters.Stderr -or $characters.Stdout -notmatch 'NATIVE_CHARACTERS: \d+/\d+ checks passed') { throw "$($characters.Stdout)`n$($characters.Stderr)" }
+Write-Output (($characters.Stdout.Trim().Split("`n") | Where-Object { $_ -match '^(CHARACTERS_LOAD|NATIVE_CHARACTERS)' }) -join "`n")
 $navigation = Invoke-EnfractalNativeProcess -Toolchain $toolchain -FilePath $toolchain.EnginePath `
     -Arguments @('--headless', '--path', $toolchain.ProjectPath, '--fixed-fps', '60', 'res://tests/native_room_navigation.tscn') -TimeoutSeconds 90
 if ($navigation.Stderr -or $navigation.Stdout -notmatch 'checks passed') { throw "$($navigation.Stdout)`n$($navigation.Stderr)" }

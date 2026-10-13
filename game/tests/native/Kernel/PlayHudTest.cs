@@ -83,6 +83,7 @@ public partial class PlayHudTest : Node
             await TestEyesSetting();
             await TestGubbleView();
             await TestCharacterChoice();
+            await TestWearingCharacters();
             await TestGlowJournalLearned();
 
             // Unload while the final cast's chime is still active. AudioServer

@@ -40,9 +40,12 @@ public partial class PlayHudTest
         var previousTold = player.CharacterChanged;
         var told = new List<string>();
         player.CharacterChanged = id => { told.Add(id); previousTold?.Invoke(id); };
+        // The room supplies the shipped characters (RoomWorld); this test supplies its own, so it starts from none.
+        var roomChoices = _hud.CharacterChoices;
+        _hud.CharacterChoices = null;
         try
         {
-            // Nothing supplied (no library on this branch): the plain figure alone, chosen, with its colour button.
+            // Nothing supplied: the plain figure alone, chosen, with its colour button.
             await OpenCustomize();
             Check(_hud.Customizing && _hud.CharacterRow.Select(c => c.DisplayName).SequenceEqual(new[] { CharacterChoice.PrototypeName }) &&
                   _hud.CharacterButtons.Count == 1 && _hud.CharacterButtons[0].ButtonPressed && _hud.PlayerColorButton!.IsVisibleInTree() &&
@@ -173,7 +176,7 @@ public partial class PlayHudTest
         finally
         {
             if (_hud.Customizing) CloseCustomize();
-            _hud.CharacterChoices = null;
+            _hud.CharacterChoices = roomChoices;
             player.SetCharacterId("");
             player.CharacterChanged = previousTold;
             if (profileBefore != null) System.IO.File.WriteAllBytes(profileFile, profileBefore);

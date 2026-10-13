@@ -1,6 +1,8 @@
 using Godot;
 using System;
+using System.Collections.Generic;
 using System.Linq;
+using EnFractal.Native.Characters;
 using EnFractal.Native.Companion;
 using EnFractal.Native.Look;
 using EnFractal.Native.Look.Fauna;
@@ -31,6 +33,10 @@ public partial class RoomWorld : Node3D
     public Node3D Built { get; private set; } = null!;
     public SmallPlayerController Player { get; private set; } = null!;
     public CompanionAvatar Companion { get; private set; } = null!;
+    /// <summary>The shipped drawn characters (the characters round): the player's choices, and the Gubble's own.</summary>
+    public CharacterLibrary Characters { get; private set; } = null!;
+    /// <summary>What draws the player now: a drawn character, or null for the prototype figure.</summary>
+    public CharacterVisual? PlayerVisual { get; private set; }
     public bool WorldReady { get; private set; }
     public string LoadError { get; private set; } = "";
     /// <summary>Set when the room's pinned style could not be used and the default look was applied instead.</summary>
@@ -60,6 +66,32 @@ public partial class RoomWorld : Node3D
         return StylePreset.Resolve(DefaultStyleId, DefaultStyleVersion);
     }
 
+    private IReadOnlyList<CharacterChoice> _characterChoices = Array.Empty<CharacterChoice>();
+
+    /// <summary>The shipped characters, each refusal logged; the HUD's row is built once from them (never the Gubble).</summary>
+    private CharacterLibrary LoadCharacters()
+    {
+        var library = CharacterLibrary.Load(CharacterLibrary.ShippedRoot);
+        foreach (var entry in library.Entries)
+            if (!entry.IsLoaded) GD.PushWarning($"CHARACTERS: {entry.Id} refused: {entry.RefusalReason}");
+        // The thumbnails are the converter's renders, beside the source models (assets/characters/<id>/three_quarter.png); a
+        // build without them draws a named swatch instead.
+        var renders = System.IO.Path.GetFullPath(System.IO.Path.Combine(ProjectSettings.GlobalizePath("res://"), "..", "assets", "characters"));
+        _characterChoices = library.Characters.Where(c => c.Id != CharacterChoice.GubbleId)
+            .Select(c => new CharacterChoice(c.Id, c.DisplayName, CharacterChoice.LoadThumbnail(System.IO.Path.Combine(renders, c.Id)))).ToList();
+        GD.Print($"CHARACTERS: {library.Characters.Count()} loaded in {library.LoadMilliseconds:0} ms");
+        return library;
+    }
+
+    /// <summary>The player chose a character ("" for the prototype figure): draw their body with it.</summary>
+    private void WearCharacter(string id)
+    {
+        var previous = PlayerVisual;
+        PlayerVisual = CharacterVisual.Create(Characters, id);
+        Player.SetBodyVisual(PlayerVisual);
+        if (previous != null && GodotObject.IsInstanceValid(previous.Root)) previous.Root.QueueFree();
+    }
+
     public override async void _Ready()
     {
         try
@@ -87,6 +119,10 @@ public partial class RoomWorld : Node3D
             Companion.SetSpawnPoint(Companion.Position);
             Companion.BindPlayer(Player);
             Companion.Follow();
+            // The drawn characters (docs/runs/RUN-2-CHARACTERS.md): the library, and the player's choice drawing their body. Set
+            // before the HUD, which restores the saved choice when it is ready.
+            Characters = LoadCharacters();
+            Player.CharacterChanged = WearCharacter;
             // Living scenery (Run 2, Lane L): fish in the ponds and the veil under the water. Only the player frightens
             // fish; the Gubble is set apart from the world, a ghost only the player can see (the founder, 8 October).
             var pondLife = PondLife.Create(Room.RoomId, Built);
@@ -98,6 +134,7 @@ public partial class RoomWorld : Node3D
                 // Never a silent fallback: a style pin that did not verify, or a renderer the look was not designed for.
                 LookNotice = string.Join(" ", new[] { StyleNote, Look.PlayerNotice }.Where(note => note.Length > 0)),
                 Look = Look,
+                CharacterChoices = () => _characterChoices,
             });
             var commandHost = Kernel.CommandHost.Attach(this);
             commandHost.LoadRules(DefaultRulesId, DefaultRulesVersion);
