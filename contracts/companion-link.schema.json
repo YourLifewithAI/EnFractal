@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://contracts.enfractal.invalid/v1/companion-link.schema.json",
-  "title": "EnFractal companion and wish runner links: session files and frames",
-  "description": "The loopback connection between the companion MCP server and the running game. The game listens on 127.0.0.1 or ::1 only and writes the session file to user://companion/session.json with a fresh 256-bit token per launch. Both sides prove knowledge of the token with HMAC-SHA256 over two fresh nonces, so the token never crosses the socket. Each frame is a 4-byte big-endian length followed by one JSON object, which the sender writes as canonical JSON v1 (UTF-8, numbers in canonical form) so that a frame is the canonical message plus a short envelope; readers accept any strict JSON within the limit, and duplicate keys and non-finite numbers are refused. A wrong proof closes only that connection: there is no lockout. The game binds the principal to the authenticated connection; no request frame carries a principal, an approval or the token. The normal game connection carries enfractal.command / enfractal.query and enfractal.result messages from game-command.schema.json. A separate authenticated runner listener carries only the exact wish.wait / wish.update protocol below and assigns runner:local with no avatar. This static schema describes both transports; the trusted listener enforces which message family its connection may use.",
+  "title": "EnFractal companion link: session file and frames",
+  "description": "The loopback connection between the companion MCP server and the running game. The game listens on 127.0.0.1 or ::1 only and writes the session file to user://companion/session.json with a fresh 256-bit token per launch. Both sides prove knowledge of the token with HMAC-SHA256 over two fresh nonces, so the token never crosses the socket. Each frame is a 4-byte big-endian length followed by one JSON object, which the sender writes as canonical JSON v1 (UTF-8, numbers in canonical form) so that a frame is the canonical message plus a short envelope; readers accept any strict JSON within the limit, and duplicate keys and non-finite numbers are refused. A wrong proof closes only that connection: there is no lockout. The game binds the principal to the authenticated connection; no request frame carries a principal, an approval or the token. Request and response frames carry enfractal.command / enfractal.query and enfractal.result messages from game-command.schema.json. There is one connection role, the companion's: wishes reach the connected AI through its ordinary commands and queries (wish.list, wish.take, wish.report, wish.wait).",
   "oneOf": [
     {
       "$ref": "#/$defs/session_file"
@@ -35,7 +35,7 @@
       "pattern": "^[0-9a-f]{64}$"
     },
     "session_file": {
-      "description": "user://companion/session.json for game commands or user://companion/wish-runner.json for wish control. Each listener writes its own session file atomically at startup and deletes it at exit, with a separate fresh token. Readable only by the player's account. Clients refuse any host that is not a loopback literal.",
+      "description": "user://companion/session.json, written atomically by the game at startup and deleted at exit. Readable only by the player's account. The companion refuses any host that is not a loopback literal.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -158,7 +158,7 @@
       }
     },
     "ready": {
-      "description": "Game to authenticated client after a valid proof. The normal game listener assigns a game principal and nonempty avatar. The separate wish runner listener assigns exactly runner:local and an empty avatar. The client never chooses its role.",
+      "description": "Game to companion after a valid proof. Reports the principal and avatar the game assigned to this connection; the companion never chooses them.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -178,10 +178,11 @@
           "pattern": "^[0-9a-f]{32}$"
         },
         "principal": {
-          "type": "string"
+          "$ref": "common.schema.json#/$defs/principal_id"
         },
         "avatar": {
-          "type": "string"
+          "type": "string",
+          "pattern": "^avatar:[A-Za-z0-9_-]{1,64}$"
         },
         "room_id": {
           "$ref": "common.schema.json#/$defs/token"
@@ -204,29 +205,7 @@
             }
           }
         }
-      },
-      "oneOf": [
-        {
-          "properties": {
-            "principal": {
-              "$ref": "common.schema.json#/$defs/principal_id"
-            },
-            "avatar": {
-              "pattern": "^avatar:[A-Za-z0-9_-]{1,64}$"
-            }
-          }
-        },
-        {
-          "properties": {
-            "principal": {
-              "const": "runner:local"
-            },
-            "avatar": {
-              "const": ""
-            }
-          }
-        }
-      ]
+      }
     },
     "refused": {
       "description": "Game to companion, then the game closes the connection.",
@@ -253,7 +232,7 @@
       }
     },
     "request": {
-      "description": "Authenticated client to its listener. The game endpoint accepts one enfractal.command or enfractal.query; the separate runner endpoint accepts only wish.wait or wish.update. The trusted endpoint enforces the connection role; this schema is their static union.",
+      "description": "Companion to game. One enfractal.command or enfractal.query. Any other frame type after authentication is frame_invalid and closes the connection.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -277,16 +256,13 @@
             },
             {
               "$ref": "game-command.schema.json#/$defs/query"
-            },
-            {
-              "$ref": "#/$defs/runner_request"
             }
           ]
         }
       }
     },
     "response": {
-      "description": "Game to authenticated client, echoing seq. The game endpoint returns enfractal.result; the separate runner endpoint returns only a fixed runner_response.",
+      "description": "Game to companion. Echoes seq; message is one enfractal.result.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -304,244 +280,9 @@
           "maximum": 9007199254740991
         },
         "message": {
-          "oneOf": [
-            {
-              "$ref": "game-command.schema.json#/$defs/result"
-            },
-            {
-              "$ref": "#/$defs/runner_response"
-            }
-          ]
+          "$ref": "game-command.schema.json#/$defs/result"
         }
       }
-    },
-    "wish_id": {
-      "type": "string",
-      "minLength": 31,
-      "maxLength": 31,
-      "pattern": "^wish:[a-z2-7]{26}$"
-    },
-    "runner_result_code": {
-      "enum": [
-        "completed",
-        "failed",
-        "unsupported",
-        "cancelled"
-      ]
-    },
-    "runner_request": {
-      "description": "Only the dedicated authenticated runner listener accepts these control messages. Game actions still use the normal companion connection and its ordinary authority checks.",
-      "oneOf": [
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "op"
-          ],
-          "properties": {
-            "op": {
-              "const": "wish.wait"
-            }
-          }
-        },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "op",
-            "args"
-          ],
-          "properties": {
-            "op": {
-              "const": "wish.update"
-            },
-            "args": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "wish_id",
-                "status",
-                "result_code"
-              ],
-              "properties": {
-                "wish_id": {
-                  "$ref": "#/$defs/wish_id"
-                },
-                "status": {
-                  "enum": [
-                    "running",
-                    "completed",
-                    "failed",
-                    "unsupported",
-                    "cancelled"
-                  ]
-                },
-                "result_code": {
-                  "$ref": "#/$defs/runner_result_code"
-                }
-              },
-              "description": "Running is a heartbeat with a fixed result code; terminal reports must pair the same status and result_code. Reports cannot supply action receipts, approvals or prose. The host derives the final wish status from its own receipts.",
-              "oneOf": [
-                {
-                  "properties": {
-                    "status": {
-                      "const": "running"
-                    }
-                  }
-                },
-                {
-                  "properties": {
-                    "status": {
-                      "const": "completed"
-                    },
-                    "result_code": {
-                      "const": "completed"
-                    }
-                  }
-                },
-                {
-                  "properties": {
-                    "status": {
-                      "const": "failed"
-                    },
-                    "result_code": {
-                      "const": "failed"
-                    }
-                  }
-                },
-                {
-                  "properties": {
-                    "status": {
-                      "const": "unsupported"
-                    },
-                    "result_code": {
-                      "const": "unsupported"
-                    }
-                  }
-                },
-                {
-                  "properties": {
-                    "status": {
-                      "const": "cancelled"
-                    },
-                    "result_code": {
-                      "const": "cancelled"
-                    }
-                  }
-                }
-              ]
-            }
-          }
-        }
-      ]
-    },
-    "runner_wish": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "wish_id",
-        "text",
-        "room_id"
-      ],
-      "properties": {
-        "wish_id": {
-          "$ref": "#/$defs/wish_id"
-        },
-        "text": {
-          "$ref": "common.schema.json#/$defs/display_text",
-          "minLength": 1,
-          "maxLength": 280
-        },
-        "room_id": {
-          "$ref": "common.schema.json#/$defs/token"
-        },
-        "aim_id": {
-          "$ref": "common.schema.json#/$defs/entity_id"
-        }
-      }
-    },
-    "runner_response": {
-      "description": "Fixed host replies. A completed runner report can become granted, partial or failed only from host-observed game receipts. No model-authored success description is accepted.",
-      "oneOf": [
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "ok",
-            "wish"
-          ],
-          "properties": {
-            "ok": {
-              "const": true
-            },
-            "wish": {
-              "oneOf": [
-                {
-                  "type": "null"
-                },
-                {
-                  "$ref": "#/$defs/runner_wish"
-                }
-              ]
-            }
-          }
-        },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "ok",
-            "status"
-          ],
-          "properties": {
-            "ok": {
-              "const": true
-            },
-            "status": {
-              "enum": [
-                "running",
-                "granted",
-                "partial",
-                "failed",
-                "unsupported",
-                "cancelled"
-              ]
-            }
-          }
-        },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "ok",
-            "error"
-          ],
-          "properties": {
-            "ok": {
-              "const": false
-            },
-            "error": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "code"
-              ],
-              "properties": {
-                "code": {
-                  "enum": [
-                    "not_ready",
-                    "request_invalid",
-                    "permission_denied",
-                    "invalid_args",
-                    "target_not_found",
-                    "budget_exceeded"
-                  ]
-                }
-              }
-            }
-          }
-        }
-      ]
     }
   }
 }

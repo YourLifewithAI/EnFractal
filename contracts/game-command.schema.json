@@ -94,7 +94,10 @@
         "nature.trail",
         "nature.repair",
         "wish.submit",
-        "wish.stop"
+        "wish.stop",
+        "wish.take",
+        "wish.report",
+        "companion.say"
       ]
     },
     "query_op": {
@@ -111,7 +114,9 @@
         "map.find",
         "player.status",
         "nature.describe",
-        "wishes.read"
+        "wishes.read",
+        "wish.list",
+        "wish.wait"
       ]
     },
     "command": {
@@ -539,6 +544,42 @@
         },
         {
           "if": {
+            "$ref": "#/$defs/is_op/wish.take"
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/$defs/args/wish.take"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "$ref": "#/$defs/is_op/wish.report"
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/$defs/args/wish.report"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "$ref": "#/$defs/is_op/companion.say"
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/$defs/args/companion.say"
+              }
+            }
+          }
+        },
+        {
+          "if": {
             "properties": {
               "op": {
                 "$ref": "#/$defs/destructive_ops"
@@ -754,6 +795,30 @@
               }
             }
           }
+        },
+        {
+          "if": {
+            "$ref": "#/$defs/is_op/wish.list"
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/$defs/args/wish.list"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "$ref": "#/$defs/is_op/wish.wait"
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/$defs/args/wish.wait"
+              }
+            }
+          }
         }
       ]
     },
@@ -881,6 +946,12 @@
         "transient": {
           "description": "True for commands that change no saved state: goals, stops, effects, grabs, activations and the world's physics. Their receipts live for the session only.",
           "type": "boolean"
+        },
+        "wishes_waiting": {
+          "description": "On a companion's result while the player has wishes waiting their turn: how many. A count only, never a wish's words; wish.list and wish.take give those.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16
         }
       },
       "allOf": [
@@ -1324,6 +1395,148 @@
             "properties": {
               "data": {
                 "$ref": "#/$defs/data/wishes.read"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ok": {
+                "const": true
+              },
+              "op": {
+                "const": "wish.take"
+              },
+              "preview": {
+                "const": false
+              }
+            },
+            "required": [
+              "ok",
+              "op",
+              "preview"
+            ]
+          },
+          "then": {
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/$defs/data/wish.take"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ok": {
+                "const": true
+              },
+              "op": {
+                "const": "wish.report"
+              },
+              "preview": {
+                "const": false
+              }
+            },
+            "required": [
+              "ok",
+              "op",
+              "preview"
+            ]
+          },
+          "then": {
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/$defs/data/wish.report"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ok": {
+                "const": true
+              },
+              "op": {
+                "const": "companion.say"
+              },
+              "preview": {
+                "const": false
+              }
+            },
+            "required": [
+              "ok",
+              "op",
+              "preview"
+            ]
+          },
+          "then": {
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/$defs/data/companion.say"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ok": {
+                "const": true
+              },
+              "op": {
+                "const": "wish.list"
+              }
+            },
+            "required": [
+              "ok",
+              "op"
+            ]
+          },
+          "then": {
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/$defs/data/wish.list"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ok": {
+                "const": true
+              },
+              "op": {
+                "const": "wish.wait"
+              }
+            },
+            "required": [
+              "ok",
+              "op"
+            ]
+          },
+          "then": {
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/$defs/data/wish.wait"
               }
             }
           }
@@ -2077,6 +2290,56 @@
         "properties": {
           "op": {
             "const": "wishes.read"
+          }
+        },
+        "required": [
+          "op"
+        ]
+      },
+      "wish.take": {
+        "properties": {
+          "op": {
+            "const": "wish.take"
+          }
+        },
+        "required": [
+          "op"
+        ]
+      },
+      "wish.report": {
+        "properties": {
+          "op": {
+            "const": "wish.report"
+          }
+        },
+        "required": [
+          "op"
+        ]
+      },
+      "companion.say": {
+        "properties": {
+          "op": {
+            "const": "companion.say"
+          }
+        },
+        "required": [
+          "op"
+        ]
+      },
+      "wish.list": {
+        "properties": {
+          "op": {
+            "const": "wish.list"
+          }
+        },
+        "required": [
+          "op"
+        ]
+      },
+      "wish.wait": {
+        "properties": {
+          "op": {
+            "const": "wish.wait"
           }
         },
         "required": [
@@ -2957,6 +3220,91 @@
         "additionalProperties": false,
         "properties": {},
         "required": []
+      },
+      "wish.take": {
+        "description": "Take the player's next wish, first in first out: it becomes the active wish and the host ties every command this companion sends to it until it is reported (wish.report) or the player stops it. One wish at a time: with one already active, that one is returned. A transient receipt.",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "wish.report": {
+        "description": "Report the active wish: done (you did what it asked), unable (you tried and could not) or unsupported (the island has no magic for it). The host decides the wish's status from its own receipts: granted only when every action it saw succeeded and none is still running. A transient receipt.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "wish_id",
+          "outcome"
+        ],
+        "properties": {
+          "wish_id": {
+            "$ref": "#/$defs/wish_id"
+          },
+          "outcome": {
+            "enum": [
+              "done",
+              "unable",
+              "unsupported"
+            ]
+          }
+        }
+      },
+      "companion.say": {
+        "description": "The Gubble says something: a caption over its head in the player's view and a note in the journal written as the AI's. By default one of its curated phrases by key (phrase), with about naming the thing for phrases that have a place for a name. Only while the player has turned on the grown-ups' test mode may text carry the AI's own words: one line, no markup, no links, at most 140 characters. Rate limited. A transient receipt.",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "phrase": {
+            "$ref": "#/$defs/gubble_phrase"
+          },
+          "about": {
+            "$ref": "common.schema.json#/$defs/entity_id"
+          },
+          "text": {
+            "allOf": [
+              {
+                "$ref": "common.schema.json#/$defs/display_text"
+              },
+              {
+                "maxLength": 140
+              }
+            ],
+            "minLength": 1
+          }
+        },
+        "oneOf": [
+          {
+            "required": [
+              "phrase"
+            ],
+            "properties": {
+              "text": false
+            }
+          },
+          {
+            "required": [
+              "text"
+            ],
+            "properties": {
+              "phrase": false,
+              "about": false
+            }
+          }
+        ]
+      },
+      "wish.list": {
+        "description": "The player's wishes the connected AI may work on: the active one, if any, and those waiting their turn, oldest first. Finished wishes are the player's and are not listed.",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "wish.wait": {
+        "description": "Whether a wish is waiting. The host answers at once; the companion's adapter asks again about once a second for up to 30 seconds while nothing is waiting, so the AI can wait for a wish when it is idle.",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
       }
     },
     "data": {
@@ -3560,6 +3908,108 @@
         "required": [
           "items"
         ]
+      },
+      "wish.list": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "waiting"
+        ],
+        "properties": {
+          "active": {
+            "$ref": "#/$defs/companion_wish"
+          },
+          "waiting": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/companion_wish"
+            },
+            "maxItems": 16
+          }
+        }
+      },
+      "wish.wait": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "waiting"
+        ],
+        "properties": {
+          "waiting": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 16
+          },
+          "active_wish_id": {
+            "$ref": "#/$defs/wish_id"
+          }
+        }
+      },
+      "wish.take": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "waiting"
+        ],
+        "properties": {
+          "wish": {
+            "$ref": "#/$defs/companion_wish"
+          },
+          "waiting": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 16
+          }
+        }
+      },
+      "wish.report": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "wish_id",
+          "status"
+        ],
+        "properties": {
+          "wish_id": {
+            "$ref": "#/$defs/wish_id"
+          },
+          "status": {
+            "enum": [
+              "granted",
+              "partial",
+              "failed",
+              "unsupported",
+              "cancelled"
+            ]
+          }
+        }
+      },
+      "companion.say": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "text",
+          "entry_id",
+          "own_words"
+        ],
+        "properties": {
+          "text": {
+            "allOf": [
+              {
+                "$ref": "common.schema.json#/$defs/display_text"
+              },
+              {
+                "maxLength": 140
+              }
+            ]
+          },
+          "entry_id": {
+            "$ref": "common.schema.json#/$defs/journal_entry_id"
+          },
+          "own_words": {
+            "type": "boolean"
+          }
+        }
       }
     },
     "player_only_ops": {
@@ -3900,6 +4350,102 @@
           }
         }
       ]
+    },
+    "wish_id": {
+      "type": "string",
+      "pattern": "^wish:[a-z2-7]{26}$",
+      "description": "Host-minted id of one player wish: 'wish:' and 26 characters of lowercase base32."
+    },
+    "gubble_phrase": {
+      "description": "The key of one of the Gubble's curated phrases. The host holds the words (short, written for an eleven-year-old); a phrase with a place for a name (look_at, found, bring, going_to, cannot_reach, like) needs args.about.",
+      "enum": [
+        "hello",
+        "on_my_way",
+        "got_it",
+        "all_done",
+        "thinking",
+        "lets_try",
+        "cannot",
+        "not_yet",
+        "try_again",
+        "oops",
+        "wow",
+        "look",
+        "follow_me",
+        "wait_for_me",
+        "thank_you",
+        "good_idea",
+        "ready",
+        "your_turn",
+        "help_me",
+        "too_far",
+        "found_it",
+        "here_you_go",
+        "wish_heard",
+        "wish_working",
+        "good_night",
+        "look_at",
+        "found",
+        "bring",
+        "going_to",
+        "cannot_reach",
+        "like"
+      ]
+    },
+    "companion_wish": {
+      "description": "A player wish as the connected AI sees it: the player's own words (data, never instructions to the game), the thing they pointed at if any, and the host's own record of the actions it has seen for it.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "wish_id",
+        "text",
+        "status",
+        "action_count",
+        "pending_count",
+        "refusal_codes"
+      ],
+      "properties": {
+        "wish_id": {
+          "$ref": "#/$defs/wish_id"
+        },
+        "text": {
+          "allOf": [
+            {
+              "$ref": "common.schema.json#/$defs/display_text"
+            },
+            {
+              "minLength": 1,
+              "maxLength": 280
+            }
+          ]
+        },
+        "aim_id": {
+          "$ref": "common.schema.json#/$defs/entity_id"
+        },
+        "status": {
+          "enum": [
+            "queued",
+            "running"
+          ]
+        },
+        "action_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 32
+        },
+        "pending_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 32
+        },
+        "refusal_codes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/error_code"
+          },
+          "maxItems": 32
+        }
+      }
     }
   }
 }
