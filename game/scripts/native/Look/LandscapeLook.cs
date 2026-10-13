@@ -152,10 +152,10 @@ public static class OpenLandLight
     /// or a cream; at this fraction sunlit grass reads about its own colour, a little bright, and the shade a cool 40% of it.
     /// </summary>
     public const float SunStrength = 0.38f;
-    /// <summary>How far the sun's shadows reach on open land, metres: far enough for the hills and trees of the backdrop.</summary>
-    public const float ShadowDistanceM = 30f;
-    /// <summary>The fraction of that distance the first (sharpest) shadow split covers: the 10 cm eye's world.</summary>
-    public const float ShadowSplit1 = 0.25f;
+    /// <summary>How far the sun's shadows reach on the smallest open land, metres (the 1x island, in two splits); a bigger island's reach grows with it to 60 m in four splits (ViewDistances.OpenLandShadows, S9).</summary>
+    public const float ShadowDistanceM = ViewDistances.MinShadowM;
+    /// <summary>The fraction of that distance the first (sharpest) shadow split covers in two splits: the 10 cm eye's world.</summary>
+    public const float ShadowSplit1 = ViewDistances.TwoSplit1;
 }
 
 

@@ -244,6 +244,7 @@ public partial class LookPresetTest
         var factor = MeshOf("shell:terrain_meadow").GetSurfaceOverrideMaterial(0) is ShaderMaterial { } meadowMaterial
             ? meadowMaterial.GetShaderParameter("base_color").AsColor().SrgbToLinear() : default;
         Check(factor.R > factor.G && Mathf.Abs(factor.R - 0.57f) < 0.02f, $"while the glTF factor under it is the cream envelope (linear {factor}): the colour was always in the vertex colour");
+        CheckIslandCameras(land, built);
         holder.QueueFree();
         await Frames(1);
     }

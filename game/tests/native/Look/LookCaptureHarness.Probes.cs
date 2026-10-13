@@ -36,6 +36,7 @@ public partial class LookCaptureHarness
             case "window": result["window"] = await ProbeWindow(outDir); break;
             case "free-viewport": result["steps"] = await ProbeFreeViewport(outDir, resolution); break;
             case "shimmer": result["shimmer"] = await ProbeShimmer(outDir); break;
+            case "island-memory": result["steps"] = await ProbeIslandMemory(); break;
             default: throw new ArgumentException("unknown probe " + name);
         }
         var json = JsonSerializer.Serialize(result, new JsonSerializerOptions { WriteIndented = true });
