@@ -302,8 +302,10 @@ public sealed partial class ContactLayer : IPoseLayer<BodyState>
     public event Action<ContactLanding>? Landed;
 
     /// <summary>
-    /// Let go of everything the layer holds outside the pose (the leg IK; the springs are freed): the tumble suspends this layer,
-    /// and its guard calls this so stale foot targets never fight the flop. The layer starts fresh when it runs again.
+    /// Let go of everything the layer holds outside the pose (the leg IK, whose leg springs the rig then wants running): the
+    /// tumble suspends this layer, and its guard calls this so stale foot targets never fight the flop. The tumble holds every
+    /// spring still meanwhile (SecondaryMotion.Held), so letting go never frees the legs mid-flop. The layer starts fresh when it
+    /// runs again.
     /// </summary>
     public void Release()
     {

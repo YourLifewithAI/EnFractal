@@ -31,10 +31,12 @@ public sealed class CharacterTumble : IPoseLayer<BodyState>
     private readonly SmallPlayerController _controller;
     private readonly CharacterBody _body;
     private readonly PoseBuffer _standing;
+    private readonly PoseBuffer _rest;
     private readonly PoseBuffer _settled;
     private readonly PoseBuffer _blend;
     private readonly TumbleHull _hull;
     private readonly TumbleSprings _springs;
+    private readonly Vector3[] _settledSoles;
     private readonly int _headBone;
     private readonly Vector3 _headTop;
     private TumbleStars? _stars;
@@ -68,10 +70,12 @@ public sealed class CharacterTumble : IPoseLayer<BodyState>
             rigid[i] = _body.Bones[i].IsRigid;
         }
         _standing = new PoseBuffer(parents, rests, rigid);
+        _rest = new PoseBuffer(parents, rests, rigid);
         _settled = new PoseBuffer(parents, rests, rigid);
         _blend = new PoseBuffer(parents, rests, rigid);
         _hull = TumbleHull.For(_body);
         _springs = new TumbleSprings(_body);
+        _settledSoles = new Vector3[_body.Legs.Count];
         _headBone = _body.HeadBone;
         var head = _body.Bones[_headBone];
         _headTop = head.HasMesh ? head.MeshBounds.GetCenter() + Vector3.Up * (head.MeshBounds.Size.Y / 2) : Vector3.Up * 0.02f;
@@ -254,7 +258,10 @@ public sealed class CharacterTumble : IPoseLayer<BodyState>
         var anchor = SkeletonGlobal() * _body.Bones[CharacterBody.RootBone].RestLocal;
         if (_hull.Active) _hull.Tick(anchor, state.GravityMps2, clock.DeltaS);
         else _hull.Follow(anchor);
-        pose.CopyFrom(_standing);
+        // Every part flops at rest, the pose the hull is made from (TumbleHull: every part at rest): the standing pose the gait and
+        // contact gave the landing (a stride, a swing, legs bent to plant) would carry a limb outside the hull and into the ground
+        // (Stickbear's arms and legs sank up to 8 mm once the suite dressed its bodies as the room does).
+        pose.CopyFrom(_rest);
         if ((_hull.Active || _hull.Resting) && !jumped)
         {
             // Where physics put the body, and the drawn parts' last millimetres out of the ground (TumbleHull.DrawnLift).
@@ -285,6 +292,9 @@ public sealed class CharacterTumble : IPoseLayer<BodyState>
     private void StartGetUp(PoseBuffer pose, double now)
     {
         _settled.CopyFrom(pose);
+        var skeleton = SkeletonGlobal();
+        for (var i = 0; i < _settledSoles.Length; i++)
+            _settledSoles[i] = skeleton * (_settled.ModelTransform(_body.Legs[i].FootBone) * _body.Legs[i].SoleOffset);
         _hull.End();
         _getUpS = now;
         _endS = now + TumbleTiers.GetUpSeconds;
@@ -309,6 +319,20 @@ public sealed class CharacterTumble : IPoseLayer<BodyState>
         _blend.CopyFrom(_settled);
         _blend.BlendToward(pose, weight);
         pose.CopyFrom(_blend);
+        // Contact plants the standing feet again with the leg IK (it ran before this layer and set its targets): the targets move
+        // from where the soles lay to where contact puts them as the body rises, so a body still lying never reaches its legs
+        // through the ground for where its standing feet will be, and the planted feet hold the dropped pelvis up meanwhile.
+        if (_body.LegSolver is { Active: true } && _body.IsInsideTree())
+            for (var i = 0; i < _settledSoles.Length; i++)
+            {
+                var target = _body.Legs[i].Target;
+                var planted = target.GlobalPosition;
+                if (!planted.IsFinite() || !_settledSoles[i].IsFinite()) continue;
+                // Up a step the foot rises early and down one it drops late, so it never cuts through the step's edge.
+                var from = _settledSoles[i];
+                var rise = planted.Y > from.Y ? 1 - (1 - weight) * (1 - weight) : weight * weight;
+                target.GlobalPosition = new Vector3(Mathf.Lerp(from.X, planted.X, weight), Mathf.Lerp(from.Y, planted.Y, rise), Mathf.Lerp(from.Z, planted.Z, weight));
+            }
         // The blend turns the body up about its feet, through poses neither end has: the tumble's own rays keep the drawn parts no
         // deeper in the ground than the standing pose it blends to (whose feet are the contact layer's business), so it rises out
         // of the ground and hands over without a jump.

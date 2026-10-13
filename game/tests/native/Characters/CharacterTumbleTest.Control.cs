@@ -31,7 +31,17 @@ public partial class CharacterTumbleTest
         public bool StarsShown;
         public bool StarsNearHead = true;
         public float RootTurned;
+        public bool SpringsHeld = true;
     }
+
+    /// <summary>Every spring of the body still: both simulators inactive (review major 3).</summary>
+    private static bool SpringsStill(CharacterBody rig) =>
+        (rig.Secondary.LegSimulator is not { } legs || !legs.Active) && (rig.Secondary.Simulator is not { } others || !others.Active);
+
+    /// <summary>After a tumble the leg springs run exactly while the leg IK does not plant the feet.</summary>
+    private static bool LegsAsTheIkWants(CharacterBody rig) =>
+        (rig.Secondary.LegSimulator is not { } legs || legs.Active == !(rig.LegSolver?.Active ?? false)) &&
+        (rig.Secondary.Simulator is not { } others || others.Active);
 
     private async Task<List<Watch>> WatchFalls(Vector3 origin, (string Id, float Height, bool Move)[] falls, Action<SmallPlayerController>? prepare = null, int frames = 260)
     {
@@ -60,6 +70,7 @@ public partial class CharacterTumbleTest
                 }
                 if (watch.StartS < 0) continue;
                 var stack = watch.Wearer.Visual.Stack;
+                if (tumble.IsTumbling) watch.SpringsHeld &= SpringsStill(watch.Wearer.Visual.Body);
                 if (tumble.Phase == TumblePhase.Flop)
                 {
                     watch.SawFlop = true;
@@ -109,6 +120,8 @@ public partial class CharacterTumbleTest
             var length = watch.Wearer.Tumble.LastLengthS;
             Check(watch.StartS >= 0 && watch.SawFlop && watch.SawGetUp && watch.EndS > 0, $"{name}: a 0.9 m fall tumbles, flops and gets up");
             Check(watch.SuspendedInFlop && watch.ResumedInGetUp, $"{name}: Gait, Contact and Life wait while it flops and pose the standing body again for the get-up");
+            Check(watch.SpringsHeld && LegsAsTheIkWants(watch.Wearer.Visual.Body),
+                $"{name}: every spring is held still from the flop to the end of the get-up, though contact lets go of the leg IK meanwhile, then runs as the leg IK wants (review major 3)");
             Check(watch.RootTurned > 0.3f, Inv($"{name}: physics turns the root bone (by up to {Mathf.RadToDeg(watch.RootTurned):0} degrees)"));
             if (!watch.Move)
                 Check(Mathf.Abs(length - TumbleTiers.TumbleSeconds) <= 1.5f * Dt && Mathf.Abs((float)(watch.ReleasedS - watch.StartS) - TumbleTiers.TumbleSeconds) <= 2.5f * Dt &&
@@ -120,10 +133,16 @@ public partial class CharacterTumbleTest
                     Inv($"{name}: moving starts the get-up early, at most {TumbleTiers.EarlyGetUpSeconds} s sooner, then control is released (tumbled {length:0.000} s, released after {watch.ReleasedS - watch.StartS:0.000} s)"));
             Check(watch.HeldDrift < 0.002f, Inv($"{name}: while control is held the capsule takes no input (drifted {watch.HeldDrift * 1000:0.0} mm)"));
             if (watch.Move) Check(watch.MovedAfter, $"{name}: released, the body walks off");
-            var pose = watch.Wearer.Visual.Body.Pose;
-            Check(pose.GetRotation(CharacterBody.RootBone).IsEqualApprox(Quaternion.Identity) && pose.GetPosition(CharacterBody.RootBone).IsEqualApprox(watch.Wearer.Visual.Body.Bones[0].RestLocal) &&
-                  pose.NonFiniteWrites == 0 && !watch.Wearer.Tumble.Hull.Active,
-                $"{name}: the get-up blends back to the standing pose exactly and the tumbling body is gone");
+            // The layers below pose the standing body (the gait's breath and lean, contact's feet on the floor): the get-up hands the
+            // root back to them upright where the capsule stands, and the tumble leaves the pose alone.
+            var rig = watch.Wearer.Visual.Body;
+            var pose = rig.Pose;
+            var turned = pose.GetRotation(CharacterBody.RootBone).GetAngle();
+            turned = Mathf.Min(turned, Mathf.Tau - turned);
+            var away = pose.GetPosition(CharacterBody.RootBone).DistanceTo(rig.Bones[0].RestLocal);
+            // (A body that walks off leans into its walk: only one that stays is upright.)
+            Check(watch.Wearer.Tumble.Phase == TumblePhase.Idle && (watch.Move || turned < 0.05f && away < 0.006f) && pose.NonFiniteWrites == 0 && !watch.Wearer.Tumble.Hull.Active,
+                Inv($"{name}: the get-up blends back to the standing pose (root {Mathf.RadToDeg(turned):0.0}° from upright, {away * 1000:0.0} mm from its rest) and the tumbling body is gone"));
         }
         foreach (var watch in watches) watch.Wearer.Body.QueueFree();
         floor.QueueFree();

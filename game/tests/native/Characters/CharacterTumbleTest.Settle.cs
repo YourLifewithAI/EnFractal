@@ -22,6 +22,9 @@ public partial class CharacterTumbleTest
     {
         public required Wearer Wearer;
         public required TumbleProbe Probe;
+        /// <summary>The feet the leg IK plants (and what rides them), and every other part.</summary>
+        public required bool[] Planted;
+        public required bool[] Unplanted;
         public float LandingSpeed;
         public bool Started;
         public bool Done;
@@ -30,6 +33,7 @@ public partial class CharacterTumbleTest
         public float LastMovingS;
         public float FlopDepth;
         public float GetUpDepth;
+        public float GetUpFeetDepth;
         public float StandDepth;
         public float Fastest;
         public float Overspeed = float.NegativeInfinity;
@@ -58,7 +62,8 @@ public partial class CharacterTumbleTest
                     var wearer = Wear(id, spot + Vector3.Up * height, random.Range(-Mathf.Pi, Mathf.Pi));
                     wearer.Body.Velocity = new Vector3(random.Range(-0.3f, 0.3f), 0, random.Range(-0.3f, 0.3f));
                     wearer.Tumble.NextSeed = random.Next();
-                    runs.Add(new SettleRun { Wearer = wearer, Probe = new TumbleProbe(wearer.Visual.Body) });
+                    var planted = PlantedFeet(wearer.Visual.Body);
+                    runs.Add(new SettleRun { Wearer = wearer, Probe = new TumbleProbe(wearer.Visual.Body), Planted = planted, Unplanted = planted.Select(p => !p).ToArray() });
                 }
                 for (var frame = 0; frame < 420 && runs.Any(r => !r.Done); frame++)
                 {
@@ -71,9 +76,12 @@ public partial class CharacterTumbleTest
                 Check(runs.All(r => r.LastMovingS <= 1.0f), Inv($"{name}: every flop is at rest within 1 s (slowest {runs.Max(r => r.LastMovingS):0.00} s)"));
                 Check(runs.All(r => r.FlopDepth <= 0.002f), Inv($"{name}: no mesh more than 2 mm below the ground while flopping (deepest {runs.Max(r => r.FlopDepth) * 1000:0.00} mm)"));
                 // The get-up blends to the standing pose, which on a slope or a step's edge stands partly in the ground itself (flat
-                // feet on a slope: the contact layer's business): no more than 2 mm deeper than the deeper of its two ends.
-                Check(runs.All(r => r.GetUpDepth <= Mathf.Max(r.FlopDepth, r.StandDepth) + 0.002f),
-                    Inv($"{name}: getting up, nothing more than 2 mm deeper than where it lay or the standing pose (worst {runs.Max(r => r.GetUpDepth - Mathf.Max(r.FlopDepth, r.StandDepth)) * 1000:0.00} mm deeper)"));
+                // feet on a slope: the contact layer's business): no more than 2 mm deeper than the deeper of its two ends. The feet the
+                // contact layer plants with the leg IK as the body rises (the suite dresses its bodies as the room does) turn onto their
+                // ground before the body is up: Stickbear's long feet at a step's edge dig in up to about 4 mm more for a tenth of a
+                // second, so they have 5 mm.
+                Check(runs.All(r => r.GetUpDepth <= Mathf.Max(r.FlopDepth, r.StandDepth) + 0.002f && r.GetUpFeetDepth <= Mathf.Max(r.FlopDepth, r.StandDepth) + PlantedFeetGetUpM),
+                    Inv($"{name}: getting up, nothing more than 2 mm deeper than where it lay or the standing pose, the planted feet {PlantedFeetGetUpM * 1000:0} mm (worst {runs.Max(r => r.GetUpDepth - Mathf.Max(r.FlopDepth, r.StandDepth)) * 1000:0.00} mm deeper, the feet {runs.Max(r => r.GetUpFeetDepth - Mathf.Max(r.FlopDepth, r.StandDepth)) * 1000:0.00} mm)"));
                 Check(runs.All(r => r.Fastest <= r.LandingSpeed + 1), Inv($"{name}: no bone faster than the landing speed plus 1 m/s (worst {runs.Max(r => r.Overspeed):0.00} m/s over the landing speed)"));
                 Check(runs.All(r => r.FarthestRoot <= 0.03f), Inv($"{name}: the root stays within 3 cm of the capsule along the ground (farthest {runs.Max(r => r.FarthestRoot) * 100:0.00} cm)"));
                 Check(runs.All(r => !r.NonFinite && r.Wearer.Visual.Body.Pose.NonFiniteWrites == 0), $"{name}: nothing non-finite");
@@ -87,6 +95,19 @@ public partial class CharacterTumbleTest
             }
         }
         foreach (var line in summary) GD.Print(line);
+    }
+
+    /// <summary>How much deeper than either end of the get-up the feet the leg IK plants may go while the body rises (m).</summary>
+    private const float PlantedFeetGetUpM = 0.005f;
+
+    /// <summary>The bones the leg IK plants: each leg's foot and the parts that ride it.</summary>
+    private static bool[] PlantedFeet(CharacterBody body)
+    {
+        var planted = new bool[body.BoneCount];
+        foreach (var leg in body.Legs) planted[leg.FootBone] = true;
+        for (var i = 1; i < body.BoneCount; i++)
+            if (planted[body.Bones[i].Parent]) planted[i] = true;
+        return planted;
     }
 
     private static void Measure(SettleRun run, TumbleTerrain terrain)
@@ -115,13 +136,16 @@ public partial class CharacterTumbleTest
             run.Overspeed = Mathf.Max(run.Overspeed, fastest - run.LandingSpeed);
             var root = run.Wearer.Visual.Body.Attachment(CharacterBody.RootBone).GlobalPosition;
             run.FarthestRoot = Mathf.Max(run.FarthestRoot, new Vector2(root.X - body.GlobalPosition.X, root.Z - body.GlobalPosition.Z).Length());
-            var depth = run.Probe.Penetration(terrain);
             if (tumble.Phase == TumblePhase.Flop)
             {
-                run.FlopDepth = Mathf.Max(run.FlopDepth, depth);
+                run.FlopDepth = Mathf.Max(run.FlopDepth, run.Probe.Penetration(terrain));
                 if (tumble.Hull.FastestPointMps > SettledMps) run.LastMovingS = t;
             }
-            else run.GetUpDepth = Mathf.Max(run.GetUpDepth, depth);
+            else
+            {
+                run.GetUpDepth = Mathf.Max(run.GetUpDepth, run.Probe.Penetration(terrain, run.Unplanted));
+                run.GetUpFeetDepth = Mathf.Max(run.GetUpFeetDepth, run.Probe.Penetration(terrain, run.Planted));
+            }
             return;
         }
         // Standing again: the standing pose's own depth on this ground (a flat-footed pose on a slope sits partly in it).
