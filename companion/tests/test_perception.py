@@ -140,7 +140,7 @@ class EverySurface(PerceptionCase):
                    query("jobs.status", {"job_id": "job-" + "a" * 26}), query("receipt.lookup", {"action_id": "a-1"}),
                    query("approval.status", {"request_id": "0" * 32}), query("journal.read", {}),
                    query("map.find", {"name": "book"}), query("player.status", {}),
-                   query("nature.describe", {}), query("wishes.read", {})]
+                   query("nature.describe", {}), query("wishes.read", {}), query("wish.list", {}), query("wish.wait", {})]
         queries += [query("entity.inspect", {"target": hidden}) for hidden in self.HIDDEN]
         self.assertEqual({q["op"] for q in queries}, set(contracts().query_ops))
         for i, message in enumerate(queries):
