@@ -243,7 +243,7 @@ public partial class RoomHud : CanvasLayer
         AddKeyLine(_keyHelp, () => MoveKeys, "MoveKeys");
         AddKeyLine(_keyHelp, () => $"Climb: keep walking into a steep face, {K(Act.MoveForward)} up, {K(Act.MoveBack)} down, {K(Act.MoveLeft)}/{K(Act.MoveRight)} across, {K(Act.Jump)} lets go · Swim: deep water floats you, {K(Act.Jump)} leaps · Dive: hold {K(Act.MoveDive)}, {K(Act.Jump)} rises, {K(Act.MoveForward)} swims the way you look, let go to drift up");
         AddKeyLine(_keyHelp, () => $"{K(Act.ViewEye)} eye · {K(Act.ViewShoulder)} shoulder · {K(Act.ViewDiorama)} diorama: {PlayerControls.DragLabel()} orbits, {PlayerControls.ZoomLabel()} zooms, {PlayerControls.MoveLabel()} follows the view · {K(Act.ViewIso)} isometric: {K(Act.IsoTurnLeft)}/{K(Act.IsoTurnRight)} turn the view");
-        AddKeyLine(_keyHelp, () => $"{K(Act.ViewObserve)} observe (a very tight tilt-shift view, best from {K(Act.ViewDiorama)} or {K(Act.ViewIso)}) · {K(Act.HudCustomize)} customize ({K(Act.MouseRelease)} closes it)");
+        AddKeyLine(_keyHelp, () => $"{K(Act.ViewObserve)} observe (a very tight tilt-shift view, best from {K(Act.ViewDiorama)} or {K(Act.ViewIso)}) · {K(Act.HudCustomize)} customize · {K(Act.Journal)} journal ({K(Act.MouseRelease)} closes either)");
         AddKeyLine(_keyHelp, () => $"{K(Act.Hands)} pick up what you face · {K(Act.Hands)} again sets it down in front of you, or on top of what you face (the box, the book) · {K(Act.Push)} push what you face 10 cm");
         // The Gubble's keys, under its name (the Glow playtest: the player should see whose magic this is).
         AddKeyLine(_keyHelp, () => $"{Companion.NameTag}, your companion:", "GubbleHeading");
@@ -266,8 +266,9 @@ public partial class RoomHud : CanvasLayer
         options.AddChild(new Label { Text = $"Player height: {Player.BodyHeightM * 100:0} cm. Appearance keeps each avatar's identity." });
         AddButton(options, "Save appearance and return", () => { SavePreferences(); ToggleCustomization(); });
         BuildGubbleControls(compactTheme);
-        BuildGlowJournal(actions, theme);
         BuildMagicPanel(actions, column, theme);
+        // The journal last: the book opens over everything else on screen (RoomHud.Journal.cs).
+        BuildJournal();
         ApplyAura();
         SetViewMode(1);
         if (LookNotice.Length > 0) _noticeText = LookNotice;
@@ -426,7 +427,6 @@ public partial class RoomHud : CanvasLayer
         // While the wheel has the game paused, only the wheel's clock runs.
         _wheel.Tick(delta);
         if (GubblePaused) return;
-        RefreshGlowJournal();
         TickMagicPanel(delta);
         if (ViewMode >= 2) PlaceDioramaRig(snap: false, (float)delta);
         _arm.Rotation = new Vector3(Mathf.Clamp(Player.EyeCamera.Rotation.X - 0.18f, -1.1f, 0.8f), 0, 0);
@@ -574,11 +574,16 @@ public partial class RoomHud : CanvasLayer
         if (GubblePaused) return;
         if (fresh)
         {
+            // The journal's keys come first: while the book is open or moving, they are the only keys (RoomHud.Journal.cs).
+            if (HandleJournalKeys(press))
+            {
+                GetViewport().SetInputAsHandled();
+                return;
+            }
             // Esc closes the panel and calls off a drag; the cursor is never captured, so there is nothing to free.
             if (PlayerControls.Hit(press, Act.MouseRelease))
             {
                 if (Customizing) ToggleCustomization();
-                if (GlowJournalOpen) ToggleGlowJournal();
                 if (MagicPanelOpen) SetMagicPanelOpen(false);
                 EndDrag();
             }
@@ -678,7 +683,7 @@ public partial class RoomHud : CanvasLayer
     {
         CancelAsk();
         EndDrag();
-        if (GlowJournalOpen) ToggleGlowJournal();
+        CloseJournalNow();
         if (MagicPanelOpen) SetMagicPanelOpen(false);
         _customization.Visible = !_customization.Visible;
         Player.SetInputEnabled(!_customization.Visible);

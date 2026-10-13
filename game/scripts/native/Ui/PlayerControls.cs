@@ -65,7 +65,9 @@ public static class Act
     // The panels and the mouse. The cursor is always free (the Glow playtest, 9 October): it is the aim in every view.
     public static readonly StringName HudHelp = "hud_help";
     public static readonly StringName HudCustomize = "hud_customize";
-    /// <summary>Esc: closes the appearance panel, cancels the wheel or a drag. (Its map name is from when it freed the captured mouse.)</summary>
+    /// <summary>The journal, the leather book at the lower right: opens it at its index, and closes it again.</summary>
+    public static readonly StringName Journal = "journal";
+    /// <summary>Esc: closes the appearance panel and the journal, cancels the wheel or a drag. (Its map name is from when it freed the captured mouse.)</summary>
     public static readonly StringName MouseRelease = "mouse_release";
     /// <summary>Hold and drag to look around (the left button); a click without a drag does nothing. (Its map name is from when a click captured the mouse.)</summary>
     public static readonly StringName LookDrag = "mouse_capture";
@@ -83,6 +85,8 @@ public enum ControlContext
     Isometric = 4,
     /// <summary>While the appearance panel is open, which blocks every key but these.</summary>
     Customize = 8,
+    /// <summary>While the journal is open, opening or closing, which blocks every key but these (RoomHud.Journal.cs).</summary>
+    Reading = 16,
 }
 
 /// <summary>One action and where it is live.</summary>
@@ -113,7 +117,8 @@ public static class PlayerControls
         new(Act.SeasonStep, ControlContext.Always), new(Act.Lamps, ControlContext.Always),
         new(Act.HudHelp, ControlContext.Always),
         new(Act.HudCustomize, ControlContext.Always | ControlContext.Customize),
-        new(Act.MouseRelease, ControlContext.Always | ControlContext.Customize),
+        new(Act.Journal, ControlContext.Always | ControlContext.Customize | ControlContext.Reading),
+        new(Act.MouseRelease, ControlContext.Always | ControlContext.Customize | ControlContext.Reading),
         new(Act.LookDrag, ControlContext.Always),
     };
 
