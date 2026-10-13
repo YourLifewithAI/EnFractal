@@ -1,0 +1,21 @@
+{
+  "schema": "enfractal.result",
+  "version": 1,
+  "ok": true,
+  "op": "goal.stop",
+  "action_id": "stop-0002",
+  "principal": "player:local",
+  "room_id": "garage_example",
+  "revision": 7,
+  "replayed": false,
+  "preview": false,
+  "at_utc": "2026-10-06T00:05:00Z",
+  "transient": true,
+  "affected": [
+    "avatar:companion"
+  ],
+  "data": {
+    "effects_stopped": 0,
+    "fires_put_out": 2
+  }
+}

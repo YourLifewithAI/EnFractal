@@ -37,6 +37,9 @@
     "cells_truncated": true,
     "requires_approval": false,
     "max_burning_cells": 200,
+    "avatars_in_area": [
+      "avatar:player"
+    ],
     "preview_id": "95f7f2f21ba954db96bebe71a1e86e2a"
   }
 }

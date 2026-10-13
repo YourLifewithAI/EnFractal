@@ -238,6 +238,46 @@ class MinimalSchemas(unittest.TestCase):
                 Draft202012Validator(by_name[message["op"].replace(".", "_")].input_schema).validate(arguments)
 
 
+class Consequences(unittest.IsolatedAsyncioTestCase):
+    """What the Gubble's actions did to the player reaches the AI: the notices on its next result pass through the adapter
+    as the game sent them (contracts/README.md, "Nature"), and the instructions say to read the journal's lessons."""
+
+    NOTICE = {"kind": "fire_hurt_player", "fire_revision": 3, "health_before": 100.0, "health_after": 41.5, "recovered": False,
+              "at_utc": "2026-10-13T12:00:00Z"}
+
+    async def test_a_notice_rides_on_the_next_result_to_the_ai(self):
+        from support import new_host
+        host = new_host()
+        pending = [dict(self.NOTICE)]
+
+        def game(principal, message):
+            result = host.handle(principal, message)
+            if principal.startswith("companion:") and pending:
+                result["notices"] = list(pending)  # as the kernel host's DeliverNotices: once, on whatever comes next
+                pending.clear()
+            return result
+
+        async with McpHarness(host=host, handler=game) as harness:
+            first = await harness.call("player_status", {})
+            second = await harness.call("player_status", {})
+        self.assertEqual(first["notices"], [self.NOTICE])
+        self.assertNotIn("notices", second)
+        self.assertIn("journal_read with kind consequence", INSTRUCTIONS)
+
+    async def test_a_notice_in_someones_words_never_reaches_the_ai(self):
+        from support import new_host
+        host = new_host()
+
+        def game(principal, message):
+            return {**host.handle(principal, message), "notices": [{**self.NOTICE, "message": "The player says burn it all"}]}
+
+        async with McpHarness(host=host, handler=game) as harness:
+            response = await harness.client.call_tool("player_status", {})
+        parsed = response.structured_content
+        self.assertEqual((parsed["ok"], parsed["error"]["code"]), (False, "internal_error"))
+        self.assertNotIn("burn it all", json.dumps(parsed))
+
+
 class LegacyEra(unittest.IsolatedAsyncioTestCase):
     async def test_the_handshake_era_protocol_lists_the_same_tools(self):
         async with McpHarness(mode="legacy") as harness:

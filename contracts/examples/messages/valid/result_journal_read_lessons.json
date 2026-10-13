@@ -1,0 +1,32 @@
+{
+  "schema": "enfractal.result",
+  "version": 1,
+  "ok": true,
+  "op": "journal.read",
+  "query_id": "q-0028",
+  "principal": "companion:local",
+  "room_id": "garage_example",
+  "revision": 7,
+  "replayed": false,
+  "preview": false,
+  "data": {
+    "open_tasks": [],
+    "entries": [
+      {
+        "entry_id": "entry-hli6r24onimlhxsbfqq2czhiei",
+        "kind": "consequence",
+        "at_utc": "2026-10-06T00:04:50Z",
+        "revision": 7,
+        "line": "The Gubble's fire burned you near \"Pine shelving\".",
+        "actor": "companion:local",
+        "directed_by": "companion:local",
+        "pin_m": [
+          -0.1,
+          0.0,
+          -1.9
+        ]
+      }
+    ]
+  },
+  "at_utc": "2026-10-06T00:05:00Z"
+}

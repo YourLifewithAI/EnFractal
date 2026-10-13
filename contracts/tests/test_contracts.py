@@ -132,6 +132,14 @@ EXPECTED_FAILURES = {
     "result_player_glow_touch_too_loud": "1.5 is greater than the maximum of 1",
     "result_repair_paid_in_gold": "'gold' is not one of ['stone', 'wood', 'copper', 'leaf']",
     "result_undo_of_nothing": "0 is less than the minimum of 1",
+    # Consequences (the founder, 13 October): a fixed-form notice, at most 8, and what a preview and a stop say.
+    "result_notice_of_another_kind": "'fire_hurt_gubble' is not one of ['fire_hurt_player']",
+    "result_notice_past_full_health": "120 is greater than the maximum of 100",
+    "result_notice_in_someones_words": "('message' was unexpected)",
+    "result_nine_notices": "is too long",
+    "result_stop_putting_out_two_fires": "2 is greater than the maximum of 1",
+    "result_fire_preview_without_who_is_there": "'avatars_in_area' is a dependency of 'preview_id'",
+    "result_fire_preview_naming_a_thing_as_an_avatar": "'obj:bean_bag' does not match '^avatar:",
 }
 
 
@@ -542,6 +550,35 @@ class MagicModesWishesAndNatureTests(unittest.TestCase):
         if nature.is_file():
             fresh = re.search(r"FreshWallet\(\) => new\(StringComparer\.Ordinal\) \{([^}]*)\}", nature.read_text(encoding="utf-8"))
             self.assertEqual(set(re.findall(r'\["([a-z]+)"\]', fresh.group(1))), set(materials))
+
+    def test_consequences_come_back_in_a_fixed_form_and_the_journal_keeps_the_lessons(self):
+        """The notices on the Gubble's next result and the journal's 'consequence' facts: typed, closed, no one's words."""
+        self.assertEqual(free_form_objects(self.defs["consequence_notice"], "consequence_notice", self.defs), [])
+        self.assertEqual(free_form_objects(self.defs["data"]["goal.stop"], "data/goal.stop", self.defs), [])
+        self.assertIn("consequence", self.defs["journal_kind"]["enum"])
+        lesson = valid_example("result_journal_read_lessons")["data"]["entries"][0]
+        self.assertEqual((lesson["kind"], lesson["actor"]), ("consequence", "companion:local"))
+        for name, value in (("author", "companion:local"), ("text", "my words"), ("untrusted", True)):
+            with self.subTest(lesson_with=name):
+                self.assertTrue(validate.schema_errors({**valid_example("result_journal_read_lessons"), "data": {
+                    "open_tasks": [], "entries": [{**lesson, name: value}]}}), "a lesson is a fact, never words")
+        noticed = valid_example("result_player_status_with_a_notice")
+        self.assertEqual(validate.schema_errors({**noticed, "notices": []}), [])
+        self.assertTrue(validate.schema_errors({**noticed, "notices": [{**noticed["notices"][0], "kind": "note"}]}))
+
+    @unittest.skipUnless((KERNEL / "CommandHostConsequences.cs").is_file(), "the kernel's consequences are not in this checkout")
+    def test_the_consequences_are_the_kernels(self):
+        consequences = (KERNEL / "CommandHostConsequences.cs").read_text(encoding="utf-8")
+        notice = re.search(r'_openNotice = new JsonObject\s*\{([^}]*)\}', consequences).group(1)
+        self.assertEqual(set(re.findall(r'\["([a-z_]+)"\]', notice)), set(self.defs["consequence_notice"]["required"]))
+        self.assertEqual(re.findall(r'\["kind"\] = "([a-z_]+)"', notice), self.defs["consequence_notice"]["properties"]["kind"]["enum"])
+        self.assertEqual(int(re.search(r"\bconst int MaxNotices = (\d+);", consequences).group(1)),
+                         self.defs["result"]["properties"]["notices"]["maxItems"])
+        self.assertEqual(kernel_set(KERNEL / "CommandHostJournal.cs", "JournalKinds"), set(self.defs["journal_kind"]["enum"]))
+        host = (KERNEL / "CommandHost.cs").read_text(encoding="utf-8")
+        self.assertIn('data["fires_put_out"] = 1', host)
+        self.assertIn('new JsonObject { ["effects_stopped"] = stopped }', host)
+        self.assertIn('data["avatars_in_area"] = AvatarsInArea(cast, principal);', (KERNEL / "CommandHostNature.cs").read_text(encoding="utf-8"))
 
     def test_nature_is_described_as_the_team_knows_it_and_undo_names_the_room_revision(self):
         describe = valid_example("result_nature_describe")

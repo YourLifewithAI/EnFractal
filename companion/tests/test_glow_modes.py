@@ -247,6 +247,24 @@ class NatureInTheMock(unittest.TestCase):
         self.assertEqual((self.host.revision, self.host._snapshot()), (revision, before))
         self.assertEqual(self.host.entities["obj:book"].position, [0.3, 0, 0.3])
 
+    def test_outside_creative_there_is_no_undo_at_all(self):
+        """The founder, 13 October: what happens in Challenge and Live stays. Refused before anything else, stale revisions
+        and previews included, as the kernel's Unsupported refuses it."""
+        self.assertEqual(self.send("entity.place", {"target": "obj:book", "placement": {"position_m": [0.3, 0, 0.3]}}, PLAYER), "ok")
+        revision = self.host.revision
+        for mode in ("challenge", "live"):
+            self.assertEqual(self.send("world.set_mode", {"mode": mode}, PLAYER), "ok")
+            for principal in (PLAYER, COMPANION):
+                for to_revision, expected, options in ((revision - 1, revision, {}), (revision, revision, {}), (0, 99, {}),
+                                                       (revision - 1, revision, {"preview": True})):
+                    with self.subTest(mode=mode, principal=principal, to_revision=to_revision, expected=expected, **options):
+                        self.assertEqual(self.send("room.undo", {"to_revision": to_revision}, principal, expected_revision=expected, **options),
+                                         ("unsupported_capability", "$.op"))
+        self.assertEqual(self.send("world.set_mode", {"mode": "creative"}, PLAYER), "ok")
+        self.assertEqual(self.send("room.undo", {"to_revision": revision - 1}, PLAYER, expected_revision=revision),
+                         ("unsupported_capability", "$.args.to_revision"))
+        self.assertEqual(self.host.entities["obj:book"].position, [0.3, 0, 0.3])
+
 
 class ProgressiveHints(unittest.TestCase):
     def test_hints_follow_missing_discoveries_at_ten_use_intervals_and_never_repeat(self):

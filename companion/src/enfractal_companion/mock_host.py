@@ -42,7 +42,8 @@ It loads a real room (`game/rooms/test_room` by default) through the room contra
   nature runs (the contract's args, refused request_invalid as CheckNatureArgs does; the revisions; a
   companion's repair target in sight), then answered `unavailable`, and so is `nature.describe`. With no
   nature change to take back, `room.undo` answers as the kernel's does for any other change: an earlier
-  revision is unsupported_capability, a revision that is not earlier is invalid_args;
+  revision is unsupported_capability, a revision that is not earlier is invalid_args; outside Creative it is
+  refused before anything else (there is no undo in Challenge or Live);
 - unknown, removed, foreign and unperceived entity ids all fail with the same `target_not_found`;
 - the island's abilities come from its rules pack, the one the kernel host loads (game/rules/storybook_wild/v4.json:
   Glow, Bubbles, Fireworks, Bloom and Fire; checked fail-closed): `capabilities.list` answers from it, and `effect.start` follows the
@@ -105,6 +106,8 @@ NATURE_OPS = frozenset({"nature.cast", "nature.trail", "nature.repair"})
 UNDO_NOT_EARLIER = "Undo names an earlier room revision."
 UNDO_ONLY_NATURE = ("The latest change is not one the island can undo yet: only nature changes (Bloom, Fire, the trail, repairs) "
                     "can be undone.")
+# Outside Creative there is no undo at all (the founder, 13 October): the kernel's Unsupported, before any revision check.
+UNDO_NOT_IN_THIS_MODE = "There is no undo in Challenge or Live: what happens there stays."
 TRANSIENT_OPS = frozenset({"entity.grab", "creation.activate", "goal.set", "goal.stop", "effect.start", "effect.stop",
                            "world.set_physics", "world.set_mode", "glow.configure", "effect.adjust"})
 # Durable, but they change no world state, so they do not move the room revision.
@@ -1080,6 +1083,7 @@ class MockHost(JournalMixin):
             earlier = self._earlier(key, fingerprint, message)
             if earlier is not None:
                 return earlier
+            self._check_unsupported(message)
             self._check_revisions(principal, message)
         prediction = handler(principal, message, False, None)
         if preview:
@@ -1195,6 +1199,11 @@ class MockHost(JournalMixin):
         replay = copy.deepcopy(receipt.result)
         replay["replayed"] = True
         return replay
+
+    def _check_unsupported(self, message: dict) -> None:
+        """What the kernel refuses before it looks at revisions (CommandHost.Unsupported), where the mock follows it."""
+        if message["op"] == "room.undo" and self.mode != "creative":
+            raise HostError("unsupported_capability", UNDO_NOT_IN_THIS_MODE, field_path="$.op")
 
     def _check_revisions(self, principal: str, message: dict) -> None:
         op = message["op"]
@@ -2236,9 +2245,10 @@ class MockHost(JournalMixin):
         return {}
 
     def _op_room_undo(self, principal, message, apply, new_revision):
-        """room.undo takes nature changes back by room revision (the kernel's NatureUndo). The mock has none to take back,
-        so it answers as the kernel does when the latest change is of another kind; nothing is undone, and building,
-        moving and protecting cannot be undone at all, by anyone."""
+        """room.undo takes nature changes back by room revision (the kernel's NatureUndo), in Creative only (outside it,
+        _check_unsupported has refused it already). The mock has none to take back, so it answers as the kernel does when
+        the latest change is of another kind; nothing is undone, and building, moving and protecting cannot be undone at
+        all, by anyone."""
         if message["args"]["to_revision"] >= self.revision:
             raise HostError("invalid_args", UNDO_NOT_EARLIER, field_path="$.args.to_revision", actual=self.revision)
         raise HostError("unsupported_capability", UNDO_ONLY_NATURE, field_path="$.args.to_revision")

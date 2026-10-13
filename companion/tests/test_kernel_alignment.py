@@ -252,6 +252,20 @@ class NatureMatchesTheKernel(unittest.TestCase):
         self.assertEqual(re.findall(r'HostError\("(\w+)"', inspect.getsource(mock_host.MockHost._op_room_undo)), in_kernel[:2])
         self.assertIn('"room.undo" when !NatureConfigured', _text(COMMAND_HOST))
 
+    def test_outside_creative_undo_is_refused_first_in_the_kernels_words(self):
+        """CommandHost.Unsupported refuses room.undo outside Creative before CheckExpectations; the mock's _check_unsupported
+        does the same before _check_revisions, with the same words."""
+        import inspect
+        from enfractal_companion import mock_host
+        host = _text(COMMAND_HOST)
+        self.assertIn(f'"room.undo" when Mode != "creative" => "{mock_host.UNDO_NOT_IN_THIS_MODE}",', host)
+        execute = _method(host, "private JsonObject Execute(")
+        self.assertLess(execute.index("Unsupported(op, args, principal)"), execute.index("CheckExpectations(root, op, args, principal)"))
+        self.assertIn('throw new Refusal("unsupported_capability", unsupported, "$.op")', execute)
+        command = inspect.getsource(mock_host.MockHost._command)
+        self.assertLess(command.index("self._check_unsupported(message)"), command.index("self._check_revisions(principal, message)"))
+        self.assertEqual(re.findall(r'HostError\("(\w+)"', inspect.getsource(mock_host.MockHost._check_unsupported)), ["unsupported_capability"])
+
 
 EYES = KERNEL / "Kernel" / "CommandHostEyes.cs"
 

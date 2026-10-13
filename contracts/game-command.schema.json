@@ -880,6 +880,14 @@
         "error": {
           "$ref": "#/$defs/error"
         },
+        "notices": {
+          "description": "Companion results only: what the Gubble's actions did to the player since its last result (consequence_notice), each delivered once. A host that has none sends none.",
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "$ref": "#/$defs/consequence_notice"
+          }
+        },
         "data": {
           "type": "object",
           "maxProperties": 32
@@ -1678,6 +1686,54 @@
             "properties": {
               "data": false
             }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ok": {
+                "const": true
+              },
+              "op": {
+                "const": "goal.stop"
+              }
+            },
+            "required": [
+              "ok",
+              "op"
+            ]
+          },
+          "then": {
+            "properties": {
+              "data": {
+                "$ref": "#/$defs/data/goal.stop"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ok": {
+                "const": true
+              },
+              "op": {
+                "const": "goal.stop"
+              },
+              "preview": {
+                "const": false
+              }
+            },
+            "required": [
+              "ok",
+              "op",
+              "preview"
+            ]
+          },
+          "then": {
+            "required": [
+              "data"
+            ]
           }
         }
       ]
@@ -2894,7 +2950,7 @@
         }
       },
       "room.undo": {
-        "description": "Take back the latest nature changes (Bloom, Fire, the flower trail, repairs), the room going back to to_revision, the room revision just before one of them. Names expected_revision, the room revision now. The undo is itself a durable room revision. A newer change of another kind (building, moving, protecting) cannot be undone yet: unsupported_capability. A revision the island cannot reach back to is invalid_args, with the reachable one in error.allowed. The Gubble's undo of anyone else's change waits for the player's yes. Undo is for Creative: in Challenge and Live the host refuses it outright (contracts/README.md, \"Revisions\").",
+        "description": "Take back the latest nature changes (Bloom, Fire, the flower trail, repairs), the room going back to to_revision, the room revision just before one of them. Names expected_revision, the room revision now. The undo is itself a durable room revision. A newer change of another kind (building, moving, protecting) cannot be undone yet: unsupported_capability. A revision the island cannot reach back to is invalid_args, with the reachable one in error.allowed. The Gubble's undo of anyone else's change waits for the player's yes. Undo is Creative's alone: in Challenge and Live it is refused unsupported_capability before anything else, and a change made there is never undone later.",
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -3220,7 +3276,7 @@
         ]
       },
       "nature.cast": {
-        "description": "Cast a nature ability at center_m. The intensity is the pack's; the bounds are the island's. Fire is previewed first (preview: true answers a preview_id) and the cast names that preview. Locks never burn; what a fire does to creations and avatars is the host's fire rule by game mode (contracts/README.md, \"Nature\"), and a fire may wait for the player's yes. Durable: one room revision, which room.undo takes back.",
+        "description": "Cast a nature ability at center_m. The intensity is the pack's; the bounds are the island's. Fire is previewed first (preview: true answers a preview_id) and the cast names that preview. Locks never burn; what a fire does to creations and avatars is the host's fire rule by game mode (contracts/README.md, \"Nature\"), and a fire may wait for the player's yes. Durable: one room revision, which room.undo takes back. The Gubble's fire is refused permission_denied when the player has turned off \"Let the Gubble use fire\", target_busy while its own fire burns and rate_limited for 20 s after its last went out.",
         "type": "object",
         "additionalProperties": false,
         "properties": {
@@ -4304,14 +4360,27 @@
           "preview_id": {
             "description": "Fire: the handle the cast names.",
             "$ref": "#/$defs/preview_id"
+          },
+          "avatars_in_area": {
+            "description": "Fire: the avatars standing in the area it could burn, as the caster perceives them (in Challenge and Live fire hurts them, whoever lit it).",
+            "type": "array",
+            "maxItems": 2,
+            "uniqueItems": true,
+            "items": {
+              "$ref": "#/$defs/avatar_id"
+            }
           }
         },
         "dependentRequired": {
           "preview_id": [
             "affected_ids",
-            "max_burning_cells"
+            "max_burning_cells",
+            "avatars_in_area"
           ],
           "affected_ids": [
+            "preview_id"
+          ],
+          "avatars_in_area": [
             "preview_id"
           ]
         }
@@ -4420,6 +4489,27 @@
             "maximum": 81
           }
         }
+      },
+      "goal.stop": {
+        "description": "What the stop ended: effects, and the Gubble's fire when the stop covered the Gubble (put out at once, whatever any budget says).",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "effects_stopped"
+        ],
+        "properties": {
+          "effects_stopped": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000
+          },
+          "fires_put_out": {
+            "description": "1 when the Gubble's fire went out (one fire at a time).",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1
+          }
+        }
       }
     },
     "player_only_ops": {
@@ -4522,7 +4612,7 @@
       }
     },
     "journal_kind": {
-      "description": "What a journal entry records. Facts, written only by the host: 'task' (what the team is working on, one entry per task, updated in place as it starts, changes and ends), 'built', 'changed' (a built thing changed later: what changed, never the steps), 'removed' (a structure fell apart or was removed) and, in modes with resources, 'found' and 'gathered'. 'note' is the companion's own words (journal.note), never a fact.",
+      "description": "What a journal entry records. Facts, written only by the host: 'task' (what the team is working on, one entry per task, updated in place as it starts, changes and ends), 'built', 'changed' (a built thing changed later: what changed, never the steps), 'removed' (a structure fell apart or was removed), in modes with resources 'found' and 'gathered', and 'consequence' (what the Gubble's actions did to the player, in the game's own words: the AI's lessons, kept when the history is trimmed). 'note' is the companion's own words (journal.note), never a fact.",
       "enum": [
         "task",
         "built",
@@ -4530,6 +4620,7 @@
         "removed",
         "found",
         "gathered",
+        "consequence",
         "note"
       ]
     },
@@ -4779,6 +4870,51 @@
       "description": "A creation's entity id.",
       "type": "string",
       "pattern": "^creation:[A-Za-z0-9_-]{1,64}$"
+    },
+    "consequence_notice": {
+      "description": "What one of the Gubble's actions did to the player, in a fixed form and no one's words: today, one fire that hurt the player. It rides once on the companion's next result, of any kind, until read.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "fire_revision",
+        "health_before",
+        "health_after",
+        "recovered",
+        "at_utc"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "fire_hurt_player"
+          ]
+        },
+        "fire_revision": {
+          "description": "The room revision the fire was lit at (its nature.cast receipt's).",
+          "type": "integer",
+          "minimum": 1
+        },
+        "health_before": {
+          "description": "The player's health before this fire first hurt them.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "health_after": {
+          "description": "The player's health after it, as the notice was read.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "recovered": {
+          "description": "Whether the player had to recover (health reached 0).",
+          "type": "boolean"
+        },
+        "at_utc": {
+          "description": "When it last hurt the player.",
+          "$ref": "common.schema.json#/$defs/utc_timestamp"
+        }
+      }
     }
   }
 }
