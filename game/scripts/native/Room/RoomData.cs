@@ -55,7 +55,7 @@ public sealed record ShellOpening(string Id, string Kind, string HostPartId, Vec
 /// UTF-8 with LF line endings. Full schema validation is contracts/validate.py; this loader enforces
 /// what the game relies on and fails closed.
 /// </summary>
-public sealed class RoomData
+public sealed partial class RoomData
 {
     public const int SchemaVersion = 1;
     // Same rules as contracts/common.schema.json: one spelling per file, no ".", ".." or empty segments.
@@ -129,6 +129,7 @@ public sealed class RoomData
             var path = SafePath(Str(entry, "path"));
             Expect(listed.TryAdd(path, (Str(entry, "sha256"), entry.GetProperty("bytes").GetInt64())), $"file {path} is listed twice");
         }
+        Prefetch(directory, listed);
         var assets = new Dictionary<string, AssetInfo>();
         AssetInfo AssetAt(string path)
         {
@@ -170,6 +171,10 @@ public sealed class RoomData
         Expect(min.X < max.X && min.Y < max.Y && min.Z < max.Z, "bounds min must be below max");
         var ids = shell.Select(s => s.Id).Concat(objects.Select(o => o.Id)).ToArray();
         Expect(ids.Length == ids.Distinct().Count(), "shell and object ids must be unique");
+        // Copies burn and regrow, so nothing in the baseline rests on one (contracts/README.md, "Plant copies").
+        foreach (var instance in objects)
+            Expect(instance.SupportTarget?.StartsWith("plant:", StringComparison.Ordinal) != true,
+                $"{instance.Id} rests on the plant copy {instance.SupportTarget}; no manifest object rests on a copy");
         Expect(spawns.Any(s => s.Role is "player" or "any") && spawns.Any(s => s.Role is "companion" or "any"), "room needs player and companion spawns");
         RoomSea? sea = null;
         if (root.TryGetProperty("extensions", out var extensions) && extensions.ValueKind == JsonValueKind.Object &&
@@ -187,6 +192,10 @@ public sealed class RoomData
             }
             sea = RoomSea.Parse(seaRecord, new Aabb(min, max - min), source);
         }
+        // The 10x world (S2): plant copies and terrain tiles, checked against the bounds as the manifest writes them.
+        var (lowM, highM) = (Doubles(bounds.GetProperty("min_m")), Doubles(bounds.GetProperty("max_m")));
+        var copies = root.TryGetProperty("plant_copies", out var copiesBlock) ? ParsePlantCopies(copiesBlock, directory, listed, meshes, lowM, highM) : null;
+        var terrain = root.TryGetProperty("terrain_tiles", out var tilesBlock) ? ParseTerrainTiles(tilesBlock, directory, shell, meshes) : null;
         StylePin? style = null;
         if (root.TryGetProperty("default_style", out var pin))
             style = new StylePin(Str(pin, "preset_id"), Int(pin, "preset_version"), Str(pin, "preset_sha256"));
@@ -196,6 +205,7 @@ public sealed class RoomData
             Directory = directory, RoomId = roomId, DisplayName = Display(root, "display_name", 80), DefaultStyle = style, VerifiedMeshes = meshes,
             SourceKind = Str(root.GetProperty("source"), "kind"), ManifestSha256 = Sha256Hex(manifestBytes),
             Bounds = new Aabb(min, max - min), Shell = shell, Objects = objects, Spawns = spawns, LightHints = hints, Openings = openings, Sea = sea,
+            Copies = copies, Terrain = terrain,
         };
     }
 
@@ -266,10 +276,33 @@ public sealed class RoomData
     public static byte[] ReadListed(string directory, Dictionary<string, (string Sha, long Bytes)> listed, string path, string label)
     {
         Expect(listed.TryGetValue(path, out var pin), $"{label}: {path} is referenced but not listed in files");
+        if (Prefetched.TryGetValue(listed, out var verified) && verified.TryGetValue(path, out var ready)) return ready;
         var bytes = ReadPinned(directory + "/" + path, path);
         Expect(bytes.LongLength == pin.Bytes, $"{label}: {path} is {bytes.LongLength} bytes, files list says {pin.Bytes}");
         Expect(Sha256Hex(bytes) == pin.Sha, $"{label}: {path} hash does not match the files list");
         return bytes;
+    }
+
+    /// <summary>Bytes of a room's listed files already read and verified (size and hash) by Prefetch, for that room's files list.</summary>
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Dictionary<string, (string Sha, long Bytes)>, System.Collections.Concurrent.ConcurrentDictionary<string, byte[]>> Prefetched = new();
+
+    /// <summary>
+    /// A room's large pinned files (meshes and plant tables: a 10x island's are about 60 MB) read and hashed side by side before
+    /// its parts ask for them in manifest order. Only bytes whose size and hash match are kept; anything else is read again where
+    /// it is referenced, which reports the problem with its own message, so the rules and their messages are unchanged.
+    /// </summary>
+    private static void Prefetch(string directory, Dictionary<string, (string Sha, long Bytes)> listed)
+    {
+        var verified = new System.Collections.Concurrent.ConcurrentDictionary<string, byte[]>(StringComparer.Ordinal);
+        var large = listed.Where(e => e.Key.EndsWith(".glb", StringComparison.Ordinal) || e.Key.EndsWith(".bin", StringComparison.Ordinal)).ToArray();
+        System.Threading.Tasks.Parallel.ForEach(large, entry =>
+        {
+            var full = directory + "/" + entry.Key;
+            if (!FileAccess.FileExists(full)) return;
+            var bytes = FileAccess.GetFileAsBytes(full);
+            if (bytes.LongLength == entry.Value.Bytes && Sha256Hex(bytes) == entry.Value.Sha) verified[entry.Key] = bytes;
+        });
+        Prefetched.AddOrUpdate(listed, verified);
     }
 
     private static byte[] ReadPinned(string path, string label)
