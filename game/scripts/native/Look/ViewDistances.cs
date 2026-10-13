@@ -31,8 +31,12 @@ public static class ViewDistances
     public const float MinFarM = 100f, MaxFarM = 250f, FarPerSpan = 2.5f;
     /// <summary>Where the haze begins: about 400 body heights, past the reach of everything the body does.</summary>
     public const float HazeStartM = 40f;
-    /// <summary>How much of the horizon's colour the haze reaches at the far plane, and how it grows (below 1: sooner).</summary>
-    public const float HazeMax = 0.6f, HazeCurve = 0.8f;
+    /// <summary>
+    /// How much of the horizon's colour the haze reaches at the far plane, and how it grows: Godot's depth fog eases in (a
+    /// smoothstep), so a curve of 0.5 lets the haze show from about 40 m (a twentieth at 50 m, a quarter at 100 m) instead of only
+    /// near the far plane. The mist keeps the curve while it closes in, so every distance only ever thickens.
+    /// </summary>
+    public const float HazeMax = 0.6f, HazeCurve = 0.5f;
     public const float MinShadowM = 30f, MaxShadowM = 60f, ShadowPerSpan = 0.6f;
     /// <summary>The four splits past MinShadowM, as fractions of the reach: the first 4.8 m at 60 m (sharper than two splits' 7.5 m).</summary>
     public const float FourSplit1 = 0.08f, FourSplit2 = 0.2f, FourSplit3 = 0.45f;
@@ -75,8 +79,7 @@ public static class ViewDistances
         }
         far = Mathf.Max(far, HazeStartM * 2f);
         float Toward(float from, float to) => from * Mathf.Pow(to / from, mist);
-        return new DepthFog(true, Toward(HazeStartM, OpenSea.MistNearM), Toward(far, OpenSea.MistFullM),
-            Mathf.Lerp(HazeMax, 1f, mist), Mathf.Lerp(HazeCurve, 1f, mist));
+        return new DepthFog(true, Toward(HazeStartM, OpenSea.MistNearM), Toward(far, OpenSea.MistFullM), Mathf.Lerp(HazeMax, 1f, mist), HazeCurve);
     }
 
     /// <summary>How much of the horizon's colour the fog gives a point at a distance (Godot's depth fog: the curve of a smoothstep, times the density).</summary>

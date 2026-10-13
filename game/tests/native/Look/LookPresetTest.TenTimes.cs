@@ -51,10 +51,12 @@ public partial class LookPresetTest
             $"open land's haze begins at {haze.BeginM} m and reaches {haze.Density} of the horizon's colour at the far plane ({haze.EndM} m)");
         var reach = ViewDistances.FogAt(haze, 30f);
         var farShore = ViewDistances.FogAt(haze, 100f);
-        Check(reach == 0f && ViewDistances.FogAt(ViewDistances.Fog(0f, small, true), 12f) == 0f && farShore is > 0.05f and < 0.35f,
-            $"nothing within 40 m is hazed (the 1x island lies wholly inside it); the 10x island's far shore 100 m off takes {farShore:0.##}: a soft haze, not a fog");
+        var fifty = ViewDistances.FogAt(haze, 50f);
+        Check(reach == 0f && ViewDistances.FogAt(ViewDistances.Fog(0f, small, true), 12f) == 0f && fifty is > 0.02f and < 0.1f && farShore is > 0.15f and < 0.35f,
+            $"nothing within 40 m is hazed (the 1x island lies wholly inside it); from 40 m it shows ({fifty:0.##} at 50 m) and the 10x island's far shore 100 m off takes {farShore:0.##}: a soft haze, not a fog");
         var full = ViewDistances.Fog(1f, big, haze: true);
-        Check(full.Enabled && Mathf.IsEqualApprox(full.BeginM, OpenSea.MistNearM) && Mathf.IsEqualApprox(full.EndM, OpenSea.MistFullM) && full.Density == 1f && full.Curve == 1f,
+        Check(full.Enabled && Mathf.IsEqualApprox(full.BeginM, OpenSea.MistNearM) && Mathf.IsEqualApprox(full.EndM, OpenSea.MistFullM) && full.Density == 1f
+              && ViewDistances.FogAt(full, OpenSea.MistFullM) == 1f && ViewDistances.FogAt(full, 1.9f) == 0f,
             "at full mist the haze has become the sea mist: clear to 2 m, wholly mist past 8 m");
         var closing = true;
         var last = haze;
@@ -72,16 +74,36 @@ public partial class LookPresetTest
         Check(mistOnly.Enabled && mistOnly.BeginM == mistBegin && mistOnly.EndM == mistEnd && mistOnly.Density == 1f, "without haze the mist is OpenSea's, as before");
     }
 
-    /// <summary>Trees cast shadows across the island's shadow reach; plants and stones keep theirs near (the copies' bands, S6's test pins the plants').</summary>
+    /// <summary>
+    /// The copies' bands (the look's numbers, S9): trees cast shadows across the island's shadow reach; small plants are held in two
+    /// bands and tall ones in three, every band contiguous; one- and two-mesh sets keep S6's bands (its own test pins them).
+    /// </summary>
     private void CheckTreeShadows()
     {
-        var tree = DrawDistances.CopyBands(PlantKind.Tree, 1.2f, 4);
-        var grass = DrawDistances.CopyBands(PlantKind.Plant, 0.05f, 4);
-        var contiguous = tree.Zip(tree.Skip(1)).All(p => p.First.EndM == p.Second.BeginM) && tree[0].BeginM == 0f && tree[^1].EndM == DrawDistances.TreeM;
-        Check(contiguous && tree.All(b => b.CastsShadow == b.EndM <= DrawDistances.TreeShadowM) && tree.Any(b => b.CastsShadow && b.EndM == ViewDistances.MaxShadowM),
-            "a tree's bands run from the camera to 150 m without a gap, casting shadows to the island's 60 m shadow reach: " + string.Join("; ", tree));
-        Check(grass.All(b => b.CastsShadow == b.EndM <= DrawDistances.CopyShadowM) && DrawDistances.CopyShadowRangeM(PlantKind.Stone) == DrawDistances.CopyShadowM,
-            "plants and stones still cast shadows only within 20 m");
+        static bool Contiguous(CopyBand[] bands, float range) =>
+            bands[0].BeginM == 0f && bands.Zip(bands.Skip(1)).All(p => p.First.EndM == p.Second.BeginM) && bands[^1].EndM == range && bands.All(b => b.EndM > b.BeginM);
+        var tree = DrawDistances.CopyBands(PlantKind.Tree, 0.55f, 4);
+        Check(Contiguous(tree, DrawDistances.TreeM) && tree.Length == 3 && tree.All(b => b.CastsShadow == b.EndM <= DrawDistances.TreeShadowM) && tree[1].EndM == ViewDistances.MaxShadowM
+              && tree.Select(b => b.Mesh).SequenceEqual(new[] { 0, 1, 3 }),
+            "a tree is held in three bands from the camera to 150 m, full detail near, casting shadows to the island's 60 m shadow reach: " + string.Join("; ", tree));
+        var grass = DrawDistances.CopyBands(PlantKind.Plant, 0.032f, 4);
+        Check(Contiguous(grass, DrawDistances.SmallPlantM) && grass.Length == 2 && grass[0] == new CopyBand(0, 0f, DrawDistances.SmallDetailM, true) && grass[1].Mesh == 3 && !grass[1].CastsShadow,
+            "a small plant (3 cm grass) is held in two bands: full detail with its shadow to 8 m, its lightest mesh beyond to 40 m: " + string.Join("; ", grass));
+        var shrub = DrawDistances.CopyBands(PlantKind.Plant, 0.12f, 3);
+        Check(Contiguous(shrub, DrawDistances.PlantM) && shrub.Length == 3 && shrub.All(b => b.CastsShadow == b.EndM <= DrawDistances.CopyShadowM),
+            "a taller plant (a 12 cm shrub) is held in three bands, casting shadows to 20 m: " + string.Join("; ", shrub));
+        var twoMesh = DrawDistances.CopyBands(PlantKind.Plant, 0.12f, 2);
+        Check(twoMesh.Length == 3 && twoMesh.Select(b => b.Mesh).SequenceEqual(new[] { 0, 1, 1 }) && twoMesh.All(b => b.CastsShadow == b.EndM <= DrawDistances.CopyShadowM),
+            "a two-mesh plant keeps S6's bands");
+        // The 10x garage's sets (kind, copies, typical height, meshes): its copies are held about 716,000 times instead of 1.4 million.
+        var sets = new (PlantKind Kind, int Count, float Height, int Meshes)[]
+        {
+            (PlantKind.Tree, 2152, 0.517f, 4), (PlantKind.Plant, 15497, 0.028f, 4), (PlantKind.Tree, 2698, 0.604f, 4), (PlantKind.Plant, 32376, 0.029f, 4),
+            (PlantKind.Plant, 9961, 0.044f, 4), (PlantKind.Plant, 246694, 0.032f, 4), (PlantKind.Plant, 13983, 0.023f, 4), (PlantKind.Plant, 225, 0.066f, 4),
+            (PlantKind.Stone, 1079, 0.035f, 3), (PlantKind.Plant, 11159, 0.124f, 3), (PlantKind.Plant, 13831, 0.032f, 4),
+        };
+        var held = sets.Sum(s => (long)s.Count * DrawDistances.CopyBands(s.Kind, s.Height, s.Meshes).Length);
+        Check(held < 750_000, $"the 10x garage's 349,655 copies are held {held:N0} times in their bands (S6's bands: 1,403,470)");
     }
 
     /// <summary>A big open land (the test room's floor 25 times wider, no sea): the far plane, the haze and the shadows the rules give it, and the game's camera kept at that far plane.</summary>

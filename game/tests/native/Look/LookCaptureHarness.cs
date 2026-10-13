@@ -120,6 +120,9 @@ public partial class LookCaptureHarness : Node
             BuildTarget(resolution);
             // Let the avatars settle on the floor and the companion come to rest.
             for (var i = 0; i < 45; i++) await NextFrame();
+            // An island's copies arrive over its first frames: every camera (and every camera worked out from the island) waits for them.
+            var copies = _world.Built.GetNodeOrNull<EnFractal.Native.Room.PlantCopiesView>(EnFractal.Native.Room.PlantCopiesView.ViewName);
+            for (var waited = System.Diagnostics.Stopwatch.StartNew(); copies != null && waited.Elapsed.TotalSeconds < 60 && !copies.Complete;) await NextFrame();
 
             var only = Arg("only", "").Split(',', StringSplitOptions.RemoveEmptyEntries).ToHashSet();
             foreach (var entry in Entries(root).ToList())

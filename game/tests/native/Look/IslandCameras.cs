@@ -172,10 +172,13 @@ public static class IslandCameras
         return null;
     };
 
-    /// <summary>Whether nothing (a trunk, a crown's caps, a thing) stands over a ground point within 8 m: the sky is open above it.</summary>
+    /// <summary>
+    /// Whether nothing (a crown's caps, a trunk, a thing) stands over a ground point within 8 m: the sky is open above it. The ray
+    /// comes down from above, since a crown's caps are one-sided and face up: a ray from below passes through them.
+    /// </summary>
     public static Func<Vector3, bool> RaySky(PhysicsDirectSpaceState3D space) => at =>
     {
-        using var query = PhysicsRayQueryParameters3D.Create(at + Vector3.Up * 0.12f, at + Vector3.Up * 8f, RoomBuilder.BodyMask);
+        using var query = PhysicsRayQueryParameters3D.Create(at + Vector3.Up * 8f, at + Vector3.Up * 0.12f, RoomBuilder.BodyMask);
         using var hit = space.IntersectRay(query);
         return hit.Count == 0;
     };

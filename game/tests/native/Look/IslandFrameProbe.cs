@@ -93,6 +93,24 @@ public partial class IslandFrameProbe : Node
             var navigation = _world.GetNodeOrNull<EnFractal.Native.Navigation.RoomNavigation>("RoomNavigation");
             for (var waited = Stopwatch.StartNew(); waited.Elapsed.TotalSeconds < 120 && (view is { Complete: false } || navigation is { IsReady: false });) await Frame();
             for (var i = 0; i < 120; i++) await Frame();
+            if (_world.Room.Copies is { } copies)
+            {
+                long instanceBands = 0;
+                foreach (var set in copies.Sets)
+                {
+                    var step = Math.Max(1, set.Count / 1024);
+                    double sum = 0;
+                    var n = 0;
+                    for (var row = 0; row < set.Count; row += step, n++) sum += set.Scale(row).Y;
+                    var typical = set.MeshHeightM * (float)(sum / Math.Max(1, n));
+                    var bands = EnFractal.Native.Look.DrawDistances.CopyBands(set.Kind, typical, set.MeshPaths.Count);
+                    instanceBands += (long)set.Count * bands.Length;
+                    GD.Print(string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                        $"ISLAND_PROBE set {set.Name} ({set.Kind}, {set.Count} copies, typical height {typical * 100f:0.#} cm, {set.MeshPaths.Count} meshes): {string.Join("; ", bands.Select(b => $"mesh {b.Mesh} {b.BeginM:0.#}-{b.EndM:0.#} m{(b.CastsShadow ? " shadow" : "")}"))}"));
+                }
+                GD.Print($"ISLAND_PROBE copies: {copies.TotalCount} copies, {instanceBands} instances in all bands ({instanceBands * 64 / 1048576.0:0} MB of instance buffers on the GPU, three times that in the engine's CPU copies)");
+            }
+            if (OS.GetCmdlineUserArgs().Contains("--bands-only")) { GetTree().Quit(0); return; }
             using var listener = new GcListener();
             listener.Recording = true;
             var all = await Measure(frames);
@@ -118,6 +136,39 @@ public partial class IslandFrameProbe : Node
             // Each node of the world off in turn: what it costs is what the frame saves without it.
             var nodes = _world.GetChildren().Concat(_world.Look.GetChildren()).OfType<Node>()
                 .Where(n => n != _world.Built && n.Name != "Environment").ToList();
+            // The look's own periodic work: every ClockUpdateSeconds the real clock moves the light, the sky and the grade (a LUT
+            // built off the main thread, then taken up). Here the hour steps 20 times, a frame apart, as ten minutes each would.
+            var moment = Stopwatch.StartNew();
+            double longestCall = 0, longestFrame = 0;
+            for (var step = 0; step < 20; step++)
+            {
+                var call = Stopwatch.StartNew();
+                _world.Look.SetClockAsync(9f + step / 6f, 172);
+                longestCall = Math.Max(longestCall, call.Elapsed.TotalMilliseconds);
+                for (var f = 0; f < 6; f++)
+                {
+                    var frame = Stopwatch.StartNew();
+                    await Frame();
+                    longestFrame = Math.Max(longestFrame, frame.Elapsed.TotalMilliseconds);
+                }
+            }
+            GD.Print($"ISLAND_PROBE the clock's update (the light, sky and grade moving on, 20 times): longest call {longestCall:0.00} ms, longest frame after it {longestFrame:0.0} ms, {moment.Elapsed.TotalMilliseconds:0} ms in all, {_world.Look.GradeBuilds} grade LUTs built");
+            // Two periodic jobs outside the look, timed on their own: the HUD's focus query (every 0.5 s) and one nature step (every 0.5 s).
+            if (_world.FindChild("CommandHost", true, false) is EnFractal.Native.Kernel.CommandHost host)
+            {
+                double focusMs = 0, natureMs = 0;
+                for (var i = 0; i < 10; i++)
+                {
+                    var timer = Stopwatch.StartNew();
+                    host.PlayerFocus();
+                    focusMs = Math.Max(focusMs, timer.Elapsed.TotalMilliseconds);
+                    timer.Restart();
+                    host.AdvanceNature(EnFractal.Native.Kernel.NatureLaws.StepS);
+                    natureMs = Math.Max(natureMs, timer.Elapsed.TotalMilliseconds);
+                    await Frame();
+                }
+                GD.Print($"ISLAND_PROBE outside the look: the HUD's focus query (CommandHost.PlayerFocus) takes up to {focusMs:0.0} ms, one nature step (CommandHost.AdvanceNature) up to {natureMs:0.0} ms");
+            }
             if (OS.GetCmdlineUserArgs().Contains("--no-toggles")) nodes.Clear();
             foreach (var node in nodes)
             {
