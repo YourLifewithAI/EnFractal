@@ -1,5 +1,23 @@
 # The garage as land: the landscape generator (C5)
 
+## A captured room as a generator room (Run 2, 13 October)
+
+- **`from_capture.py`** turns a captured shell (`room.json`, shell only) and its C4 inventory into a corpus-shaped room
+  folder: every inventory object kept as it is, the spawns moved only where they stand within 30 cm of a footprint or
+  50 cm of a wall, and the site's -Z bearing worked out from the wall the founder names (`--wall-faces B=south`, say); the
+  setup answers it writes beside the room carry that bearing. It refuses to write where Git tracks: a real room's
+  derived data stays under `.cache/` or `captures/`. Its tests use the invented corpus garage only.
+- **A road reaches its own goal** (`life.build_road`): a road keeps 24 cm off water it cannot bridge, and a goal inside
+  that band (a cottage's forecourt by the shore) was refused, so the road was never built. On the 10x world a dry
+  room's hamlet stands by the sea, and the corpus garage at 10x had no road to its hamlet either (its walk passed only
+  through the regrading). Now the goal itself is let in when it lies on dry land. No 1x corpus room has such a goal
+  (all 24 probed), so 1x stays byte-identical; the 10x garage gets its road and still passes `overall`.
+- **Not done:** a box resting on a surface the inventory does not hold (C4's `support.kind: surface`, no target) rises
+  from the plain at its own height, while the checks read its footprint at its real top, so it reads as lost. What land
+  goes under such a box (the furniture the scan dropped) is a design decision; adding that furniture to the inventory
+  makes them ordinary children. And a dry room's coastal hamlet at 10x can still be cut off on a narrow shore below a
+  bluff (its forecourts, the roads and the regrading meet there).
+
 ## Ground for the 10x world (Run 2, scale packet S4, 13 October)
 
 The experiment's 10x ground was today's 3 cm samples stretched over 10 cm cells: a 10 cm brook was one cell wide,

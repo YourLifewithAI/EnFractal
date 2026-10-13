@@ -480,6 +480,27 @@ class StreamCrossing(unittest.TestCase):
         self.assertTrue(result['ok'], [w for w in result['walks'] if not w['found']])
 
 
+class RoadReachesItsGoal(unittest.TestCase):
+    """A road keeps a band off the water but still reaches a goal inside that band: a cottage's forecourt by the shore
+    (on the 10x world a hamlet by the sea was left with no road)."""
+
+    def test_forecourt_by_the_water(self):
+        from pipeline.landscape.generator.field import Grid
+        from pipeline.landscape.generator.life import build_road
+        g = Grid(-1., -.5, 1., .5, .03)
+        n = g.n
+        wet = [max(0., .81-g.xs[q % g.nx]) for q in range(n)]   # the shore at x = 0.81, water beyond
+        # The forecourt 22 cm from the water, inside the 24 cm the road keeps off it.
+        road = build_road(g, [0.]*n, wet, [True]*n, [False]*n, [0.]*n, (-.8, 0.), (.59, 0.))
+        self.assertIsNotNone(road)
+        self.assertLess(math.hypot(road[-1][0]-.59, road[-1][1]), .02)
+        # Only its goal lies inside the band.
+        self.assertTrue(all(x <= .81-.24+1e-6 for x, _ in road[:-1]), road[-6:])
+        # A goal on the shore line or in the water stays out of reach.
+        for x in (.81, .9):
+            self.assertIsNone(build_road(g, [0.]*n, wet, [True]*n, [False]*n, [0.]*n, (-.8, 0.), (x, 0.)), x)
+
+
 class ClimbLips(unittest.TestCase):
     """What you climb, you can stand on top of (Lane P's climbs on the garage):
     a knife-edge ridge and a needle are found from standable ground; planing
