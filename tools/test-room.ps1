@@ -71,7 +71,7 @@ $characters = Invoke-EnfractalNativeProcess -Toolchain $toolchain -FilePath $too
 if ($characters.Stderr -or $characters.Stdout -notmatch 'NATIVE_LOOK_CHARACTERS: \d+/\d+ checks passed') { throw "$($characters.Stdout)`n$($characters.Stderr)" }
 Write-Output (($characters.Stdout.Trim().Split("`n") | Where-Object { $_ -match '^NATIVE_LOOK_CHARACTERS' }) -join "`n")
 $sheetMotion = Invoke-EnfractalNativeProcess -Toolchain $toolchain -FilePath $toolchain.EnginePath `
-    -Arguments @('--headless', '--path', $toolchain.ProjectPath, '--fixed-fps', '60', 'res://tests/native/Look/character_sheet_capture.tscn', '--', '--motion-only=true', "--assets=$((Join-Path $repository 'assets/characters') -replace '\\', '/')") -TimeoutSeconds 180
+    -Arguments @('--headless', '--path', $toolchain.ProjectPath, '--fixed-fps', '60', 'res://tests/native/Look/character_sheet_capture.tscn', '--', '--motion-only=true', "--assets=$((Join-Path $toolchain.RepositoryPath 'assets/characters') -replace '\\', '/')") -TimeoutSeconds 180
 if ($sheetMotion.Stderr -or $sheetMotion.Stdout -notmatch 'CHARACTER_SHEET_MOTION: (\d+)/\1 tiles show their motion') { throw "$($sheetMotion.Stdout)`n$($sheetMotion.Stderr)" }
 Write-Output (($sheetMotion.Stdout.Trim().Split("`n") | Where-Object { $_ -match '^CHARACTER_SHEET_MOTION:' }) -join "`n")
 $room = Invoke-EnfractalNativeProcess -Toolchain $toolchain -FilePath $toolchain.EnginePath `
