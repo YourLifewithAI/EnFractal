@@ -73,6 +73,10 @@ public partial class PlayHudTest
         var wishes = (LineEdit)_hud.FindChild("WishText", true, false)!;
         var submit = (Button)_hud.FindChild("WishSubmitButton", true, false)!;
         var stop = (Button)_hud.FindChild("WishStopButton", true, false)!;
+        var disclosure = _hud.FindChild("WishDisclosure", true, false) as Label;
+        Check(disclosure is { Visible: true } && disclosure.Text == EnFractal.Native.RoomHud.WishDisclosure && disclosure.Text.Contains("sent to the AI you connected", StringComparison.Ordinal) &&
+              disclosure.Text.Contains("company", StringComparison.Ordinal),
+            "the wish page always says the wish's words go to the connected AI and its company");
         wishes.Text = "Build a small bridge.";
         submit.EmitSignal(Button.SignalName.Pressed);
         wishes.Text = "Add a flower beside it.";

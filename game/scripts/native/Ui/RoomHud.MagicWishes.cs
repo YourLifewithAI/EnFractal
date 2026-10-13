@@ -12,11 +12,15 @@ public partial class RoomHud
     private Button _wishSubmit = null!;
     private Button _wishStop = null!;
     private CheckButton _wishUseTarget = null!;
+    /// <summary>Wish words leave the game: they go to the AI the player connected, and so to the company that runs it.</summary>
+    public const string WishDisclosure = "The words of your wish are sent to the AI you connected to play the Gubble. If that AI is online, the company that runs it gets them too.";
 
     private void BuildWishPage(VBoxContainer page)
     {
         MagicHeading(page, "MAKE A WISH");
         page.AddChild(WrapMagicLabel("Tell the Gubble what you want to try. Wishes wait their turn, in the order you make them."));
+        // The magic design's decided disclosure: always shown, whichever AI receives the wish.
+        var disclosure = WrapMagicLabel(WishDisclosure); disclosure.Name = "WishDisclosure"; page.AddChild(disclosure);
         _wishRunner = WrapMagicLabel(""); _wishRunner.Name = "WishRunnerStatus"; page.AddChild(_wishRunner);
         _wishText = new LineEdit { Name = "WishText", PlaceholderText = "I wish…", MaxLength = 280, ExpandToTextLength = false };
         _wishText.TextChanged += _ => RefreshWishPage();

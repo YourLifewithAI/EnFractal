@@ -5,10 +5,10 @@ Everything for this build is on `codex/gubble-growth-runtime` in `C:\dev\EnFract
 From PowerShell 7 in that directory, run:
 
 ```powershell
-.\play-growth.ps1
+.\run-room.ps1 -Profile growth -Room landscape
 ```
 
-This launches the generated garage landscape with this branch's persistent playtest saves in `.cache/growth-playtest`. It rebuilds the game first. `-Room <path>` selects another room. The landscape fixture is prepared by `tools/test-room.ps1`; it is derived data and is not committed.
+This rebuilds the game and launches the generated garage landscape. `-Profile growth` keeps this playtest's saves, wishes and companion session in `.cache/profiles/growth`, apart from your own; delete that folder to start fresh. `-Room landscape` picks the newest landscape `tools/test-room.ps1` prepared (derived data, not committed); `-Room <id or path>` selects another room.
 
 Open **Magic** for the Island, Glow and Wishes pages. **Choose spot** closes the panel for one click, then returns to it. Existing `1`/Glow, `2`/Bloom and the right-button wheel still work; the help shows remapped keys. Fire and wishes use their explicit panel controls.
 
@@ -18,7 +18,7 @@ Open **Magic** for the Island, Glow and Wishes pages. **Choose spot** closes the
 4. **Bloom and weather.** Cast on grass/soil, try an unsuitable surface, and toggle the Gubble's flower trail. Weather cycles through fair weather, showers and rain over six minutes. Light and moisture affect growth; rain and wind affect Fire. Player weather control is a later ability.
 5. **Fire.** Choose dry fuel, press Preview and inspect its outlined area. Hold the confirmation button; release early to cancel. A fire that could scorch an unlocked creation also waits for the host's approval card. Locks remain fireproof. Compare a wet spell with a dry one. In Challenge/Live, stepping into fire hurts.
 6. **Repair and undo.** Pick a scorched creation, inspect its material quote and shared supply, then repair it. Scorched creations retain their design and stop their triggers until repaired. Other flammable room objects can burn away. Undo reverses the most recent nature event, including its burn and repair costs; a newer ordinary room edit prevents undo across that edit. Undo does not erase injury.
-7. **Wishes.** Make two wishes and watch their order, then Stop. Without a runner they stay queued. The game explains how to connect one before the first wish; it never starts another program. For a complete test without an AI account or provider charge, open a second PowerShell terminal in this checkout and run:
+7. **Wishes.** Make two wishes and watch their order, then Stop. Without a runner they stay queued. The game explains how to connect one before the first wish; it never starts another program. The page always says that the words of a wish are sent to the AI you connected, and to the company that runs it when it is online. A wish is granted only after the game has seen every action it started finish: while the Gubble is still walking to fetch something the wish shows *Working on it*, and a fetch that fails afterwards leaves the wish not granted. For a complete test without an AI account or provider charge, open a second PowerShell terminal in this checkout and run:
 
    ```powershell
    .\start-growth-wishes.ps1 -Demo

@@ -9,11 +9,11 @@ $priorPython = $env:PYTHONPATH
 try {
     $env:PYTHONPATH = Join-Path $PSScriptRoot 'companion/src'
     if ($Demo) {
-        $Client = Join-Path $PSScriptRoot '.cache/growth-playtest/wish-demo.json'
+        $Client = Join-Path $PSScriptRoot '.cache/profiles/growth/wish-demo.json'
         & $pythonPath -m enfractal_companion.wish_runner --write-demo-client $Client
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     }
-    $sessionPath = Join-Path $PSScriptRoot '.cache/growth-playtest/roaming/Godot/app_userdata/EnFractal/companion/session.json'
+    $sessionPath = Join-Path $PSScriptRoot '.cache/profiles/growth/roaming/Godot/app_userdata/EnFractal/companion/session.json'
     & $pythonPath -m enfractal_companion.wish_runner --client $Client --session $sessionPath
     exit $LASTEXITCODE
 } finally { $env:PYTHONPATH = $priorPython }

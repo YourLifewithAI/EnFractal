@@ -16,6 +16,6 @@ Initial integration failures were corrected: pinned Godot API names, numeric bou
 
 ## Playtest and limits
 
-Run `play-growth.ps1`; follow [the checklist](../../magic/PLAYTEST.md). `start-growth-wishes.ps1 -Demo` exercises wishes without a provider. Live CLI inference remains unverified; the optional Claude adapter uses API authentication, and subscription-driven adapters require separate verification. Balance is provisional. Individual bubble grabbing, weather control, combat/multiplayer and a broader resource economy remain later work. Export includes nature; aggregate import refuses that extension until both stores can be restored transactionally.
+Run `run-room.ps1 -Profile growth -Room landscape` (this replaced `play-growth.ps1` in the 13 October review round); follow [the checklist](../../magic/PLAYTEST.md). `start-growth-wishes.ps1 -Demo` exercises wishes without a provider. Live CLI inference remains unverified; the optional Claude adapter uses API authentication, and subscription-driven adapters require separate verification. Balance is provisional. Individual bubble grabbing, weather control, combat/multiplayer and a broader resource economy remain later work. Export includes nature; aggregate import refuses that extension until both stores can be restored transactionally.
 
 No GPU captures, paid inference, integrator checkout changes or automatic merges were performed. The reported Codex router WebSocket issue remains separate and unfixed.
