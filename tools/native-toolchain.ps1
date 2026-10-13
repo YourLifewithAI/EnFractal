@@ -74,7 +74,9 @@ function Invoke-EnfractalNativeProcess {
         [string[]]$Arguments = @(),
         [int]$TimeoutSeconds = 120,
         [string]$WorkingDirectory,
-        [switch]$WithoutDotnetRuntime
+        [switch]$WithoutDotnetRuntime,
+        # Set last, over the defaults below (a smoke boot's own APPDATA and LOCALAPPDATA).
+        [hashtable]$Environment = @{}
     )
     if ($PSVersionTable.PSVersion.Major -lt 7) { throw 'Native helpers require PowerShell 7 or newer.' }
     $start = [System.Diagnostics.ProcessStartInfo]::new()
@@ -113,6 +115,7 @@ function Invoke-EnfractalNativeProcess {
     $start.Environment['APPDATA'] = Join-Path $Toolchain.RepositoryPath '.cache/native-test/appdata'
     $start.Environment['LOCALAPPDATA'] = Join-Path $Toolchain.RepositoryPath '.cache/native-test/localappdata'
     $start.Environment['XDG_DATA_HOME'] = Join-Path $Toolchain.RepositoryPath '.cache/native-test/data'
+    foreach ($key in $Environment.Keys) { $start.Environment[$key] = [string]$Environment[$key] }
     $process = [System.Diagnostics.Process]::new()
     $process.StartInfo = $start
     try {
@@ -144,4 +147,47 @@ function Build-EnfractalNativeProject {
         -Arguments @('build', 'EnFractal.csproj', '--configuration', 'Debug', '--nologo') -TimeoutSeconds 180
     if (-not [string]::IsNullOrWhiteSpace($result.Stderr)) { Write-Warning $result.Stderr.Trim() }
     Write-Output $result.Stdout.Trim()
+}
+
+function Invoke-EnfractalRoomBoot {
+    <#
+    .SYNOPSIS
+    Boots a room through the game's main scene (scenes/native_boot.tscn reads --room) and quits by RoomWorld's
+    "-- --quit-after-ready=N"; throws unless it exits 0 with "ROOM_WORLD_READY room=<id>", "ROOM_WORLD_QUIT" and nothing on stderr.
+    .DESCRIPTION
+    Godot never compiles C# when it runs a game: it runs the assembly last built into game/.godot. Build first (the runners
+    and tools/smoke-boot.ps1 do). An assembly built before an option existed ignores it: on 13 October a smoke boot on a
+    checkout not rebuilt since its merge ran an assembly older than --quit-after-ready and never quit.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]$Toolchain,
+        # A room id (the player's user://rooms first, then res://rooms) or a room folder.
+        [Parameter(Mandatory = $true)][string]$Room,
+        # The id ROOM_WORLD_READY must name; by default the folder's name or the id.
+        [string]$RoomId,
+        [int]$Frames = 120,
+        [int]$TimeoutSeconds = 120,
+        # An exported game instead of the engine and the project.
+        [string]$FilePath,
+        [string]$WorkingDirectory,
+        [switch]$WithoutDotnetRuntime,
+        [hashtable]$Environment = @{}
+    )
+    $arguments = @('--headless')
+    if (-not $FilePath) {
+        $FilePath = $Toolchain.EnginePath
+        $arguments += @('--path', $Toolchain.ProjectPath)
+    }
+    $arguments += @('--fixed-fps', '60', '--', "--room=$($Room.Replace('\', '/'))", "--quit-after-ready=$Frames")
+    if (-not $RoomId) { $RoomId = Split-Path -Leaf $Room.TrimEnd('\', '/') }
+    $clock = [System.Diagnostics.Stopwatch]::StartNew()
+    $run = Invoke-EnfractalNativeProcess -Toolchain $Toolchain -FilePath $FilePath -Arguments $arguments -TimeoutSeconds $TimeoutSeconds `
+        -WorkingDirectory $WorkingDirectory -WithoutDotnetRuntime:$WithoutDotnetRuntime -Environment $Environment
+    $ready = $run.Stdout -split "`r?`n" | Where-Object { $_ -match "^ROOM_WORLD_READY room=$([regex]::Escape($RoomId))\b" } | Select-Object -First 1
+    $quit = $run.Stdout -split "`r?`n" | Where-Object { $_ -match '^ROOM_WORLD_QUIT ' } | Select-Object -First 1
+    if ($run.Stderr -or -not $ready -or -not $quit) {
+        throw "Booting $RoomId through the main scene did not load and quit cleanly:`n$($run.Stdout)`n$($run.Stderr)"
+    }
+    return [pscustomobject]@{ Seconds = $clock.Elapsed.TotalSeconds; Ready = $ready; Quit = $quit; Stdout = $run.Stdout }
 }

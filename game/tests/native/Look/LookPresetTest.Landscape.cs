@@ -224,7 +224,7 @@ public partial class LookPresetTest
     private async Task CheckRealLandscape(StylePreset preset)
     {
         var directory = FindLandscapeFixture();
-        if (directory == null) { GD.Print("LOOK_INFO: no garage landscape exported under .cache/landscape-fixture (tools/test-room.ps1 builds one); the real-room checks were skipped"); return; }
+        if (directory == null) { GD.Print("LOOK_INFO: no garage landscape (-- --landscape=DIR; tools/test-room.ps1 passes the shared fixture cache's); the real-room checks were skipped"); return; }
         MaterialLibrary.Configure(preset);
         var land = RoomData.Load(directory);
         var (holder, look) = NewDirector(preset, land, "RealLandscapeHolder");
@@ -256,8 +256,17 @@ public partial class LookPresetTest
         return "";
     }
 
+    /// <summary>
+    /// "-- --landscape=DIR" (the runners pass the shared fixture cache's garage, tools/landscape-fixture.ps1), else a garage this
+    /// worktree exported under its own .cache/landscape-fixture before the cache was shared.
+    /// </summary>
     private static string? FindLandscapeFixture()
     {
+        if (OS.GetCmdlineUserArgs().FirstOrDefault(a => a.StartsWith("--landscape=", StringComparison.Ordinal)) is { } given)
+        {
+            var path = given["--landscape=".Length..].Replace('\\', '/');
+            return System.IO.File.Exists(System.IO.Path.Combine(path, "room.json")) ? path : null;
+        }
         var cache = System.IO.Path.GetFullPath(System.IO.Path.Combine(ProjectSettings.GlobalizePath("res://"), "../.cache/landscape-fixture"));
         if (!System.IO.Directory.Exists(cache)) return null;
         return System.IO.Directory.GetDirectories(cache).Select(d => System.IO.Path.Combine(d, "landscape_garage_nominal"))
