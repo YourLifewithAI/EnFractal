@@ -188,6 +188,8 @@ public partial class RoomWorld : Node3D
             WorldReady = true;
             GD.Print($"ROOM_WORLD_READY room={Room.RoomId} shell={Room.Shell.Count} objects={Room.Objects.Count} lights={Look.RoomLightCount} style={preset.PresetId}@{preset.PresetVersion} spawn={Player.Position}");
             if (QuitAfterReadyFrames() is { } frames) QuitAfter(frames);
+            // The room becoming its island (Lane L), after ready: never in a headless run, a boot check or with the player's setting off.
+            else global::EnFractal.Native.Look.Intro.RoomIntro.TryStart(this);
         }
         catch (Exception exception)
         {

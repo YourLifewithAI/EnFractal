@@ -270,7 +270,11 @@ public partial class RoomHud : CanvasLayer
         name.TextChanged += value => Companion.SetDisplayName(value);
         AddButton(options, "Change the Gubble's color", () => { _companionColor = (_companionColor + 1) % Palette.Length; Companion.SetAppearance(Palette[_companionColor]); ApplyAura(); });
         options.AddChild(new Label { Text = $"Player height: {Player.BodyHeightM * 100:0} cm. Appearance keeps each avatar's identity." });
-        BuildEyesSetting(options);
+        // The player's two switches side by side, so the panel still fits above the folded help.
+        var settings = new HBoxContainer { Name = "Settings" };
+        options.AddChild(settings);
+        BuildEyesSetting(settings);
+        BuildIntroSetting(settings);
         AddButton(options, "Save appearance and return", () => { SavePreferences(); ToggleCustomization(); });
         BuildGubbleControls(compactTheme);
         BuildMagicPanel(actions, column, theme);
@@ -503,7 +507,7 @@ public partial class RoomHud : CanvasLayer
     {
         var host = Host;
         _focusAge += delta;
-        if (host == null || Player.IsClimbing || Player.IsDiving || Player.GoingHome || ReadingPanelOpen)
+        if (host == null || Player.IsClimbing || Player.IsDiving || Player.GoingHome || ReadingPanelOpen || IntroPlaying)
         {
             SetFocus(null, default, "");
             _focusAge = double.MaxValue;

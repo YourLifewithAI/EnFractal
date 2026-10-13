@@ -87,8 +87,9 @@ public partial class LookPresetTest : Node3D
             CheckLandUpClose(preset);
             await CheckGlow(preset, room);
             await CheckEffects(preset, room);
+            await CheckIntro(preset);
             MaterialLibrary.Configure(preset);
-            GD.Print($"NATIVE_LOOK: {_checks - _failures}/{_checks} checks passed; preset reader and look numbers, role materials and shader uniforms, grade, season tint and reduced global tint, clock at every minute, solar model, sun only through the window, night levels and lamps, golden-hour cool fill, depth of field and focus, post effect parameters, bake stand-ins, room dressing, grade cache, renderer notice, the landscape's role marks and baked colours, open land, water you can see into and the fish in it, each view's blur, the open sea, its mist and the seam (no distant islands), how far an island of any size is seen (far plane, haze, shadows) and its look-suite cameras, the focus highlight, the Gubble's glow and the light-level estimate, and its bubbles and fireworks");
+            GD.Print($"NATIVE_LOOK: {_checks - _failures}/{_checks} checks passed; preset reader and look numbers, role materials and shader uniforms, grade, season tint and reduced global tint, clock at every minute, solar model, sun only through the window, night levels and lamps, golden-hour cool fill, depth of field and focus, post effect parameters, bake stand-ins, room dressing, grade cache, renderer notice, the landscape's role marks and baked colours, open land, water you can see into and the fish in it, each view's blur, the open sea, its mist and the seam (no distant islands), how far an island of any size is seen (far plane, haze, shadows) and its look-suite cameras, the focus highlight, the Gubble's glow and the light-level estimate, its bubbles and fireworks, and the room-to-island intro");
             GetTree().Quit(_failures == 0 ? 0 : 1);
         }
         catch (Exception exception)
