@@ -1,0 +1,498 @@
+{
+  "applied_notes": [
+    "Wider, real tomato shape, rounder and wider than tall, gently lobed: author a broad lobed outline instead of the narrow oval; reconnect the raised arms and feet, keep facial stroke shapes, and separate the eyes slightly without scaling them.",
+    "Small green leafy top under the hat: add a separate calyx part with five pointed leaves.",
+    "Sparkles should twinkle: retain eight independently pivoted effect parts, set all motion hints to twinkle, and move side sparkles outward to stay clear of the wider body."
+  ],
+  "bounds_m": {
+    "max": [
+      0.07580925150617789,
+      0.1,
+      0.02669662003471868
+    ],
+    "min": [
+      -0.07103288062902073,
+      0.0,
+      -0.02762810089753176
+    ]
+  },
+  "collision_hint": {
+    "height_m": 0.1,
+    "kind": "capsule",
+    "radius_m": 0.02,
+    "visual_overhang": true
+  },
+  "depth_m": 0.054324720932250437,
+  "forward": "-Z",
+  "height_m": 0.1,
+  "motion": {
+    "kind": "hop",
+    "reason": "Arms flung up waving a wand, with short oval feet tucked right under a round body: an excited bouncing pose."
+  },
+  "name": "Tomato Man",
+  "parts": [
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.001143674052894925,
+        0.03399366894720719,
+        0.0
+      ],
+      "name": "body",
+      "node_index": 1,
+      "parent": null,
+      "pivot_m": [
+        0.001143674052894925,
+        0.03399366894720719,
+        0.0
+      ],
+      "role": "wide gently lobed tomato body that is also the head"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        -0.007188808332482387,
+        0.027938323292147453,
+        -0.012018927440973139
+      ],
+      "name": "calyx",
+      "node_index": 2,
+      "parent": "body",
+      "pivot_m": [
+        -0.0060451342795874614,
+        0.061931992239354645,
+        -0.012018927440973139
+      ],
+      "role": "small green leafy calyx under the hat"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        -0.0070254263249259685,
+        0.030225671397937304,
+        0.0
+      ],
+      "name": "hat",
+      "node_index": 3,
+      "parent": "body",
+      "pivot_m": [
+        -0.005881752272031043,
+        0.0642193403451445,
+        0.0
+      ],
+      "role": "small black top hat perched on top, brim lower on screen-left"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.0003267640151128357,
+        0.008169100377820898,
+        -0.006399880999535937
+      ],
+      "name": "hat_band",
+      "node_index": 4,
+      "parent": "hat",
+      "pivot_m": [
+        -0.0055549882569182075,
+        0.0723884407229654,
+        -0.006399880999535937
+      ],
+      "role": "little red band round the bottom of the crown"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.012907178596957012,
+        0.011436740528949253,
+        -0.02411882638318407
+      ],
+      "name": "eye_screen_left",
+      "node_index": 5,
+      "parent": "body",
+      "pivot_m": [
+        0.014050852649851937,
+        0.045430409476156446,
+        -0.02411882638318407
+      ],
+      "role": "winking eye drawn as a closed arch"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        -0.0070254263249259685,
+        0.010293066476054324,
+        -0.02492416206341543
+      ],
+      "name": "eye_screen_right",
+      "node_index": 6,
+      "parent": "body",
+      "pivot_m": [
+        -0.005881752272031043,
+        0.04428673542326152,
+        -0.02492416206341543
+      ],
+      "role": "open eye: flat top, rounded bottom, no pupil drawn"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.0003267640151128357,
+        -0.008986010415602982,
+        -0.02503269201255752
+      ],
+      "name": "mouth",
+      "node_index": 7,
+      "parent": "body",
+      "pivot_m": [
+        0.0014704380680077608,
+        0.02500765853160421,
+        -0.02503269201255752
+      ],
+      "role": "wide open laughing mouth: straight top edge, deep rounded bottom"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.033493311549065666,
+        0.010946594506280001,
+        0.0
+      ],
+      "name": "arm_screen_left",
+      "node_index": 8,
+      "parent": "body",
+      "pivot_m": [
+        0.03463698560196059,
+        0.04494026345348719,
+        0.0
+      ],
+      "role": "long arm raised up and out, widening toward the hand"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.018298784846318805,
+        0.02091289696722149,
+        0.0
+      ],
+      "name": "hand_screen_left",
+      "node_index": 9,
+      "parent": "arm_screen_left",
+      "pivot_m": [
+        0.05293577044827939,
+        0.06585316042070868,
+        0.0
+      ],
+      "role": "fist gripping the wand with one finger raised beside it"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.008169100377820891,
+        -0.00212396609823344,
+        0.0
+      ],
+      "name": "wand",
+      "node_index": 10,
+      "parent": "hand_screen_left",
+      "pivot_m": [
+        0.061104870826100284,
+        0.06372919432247524,
+        0.0
+      ],
+      "role": "magic wand held upright: black stick with a white tip"
+    },
+    {
+      "kind": "effect",
+      "local_pivot_m": [
+        0.007352190340038804,
+        0.02973552537526805,
+        0.0
+      ],
+      "motion_hint": {
+        "kind": "twinkle",
+        "reason": "The description requests independent twinkling sparkles."
+      },
+      "name": "wand_sparkle_0",
+      "node_index": 11,
+      "parent": "wand",
+      "pivot_m": [
+        0.06845706116613909,
+        0.0934647196977433,
+        0.0
+      ],
+      "role": "sparkle"
+    },
+    {
+      "kind": "effect",
+      "local_pivot_m": [
+        -0.010456448483610742,
+        0.03365669355662208,
+        0.0
+      ],
+      "motion_hint": {
+        "kind": "twinkle",
+        "reason": "The description requests independent twinkling sparkles."
+      },
+      "name": "wand_sparkle_1",
+      "node_index": 12,
+      "parent": "wand",
+      "pivot_m": [
+        0.05064842234248954,
+        0.09738588787909733,
+        0.0
+      ],
+      "role": "sparkle"
+    },
+    {
+      "kind": "effect",
+      "local_pivot_m": [
+        0.0101296844684979,
+        -0.005391606249361788,
+        0.0
+      ],
+      "motion_hint": {
+        "kind": "twinkle",
+        "reason": "The description requests independent twinkling sparkles."
+      },
+      "name": "wand_sparkle_2",
+      "node_index": 13,
+      "parent": "wand",
+      "pivot_m": [
+        0.07123455529459818,
+        0.058337588073113456,
+        0.0
+      ],
+      "role": "sparkle"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        -0.03643418768508118,
+        -0.003921168181354028,
+        0.0
+      ],
+      "name": "arm_screen_right",
+      "node_index": 14,
+      "parent": "body",
+      "pivot_m": [
+        -0.03529051363218626,
+        0.030072500765853164,
+        0.0
+      ],
+      "role": "long arm raised up and out in a wave, widening toward the hand"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        -0.019769222914326562,
+        0.017972020831205967,
+        0.0
+      ],
+      "name": "hand_screen_right",
+      "node_index": 15,
+      "parent": "arm_screen_right",
+      "pivot_m": [
+        -0.05505973654651282,
+        0.04804452159705913,
+        0.0
+      ],
+      "role": "big open waving hand: tall thumb up, three fingers pointing out to screen-right"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.01519452670274686,
+        -0.024834065148575515,
+        0.0
+      ],
+      "name": "foot_screen_left",
+      "node_index": 16,
+      "parent": "body",
+      "pivot_m": [
+        0.016338200755641786,
+        0.009159603798631677,
+        0.0
+      ],
+      "role": "oval foot, toe out to screen-left"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.0,
+        0.0,
+        -0.0025033867971169387
+      ],
+      "name": "stripes_screen_left",
+      "node_index": 17,
+      "parent": "foot_screen_left",
+      "pivot_m": [
+        0.016338200755641786,
+        0.009159603798631677,
+        -0.0025033867971169387
+      ],
+      "role": "two curved stripes across the toe"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        -0.01699172878586746,
+        -0.024180537118349846,
+        0.0
+      ],
+      "name": "foot_screen_right",
+      "node_index": 18,
+      "parent": "body",
+      "pivot_m": [
+        -0.015848054732972534,
+        0.009813131828857348,
+        0.0
+      ],
+      "role": "oval foot, toe out to screen-right, slightly higher"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.0,
+        0.0,
+        -0.0019998222269705557
+      ],
+      "name": "stripes_screen_right",
+      "node_index": 19,
+      "parent": "foot_screen_right",
+      "pivot_m": [
+        -0.015848054732972534,
+        0.009813131828857348,
+        -0.0019998222269705557
+      ],
+      "role": "two stripes across the foot"
+    },
+    {
+      "kind": "effect",
+      "local_pivot_m": [
+        -0.029081997345042382,
+        0.06077810681098744,
+        0.0009802920453385073
+      ],
+      "motion_hint": {
+        "kind": "twinkle",
+        "reason": "The description requests independent twinkling sparkles."
+      },
+      "name": "floating_sparkle_0",
+      "node_index": 20,
+      "parent": "body",
+      "pivot_m": [
+        -0.027938323292147457,
+        0.09477177575819463,
+        0.0009802920453385073
+      ],
+      "role": "sparkle"
+    },
+    {
+      "kind": "effect",
+      "local_pivot_m": [
+        0.054406208516287156,
+        -0.003757786173797611,
+        0.0009802920453385073
+      ],
+      "motion_hint": {
+        "kind": "twinkle",
+        "reason": "The description requests independent twinkling sparkles."
+      },
+      "name": "floating_sparkle_1",
+      "node_index": 21,
+      "parent": "body",
+      "pivot_m": [
+        0.05554988256918208,
+        0.03023588277340958,
+        0.0009802920453385073
+      ],
+      "role": "sparkle"
+    },
+    {
+      "kind": "effect",
+      "local_pivot_m": [
+        -0.046073726130909834,
+        -0.00996630246094149,
+        0.0009802920453385073
+      ],
+      "motion_hint": {
+        "kind": "twinkle",
+        "reason": "The description requests independent twinkling sparkles."
+      },
+      "name": "floating_sparkle_2",
+      "node_index": 22,
+      "parent": "body",
+      "pivot_m": [
+        -0.04493005207801491,
+        0.024027366486265703,
+        0.0009802920453385073
+      ],
+      "role": "sparkle"
+    },
+    {
+      "kind": "effect",
+      "local_pivot_m": [
+        0.0365975696926376,
+        -0.028755233329929544,
+        0.0009802920453385073
+      ],
+      "motion_hint": {
+        "kind": "twinkle",
+        "reason": "The description requests independent twinkling sparkles."
+      },
+      "name": "floating_sparkle_3",
+      "node_index": 23,
+      "parent": "body",
+      "pivot_m": [
+        0.037741243745532525,
+        0.005238435617277648,
+        0.0009802920453385073
+      ],
+      "role": "sparkle"
+    },
+    {
+      "kind": "effect",
+      "local_pivot_m": [
+        -0.043132849994894314,
+        -0.024834065148575515,
+        0.0009802920453385073
+      ],
+      "motion_hint": {
+        "kind": "twinkle",
+        "reason": "The description requests independent twinkling sparkles."
+      },
+      "name": "floating_sparkle_4",
+      "node_index": 24,
+      "parent": "body",
+      "pivot_m": [
+        -0.04198917594199939,
+        0.009159603798631677,
+        0.0009802920453385073
+      ],
+      "role": "sparkle"
+    }
+  ],
+  "provenance": {
+    "description_sha256": "7e12d8cfd7ec33c470505732ba94d574f744287f70acc9789de4523547442934",
+    "interpretation_sha256": "5b230b2927d38127085f90d2ce557676d87f2d6ecd4d255b963407490ab24655",
+    "photo_sha256": "d2b4ecf039eefdcc5862cdd115a48f621609db7959b64642339109a585f9a2f1",
+    "photo_size_px": [
+      4284,
+      5712
+    ]
+  },
+  "root_pivot_m": [
+    0,
+    0,
+    0
+  ],
+  "schema": "enfractal.character.draft",
+  "triangles": 33080,
+  "uncertainties": [
+    "Back depth is inferred from a single front drawing. Static pose and motion hints await family and game review."
+  ],
+  "units": "metres",
+  "up": "+Y",
+  "version": 1,
+  "width_m": 0.14684213213519862
+}

@@ -1,0 +1,380 @@
+{
+  "applied_notes": [
+    "Wider and rounder, real potato shape, plump and a little lumpy: replace the narrow egg outline with broad unequal shoulders and softly bulging flanks; move each arm and hand outward 75 units and spread curl centres across the crown without stretching the face. Move the intact U-smile 40 units upward so it stays visible on the fuller front instead of curling underneath.",
+    "Golden skin: retain the warm golden #DDA52D palette."
+  ],
+  "bounds_m": {
+    "max": [
+      0.054025609542185576,
+      0.09999999999999999,
+      0.02901782582003157
+    ],
+    "min": [
+      -0.045325381512015435,
+      0.0,
+      -0.03326159819928668
+    ]
+  },
+  "collision_hint": {
+    "height_m": 0.1,
+    "kind": "capsule",
+    "radius_m": 0.02,
+    "visual_overhang": true
+  },
+  "depth_m": 0.062279424019318255,
+  "forward": "-Z",
+  "height_m": 0.1,
+  "motion": {
+    "kind": "waddle",
+    "reason": "A wide egg body sitting straight on two chunky shoes with no legs."
+  },
+  "name": "Potato Man",
+  "parts": [
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.002666198912471496,
+        0.03615155235923522,
+        0.0
+      ],
+      "name": "body",
+      "node_index": 1,
+      "parent": null,
+      "pivot_m": [
+        0.002666198912471496,
+        0.03615155235923522,
+        0.0
+      ],
+      "role": "plump slightly lumpy potato body that is also the head"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.0,
+        0.030871776881248904,
+        0.0
+      ],
+      "name": "hair",
+      "node_index": 2,
+      "parent": "body",
+      "pivot_m": [
+        0.002666198912471496,
+        0.06702332924048413,
+        0.0
+      ],
+      "role": "curly rainbow hair: two side puffs joined over the top of the head"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.0,
+        -0.0014032625855113223,
+        -0.01950942282077305
+      ],
+      "name": "hairline",
+      "node_index": 3,
+      "parent": "hair",
+      "pivot_m": [
+        0.002666198912471496,
+        0.0656200666549728,
+        -0.01950942282077305
+      ],
+      "role": "front curls of the hair over the forehead"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.0,
+        0.037888089808805474,
+        0.0
+      ],
+      "name": "hat",
+      "node_index": 4,
+      "parent": "body",
+      "pivot_m": [
+        0.002666198912471496,
+        0.0740396421680407,
+        0.0
+      ],
+      "role": "black top hat sitting on the hair, brim tilted lower on screen-left"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.00028065251710226264,
+        0.00701631292755657,
+        -0.008098498322973812
+      ],
+      "name": "hat_band",
+      "node_index": 5,
+      "parent": "hat",
+      "pivot_m": [
+        0.002946851429573759,
+        0.08105595509559727,
+        -0.008098498322973812
+      ],
+      "role": "red strip round the bottom of the hat crown"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.011366426942641642,
+        0.010664795649885983,
+        -0.026903924578698245
+      ],
+      "name": "eye_screen_left",
+      "node_index": 6,
+      "parent": "body",
+      "pivot_m": [
+        0.014032625855113138,
+        0.046816348009121204,
+        -0.026903924578698245
+      ],
+      "role": "big shiny eye: black iris filling the top, white crescent below, two highlights"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        -0.00827924925451675,
+        0.00954218558147693,
+        -0.028695918722367875
+      ],
+      "name": "eye_screen_right",
+      "node_index": 7,
+      "parent": "body",
+      "pivot_m": [
+        -0.005613050342045255,
+        0.04569373794071215,
+        -0.028695918722367875
+      ],
+      "role": "big shiny eye, slightly taller and lower than the other, one highlight"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.003367830205227153,
+        -0.003227503946676022,
+        -0.030210874899385017
+      ],
+      "name": "nose",
+      "node_index": 8,
+      "parent": "body",
+      "pivot_m": [
+        0.006034029117698649,
+        0.0329240484125592,
+        -0.030210874899385017
+      ],
+      "role": "round bright pink snub nose"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        -0.0005613050342045253,
+        -0.00182424136116471,
+        -0.002352341628006842
+      ],
+      "name": "nostrils",
+      "node_index": 9,
+      "parent": "nose",
+      "pivot_m": [
+        0.005472724083494124,
+        0.03109980705139449,
+        -0.03256321652739186
+      ],
+      "role": "two hooked nostril marks"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.003367830205227153,
+        -0.006735660410454307,
+        -0.02768361041123449
+      ],
+      "name": "cheeks",
+      "node_index": 10,
+      "parent": "body",
+      "pivot_m": [
+        0.006034029117698649,
+        0.029415891948780915,
+        -0.02768361041123449
+      ],
+      "role": "short blush strokes under each eye"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.003367830205227153,
+        -0.013330994562357482,
+        -0.024446223362373853
+      ],
+      "name": "mouth",
+      "node_index": 11,
+      "parent": "body",
+      "pivot_m": [
+        0.006034029117698649,
+        0.02282055779687774,
+        -0.024446223362373853
+      ],
+      "role": "deep U-shaped smile on the lower face"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.030871776881248904,
+        -0.0007016312927556542,
+        0.0
+      ],
+      "name": "arm_screen_left",
+      "node_index": 12,
+      "parent": "body",
+      "pivot_m": [
+        0.0335379757937204,
+        0.03544992106647957,
+        0.0
+      ],
+      "role": "thin arm angled down and out"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.009401859322925803,
+        -0.01403262585511314,
+        0.0
+      ],
+      "name": "hand_screen_left",
+      "node_index": 13,
+      "parent": "arm_screen_left",
+      "pivot_m": [
+        0.0429398351166462,
+        0.021417295211366427,
+        0.0
+      ],
+      "role": "mitten hand: thumb out to the side, two fingers pointing down"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        -0.030871776881248904,
+        0.0,
+        0.0
+      ],
+      "name": "arm_screen_right",
+      "node_index": 14,
+      "parent": "body",
+      "pivot_m": [
+        -0.028205577968777408,
+        0.03615155235923522,
+        0.0
+      ],
+      "role": "thin arm angled down and out"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        -0.007717944220312224,
+        -0.014734257147868794,
+        0.0
+      ],
+      "name": "hand_screen_right",
+      "node_index": 15,
+      "parent": "arm_screen_right",
+      "pivot_m": [
+        -0.03592352218908963,
+        0.021417295211366427,
+        0.0
+      ],
+      "role": "hand with two fingers and a thumb all pointing down"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.00701631292755657,
+        -0.02357481143659007,
+        0.0
+      ],
+      "name": "shoe_screen_left",
+      "node_index": 16,
+      "parent": "body",
+      "pivot_m": [
+        0.009682511840028066,
+        0.012576740922645149,
+        0.0
+      ],
+      "role": "blue shoe, toe pointing out to screen-left"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.0,
+        0.0,
+        -0.001649117081365934
+      ],
+      "name": "straps_screen_left",
+      "node_index": 17,
+      "parent": "shoe_screen_left",
+      "pivot_m": [
+        0.009682511840028066,
+        0.012576740922645149,
+        -0.001649117081365934
+      ],
+      "role": "two orange velcro straps across the toe"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        -0.012629363269601823,
+        -0.023855463953692334,
+        0.0
+      ],
+      "name": "shoe_screen_right",
+      "node_index": 18,
+      "parent": "body",
+      "pivot_m": [
+        -0.009963164357130327,
+        0.012296088405542888,
+        0.0
+      ],
+      "role": "blue shoe, toe pointing out to screen-right, sitting a little lower"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.0,
+        0.0,
+        -0.000885613652828152
+      ],
+      "name": "straps_screen_right",
+      "node_index": 19,
+      "parent": "shoe_screen_right",
+      "pivot_m": [
+        -0.009963164357130327,
+        0.012296088405542888,
+        -0.000885613652828152
+      ],
+      "role": "two orange velcro straps across the toe"
+    }
+  ],
+  "provenance": {
+    "description_sha256": "7632e1eb1817320e33346a8c50551bde703a35bf11830d8cdf153075fc57dd07",
+    "interpretation_sha256": "fc2a62f80d7a0485e297b9bea005b9902c38e5349d3a85d80ce09e12bc83fbde",
+    "photo_sha256": "33a3325a743b600e870a06f458f67a679f71ec3181be596ae68f839814af35ae",
+    "photo_size_px": [
+      3024,
+      4032
+    ]
+  },
+  "root_pivot_m": [
+    0,
+    0,
+    0
+  ],
+  "schema": "enfractal.character.draft",
+  "triangles": 55848,
+  "uncertainties": [
+    "Back depth is inferred from a single front drawing. Static pose and motion hints await family and game review."
+  ],
+  "units": "metres",
+  "up": "+Y",
+  "version": 1,
+  "width_m": 0.099350991054201
+}

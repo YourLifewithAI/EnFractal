@@ -1,0 +1,12 @@
+{
+  "schema": "enfractal.character.rig",
+  "version": 1,
+  "notes": "Hop: floaty hops that drift down; dangling legs on slow springs. Starting values from the round's profile table, to be tuned by playing.",
+  "profile": {
+    "drift": 1.6,
+    "hop_height": 1.1,
+    "settle": 1.2,
+    "spring_damping": 0.8,
+    "springiness": 0.7
+  }
+}
