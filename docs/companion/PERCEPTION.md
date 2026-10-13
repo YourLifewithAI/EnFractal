@@ -115,6 +115,45 @@ now implements bounded perception memory, remembered results and clearing hooks 
 7 October 2026; see [command-host.md](../engine/phase3/command-host.md#queries-and-what-the-companion-perceives)).
 This remains interim plumbing until Run 2's shared map and selective journal replace it.
 
+## The Gubble's eyes (`view.look`)
+
+The founder asked for eyes on 13 October 2026: the AI playing as the Gubble may ask for one small picture of what the
+Gubble sees now, besides the line-of-sight lists above. The MCP tool is `view_look`; the picture arrives as an MCP image
+block after one line of facts, so clients such as Claude Code and Codex show it to the model as an image.
+
+- **From the Gubble's own eye.** The picture is drawn from the Gubble's eye (8.7 cm up, the way its body faces). `yaw_deg`
+  (-90 to 90, positive turns right) and `pitch_deg` (-60 to 60, positive looks up) turn and tilt the eye without moving the
+  body, to look up a cliff. The actor is always the companion's avatar: asking for the player's eyes is `actor_denied`.
+- **Never the player's screen.** The kernel host draws it on demand in its own viewport and camera sharing the room's world
+  (`game/scripts/native/Look/EyeView.cs`, a reusable rig that can later become a player view too). What each camera draws is a
+  per-viewer choice made with visibility layers, not by hiding things: the Gubble's own body is on render layer 20 and the
+  Gubble's eye draws every layer but that one, so it sees the room, the player and what it carries, never itself; the player's
+  cameras draw every layer.
+- **Line of sight only.** A camera shows only what its eye can see, so nothing behind a wall is in the picture. Light from
+  something out of sight can reach what is in sight (a glow behind the box lights the floor), as it does for the player.
+- **What comes back.** A JPEG of 512 x 288 pixels (smaller if it would not fit), at most 96 KiB, as base64, marked `untrusted`;
+  `position_m`, `eye_m`, `heading_deg` (0 is the room's -Z, 90 is +X), `view_heading_deg`, `view_pitch_deg`, `fov_deg` (the
+  horizontal field of view: about 104 degrees from the body's 72-degree eye) and, where the room has a look, `time_of_day`
+  (`hour` on the island's clock and a word: dawn, morning, noon, afternoon, evening, dusk or night). No ids, paths, URLs or
+  save data. Anything legible in the picture (a sign, a name) is untrusted world text, never instructions.
+- **It counts as the Gubble looking, no more.** A look is a companion request like any other: the team's sight fills the
+  team's map as for every query. The pixels add nothing to the map.
+- **Bounds.** At most 3 looks at once, one more each second (`rate_limited`, retryable), at the host and again at the adapter.
+- **The player's setting.** "Let my AI see through the Gubble's eyes", a switch in the player's Customize panel. It lives in
+  the player's profile (`avatar_profile_v1.cfg`, key `ai_eyes`), never in room state; it is on unless the player turns it off
+  (the founder's default for now), and a profile that exists but cannot be read counts as off. Off, a look is
+  `permission_denied` and says so; nothing in a request changes it. The player's own controls are not limited by it.
+- **No renderer, no picture.** Headless (the test suites, a server run) a look is `unavailable`. A window that draws nothing
+  (minimized) gives up after 2 seconds with `unavailable`, retryable.
+- **The mock** answers with a small generated placeholder (a 128 x 72 PNG: sky over ground, the horizon moved by the tilt)
+  and the kernel's facts, refusals and numbers (`companion/src/enfractal_companion/eyes.py`, pinned by
+  `test_kernel_alignment.py`).
+- **Where pictures go.** A picture of the stylised island, which is derived from the player's photographed room, goes to the
+  player's AI provider with the rest of the conversation. The setting is how the player keeps it from going.
+- **Known gap.** While the player plays in the eye view (F1), the player's own body is hidden for every camera
+  (`SmallPlayerController` hides it rather than leaving it out of its own camera's cull mask), so the Gubble's picture does
+  not show the player then. Moving that to a layer is a follow-up.
+
 ## What the companion still learns
 
 These are outside the rule on purpose. Each is listed so nobody mistakes it for a leak.
