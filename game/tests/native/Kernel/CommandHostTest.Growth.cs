@@ -186,7 +186,7 @@ public partial class CommandHostTest
             _host.LoadRules(RoomWorld.DefaultRulesId, RoomWorld.DefaultRulesVersion);
             _host.ConfigureGlowProgress(new GrowthTestStore(level));
             var limit = level.ActiveLightAllowance;
-            Check(_host.EffectiveEffectLimit("glow") == limit, $"the host exposes the earned {limit}-light allowance under v3");
+            Check(_host.EffectiveEffectLimit("glow") == limit, $"the host exposes the earned {limit}-light allowance under v4");
             for (var i = 0; i < limit; i++)
                 Check(Ok(Send(Glow($"growth-limit-{limit}-{i}", SelfArgs()), i % 2 == 0 ? Player : Companion)), $"earned allowance {limit} admits light {i + 1}");
             var over = Send(Glow($"growth-limit-{limit}-over", SelfArgs()), Companion);

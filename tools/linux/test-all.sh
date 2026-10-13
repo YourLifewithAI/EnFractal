@@ -72,6 +72,11 @@ run native_kernel_rebuild "checks passed" --headless --path "$P" --fixed-fps 60 
 if (cd "$REPO" && for s in room_state_before room_state_after; do "$LINUX/contracts-venv/bin/python" -I contracts/validate.py --state "$REBUILD_DUMP/$s.json" --room game/rooms/test_room || exit 1; done > "$LOG/rebuild_states.log" 2>&1); then
   echo "PASS rebuilt room states validate against the test room: $(tail -1 "$LOG/rebuild_states.log")"
 else cat "$LOG/rebuild_states.log"; failed=1; fi
+NATURE_DUMP="$LOG/nature_messages"; rm -rf "$NATURE_DUMP"
+run native_kernel_nature "checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_kernel_nature.tscn -- --dump="$NATURE_DUMP"
+if (cd "$REPO" && "$LINUX/contracts-venv/bin/python" -I contracts/validate.py "$NATURE_DUMP"/*.json > "$LOG/nature_messages.log" 2>&1); then
+  echo "PASS nature messages validate: $(tail -1 "$LOG/nature_messages.log")"
+else cat "$LOG/nature_messages.log"; failed=1; fi
 echo "== kernel canonical JSON (Python reference)"
 if (cd "$REPO" && "$LINUX/contracts-venv/bin/python" tools/kernel/canonical_json.py --check game/tests/fixtures/kernel > "$LOG/canonical.log" 2>&1 \
     && "$LINUX/contracts-venv/bin/python" -m unittest discover -s tools/kernel >> "$LOG/canonical.log" 2>&1); then

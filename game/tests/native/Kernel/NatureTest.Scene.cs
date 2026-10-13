@@ -59,7 +59,7 @@ public partial class NatureTest
         var grabAsh = Send(Command(NextId("grab-book"), "entity.grab", new JsonObject { ["target"] = "obj:book" }), Companion);
         Check(Code(onAsh) == "target_not_found" && Code(lockAsh) == "target_not_found" && Code(grabAsh) == "target_not_found",
             "a burned-down object is gone for every verb that names it: put on, protected, picked up");
-        var undone = Send(Command(NextId("undo-book"), "room.undo", new JsonObject { ["to_revision"] = _host.Nature.UndoTarget(_host.Revision) ?? 0 }), Player);
+        var undone = Send(Command(NextId("undo-book"), "room.undo", new JsonObject { ["to_revision"] = _host.Nature.UndoTarget(_host.Revision) ?? 0 }, expectedRevision: _host.Revision), Player);
         Check(Ok(undone) && !_host.Nature.Objects.ContainsKey("obj:book") && book!.Visible && book.CollisionLayer == layer &&
             ((ConcavePolygonShape3D)holder.Shape).GetFaces().Length == 6, "undoing the fire brings the book, its collision and the climbing faces back: " + Canonical(undone["error"]));
         Send(Command(NextId("release-doorstop"), "entity.release", new JsonObject()), Player);
@@ -127,7 +127,9 @@ public partial class NatureTest
             ("an undo to a revision that is not a whole number", new JsonObject { ["to_revision"] = 1.5 }, "room.undo", "request_invalid"),
         };
         foreach (var (label, args, op, expected) in malformed)
-            Check(Code(Send(Command(NextId("malformed"), op, args), Player, contractValid: false)) == expected, $"{label} is {expected}");
+            Check(Code(Send(Command(NextId("malformed"), op, args, expectedRevision: op == "room.undo" ? _host.Revision : null), Player, contractValid: false)) == expected, $"{label} is {expected}");
+        Check(Code(Send(Command(NextId("unnamed-undo"), "room.undo", new JsonObject { ["to_revision"] = 0 }), Player, contractValid: false)) == "request_invalid",
+            "an undo that does not name the room revision it undoes from is request_invalid");
         var pack = JsonNode.Parse(Godot.FileAccess.GetFileAsString(IslandRules.PathFor(RoomWorld.DefaultRulesId, RoomWorld.DefaultRulesVersion)))!.AsObject();
         pack["abilities"]!.AsArray().First(a => a!["capability"]!.GetValue<string>() == "bloom")!["area_radius_max_m"] = 0.3;
         _host.UseRules(IslandRules.Parse(CanonicalJson.Bytes(pack)));

@@ -65,11 +65,11 @@ public partial class NatureTest
         Check(Ok(bloom) && _host.Revision == beforeBloom + 1 && bloom["revision"]?.GetValue<int>() == beforeBloom + 1, "a Bloom is a room revision of its own");
         var companionBloom = Send(Command("undo-gubble-bloom", "nature.cast", Cast("bloom", NearGubble + new Vector3(0.3f, 0, 0), 0.1, 120)), Companion);
         Check(Ok(companionBloom) && _host.Revision == beforeBloom + 2, "the Gubble's Bloom is the next one");
-        var undone = Send(Command("undo-both", "room.undo", new JsonObject { ["to_revision"] = beforeBloom }), Player);
+        var undone = Send(Command("undo-both", "room.undo", new JsonObject { ["to_revision"] = beforeBloom }, expectedRevision: _host.Revision), Player);
         Check(Ok(undone) && _host.Nature.Cells.Count == 0 && _host.Revision == beforeBloom + 3,
             "room.undo to the revision before the player's Bloom takes back both Blooms: the Gubble's change kept the player's step: " + Canonical(undone["error"]));
         var again = Send(Command("undo-player-again", "nature.cast", Cast("bloom", NearGubble, 0.15, 120)), Player);
-        var held = Send(Command("undo-gubble-asks", "room.undo", new JsonObject { ["to_revision"] = _host.Revision - 1 }), Companion);
+        var held = Send(Command("undo-gubble-asks", "room.undo", new JsonObject { ["to_revision"] = _host.Revision - 1 }, expectedRevision: _host.Revision), Companion);
         Check(Ok(again) && Code(held) == "approval_required" && _host.Nature.Cells.Count > 0, "the Gubble's undo of the player's change waits for the player, changing nothing");
         var requestId = held["approval_needed"]?["request_id"]?.GetValue<string>();
         var approved = requestId == null ? new JsonObject() : _host.Approve(requestId);

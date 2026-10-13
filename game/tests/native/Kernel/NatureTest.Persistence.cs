@@ -194,7 +194,7 @@ public partial class NatureTest
         var bloom = Send(Command(NextId("full-bloom"), "nature.cast", Cast("bloom", NearGubble, 0.2, 120)), Companion);
         var another = Send(Command(NextId("full-again"), "nature.cast", Cast("bloom", NearGubble, 0.2, 120)), Companion);
         Check(Ok(bloom) && Code(another) == "receipt_limit", "the Gubble's Bloom fills its share of the ledger; its next change is refused for capacity");
-        var undo = Send(Command(NextId("full-undo"), "room.undo", new JsonObject { ["to_revision"] = _host.Revision - 1 }), Companion);
+        var undo = Send(Command(NextId("full-undo"), "room.undo", new JsonObject { ["to_revision"] = _host.Revision - 1 }, expectedRevision: _host.Revision), Companion);
         var oldest = Send(Query("receipt.lookup", new JsonObject { ["action_id"] = "seed-0000" }), Player);
         Check(Ok(undo) && _host.Nature.Cells.Count == 0 && oldest["data"]?["compacted"]?.GetValue<bool>() == true,
             "yet its undo commits: the oldest receipt was compacted to make room: " + Canonical(undo["error"]));

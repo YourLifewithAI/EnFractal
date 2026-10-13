@@ -11,14 +11,15 @@ using EnFractal.Native.Look;
 namespace EnFractal.Tests.Kernel;
 
 /// <summary>
-/// Glow, the Gubble's first ability (docs/runs/RUN-2-GLOW.md section 2): the island's rules pack, loaded fail-closed;
+/// Glow, the Gubble's first ability (docs/runs/RUN-2-GLOW.md section 2): the island's rules pack the game ships
+/// (RoomWorld.DefaultRulesVersion, storybook_wild v4 with Bloom and Fire beside the effects), loaded fail-closed;
 /// capabilities.list from it; effect.start for glow on the Gubble (self) and at a spot (point), with its bounds, who may
 /// cast it, its targets, the caps, preview, replay and expiry; effect.stop by id and all; PlayerEffect for the HUD; the
 /// look hook (a real LookDirector shows each glow drawn and released) and the aura colour.
 /// </summary>
 public partial class CommandHostTest
 {
-    private static readonly string ShippedPack = IslandRules.PathFor(RoomWorld.DefaultRulesId, 3);
+    private static readonly string ShippedPack = IslandRules.PathFor(RoomWorld.DefaultRulesId, RoomWorld.DefaultRulesVersion);
 
     private async Task TestGlow()
     {
@@ -27,7 +28,7 @@ public partial class CommandHostTest
         _player.TryTeleportTo(_room.SpawnFor("player").PositionM + Vector3.Up * 0.008f);
         await Frames(3);
         TestNoRules();
-        _host.LoadRules(RoomWorld.DefaultRulesId, 3);
+        _host.LoadRules(RoomWorld.DefaultRulesId, RoomWorld.DefaultRulesVersion);
         Check(_host.Rules?.RulesId == "storybook_wild" && _host.RulesNotice.Length == 0, "the host loads the shipped rules pack");
         TestCapabilitiesFromRules();
         TestGlowWithNoLook();
@@ -74,15 +75,22 @@ public partial class CommandHostTest
 
     private void TestRulesLoader()
     {
-        var shipped = IslandRules.Load(RoomWorld.DefaultRulesId, 3);
+        var shipped = IslandRules.Load(RoomWorld.DefaultRulesId, RoomWorld.DefaultRulesVersion);
         var glow = shipped.Ability("glow");
         var bubbles = shipped.Ability("bubbles");
         var fireworks = shipped.Ability("fireworks");
-        Check(shipped.RulesVersion == 3 && bubbles is { Category: "float", Primitive: "particles.float", ReachM: 2.0, AreaRadiusDefaultM: 0.5, AreaRadiusMaxM: 1.0, DurationDefaultS: 20, DurationMaxS: 60, MaxActive: 2 } &&
+        var bloom = shipped.Ability("bloom");
+        var fire = shipped.Ability("fire");
+        Check(shipped.RulesVersion == 4 && bubbles is { Category: "float", Primitive: "particles.float", ReachM: 2.0, AreaRadiusDefaultM: 0.5, AreaRadiusMaxM: 1.0, DurationDefaultS: 20, DurationMaxS: 60, MaxActive: 2 } &&
               fireworks is { Category: "burst", Primitive: "particles.burst", ReachM: 4.0, AreaRadiusDefaultM: 1.0, AreaRadiusMaxM: 2.0, DurationDefaultS: 4, DurationMaxS: 6, MaxActive: 3 } &&
               fireworks.Params["intensity"] == new AbilityParam(0.3, 1.0, 0.8) && bubbles.Params["intensity"] == new AbilityParam(0.2, 1.0, 0.6),
-            "the game reads storybook_wild v3: Bubbles (particles.float) and Fireworks (particles.burst) with their bounds, beside Glow");
-        Check(shipped.MagicWord == "magic" && shipped.Abilities.Count == 3 && glow != null && glow.Category == "light" && glow.Primitive == "light.emit" &&
+            "the game reads storybook_wild v4: Bubbles (particles.float) and Fireworks (particles.burst) with their bounds, beside Glow");
+        Check(bloom is { Category: "growth", Primitive: "growth.seed", Tier: "auto_undo", ReachM: 2.0, AreaRadiusDefaultM: 0.25, AreaRadiusMaxM: 0.6, DurationDefaultS: 180, DurationMaxS: 600, MaxActive: 1 } &&
+              fire is { Category: "fire", Primitive: "element.ignite", Tier: "preview_commit", ReachM: 2.0, AreaRadiusDefaultM: 1.5, AreaRadiusMaxM: 1.5, DurationDefaultS: 30, DurationMaxS: 60, MaxActive: 1 } &&
+              bloom.Params["intensity"] == new AbilityParam(0.2, 1.0, 0.6) && fire.Params["intensity"] == new AbilityParam(0.2, 1.0, 0.6) &&
+              bloom.CastBy.SetEquals(new[] { "player", "companion" }) && fire.CastBy.SetEquals(new[] { "player", "companion" }),
+            "and the nature abilities: Bloom (growth.seed) and Fire (element.ignite, previewed before it commits) with their bounds and intensity");
+        Check(shipped.MagicWord == "magic" && shipped.Abilities.Count == 5 && glow != null && glow.Category == "light" && glow.Primitive == "light.emit" &&
             glow.CastBy.SetEquals(new[] { "player", "companion" }) && glow.Targets.SetEquals(new[] { "self", "point" }) && glow.Tier == "auto" && glow.ReachM == 2.0 &&
             glow.Params["intensity"] == new AbilityParam(0.2, 1.0, 0.6) && glow.AreaRadiusDefaultM == 0.6 && glow.AreaRadiusMaxM == 1.5 &&
             glow.DurationDefaultS == 300 && glow.DurationMaxS == 600 && glow.MaxActive == 5 && shipped.Sha256.Length == 64,
@@ -104,7 +112,7 @@ public partial class CommandHostTest
             ("a capability that is not a token", Variant("\"capability\": \"glow\"", "\"capability\": \"Glow!\"")),
             ("a reserved param name", Variant("\"params\": { \"intensity\"", "\"params\": { \"owner\": { \"min\": 0, \"max\": 1, \"default\": 0 }, \"intensity\"")),
             ("a hidden character in a display name", Variant("\"display_name\": \"Glow\"", "\"display_name\": \"Gl\\u200bow\"")),
-            ("a bidirectional override in the description", Variant("storybook nature magic.", "storybook \\u202enature magic.")),
+            ("a bidirectional override in the description", Variant("weather-driven Fire.", "weather-driven \\u202eFire.")),
             ("an empty magic word", Variant("\"magic_word\": \"magic\"", "\"magic_word\": \"\"")),
             ("an extension key without x_", Variant("\"extensions\": {}", "\"extensions\": { \"look\": 1 }")),
             ("a duplicate key", Variant("\"reach_m\": 2.0,", "\"reach_m\": 2.0, \"reach_m\": 4.0,")),
@@ -132,8 +140,8 @@ public partial class CommandHostTest
             ("a repeated category", Variant("\"abilities\": [", "\"abilities\": [" + GlowAbility("shine", "light") + ",")),
         };
         foreach (var (label, pack) in limitCases) Check(Refused(pack), "the rules loader refuses " + label);
-        Check(Refused(Encoding.UTF8.GetBytes(PackText()), "storybook_tame", 3) && Refused(Encoding.UTF8.GetBytes(PackText()), "storybook_wild", 1) &&
-            !Refused(Encoding.UTF8.GetBytes(PackText()), "storybook_wild", 3), "a pack must name the id and version its path names");
+        Check(Refused(Encoding.UTF8.GetBytes(PackText()), "storybook_tame", 4) && Refused(Encoding.UTF8.GetBytes(PackText()), "storybook_wild", 1) &&
+            !Refused(Encoding.UTF8.GetBytes(PackText()), "storybook_wild", 4), "a pack must name the id and version its path names");
         Check(!Refused(Variant("\"duration_default_s\": 300", "\"duration_default_s\": 600")) && !Refused(Variant("\"display_name\": \"Glow\"", "\"display_name\": \"Glow ✨\"")),
             "a default at its maximum and an emoji in a name are fine");
         var missing = false;
@@ -168,10 +176,12 @@ public partial class CommandHostTest
         var listed = Query("capabilities.list", new JsonObject(), Companion);
         var items = listed["data"]!["items"]!.AsArray();
         var glow = items.FirstOrDefault(i => i!["capability"]!.GetValue<string>() == "glow")?.AsObject();
-        Check(Ok(listed) && items.Select(i => i!["capability"]!.GetValue<string>()).SequenceEqual(new[] { "bubbles", "fireworks", "glow" }) &&
-              items.Select(i => i!["category"]!.GetValue<string>()).SequenceEqual(new[] { "float", "burst", "light" }),
-            "capabilities.list answers every ability of the pack, by capability: bubbles (float), fireworks (burst), glow (light)");
-        Check(Ok(listed) && items.Count == 3 && glow != null && glow["capability"]!.GetValue<string>() == "glow" && glow["category"]!.GetValue<string>() == "light" &&
+        Check(Ok(listed) && items.Select(i => i!["capability"]!.GetValue<string>()).SequenceEqual(new[] { "bloom", "bubbles", "fire", "fireworks", "glow" }) &&
+              items.Select(i => i!["category"]!.GetValue<string>()).SequenceEqual(new[] { "growth", "float", "fire", "burst", "light" }),
+            "capabilities.list answers every ability of the pack, by capability: bloom (growth), bubbles (float), fire (fire), fireworks (burst), glow (light)");
+        Check(items.Where(i => i!["capability"]!.GetValue<string>() is "bloom" or "fire").All(i => i!["command_op"]!.GetValue<string>() == "nature.cast"),
+            "Bloom and Fire are cast through nature.cast");
+        Check(Ok(listed) && items.Count == 5 && glow != null && glow["capability"]!.GetValue<string>() == "glow" && glow["category"]!.GetValue<string>() == "light" &&
             glow["params"]!["intensity"]!["min"]!.GetValue<double>() == 0.2 && glow["params"]!["intensity"]!["max"]!.GetValue<double>() == 1.0 &&
             glow["params"]!["intensity"]!.AsObject().Count == 2 && glow["area_radius_max_m"]!.GetValue<double>() == 1.5 && glow["duration_max_s"]!.GetValue<double>() == 600 &&
             glow.Count == 8 && glow["command_op"]!.GetValue<string>() == "effect.start" && glow["max_active"]!.GetValue<int>() == _host.EffectiveEffectLimit("glow") &&
@@ -179,11 +189,11 @@ public partial class CommandHostTest
             "capabilities.list answers the pack's Glow bounds, command path and current earned limit");
         Check(Query("capabilities.list", new JsonObject { ["category"] = "light" }, Companion)["data"]!["items"]!.AsArray().Count == 1 &&
             Query("capabilities.list", new JsonObject { ["category"] = "air" }, Companion)["data"]!["items"]!.AsArray().Count == 0, "capabilities.list filters by category");
-        var paged = Query("capabilities.list", new JsonObject { ["limit"] = 1, ["cursor"] = "1" }, Player);
-        var last = Query("capabilities.list", new JsonObject { ["limit"] = 1, ["cursor"] = "2" }, Player);
-        Check(Ok(paged) && paged["data"]!["items"]!.AsArray().Single()!["capability"]!.GetValue<string>() == "fireworks" && paged["data"]!["next_cursor"]!.GetValue<string>() == "2" &&
+        var paged = Query("capabilities.list", new JsonObject { ["limit"] = 1, ["cursor"] = "3" }, Player);
+        var last = Query("capabilities.list", new JsonObject { ["limit"] = 1, ["cursor"] = "4" }, Player);
+        Check(Ok(paged) && paged["data"]!["items"]!.AsArray().Single()!["capability"]!.GetValue<string>() == "fireworks" && paged["data"]!["next_cursor"]!.GetValue<string>() == "4" &&
             Ok(last) && last["data"]!["items"]!.AsArray().Single()!["capability"]!.GetValue<string>() == "glow" && last["data"]!["next_cursor"] == null &&
-            Code(Query("capabilities.list", new JsonObject { ["cursor"] = "4" }, Player)) == "invalid_args" &&
+            Code(Query("capabilities.list", new JsonObject { ["cursor"] = "6" }, Player)) == "invalid_args" &&
             Code(Query("capabilities.list", new JsonObject { ["cursor"] = "+0" }, Player)) == "invalid_args", "capabilities.list honours its limit and refuses a cursor it did not give");
     }
 
@@ -218,7 +228,7 @@ public partial class CommandHostTest
         Check(Code(Send(Glow("glow-r10", SelfArgs()), Companion)) == "invalid_args", "an ability without self cannot be cast on the Gubble");
         _host.UseRules(Rules(Variant("\"targets\": [\"self\", \"point\"]", "\"targets\": [\"self\"]")));
         Check(Code(Send(Glow("glow-r11", PointArgs(InTheOpen)), Companion)) == "invalid_args", "an ability without point cannot be cast at a spot");
-        _host.LoadRules(RoomWorld.DefaultRulesId, 3);
+        _host.LoadRules(RoomWorld.DefaultRulesId, RoomWorld.DefaultRulesVersion);
         // Targets: the companion's own avatar only, from anyone.
         var rug = SelfArgs();
         rug["targets"] = new JsonArray("obj:rug");
@@ -261,7 +271,7 @@ public partial class CommandHostTest
         _host.UseRules(Rules(Variant("\"cast_by\": [\"player\", \"companion\"]", "\"cast_by\": [\"companion\"]")));
         Check(Code(Send(Glow("glow-c3", SelfArgs()), Player)) == "permission_denied" && _host.ActiveEffectIds.Count == 0, "cast_by without the player: the player's is permission_denied (and new rules ended the old glow)");
         Check(Ok(Send(Glow("glow-c4", SelfArgs()), Companion)), "and the companion's is cast");
-        _host.LoadRules(RoomWorld.DefaultRulesId, 3);
+        _host.LoadRules(RoomWorld.DefaultRulesId, RoomWorld.DefaultRulesVersion);
     }
 
     private async Task TestGlowLifecycle(LookDirector look)
@@ -378,7 +388,7 @@ public partial class CommandHostTest
             "the player's click starts it, under the companion with approved_by");
         Check(Code(Send(Glow("glow-t2", SelfArgs(new JsonObject { ["intensity"] = 1.4 })), Companion)) == "invalid_args", "a held ability is checked before it is held");
         Check(Ok(Send(Glow("glow-t3", PointArgs(InTheOpen)), Player)), "the player's own keyed_yes glow runs at once");
-        _host.LoadRules(RoomWorld.DefaultRulesId, 3);
+        _host.LoadRules(RoomWorld.DefaultRulesId, RoomWorld.DefaultRulesVersion);
         Check(_host.ActiveEffectIds.Count == 0, "new rules end the glows started under the old");
     }
 
@@ -389,7 +399,7 @@ public partial class CommandHostTest
         host.Clock = () => _now;
         await Frames(2);
         host.LookHook = look;
-        host.LoadRules(RoomWorld.DefaultRulesId, 3);
+        host.LoadRules(RoomWorld.DefaultRulesId, RoomWorld.DefaultRulesVersion);
         var started = host.PlayerEffect("glow");
         Check(Ok(started) && look.GlowCount == 1, "a second host lights a glow: " + Code(started));
         host.QueueFree();

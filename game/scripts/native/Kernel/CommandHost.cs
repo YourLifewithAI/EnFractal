@@ -421,7 +421,7 @@ public partial class CommandHost : Node
         return result;
     }
 
-    private JsonObject PlayerCommand(string op, JsonObject args, bool preview = false)
+    private JsonObject PlayerCommand(string op, JsonObject args, bool preview = false, int? expectedRevision = null)
     {
         var command = new JsonObject
         {
@@ -429,6 +429,7 @@ public partial class CommandHost : Node
             ["room_id"] = Room.RoomId, ["op"] = op, ["args"] = args,
         };
         if (preview) command["preview"] = true;
+        if (expectedRevision != null) command["expected_revision"] = expectedRevision;
         return HandleObject(CanonicalJson.Text(command), PlayerPrincipal);
     }
 
@@ -1986,6 +1987,9 @@ public partial class CommandHost : Node
         }
         if (DestructiveOps.Contains(op) && !root.TryGetProperty("expected_revision", out _) && !root.TryGetProperty("expected_entities", out _))
             throw new Refusal("request_invalid", "This change must name expected_revision or expected_entities.", "$");
+        // contracts/README.md "Revisions for a live room": room.undo names the room revision it undoes from.
+        if (op == "room.undo" && !root.TryGetProperty("expected_revision", out _))
+            throw new Refusal("request_invalid", "room.undo must name the room revision it undoes from (expected_revision).", "$");
     }
 
     /// <summary>

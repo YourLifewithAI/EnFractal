@@ -178,7 +178,7 @@ public partial class CommandHost
 
     /// <summary>room.undo back to before the latest nature change (refused, as the contract says, when there is none).</summary>
     public JsonObject PlayerNatureUndo() =>
-        PlayerCommand("room.undo", new JsonObject { ["to_revision"] = Nature.UndoTarget(Revision) ?? Math.Max(0, Revision - 1) });
+        PlayerCommand("room.undo", new JsonObject { ["to_revision"] = Nature.UndoTarget(Revision) ?? Math.Max(0, Revision - 1) }, expectedRevision: Revision);
 
     /// <summary>A cast with the pack's own default radius and duration where the control names none.</summary>
     private JsonObject NatureCastArgs(string capability, Vector3 point, float? radius, float? duration)
