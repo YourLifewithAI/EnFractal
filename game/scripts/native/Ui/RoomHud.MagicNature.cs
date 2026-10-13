@@ -16,6 +16,7 @@ public partial class RoomHud
     private OptionButton _repairChoice = null!;
     private Label _repairCost = null!;
     private Button _undoNature = null!;
+    private CheckButton _gubbleFire = null!;
     private Label _firePreviewWords = null!;
     private Button _fireConfirm = null!;
     private ProgressBar _fireHoldBar = null!;
@@ -50,6 +51,16 @@ public partial class RoomHud
         page.AddChild(WrapMagicLabel("Rain, light and the ground shape how flowers grow."));
         MagicHeading(page, "FIRE");
         page.AddChild(WrapMagicLabel("Fire can spread inside the previewed area. Creations become scorched and repairable; other things can burn away."));
+        // The player's own setting (saved in the player's profile, never room state); only this control changes it.
+        _gubbleFire = new CheckButton
+        {
+            Name = "GubbleFireSetting", Text = "Let the Gubble use fire",
+            ButtonPressed = Host?.GubbleFireAllowed ?? Kernel.CommandHost.LoadGubbleFire(ProfilePath),
+            TooltipText = "Your AI can light fires through the Gubble. In Challenge and Live its fire can hurt you, and it learns from that. X puts its fire out.",
+            FocusMode = Control.FocusModeEnum.All,
+        };
+        _gubbleFire.Toggled += SetGubbleFire;
+        page.AddChild(_gubbleFire);
         AddButton(page, "Preview Fire at this spot", PreviewFire, 32);
         _firePreviewWords = WrapMagicLabel("Choose a spot and preview it before lighting a fire.");
         _firePreviewWords.Name = "FirePreviewWords"; page.AddChild(_firePreviewWords);
@@ -96,9 +107,10 @@ public partial class RoomHud
         var cells = result["data"]?["cell_count"]?.GetValue<int>() ?? 0;
         var affected = result["data"]?["affected_ids"]?.AsArray().Count ?? 0;
         var approval = result["data"]?["requires_approval"]?.GetValue<bool>() == true;
+        // The one ask about builds is the host's card after the hold (Creative only); the preview only says it will come.
         _firePreviewWords.Text = $"Fire stays within the outlined {_fireRadius:0.##} m radius. {affected} {(affected == 1 ? "thing may" : "things may")} be affected. " +
             (cells == 0 ? "There is no suitable ground here." : "Release the button to cancel before the hold finishes.") +
-            (approval ? " Creations here need a further approval before they can be scorched." : "");
+            (approval ? " Your builds are in reach: you will be asked once whether they may burn." : "");
         _fireConfirm.Disabled = _firePreviewId == null || cells == 0;
         NatureVisual?.ShowFirePreview(_firePoint, _fireRadius);
         _magicMessageText = "Review the outlined area, then hold the button if you want this fire.";
@@ -160,8 +172,20 @@ public partial class RoomHud
             _repairChoice.Select(Math.Max(0, previous == null ? 0 : _repairIds.IndexOf(previous)));
         }
         _repairChoice.Disabled = ids.Length == 0;
+        // Undo is Creative's alone (the founder, 13 October): in Challenge and Live the control is not there.
+        _undoNature.Visible = host.Mode == "creative";
         _undoNature.Disabled = !host.NatureCanUndo;
+        _gubbleFire.SetPressedNoSignal(host.GubbleFireAllowed);
         RefreshRepairCost();
+    }
+
+    /// <summary>The player's choice "Let the Gubble use fire": the host follows it at once, and the profile keeps it (this session only if it cannot be written).</summary>
+    public void SetGubbleFire(bool allowed)
+    {
+        Host?.SetGubbleFire(allowed);
+        if (_gubbleFire != null && _gubbleFire.ButtonPressed != allowed) _gubbleFire.SetPressedNoSignal(allowed);
+        var saved = SaveProfileValue(Kernel.CommandHost.FireProfileKey, allowed);
+        _magicMessageText = (allowed ? "The Gubble may use fire." : "The Gubble will not light fires.") + (saved ? "" : " (Not saved: it lasts this session.)");
     }
 
     private void RefreshRepairCost()
