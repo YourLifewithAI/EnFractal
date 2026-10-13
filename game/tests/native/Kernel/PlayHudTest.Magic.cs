@@ -6,6 +6,11 @@ using Godot;
 
 namespace EnFractal.Tests.Kernel;
 
+/// <summary>
+/// The Magic panel: the mode picker, the flower trail toggle, Fire's preview and deliberate hold (no cast without a host
+/// preview, a release cancels, the hold casts exactly what was previewed), the nature Undo button, and the wish queue's
+/// curated words and Stop, all through the host's commands.
+/// </summary>
 public partial class PlayHudTest
 {
     private async Task TestMagicPanel()

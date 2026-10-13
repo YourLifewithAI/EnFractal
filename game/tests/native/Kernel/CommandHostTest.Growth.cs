@@ -12,6 +12,11 @@ using EnFractal.Native.Room;
 
 namespace EnFractal.Tests.Kernel;
 
+/// <summary>
+/// Glow's growth (docs/magic/README.md "Growth and touches"): the progression state and its store, the discoveries and
+/// hints the host awards only for real casts, the earned light allowance under the shipped pack and an older one, and the
+/// Glow commands that learn from success without awarding anything for a refused or replayed cast.
+/// </summary>
 public partial class CommandHostTest
 {
     /// <summary>Host observations earn progress only after a real cast and a successful save.</summary>

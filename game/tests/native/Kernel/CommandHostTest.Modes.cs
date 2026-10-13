@@ -11,6 +11,11 @@ using EnFractal.Native.Room;
 
 namespace EnFractal.Tests.Kernel;
 
+/// <summary>
+/// The player's modes (docs/magic/README.md "Modes"): the vitals model and its store, world.set_mode through the command
+/// path (the player's alone, replayed, transient), stamina for climbing and resting, and injury by the trusted hazard
+/// hooks under Challenge and Live, never Creative.
+/// </summary>
 public partial class CommandHostTest
 {
     private async Task TestPlayerModes()

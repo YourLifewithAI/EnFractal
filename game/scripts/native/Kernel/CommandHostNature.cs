@@ -770,7 +770,7 @@ public partial class CommandHost
         }
     }
 
-    /// <summary>A bounded batch of light probes (up to four rays each), the cells near the avatars in turn.</summary>
+    /// <summary>A bounded batch of light probes (up to four rays each) per tick, every cell in turn; without a look, the default light.</summary>
     private void ProbeNatureLight()
     {
         if (Nature.Cells.Count == 0) return;
