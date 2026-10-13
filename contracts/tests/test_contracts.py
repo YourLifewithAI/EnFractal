@@ -143,6 +143,10 @@ EXPECTED_FAILURES = {
     # The 10x world (S2): observe's radius is at most 150 m, and a plant copy has one spelling.
     "query_observe_past_150_m": "151 is greater than the maximum of 150",
     "command_go_to_a_tree_spelt_with_a_leading_zero": "'plant:broadleaf-01' does not match",
+    # Play distances (S8): entities.list's near is at most 150 m, and a catch-up notice is the game's fixed form.
+    "query_entities_near_past_150_m": "151 is greater than the maximum of 150",
+    "result_catch_up_notice_in_someones_words": "('message' was unexpected)",
+    "result_catch_up_notice_without_where_it_was": "'from_m' is a required property",
 }
 # Each invalid island (examples/rooms_invalid) and the reason it must fail. The game's loader (S6) refuses the same rooms.
 ISLAND_FAILURES = {
@@ -594,6 +598,28 @@ class MagicModesWishesAndNatureTests(unittest.TestCase):
         self.assertIn('data["fires_put_out"] = 1', host)
         self.assertIn('new JsonObject { ["effects_stopped"] = stopped }', host)
         self.assertIn('data["avatars_in_area"] = AvatarsInArea(cast, principal);', (KERNEL / "CommandHostNature.cs").read_text(encoding="utf-8"))
+
+    def test_a_catch_up_is_told_in_a_fixed_form_and_near_reaches_across_the_island(self):
+        """Play distances (S8): the Gubble caught up with the player (the founder's decision 4), and its AI is told in the game's
+        own fixed form, beside the consequence notices; entities.list's near reaches as far as observe's radius."""
+        self.assertEqual(free_form_objects(self.defs["catch_up_notice"], "catch_up_notice", self.defs), [])
+        caught = valid_example("result_player_status_with_a_catch_up_notice")
+        both = {**caught, "notices": [valid_example("result_player_status_with_a_notice")["notices"][0], caught["notices"][0]]}
+        self.assertEqual(validate.schema_errors(both), [])
+        self.assertTrue(validate.schema_errors({**caught, "notices": [{**caught["notices"][0], "fire_revision": 7}]}))
+        near = self.defs["args"]["entities.list"]["properties"]["filter"]["properties"]["near"]["properties"]["radius_m"]
+        self.assertEqual(near["maximum"], self.defs["args"]["observe"]["properties"]["radius_m"]["maximum"])
+
+    @unittest.skipUnless((KERNEL / "CommandHostConsequences.cs").is_file(), "the kernel's consequences are not in this checkout")
+    def test_the_catch_up_notice_and_the_near_bound_are_the_kernels(self):
+        consequences = (KERNEL / "CommandHostConsequences.cs").read_text(encoding="utf-8")
+        notice = re.search(r'private void NoteCatchUp\(Vector3 from, Vector3 to\)\s*\{\s*_notices\.Add\(new JsonObject\s*\{([^}]*)\}', consequences).group(1)
+        self.assertEqual(set(re.findall(r'\["([a-z_]+)"\]', notice)), set(self.defs["catch_up_notice"]["required"]))
+        self.assertEqual(re.findall(r'\["kind"\] = "([a-z_]+)"', notice), [self.defs["catch_up_notice"]["properties"]["kind"]["const"]])
+        host = (KERNEL / "CommandHost.cs").read_text(encoding="utf-8")
+        near = self.defs["args"]["entities.list"]["properties"]["filter"]["properties"]["near"]["properties"]["radius_m"]["maximum"]
+        self.assertEqual(int(re.search(r"\bconst int NearRadiusMaxM = (\d+);", host).group(1)), near)
+        self.assertIn("nearRadius.GetDouble() is <= 0 or > NearRadiusMaxM", host)
 
     def test_nature_is_described_as_the_team_knows_it_and_undo_names_the_room_revision(self):
         describe = valid_example("result_nature_describe")

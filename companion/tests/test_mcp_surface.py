@@ -264,6 +264,21 @@ class Consequences(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("notices", second)
         self.assertIn("journal_read with kind consequence", INSTRUCTIONS)
 
+    async def test_a_catch_up_notice_reaches_the_ai(self):
+        """Play distances (S8): the Gubble caught up with the player far across the island; its AI hears where it was and where
+        it is now, in the game's fixed form, beside any consequence notice."""
+        from support import new_host
+        host = new_host()
+        caught = {"kind": "caught_up", "from_m": [-18.9, 0.92, 4.59], "to_m": [18.66, 1.03, 1.8], "distance_m": 37.65,
+                  "at_utc": "2026-10-13T12:00:00Z"}
+
+        def game(principal, message):
+            return {**host.handle(principal, message), "notices": [dict(self.NOTICE), dict(caught)]}
+
+        async with McpHarness(host=host, handler=game) as harness:
+            result = await harness.call("player_status", {})
+        self.assertEqual(result["notices"], [self.NOTICE, caught])
+
     async def test_a_notice_in_someones_words_never_reaches_the_ai(self):
         from support import new_host
         host = new_host()

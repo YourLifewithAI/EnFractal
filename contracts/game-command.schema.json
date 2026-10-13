@@ -881,11 +881,26 @@
           "$ref": "#/$defs/error"
         },
         "notices": {
-          "description": "Companion results only: what the Gubble's actions did to the player since its last result (consequence_notice), each delivered once. A host that has none sends none.",
+          "description": "Companion results only: what the Gubble's actions did to the player (consequence_notice), and what happened to the Gubble that it did not do itself (catch_up_notice: it caught up with the player), since its last result, each delivered once. A host that has none sends none.",
           "type": "array",
           "maxItems": 8,
           "items": {
-            "$ref": "#/$defs/consequence_notice"
+            "if": {
+              "properties": {
+                "kind": {
+                  "const": "caught_up"
+                }
+              },
+              "required": [
+                "kind"
+              ]
+            },
+            "then": {
+              "$ref": "#/$defs/catch_up_notice"
+            },
+            "else": {
+              "$ref": "#/$defs/consequence_notice"
+            }
           }
         },
         "data": {
@@ -3037,7 +3052,7 @@
                   "radius_m": {
                     "type": "number",
                     "exclusiveMinimum": 0,
-                    "maximum": 50
+                    "maximum": 150
                   }
                 }
               }
@@ -4912,6 +4927,41 @@
         },
         "at_utc": {
           "description": "When it last hurt the player.",
+          "$ref": "common.schema.json#/$defs/utc_timestamp"
+        }
+      }
+    },
+    "catch_up_notice": {
+      "description": "The Gubble caught up with the player (the 10x world, decision 4): following or coming, far from the player and out of their view, it reappeared beside them instead of travelling the rest. Its goal goes on. In a fixed form and no one's words; it rides once on the companion's next result, of any kind, until read.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "from_m",
+        "to_m",
+        "distance_m",
+        "at_utc"
+      ],
+      "properties": {
+        "kind": {
+          "const": "caught_up"
+        },
+        "from_m": {
+          "description": "Where the Gubble was.",
+          "$ref": "common.schema.json#/$defs/vec3"
+        },
+        "to_m": {
+          "description": "Where it reappeared, beside the player.",
+          "$ref": "common.schema.json#/$defs/vec3"
+        },
+        "distance_m": {
+          "description": "How far that is, in a straight line.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3500
+        },
+        "at_utc": {
+          "description": "When it caught up.",
           "$ref": "common.schema.json#/$defs/utc_timestamp"
         }
       }

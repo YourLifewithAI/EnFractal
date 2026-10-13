@@ -212,6 +212,11 @@ The land is cut into 16 m tiles (`tile_m`, 16) with levels of distance detail (`
 
 `observe` answers everything in the actor's line of sight on the whole island when `radius_m` is omitted: line of sight is the real limit. A given `radius_m` narrows it, at most 150 m (more than the 10x garage island's farthest corner, about 100 m). Both hosts and the companion's tool description say the same; the companion's alignment tests check the kernel's `ObserveRadiusMaxM` and entity id pattern against these schemas.
 
+### Play distances (S8)
+
+- **`entities.list`'s `filter.near.radius_m` is at most 150 m,** as far as `observe`'s radius (it was 50 m, seven times today's islands). The kernel's `NearRadiusMaxM`, the schema and the mock agree; the companion's alignment test checks them.
+- **The Gubble catches up.** Following or coming to the player, farther than 25 m from them and out of their view, the Gubble reappears beside them, out of view too, instead of travelling the rest (the founder's decision 4 of the 10x plan; never in a fetch, into a wall or into water). It did not do that itself, so its AI is told: a fixed-form notice (`$defs/catch_up_notice`: `caught_up`, where it was, where it reappeared, the straight-line `distance_m` and when; no one's words) rides once on the companion's next result, of any kind, in `notices`, beside any `consequence_notice`. Its goal goes on. The mock host does not simulate bodies and sends none.
+
 ### What the exporter (S5) and the loader (S6) build against this
 
 - **S5 writes** the sets (plants, trees as copies with their collision, stones), each table sorted and indexed as above, groups numbered densely, `top_m` and the tree columns from the fitted shapes; terrain parts as tiled GLBs; and stops writing the merged `scatter_visual` copies, `scatter_solid` stones and `tree_climb` part for what the copies carry. `contracts/validate.py` (`check_room`, `read_plant_table`) checks its output.
@@ -227,6 +232,10 @@ Each document carries `schema` and an integer `version`. Within a version, the i
 - **The room manifest gains `plant_copies` and `terrain_tiles`,** both optional. Every room valid before stays valid byte for byte, and its meaning is unchanged. A reader that does not know them (today's `RoomData.cs`) ignores them, so it would draw every terrain level at once and no copies: S6 makes the loader read them before any room uses them. They replace the scale experiment's `x_landscape_instances`, which never passed a round.
 - **`entity_id` gains `plant:`.** Every id valid before stays valid. Hosts answer `target_not_found` for a copy they do not know, as for any id; saved entities and the discovered map never hold one.
 - **`observe`'s `radius_m` is at most 150 m (was 20),** and an omitted radius means no distance cut-off (was 20 m). A request valid before stays valid; in rooms smaller than 20 m nothing changes, because line of sight decides.
+
+**Play distances (S8 of the 10x world, 13 October 2026), within version 1:**
+- **`entities.list`'s `near.radius_m` is at most 150 m (was 50).** A request valid before stays valid.
+- **`notices` may carry a `catch_up_notice`** besides the `consequence_notice` (a notice of kind `caught_up` is checked against the first, any other against the second, so an unknown kind still fails as before). Every result valid before stays valid.
 
 **Magic, modes, wishes and nature contract round (13 October 2026), within version 1:** the changes Codex made on 11 October without a round (`7f21aad`), completed, and the eyes lane's proposal (`b98f014`) adopted.
 - **New ops:** `effect.adjust`, `glow.configure`, `world.set_mode`, `nature.cast`, `nature.trail`, `nature.repair`, `wish.submit`, `wish.stop`; queries `player.status`, `nature.describe`, `wishes.read`, `view.look`. Each result's `data` is typed and closed (`$defs/data`, with `nature.cast_preview` for a cast's preview). Every document valid before stays valid.

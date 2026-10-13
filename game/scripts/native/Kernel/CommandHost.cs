@@ -91,6 +91,11 @@ public partial class CommandHost : Node
     /// 100 m). Omitted, observe has no distance cut-off: line of sight is the real limit, on the whole island.
     /// </summary>
     public const int ObserveRadiusMaxM = 150;
+    /// <summary>
+    /// entities.list's near.radius_m is at most this (contract, S8 of the 10x world): room-sized, as observe's radius. It was
+    /// 50 m, seven times today's islands; on the 10x island it reaches across it from anywhere.
+    /// </summary>
+    public const int NearRadiusMaxM = 150;
     public static readonly TimeSpan ApprovalLifetime = TimeSpan.FromMinutes(5);
     public const string RuntimeScript = "res://scripts/invention_runtime.gd";
 
@@ -2348,8 +2353,8 @@ public partial class CommandHost : Node
                         if (near.ValueKind != JsonValueKind.Object || !near.TryGetProperty("center_m", out var centre) || !near.TryGetProperty("radius_m", out var nearRadius) || near.EnumerateObject().Count() != 2)
                             throw new Refusal("request_invalid", "near has center_m and radius_m.", "$.args.filter.near");
                         CheckVector(centre, "$.args.filter.near.center_m");
-                        if (nearRadius.ValueKind != JsonValueKind.Number || nearRadius.GetDouble() is <= 0 or > 50)
-                            throw new Refusal("request_invalid", "radius_m is between 0 and 50.", "$.args.filter.near.radius_m");
+                        if (nearRadius.ValueKind != JsonValueKind.Number || nearRadius.GetDouble() is <= 0 or > NearRadiusMaxM)
+                            throw new Refusal("request_invalid", $"radius_m is between 0 and {NearRadiusMaxM}.", "$.args.filter.near.radius_m");
                     }
                     foreach (var name in new[] { "kind", "category_group", "affordance", "provenance_kind" })
                         if (filter.TryGetProperty(name, out var value) && (value.ValueKind != JsonValueKind.String || !Token.IsMatch(value.GetString()!)))
