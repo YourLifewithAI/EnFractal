@@ -660,6 +660,9 @@ class AlignmentOnTheRealHost(AlignmentScenarios, RealHostCase):
     """test_host_alignment.py's scenarios against the kernel host: the same steps and the same expected outcomes as on
     the mock. The companion walks with go_to and is brought back to the player afterwards."""
 
+    # The suite's game runs headless: no renderer, so the Gubble's eyes answer unavailable (a real picture is the windowed check).
+    renders = False
+
     async def asyncSetUp(self):
         await super().asyncSetUp()
         await self.settle_rate()

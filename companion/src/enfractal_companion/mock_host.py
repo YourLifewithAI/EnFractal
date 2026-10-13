@@ -69,7 +69,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from . import perception, textsafety
+from . import eyes, perception, textsafety
 from .mock_journal import JournalMixin
 from .glow_progress import GlowProgress
 from .canonical import CanonicalJsonError
@@ -202,6 +202,11 @@ class HostPolicy:
     # Compacted receipts keep their revision and a 64-bit fingerprint prefix; the oldest are forgotten
     # first. kernel: MAX_COMPACTED
     max_compacted_receipts: int = 4096
+    # The Gubble's eyes (view.look; kernel: CommandHostEyes.cs). The mock draws a placeholder picture; False models a
+    # headless kernel run, which answers unavailable. Looks a companion may take at once, and how fast they come back.
+    look_renderer: bool = True
+    look_burst: int = eyes.LOOK_BURST
+    look_refill_s: float = eyes.LOOK_REFILL_S
 
 
 NO_HOLDS = HostPolicy(companion_approval_ops=frozenset())
@@ -496,6 +501,10 @@ class MockHost(JournalMixin):
         self._vitals_profiles = {mode: {"health": 100.0, "max_health": 100.0, "stamina": 0.45,
                                        "max_stamina": 0.45, "completed_climbs": 0, "recoveries": 0}
                                  for mode in ("creative", "challenge", "live")}
+        # The player's own setting "Let my AI see through the Gubble's eyes" (the profile's ai_eyes, never room state):
+        # only the player's control (set_gubble_eyes) changes it, never a request. Looks spent, per companion principal.
+        self.gubble_eyes = eyes.DEFAULT_GUBBLE_EYES
+        self._look_buckets: dict[str, eyes.LookBucket] = {}
         self._reset_room()
         # As RoomWorld hands the kernel host its rules (LoadRules), read before the server locks itself down.
         self.load_rules(rules_file or rules_path())
@@ -849,6 +858,46 @@ class MockHost(JournalMixin):
 
     def _remembered_summary(self, entry: Remembered) -> dict:
         return {**copy.deepcopy(entry.view["summary"]), **self._memory_fields(entry)}
+
+    # ------------------------------------------------------------------ the Gubble's eyes
+
+    def set_gubble_eyes(self, allowed: bool) -> None:
+        """The player's control for "Let my AI see through the Gubble's eyes" (the HUD's switch). No request reaches it."""
+        with self._lock:
+            self.gubble_eyes = bool(allowed)
+
+    def _view_look(self, principal: str, args: dict) -> dict:
+        """view.look in the kernel's order: the actor (only a Gubble's own eyes), the player's setting, the rate, the renderer.
+        A look is a companion request like any other: its sight filled the team's map before this ran, and the picture adds
+        nothing to it. The mock's picture is a placeholder (eyes.placeholder_png) with the kernel's facts."""
+        companion = not principal.startswith("player:")
+        gubbles = {self.avatars[principal]} if companion else {a for p, a in self.avatars.items() if not p.startswith("player:")}
+        actor = args.get("actor")
+        if actor not in gubbles:
+            raise HostError("actor_denied", eyes.LOOK_ACTOR_MESSAGE, field_path="$.args.actor")
+        if companion and not self.gubble_eyes:
+            raise HostError("permission_denied", eyes.EYES_OFF_MESSAGE)
+        if companion:
+            bucket = self._look_buckets.setdefault(principal, eyes.LookBucket(self.policy.look_burst, self.policy.look_refill_s))
+            if not bucket.take(self.clock.now()):
+                raise HostError("rate_limited", eyes.LOOK_RATE_MESSAGE, retryable=True)
+        if not self.policy.look_renderer:
+            raise HostError("unavailable", eyes.NO_RENDERER_MESSAGE)
+        yaw, pitch = float(args.get("yaw_deg", 0)), float(args.get("pitch_deg", 0))
+        body = self.entities[actor]
+        facing_x, facing_z = self.facing.get(actor, (0.0, -1.0))
+        heading = eyes.heading(facing_x, facing_z)
+        picture = eyes.placeholder_png(yaw, pitch)
+        return {
+            "actor": actor,
+            "image": eyes.image_block(picture, "image/png", eyes.PLACEHOLDER_WIDTH_PX, eyes.PLACEHOLDER_HEIGHT_PX),
+            "position_m": [_r(v) for v in body.position],
+            "eye_m": [_r(v) for v in perception.eye_point(body.position, "companion")],
+            "heading_deg": heading,
+            "view_heading_deg": eyes.round1(eyes.positive_degrees(heading + yaw)) % 360.0,
+            "view_pitch_deg": eyes.round1(pitch),
+            "fov_deg": eyes.horizontal_fov_deg(),
+        }
 
     # ------------------------------------------------------------------ the wire
 
@@ -2360,6 +2409,8 @@ class MockHost(JournalMixin):
             result["data"] = data
         elif op == "journal.read":
             result["data"] = self._journal_read(principal, args)
+        elif op == eyes.OP:
+            result["data"] = self._view_look(principal, args)
         elif op == "map.find":
             result["data"] = self._map_find(principal, args)
         else:  # pragma: no cover - the schema already restricts ops

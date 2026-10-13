@@ -212,6 +212,69 @@ class GlowMatchesTheKernel(unittest.TestCase):
         self.assertIn(cursor, inspect.getsource(MockHost._query))
 
 
+EYES = KERNEL / "Kernel" / "CommandHostEyes.cs"
+
+
+def _cs_string(path, name: str) -> str:
+    """A C# string constant's value (the kernel's words use only the escapes \\" and \\\\)."""
+    raw = _match(path, rf'\bpublic const string {name} = "((?:[^"\\]|\\.)*)";')
+    return raw.replace('\\"', '"').replace("\\\\", "\\")
+
+
+@unittest.skipUnless(EYES.is_file(), "the kernel host's eyes are not in this checkout")
+class EyesMatchTheKernel(unittest.TestCase):
+    """The Gubble's eyes (view.look): the mock's numbers and words are the kernel's, and the contract's bounds hold them."""
+
+    def test_the_numbers_are_the_kernels(self):
+        from enfractal_companion import eyes
+        expected = {
+            "LOOK_BURST": _constant(EYES, r"\bconst int LookBurst = (\d+);"),
+            "LOOK_REFILL_S": float(_match(EYES, r"\bconst double LookRefillS = ([0-9.]+);")),
+            "LOOK_IMAGE_MAX_BYTES": _constant(EYES, r"\bconst int LookImageMaxBytes = (\d+);"),
+            "LOOK_WIDTH_PX": _constant(EYES, r"\bconst int LookWidthPx = (\d+);"),
+            "LOOK_HEIGHT_PX": _constant(EYES, r"\bconst int LookHeightPx = (\d+);"),
+            "LOOK_MAX_YAW_DEG": float(_match(EYES, r"\bconst double LookMaxYawDeg = ([0-9.]+);")),
+            "LOOK_MAX_PITCH_DEG": float(_match(EYES, r"\bconst double LookMaxPitchDeg = ([0-9.]+);")),
+            "EYES_PROFILE_KEY": _cs_string(EYES, "EyesProfileKey"),
+            "DEFAULT_GUBBLE_EYES": _match(EYES, r"\bconst bool DefaultGubbleEyes = (true|false);") == "true",
+            "EYE_VERTICAL_FOV_DEG": float(_match(KERNEL / "SmallPlayerController.cs",
+                                                 r'Name = "EyeCamera",[^\n]*\n[^\n]*\bFov = ([0-9.]+)f')),
+        }
+        self.assertEqual({name: getattr(eyes, name) for name in expected}, expected)
+        self.assertEqual((HostPolicy().look_burst, HostPolicy().look_refill_s), (expected["LOOK_BURST"], expected["LOOK_REFILL_S"]))
+
+    def test_the_refusals_are_the_kernels_word_for_word_and_in_its_order(self):
+        import inspect
+        from enfractal_companion import eyes
+        from enfractal_companion.mock_host import MockHost
+        for mock, kernel in (("EYES_OFF_MESSAGE", "EyesOffMessage"), ("NO_RENDERER_MESSAGE", "NoRendererMessage"),
+                             ("LOOK_RATE_MESSAGE", "LookRateMessage"), ("LOOK_ACTOR_MESSAGE", "LookActorMessage")):
+            with self.subTest(message=mock):
+                self.assertEqual(getattr(eyes, mock), _cs_string(EYES, kernel))
+        view_look = _method(_text(EYES), "private JsonObject ViewLook(")
+        in_kernel = [code for code in re.findall(r'new Refusal\("(\w+)"', view_look) if code != "not_ready"]
+        in_mock = re.findall(r'HostError\("(\w+)"', inspect.getsource(MockHost._view_look))
+        # The kernel also refuses a caller that cannot wait for a frame (its synchronous path), which the mock never needs.
+        self.assertEqual(in_kernel, in_mock + ["unavailable"])
+        self.assertEqual(in_mock, ["actor_denied", "permission_denied", "rate_limited", "unavailable"])
+
+    def test_the_contract_bounds_are_the_kernels(self):
+        import json
+        from enfractal_companion import eyes
+        defs = json.loads((REPO / "contracts" / "game-command.schema.json").read_bytes())["$defs"]
+        if "view.look" not in defs["query_op"]["enum"]:
+            self.skipTest("the contract has no view.look yet")
+        args, image = defs["args"]["view.look"]["properties"], defs["data"]["view.look"]["properties"]["image"]["properties"]
+        self.assertEqual((args["yaw_deg"]["minimum"], args["yaw_deg"]["maximum"]), (-eyes.LOOK_MAX_YAW_DEG, eyes.LOOK_MAX_YAW_DEG))
+        self.assertEqual((args["pitch_deg"]["minimum"], args["pitch_deg"]["maximum"]), (-eyes.LOOK_MAX_PITCH_DEG, eyes.LOOK_MAX_PITCH_DEG))
+        self.assertEqual(image["bytes"]["maximum"], eyes.LOOK_IMAGE_MAX_BYTES)
+        self.assertEqual(image["data_base64"]["maxLength"], 4 * -(-eyes.LOOK_IMAGE_MAX_BYTES // 3))
+        self.assertGreaterEqual(image["width_px"]["maximum"], max(eyes.LOOK_WIDTH_PX, eyes.LOOK_HEIGHT_PX))
+        self.assertIn("unavailable", defs["error_code"]["enum"])
+        # The largest picture leaves the result well inside the kernel's 256 KiB answer (and so the link's response frame).
+        self.assertLess(image["data_base64"]["maxLength"] + 8192, _constant(COMMAND_HOST, r"\bconst int MaxResultBytes = (\d+);"))
+
+
 class DefaultPolicyBoundaries(unittest.TestCase):
     """The default policy at the kernel's boundaries (the mechanisms are tested with small numbers elsewhere)."""
 

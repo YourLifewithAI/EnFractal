@@ -144,6 +144,47 @@ class AlignmentScenarios:
         self.assertEqual(outcome, expected)
 
 
+
+    # ----- The Gubble's eyes (view.look): the same refusals on both hosts; a picture wherever the host can draw -----
+
+    # Whether this host draws pictures: the mock always (a placeholder), the kernel host only with a renderer (never headless).
+    renders: bool = True
+
+    async def test_the_gubbles_eyes_refuse_alike_and_look_when_they_can_draw(self):
+        from enfractal_companion import eyes
+
+        async def looked(args):
+            result = await self.ask(query("view.look", {"actor": "avatar:companion", **args}, self.next_id("look")))
+            if result["ok"]:
+                data = result["data"]
+                return ("ok", data["actor"], sorted(data), data["image"]["untrusted"],
+                        data["image"]["bytes"] <= eyes.LOOK_IMAGE_MAX_BYTES, 0 <= data["view_heading_deg"] < 360)
+            return (result["error"]["code"], result["error"].get("field_path"), result["error"]["message"],
+                    result["error"]["retryable"], "data" in result)
+
+        await self.wait(1.1)  # whatever earlier scenarios spent, a look is available again
+        outcome = {
+            "the player's eyes": await looked({"actor": "avatar:player"}),
+            "tilted too far": (await looked({"pitch_deg": 61}))[:2],
+            "an unknown argument": (await looked({"zoom": 2}))[:2],
+            "a look": await looked({"yaw_deg": 30, "pitch_deg": 20}),
+        }
+        burst = [(await looked({}))[0] for _ in range(eyes.LOOK_BURST + 1)]
+        outcome["a quick burst ends rate limited"] = "rate_limited" in burst
+        facts = ["actor", "eye_m", "fov_deg", "heading_deg", "image", "position_m", "view_heading_deg", "view_pitch_deg"]
+        expected = {
+            "the player's eyes": ("actor_denied", "$.args.actor", eyes.LOOK_ACTOR_MESSAGE, False, False),
+            "tilted too far": ("invalid_args", "$.args.pitch_deg"),
+            "an unknown argument": ("field_unknown", "$.args.zoom"),
+            "a look": ("ok", "avatar:companion", facts, True, True, True) if self.renders
+            else ("unavailable", None, eyes.NO_RENDERER_MESSAGE, False, False),
+            "a quick burst ends rate limited": True,
+        }
+        if self.renders and outcome["a look"][0] == "ok":
+            # time_of_day is there only where the room has a look (the kernel host's island clock).
+            outcome["a look"] = (*outcome["a look"][:2], [k for k in outcome["a look"][2] if k != "time_of_day"], *outcome["a look"][3:])
+        self.assertEqual(outcome, expected)
+
     # ----- Glow (docs/runs/RUN-2-GLOW.md section 5): the island's rules, on both hosts -----
 
     async def stop_all_glows(self) -> None:
