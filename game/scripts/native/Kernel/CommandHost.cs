@@ -30,6 +30,11 @@ public sealed class PendingApproval
     public string State { get; internal set; } = "pending";
     public JsonObject? Result { get; internal set; }
     internal JsonObject Held { get; set; } = new();
+    /// <summary>
+    /// The ask was only whether the player's builds may burn (Creative's fire rule): the player's no commits the fire with
+    /// them spared, instead of nothing. A deny of anything else commits nothing.
+    /// </summary>
+    internal bool SparesOnDeny { get; init; }
 }
 
 /// <summary>
@@ -328,14 +333,18 @@ public partial class CommandHost : Node
         if (principal is not (PlayerPrincipal or CompanionPrincipal))
             return Fail("invalid", "system:host", null, null, new Refusal("principal_unknown", "The host did not admit this caller."));
         _perceived = null;
-        try { return HandleChecked(message, principal); }
+        JsonObject result;
+        try { result = HandleChecked(message, principal); }
         catch (Exception error)
         {
             // The host always answers (Lane P review: a result that could not be serialised threw out of Handle).
             GD.Print("COMMAND_HOST internal error: " + error.GetType().Name);
-            return InternalError("invalid", principal);
+            result = InternalError("invalid", principal);
         }
         finally { _perceived = null; }
+        // What the Gubble's actions did to the player rides on its next result, whatever it asked (CommandHostConsequences).
+        if (principal == CompanionPrincipal) DeliverNotices(result);
+        return result;
     }
 
     private JsonObject HandleChecked(string message, string principal)
@@ -475,6 +484,11 @@ public partial class CommandHost : Node
         return (JsonObject)approval.Result!.DeepClone();
     }
 
+    /// <summary>
+    /// The player's no. A request held only to ask whether the player's builds may burn (SparesOnDeny) is then made with
+    /// them spared: the fire is lit and stops at them, under the original principal, with no approval recorded (the player
+    /// approved nothing). Anything else is declined and commits nothing.
+    /// </summary>
     public JsonObject Deny(string requestId)
     {
         if (!_approvals.TryGetValue(requestId, out var approval))
@@ -482,6 +496,21 @@ public partial class CommandHost : Node
         Refresh(approval);
         if (approval.State != "pending")
             return Fail("approval.status", PlayerPrincipal, null, null, new Refusal("target_not_found", "There is no waiting request with that id."));
+        if (approval.SparesOnDeny)
+        {
+            using var document = JsonDocument.Parse(approval.CommandText);
+            JsonObject spared;
+            _perceived = null;
+            _sparing = true;
+            try { spared = Execute(document.RootElement, approval.Principal, approval.Fingerprint, null); }
+            finally { _sparing = false; _perceived = null; }
+            if (spared["ok"]!.GetValue<bool>())
+            {
+                approval.State = "denied";
+                approval.Result = spared;
+                return (JsonObject)spared.DeepClone();
+            }
+        }
         Finish(approval, new Refusal("permission_denied", "The player declined this request. To ask again, use a new action_id."), "denied");
         return (JsonObject)approval.Result!.DeepClone();
     }
@@ -806,7 +835,10 @@ public partial class CommandHost : Node
                 affected.Add(ended);
                 stopped++;
             }
-        return Transient("goal.stop", principal, actionId, fingerprint, affected, new JsonObject { ["effects_stopped"] = stopped });
+        var data = new JsonObject { ["effects_stopped"] = stopped };
+        // And every fire the Gubble lit goes out at once, whatever any budget says (the player's X; the Gubble's own stop too).
+        if (whose != PlayerPrincipal && PutOutCompanionFire()) data["fires_put_out"] = 1;
+        return Transient("goal.stop", principal, actionId, fingerprint, affected, data);
     }
 
     private JsonObject EffectStop(JsonElement args, string principal, string actionId, string fingerprint, bool preview)
@@ -995,7 +1027,8 @@ public partial class CommandHost : Node
     /// Holds a command for the player's click. bindRevision makes the hold lapse as soon as the room changes (a nature
     /// change was judged on the room as it is), as naming expected_revision does.
     /// </summary>
-    private JsonObject Hold(JsonElement root, string principal, string actionId, string fingerprint, string op, string reason, Dictionary<string, int> touched, bool bindRevision = false)
+    private JsonObject Hold(JsonElement root, string principal, string actionId, string fingerprint, string op, string reason, Dictionary<string, int> touched, bool bindRevision = false,
+        bool sparesOnDeny = false)
     {
         if (_approvals.Values.Count(a => a.Principal == principal && a.State == "pending") >= MaxPendingApprovals)
             throw new Refusal("rate_limited", "Too many requests are already waiting for the player.", retryable: true);
@@ -1005,6 +1038,7 @@ public partial class CommandHost : Node
             Principal = principal, ActionId = actionId, Fingerprint = fingerprint, Op = op, Reason = reason,
             CommandText = CanonicalJson.Text(root), Created = Clock(), Expires = Clock() + ApprovalLifetime, Touched = touched,
             RoomRevision = bindRevision || root.TryGetProperty("expected_revision", out _) ? Revision : null,
+            SparesOnDeny = sparesOnDeny,
         };
         var result = Fail(op, principal, actionId, null, new Refusal("approval_required", "Waiting for the player to approve this change.", retryable: true));
         result["approval_needed"] = new JsonObject
@@ -2319,6 +2353,8 @@ public partial class CommandHost : Node
         "entity.set_part" => "Moving parts of objects (a lid, a door) is not available yet.",
         "entity.transform" => "Transforming objects arrives with the first magic (Run 3).",
         "style.set" => "Restyling the room from a command arrives with the look runtime.",
+        // The founder, 13 October: "Being able to rewind any action or consequence removes stakes." Undo is Creative's alone.
+        "room.undo" when Mode != "creative" => "There is no undo in Challenge or Live: what happens there stays.",
         "room.undo" when !NatureConfigured => "Undo takes back nature changes, and this room's nature is not running.",
         "goal.set" when Str(args, "goal") is "wander" => "Wandering is not available yet.",
         // Today the body follows and comes to the player only; staying by something waits for the goal runner too.
