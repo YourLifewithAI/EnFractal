@@ -1,14 +1,17 @@
 {
+  "applied_notes": [
+    "The founder, 13 October 2026: the torch is no longer part of the Gubble; it becomes a separate item, made by the Gubble's Glow (Torch), that the Gubble and the player carry. Removed the torch and torch_flame parts; the arm and hand stay, reaching out to hold what the Gubble carries. The tallest point is now a floating sparkle, so the whole Gubble scales up to stay 0.10 m tall."
+  ],
   "bounds_m": {
     "max": [
-      0.04423351531119467,
-      0.10000000000000002,
-      0.032010651018024375
+      0.05475609756097562,
+      0.1,
+      0.03962557164634146
     ],
     "min": [
-      -0.05409739219434246,
+      -0.06696646341463414,
       0.0,
-      -0.033046488189337885
+      -0.04090782110833195
     ]
   },
   "collision_hint": {
@@ -17,7 +20,7 @@
     "radius_m": 0.02,
     "visual_overhang": true
   },
-  "depth_m": 0.06505713920736225,
+  "depth_m": 0.08053339275467342,
   "forward": "-Z",
   "height_m": 0.1,
   "motion": {
@@ -30,7 +33,7 @@
       "kind": "solid",
       "local_pivot_m": [
         0.0,
-        0.03472675756613835,
+        0.04298780487804878,
         0.0
       ],
       "material_hint": {
@@ -44,7 +47,7 @@
       "parent": null,
       "pivot_m": [
         0.0,
-        0.03472675756613835,
+        0.04298780487804878,
         0.0
       ],
       "role": "ghost bubble body with wavy three-lobed hem"
@@ -52,60 +55,60 @@
     {
       "kind": "solid",
       "local_pivot_m": [
-        0.016008788948929025,
-        0.011329296794626693,
-        -0.027715617157316883
+        0.019817073170731708,
+        0.014024390243902445,
+        -0.03430880467790036
       ],
       "name": "eye_screen_left",
       "node_index": 2,
       "parent": "body",
       "pivot_m": [
-        0.016008788948929025,
-        0.04605605436076504,
-        -0.027715617157316883
+        0.019817073170731708,
+        0.05701219512195122,
+        -0.03430880467790036
       ],
       "role": "open oval eye outline with a curled highlight line"
     },
     {
       "kind": "solid",
       "local_pivot_m": [
-        -0.005418359336560593,
-        0.013053320219895977,
-        -0.03045184881467722
+        -0.006707317073170732,
+        0.016158536585365854,
+        -0.03769595052253403
       ],
       "name": "eye_screen_right",
       "node_index": 3,
       "parent": "body",
       "pivot_m": [
-        -0.005418359336560593,
-        0.047780077786034325,
-        -0.03045184881467722
+        -0.006707317073170732,
+        0.05914634146341463,
+        -0.03769595052253403
       ],
       "role": "open round eye outline with a curled highlight line"
     },
     {
       "kind": "solid",
       "local_pivot_m": [
-        0.007634960883335381,
-        -0.010344140551615678,
-        -0.02972610787960206
+        0.009451219512195122,
+        -0.012804878048780485,
+        -0.036797565188124215
       ],
       "name": "mouth",
       "node_index": 4,
       "parent": "body",
       "pivot_m": [
-        0.007634960883335381,
-        0.02438261701452267,
-        -0.02972610787960206
+        0.009451219512195122,
+        0.030182926829268292,
+        -0.036797565188124215
       ],
       "role": "small lopsided smile"
     },
     {
       "kind": "solid",
       "local_pivot_m": [
-        -0.021673437346242372,
-        -0.0007388671822582613,
-        -0.007388671822582627
+        -0.026829268292682926,
+        -0.0009146341463414573,
+        -0.009146341463414634
       ],
       "material_hint": {
         "aura_colour": "#B4EED8",
@@ -117,18 +120,18 @@
       "node_index": 5,
       "parent": "body",
       "pivot_m": [
-        -0.021673437346242372,
-        0.03398789038388009,
-        -0.007388671822582627
+        -0.026829268292682926,
+        0.04207317073170732,
+        -0.009146341463414634
       ],
-      "role": "short ghostly arm reaching out to hold the torch"
+      "role": "short ghostly arm reaching out to hold what the Gubble carries"
     },
     {
       "kind": "solid",
       "local_pivot_m": [
-        -0.020688281103231357,
-        0.009112695247851903,
-        0.002955468729033051
+        -0.025609756097560974,
+        0.011280487804878045,
+        0.0036585365853658534
       ],
       "material_hint": {
         "aura_colour": "#B4EED8",
@@ -140,49 +143,11 @@
       "node_index": 6,
       "parent": "arm_screen_right",
       "pivot_m": [
-        -0.04236171844947373,
-        0.04310058563173199,
-        -0.004433203093549576
+        -0.0524390243902439,
+        0.053353658536585365,
+        -0.00548780487804878
       ],
-      "role": "hand wrapped round the torch handle"
-    },
-    {
-      "kind": "solid",
-      "local_pivot_m": [
-        0.0,
-        0.0014777343645165295,
-        0.0
-      ],
-      "name": "torch",
-      "node_index": 7,
-      "parent": "hand_screen_right",
-      "pivot_m": [
-        -0.04236171844947373,
-        0.04457831999624852,
-        -0.004433203093549576
-      ],
-      "role": "hand-held flaming torch"
-    },
-    {
-      "kind": "effect",
-      "local_pivot_m": [
-        0.0014777343645165225,
-        0.02241230452850064,
-        0.0
-      ],
-      "motion_hint": {
-        "kind": "flicker",
-        "reason": "Independent flame motion around the character"
-      },
-      "name": "torch_flame",
-      "node_index": 8,
-      "parent": "torch",
-      "pivot_m": [
-        -0.040883984084957206,
-        0.06699062452474916,
-        -0.004433203093549576
-      ],
-      "role": "flame"
+      "role": "open hand that holds what the Gubble carries (its torch is now a separate item)"
     },
     {
       "kind": "effect",
@@ -196,11 +161,11 @@
         "reason": "Independent glow motion around the character"
       },
       "name": "aura",
-      "node_index": 9,
+      "node_index": 7,
       "parent": "body",
       "pivot_m": [
         0.0,
-        0.03472675756613835,
+        0.04298780487804878,
         0.0
       ],
       "role": "glow"
@@ -208,91 +173,91 @@
     {
       "kind": "effect",
       "local_pivot_m": [
-        0.04186914032796822,
-        0.017240234252692797,
-        -0.004433203093549576
+        0.051829268292682924,
+        0.02134146341463415,
+        -0.00548780487804878
       ],
       "motion_hint": {
         "kind": "twinkle",
         "reason": "Independent sparkle motion around the character"
       },
       "name": "floating_sparkle_0",
-      "node_index": 10,
+      "node_index": 8,
       "parent": "body",
       "pivot_m": [
-        0.04186914032796822,
-        0.051966991818831146,
-        -0.004433203093549576
+        0.051829268292682924,
+        0.06432926829268293,
+        -0.00548780487804878
       ],
       "role": "sparkle"
     },
     {
       "kind": "effect",
       "local_pivot_m": [
-        0.03349531226237458,
-        0.037928515355924154,
-        0.0007388671822582628
+        0.041463414634146344,
+        0.04695121951219512,
+        0.0009146341463414634
       ],
       "motion_hint": {
         "kind": "drift",
         "reason": "Independent sparkle motion around the character"
       },
       "name": "floating_sparkle_1",
-      "node_index": 11,
+      "node_index": 9,
       "parent": "body",
       "pivot_m": [
-        0.03349531226237458,
-        0.0726552729220625,
-        0.0007388671822582628
+        0.041463414634146344,
+        0.0899390243902439,
+        0.0009146341463414634
       ],
       "role": "sparkle"
     },
     {
       "kind": "effect",
       "local_pivot_m": [
-        -0.02955468729033051,
-        0.04310058563173199,
-        -0.0024628906075275423
+        -0.036585365853658534,
+        0.05335365853658537,
+        -0.003048780487804878
       ],
       "motion_hint": {
         "kind": "twinkle",
         "reason": "Independent sparkle motion around the character"
       },
       "name": "floating_sparkle_2",
-      "node_index": 12,
+      "node_index": 10,
       "parent": "body",
       "pivot_m": [
-        -0.02955468729033051,
-        0.07782734319787034,
-        -0.0024628906075275423
+        -0.036585365853658534,
+        0.09634146341463415,
+        -0.003048780487804878
       ],
       "role": "sparkle"
     },
     {
       "kind": "effect",
       "local_pivot_m": [
-        -0.0522132808795839,
-        0.0024628906075275445,
-        0.001970312486022034
+        -0.06463414634146342,
+        0.0030487804878048808,
+        0.0024390243902439024
       ],
       "motion_hint": {
         "kind": "drift",
         "reason": "Independent sparkle motion around the character"
       },
       "name": "floating_sparkle_3",
-      "node_index": 13,
+      "node_index": 11,
       "parent": "body",
       "pivot_m": [
-        -0.0522132808795839,
-        0.03718964817366589,
-        0.001970312486022034
+        -0.06463414634146342,
+        0.04603658536585366,
+        0.0024390243902439024
       ],
       "role": "sparkle"
     }
   ],
   "provenance": {
-    "description_sha256": "9d99bdaddd4659b1824507840cdc7dd2f04a6ccaf25de5c939806d34c9cf5064",
-    "interpretation_sha256": "a9066f30f7ec787d471f949da78090a95a63e475bf5c1528d84c4ff1e1f1feb5",
+    "description_sha256": "375ddd684b879a567495746bb3994b47e21ed6075d234fa5da55698d0d296546",
+    "interpretation_sha256": "bcd696f47b493ef2e94d54fb9d4a243cf828e56496663d0e98b5b851be737f49",
     "photo_sha256": "dafeed7029de16db07167a8e7a9e26062bc4add5bc9a7b976b8d4bcb28487a21",
     "photo_size_px": [
       4284,
@@ -305,7 +270,7 @@
     0
   ],
   "schema": "enfractal.character.draft",
-  "triangles": 16216,
+  "triangles": 15184,
   "uncertainties": [
     "Back depth is inferred from a single front drawing. Static pose and motion hints await family and game review.",
     "Sparkle positions are inferred, not claimed as traced marks. The preview shader is an illustration of the material hint; the game shader is still the Look lane work."
@@ -313,5 +278,5 @@
   "units": "metres",
   "up": "+Y",
   "version": 1,
-  "width_m": 0.09833090750553714
+  "width_m": 0.12172256097560975
 }

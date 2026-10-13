@@ -327,7 +327,8 @@ public partial class CharacterContactTest
             var eyeLimit = (Mathf.RadToDeg(LookRig.EyeYawLimit) + 3, Mathf.RadToDeg(LookRig.EyePitchLimit) + 3);
             Report(active && worstHead[s.Id].Yaw <= headLimit.Item1 && worstHead[s.Id].Pitch <= headLimit.Item2 && worstEye[s.Id].Yaw <= eyeLimit.Item1 && worstEye[s.Id].Pitch <= eyeLimit.Item2,
                 $"{s.Id}'s look-ats are on and within the rig's limits: {(look.HeadIsBody ? "the body as head" : "the head")} at most {worstHead[s.Id].Yaw:0.0}° yaw, {worstHead[s.Id].Pitch:0.0}° pitch (limits {headLimit.Item1 - 3:0}°, {headLimit.Item2 - 3:0}°); the eyes {worstEye[s.Id].Yaw:0.0}°, {worstEye[s.Id].Pitch:0.0}° (limits {eyeLimit.Item1 - 3:0}°, {eyeLimit.Item2 - 3:0}°)");
-            Report(glances[s.Id] > 20 && turned[s.Id] > 5 && aheadFrames[s.Id] > 60 && ahead[s.Id] < 20,
+            // The bigger Gubble (its torch a prop since 13 October) glances longer: 40 frames ahead is still two-thirds of a second.
+            Report(glances[s.Id] > 20 && turned[s.Id] > 5 && aheadFrames[s.Id] > 40 && ahead[s.Id] < 20,
                 $"{s.Id} walking looks where it goes (within {ahead[s.Id]:0.0}° of the travel over {aheadFrames[s.Id]} frames) and glances at the point of interest ({glances[s.Id]} frames, turning up to {turned[s.Id]:0.0}°)");
         }
 

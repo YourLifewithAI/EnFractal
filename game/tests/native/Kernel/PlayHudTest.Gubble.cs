@@ -13,7 +13,7 @@ namespace EnFractal.Tests.Kernel;
 /// <summary>
 /// The drawn Gubble in the room (the characters round, K5; Characters/Gubble): the companion wears the family's Gubble in place of
 /// the prototype figure; every gesture plays through the rig's gesture layer with the prototype's own envelopes and numbers, and the
-/// cast swings the torch arm toward the spot; the glow's halo rides the aura bone and its light the torch flame; the aura recolours
+/// cast swings the holding arm toward the spot; the glow's halo and light ride the aura bone; the aura recolours
 /// the bubble's rim and the sparkles; the bubble darkens with the light level; the dim, the name tag, the pointing cue and the eye
 /// views keep working; a library without the Gubble keeps the prototype.
 /// </summary>
@@ -34,13 +34,14 @@ public partial class PlayHudTest
         var body = drawn.Body;
         var layer = drawn.Gestures;
         Check(Enumerable.Range(0, drawn.Visual.Stack.Count).Count(i => drawn.Visual.Stack[i] == layer) == 1 && layer.Layer == PoseLayer.Gesture &&
-              layer.ArmBone >= 0 && body.Bones[layer.ArmBone].Role == PartRole.Arm && body.Bones[layer.PropBone].Role == PartRole.Torch,
-            $"its pose stack runs the gesture layer last, and the layer found the torch arm by role ({body.Bones[Math.Max(layer.ArmBone, 0)].Name} holding {body.Bones[Math.Max(layer.PropBone, 0)].Name})");
+              layer.ArmBone >= 0 && body.Bones[layer.ArmBone].Role == PartRole.Arm && body.Bones[layer.PropBone].Role == PartRole.Hand,
+            $"its pose stack runs the gesture layer last, and the layer found the arm that ends in a hand by role ({body.Bones[Math.Max(layer.ArmBone, 0)].Name} reaching with {body.Bones[Math.Max(layer.PropBone, 0)].Name})");
+        Check(body.CountBones(PartRole.Torch) == 0 && body.CountBones(PartRole.Flame) == 0,
+            "the drawn Gubble carries no torch of its own: the torch is a separate item since the founder's note of 13 October");
         var surfaces = drawn.Visual.Look;
         var bubbleParts = surfaces.Of(CharacterSurfaceRole.Bubble).Select(s => s.Part).Distinct().OrderBy(p => p).ToArray();
-        Check(bubbleParts.SequenceEqual(new[] { "arm_screen_right", "body", "hand_screen_right" }) && surfaces.Of(CharacterSurfaceRole.Effect).Count(s => s.Part.Contains("sparkle")) == 4 &&
-              surfaces.Of(CharacterSurfaceRole.Effect).Any(s => s.Part == "torch_flame"),
-            $"it wears its look: the bubble body and arm see-through ({string.Join(", ", bubbleParts)}), the four sparkles and the torch flame glowing");
+        Check(bubbleParts.SequenceEqual(new[] { "arm_screen_right", "body", "hand_screen_right" }) && surfaces.Of(CharacterSurfaceRole.Effect).Count(s => s.Part.Contains("sparkle")) == 4,
+            $"it wears its look: the bubble body and arm see-through ({string.Join(", ", bubbleParts)}), the four sparkles glowing");
 
         // Settle: the Gubble stays where it is, and nothing is playing.
         host.PlayerGoal("stay");
@@ -64,7 +65,7 @@ public partial class PlayHudTest
     {
         await Frames(1);
         var meshes = drawn.Body.FindChildren("*", nameof(GeometryInstance3D), true, false).OfType<GeometryInstance3D>().ToList();
-        Check(meshes.Count == drawn.Body.Bones.Count(b => b.HasMesh) && meshes.Count >= 12 && meshes.All(g => g.Layers == EyeView.GubbleBodyLayer) && (companion.EyeCamera.CullMask & EyeView.GubbleBodyLayer) == 0 &&
+        Check(meshes.Count == drawn.Body.Bones.Count(b => b.HasMesh) && meshes.Count >= 10 && meshes.All(g => g.Layers == EyeView.GubbleBodyLayer) && (companion.EyeCamera.CullMask & EyeView.GubbleBodyLayer) == 0 &&
               (_world.Player.EyeCamera.CullMask & EyeView.GubbleBodyLayer) != 0,
             $"every drawn part ({meshes.Count} meshes) is on the Gubble's own layer: its eye leaves it out, the player's eye draws it");
         var tag = companion.GetNode<Label3D>("CompanionLabel");
@@ -174,11 +175,11 @@ public partial class PlayHudTest
                 $"{gesture}: over its {steps} frames ({seconds} s) the root bone takes the companion's offset (within {offsetError:0.#e0}) and the prototype's own pose, same envelope and numbers (within {prototypeError:0.#e0}, at most {largest * 1000:0.#} mm or mrad), and the visual root's children never move");
             if (gesture == CompanionAvatar.Gesture.Cast)
                 Check(swingError < 1e-4f && peakSwing > 0.95f * GubbleGestureLayer.CastArmSwingRad,
-                    $"the cast swings the torch arm on the cast's own envelope (CastEnvelope × {GubbleGestureLayer.CastArmSwingRad} rad, within {swingError:0.#e0}; at the peak {peakSwing:0.00} rad); no other gesture moves it");
+                    $"the cast swings the holding arm on the cast's own envelope (CastEnvelope × {GubbleGestureLayer.CastArmSwingRad} rad, within {swingError:0.#e0}; at the peak {peakSwing:0.00} rad); no other gesture moves it");
         }
     }
 
-    /// <summary>The cast in real frames: the rig's torch (after the arm's spring) swings toward the spot and settles back; the body's node stays put.</summary>
+    /// <summary>The cast in real frames: the rig's hand (after the arm's spring) swings toward the spot and settles back; the body's node stays put.</summary>
     private async Task CheckGubbleTorchArm(CompanionAvatar companion, DrawnGubble drawn, Node3D prototype)
     {
         var body = drawn.Body;
@@ -201,16 +202,16 @@ public partial class PlayHudTest
         var after = Level(TorchAt());
         // Settled within 8 mm: the float gait (K3) never holds the body quite still, and the arm's spring rings down slowly.
         Check(before - closest > 0.004f && rootMoved > 0.2f && body.Transform == bodyPose && Mathf.Abs(after - before) < 0.008f,
-            $"in the room the cast leans the drawn body ({rootMoved:0.00} rad at most) and swings its torch toward the spot, {(before - closest) * 1000:0.#} mm nearer through the arm's spring, then settles ({(after - before) * 1000:0.#} mm off); the body's node itself never moves");
+            $"in the room the cast leans the drawn body ({rootMoved:0.00} rad at most) and swings its hand toward the spot, {(before - closest) * 1000:0.#} mm nearer through the arm's spring, then settles ({(after - before) * 1000:0.#} mm off); the body's node itself never moves");
     }
 
-    /// <summary>The glow's anchors: the halo on the aura bone, the light on the torch flame, both riding the bones; the spark leaves the Gubble's middle.</summary>
+    /// <summary>The glow's anchors: the halo and its light on the aura bone (no torch flame since 13 October), riding the bone; the spark leaves the Gubble's middle.</summary>
     private async Task CheckGubbleGlowAnchors(CompanionAvatar companion, DrawnGubble drawn, LookDirector look)
     {
         var body = drawn.Body;
-        Check(body.Bones[drawn.HaloBone].Role == PartRole.Aura && drawn.LightAnchor != null && body.Bones[drawn.LightBone].Role == PartRole.Flame &&
-              companion.GetMeta(GlowLook.HaloAnchorMeta).AsGodotObject() == drawn.HaloAnchor && companion.GetMeta(GlowLook.LightAnchorMeta).AsGodotObject() == drawn.LightAnchor,
-            $"the companion names its glow anchors to the look: the halo on {body.Bones[drawn.HaloBone].Name}, the light on {body.Bones[Math.Max(drawn.LightBone, 0)].Name}");
+        Check(body.Bones[drawn.HaloBone].Role == PartRole.Aura && drawn.LightAnchor == null && drawn.LightBone < 0 &&
+              companion.GetMeta(GlowLook.HaloAnchorMeta).AsGodotObject() == drawn.HaloAnchor && !companion.HasMeta(GlowLook.LightAnchorMeta),
+            $"the companion names its halo anchor to the look ({body.Bones[drawn.HaloBone].Name}) and no light anchor: with no torch flame the light sits with the halo");
         Vector3 Expected(int bone) => body.GlobalTransform * body.FinalBoneTransform(bone) * (body.Bones[bone].HasMesh ? body.Bones[bone].MeshBounds.GetCenter() : Vector3.Zero);
         const string id = "effect:k5_halo";
         Check(look.StartGlow(id, companion, Vector3.Zero, 0.6f, 0.6f), "a glow starts on the drawn Gubble");
@@ -219,19 +220,18 @@ public partial class PlayHudTest
         var halo = look.GlowRoot(id)!.GetNode<MeshInstance3D>("Halo");
         look._Process(0);
         var up = drawn.HaloAnchor.GlobalPosition - companion.GlobalPosition;
-        var lightUp = drawn.LightAnchor!.GlobalPosition - companion.GlobalPosition;
-        Check(halo.GlobalPosition.DistanceTo(drawn.HaloAnchor.GlobalPosition) < 1e-4f && drawn.HaloAnchor.GlobalPosition.DistanceTo(Expected(drawn.HaloBone)) < 1e-4f &&
-              Mathf.Abs(up.Y - companion.BodyHeightM * GlowLook.FollowHeightFraction) > 0.01f,
-            $"the halo sits on the aura bone, the bubble's middle ({up.Y * 100:0.0} cm up), not at {GlowLook.FollowHeightFraction} of the height ({companion.BodyHeightM * GlowLook.FollowHeightFraction * 100:0.0} cm)");
-        Check(light.GlobalPosition.DistanceTo(drawn.LightAnchor.GlobalPosition) < 1e-4f && drawn.LightAnchor.GlobalPosition.DistanceTo(Expected(drawn.LightBone)) < 1e-4f && lightUp.Y > up.Y + 0.03f,
-            $"the glow's light rides the torch flame: the Gubble carries the light ({lightUp.Y * 100:0.0} cm up, {new Vector2(lightUp.X, lightUp.Z).Length() * 100:0.0} cm out)");
-        var probe = drawn.LightAnchor.GlobalPosition + new Vector3(0.2f, 0f, 0.1f);
+        // Since the torch left the drawing (13 October) the bigger bubble's middle is near 0.55 of the height; that the halo rides the
+        // bone, not the fraction, shows mid-cast below, where the bone moves and the fraction would not.
+        Check(halo.GlobalPosition.DistanceTo(drawn.HaloAnchor.GlobalPosition) < 1e-4f && drawn.HaloAnchor.GlobalPosition.DistanceTo(Expected(drawn.HaloBone)) < 1e-4f,
+            $"the halo sits on the aura bone, the bubble's middle ({up.Y * 100:0.0} cm up; {GlowLook.FollowHeightFraction} of the height is {companion.BodyHeightM * GlowLook.FollowHeightFraction * 100:0.0} cm)");
+        Check(light.GlobalPosition.DistanceTo(drawn.HaloAnchor.GlobalPosition) < 1e-4f,
+            $"the glow's light sits with the halo in the bubble's middle ({up.Y * 100:0.0} cm up)");
+        var probe = drawn.HaloAnchor.GlobalPosition + new Vector3(0.2f, 0f, 0.1f);
         var counted = look.EstimateLightAt(probe).Glows;
-        var expected = GlowLook.PointLight(GlowLook.Energy(0.6f), light.LightColor, 0.6f, GlowLook.Attenuation, drawn.LightAnchor.GlobalPosition.DistanceTo(probe));
-        Check(look.GlowCount == 1 && Mathf.Abs(counted - expected) < 1e-5f, $"the light level counts the glow from where its light is, the torch flame ({counted:0.0000} against {expected:0.0000})");
+        var expected = GlowLook.PointLight(GlowLook.Energy(0.6f), light.LightColor, 0.6f, GlowLook.Attenuation, drawn.HaloAnchor.GlobalPosition.DistanceTo(probe));
+        Check(look.GlowCount == 1 && Mathf.Abs(counted - expected) < 1e-5f, $"the light level counts the glow from where its light is, the bubble's middle ({counted:0.0000} against {expected:0.0000})");
         // The anchors ride the bones: mid-cast the body leans and both move with it.
         var haloRest = drawn.HaloAnchor.GlobalPosition;
-        var lightRest = drawn.LightAnchor.GlobalPosition;
         companion.CastGesture(AheadOf(companion, 0.4f, 0f), "light");
         var moved = 0f;
         var follows = true;
@@ -239,11 +239,11 @@ public partial class PlayHudTest
         {
             await Frames(1);
             look._Process(0);
-            moved = Mathf.Max(moved, Mathf.Min(drawn.HaloAnchor.GlobalPosition.DistanceTo(haloRest), drawn.LightAnchor.GlobalPosition.DistanceTo(lightRest)));
-            follows &= halo.GlobalPosition.DistanceTo(drawn.HaloAnchor.GlobalPosition) < 1e-4f && light.GlobalPosition.DistanceTo(drawn.LightAnchor.GlobalPosition) < 1e-4f &&
-                       drawn.HaloAnchor.GlobalPosition.DistanceTo(Expected(drawn.HaloBone)) < 1e-4f && drawn.LightAnchor.GlobalPosition.DistanceTo(Expected(drawn.LightBone)) < 1e-4f;
+            moved = Mathf.Max(moved, drawn.HaloAnchor.GlobalPosition.DistanceTo(haloRest));
+            follows &= halo.GlobalPosition.DistanceTo(drawn.HaloAnchor.GlobalPosition) < 1e-4f && light.GlobalPosition.DistanceTo(drawn.HaloAnchor.GlobalPosition) < 1e-4f &&
+                       drawn.HaloAnchor.GlobalPosition.DistanceTo(Expected(drawn.HaloBone)) < 1e-4f;
         }
-        Check(follows && moved > 0.004f, $"mid-cast both anchors follow their bones as the body leans (each moved {moved * 1000:0.#} mm or more), and the halo and the light follow them");
+        Check(follows && moved > 0.004f, $"mid-cast the anchor follows its bone as the body leans ({moved * 1000:0.#} mm), and the halo and the light follow it");
         look.StopGlow(id);
         for (var i = 0; i < 60 && companion.Playing != CompanionAvatar.Gesture.None; i++) await Frames(1);
         // A wisp: the spark leaves the Gubble's middle, the aura bone.

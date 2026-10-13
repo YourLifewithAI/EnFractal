@@ -35,7 +35,7 @@ public partial class CharacterLookTest : Node3D
     {
         ["gubble"] = new(new[] { "body", "arm_screen_right", "hand_screen_right" },
             new() { ["eye_screen_left"] = 2, ["eye_screen_right"] = 2, ["mouth"] = 1 },
-            new() { ["torch_flame"] = 2, ["floating_sparkle_0"] = 1, ["floating_sparkle_1"] = 1, ["floating_sparkle_2"] = 1, ["floating_sparkle_3"] = 1 },
+            new() { ["floating_sparkle_0"] = 1, ["floating_sparkle_1"] = 1, ["floating_sparkle_2"] = 1, ["floating_sparkle_3"] = 1 },
             Array.Empty<string>()),
         ["potato_man"] = new(Array.Empty<string>(),
             new() { ["eye_screen_left"] = 2, ["eye_screen_right"] = 2, ["nostrils"] = 2, ["mouth"] = 1 },
@@ -62,6 +62,7 @@ public partial class CharacterLookTest : Node3D
             GD.Print("CHARACTER_LOOK: glTF extras kept as meta: " + ExtrasNote(Load(repository, "gubble")));
             foreach (var id in Characters) CheckCharacter(repository, id);
             CheckAura(repository);
+            CheckTorchProp(repository);
             CheckNoCrossTalk(repository);
             CheckNameIndependence(repository);
             CheckRigLikeTree(repository);
@@ -173,7 +174,7 @@ public partial class CharacterLookTest : Node3D
 
         // Felt: exactly the GLB's colour; opaque parts still cast shadows.
         var felt = result.Of(CharacterSurfaceRole.Plain).ToList();
-        Check(felt.Count == glb.Count - bubbles.Count - ink.Count - effects.Count && felt.Count > 0, $"{id}: the rest ({felt.Count} surfaces) is felt");
+        Check(felt.Count == glb.Count - bubbles.Count - ink.Count - effects.Count && (felt.Count > 0 || id == "gubble"), $"{id}: the rest ({felt.Count} surfaces) is felt (the Gubble has none since its torch became a prop)");
         foreach (var s in felt)
         {
             var source = (BaseMaterial3D)s.Mesh.Mesh.SurfaceGetMaterial(s.Surface);
@@ -188,6 +189,24 @@ public partial class CharacterLookTest : Node3D
 
     // ---------- the aura ----------
 
+    /// <summary>The Gubble's torch, a separate prop since the founder's note of 13 October: its flame glows in its own fire colours, its handle is felt.</summary>
+    private void CheckTorchProp(string repository)
+    {
+        var folder = System.IO.Path.Combine(repository, "assets", "props", "torch");
+        var document = new GltfDocument();
+        var state = new GltfState();
+        var read = document.AppendFromBuffer(System.IO.File.ReadAllBytes(System.IO.Path.Combine(folder, "character.glb")), "", state);
+        Check(read == Error.Ok, "the torch prop's GLB reads from its bytes");
+        if (read != Error.Ok || document.GenerateScene(state) is not Node3D root) return;
+        var parts = CharacterLook.PartsFromJson(System.IO.File.ReadAllText(System.IO.Path.Combine(folder, "character.json")));
+        var result = CharacterLook.Apply(root, parts);
+        var flame = result.Of(CharacterSurfaceRole.Effect).ToList();
+        Check(flame.Count == 2 && flame.All(s => s.Part == "torch_flame" && ((StandardMaterial3D)s.Material).Emission == s.BaseColor) &&
+              result.Of(CharacterSurfaceRole.Plain).Any(s => s.Part == "torch") && result.Aura == null,
+            "the torch prop: its flame's two surfaces glow in their own fire colours (no aura), its handle is felt");
+        root.Free();
+    }
+
     private void CheckAura(string repository)
     {
         var parts = Parts(repository, "gubble");
@@ -197,7 +216,6 @@ public partial class CharacterLookTest : Node3D
         var result = CharacterLook.Apply(root, parts);
         var bubble = (ShaderMaterial)result.Of(CharacterSurfaceRole.Bubble).First().Material;
         var sparkle = result.Of(CharacterSurfaceRole.Effect).First(s => s.Part.Contains("sparkle"));
-        var flame = result.Of(CharacterSurfaceRole.Effect).First(s => s.Part == "torch_flame");
         Check(result.Aura == GubbleHintAura && bubble.GetShaderParameter("aura_color").AsColor() == GubbleHintAura,
             "without an aura_color meta, the rim takes the hint's aura colour (#B4EED8)");
         Check(((StandardMaterial3D)sparkle.Material).Emission == CharacterLook.Tinted(sparkle.BaseColor, GubbleHintAura, CharacterEffectLook.Default.SparkleAuraTint),
@@ -208,18 +226,15 @@ public partial class CharacterLookTest : Node3D
         result = CharacterLook.Apply(root, parts);
         bubble = (ShaderMaterial)result.Of(CharacterSurfaceRole.Bubble).First().Material;
         sparkle = result.Of(CharacterSurfaceRole.Effect).First(s => s.Part.Contains("sparkle"));
-        flame = result.Of(CharacterSurfaceRole.Effect).First(s => s.Part == "torch_flame");
         Check(result.Aura == violet && result.Of(CharacterSurfaceRole.Bubble).All(s => ((ShaderMaterial)s.Material).GetShaderParameter("aura_color").AsColor() == violet),
             "Apply reads the aura_color meta from the body above the visual root: every bubble's rim takes it");
         var sparkleColour = ((StandardMaterial3D)sparkle.Material).Emission;
-        var flameColour = ((StandardMaterial3D)flame.Material).Emission;
         Check(Distance(sparkleColour, violet) < Distance(sparkle.BaseColor, violet) * 0.5f, "the aura tints the sparkles (most of the way)");
-        Check(Distance(flameColour, flame.BaseColor) < Distance(sparkleColour, sparkle.BaseColor) && flameColour != flame.BaseColor, "the torch flame takes a little of the aura and keeps its fire");
 
         var orange = new Color("ff9a3c");
         body.SetMeta(LookDirector.AuraColorMeta, orange);
         var changed = CharacterLook.Recolor(root);
-        Check(changed == 3 + 6, $"Recolor recolours the three bubble surfaces and the six effect surfaces ({changed})");
+        Check(changed == 3 + 4, $"Recolor recolours the three bubble surfaces and the four sparkles' surfaces ({changed})");
         Check(result.Of(CharacterSurfaceRole.Bubble).All(s => ((ShaderMaterial)s.Material).GetShaderParameter("aura_color").AsColor() == orange)
             && ((StandardMaterial3D)sparkle.Material).Emission == CharacterLook.Tinted(sparkle.BaseColor, orange, CharacterEffectLook.Default.SparkleAuraTint),
             "Recolor follows the meta: rim and sparkles in the new aura");

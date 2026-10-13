@@ -278,11 +278,9 @@ public partial class CharacterGaitsTest
         int First(EffectMotion motion) => bones.First(b => b.Effect == motion).Index;
         var twinkle = First(EffectMotion.Twinkle);
         var drift = First(EffectMotion.Drift);
-        var flame = First(EffectMotion.Flicker);
         var aura = First(EffectMotion.Pulse);
         gubble.Body.Free();
         var twinkles = new List<float>();
-        var flames = new List<float>();
         var auras = new List<float>();
         var restReach = new List<float>();
         var runReach = new List<float>();
@@ -290,14 +288,32 @@ public partial class CharacterGaitsTest
         {
             var pose = v.Body.Pose;
             twinkles.Add(pose.GetScale(twinkle).X);
-            flames.Add(pose.GetScale(flame).Y);
             auras.Add(pose.GetScale(aura).X);
             var offset = (pose.GetPosition(drift) - pose.RestPosition(drift)).Length();
             if (frame < 300) restReach.Add(offset);
             else if (frame > 400) runReach.Add(offset);
         });
-        Check(twinkles.Max() - twinkles.Min() > 0.2f && flames.Max() - flames.Min() > 0.1f && auras.Max() - auras.Min() > 0.04f,
-            F($"the Gubble's sparkles twinkle ({twinkles.Min():0.00} to {twinkles.Max():0.00}), its flame flickers, its aura pulses"));
+        Check(twinkles.Max() - twinkles.Min() > 0.2f && auras.Max() - auras.Min() > 0.04f,
+            F($"the Gubble's sparkles twinkle ({twinkles.Min():0.00} to {twinkles.Max():0.00}), its aura pulses"));
+        // A flame flickers: the torch's, a separate prop since the founder's note of 13 October (built from its folder like a character).
+        var torchFolder = System.IO.Path.GetFullPath(System.IO.Path.Combine(ProjectSettings.GlobalizePath("res://"), "..", "assets", "props", "torch"));
+        var torchEntry = CharacterLibrary.LoadFolder(torchFolder, "torch");
+        Check(torchEntry.Definition != null, "the torch prop loads like a character: " + (torchEntry.RefusalReason ?? "loaded"));
+        if (torchEntry.Definition != null)
+        {
+            var torch = CharacterVisual.Create(torchEntry.Definition);
+            CharacterGaits.Install(torch);
+            var flameBone = torch.Body.Bones.First(b => b.Effect == EffectMotion.Flicker).Index;
+            var flames = new List<float>();
+            var still = new BodyState { Grounded = true, FloorNormal = Vector3.Up, BodyHeightM = 0.1f, GravityMps2 = 3.5f, WaterSurfaceY = float.NaN };
+            for (var frame = 1; frame <= 300; frame++)
+            {
+                torch.Stack.Evaluate(still, new PoseClock(frame / 60.0, 1f / 60, frame));
+                flames.Add(torch.Body.Pose.GetScale(flameBone).Y);
+            }
+            Check(flames.Max() - flames.Min() > 0.1f, F($"the torch's flame flickers ({flames.Min():0.00} to {flames.Max():0.00})"));
+            torch.Body.Free();
+        }
         Check(restReach.Max() > 0.001f && runReach.Average() > 1.5f * restReach.Average(),
             F($"its drifting sparkles wander {restReach.Average() * 1000:0.0} mm at rest and {runReach.Average() * 1000:0.0} mm at a run"));
         g1.Body.Free();

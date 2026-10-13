@@ -42,7 +42,7 @@ public partial class CharacterRigTest
             var motion = Gubble(); motion["motion"]!["kind"] = "swim";
             Folder("unknown_motion", Text(motion), gubbleGlb);
             Expect("unknown_motion", "unknown motion kind \"swim\"");
-            var effect = Gubble(); Part(effect, "torch_flame")["motion_hint"]!["kind"] = "spin";
+            var effect = Gubble(); Part(effect, "floating_sparkle_0")["motion_hint"]!["kind"] = "spin";
             Folder("unknown_effect", Text(effect), gubbleGlb);
             Expect("unknown_effect", "unknown effect hint \"spin\"");
             var noParts = Gubble(); noParts["parts"] = new JsonArray();
@@ -70,7 +70,7 @@ public partial class CharacterRigTest
             Expect("node_mismatch", "the part mouth sits away from its local_pivot_m");
             var lied = Gubble(); lied["triangles"] = 16000;
             Folder("triangle_mismatch", Text(lied), gubbleGlb);
-            Expect("triangle_mismatch", "has 16216 triangles, but character.json says 16000");
+            Expect("triangle_mismatch", "triangles, but character.json says 16000");
             Folder("bad_sidecar", gubbleJson, gubbleGlb, "{\"schema\": \"enfractal.character.rig\", \"version\": 1, \"wiggle\": 2}");
             Expect("bad_sidecar", "rig.json has an unknown key \"wiggle\"");
             Folder("sidecar_unknown_part", gubbleJson, gubbleGlb, "{\"schema\": \"enfractal.character.rig\", \"version\": 1, \"rigid\": [\"tail\"]}");

@@ -223,7 +223,7 @@ public partial class CharacterRigTest : Node3D
     private static readonly Dictionary<string, string> RoleTable = new()
     {
         ["gubble"] = "body:body:c eye_screen_left:eye:r eye_screen_right:eye:l mouth:mouth:c arm_screen_right:arm:l hand_screen_right:hand:l " +
-            "torch:torch:l torch_flame:flame:l aura:aura:c floating_sparkle_0:sparkle:c floating_sparkle_1:sparkle:c floating_sparkle_2:sparkle:c floating_sparkle_3:sparkle:c",
+            "aura:aura:c floating_sparkle_0:sparkle:c floating_sparkle_1:sparkle:c floating_sparkle_2:sparkle:c floating_sparkle_3:sparkle:c",
         ["potato_man"] = "body:body:c hair:hair:c hairline:hair:c hat:hat:c hat_band:hat_band:c eye_screen_left:eye:r eye_screen_right:eye:l nose:nose:c " +
             "nostrils:mark:c cheeks:cheek:c mouth:mouth:c arm_screen_left:arm:r hand_screen_left:hand:r arm_screen_right:arm:l hand_screen_right:hand:l " +
             "shoe_screen_left:shoe:r straps_screen_left:mark:r shoe_screen_right:shoe:l straps_screen_right:mark:l",
@@ -267,7 +267,7 @@ public partial class CharacterRigTest : Node3D
     {
         var expectations = new Dictionary<string, (string Chains, string Look, string Legs)>
         {
-            ["gubble"] = ("arm_screen_right>hand_screen_right torch_flame floating_sparkle_1 floating_sparkle_3", "body eye_screen_left eye_screen_right", ""),
+            ["gubble"] = ("arm_screen_right>hand_screen_right floating_sparkle_1 floating_sparkle_3", "body eye_screen_left eye_screen_right", ""),
             ["potato_man"] = ("hat hair>hairline arm_screen_left>hand_screen_left arm_screen_right>hand_screen_right", "body eye_screen_left eye_screen_right", ""),
             ["tomato_man"] = ("hat foot_screen_left foot_screen_right wand", "body eye_screen_left eye_screen_right", ""),
             ["cloudpuff"] = ("leg_screen_left>foot_screen_left leg_screen_right>foot_screen_right", "body eye_screen_left eye_screen_right", "leg_screen_left>foot_screen_left leg_screen_right>foot_screen_right"),

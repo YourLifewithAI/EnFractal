@@ -32,6 +32,14 @@ public sealed class GubbleGestureLayer : IPoseLayer<BodyState>
         PropBone = HeldProp(body);
         for (var bone = PropBone; bone > 0; bone = body.Bones[bone].Parent)
             if (body.Bones[bone].Role == PartRole.Arm && !body.Bones[bone].IsRigid) { ArmBone = bone; break; }
+        // No prop drawn in the hand (the Gubble's torch is a separate item since the founder's note of 13 October): the arm
+        // that ends in a hand, where a carried thing sits, swings instead, and the hand is the end it reaches with.
+        for (var i = 1; i < body.BoneCount && ArmBone < 0; i++)
+        {
+            if (body.Bones[i].Role is not (PartRole.Hand or PartRole.Paw) || body.Bones[i].IsRigid) continue;
+            for (var up = body.Bones[i].Parent; up > 0; up = body.Bones[up].Parent)
+                if (body.Bones[up].Role == PartRole.Arm && !body.Bones[up].IsRigid) { ArmBone = up; PropBone = i; break; }
+        }
         if (ArmBone >= 0)
         {
             _reachRest = body.Bones[PropBone].RestModel - body.Bones[ArmBone].RestModel;
@@ -40,9 +48,9 @@ public sealed class GubbleGestureLayer : IPoseLayer<BodyState>
     }
 
     public PoseLayer Layer => PoseLayer.Gesture;
-    /// <summary>The arm that holds the torch (the cast swings it), or -1 for a body with none.</summary>
+    /// <summary>The arm the cast swings: the one holding a drawn prop, else the one ending in a hand; -1 for a body with none.</summary>
     public int ArmBone { get; }
-    /// <summary>The prop the arm holds: the torch, else a wand; -1 for none.</summary>
+    /// <summary>The end the arm reaches with: a prop drawn in its hand (a torch, a wand), else the hand itself; -1 for none.</summary>
     public int PropBone { get; }
     /// <summary>The swing the last Apply gave the torch arm, radians (0 when it gave none).</summary>
     public float LastArmSwingRad { get; private set; }

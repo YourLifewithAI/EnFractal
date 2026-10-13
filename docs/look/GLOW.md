@@ -10,7 +10,7 @@
 
 - **The light** is an omni light. Its range is the radius. Its energy is 0.5 × intensity, held to the engine's bounds of 0.05 to 2.0, so the pack's default of 0.6 gives 0.3. The falloff exponent is 0.75, gentler than the lamps' 2.5, so the light makes a soft pool rather than a hot spot. The specular is low (0.3), so the light paints things more than it glints off them. It takes part in VoxelGI as a dynamic light, so indoors it bounces. The clock never dims it: a glow is as bright at noon as at midnight, and it simply counts for more in the dark.
 - **On the Gubble** (with `follow`), the glow is a halo:
-  - The light sits in the middle of the body, 0.55 of its height up.
+  - The light sits in the middle of the body, 0.55 of its height up. On the drawn Gubble (the characters round) the halo and its light ride the aura bone, the bubble's middle (`GlowLook.HaloAnchorMeta`); a body that names a light anchor (`GlowLook.LightAnchorMeta`, once a torch flame) carries the light there instead.
   - Around it is a soft disc, two body heights across. The disc faces the camera and adds its light to whatever is behind it. Its gradient falls off with a faint brighter rim, a nod to the soap-bubble outline in the family's note.
   - The disc breathes by ±5% over 4 s. It softens where it meets a surface, and it fades out only when a camera is within 4 to 20 cm of it, so the F1 eye view next to the Gubble isn't washed out.
   - It follows the body every frame. If the body leaves the scene, the halo goes with it.
