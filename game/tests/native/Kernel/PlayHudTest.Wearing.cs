@@ -41,6 +41,8 @@ public partial class PlayHudTest
             Check(CharacterGaits.FindGait(stickbear.Stack) != null, "the drawn player walks with its own gait and breathes (CharacterMotion)");
             Check(GubbleCharacter.Of(_world.Companion) is { } gubble && CharacterGaits.FindGait(gubble.Visual.Stack) != null,
                 "and the drawn Gubble floats with its own gait");
+            Check(player.KnockoutRecoveryDelayS > 0 && _world.Companion.KnockoutRecoveryDelayS == 0,
+                "the drawn player can tumble (a knockout's recovery waits for it); the floating Gubble never does");
             Check(player.SetCharacterId("cloudpuff"), "and can change to Cloudpuff");
             await Frames(3);
             Check(_world.PlayerVisual?.Body.Definition.Id == "cloudpuff" && !GodotObject.IsInstanceValid(stickbear.Root),
@@ -54,5 +56,6 @@ public partial class PlayHudTest
         await Frames(3);
         Check(_world.PlayerVisual == null && player.BodyVisual == null && prototypeParts.All(p => p.Visible) &&
             prototype.GetChildren().OfType<CharacterBody>().Count() == 0, "choosing the plain figure brings the prototype back and frees the drawn body");
+        Check(player.KnockoutRecoveryDelayS == 0, "and the prototype has no tumble: a knockout recovers at once, as before");
     }
 }

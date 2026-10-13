@@ -22,5 +22,7 @@ public static class CharacterMotion
         ArgumentNullException.ThrowIfNull(body);
         CharacterGaits.Install(visual);
         CharacterContact.Install(visual, body, pointOfInterest);
+        // A floating body (the Gubble) never falls, so it never tumbles.
+        if (!body.Floats) TumbleInstaller.Install(visual, body);
     }
 }

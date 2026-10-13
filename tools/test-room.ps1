@@ -23,6 +23,10 @@ $contact = Invoke-EnfractalNativeProcess -Toolchain $toolchain -FilePath $toolch
     -Arguments @('--headless', '--path', $toolchain.ProjectPath, '--fixed-fps', '60', 'res://tests/native_character_contact.tscn') -TimeoutSeconds 120
 if ($contact.Stderr -or $contact.Stdout -notmatch 'NATIVE_CHARACTER_CONTACT: \d+/\d+ checks passed') { throw "$($contact.Stdout)`n$($contact.Stderr)" }
 Write-Output (($contact.Stdout.Trim().Split("`n") | Where-Object { $_ -match '^(CHARACTERS_INTRUSION|NATIVE_CHARACTER_CONTACT)' }) -join "`n")
+$tumble = Invoke-EnfractalNativeProcess -Toolchain $toolchain -FilePath $toolchain.EnginePath `
+    -Arguments @('--headless', '--path', $toolchain.ProjectPath, '--fixed-fps', '60', 'res://tests/native_character_tumble.tscn') -TimeoutSeconds 600
+if ($tumble.Stderr -or $tumble.Stdout -notmatch 'NATIVE_CHARACTER_TUMBLE: \d+/\d+ checks passed') { throw "$($tumble.Stdout)`n$($tumble.Stderr)" }
+Write-Output (($tumble.Stdout.Trim().Split("`n") | Where-Object { $_ -match '^(TUMBLE_COST|NATIVE_CHARACTER_TUMBLE)' }) -join "`n")
 $navigation = Invoke-EnfractalNativeProcess -Toolchain $toolchain -FilePath $toolchain.EnginePath `
     -Arguments @('--headless', '--path', $toolchain.ProjectPath, '--fixed-fps', '60', 'res://tests/native_room_navigation.tscn') -TimeoutSeconds 90
 if ($navigation.Stderr -or $navigation.Stdout -notmatch 'checks passed') { throw "$($navigation.Stdout)`n$($navigation.Stderr)" }
