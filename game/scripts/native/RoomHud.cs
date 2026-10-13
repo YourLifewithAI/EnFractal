@@ -317,7 +317,7 @@ public partial class RoomHud : CanvasLayer
         Player.AddChild(_arm);
         _armLength = _arm.SpringLength;
         _arm.AddExcludedObject(Player.GetRid());
-        _shoulder = new Camera3D { Name = "FollowCamera", Near = 0.005f, Far = 100, Fov = 68 };
+        _shoulder = new Camera3D { Name = "FollowCamera", Near = 0.005f, Far = Look?.FarPlaneM ?? 100, Fov = 68 };
         _arm.AddChild(_shoulder);
         // The diorama rig is not a child of the body, so it orbits independently of the body's facing. The arm's
         // sphere keeps the lens out of walls, furniture and the ceiling; only world geometry (layer 1) stops it.
@@ -333,7 +333,7 @@ public partial class RoomHud : CanvasLayer
         _dioramaPivot.AddChild(_dioramaArm);
         _dioramaArm.AddExcludedObject(Player.GetRid());
         if (Companion != null) _dioramaArm.AddExcludedObject(Companion.GetRid());
-        _diorama = new Camera3D { Name = "DioramaCamera", Near = 0.01f, Far = 100, Fov = DioramaFovDeg };
+        _diorama = new Camera3D { Name = "DioramaCamera", Near = 0.01f, Far = Look?.FarPlaneM ?? 100, Fov = DioramaFovDeg };
         _dioramaArm.AddChild(_diorama);
         PlaceDioramaRig(snap: true);
         IgnoreCollisionOnlyParts();

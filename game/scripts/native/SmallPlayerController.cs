@@ -416,7 +416,7 @@ public partial class SmallPlayerController : CharacterBody3D
         EyeCamera = new Camera3D
         {
             Name = "EyeCamera", Position = Vector3.Up * (float)Profile.EyeHeightMeters,
-            Near = Mathf.Min(0.01f, BodyRadiusM * 0.25f), Far = 100.0f, Fov = 72.0f, Current = false
+            Near = Mathf.Min(0.01f, BodyRadiusM * 0.25f), Far = (GetParent() as RoomWorld)?.Look?.FarPlaneM ?? 100.0f, Fov = 72.0f, Current = false
         };
         AddChild(EyeCamera);
         BuildVisual();
