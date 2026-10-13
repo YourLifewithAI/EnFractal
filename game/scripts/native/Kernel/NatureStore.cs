@@ -1,94 +1,431 @@
+using Godot;
 using System;
-using System.IO;
+using System.Buffers.Binary;
+using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
+using EnFractal.Native.Room;
 
 namespace EnFractal.Native.Kernel;
 
-public sealed class NatureStateException(string message) : Exception(message);
-public interface INatureStore
+/// <summary>
+/// Nature as the authority's save keeps it: the host-owned "nature" block beside the team block, written with the
+/// durable nature commands and the simulation's throttled checkpoints, and checked whole when a save loads, because a
+/// save is untrusted input (the authority's nature_check calls Problem). Room state carries the same block as
+/// x_play_nature.
+/// - Cells are sparse: only cells that exist (where nature has acted) are saved, never a grid of the island. Each is one
+///   fixed 32-byte record in a base64 string, sorted by (x, z), with its surface and material named through one string
+///   table: about 43 characters a cell, so even MaxCells stays near 700 KB of the save's 4 MiB.
+/// - Unit values are 16-bit fixed point (moisture, growth, fuel, ash; light to 2; life to 600 s in centiseconds; burning
+///   to 60 s in milliseconds); the height is a float32. A value read back packs to the same bits, so a block survives any
+///   number of save and load round trips byte for byte.
+/// - The undo steps keep their remembered cells the same way, a record flagged absent for a cell that did not exist.
+/// </summary>
+public static class NatureBlock
 {
-    NatureState Load(string roomId, string manifest);
-    void Save(NatureState state);
-}
+    public const int Format = 1;
+    public const int CellBytes = 32;
+    public const int MaxNames = 4096;
+    public const int MaxNameLength = 80;
+    /// <summary>Saved weather clocks stay below this (about 300 years of play).</summary>
+    public const double MaxWeatherS = 1e10;
+    /// <summary>The engine's outer limits on any fire (element.ignite in IslandRules.Primitives).</summary>
+    public const float MaxFireRadiusM = 1.5f;
+    public const float MaxFireS = 60f;
 
-/// <summary>Atomic sidecar, including weather, ground, object damage, undo delta and durable receipts.</summary>
-public sealed class LocalNatureStore(string path) : INatureStore
-{
-    public const int MaxBytes = 8 * 1024 * 1024;
-    private readonly string _path = Path.GetFullPath(path);
-    private byte[]? _seen;
-    private bool _loaded;
-    public NatureState Load(string roomId, string manifest)
+    private const byte FertileFlag = 1;
+    private const byte ExposedFlag = 2;
+    private const byte AbsentFlag = 4;
+    private static readonly Regex Hex64 = new(@"\A[0-9a-f]{64}\z", RegexOptions.Compiled);
+    private static readonly Regex ObjectId = new(@"\Aobj:[A-Za-z0-9_-]{1,64}\z", RegexOptions.Compiled);
+    private static readonly Regex CreationId = new(@"\Acreation:[A-Za-z0-9_-]{1,64}\z", RegexOptions.Compiled);
+    private static readonly Regex MaterialToken = new(@"\A[a-z][a-z0-9_-]{0,39}\z", RegexOptions.Compiled);
+
+    // ---- packing ----
+
+    /// <summary>The block for a state, deterministic: the same state always packs to the same canonical JSON.</summary>
+    public static JsonObject Pack(NatureState state)
     {
-        try
+        var names = new List<string>();
+        var index = new Dictionary<string, int>(StringComparer.Ordinal);
+        int Name(string name)
         {
-            var bytes = Read();
-            var state = bytes == null ? NatureState.Fresh(roomId, manifest) : Parse(bytes, roomId, manifest);
-            _seen = bytes; _loaded = true; return state;
+            if (index.TryGetValue(name, out var at)) return at;
+            index[name] = names.Count;
+            names.Add(name);
+            return names.Count - 1;
         }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException or ArgumentException)
-        { throw new NatureStateException("Nature could not be loaded. The saved file has been kept."); }
+        var cells = PackCells(state.Cells.Values.Select(c => (c.X, c.Z, (NatureCell?)c)), Name);
+        var undo = new JsonArray();
+        foreach (var step in state.Undo)
+        {
+            var remembered = step.Cells.Select(p => { var (x, z) = ParseKey(p.Key); return (x, z, p.Value); });
+            undo.Add(new JsonObject
+            {
+                ["principal"] = step.Principal, ["revision"] = step.Revision, ["base"] = step.Base, ["label"] = step.Label,
+                ["cells"] = PackCells(remembered, Name),
+                ["objects"] = Objects(step.Objects.Where(p => p.Value != null).Select(p => p.Value!)),
+                ["created"] = new JsonArray(step.Objects.Where(p => p.Value == null).Select(p => p.Key).OrderBy(k => k, StringComparer.Ordinal).Select(k => (JsonNode?)k).ToArray()),
+                ["wallet"] = Wallet(step.Wallet),
+                ["trail"] = Trail(step.TrailEnabled, step.TrailPrincipal, step.TrailRulesSha256),
+            });
+        }
+        var block = new JsonObject
+        {
+            ["format"] = Format, ["cell_m"] = KernelJson.Num(NatureState.CellM), ["weather_s"] = state.WeatherS, ["changed_at"] = state.ChangedAt,
+            ["trail"] = Trail(state.TrailEnabled, state.TrailPrincipal, state.TrailRulesSha256),
+            ["names"] = new JsonArray(names.Select(n => (JsonNode?)n).ToArray()),
+            ["cells"] = cells, ["objects"] = Objects(state.Objects.Values), ["wallet"] = Wallet(state.Wallet), ["undo"] = undo,
+        };
+        if (state.Fire is { } fire)
+        {
+            block["fire"] = new JsonObject
+            {
+                ["center_m"] = KernelJson.Vector(fire.Center), ["radius_m"] = KernelJson.Num(fire.RadiusM), ["remaining_s"] = KernelJson.Num(fire.RemainingS),
+                ["intensity"] = KernelJson.Num(fire.Intensity), ["revision"] = fire.Revision,
+                ["authorized"] = new JsonObject(fire.AuthorizedCreations.OrderBy(p => p.Key, StringComparer.Ordinal).Select(p => KeyValuePair.Create(p.Key, (JsonNode?)p.Value))),
+            };
+        }
+        if (state.UndoneAt >= 0) block["undone"] = new JsonObject { ["at"] = state.UndoneAt, ["state_of"] = state.UndoneTo };
+        return block;
     }
-    public void Save(NatureState state)
+
+    private static JsonObject Trail(bool enabled, string principal, string rules) => new() { ["enabled"] = enabled, ["by"] = principal, ["rules_sha256"] = rules };
+
+    private static JsonObject Wallet(Dictionary<string, int> wallet) =>
+        new(wallet.OrderBy(p => p.Key, StringComparer.Ordinal).Select(p => KeyValuePair.Create(p.Key, (JsonNode?)p.Value)));
+
+    private static JsonObject Objects(IEnumerable<NatureObject> items)
     {
-        if (!_loaded) throw new NatureStateException("Nature must load before it can be saved.");
-        string? temp = null;
-        try
+        var map = new JsonObject();
+        foreach (var item in items.OrderBy(o => o.Id, StringComparer.Ordinal))
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
-            using var lease = new FileStream(_path + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
-            var disk = Read();
-            if (!(_seen == null ? disk == null : disk != null && _seen.AsSpan().SequenceEqual(disk)))
-                throw new NatureStateException("Another session changed nature. Reload the room before continuing.");
-            var bytes = JsonSerializer.SerializeToUtf8Bytes(state, NatureState.JsonOptions);
-            _ = Parse(bytes, state.RoomId, state.ManifestSha256);
-            temp = _path + "." + Guid.NewGuid().ToString("N") + ".tmp";
-            using (var stream = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None)) { stream.Write(bytes); stream.Flush(true); }
-            File.Move(temp, _path, true); temp = null; _seen = bytes;
+            var saved = new JsonObject { ["burn"] = KernelJson.Num(item.Burn) };
+            if (item.Creation)
+            {
+                saved["source_sha256"] = item.SourceHash;
+                saved["repair_cost"] = Wallet(item.RepairCost);
+            }
+            else if (item.PositionM is { } at && item.Rotation is { } turn)
+                saved["pose"] = new JsonObject { ["position_m"] = KernelJson.Vector(at), ["rotation"] = new JsonArray(KernelJson.Num(turn.X), KernelJson.Num(turn.Y), KernelJson.Num(turn.Z), KernelJson.Num(turn.W)) };
+            map[item.Id] = saved;
         }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException or ArgumentException)
-        { throw new NatureStateException("Nature could not be saved. Nothing from this change was applied."); }
-        finally { if (temp != null) try { File.Delete(temp); } catch (IOException) { } }
+        return map;
     }
-    private byte[]? Read()
+
+    private static string PackCells(IEnumerable<(int X, int Z, NatureCell? Cell)> cells, Func<string, int> name)
     {
-        try
+        var sorted = cells.OrderBy(c => c.X).ThenBy(c => c.Z).ToList();
+        var bytes = new byte[sorted.Count * CellBytes];
+        for (var i = 0; i < sorted.Count; i++)
         {
-            using var stream = new FileStream(_path, FileMode.Open, FileAccess.Read, FileShare.Read);
-            if (stream.Length <= 0 || stream.Length > MaxBytes) throw new NatureStateException("The nature save has an invalid size.");
-            var bytes = new byte[(int)stream.Length]; stream.ReadExactly(bytes); return bytes;
+            var record = bytes.AsSpan(i * CellBytes, CellBytes);
+            var (x, z, cell) = sorted[i];
+            BinaryPrimitives.WriteInt32LittleEndian(record, x);
+            BinaryPrimitives.WriteInt32LittleEndian(record[4..], z);
+            if (cell == null)
+            {
+                record[16] = AbsentFlag;
+                continue;
+            }
+            BinaryPrimitives.WriteSingleLittleEndian(record[8..], cell.Y);
+            BinaryPrimitives.WriteUInt16LittleEndian(record[12..], (ushort)name(cell.Surface));
+            BinaryPrimitives.WriteUInt16LittleEndian(record[14..], (ushort)name(cell.Material));
+            record[16] = (byte)((cell.Fertile ? FertileFlag : 0) | (cell.Exposed ? ExposedFlag : 0));
+            var values = new[]
+            {
+                Fixed(cell.Moisture, 1), Fixed(cell.Growth, 1), Fixed(cell.Fuel, 1), Fixed(cell.Ash, 1),
+                Fixed(cell.Light, 2), Fixed(cell.LifeS, 600), Fixed(cell.BurningS, 60),
+            };
+            for (var v = 0; v < values.Length; v++) BinaryPrimitives.WriteUInt16LittleEndian(record[(18 + v * 2)..], values[v]);
         }
-        catch (FileNotFoundException) { return null; }
-        catch (DirectoryNotFoundException) { return null; }
+        return Convert.ToBase64String(bytes);
     }
-    public static NatureState Parse(byte[] bytes, string roomId, string manifest)
+
+    /// <summary>The scale of each fixed-point field: 1, light 2, life 600 s and burning 60 s, each over 0..60000 or 0..65535.</summary>
+    private static ushort Fixed(float value, float range) => (ushort)Math.Round(Math.Clamp((double)value, 0, range) * Steps(range) / range);
+
+    private static float Unfixed(ushort bits, float range) => (float)(bits * (double)range / Steps(range));
+
+    /// <summary>Unit values use all 65,535 steps; seconds use 60,000 (centiseconds to 600 s, milliseconds to 60 s).</summary>
+    private static double Steps(float range) => range is 600 or 60 ? 60000 : 65535;
+
+    private static (int X, int Z) ParseKey(string key)
     {
-        try
-        {
-            if (bytes.Length is <= 0 or > MaxBytes) throw new JsonException();
-            new UTF8Encoding(false, true).GetCharCount(bytes);
-            using var strict = CanonicalJson.Parse(bytes);
-            var required = new[] { "schema", "version", "room_id", "manifest_sha256", "revision", "weather_s", "trail_enabled", "trail_principal", "trail_rules_sha256", "cells", "objects", "wallet", "fire", "undo", "receipts" };
-            if (strict.RootElement.ValueKind != JsonValueKind.Object || strict.RootElement.EnumerateObject().Count() != required.Length || required.Any(k => !strict.RootElement.TryGetProperty(k, out _))) throw new JsonException();
-            var s = JsonSerializer.Deserialize<NatureState>(bytes, NatureState.JsonOptions) ?? throw new JsonException();
-            if (s.Schema != "enfractal.nature_state" || s.Version != 1 || s.RoomId != roomId || s.ManifestSha256 != manifest || s.Revision < 0 || !double.IsFinite(s.WeatherS) || s.WeatherS is < 0 or > 1e10 || s.Cells == null || s.Cells.Count > NatureState.MaxCells || s.Objects == null || s.Objects.Count > 4096 || s.Receipts == null || s.Receipts.Count > NatureState.MaxReceipts || s.Wallet == null || s.Wallet.Count > 32 || s.Wallet.Any(p => p.Value is < 0 or > 100000)) throw new JsonException();
-            foreach (var (key, c) in s.Cells) if (c == null || c.Key != key || !ValidCell(c)) throw new JsonException();
-            if (!ValidTrail(s.TrailPrincipal, s.TrailRulesSha256) || s.Undo is { } trailUndo && !ValidTrail(trailUndo.TrailPrincipal, trailUndo.TrailRulesSha256)) throw new JsonException();
-            if (s.Undo is { } ownedUndo && ownedUndo.Principal is not (CommandHost.PlayerPrincipal or CommandHost.CompanionPrincipal)) throw new JsonException();
-            if (s.Cells.Values.Count(c => c.BurningS > 0) > NatureState.MaxBurning) throw new JsonException();
-            foreach (var (key, o) in s.Objects) if (o == null || o.Id != key || !ValidObject(o)) throw new JsonException();
-            if (s.Fire is { } f && (!float.IsFinite(f.X) || !float.IsFinite(f.Y) || !float.IsFinite(f.Z) || !float.IsFinite(f.RadiusM) || f.RadiusM is <= 0 or > NatureState.MaxFireRadiusM || !float.IsFinite(f.RemainingS) || f.RemainingS is < 0 or > 60 || f.AuthorityRevision < 0 || f.AuthorizedCreations == null || f.AuthorizedCreations.Count > 64)) throw new JsonException();
-            if (s.Undo is { } u && (u.NatureRevision != s.Revision || u.AuthorityRevision < 0 || u.Cells == null || u.Cells.Count > NatureState.MaxCells || u.Objects == null || u.Objects.Count > 4096 || u.Wallet == null || u.Wallet.Count > 32 || u.Wallet.Any(p => p.Value is < 0 or > 100000) || u.Cells.Any(p => p.Value != null && (p.Key != p.Value.Key || !ValidCell(p.Value))) || u.Objects.Any(p => p.Value != null && (p.Key != p.Value.Id || !ValidObject(p.Value))))) throw new JsonException();
-            foreach (var (key, record) in s.Receipts) if (key.Length > 100 || record["fingerprint"]?.GetValue<string>() is not { Length: 64 } || record["result"] is not System.Text.Json.Nodes.JsonObject) throw new JsonException();
-            return s;
-        }
-        catch (Exception e) when (e is JsonException or CanonicalJsonException or DecoderFallbackException or InvalidOperationException or FormatException or NullReferenceException)
-        { throw new NatureStateException("The nature save is invalid or belongs to another room. It was kept unchanged."); }
+        var colon = key.IndexOf(':');
+        return (int.Parse(key[..colon], System.Globalization.CultureInfo.InvariantCulture), int.Parse(key[(colon + 1)..], System.Globalization.CultureInfo.InvariantCulture));
     }
-    private static bool Unit(float value) => float.IsFinite(value) && value is >= 0 and <= 1;
-    private static bool ValidTrail(string principal, string hash) => principal is "player" or "companion" && hash != null && hash.Length is 0 or 64;
-    private static bool ValidObject(NatureObject o) => (o.Id.StartsWith("obj:") || o.Id.StartsWith("creation:")) && o.Id.Length <= 80 && o.Creation == o.Id.StartsWith("creation:") && Unit(o.Burn) && o.RepairCost != null && o.RepairCost.Count <= 32 && !o.RepairCost.Any(p => p.Key.Length is < 1 or > 40 || p.Value is < 1 or > 100000) && (o.Creation ? o.SourceHash.Length == 64 : o.SourceHash.Length == 0);
-    private static bool ValidCell(NatureCell c) => Math.Abs((long)c.X) <= 20000 && Math.Abs((long)c.Z) <= 20000 && float.IsFinite(c.Y) && Math.Abs(c.Y) <= 1000 && Unit(c.Moisture) && Unit(c.Growth) && Unit(c.Fuel) && Unit(c.Ash) && float.IsFinite(c.LifeS) && c.LifeS is >= 0 and <= 600 && float.IsFinite(c.BurningS) && c.BurningS is >= 0 and <= 60 && float.IsFinite(c.Light) && c.Light is >= 0 and <= 2 && c.Surface.Length <= 80 && c.Material.Length <= 40;
+
+    /// <summary>A block as strict JSON reads it (whole numbers as integers), however it arrived (a Godot dictionary reads them as floats).</summary>
+    public static JsonObject? Normalized(JsonNode? node) => node is JsonObject ? JsonNode.Parse(CanonicalJson.Text(node)) as JsonObject : null;
+
+    // ---- unpacking (only a block Problem passed) ----
+
+    public static NatureState Unpack(JsonNode given)
+    {
+        var block = Normalized(given)!;
+        var names = block["names"]!.AsArray().Select(n => n!.GetValue<string>()).ToArray();
+        var state = new NatureState
+        {
+            WeatherS = block["weather_s"]!.GetValue<double>(), ChangedAt = Int(block["changed_at"]),
+            TrailEnabled = block["trail"]!["enabled"]!.GetValue<bool>(), TrailPrincipal = block["trail"]!["by"]!.GetValue<string>(),
+            TrailRulesSha256 = block["trail"]!["rules_sha256"]!.GetValue<string>(),
+            Cells = new(StringComparer.Ordinal), Objects = ReadObjects(block["objects"]!.AsObject()), Wallet = ReadWallet(block["wallet"]!.AsObject()),
+        };
+        foreach (var (key, cell) in ReadCells(block["cells"]!.GetValue<string>(), names)) state.Cells[key] = cell!;
+        if (block["fire"] is JsonObject fire)
+        {
+            state.Fire = new NatureFire
+            {
+                Center = Vector(fire["center_m"]!), RadiusM = Float(fire["radius_m"]), RemainingS = Float(fire["remaining_s"]), Intensity = Float(fire["intensity"]),
+                Revision = Int(fire["revision"]),
+                AuthorizedCreations = fire["authorized"]!.AsObject().ToDictionary(p => p.Key, p => Int(p.Value), StringComparer.Ordinal),
+            };
+        }
+        foreach (var node in block["undo"]!.AsArray())
+        {
+            var saved = node!.AsObject();
+            var step = new NatureUndoStep
+            {
+                Principal = saved["principal"]!.GetValue<string>(), Revision = Int(saved["revision"]), Base = Int(saved["base"]), Label = saved["label"]!.GetValue<string>(),
+                Cells = ReadCells(saved["cells"]!.GetValue<string>(), names).ToDictionary(p => p.Key, p => p.Cell, StringComparer.Ordinal),
+                Wallet = ReadWallet(saved["wallet"]!.AsObject()),
+                TrailEnabled = saved["trail"]!["enabled"]!.GetValue<bool>(), TrailPrincipal = saved["trail"]!["by"]!.GetValue<string>(),
+                TrailRulesSha256 = saved["trail"]!["rules_sha256"]!.GetValue<string>(),
+            };
+            foreach (var (id, item) in ReadObjects(saved["objects"]!.AsObject())) step.Objects[id] = item;
+            foreach (var id in saved["created"]!.AsArray()) step.Objects[id!.GetValue<string>()] = null;
+            state.Undo.Add(step);
+        }
+        if (block["undone"] is JsonObject undone)
+        {
+            state.UndoneAt = Int(undone["at"]);
+            state.UndoneTo = Int(undone["state_of"]);
+        }
+        return state;
+    }
+
+    private static IEnumerable<(string Key, NatureCell? Cell)> ReadCells(string packed, string[] names)
+    {
+        var bytes = Convert.FromBase64String(packed);
+        for (var i = 0; i < bytes.Length / CellBytes; i++)
+        {
+            var record = bytes.AsSpan(i * CellBytes, CellBytes);
+            var x = BinaryPrimitives.ReadInt32LittleEndian(record);
+            var z = BinaryPrimitives.ReadInt32LittleEndian(record[4..]);
+            if ((record[16] & AbsentFlag) != 0)
+            {
+                yield return (NatureState.Key(x, z), null);
+                continue;
+            }
+            yield return (NatureState.Key(x, z), new NatureCell
+            {
+                X = x, Z = z, Y = BinaryPrimitives.ReadSingleLittleEndian(record[8..]),
+                Surface = names[BinaryPrimitives.ReadUInt16LittleEndian(record[12..])], Material = names[BinaryPrimitives.ReadUInt16LittleEndian(record[14..])],
+                Fertile = (record[16] & FertileFlag) != 0, Exposed = (record[16] & ExposedFlag) != 0,
+                Moisture = Unfixed(BinaryPrimitives.ReadUInt16LittleEndian(record[18..]), 1), Growth = Unfixed(BinaryPrimitives.ReadUInt16LittleEndian(record[20..]), 1),
+                Fuel = Unfixed(BinaryPrimitives.ReadUInt16LittleEndian(record[22..]), 1), Ash = Unfixed(BinaryPrimitives.ReadUInt16LittleEndian(record[24..]), 1),
+                Light = Unfixed(BinaryPrimitives.ReadUInt16LittleEndian(record[26..]), 2), LifeS = Unfixed(BinaryPrimitives.ReadUInt16LittleEndian(record[28..]), 600),
+                BurningS = Unfixed(BinaryPrimitives.ReadUInt16LittleEndian(record[30..]), 60),
+            });
+        }
+    }
+
+    private static Dictionary<string, NatureObject> ReadObjects(JsonObject map)
+    {
+        var objects = new Dictionary<string, NatureObject>(StringComparer.Ordinal);
+        foreach (var (id, node) in map)
+        {
+            var saved = node!.AsObject();
+            var item = new NatureObject { Id = id, Creation = id.StartsWith("creation:", StringComparison.Ordinal), Burn = Float(saved["burn"]) };
+            if (item.Creation)
+            {
+                item.SourceHash = saved["source_sha256"]!.GetValue<string>();
+                item.RepairCost = ReadWallet(saved["repair_cost"]!.AsObject());
+            }
+            else if (saved["pose"] is JsonObject pose)
+            {
+                item.PositionM = Vector(pose["position_m"]!);
+                var turn = pose["rotation"]!.AsArray().Select(v => Float(v)).ToArray();
+                item.Rotation = new Quaternion(turn[0], turn[1], turn[2], turn[3]);
+            }
+            objects[id] = item;
+        }
+        return objects;
+    }
+
+    private static Dictionary<string, int> ReadWallet(JsonObject map) => map.ToDictionary(p => p.Key, p => Int(p.Value), StringComparer.Ordinal);
+
+    private static int Int(JsonNode? node) => (int)node!.GetValue<double>();
+
+    private static float Float(JsonNode? node) => (float)node!.GetValue<double>();
+
+    private static Vector3 Vector(JsonNode node) => new(Float(node[0]), Float(node[1]), Float(node[2]));
+
+    // ---- the strict check ----
+
+    /// <summary>
+    /// What is wrong with a saved nature block, or null when nothing is. Every field, its type and range, the bounds, and
+    /// that each cell record is canonical (sorted, unique, its spare bits clear). storeRevision bounds every revision the
+    /// block names. With a room, cells must lie in its bounds and objects must be its own; without one (an earlier
+    /// manifest's save, before a migration filters it) only the shape is checked. Never throws.
+    /// </summary>
+    public static string? Problem(JsonNode? node, int storeRevision, RoomData? room)
+    {
+        try { return Unchecked(node, storeRevision, room); }
+        catch (Exception error)
+        {
+            return "an unreadable block (" + error.GetType().Name + ")";
+        }
+    }
+
+    private static string? Unchecked(JsonNode? node, int storeRevision, RoomData? room)
+    {
+        if (Normalized(node) is not { } block) return "not an object";
+        var required = new[] { "format", "cell_m", "weather_s", "changed_at", "trail", "names", "cells", "objects", "wallet", "undo" };
+        if (block.Any(p => !required.Contains(p.Key) && p.Key is not ("fire" or "undone")) || required.Any(k => !block.ContainsKey(k))) return "its fields";
+        if (!Whole(block["format"], Format) || block["format"]!.GetValue<double>() != Format) return "its format";
+        if (!Number(block["cell_m"], 1) || (float)block["cell_m"]!.GetValue<double>() != NatureState.CellM) return "its cell size";
+        if (!Number(block["weather_s"], MaxWeatherS) || block["weather_s"]!.GetValue<double>() < 0) return "its weather clock";
+        if (!Whole(block["changed_at"], storeRevision)) return "its last change";
+        if (TrailProblem(block["trail"])) return "its flower trail";
+        if (block["names"] is not JsonArray names || names.Count > MaxNames) return "its names";
+        var table = new List<string>();
+        foreach (var name in names)
+        {
+            if (name?.GetValueKind() != JsonValueKind.String || name.GetValue<string>() is not { Length: > 0 and <= MaxNameLength } text || KernelText.HasHidden(text)) return "a name";
+            table.Add(text);
+        }
+        if (table.Distinct(StringComparer.Ordinal).Count() != table.Count) return "a name listed twice";
+        var cells = CellsProblem(block["cells"], table, room, absentAllowed: false, out var count, out var burning);
+        if (cells != null) return "its cells: " + cells;
+        if (count > NatureState.MaxCells || burning > NatureState.MaxBurning) return "more cells than the engine allows";
+        if (block["objects"] is not JsonObject objects || objects.Count > NatureState.MaxObjects) return "its objects";
+        foreach (var (id, item) in objects)
+            if (ObjectProblem(id, item, room) is { } why) return "an object: " + why;
+        if (WalletProblem(block["wallet"])) return "its wallet";
+        if (block["fire"] is { } fire && FireProblem(fire, storeRevision, room) is { } fireWhy) return "its fire: " + fireWhy;
+        if (block["fire"] == null && burning > 0) return "burning cells with no fire";
+        if (block["undo"] is not JsonArray undo || undo.Count > NatureState.MaxUndoSteps) return "its undo steps";
+        var previous = -1;
+        var remembered = 0;
+        foreach (var stepNode in undo)
+        {
+            if (stepNode is not JsonObject step || step.Count != 9 || new[] { "principal", "revision", "base", "label", "cells", "objects", "created", "wallet", "trail" }.Any(k => !step.ContainsKey(k)))
+                return "an undo step's fields";
+            if (step["principal"]?.GetValueKind() != JsonValueKind.String || step["principal"]!.GetValue<string>() is not (CommandHost.PlayerPrincipal or CommandHost.CompanionPrincipal))
+                return "an undo step's principal";
+            if (!Whole(step["revision"], storeRevision) || !Whole(step["base"], storeRevision)) return "an undo step's revisions";
+            var revision = (int)step["revision"]!.GetValue<double>();
+            if (revision <= previous || revision < 1 || step["base"]!.GetValue<double>() >= revision) return "the order of the undo steps";
+            previous = revision;
+            if (step["label"]?.GetValueKind() != JsonValueKind.String || step["label"]!.GetValue<string>() is not { Length: > 0 and <= 40 } label || KernelText.HasHidden(label)) return "an undo step's label";
+            if (CellsProblem(step["cells"], table, room: null, absentAllowed: true, out var stepCells, out _) is { } stepWhy) return "an undo step's cells: " + stepWhy;
+            remembered += stepCells;
+            if (step["objects"] is not JsonObject stepObjects || stepObjects.Count > NatureState.MaxObjects) return "an undo step's objects";
+            foreach (var (id, item) in stepObjects)
+                if (ObjectProblem(id, item, room) is { } why) return "an undo step's object: " + why;
+            if (step["created"] is not JsonArray created || created.Count > NatureState.MaxObjects ||
+                created.Any(c => c?.GetValueKind() != JsonValueKind.String || !(ObjectId.IsMatch(c.GetValue<string>()) || CreationId.IsMatch(c.GetValue<string>())) || stepObjects.ContainsKey(c.GetValue<string>())) ||
+                created.Select(c => c!.GetValue<string>()).Distinct(StringComparer.Ordinal).Count() != created.Count) return "an undo step's created objects";
+            if (WalletProblem(step["wallet"]) || TrailProblem(step["trail"])) return "an undo step's wallet or trail";
+        }
+        if (remembered > NatureState.MaxUndoCells + NatureState.MaxCells) return "undo steps that remember too many cells";
+        if (block["undone"] is { } undone && (undone is not JsonObject u || u.Count != 2 || !Whole(u["at"], storeRevision) || !Whole(u["state_of"], storeRevision) ||
+            u["state_of"]!.GetValue<double>() >= u["at"]!.GetValue<double>())) return "its last undo";
+        return null;
+    }
+
+    private static string? CellsProblem(JsonNode? node, List<string> names, RoomData? room, bool absentAllowed, out int count, out int burning)
+    {
+        count = 0;
+        burning = 0;
+        if (node?.GetValueKind() != JsonValueKind.String) return "not a string";
+        var bytes = Convert.FromBase64String(node.GetValue<string>());
+        if (bytes.Length % CellBytes != 0 || bytes.Length / CellBytes > NatureState.MaxCells) return "not whole records";
+        if (Convert.ToBase64String(bytes) != node.GetValue<string>()) return "not canonical base64";
+        count = bytes.Length / CellBytes;
+        long previous = long.MinValue;
+        for (var i = 0; i < count; i++)
+        {
+            var record = bytes.AsSpan(i * CellBytes, CellBytes);
+            var x = BinaryPrimitives.ReadInt32LittleEndian(record);
+            var z = BinaryPrimitives.ReadInt32LittleEndian(record[4..]);
+            if (Math.Abs((long)x) > 20000 || Math.Abs((long)z) > 20000) return "a cell beyond 1,000 m";
+            var order = (long)x * 100000 + z;
+            if (order <= previous) return "cells out of order or listed twice";
+            previous = order;
+            var flags = record[16];
+            if (record[17] != 0 || (flags & ~(FertileFlag | ExposedFlag | AbsentFlag)) != 0) return "spare bits set";
+            if ((flags & AbsentFlag) != 0)
+            {
+                if (!absentAllowed) return "an absent cell";
+                if (flags != AbsentFlag || record[8..16].IndexOfAnyExcept((byte)0) >= 0 || record[18..].IndexOfAnyExcept((byte)0) >= 0) return "an absent cell with values";
+                continue;
+            }
+            var y = BinaryPrimitives.ReadSingleLittleEndian(record[8..]);
+            if (!float.IsFinite(y) || Math.Abs(y) > 1000) return "a height";
+            if (BinaryPrimitives.ReadUInt16LittleEndian(record[12..]) >= names.Count || BinaryPrimitives.ReadUInt16LittleEndian(record[14..]) >= names.Count) return "a name index";
+            var material = names[BinaryPrimitives.ReadUInt16LittleEndian(record[14..])];
+            if (!MaterialToken.IsMatch(material)) return "a material";
+            if (BinaryPrimitives.ReadUInt16LittleEndian(record[28..]) > 60000 || BinaryPrimitives.ReadUInt16LittleEndian(record[30..]) > 60000) return "a life or burn time";
+            if (BinaryPrimitives.ReadUInt16LittleEndian(record[30..]) > 0) burning++;
+            if (room != null)
+            {
+                var at = new Vector3((x + 0.5f) * NatureState.CellM, y, (z + 0.5f) * NatureState.CellM);
+                if (!room.Bounds.Grow(NatureState.CellM).HasPoint(at)) return "a cell outside the room";
+            }
+        }
+        return null;
+    }
+
+    private static string? ObjectProblem(string id, JsonNode? node, RoomData? room)
+    {
+        if (node is not JsonObject item || !Number(item["burn"], 1) || item["burn"]!.GetValue<double>() is < 0 or > 1) return "its burn";
+        if (CreationId.IsMatch(id))
+        {
+            if (item.Count != 3 || item["source_sha256"]?.GetValueKind() != JsonValueKind.String || !Hex64.IsMatch(item["source_sha256"]!.GetValue<string>())) return "a creation's design hash";
+            if (item["repair_cost"] is not JsonObject cost || cost.Count > NatureState.MaxWalletKinds ||
+                cost.Any(p => !MaterialToken.IsMatch(p.Key) || !Whole(p.Value, NatureState.MaxWalletUnits) || p.Value!.GetValue<double>() < 1)) return "a creation's repair quote";
+            return null;
+        }
+        if (!ObjectId.IsMatch(id) || (room != null && room.Objects.All(o => o.Id != id))) return "an object not in this room";
+        var burnedDown = item["burn"]!.GetValue<double>() >= 1;
+        if (item.Count != (burnedDown ? 2 : 1)) return "a stock object's fields";
+        if (!burnedDown) return null;
+        if (item["pose"] is not JsonObject pose || pose.Count != 2 || !Vec3(pose["position_m"]) || pose["rotation"] is not JsonArray q || q.Count != 4 || q.Any(v => !Number(v, 1)) ||
+            Math.Abs(Math.Sqrt(q.Sum(v => v!.GetValue<double>() * v.GetValue<double>())) - 1) > 1e-3) return "a burned object's pose";
+        if (room != null && !room.Bounds.Grow(0.01f).HasPoint(Vector(pose["position_m"]!))) return "a burned object outside the room";
+        return null;
+    }
+
+    private static string? FireProblem(JsonNode node, int storeRevision, RoomData? room)
+    {
+        if (node is not JsonObject fire || fire.Count != 6 || !Vec3(fire["center_m"])) return "its centre";
+        if (!Number(fire["radius_m"], MaxFireRadiusM) || fire["radius_m"]!.GetValue<double>() <= 0) return "its radius";
+        if (!Number(fire["remaining_s"], MaxFireS) || fire["remaining_s"]!.GetValue<double>() < 0) return "its time";
+        if (!Number(fire["intensity"], 2) || fire["intensity"]!.GetValue<double>() < 0.05) return "its intensity";
+        if (!Whole(fire["revision"], storeRevision) || fire["revision"]!.GetValue<double>() < 1) return "its revision";
+        if (fire["authorized"] is not JsonObject authorized || authorized.Count > 64 || authorized.Any(p => !CreationId.IsMatch(p.Key) || !Whole(p.Value) || p.Value!.GetValue<double>() < 1))
+            return "the creations it may scorch";
+        if (room != null && !room.Bounds.Grow(0.02f).HasPoint(Vector(fire["center_m"]!))) return "a fire outside the room";
+        return null;
+    }
+
+    private static bool TrailProblem(JsonNode? node) =>
+        node is not JsonObject trail || trail.Count != 3 || trail["enabled"]?.GetValueKind() is not (JsonValueKind.True or JsonValueKind.False) ||
+        trail["by"]?.GetValueKind() != JsonValueKind.String || trail["by"]!.GetValue<string>() is not ("player" or "companion") ||
+        trail["rules_sha256"]?.GetValueKind() != JsonValueKind.String || trail["rules_sha256"]!.GetValue<string>() is var rules && rules.Length != 0 && !Hex64.IsMatch(rules);
+
+    private static bool WalletProblem(JsonNode? node) =>
+        node is not JsonObject wallet || wallet.Count > NatureState.MaxWalletKinds || wallet.Any(p => !MaterialToken.IsMatch(p.Key) || !Whole(p.Value, NatureState.MaxWalletUnits));
+
+    private static bool Number(JsonNode? node, double limit) =>
+        node?.GetValueKind() == JsonValueKind.Number && node.GetValue<double>() is var d && double.IsFinite(d) && Math.Abs(d) <= limit;
+
+    private static bool Whole(JsonNode? node, double max = int.MaxValue) => Number(node, double.MaxValue) && node!.GetValue<double>() is var d && d >= 0 && d <= max && d == Math.Floor(d);
+
+    private static bool Vec3(JsonNode? node) => node is JsonArray a && a.Count == 3 && a.All(v => Number(v, 1000));
 }

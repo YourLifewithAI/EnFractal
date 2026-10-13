@@ -553,10 +553,11 @@ func _test_version_two_saves() -> void:
 	var request := _command(host, "place", "before_upgrade", _source())
 	host.submit(PLAYER, request)
 	var old: Dictionary = host.export_envelope()
-	_expect(old.version == 5 and old.object_poses == {} and old.team == {}, "saves are version 5 and carry the object poses and the team block")
+	_expect(old.version == 6 and old.object_poses == {} and old.team == {} and old.nature == {}, "saves are version 6 and carry the object poses, the team block and the nature block")
 	var four: Dictionary = old.duplicate(true)
 	four.version = 4
 	four.erase("team")
+	four.erase("nature")
 	var upgraded_four = Authority.new()
 	upgraded_four.configure(ROOM, Callable(self, "_flat"), _test_path("version_four_upgraded"))
 	_expect(upgraded_four.load_envelope(four).ok and upgraded_four.submit(PLAYER, request).get("replayed", false) and upgraded_four.team() == {},
@@ -565,6 +566,7 @@ func _test_version_two_saves() -> void:
 	three.version = 3
 	three.erase("object_poses")
 	three.erase("team")
+	three.erase("nature")
 	var upgraded_three = Authority.new()
 	upgraded_three.configure(ROOM, Callable(self, "_flat"), _test_path("version_three_upgraded"))
 	_expect(upgraded_three.load_envelope(three).ok and upgraded_three.submit(PLAYER, request).get("replayed", false) and upgraded_three.snapshot(PLAYER).object_poses == {},
@@ -574,6 +576,7 @@ func _test_version_two_saves() -> void:
 	old.erase("checkpoints")
 	old.erase("object_poses")
 	old.erase("team")
+	old.erase("nature")
 	var upgraded = Authority.new()
 	upgraded.configure(ROOM, Callable(self, "_flat"), _test_path("version_two_upgraded"))
 	_expect(upgraded.load_envelope(old).ok and upgraded.submit(PLAYER, request).get("replayed", false), "a version 2 save still loads, with its receipts")

@@ -34,6 +34,9 @@ var object_pose_check := Callable()
 ## Optional: Callable(team: Dictionary) -> Dictionary, the command host's check of a save's journal and discovered map
 ## (the authority's team_check). Set before this node enters the tree.
 var team_check := Callable()
+## Optional: Callable(nature: Dictionary, revision: int) -> Dictionary, the command host's check of a save's nature block
+## (the authority's nature_check). Set before this node enters the tree.
+var nature_check := Callable()
 var assemblies: Dictionary = {}
 var instances: Dictionary = {}
 ## Trusted host-derived scorch status. Recipes and commands cannot supply it; repair restores the original graph.
@@ -72,6 +75,7 @@ func _ready() -> void:
 	authority.pose_sink = object_pose_sink
 	authority.pose_check = object_pose_check
 	authority.team_check = team_check
+	authority.nature_check = nature_check
 	var loaded: Dictionary = authority.load_saved() if configured.ok else configured
 	authority.occupancy_query = Callable(self, "_check_occupancy")
 	authority.activation_query = Callable(self, "_check_activation")

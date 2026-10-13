@@ -12,9 +12,11 @@ const SCHEMA := "enfractal.creation-world"
 ## Version 2 pins a room manifest instead of a map, uses contract principals and adds locks. Version 3 adds
 ## the compacted receipt index and the checkpoints. Version 4 adds object_poses: where play has moved the
 ## room's objects (the sandbox verbs, Run 2 P3). Version 5 adds team: the team's journal and discovered map, a block
-## the trusted host owns and checks (team_check). Earlier saves still load (with none of the later blocks).
-const VERSION := 5
-const LOADABLE_VERSIONS := [2, 3, 4, 5]
+## the trusted host owns and checks (team_check). Version 6 adds nature: the island's ground field, weather, fire and
+## their undo steps, another block the trusted host owns and checks (nature_check). Earlier saves still load (with none
+## of the later blocks).
+const VERSION := 6
+const LOADABLE_VERSIONS := [2, 3, 4, 5, 6]
 const STYLE_VERSION := "painterly_v1"
 const MAX_SAVE_BYTES := 4 * 1024 * 1024
 ## Durable receipts in the ledger. The last PLAYER_RECEIPT_RESERVE slots are the player's alone, so a
@@ -45,6 +47,8 @@ const COORDINATE_LIMIT_M := 1000.0
 const OWNER_LIMITS := {"instances": 8, "parts": 96, "nodes": 64, "edges": 128, "fields": 16, "lights": 16, "rotors": 16}
 const WORLD_LIMITS := {"instances": 16, "parts": 192, "nodes": 128, "edges": 256, "fields": 32, "lights": 32, "rotors": 32}
 const DEFAULT_ROLES := {PLAYER: "owner", COMPANION: "editor"}
+## The contract ops whose durable receipts carry result data the trusted host wrote (nature changes and their undo).
+const NATURE_OPS := ["nature.cast", "nature.trail", "nature.repair", "room.undo"]
 
 var revision := 0
 var permission_revision := 0
@@ -67,6 +71,9 @@ var pose_check := Callable()
 ## The trusted host's check of a save's team block (its journal and discovered map) and its revision before the save
 ## is believed: {ok} or {ok: false, message}. Optional; without it any dictionary loads.
 var team_check := Callable()
+## The trusted host's check of a save's nature block and its revision before the save is believed: {ok} or {ok: false,
+## message}. Optional; without it any dictionary loads.
+var nature_check := Callable()
 var _roles := DEFAULT_ROLES.duplicate()
 var _consent := {PLAYER: false, COMPANION: false}
 var _instances: Dictionary = {}
@@ -81,6 +88,8 @@ var _entity_revisions: Dictionary = {}
 var _object_poses: Dictionary = {}
 ## The team's journal and discovered map ({} until the host writes them): opaque here, owned and checked by the host.
 var _team: Dictionary = {}
+## The island's nature ({} until the host writes it): opaque here, owned and checked by the host.
+var _nature: Dictionary = {}
 var _surface := Callable()
 var _room_id := ""
 var _manifest_sha256 := ""
@@ -108,6 +117,7 @@ func configure(room: Dictionary, surface_query: Callable, save_path: String) -> 
 	_entity_revisions.clear()
 	_object_poses.clear()
 	_team = {}
+	_nature = {}
 	_runtime_events.clear()
 	_last_budget_time = -1.0
 	revision = 0
@@ -140,13 +150,15 @@ func submit(principal: String, request: Dictionary, receipt_meta: Dictionary = {
 		return _failure("save_not_ready", "", "Load the saved room successfully before changing it.")
 	if not _roles.has(principal):
 		return _failure("principal_unknown", "principal", "The host did not admit this principal.")
-	# The team block is the trusted host's, bounded by the save's limit; the request's own limit covers the rest.
+	# The team and nature blocks are the trusted host's, bounded by the save's limit; the request's own limit covers the rest.
 	var bounded: Dictionary = request
-	if request.has("team"):
-		if not request.team is Dictionary or not _json_safe(request.team, MAX_SAVE_BYTES):
-			return _failure("request_invalid", "team", "The team block must be bounded finite JSON data.")
-		bounded = request.duplicate()
-		bounded.erase("team")
+	for block in ["team", "nature"]:
+		if request.has(block):
+			if not request[block] is Dictionary or not _json_safe(request[block], MAX_SAVE_BYTES):
+				return _failure("request_invalid", block, "The " + block + " block must be bounded finite JSON data.")
+			if bounded == request:
+				bounded = request.duplicate()
+			bounded.erase(block)
 	if not _json_safe(bounded, MAX_REQUEST_BYTES) or COMPILER.canonical_json(bounded).to_utf8_buffer().size() > MAX_REQUEST_BYTES:
 		return _failure("request_invalid", "", "The command must contain bounded finite JSON data.")
 	var action: Variant = request.get("action_id")
@@ -172,8 +184,8 @@ func submit(principal: String, request: Dictionary, receipt_meta: Dictionary = {
 			return _failure("action_id_conflict", "action_id", "This action ID was already used for different content.")
 		return {"ok": true, "instance_id": "", "revision": int(_compacted[key][0]), "permission_revision": permission_revision, "replayed": true, "compacted": true, "affected": [], "created": []}
 	var op: Variant = request.get("op")
-	if op not in ["place", "revise", "remove", "activate", "lock", "unlock", "checkpoint", "move", "note"]:
-		return _failure("operation_invalid", "op", "Choose place, revise, remove, activate, lock, unlock, checkpoint, move or note.")
+	if op not in ["place", "revise", "remove", "activate", "lock", "unlock", "checkpoint", "move", "note", "nature"]:
+		return _failure("operation_invalid", "op", "Choose place, revise, remove, activate, lock, unlock, checkpoint, move, note or nature.")
 	var allowed := ["op", "action_id", "expected_revision", "expected_permission_revision"]
 	if op in ["place", "revise"]:
 		allowed.append_array(["source", "x_m", "z_m", "yaw_deg", "y_m", "on"])
@@ -189,6 +201,11 @@ func submit(principal: String, request: Dictionary, receipt_meta: Dictionary = {
 		allowed.append_array(["target", "position_m", "rotation", "bounds"])
 	if op == "note":
 		allowed.append_array(["team", "entry_id"])
+	# A removal may clear what fire did to the creation, in the same write.
+	if op == "remove":
+		allowed.append("nature")
+	if op == "nature":
+		allowed.append_array(["nature", "affected", "data", "undo"])
 	for field in request:
 		if field not in allowed:
 			return _failure("field_unknown", String(field), "Identity, ownership, height, approval and compiled costs are assigned by the host.")
@@ -205,6 +222,8 @@ func submit(principal: String, request: Dictionary, receipt_meta: Dictionary = {
 		return _submit_move(principal, request, key, fingerprint, meta)
 	if op == "note":
 		return _submit_note(principal, request, key, fingerprint, meta)
+	if op == "nature":
+		return _submit_nature(principal, request, key, fingerprint, meta)
 	var instance_id := ""
 	if op != "place":
 		if not request.get("instance_id") is String or not _instances.has(request.instance_id):
@@ -242,6 +261,8 @@ func submit(principal: String, request: Dictionary, receipt_meta: Dictionary = {
 	# The journal's fact for this change, saved in the same write as the change and its receipt.
 	if request.has("team"):
 		next.team = request.team.duplicate(true)
+	if request.has("nature"):
+		next.nature = request.nature.duplicate(true)
 	var created := [instance_id] if op == "place" else []
 	var receipt := {"ok": true, "instance_id": instance_id, "revision": revision + 1, "permission_revision": permission_revision, "replayed": false, "affected": [] if op == "place" else [instance_id], "created": created}
 	next.receipts = _receipts.duplicate(true)
@@ -381,6 +402,74 @@ func _submit_note(principal: String, request: Dictionary, key: String, fingerpri
 	if not committed.ok:
 		return committed
 	return receipt
+
+
+## A durable nature change (nature.cast, nature.trail, nature.repair, or room.undo of nature changes): the trusted host
+## worked out the next nature block from the room's physics and the island's rules; this records it with the receipt
+## (its affected entities and result data) in one atomic save and moves the revision. An undo never fails for a full
+## ledger: the oldest receipts are compacted first, as a checkpoint compacts them, so they still replay and still refuse
+## a conflicting reuse.
+func _submit_nature(principal: String, request: Dictionary, key: String, fingerprint: String, meta: Dictionary) -> Dictionary:
+	if not _can_build(principal):
+		return _failure("build_denied", "principal", "Only an owner or editor may change the island's nature.")
+	var nature: Variant = request.get("nature")
+	var affected: Variant = request.get("affected", [])
+	var data: Variant = request.get("data", {})
+	var undo: Variant = request.get("undo", false)
+	if not nature is Dictionary or not _entity_list(affected) or not data is Dictionary or data.size() > 32 or not _json_safe(data, MAX_REQUEST_BYTES) or not undo is bool:
+		return _failure("request_invalid", "nature", "A nature change names its block, what it affected and its result data.")
+	var next := _state()
+	next.receipts = _receipts.duplicate(true)
+	next.compacted = _compacted.duplicate(true)
+	if not _receipt_room(principal):
+		if not undo:
+			return _receipt_limit()
+		_make_receipt_room(principal, next)
+	next.nature = nature.duplicate(true)
+	var receipt := {"ok": true, "instance_id": "", "revision": revision + 1, "permission_revision": permission_revision, "replayed": false, "affected": affected.duplicate(), "created": [], "data": data.duplicate(true)}
+	next.receipts[key] = {"principal": principal, "action_id": key.get_slice("|", 1), "fingerprint": fingerprint, "receipt": receipt.duplicate(true), "meta": meta}
+	next.revision = revision + 1
+	var committed := _commit(next)
+	if not committed.ok:
+		return committed
+	return receipt
+
+
+## Room in next's ledger for one more of principal's receipts: the oldest receipts (lowest revision first) are compacted
+## to their revision and fingerprint prefix, and the compacted index keeps its newest MAX_COMPACTED.
+func _make_receipt_room(principal: String, next: Dictionary) -> void:
+	var limit := MAX_RECEIPTS if principal == PLAYER else MAX_RECEIPTS - PLAYER_RECEIPT_RESERVE
+	var keys: Array = next.receipts.keys()
+	keys.sort_custom(func(a, b): return [int(next.receipts[a].receipt.revision), String(a)] < [int(next.receipts[b].receipt.revision), String(b)])
+	var index := 0
+	while next.receipts.size() >= limit and index < keys.size():
+		var oldest: String = keys[index]
+		next.compacted[oldest] = [int(next.receipts[oldest].receipt.revision), String(next.receipts[oldest].fingerprint).left(16)]
+		next.receipts.erase(oldest)
+		index += 1
+	var compacted_keys: Array = next.compacted.keys()
+	for drop in range(maxi(0, compacted_keys.size() - MAX_COMPACTED)):
+		next.compacted.erase(compacted_keys[drop])
+
+
+## The island's nature as last saved ({} before the host wrote it).
+func nature() -> Dictionary:
+	return _nature.duplicate(true)
+
+
+## The trusted host saves the island's nature (the simulation's throttled checkpoint, and on exit) and, when given, the
+## team block in the same write. It keeps no receipt and does not move the revision, so the weather never conflicts with
+## an undo or a command that names expected_revision. Never while the save is unavailable.
+func set_nature(nature: Dictionary, team: Variant = null) -> Dictionary:
+	if not _available():
+		return _failure("save_not_ready", "", "Load the saved room successfully before changing it.")
+	if not _json_safe(nature, MAX_SAVE_BYTES) or (team != null and (not team is Dictionary or not _json_safe(team, MAX_SAVE_BYTES))):
+		return _failure("request_invalid", "nature", "The nature and team blocks must be bounded finite JSON data.")
+	var next := _state()
+	next.nature = nature.duplicate(true)
+	if team is Dictionary:
+		next.team = team.duplicate(true)
+	return _commit(next)
 
 
 ## The team block as last saved ({} before the host wrote one).
@@ -718,12 +807,17 @@ func load_envelope(data: Dictionary) -> Dictionary:
 			_publish_poses(_object_poses)
 			var why := String(judged.get("message", "")) if judged is Dictionary else ""
 			return _failure("save_invalid", "team", why if not why.is_empty() else "The saved journal and map are invalid.")
+	var saved_nature := _checked_nature(data)
+	if not saved_nature.ok:
+		_publish_poses(_object_poses)
+		return saved_nature
 	var checked := _validate_saved(data)
 	if not checked.ok:
 		_publish_poses(_object_poses)
 		return checked
 	_object_poses = poses.poses
 	_team = saved_team.duplicate(true)
+	_nature = saved_nature.nature
 	_instances = checked.instances
 	_receipts = data.receipts.duplicate(true)
 	_compacted = {}
@@ -756,7 +850,7 @@ func load_envelope(data: Dictionary) -> Dictionary:
 ## and only then believed. If any check or the write fails, nothing changes: the state stays as it was and the scene's
 ## object poses (shown while the creations are checked against them) go back.
 func adopt_envelope(data: Dictionary) -> Dictionary:
-	if not _available() or revision != 0 or not _receipts.is_empty() or not _compacted.is_empty() or not _instances.is_empty() or not _locks.is_empty() or not _object_poses.is_empty() or not _entity_revisions.is_empty():
+	if not _available() or revision != 0 or not _receipts.is_empty() or not _compacted.is_empty() or not _instances.is_empty() or not _locks.is_empty() or not _object_poses.is_empty() or not _entity_revisions.is_empty() or not _nature.is_empty():
 		return _failure("save_not_ready", "", "Only a room with no play takes a whole state.")
 	if not _json_safe(data, MAX_SAVE_BYTES):
 		return _failure("save_invalid", "save", "The state exceeds its structural limits.")
@@ -779,6 +873,10 @@ func adopt_envelope(data: Dictionary) -> Dictionary:
 		if not judged is Dictionary or judged.get("ok") != true:
 			_publish_poses(_object_poses)
 			return _failure("save_invalid", "team", String(judged.get("message", "The journal and map are invalid.")) if judged is Dictionary else "The journal and map are invalid.")
+	var saved_nature := _checked_nature(data)
+	if not saved_nature.ok:
+		_publish_poses(_object_poses)
+		return saved_nature
 	var checked := _validate_saved(data)
 	if not checked.ok:
 		_publish_poses(_object_poses)
@@ -795,7 +893,7 @@ func adopt_envelope(data: Dictionary) -> Dictionary:
 	var revisions := {}
 	for entity_id in data.entity_revisions:
 		revisions[entity_id] = int(data.entity_revisions[entity_id])
-	var next := {"instances": checked.instances, "receipts": data.receipts.duplicate(true), "compacted": compacted, "checkpoints": checkpoints, "revision": int(data.revision), "permission_revision": int(data.permission_revision) + 1, "roles": data.roles.duplicate(), "consent": {PLAYER: false, COMPANION: false}, "next_id": int(data.next_id), "locks": locks, "entity_revisions": revisions, "object_poses": poses.poses, "team": saved_team.duplicate(true)}
+	var next := {"instances": checked.instances, "receipts": data.receipts.duplicate(true), "compacted": compacted, "checkpoints": checkpoints, "revision": int(data.revision), "permission_revision": int(data.permission_revision) + 1, "roles": data.roles.duplicate(), "consent": {PLAYER: false, COMPANION: false}, "next_id": int(data.next_id), "locks": locks, "entity_revisions": revisions, "object_poses": poses.poses, "team": saved_team.duplicate(true), "nature": saved_nature.nature}
 	# Written first; believed (and the poses published for good) only once it is on disk.
 	var committed := _commit(next)
 	if not committed.ok:
@@ -812,8 +910,22 @@ func export_envelope() -> Dictionary:
 	return _envelope(_state())
 
 
+## A save's nature block, judged by the trusted host before the save is believed: {ok, nature} or a failure. Saves
+## before version 6 have none.
+func _checked_nature(data: Dictionary) -> Dictionary:
+	var saved: Variant = data.get("nature", {}) if _whole(data.get("version")) and int(data.version) >= 6 else {}
+	if not saved is Dictionary:
+		return _failure("save_invalid", "nature", "The saved nature is invalid.")
+	if nature_check.is_valid() and not saved.is_empty():
+		var judged: Variant = nature_check.call(saved.duplicate(true), int(data.revision) if _whole(data.get("revision")) else -1)
+		if not judged is Dictionary or judged.get("ok") != true:
+			var why := String(judged.get("message", "")) if judged is Dictionary else ""
+			return _failure("save_invalid", "nature", why if not why.is_empty() else "The saved nature is invalid.")
+	return {"ok": true, "nature": saved.duplicate(true)}
+
+
 func _state() -> Dictionary:
-	return {"instances": _instances, "receipts": _receipts, "compacted": _compacted, "checkpoints": _checkpoints, "revision": revision, "permission_revision": permission_revision, "roles": _roles, "consent": _consent, "next_id": _next_id, "locks": _locks, "entity_revisions": _entity_revisions, "object_poses": _object_poses, "team": _team}
+	return {"instances": _instances, "receipts": _receipts, "compacted": _compacted, "checkpoints": _checkpoints, "revision": revision, "permission_revision": permission_revision, "roles": _roles, "consent": _consent, "next_id": _next_id, "locks": _locks, "entity_revisions": _entity_revisions, "object_poses": _object_poses, "team": _team, "nature": _nature}
 
 
 ## Persists the complete next state, then publishes it. A failed write publishes nothing.
@@ -833,6 +945,7 @@ func _commit(next: Dictionary) -> Dictionary:
 	var moved: bool = next.object_poses != _object_poses
 	_object_poses = next.object_poses
 	_team = next.team
+	_nature = next.nature
 	revision = int(next.revision)
 	permission_revision = int(next.permission_revision)
 	if moved:
@@ -1002,7 +1115,7 @@ func _envelope(state: Dictionary) -> Dictionary:
 		stored.erase("artifact")
 		stored.erase("active")
 		stored_instances.append(stored)
-	return {"schema": SCHEMA, "version": VERSION, "compiler_version": 1, "style_version": STYLE_VERSION, "room_pin": _room_pin(), "revision": state.revision, "permission_revision": state.permission_revision, "next_id": state.next_id, "roles": state.roles.duplicate(true), "consent": state.consent.duplicate(true), "instances": stored_instances, "receipts": state.receipts.duplicate(true), "compacted": state.compacted.duplicate(true), "checkpoints": state.checkpoints.duplicate(true), "locks": state.locks.duplicate(true), "entity_revisions": state.entity_revisions.duplicate(true), "object_poses": state.object_poses.duplicate(true), "team": state.team.duplicate(true)}
+	return {"schema": SCHEMA, "version": VERSION, "compiler_version": 1, "style_version": STYLE_VERSION, "room_pin": _room_pin(), "revision": state.revision, "permission_revision": state.permission_revision, "next_id": state.next_id, "roles": state.roles.duplicate(true), "consent": state.consent.duplicate(true), "instances": stored_instances, "receipts": state.receipts.duplicate(true), "compacted": state.compacted.duplicate(true), "checkpoints": state.checkpoints.duplicate(true), "locks": state.locks.duplicate(true), "entity_revisions": state.entity_revisions.duplicate(true), "object_poses": state.object_poses.duplicate(true), "team": state.team.duplicate(true), "nature": state.nature.duplicate(true)}
 
 
 func _persist(state: Dictionary) -> Dictionary:
@@ -1061,6 +1174,8 @@ func _validate_saved(data: Dictionary) -> Dictionary:
 		expected.append("object_poses")
 	if _whole(data.get("version")) and int(data.version) >= 5:
 		expected.append("team")
+	if _whole(data.get("version")) and int(data.version) >= 6:
+		expected.append("nature")
 	if not _exact_keys(data, expected) or data.get("schema") != SCHEMA or not _whole(data.get("version")) or int(data.version) not in LOADABLE_VERSIONS or not _whole(data.get("compiler_version")) or int(data.compiler_version) != 1 or data.get("style_version") != STYLE_VERSION or data.get("room_pin") != _room_pin():
 		return _failure("save_incompatible", "save", "The save's room, compiler or style version does not match this room.")
 	var bounded := _envelope_bounds_problem(data)
@@ -1106,11 +1221,13 @@ func _validate_saved(data: Dictionary) -> Dictionary:
 		if not entry is Dictionary or not _exact_keys(entry, ["principal", "action_id", "fingerprint", "receipt", "meta"]) or entry.principal not in PRINCIPALS or not _token(entry.action_id) or key != entry.principal + "|" + entry.action_id or not _hash(entry.fingerprint):
 			return _failure("save_receipt_invalid", "receipts", "Saved action identity or fingerprint is invalid.")
 		var receipt: Variant = entry.receipt
-		# A note's receipt names its journal entry; no other receipt carries one.
+		# A note's receipt names its journal entry and a nature change's carries its result data; no other receipt does.
 		var receipt_keys := ["ok", "instance_id", "revision", "permission_revision", "replayed", "affected", "created"]
 		if entry.meta is Dictionary and entry.meta.get("op") == "journal.note":
 			receipt_keys.append("entry_id")
-		if not receipt is Dictionary or not _exact_keys(receipt, receipt_keys) or (receipt.has("entry_id") and (not receipt.entry_id is String or not _pattern(ENTRY_ID).search(receipt.entry_id))) or receipt.ok != true or receipt.replayed != false or not receipt.instance_id is String or (not receipt.instance_id.is_empty() and not receipt.instance_id.begins_with("creation:")) or not _whole(receipt.revision) or int(receipt.revision) < 0 or int(receipt.revision) > int(data.revision) or not _whole(receipt.permission_revision) or int(receipt.permission_revision) < 0 or int(receipt.permission_revision) > int(data.permission_revision) or not _entity_list(receipt.affected) or not _entity_list(receipt.created):
+		if entry.meta is Dictionary and entry.meta.get("op") in NATURE_OPS:
+			receipt_keys.append("data")
+		if not receipt is Dictionary or not _exact_keys(receipt, receipt_keys) or (receipt.has("entry_id") and (not receipt.entry_id is String or not _pattern(ENTRY_ID).search(receipt.entry_id))) or (receipt.has("data") and (not receipt.data is Dictionary or receipt.data.size() > 32)) or receipt.ok != true or receipt.replayed != false or not receipt.instance_id is String or (not receipt.instance_id.is_empty() and not receipt.instance_id.begins_with("creation:")) or not _whole(receipt.revision) or int(receipt.revision) < 0 or int(receipt.revision) > int(data.revision) or not _whole(receipt.permission_revision) or int(receipt.permission_revision) < 0 or int(receipt.permission_revision) > int(data.permission_revision) or not _entity_list(receipt.affected) or not _entity_list(receipt.created):
 			return _failure("save_receipt_invalid", "receipts.receipt", "Saved receipt revisions are invalid.")
 		if _receipt_meta(entry.principal, entry.meta).is_empty() or not _exact_keys(entry.meta, ["op", "at_utc", "approved_by"]):
 			return _failure("save_receipt_invalid", "receipts.meta", "Saved receipt metadata is invalid.")
@@ -1168,7 +1285,7 @@ func _saved_poses(data: Dictionary) -> Dictionary:
 func _complete_meta(meta: Dictionary, op: String) -> Dictionary:
 	var complete := meta.duplicate()
 	if String(complete.op).is_empty():
-		complete.op = {"place": "creation.place", "revise": "creation.revise", "remove": "entity.remove", "lock": "protect.lock", "unlock": "protect.unlock", "activate": "creation.activate", "checkpoint": "room.checkpoint", "move": "entity.place", "note": "journal.note"}[op]
+		complete.op = {"place": "creation.place", "revise": "creation.revise", "remove": "entity.remove", "lock": "protect.lock", "unlock": "protect.unlock", "activate": "creation.activate", "checkpoint": "room.checkpoint", "move": "entity.place", "note": "journal.note", "nature": "nature.cast"}[op]
 	if String(complete.at_utc).is_empty():
 		complete.at_utc = Time.get_datetime_string_from_system(true) + "Z"
 	return complete

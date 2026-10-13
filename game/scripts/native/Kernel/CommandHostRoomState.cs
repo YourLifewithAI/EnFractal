@@ -14,13 +14,14 @@ namespace EnFractal.Native.Kernel;
 /// P6, the world as data (Run 2): room state in the contract's form (contracts/room-state.schema.json), written from the
 /// authority's state and read back into a room built from nothing; and the migration of a save between room manifests
 /// (docs/engine/phase3/command-host.md), one step the player confirms, never automatic.
-/// - Export: objects play changed (their pose, revision and lock), creations (source, its hash, pose, owner, lock), the
-///   two avatars' identities, the durable receipts as contract results, the journal and the discovered map. What the
-///   contract has no field for (compacted receipts, checkpoints, the companion's role, the next creation number, the open
-///   tasks' goals) travels in x_play_ extensions, so a rebuild loses nothing.
+/// - Export: objects play changed (their pose, revision and lock; one that burned down is removed, at the pose it burned
+///   at), creations (source, its hash, pose, owner, lock), the two avatars' identities, the durable receipts as contract
+///   results, the journal and the discovered map. What the contract has no field for (compacted receipts, checkpoints,
+///   the companion's role, the next creation number, the open tasks' goals, the island's nature) travels in x_play_
+///   extensions, so a rebuild loses nothing.
 /// - Import: into a host whose room has no play yet and the same manifest. The state becomes the authority's save envelope
 ///   and goes through the same load as a save (poses checked against the room, creations recompiled and re-placed, the
-///   team block checked), then is saved; the scene is derived from it as from any load.
+///   team and nature blocks checked), then is saved; the scene is derived from it as from any load.
 /// </summary>
 public partial class CommandHost
 {
@@ -39,7 +40,9 @@ public partial class CommandHost
         JsonObject Protection(string id) => locks[id] is JsonObject held
             ? new JsonObject { ["locked"] = true, ["locked_by"] = held["locked_by"]!.GetValue<string>(), ["locked_revision"] = held["locked_revision"]!.GetValue<int>() }
             : new JsonObject { ["locked"] = false };
-        foreach (var id in revisions.Select(p => p.Key).Concat(locks.Select(p => p.Key)).Concat(poses.Select(p => p.Key)).Where(i => i.StartsWith("obj:", StringComparison.Ordinal)).Distinct())
+        var burned = Nature.Objects.Values.Where(o => o.BurnedDown).ToDictionary(o => o.Id, StringComparer.Ordinal);
+        foreach (var id in revisions.Select(p => p.Key).Concat(locks.Select(p => p.Key)).Concat(poses.Select(p => p.Key)).Concat(burned.Keys)
+            .Where(i => i.StartsWith("obj:", StringComparison.Ordinal)).Distinct())
         {
             var item = Room.Objects.First(o => o.Id == id);
             var entity = new JsonObject
@@ -49,6 +52,17 @@ public partial class CommandHost
                 ["protection"] = Protection(id),
             };
             if (poses[id] is JsonObject pose) entity["transform"] = new JsonObject { ["position_m"] = pose["position_m"]!.DeepClone(), ["rotation"] = pose["rotation"]!.DeepClone() };
+            // Burned down: gone from the room, kept as removed at the pose it burned at (the manifest is never edited).
+            if (burned.TryGetValue(id, out var ash))
+            {
+                entity["removed"] = true;
+                var turn = ash.Rotation ?? item.Rotation;
+                entity["transform"] ??= new JsonObject
+                {
+                    ["position_m"] = KernelJson.Vector(ash.PositionM ?? item.PositionM),
+                    ["rotation"] = new JsonArray(KernelJson.Num(turn.X), KernelJson.Num(turn.Y), KernelJson.Num(turn.Z), KernelJson.Num(turn.W)),
+                };
+            }
             entities[id] = entity;
         }
         foreach (var node in envelope["instances"]!.AsArray())
@@ -86,6 +100,16 @@ public partial class CommandHost
                 ["result"] = Durable(Authority.Call("receipt_for", record["principal"]!.GetValue<string>(), record["action_id"]!.GetValue<string>()).AsGodotDictionary(), replayed: false),
             };
         var style = Style ?? StylePreset.Resolve(RoomWorld.DefaultStyleId, RoomWorld.DefaultStyleVersion);
+        var extensions = new JsonObject
+        {
+            ["x_play_companion_role"] = envelope["roles"]![CompanionPrincipal]!.GetValue<string>(),
+            ["x_play_next_creation"] = envelope["next_id"]!.GetValue<int>(),
+            ["x_play_compacted"] = envelope["compacted"]?.DeepClone() ?? new JsonObject(),
+            ["x_play_checkpoints"] = envelope["checkpoints"]?.DeepClone() ?? new JsonArray(),
+            ["x_play_task_goals"] = new JsonObject(_taskGoals.OrderBy(p => p.Key, StringComparer.Ordinal).Select(p => KeyValuePair.Create(p.Key, (JsonNode?)JsonValue.Create(p.Value)))),
+        };
+        // The island's nature as it is now (the simulation runs ahead of its last save), where this room has any.
+        if (NatureConfigured || envelope["nature"] is JsonObject { Count: > 0 }) extensions["x_play_nature"] = NatureBlock.Pack(Nature);
         return new JsonObject
         {
             ["schema"] = "enfractal.room_state", ["version"] = 1, ["room_id"] = Room.RoomId,
@@ -101,15 +125,7 @@ public partial class CommandHost
             ["receipts"] = results,
             ["journal"] = ExportJournal(),
             ["discovered"] = ExportDiscovered(),
-            ["extensions"] = new JsonObject
-            {
-                ["x_play_companion_role"] = envelope["roles"]![CompanionPrincipal]!.GetValue<string>(),
-                ["x_play_next_creation"] = envelope["next_id"]!.GetValue<int>(),
-                ["x_play_compacted"] = envelope["compacted"]?.DeepClone() ?? new JsonObject(),
-                ["x_play_checkpoints"] = envelope["checkpoints"]?.DeepClone() ?? new JsonArray(),
-                ["x_play_task_goals"] = new JsonObject(_taskGoals.OrderBy(p => p.Key, StringComparer.Ordinal).Select(p => KeyValuePair.Create(p.Key, (JsonNode?)JsonValue.Create(p.Value)))),
-                ["x_nature_state"] = NatureConfigured ? Nature.ToJson() : null,
-            },
+            ["extensions"] = extensions,
         };
     }
 
@@ -127,11 +143,14 @@ public partial class CommandHost
     private static readonly System.Text.RegularExpressions.Regex CheckpointId = new(@"\Acp[0-9]{4,9}\z", System.Text.RegularExpressions.RegexOptions.Compiled);
     private static readonly System.Text.RegularExpressions.Regex HostCreationId = new(@"\Acreation:[0-9]{8}\z", System.Text.RegularExpressions.RegexOptions.Compiled);
     private static readonly System.Text.RegularExpressions.Regex MetaOp = new(@"\A[a-z]+\.[a-z_]+\z", System.Text.RegularExpressions.RegexOptions.Compiled);
-    /// <summary>The ops whose receipts are durable (contracts/README.md "Receipts").</summary>
+    /// <summary>The ops whose receipts are durable (contracts/README.md "Receipts"): the nature changes and their undo among them.</summary>
     private static readonly HashSet<string> DurableOps = new()
     {
         "creation.place", "creation.revise", "entity.remove", "protect.lock", "protect.unlock", "room.checkpoint", "entity.release", "entity.place", "entity.push", "journal.note",
+        "nature.cast", "nature.trail", "nature.repair", "room.undo",
     };
+    /// <summary>The durable ops whose receipts keep the data their first answer had (the authority's NATURE_OPS).</summary>
+    private static readonly HashSet<string> NatureOps = new() { "nature.cast", "nature.trail", "nature.repair", "room.undo" };
 
     /// <summary>One canonical angle: a yaw in (-180, 180], so a half-turn either way is the same bytes everywhere.</summary>
     private static double CanonicalYaw(double yaw)
@@ -149,12 +168,13 @@ public partial class CommandHost
 
     /// <summary>
     /// Whether this room is genuinely fresh: nothing saved for it, no command of any kind (durable or transient), no goal,
-    /// nothing held, no request waiting, an empty journal; and, unless sight is allowed, nothing seen yet (review major 4).
+    /// nothing held, no request waiting, an empty journal, nature as it began; and, unless sight is allowed, nothing seen
+    /// yet and no flower planted by the trail either (review major 4).
     /// </summary>
     private bool Untouched(bool sightAllowed) =>
         Authority.Call("is_ready").AsBool() && !Godot.FileAccess.FileExists(SavePath) && Revision == 0 && Authority.Call("receipt_count").AsInt32() == 0 &&
         _transient.Count == 0 && _jobs.Count == 0 && _runningGoals.Count == 0 && _held.Count == 0 && _approvals.Count == 0 &&
-        _openTasks.Count == 0 && _history.Count == 0 && _notes.Count == 0 &&
+        _openTasks.Count == 0 && _history.Count == 0 && _notes.Count == 0 && Nature.Untouched(trailAllowed: sightAllowed) &&
         (sightAllowed || (TeamMemory().Entries.Count == 0 && _levels.Values.All(l => l.Count == 0)));
 
     // ---- rebuild from room state (P6) ----
@@ -174,8 +194,6 @@ public partial class CommandHost
             if (!Untouched(sightAllowed: false)) return Refused("Only a room with no play yet is rebuilt from room state.");
             if (Normalized(given) is not { } state) return Refused("That is not room state.");
             if (RoomStateProblem(state) is { } problem) return Refused("That room state cannot be rebuilt: " + problem + ".");
-            if (state["extensions"]?["x_nature_state"] is not null)
-                return Refused("This export includes saved nature. Restore its original room and nature save together; rebuilding that sidecar from an export is not supported yet.");
             var envelope = EnvelopeOf(state);
             return Adopt(envelope, envelope["instances"]!.AsArray().Select(i => i!["id"]!.GetValue<string>()).ToList(), Array.Empty<string>(),
                 "The room was rebuilt from its state.", closeOpenTasks: false);
@@ -208,8 +226,14 @@ public partial class CommandHost
         if (state["checkpoints"] is JsonArray { Count: > 0 }) return "checkpoints with files (this host keeps them in x_play_checkpoints)";
         if (state["checkpoints"] is { } cps && cps is not JsonArray) return "the checkpoints";
         if (state["entities"] is not JsonObject entities || entities.Count > 2048) return "the entities";
+        // Nature first: an object that burned down is removed in entities, and only nature can say it did.
+        var nature = state["extensions"]?["x_play_nature"];
+        if (nature != null && NatureBlock.Problem(nature, store, Room) is { } natureProblem) return "the island's nature: " + natureProblem;
+        var burned = nature is JsonObject block ? block["objects"]!.AsObject().Where(p => p.Key.StartsWith("obj:", StringComparison.Ordinal) && p.Value!["burn"]!.GetValue<double>() >= 1)
+            .Select(p => p.Key).ToHashSet(StringComparer.Ordinal) : new HashSet<string>(StringComparer.Ordinal);
         foreach (var (key, node) in entities)
-            if (EntityStateProblem(key, node, store) is { } why) return $"entity {KernelJson.DisplayText(key, 70)}: {why}";
+            if (EntityStateProblem(key, node, store, burned) is { } why) return $"entity {KernelJson.DisplayText(key, 70)}: {why}";
+        if (burned.Any(id => entities[id]?["removed"]?.GetValueKind() != JsonValueKind.True)) return "an object nature burned down that entities still list";
         if (state["receipts"] is not JsonObject receipts || receipts.Count > 2048) return "the receipts";
         foreach (var (key, node) in receipts)
             if (ReceiptProblem(key, node, store) is { } why) return $"receipt {KernelJson.DisplayText(key, 100)}: {why}";
@@ -221,7 +245,7 @@ public partial class CommandHost
         return null;
     }
 
-    private string? EntityStateProblem(string key, JsonNode? node, int store)
+    private string? EntityStateProblem(string key, JsonNode? node, int store, HashSet<string> burned)
     {
         if (!EntityId.IsMatch(key) || node is not JsonObject entity) return "its id";
         var allowed = new HashSet<string> { "id", "kind", "revision", "removed", "transform", "parts", "creation", "avatar", "protection", "provenance" };
@@ -231,7 +255,8 @@ public partial class CommandHost
         var expected = key.StartsWith("obj:", StringComparison.Ordinal) ? "object" : key.StartsWith("creation:", StringComparison.Ordinal) ? "creation" : key.StartsWith("avatar:", StringComparison.Ordinal) ? "avatar" : null;
         if (kind == null || kind != expected) return "a kind its id does not allow";
         if (!Whole(entity["revision"], Math.Max(store, 1)) || entity["revision"]!.GetValue<double>() < 1) return "its revision";
-        if (entity["removed"] is { } removed && (!Bool(removed) || removed.GetValue<bool>())) return "a removal this host cannot restore";
+        // A removal this host restores is an object that burned down, as the island's nature records it.
+        if (entity["removed"] is { } removed && (!Bool(removed) || (removed.GetValue<bool>() && (kind != "object" || !burned.Contains(key))))) return "a removal this host cannot restore";
         if (entity["parts"] != null) return "parts this host cannot restore";
         if (entity["provenance"] is not JsonObject provenance || provenance.Count != 3 || !ProvenanceKinds.Contains(StrOf(provenance["kind"]) ?? "") ||
             StrOf(provenance["created_by"]) is not { } by || !System.Text.RegularExpressions.Regex.IsMatch(by, @"\A(player|companion|guest|guest_companion|system):[a-z0-9_-]{1,32}\z") ||
@@ -296,8 +321,40 @@ public partial class CommandHost
         if ((result["affected"] != null && !EntityIds(result["affected"])) || (result["created"] != null && !EntityIds(result["created"]))) return "what it touched";
         if (op == "room.checkpoint" ? result["data"] is not JsonObject { Count: 1 } c || !Whole(c["checkpoint_revision"], store)
             : op == "journal.note" ? result["data"] is not JsonObject { Count: 1 } n || StrOf(n["entry_id"]) is not { } entry || !EntryIdPattern.IsMatch(entry)
+            : NatureOps.Contains(op) ? NatureDataProblem(op, result["data"])
             : result["data"] != null) return "its data";
         return null;
+    }
+
+    /// <summary>A nature change's receipt data, as this host writes it: each op's own fields, each of its type and range.</summary>
+    private static bool NatureDataProblem(string op, JsonNode? node)
+    {
+        if (node is not JsonObject data) return true;
+        var fields = op switch
+        {
+            "nature.cast" => new[] { "center_m", "radius_m", "duration_s", "cell_count", "requires_approval", "started_cells", "max_burning_cells" },
+            "nature.trail" => new[] { "enabled", "requires_approval" },
+            "nature.repair" => new[] { "cost" },
+            _ => new[] { "undone", "undone_steps", "requires_approval" },
+        };
+        if (data.Any(p => !fields.Contains(p.Key))) return true;
+        foreach (var (name, value) in data)
+        {
+            var fine = name switch
+            {
+                "center_m" => Vec3(value),
+                "radius_m" => Number(value, NatureBlock.MaxFireRadiusM) && value!.GetValue<double>() > 0,
+                "duration_s" => Number(value, 600) && value!.GetValue<double>() > 0,
+                "cell_count" or "started_cells" or "max_burning_cells" => Whole(value, NatureState.MaxCells),
+                "undone_steps" => Whole(value, NatureState.MaxUndoSteps),
+                "requires_approval" or "enabled" => Bool(value),
+                "undone" => Text(value, 200),
+                _ => value is JsonObject cost && cost.Count <= NatureState.MaxWalletKinds &&
+                    cost.All(p => Token.IsMatch(p.Key) && Whole(p.Value, NatureState.MaxWalletUnits) && p.Value!.GetValue<double>() >= 1),
+            };
+            if (!fine) return true;
+        }
+        return false;
     }
 
     private string? ExtensionsProblem(JsonNode extensions, int store)
@@ -319,6 +376,7 @@ public partial class CommandHost
             StrOf(cp["id"]) is not { } id || !CheckpointId.IsMatch(id) || !Whole(cp["revision"], store) || StrOf(cp["label"]) is not { } label ||
             KernelText.CodePoints(label).Length > 80 || KernelText.HasHidden(label)))) return "a checkpoint";
         if (x["x_play_task_goals"] is { } goals && (goals is not JsonObject g || g.Any(p => !EntryIdPattern.IsMatch(p.Key) || !TaskGoals.Contains(StrOf(p.Value) ?? "")))) return "an open task's goal";
+        // x_play_nature is checked whole before the entities (RoomStateProblem).
         return null;
     }
 
@@ -377,6 +435,7 @@ public partial class CommandHost
                 ["affected"] = result["affected"]?.DeepClone() ?? new JsonArray(), ["created"] = result["created"]?.DeepClone() ?? new JsonArray(),
             };
             if (op == "journal.note") receipt["entry_id"] = result["data"]!["entry_id"]!.GetValue<string>();
+            if (NatureOps.Contains(op)) receipt["data"] = result["data"]!.DeepClone();
             receipts[key] = new JsonObject
             {
                 ["principal"] = result["principal"]!.GetValue<string>(), ["action_id"] = result["action_id"]!.GetValue<string>(), ["fingerprint"] = node["fingerprint"]!.GetValue<string>(),
@@ -395,7 +454,7 @@ public partial class CommandHost
         };
         return new JsonObject
         {
-            ["schema"] = "enfractal.creation-world", ["version"] = 5, ["compiler_version"] = 1, ["style_version"] = "painterly_v1",
+            ["schema"] = "enfractal.creation-world", ["version"] = 6, ["compiler_version"] = 1, ["style_version"] = "painterly_v1",
             ["room_pin"] = new JsonObject { ["room_id"] = Room.RoomId, ["manifest_sha256"] = Room.ManifestSha256 },
             ["revision"] = (int)state["store_revision"]!.GetValue<double>(), ["permission_revision"] = 0, ["next_id"] = next,
             ["roles"] = new JsonObject { [PlayerPrincipal] = "owner", [CompanionPrincipal] = StrOf(extensions["x_play_companion_role"]) ?? "editor" },
@@ -404,6 +463,7 @@ public partial class CommandHost
             ["compacted"] = extensions["x_play_compacted"]?.DeepClone() ?? new JsonObject(),
             ["checkpoints"] = extensions["x_play_checkpoints"]?.DeepClone() ?? new JsonArray(),
             ["locks"] = locks, ["entity_revisions"] = revisions, ["object_poses"] = poses, ["team"] = team,
+            ["nature"] = extensions["x_play_nature"]?.DeepClone() ?? new JsonObject(),
         };
     }
 
@@ -424,6 +484,7 @@ public partial class CommandHost
         }
         _migrationOffer = null;
         LoadTeam(envelope["team"] as JsonObject, closeOpenTasks);
+        LoadNature();
         Runtime.Call("refresh_now");
         ApplyObjectPoses(ObjectPoses());
         SaveNotice = "";
@@ -503,12 +564,13 @@ public partial class CommandHost
     /// <summary>What is wrong with an earlier save's document (null when nothing is), before anything of it is used.</summary>
     private string? OldSaveProblem(JsonObject old)
     {
-        if (!Whole(old["version"]) || old["version"]!.GetValue<double>() is not (2 or 3 or 4 or 5)) return "its version";
+        if (!Whole(old["version"]) || old["version"]!.GetValue<double>() is not (2 or 3 or 4 or 5 or 6)) return "its version";
         var version = (int)old["version"]!.GetValue<double>();
         var expected = new List<string> { "schema", "version", "compiler_version", "style_version", "room_pin", "revision", "permission_revision", "next_id", "roles", "consent", "instances", "receipts", "locks", "entity_revisions" };
         if (version >= 3) expected.AddRange(new[] { "compacted", "checkpoints" });
         if (version >= 4) expected.Add("object_poses");
         if (version >= 5) expected.Add("team");
+        if (version >= 6) expected.Add("nature");
         if (old.Count != expected.Count || expected.Any(k => !old.ContainsKey(k))) return "its fields";
         if (StrOf(old["schema"]) != "enfractal.creation-world" || !Whole(old["compiler_version"]) || old["compiler_version"]!.GetValue<double>() != 1 || StrOf(old["style_version"]) != "painterly_v1")
             return "another schema, compiler or style";
@@ -538,11 +600,12 @@ public partial class CommandHost
             if (entry["meta"] is not JsonObject meta || meta.Count != 3 || StrOf(meta["op"]) is not { } op || !MetaOp.IsMatch(op) || StrOf(meta["at_utc"]) is not { } at ||
                 (at.Length > 0 && !RealTime(meta["at_utc"])) || StrOf(meta["approved_by"]) is not { } approved || (approved.Length > 0 && (approved != PlayerPrincipal || principal == PlayerPrincipal)))
                 return "a receipt's record";
-            var keys = op == "journal.note" ? 8 : 7;
+            var keys = op == "journal.note" || NatureOps.Contains(op) ? 8 : 7;
             if (entry["receipt"] is not JsonObject receipt || receipt.Count != keys || receipt["ok"]?.GetValueKind() != JsonValueKind.True || receipt["replayed"]?.GetValueKind() != JsonValueKind.False ||
                 StrOf(receipt["instance_id"]) is not { } instanceId || (instanceId.Length > 0 && !instanceId.StartsWith("creation:", StringComparison.Ordinal)) ||
                 !Whole(receipt["revision"], revision) || !Whole(receipt["permission_revision"], int.MaxValue) || !EntityIds(receipt["affected"]) || !EntityIds(receipt["created"]) ||
-                (op == "journal.note" && (StrOf(receipt["entry_id"]) is not { } entryId || !EntryIdPattern.IsMatch(entryId))))
+                (op == "journal.note" && (StrOf(receipt["entry_id"]) is not { } entryId || !EntryIdPattern.IsMatch(entryId))) ||
+                (NatureOps.Contains(op) && receipt["data"] is not JsonObject { Count: <= 32 }))
                 return "a receipt that did not succeed as recorded";
         }
         if (version >= 3)
@@ -567,6 +630,8 @@ public partial class CommandHost
             pose.Count != 3 || !Vec3(pose["position_m"]) || !Quat(pose["rotation"]) || pose["bounds"] is not JsonObject b || b.Count != 2 || !Vec3(b["min_m"]) || !Vec3(b["max_m"]))))
             return "an object's pose";
         if (version >= 5 && (old["team"] is not JsonObject team || (team.Count > 0 && TeamProblem(team, revision) is not null))) return "its journal or map";
+        // The island's nature, as far as an earlier manifest's save can be checked: its shape (Migrate keeps what still fits).
+        if (version >= 6 && (old["nature"] is not JsonObject nature || (nature.Count > 0 && NatureBlock.Problem(nature, revision, room: null) is not null))) return "its nature";
         return null;
     }
 
@@ -618,17 +683,48 @@ public partial class CommandHost
         };
         var envelope = new JsonObject
         {
-            ["schema"] = "enfractal.creation-world", ["version"] = 5, ["compiler_version"] = 1, ["style_version"] = "painterly_v1",
+            ["schema"] = "enfractal.creation-world", ["version"] = 6, ["compiler_version"] = 1, ["style_version"] = "painterly_v1",
             ["room_pin"] = new JsonObject { ["room_id"] = Room.RoomId, ["manifest_sha256"] = Room.ManifestSha256 },
             ["revision"] = revision, ["permission_revision"] = old["permission_revision"]!.DeepClone(), ["next_id"] = old["next_id"]!.DeepClone(),
             ["roles"] = old["roles"]!.DeepClone(), ["consent"] = new JsonObject { [PlayerPrincipal] = false, [CompanionPrincipal] = false },
             ["instances"] = instances, ["receipts"] = new JsonObject(), ["compacted"] = compacted, ["checkpoints"] = checkpoints,
             ["locks"] = locks, ["entity_revisions"] = revisions, ["object_poses"] = new JsonObject(), ["team"] = team,
+            ["nature"] = MigratedNature(old["nature"] as JsonObject, kept, revision),
         };
         var message = leftBehind.Count == 0 ? $"Brought over {kept.Count} creations from the earlier version of this room."
             : $"Brought over {kept.Count} creations; {leftBehind.Count} no longer fit this version of the room and stay in the earlier save: {string.Join(", ", leftBehind)}.";
         // Tasks the earlier session left open closed with it.
         return Adopt(envelope, kept, leftBehind, message, closeOpenTasks: true);
+    }
+
+    /// <summary>
+    /// The island's nature brought over from an earlier save: what fire did to the creations that came over and to objects
+    /// this manifest still has, the wallet, the trail's setting and the weather clock; cells only where this room's ground
+    /// is still there at their height (sampled now); the flowers the trail planted here while the offer stood are kept. A
+    /// fire and the undo steps stay behind with the earlier session: the ledger starts compacted, and nothing to undo.
+    /// </summary>
+    private JsonObject MigratedNature(JsonObject? old, IReadOnlyCollection<string> kept, int revision)
+    {
+        var here = Nature.Untouched(trailAllowed: true) ? Nature : new NatureState();
+        if (old == null || old.Count == 0)
+            return here.Cells.Count == 0 ? new JsonObject() : NatureBlock.Pack(new NatureState { WeatherS = here.WeatherS, Cells = here.Cells.ToDictionary(p => p.Key, p => p.Value.Copy(), StringComparer.Ordinal) });
+        var earlier = NatureBlock.Unpack(old);
+        var next = new NatureState
+        {
+            WeatherS = earlier.WeatherS, ChangedAt = Math.Min(earlier.ChangedAt, revision), TrailEnabled = earlier.TrailEnabled, TrailPrincipal = earlier.TrailPrincipal,
+            TrailRulesSha256 = earlier.TrailRulesSha256, Wallet = earlier.Wallet,
+        };
+        foreach (var (id, item) in earlier.Objects)
+            if (item.Creation ? kept.Contains(id) : Room.Objects.Any(o => o.Id == id)) next.Objects[id] = item;
+        foreach (var (key, cell) in earlier.Cells)
+        {
+            if (SampleNatureCell(cell.X, cell.Z, cell.Y) is not { } ground || Math.Abs(ground.Y - cell.Y) > NatureLaws.BurnHeightToleranceM) continue;
+            cell.BurningS = 0;
+            next.Cells[key] = cell;
+        }
+        foreach (var (key, cell) in here.Cells) next.Cells[key] = cell.Copy();
+        while (next.Cells.Count > NatureState.MaxCells) next.Cells.Remove(next.Cells.Keys.First());
+        return NatureBlock.Pack(next);
     }
 
     /// <summary>

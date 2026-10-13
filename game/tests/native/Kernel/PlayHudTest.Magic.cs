@@ -31,10 +31,10 @@ public partial class PlayHudTest
         trail.EmitSignal(BaseButton.SignalName.Toggled, true);
         Check(host.Nature.TrailEnabled, "turning it back on saves the shared trail choice");
         var effects = host.ActiveEffectIds.Count;
-        var natureReceipts = host.Nature.Receipts.Count;
+        var natureReceipts = host.Authority.Call("receipt_count").AsInt32();
         _hud.BeginFireConfirmation();
         for (var i = 0; i < 30; i++) _hud.TickFireConfirmation(.1);
-        Check(!host.Nature.Cells.Values.Any(cell => cell.BurningS > 0) && host.Nature.Receipts.Count == natureReceipts && host.ActiveEffectIds.Count == effects,
+        Check(!host.Nature.Cells.Values.Any(cell => cell.BurningS > 0) && host.Authority.Call("receipt_count").AsInt32() == natureReceipts && host.ActiveEffectIds.Count == effects,
             "holding Fire without a successful preview cannot start a fire or manufacture a cast receipt");
         var previousSample = host.NatureSampleForTests;
         var point = FloorNearGubble(.3f);
