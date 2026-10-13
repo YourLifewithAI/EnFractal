@@ -258,10 +258,11 @@ public partial class RoomHud : CanvasLayer
         AddChild(_customization);
         var options = new VBoxContainer(); _customization.AddChild(options);
         options.AddChild(new Label { Text = "YOUR TWO AVATARS" });
+        // The player's character, the row of the prototype figure and the drawn ones, and its colour button (RoomHud.Customize.cs).
+        BuildCharacterChoice(options);
         var name = new LineEdit { Text = Companion.CompanionName, MaxLength = 40, PlaceholderText = "Your companion's name (the Gubble)", CustomMinimumSize = new Vector2(360, 40) };
         options.AddChild(name);
         name.TextChanged += value => Companion.SetDisplayName(value);
-        AddButton(options, "Change player color", () => { _playerColor = (_playerColor + 1) % Palette.Length; Player.SetAppearance(Palette[_playerColor]); });
         AddButton(options, "Change the Gubble's color", () => { _companionColor = (_companionColor + 1) % Palette.Length; Companion.SetAppearance(Palette[_companionColor]); ApplyAura(); });
         options.AddChild(new Label { Text = $"Player height: {Player.BodyHeightM * 100:0} cm. Appearance keeps each avatar's identity." });
         BuildEyesSetting(options);
@@ -702,6 +703,7 @@ public partial class RoomHud : CanvasLayer
         _customization.Visible = !_customization.Visible;
         Player.SetInputEnabled(!_customization.Visible);
         Input.MouseMode = Input.MouseModeEnum.Visible;
+        if (_customization.Visible) OnCustomizeOpened();
     }
 
     private void LoadPreferences()
@@ -723,6 +725,7 @@ public partial class RoomHud : CanvasLayer
             Companion.SetDisplayName(CompanionAvatar.SavedName(name.AsString()));
         Player.SetAppearance(Palette[_playerColor]);
         Companion.SetAppearance(Palette[_companionColor]);
+        RestoreCharacter(config.GetValue("profile", CharacterProfileKey, CharacterChoice.PrototypeId));
     }
 
     /// <summary>
@@ -743,6 +746,7 @@ public partial class RoomHud : CanvasLayer
             config.SetValue("profile", "companion_color", _companionColor);
             config.SetValue("profile", "companion_name", Companion.CompanionName);
             config.SetValue("profile", "has_used_glow", HasUsedGlow);
+            config.SetValue("profile", CharacterProfileKey, ChosenCharacterId);
         }
         _noticeText = readable && WriteProfile(config) ? "Appearance saved. Room changes are not saved by this placeholder." : "Could not save appearance; current session is still usable.";
     }
