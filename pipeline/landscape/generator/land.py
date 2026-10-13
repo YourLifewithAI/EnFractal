@@ -710,6 +710,8 @@ def sun_shadow(grid, h, sun_dir, step=3, reach_m=2.6):
     march = [(ux*t, uz*t, rise*t) for t in (k*dstep for k in range(1, nsteps))]
     x0, z0, cell = grid.x0, grid.z0, grid.cell
     xs, zs = grid.xs, grid.zs
+    # A rising ray over the highest land meets none after it.
+    top = max(h) if rise > 0 else math.inf
     for j in range(0, nz, step):
         z = zs[j]
         for i in range(0, nx, step):
@@ -717,6 +719,8 @@ def sun_shadow(grid, h, sun_dir, step=3, reach_m=2.6):
             x, y0 = xs[i], h[q]+.004
             lit = 1.
             for ox, oz, oy in march:
+                if y0+oy > top:
+                    break
                 # grid.nearest, inline
                 ii = int(round((x+ox-x0)/cell))
                 ii = 0 if ii < 0 else nx-1 if ii > nx-1 else ii
