@@ -18,7 +18,7 @@ Write-Output (($characters.Stdout.Trim().Split("`n") | Where-Object { $_ -match 
 $gaits = Invoke-EnfractalNativeProcess -Toolchain $toolchain -FilePath $toolchain.EnginePath `
     -Arguments @('--headless', '--path', $toolchain.ProjectPath, '--fixed-fps', '60', 'res://tests/native_character_gaits.tscn') -TimeoutSeconds 300
 if ($gaits.Stderr -or $gaits.Stdout -notmatch 'NATIVE_CHARACTER_GAITS: \d+/\d+ checks passed') { throw "$($gaits.Stdout)`n$($gaits.Stderr)" }
-Write-Output (($gaits.Stdout.Trim().Split("`n") | Where-Object { $_ -match '^(GAITS_CPU|NATIVE_CHARACTER_GAITS)' }) -join "`n")
+Write-Output (($gaits.Stdout.Trim().Split("`n") | Where-Object { $_ -match '^(GAITS_CPU|GAITS_BUDGET|NATIVE_CHARACTER_GAITS)' }) -join "`n")
 $contact = Invoke-EnfractalNativeProcess -Toolchain $toolchain -FilePath $toolchain.EnginePath `
     -Arguments @('--headless', '--path', $toolchain.ProjectPath, '--fixed-fps', '60', 'res://tests/native_character_contact.tscn') -TimeoutSeconds 120
 if ($contact.Stderr -or $contact.Stdout -notmatch 'NATIVE_CHARACTER_CONTACT: \d+/\d+ checks passed') { throw "$($contact.Stdout)`n$($contact.Stderr)" }

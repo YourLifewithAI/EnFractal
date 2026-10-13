@@ -38,10 +38,10 @@ echo "== native fixtures and room boot"
 run native_contract_probe "Native release probe passed" --headless --path "$P" res://scenes/native_contract_probe.tscn
 run native_small_avatar "checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_small_avatar.tscn
 run native_characters "NATIVE_CHARACTERS: [0-9]+/[0-9]+ checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_characters.tscn -- --skip-budget
-run native_character_gaits "NATIVE_CHARACTER_GAITS: [0-9]+/[0-9]+ checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_character_gaits.tscn
+run native_character_gaits "NATIVE_CHARACTER_GAITS: [0-9]+/[0-9]+ checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_character_gaits.tscn -- --skip-budget
 run native_character_contact "NATIVE_CHARACTER_CONTACT: [0-9]+/[0-9]+ checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_character_contact.tscn
 # 40 seeded tumbles per character and ground (the Windows runner takes all 200, about 4 minutes) to fit run()'s 180 s.
-run native_character_tumble "NATIVE_CHARACTER_TUMBLE: [0-9]+/[0-9]+ checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_character_tumble.tscn -- --tumbles=40
+run native_character_tumble "NATIVE_CHARACTER_TUMBLE: [0-9]+/[0-9]+ checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_character_tumble.tscn -- --tumbles=40 --skip-budget
 run native_room_navigation "checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_room_navigation.tscn
 # Play on the land: the garage landscape, generated and exported at test time (derived data, never committed),
 # cached under .cache/landscape-fixture by a hash of the generator, the exporter, the package format and the corpus room.

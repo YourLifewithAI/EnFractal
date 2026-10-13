@@ -32,7 +32,8 @@ if (body != null) visualRoot.AddChild(body);                          // feet at
   self-contained binary glTF 2.0 file (external files, skins, animations, cameras, textures, morph targets, interleaved
   or sparse accessors, non-triangle primitives, out-of-range indices, non-finite vertices); a GLB node tree or node
   translation that disagrees with `character.json`; more than **70,000 triangles**, or a count that disagrees with
-  `character.json`; meshes that do not stand 0.10 m tall from y=0; any problem in `rig.json` (section 7).
+  `character.json`; more than **210,000 vertices** copied into meshes (a shared accessor counts once for every primitive
+  that uses it: the review's fix, 13 October); meshes that do not stand 0.10 m tall from y=0; any problem in `rig.json` (section 7).
 - The GLB is read once as bytes and never through Godot's importer. Its meshes are built straight from the verified
   accessors (the same vertices, triangles in Godot's winding, normals and sRGB base colours as Godot's `GltfDocument`,
   tested index for index), because `GltfDocument` alone took 59 ms for the five.
@@ -59,7 +60,9 @@ CharacterBody (Node3D)
 ```
 
 The modifiers run in that child order after the pose is applied: leg IK, look-ats, then springs (which react to the
-final pose of their parents).
+final pose of their parents). They step on the **physics tick** (`Skeleton3D.ModifierCallbackModeProcess` is `Physics`,
+set by `CharacterRig.Build`): Godot's default steps them on the render frame, which made the springs' tuning depend on the
+display's refresh rate (the review's fix, 13 October; physics interpolation is off in this project).
 
 | Member | What |
 |---|---|
@@ -170,6 +173,9 @@ joint whose segment is `L` long swing at `f`. Each chain's `f` is the pendulum o
 g = 3.5 m/s², times the profile's and the chain's springiness; the damping ratio is 0.12 times the spring_damping
 multipliers. Measured: Cloudpuff's leg swings within 20% of its tuned 1.17 Hz. Because the step depends on Δt,
 `PoseStack.Run` re-tunes stiffness and drag whenever the frame delta moves by 5%; frame-rate independent.
+
+**Held.** `Secondary.Held` holds every chain, the leg chains included, while something owns the bones (the tumble's
+flop); the hold belongs to the rig, so contact letting go of the leg IK (`UseLegIk(false)`) cannot restart them.
 
 **Known limits.** A sparkle's joint is its centre, so its spring tilts it rather than moving it: drift and orbit
 *paths* are a layer's job (add a position to the sparkle's bone). Godot warns that spring bones under a scaled parent
