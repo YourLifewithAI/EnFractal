@@ -23,8 +23,13 @@ namespace EnFractal.Native.Room;
 /// round the sea) never meets missing ground;</item>
 /// <item>round the places a body may be put without walking there (the spawns, the jetty's root, every beach's landing, each
 /// body's last safe footing) and round a fire burning on the land: within PinM, always;</item>
-/// <item>wherever something asked for it (EnsureAround), for as long as it asked.</item>
+/// <item>wherever something asked for it (EnsureAround), for as long as it asked: the kernel asks before it checks a creation's
+/// or a thing's footing far from the bodies (FarActionM round the spot).</item>
 /// </list>
+/// Where a tile's walkable ground is not built its far ground is (the land's next level, RoomBuilder.FarGroundLayer, built at
+/// boot for every drawn tile and kept): sight and aim rays ask for it, so far hills still hide and stop them; no body collides
+/// with it and nothing that supports or measures ground asks for it. Where the walkable ground is built, the far ground is not
+/// in the world, so a ray meets the fine one.
 /// A tile no longer needed goes after ReleaseAfterS, and only once it is more than NearM + ReleaseSlackM from every body. A room
 /// with no moving body keeps every tile (tests and tools that build a room without avatars see the whole land, as before).
 /// Navigation never reads this: it bakes the ground from the room's data (IslandNavigation).
@@ -36,6 +41,8 @@ public partial class TerrainCollision : Node3D
     public const string AnchorGroup = "terrain_anchor";
     public const float NearM = 16f, LeadS = 1.5f, MaxLeadM = 40f, LeadRadiusM = 8f, SyncM = 4f, PinM = 6f, ReleaseSlackM = 8f;
     public const double ReleaseAfterS = 3.0, BootHoldS = 2.0;
+    /// <summary>How far round a far action's spot (a creation placed, a thing put down) the ground is built before it is checked.</summary>
+    public const float FarActionM = 4f;
     /// <summary>The physics tick's time for tiles built ahead of the bodies (at least one a tick while any is wanted).</summary>
     public const double BuildBudgetMs = 1.5;
 
@@ -49,6 +56,10 @@ public partial class TerrainCollision : Node3D
         public Rid Body;
         public Rid Shape;
         public int Triangles;
+        /// <summary>The far ground (RoomBuilder.FarGroundLayer): the tile's coarse level, in the world only while Body is not.</summary>
+        public Rid FarBody;
+        public Rid FarShape;
+        public int FarTriangles;
         public double UnneededS;
         public double HeldUntilS = double.NegativeInfinity;
         public bool Wanted;
@@ -108,7 +119,66 @@ public partial class TerrainCollision : Node3D
             view.Shape(tiles[i], faces[i]);
             faces[i] = null!;
         }
+        // The far ground of every drawn tile, kept for the room's life: what sight and aim meet where the ground is not built.
+        var far = tiles.Where(t => t.Part.HasCoarse && t.Layer == RoomBuilder.WorldLayer).ToArray();
+        var coarse = new Vector3[far.Length][];
+        System.Threading.Tasks.Parallel.For(0, far.Length, i => coarse[i] = far[i].Part.CoarseFaces(far[i].Index));
+        for (var i = 0; i < far.Length; i++)
+        {
+            var tile = far[i];
+            tile.FarShape = PhysicsServer3D.ConcavePolygonShapeCreate();
+            PhysicsServer3D.ShapeSetData(tile.FarShape, new Godot.Collections.Dictionary { ["faces"] = coarse[i], ["backface_collision"] = false });
+            tile.FarTriangles = coarse[i].Length / 3;
+            tile.FarBody = PhysicsServer3D.BodyCreate();
+            PhysicsServer3D.BodySetMode(tile.FarBody, PhysicsServer3D.BodyMode.Static);
+            PhysicsServer3D.BodySetCollisionLayer(tile.FarBody, RoomBuilder.FarGroundLayer);
+            PhysicsServer3D.BodySetCollisionMask(tile.FarBody, 0);
+            PhysicsServer3D.BodyAddShape(tile.FarBody, tile.FarShape, Transform3D.Identity);
+            PhysicsServer3D.BodyAttachObjectInstanceId(tile.FarBody, tile.Owner.GetInstanceId());
+            view.FarTriangles += tile.FarTriangles;
+            coarse[i] = null!;
+        }
         return view;
+    }
+
+    /// <summary>The far ground's triangles in all (every drawn tile's coarse level), and how many tiles show it now (their ground not built).</summary>
+    public long FarTriangles { get; private set; }
+    public int FarTilesShown { get; private set; }
+
+    /// <summary>Whether a physics body is one of the far ground's (a body must never rest on one).</summary>
+    public bool IsFarGround(Rid body) => body.IsValid && _tiles.Any(t => t.FarBody == body);
+
+    /// <summary>The far ground taken out of the world and freed (measurements: what it holds).</summary>
+    internal void FreeFarGround()
+    {
+        foreach (var tile in _tiles)
+        {
+            if (tile.FarBody.IsValid) PhysicsServer3D.FreeRid(tile.FarBody);
+            if (tile.FarShape.IsValid) PhysicsServer3D.FreeRid(tile.FarShape);
+            tile.FarBody = tile.FarShape = default;
+        }
+        FarTilesShown = 0;
+        FarTriangles = 0;
+    }
+
+    /// <summary>A tile's far ground is in the world exactly while its walkable ground is not, so a ray meets the fine one where it is built.</summary>
+    private void PlaceFar(Tile tile)
+    {
+        if (!tile.FarBody.IsValid) return;
+        var show = !tile.Built && IsInsideTree();
+        var shown = PhysicsServer3D.BodyGetSpace(tile.FarBody).IsValid;
+        if (show == shown) return;
+        if (show)
+        {
+            PhysicsServer3D.BodySetState(tile.FarBody, PhysicsServer3D.BodyState.Transform, tile.Owner.IsInsideTree() ? tile.Owner.GlobalTransform : Transform3D.Identity);
+            PhysicsServer3D.BodySetSpace(tile.FarBody, GetWorld3D().Space);
+            FarTilesShown++;
+        }
+        else
+        {
+            PhysicsServer3D.BodySetSpace(tile.FarBody, default);
+            FarTilesShown--;
+        }
     }
 
     public override void _EnterTree()
@@ -124,6 +194,7 @@ public partial class TerrainCollision : Node3D
                 PhysicsServer3D.BodySetSpace(tile.Body, space);
             }
             else if (tile.Shape.IsValid) Build(tile);
+            PlaceFar(tile);
         }
     }
 
@@ -131,13 +202,26 @@ public partial class TerrainCollision : Node3D
     {
         lock (Live) Live.RemoveAll(w => !w.TryGetTarget(out var view) || view == this);
         foreach (var tile in _tiles)
+        {
             if (tile.Built) PhysicsServer3D.BodySetSpace(tile.Body, default);
+            if (tile.FarBody.IsValid && PhysicsServer3D.BodyGetSpace(tile.FarBody).IsValid)
+            {
+                PhysicsServer3D.BodySetSpace(tile.FarBody, default);
+                FarTilesShown--;
+            }
+        }
     }
 
     public override void _Notification(int what)
     {
         if ((long)what != NotificationPredelete) return;
-        foreach (var tile in _tiles) Release(tile, counted: false);
+        foreach (var tile in _tiles)
+        {
+            Release(tile, counted: false);
+            if (tile.FarBody.IsValid) PhysicsServer3D.FreeRid(tile.FarBody);
+            if (tile.FarShape.IsValid) PhysicsServer3D.FreeRid(tile.FarShape);
+            tile.FarBody = tile.FarShape = default;
+        }
     }
 
     public override void _PhysicsProcess(double delta)
@@ -370,6 +454,7 @@ public partial class TerrainCollision : Node3D
         MostTilesBuilt = Math.Max(MostTilesBuilt, TilesBuilt);
         Builds++;
         TrianglesBuilt += tile.Triangles;
+        PlaceFar(tile);
     }
 
     private void Release(Tile tile, bool counted)
@@ -385,6 +470,7 @@ public partial class TerrainCollision : Node3D
         }
         if (tile.Shape.IsValid) PhysicsServer3D.FreeRid(tile.Shape);
         tile.Shape = default;
+        PlaceFar(tile);
     }
 
     /// <summary>How far a point is from a tile's square, seen from above (0 inside it).</summary>

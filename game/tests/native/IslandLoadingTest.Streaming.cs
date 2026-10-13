@@ -2,6 +2,7 @@ using Godot;
 using System;
 using System.Diagnostics;
 using System.Linq;
+using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using EnFractal.Native;
 using EnFractal.Native.Kernel;
@@ -27,6 +28,9 @@ public partial class IslandLoadingTest
         // Groups 1 and 2 both used (the contract numbers them with none unused): the first row is a patch of its own.
         var grass = IslandFixture.GrassRows(2_000, new Rect2(-16, -32, 224, 64), seed: 9).Select((r, i) => i == 0 ? r with { Group = 1 } : r).ToList();
         var directory = IslandFixture.WriteWideLand("island_streaming", -1, 12, -2, 1, new[] { IslandFixture.Grass("grass", grass) });
+        // A fresh island each run: the creation placed far away (PlacesFar) is not left in a save for the next.
+        var saves = ProjectSettings.GlobalizePath($"{CommandHost.SaveRoot}/island_streaming");
+        if (System.IO.Directory.Exists(saves)) System.IO.Directory.Delete(saves, recursive: true);
         _land = GD.Load<PackedScene>("res://scenes/room.tscn").Instantiate<RoomWorld>();
         _land.RoomDirectory = directory;
         AddChild(_land);
@@ -77,12 +81,111 @@ public partial class IslandLoadingTest
         await GoesHome();
         await KeepsAFire();
         await WrapsRound();
+        await SeesOverFarHills();
+        PlacesFar();
+        Check((player.CollisionMask & RoomBuilder.FarGroundLayer) == 0 && (_land.Companion.CollisionMask & RoomBuilder.FarGroundLayer) == 0 && _onFarGround == 0,
+            $"no body collides with the far ground: neither avatar's mask holds it, and no body rested on it in any tick of these runs ({_onFarGround} ticks)");
         Measure($"ISLAND_GROUND streaming: {ground.Builds} tiles built, {ground.Releases} released, {ground.SyncBuilds} built in the tick a body needed them (longest {ground.LongestSyncMs:0.0} ms), at most {ground.MostTilesBuilt} of {ground.TileCount} at once");
         _land.QueueFree();
         await Frames(2);
     }
 
-    /// <summary>A point on the wide island's ground (its rolling height).</summary>
+    /// <summary>Ticks in which a body's collisions included the far ground (it must never touch it).</summary>
+    private int _onFarGround;
+
+    /// <summary>Whether this tick's slide collisions of an avatar include a far-ground body.</summary>
+    private void WatchFarGround(SmallPlayerController body)
+    {
+        var ground = _land.Built.GetNode<TerrainCollision>(TerrainCollision.ViewName);
+        for (var i = 0; i < body.GetSlideCollisionCount(); i++)
+            if (ground.IsFarGround(body.GetSlideCollision(i).GetColliderRid())) { _onFarGround++; return; }
+    }
+
+    /// <summary>
+    /// Sight and aim across the land (S12b, the far ground): the player stands 50 m short of a 2 m hill whose walkable ground is
+    /// not built. A ray on the world layer alone passes through the hill (what sight would do without the far ground); the
+    /// team's perception, the companion's view check and the HUD's aim all stop on it, while a box on this side is seen.
+    /// </summary>
+    private async Task SeesOverFarHills()
+    {
+        var player = _land.Player;
+        var ground = _land.Built.GetNode<TerrainCollision>(TerrainCollision.ViewName);
+        player.GlobalPosition = OnGround(70, 0) + Vector3.Up * 0.01f;
+        player.Velocity = Vector3.Zero;
+        player.Rotation = new Vector3(0, -Mathf.Pi / 2, 0);
+        player.ResetPhysicsInterpolation();
+        await Seconds(TerrainCollision.ReleaseAfterS + 1);
+        var hill = OnGround((float)IslandFixture.HillX, 0);
+        var eye = player.GlobalPosition + Vector3.Up * 0.08f;
+        var behind = OnGround(150, 0) + Vector3.Up * 0.05f;
+        var before = OnGround(85, 0) + Vector3.Up * 0.05f;
+        var worldOnly = Ray(eye, behind, RoomBuilder.WorldLayer, player.GetRid());
+        var sight = Ray(eye, behind, RoomBuilder.SightMask, player.GetRid());
+        var part = _land.Built.GetNode<StaticBody3D>("Shell/terrain_grass");
+        var hitX = sight.Count > 0 ? sight["position"].AsVector3().X : float.NaN;
+        Check(!TerrainCollision.CollidesAt(_land, hill) && ground.FarTilesShown > 0 && worldOnly.Count == 0 && sight.Count > 0 && hitX > 96 && hitX < (float)IslandFixture.HillX &&
+              sight["collider"].AsGodotObject() == part,
+            $"the hill's walkable ground is not built and the world layer alone sees through it; sight meets the far ground on its near slope (at x {hitX:0.0} m), naming the land ({ground.FarTilesShown} tiles of far ground shown)");
+        static JsonObject Box(string id, Vector3 at) => new()
+        {
+            ["id"] = id, ["kind"] = "object",
+            ["bounds_m"] = new JsonObject { ["min_m"] = new JsonArray(at.X - 0.05, at.Y - 0.05, at.Z - 0.05), ["max_m"] = new JsonArray(at.X + 0.05, at.Y + 0.05, at.Z + 0.05) },
+        };
+        var host = _land.GetNode<CommandHost>("CommandHost");
+        var seen = host.Perceive(player, "avatar:player", new System.Collections.Generic.List<JsonObject> { Box("obj:behind_hill", behind), Box("obj:this_side", before) });
+        Check(!seen.Contains("obj:behind_hill") && seen.Contains("obj:this_side"),
+            $"the team's perception does not see a box behind the far hill and sees one on this side ({string.Join(", ", seen)})");
+        Measure(FormattableString.Invariant($"ISLAND_FAR sight from (70, 0) toward (150, 0): the world layer alone {(worldOnly.Count == 0 ? "sees through the hill" : "is stopped")}, sight stops at x {hitX:0.0} m on the far ground; perceived: {string.Join(", ", seen)}"));
+        var hud = _land.GetChildren().OfType<RoomHud>().First();
+        hud.AimRayForTests = (eye, eye + (behind - eye).Normalized() * 150f);
+        var aim = hud.AimNow();
+        hud.AimRayForTests = null;
+        Check(aim.Hit && aim.Point.X > 96 && aim.Point.X < (float)IslandFixture.HillX && Mathf.Abs(aim.Point.Y - (float)IslandFixture.Height(aim.Point.X, aim.Point.Z)) < 0.1f,
+            $"the HUD's aim across the land stops on the far hill ({aim.Point}), not 150 m past it");
+    }
+
+    /// <summary>
+    /// A creation placed far from both bodies (S12b): the kernel builds the ground there before the authority checks the footing,
+    /// so the placement is accepted on the real (walkable) ground, at its height, not refused for a missing surface.
+    /// </summary>
+    private void PlacesFar()
+    {
+        var host = _land.GetNode<CommandHost>("CommandHost");
+        var spot = OnGround(170, -20);
+        Check(!TerrainCollision.CollidesAt(_land, spot), "the far spot's walkable ground is not built before the placement");
+        JsonObject Place(bool preview)
+        {
+            var command = new JsonObject
+            {
+                ["schema"] = "enfractal.command", ["version"] = 1, ["action_id"] = "far-place-0001", ["room_id"] = _land.Room.RoomId, ["op"] = "creation.place",
+                ["args"] = new JsonObject
+                {
+                    ["source"] = new JsonObject
+                    {
+                        ["schema"] = "enfractal.creation", ["version"] = 1, ["name"] = "Far marker", ["seed"] = 1, ["mount"] = "ground",
+                        ["parts"] = new JsonArray(new JsonObject { ["id"] = "base", ["shape"] = "box", ["position_m"] = new JsonArray(0, 0.06, 0), ["rotation_deg"] = new JsonArray(0, 0, 0), ["size_m"] = new JsonArray(0.12, 0.12, 0.12), ["material"] = "wood" }),
+                        ["nodes"] = new JsonArray(
+                            new JsonObject { ["id"] = "use", ["op"] = "interact", ["part_id"] = "base", ["params"] = new JsonObject() },
+                            new JsonObject { ["id"] = "glow", ["op"] = "light", ["part_id"] = "base", ["params"] = new JsonObject { ["intensity"] = 1, ["duration_s"] = 1 } }),
+                        ["edges"] = new JsonArray(new JsonObject { ["from"] = "use", ["to"] = "glow" }),
+                    },
+                    ["placement"] = new JsonObject { ["position_m"] = new JsonArray(spot.X, spot.Y, spot.Z) },
+                },
+            };
+            if (preview) command["preview"] = true;
+            return JsonNode.Parse(host.Handle(command.ToJsonString(), CommandHost.PlayerPrincipal))!.AsObject();
+        }
+        var previewed = Place(preview: true);
+        var y = previewed["data"]?["position_m"]?[1]?.GetValue<double>() ?? double.NaN;
+        // The authority stands a creation on the highest of its footprint's corners and middle (a 12 cm box): the walkable ground there.
+        var footprint = new[] { Vector3.Zero, new Vector3(0.06f, 0, 0.06f), new Vector3(-0.06f, 0, 0.06f), new Vector3(0.06f, 0, -0.06f), new Vector3(-0.06f, 0, -0.06f) };
+        var heights = footprint.Select(o => GroundUnder(spot + o)).ToArray();
+        float? groundY = heights.All(h => h != null) ? heights.Max() : null;
+        var placed = Place(preview: false);
+        Measure(FormattableString.Invariant($"ISLAND_FAR a creation placed at (170, -20), 80 m from both bodies: {(placed["ok"]!.GetValue<bool>() ? "accepted" : "refused")} at {y:0.0000} m over walkable ground at {groundY:0.0000} m"));
+        Check(previewed["ok"]!.GetValue<bool>() && placed["ok"]!.GetValue<bool>() && groundY is { } g && Math.Abs(y - g) < 0.0005,
+            $"a creation placed 80 m from both bodies is accepted on the real ground (at {y:0.000} m, the walkable ground {groundY:0.000} m): {placed["error"]?["message"]}");
+    }
     private static Vector3 OnGround(float x, float z) => new(x, (float)IslandFixture.Height(x, z), z);
 
     private static Vector3 Centre(TiledPart part, int tile) => new(part.Tiles[tile].Tx * 16 + 8, 0, part.Tiles[tile].Tz * 16 + 8);
@@ -137,6 +240,7 @@ public partial class IslandLoadingTest
         for (var tick = 0; tick < 8 * Engine.PhysicsTicksPerSecond; tick++)
         {
             await Frames(1);
+            WatchFarGround(player);
             var (below, there) = Footing(player);
             worst = Math.Max(worst, below);
             if (!there || !TerrainCollision.CollidesAt(_land, player.GlobalPosition)) missing++;
@@ -221,6 +325,7 @@ public partial class IslandLoadingTest
         for (var tick = 0; tick < 3 * Engine.PhysicsTicksPerSecond && !(player.IsOnFloor() && tick > 10); tick++)
         {
             await Frames(1);
+            WatchFarGround(player);
             worst = Math.Max(worst, Footing(player).Below);
         }
         var groundY = GroundUnder(player.GlobalPosition);

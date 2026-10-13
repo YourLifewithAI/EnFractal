@@ -261,6 +261,8 @@ public partial class CommandHost
     {
         var position = KernelJson.ReadVector(placement.GetProperty("position_m"));
         if (!Room.Bounds.Grow(0.001f).HasPoint(position)) throw new Refusal("out_of_bounds", "That position is outside the room.", "$.args.placement.position_m");
+        // Far from the bodies the land's walkable ground is built first (S12b, TerrainCollision), so the thing settles on it.
+        TerrainCollision.EnsureAround(this, position, TerrainCollision.FarActionM);
         var rotation = thing.Rotation;
         if (placement.TryGetProperty("rotation", out var turn))
         {

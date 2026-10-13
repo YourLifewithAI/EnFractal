@@ -387,7 +387,16 @@ public sealed partial class RoomData
                 var read = ground = new (float[], ushort[]?, int[]?)[tiles.Count];
                 System.Threading.Tasks.Parallel.For(0, tiles.Count, i => read[i] = glb.Ground(tiles[i].MeshByLevel[0]));
             }
-            parts.Add(new TiledPart { PartId = id, MeshPath = path, Ground = ground, Tiles = tiles });
+            // Sight and aim see the far land through its next level (S12b): kept for a drawn, colliding part.
+            (float[], ushort[]?, int[]?)[]? coarse = null;
+            if (part.Collides && part.Drawn)
+            {
+                var level = Math.Min(1, levels.Length - 1);
+                var read = coarse = new (float[], ushort[]?, int[]?)[tiles.Count];
+                // A level the reader cannot take (compressed positions: the contract only promises level 0) falls back to level 0.
+                System.Threading.Tasks.Parallel.For(0, tiles.Count, i => read[i] = glb.Ground(tiles[i].MeshByLevel[glb.Unreadable(tiles[i].MeshByLevel[level]) == null ? level : 0]));
+            }
+            parts.Add(new TiledPart { PartId = id, MeshPath = path, Ground = ground, Coarse = coarse, Tiles = tiles });
         }
         return new TerrainTiles { LevelGridM = levels.Select(l => (float)l).ToArray(), Parts = parts };
     }

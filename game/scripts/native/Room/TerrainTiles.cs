@@ -28,10 +28,25 @@ public sealed class TiledPart
     /// The ground of one tile: its level-0 triangles as a face list in Godot's winding, from the file's float positions. Level 0
     /// is the walkable ground: a colliding part collides through it alone, and navigation bakes it. Pure C#: any thread.
     /// </summary>
-    public Vector3[] GroundFaces(int tileIndex)
+    public Vector3[] GroundFaces(int tileIndex) =>
+        Faces((Ground ?? throw new InvalidOperationException($"{PartId} neither collides nor holds water: its ground was not kept"))[tileIndex]);
+
+    /// <summary>
+    /// Each tile's coarse ground (level 1, about 5 cm from level 0 on the 10x garage; level 0 when the land has one level) for a
+    /// drawn colliding part: the far ground sight and aim see where the walkable ground is not built (TerrainCollision). Bodies
+    /// never touch it. Null for a part that is not drawn or does not collide.
+    /// </summary>
+    internal (float[] Positions, ushort[]? Small, int[]? Large)[]? Coarse { get; init; }
+
+    /// <summary>The coarse ground of one tile as a face list in Godot's winding (see Coarse). Pure C#: any thread.</summary>
+    public Vector3[] CoarseFaces(int tileIndex) =>
+        Faces((Coarse ?? throw new InvalidOperationException($"{PartId} has no far ground: it is not drawn or does not collide"))[tileIndex]);
+
+    public bool HasCoarse => Coarse != null;
+
+    private static Vector3[] Faces((float[] Positions, ushort[]? Small, int[]? Large) ground)
     {
-        if (Ground is not { } ground) throw new InvalidOperationException($"{PartId} neither collides nor holds water: its ground was not kept");
-        var (positions, small, large) = ground[tileIndex];
+        var (positions, small, large) = ground;
         var count = small?.Length ?? large!.Length;
         var faces = new Vector3[count];
         for (var i = 0; i < count; i++)

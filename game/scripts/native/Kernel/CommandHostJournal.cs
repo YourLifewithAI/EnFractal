@@ -489,7 +489,7 @@ public partial class CommandHost
         // never take every ray from cells not yet looked at (review major 7, second review).
         foreach (var (_, _, _, level, c, r, point) in candidates.OrderBy(x => x.Tried).ThenBy(x => x.Last).ThenBy(x => x.Distance).Take(DiscoverRaysPerSweep))
         {
-            var hit = space.IntersectRay(PhysicsRayQueryParameters3D.Create(eye, point, RoomBuilder.WorldLayer, exclude));
+            var hit = space.IntersectRay(PhysicsRayQueryParameters3D.Create(eye, point, RoomBuilder.SightMask, exclude));
             if (hit.Count == 0 || hit["position"].AsVector3().DistanceTo(point) <= 0.015f)
             {
                 level.Set(c, r);

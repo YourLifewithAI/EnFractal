@@ -24,6 +24,14 @@ public static class RoomBuilder
     public const uint HiddenLayer = 16;
     /// <summary>What a body stands on, climbs and bumps into: the world and the hidden parts.</summary>
     public const uint BodyMask = WorldLayer | HiddenLayer;
+    /// <summary>
+    /// Physics layer 6, "far ground" (bit value 32, S12b): the land's coarse level where its walkable ground is not built
+    /// (TerrainCollision keeps that near the bodies). Only sight and aim ask for it (SightMask), so far hills hide what is behind
+    /// them and stop an aim; no body has it in its mask, and nothing that settles, supports or measures ground asks for it.
+    /// </summary>
+    public const uint FarGroundLayer = 32;
+    /// <summary>What sight and aim rays test: the world, and the far ground where the walkable ground is not built.</summary>
+    public const uint SightMask = WorldLayer | FarGroundLayer;
 
     public static Node3D Build(RoomData room)
     {

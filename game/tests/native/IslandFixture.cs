@@ -117,8 +117,14 @@ public static class IslandFixture
         });
     }
 
-    /// <summary>The wide island's ground height: a few centimetres of roll over a 0.3 m plateau, always above its sea.</summary>
-    public static double Height(double x, double z) => 0.3 + 0.05 * Math.Sin(0.37 * x) + 0.03 * Math.Cos(0.53 * z);
+    /// <summary>
+    /// The wide island's ground height: a few centimetres of roll over a 0.3 m plateau, always above its sea, and one hill 2 m high
+    /// round (HillX, 0), far from the spawn, for sight across the land.
+    /// </summary>
+    public static double Height(double x, double z) =>
+        0.3 + 0.05 * Math.Sin(0.37 * x) + 0.03 * Math.Cos(0.53 * z) + 2.0 * Math.Exp(-((x - HillX) * (x - HillX) + z * z) / (2 * 6.0 * 6.0));
+
+    public const double HillX = 120;
 
     /// <summary>A tiled terrain GLB as the contract has it: one root node per tile and level (tile_tx_tz_lodN), a grid of Height's points.</summary>
     private static byte[] TerrainGlb(int tx0, int tx1, int tz0, int tz1)

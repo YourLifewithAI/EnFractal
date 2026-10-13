@@ -641,6 +641,10 @@ public partial class CommandHost : Node
             source = KernelJson.ToVariant(args.GetProperty("source"));
             (x, y, z, yaw, on) = ReadPlacement(args.GetProperty("placement"), 0);
         }
+        // The land's walkable ground is built only near the bodies (S12b, TerrainCollision): under a placement far from them it is
+        // built now, a few tiles at most, so the authority's surface checks meet the real ground, as they did before.
+        var spot = new Vector3((float)x, (float)y, (float)z);
+        if (spot.IsFinite()) TerrainCollision.EnsureAround(this, spot, TerrainCollision.FarActionM);
         if (preview)
         {
             var checkedPlacement = Authority.Call("preflight", principal, source, x, z, yaw, instanceId, y, on, approvedBy ?? "").AsGodotDictionary();
@@ -1403,7 +1407,7 @@ public partial class CommandHost : Node
     /// Line of sight from a body's eye (PERCEPTION.md, with physics ray casts against the real colliders in place of
     /// the mock's boxes). Each entity is sampled at 15 points of its bounds (the centre, eight corners and six face
     /// centres, each pulled 1 cm or a quarter of the box inside); a sample is seen when a ray from the eye reaches it
-    /// or the entity itself first. Rays test only the world layer, so avatars and effects never occlude. The body's
+    /// or the entity itself first. Rays test the world layer and the far ground (RoomBuilder.SightMask: far hills hide what is behind them), so avatars and effects never occlude. The body's
     /// own avatar and the room shell are always perceived.
     /// </summary>
     public HashSet<string> Perceive(SmallPlayerController? body, string ownAvatar, List<JsonObject> entities)
@@ -1432,7 +1436,7 @@ public partial class CommandHost : Node
         var box = bounds.Grow(0.002f);
         foreach (var sample in Samples(bounds.Position, bounds.End))
         {
-            var ray = PhysicsRayQueryParameters3D.Create(eye, sample, RoomBuilder.WorldLayer, exclude);
+            var ray = PhysicsRayQueryParameters3D.Create(eye, sample, RoomBuilder.SightMask, exclude);
             var hit = space.IntersectRay(ray);
             if (hit.Count == 0 || box.HasPoint(hit["position"].AsVector3())) return true;
         }
