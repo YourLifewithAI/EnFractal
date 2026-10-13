@@ -416,14 +416,20 @@ def build_road(grid, h, wet, inside, blocked, pads, a, b, width=.085, crossable=
             if wet[q] < .24 and crossable(q):
                 cost[q] += 40
 
+    ia, ja = grid.nearest(*a)
+    ib, jb = grid.nearest(*b)
+    goal = jb*nx+ib
+
     def blocked_fn(q, p):
         if (not inside[p]) or blocked[p]:
             return True
+        if p == goal and wet[p] > 0.:
+            # The road reaches its own goal on dry land, even inside the band it keeps off the water: a cottage's
+            # forecourt by the shore (on the 10x world the hamlet's water is often the sea, and its road was never built).
+            return False
         return wet[p] < .24 and not (crossable is not None and crossable(p))
 
-    ia, ja = grid.nearest(*a)
-    ib, jb = grid.nearest(*b)
-    path = dijkstra(grid, cost, ja*nx+ia, [jb*nx+ib], 1, blocked_fn)
+    path = dijkstra(grid, cost, ja*nx+ia, [goal], 1, blocked_fn)
     if path is None:
         return None
     pts = resample(chaikin([(grid.xs[q % nx], grid.zs[q//nx]) for q in path], 2), .03)
