@@ -26,13 +26,15 @@ public partial class CompanionAvatar : SmallPlayerController
 
     /// <summary>
     /// Sets or clears the aura colour, carried as the node meta LookDirector.AuraColorMeta that the look reads when a glow starts
-    /// (docs/look/GLOW.md): restart a glow to recolour it.
+    /// (docs/look/GLOW.md): restart a glow to recolour it. A drawn body (the Gubble's, K5) takes it at once: its bubble's rim and
+    /// its sparkles (CharacterLook.Recolor); cleared, they go back to the drawing's own aura colour.
     /// </summary>
     public void SetAuraColor(Color? color)
     {
         AuraColor = color;
         if (color is { } c) SetMeta(EnFractal.Native.Look.LookDirector.AuraColorMeta, c);
         else if (HasMeta(EnFractal.Native.Look.LookDirector.AuraColorMeta)) RemoveMeta(EnFractal.Native.Look.LookDirector.AuraColorMeta);
+        if (BodyVisual?.Root is { } drawn && GodotObject.IsInstanceValid(drawn)) EnFractal.Native.Look.CharacterLook.Recolor(drawn, this);
     }
     public string CompanionName { get; private set; } = DefaultName;
     /// <summary>The name tag over the body: the name with a capital, as a name stands on its own ("The Gubble").</summary>
@@ -507,8 +509,9 @@ public partial class CompanionAvatar : SmallPlayerController
     /// <summary>How far through the gesture playing it is, 0 to 1 (0 with none): a drawn Gubble's arms follow it (K5).</summary>
     public float GestureProgress { get; private set; }
     /// <summary>
-    /// The gesture's transform this frame, about the body's middle (or its feet for a cast), identity with none. Today it moves the
-    /// visual root's children; a drawn Gubble (K5) may apply it as the pose stack's last layer instead.
+    /// The gesture's transform this frame, in the visual root's space, about the body's middle (or its feet for a cast), identity
+    /// with none. With the prototype figure it moves the visual root's children; with a drawn body (BodyVisual) nothing here moves
+    /// them, and the drawn Gubble's gesture layer adds it to its root bone (Characters/Gubble, K5).
     /// </summary>
     public Transform3D GestureOffset { get; private set; } = Transform3D.Identity;
 
@@ -571,7 +574,8 @@ public partial class CompanionAvatar : SmallPlayerController
     private void Play(Gesture gesture, double seconds)
     {
         if (VisualRoot == null || !GodotObject.IsInstanceValid(VisualRoot)) return;
-        if (Playing == Gesture.None)
+        // The prototype's parts are moved here; a drawn body poses itself from GestureOffset (its gesture layer).
+        if (Playing == Gesture.None && BodyVisual == null)
         {
             _rest.Clear();
             foreach (var child in VisualRoot.GetChildren())
@@ -619,15 +623,22 @@ public partial class CompanionAvatar : SmallPlayerController
         var about = new Transform3D(Basis.Identity, pivot) * GesturePose(t) * new Transform3D(Basis.Identity, -pivot);
         GestureProgress = t;
         GestureOffset = about;
+        // Drawn mid-gesture: the prototype's parts go back to rest at once, and the drawn body takes the rest of the gesture.
+        if (BodyVisual != null) RestoreParts();
         foreach (var (node, pose0) in _rest)
             if (GodotObject.IsInstanceValid(node)) node.Transform = about * pose0;
     }
 
-    private void RestorePose()
+    private void RestoreParts()
     {
         foreach (var (node, pose0) in _rest)
             if (GodotObject.IsInstanceValid(node)) node.Transform = pose0;
         _rest.Clear();
+    }
+
+    private void RestorePose()
+    {
+        RestoreParts();
         Playing = Gesture.None;
         GestureProgress = 0;
         GestureOffset = Transform3D.Identity;
