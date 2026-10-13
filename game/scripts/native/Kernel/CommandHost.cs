@@ -276,12 +276,15 @@ public partial class CommandHost : Node
         // meshes, B takes the player home to the jetty, and a far net hours out does the same (SmallPlayerController).
         Player?.SetSea(Room.Sea);
         Companion?.SetSea(Room.Sea);
+        // The Gubble caught up with the player far across the island (S8): its AI hears of it on its next result.
+        if (Companion != null) Companion.CaughtUp += NoteCatchUp;
         BindPlayerVitals();
     }
 
     public override void _ExitTree()
     {
         UnbindPlayerVitals();
+        if (Companion != null && IsInstanceValid(Companion)) Companion.CaughtUp -= NoteCatchUp;
         WishRunnerSession(false);
         // Nature first: its write carries the team block too when that waits.
         SaveNatureOnExit();
@@ -798,7 +801,8 @@ public partial class CommandHost : Node
                 Companion.GoTo(target != null ? aim : new Aabb(KernelJson.ReadVector(args.GetProperty("position_m")), Vector3.Zero), GoToStopM);
                 break;
             // Already holding it: straight to the return phase. Otherwise walk to it first.
-            case "fetch" when returning: Companion.Come(); break;
+            // A fetch's way back carries the thing the whole way: it never catches up (CompanionAvatar.CatchUpM).
+            case "fetch" when returning: Companion.Come(catchUp: false); break;
             case "fetch": Companion.GoTo(aim, GoToStopM); break;
         }
         // A goal with a target runs as a job: the host re-checks the target when the avatar arrives. A walk with no thing to
@@ -1829,7 +1833,7 @@ public partial class CommandHost : Node
             Finish(job, refusal);
             return;
         }
-        Companion!.Come();
+        Companion!.Come(catchUp: false);
         job.Serial = Companion.IntentSerial;
         job.Phase = "return";
         job.BlockedS = 0;

@@ -92,6 +92,9 @@ public partial class SmallAvatarPhysicsTest : Node3D
             await TestGubbleOffATallLedge();
             await TestGubbleLetsAHeldHeightGo();
             await TestGubbleStuckOverARoof();
+            await TestGubbleRisesATallFace();
+            await TestGubbleCatchesUp();
+            await TestGubbleWalksAgainOnALongTrip();
             await TestSeaEdge();
             var metrics = await RunJitterSuite(1.0f, new Vector3(0, 0, 30));
             CheckJitter(metrics);
@@ -1957,6 +1960,165 @@ public partial class SmallAvatarPhysicsTest : Node3D
             $"(after {frames / 60.0f:0.0} s: {gap:0.00} m away, {level * 100:0.0} cm off their height; watchdog {_companion.HighReplans - replans} times; blocked at most {longestBlocked} ticks running)");
         _companion.BindNavigation(_navigation);
         navigation.QueueFree();
+        _companion.Stop();
+        Check(_player.TryTeleportTo(new Vector3(-2, 0.003f, 3.2f)) && _companion.TryTeleportTo(new Vector3(0.5f, 0.01f, 3.2f)), "both bodies back on the open floor");
+        await Frames(10);
+    }
+
+    // ---- play distances (packet S8 of the 10x world, 13 October) ----
+
+    /// <summary>
+    /// Rising up a tall face (S8): the 10x island's mesas stand 10 to 25 m, and at 0.3 m/s a 20 m face took over a minute. A 20 m
+    /// wall across the land between the Gubble and the player, with no walk round it (no walkable map): it floats over, rising at
+    /// up to 1.5 m/s and easing at the top, and comes down the far side the same way. A 40 cm wall (today's islands) still rises
+    /// at 0.3 m/s.
+    /// </summary>
+    private async Task TestGubbleRisesATallFace()
+    {
+        Report(Mathf.IsEqualApprox(CompanionAvatar.RiseMpsFor(0.3f, 0.4f, 0.3f), 0.3f) && Mathf.IsEqualApprox(CompanionAvatar.RiseMpsFor(2.9f, 3.0f, 0.3f), 0.3f) &&
+               Mathf.IsEqualApprox(CompanionAvatar.RiseMpsFor(18f, 20f, 0.3f), 1.5f) && Mathf.IsEqualApprox(CompanionAvatar.RiseMpsFor(0.5f, 20f, 0.3f), 0.5f) &&
+               Mathf.IsEqualApprox(CompanionAvatar.RiseMpsFor(0.1f, 20f, 0.3f), 0.3f) && Mathf.IsEqualApprox(CompanionAvatar.RiseMpsFor(5f, 6f, 0.3f), 0.6f),
+            "the rise up a face: 0.3 m/s for a face within 3 m (today's islands), up to 1.5 m/s for a tall one, easing to 0.3 m/s at its top");
+        _companion.BindNavigation(null);
+        foreach (var (name, b, wallM) in new[] { ("a 20 m wall", new Vector3(60, 0, -200), 20f), ("a 40 cm wall", new Vector3(60, 0, -220), 0.4f) })
+        {
+            var tall = wallM > CompanionAvatar.TallFaceM;
+            var half = tall ? 6f : 1.5f;
+            Solid(b + new Vector3(0, -0.05f, 0), new BoxShape3D { Size = new Vector3(2 * half, 0.1f, 2 * half) });   // the land, its top at 0
+            Solid(b + new Vector3(0, wallM * 0.5f, 0), new BoxShape3D { Size = new Vector3(tall ? 1f : 0.1f, wallM, 2 * half) });   // the wall across it
+            var bounds = new Aabb(b + new Vector3(-half, -0.1f, -half), new Vector3(2 * half, wallM + 2, 2 * half));
+            Check(_player.SetPlayableBounds(bounds) && _companion.SetPlayableBounds(bounds), $"{name}'s land has the room's bounds");
+            var off = tall ? 2.5f : 0.5f;
+            Check(_player.TryTeleportTo(b + new Vector3(off, 0.003f, 0)) && _companion.TryTeleportTo(b + new Vector3(-off, 0.01f, 0)), $"the Gubble and the player either side of {name}");
+            await Frames(20);
+            _companion.Come();
+            var serial = _companion.IntentSerial;
+            // The rise it was given while rising over the wall (the measured speed also holds the slide over the lip).
+            float fastest = 0, highest = float.NegativeInfinity;
+            var frames = 0;
+            for (; frames < 120 * 60 && _companion.CurrentIntent == "come"; frames++)
+            {
+                await Frames(1);
+                if (_companion.RisingOver) fastest = Mathf.Max(fastest, _companion.FloatRiseMps);
+                highest = Mathf.Max(highest, _companion.GlobalPosition.Y - b.Y);
+            }
+            var gap = PlanarDistance(_companion.GlobalPosition, _player.GlobalPosition);
+            var level = _companion.GlobalPosition.Y - _player.GlobalPosition.Y;
+            var arrived = _companion.ComeArrivedSerial == serial && gap <= CompanionAvatar.ComeArrivalM + 0.02f && Mathf.Abs(level) <= CompanionAvatar.LevelGapM;
+            if (tall)
+                Report(arrived && frames < 45 * 60 && fastest >= CompanionAvatar.TallFaceRiseMps - 0.01f && highest < wallM + 0.6f,
+                    $"over {name} with no way round, the Gubble rises fast and eases at the top (fastest {fastest:0.00} m/s, highest {highest:0.00} m), and comes down to the player within 45 s ({frames / 60.0f:0.0} s; with today's 0.3 m/s rise and 0.25 m/s sink it took 54 s)");
+            else
+                Report(arrived && Mathf.IsEqualApprox(fastest, _companion.FloatRiseMps) && Mathf.IsEqualApprox(fastest, 0.30f),
+                    $"over {name} the rise is today's 0.3 m/s (fastest {fastest:0.000} m/s; arrived after {frames / 60.0f:0.0} s)");
+        }
+        _player.ClearPlayableBounds();
+        _companion.ClearPlayableBounds();
+        _companion.BindNavigation(_navigation);
+        _companion.Stop();
+        Check(_player.TryTeleportTo(new Vector3(-2, 0.003f, 3.2f)) && _companion.TryTeleportTo(new Vector3(0.5f, 0.01f, 3.2f)), "both bodies back on the open floor");
+        await Frames(10);
+    }
+
+    /// <summary>
+    /// The Gubble catching up (S8, the founder's decision 4): following or coming, more than CatchUpM away and out of the player's
+    /// view, it reappears beside them, out of view too. On an 80 m floor, the view the player's own eye: 30 m off in plain view it
+    /// travels; with the player turned away it catches up, 0.5 to 4 m off, level, out of view; behind a wall in front of them it
+    /// catches up too; within CatchUpM it never does, nor on a fetch's way back (Come(catchUp: false)).
+    /// </summary>
+    private async Task TestGubbleCatchesUp()
+    {
+        var b = new Vector3(-300, 0, 0);
+        Solid(b + new Vector3(0, -0.05f, 0), new BoxShape3D { Size = new Vector3(80, 0.1f, 80) });
+        _player.ClearPlayableBounds();
+        _companion.ClearPlayableBounds();
+        _companion.BindNavigation(null);
+        var previous = GetViewport().GetCamera3D();
+        _player.EyeCamera.MakeCurrent();
+        async Task<int> Watching(int frames)
+        {
+            var start = _companion.CatchUps;
+            for (var i = 0; i < frames && _companion.CatchUps == start; i++) await Frames(1);
+            return _companion.CatchUps - start;
+        }
+        async Task Place(float playerYaw, Vector3 gubble)
+        {
+            _companion.Stop();
+            Check(_player.TryTeleportTo(b + new Vector3(0, 0.003f, 0)) && _companion.TryTeleportTo(b + gubble + Vector3.Up * 0.01f), $"the player at the floor's middle, the Gubble at {gubble}");
+            _player.Rotation = new Vector3(0, playerYaw, 0);
+            await Frames(5);
+        }
+        await Place(0, new Vector3(0, 0, -30));
+        var seen = _companion.BodyInPlayerView(_companion.GlobalPosition);
+        _companion.Follow();
+        Report(seen && await Watching(90) == 0, "30 m off in plain view, following, the Gubble travels and never pops");
+
+        await Place(Mathf.Pi, new Vector3(0, 0, -30));
+        var from = _companion.GlobalPosition;
+        _companion.Follow();
+        var caught = await Watching(60);
+        var spot = _companion.GlobalPosition;
+        var gap = PlanarDistance(spot, _player.GlobalPosition);
+        Report(caught == 1 && gap >= 0.45f && gap <= 4.1f && Mathf.Abs(spot.Y - _player.GlobalPosition.Y) <= CompanionAvatar.LevelGapM && !_companion.BodyInPlayerView(spot) &&
+               _companion.LastCatchUp is { } last && last.From.DistanceTo(from) < 1.0f && last.To.DistanceTo(spot) < 0.05f && _companion.CurrentIntent == "follow",
+            $"30 m behind the player, out of view, following: it catches up beside them ({gap:0.00} m off, out of view) and follows on");
+
+        await Place(0, new Vector3(0, 0, -30));
+        var wall = Solid(b + new Vector3(0, 1, -15), new BoxShape3D { Size = new Vector3(8, 2, 0.2f) });
+        await Frames(2);
+        seen = _companion.BodyInPlayerView(_companion.GlobalPosition);
+        _companion.Come();
+        Report(!seen && await Watching(60) == 1 && _companion.CurrentIntent is "come" or "stay", "30 m off behind a wall in front of the player, coming: it catches up");
+        wall.QueueFree();
+
+        await Place(0, new Vector3(0, 0, 30));
+        _companion.Come(catchUp: false);
+        Report(await Watching(90) == 0, "30 m behind the player on a fetch's way back (Come(catchUp: false)) it never catches up");
+        await Place(0, new Vector3(0, 0, 20));
+        _companion.Follow();
+        Report(await Watching(90) == 0, $"20 m behind, within {CompanionAvatar.CatchUpM:0} m, it never catches up");
+
+        previous?.MakeCurrent();
+        _companion.BindNavigation(_navigation);
+        _companion.Stop();
+        Check(_player.TryTeleportTo(new Vector3(-2, 0.003f, 3.2f)) && _companion.TryTeleportTo(new Vector3(0.5f, 0.01f, 3.2f)), "both bodies back on the open floor");
+        _player.Rotation = Vector3.Zero;
+        await Frames(10);
+    }
+
+    /// <summary>
+    /// A long trip walks where it can (S8: a 72 m come on the 10x island floated 73 s of its 80 once it started to float). The
+    /// Gubble starts 60 cm up in the air (no walk starts there: it floats), 10 m from the player across the walkable floor: once
+    /// low over the ground it asks again, and walks the rest. A short trip (within LongRouteM, today's islands) floats on as before.
+    /// </summary>
+    private async Task TestGubbleWalksAgainOnALongTrip()
+    {
+        foreach (var (name, gubble, player, longTrip) in new[]
+        {
+            ("10 m", new Vector3(-4.5f, 0.6f, -5.3f), new Vector3(-4.5f, 0.003f, 5.0f), true),
+            ("2 m", new Vector3(-4.5f, 0.6f, 2.5f), new Vector3(-4.5f, 0.003f, 4.5f), false),
+        })
+        {
+            _companion.Stop();
+            Check(_player.TryTeleportTo(player), "the player on the floor");
+            _companion.GlobalPosition = gubble;
+            _companion.Velocity = Vector3.Zero;
+            _companion.ResetPhysicsInterpolation();
+            await Frames(2);
+            var starts = _companion.FloatStarts;
+            var ends = _companion.FloatEnds;
+            _companion.Come();
+            var serial = _companion.IntentSerial;
+            var frames = 0;
+            for (; frames < 40 * 60 && _companion.CurrentIntent == "come"; frames++) await Frames(1);
+            var arrived = _companion.ComeArrivedSerial == serial;
+            if (longTrip)
+                Report(arrived && _companion.FloatStarts > starts && _companion.FloatEnds > ends && _companion.FloatReason.StartsWith("start_off_level", System.StringComparison.Ordinal),
+                    $"a come of {name} that starts up in the air floats ({_companion.FloatReason}), then walks once low over the floor, and arrives ({frames / 60.0f:0.0} s; back to walking {_companion.FloatEnds - ends} times)");
+            else
+                Report(arrived && _companion.FloatStarts > starts && _companion.FloatEnds == ends,
+                    $"a come of {name} (today's islands) that starts up in the air floats all the way, as before ({frames / 60.0f:0.0} s)");
+        }
         _companion.Stop();
         Check(_player.TryTeleportTo(new Vector3(-2, 0.003f, 3.2f)) && _companion.TryTeleportTo(new Vector3(0.5f, 0.01f, 3.2f)), "both bodies back on the open floor");
         await Frames(10);

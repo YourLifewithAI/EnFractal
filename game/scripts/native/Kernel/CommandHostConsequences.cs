@@ -131,6 +131,21 @@ public partial class CommandHost
     private static double Health(float value) => Math.Round(Math.Clamp(value, 0, PlayerVitals.MaximumHealth), 1);
 
     /// <summary>
+    /// The Gubble caught up with the player (CompanionAvatar.CatchUpM, packet S8 of the 10x world): it did not travel there, so its
+    /// AI is told on its next result, once, as the game's own fixed form (contracts: $defs/catch_up_notice): where it was, where it
+    /// is now beside the player, how far that is and when. The goal it had goes on.
+    /// </summary>
+    private void NoteCatchUp(Vector3 from, Vector3 to)
+    {
+        _notices.Add(new JsonObject
+        {
+            ["kind"] = "caught_up", ["from_m"] = KernelJson.Vector(from), ["to_m"] = KernelJson.Vector(to), ["distance_m"] = Math.Round(from.DistanceTo(to), 2),
+            ["at_utc"] = Now(),
+        });
+        while (_notices.Count > MaxNotices) _notices.RemoveAt(0);
+    }
+
+    /// <summary>
     /// The Gubble's next result, of any kind, carries every notice it has not read, once; a result that would grow past the
     /// result bound keeps them for the next one. Further harm by the same fire after that starts a new notice.
     /// </summary>

@@ -19,8 +19,12 @@ namespace EnFractal.Native;
 /// </summary>
 public partial class RoomHud
 {
-    /// <summary>How far the aim reaches.</summary>
-    public const float AimRangeM = 30f;
+    /// <summary>
+    /// How far the aim reaches: what the player can point the Gubble at (fetch, go and look, a cast's spot). Room-sized (S8 of the
+    /// 10x world): it was 30 m, four times today's islands; on the 10x island (67 by 77 m) the far side is about 100 m off, so it
+    /// is as far as the team's sight (CommandHost.ObserveRadiusMaxM). Past it, as before, the aim is at nothing (a cast on itself).
+    /// </summary>
+    public const float AimRangeM = CommandHost.ObserveRadiusMaxM;
     /// <summary>The companion's collision layer (CompanionAvatar): the aim's ray meets the Gubble's body.</summary>
     public const uint GubbleLayer = 4;
     /// <summary>A ray passing this close to the Gubble's middle, in body radii, is aimed at the Gubble (it is small).</summary>
