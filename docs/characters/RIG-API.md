@@ -253,6 +253,10 @@ squash and swinging arms. The family's tuning replaces them.
 
 ## 8. Budgets and measurements (tests: `res://tests/native_characters.tscn`)
 
+The suite prints `CHARACTERS_PROFILE <id>` (each measured profile), `CHARACTERS_HASHES` and `CHARACTERS_LOAD`, then
+`NATIVE_CHARACTERS: n/n checks passed`. `-- --skip-budget` drops its two wall-clock and memory checks where wall time
+means nothing (a cloud container); the founder's machine keeps them.
+
 | Budget | Measured |
 |---|---|
 | bones ≤ 64, chains ≤ 6 of ≤ 6 bones, IK ≤ 2, look-ats ≤ 3 | Stickbear 39 bones (the most); chains 2 to 4; look-ats 3 each |
