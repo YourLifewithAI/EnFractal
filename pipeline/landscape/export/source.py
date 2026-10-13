@@ -72,7 +72,9 @@ def source_data(room, pins, folder):
                 'invalid source opening kind')
         host = identifier(opening['host_part_id'], r'shell:[A-Za-z0-9_-]{1,64}')
         require(host in part_ids, 'source opening host missing')
-        size = vector(opening['size_m'], 2, 0, 20)
+        # An opening fits its room: at most 20 m, or the room's widest side in a bigger room (a room magnified
+        # into the 10x world keeps its doors in proportion).
+        size = vector(opening['size_m'], 2, 0, max(20, *(bounds['max_m'][i]-bounds['min_m'][i] for i in (0, 2))))
         require(all(v > 0 for v in size), 'source opening size must be positive')
         openings.append({'id': identifier(opening['id']), 'kind': opening['kind'],
                          'host_part_id': host, 'center_m': vector(opening['center_m']), 'size_m': size})

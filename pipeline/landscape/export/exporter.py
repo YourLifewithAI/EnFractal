@@ -6,11 +6,14 @@ from pipeline.landscape.harness.common import canonical, sha, require
 from pipeline.landscape.harness.kit import SIZES, prototype
 from pipeline.landscape.harness.package import read_package
 from .materials import CONTRACT_ROLES, PALETTE, hex_color, material
-from .mesh import encode, ground, open_edges, transform
+from .copies import build_copies, classify, MAX_SETS
+from .mesh import encode, transform
 from .sea import sea_data
 from .source import source_data
+from .landwork import LandWork
+from .terrain import TILE_M as TERRAIN_TILE_M
 from .trees import TerrainHeights, climbing_parts, is_tree
-from .loose import LOOSE_CAP, closed_pieces, estimated_mass, footprint_maximum, log_boxes
+from .loose import LOOSE_CAP, LOOSE_KINDS, closed_pieces, estimated_mass, footprint_maximum, log_boxes
 
 CREATED = '2026-10-08T00:00:00Z'
 LANDMARKS = {'cottage', 'tower', 'boulder', 'fence', 'crate', 'lantern'}
@@ -53,6 +56,12 @@ def export_room(package_folder, source_room_folder, room_id, out):
     require(out.name == room_id, 'output directory name must equal room-id (game loader rule)')
     require(not out.is_symlink(), 'output symlinks forbidden')
     require(not out.exists() or (out.is_dir() and not any(out.iterdir())), 'output folder must be empty')
+    # The land's work (landwork.py) starts on the package's files while read_package validates them.
+    with LandWork(package_folder) as land:
+        return _export(land, package_folder, source_room_folder, room_id, out)
+
+
+def _export(land, package_folder, source_room_folder, room_id, out):
     doc, meshes, source, _ = read_package(package_folder, source_room_folder)
     intro_source = source_data(source, doc['source'], source_room_folder)
     # An island's sea (generator v4 on): the bounds grow out past the reef, and the game gets the reef,
@@ -87,17 +96,16 @@ def export_room(package_folder, source_room_folder, room_id, out):
         counts[label+'_triangles'] = triangle_count(parts)
 
     terrain = [p for r in doc['terrain'] for p in meshes[r['mesh']]]
-    add_shell('terrain', terrain, 'ground', True)
-    tree_terrain = None
+    # One index of the terrain answers the main process's height questions: loose items' footprints, supports,
+    # spawns and populated trees' perches.
+    tree_terrain = TerrainHeights(terrain)
+    counts['terrain_triangles'] = triangle_count(terrain)
     tree_parts = []
     counts.update(tree_count=0, tree_pole_triangles=0, tree_cap_triangles=0)
 
     def add_tree(name, transformed, include_trunk=False):
-        nonlocal tree_terrain
         if not is_tree(name, transformed):
             return
-        if tree_terrain is None:
-            tree_terrain = TerrainHeights(terrain)
         climb = climbing_parts(name, transformed, tree_terrain)
         counts['tree_count'] += 1
         counts['tree_pole_triangles'] += triangle_count(climb[:1])
@@ -120,12 +128,9 @@ def export_room(package_folder, source_room_folder, room_id, out):
         return prototypes[name]
 
     def support_at(position):
-        best, support = None, None
-        for p in terrain:
-            y = ground([p], position[0], position[2])
-            if y is not None and (best is None or y > best):
-                best, support = y, 'shell:terrain_'+p['role']
-        return best, support
+        # The topmost terrain part over the point, the first part on ties.
+        best, k = tree_terrain.hit(position[0], position[2])
+        return best, (None if k is None else 'shell:terrain_'+terrain[k]['role'])
 
     loose_items = []
     loose_skipped = {}
@@ -228,6 +233,8 @@ def export_room(package_folder, source_room_folder, room_id, out):
             name = record['prototype']
             if not scatter and record['carriable'] and name != 'woodpile':
                 continue
+            if name not in LOOSE_KINDS:
+                continue  # estimated_mass knows no other kind: nothing else can be loose
             parts, original_size = get_prototype(name)
             size = ([original_size[i]*record['scale'][i] for i in range(3)] if scatter else record['size_m'])
             scale = [size[i]/original_size[i] for i in range(3)]
@@ -251,8 +258,6 @@ def export_room(package_folder, source_room_folder, room_id, out):
             require(scatter or not record['carriable'], 'authored loose pile exceeds room budget')
             loose_skipped[name] = loose_skipped.get(name, 0)+count
             continue
-        if tree_terrain is None:
-            tree_terrain = TerrainHeights(terrain)
         source_key = f'{"scatter" if scatter else "object"}:{source_index}'
         if name == 'woodpile':
             specs = log_boxes(parts, scale, record['position_m'], record['yaw_deg'], tree_terrain)
@@ -290,6 +295,16 @@ def export_room(package_folder, source_room_folder, room_id, out):
     entity_scatter = 0
     merged_visual, merged_solid = [], []
     pending_loose_entities = sum(len(specs) for (scatter, _), specs in planned.items() if scatter)
+    # Plants, trees and stones become plant copies (copies.py), at most 64 sets (by name); anything else, or a
+    # 65th kind, stays merged into the scatter shells.
+    kinds = {}
+    for record in doc['scatter']:
+        name = record['prototype']
+        if name not in kinds:
+            parts, _ = get_prototype(name)
+            kinds[name] = classify(name, parts, colliding_parts(name, parts))
+    copy_names = set(sorted(name for name, kind in kinds.items() if kind is not None)[:MAX_SETS])
+    copy_records = {}
     for source_index, record in enumerate(doc['scatter']):
         name = record['prototype']
         parts, size = get_prototype(name)
@@ -304,6 +319,9 @@ def export_room(package_folder, source_room_folder, room_id, out):
             add_object(record, len(objects), scatter=True)
             entity_scatter += 1
             continue
+        if name in copy_names:
+            copy_records.setdefault(name, (kinds[name], []))[1].append((source_index, record))
+            continue
         solid = colliding_parts(name, parts)
         # Transform before normals: non-uniform scale needs inverse-transpose
         # normals, obtained equivalently from transformed face cross products.
@@ -314,6 +332,27 @@ def export_room(package_folder, source_room_folder, room_id, out):
             (merged_solid if any(source_part is q for q in solid) else merged_visual).append(p)
     add_shell('scatter_visual', merged_visual, 'backdrop', False)
     add_shell('scatter_solid', merged_solid, 'ground', True)
+    # The land's work: the terrain in 16 m tiles with distance detail (terrain.py), one tiled part per role with
+    # the ids and paths the whole-part meshes had, first in the shell; the open-edge diagnostic; the trees' fits.
+    work = land.answer(doc, meshes)
+    spacings, tiled, terrain_shell = work['spacings'], [], []
+    counts['terrain_level_triangles'] = [0]*len(spacings)
+    for harness_role, (glb, tile_count, level_triangles) in work['parts'].items():
+        path = f'shell/terrain_{harness_role}.glb'
+        put(path, glb)
+        terrain_shell.append({'id': f'shell:terrain_{harness_role}', 'role': 'ground',
+                              'geometry': {'kind': 'mesh', 'mesh': path}, 'collides': True,
+                              'material_role': CONTRACT_ROLES[harness_role],
+                              'base_color': hex_color(PALETTE[harness_role])})
+        tiled.append({'part': f'shell:terrain_{harness_role}', 'tiles': tile_count})
+        counts['terrain_level_triangles'] = [a+b for a, b in zip(counts['terrain_level_triangles'], level_triangles)]
+    shell[0:0] = terrain_shell
+    terrain_tiles = {'tile_m': TERRAIN_TILE_M, 'levels': [{'grid_m': round(g, 6)} for g in spacings], 'parts': tiled}
+    counts['terrain_tiles'] = sum(t['tiles'] for t in tiled)
+    plant_copies, copy_stats = (build_copies(copy_records, get_prototype, tree_terrain, water, bounds, put,
+                                             work['fits']) if copy_records else (None, dict(copies={}, groups=0)))
+    counts.update(copy_stats)
+    counts['tree_count'] += sum(len(records) for kind, records in copy_records.values() if kind == 'tree')
     # Two merged shell parts regardless of tree count. Lane P hides their GLB
     # scenes after extracting one-sided trimesh collision (see README/report).
     # Collision only: the trees' own meshes stay the drawn ones.
@@ -334,7 +373,7 @@ def export_room(package_folder, source_room_folder, room_id, out):
     for spawn in source['spawns']:
         spawn = {'id': spawn['id'], 'role': spawn['role'],
                  'position_m': list(spawn['position_m']), 'yaw_deg': spawn['yaw_deg']}
-        y = ground(terrain, spawn['position_m'][0], spawn['position_m'][2])
+        y, _ = tree_terrain.hit(spawn['position_m'][0], spawn['position_m'][2])
         require(y is not None, 'spawn '+spawn['id']+' has no terrain underneath')
         spawn['position_m'][1] = y
         require(all(source['bounds']['min_m'][i]-1e-6 <= spawn['position_m'][i] <= source['bounds']['max_m'][i]+1e-6
@@ -349,7 +388,7 @@ def export_room(package_folder, source_room_folder, room_id, out):
                 spawn['yaw_deg'] = math.degrees(math.atan2(-dx, -dz))
         spawns.append(spawn)
     setup = doc['setup']
-    edges = open_edges(terrain)
+    edges = work['edges']
     lights = [{'id': 'sun', 'kind': 'sun', 'color': '#fff1d2', 'relative_intensity': 1.0, 'estimated': True}]
     lanterns = [r for r in [*doc['objects'], *doc['scatter']] if r['prototype'] == 'lantern']
     for i, r in enumerate(lanterns[:31]):
@@ -365,6 +404,8 @@ def export_room(package_folder, source_room_folder, room_id, out):
         'objects': objects, 'spawns': spawns, 'light_hints': lights,
         'site': {'latitude_deg': setup['latitude_deg'], 'neg_z_bearing_deg': setup['neg_z_bearing_deg'],
                  'solar_noon_h': 12},
+        **({'plant_copies': plant_copies} if plant_copies is not None else {}),
+        'terrain_tiles': terrain_tiles,
         'files': [{'path': path, 'sha256': sha(data), 'bytes': len(data)} for path, data in sorted(blobs.items())],
         'extensions': {'x_landscape_setup': setup,
                        'x_landscape_source': intro_source,
