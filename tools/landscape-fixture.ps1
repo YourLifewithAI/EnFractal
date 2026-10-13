@@ -98,10 +98,11 @@ function Get-EnfractalLandscapeFixture {
             $source = $corpus
             $steps.generate = @('-B', '-m', 'pipeline.landscape.generator.generate', '--room', $corpus, '--out', $package)
         } else {
-            # The garage magnified ten times around today's body, generated on a 10 cm grid (RUN-2-TEN-TIMES.md).
-            $source = Join-Path $partial 'room'
-            $steps.magnify = @('-B', '-m', 'pipeline.landscape.generator.scale', '--room', $corpus, '--factor', "$Scale", '--out', $source)
-            $steps.generate = @('-B', '-m', 'pipeline.landscape.generator.generate', '--room', $source, '--world-scale', "$Scale", '--cell', '.1', '--out', $package)
+            # The garage magnified ten times around today's body (RUN-2-TEN-TIMES.md). Since S4 the generator magnifies the
+            # true-size room itself (a 10 cm base grid with 2.5 cm detail where the body walks), and the exporter reads the
+            # package's world scale, so both take the corpus room as it is.
+            $source = $corpus
+            $steps.generate = @('-B', '-m', 'pipeline.landscape.generator.generate', '--room', $corpus, '--world-scale', "$Scale", '--out', $package)
         }
         $steps.export = @('-B', '-S', '-m', 'pipeline.landscape.export', '--package', $package, '--room', $source, '--room-id', 'landscape_garage_nominal', '--out', $exported)
         $seconds = [ordered]@{}
