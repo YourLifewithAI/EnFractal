@@ -186,34 +186,73 @@ public static class PlayerControls
     public static string Label(StringName action)
     {
         if (!InputMap.HasAction(action)) return "unbound";
-        foreach (var input in InputMap.ActionGetEvents(action))
+        // The map's copy of the events is freed here, on the main thread, never left to the .NET finalizer (S12).
+        var events = InputMap.ActionGetEvents(action);
+        using var copy = (Godot.Collections.Array)events;
+        foreach (var input in events)
             if (Describe(input) is { } text) return text;
         return "unbound";
+    }
+
+    // ---- the key names the HUD shows every frame (S12: read from the map once, not 60 times a frame) ----
+
+    private static readonly Dictionary<StringName, string> KeyLabels = new();
+    private static int _recheck;
+
+    /// <summary>
+    /// Bumped whenever the key names are read from the map anew (MapChanged, or a change Recheck found): what a frame built from
+    /// the names can compare to know they moved on.
+    /// </summary>
+    public static int MapVersion { get; private set; }
+
+    /// <summary>An action's key name as Label says it, kept until the map changes: what the HUD shows every frame.</summary>
+    public static string KeyLabel(StringName action)
+    {
+        if (!KeyLabels.TryGetValue(action, out var label)) KeyLabels[action] = label = Label(action);
+        return label;
+    }
+
+    /// <summary>Whoever binds a key anew calls this: every key name is read from the map again, at once.</summary>
+    public static void MapChanged()
+    {
+        KeyLabels.Clear();
+        MapVersion++;
+    }
+
+    /// <summary>
+    /// One control's key read from the map again, in turn (the HUD calls this every frame): a binding changed without MapChanged
+    /// still shows within one pass over the controls, well under a second.
+    /// </summary>
+    public static void Recheck()
+    {
+        var action = Specs[_recheck++ % Specs.Length].Action;
+        if (KeyLabels.TryGetValue(action, out var kept) && Label(action) != kept) MapChanged();
     }
 
     /// <summary>The four movement keys together: "WASD" when each is one character (forward, left, back, right), else "W/A/S/D" with what they are.</summary>
     public static string MoveLabel()
     {
-        var keys = new[] { Act.MoveForward, Act.MoveLeft, Act.MoveBack, Act.MoveRight }.Select(Label).ToArray();
+        var keys = new[] { Act.MoveForward, Act.MoveLeft, Act.MoveBack, Act.MoveRight }.Select(KeyLabel).ToArray();
         return keys.All(key => key.Length == 1) ? string.Concat(keys) : string.Join("/", keys);
     }
 
     /// <summary>The look drag as the help says it: "drag" when it is the left button, else its button or key and "drag" ("middle-click drag").</summary>
     public static string DragLabel()
     {
-        var label = Label(Act.LookDrag);
+        var label = KeyLabel(Act.LookDrag);
         return label == "click" ? "drag" : label + " drag";
     }
 
     /// <summary>The zoom keys together: "wheel" when they are the wheel's two directions, else both ("U/I").</summary>
     public static string ZoomLabel()
     {
-        var (zoomIn, zoomOut) = (Label(Act.ViewZoomIn), Label(Act.ViewZoomOut));
+        var (zoomIn, zoomOut) = (KeyLabel(Act.ViewZoomIn), KeyLabel(Act.ViewZoomOut));
         return zoomIn == "wheel up" && zoomOut == "wheel down" ? "wheel" : $"{zoomIn}/{zoomOut}";
     }
 
     /// <summary>The desktop display servers can say what a key position is labelled; the others (headless among them) report an error if asked.</summary>
-    private static bool KnowsKeyboardLayout => DisplayServer.GetName() is "Windows" or "X11" or "Wayland" or "macOS";
+    private static bool KnowsKeyboardLayout => _knowsKeyboardLayout ??= DisplayServer.GetName() is "Windows" or "X11" or "Wayland" or "macOS";
+    private static bool? _knowsKeyboardLayout;
 
     private static string? Describe(InputEvent input)
     {

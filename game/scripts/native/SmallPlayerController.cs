@@ -361,6 +361,24 @@ public partial class SmallPlayerController : CharacterBody3D
     private float _pitch;
     private Vector3 _spawnPoint;
     private bool _ready;
+    /// <summary>
+    /// This body alone, as a ray's or a shape's exclusions: made once (S12). A new Godot array for every query, and a new Variant for
+    /// every key read from its answer, were Godot values the .NET finalizer freed later, on its own thread, by the hundred a second.
+    /// Pass it to PhysicsRayQueryParameters3D.Create itself: left out there, Create makes an empty array of its own every call.
+    /// </summary>
+    protected Array<Rid> ExcludeSelf => _excludeSelf ??= new Array<Rid> { GetRid() };
+    private Array<Rid>? _excludeSelf;
+
+    /// <summary>A ray answer's keys, as Variants made once.</summary>
+    protected static readonly Variant HitPosition = "position", HitNormal = "normal";
+
+    /// <summary>The normal of a slide collision of the last move. Its KinematicCollision3D is disposed at once: the engine reuses it then.</summary>
+    protected Vector3 SlideNormal(int index)
+    {
+        using var collision = GetSlideCollision(index);
+        return collision.GetNormal();
+    }
+
     private readonly KinematicCollision3D _stepContact = new();
     private Vector3 _creationAcceleration;
     private Vector3 _creationVelocity;
@@ -875,7 +893,7 @@ public partial class SmallPlayerController : CharacterBody3D
         // Project the creation contribution along contacts the same way MoveAndSlide projects motion.
         for (var index = 0; index < GetSlideCollisionCount(); index++)
         {
-            var normal = GetSlideCollision(index).GetNormal();
+            var normal = SlideNormal(index);
             if (_creationApplied.Dot(normal) < 0) _creationApplied = _creationApplied.Slide(normal);
             if (_creationVelocity.Dot(normal) < 0) _creationVelocity = _creationVelocity.Slide(normal);
         }
@@ -1152,12 +1170,10 @@ public partial class SmallPlayerController : CharacterBody3D
         {
             var from = column + Vector3.Up * (BodyHeightM * 0.5f);
             // Disposed at once: these run every tick, and wrappers left to the finalizer pile up (and trip Godot's exit).
-            using var query = PhysicsRayQueryParameters3D.Create(from, column + Vector3.Down * depth, RoomBuilder.BodyMask);
-            var exclude = new Array<Rid> { GetRid() };
-            query.Exclude = exclude;
+            using var query = PhysicsRayQueryParameters3D.Create(from, column + Vector3.Down * depth, RoomBuilder.BodyMask, ExcludeSelf);
             query.HitBackFaces = false;
             using var hit = space.IntersectRay(query);
-            if (hit.Count > 0 && (best == null || hit["position"].AsVector3().Y > best)) best = hit["position"].AsVector3().Y;
+            if (hit.Count > 0 && (best == null || hit[HitPosition].AsVector3().Y > best)) best = hit[HitPosition].AsVector3().Y;
             // Water is a sheet on its own layer (RoomWater): the highest one under the middle, or over the feet if the body has sunk in.
             var water = RoomWater.At(space, column + Vector3.Up * (BodyHeightM * 0.5f), BodyHeightM, depth, GetRid());
             if (!water.Wet && Sea != null) water = Sea.OpenWater(space, column + Vector3.Up * (BodyHeightM * 0.5f), BodyHeightM, depth, GetRid());
@@ -1174,12 +1190,10 @@ public partial class SmallPlayerController : CharacterBody3D
     private float? Ceiling(Vector3 feet)
     {
         var from = feet + Vector3.Up * (BodyHeightM * 0.5f);
-        using var query = PhysicsRayQueryParameters3D.Create(from, feet + Vector3.Up * (BodyHeightM + HoverHeightM + HoverBobM + 0.01f), RoomBuilder.BodyMask);
-        var exclude = new Array<Rid> { GetRid() };
-        query.Exclude = exclude;
+        using var query = PhysicsRayQueryParameters3D.Create(from, feet + Vector3.Up * (BodyHeightM + HoverHeightM + HoverBobM + 0.01f), RoomBuilder.BodyMask, ExcludeSelf);
         query.HitBackFaces = false;
         using var hit = GetWorld3D().DirectSpaceState.IntersectRay(query);
-        return hit.Count > 0 ? hit["position"].AsVector3().Y : null;
+        return hit.Count > 0 ? hit[HitPosition].AsVector3().Y : null;
     }
 
     /// <summary>
@@ -1432,7 +1446,7 @@ public partial class SmallPlayerController : CharacterBody3D
         }
         for (var index = 0; index < GetSlideCollisionCount() && face == null; index++)
         {
-            var collision = GetSlideCollision(index);
+            using var collision = GetSlideCollision(index);
             var normal = collision.GetNormal();
             if (Climbable(normal) && into.Dot(-Flat(normal)) >= cos && (RisesAboveStep(normal, collision.GetPosition()) || (heldBack && FeelAhead() != null))) face = normal;
         }
@@ -1472,11 +1486,10 @@ public partial class SmallPlayerController : CharacterBody3D
     {
         if (contact.Y > GlobalPosition.Y + StepHeightM + SafeMarginM) return true;
         var from = GlobalPosition + Vector3.Up * (StepHeightM + 0.004f);
-        var query = PhysicsRayQueryParameters3D.Create(from, from - Flat(normal) * (BodyRadiusM + 0.02f), CollisionMask);
-        query.Exclude = new Array<Rid> { GetRid() };
+        using var query = PhysicsRayQueryParameters3D.Create(from, from - Flat(normal) * (BodyRadiusM + 0.02f), CollisionMask, ExcludeSelf);
         query.HitBackFaces = false;
-        var hit = GetWorld3D().DirectSpaceState.IntersectRay(query);
-        return hit.Count > 0 && !Standable(hit["normal"].AsVector3()) && hit["normal"].AsVector3().Y >= ClimbOverhangNormalY;
+        using var hit = GetWorld3D().DirectSpaceState.IntersectRay(query);
+        return hit.Count > 0 && !Standable(hit[HitNormal].AsVector3()) && hit[HitNormal].AsVector3().Y >= ClimbOverhangNormalY;
     }
 
     /// <summary>
@@ -1559,7 +1572,7 @@ public partial class SmallPlayerController : CharacterBody3D
         MoveAndSlide();
         if (up < -0.1f)
             for (var index = 0; index < GetSlideCollisionCount(); index++)
-                if (Standable(GetSlideCollision(index).GetNormal()))
+                if (Standable(SlideNormal(index)))
                 {
                     // Down at the foot of the face: step off into walking.
                     StopClimbing(Vector3.Zero);
@@ -1590,14 +1603,13 @@ public partial class SmallPlayerController : CharacterBody3D
         foreach (var ahead in new[] { BodyRadiusM * 1.5f, BodyRadiusM * 2.5f })
         {
             var column = GlobalPosition - outward * ahead;
-            var query = PhysicsRayQueryParameters3D.Create(column + Vector3.Up * (PullOverReachM + 0.005f), column + Vector3.Up * 0.002f, CollisionMask);
-            query.Exclude = new Array<Rid> { GetRid() };
+            using var query = PhysicsRayQueryParameters3D.Create(column + Vector3.Up * (PullOverReachM + 0.005f), column + Vector3.Up * 0.002f, CollisionMask, ExcludeSelf);
             query.HitBackFaces = false;
-            var hit = space.IntersectRay(query);
+            using var hit = space.IntersectRay(query);
             if (hit.Count == 0) continue;
-            var normal = hit["normal"].AsVector3();
+            var normal = hit[HitNormal].AsVector3();
             if (!Standable(normal)) continue;
-            var spot = hit["position"].AsVector3() + Vector3.Up * (BodyRadiusM * (1.0f / normal.Y - 1.0f) + SafeMarginM * 2 + 0.001f);
+            var spot = hit[HitPosition].AsVector3() + Vector3.Up * (BodyRadiusM * (1.0f / normal.Y - 1.0f) + SafeMarginM * 2 + 0.001f);
             if (!InsidePlayableBounds(spot) || !CapsuleFits(spot)) continue;
             // The whole body must stand under the bounds' top there (a pull-over never lifts the head out of the room).
             if (PlayableBounds is { } bounds && bounds.Size.Y > BodyHeightM && spot.Y + BodyHeightM > bounds.End.Y) continue;
@@ -1740,12 +1752,11 @@ public partial class SmallPlayerController : CharacterBody3D
             // The capsule's nearest point to its support plane: the bottom sphere's centre, less a radius along the
             // floor normal. A ray from just above it along the normal measures the gap exactly on flat ground.
             var nearest = GlobalPosition + Vector3.Up * BodyRadiusM - normal * BodyRadiusM;
-            var query = PhysicsRayQueryParameters3D.Create(nearest + normal * 0.001f, nearest - normal * (MaxSeatGapM + 0.0005f), CollisionMask);
-            query.Exclude = new Array<Rid> { GetRid() };
-            var hit = GetWorld3D().DirectSpaceState.IntersectRay(query);
+            using var query = PhysicsRayQueryParameters3D.Create(nearest + normal * 0.001f, nearest - normal * (MaxSeatGapM + 0.0005f), CollisionMask, ExcludeSelf);
+            using var hit = GetWorld3D().DirectSpaceState.IntersectRay(query);
             if (hit.Count > 0)
             {
-                var along = (nearest - hit["position"].AsVector3()).Dot(normal);
+                var along = (nearest - hit[HitPosition].AsVector3()).Dot(normal);
                 // Farther than the largest resting gap is not a resting gap (an edge, a step): leave the visual alone.
                 if (along <= MaxSeatGapM) gap = Mathf.Clamp(along / normal.Y, 0.0f, MaxSeatGapM);
             }
@@ -1757,26 +1768,24 @@ public partial class SmallPlayerController : CharacterBody3D
     {
         if (maximumDrop < 0) maximumDrop = BodyHeightM * 0.5f;
         using var query = PhysicsRayQueryParameters3D.Create(position + Vector3.Up * (BodyHeightM * 0.25f),
-            position - Vector3.Up * maximumDrop, RoomBuilder.BodyMask);
-        query.Exclude = new Array<Rid> { GetRid() };
+            position - Vector3.Up * maximumDrop, RoomBuilder.BodyMask, ExcludeSelf);
         using var hit = GetWorld3D().DirectSpaceState.IntersectRay(query);
-        return hit.Count > 0 && hit["normal"].AsVector3().Y >= Mathf.Cos(FloorMaxAngle);
+        return hit.Count > 0 && hit[HitNormal].AsVector3().Y >= Mathf.Cos(FloorMaxAngle);
     }
 
     private bool FindSupportedPosition(Vector3 requested, out Vector3 result)
     {
         result = requested;
         using var ray = PhysicsRayQueryParameters3D.Create(requested + Vector3.Up * (BodyHeightM * 0.4f),
-            requested - Vector3.Up * Mathf.Max(0.5f, BodyHeightM * 2), RoomBuilder.BodyMask);
-        ray.Exclude = new Array<Rid> { GetRid() };
+            requested - Vector3.Up * Mathf.Max(0.5f, BodyHeightM * 2), RoomBuilder.BodyMask, ExcludeSelf);
         using var hit = GetWorld3D().DirectSpaceState.IntersectRay(ray);
-        if (hit.Count == 0 || hit["normal"].AsVector3().Y < Mathf.Cos(FloorMaxAngle)) return false;
+        if (hit.Count == 0 || hit[HitNormal].AsVector3().Y < Mathf.Cos(FloorMaxAngle)) return false;
         // A vertical capsule touches a slope off its centre ray. Raise its lower
         // hemisphere enough to clear the support plane, then check the entire
         // body against nearby geometry (including roofs and uneven terrain).
-        var supportNormal = hit["normal"].AsVector3();
+        var supportNormal = hit[HitNormal].AsVector3();
         var slopeClearance = BodyRadiusM * (1.0f / supportNormal.Y - 1.0f);
-        result = hit["position"].AsVector3() + Vector3.Up * (slopeClearance + SafeMarginM * 2 + 0.001f);
+        result = hit[HitPosition].AsVector3() + Vector3.Up * (slopeClearance + SafeMarginM * 2 + 0.001f);
         return CapsuleFits(result);
     }
 
@@ -1787,10 +1796,11 @@ public partial class SmallPlayerController : CharacterBody3D
         {
             Shape = _capsule, CollisionMask = CollisionMask,
             Transform = new Transform3D(Basis.Identity, feet + Vector3.Up * (BodyHeightM * 0.5f)),
-            Margin = SafeMarginM * 0.5f, Exclude = new Array<Rid> { GetRid() }
+            Margin = SafeMarginM * 0.5f, Exclude = ExcludeSelf
         };
         // Disposed at once: the Gubble's way home tries dozens of spots in one tick, and wrappers left to the finalizer trip Godot's exit.
         var hits = GetWorld3D().DirectSpaceState.IntersectShape(query, 1);
+        using var answer = (Godot.Collections.Array)hits;
         return hits.Count == 0;
     }
 

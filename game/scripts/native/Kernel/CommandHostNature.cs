@@ -130,7 +130,7 @@ public partial class CommandHost
         _natureLightQueue.Clear();
         _natureDirty = false;
         _natureClockMoved = false;
-        if (Authority == null || !Authority.Call("is_ready").AsBool())
+        if (Authority == null || !Authority.Call(KernelNames.IsReady).AsBool())
         {
             Nature = new NatureState();
             _natureUnavailable = true;
@@ -138,7 +138,7 @@ public partial class CommandHost
             ApplyNatureObjects();
             return;
         }
-        var saved = KernelJson.ToJson(Authority.Call("nature")) as JsonObject;
+        var saved = KernelJson.ToJson(Authority.Call(KernelNames.Nature)) as JsonObject;
         if (saved == null || saved.Count == 0) Nature = new NatureState();
         else if (NatureBlock.Problem(saved, Revision, Room) is { } problem)
         {
@@ -479,7 +479,7 @@ public partial class CommandHost
     private JsonObject Repair(JsonElement root, string id, string principal, string action, string fingerprint, bool preview, string? approvedBy)
     {
         var instance = Instance(id) ?? throw new Refusal("target_not_found", "That is not in this room.", "$.args.target");
-        if (Authority.Call("is_locked", id).AsBool()) throw new Refusal("target_protected", "Only the player can unlock this protected creation.", "$.args.target");
+        if (Authority.Call(KernelNames.IsLocked, id).AsBool()) throw new Refusal("target_protected", "Only the player can unlock this protected creation.", "$.args.target");
         if (!Nature.Objects.TryGetValue(id, out var item) || !item.Creation || item.Burn <= 0) throw new Refusal("invalid_args", "That creation does not need repair.", "$.args.target");
         if (item.SourceHash != CanonicalJson.Sha256Hex(CanonicalJson.Bytes(KernelJson.ToJson(instance["source"]))))
             throw new Refusal("revision_conflict", "This creation's design changed; its old repair quote no longer applies.", "$.args.target");
@@ -526,7 +526,7 @@ public partial class CommandHost
             throw new Refusal("invalid_args", "That revision is not just before a nature change the island can still undo.", "$.args.to_revision", allowed: JsonValue.Create(reachable));
         }
         var objects = steps.SelectMany(s => s.Objects.Keys).Distinct(StringComparer.Ordinal).OrderBy(id => id, StringComparer.Ordinal).ToList();
-        if (objects.Any(id => Authority.Call("is_locked", id).AsBool()))
+        if (objects.Any(id => Authority.Call(KernelNames.IsLocked, id).AsBool()))
             throw new Refusal("target_protected", "Unlock the protected thing before undoing what fire did to it.", "$.args.to_revision");
         var needsApproval = principal != PlayerPrincipal && steps.Any(s => s.Principal != principal);
         var knows = TeamKnowsFor(principal);
@@ -562,13 +562,13 @@ public partial class CommandHost
             ["nature"] = KernelJson.ToVariant(NatureBlock.Pack(candidate)), ["affected"] = new Godot.Collections.Array(affected.Select(id => (Variant)id)),
             ["data"] = KernelJson.ToVariant(data), ["undo"] = undo,
         };
-        var outcome = Authority.Call("submit", principal, request, meta).AsGodotDictionary();
+        var outcome = Authority.Call(KernelNames.Submit, principal, request, meta).AsGodotDictionary();
         if (!outcome["ok"].AsBool()) throw Translate(outcome);
         PublishNature(candidate);
         _natureDirty = false;
         _natureClockMoved = false;
         _natureSaveClock = 0;
-        return Durable(Authority.Call("receipt_for", principal, action).AsGodotDictionary(), replayed: false);
+        return Durable(Authority.Call(KernelNames.ReceiptFor, principal, action).AsGodotDictionary(), replayed: false);
     }
 
     /// <summary>A saved nature becomes the room's: the scene follows, and the look hears of it.</summary>
@@ -728,7 +728,7 @@ public partial class CommandHost
     public void AdvanceNature(double delta)
     {
         if (!NatureConfigured || _natureUnavailable || !double.IsFinite(delta) || delta <= 0) return;
-        if (Authority == null || !Authority.Call("is_ready").AsBool()) return;
+        if (Authority == null || !Authority.Call(KernelNames.IsReady).AsBool()) return;
         _natureElapsed += delta;
         _natureSaveClock += delta;
         var steps = 0;
@@ -795,7 +795,7 @@ public partial class CommandHost
     {
         if (!Nature.TrailEnabled || Nature.Fire != null) return false;
         var role = Nature.TrailPrincipal;
-        if (role == "companion" && !Authority.Call("may_change", CompanionPrincipal).AsBool())
+        if (role == "companion" && !Authority.Call(KernelNames.MayChange, KernelNames.CompanionArgument).AsBool())
         {
             Nature.TrailEnabled = false;
             NatureNotice = "The Gubble's flower trail stopped: it may not change the island now.";
@@ -884,15 +884,17 @@ public partial class CommandHost
     private void SaveNature()
     {
         _natureSaveClock = 0;
-        if (!NatureConfigured || _natureUnavailable || Authority == null || !Authority.Call("is_ready").AsBool()) return;
+        if (!NatureConfigured || _natureUnavailable || Authority == null || !Authority.Call(KernelNames.IsReady).AsBool()) return;
         if (_migrationOffer != null && !Godot.FileAccess.FileExists(SavePath)) return;
         Nature.TrimUndo();
-        var team = _teamDirty ? KernelJson.ToVariant(ExportTeam(_notes)) : default;
-        var saved = Authority.Call("set_nature", KernelJson.ToVariant(NatureBlock.Pack(Nature)), team).AsGodotDictionary();
-        if (!saved["ok"].AsBool()) return;
+        using var team = _teamDirty ? KernelJson.ToVariant(ExportTeam(_notes)) : default;
+        using var nature = KernelJson.ToVariant(NatureBlock.Pack(Nature));
+        if (!SavedOk(Authority.Call(KernelNames.SetNature, nature, team))) return;
         _natureDirty = false;
         _natureClockMoved = false;
-        if (_teamDirty) _teamDirty = false;
+        _teamDirty = false;
+        // One write of the whole save at a time (S12): the team's throttle starts again from this write too.
+        _saveClock = 0;
     }
 
     /// <summary>On exit: whatever changed since the last save, the weather clock included.</summary>
@@ -915,12 +917,14 @@ public partial class CommandHost
         var top = Math.Min(Room.Bounds.End.Y - 0.002f, nearY is { } y ? y + 0.1f : Room.Bounds.End.Y - 0.002f);
         var at = new Vector3((x + 0.5f) * NatureState.CellM, top, (z + 0.5f) * NatureState.CellM);
         if (at.X < Room.Bounds.Position.X || at.Z < Room.Bounds.Position.Z || at.X > Room.Bounds.End.X || at.Z > Room.Bounds.End.Z) return null;
-        using var query = PhysicsRayQueryParameters3D.Create(at, at with { Y = Room.Bounds.Position.Y - 0.5f }, RoomBuilder.WorldLayer);
+        using var query = PhysicsRayQueryParameters3D.Create(at, at with { Y = Room.Bounds.Position.Y - 0.5f }, RoomBuilder.WorldLayer, KernelNames.NoRids);
         query.HitBackFaces = false;
         using var hit = GetViewport().World3D.DirectSpaceState.IntersectRay(query);
-        if (hit.Count == 0 || hit["normal"].AsVector3().Y < 0.819f) return null;
-        var point = hit["position"].AsVector3();
-        var (material, surface) = NatureSurface(hit["collider"].AsGodotObject() as Node);
+        if (hit.Count == 0 || hit[KernelNames.HitNormal].AsVector3().Y < 0.819f) return null;
+        var point = hit[KernelNames.HitPosition].AsVector3();
+        Node? collider;
+        using (var answer = hit[KernelNames.HitCollider]) collider = answer.AsGodotObject() as Node;
+        var (material, surface) = NatureSurface(collider);
         if (material == "") return null;
         var fertile = surface.StartsWith("shell:", StringComparison.Ordinal) && material is "grass" or "soil";
         var fuel = material is "grass" or "foliage" ? NatureLaws.GrassFuel : material is "wood" or "bark" ? NatureLaws.WoodFuel : 0;
@@ -940,19 +944,26 @@ public partial class CommandHost
         return cell;
     }
 
+    /// <summary>A node's text metadata, its Variant freed at once.</summary>
+    private static string MetaText(Node node, StringName name)
+    {
+        using var value = node.GetMeta(name);
+        return value.AsString();
+    }
+
     private (string Material, string Id) NatureSurface(Node? collider)
     {
         for (var node = collider; node != null; node = node.GetParent())
         {
-            if (node.HasMeta("material_role")) return (node.GetMeta("material_role").AsString(), node.HasMeta("entity_id") ? node.GetMeta("entity_id").AsString() : "");
-            if (node.HasMeta("entity_id") && node.GetMeta("entity_id").AsString() is { } id && id.StartsWith("obj:", StringComparison.Ordinal))
+            if (node.HasMeta(KernelNames.MaterialRoleMeta)) return (MetaText(node, KernelNames.MaterialRoleMeta), node.HasMeta(KernelNames.EntityIdMeta) ? MetaText(node, KernelNames.EntityIdMeta) : "");
+            if (node.HasMeta(KernelNames.EntityIdMeta) && MetaText(node, KernelNames.EntityIdMeta) is { } id && id.StartsWith("obj:", StringComparison.Ordinal))
             {
                 var item = Room.Objects.FirstOrDefault(o => o.Id == id);
                 var material = item?.Asset.Materials.FirstOrDefault(m => FlammableMaterials.Contains(m.Role))?.Role ?? item?.Asset.Materials.FirstOrDefault()?.Role ?? "";
                 return (material, id);
             }
             if (node.GetParent() != Runtime) continue;
-            foreach (var pair in Runtime.Get("assemblies").AsGodotDictionary())
+            foreach (var pair in Runtime.Get(KernelNames.Assemblies).AsGodotDictionary())
             {
                 if (pair.Value.AsGodotObject() != node) continue;
                 var creationId = pair.Key.AsString();
@@ -971,7 +982,7 @@ public partial class CommandHost
     {
         if (id.StartsWith("obj:", StringComparison.Ordinal)) return ObjectNode(id);
         if (Runtime == null || !IsInstanceValid(Runtime)) return null;
-        return Runtime.Get("assemblies").AsGodotDictionary().TryGetValue(id, out var assembly) ? assembly.AsGodotObject() as Node3D : null;
+        return Runtime.Get(KernelNames.Assemblies).AsGodotDictionary().TryGetValue(id, out var assembly) ? assembly.AsGodotObject() as Node3D : null;
     }
 
     /// <summary>
@@ -990,7 +1001,7 @@ public partial class CommandHost
         _natureSceneKey = key;
         var disabled = new Godot.Collections.Dictionary();
         foreach (var id in scorched) disabled[id] = true;
-        Runtime.Set("nature_disabled_creations", disabled);
+        Runtime.Set(KernelNames.NatureDisabledCreations, disabled);
         var held = _held.Values.Select(h => h.Target).ToHashSet(StringComparer.Ordinal);
         foreach (var id in _natureShown.Concat(burned).Concat(scorched).Distinct(StringComparer.Ordinal).ToList())
         {
@@ -1040,7 +1051,7 @@ public partial class CommandHost
     /// </summary>
     private void UpdateClimbCollision(List<string> burned)
     {
-        if (GetParent()?.GetNodeOrNull("Room/Shell") is not { } shell) return;
+        if (GetParent()?.GetNodeOrNull(ShellPath) is not { } shell) return;
         var gone = burned.Select(id => Room.Objects.FirstOrDefault(o => o.Id == id)).Where(o => o != null).Select(o =>
         {
             var record = Nature.Objects[o!.Id];

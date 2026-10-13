@@ -154,6 +154,21 @@ public static class KernelText
     /// </summary>
     public static string DisplayText(string text, int maxLength)
     {
+        // The rule is a pure function of the text and the length, asked for every name of every summary several times a second on
+        // the 10x island (S12: some 4 KB of garbage each time); the answers are kept, a bounded number of them.
+        var key = (text, maxLength);
+        if (DisplayTexts.TryGetValue(key, out var known)) return known;
+        var shown = DisplayTextOf(text, maxLength);
+        if (DisplayTexts.Count >= MaxKeptDisplayTexts) DisplayTexts.Clear();
+        DisplayTexts[key] = shown;
+        return shown;
+    }
+
+    private const int MaxKeptDisplayTexts = 4096;
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<(string Text, int MaxLength), string> DisplayTexts = new();
+
+    private static string DisplayTextOf(string text, int maxLength)
+    {
         var codes = Trim(Collapse(Clean(CodePoints(text))));
         if (codes.Length > maxLength) codes = codes[..maxLength];
         codes = Trim(Collapse(Clean(codes)));

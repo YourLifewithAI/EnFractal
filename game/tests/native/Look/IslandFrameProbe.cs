@@ -110,13 +110,42 @@ public partial class IslandFrameProbe : Node
                 }
                 GD.Print($"ISLAND_PROBE copies: {copies.TotalCount} copies, {instanceBands} instances in all bands ({instanceBands * 64 / 1048576.0:0} MB of instance buffers on the GPU, three times that in the engine's CPU copies)");
             }
+            List<DerivedCamera> cameras;
             {
                 var space = _world.GetWorld3D().DirectSpaceState;
                 var notes = new List<string>();
-                var cameras = IslandCameras.Derive(_world.Room, IslandCameras.RayGround(space, _world.Room.Bounds), IslandCameras.RaySky(space), notes);
+                cameras = IslandCameras.Derive(_world.Room, IslandCameras.RayGround(space, _world.Room.Bounds), IslandCameras.RaySky(space), notes);
                 GD.Print("ISLAND_PROBE island cameras: " + string.Join("; ", cameras.Select(c => $"{c.Id} at {c.PlayerM} facing {c.YawDeg:0}")) + (notes.Count > 0 ? "; notes: " + string.Join("; ", notes) : ""));
             }
+            // "--cameras" (S12): the frame where each island camera stands the avatars (spawn, summit, hamlet, beach; S9's cameras),
+            // headless: the HUD, the host, the bodies and the look's work as the player would have them there, and the collections.
+            if (OS.GetCmdlineUserArgs().Contains("--cameras"))
+            {
+                foreach (var camera in cameras.Where(c => c.Flight == null))
+                {
+                    _world.Player.TryTeleportTo(camera.PlayerM);
+                    _world.Player.Rotation = new Vector3(0, Mathf.DegToRad(camera.YawDeg), 0);
+                    _world.Player.ResetPhysicsInterpolation();
+                    _world.Companion.Stay();
+                    _world.Companion.TryTeleportTo(camera.CompanionM);
+                    _world.Companion.ResetPhysicsInterpolation();
+                    for (var i = 0; i < 120; i++) await Frame();
+                    Print($"at {camera.Id}", await Measure(frames));
+                }
+                var settled = GC.GetGCMemoryInfo(GCKind.Any);
+                GD.Print($"ISLAND_PROBE collections in all: {GC.CollectionCount(0)} gen0, {GC.CollectionCount(1)} gen1, {GC.CollectionCount(2)} gen2; the last waited on {settled.FinalizationPendingCount} objects for the finalizer");
+                GD.Print("ISLAND_PROBE_DONE");
+                GetTree().Quit(0);
+                return;
+            }
             if (OS.GetCmdlineUserArgs().Contains("--bands-only")) { GetTree().Quit(0); return; }
+            if (OS.GetCmdlineUserArgs().Contains("--parts"))
+            {
+                await MeasureParts();
+                GD.Print("ISLAND_PROBE_DONE");
+                GetTree().Quit(0);
+                return;
+            }
             using var listener = new GcListener();
             listener.Recording = true;
             var all = await Measure(frames);
@@ -222,7 +251,9 @@ public partial class IslandFrameProbe : Node
     private static void Print(string label, List<Sample> samples)
     {
         static double P(IEnumerable<double> values, double p) { var v = values.OrderBy(x => x).ToArray(); return v[Math.Clamp((int)Math.Ceiling(p * v.Length) - 1, 0, v.Length - 1)]; }
+        var slowest = string.Join(", ", samples.OrderByDescending(s => s.FrameMs).Take(3).Select(s => string.Create(System.Globalization.CultureInfo.InvariantCulture,
+            $"{s.FrameMs:0.0} ms (process {s.ProcessMs:0.0}, physics {s.PhysicsMs:0.0}, {s.Collections} collections, {s.PauseMs:0.0} ms paused)")));
         GD.Print(string.Create(System.Globalization.CultureInfo.InvariantCulture,
-            $"ISLAND_PROBE {label}: frame {samples.Average(s => s.FrameMs):0.00} ms mean, {P(samples.Select(s => s.FrameMs), 0.95):0.00} p95, {samples.Max(s => s.FrameMs):0.0} max; process {samples.Average(s => s.ProcessMs):0.000} ms mean, {samples.Max(s => s.ProcessMs):0.0} max; physics {samples.Average(s => s.PhysicsMs):0.000} ms mean, {samples.Max(s => s.PhysicsMs):0.0} max; main thread allocates {samples.Average(s => s.AllocatedKb):0.0} KB a frame; {samples.Sum(s => s.Collections)} collections, {samples.Sum(s => s.PauseMs):0.0} ms paused over {samples.Count} frames"));
+            $"ISLAND_PROBE {label}: frame {samples.Average(s => s.FrameMs):0.00} ms mean, {P(samples.Select(s => s.FrameMs), 0.95):0.00} p95, {samples.Max(s => s.FrameMs):0.0} max; process {samples.Average(s => s.ProcessMs):0.000} ms mean, {samples.Max(s => s.ProcessMs):0.0} max; physics {samples.Average(s => s.PhysicsMs):0.000} ms mean, {samples.Max(s => s.PhysicsMs):0.0} max; main thread allocates {samples.Average(s => s.AllocatedKb):0.0} KB a frame; {samples.Sum(s => s.Collections)} collections, {samples.Sum(s => s.PauseMs):0.0} ms paused over {samples.Count} frames, the longest frame's pause {samples.Max(s => s.PauseMs):0.0} ms; slowest: {slowest}"));
     }
 }

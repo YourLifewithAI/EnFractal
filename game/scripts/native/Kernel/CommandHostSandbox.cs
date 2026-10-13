@@ -206,9 +206,9 @@ public partial class CommandHost
     /// </summary>
     private void RequireChange(string principal)
     {
-        if (!Authority.Call("is_ready").AsBool())
+        if (!Authority.Call(KernelNames.IsReady).AsBool())
             throw new Refusal("not_ready", "The room's saved state is not loaded, so nothing in it can be moved.", retryable: true);
-        if (!Authority.Call("may_change", principal).AsBool())
+        if (!Authority.Call(KernelNames.MayChange, principal).AsBool())
             throw new Refusal("permission_denied", "A visitor cannot move things.");
     }
 
@@ -370,7 +370,7 @@ public partial class CommandHost
             var held = _held[actor];
             // A holder that left the room, or whose principal may no longer change it (demoted to visitor, a save that
             // stopped being available), lets go: the thing goes back to where it was last put down.
-            if (BodyOf(actor) is not { } body || !body.IsInsideTree() || !Authority.Call("may_change", actor == PlayerAvatar ? PlayerPrincipal : CompanionPrincipal).AsBool())
+            if (BodyOf(actor) is not { } body || !body.IsInsideTree() || !Authority.Call(KernelNames.MayChange, actor == PlayerAvatar ? PlayerPrincipal : CompanionPrincipal).AsBool())
             {
                 LetGo(actor);
                 ApplyObjectPoses(ObjectPoses());
@@ -383,7 +383,7 @@ public partial class CommandHost
     // ---- poses and the scene ----
 
     /// <summary>The authority's object poses (objects play has moved).</summary>
-    private Godot.Collections.Dictionary ObjectPoses() => Authority.Call("snapshot", PlayerPrincipal).AsGodotDictionary() is { } snapshot && snapshot.ContainsKey("object_poses")
+    private Godot.Collections.Dictionary ObjectPoses() => Authority.Call(KernelNames.Snapshot, KernelNames.PlayerArgument).AsGodotDictionary() is { } snapshot && snapshot.ContainsKey("object_poses")
         ? snapshot["object_poses"].AsGodotDictionary() : new Godot.Collections.Dictionary();
 
     /// <summary>Where an object is now: carried, where play last put it, or where the room manifest puts it.</summary>
@@ -398,6 +398,14 @@ public partial class CommandHost
         var rotation = pose["rotation"].AsGodotArray();
         return (new Vector3((float)position[0].AsDouble(), (float)position[1].AsDouble(), (float)position[2].AsDouble()),
             new Quaternion((float)rotation[0].AsDouble(), (float)rotation[1].AsDouble(), (float)rotation[2].AsDouble(), (float)rotation[3].AsDouble()).Normalized());
+    }
+
+    /// <summary>PoseOf, from saved poses already read into C# (ReadEntitySnapshot).</summary>
+    private (Vector3 Position, Quaternion Rotation) PoseOf(ObjectInstance item, Dictionary<string, (Vector3 Position, Quaternion Rotation)> poses)
+    {
+        foreach (var (actor, held) in _held)
+            if (held.Target == item.Id && BodyOf(actor) != null) return Carried(actor, held);
+        return poses.TryGetValue(item.Id, out var pose) ? pose : (item.PositionM, item.Rotation);
     }
 
     private Thing ThingOf(ObjectInstance item, Vector3 position, Quaternion rotation) =>
@@ -453,7 +461,7 @@ public partial class CommandHost
         if (_objectNodes == null || _objectNodes.Values.Any(n => !IsInstanceValid(n)))
         {
             _objectNodes = new Dictionary<string, Node3D>(StringComparer.Ordinal);
-            if (GetParent()?.GetNodeOrNull("Room") is { } built) IndexObjects(built);
+            if (GetParent()?.GetNodeOrNull(BuiltPath) is { } built) IndexObjects(built);
         }
         return _objectNodes.GetValueOrDefault(id);
     }
@@ -478,7 +486,8 @@ public partial class CommandHost
     public HandsFocus PlayerFocus()
     {
         if (Player == null || !IsInstanceValid(Player)) return default;
-        var entities = Entities();
+        // Only what is within reach can be the focus (both choices below keep only what PlayerReaches): the rest is never built.
+        var entities = ObjectEntitiesNear(Player);
         if (_held.TryGetValue(PlayerAvatar, out var held))
         {
             var support = SandboxControls.SupportAhead(Player, entities, held.Target, PlayerReaches);

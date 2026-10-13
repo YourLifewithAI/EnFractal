@@ -275,7 +275,7 @@ public partial class CommandHost
     private bool GlowHighSurface(Vector3 centre)
     {
         // Height and a real support ray, never a label such as "tree" supplied by a model.
-        using var query = PhysicsRayQueryParameters3D.Create(centre + Vector3.Up * 0.08f, centre + Vector3.Down * 0.16f, RoomBuilder.BodyMask);
+        using var query = PhysicsRayQueryParameters3D.Create(centre + Vector3.Up * 0.08f, centre + Vector3.Down * 0.16f, RoomBuilder.BodyMask, KernelNames.NoRids);
         using var hit = GetViewport().World3D.DirectSpaceState.IntersectRay(query);
         if (hit.Count == 0) return false;
         var ground = Room.Sea?.LevelM ?? Room.Bounds.Position.Y;
@@ -284,7 +284,7 @@ public partial class CommandHost
 
     private bool GlowOpenSky(Vector3 centre)
     {
-        using var query = PhysicsRayQueryParameters3D.Create(centre + Vector3.Up * 0.12f, centre + Vector3.Up * 20f, RoomBuilder.WorldLayer);
+        using var query = PhysicsRayQueryParameters3D.Create(centre + Vector3.Up * 0.12f, centre + Vector3.Up * 20f, RoomBuilder.WorldLayer, KernelNames.NoRids);
         using var hit = GetViewport().World3D.DirectSpaceState.IntersectRay(query);
         return hit.Count == 0;
     }

@@ -1199,14 +1199,22 @@ public partial class CompanionAvatar : SmallPlayerController
     /// <summary>Why the body last said blocked (diagnostics): stuck, stuck_up_high, no_progress, out_of_reach or no_clear_heading.</summary>
     public string BlockedReason { get; private set; } = "";
 
+    /// <summary>This body and one other, as a query's exclusions: one array kept and refilled (S12), never a new one for every ray.</summary>
+    private Godot.Collections.Array<Rid> ExcludeSelfAnd(Rid other)
+    {
+        _excludePair ??= new Godot.Collections.Array<Rid>();
+        _excludePair.Clear();
+        _excludePair.Add(GetRid());
+        _excludePair.Add(other);
+        return _excludePair;
+    }
+    private Godot.Collections.Array<Rid>? _excludePair;
+
     /// <summary>Nothing solid between the body's middle and a point (the point's own body left out).</summary>
     private bool ClearTo(Vector3 point, Rid ignore)
     {
         var from = GlobalPosition + Vector3.Up * (BodyHeightM * 0.5f);
-        using var query = PhysicsRayQueryParameters3D.Create(from, point, RoomBuilder.BodyMask);
-        var exclude = new Godot.Collections.Array<Rid> { GetRid() };
-        if (ignore.IsValid) exclude.Add(ignore);
-        query.Exclude = exclude;
+        using var query = PhysicsRayQueryParameters3D.Create(from, point, RoomBuilder.BodyMask, ignore.IsValid ? ExcludeSelfAnd(ignore) : ExcludeSelf);
         using var hit = GetWorld3D().DirectSpaceState.IntersectRay(query);
         return hit.Count == 0;
     }
@@ -1260,8 +1268,7 @@ public partial class CompanionAvatar : SmallPlayerController
                 var spot = Navigation!.ClosestPoint(goal + new Vector3(Mathf.Cos(angle), 0, Mathf.Sin(angle)) * ring);
                 if (Mathf.Abs(spot.Y - goal.Y) > LevelGapM || Planar(spot - goal).Length() > ring + Navigation.AgentRadiusM) continue;
                 if (best is { } kept && Planar(spot - here).Length() >= Planar(kept - here).Length()) continue;
-                using var query = PhysicsRayQueryParameters3D.Create(new Vector3(spot.X, Mathf.Max(here.Y, spot.Y) + BodyHeightM, spot.Z), spot + Vector3.Up * 0.01f, RoomBuilder.BodyMask);
-                query.Exclude = new Godot.Collections.Array<Rid> { GetRid() };
+                using var query = PhysicsRayQueryParameters3D.Create(new Vector3(spot.X, Mathf.Max(here.Y, spot.Y) + BodyHeightM, spot.Z), spot + Vector3.Up * 0.01f, RoomBuilder.BodyMask, ExcludeSelf);
                 using (var hit = space.IntersectRay(query)) if (hit.Count > 0) continue;
                 if (!Navigation.FindRoute(spot, goal, ComeArrivalM, SearchM(spot, goal)).Reaches) continue;
                 best = spot;
@@ -1583,10 +1590,8 @@ public partial class CompanionAvatar : SmallPlayerController
         if (camera == null || !camera.IsInsideTree() || !point.IsFinite()) return false;
         var eye = camera.GlobalPosition;
         if (camera.IsPositionBehind(point) || !camera.IsPositionInFrustum(point) || eye.DistanceTo(point) > camera.Far) return false;
-        using var query = PhysicsRayQueryParameters3D.Create(eye, point, RoomBuilder.WorldLayer);
-        var exclude = new Godot.Collections.Array<Rid> { GetRid() };
-        if (_player != null && GodotObject.IsInstanceValid(_player)) exclude.Add(_player.GetRid());
-        query.Exclude = exclude;
+        using var query = PhysicsRayQueryParameters3D.Create(eye, point, RoomBuilder.WorldLayer,
+            _player != null && GodotObject.IsInstanceValid(_player) ? ExcludeSelfAnd(_player.GetRid()) : ExcludeSelf);
         using var hit = GetWorld3D().DirectSpaceState.IntersectRay(query);
         return hit.Count == 0;
     }
@@ -1620,11 +1625,10 @@ public partial class CompanionAvatar : SmallPlayerController
         var column = here + Planar(desired).Normalized() * (BodyRadiusM + 0.03f);
         var top = PlayableBounds is { } bounds ? bounds.End.Y + 1 : here.Y + 40;
         if (top <= here.Y) return;
-        using var query = PhysicsRayQueryParameters3D.Create(new Vector3(column.X, top, column.Z), new Vector3(column.X, here.Y, column.Z), RoomBuilder.BodyMask);
-        query.Exclude = new Godot.Collections.Array<Rid> { GetRid() };
+        using var query = PhysicsRayQueryParameters3D.Create(new Vector3(column.X, top, column.Z), new Vector3(column.X, here.Y, column.Z), RoomBuilder.BodyMask, ExcludeSelf);
         using var hit = GetWorld3D().DirectSpaceState.IntersectRay(query);
         if (hit.Count == 0) return;
-        var faceTop = hit["position"].AsVector3().Y + HoverHeightM;
+        var faceTop = hit[HitPosition].AsVector3().Y + HoverHeightM;
         RiseFaceM = faceTop - _riseFromY.Value;
         RiseRemainingM = faceTop - here.Y;
         FloatRiseMps = RiseMpsFor(RiseRemainingM, RiseFaceM, _baseRiseMps);

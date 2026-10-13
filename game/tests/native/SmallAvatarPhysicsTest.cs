@@ -211,6 +211,7 @@ public partial class SmallAvatarPhysicsTest : Node3D
         {
             InputMap.ActionEraseEvents(action);
             InputMap.ActionAddEvent(action, new InputEventKey { PhysicalKeycode = key });
+            PlayerControls.MapChanged();
         }
         // Hold keys for a while, let go, and report how far the body went.
         async Task<Vector3> Hold(int frames, params Key[] keys)
@@ -263,6 +264,7 @@ public partial class SmallAvatarPhysicsTest : Node3D
                 InputMap.ActionEraseEvents(action);
                 foreach (var input in events) InputMap.ActionAddEvent(action, input);
             }
+            PlayerControls.MapChanged();
 
             // The presses: R recovers, G asks for the next world physics, B starts the way home; each on its own key once remapped.
             var recoveries = body.Recoveries;
@@ -299,6 +301,7 @@ public partial class SmallAvatarPhysicsTest : Node3D
                 InputMap.ActionEraseEvents(action);
                 foreach (var input in events) InputMap.ActionAddEvent(action, input);
             }
+            PlayerControls.MapChanged();
             body.QueueFree();
             await Frames(2);
         }
