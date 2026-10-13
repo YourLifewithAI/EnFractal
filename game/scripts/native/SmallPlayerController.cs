@@ -321,6 +321,8 @@ public partial class SmallPlayerController : CharacterBody3D
     public System.Action<float, bool>? FallObserved { get; set; }
     public System.Action<Vector3, Vector3>? ClimbCompleted { get; set; }
     private float _vitalsLandingSpeedMps;
+    /// <summary>The last on-foot tick's descent before the water caught it (m/s): a deep-water landing's speed.</summary>
+    private float _airDescentMps;
     private Vector3? _vitalsClimbStart;
     public bool IsPullingOver => _climbing && _pullPhase > 0;
     public bool IsSwimming => _swimming;
@@ -1058,7 +1060,7 @@ public partial class SmallPlayerController : CharacterBody3D
             FloorNormal = grounded ? GetFloorNormal() : Vector3.Up,
             AirTimeS = _airTimeS,
             Landed = landed,
-            LandingSpeedMps = landed ? _vitalsLandingSpeedMps : 0,
+            LandingSpeedMps = !landed ? 0 : caught ? Mathf.Max(_vitalsLandingSpeedMps, _airDescentMps) : _vitalsLandingSpeedMps,
             LandedInDeepWater = landed && caught,
             Climbing = _climbing,
             ClimbNormal = _climbNormal,
@@ -1113,7 +1115,9 @@ public partial class SmallPlayerController : CharacterBody3D
         if (_creationAcceleration.Y > 0) vertical = Mathf.Max(vertical, 0);
         if (_creationGlideLimit > 0) vertical = Mathf.Max(vertical, -_creationGlideLimit);
         var total = WithCreation(new Vector3(horizontal.X, vertical, horizontal.Z), dt);
-        // Falling into deep water: the water catches the body this tick, before the eye goes under.
+        // Falling into deep water: the water catches the body this tick, before the eye goes under. The descent it had in the air
+        // is the landing's speed (BodyState.LandingSpeedMps) on the tick the body starts to swim, not what is left after the catch.
+        _airDescentMps = onFloor ? 0 : Mathf.Max(0, -total.Y);
         total.Y = CatchInWater(total.Y, dt);
         Velocity = total;
         if (onFloor && !jumped && vertical <= 0 && _creationApplied == Vector3.Zero &&

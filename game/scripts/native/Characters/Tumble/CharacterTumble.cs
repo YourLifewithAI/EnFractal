@@ -96,6 +96,8 @@ public sealed class CharacterTumble : IPoseLayer<BodyState>
     /// <summary>The tier of the last landing the tumble saw, and what it would have cost in Challenge.</summary>
     public TumbleTier LastTier { get; private set; }
     public float LastLandingCost { get; private set; }
+    /// <summary>The downward speed of the last landing the tumble saw (m/s; a deep-water landing's too, which never tumbles).</summary>
+    public float LastLandingSpeedMps { get; private set; }
     /// <summary>Tumbles begun, and how many of them got up early because the player moved.</summary>
     public int Tumbles { get; private set; }
     public int EarlyGetUps { get; private set; }
@@ -148,6 +150,7 @@ public sealed class CharacterTumble : IPoseLayer<BodyState>
             // tumble of a fall that took the last health), read before this layer holds anything.
             var ownHold = Math.Max(Math.Max(0, _holdEndS - now), _pending ? _pendingSeconds : 0);
             var hostHold = _controller.ControlHoldS > ownHold + 0.05f ? _controller.ControlHoldS : 0;
+            LastLandingSpeedMps = state.LandingSpeedMps;
             LastLandingCost = TumbleTiers.Cost(state.LandingSpeedMps, state.LandedInDeepWater);
             LastTier = TumbleTiers.Classify(LastLandingCost);
             // A landing below the tumble tier that knocks the player out (a stumble's cost from their last health) is the knockout's
