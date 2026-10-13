@@ -123,6 +123,7 @@ public partial class RoomWorld : Node3D
             // before the HUD, which restores the saved choice when it is ready.
             Characters = LoadCharacters();
             Player.CharacterChanged = WearCharacter;
+            GubbleCharacter.Dress(Companion, Characters, Look);
             // Living scenery (Run 2, Lane L): fish in the ponds and the veil under the water. Only the player frightens
             // fish; the Gubble is set apart from the world, a ghost only the player can see (the founder, 8 October).
             var pondLife = PondLife.Create(Room.RoomId, Built);
