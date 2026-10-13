@@ -35,6 +35,8 @@ public static class RoomBuilder
         root.AddChild(shell);
         root.AddChild(objects);
         foreach (var part in room.Shell) shell.AddChild(BuildShellPart(room, part));
+        // SCALE EXPERIMENT: plants drawn as instances (only a room magnified x W carries them).
+        foreach (var set in room.Instanced) shell.AddChild(InstancedScatter.Create(set, LoadGlb(room, set.MeshPath, "instances " + set.Prototype)));
         foreach (var instance in room.Objects) objects.AddChild(BuildObject(room, instance));
         return root;
     }

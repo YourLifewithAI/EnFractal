@@ -23,6 +23,7 @@ from pathlib import Path
 from pipeline.landscape.harness import read_package
 from pipeline.landscape.harness.common import load_json
 from pipeline.landscape.harness.kit import SIZES
+from . import scale as world
 
 WALK_DEG = 20.     # low incline, well under the body's 45 degrees
 CARRY_DEG = 20.
@@ -35,8 +36,10 @@ class Terrain:
     package's own terrain (and scenery) meshes, with no knowledge of how the
     generator built them. `cell` is the sampling step the checks use."""
 
-    def __init__(self, doc, meshes, cell=.025, bucket=.1):
-        self.cell = cell
+    def __init__(self, doc, meshes, cell=None, bucket=.1):
+        # The scale experiment: on a magnified room the walk keeps the body's limits (the 11 cm disc, 2 cm steps sampled each
+        # centimetre, 20 degrees) on a 5 cm lattice (WALK_LATTICE_W), a quarter of the nodes.
+        self.cell = cell if cell is not None else (.025 if world.W == 1 else WALK_LATTICE_W)
         self.bucket = bucket
         self.tris = []
         self.grid = {}
@@ -280,6 +283,12 @@ def _in_tri(x, z, vs):
 
 
 CLEAR_R = .055      # half of the 11 cm carrying clearance (body and a held item)
+# The scale experiment (generator/scale.py), only for a magnified room: the walker's lattice, how many nodes one route may
+# expand before it gives up (an unreachable goal would otherwise flood the whole island), and its heuristic's weight.
+WALK_LATTICE_W = .05
+WALK_BUDGET_W = 40_000
+WALK_GREED_W = 1.5
+BUDGET_HITS = [0]
 EDGE_SAMPLE = .01   # every walk edge is sampled each centimetre
 
 
@@ -305,6 +314,9 @@ def obstacles(doc):
     return out
 
 
+_WATER_INDEX = {}   # one shared water index (see Walker)
+
+
 class Walker:
     """A* over a 2.5 cm lattice of the decoded surface. A node is standable
     when an 11 cm disc around it is dry, clear of obstacles, inside the
@@ -324,21 +336,31 @@ class Walker:
             for i in range(int(math.floor((o[1]-r-CLEAR_R)/.2)), int(math.floor((o[1]+r+CLEAR_R)/.2))+1):
                 for j in range(int(math.floor((o[2]-r-CLEAR_R)/.2)), int(math.floor((o[2]+r+CLEAR_R)/.2))+1):
                     self.obs.setdefault((i, j), []).append(o)
-        self.water = []
-        self.wbuck = {}
         win = window(doc, .2)
-        for rec in doc['water']:
-            for p in meshes[rec['mesh']]:
-                for t in p['triangles']:
-                    vs = [p['positions'][k] for k in t]
-                    if not _meets(win, *vs):
-                        continue
-                    k = len(self.water)
-                    self.water.append(vs)
-                    i0, i1, j0, j1 = _span(win, .1, vs)
-                    for i in range(i0, i1+1):
-                        for j in range(j0, j1+1):
-                            self.wbuck.setdefault((i, j), []).append(k)
+        # The water's index depends only on the water records, the meshes and the
+        # window: Walkers over the same package share it (the generator builds
+        # dozens of them, each with a different scatter).
+        key = (id(doc['water']), id(meshes), win)
+        hit = _WATER_INDEX.get(key)
+        if hit is not None and hit[0] is doc['water'] and hit[1] is meshes:
+            self.water, self.wbuck = hit[2], hit[3]
+        else:
+            self.water = []
+            self.wbuck = {}
+            for rec in doc['water']:
+                for p in meshes[rec['mesh']]:
+                    for t in p['triangles']:
+                        vs = [p['positions'][k] for k in t]
+                        if not _meets(win, *vs):
+                            continue
+                        k = len(self.water)
+                        self.water.append(vs)
+                        i0, i1, j0, j1 = _span(win, .1, vs)
+                        for i in range(i0, i1+1):
+                            for j in range(j0, j1+1):
+                                self.wbuck.setdefault((i, j), []).append(k)
+            _WATER_INDEX.clear()
+            _WATER_INDEX[key] = (doc['water'], meshes, self.water, self.wbuck)
         self.cache = {}
 
     def wet(self, x, z):
@@ -407,12 +429,21 @@ class Walker:
         cost = {s: 0.}
         prev = {}
         heap = [(0., 0., s)]
+        budget = math.inf if world.W == 1 else WALK_BUDGET_W
+        greed = 1. if world.W == 1 else WALK_GREED_W
+        expanded = 0
         while heap:
             _, d, k = heapq.heappop(heap)
             if d > cost.get(k, math.inf)+1e-12:
                 continue
             if k == g:
                 break
+            expanded += 1
+            if expanded > budget:
+                BUDGET_HITS[0] += 1
+                print('LANDSCAPE_WALK_OVER_BUDGET from (%.2f, %.2f) to (%.2f, %.2f) after %d nodes' % (
+                    start[0], start[1], goal[0], goal[1], expanded), flush=True)
+                return None, dict(budget=budget)
             for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)):
                 n = (k[0]+di, k[1]+dj)
                 if not self.standable(n):
@@ -427,7 +458,8 @@ class Walker:
                 if nd < cost.get(n, math.inf)-1e-12:
                     cost[n] = nd
                     prev[n] = k
-                    heapq.heappush(heap, (nd+c*math.hypot(n[0]-g[0], n[1]-g[1]), nd, n))
+                    heapq.heappush(heap, (nd+c*math.hypot(n[0]-g[0], n[1]-g[1])*greed if greed != 1. else
+                                          nd+c*math.hypot(n[0]-g[0], n[1]-g[1]), nd, n))
         if g not in cost:
             return None, {}
         path = [g]

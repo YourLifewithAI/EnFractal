@@ -6,6 +6,7 @@ from pipeline.landscape.harness.kit import SIZES
 from .field import clamp, lerp, slope_field, smooth
 from .land import SOFT, dijkstra, geology_tint, inside_distance, local, room_shape
 from .water import chaikin, resample
+from . import scale as world
 
 SNOWLINE = 1.5
 WALK_LIMIT_DEG = 20.   # low-incline planning limit (the body manages 45 degrees)
@@ -142,6 +143,7 @@ def surface(grid, h, base, slope, owner, objects, shadow, wet, acc, outside, pat
     out_t = []
     nx = grid.nx
     wall_tint = (.98, .93, .86)
+    W = world.W   # heights above the plain and the snowline are the room's; wetness the body's
     for q in range(grid.n):
         x, z = grid.xs[q % nx], grid.zs[q//nx]
         s = slope[q]
@@ -179,14 +181,14 @@ def surface(grid, h, base, slope, owner, objects, shadow, wet, acc, outside, pat
             for k in weights:
                 weights[k] *= 1-p
             weights['worn_path'] = p
-        if h[q] > SNOWLINE:
-            sn = smooth((h[q]-SNOWLINE)/.22+.3*n1)*(1-smooth((s-58)/10))
+        if h[q] > SNOWLINE*W:
+            sn = smooth((h[q]-SNOWLINE*W)/(.22*W)+.3*n1)*(1-smooth((s-58)/10))
             for k in weights:
                 weights[k] *= 1-sn
             weights['snow'] = sn
         # Tints: dry high grass goes gold, lush low meadow deep green;
         # rock and soil carry the source object's colour.
-        lush = clamp(moist*.7+smooth((.25-rel)/.25)*.3+.15*n1)
+        lush = clamp(moist*.7+smooth((.25*W-rel)/(.25*W))*.3+.15*n1)
         if outside[q]:
             lush = lush*.6
         tints = {'meadow': (lerp(.97, .86, lush), lerp(.86, 1., lush), lerp(.55, .78, lush)),
@@ -358,6 +360,7 @@ def walk(grid, h, face_slope, wet, inside, blocked_mask, a, b, limit=WALK_LIMIT_
 
 def paint_path(grid, path, mask, width=.035):
     nx = grid.nx
+    width = max(width, .6*grid.cell)   # a resolution floor: only bites on a grid coarser than 3 cm
     pts = [(grid.xs[q % nx], grid.zs[q//nx]) for q in path]
     for x, z in pts[::2]:
         rx, rz = grid.span(x-width*2, x+width*2, z-width*2, z+width*2)
@@ -505,6 +508,7 @@ def grade_line(grid, h, wet, pads, pts, width=.085, bridges=()):
 
 def paint_line(grid, pts, mask, width=.035):
     nx = grid.nx
+    width = max(width, .6*grid.cell)   # a resolution floor: only bites on a grid coarser than 3 cm
     for x, z in pts[::2]:
         rx, rz = grid.span(x-width*2, x+width*2, z-width*2, z+width*2)
         for j in rz:

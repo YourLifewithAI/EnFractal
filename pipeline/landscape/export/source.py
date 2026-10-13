@@ -6,6 +6,9 @@ from pathlib import Path
 from pipeline.landscape.harness.common import load_json, require, sha
 
 
+OPENING_MAX_M = 20   # x W for a magnified room (the scale experiment)
+
+
 def number(value, low, high):
     require(type(value) in (int, float) and low <= value <= high and math.isfinite(value),
             'source number must be finite and bounded')
@@ -72,7 +75,7 @@ def source_data(room, pins, folder):
                 'invalid source opening kind')
         host = identifier(opening['host_part_id'], r'shell:[A-Za-z0-9_-]{1,64}')
         require(host in part_ids, 'source opening host missing')
-        size = vector(opening['size_m'], 2, 0, 20)
+        size = vector(opening['size_m'], 2, 0, OPENING_MAX_M)
         require(all(v > 0 for v in size), 'source opening size must be positive')
         openings.append({'id': identifier(opening['id']), 'kind': opening['kind'],
                          'host_part_id': host, 'center_m': vector(opening['center_m']), 'size_m': size})

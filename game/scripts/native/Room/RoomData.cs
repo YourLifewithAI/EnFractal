@@ -102,6 +102,11 @@ public sealed class RoomData
     public RoomSea? Sea { get; private init; }
     /// <summary>Mesh bytes exactly as hash-verified, keyed by full path; the builder never reads them from disk again.</summary>
     public IReadOnlyDictionary<string, byte[]> VerifiedMeshes { get; private init; } = new Dictionary<string, byte[]>();
+    /// <summary>
+    /// SCALE EXPERIMENT (run2/scale-experiment): plants drawn as instances (extensions.x_landscape_instances, written only for a
+    /// room magnified x W): one prototype mesh and one table of placements each, hash-verified like every file. Empty otherwise.
+    /// </summary>
+    public IReadOnlyList<InstanceSet> Instanced { get; private init; } = Array.Empty<InstanceSet>();
 
     public SpawnPoint SpawnFor(string role, SpawnPoint? except = null) =>
         Spawns.FirstOrDefault(s => s.Role == role && s != except) ??
@@ -187,6 +192,22 @@ public sealed class RoomData
             }
             sea = RoomSea.Parse(seaRecord, new Aabb(min, max - min), source);
         }
+        var instanced = new List<InstanceSet>();
+        if (root.TryGetProperty("extensions", out var extensionsForInstances) && extensionsForInstances.ValueKind == JsonValueKind.Object &&
+            extensionsForInstances.TryGetProperty(InstanceSet.ExtensionName, out var sets))
+            foreach (var set in sets.EnumerateArray())
+            {
+                var meshPath = SafePath(Str(set, "mesh"));
+                meshes[directory + "/" + meshPath] = ReadMesh(directory, listed, meshPath, "room.json");
+                var table = ReadListed(directory, listed, SafePath(Str(set, "instances")), "room.json");
+                var count = Int(set, "count");
+                Expect(Str(set, "format") == InstanceSet.Format && count >= 0 && table.LongLength == (long)count * InstanceSet.Floats * 4,
+                    $"instance set {Str(set, "prototype")}: {count} rows of {InstanceSet.Format} expected");
+                var rows = new float[count * InstanceSet.Floats];
+                Buffer.BlockCopy(table, 0, rows, 0, table.Length);
+                Expect(rows.All(float.IsFinite), $"instance set {Str(set, "prototype")} has a non-finite number");
+                instanced.Add(new InstanceSet(Str(set, "prototype"), directory + "/" + meshPath, rows, count));
+            }
         StylePin? style = null;
         if (root.TryGetProperty("default_style", out var pin))
             style = new StylePin(Str(pin, "preset_id"), Int(pin, "preset_version"), Str(pin, "preset_sha256"));
@@ -196,6 +217,7 @@ public sealed class RoomData
             Directory = directory, RoomId = roomId, DisplayName = Display(root, "display_name", 80), DefaultStyle = style, VerifiedMeshes = meshes,
             SourceKind = Str(root.GetProperty("source"), "kind"), ManifestSha256 = Sha256Hex(manifestBytes),
             Bounds = new Aabb(min, max - min), Shell = shell, Objects = objects, Spawns = spawns, LightHints = hints, Openings = openings, Sea = sea,
+            Instanced = instanced,
         };
     }
 
@@ -462,4 +484,15 @@ public sealed class RoomData
         Expect(Mathf.Abs(q.Length() - 1f) <= 1e-3f, "rotation is not a unit quaternion");
         return q.Normalized();
     }
+}
+
+/// <summary>
+/// SCALE EXPERIMENT: one plant prototype drawn as instances. Rows are little-endian float32, ten per instance: position x, y, z
+/// (metres), yaw (degrees, Godot +Y), scale x, y, z (of the prototype's own size) and tint r, g, b (multiplying the vertex colour).
+/// </summary>
+public sealed record InstanceSet(string Prototype, string MeshPath, float[] Rows, int Count)
+{
+    public const string ExtensionName = "x_landscape_instances";
+    public const string Format = "f32le x,y,z,yaw_deg,sx,sy,sz,r,g,b";
+    public const int Floats = 10;
 }

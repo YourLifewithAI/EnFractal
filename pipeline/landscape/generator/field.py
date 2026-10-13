@@ -45,14 +45,22 @@ def seg_dist(px, pz, ax, az, bx, bz):
 
 
 class Noise:
-    """Value noise on a seeded lattice; deterministic for a seed."""
+    """Value noise on a seeded lattice; deterministic for a seed. `scale` (the
+    world scale, x W) stretches every spatial feature W times: a call reads the
+    lattice at (x/scale, z/scale). `raw` reads it unstretched (for angles)."""
 
-    def __init__(self, seed, size=128):
+    def __init__(self, seed, size=128, scale=1.):
         rnd = random.Random(seed)
         self.n = size
         self.t = [rnd.random()*2-1 for _ in range(size*size)]
+        self.scale = scale
 
     def __call__(self, x, z):
+        if self.scale != 1.:
+            x, z = x/self.scale, z/self.scale
+        return self.raw(x, z)
+
+    def raw(self, x, z):
         n = self.n
         xf = math.floor(x)
         zf = math.floor(z)

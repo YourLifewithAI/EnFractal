@@ -1,6 +1,7 @@
 """Mapping policy and deterministic room writer; no third-party dependencies."""
 import math
 import re
+import struct
 from pathlib import Path
 from pipeline.landscape.harness.common import canonical, sha, require
 from pipeline.landscape.harness.kit import SIZES, prototype
@@ -13,6 +14,14 @@ from .trees import TerrainHeights, climbing_parts, is_tree
 from .loose import LOOSE_CAP, closed_pieces, estimated_mass, footprint_maximum, log_boxes
 
 CREATED = '2026-10-08T00:00:00Z'
+# The scale experiment (generator/scale.py): for a room magnified x W the export
+# draws the plants a body walks through (grass, flowers, heather, reeds, ferns,
+# shrubs: no collision, not trees) as instances (extensions.x_landscape_instances:
+# one prototype GLB and one table of placements each) instead of merging W^2
+# times as many copies into one mesh, and finds a point's support through an
+# index. __main__ sets it from --world-scale; the default export is unchanged.
+WORLD_SCALE = 1.
+INSTANCE_FORMAT = 'f32le x,y,z,yaw_deg,sx,sy,sz,r,g,b'
 LANDMARKS = {'cottage', 'tower', 'boulder', 'fence', 'crate', 'lantern'}
 
 
@@ -120,11 +129,36 @@ def export_room(package_folder, source_room_folder, room_id, out):
         return prototypes[name]
 
     def support_at(position):
+        if WORLD_SCALE != 1:
+            return support_indexed(position)
         best, support = None, None
         for p in terrain:
             y = ground([p], position[0], position[2])
             if y is not None and (best is None or y > best):
                 best, support = y, 'shell:terrain_'+p['role']
+        return best, support
+
+    support_cells = {}
+
+    def support_indexed(position):
+        # The same answer as support_at (the topmost part, the first on ties), through a 1 m grid of triangles.
+        if not support_cells:
+            for k, p in enumerate(terrain):
+                vs = p['positions']
+                for t in p['triangles']:
+                    xs_, zs_ = [vs[i][0] for i in t], [vs[i][2] for i in t]
+                    for cx in range(math.floor(min(xs_)), math.floor(max(xs_))+1):
+                        for cz in range(math.floor(min(zs_)), math.floor(max(zs_))+1):
+                            support_cells.setdefault((cx, cz), []).append((k, t))
+        best, support = None, None
+        per_part = {}
+        for k, t in support_cells.get((math.floor(position[0]), math.floor(position[2])), ()):
+            y = ground([dict(positions=terrain[k]['positions'], triangles=[t])], position[0], position[2])
+            if y is not None and (k not in per_part or y > per_part[k]):
+                per_part[k] = y
+        for k in sorted(per_part):
+            if best is None or per_part[k] > best:
+                best, support = per_part[k], 'shell:terrain_'+terrain[k]['role']
         return best, support
 
     loose_items = []
@@ -289,6 +323,7 @@ def export_room(package_folder, source_room_folder, room_id, out):
             add_object(record, len(objects))
     entity_scatter = 0
     merged_visual, merged_solid = [], []
+    instanced = {}
     pending_loose_entities = sum(len(specs) for (scatter, _), specs in planned.items() if scatter)
     for source_index, record in enumerate(doc['scatter']):
         name = record['prototype']
@@ -305,6 +340,9 @@ def export_room(package_folder, source_room_folder, room_id, out):
             entity_scatter += 1
             continue
         solid = colliding_parts(name, parts)
+        if WORLD_SCALE != 1 and not solid and not is_tree(name, parts):
+            instanced.setdefault(name, []).append(record)
+            continue
         # Transform before normals: non-uniform scale needs inverse-transpose
         # normals, obtained equivalently from transformed face cross products.
         transformed = transform(parts, record['scale'], record['position_m'], record['yaw_deg'],
@@ -313,6 +351,19 @@ def export_room(package_folder, source_room_folder, room_id, out):
         for source_part, p in zip(parts, transformed):
             (merged_solid if any(source_part is q for q in solid) else merged_visual).append(p)
     add_shell('scatter_visual', merged_visual, 'backdrop', False)
+    instance_sets = []
+    for name in sorted(instanced):
+        parts, _ = get_prototype(name)
+        rows = bytearray()
+        for record in instanced[name]:
+            tint = record.get('tint', (1, 1, 1))
+            rows += struct.pack('<10f', *record['position_m'], record['yaw_deg'], *record['scale'], *tint[:3])
+        mesh_pin = put(f'instances/{name}.glb', encode(transform(parts)))
+        table_pin = put(f'instances/{name}.bin', bytes(rows))
+        instance_sets.append({'prototype': name, 'mesh': mesh_pin['path'], 'instances': table_pin['path'],
+                              'count': len(instanced[name]), 'format': INSTANCE_FORMAT,
+                              'triangles_each': triangle_count(parts)})
+        counts['instanced_'+name] = len(instanced[name])
     add_shell('scatter_solid', merged_solid, 'ground', True)
     # Two merged shell parts regardless of tree count. Lane P hides their GLB
     # scenes after extracting one-sided trimesh collision (see README/report).
@@ -372,7 +423,8 @@ def export_room(package_folder, source_room_folder, room_id, out):
                        'x_landscape_terrain_open_edges': edges,
                        'x_landscape_loose': {'cap': LOOSE_CAP, 'count': len(loose_items),
                                              'items': loose_items, 'skipped': loose_skipped},
-                       **({'x_landscape_sea': sea} if sea is not None else {})},
+                       **({'x_landscape_sea': sea} if sea is not None else {}),
+                       **({'x_landscape_instances': instance_sets} if instance_sets else {})},
     }
     blobs['room.json'] = canonical(room)
     # Output creation begins only after package, ids, budgets, and spawns pass.

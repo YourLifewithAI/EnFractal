@@ -63,6 +63,8 @@ public partial class OpenSea : Node3D
     public const float SeaLevelToleranceM = 0.003f;
     /// <summary>Where, as fractions of the camera's far plane, the sea starts and finishes turning into the horizon.</summary>
     public const float HorizonFadeStart = 0.55f, HorizonFadeEnd = 0.97f;
+    /// <summary>SCALE EXPERIMENT: a camera following the sea draws at least this many island reaches far.</summary>
+    public const float FarIslandReaches = 4f;
     /// <summary>The open bed's colour when there is no backdrop floor to continue: a dark moss, of which deep water lets a tenth through.</summary>
     public static readonly Color BedColor = new(0.30f, 0.34f, 0.28f);
 
@@ -456,6 +458,10 @@ public partial class OpenSea : Node3D
     {
         var at = camera.GlobalPosition;
         if (Surface != null) Surface.GlobalPosition = new Vector3(at.X, Sea.LevelM, at.Z);
+        // SCALE EXPERIMENT (run2/scale-experiment): the play cameras draw to 100 m, which a magnified island (60-90 m across)
+        // outgrows; from a mountaintop the far shore and the sea's horizon fade need about four island reaches. Today's islands
+        // (reach about 6 m) never change a camera.
+        if (camera.Far < FarIslandReaches * IslandReachM) camera.Far = FarIslandReaches * IslandReachM;
         SetFar(camera.Far);
         CameraUnderSea = UnderSea(at);
         Veil.Visible = CameraUnderSea;

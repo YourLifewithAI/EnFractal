@@ -157,6 +157,19 @@ def read_package(folder, room_folder):
     return doc,meshes,room,stats
 
 
+def allow_world_scale(w):
+    """The scale experiment (generator/scale.py): a room magnified x w holds w^2
+    times today's land, sea and planting at today's density, so the package's
+    byte, triangle and instance limits grow by w^2 for this process only."""
+    from . import common
+    global MAX_BYTES, MAX_TRIANGLES, MAX_INSTANCES, MAX_EXPANDED_TRIANGLES
+    area = float(w)**2
+    MAX_BYTES = common.MAX_BYTES = int(50_000_000*area)
+    MAX_TRIANGLES = common.MAX_TRIANGLES = int(2_000_000*area)
+    MAX_INSTANCES = common.MAX_INSTANCES = int(20_000*area)
+    MAX_EXPANDED_TRIANGLES = common.MAX_EXPANDED_TRIANGLES = int(8_000_000*area)
+
+
 def validate_package(folder,room_folder):
     return read_package(folder,room_folder)[3]
 
