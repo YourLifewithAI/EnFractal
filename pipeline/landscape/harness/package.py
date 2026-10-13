@@ -87,8 +87,29 @@ def validate_setup(setup):
     number(setup['day_of_year'],1,365); number(setup['solar_time_h'],0,23.999999)
 
 
+# Today's limits hold for an island of up to LAND_M2 of land. A bigger island (the 10x world) holds more land, sea
+# and planting at today's density, so each limit grows with its land: x max(1, A / LAND_M2).
+LAND_M2 = 100
+
+
+def land_factor(doc, meshes):
+    """max(1, A / 100 m2), A the terrain's horizontal extent: the x-z bounding box of every terrain mesh. Malformed
+    records count for nothing here; validate_records refuses them."""
+    terrain = doc.get('terrain') if isinstance(doc, dict) else None
+    lo_x = lo_z = math.inf; hi_x = hi_z = -math.inf
+    for item in terrain if isinstance(terrain, list) else []:
+        mesh = meshes.get(item.get('mesh')) if isinstance(item, dict) and isinstance(item.get('mesh'), str) else None
+        for p in mesh or []:
+            xs = [v[0] for v in p['positions']]; zs = [v[2] for v in p['positions']]
+            lo_x = min(lo_x, min(xs)); hi_x = max(hi_x, max(xs)); lo_z = min(lo_z, min(zs)); hi_z = max(hi_z, max(zs))
+    if not lo_x < hi_x or not lo_z < hi_z:
+        return 1.
+    return max(1., (hi_x-lo_x)*(hi_z-lo_z)/LAND_M2)
+
+
 def validate_records(doc, meshes, room):
     finite(doc)
+    factor = land_factor(doc, meshes)
     fields(doc,['format','version','units','axes','floor_y_m','source','setup','generator',
                 'files','material_roles','meshes','terrain','water','scenery','prototypes','scatter','objects'])
     require(doc['format']==FORMAT and type(doc['version']) is int and doc['version']==VERSION, 'format/version')
@@ -108,7 +129,7 @@ def validate_records(doc, meshes, room):
             used.add(p['role'])
             if 'blend_role' in p: used.add(p['blend_role'])
             triangles += len(p['triangles'])
-    require(triangles<=MAX_TRIANGLES, 'triangle limit')
+    require(triangles<=MAX_TRIANGLES*factor, 'triangle limit')
     require(isinstance(doc['prototypes'],dict), 'prototype index')
     for name,p in doc['prototypes'].items():
         token(name); require(name not in SIZES, 'kit prototype shadow')
@@ -131,7 +152,7 @@ def validate_records(doc, meshes, room):
             if category=='water': require(item['kind'] in ('still','flowing','falling'),'water kind')
             if category=='scenery': require(item['reachable'] is False,'scenery must be unreachable')
     require(isinstance(doc['scatter'],list) and isinstance(doc['objects'],list), 'instance lists')
-    require(len(doc['scatter'])+len(doc['objects'])<=MAX_INSTANCES, 'instance limit')
+    require(len(doc['scatter'])+len(doc['objects'])<=MAX_INSTANCES*factor, 'instance limit')
     ids=set()
     for category in ['scatter','objects']:
         for item in doc[category]:
@@ -139,7 +160,7 @@ def validate_records(doc, meshes, room):
                    (['scale'] if category=='scatter' else ['id','kind','size_m','mass_kg','carriable']),['tint'])
             name=item['prototype']; require(name in SIZES or name in doc['prototypes'], 'unknown prototype')
             expanded += kit_counts[name] if name in SIZES else mesh_counts[doc['prototypes'][name]['mesh']]
-            require(expanded<=MAX_EXPANDED_TRIANGLES, 'expanded triangle limit')
+            require(expanded<=MAX_EXPANDED_TRIANGLES*factor, 'expanded triangle limit')
             size=SIZES[name] if name in SIZES else doc['prototypes'][name]['size_m']
             vector(item['position_m'],low=-1000,high=1000); number(item['yaw_deg'],-360,360)
             if category=='scatter':
@@ -153,7 +174,7 @@ def validate_records(doc, meshes, room):
             footprint_inside(item['position_m'],size,item['yaw_deg'],room)
             if name in SIZES: used.update(roles(name))
     require(isinstance(doc['material_roles'],list) and doc['material_roles']==sorted(used), 'material role inventory')
-    require(expanded<=MAX_EXPANDED_TRIANGLES, 'expanded triangle limit')
+    require(expanded<=MAX_EXPANDED_TRIANGLES*factor, 'expanded triangle limit')
     return {'triangles':triangles,'expanded_triangles':expanded,'instances':len(doc['scatter'])+len(doc['objects'])}
 
 
@@ -163,7 +184,8 @@ def read_package(folder, room_folder):
     paths=list(folder.rglob('*'))
     require(not any(p.is_symlink() for p in paths), 'package symlinks forbidden')
     paths=[p for p in paths if p.is_file()]
-    require(len(paths)<=256 and sum(p.stat().st_size for p in paths)<=MAX_BYTES, 'package byte/file limit')
+    require(len(paths)<=256, 'package byte/file limit')
+    total=sum(p.stat().st_size for p in paths)
     doc=load_json(folder/'package.json'); fields(doc,['format','version','units','axes','floor_y_m','source',
         'setup','generator','files','material_roles','meshes','terrain','water','scenery','prototypes','scatter','objects'])
     require(isinstance(doc['files'],dict), 'file inventory')
@@ -181,22 +203,13 @@ def read_package(folder, room_folder):
     require(doc['source']['inventory_sha256']==sha((room_folder/'inventory.json').read_bytes()), 'inventory hash mismatch')
     require(isinstance(doc['meshes'],dict) and len(doc['meshes'])<=128, 'mesh count')
     require(set(doc['meshes'].values())==set(blobs) and len(set(doc['meshes'].values()))==len(doc['meshes']), 'mesh file mapping')
-    meshes={key:decode_mesh(blobs[name]) for key,name in doc['meshes'].items()}
+    # The terrain first: its extent sets the limits (land_factor), so the byte limit is checked before the rest.
+    terrain=[r.get('mesh') for r in doc['terrain'] if isinstance(r,dict)] if isinstance(doc['terrain'],list) else []
+    land={key:decode_mesh(blobs[doc['meshes'][key]]) for key in doc['meshes'] if key in terrain}
+    require(total<=MAX_BYTES*land_factor(doc,land), 'package byte/file limit')
+    meshes={key:land[key] if key in land else decode_mesh(blobs[name]) for key,name in doc['meshes'].items()}
     stats=validate_records(doc,meshes,room)
     return doc,meshes,room,stats
-
-
-def allow_world_scale(w):
-    """The scale experiment (generator/scale.py): a room magnified x w holds w^2
-    times today's land, sea and planting at today's density, so the package's
-    byte, triangle and instance limits grow by w^2 for this process only."""
-    from . import common
-    global MAX_BYTES, MAX_TRIANGLES, MAX_INSTANCES, MAX_EXPANDED_TRIANGLES
-    area = float(w)**2
-    MAX_BYTES = common.MAX_BYTES = int(50_000_000*area)
-    MAX_TRIANGLES = common.MAX_TRIANGLES = int(2_000_000*area)
-    MAX_INSTANCES = common.MAX_INSTANCES = int(20_000*area)
-    MAX_EXPANDED_TRIANGLES = common.MAX_EXPANDED_TRIANGLES = int(8_000_000*area)
 
 
 def validate_package(folder,room_folder):
@@ -226,7 +239,7 @@ def write_package(folder,room_folder,*,meshes,setup,generator,terrain,water=(),s
     for key,value in (extensions or {}).items():
         require(key.startswith('x_'),'extension prefix'); doc[key]=value
     validate_records(doc,rounded,room)
-    require(sum(map(len,blobs.values()))+len(canonical(doc))<=MAX_BYTES,'package byte limit')
+    require(sum(map(len,blobs.values()))+len(canonical(doc))<=MAX_BYTES*land_factor(doc,rounded),'package byte limit')
     folder.mkdir(parents=True,exist_ok=True)
     for name,data in blobs.items(): (folder/name).write_bytes(data)
     (folder/'package.json').write_bytes(canonical(doc))
