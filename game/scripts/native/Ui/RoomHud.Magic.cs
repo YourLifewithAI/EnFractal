@@ -21,7 +21,7 @@ public partial class RoomHud
     public bool MagicPanelOpen => _magicPanel != null && _magicPanel.Visible;
     public bool ChoosingMagicSpot => _pickingMagicSpot;
     public string MagicMessage => _magicMessageText;
-    private bool ReadingPanelOpen => Customizing || JournalOpen || MagicPanelOpen;
+    private bool ReadingPanelOpen => Customizing || JournalOpen || MagicPanelOpen || GubbleViewOpen;
 
     private void BuildMagicPanel(Node actions, Node statusColumn, Theme theme)
     {

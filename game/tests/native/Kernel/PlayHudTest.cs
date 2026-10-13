@@ -81,6 +81,7 @@ public partial class PlayHudTest : Node
             await TestProfileField();
             await TestJournalBook();
             await TestEyesSetting();
+            await TestGubbleView();
             await TestGlowJournalLearned();
 
             // Unload while the final cast's chime is still active. AudioServer
@@ -106,7 +107,7 @@ public partial class PlayHudTest : Node
             CommandHost.DefaultPlayerVitalsPath = previousVitalsPath;
             CommandHost.DefaultWishSaveRoot = previousWishRoot;
             RemoveSaves();
-            GD.Print($"NATIVE_KERNEL_PLAY_HUD: {_checks - _failures}/{_checks} checks passed; every key is a named input action with the Glow round's defaults and the help reads them (a remapped key changes both what it does and what the help shows), H folds the help, [ and ] turn the isometric view, T and Shift+T step the time of day and the season back to the real clock, the companion's solid name tag stays small and hides near the camera, F and V pick up, carry, set down on the box and push, the right button's tap asks what fits the frozen aim and its hold opens the wheel, 1 casts Glow, Q recalls, X stops, the Gubble's bubble answers with the host's result, its glow takes its colour, the dusk moment teaches Glow once, and J or a click opens the journal book at its index, written from the host's data, holding the game until it is back in its dock");
+            GD.Print($"NATIVE_KERNEL_PLAY_HUD: {_checks - _failures}/{_checks} checks passed; every key is a named input action with the Glow round's defaults and the help reads them (a remapped key changes both what it does and what the help shows), H folds the help, [ and ] turn the isometric view, T and Shift+T step the time of day and the season back to the real clock, the companion's solid name tag stays small and hides near the camera, F and V pick up, carry, set down on the box and push, the right button's tap asks what fits the frozen aim and its hold opens the wheel, 1 casts Glow, Q recalls, X stops, the Gubble's bubble answers with the host's result, its glow takes its colour, the dusk moment teaches Glow once, and J or a click opens the journal book at its index, written from the host's data, holding the game until it is back in its dock, and I or the eye icon above it looks through the Gubble's eyes, live, its eye turned by a drag within the AI's bounds, holding the game and changing nothing, the icon blinking when the AI looks");
             GetTree().Quit(_failures == 0 ? 0 : 1);
         }
         catch (Exception error)
@@ -139,7 +140,7 @@ public partial class PlayHudTest : Node
         ("gubble_slot_4", Key.Key4, false), ("gubble_slot_5", Key.Key5, false),
         ("hands", Key.F, false), ("push", Key.V, false),
         ("physics_next", Key.G, false), ("time_step", Key.T, false), ("season_step", Key.T, true), ("lamps", Key.L, false),
-        ("hud_help", Key.H, false), ("hud_customize", Key.C, false), ("journal", Key.J, false), ("mouse_release", Key.Escape, false),
+        ("hud_help", Key.H, false), ("hud_customize", Key.C, false), ("journal", Key.J, false), ("gubble_eyes", Key.I, false), ("mouse_release", Key.Escape, false),
     };
 
     private readonly System.Collections.Generic.Dictionary<string, Godot.Collections.Array<InputEvent>> _savedMap = new();
@@ -187,7 +188,7 @@ public partial class PlayHudTest : Node
         {
             ("always", ControlContext.Always, 0), ("F3", ControlContext.Always, ControlContext.Diorama),
             ("F4", ControlContext.Always, ControlContext.Isometric), ("customise", ControlContext.Customize, 0),
-            ("reading", ControlContext.Reading, 0),
+            ("reading", ControlContext.Reading, 0), ("looking", ControlContext.Looking, 0),
         };
         foreach (var (name, live, extra) in contexts)
         {
@@ -312,7 +313,7 @@ public partial class PlayHudTest : Node
                 "O observe (a very tight tilt-shift view, best from F3 or F4) · C customize · J journal (Esc closes either)",
                 "F pick up what you face · F again sets it down in front of you, or on top of what you face (the box, the book) · V push what you face 10 cm",
                 "The Gubble, your companion:",
-                "right-click asks for what fits where you point (wait or follow, fetch or put down, light the dark, go and look); hold it for the wheel · Q come, then follow · X stop",
+                "right-click asks for what fits where you point (wait or follow, fetch or put down, light the dark, go and look); hold it for the wheel · Q come, then follow · X stop · I look through its eyes",
                 "1 Glow, 2 Bloom, 3 Bubbles, 4 Fireworks where you point (it comes closer first if it must; at the sky, on itself) · 5 magic still to come · it floats after you, over water and up cliffs",
                 "Testing",
                 "G gravity · T time of day · Shift+T season (each steps round to the real clock) · L lamps",
@@ -332,7 +333,7 @@ public partial class PlayHudTest : Node
                 Key.F13, Key.F14, Key.F15, Key.F16, Key.F17, Key.F18, Key.F19, Key.F20, Key.F21, Key.F22, Key.F23, Key.F24,
                 Key.Kp0, Key.Kp1, Key.Kp2, Key.Kp3, Key.Kp4, Key.Kp5, Key.Kp6, Key.Kp7, Key.Kp8, Key.Kp9,
                 Key.KpAdd, Key.KpSubtract, Key.KpMultiply, Key.KpDivide, Key.KpPeriod, Key.KpEnter, Key.Insert, Key.Delete, Key.Pause, Key.Pageup, Key.Pagedown,
-                Key.Home, Key.End, Key.Numlock, Key.Scrolllock,
+                Key.Home, Key.End, Key.Numlock, Key.Scrolllock, Key.Sysreq,
             };
             var actions = PlayerControls.Specs.Select(spec => spec.Action).ToArray();
             Check(pool.Length >= actions.Length, "enough spare keys to give every control its own");
@@ -383,7 +384,7 @@ public partial class PlayHudTest : Node
             var echo = Press(Key.Q); echo.Echo = true;
             _hud._UnhandledInput(echo);
             Check(companion.CurrentIntent == "stop", "a held key repeating (echo) does not count as a press");
-            Check(HelpLines().Any(l => l.EndsWith("Q come, then follow · K stop", StringComparison.Ordinal)) && ButtonTexts("CompanionActions")[3] == "K Stop",
+            Check(HelpLines().Any(l => l.Contains("Q come, then follow · K stop", StringComparison.Ordinal)) && ButtonTexts("CompanionActions")[3] == "K Stop",
                 "and the help and the button say K stop");
             RestoreMap();
 

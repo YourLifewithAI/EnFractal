@@ -54,6 +54,15 @@ public partial class CommandHost
     private sealed record PendingLook(Transform3D Eye, float VerticalFovDeg, float NearM, float FarM);
 
     /// <summary>
+    /// A look succeeded: its picture is in the answer, which goes out now. Carries the principal who looked. The HUD's eye icon
+    /// blinks when it was the player's AI (nothing shows on the Gubble itself: the founder, 13 October).
+    /// </summary>
+    public event Action<string>? PictureTaken;
+
+    /// <summary>Test seam: draws the picture from the eye's pose in place of the renderer, so a headless suite can see a look succeed.</summary>
+    internal Func<Transform3D, Task<EyePicture?>>? LookCaptureForTests { get; set; }
+
+    /// <summary>
     /// The player's setting "Let my AI see through the Gubble's eyes": read once from the player's profile (never room state),
     /// then whatever the player's own control sets this session. A profile that exists but does not load counts as off.
     /// </summary>
@@ -111,7 +120,7 @@ public partial class CommandHost
         var companion = principal == CompanionPrincipal;
         if (companion && !GubbleEyesAllowed) throw new Refusal("permission_denied", EyesOffMessage);
         if (companion && !TakeLookToken()) throw new Refusal("rate_limited", LookRateMessage, retryable: true);
-        if (!EyeView.CanRender) throw new Refusal("unavailable", NoRendererMessage);
+        if (!EyeView.CanRender && LookCaptureForTests == null) throw new Refusal("unavailable", NoRendererMessage);
         if (!_lookCanWait) throw new Refusal("unavailable", "A picture takes a frame to draw; ask over the companion link.");
 
         var yawDeg = args.TryGetProperty("yaw_deg", out var yaw) ? yaw.GetDouble() : 0;
@@ -119,9 +128,7 @@ public partial class CommandHost
         var eyeCamera = Companion.EyeCamera;
         var eye = eyeCamera.GlobalPosition;
         var forward = -Companion.GlobalBasis.Z;
-        var bodyYaw = Mathf.Atan2(-forward.X, -forward.Z);
-        // Positive yaw turns right (clockwise seen from above), which is a negative turn about Godot's +Y.
-        var basis = new Basis(Vector3.Up, bodyYaw - Mathf.DegToRad((float)yawDeg)) * new Basis(Vector3.Right, Mathf.DegToRad((float)pitchDeg));
+        var basis = EyeView.LookBasis(forward, yawDeg, pitchDeg);
         var aspect = (double)LookWidthPx / LookHeightPx;
         var heading = Heading(forward);
         var data = new JsonObject
@@ -151,7 +158,8 @@ public partial class CommandHost
         try
         {
             if (Companion != null && IsInstanceValid(Companion)) EyeView.MarkBody(Companion, EyeView.GubbleBodyLayer);
-            picture = await EyeRig().Capture(look.Eye, look.VerticalFovDeg, EyeView.GubbleEyeCullMask, new Vector2I(LookWidthPx, LookHeightPx), look.NearM, look.FarM, LookImageMaxBytes);
+            picture = LookCaptureForTests != null ? await LookCaptureForTests(look.Eye)
+                : await EyeRig().Capture(look.Eye, look.VerticalFovDeg, EyeView.GubbleEyeCullMask, new Vector2I(LookWidthPx, LookHeightPx), look.NearM, look.FarM, LookImageMaxBytes);
         }
         catch (Exception error) { GD.Print("COMMAND_HOST look failed: " + error.GetType().Name); }
         if (picture == null || picture.Bytes.Length > LookImageMaxBytes)
@@ -163,6 +171,7 @@ public partial class CommandHost
         };
         if (CanonicalJson.Bytes(result).Length > MaxResultBytes)
             return Fail("view.look", principal, null, queryId, new Refusal("internal_error", "The answer would be larger than 256 KiB."));
+        PictureTaken?.Invoke(principal);
         return result;
     }
 

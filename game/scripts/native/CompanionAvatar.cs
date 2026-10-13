@@ -241,6 +241,9 @@ public partial class CompanionAvatar : SmallPlayerController
         if (labelHeightM > 0) _label.Scale = Vector3.One * (heightM / labelHeightM);
     }
 
+    /// <summary>The Gubble's body is on its own layer, which its eye leaves out (the AI's pictures, the player's view through it).</summary>
+    protected override uint OwnBodyLayer => EnFractal.Native.Look.EyeView.GubbleBodyLayer;
+
     protected override void BuildVisual()
     {
         base.BuildVisual();
