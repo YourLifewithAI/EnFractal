@@ -1,10 +1,10 @@
 # Run 2: the characters come alive (planned 13 October, evening)
 
-**Read with** [AGENTS.md](../../AGENTS.md), [RUN-2-STATUS.md](RUN-2-STATUS.md), [ORCHESTRATION.md](ORCHESTRATION.md), [OWNERSHIP.md](OWNERSHIP.md), the converter's [README](../../pipeline/characters/conv_a/README.md) and [FORMAT.md](../../pipeline/characters/conv_a/FORMAT.md), [docs/world/TRAITS.md](../world/TRAITS.md) (section 2) and [docs/look/GLOW.md](../look/GLOW.md). **Status: planned 13 October 2026 by the integrator on `run2/characters-in-game`; the founder's answers of the same evening are folded in (see "Decisions"), with three questions still open.** The founder asked for the family's five characters to be worked up in detail: how they look, how they move and how they meet the land, as a plan that agents can build in parallel. This page is the round's shared spec; every packet builds to the names below.
+**Read with** [AGENTS.md](../../AGENTS.md), [RUN-2-STATUS.md](RUN-2-STATUS.md), [ORCHESTRATION.md](ORCHESTRATION.md), [OWNERSHIP.md](OWNERSHIP.md), the converter's [README](../../pipeline/characters/conv_a/README.md) and [FORMAT.md](../../pipeline/characters/conv_a/FORMAT.md), [docs/world/TRAITS.md](../world/TRAITS.md) (section 2) and [docs/look/GLOW.md](../look/GLOW.md). **Status: planned 13 October 2026 by the integrator on `run2/characters-in-game`; the founder's answers of the same evening are folded in (see "Decisions"); every question is answered.** The founder asked for the family's five characters to be worked up in detail: how they look, how they move and how they meet the land, as a plan that agents can build in parallel. This page is the round's shared spec; every packet builds to the names below.
 
 ## Where the characters stand
 
-- Five models are committed in `assets/characters/<id>/` (`60f320e`): the Gubble, Potato Man, Tomato Man, Cloudpuff and Stickbear. Each is a GLB in metres, 0.10 m tall, feet at y=0, facing -Z, with one named node per part at its joint, and a `character.json` naming the parts, their parent tree, their world and parent-local pivots, a motion hint (`float`, `hop`, `waddle`, `stride`), effect parts with hints of their own (`twinkle`, `orbit`, `drift`, `flicker`, `pulse`), material hints (`bubble`) and a collision capsule hint.
+- Five models are committed in `assets/characters/<id>/` (`60f320e`): the Gubble, Potato Man, Tomato Man, Cloudpuff and Stickbear (his name, the kids confirmed). Each is a GLB in metres, 0.10 m tall, feet at y=0, facing -Z, with one named node per part at its joint, and a `character.json` naming the parts, their parent tree, their world and parent-local pivots, a motion hint (`float`, `hop`, `waddle`, `stride`), effect parts with hints of their own (`twinkle`, `orbit`, `drift`, `flicker`, `pulse`), material hints (`bubble`) and a collision capsule hint.
 - **None of it is in the game.** Both bodies are still the prototype figures drawn in code: a capsule, a sphere and two eyes for the player (`SmallPlayerController.BuildVisual`), the same with a cone hat for the Gubble (`CompanionAvatar.BuildVisual`). The Gubble has five gestures that move those primitives as a whole (shake, shiver, wiggle, shrug, cast) and a dim (the dusk moment's cue); the player's body tilts to swim and seats itself on the floor (`UpdateVisual`, `SeatVisual`). Nothing has a skeleton.
 - The GLBs carry no skeleton and no animation (FORMAT.md: no skeletal rigging). The converter's README asks for exactly what this round builds: "Rotate those nodes for procedural motion."
 - The pinned engine (Godot .NET 4.7.2) ships the whole modern skeleton stack, checked in its `GodotSharp.xml`: `Skeleton3D`, `SkeletonModifier3D`, `SpringBoneSimulator3D` with sphere, capsule and plane colliders, `LookAtModifier3D`, `TwoBoneIK3D` and the other `IKModifier3D`s, `PhysicalBoneSimulator3D` and `PhysicalBone3D`, `BoneAttachment3D`, and `GltfDocument`, which the room already uses to load GLBs from verified bytes (`RoomBuilder.LoadGlb`).
@@ -111,7 +111,7 @@ The founder (13 October): do the tumble on a big fall. "I like the realism and i
 |---|---|---|---|
 | nothing (under 1.45 m/s) | a drop under 30 cm (three body heights) | a landing squash, deeper the faster | kept |
 | 1 to 24 health | 30 to about 52 cm | a stumble: the knees or the body buckle and a hand (or the body) touches down, 0.4 s | kept |
-| 25 to 99 health | about 52 cm to 1.57 m | a tumble: a physical flop on the ground and a get-up, about 1.2 s | held; moving starts the get-up early, at most 0.5 s sooner (still open, question 1) |
+| 25 to 99 health | about 52 cm to 1.57 m | a tumble: a physical flop on the ground and a get-up, about 1.2 s | held, in every mode (decided); moving starts the get-up early, at most 0.5 s sooner |
 | 100, a knockout in Challenge | over about 1.57 m (16 body heights) | a longer tumble with dazed stars, about 2 s; in Challenge and Live the existing recovery at the spawn follows it | held |
 
 The tiers are two numbers in one place (25 and 100 health). Deep water never tumbles. The Gubble floats and never tumbles.
@@ -211,10 +211,11 @@ Each wave is sized to finish and report inside one integrating session's budget.
 7. **A tumble on a big fall, yes,** at the landings that would hurt in Challenge, in every mode ("The tumble").
 8. **Sounds later.** The gaits emit footfall, landing, tumble and splash events now, for a later sound packet.
 
-**Still open (asked 13 October):**
-1. Is control held during a tumble in Creative too, with moving starting the get-up early? Recommended: yes, the same in every mode, so Creative teaches the feel.
-2. Does Creative show anything beyond the tumble itself, such as a small note of the health it would have cost in Challenge? Recommended: no words; the three tiers teach it.
-3. Stickbear is a working name. The Customize row shows names: what do the kids call him?
+**Answered later the same evening:**
+1. **Control is held during a tumble in every mode,** Creative included, with moving starting the get-up early.
+2. **Creative shows nothing beyond the tumble:** no words, visual only.
+3. **Stickbear is his name** to the kids; the character choice shows it.
+4. **The round stays on its own branches** (`run2/characters-in-game` and its lanes), pushed as it goes and merged among themselves; the founder unifies it with `run2/integration` on DiamondAge.
 
 ## Later: wide poses meet the world (K8, planned now, built in a later round)
 
