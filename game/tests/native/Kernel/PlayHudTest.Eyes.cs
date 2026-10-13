@@ -28,5 +28,29 @@ public partial class PlayHudTest
         toggle.ButtonPressed = true;
         await Frames(1);
         Check(host.GubbleEyesAllowed && CommandHost.LoadGubbleEyes(RoomHud.ProfilePath), "switching it back on is saved too");
+        await TestSavingAppearanceKeepsSettings(host);
+    }
+
+    /// <summary>"Save appearance" writes its own fields only: the player's settings saved beside them stay as they are.</summary>
+    private async Task TestSavingAppearanceKeepsSettings(CommandHost host)
+    {
+        var fireSetting = (CheckButton)_hud.FindChild("GubbleFireSetting", true, false)!;
+        _hud.EyesToggle!.ButtonPressed = false;
+        fireSetting.EmitSignal(BaseButton.SignalName.Toggled, false);
+        await Frames(1);
+        var config = new ConfigFile();
+        Check(config.Load(RoomHud.ProfilePath) == Error.Ok, "the profile holds the two settings");
+        config.SetValue("profile", "a_later_setting", 7);
+        Check(config.Save(RoomHud.ProfilePath) == Error.Ok, "and a setting a later build adds");
+        _hud.SavePreferences();
+        var saved = new ConfigFile();
+        Check(saved.Load(RoomHud.ProfilePath) == Error.Ok && !CommandHost.LoadGubbleEyes(RoomHud.ProfilePath) && !CommandHost.LoadGubbleFire(RoomHud.ProfilePath) &&
+            saved.GetValue("profile", "a_later_setting", 0).AsInt32() == 7 && saved.GetValue("profile", "player_color", -1).VariantType == Variant.Type.Int,
+            "saving the appearance keeps \"Let my AI see\" and \"Let the Gubble use fire\" off, and every other setting, beside the appearance it writes");
+        _hud.EyesToggle.ButtonPressed = true;
+        fireSetting.EmitSignal(BaseButton.SignalName.Toggled, true);
+        await Frames(1);
+        Check(host.GubbleEyesAllowed && host.GubbleFireAllowed && CommandHost.LoadGubbleEyes(RoomHud.ProfilePath) && CommandHost.LoadGubbleFire(RoomHud.ProfilePath),
+            "both settings switch back on for the tests that follow");
     }
 }

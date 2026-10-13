@@ -725,15 +725,26 @@ public partial class RoomHud : CanvasLayer
         Companion.SetAppearance(Palette[_companionColor]);
     }
 
-    private void SavePreferences()
+    /// <summary>
+    /// "Save appearance": the appearance's own fields written into the profile as it is on disk, every other key kept (the
+    /// player's settings "Let my AI see through the Gubble's eyes" and "Let the Gubble use fire" among them). A profile that
+    /// does not load is never overwritten, as for SaveProfileValue: the appearance then lasts this session only.
+    /// </summary>
+    internal void SavePreferences()
     {
         var config = new ConfigFile();
-        config.SetValue("profile", "version", 1);
-        config.SetValue("profile", "player_color", _playerColor);
-        config.SetValue("profile", "companion_color", _companionColor);
-        config.SetValue("profile", "companion_name", Companion.CompanionName);
-        config.SetValue("profile", "has_used_glow", HasUsedGlow);
-        _noticeText = WriteProfile(config) ? "Appearance saved. Room changes are not saved by this placeholder." : "Could not save appearance; current session is still usable.";
+        var loaded = config.Load(ProfilePath);
+        var readable = loaded == Error.FileNotFound || (loaded == Error.Ok &&
+            config.GetValue("profile", "version", 0).VariantType == Variant.Type.Int && config.GetValue("profile", "version", 0).AsInt32() == 1);
+        if (readable)
+        {
+            config.SetValue("profile", "version", 1);
+            config.SetValue("profile", "player_color", _playerColor);
+            config.SetValue("profile", "companion_color", _companionColor);
+            config.SetValue("profile", "companion_name", Companion.CompanionName);
+            config.SetValue("profile", "has_used_glow", HasUsedGlow);
+        }
+        _noticeText = readable && WriteProfile(config) ? "Appearance saved. Room changes are not saved by this placeholder." : "Could not save appearance; current session is still usable.";
     }
 
     /// <summary>
