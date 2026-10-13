@@ -66,6 +66,13 @@ public partial class LandscapePlayTest : Node3D
             await Frames(30);
             // The Gubble floats: it hovers over the land (or water) at its spawn rather than standing on it.
             Check(_world.Player.IsOnFloor() && Hovering(_world.Companion), "the player stands on the land at its spawn, and the Gubble hovers over it");
+            // "-- --gubble-reach" runs the Gubble's reach alone (packet S1; see TestGubbleReach).
+            if (OS.GetCmdlineUserArgs().Contains("--gubble-reach"))
+            {
+                await TestGubbleReach();
+                Finish();
+                return;
+            }
             await TestLooseThingsRest();
 
             // "-- --climb-only" runs the climbing checks alone (for tuning them).
@@ -628,6 +635,139 @@ public partial class LandscapePlayTest : Node3D
         Check(samples.Count > 0 && worst <= 45f, "the land has body-walkable ground to measure");
         twoCm.QueueFree();
         fineCells.QueueFree();
+    }
+
+    // ---- the Gubble's reach (packet S1 of the move to the 10x world, 13 October) ----
+
+    /// <summary>
+    /// "-- --gubble-reach": the founder walked the garage island magnified ten times and found the Gubble lost on its way to the
+    /// player, ending high in the sky saying it could not get there. On any island: how far across it the Gubble's routes reach
+    /// (against Godot's default capped query), a come from about 60 m (or most of a smaller island) through the command host, and
+    /// a come from the highest land down to the player. Not part of the runner's pass (the magnified island is not generated
+    /// there): pass the exported room, e.g. the scale experiment's landscape_garage_x10.
+    /// </summary>
+    private async Task TestGubbleReach()
+    {
+        var sea = _world.Room.Sea;
+        var bounds = sea?.LandBounds(_world.Room.Bounds) ?? _world.Room.Bounds;
+        var companion = _world.Companion;
+        var player = _world.Player;
+        Send(Command(NextId("stop"), "goal.set", new JsonObject { ["actor"] = CompanionAvatar, ["goal"] = "stop" }), Player);
+        var spawn = _navigation.ClosestPoint(companion.GlobalPosition);
+        // The land on a grid of about 50 by 50, kept where the walkable mesh is.
+        var step = Mathf.Max(0.1f, Mathf.Max(bounds.Size.X, bounds.Size.Z) / 50f);
+        var land = new List<Vector3>();
+        var samples = 0;
+        for (var x = bounds.Position.X + step * 0.5f; x < bounds.End.X; x += step)
+            for (var z = bounds.Position.Z + step * 0.5f; z < bounds.End.Z; z += step)
+            {
+                var hit = GetWorld3D().DirectSpaceState.IntersectRay(PhysicsRayQueryParameters3D.Create(new Vector3(x, bounds.End.Y + 1, z), new Vector3(x, bounds.Position.Y - 1, z), RoomBuilder.WorldLayer));
+                if (hit.Count == 0) continue;
+                samples++;
+                var point = hit["position"].AsVector3();
+                var snapped = _navigation.ClosestPoint(point);
+                if (PlanarDistance(snapped, point) <= _navigation.AgentRadiusM + 0.01f && Mathf.Abs(snapped.Y - point.Y) <= 0.03f) land.Add(snapped);
+            }
+        int reached = 0, reachedCapped = 0;
+        float farthest = 0, farthestCapped = 0, widest = 0;
+        var farthestWalk = spawn;
+        double hitMs = 0, hitWorst = 0, missMs = 0, missWorst = 0;
+        foreach (var point in land)
+        {
+            widest = Mathf.Max(widest, PlanarDistance(point, spawn));
+            var before = System.Diagnostics.Stopwatch.GetTimestamp();
+            var route = _navigation.FindRoute(spawn, point, 0.06f);
+            var ms = (System.Diagnostics.Stopwatch.GetTimestamp() - before) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+            if (route.Reaches)
+            {
+                reached++;
+                if (PlanarDistance(point, spawn) > farthest) (farthest, farthestWalk) = (PlanarDistance(point, spawn), point);
+                hitMs += ms;
+                hitWorst = Math.Max(hitWorst, ms);
+            }
+            else { missMs += ms; missWorst = Math.Max(missWorst, ms); }
+            // The query as it was (MapGetPath: Godot's default search cap), judged the same way.
+            var capped = NavigationServer3D.MapGetPath(_navigation.Map, spawn, point, true);
+            if (capped.Length > 0 && PlanarDistance(capped[^1], point) <= 0.06f && capped[^1].DistanceTo(_navigation.ClosestPoint(point)) <= RoomNavigation.SameIslandM)
+            { reachedCapped++; farthestCapped = Mathf.Max(farthestCapped, PlanarDistance(point, spawn)); }
+        }
+        var misses = land.Count - reached;
+        Measure(string.Create(CultureInfo.InvariantCulture,
+            $"LANDSCAPE_GUBBLE_REACH {_navigation.PolygonCount} polygons; {samples} land samples on a {step:0.00} m grid, {land.Count} on the walkable mesh, out to {widest:0.0} m from the Gubble's spawn: " +
+            $"its routes reach {reached} ({100f * reached / Mathf.Max(1, land.Count):0}%, out to {farthest:0.0} m); Godot's default capped query reached {reachedCapped} ({100f * reachedCapped / Mathf.Max(1, land.Count):0}%, out to {farthestCapped:0.0} m); " +
+            $"a route that reaches {hitMs / Mathf.Max(1, reached):0.0} ms on average (worst {hitWorst:0.0}), a goal out of reach {missMs / Mathf.Max(1, misses):0.0} ms (worst {missWorst:0.0})"));
+        Check(reached >= reachedCapped && farthest >= farthestCapped, "the Gubble's routes reach at least as far across the island as the default capped query did");
+
+        // Come along the longest walk the survey found (on the magnified island, past where the capped query reached).
+        if (farthest > 1f && player.TryTeleportTo(farthestWalk + Vector3.Up * 0.003f))
+        {
+            await Frames(10);
+            await ComeAndWatch($"come along a walk from {farthest:0} m");
+        }
+        Send(Command(NextId("stop"), "goal.set", new JsonObject { ["actor"] = CompanionAvatar, ["goal"] = "stop" }), Player);
+        Check(companion.TryTeleportTo(spawn + Vector3.Up * 0.01f), "the Gubble back at its spawn");
+
+        // Come from about 60 m (or four fifths of a smaller island's reach), through the command host as the player's key does.
+        var far = Mathf.Min(60f, widest * 0.8f);
+        var placed = land.OrderBy(p => Mathf.Abs(PlanarDistance(p, spawn) - far)).Take(40).Any(p => player.TryTeleportTo(p + Vector3.Up * 0.003f));
+        Check(placed && PlanarDistance(player.GlobalPosition, spawn) > far * 0.8f, $"the player stands about {far:0} m from the Gubble");
+        await Frames(10);
+        await ComeAndWatch($"come from {PlanarDistance(player.GlobalPosition, companion.GlobalPosition):0} m");
+
+        // Down off the highest land: the Gubble on it, the player on land well below and a way off.
+        var top = land.OrderByDescending(p => p.Y).First();
+        var drop = Mathf.Min(8f, bounds.Size.Y * 0.3f);
+        var lows = land.Where(p => top.Y - p.Y > drop && PlanarDistance(p, top) > 3 * step).OrderBy(p => PlanarDistance(p, top)).ToList();
+        if (lows.Count == 0)
+        {
+            Measure("LANDSCAPE_GUBBLE_REACH no land stands high enough over the rest for the come down");
+            return;
+        }
+        Send(Command(NextId("stop"), "goal.set", new JsonObject { ["actor"] = CompanionAvatar, ["goal"] = "stop" }), Player);
+        var low = lows.Take(40).FirstOrDefault(p => player.TryTeleportTo(p + Vector3.Up * 0.003f));
+        Check(companion.TryTeleportTo(top + Vector3.Up * 0.01f) && low != default,
+            $"the Gubble on the highest land ({Text(top)}), the player {top.Y - low.Y:0.0} m below and {PlanarDistance(top, low):0.0} m away");
+        await Frames(20);
+        await ComeAndWatch($"come down {top.Y - low.Y:0.0} m off the highest land");
+    }
+
+    /// <summary>Send come and watch it through: it must succeed, ending beside the player and level with them, never lost up high.</summary>
+    private async Task ComeAndWatch(string name)
+    {
+        var companion = _world.Companion;
+        var player = _world.Player;
+        var floats = companion.FloatStarts;
+        var replans = companion.HighReplans;
+        var come = Send(Command(NextId("come"), "goal.set", new JsonObject { ["actor"] = CompanionAvatar, ["goal"] = "come" }), Player);
+        Check(Ok(come), $"{name}: the player calls the Gubble: {Code(come)}");
+        // The player's come runs as an unexposed job (no id to ask about): it arrived when the body says this come arrived.
+        var serial = companion.IntentSerial;
+        var highest = float.NegativeInfinity;
+        int blocked = 0, longestBlocked = 0, floating = 0, routed = 0, ticks = 0, worstAt = 0;
+        double worstTick = 0, totalTick = 0;
+        var watch = new System.Diagnostics.Stopwatch();
+        for (; ticks < 200 * 60 && _host.RunningGoal(CompanionAvatar) != null; ticks++)
+        {
+            watch.Restart();
+            await Frames(1);
+            var ms = watch.Elapsed.TotalMilliseconds;
+            totalTick += ms;
+            if (ms > worstTick) (worstTick, worstAt) = (ms, ticks);
+            highest = Mathf.Max(highest, companion.GlobalPosition.Y - player.GlobalPosition.Y);
+            blocked = companion.GoalBlocked ? blocked + 1 : 0;
+            longestBlocked = Math.Max(longestBlocked, blocked);
+            if (companion.FloatingThere) floating++;
+            if (companion.FollowingRoute) routed++;
+        }
+        var arrived = companion.ComeArrivedSerial == serial;
+        var gap = PlanarDistance(companion.GlobalPosition, player.GlobalPosition);
+        var level = companion.GlobalPosition.Y - player.GlobalPosition.Y;
+        Measure(string.Create(CultureInfo.InvariantCulture,
+            $"LANDSCAPE_GUBBLE_COME {name}: {(arrived ? "arrived" : "did not arrive, intent " + companion.CurrentIntent)} after {ticks / 60.0:0.0} s, ending {gap:0.00} m away and {level * 100:0.0} cm off the player's height; " +
+            $"walked a route {routed / 60.0:0.0} s, floated {floating / 60.0:0.0} s (float starts {companion.FloatStarts - floats}), highest {highest:0.00} m over the player, " +
+            $"watchdog {companion.HighReplans - replans} times, blocked at most {longestBlocked / 60.0:0.0} s running; a tick {totalTick / Math.Max(1, ticks):0.00} ms on average, worst {worstTick:0.0} ms (tick {worstAt})"));
+        Check(arrived && gap <= EnFractal.Native.CompanionAvatar.ComeArrivalM + 0.03f && Mathf.Abs(level) <= EnFractal.Native.CompanionAvatar.LevelGapM,
+            $"{name}: the Gubble arrives beside the player, level with them ({gap:0.00} m away, {level * 100:0.0} cm off their height)");
     }
 
     // ---- climbing and water on the land (founder's playtest round, 8 October) ----

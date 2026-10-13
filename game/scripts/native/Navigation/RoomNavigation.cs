@@ -207,10 +207,20 @@ public partial class RoomNavigation : Node
     /// (Within the tolerance alone was not enough: across a thin wall the route's end can be a few centimetres from a
     /// goal it can never reach. Lane P review.)
     /// </summary>
-    public Route FindRoute(Vector3 from, Vector3 to, float toleranceM)
+    /// <para>
+    /// The search is not capped by polygon count (SearchMaxPolygons). maxLengthM, when above zero, stops it at that distance
+    /// from the start: a caller that would not walk a longer way round anyway (the Gubble floats instead) need not pay for
+    /// searching the rest of the island when the goal is out of reach.
+    /// </para>
+    public Route FindRoute(Vector3 from, Vector3 to, float toleranceM, float maxLengthM = 0)
     {
         if (!IsReady || !from.IsFinite() || !to.IsFinite()) return Route.None;
-        var points = NavigationServer3D.MapGetPath(Map, from, to, true);
+        _query.Map = Map;
+        _query.StartPosition = from;
+        _query.TargetPosition = to;
+        _query.PathSearchMaxDistance = maxLengthM > 0 && float.IsFinite(maxLengthM) ? maxLengthM : 0;
+        NavigationServer3D.QueryPath(_query, _result);
+        var points = _result.Path;
         if (points.Length == 0) return Route.None;
         var end = points[^1];
         var island = NavigationServer3D.MapGetClosestPoint(Map, to);
@@ -219,6 +229,28 @@ public partial class RoomNavigation : Node
         for (var i = 1; i < points.Length; i++) length += Planar(points[i] - points[i - 1]).Length();
         return new Route(points, reaches, points.Length <= 2, length);
     }
+
+    /// <summary>
+    /// Godot's own path query (MapGetPath) gives up after NavigationPathQueryParameters3D's default 4,096 polygons and returns
+    /// a path to the polygon nearest the goal found so far. Today's islands bake to about 1,200 polygons; the garage island
+    /// magnified ten times (13 October) bakes to 55,110, and a capped route stopped short of half the land it could walk to
+    /// (on a 1.5 m survey from the Gubble's spawn: 189 places reached capped, 357 uncapped), so the Gubble floated straight
+    /// at goals it could have walked to. Here the search is unlimited (0): it never covers more than the start's own walkable
+    /// part of the map. Measured there (headless): a route that reaches about 5 ms on average (worst 20), a search for a goal
+    /// out of reach about 10 ms (worst 36: the whole of the start's part), which is why the companion plans no routes while it
+    /// floats and holds its searches to the length of walk it would take (FindRoute's maxLengthM).
+    /// The rest is MapGetPath's: the funnel (optimize), layer 1, no simplification; no metadata, which nothing reads.
+    /// </summary>
+    public const int SearchMaxPolygons = 0;
+
+    private readonly NavigationPathQueryParameters3D _query = new()
+    {
+        PathfindingAlgorithm = NavigationPathQueryParameters3D.PathfindingAlgorithmEnum.Astar,
+        PathPostprocessing = NavigationPathQueryParameters3D.PathPostProcessing.Corridorfunnel,
+        NavigationLayers = 1, SimplifyPath = false, PathSearchMaxPolygons = SearchMaxPolygons,
+        MetadataFlags = NavigationPathQueryParameters3D.PathMetadataFlags.None
+    };
+    private readonly NavigationPathQueryResult3D _result = new();
 
     /// <summary>The nearest walkable point to a position (the position itself when the mesh is not ready).</summary>
     public Vector3 ClosestPoint(Vector3 point) => IsReady && point.IsFinite() ? NavigationServer3D.MapGetClosestPoint(Map, point) : point;
