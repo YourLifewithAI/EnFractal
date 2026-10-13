@@ -8,6 +8,7 @@ var guard = GUARD.new()
 const Runtime = preload("res://scripts/invention_runtime.gd")
 const Player = preload("res://scripts/native/SmallPlayerController.cs")
 const Companion = preload("res://scripts/native/CompanionAvatar.cs")
+const ManagedShutdown = preload("res://tests/native/ManagedShutdown.cs")
 const PLAYER := "player:local"
 const COMPANION := "companion:local"
 const SAVE_PATH := "user://tests/manual_invention_runtime.json"
@@ -341,6 +342,15 @@ func _remove_test_save() -> void:
 func _finish() -> void:
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 	world.queue_free()
+	# Let the freed bodies go before quitting: drop this suite's references, let the frees happen, then have .NET collect the
+	# bodies' managed wrappers. Quitting with them still alive aborted the debug engine at exit after every check had passed
+	# (about half the runs on a busy machine; see ManagedShutdown.cs).
+	player = null
+	companion = null
+	runtime = null
+	await _frames(2)
+	ManagedShutdown.new().Collect()
+	await _frames(2)
 	_remove_test_save()
 	print("Invention runtime: %d checks, %d failures" % [checks, failures])
 	quit(guard.exit_code(failures != 0))
