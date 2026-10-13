@@ -85,12 +85,22 @@ class Terrain:
         only_rows = {}
         for i, j in only or ():
             only_rows.setdefault(j, set()).add(i)
+        # A triangle whose corners lie in neighbouring buckets reaches no bucket
+        # beyond its first corner's neighbours: far from `only`, it is passed by.
+        near = None if only is None else {(i+di, j+dj) for i, j in only for di in (-1, 0, 1) for dj in (-1, 0, 1)}
         self.land = None
         for rec in doc['terrain']+doc['scenery']:
             is_land = rec['mesh'] == 'land'
             for p in meshes[rec['mesh']]:
                 vs = p['positions']
+                if near is not None:
+                    vb = [(int(floor(v[0]/bucket)), int(floor(v[2]/bucket))) for v in vs]
                 for t in p['triangles']:
+                    if near is not None:
+                        (ia, ja), (ib, jb), (ic, jc) = vb[t[0]], vb[t[1]], vb[t[2]]
+                        if (ia, ja) not in near and -1 <= ib-ia <= 1 and -1 <= ic-ia <= 1 and -1 <= jb-ja <= 1 \
+                                and -1 <= jc-ja <= 1:
+                            continue
                     a, b, c = vs[t[0]], vs[t[1]], vs[t[2]]
                     det = (b[2]-c[2])*(a[0]-c[0])+(c[0]-b[0])*(a[2]-c[2])
                     if abs(det) < 1e-12:
@@ -429,7 +439,8 @@ class Terrain:
         for i, j in keys:
             X0, X1, Z0, Z1 = i*b-eps, (i+1)*b+eps, j*b-eps, (j+1)*b+eps
             out = None
-            if (win is None or (X0 >= win[0] and X1 <= win[2] and Z0 >= win[1] and Z1 <= win[3])) and                     not any(x0+r >= X0 and x0-r <= X1 and z0+r >= Z0 and z0-r <= Z1 for x0, z0, r in boxes):
+            if (win is None or (X0 >= win[0] and X1 <= win[2] and Z0 >= win[1] and Z1 <= win[3])) and \
+                    not any(x0+r >= X0 and x0-r <= X1 and z0+r >= Z0 and z0-r <= Z1 for x0, z0, r in boxes):
                 steepest, low = 0., math.inf
                 for cj in range(int(math.floor((Z0-lz)/c)), int(math.floor((Z1-lz)/c))+1):
                     for ci in range(int(math.floor((X0-lx)/c)), int(math.floor((X1-lx)/c))+1):

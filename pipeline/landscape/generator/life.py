@@ -144,6 +144,7 @@ def surface(grid, h, base, slope, owner, objects, shadow, wet, acc, outside, pat
     nx = grid.nx
     wall_tint = (.98, .93, .86)
     W = world.W   # heights above the plain and the snowline are the room's; wetness the body's
+    rock_tints = {}
     for q in range(grid.n):
         x, z = grid.xs[q % nx], grid.zs[q//nx]
         s = slope[q]
@@ -191,20 +192,26 @@ def surface(grid, h, base, slope, owner, objects, shadow, wet, acc, outside, pat
         lush = clamp(moist*.7+smooth((.25*W-rel)/(.25*W))*.3+.15*n1)
         if outside[q]:
             lush = lush*.6
-        tints = {'meadow': (lerp(.97, .86, lush), lerp(.86, 1., lush), lerp(.55, .78, lush)),
-                 'moss': (.9, 1., .9), 'soil': tuple(lerp(1, c, .35) for c in rock_tint),
-                 'gravel': (1., .97, .92), 'scree': tuple(lerp(1, c, .6) for c in rock_tint),
-                 'cliff': rock_tint, 'rock': rock_tint, 'worn_path': (1., .96, .9),
-                 'snow': (1., 1., 1.)}
-        total = sum(weights.values()) or 1.
         top = sorted(((v, k) for k, v in weights.items() if v > 1e-4), reverse=True)[:2]
         if not top:
             top = [(1., 'meadow')]
         tsum = sum(v for v, _ in top)
         tint = [0., 0., 0.]
         for v, k in top:
+            # The tint of each of the two roles kept (only those are worked out).
+            if k == 'meadow':
+                tk = (lerp(.97, .86, lush), lerp(.86, 1., lush), lerp(.55, .78, lush))
+            elif k in ('soil', 'scree'):
+                key = (k, rock_tint)
+                tk = rock_tints.get(key)
+                if tk is None:
+                    tk = rock_tints[key] = tuple(lerp(1, c, .35 if k == 'soil' else .6) for c in rock_tint)
+            elif k in ('cliff', 'rock'):
+                tk = rock_tint
+            else:
+                tk = FIXED_TINTS[k]
             for i in range(3):
-                tint[i] += tints[k][i]*v/tsum
+                tint[i] += tk[i]*v/tsum
         weights = {k: v/tsum for v, k in top}
         sk = skirt[q] if skirt else 0.
         if sk > 0:
@@ -218,8 +225,10 @@ def surface(grid, h, base, slope, owner, objects, shadow, wet, acc, outside, pat
             tint = [lerp(c, 1., sk) for c in tint]
         out_w.append(weights)
         out_t.append(tuple(round(clamp(c), 4) for c in tint))
-        del total
     return out_w, out_t
+
+
+FIXED_TINTS = {'moss': (.9, 1., .9), 'gravel': (1., .97, .92), 'worn_path': (1., .96, .9), 'snow': (1., 1., 1.)}
 
 
 def build_mesh(grid, h, weights, tints, tris):

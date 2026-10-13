@@ -190,15 +190,17 @@ def slope_field(grid, h):
     """Per-vertex steepest incident gradient in degrees (central differences)."""
     nx, nz, c = grid.nx, grid.nz, grid.cell
     out = [0.]*grid.n
+    degrees, atan, hypot = math.degrees, math.atan, math.hypot
+    cols = [(max(0, i-1), min(nx-1, i+1)) for i in range(nx)]
+    cols = [(i, im, ip, (ip-im)*c) for i, (im, ip) in enumerate(cols)]
     for j in range(nz):
         jm = max(0, j-1)
         jp = min(nz-1, j+1)
-        for i in range(nx):
-            im = max(0, i-1)
-            ip = min(nx-1, i+1)
-            gx = (h[j*nx+ip]-h[j*nx+im])/((ip-im)*c)
-            gz = (h[jp*nx+i]-h[jm*nx+i])/((jp-jm)*c)
-            out[j*nx+i] = math.degrees(math.atan(math.hypot(gx, gz)))
+        row, up, down, dz = j*nx, jp*nx, jm*nx, (jp-jm)*c
+        for i, im, ip, dx in cols:
+            gx = (h[row+ip]-h[row+im])/dx
+            gz = (h[up+i]-h[down+i])/dz
+            out[row+i] = degrees(atan(hypot(gx, gz)))
     return out
 
 
@@ -207,18 +209,22 @@ def face_slope_max(grid, h, tris):
     out = [0.]*grid.n
     nx = grid.nx
     xs, zs = grid.xs, grid.zs
-    for t in tris:
-        p = [(xs[k % nx], h[k], zs[k//nx]) for k in t]
-        ux, uy, uz = p[1][0]-p[0][0], p[1][1]-p[0][1], p[1][2]-p[0][2]
-        vx, vy, vz = p[2][0]-p[0][0], p[2][1]-p[0][1], p[2][2]-p[0][2]
+    sqrt, acos, degrees = math.sqrt, math.acos, math.degrees
+    for a, b, c in tris:
+        ax, ay, az = xs[a % nx], h[a], zs[a//nx]
+        ux, uy, uz = xs[b % nx]-ax, h[b]-ay, zs[b//nx]-az
+        vx, vy, vz = xs[c % nx]-ax, h[c]-ay, zs[c//nx]-az
         nxx = uy*vz-uz*vy
         nyy = uz*vx-ux*vz
         nzz = ux*vy-uy*vx
-        length = math.sqrt(nxx*nxx+nyy*nyy+nzz*nzz)
-        s = math.degrees(math.acos(clamp(abs(nyy)/length, 0, 1)))
-        for k in t:
-            if s > out[k]:
-                out[k] = s
+        r = abs(nyy)/sqrt(nxx*nxx+nyy*nyy+nzz*nzz)
+        s = degrees(acos(0 if r < 0 else 1 if r > 1 else r))
+        if s > out[a]:
+            out[a] = s
+        if s > out[b]:
+            out[b] = s
+        if s > out[c]:
+            out[c] = s
     return out
 
 
