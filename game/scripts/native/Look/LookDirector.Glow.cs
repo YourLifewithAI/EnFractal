@@ -405,7 +405,7 @@ public partial class LookDirector
         }
         var gubble = CompanionBody();
         var drawn = gubble != null && IsInstanceValid(gubble) && gubble.IsInsideTree() && gubble.IsVisibleInTree();
-        var from = !drawn ? Vector3.Zero : AnchorOf(gubble, GlowLook.HaloAnchorMeta)?.GlobalPosition
+        var from = !drawn ? Vector3.Zero : AnchorAt(gubble, GlowLook.HaloAnchorMeta, drawing: true)
             ?? gubble!.GetGlobalTransformInterpolated().Origin + Vector3.Up * ((gubble as SmallPlayerController)?.BodyHeightM ?? 0f) * GlowLook.FollowHeightFraction;
         var distance = from.DistanceTo(glow.Center);
         if (!drawn || !float.IsFinite(distance) || distance < GlowLook.SparkMinDistanceM)
@@ -532,16 +532,23 @@ public partial class LookDirector
         return value.VariantType == Variant.Type.Color ? value.AsColor() : null;
     }
 
-    /// <summary>A body's glow anchor named by a meta (GlowLook.HaloAnchorMeta or LightAnchorMeta), or null when it names none in the tree.</summary>
-    private static Node3D? AnchorOf(Node3D? body, string meta) =>
-        body != null && IsInstanceValid(body) && body.HasMeta(meta) && body.GetMeta(meta).VariantType == Variant.Type.Object &&
-        body.GetMeta(meta).AsGodotObject() is Node3D anchor && IsInstanceValid(anchor) && anchor.IsInsideTree() ? anchor : null;
+    /// <summary>
+    /// Where a body's glow anchor named by a meta (GlowLook.HaloAnchorMeta or LightAnchorMeta) is, or null when it names none in the
+    /// tree; for drawing, carried by the body's interpolated transform.
+    /// </summary>
+    private static Vector3? AnchorAt(Node3D? body, string meta, bool drawing)
+    {
+        if (body == null || !IsInstanceValid(body) || !body.HasMeta(meta)) return null;
+        var named = body.GetMeta(meta);
+        if (named.VariantType != Variant.Type.Object || named.AsGodotObject() is not Node3D anchor || !IsInstanceValid(anchor) || !anchor.IsInsideTree()) return null;
+        return drawing ? body.GetGlobalTransformInterpolated() * (body.GlobalTransform.AffineInverse() * anchor.GlobalPosition) : anchor.GlobalPosition;
+    }
 
     /// <summary>Puts a glow's light where GlowPosition says, and a halo on its body's halo anchor (where the body names one).</summary>
     private void PlaceGlow(Glow glow, bool drawing)
     {
         glow.Root.Position = GlowPosition(glow, drawing);
-        if (glow.Follow != null) glow.Halo.Position = AnchorOf(glow.Follow, GlowLook.HaloAnchorMeta) is { } halo ? halo.GlobalPosition - glow.Root.Position : Vector3.Zero;
+        if (glow.Follow != null) glow.Halo.Position = AnchorAt(glow.Follow, GlowLook.HaloAnchorMeta, drawing) is { } halo ? halo - glow.Root.Position : Vector3.Zero;
     }
 
     /// <summary>
@@ -553,7 +560,7 @@ public partial class LookDirector
         if (glow.Follow != null)
         {
             if (!IsInstanceValid(glow.Follow) || !glow.Follow.IsInsideTree()) return glow.Root.Position;
-            if ((AnchorOf(glow.Follow, GlowLook.LightAnchorMeta) ?? AnchorOf(glow.Follow, GlowLook.HaloAnchorMeta)) is { } anchor) return anchor.GlobalPosition;
+            if ((AnchorAt(glow.Follow, GlowLook.LightAnchorMeta, drawing) ?? AnchorAt(glow.Follow, GlowLook.HaloAnchorMeta, drawing)) is { } anchor) return anchor;
             var origin = drawing ? glow.Follow.GetGlobalTransformInterpolated().Origin : glow.Follow.GlobalPosition;
             return origin + Vector3.Up * glow.Lift;
         }
