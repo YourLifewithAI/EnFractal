@@ -14,10 +14,12 @@ import uuid
 from pipeline.landscape.harness.common import PALETTE, SETUP, canonical
 from pipeline.landscape.harness.kit import SIZES, prototype
 from pipeline.landscape.harness.package import read_package, write_package
-from pipeline.landscape.export import export_room
+from pipeline.landscape.export import export_room, landwork
 from pipeline.landscape.export.mesh import encode, ground, transform
 from pipeline.landscape.export.mesh import cross
-from pipeline.landscape.export.trees import TerrainHeights, climbing_parts, is_tree, WALK_CLEARANCE_M
+from pipeline.landscape.export.terrain import build_levels, tile_level0
+from pipeline.landscape.export.trees import (POLE_OVERLAP_M, TerrainHeights, cap_mesh, climbing_parts, is_tree,
+                                             WALK_CLEARANCE_M)
 
 ROOT = Path(__file__).resolve().parents[4]
 ROOM = ROOT/'pipeline/landscape/corpus/rooms/garage_nominal'
@@ -55,6 +57,57 @@ def read_glb(path=None, data=None):
 def triangles(parts):
     return collections.Counter(tuple(tuple(p['positions'][i]) for i in t)
                                for p in parts for t in p['triangles'])
+
+
+def read_tiles(path):
+    """A tiled terrain GLB's nodes by name: role, positions, triangles, normals and colours (bytes to [0, 1])."""
+    data = Path(path).read_bytes()
+    size = struct.unpack_from('<I', data, 12)[0]
+    doc = json.loads(data[20:20+size])
+    binary = data[28+size:]
+    codes = {5126: 'f', 5125: 'I', 5123: 'H', 5121: 'B'}
+
+    def get(index):
+        a = doc['accessors'][index]
+        n = {'VEC3': 3, 'VEC4': 4, 'SCALAR': 1}[a['type']]
+        values = struct.unpack_from('<'+codes[a['componentType']]*(a['count']*n), binary,
+                                    doc['bufferViews'][a['bufferView']]['byteOffset'])
+        if a.get('normalized'):
+            values = [v/255 for v in values]
+        return [tuple(values[i:i+n]) for i in range(0, len(values), n)] if n > 1 else list(values)
+
+    nodes = {}
+    for node in doc['nodes']:
+        p = doc['meshes'][node['mesh']]['primitives'][0]
+        ids = get(p['indices'])
+        nodes[node['name']] = dict(role=doc['materials'][p['material']]['extras']['role'],
+                                   positions=get(p['attributes']['POSITION']),
+                                   triangles=[ids[i:i+3] for i in range(0, len(ids), 3)],
+                                   normals=get(p['attributes']['NORMAL']), colors=get(p['attributes']['COLOR_0']))
+    return doc, nodes
+
+
+def read_table(path, kind, slots=0):
+    """A plant table, parsed here independently of contracts/validate.py: (header, tile index, rows)."""
+    data = Path(path).read_bytes()
+    header = struct.unpack_from('<8s8I', data, 0)
+    tiles = [struct.unpack_from('<iiII', data, 40+16*i) for i in range(header[5])]
+    width = 56+(28+32*slots if kind == 'tree' else 0)
+    start = 40+16*len(tiles)
+    assert len(data) == start+width*header[4]
+    form = '<11f3I'+('6fI'+'8f'*slots if kind == 'tree' else '')
+    rows = [struct.unpack_from(form, data, start+width*i) for i in range(header[4])]
+    return header, tiles, rows
+
+
+def area(parts):
+    total = 0.
+    for p in parts:
+        for face in p['triangles']:
+            a, b, c = [p['positions'][i] for i in face]
+            n = cross([b[i]-a[i] for i in range(3)], [c[i]-a[i] for i in range(3)])
+            total += math.sqrt(sum(v*v for v in n))/2
+    return total
 
 
 def components(parts):
@@ -263,15 +316,34 @@ class ExportTests(unittest.TestCase):
                     export_room(package, source, out.name, out)
                 self.assertFalse(out.exists())
 
-    def test_terrain_triangles_and_bounds_match_exactly(self):
+    def test_terrain_level0_is_the_package_land_cut_into_tiles(self):
         original = [p for r in self.package['terrain'] for p in self.meshes[r['mesh']]]
+        block = self.manifest['terrain_tiles']
+        self.assertEqual((block['tile_m'], [level['grid_m'] for level in block['levels']]), (16, [.1, .4, 1.6]))
+        parts = {p['id']: p for p in self.manifest['shell']['parts']}
+        self.assertEqual(sorted(e['part'] for e in block['parts']),
+                         sorted('shell:terrain_'+role for role in {p['role'] for p in original}))
         exported = []
-        for part in self.manifest['shell']['parts']:
-            if part['id'].startswith('shell:terrain_'):
-                self.assertEqual((part['role'], part['collides']), ('ground', True))
-                exported.extend(read_glb(self.out/part['geometry']['mesh'])[1])
-        # Full oriented triangle multiset is stronger than count and bounds.
-        self.assertEqual(triangles(original), triangles(exported))
+        for entry in block['parts']:
+            part = parts[entry['part']]
+            self.assertEqual((part['role'], part['collides']), ('ground', True))
+            _, nodes = read_tiles(self.out/part['geometry']['mesh'])
+            level0 = [n for name, n in sorted(nodes.items()) if name.endswith('_lod0')]
+            self.assertEqual(len(level0), entry['tiles'])
+            source = [p for p in original if 'shell:terrain_'+p['role'] == entry['part']]
+            # Cut along the tile lines, level 0 covers exactly the package's land of that role ...
+            self.assertAlmostEqual(area(level0), area(source), places=5)
+            for node in level0:
+                for x, y, z in node['positions']:
+                    self.assertAlmostEqual(ground(source, x, z), y, places=5)
+            # ... and a triangle inside one tile is kept as it was.
+            kept = triangles(level0)
+            for p in source:
+                for face in p['triangles']:
+                    vs = [p['positions'][i] for i in face]
+                    if len({(math.floor(v[0]/16), math.floor(v[2]/16)) for v in vs}) == 1:
+                        self.assertIn(tuple(tuple(v) for v in vs), kept)
+            exported.extend(level0)
         for i in range(3):
             for f in (min, max):
                 self.assertEqual(f(v[i] for p in original for v in p['positions']),
@@ -405,7 +477,7 @@ class ExportTests(unittest.TestCase):
         for a, b in zip(n, [.5/length,(1/3)/length,.25/length]):
             self.assertAlmostEqual(a,b,places=6)
 
-    def test_nonuniform_scatter_exports_static_and_entity_geometry(self):
+    def test_nonuniform_scatter_exports_copy_rows_and_entity_geometry(self):
         package = self.scratch/'scaled-package'
         records = [dict(prototype='broadleaf', position_m=[1,0,1], yaw_deg=90, scale=[.7,1.1,1.3]),
                    dict(prototype='cottage', position_m=[0,0,0], yaw_deg=90, scale=[1.2,.9,.8])]
@@ -414,13 +486,22 @@ class ExportTests(unittest.TestCase):
         out = self.scratch/'scaled'/'landscape_scaled'
         export_room(package, ROOM, 'landscape_scaled', out)
         r = json.loads((out/'room.json').read_bytes())
-        tree = []
-        for p in r['shell']['parts']:
-            if p['id'].startswith('shell:scatter_'):
-                tree.extend(read_glb(out/p['geometry']['mesh'])[1])
+        self.assertFalse(any(p['id'].startswith('shell:scatter_') for p in r['shell']['parts']))
+        tree = next(s for s in r['plant_copies']['sets'] if s['set'] == 'broadleaf')
+        _, _, rows = read_table(out/tree['table'], 'tree', tree['cap_slots'])
+        x, y, z, yaw, sx, sy, sz = rows[0][:7]
+        self.assertEqual((x, y, z, yaw), (1, 0, 1, 90))
+        # The copy (position + yaw x (scale x mesh), Godot's rotation.y) is the merged tree it replaces.
+        _, mesh = read_glb(out/tree['mesh'])
+        c, s = math.cos(math.radians(yaw)), math.sin(math.radians(yaw))
+        placed = [dict(p, positions=[[x+c*sx*v[0]+s*sz*v[2], y+sy*v[1], z-s*sx*v[0]+c*sz*v[2]]
+                                     for v in p['positions']]) for p in mesh]
         expected = transform(prototype('broadleaf'), [.7,1.1,1.3], [1,0,1], 90)
-        _, expected = read_glb(data=encode(expected))  # float32 positions as stored
-        self.assertEqual(triangles(tree), triangles(expected))
+
+        def rounded(parts):
+            return triangles([dict(p, positions=[[round(v, 4)+0. for v in point] for point in p['positions']])
+                              for p in parts])
+        self.assertEqual(rounded(placed), rounded(expected))
         obj = r['objects'][0]
         asset = json.loads((out/obj['asset']).read_bytes())
         self.assertEqual(asset['dimensions_m'], [SIZES['cottage'][i]*records[1]['scale'][i] for i in range(3)])
@@ -432,11 +513,25 @@ class ExportTests(unittest.TestCase):
 
     def test_scatter_scenery_water_and_setup_policy(self):
         for p in self.manifest['shell']['parts']:
-            if p['id'].startswith(('shell:water_', 'shell:scenery_', 'shell:scatter_visual_')):
+            if p['id'].startswith(('shell:water_', 'shell:scenery_')):
                 self.assertFalse(p['collides'])
                 self.assertEqual(p['role'], 'backdrop')
-        bark = next(p for p in self.manifest['shell']['parts'] if p['id'] == 'shell:scatter_solid_bark')
-        self.assertTrue(bark['collides'])
+        # Plants, trees and stones are copies now: no merged scatter, no tree climbing part, no experiment extension.
+        self.assertFalse(any(p['id'].startswith(('shell:scatter_', 'shell:tree_climb_'))
+                             for p in self.manifest['shell']['parts']))
+        self.assertNotIn('x_landscape_instances', self.manifest['extensions'])
+        sets = {s['set']: s for s in self.manifest['plant_copies']['sets']}
+        expected = {'broadleaf': ('tree', 'tree_climb', 'broadleaf', True), 'conifer': ('tree', 'tree_climb', 'conifer', True),
+                    'shrub': ('plant', 'none', 'shrub', True), 'grass_tuft': ('plant', 'none', 'grass', True),
+                    'flower_clump': ('plant', 'none', 'herb', True), 'fern': ('plant', 'none', 'herb', True),
+                    'rock': ('stone', 'solid', 'none', False), 'marker': ('stone', 'solid', 'none', False)}
+        self.assertEqual({name: (s['kind'], s['collides'], s['fuel_class'], s['seeds']) for name, s in sets.items()},
+                         expected)
+        self.assertEqual(sets['grass_tuft']['species'], 'grass')
+        self.assertEqual(self.manifest['plant_copies']['tile_m'], 8)
+        for s in sets.values():
+            counts = [s['triangle_count']]+[lod['triangle_count'] for lod in s.get('lods', [])]
+            self.assertEqual(counts, sorted(set(counts), reverse=True))  # each lighter than the one before
         names = [o['display_name'].lower() for o in self.manifest['objects']]
         self.assertTrue(any(n.startswith('cottage') for n in names))
         self.assertTrue(any(n.startswith('boulder') for n in names))
@@ -471,58 +566,73 @@ class ExportTests(unittest.TestCase):
         stats = export_room(package, ROOM, 'landscape_many', out)
         self.assertEqual(stats['objects'], 512)
         self.assertEqual(stats['merged_scatter'], 2)
-        self.assertEqual(stats['scatter_solid_triangles'], 2*sum(len(p['triangles']) for p in prototype('boulder')))
+        # The two left over are stone copies, colliding as their hull.
+        self.assertEqual(stats['copies'], {'boulder': 2})
+        self.assertEqual(stats['scatter_solid_triangles'], 0)
 
-    def tree_meshes(self):
+    def tree_rows(self):
+        """(prototype, row) of every tree copy in the reference."""
         result = []
-        for part in self.manifest['shell']['parts']:
-            if part['id'].startswith('shell:tree_climb_'):
-                self.assertEqual(part['role'], 'ground')
-                self.assertTrue(part['collides'])
-                self.assertIs(part['drawn'], False)
-                result.extend(read_glb(self.out/part['geometry']['mesh'])[1])
+        for s in self.manifest['plant_copies']['sets']:
+            if s['kind'] == 'tree':
+                result += [(s['prototype'], row) for row in read_table(self.out/s['table'], 'tree', s['cap_slots'])[2]]
         return result
 
-    def test_every_reference_tree_has_a_continuous_pole_and_top_perch(self):
-        exported = components(self.tree_meshes())
-        poles = [p for p in exported if p['role'] == 'bark']
-        caps = [p for p in exported if p['role'] == 'foliage']
+    def test_tree_rows_carry_todays_fitted_climbing_shapes(self):
+        terrain = [p for r in self.package['terrain'] for p in self.meshes[r['mesh']]]
+        heights = TerrainHeights(terrain)
+        rows = self.tree_rows()
         records = [r for r in self.package['scatter'] if r['prototype'] in ('broadleaf', 'conifer')]
-        self.assertEqual(len(poles), len(records))
+        self.assertEqual(len(rows), len(records))
         self.assertEqual(self.stats['tree_count'], len(records))
-        self.assertEqual(len(caps), 6)  # Five broadleaf lobes; highest conifer tier.
+
+        def close(a, b):
+            self.assertAlmostEqual(a, b, delta=2e-6*max(1, abs(b)))
         for record in records:
             with self.subTest(tree=record['prototype']):
-                original = transform(prototype(record['prototype']), record['scale'],
-                                     record['position_m'], record['yaw_deg'])
+                name, row = next((n, r) for n, r in rows if n == record['prototype']
+                                 and abs(r[0]-record['position_m'][0]) < 1e-6 and abs(r[2]-record['position_m'][2]) < 1e-6)
+                original = transform(prototype(name), record['scale'], record['position_m'], record['yaw_deg'])
+                pole, *caps = climbing_parts(name, original, heights)  # the meshes the tree_climb part held
+                tx, tz, trunk_radius, pole_radius, trunk_top, pole_top, cap_count = row[14:21]
                 bark = next(p for p in original if p['role'] == 'bark')
-                trunk_top = max(v[1] for v in bark['positions'])
-                radius = max(math.hypot(v[0]-record['position_m'][0], v[2]-record['position_m'][2])
-                             for v in bark['positions'] if abs(v[1]-trunk_top) < 1e-8)
-                x, _, z = record['position_m']
-                pole = min(poles, key=lambda p: math.hypot(p['positions'][0][0]-x, p['positions'][0][2]-z))
-                self.assertAlmostEqual(min(v[1] for v in pole['positions']), trunk_top-.01, places=6)
+                top = max(v[1] for v in bark['positions'])
+                bottom = min(v[1] for v in bark['positions'])
+                close(trunk_top, top)
+                close(min(v[1] for v in pole['positions']), trunk_top-POLE_OVERLAP_M)
+                close(pole_top, max(v[1] for v in pole['positions']))
                 crown_top = max(v[1] for p in original if p['role'] == 'foliage' for v in p['positions'])
-                self.assertAlmostEqual(max(v[1] for v in pole['positions']), crown_top-.015, places=6)
-                # Kit fitting can make a trunk elliptical; preserve its actual
-                # top perimeter rather than assuming every radius is equal.
-                top_vertices = [v for v in bark['positions'] if abs(v[1]-trunk_top) < 1e-8]
-                tx = (min(v[0] for v in top_vertices)+max(v[0] for v in top_vertices))/2
-                tz = (min(v[2] for v in top_vertices)+max(v[2] for v in top_vertices))/2
-                expected_xz = {(round(v[0],6),round(v[2],6)) for v in bark['positions']
-                               if abs(v[1]-trunk_top) < 1e-8 and math.hypot(v[0]-tx,v[2]-tz) > 1e-8}
-                actual_xz = {(round(v[0],6),round(v[2],6)) for v in pole['positions']}
-                self.assertEqual(actual_xz, expected_xz)
-                self.assertAlmostEqual(ground(caps, x, z), crown_top-.01, places=6)
-                # A flat perch supports the capsule beside the climbing pole.
-                self.assertAlmostEqual(ground(caps, x+radius+.02, z), crown_top-.01, places=6)
+                close(pole_top, crown_top-.015)
+                close(pole_radius, max(math.hypot(v[0]-tx, v[2]-tz) for v in pole['positions']))
+                close(trunk_radius, max(math.hypot(v[0]-tx, v[2]-tz) for v in bark['positions']
+                                        if abs(v[1]-bottom) < 1e-8))
+                self.assertEqual(cap_count, len(caps))
+                self.assertEqual(len(caps), 5 if name == 'broadleaf' else 1)
+                for k, cap in enumerate(caps):
+                    cx, cz, rim_x, rim_z, rim, cap_top, top_x, top_z = row[21+8*k:29+8*k]
+                    rim_ring, top_ring = cap['positions'][:12], cap['positions'][12:24]
+                    for ring_points, (x, z, hx, hz, y) in ((rim_ring, (cx, cz, rim_x, rim_z, rim)),
+                                                           (top_ring, (cx, cz, top_x, top_z, cap_top))):
+                        xs, zs = [v[0] for v in ring_points], [v[2] for v in ring_points]
+                        close(x, (min(xs)+max(xs))/2)
+                        close(z, (min(zs)+max(zs))/2)
+                        close(hx, (max(xs)-min(xs))/2)
+                        close(hz, (max(zs)-min(zs))/2)
+                        close(y, ring_points[0][1])
+                # The highest perch is just under the drawn crown's top.
+                close(max(row[26+8*k] for k in range(cap_count)), crown_top-.01)
+                self.assertTrue(all(v == 0 for v in row[21+8*cap_count:]))  # unused cap slots are zero
         self.assertLessEqual(self.stats['shell_parts'], 128)
         self.assertLessEqual(self.stats['files']-1, 2048)
 
-    def test_exported_caps_have_only_upward_outward_front_faces(self):
-        for cap_part in components(self.tree_meshes()):
-            if cap_part['role'] != 'foliage':
-                continue
+    def test_climbing_caps_have_only_upward_outward_front_faces(self):
+        # The meshes a fixed populated tree still gets (shell:tree_climb), built from the same fit as a copy's row.
+        heights = TerrainHeights([p for r in self.package['terrain'] for p in self.meshes[r['mesh']]])
+        caps = [part for r in self.package['scatter'] if r['prototype'] in ('broadleaf', 'conifer')
+                for part in climbing_parts(r['prototype'], transform(prototype(r['prototype']), r['scale'],
+                                                                     r['position_m'], r['yaw_deg']), heights)[1:]]
+        self.assertEqual(len(caps), 6)
+        for cap_part in caps:
             vs = cap_part['positions']
             cx = (min(v[0] for v in vs)+max(v[0] for v in vs))/2
             cz = (min(v[2] for v in vs)+max(v[2] for v in vs))/2
@@ -537,18 +647,18 @@ class ExportTests(unittest.TestCase):
                     flat_faces += 1
             self.assertGreater(flat_faces, 0)
 
-    def test_exported_caps_clear_walkers_over_reference_terrain(self):
+    def test_tree_row_caps_clear_walkers_over_reference_terrain(self):
         terrain = [p for r in self.package['terrain'] for p in self.meshes[r['mesh']]]
-        for part in self.tree_meshes():
-            if part['role'] != 'foliage':
-                continue
-            for face in part['triangles']:
-                points = [part['positions'][i] for i in face]
-                points += [[sum(v[i] for v in points)/3 for i in range(3)]]
-                for x, y, z in points:
-                    floor = ground(terrain, x, z)
-                    if floor is not None:
-                        self.assertGreaterEqual(y-floor, WALK_CLEARANCE_M-1e-6)
+        for _, row in self.tree_rows():
+            for k in range(row[20]):
+                part = cap_mesh(row[21+8*k:29+8*k])
+                for face in part['triangles']:
+                    points = [part['positions'][i] for i in face]
+                    points += [[sum(v[i] for v in points)/3 for i in range(3)]]
+                    for x, y, z in points:
+                        floor = ground(terrain, x, z)
+                        if floor is not None:
+                            self.assertGreaterEqual(y-floor, WALK_CLEARANCE_M-1e-5)
 
     def test_sloped_terrain_clearance_uses_the_whole_crown_not_trunk_sample(self):
         terrain = [dict(role='stone', positions=[[-1,0,-1],[1,.55,-1],[1,.55,1],[-1,0,1]],
@@ -611,6 +721,223 @@ class ExportTests(unittest.TestCase):
         self.assertEqual(asset['collision']['kind'], 'none')
         self.assertFalse(asset['physics']['movable'])
         self.assertEqual(len([p for p in room['shell']['parts'] if p['id'].startswith('shell:tree_climb_')]), 2)
+
+
+GRID = [(-2.5, -2.5), (2.5, 2.5), (-.5, .5), (.5, -.5), (2.5, -2.5), (-2.5, 2.5), (.5, .5), (-.5, -.5)]
+
+
+class CopyTests(unittest.TestCase):
+    """Plant copies on a small package: rows across 8 m tiles, groves and patches, the submerged flag, the meshes,
+    and the second process's export against the inline one."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.scratch = Path(os.environ.get('TEMP', '/tmp'))/('enfractal-copy-tests-'+uuid.uuid4().hex)
+        os.makedirs(cls.scratch)
+        land = read_package(REFERENCE, ROOM)[1]['land']
+        scatter = [dict(prototype='broadleaf', position_m=[x, 0, z], yaw_deg=0, scale=[.6, .6, .6])
+                   for x, z in ((-2, -2.2), (-1.7, -2.2), (-1.85, -1.9))]  # a grove of three
+        scatter.append(dict(prototype='conifer', position_m=[2.6, 0, 1.2], yaw_deg=400-760, scale=[.5, .5, .5]))
+        scatter += [dict(prototype='flower_clump', position_m=[.6+.05*i, 0, -2.6], yaw_deg=0, scale=[.4, .4, .4])
+                    for i in range(6)]  # a patch of six
+        scatter.append(dict(prototype='flower_clump', position_m=[-2.6, 0, 1.5], yaw_deg=0, scale=[.4, .4, .4]))
+        for i, (x, z) in enumerate(GRID*2):
+            scatter.append(dict(prototype='grass_tuft', position_m=[x+(.01 if i >= 8 else 0), 0, z],
+                                yaw_deg=i, scale=[.5, .5, .5]))
+        scatter += [dict(prototype='grass_tuft', position_m=[1.5, 0, 1.5], yaw_deg=yaw, scale=[.5, .5, .5])
+                    for yaw in (30, -20, 10)]  # one place, three copies: package order kept; under the pool
+        cls.scatter = scatter
+        cls.package = cls.scratch/'copies-package'
+        pool = dict(role='still_water', positions=[[1, .05, 1], [1, .05, 2], [2, .05, 2], [2, .05, 1]],
+                    triangles=[[0, 1, 2], [0, 2, 3]])
+        write_package(cls.package, ROOM, meshes={'land': land, 'pool': [pool]}, setup=dict(SETUP),
+                      generator={'name': 'test', 'version': '1'}, terrain=[{'mesh': 'land'}],
+                      water=[{'mesh': 'pool', 'kind': 'still'}], scatter=scatter)
+        cls.out = cls.scratch/'a'/'landscape_copies'
+        cls.stats = export_room(cls.package, ROOM, 'landscape_copies', cls.out)
+        cls.room = json.loads((cls.out/'room.json').read_bytes())
+        cls.sets = {s['set']: s for s in cls.room['plant_copies']['sets']}
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.scratch)
+
+    def rows(self, name):
+        s = self.sets[name]
+        return read_table(self.out/s['table'], s['kind'], s.get('cap_slots', 0))
+
+    def test_validates(self):
+        proc = subprocess.run([sys.executable, '-B', str(ROOT/'contracts/validate.py'), '--room', str(self.out)],
+                              capture_output=True, text=True, cwd=ROOT)
+        self.assertEqual(proc.returncode, 0, proc.stdout+proc.stderr)
+
+    def test_rows_sorted_by_tile_then_x_then_z_behind_the_tile_index(self):
+        header, tiles, rows = self.rows('grass_tuft')
+        self.assertEqual(header[:9], (b'EFPLANTS', 1, 0, 56, 19, 4, 0, 8, 0))
+        self.assertEqual([t[:2] for t in tiles], [(-1, -1), (-1, 0), (0, -1), (0, 0)])
+        first = 0
+        for tx, tz, start, count in tiles:
+            self.assertEqual(start, first)
+            first += count
+            for row in rows[start:start+count]:
+                self.assertEqual((math.floor(row[0]/8), math.floor(row[2]/8)), (tx, tz))
+        self.assertEqual(first, len(rows))
+        keys = [(math.floor(r[0]/8), math.floor(r[2]/8), r[0], r[2]) for r in rows]
+        self.assertEqual(keys, sorted(keys))
+        # Copies at exactly one place keep the package's order.
+        self.assertEqual([r[3] for r in rows if (r[0], r[2]) == (1.5, 1.5)], [30, -20, 10])
+        self.assertEqual(self.sets['grass_tuft']['count'], 19)
+        self.assertEqual(self.sets['grass_tuft']['tiles'], 4)
+
+    def test_rows_carry_the_record_and_its_top(self):
+        _, _, rows = self.rows('conifer')
+        x, y, z, yaw, sx, sy, sz, r, g, b, top = rows[0][:11]
+        self.assertEqual((x, y, z, yaw), struct.unpack('<4f', struct.pack('<4f', 2.6, 0, 1.2, 0)))  # -360 is 0
+        self.assertAlmostEqual(sx, .5)
+        self.assertEqual((r, g, b), (1, 1, 1))
+        self.assertAlmostEqual(top, y+SIZES['conifer'][1]*sy, places=5)
+        # A variety number per copy, from its set and place (three grass tufts share one place).
+        rows = [(name, row) for name in self.sets for row in self.rows(name)[2]]
+        self.assertEqual(len({row[13] for _, row in rows}), len({(name, row[0], row[2]) for name, row in rows}))
+        self.assertEqual(len(rows)-len({row[13] for _, row in rows}), 2)
+
+    def test_groves_and_patches_are_numbered_densely(self):
+        self.assertEqual(self.room['plant_copies']['groups'], 2)
+        self.assertEqual([r[12] for r in self.rows('broadleaf')[2]], [1, 1, 1])  # the grove, first in table order
+        self.assertEqual([r[12] for r in self.rows('conifer')[2]], [0])  # a lone tree
+        flowers = self.rows('flower_clump')[2]
+        self.assertEqual(sorted(r[12] for r in flowers), [0]+[2]*6)
+        self.assertEqual({r[12] for r in self.rows('grass_tuft')[2]}, {0})  # grass makes no patches
+
+    def test_submerged_flag_marks_copies_under_water(self):
+        flags = {(r[0], r[2], r[3]): r[11] for r in self.rows('grass_tuft')[2]}
+        self.assertEqual([flags[(1.5, 1.5, yaw)] for yaw in (30, -20, 10)], [1, 1, 1])
+        self.assertEqual(sum(flags.values()), 3)
+
+    def test_meshes_are_the_prototypes_with_lighter_levels(self):
+        for name, s in self.sets.items():
+            meshes = [s['mesh']]+[lod['mesh'] for lod in s.get('lods', [])]
+            counts = [s['triangle_count']]+[lod['triangle_count'] for lod in s.get('lods', [])]
+            self.assertGreaterEqual(len(meshes), 2, name)
+            for path, count in zip(meshes, counts):
+                _, parts = read_glb(self.out/path)
+                self.assertEqual(sum(len(p['triangles']) for p in parts), count)
+                vs = [v for p in parts for v in p['positions']]
+                self.assertAlmostEqual(min(v[1] for v in vs), 0, places=5)
+                for i in (0, 2):
+                    self.assertAlmostEqual(min(v[i] for v in vs)+max(v[i] for v in vs), 0, places=5)
+            self.assertEqual(counts, sorted(set(counts), reverse=True))
+            self.assertEqual(s['triangle_count'], sum(len(p['triangles']) for p in prototype(name)))
+
+    def test_second_process_export_matches_inline(self):
+        original = landwork.PARALLEL_BYTES
+        landwork.PARALLEL_BYTES = 0
+        try:
+            other = self.scratch/'b'/'landscape_copies'
+            self.assertEqual(export_room(self.package, ROOM, 'landscape_copies', other), self.stats)
+        finally:
+            landwork.PARALLEL_BYTES = original
+        a = {p.relative_to(self.out).as_posix(): p.read_bytes() for p in self.out.rglob('*') if p.is_file()}
+        b = {p.relative_to(other).as_posix(): p.read_bytes() for p in other.rglob('*') if p.is_file()}
+        self.assertEqual(a, b)
+
+
+class TileTests(unittest.TestCase):
+    """Terrain tiles on a bumpy two-role land crossing tile lines: no cracks between tiles of one level."""
+
+    @classmethod
+    def setUpClass(cls):
+        step, nx, nz = .25, 104, 72
+        heights = [[.3*math.sin(i*.37)+.2*math.cos(j*.61+i*.13)+.05*((i*7919+j*104729) % 13)/13
+                    for j in range(nz+1)] for i in range(nx+1)]
+        # Off the tile lines, so they cut through triangles.
+        points = [[-17.13+i*step, heights[i][j], -9.07+j*step] for i in range(nx+1) for j in range(nz+1)]
+        roles = {'meadow': [], 'rock': []}
+        for i in range(nx):
+            for j in range(nz):
+                a, b, c, d = i*(nz+1)+j, i*(nz+1)+j+1, (i+1)*(nz+1)+j+1, (i+1)*(nz+1)+j
+                role = 'rock' if math.sin(i*.2)+j*.1 > 1 else 'meadow'
+                roles[role] += [[a, b, c], [a, c, d]]
+        cls.terrain = [dict(role=role, positions=points, triangles=faces) for role, faces in roles.items()]
+        _, tiles = tile_level0(cls.terrain)
+        cls.spacings = [step, step*4, step*16]
+        cls.levels = build_levels(tiles, cls.spacings)
+        cls.land = TerrainHeights(cls.terrain)
+        cls.indexes = {}
+
+    def height(self, tile, level, x, z):
+        if (tile, level) not in self.indexes:
+            self.indexes[tile, level] = TerrainHeights(self.surface(tile, level)) if tile in self.levels else None
+        index = self.indexes[tile, level]
+        return None if index is None else index.hit(x, z)[0]
+
+    def surface(self, tile, level):
+        return [dict(positions=m.pos, triangles=m.tris) for m in self.levels[tile][level].values()]
+
+    def test_tiles_of_one_level_meet_without_cracks(self):
+        self.assertEqual(sorted(self.levels), [(-2, -1), (-2, 0), (-1, -1), (-1, 0), (0, -1), (0, 0)])
+        # Level 0's cut points are the same bits on both sides of a tile line.
+        for left, right, value in (((-1, 0), (0, 0), 0.), ((-2, -1), (-1, -1), -16.), ((-1, -1), (0, -1), 0.)):
+            a, b = [{p for m in self.levels[t][0].values() for p in m.pos if p[0] == value} for t in (left, right)]
+            self.assertTrue(a)
+            self.assertEqual(a, b)
+        # Every level's surface is continuous across the lines: where the land is, the height just either side
+        # agrees (a skirt is vertical, so it is never the ground).
+        samples = 0
+        lo = [min(v[i] for v in self.terrain[0]['positions']) for i in range(3)]
+        hi = [max(v[i] for v in self.terrain[0]['positions']) for i in range(3)]
+        for level, spacing in enumerate(self.spacings):
+            for axis, value in ((0, -16.), (0, 0.), (2, 0.)):
+                for k in range(1, 400):
+                    t = lo[2-axis]+k*(hi[2-axis]-lo[2-axis])/400
+                    at = [(value-1e-7, t), (value+1e-7, t)] if axis == 0 else [(t, value-1e-7), (t, value+1e-7)]
+                    # A coarse level's own edge may draw in by a cell: sample a cell inside the land's.
+                    if not all(lo[0]+spacing < x < hi[0]-spacing and lo[2]+spacing < z < hi[2]-spacing for x, z in at):
+                        continue
+                    ya, yb = [self.height((math.floor(x/16), math.floor(z/16)), level, x, z) for x, z in at]
+                    self.assertIsNotNone(ya, (level, axis, value, t))
+                    self.assertIsNotNone(yb, (level, axis, value, t))
+                    self.assertAlmostEqual(ya, yb, delta=1e-5, msg=(level, axis, value, t))
+                    samples += 1
+        self.assertGreater(samples, 2500)
+
+    def test_level0_is_closed_inside_each_tile(self):
+        # Cut triangles meet their neighbours: inside a tile, level 0's only open edges are the land's own edges.
+        lo = [min(v[i] for v in self.terrain[0]['positions']) for i in range(3)]
+        hi = [max(v[i] for v in self.terrain[0]['positions']) for i in range(3)]
+        for (tx, tz), per_level in self.levels.items():
+            edges = collections.Counter()
+            for mesh in per_level[0].values():
+                for face in mesh.tris:
+                    for a, b in ((face[0], face[1]), (face[1], face[2]), (face[2], face[0])):
+                        edges[tuple(sorted((mesh.pos[a], mesh.pos[b])))] += 1
+            for (a, b), count in edges.items():
+                if count != 1:
+                    continue
+                on_line = any(a[i] == b[i] == v for i, v in ((0, tx*16.), (0, tx*16.+16), (2, tz*16.), (2, tz*16.+16)))
+                on_edge = any(abs(a[i]-b[i]) < 1e-9 and abs(a[i]-v) < 1e-6 for i in (0, 2) for v in (lo[i], hi[i]))
+                self.assertTrue(on_line or on_edge, ((tx, tz), a, b))
+
+    def test_coarse_levels_are_lighter_and_skirted_and_level0_is_whole(self):
+        triangles_at = [sum(len(m.tris) for tile in self.levels.values() for m in tile[level].values())
+                        for level in range(3)]
+        self.assertEqual(triangles_at, sorted(triangles_at, reverse=True))
+        self.assertLess(triangles_at[1], triangles_at[0]/4)
+        self.assertAlmostEqual(area([dict(positions=m.pos, triangles=m.tris) for tile in self.levels.values()
+                                     for m in tile[0].values()]), area(self.terrain), places=6)
+        lowest = min(v[1] for p in self.terrain for v in p['positions'])
+        for level in (1, 2):
+            skirt = [p for tile in self.levels.values() for m in tile[level].values() for p in m.pos
+                     if p[1] < lowest-1e-9]
+            self.assertTrue(skirt, level)
+        self.assertFalse([p for tile in self.levels.values() for m in tile[0].values() for p in m.pos
+                          if p[1] < lowest-1e-9])
+
+    def test_every_level_keeps_every_role_of_a_tile(self):
+        for tile, per_level in self.levels.items():
+            self.assertEqual([sorted(m) for m in per_level], [sorted(per_level[0])]*3, tile)
+            for meshes in per_level:
+                self.assertTrue(all(m.tris for m in meshes.values()), tile)
 
 
 def ring(lo, hi, grow):

@@ -9,6 +9,7 @@ LOOSE_CAP = 64
 WOOD_DENSITY_KG_M3 = 600.0  # Authoring assumption, not a measured material.
 STONE_DENSITY_KG_M3 = 2600.0
 PLAYER_LIMIT_KG = .5
+LOOSE_KINDS = frozenset({'woodpile', 'rock', 'boulder', 'crate'})  # what can become loose: piles, estimated_mass
 
 
 def bounds(parts):

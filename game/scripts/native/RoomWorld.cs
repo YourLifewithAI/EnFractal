@@ -31,6 +31,10 @@ public partial class RoomWorld : Node3D
     public Node3D Built { get; private set; } = null!;
     public SmallPlayerController Player { get; private set; } = null!;
     public CompanionAvatar Companion { get; private set; } = null!;
+    /// <summary>
+    /// True once the room is built and the bodies placed. The room is read on a worker thread (RoomData.LoadAsync), so a caller
+    /// waits for this by the clock, never a count of frames: under --fixed-fps frames pass faster than a room loads.
+    /// </summary>
     public bool WorldReady { get; private set; }
     public string LoadError { get; private set; } = "";
     /// <summary>Set when the room's pinned style could not be used and the default look was applied instead.</summary>
@@ -60,11 +64,26 @@ public partial class RoomWorld : Node3D
         return StylePreset.Resolve(DefaultStyleId, DefaultStyleVersion);
     }
 
+    /// <summary>The room being read on its worker thread (see _ExitTree).</summary>
+    private System.Threading.Tasks.Task<RoomData>? _loading;
+
+    /// <summary>
+    /// "-- --quit-after-ready=N": quit N frames after the world is ready (exit code 0), or as soon as the room fails to load
+    /// (exit code 1). The boot check of the runners and of a smoke boot: Godot's own --quit-after counts frames from the start,
+    /// and frames pass faster than a room loads on its worker thread (under --fixed-fps, a few milliseconds a frame).
+    /// </summary>
+    private static int? QuitAfterReadyFrames() =>
+        OS.GetCmdlineUserArgs().FirstOrDefault(a => a.StartsWith("--quit-after-ready=", StringComparison.Ordinal)) is { } argument &&
+        int.TryParse(argument["--quit-after-ready=".Length..], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var frames)
+            ? frames : null;
+
     public override async void _Ready()
     {
         try
         {
-            Room = RoomData.Load(RoomDirectory);
+            // Off the main thread: a 10x island's tables are 350,000 rows to read, hash and check (S6).
+            _loading = RoomData.LoadAsync(RoomDirectory);
+            Room = await _loading;
             var preset = ChooseStyle();
             Look = new LookDirector { Name = "Look" };
             AddChild(Look);
@@ -114,11 +133,28 @@ public partial class RoomWorld : Node3D
             DisplayServer.WindowSetTitle($"EnFractal - {Room.DisplayName}");
             WorldReady = true;
             GD.Print($"ROOM_WORLD_READY room={Room.RoomId} shell={Room.Shell.Count} objects={Room.Objects.Count} lights={Look.RoomLightCount} style={preset.PresetId}@{preset.PresetVersion} spawn={Player.Position}");
+            if (QuitAfterReadyFrames() is { } frames)
+            {
+                for (var i = 0; i < frames; i++) await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+                GetTree().Quit(0);
+            }
         }
         catch (Exception exception)
         {
             LoadError = exception.Message;
             GD.PushError("Room failed to load: " + exception.Message);
+            if (QuitAfterReadyFrames() != null) GetTree().Quit(1);
         }
+    }
+
+    /// <summary>
+    /// A room still being read when the world leaves the tree (the game quit during a load) is let finish first: its worker reads
+    /// files through the engine, which crashed in FileAccess once the engine had shut down under it.
+    /// </summary>
+    public override void _ExitTree()
+    {
+        if (_loading is not { IsCompleted: false } loading) return;
+        try { loading.Wait(TimeSpan.FromSeconds(60)); }
+        catch (AggregateException) { /* the load's own failure is reported where it is awaited */ }
     }
 }

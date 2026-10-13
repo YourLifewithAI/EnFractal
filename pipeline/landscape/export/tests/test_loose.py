@@ -198,9 +198,10 @@ class LooseTests(unittest.TestCase):
         for p in room['shell']['parts']:
             if p['id'].startswith('shell:scatter_'):
                 merged.extend(read_glb(out/p['geometry']['mesh'])[1])
+        # The pile left over stays merged; the stones left over are stone copies.
         self.assertEqual(sum(len(p['triangles']) for p in merged),
-                         76*sum(len(p['triangles']) for p in prototype('rock'))+
                          sum(len(p['triangles']) for p in prototypes()['woodpile'][0]))
+        self.assertEqual(stats['copies'], {'rock': 76})
         self.assertLessEqual(stats['objects'], 512)
         self.assertLessEqual(stats['files']-1, 2048)
 

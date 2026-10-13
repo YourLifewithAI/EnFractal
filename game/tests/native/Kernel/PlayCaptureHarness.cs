@@ -74,7 +74,7 @@ public partial class PlayCaptureHarness : Node
             // --room=ID|DIR: a captured or exported room (a landscape) instead of the test room.
             if (Arg("room", "").Length > 0) _world.RoomDirectory = RoomWorld.ResolveRoom(Arg("room", "").Replace('\\', '/'));
             AddChild(_world);
-            for (var i = 0; i < 900 && !_world.WorldReady && _world.LoadError.Length == 0; i++) await NextFrame();
+            for (var booting = System.Diagnostics.Stopwatch.StartNew(); booting.Elapsed.TotalSeconds < 60 && !_world.WorldReady && _world.LoadError.Length == 0;) await NextFrame();
             if (!_world.WorldReady) throw new InvalidOperationException("room did not load: " + _world.LoadError);
             _hud = _world.GetNode<RoomHud>("RoomHud");
             _label = _world.Companion.GetNode<Label3D>("CompanionLabel");

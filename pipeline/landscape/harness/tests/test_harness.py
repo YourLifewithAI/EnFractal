@@ -13,7 +13,8 @@ from pipeline.landscape.harness.build_reference import ROOM, REFERENCE, build, q
 from pipeline.landscape.harness.common import FRAME, MAX_BYTES, SETUP, canonical, load_json, sha, harness_revision
 from pipeline.landscape.harness.glb import encode_mesh, decode_mesh
 from pipeline.landscape.harness.kit import SIZES, prototype
-from pipeline.landscape.harness.package import read_package, validate_package, footprint_inside
+from pipeline.landscape.harness.package import (read_package, validate_package, footprint_inside, land_factor,
+                                              write_package)
 from pipeline.landscape.harness.png import encode, decode
 from pipeline.landscape.harness.render import find_blender, render, DRAFT, FINAL
 from pipeline.landscape.harness.views import ground_height, camera_plan, sun_position, project_bounds
@@ -102,6 +103,24 @@ class PackageTests(Workspace):
         # Stored mesh count remains small while repetition exceeds the new cap.
         with patch('pipeline.landscape.harness.package.MAX_EXPANDED_TRIANGLES',100):
             with self.assertRaisesRegex(ValueError,'expanded triangle limit'): validate_package(self.folder,ROOM)
+
+    def test_limits_grow_with_the_land(self):
+        # Today's limits hold for 100 m2 of land; land four times as big (the 10x world's way) holds four times as much.
+        scatter=[dict(prototype='rock',position_m=[0,0,0],yaw_deg=0,scale=[1,1,1])]*6
+        packages={}
+        for name,half in (('small',5),('large',10)):
+            packages[name]=self.work/name
+            write_package(packages[name],ROOM,meshes={'land':[quad(-half,half,-half,half,0,'meadow')]},setup=dict(SETUP),
+                          generator=dict(name='test',version='1'),terrain=[dict(mesh='land')],scatter=scatter)
+        doc,meshes,_,_=read_package(packages['large'],ROOM)
+        self.assertEqual(land_factor(doc,meshes),4.)
+        self.assertEqual(land_factor(*read_package(packages['small'],ROOM)[:2]),1.)
+        size=sum(p.stat().st_size for p in packages['small'].iterdir())
+        for limit,value,message in (('MAX_INSTANCES',2,'instance limit'),('MAX_BYTES',size//2,'byte/file limit'),
+                                    ('MAX_EXPANDED_TRIANGLES',6*60//2+4,'expanded triangle limit')):
+            with self.subTest(limit=limit), patch('pipeline.landscape.harness.package.'+limit,value):
+                with self.assertRaisesRegex(ValueError,message): validate_package(packages['small'],ROOM)
+                self.assertEqual(validate_package(packages['large'],ROOM)['instances'],6)
 
     def test_setup_pinned_before_blender_or_output(self):
         expected=self.work/'setup.json'; expected.write_bytes(canonical(SETUP))

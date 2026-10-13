@@ -47,8 +47,9 @@ if [ ! -f "$LR/room.json" ]; then rm -rf "$REPO/.cache/landscape-fixture"; mkdir
 fi
 run native_kernel_landscape "NATIVE_KERNEL_LANDSCAPE: [0-9]+/[0-9]+ checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_kernel_landscape.tscn -- --landscape="$LR"
 run native_room_data "checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_room_data.tscn
+run native_island_loading "checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_island_loading.tscn
 run native_look_preset "checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_look_preset.tscn
-run room_boot "ROOM_WORLD_READY" --headless --path "$P" --fixed-fps 60 --quit-after 240 res://scenes/room.tscn
+run room_boot "ROOM_WORLD_READY" --headless --path "$P" --fixed-fps 60 res://scenes/room.tscn -- --quit-after-ready=240
 echo "== C# kernel"
 run native_kernel_canonical_json "checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_kernel_canonical_json.tscn
 HOST_DUMP="$LOG/command_host_messages"; rm -rf "$HOST_DUMP"
@@ -102,7 +103,7 @@ if (cd "$REPO/pipeline/roomscan" && uv run --locked python -B -m unittest discov
   echo "PASS landscape corpus: $(grep -E '^Ran' "$LOG/corpus.log")"
 else cat "$LOG/corpus.log"; failed=1; fi
 echo "== landscape exporter (a package to a game room, validated against the contracts)"
-if (cd "$REPO" && "$LINUX/contracts-venv/bin/python" -B -m unittest pipeline.landscape.export.tests.test_export > "$LOG/landscape_export.log" 2>&1); then
+if (cd "$REPO" && "$LINUX/contracts-venv/bin/python" -B -m unittest pipeline.landscape.export.tests.test_export pipeline.landscape.export.tests.test_loose > "$LOG/landscape_export.log" 2>&1); then
   echo "PASS landscape exporter: $(grep -E '^Ran' "$LOG/landscape_export.log") $(grep -E '^OK' "$LOG/landscape_export.log")"
 else echo "FAIL landscape exporter"; tail -20 "$LOG/landscape_export.log"; failed=1; fi
 echo "== landscape harness (package format and views; its Blender tests skip without Blender)"

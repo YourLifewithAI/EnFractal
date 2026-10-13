@@ -85,7 +85,7 @@ public partial class JournalPresentationTest : Node
             var world = GD.Load<PackedScene>("res://scenes/room.tscn").Instantiate<RoomWorld>();
             if (room != null) world.RoomDirectory = room;
             AddChild(world);
-            for (var i = 0; i < 900 && !world.WorldReady && world.LoadError.Length == 0; i++) await Frames(1);
+            for (var booting = System.Diagnostics.Stopwatch.StartNew(); booting.Elapsed.TotalSeconds < 60 && !world.WorldReady && world.LoadError.Length == 0;) await Frames(1);
             Check(world.WorldReady, "the room loads: " + world.LoadError);
             world.Player.ReadKeyboard = false;
             _hud = world.GetNode<RoomHud>("RoomHud");
