@@ -803,10 +803,14 @@ public partial class SmallAvatarPhysicsTest : Node3D
 
         // A goal it cannot reach (a closed pen) is reported, and the companion stays inside rather than crossing a wall.
         var pen = new Vector3(-3.5f, 0, 1.0f);
-        Box(pen + new Vector3(0, 0.20f, 0.325f), new Vector3(0.65f, 0.4f, 0.08f));
-        Box(pen + new Vector3(0, 0.20f, -0.325f), new Vector3(0.65f, 0.4f, 0.08f));
-        Box(pen + new Vector3(-0.325f, 0.20f, 0), new Vector3(0.08f, 0.4f, 0.65f));
-        Box(pen + new Vector3(0.325f, 0.20f, 0), new Vector3(0.08f, 0.4f, 0.65f));
+        var penWalls = new (Vector3 Centre, Vector3 Size)[]
+        {
+            (pen + new Vector3(0, 0.20f, 0.325f), new Vector3(0.65f, 0.4f, 0.08f)),
+            (pen + new Vector3(0, 0.20f, -0.325f), new Vector3(0.65f, 0.4f, 0.08f)),
+            (pen + new Vector3(-0.325f, 0.20f, 0), new Vector3(0.08f, 0.4f, 0.65f)),
+            (pen + new Vector3(0.325f, 0.20f, 0), new Vector3(0.08f, 0.4f, 0.65f)),
+        };
+        foreach (var (centre, size) in penWalls) Box(centre, size);
         revision = _navigation.Revision;
         for (var i = 0; i < 120 && _navigation.Revision == revision; i++) await Frames(1);
         Check(_companion.TryTeleportTo(pen + new Vector3(0, 0.01f, 0)), "companion inside the walled pen");
@@ -815,22 +819,26 @@ public partial class SmallAvatarPhysicsTest : Node3D
         var floatStarts = _companion.FloatStarts;
         var rises = _companion.RiseTicks;
         _companion.Come();
-        var through = false;
+        var nearest = float.PositiveInfinity;
         var highest = 0.0f;
         var penFrames = 0;
         for (; penFrames < 900 && _companion.CurrentIntent == "come"; penFrames++)
         {
             await Frames(1);
             highest = Mathf.Max(highest, _companion.GlobalPosition.Y);
-            // Inside a wall's footprint below its top would be passing through it.
-            var local = _companion.GlobalPosition - pen;
-            through |= _companion.GlobalPosition.Y < 0.40f && Mathf.Max(Mathf.Abs(local.X), Mathf.Abs(local.Z)) is > 0.285f - 0.02f and < 0.365f + 0.02f &&
-                Mathf.Min(Mathf.Abs(local.X), Mathf.Abs(local.Z)) < 0.365f;
+            // Through a wall is the body's capsule reaching into one, deeper than the body's safe margin (the physics' contact
+            // tolerance: sliding over an edge, a body may graze it by a fraction of a millimetre). The capsule's foot is rounded,
+            // so rounding a wall's top edge the feet can be under the top while the capsule stays clear of the wall. Measured as
+            // a flat-footed cylinder (until 13 October), that read as through whenever the rise's last tick under the top ended
+            // within 2 mm of it, which hangs on the phase of the hover's bob, so on how long the tests before this one take: 3 of
+            // 8 timings across one bob failed so, the capsule 6.8 mm clear of the wall.
+            foreach (var (centre, size) in penWalls)
+                nearest = Mathf.Min(nearest, CapsuleClearance(_companion.GlobalPosition, _companion.BodyRadiusM, _companion.BodyHeightM, new Aabb(centre - size / 2, size)));
         }
         gap = PlanarDistance(_companion.GlobalPosition, _player.GlobalPosition);
-        Report(_companion.FloatStarts > floatStarts && _companion.RiseTicks > rises && highest > 0.40f && !through && _companion.CurrentIntent == "stay" &&
-            gap <= CompanionAvatar.ComeArrivalM + 0.02f,
-            $"with no walk out of a walled pen, the Gubble floats up over the 40 cm wall, never through it, and arrives (highest {highest:0.000} m, {penFrames / 60.0f:0.0} s, gap {gap:0.00} m)");
+        Report(_companion.FloatStarts > floatStarts && _companion.RiseTicks > rises && highest > 0.40f && nearest >= -_companion.SafeMarginM &&
+            _companion.CurrentIntent == "stay" && gap <= CompanionAvatar.ComeArrivalM + 0.02f,
+            $"with no walk out of a walled pen, the Gubble floats up over the 40 cm wall, never through it, and arrives (highest {highest:0.000} m, the capsule's nearest to a wall {nearest * 1000:0.0} mm, {penFrames / 60.0f:0.0} s, gap {gap:0.00} m)");
         // A lid makes the pen one it really cannot leave: that is reported, and it stays inside.
         Box(pen + new Vector3(0, 0.41f, 0), new Vector3(0.73f, 0.02f, 0.73f));
         await Frames(2);
@@ -980,6 +988,19 @@ public partial class SmallAvatarPhysicsTest : Node3D
 
     private static bool Overlaps(Vector3 position, Vector3 centre, float half) =>
         Mathf.Abs(position.X - centre.X) < half && Mathf.Abs(position.Z - centre.Z) < half;
+
+    /// <summary>
+    /// How far a standing body's capsule (feet at the bottom, as the bodies' are) keeps from an axis-aligned box: the distance
+    /// from its axis, a radius over the feet to a radius under the top, to the box, less the radius. Negative is how deep it
+    /// reaches in. Exact, rounded foot and all.
+    /// </summary>
+    private static float CapsuleClearance(Vector3 feet, float radius, float height, Aabb box)
+    {
+        var planar = new Vector2(Mathf.Max(Mathf.Max(box.Position.X - feet.X, feet.X - box.End.X), 0),
+            Mathf.Max(Mathf.Max(box.Position.Z - feet.Z, feet.Z - box.End.Z), 0)).Length();
+        var vertical = Mathf.Max(Mathf.Max(box.Position.Y - (feet.Y + height - radius), feet.Y + radius - box.End.Y), 0);
+        return new Vector2(planar, vertical).Length() - radius;
+    }
 
     /// <summary>Planar distance from a point to a square footprint (zero inside it).</summary>
     private static float ClearanceFromSquare(Vector3 point, Vector3 centre, float half) =>

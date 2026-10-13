@@ -71,7 +71,8 @@ public partial class GubbleHaloCapture : Node
             RoomHud.ProfilePath = Root + "/profile/avatar_profile_v1.cfg";
             var world = GD.Load<PackedScene>("res://scenes/room.tscn").Instantiate<RoomWorld>();
             AddChild(world);
-            for (var i = 0; i < 900 && !world.WorldReady && world.LoadError.Length == 0; i++) await Frames(1);
+            // The room's data loads off the main thread (RoomData.LoadAsync, S6): wait on the clock, not a count of frames.
+            for (var booting = System.Diagnostics.Stopwatch.StartNew(); booting.Elapsed.TotalSeconds < 60 && !world.WorldReady && world.LoadError.Length == 0;) await Frames(1);
             if (!world.WorldReady) throw new InvalidOperationException("the room did not load: " + world.LoadError);
             var look = world.Look;
             var companion = world.Companion;

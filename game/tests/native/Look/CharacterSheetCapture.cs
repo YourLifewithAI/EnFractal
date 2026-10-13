@@ -92,7 +92,9 @@ public partial class CharacterSheetCapture : Node
             DisplayServer.WindowSetVsyncMode(DisplayServer.VSyncMode.Disabled);
             _world = GD.Load<PackedScene>("res://scenes/room.tscn").Instantiate<RoomWorld>();
             AddChild(_world);
-            for (var i = 0; i < 600 && !_world.WorldReady && _world.LoadError.Length == 0; i++) await NextFrame();
+            // The room's data loads off the main thread (RoomData.LoadAsync, S6), so wait on the clock: uncapped and headless, 600
+            // frames went by before a 1x room had read.
+            for (var booting = System.Diagnostics.Stopwatch.StartNew(); booting.Elapsed.TotalSeconds < 60 && !_world.WorldReady && _world.LoadError.Length == 0;) await NextFrame();
             if (!_world.WorldReady) throw new InvalidOperationException("room did not load: " + _world.LoadError);
             _look = _world.Look;
             foreach (var layer in _world.FindChildren("*", "CanvasLayer", true, false).OfType<CanvasLayer>()) layer.Visible = false;
