@@ -54,6 +54,7 @@ public partial class CharacterGaitsTest : Node3D
             TestCpu();
             await TestSpringsInTree();
             await TestController();
+            await TestMotionBudget();
             await TestComposition();
             GD.Print("GAITS_HASHES: " + string.Join(" ", _hashes));
             GD.Print($"NATIVE_CHARACTER_GAITS: {_checks - _failures}/{_checks} checks passed; gaits and life: five characters at a walk, a run, a stop and a turn, " +
