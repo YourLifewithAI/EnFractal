@@ -28,7 +28,7 @@ public sealed class GaitLayer : IPoseLayer<BodyState>
     private readonly GaitRig _rig;
     private readonly IGait _gait;
     private bool _started;
-    private float _lastDistance;
+    private double _lastDistance;
     private bool _wasSwimming;
     private double _cycles;
     private CriticalSpring _speed, _move, _run, _air, _active, _vx, _vz, _pitch, _roll;
@@ -77,7 +77,7 @@ public sealed class GaitLayer : IPoseLayer<BodyState>
         dt = float.IsFinite(dt) && dt > 0 ? Mathf.Clamp(dt, 1f / 480, 0.1f) : 1f / 60;
         var profile = _rig.Profile;
         var settle = Mathf.Max(profile.SettleS, 0.05f);
-        var distance = float.IsFinite(state.DistanceM) ? state.DistanceM : _lastDistance;
+        var distance = double.IsFinite(state.DistanceM) ? state.DistanceM : _lastDistance;
         var velocity = state.Velocity;
         if (!float.IsFinite(velocity.X) || !float.IsFinite(velocity.Y) || !float.IsFinite(velocity.Z)) velocity = Vector3.Zero;
         var flat = new Vector2(velocity.X, velocity.Z).LimitLength(4);
@@ -90,7 +90,7 @@ public sealed class GaitLayer : IPoseLayer<BodyState>
             _wasSwimming = state.Swimming;
         }
 
-        var moved = distance - _lastDistance;
+        var moved = (float)(distance - _lastDistance);
         if (!(moved > 0) || moved > MaxTickTravelM) moved = 0;
         _lastDistance = distance;
         var raw = float.IsFinite(state.SpeedMps) ? Mathf.Clamp(state.SpeedMps, 0, 5) : 0;

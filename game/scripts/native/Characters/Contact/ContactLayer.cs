@@ -129,7 +129,7 @@ public sealed partial class ContactLayer : IPoseLayer<BodyState>
     // What the layer keeps between frames.
     private long _lastFrame = -1;
     private float _lastY;
-    private float _lastDistance;
+    private double _lastDistance;
     private int _stepsClimbed;
     private bool _wasClimbing;
     private Quaternion _tilt = Quaternion.Identity;

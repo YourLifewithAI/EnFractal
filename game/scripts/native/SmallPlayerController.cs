@@ -488,7 +488,7 @@ public partial class SmallPlayerController : CharacterBody3D
     private float _controlHoldS;
     private float _knockoutRecoveryDelayS;
     private ulong _bodyTick;
-    private float _distanceM;
+    private double _distanceM;
     private float _airTimeS;
 
     public override void _Ready()

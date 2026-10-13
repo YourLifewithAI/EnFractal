@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Reflection;
 using System.Threading.Tasks;
 using EnFractal.Native;
 using EnFractal.Native.Characters;
@@ -149,6 +150,10 @@ public partial class CharacterGaitsTest
             body.SetBodyVisual(visual);
             fixture.AddChild(body);
             await Frames(30);
+            // Stickbear walks 2,000 km from home: the controller keeps the distance in double, so its 5 mm ticks still count
+            // (review minor 11; in a float they rounded to nothing and the phase stalled).
+            if (id == "stickbear") typeof(SmallPlayerController).GetField("_distanceM", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(body, 2_000_000.0);
+            await Frames(2);
             var pose = visual.Body.Pose;
             var nonFinite = pose.NonFiniteWrites;
             var lowest = float.MaxValue;

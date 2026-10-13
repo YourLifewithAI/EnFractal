@@ -113,7 +113,7 @@ public partial class CharacterGaitsTest : Node3D
     {
         public Vector3 Position;
         public float Yaw;
-        public float Distance;
+        public double Distance;
         public float Speed;
         public ulong Tick;
 
