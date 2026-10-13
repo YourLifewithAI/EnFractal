@@ -194,6 +194,7 @@ public static class JournalPages
         lines.Add(Heading("Asking the Gubble"));
         lines.Add(Text($"{K(Act.GubbleAsk)}: ask for what fits where you point · hold it for the magic wheel"));
         lines.Add(Text($"{K(Act.GubbleRecall)} come, then follow · {K(Act.GubbleStop)} stop"));
+        lines.Add(Text($"{K(Act.GubbleEyes)} or the eye icon: see through {CompanionName(host)}'s eyes"));
         lines.Add(Heading("Ways through the world"));
         lines.Add(Text($"{PlayerControls.MoveLabel()} walk · {K(Act.MoveSprint)} run · {K(Act.Jump)} jump"));
         lines.Add(Text($"Climb: keep walking into a steep face · {K(Act.Jump)} lets go"));

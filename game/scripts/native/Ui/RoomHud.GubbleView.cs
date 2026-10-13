@@ -1,3 +1,4 @@
+using System.Linq;
 using Godot;
 using EnFractal.Native.Kernel;
 using EnFractal.Native.Look;
@@ -12,8 +13,9 @@ namespace EnFractal.Native;
 /// open and nothing otherwise, with the same cull mask, so the Gubble never sees its own body. A drag looks around from the
 /// Gubble's head within the AI's bounds (CommandHost.LookMaxYawDeg and LookMaxPitchDeg) without turning the Gubble. The icon,
 /// its key or Esc return. While the view is open the player's body waits and every other key waits too, as with the journal
-/// (ControlContext.Looking). It is a view, not a command: it sends nothing to the host and changes no world state. When the
-/// player's AI takes a picture through the Gubble's eyes (view.look), the icon blinks; nothing shows on the Gubble itself.
+/// (ControlContext.Looking). It is a view, not a command: it sends nothing to the host and changes no world state. The Gubble's
+/// words (its thought bubble's answers) show at the top, above the view's label (GubbleViewWords). When the player's AI takes a
+/// picture through the Gubble's eyes (view.look), the icon blinks; nothing shows on the Gubble itself.
 /// </summary>
 public partial class RoomHud
 {
@@ -24,6 +26,10 @@ public partial class RoomHud
     private TextureRect _gubbleViewPicture = null!;
     private Label _gubbleViewTitle = null!;
     private Label _gubbleViewHint = null!;
+    private Label _gubbleViewBubble = null!;
+    private Label _gubbleViewSays = null!;
+    /// <summary>The longest line of the Gubble's words over its view, as a share of the screen's width; longer words wrap.</summary>
+    public const float GubbleWordsWidthShare = 0.7f;
     private EyeView _gubbleEye = null!;
     private CommandHost? _eyesListening;
     private bool _gubbleViewOpen;
@@ -67,11 +73,21 @@ public partial class RoomHud
         };
         _gubbleView.AddChild(_gubbleViewPicture);
         _gubbleViewPicture.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
-        var label = new PanelContainer { Name = "GubbleViewLabel", Theme = compactTheme, MouseFilter = Control.MouseFilterEnum.Ignore };
-        _gubbleView.AddChild(label);
-        label.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.CenterTop);
-        label.GrowHorizontal = Control.GrowDirection.Both;
-        label.OffsetTop = 18;
+        // At the top, centred: the Gubble's words (its bubble's answers, and later what it says), then the view's plain label.
+        var top = new VBoxContainer { Name = "GubbleViewTop", MouseFilter = Control.MouseFilterEnum.Ignore };
+        top.AddThemeConstantOverride("separation", 6);
+        _gubbleView.AddChild(top);
+        top.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.CenterTop);
+        top.GrowHorizontal = Control.GrowDirection.Both;
+        top.OffsetTop = 18;
+        _gubbleViewBubble = GubbleCue.MakeLabel("GubbleViewBubble", GubbleCue.BubbleFontPx);
+        _gubbleViewBubble.SizeFlagsHorizontal = Control.SizeFlags.ShrinkCenter;
+        top.AddChild(_gubbleViewBubble);
+        _gubbleViewSays = GubbleCue.MakeLabel("GubbleViewSays", GubbleCue.ReasonFontPx);
+        _gubbleViewSays.SizeFlagsHorizontal = Control.SizeFlags.ShrinkCenter;
+        top.AddChild(_gubbleViewSays);
+        var label = new PanelContainer { Name = "GubbleViewLabel", Theme = compactTheme, MouseFilter = Control.MouseFilterEnum.Ignore, SizeFlagsHorizontal = Control.SizeFlags.ShrinkCenter };
+        top.AddChild(label);
         var lines = new VBoxContainer { MouseFilter = Control.MouseFilterEnum.Ignore };
         label.AddChild(lines);
         _gubbleViewTitle = new Label { Name = "GubbleViewTitle", HorizontalAlignment = HorizontalAlignment.Center };
@@ -127,6 +143,7 @@ public partial class RoomHud
         _gubbleViewPicture.Texture = _gubbleEye.EyeViewport?.GetTexture();
         _gubbleView.Visible = true;
         _eyesIcon.Looking = true;
+        ShowGubbleWords();
         // The screen shows only the Gubble's view: the window's own 3D waits, so the world is drawn once a frame, not twice.
         SetMain3D(on: false);
         Player.SetInputEnabled(false);
@@ -188,6 +205,42 @@ public partial class RoomHud
         EyeView.MarkBody(Companion, EyeView.GubbleBodyLayer);
         _gubbleEye.ResizeLive(GubbleViewSize());
         PlaceGubbleEye();
+        ShowGubbleWords();
+    }
+
+    /// <summary>The Gubble's words over its view now: its bubble's answer and what it says (GubbleViewWords).</summary>
+    public string GubbleViewBubbleText => _gubbleViewBubble.Visible ? _gubbleViewBubble.Text : "";
+    public string GubbleViewSaysText => _gubbleViewSays.Visible ? _gubbleViewSays.Text : "";
+
+    /// <summary>
+    /// The Gubble's words that show over its view (the founder, 13 October: "It's still information the player needs to be aware
+    /// of"). The thought bubble over the Gubble cannot show here (the Gubble is the one looking), so its words come to the top of
+    /// the screen, above the view's label, as large and as outlined as the bubble's: the bubble's answer (the host's result for an
+    /// order or a cast, or what the Gubble holds) and its short reason after a refusal.
+    /// </summary>
+    private (string Bubble, Color Ink, string Says) GubbleViewWords()
+    {
+        var says = _cue.Reason;
+        // The one place for more of the Gubble's words over its view: a caption it speaks (companion_say, another lane) adds its
+        // current line to says here, e.g. says = string.Join("\n", new[] { caption, says }.Where(line => line.Length > 0)).
+        return (_cue.Bubble.Text, _cue.Bubble.GetThemeColor("font_color"), says);
+    }
+
+    private void ShowGubbleWords()
+    {
+        var (bubble, ink, says) = GubbleViewWords();
+        _gubbleViewBubble.Visible = bubble.Length > 0;
+        if (_gubbleViewBubble.Text != bubble) _gubbleViewBubble.Text = bubble;
+        _gubbleViewBubble.AddThemeColorOverride("font_color", ink);
+        _gubbleViewSays.Visible = says.Length > 0;
+        if (_gubbleViewSays.Text == says) return;
+        _gubbleViewSays.Text = says;
+        // Short words stay on one line; long ones (a spoken caption) wrap within GubbleWordsWidthShare of the screen.
+        var widest = GetViewport().GetVisibleRect().Size.X * GubbleWordsWidthShare;
+        var font = _gubbleViewSays.GetThemeFont("font");
+        var width = says.Split('\n').Max(line => font.GetStringSize(line, HorizontalAlignment.Left, -1, GubbleCue.ReasonFontPx).X) + 2 * GubbleCue.OutlinePx;
+        _gubbleViewSays.AutowrapMode = width > widest ? TextServer.AutowrapMode.WordSmart : TextServer.AutowrapMode.Off;
+        _gubbleViewSays.CustomMinimumSize = new Vector2(width > widest ? widest : 0, 0);
     }
 
     /// <summary>The player's AI took a picture through the Gubble's eyes: the icon blinks.</summary>

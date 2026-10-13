@@ -15,8 +15,9 @@ namespace EnFractal.Tests.Look;
 /// In the default room at noon, in the first-person view (F1), it opens the view with I, turns the Gubble's eye toward the
 /// player and checks that the screen shows the live picture, that the picture changes as the Gubble's eye turns (it is live),
 /// and that the Gubble's eye draws the player's body (the picture changes when that one layer is left out). Back in F1, it checks
-/// that the player's own body neither shows nor casts a shadow there, as before. It saves one frame of the open view to
-/// ABSOLUTE_DIR (gubble-view.png). Its saves and profile stay under user://tests/gubble_view_capture and are removed when it ends.
+/// that the player's own body neither shows nor casts a shadow there, as before. It shows a refusal of the Gubble's over the
+/// view, and measures the journal's Discoveries and Abilities pages. It saves three frames to ABSOLUTE_DIR: the open view
+/// (gubble-view.png), the Gubble's words over it (gubble-view-words.png) and the Abilities page (journal-abilities.png). Its saves and profile stay under user://tests/gubble_view_capture and are removed when it ends.
 /// </summary>
 public partial class GubbleViewCapture : Node
 {
@@ -164,6 +165,36 @@ public partial class GubbleViewCapture : Node
             var view = new Rect2(0.05f, 0.2f, 0.9f, 0.75f);
             var noise = Difference(first, second, view);
             Check(Difference(second, noShadow, view) <= noise + 0.003f, $"in F1 the player's body casts no shadow into its own view (difference {Difference(second, noShadow, view):0.0000}, frame noise {noise:0.0000})");
+
+            // The Gubble's words over its view: a refusal while looking reads at the top, above the label.
+            hud.Cue.Think(GubbleMagic.FetchIcon);
+            hud.OpenGubbleView();
+            hud.Cue.Refuse("That spot is out of reach. Bring the Gubble closer and try again.");
+            await Frames(10);
+            var words = await Grab(GetViewport());
+            Check(hud.GubbleViewBubbleText.Length > 0 && hud.GubbleViewSaysText.Length > 0, $"the Gubble's words show over its view: {hud.GubbleViewBubbleText} {hud.GubbleViewSaysText}");
+            if (output != null) Check(words.SavePng(System.IO.Path.Combine(output, "gubble-view-words.png")) == Error.Ok, "saved the words over the view as gubble-view-words.png");
+            hud.CloseGubbleView();
+
+            // The journal's Discoveries and Abilities pages: their words keep within the page's width (a long page scrolls).
+            hud.OpenJournal();
+            await Frames(70);
+            foreach (var page in new[] { Native.Ui.JournalPages.Discoveries, Native.Ui.JournalPages.Abilities })
+            {
+                hud.Journal.OpenPage(page);
+                await Frames(3);
+                var scroll = hud.Journal.FindChildren("*", nameof(ScrollContainer), true, false).OfType<ScrollContainer>().First();
+                var entries = scroll.GetChild<Control>(0);
+                var area = scroll.GetGlobalRect();
+                var labels = entries.FindChildren("*", nameof(Label), true, false).OfType<Label>().ToList();
+                GD.Print($"GUBBLE_VIEW_CAPTURE: the {page} page's words are {entries.Size.Y:0} px tall in a {area.Size.Y:0} px page ({labels.Count} lines)");
+                Check(labels.All(l => l.GetGlobalRect().Position.X >= area.Position.X - 1 && l.GetGlobalRect().End.X <= area.End.X + 1 && l.GetLineCount() <= 3),
+                    $"the {page} page's lines keep within the page's width");
+                if (page == Native.Ui.JournalPages.Abilities && output != null)
+                    Check((await Grab(GetViewport())).SavePng(System.IO.Path.Combine(output, "journal-abilities.png")) == Error.Ok, "saved the Abilities page as journal-abilities.png");
+            }
+            hud.CloseJournal();
+            await Frames(60);
 
             world.Free();
             await Frames(2);

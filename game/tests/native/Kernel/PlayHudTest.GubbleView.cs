@@ -112,6 +112,8 @@ public partial class PlayHudTest
             await Frames(JournalMoveFrames);
             Check(!_hud.JournalOpen && icon.Visible && player.InputEnabled, "with the book back in its dock the icon is there again");
 
+            await TestGubbleWordsOverView();
+            await TestAbilitiesNameTheView();
             await TestGubbleLookCue(host, icon);
             await TestGubbleSeesPlayerInF1();
         }
@@ -209,6 +211,74 @@ public partial class PlayHudTest
         await Frames(1);
     }
 
+    /// <summary>
+    /// The Gubble's words show while the player looks through its eyes (the founder: "It's still information the player needs to
+    /// be aware of"): its bubble's answer and reason come to the top of the view, above the view's label, over the picture, as large
+    /// and outlined as the bubble's own, and go when the bubble clears.
+    /// </summary>
+    private async Task TestGubbleWordsOverView()
+    {
+        var cue = _hud.Cue;
+        var top = _hud.GetNode<Control>("GubbleView/GubbleViewTop");
+        var bubble = top.GetNode<Label>("GubbleViewBubble");
+        var says = top.GetNode<Label>("GubbleViewSays");
+        var label = top.GetNode<Control>("GubbleViewLabel");
+        cue.Think(GubbleMagic.FetchIcon);
+        _hud.OpenGubbleView();
+        Check(_hud.GubbleViewBubbleText == cue.Bubble.Text && _hud.GubbleViewBubbleText.Length > 0 && _hud.GubbleViewSaysText == "",
+            "an answer the Gubble is thinking about shows over its view at once: " + _hud.GubbleViewBubbleText);
+        cue.Refuse("That spot is out of reach. Bring the Gubble closer and try again.");
+        await Frames(2);
+        var screen = _hud.GetViewport().GetVisibleRect();
+        var (b, s, l) = (bubble.GetGlobalRect(), says.GetGlobalRect(), label.GetGlobalRect());
+        Check(_hud.GubbleViewBubbleText == cue.Bubble.Text && _hud.GubbleViewSaysText == cue.Reason && cue.Reason.Length > 0,
+            $"a refusal while looking shows the host's reason there too: {_hud.GubbleViewBubbleText} {_hud.GubbleViewSaysText}");
+        Check(b.End.Y <= s.Position.Y + 0.5f && s.End.Y <= l.Position.Y + 0.5f && screen.Encloses(b) && screen.Encloses(s) &&
+              Mathf.Abs(b.GetCenter().X - screen.GetCenter().X) < 1 && Mathf.Abs(s.GetCenter().X - screen.GetCenter().X) < 1,
+            $"the words stand centred at the top, above the view's label (bubble {b}, words {s}, label {l})");
+        Check(top.GetIndex() > _hud.GubbleViewPicture.GetIndex() && bubble.GetThemeFontSize("font_size") == GubbleCue.BubbleFontPx &&
+              says.GetThemeFontSize("font_size") == GubbleCue.ReasonFontPx && says.GetThemeConstant("outline_size") == GubbleCue.OutlinePx,
+            "over the picture, as large as the bubble's own words and outlined dark, so they read over any view");
+        cue.Clear();
+        await Frames(2);
+        Check(!bubble.Visible && !says.Visible && Mathf.Abs(label.GetGlobalRect().Position.Y - 18) < 1, "when the bubble clears, the words go and the label is back at the top");
+        _hud.CloseGubbleView();
+    }
+
+    /// <summary>The journal's Abilities page names the view, with its key from the input map and the icon, in a player's words.</summary>
+    private async Task TestAbilitiesNameTheView()
+    {
+        _hud.OpenJournal();
+        _hud.Journal.OpenPage(JournalPages.Abilities);
+        Check(_hud.JournalText.Contains("\nI or the eye icon: see through the Gubble's eyes\n", StringComparison.Ordinal),
+            "the journal's Abilities page has a line for seeing through the Gubble's eyes: its key or the eye icon");
+        // The pages still fit: every line keeps within the page's width (a long page scrolls, as it did), and the new line is short.
+        await Frames(JournalMoveFrames);
+        foreach (var page in new[] { JournalPages.Discoveries, JournalPages.Abilities })
+        {
+            _hud.Journal.OpenPage(page);
+            await Frames(3);
+            var scroll = _hud.Journal.FindChildren("*", nameof(ScrollContainer), true, false).OfType<ScrollContainer>().First();
+            var area = scroll.GetGlobalRect();
+            var labels = scroll.GetChild<Control>(0).FindChildren("*", nameof(Label), true, false).OfType<Label>().ToList();
+            var eyes = labels.FirstOrDefault(l => l.Text.Contains("eye icon", StringComparison.Ordinal));
+            GD.Print($"PLAY_HUD_INFO: the journal's {page} page: {labels.Count} lines, {scroll.GetChild<Control>(0).Size.Y:0} px of words in a {area.Size.Y:0} px page");
+            Check(labels.Count > 0 && labels.All(l => l.GetGlobalRect().Position.X >= area.Position.X - 1 && l.GetGlobalRect().End.X <= area.End.X + 1) &&
+                  (page != JournalPages.Abilities || eyes is { } line && line.GetLineCount() <= 2),
+                $"the {page} page's lines keep within the page's width" + (page == JournalPages.Abilities ? $", the eyes line on {eyes?.GetLineCount()} line(s)" : ""));
+        }
+        _hud.Journal.OpenPage(JournalPages.Abilities);
+        SaveMap();
+        try
+        {
+            Bind(Act.GubbleEyes, Key.U);
+            _hud.Journal.OpenPage(JournalPages.Abilities);
+            Check(_hud.JournalText.Contains("U or the eye icon: see through the Gubble's eyes", StringComparison.Ordinal), "with its key read from the input map (on U, it says U)");
+        }
+        finally { RestoreMap(); }
+        _hud.CloseJournal();
+        await Frames(JournalMoveFrames);
+    }
     /// <summary>The icon blinks when the player's AI takes a picture (view.look succeeds), and not when the look is refused or not drawn.</summary>
     private async Task TestGubbleLookCue(CommandHost host, GubbleEyesIcon icon)
     {
