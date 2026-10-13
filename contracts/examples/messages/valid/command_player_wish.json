@@ -1,0 +1,12 @@
+{
+  "schema": "enfractal.command",
+  "version": 1,
+  "action_id": "wish-0001",
+  "room_id": "garage_example",
+  "op": "wish.submit",
+  "args": {
+    "text": "A path of flowers to the shelves",
+    "aim_id": "obj:shelving_right"
+  },
+  "note": "Player-only: the wish page."
+}

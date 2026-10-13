@@ -111,6 +111,17 @@ def effect_args_error(error: HostError) -> HostError:
     return HostError("request_invalid", error.message, field_path=path)
 
 
+def nature_args_error(error: HostError) -> HostError:
+    """The nature commands' arguments as the kernel host checks them (CommandHostNature.CheckNatureArgs): an argument it
+    does not know is field_unknown, anything else wrong with them request_invalid, a position at the whole vector."""
+    path = error.field_path or ""
+    if error.code != "invalid_args" or not path.startswith("$.args."):
+        return error
+    if path.startswith("$.args.center_m"):
+        path = "$.args.center_m"
+    return HostError("request_invalid", error.message, field_path=path)
+
+
 def base_result(*, principal: str, room_id: str, revision: int, at_utc: str, message: Any,
                 known_ops: frozenset[str] | tuple[str, ...]) -> dict:
     """The fields every result carries. Echoes only what is well-formed: an unknown op becomes 'invalid'."""

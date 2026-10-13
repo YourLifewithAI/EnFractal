@@ -1,0 +1,11 @@
+{
+  "schema": "enfractal.query",
+  "version": 1,
+  "query_id": "q-0030",
+  "room_id": "garage_example",
+  "op": "view.look",
+  "args": {
+    "actor": "avatar:companion",
+    "pitch_deg": 61
+  }
+}

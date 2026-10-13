@@ -150,8 +150,10 @@ class Checkpoints(FixCase):
         before = self.host.revision
         for i in range(5):
             self.assertEqual(self.send(command("room.checkpoint", {}, f"cp-{i}"))["revision"], before)
+        # The undo still names the revision it undoes from: not stale (no revision_conflict). It takes back nature changes
+        # only, and a move is not one, so it answers that instead.
         undo = self.host.player_command(command("room.undo", {"to_revision": 0}, "p-undo", expected_revision=before))
-        self.assertTrue(undo["ok"], undo)
+        self.assertRefused(undo, "unsupported_capability", "$.args.to_revision")
 
     def test_checkpoints_are_capped_like_room_state(self):
         for i in range(5):
@@ -369,11 +371,6 @@ class Approvals(FixCase):
         transform = self.hold(command("entity.transform", {"target": "obj:book", "into": source}, "tf-1",
                                       expected_entities={"obj:book": 0}))
         self.assertIn('turn obj:book ("Book", revision 0) into "Worn glide"', transform["approval_needed"]["reason"])
-        moved = self.send(command("entity.place", {"target": "obj:rug", "placement": {"position_m": [0.1, 0, 0.6]}},
-                                  "move-1"))
-        self.assertTrue(moved["ok"], moved)  # the companion's own change: the only kind its undo may step back over
-        undo = self.hold(command("room.undo", {"to_revision": 0}, "undo-1", expected_revision=1))
-        self.assertIn("from revision 1 to revision 0, changing 1 entities: obj:rug", undo["approval_needed"]["reason"])
 
     def test_approval_text_names_the_presets_for_a_style_change(self):
         with tempfile.TemporaryDirectory() as tmp:

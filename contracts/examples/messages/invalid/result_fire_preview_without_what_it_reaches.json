@@ -1,0 +1,42 @@
+{
+  "schema": "enfractal.result",
+  "version": 1,
+  "ok": true,
+  "op": "nature.cast",
+  "action_id": "fire-0001",
+  "principal": "companion:local",
+  "room_id": "garage_example",
+  "revision": 6,
+  "replayed": false,
+  "preview": true,
+  "at_utc": "2026-10-06T00:05:00Z",
+  "affected": [
+    "obj:shelving_left"
+  ],
+  "data": {
+    "center_m": [
+      -0.1,
+      0.0,
+      -1.9
+    ],
+    "radius_m": 0.6,
+    "duration_s": 30,
+    "cell_count": 113,
+    "cells": [
+      [
+        -0.125,
+        0.0,
+        -1.925
+      ],
+      [
+        -0.075,
+        0.0,
+        -1.925
+      ]
+    ],
+    "cells_truncated": true,
+    "requires_approval": false,
+    "max_burning_cells": 200,
+    "preview_id": "95f7f2f21ba954db96bebe71a1e86e2a"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "schema": "enfractal.command",
+  "version": 1,
+  "action_id": "adjust-0001",
+  "room_id": "garage_example",
+  "op": "effect.adjust",
+  "args": {
+    "effect": "effect:lqxpprqkqnjfo6o6p4jz4vchca",
+    "center_m": [
+      0.5,
+      0.0,
+      0.3
+    ],
+    "connections": [
+      "effect:bgtju4nph4ftc5hpvk22xfdzdq",
+      "effect:y2syfvzbfu6nyjua3lzekvfdxu"
+    ]
+  }
+}

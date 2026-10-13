@@ -892,7 +892,7 @@
           "$ref": "common.schema.json#/$defs/principal_id"
         },
         "transient": {
-          "description": "True for commands that change no saved state: goals, stops, effects, grabs, activations and the world's physics. Their receipts live for the session only.",
+          "description": "True for commands that change no saved state: goals, stops (wish.stop among them), effects and their adjustments, grabs, activations, the world's physics and the player's own settings (the game mode, Glow's touch and sound), which the player's profile keeps, never the room. Their receipts live for the session only. Nature changes and their room.undo are durable.",
           "type": "boolean"
         }
       },
@@ -1364,6 +1364,319 @@
               "data": {
                 "$ref": "#/$defs/data/view.look"
               }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ok": {
+                "const": true
+              },
+              "op": {
+                "const": "effect.adjust"
+              }
+            },
+            "required": [
+              "ok",
+              "op"
+            ]
+          },
+          "then": {
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/$defs/data/effect.adjust"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ok": {
+                "const": true
+              },
+              "op": {
+                "const": "glow.configure"
+              }
+            },
+            "required": [
+              "ok",
+              "op"
+            ]
+          },
+          "then": {
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/$defs/data/glow.configure"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "op": {
+                "const": "world.set_mode"
+              }
+            },
+            "required": [
+              "op"
+            ]
+          },
+          "then": {
+            "properties": {
+              "data": false
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ok": {
+                "const": true
+              },
+              "op": {
+                "const": "nature.cast"
+              },
+              "preview": {
+                "const": true
+              }
+            },
+            "required": [
+              "ok",
+              "op",
+              "preview"
+            ]
+          },
+          "then": {
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/$defs/data/nature.cast_preview"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ok": {
+                "const": true
+              },
+              "op": {
+                "const": "nature.cast"
+              },
+              "preview": {
+                "const": false
+              }
+            },
+            "required": [
+              "ok",
+              "op",
+              "preview"
+            ]
+          },
+          "then": {
+            "properties": {
+              "data": {
+                "$ref": "#/$defs/data/nature.cast"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ok": {
+                "const": true
+              },
+              "op": {
+                "const": "nature.trail"
+              }
+            },
+            "required": [
+              "ok",
+              "op"
+            ]
+          },
+          "then": {
+            "properties": {
+              "data": {
+                "$ref": "#/$defs/data/nature.trail"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ok": {
+                "const": true
+              },
+              "op": {
+                "const": "nature.repair"
+              }
+            },
+            "required": [
+              "ok",
+              "op"
+            ]
+          },
+          "then": {
+            "properties": {
+              "data": {
+                "$ref": "#/$defs/data/nature.repair"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ok": {
+                "const": true
+              },
+              "op": {
+                "const": "room.undo"
+              }
+            },
+            "required": [
+              "ok",
+              "op"
+            ]
+          },
+          "then": {
+            "properties": {
+              "data": {
+                "$ref": "#/$defs/data/room.undo"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ok": {
+                "const": true
+              },
+              "op": {
+                "enum": [
+                  "nature.cast",
+                  "nature.trail",
+                  "nature.repair",
+                  "room.undo"
+                ]
+              },
+              "replayed": {
+                "const": false
+              }
+            },
+            "required": [
+              "ok",
+              "op",
+              "replayed"
+            ]
+          },
+          "then": {
+            "required": [
+              "data"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ok": {
+                "const": true
+              },
+              "op": {
+                "const": "wish.submit"
+              },
+              "preview": {
+                "const": false
+              }
+            },
+            "required": [
+              "ok",
+              "op",
+              "preview"
+            ]
+          },
+          "then": {
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/$defs/data/wish.submit"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ok": {
+                "const": true
+              },
+              "op": {
+                "const": "wish.stop"
+              },
+              "preview": {
+                "const": false
+              }
+            },
+            "required": [
+              "ok",
+              "op",
+              "preview"
+            ]
+          },
+          "then": {
+            "required": [
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/$defs/data/wish.stop"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ok": {
+                "const": true
+              },
+              "op": {
+                "enum": [
+                  "wish.submit",
+                  "wish.stop"
+                ]
+              },
+              "preview": {
+                "const": true
+              }
+            },
+            "required": [
+              "ok",
+              "op",
+              "preview"
+            ]
+          },
+          "then": {
+            "properties": {
+              "data": false
             }
           }
         }
@@ -2581,6 +2894,7 @@
         }
       },
       "room.undo": {
+        "description": "Take back the latest nature changes (Bloom, Fire, the flower trail, repairs), the room going back to to_revision, the room revision just before one of them. Names expected_revision, the room revision now. The undo is itself a durable room revision. A newer change of another kind (building, moving, protecting) cannot be undone yet: unsupported_capability. A revision the island cannot reach back to is invalid_args, with the reachable one in error.allowed. The Gubble's undo of anyone else's change waits for the player's yes. Undo is for Creative: in Challenge and Live the host refuses it outright (contracts/README.md, \"Revisions\").",
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -2825,10 +3139,12 @@
         }
       },
       "effect.adjust": {
+        "description": "Move one of the caster's free constellation points (a plain or torch Glow at a spot) to center_m, within the Gubble's reach and in the team's sight, and/or choose the points it links to: up to four of the caster's own, each within reach of it (an empty list unlinks it). Comes with the fifth light (permission_denied before). Transient, as the glow is.",
         "type": "object",
         "additionalProperties": false,
         "properties": {
           "effect": {
+            "description": "The constellation point, an effect id effect.start created.",
             "type": "string",
             "pattern": "^effect:[A-Za-z0-9_-]{1,64}$"
           },
@@ -2862,6 +3178,7 @@
         ]
       },
       "glow.configure": {
+        "description": "The player's Glow settings: the touch new glows take, and Glow's sound volume and mute. Player-only. Saved in the player's own profile, never in the room, so the receipt is transient. At least one field.",
         "type": "object",
         "additionalProperties": false,
         "properties": {
@@ -2883,10 +3200,10 @@
             "type": "boolean"
           }
         },
-        "required": [],
         "minProperties": 1
       },
       "world.set_mode": {
+        "description": "The game mode: creative (no costs, no injury, creations fireproof), challenge or live (stamina, health and fire's consequences). Player-only. Saved in the player's own profile, never in the room: a transient receipt with no data.",
         "type": "object",
         "additionalProperties": false,
         "properties": {
@@ -2903,6 +3220,7 @@
         ]
       },
       "nature.cast": {
+        "description": "Cast a nature ability at center_m. The intensity is the pack's; the bounds are the island's. Fire is previewed first (preview: true answers a preview_id) and the cast names that preview. Locks never burn; what a fire does to creations and avatars is the host's fire rule by game mode (contracts/README.md, \"Nature\"), and a fire may wait for the player's yes. Durable: one room revision, which room.undo takes back.",
         "type": "object",
         "additionalProperties": false,
         "properties": {
@@ -2910,24 +3228,28 @@
             "enum": [
               "bloom",
               "fire"
-            ]
+            ],
+            "description": "A nature ability the island grants: capabilities.list names it with command_op nature.cast (bloom or fire)."
           },
           "center_m": {
+            "description": "Where: inside the island, within the ability's reach of the Gubble and in the team's sight now.",
             "$ref": "common.schema.json#/$defs/vec3"
           },
           "radius_m": {
             "type": "number",
             "exclusiveMinimum": 0,
-            "maximum": 1.5
+            "maximum": 1.5,
+            "description": "At most the engine's 1.5 m, and at most the ability's area_radius_max_m (invalid_args past it)."
           },
           "duration_s": {
             "type": "number",
             "exclusiveMinimum": 0,
-            "maximum": 600
+            "maximum": 600,
+            "description": "How long the flowers live or the fire may burn: at most 600 s, and at most the ability's duration_max_s (invalid_args past it)."
           },
           "preview_id": {
-            "type": "string",
-            "pattern": "^[a-f0-9]{32}$"
+            "description": "Fire only: the preview_id the caster's own preview of exactly this cast answered.",
+            "$ref": "#/$defs/preview_id"
           }
         },
         "required": [
@@ -2938,10 +3260,12 @@
         ]
       },
       "nature.trail": {
+        "description": "The flower trail behind the Gubble (Bloom) on or off. Turning it off is always allowed; the Gubble turning back on a trail the player turned off waits for the player's yes. Durable.",
         "type": "object",
         "additionalProperties": false,
         "properties": {
           "enabled": {
+            "description": "On (true) or off.",
             "type": "boolean"
           }
         },
@@ -2950,11 +3274,13 @@
         ]
       },
       "nature.repair": {
+        "description": "Repair one scorched creation from its hash-pinned design, at its original material cost from the team's wallet (free in Creative). The Gubble's repair of a creation the player made waits for the player's yes. Durable.",
         "type": "object",
         "additionalProperties": false,
         "properties": {
           "target": {
-            "$ref": "common.schema.json#/$defs/entity_id"
+            "description": "A scorched creation.",
+            "$ref": "#/$defs/creation_id"
           }
         },
         "required": [
@@ -2962,21 +3288,25 @@
         ]
       },
       "wish.submit": {
+        "description": "The player's wish: queued for the local wish runner the player started, which asks the player's AI to grant it with the Gubble's own commands. Player-only. Its receipt lives in the wish journal (durable, not room state); data names the wish.",
         "type": "object",
         "additionalProperties": false,
         "properties": {
           "text": {
+            "description": "The player's words, one line of 1 to 280 characters with at least one that is not a space. Untrusted text: the wish runner hands it to the player's AI as a request, never as rules.",
             "allOf": [
               {
                 "$ref": "common.schema.json#/$defs/display_text"
               },
               {
                 "minLength": 1,
-                "maxLength": 280
+                "maxLength": 280,
+                "pattern": "\\S"
               }
             ]
           },
           "aim_id": {
+            "description": "Optional: something the team knows that the wish is about.",
             "$ref": "common.schema.json#/$defs/entity_id"
           }
         },
@@ -2985,28 +3315,28 @@
         ]
       },
       "wish.stop": {
+        "description": "Stop every queued and running wish and what the Gubble was doing for them; a request held for the player's click under a wish is denied. Player-only. Always applies, like the other stops; a transient receipt counts what it cancelled.",
         "type": "object",
         "additionalProperties": false,
-        "properties": {},
-        "required": []
+        "properties": {}
       },
       "player.status": {
+        "description": "The player's mode and body as the host keeps them. Read-only: no request sets them.",
         "type": "object",
         "additionalProperties": false,
-        "properties": {},
-        "required": []
+        "properties": {}
       },
       "nature.describe": {
+        "description": "The island's nature as the requester's team knows it.",
         "type": "object",
         "additionalProperties": false,
-        "properties": {},
-        "required": []
+        "properties": {}
       },
       "wishes.read": {
+        "description": "The player's wish journal, oldest first. Player-only.",
         "type": "object",
         "additionalProperties": false,
-        "properties": {},
-        "required": []
+        "properties": {}
       },
       "view.look": {
         "description": "One small picture from the Gubble's own eyes: its eye height and the way it faces, the eye turned by yaw_deg and tilted by pitch_deg without moving the body. Only the Gubble's eyes: the actor is always the companion's avatar, never the player's.",
@@ -3428,6 +3758,7 @@
         }
       },
       "player.status": {
+        "description": "The player's mode and body: health, stamina and what climbing has earned. consequences is false in Creative.",
         "type": "object",
         "additionalProperties": false,
         "properties": {
@@ -3484,15 +3815,18 @@
         ]
       },
       "nature.describe": {
+        "description": "The island's nature now, as the requester's team knows it: what the companion has not perceived is not counted. The player knows all of it.",
         "type": "object",
         "additionalProperties": false,
         "properties": {
           "nature_revision": {
             "type": "integer",
             "minimum": 0,
-            "maximum": 2147483647
+            "maximum": 2147483647,
+            "description": "The room revision of the last nature change (a nature command, or room.undo of one); 0 before any."
           },
           "trail_enabled": {
+            "description": "Whether the flower trail is on.",
             "type": "boolean"
           },
           "weather": {
@@ -3500,14 +3834,20 @@
             "additionalProperties": false,
             "properties": {
               "pattern": {
-                "$ref": "common.schema.json#/$defs/display_text"
+                "enum": [
+                  "fair",
+                  "showers",
+                  "rain"
+                ]
               },
               "rain": {
+                "description": "How hard it rains, 0 to 1.",
                 "type": "number",
                 "minimum": 0,
                 "maximum": 1
               },
               "wind_mps": {
+                "description": "The wind, metres per second along the room's axes.",
                 "$ref": "common.schema.json#/$defs/vec3"
               }
             },
@@ -3518,35 +3858,52 @@
             ]
           },
           "planted_cells": {
+            "description": "Cells with flowers growing, as the requester's team has perceived them.",
             "type": "integer",
             "minimum": 0,
             "maximum": 16000
           },
           "burning_cells": {
+            "description": "Cells burning now, as the requester's team has perceived them.",
             "type": "integer",
             "minimum": 0,
             "maximum": 200
           },
           "wallet": {
+            "description": "The team's materials for repairs, one wallet for the player and the Gubble.",
             "type": "object",
+            "propertyNames": {
+              "$ref": "#/$defs/creation_material"
+            },
             "additionalProperties": {
               "type": "integer",
               "minimum": 0,
-              "maximum": 1000000
+              "maximum": 100000
             }
           },
           "scorched": {
+            "description": "Scorched creations awaiting repair, as the requester's team knows them, sorted.",
             "type": "array",
+            "maxItems": 1024,
+            "uniqueItems": true,
             "items": {
-              "$ref": "common.schema.json#/$defs/entity_id"
-            },
-            "maxItems": 4096
+              "$ref": "#/$defs/creation_id"
+            }
           },
           "can_undo": {
+            "description": "Whether room.undo can take back the latest change now (it is a nature change).",
             "type": "boolean"
           },
           "notice": {
-            "$ref": "common.schema.json#/$defs/display_text"
+            "description": "Why nature waits, when it does (empty otherwise).",
+            "allOf": [
+              {
+                "$ref": "common.schema.json#/$defs/display_text"
+              },
+              {
+                "maxLength": 200
+              }
+            ]
           }
         },
         "required": [
@@ -3562,6 +3919,7 @@
         ]
       },
       "wishes.read": {
+        "description": "The player's wishes, oldest first: the queued and running ones and the 64 most recent finished.",
         "type": "object",
         "additionalProperties": false,
         "properties": {
@@ -3597,16 +3955,25 @@
                   ]
                 },
                 "action_count": {
+                  "description": "The wish's actions so far (at most 32).",
                   "type": "integer",
                   "minimum": 0,
                   "maximum": 32
                 },
                 "refusal_codes": {
+                  "description": "Why actions of the wish did not succeed, in order: a refusal's error code, or cancelled for an action still running when the wish ended or a goal job that was cancelled.",
                   "type": "array",
+                  "maxItems": 32,
                   "items": {
-                    "$ref": "#/$defs/error_code"
-                  },
-                  "maxItems": 32
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/error_code"
+                      },
+                      {
+                        "const": "cancelled"
+                      }
+                    ]
+                  }
                 },
                 "aim_id": {
                   "$ref": "common.schema.json#/$defs/entity_id"
@@ -3761,10 +4128,302 @@
             }
           }
         }
+      },
+      "effect.adjust": {
+        "description": "Where the point is and what it links to, after the change (a preview says the same without making it).",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "effect",
+          "center_m",
+          "connections"
+        ],
+        "properties": {
+          "effect": {
+            "type": "string",
+            "pattern": "^effect:[A-Za-z0-9_-]{1,64}$"
+          },
+          "center_m": {
+            "$ref": "common.schema.json#/$defs/vec3"
+          },
+          "connections": {
+            "description": "The points it links to now.",
+            "type": "array",
+            "maxItems": 4,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^effect:[A-Za-z0-9_-]{1,64}$"
+            }
+          }
+        }
+      },
+      "glow.configure": {
+        "description": "Glow's settings as they are after the change.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "touch",
+          "sound_volume",
+          "muted"
+        ],
+        "properties": {
+          "touch": {
+            "enum": [
+              "plain",
+              "air",
+              "ember",
+              "frost",
+              "chime"
+            ]
+          },
+          "sound_volume": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "muted": {
+            "type": "boolean"
+          }
+        }
+      },
+      "nature.cast": {
+        "description": "A committed cast, as its durable receipt keeps it.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "center_m",
+          "radius_m",
+          "duration_s",
+          "cell_count",
+          "requires_approval",
+          "started_cells"
+        ],
+        "properties": {
+          "center_m": {
+            "$ref": "common.schema.json#/$defs/vec3"
+          },
+          "radius_m": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 1.5
+          },
+          "duration_s": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 600
+          },
+          "cell_count": {
+            "description": "The ground cells (5 cm) the cast covers that could take flowers or catch, as the requester's team has perceived them.",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 16000
+          },
+          "requires_approval": {
+            "description": "Whether it waits (or waited) for the player's yes.",
+            "type": "boolean"
+          },
+          "started_cells": {
+            "description": "The cells that took (flowers rooted, fire caught), as the requester's team has perceived them.",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 16000
+          },
+          "max_burning_cells": {
+            "description": "Fire: the most cells that may burn at once (the engine's cap).",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 16000
+          }
+        }
+      },
+      "nature.cast_preview": {
+        "description": "What a cast would do, before it is made. Nothing changed and no receipt was kept.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "center_m",
+          "radius_m",
+          "duration_s",
+          "cell_count",
+          "cells",
+          "cells_truncated",
+          "requires_approval"
+        ],
+        "properties": {
+          "center_m": {
+            "$ref": "common.schema.json#/$defs/vec3"
+          },
+          "radius_m": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 1.5
+          },
+          "duration_s": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 600
+          },
+          "cell_count": {
+            "description": "The ground cells (5 cm) the cast covers that could take flowers or catch, as the requester's team has perceived them.",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 16000
+          },
+          "requires_approval": {
+            "description": "Whether it waits (or waited) for the player's yes.",
+            "type": "boolean"
+          },
+          "cells": {
+            "description": "The cells' centres, as the requester's team has perceived them: at most 200.",
+            "type": "array",
+            "maxItems": 200,
+            "items": {
+              "$ref": "common.schema.json#/$defs/vec3"
+            }
+          },
+          "cells_truncated": {
+            "description": "More cells than listed.",
+            "type": "boolean"
+          },
+          "affected_ids": {
+            "description": "Fire: the objects and creations it could burn or scorch, as the requester's team knows them.",
+            "type": "array",
+            "maxItems": 64,
+            "uniqueItems": true,
+            "items": {
+              "$ref": "common.schema.json#/$defs/entity_id"
+            }
+          },
+          "max_burning_cells": {
+            "description": "Fire: the most cells that may burn at once (the engine's cap).",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 16000
+          },
+          "preview_id": {
+            "description": "Fire: the handle the cast names.",
+            "$ref": "#/$defs/preview_id"
+          }
+        },
+        "dependentRequired": {
+          "preview_id": [
+            "affected_ids",
+            "max_burning_cells"
+          ],
+          "affected_ids": [
+            "preview_id"
+          ]
+        }
+      },
+      "nature.trail": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "enabled",
+          "requires_approval"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "requires_approval": {
+            "description": "Whether it waits (or waited) for the player's yes.",
+            "type": "boolean"
+          }
+        }
+      },
+      "nature.repair": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "cost"
+        ],
+        "properties": {
+          "cost": {
+            "description": "What it cost the team's wallet, by material (nothing in Creative).",
+            "type": "object",
+            "propertyNames": {
+              "$ref": "#/$defs/creation_material"
+            },
+            "additionalProperties": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100000
+            }
+          }
+        }
+      },
+      "room.undo": {
+        "description": "What the undo took back (or, in a preview, would).",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "undone",
+          "undone_steps",
+          "requires_approval"
+        ],
+        "properties": {
+          "undone": {
+            "description": "What was taken back, latest first: the nature changes by name (Bloom, Fire, Flower trail, Repair).",
+            "allOf": [
+              {
+                "$ref": "common.schema.json#/$defs/display_text"
+              },
+              {
+                "maxLength": 200
+              }
+            ]
+          },
+          "undone_steps": {
+            "description": "How many nature changes it took back (the host keeps at most 8).",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 8
+          },
+          "requires_approval": {
+            "description": "Whether it waits (or waited) for the player's yes.",
+            "type": "boolean"
+          }
+        }
+      },
+      "wish.submit": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "wish_id",
+          "status"
+        ],
+        "properties": {
+          "wish_id": {
+            "description": "Host-minted: 'wish:' and 26 characters of lowercase base32, random, never a counter.",
+            "type": "string",
+            "pattern": "^wish:[a-z2-7]{26}$"
+          },
+          "status": {
+            "description": "The wish as submitted; wishes.read follows it from there.",
+            "const": "queued"
+          }
+        }
+      },
+      "wish.stop": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "cancelled"
+        ],
+        "properties": {
+          "cancelled": {
+            "description": "How many queued or running wishes it cancelled.",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 81
+          }
+        }
       }
     },
     "player_only_ops": {
-      "description": "Ops a companion principal can never perform. The companion adapter must not expose them and the host rejects them from companion principals. Unlocking is always a direct player action, and so is changing the world's physics.",
+      "description": "Ops a companion principal can never perform. The companion adapter must not expose them and the host refuses them from companion principals (permission_denied), never holding them for a click. Unlocking is always a direct player action, and so are the player's own settings (the world's physics, the game mode, Glow's touch and sound) and the player's wishes (submitting, stopping and reading them).",
       "enum": [
         "protect.unlock",
         "world.set_physics",
@@ -3786,7 +4445,7 @@
       ]
     },
     "capability_summary": {
-      "description": "One capability and its command path, with the current earned active limit and island bounds. Nature abilities use nature.cast; Fire requires a fresh preview before commit.",
+      "description": "One ability the island grants and how to cast it, with the island's bounds.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -3842,23 +4501,23 @@
           "maximum": 600
         },
         "command_op": {
+          "description": "The command that casts it: effect.start, or nature.cast for the nature abilities (Bloom, Fire).",
           "enum": [
             "effect.start",
             "nature.cast"
           ]
         },
         "max_active": {
+          "description": "The most of it that may be active at once now: the pack's max_active, within the room's cap (Glow's grows with the team's discoveries).",
           "type": "integer",
           "minimum": 1,
           "maximum": 64
         },
         "reach_m": {
+          "description": "How far from the Gubble it may be cast.",
           "type": "number",
           "exclusiveMinimum": 0,
           "maximum": 10
-        },
-        "native_required": {
-          "type": "boolean"
         }
       }
     },
@@ -4101,6 +4760,25 @@
           }
         }
       ]
+    },
+    "preview_id": {
+      "description": "A Fire preview's handle, minted by the host: 128 bits from a cryptographic generator, as 32 lowercase hex characters. It names the caster's own preview of exactly this cast at this room revision, for a few minutes, and nothing else: it is never an approval and grants nothing. A cast whose place, reach, mode or permission changed since its preview is refused with revision_conflict; preview again.",
+      "type": "string",
+      "pattern": "^[a-f0-9]{32}$"
+    },
+    "creation_material": {
+      "description": "A creation part's material, the creation compiler's vocabulary (creation_compiler.gd). The team's wallet and every repair cost count in these.",
+      "enum": [
+        "stone",
+        "wood",
+        "copper",
+        "leaf"
+      ]
+    },
+    "creation_id": {
+      "description": "A creation's entity id.",
+      "type": "string",
+      "pattern": "^creation:[A-Za-z0-9_-]{1,64}$"
     }
   }
 }

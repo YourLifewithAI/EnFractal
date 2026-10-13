@@ -35,16 +35,22 @@ It loads a real room (`game/rooms/test_room` by default) through the room contra
   `approved_by`; approvals expire, and lapse as soon as the entities they touch change (at most 8
   wait per principal). Every safety property also holds with an empty held set;
 - protection is the player's: `protect.unlock` (every op in `$defs/player_only_ops`) is refused
-  from companion principals, and no companion command (including `room.undo`) changes a protected
-  entity or any protection state except adding a lock;
-- a companion's `room.undo` steps back only over revisions its own commands made: undoing the
-  player's changes is the player's alone;
+  from companion principals, and no companion command changes a protected entity or any protection
+  state except adding a lock;
+- nature (Bloom, the flower trail, Fire, repair; contracts/README.md "Nature") is not simulated here yet:
+  `nature.cast`, `nature.trail` and `nature.repair` are checked as the kernel checks them before its
+  nature runs (the contract's args, refused request_invalid as CheckNatureArgs does; the revisions; a
+  companion's repair target in sight), then answered `unavailable`, and so is `nature.describe`. With no
+  nature change to take back, `room.undo` answers as the kernel's does for any other change: an earlier
+  revision is unsupported_capability, a revision that is not earlier is invalid_args;
 - unknown, removed, foreign and unperceived entity ids all fail with the same `target_not_found`;
 - the island's abilities come from its rules pack, the one the kernel host loads (game/rules/storybook_wild/v4.json:
   Glow, Bubbles, Fireworks, Bloom and Fire; checked fail-closed): `capabilities.list` answers from it, and `effect.start` follows the
   kernel's rules, order of refusals, codes and result data (CommandHostEffects.cs), the same for every primitive
-  (light.emit, particles.float, particles.burst). The Gubble carries every ability out: a companion may
-  target only its own avatar (self) or name no targets (a point within reach and in the team's sight); effect ids are
+  (light.emit, particles.float, particles.burst). Bloom and Fire are cast with nature.cast, never effect.start, and
+  what needs the game itself (terrain-aware Glow, nature, the wish queue) is answered `unavailable`. The Gubble
+  carries every ability out: a companion may target only its own avatar (self) or name no targets (a point within
+  reach and in the team's sight); effect ids are
   opaque; effects end at their duration, on `effect.stop` (the player any, a companion its own) and on a `goal.stop`
   that covers the Gubble. Effects are not entities: no query lists them, as on the kernel host;
 - world text is emitted only in contract fields and sanitised (textsafety.py);
@@ -84,7 +90,7 @@ from .contract import (
     value_problems,
 )
 from .refusals import (HostError, base_result, effect_args_error, failure, forbidden_key_error, map_schema_errors,
-                       value_error)
+                       nature_args_error, value_error)
 
 log = logging.getLogger("enfractal.mock_host")
 
@@ -92,6 +98,13 @@ PLAYER = "player:local"
 COMPANION = "companion:local"
 OWN_AVATAR = {PLAYER: "avatar:player", COMPANION: "avatar:companion"}
 STOP_OPS = frozenset({"goal.stop", "effect.stop"})
+# The nature commands (contracts/README.md "Nature"): the mock checks them as the kernel does before its nature runs, then
+# answers unavailable. A follow-up models nature here (test_host_alignment.py NATURE_NOT_IN_THE_MOCK).
+NATURE_OPS = frozenset({"nature.cast", "nature.trail", "nature.repair"})
+# What room.undo answers when the latest change is not a nature change (CommandHostNature.NatureUndo, word for word).
+UNDO_NOT_EARLIER = "Undo names an earlier room revision."
+UNDO_ONLY_NATURE = ("The latest change is not one the island can undo yet: only nature changes (Bloom, Fire, the trail, repairs) "
+                    "can be undone.")
 TRANSIENT_OPS = frozenset({"entity.grab", "creation.activate", "goal.set", "goal.stop", "effect.start", "effect.stop",
                            "world.set_physics", "world.set_mode", "glow.configure", "effect.adjust"})
 # Durable, but they change no world state, so they do not move the room revision.
@@ -1016,6 +1029,8 @@ class MockHost(JournalMixin):
             error = map_schema_errors(errors)
             if message.get("schema") == COMMAND_SCHEMA and message.get("op") == "effect.start":
                 error = effect_args_error(error)
+            if message.get("schema") == COMMAND_SCHEMA and message.get("op") in NATURE_OPS:
+                error = nature_args_error(error)
             raise error
         for path, source in creation_sources(message):
             size = len(self.contracts.canonical_bytes(source))
@@ -1259,12 +1274,6 @@ class MockHost(JournalMixin):
                 x, y, z = (round(v, 2) for v in args["placement"]["position_m"])
                 parts.append(f"move it to ({x}, {y}, {z})")
             what = f"change {named(args['target'])}: " + " and ".join(parts)
-        elif op == "room.undo":
-            changed = self._undo_plan(args["to_revision"])
-            listed = ", ".join(entity_id for entity_id, _state in changed[:6])
-            more = f" and {len(changed) - 6} more" if len(changed) > 6 else ""
-            what = (f"undo the room from revision {self.revision} to revision {args['to_revision']}, "
-                    f"changing {len(changed)} entities: {listed or 'none'}{more}")
         elif op == "style.set":
             what = (f"switch the room style from {self.style['preset_id']} v{self.style['preset_version']} "
                     f"to {args['preset_id']} v{args['preset_version']}")
@@ -1423,24 +1432,6 @@ class MockHost(JournalMixin):
     def _snapshot(self) -> dict:
         return {"entities": {k: e.durable_state() for k, e in self.entities.items() if e.kind not in ("effect", "avatar")},
                 "style": dict(self.style)}
-
-    def _undo_plan(self, to_revision: int) -> list[tuple[str, dict | None]]:
-        """(entity id, the state it would get, or None to remove it) for every entity undo would change."""
-        snapshot = self.history.get(to_revision)
-        if snapshot is None:
-            return []
-        changes: list[tuple[str, dict | None]] = []
-        for entity_id, state in snapshot["entities"].items():
-            entity = self.entities.get(entity_id)
-            current = entity.durable_state() if entity else None
-            if current is not None and {k: v for k, v in current.items() if k != "revision"} == \
-                    {k: v for k, v in state.items() if k != "revision"}:
-                continue
-            changes.append((entity_id, state))
-        for entity_id, entity in self.entities.items():
-            if entity.kind in ("object", "creation") and entity_id not in snapshot["entities"] and not entity.removed:
-                changes.append((entity_id, None))
-        return sorted(changes, key=lambda item: item[0])
 
     # ------------------------------------------------------------------ op handlers
     # Each handler validates first. With apply=False it only predicts the outcome; with apply=True it
@@ -2017,8 +2008,8 @@ class MockHost(JournalMixin):
 
     @staticmethod
     def _runtime_required(feature: str) -> None:
-        raise HostError("unsupported_capability", f"{feature} requires the native game runtime; this mock does not simulate it.",
-                        field_path="$.op")
+        # The contract's code for "this host cannot do that here" (the kernel's, for a game with no renderer).
+        raise HostError("unavailable", f"{feature} needs the game itself; this mock host does not simulate it.", field_path="$.op")
 
     def _require_mock_primitive(self, ability: Ability) -> None:
         if ability.primitive not in {"light.emit", "particles.float", "particles.burst"}:
@@ -2150,13 +2141,18 @@ class MockHost(JournalMixin):
         return {"affected": [effect.id], "data": data} if apply else {"data": data}
 
     def _op_nature_cast(self, principal, message, apply, new_revision):
-        self._runtime_required("Terrain growth, weather and fire")
+        # The contract checked the args (as the kernel's CheckNatureArgs) and _check_revisions the expectations; the kernel's
+        # nature begins here, which this mock does not simulate.
+        self._runtime_required("Bloom and Fire on the island's ground")
 
     def _op_nature_trail(self, principal, message, apply, new_revision):
         self._runtime_required("The flower trail")
 
     def _op_nature_repair(self, principal, message, apply, new_revision):
-        self._runtime_required("Scorched creation repair")
+        # The kernel's CheckPerceived first: a companion names only what the team has in sight now.
+        if not principal.startswith("player:"):
+            self._require(message["args"]["target"], "$.args.target")
+        self._runtime_required("Repairing a scorched creation")
 
     def _op_wish_submit(self, principal, message, apply, new_revision):
         if principal != PLAYER:
@@ -2226,48 +2222,12 @@ class MockHost(JournalMixin):
         return {}
 
     def _op_room_undo(self, principal, message, apply, new_revision):
-        to_revision = message["args"]["to_revision"]
-        if to_revision >= self.revision or to_revision not in self.history:
-            raise HostError("invalid_args", "That revision cannot be restored.", field_path="$.args.to_revision",
-                            allowed=[min(self.history), max(self.revision - 1, 0)], actual=to_revision)
-        changes = self._undo_plan(to_revision)
-        if not principal.startswith("player:"):
-            # Protection is the player's. A companion's undo may not touch a protected entity, and may
-            # not change any entity's protection, in either direction.
-            for entity_id, state in changes:
-                entity = self.entities.get(entity_id)
-                now_protected = bool(entity and not entity.removed and entity.protected)
-                then_protected = bool(state and not state["removed"] and state["protected"])
-                if now_protected or then_protected != now_protected:
-                    raise HostError("target_protected",
-                                    "Undoing to that revision would change something protected. Only the player can do that.",
-                                    field_path="$.args.to_revision")
-            # Undoing the player's edits is never the companion's (docs/companion/LIVE-VOICE.md, "never
-            # exposed"): a companion's undo may only step back over revisions its own commands made.
-            if any(self.committed_by.get(r) != principal for r in range(to_revision + 1, self.revision + 1)):
-                raise HostError("permission_denied",
-                                "A companion can undo only its own changes. Undoing the player's changes is the player's.",
-                                field_path="$.args.to_revision")
-        if not apply:
-            return {"affected": [entity_id for entity_id, _state in changes][:256]}
-        snapshot = self.history[to_revision]
-        changed = []
-        for entity_id, state in changes:
-            if state is None:
-                entity = self.entities[entity_id]
-                entity.removed = True
-                entity.revision = new_revision
-            else:
-                restored = Entity(id=entity_id, **{k: copy.deepcopy(v) for k, v in state.items()})
-                restored.revision = new_revision
-                self.entities[entity_id] = restored
-            changed.append(entity_id)
-        for actor, held in list(self.holding.items()):
-            if held in changed:
-                del self.holding[actor]
-                self.entities[held].held_by = None
-        self.style = dict(snapshot["style"])
-        return {"affected": sorted(changed)[:256]}
+        """room.undo takes nature changes back by room revision (the kernel's NatureUndo). The mock has none to take back,
+        so it answers as the kernel does when the latest change is of another kind; nothing is undone, and building,
+        moving and protecting cannot be undone at all, by anyone."""
+        if message["args"]["to_revision"] >= self.revision:
+            raise HostError("invalid_args", UNDO_NOT_EARLIER, field_path="$.args.to_revision", actual=self.revision)
+        raise HostError("unsupported_capability", UNDO_ONLY_NATURE, field_path="$.args.to_revision")
 
     # ------------------------------------------------------------------ queries
 
@@ -2326,7 +2286,7 @@ class MockHost(JournalMixin):
         elif op in {"nature.describe", "wishes.read"}:
             if op == "wishes.read" and principal != PLAYER:
                 raise HostError("permission_denied", "Only the player can read wishes.")
-            self._runtime_required("Nature simulation" if op == "nature.describe" else "The wish queue")
+            self._runtime_required("The island's nature" if op == "nature.describe" else "The wish queue")
         elif op == "capabilities.list":
             # From the island's rules: capability_summary items by capability, filtered by category, paged by a
             # plain decimal offset (the kernel's Capabilities). A cursor it did not give is invalid_args.
@@ -2347,8 +2307,7 @@ class MockHost(JournalMixin):
                 "reach_m": a.reach_m,
                 "max_active": min(a.max_active, self.policy.max_active_effects,
                                   self.glow_progress.earned_light_limit if a.capability == "glow" else a.max_active),
-                "command_op": "nature.cast" if a.primitive in {"growth.seed", "element.ignite"} else "effect.start",
-                "native_required": a.primitive in {"growth.seed", "element.ignite"}} for a in page]}
+                "command_op": "nature.cast" if a.primitive in {"growth.seed", "element.ignite"} else "effect.start"} for a in page]}
             if start + len(page) < len(abilities):
                 result["data"]["next_cursor"] = str(start + len(page))
         elif op == "observe":

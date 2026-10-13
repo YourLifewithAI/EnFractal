@@ -1,0 +1,37 @@
+{
+  "schema": "enfractal.result",
+  "version": 1,
+  "ok": true,
+  "op": "nature.describe",
+  "query_id": "q-0022",
+  "principal": "companion:local",
+  "room_id": "garage_example",
+  "revision": 8,
+  "replayed": false,
+  "preview": false,
+  "data": {
+    "nature_revision": 8,
+    "trail_enabled": false,
+    "weather": {
+      "pattern": "fair",
+      "rain": 0.0,
+      "wind_mps": [
+        0.12,
+        0.0,
+        -0.03
+      ]
+    },
+    "planted_cells": 46,
+    "burning_cells": 0,
+    "wallet": {
+      "copper": 8,
+      "leaf": 20,
+      "stone": 10,
+      "wood": 19
+    },
+    "scorched": [],
+    "can_undo": true,
+    "notice": ""
+  },
+  "at_utc": "2026-10-06T00:05:00Z"
+}

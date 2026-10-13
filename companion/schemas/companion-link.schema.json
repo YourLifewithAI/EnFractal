@@ -461,7 +461,7 @@
       }
     },
     "runner_response": {
-      "description": "Fixed host replies. A completed runner report can become granted, partial or failed only from host-observed game receipts. No model-authored success description is accepted.",
+      "description": "Fixed host replies. A completed runner report can become granted, partial or failed only from host-observed game receipts. No model-authored success description is accepted. A completed report is refused with not_ready while an accepted action (a goal job) is still running.",
       "oneOf": [
         {
           "type": "object",

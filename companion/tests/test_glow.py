@@ -100,7 +100,7 @@ class TheIslandsRules(GlowCase):
         self.assertEqual([item["capability"] for item in listed], ABILITIES)
         self.assertEqual(listed[-1], {"capability": "glow", "category": "light", "params": {"intensity": {"min": 0.3, "max": 0.5}},
                                      "area_radius_max_m": 1.0, "duration_max_s": 400, "reach_m": 2.0,
-                                     "max_active": 3, "command_op": "effect.start", "native_required": False})
+                                     "max_active": 3, "command_op": "effect.start"})
         started = self.send(glow("c-4", params={}))
         self.assertEqual(started["data"]["params"], {"intensity": 0.4})
 

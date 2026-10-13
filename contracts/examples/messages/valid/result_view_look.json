@@ -1,0 +1,42 @@
+{
+  "schema": "enfractal.result",
+  "version": 1,
+  "ok": true,
+  "op": "view.look",
+  "query_id": "q-0024",
+  "principal": "companion:local",
+  "room_id": "garage_example",
+  "revision": 4,
+  "replayed": false,
+  "preview": false,
+  "data": {
+    "actor": "avatar:companion",
+    "image": {
+      "media_type": "image/png",
+      "width_px": 16,
+      "height_px": 16,
+      "bytes": 852,
+      "data_base64": "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAADG0lEQVR4AQEQA+/8ALLEjLLEjLLEjLLEjLLEjLLEjLLEjLLEjLLEjLLEjLLEjLLEjLLEjLLEjLLEjLLEjACyxIyyxIyyxIyyxIyyxIyyxIyyxIyyxIyyxIyyxIyyxIyyxIyyxIyyxIyyxIyyxIwAssSMssSMssSMssSMssSMssSMssSMssSMssSMssSMssSMssSMssSMssSMssSMssSMALLEjLLEjLLEjLLEjLLEjLLEjLLEjLLEjLLEjLLEjLLEjLLEjLLEjLLEjLLEjLLEjACyxIyyxIyyxIyyxIyyxIyyxIyyxIyyxIyyxIyyxIyyxIyyxIyyxIyyxIyyxIyyxIwAssSMssSMssSMssSMssSMssSMssSMssSMssSMssSMssSMssSMssSMssSMssSMssSMALLEjLLEjLLEjLLEjLLEjLLEjLLEjLLEjLLEjLLEjLLEjLLEjLLEjLLEjLLEjLLEjACyxIyyxIyyxIyyxIyyxIyyxIyyxIyyxIyyxIyyxIyyxIyyxIyyxIyyxIyyxIyyxIwAssSMssSMssSMssSMssSMssSMssSMssSMssSMssSMssSMssSMssSMssSMssSMssSMALLEjLLEjLLEjLLEjLLEjLLEjLLEjLLEjLLEjLLEjLLEjLLEjLLEjLLEjLLEjLLEjACyxIyyxIyyxIyyxIyyxIyyxIyyxIyyxIyyxIyyxIyyxIyyxIyyxIyyxIyyxIyyxIwAssSMssSMssSMssSMssSMssSMssSMssSMssSMssSMssSMssSMssSMssSMssSMssSMALLEjLLEjLLEjLLEjLLEjLLEjLLEjLLEjLLEjLLEjLLEjLLEjLLEjLLEjLLEjLLEjACyxIyyxIyyxIyyxIyyxIyyxIyyxIyyxIyyxIyyxIyyxIyyxIyyxIyyxIyyxIyyxIwAssSMssSMssSMssSMssSMssSMssSMssSMssSMssSMssSMssSMssSMssSMssSMssSMALLEjLLEjLLEjLLEjLLEjLLEjLLEjLLEjLLEjLLEjLLEjLLEjLLEjLLEjLLEjLLEjGctAh9ze44mAAAAAElFTkSuQmCC",
+      "untrusted": true
+    },
+    "position_m": [
+      0.2,
+      0.0,
+      -1.6
+    ],
+    "eye_m": [
+      0.2,
+      0.07,
+      -1.6
+    ],
+    "heading_deg": 0.0,
+    "view_heading_deg": 20.0,
+    "view_pitch_deg": 35.0,
+    "fov_deg": 106.3,
+    "time_of_day": {
+      "hour": 17.5,
+      "phase": "evening"
+    }
+  },
+  "at_utc": "2026-10-06T00:05:00Z"
+}
