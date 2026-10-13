@@ -14,8 +14,8 @@ namespace EnFractal.Tests.Characters;
 /// A manual windowed look at the drawn Gubble's glow (the characters round, K5): what the headless checks cannot see. Its behaviour
 /// is tested headless in the play HUD suite (PlayHudTest.Gubble.cs); this is in no runner. Run it windowed on a GPU, when nobody is
 /// playing (no window titled EnFractal*):
-///   Godot --path game --resolution 1280x720 res://tests/native_character_gubble.tscn -- --out=ABSOLUTE_DIR
-/// In the default room it frames the companion, the drawn Gubble, from 24 cm in front, with the HUD hidden, and saves four frames:
+///   Godot --path game --resolution 1280x720 res://tests/native_character_gubble.tscn -- --out=ABSOLUTE_DIR [--distance=0.24]
+/// In the default room it frames the companion, the drawn Gubble, from 24 cm in front (or --distance), with the HUD hidden, and saves four frames:
 /// by day with no glow (gubble_day.png), with its own glow at dusk (gubble_halo_dusk.png) and at night (gubble_halo_night.png):
 /// the halo on the aura bone, the light on the torch flame; and mid-cast toward a spot to its right at night, the body leaning and
 /// the torch arm swung (gubble_cast_night.png). It prints the bubble's light level and the anchors for each. Its saves and profile
@@ -86,9 +86,11 @@ public partial class GubbleHaloCapture : Node
 
             var middle = drawn.HaloAnchor.GlobalPosition;
             var forward = -companion.GlobalBasis.Z.Normalized();
+            // --distance=M: how far in front the camera stands (0.24 m, a close look; the shoulder view is about half a metre).
+            var distance = float.Parse(OS.GetCmdlineUserArgs().FirstOrDefault(a => a.StartsWith("--distance=", StringComparison.Ordinal))?[11..] ?? "0.24", CultureInfo.InvariantCulture);
             var camera = new Camera3D { Name = "GubbleCamera", Fov = 40f, Near = 0.005f, Far = 50f };
             AddChild(camera);
-            camera.GlobalPosition = middle + forward * 0.24f + Vector3.Up * 0.03f + companion.GlobalBasis.X.Normalized() * 0.05f;
+            camera.GlobalPosition = middle + forward * distance + Vector3.Up * (0.125f * distance) + companion.GlobalBasis.X.Normalized() * (0.2f * distance);
             camera.LookAt(middle + Vector3.Up * 0.01f, Vector3.Up);
             look.FrameCamera(camera, middle);
             camera.MakeCurrent();
