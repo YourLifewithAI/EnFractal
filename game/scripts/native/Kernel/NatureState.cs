@@ -18,8 +18,17 @@ public static class NatureLaws
     public const float StepS = 0.5f;
     /// <summary>At most this many steps run in one physics tick; time beyond them is dropped (no catch-up after a stall or a reload).</summary>
     public const int MaxCatchUpSteps = 2;
-    /// <summary>Cells farther than this, horizontally, from both avatars rest unchanged until an avatar comes near; a fire's own cells always run.</summary>
+    /// <summary>
+    /// Cells farther than this, horizontally, from both avatars rest until an avatar comes near, then catch up on the time
+    /// they rested (RestS) in steps of StepS, as if they had been simulated all along (the founder, 13 October: time away).
+    /// Fire never rests: burning cells and the cells inside a fire's circle always run.
+    /// </summary>
     public const float ActiveRadiusM = 12f;
+    /// <summary>
+    /// At most this many resting cell steps are replayed per simulation step, in grid order, so coming back to a large
+    /// field spreads its catch-up over a few frames instead of one spike.
+    /// </summary>
+    public const int CatchUpCellStepsPerStep = 8192;
     /// <summary>Cells whose light is measured per physics tick (up to four rays each), in turn.</summary>
     public const int LightProbesPerTick = 24;
     /// <summary>The light a cell assumes when the room has no look to measure it.</summary>
@@ -97,9 +106,18 @@ public static class NatureLaws
     public const float ObjectCatchM = 0.08f;
     /// <summary>Fireproof bounds (locks, Creative's creations) shelter the ground within this margin.</summary>
     public const float ShelterMarginM = 0.04f;
-    /// <summary>The player is hurt this much per step within PlayerBurnM of burning ground (in modes with consequences).</summary>
+    /// <summary>The player is hurt this much per step within PlayerBurnM of burning ground (in modes with consequences), whoever lit it.</summary>
     public const float PlayerBurnDamage = 6f;
     public const float PlayerBurnM = 0.12f;
+
+    // ---- the guardrails on the Gubble's fire (the founder, 13 October: consequences with guardrails, not holds) ----
+
+    /// <summary>After the Gubble's fire goes out (burnt out, put out or taken back), it waits this long before lighting another. The player never waits for it.</summary>
+    public const float CompanionFireCooldownS = 20f;
+    /// <summary>After an injury recovery, fire cannot hurt the player for this long.</summary>
+    public const float RecoveryFireGraceS = 5f;
+    /// <summary>The ground this close to where the player recovers is put out at once and cannot burn during the grace.</summary>
+    public const float RecoverySafeM = 0.3f;
 
     // ---- regrowth ----
 
@@ -126,6 +144,8 @@ public sealed class NatureCell
     public float Ash { get; set; }
     public float Light { get; set; } = NatureLaws.DefaultLight;
     public bool Exposed { get; set; } = true;
+    /// <summary>Seconds of simulation this cell has not had yet because it rested far from both avatars (caught up on return).</summary>
+    public double RestS { get; set; }
     public string Key => NatureState.Key(X, Z);
     public Vector3 Position => new((X + 0.5f) * NatureState.CellM, Y, (Z + 0.5f) * NatureState.CellM);
     public NatureCell Copy() => (NatureCell)MemberwiseClone();
@@ -155,9 +175,13 @@ public sealed class NatureObject
     };
 }
 
-/// <summary>The one fire that may burn at a time, and what it was allowed to touch.</summary>
+/// <summary>The one fire that may burn at a time: who lit it, at whose direction, and what it was allowed to touch.</summary>
 public sealed class NatureFire
 {
+    /// <summary>The principal whose cast lit it (a fire saved before 13 October counts as the player's: no one is blamed without proof).</summary>
+    public string Principal { get; set; } = CommandHost.PlayerPrincipal;
+    /// <summary>At whose direction, as far as the host can verify it: the player when the player approved it, otherwise the one who lit it.</summary>
+    public string DirectedBy { get; set; } = CommandHost.PlayerPrincipal;
     public Vector3 Center { get; set; }
     public float RadiusM { get; set; }
     public float RemainingS { get; set; }
@@ -169,7 +193,7 @@ public sealed class NatureFire
     public Dictionary<string, int> AuthorizedCreations { get; set; } = new(StringComparer.Ordinal);
     public NatureFire Copy() => new()
     {
-        Center = Center, RadiusM = RadiusM, RemainingS = RemainingS, Intensity = Intensity, Revision = Revision,
+        Principal = Principal, DirectedBy = DirectedBy, Center = Center, RadiusM = RadiusM, RemainingS = RemainingS, Intensity = Intensity, Revision = Revision,
         AuthorizedCreations = new(AuthorizedCreations, StringComparer.Ordinal),
     };
 }
@@ -184,6 +208,13 @@ public sealed class NatureUndoStep
     public int Revision { get; set; }
     public int Base { get; set; }
     public string Label { get; set; } = "";
+    /// <summary>
+    /// The mode it was recorded in ("" for a step saved before modes sealed undo). Only a step recorded wholly in Creative
+    /// can be undone (the founder, 13 October: undo exists only in Creative); a fire still burning when the mode is not
+    /// Creative seals its step, so switching modes opens no back door.
+    /// </summary>
+    public string Mode { get; set; } = "creative";
+    public bool Undoable => Mode == "creative";
     public Dictionary<string, NatureCell?> Cells { get; set; } = new(StringComparer.Ordinal);
     public Dictionary<string, NatureObject?> Objects { get; set; } = new(StringComparer.Ordinal);
     public Dictionary<string, int> Wallet { get; set; } = new(StringComparer.Ordinal);
@@ -193,7 +224,7 @@ public sealed class NatureUndoStep
 
     public NatureUndoStep Copy() => new()
     {
-        Principal = Principal, Revision = Revision, Base = Base, Label = Label,
+        Principal = Principal, Revision = Revision, Base = Base, Label = Label, Mode = Mode,
         Cells = Cells.ToDictionary(p => p.Key, p => p.Value?.Copy(), StringComparer.Ordinal),
         Objects = Objects.ToDictionary(p => p.Key, p => p.Value?.Copy(), StringComparer.Ordinal),
         Wallet = new(Wallet, StringComparer.Ordinal), TrailEnabled = TrailEnabled, TrailPrincipal = TrailPrincipal, TrailRulesSha256 = TrailRulesSha256,
@@ -262,22 +293,22 @@ public sealed class NatureState
     };
 
     /// <summary>The weather now: a function of the saved clock, so a reload resumes the same weather (with no offline catch-up).</summary>
-    public NatureWeather Weather
+    public NatureWeather Weather => WeatherAt(WeatherS);
+
+    /// <summary>The weather at any point of the clock: a resting cell's catch-up replays the weather it missed.</summary>
+    public static NatureWeather WeatherAt(double weatherS)
     {
-        get
-        {
-            var t = WeatherS % NatureLaws.WeatherCycleS;
-            var fallFrom = NatureLaws.WeatherWetUntilS + NatureLaws.WeatherRampS;
-            var rain = (float)(t < NatureLaws.WeatherDryS ? 0
-                : t < NatureLaws.WeatherDryS + NatureLaws.WeatherRampS ? (t - NatureLaws.WeatherDryS) / NatureLaws.WeatherRampS
-                : t < NatureLaws.WeatherWetUntilS ? 1
-                : t < fallFrom ? (fallFrom - t) / NatureLaws.WeatherRampS
-                : 0);
-            var direction = (float)(WeatherS / NatureLaws.WindTurnS);
-            var wind = new Vector3(MathF.Cos(direction), 0, MathF.Sin(direction)) * (NatureLaws.WindCalmMps + NatureLaws.WindRainMps * rain);
-            var pattern = rain > NatureLaws.WeatherRain01 ? "rain" : rain > NatureLaws.WeatherShowers01 ? "showers" : "fair";
-            return new NatureWeather(rain, wind, pattern);
-        }
+        var t = weatherS % NatureLaws.WeatherCycleS;
+        var fallFrom = NatureLaws.WeatherWetUntilS + NatureLaws.WeatherRampS;
+        var rain = (float)(t < NatureLaws.WeatherDryS ? 0
+            : t < NatureLaws.WeatherDryS + NatureLaws.WeatherRampS ? (t - NatureLaws.WeatherDryS) / NatureLaws.WeatherRampS
+            : t < NatureLaws.WeatherWetUntilS ? 1
+            : t < fallFrom ? (fallFrom - t) / NatureLaws.WeatherRampS
+            : 0);
+        var direction = (float)(weatherS / NatureLaws.WindTurnS);
+        var wind = new Vector3(MathF.Cos(direction), 0, MathF.Sin(direction)) * (NatureLaws.WindCalmMps + NatureLaws.WindRainMps * rain);
+        var pattern = rain > NatureLaws.WeatherRain01 ? "rain" : rain > NatureLaws.WeatherShowers01 ? "showers" : "fair";
+        return new NatureWeather(rain, wind, pattern);
     }
 
     /// <summary>The grid cells whose centres lie within radius of center, horizontally.</summary>
@@ -301,11 +332,11 @@ public sealed class NatureState
     /// connect to it (a newer non-nature change came between) can never be reached again and go now; past the bounds
     /// the oldest go first.
     /// </summary>
-    public NatureUndoStep BeginUndo(string label, int revision, string principal)
+    public NatureUndoStep BeginUndo(string label, int revision, string principal, string mode = "creative")
     {
         var step = new NatureUndoStep
         {
-            Principal = principal, Revision = revision, Base = Effective(revision - 1), Label = label, Wallet = new(Wallet, StringComparer.Ordinal),
+            Principal = principal, Revision = revision, Base = Effective(revision - 1), Label = label, Mode = mode, Wallet = new(Wallet, StringComparer.Ordinal),
             TrailEnabled = TrailEnabled, TrailPrincipal = TrailPrincipal, TrailRulesSha256 = TrailRulesSha256,
         };
         if (Undo.Count > 0 && Undo[^1].Revision != step.Base) Undo.Clear();
@@ -323,7 +354,8 @@ public sealed class NatureState
 
     /// <summary>
     /// The newest steps, newest first, that take the room back to target from roomRevision; null when they cannot. The
-    /// target may be the revision a step started from, or a room.undo's revision standing for that state.
+    /// target may be the revision a step started from, or a room.undo's revision standing for that state. A step recorded
+    /// outside Creative cuts the chain: nothing at or before it can be taken back.
     /// </summary>
     public List<NatureUndoStep>? StepsBackTo(int target, int roomRevision)
     {
@@ -332,7 +364,7 @@ public sealed class NatureState
         var expected = Effective(roomRevision);
         for (var i = Undo.Count - 1; i >= 0 && goal < expected; i--)
         {
-            if (Undo[i].Revision != expected) return null;
+            if (Undo[i].Revision != expected || !Undo[i].Undoable) return null;
             steps.Add(Undo[i]);
             expected = Undo[i].Base;
             if (expected == goal) return steps;
@@ -341,7 +373,10 @@ public sealed class NatureState
     }
 
     /// <summary>The revision the latest reachable nature change started from (what room.undo names to take it back), or null.</summary>
-    public int? UndoTarget(int roomRevision) => Undo.Count > 0 && Undo[^1].Revision == Effective(roomRevision) ? Undo[^1].Base : null;
+    public int? UndoTarget(int roomRevision) => Undo.Count > 0 && Undo[^1].Revision == Effective(roomRevision) && Undo[^1].Undoable ? Undo[^1].Base : null;
+
+    /// <summary>Whether the latest change is a nature change recorded outside Creative: one there is no undo for.</summary>
+    public bool LatestSealed(int roomRevision) => Undo.Count > 0 && Undo[^1].Revision == Effective(roomRevision) && !Undo[^1].Undoable;
 
     private NatureUndoStep? StepAt(int revision) => Undo.LastOrDefault(s => s.Revision == revision);
 
@@ -399,6 +434,7 @@ public sealed class NatureState
             var ground = sample(x, z);
             if (ground is not { Fertile: true } || ground.BurningS > 0) continue;
             if (!Cells.ContainsKey(key) && Cells.Count >= MaxCells) break;
+            CatchUpCell(key);
             RememberCell(step, Cells, key);
             var cell = Cells.GetValueOrDefault(key) ?? ground;
             cell.Y = ground.Y;
@@ -413,11 +449,16 @@ public sealed class NatureState
         return planted;
     }
 
-    /// <summary>Lights the one fire: dry fuel near the centre catches, and the fire may spread within radius for durationS.</summary>
-    public int Ignite(Vector3 center, float radius, float durationS, float intensity, int revision, Dictionary<string, int> authorized, Func<int, int, NatureCell?> sample, NatureUndoStep? step)
+    /// <summary>
+    /// Lights the one fire: dry fuel near the centre catches, and the fire may spread within radius for durationS. It
+    /// remembers who lit it and at whose direction (the journal and the Gubble's notices name the one who lit it).
+    /// </summary>
+    public int Ignite(Vector3 center, float radius, float durationS, float intensity, int revision, Dictionary<string, int> authorized, Func<int, int, NatureCell?> sample, NatureUndoStep? step,
+        string principal = CommandHost.PlayerPrincipal, string? directedBy = null)
     {
         Fire = new NatureFire
         {
+            Principal = principal, DirectedBy = directedBy ?? principal,
             Center = center, RadiusM = radius, RemainingS = durationS, Intensity = intensity, Revision = revision,
             AuthorizedCreations = new(authorized, StringComparer.Ordinal),
         };
@@ -428,6 +469,7 @@ public sealed class NatureState
             var ground = sample(x, z);
             if (ground == null || ground.Fuel <= 0 || ground.Moisture >= NatureLaws.IgnitionMaxMoisture) continue;
             if (!Cells.ContainsKey(key) && Cells.Count >= MaxCells) break;
+            CatchUpCell(key);
             var cell = Cells.GetValueOrDefault(key) ?? ground;
             if (cell.Moisture >= NatureLaws.IgnitionMaxMoisture || cell.Fuel <= 0) continue;
             RememberCell(step, Cells, key);
@@ -442,39 +484,137 @@ public sealed class NatureState
 
     /// <summary>
     /// One bounded, deterministic step. Wind biases spread; rain, wet soil, fireproof ground and gaps without fuel stop it.
-    /// Cells for which active is false rest unchanged (the weather clock runs everywhere); burning cells always run. Every
-    /// cell the fire changes is recorded in the fire's undo step. Light is measured elsewhere (the host's light batch).
-    /// Returns whether anything but the clock changed.
+    /// Cells for which active is false rest (the weather clock runs everywhere) and count the time they missed; when an
+    /// avatar comes back they catch up on it first, replaying the weather they missed in steps of StepS, at most
+    /// CatchUpCellStepsPerStep per step (CatchUp). Burning cells always run. Every cell the fire changes is recorded in the
+    /// fire's undo step. Light is measured elsewhere (the host's light batch). Returns whether anything but the clock changed.
     /// </summary>
     public bool Step(float seconds, Func<int, int, NatureCell?> sample, Func<NatureCell, bool> fireproof, Func<NatureCell, bool> active)
     {
         if (!float.IsFinite(seconds) || seconds <= 0 || seconds > 1) throw new ArgumentOutOfRangeException(nameof(seconds));
         WeatherS += seconds;
         var weather = Weather;
-        var changed = false;
+        // Resting cells that are active again replay what they missed, up to the step before this one.
+        var changed = CatchUp(WeatherS - seconds, active, NatureLaws.CatchUpCellStepsPerStep);
         var burning = Cells.Values.Where(c => c.BurningS > 0).OrderBy(c => c.X).ThenBy(c => c.Z).Take(MaxBurning).ToArray();
         foreach (var cell in Cells.Values)
         {
-            if (cell.BurningS <= 0 && !active(cell)) continue;
-            changed = true;
-            var wetting = cell.Exposed ? weather.Rain01 * NatureLaws.RainWettingPerS : 0;
-            cell.Moisture = Math.Clamp(cell.Moisture + seconds * (wetting - NatureLaws.LightDryingPerS * cell.Light), 0, 1);
-            cell.LifeS = Math.Max(0, cell.LifeS - seconds);
-            if (cell.BurningS > 0) continue;
-            if (cell.LifeS > 0 && cell.Moisture > NatureLaws.GrowthMinMoisture && cell.Light > NatureLaws.GrowthMinLight)
-                cell.Growth = Math.Min(1, cell.Growth + seconds * NatureLaws.GrowthPerS * cell.Moisture * Math.Min(1, cell.Light));
-            else cell.Growth = Math.Max(0, cell.Growth - seconds * (cell.LifeS > 0 ? NatureLaws.FadeWhileAlivePerS : NatureLaws.FadeAfterLifePerS));
-            if (cell.Ash > 0 && cell.Fertile && cell.Moisture > NatureLaws.AshRegrowMoisture)
+            if (cell.BurningS <= 0 && (cell.RestS > 0 || !active(cell)))
             {
-                cell.Ash = Math.Max(0, cell.Ash - seconds * NatureLaws.AshFadePerS * cell.Moisture);
-                cell.Fuel = Math.Min(NatureLaws.FlowerFuel, cell.Fuel + seconds * NatureLaws.FuelRegrowPerS * cell.Moisture);
+                cell.RestS += seconds;
+                continue;
             }
+            changed = true;
+            Tend(cell, seconds, weather);
         }
         changed |= Burn(seconds, weather, burning, sample, fireproof);
         // Expired flower-only cells can be sampled again. Ash stays until regrowth consumes it.
         var expired = Cells.Where(p => p.Value.Growth <= 0 && p.Value.LifeS <= 0 && p.Value.BurningS <= 0 && p.Value.Ash <= 0).Select(p => p.Key).ToArray();
         foreach (var key in expired) Cells.Remove(key);
         return changed || expired.Length > 0;
+    }
+
+    /// <summary>One cell's own step, fire aside: rain wets it and light dries it, its flowers grow or fade, moist ash regrows fuel.</summary>
+    private static void Tend(NatureCell cell, float seconds, NatureWeather weather)
+    {
+        var wetting = cell.Exposed ? weather.Rain01 * NatureLaws.RainWettingPerS : 0;
+        cell.Moisture = Math.Clamp(cell.Moisture + seconds * (wetting - NatureLaws.LightDryingPerS * cell.Light), 0, 1);
+        cell.LifeS = Math.Max(0, cell.LifeS - seconds);
+        if (cell.BurningS > 0) return;
+        if (cell.LifeS > 0 && cell.Moisture > NatureLaws.GrowthMinMoisture && cell.Light > NatureLaws.GrowthMinLight)
+            cell.Growth = Math.Min(1, cell.Growth + seconds * NatureLaws.GrowthPerS * cell.Moisture * Math.Min(1, cell.Light));
+        else cell.Growth = Math.Max(0, cell.Growth - seconds * (cell.LifeS > 0 ? NatureLaws.FadeWhileAlivePerS : NatureLaws.FadeAfterLifePerS));
+        if (cell.Ash > 0 && cell.Fertile && cell.Moisture > NatureLaws.AshRegrowMoisture)
+        {
+            cell.Ash = Math.Max(0, cell.Ash - seconds * NatureLaws.AshFadePerS * cell.Moisture);
+            cell.Fuel = Math.Min(NatureLaws.FlowerFuel, cell.Fuel + seconds * NatureLaws.FuelRegrowPerS * cell.Moisture);
+        }
+    }
+
+    private static bool Expired(NatureCell cell) => cell.Growth <= 0 && cell.LifeS <= 0 && cell.BurningS <= 0 && cell.Ash <= 0;
+
+    private const int StepsPerWeatherCycle = (int)(NatureLaws.WeatherCycleS / NatureLaws.StepS);
+
+    /// <summary>
+    /// Time away (the founder, 13 October): the resting cells that are active again replay the time they missed, in grid
+    /// order, at most budget cell steps in all; the rest wait for the next step. untilS is the clock at the end of the last
+    /// step they missed. Returns whether any cell changed.
+    /// </summary>
+    public bool CatchUp(double untilS, Func<NatureCell, bool> active, int budget)
+    {
+        var waiting = Cells.Values.Where(c => c.RestS > 0 && (c.BurningS > 0 || active(c))).OrderBy(c => c.X).ThenBy(c => c.Z).ToList();
+        var changed = false;
+        foreach (var cell in waiting)
+        {
+            if (budget <= 0) break;
+            changed = true;
+            if (Replay(cell, untilS, ref budget)) Cells.Remove(cell.Key);
+        }
+        return changed;
+    }
+
+    /// <summary>A cell about to be changed by a cast or the spread catches up on all its missed time first; false when that left nothing there.</summary>
+    private bool CatchUpCell(string key)
+    {
+        if (!Cells.TryGetValue(key, out var cell)) return false;
+        if (cell.RestS <= 0) return true;
+        var unbounded = int.MaxValue;
+        if (!Replay(cell, WeatherS, ref unbounded)) return true;
+        Cells.Remove(key);
+        return false;
+    }
+
+    /// <summary>
+    /// Replays a resting cell's missed time, ending at untilS, in steps of StepS with the weather of each moment: exactly
+    /// what the ordinary step would have done to it (a resting cell does not burn, and only its own state changes). Once a
+    /// whole weather cycle changes nothing, the remaining whole cycles would not either and are skipped, so even a long
+    /// absence costs a few cycles at most. Returns true when the cell faded away (its flowers and ash gone).
+    /// </summary>
+    private static bool Replay(NatureCell cell, double untilS, ref int budget)
+    {
+        while (cell.RestS > 0 && budget > 0)
+        {
+            var pending = (int)Math.Ceiling(cell.RestS / NatureLaws.StepS - 1e-6);
+            var cycle = pending > 2 * StepsPerWeatherCycle && budget >= StepsPerWeatherCycle;
+            var before = cycle ? cell.Copy() : null;
+            for (var i = cycle ? StepsPerWeatherCycle : Math.Min(pending, budget); i > 0 && cell.RestS > 0; i--)
+            {
+                var seconds = (float)Math.Min(NatureLaws.StepS, cell.RestS);
+                Tend(cell, seconds, WeatherAt(untilS - cell.RestS + seconds));
+                cell.RestS = Math.Max(0, cell.RestS - seconds);
+                budget--;
+                if (!Expired(cell)) continue;
+                cell.RestS = 0;
+                return true;
+            }
+            if (before != null && before.Moisture == cell.Moisture && before.Growth == cell.Growth && before.LifeS == cell.LifeS && before.Fuel == cell.Fuel && before.Ash == cell.Ash)
+            {
+                var whole = (int)(cell.RestS / NatureLaws.WeatherCycleS) - 1;
+                if (whole > 0) cell.RestS -= whole * NatureLaws.WeatherCycleS;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>Puts out the one fire and every burning cell (the player's Stop of the Gubble's fire, the player's own Fire replacing it).</summary>
+    public bool PutOutFire()
+    {
+        var any = Fire != null || Cells.Values.Any(c => c.BurningS > 0);
+        Fire = null;
+        foreach (var cell in Cells.Values) cell.BurningS = 0;
+        return any;
+    }
+
+    /// <summary>Puts out the burning cells within radius of a point, horizontally (where the player recovers).</summary>
+    public bool PutOutNear(Vector3 at, float radius)
+    {
+        var any = false;
+        foreach (var cell in Cells.Values.Where(c => c.BurningS > 0 && new Vector2(c.Position.X - at.X, c.Position.Z - at.Z).Length() <= radius))
+        {
+            cell.BurningS = 0;
+            any = true;
+        }
+        return any;
     }
 
     /// <summary>The fire's half of a step: burning cells eat fuel and lay ash, and catch their neighbours through the gates.</summary>
@@ -508,6 +648,7 @@ public sealed class NatureState
                 var z = cell.Z + dz;
                 var key = Key(x, z);
                 if (next.ContainsKey(key) || Cells.TryGetValue(key, out var existing) && existing.BurningS > 0) continue;
+                if (existing is { RestS: > 0 } && !CatchUpCell(key)) existing = null;
                 var ground = sample(x, z);
                 if (ground == null || ground.Fuel <= 0 || ground.Moisture >= NatureLaws.SpreadMaxMoisture || fireproof(ground)) continue;
                 var away = new Vector2(ground.Position.X - Fire.Center.X, ground.Position.Z - Fire.Center.Z).Length();
