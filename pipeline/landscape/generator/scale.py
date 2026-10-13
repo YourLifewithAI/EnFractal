@@ -1,18 +1,22 @@
-"""World scale: the room x W around today's 10 cm body (the scale experiment).
+"""World scale: the room x W around today's 10 cm body (the 10x world).
 
-The founder's question (13 October): shrink the player and the Gubble to 1 cm,
-so the island built from a room becomes a far bigger place, trees and cottages
-shrinking with the player while mountains loom. The screen only shows ratios,
-so the experiment makes the world W times bigger around today's body instead:
+The founder chose the 10x world on 13 October, after walking the scale
+experiment: the room magnified ten times into the island around the same
+body. Trees, cottages, the jetty, plants, paths, water depths and the step,
+climb and swim limits keep their size:
 
-    python -B -m pipeline.landscape.generator.scale --room <room folder> --factor 10 --out <folder>
-    python -B -m pipeline.landscape.generator.generate --room <that folder> --world-scale 10 --cell .1 --out <package>
+    python -B -m pipeline.landscape.generator.generate --room <room folder> --world-scale 10 --out <package>
 
-The first writes the room magnified (shell, openings, spawns, lights and every
-inventory box); the second tells the generator the room was magnified and the
-body was not. At W = 1 (the default) every expression that reads `W` reduces to
-today's, because multiplying or dividing by 1.0 is exact in floating point: the
-default output is byte-identical.
+The generator reads the true-size room and magnifies it in memory (`magnify`:
+shell, openings, spawns, lights and every inventory box); the package's source
+is the true-size room (its hashes and id), so the source contract's limits (a
+20 m opening, export/source.py) hold, and the room is never written magnified.
+The harness validates the package's places against the room magnified
+(`harness_rooms`, until its change request is merged). The ground is a 10 cm
+grid with 2.5 cm detail where the body meets the land (detail.py). At W = 1
+(the default) every expression that reads `W` reduces to today's, because
+multiplying or dividing by 1.0 is exact in floating point: the default output
+is byte-identical.
 
 What belongs to the room (x W) and what to the body (kept), constant by constant:
 
@@ -40,8 +44,10 @@ coast; the land's middle (the eyes' 1.5 m).
 BODY (kept): the sea level and every depth a body swims, wades or dives (lagoon
 .22, open sea .62, swim .08, wade .06, the tarn's .14-.24 deep middle and its
 shelves, the river's pools .12-.17); the wading shelf off the beaches (8 then 22
-degrees, .29 m); the reef's distance off the coast (.3-.6 m: a short swim), the
-playable water past it (.3) and the shelf's fall (.7); the jetty (width, deck,
+degrees, .29 m); the reef's distance off the coast (.3-.6 m: a short swim) and
+the coast it is measured from (the farthest-reaching coast within .2 and .35 m,
+not x W: a cove keeps its reef a short swim off; the checks' 0.2-1.0 m stays),
+the playable water past it (.3) and the shelf's fall (.7); the jetty (width, deck,
 landing); streams' widths and depths (brook .05, river .065, rill .035 half
 widths; banks, freeboard); the hamlet (cottages, their ring, pads, forecourts,
 yards, lantern, fences, the crate) and where it may sit (flatness, near water,
@@ -64,8 +70,8 @@ again. The ways the land is graded along are least-cost (one flood for all of
 them; a goal shut in a pocket of its own is found so by a small flood back from
 it); on today's room they are the same A* searches as before.
 """
-import argparse
-import json
+import copy
+from contextlib import contextmanager
 from pathlib import Path
 
 W = 1.
@@ -81,10 +87,7 @@ def set_world(w):
 def allow_package_limits(w):
     """A room magnified x w holds w^2 times today's land, sea and planting at
     today's density, so the package's byte, triangle and instance limits grow
-    by w^2 for this process only. The harness owns the limits: its
-    `allow_world_scale` (the scale experiment's change request to
-    harness/package.py) is used when present; until it is merged the same
-    limits are set here, on the harness's modules, for this process only."""
+    by w^2 for this process only (the harness's `allow_world_scale`)."""
     try:
         from pipeline.landscape.harness.package import allow_world_scale
     except ImportError:
@@ -104,19 +107,16 @@ def _scale_points(pts, f):
     return [[v*f for v in p] for p in pts]
 
 
-def scale_room(src, dst, factor, room_id=None):
-    """Write the room and its inventory magnified by `factor` (metres only;
-    angles, colours, confidences and evidence unchanged). Wall thickness stays:
-    it is not part of the land."""
-    src, dst = Path(src), Path(dst)
-    room = json.loads((src/'room.json').read_text(encoding='utf-8'))
-    inv = json.loads((src/'inventory.json').read_text(encoding='utf-8'))
-    f = float(factor)
-    rid = room_id or '%s_x%s' % (room['room_id'], ('%g' % f).replace('.', '_'))
-    room['room_id'] = rid
-    room['display_name'] = ('%s x%g' % (room.get('display_name', rid), f))[:80]
-    room['description'] = 'Scale experiment: %s magnified x%g (shell, openings, spawns, lights, boxes).' % (
-        src.name, f)
+def magnify_room(room, f):
+    """The room magnified x f (a copy; metres only: bounds, the shell's
+    polygons, openings, spawns and lights; angles, ids and text unchanged;
+    wall thickness stays, it is not part of the land). The player arrives
+    where the room puts it (x f); every other spawn keeps its offset from the
+    player (the Gubble arrives beside the player as it does today)."""
+    room = copy.deepcopy(room)
+    f = float(f)
+    if f == 1:
+        return room
     room['bounds'] = {k: [v*f for v in room['bounds'][k]] for k in ('min_m', 'max_m')}
     for p in room['shell']['parts']:
         g = p['geometry']
@@ -125,8 +125,6 @@ def scale_room(src, dst, factor, room_id=None):
     for o in room['shell'].get('openings', []):
         o['center_m'] = [v*f for v in o['center_m']]
         o['size_m'] = [v*f for v in o['size_m']]
-    # The player arrives where the room puts it (x f); the Gubble arrives beside
-    # the player as it does today (its offset from the player is the body's).
     player = next((s for s in room['spawns'] if s['role'] == 'player'), room['spawns'][0])
     p0 = list(player['position_m'])
     for s in room['spawns']:
@@ -134,8 +132,21 @@ def scale_room(src, dst, factor, room_id=None):
     for lh in room.get('light_hints', []):
         if 'position_m' in lh:
             lh['position_m'] = [v*f for v in lh['position_m']]
-    inv['room'] = rid
-    inv['scale'] = {'factor': f, 'source': 'scale experiment: %s x%g' % (src.name, f)}
+    return room
+
+
+def magnify(room, inventory, f):
+    """The room and its inventory magnified x f, in memory (copies)."""
+    return magnify_room(room, f), magnify_inventory(inventory, f)
+
+
+def magnify_inventory(inventory, f):
+    """The inventory magnified x f (a copy: boxes, footprints, placements and
+    support heights in metres; kinds, confidences and colours unchanged)."""
+    f = float(f)
+    inv = copy.deepcopy(inventory)
+    if f == 1:
+        return inv
     for e in inv['objects']:
         b = e['box']
         b['centre_m'] = [v*f for v in b['centre_m']]
@@ -148,21 +159,36 @@ def scale_room(src, dst, factor, room_id=None):
             pl['support']['height_m'] *= f
         if e.get('recipe_needed') and 'size_m' in e['recipe_needed']:
             e['recipe_needed']['size_m'] = [v*f for v in e['recipe_needed']['size_m']]
-    dst.mkdir(parents=True, exist_ok=True)
-    for name, doc in (('room.json', room), ('inventory.json', inv)):
-        (dst/name).write_text(json.dumps(doc, indent=2, sort_keys=True)+'\n', encoding='utf-8', newline='\n')
-    return rid
+    return inv
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
-    parser.add_argument('--room', required=True)
-    parser.add_argument('--factor', type=float, required=True)
-    parser.add_argument('--out', required=True)
-    parser.add_argument('--room-id')
-    args = parser.parse_args()
-    print('SCALED_ROOM', scale_room(args.room, args.out, args.factor, args.room_id), args.out)
+@contextmanager
+def harness_rooms(w):
+    """While open, the harness reads a package of a room magnified x w against
+    that room magnified: `write_package` and `read_package` load the true-size
+    room.json (its hash is the package's source) and validate every place
+    against it, so for this process only the room they load is magnified (by
+    `w` when writing, by the package's own `x_generator.world_scale` when
+    reading). `read_package` then returns the magnified room. The harness's
+    change request (S4's report) does the same in the harness; when it is
+    merged (`package.ROOM_WORLD_SCALE`), nothing is patched here."""
+    from pipeline.landscape.harness import package
+    if getattr(package, 'ROOM_WORLD_SCALE', False):
+        yield
+        return
+    original = package.load_json
+    state = {'w': float(w)}
 
-
-if __name__ == '__main__':
-    main()
+    def load(path):
+        doc = original(path)
+        name = Path(path).name
+        if name == 'package.json':
+            state['w'] = float((doc.get('x_generator') or {}).get('world_scale', 1.))
+        elif name == 'room.json' and state['w'] != 1:
+            doc = magnify_room(doc, state['w'])
+        return doc
+    package.load_json = load
+    try:
+        yield
+    finally:
+        package.load_json = original
