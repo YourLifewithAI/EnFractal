@@ -1,0 +1,40 @@
+{
+  "schema": "enfractal.result",
+  "version": 1,
+  "ok": true,
+  "op": "player.status",
+  "query_id": "q-0035",
+  "principal": "companion:local",
+  "room_id": "garage_example",
+  "revision": 4,
+  "replayed": false,
+  "preview": false,
+  "data": {
+    "mode": "creative",
+    "health": 100.0,
+    "max_health": 100,
+    "stamina": 0.65,
+    "max_stamina": 0.65,
+    "completed_climbs": 0,
+    "recoveries": 0,
+    "consequences": false
+  },
+  "at_utc": "2026-10-06T00:05:00Z",
+  "notices": [
+    {
+      "kind": "caught_up",
+      "from_m": [
+        -18.9,
+        0.92,
+        4.59
+      ],
+      "to_m": [
+        18.66,
+        1.03,
+        1.8
+      ],
+      "distance_m": 37.65,
+      "at_utc": "2026-10-06T00:05:10Z"
+    }
+  ]
+}

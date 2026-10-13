@@ -18,6 +18,11 @@ namespace EnFractal.Native.Ui;
 /// </summary>
 public partial class JournalMap : Control
 {
+    /// <summary>
+    /// Discovered ground this close to the player's height is inked darker as their own level. Body-sized (S8 of the 10x world kept
+    /// it): a level is a surface the 10 cm body could stand on beside them (CompanionAvatar.LevelGapM), whatever the room's size.
+    /// </summary>
+    public const float OwnLevelM = CompanionAvatar.LevelGapM;
     private readonly List<(Rect2 Area, float Height)> _land = new();
     private readonly List<(Rect2 Area, string Name)> _objects = new();
     private Vector2 _player;
@@ -114,7 +119,7 @@ public partial class JournalMap : Control
         Vector2 At(Vector2 p) => margin + (p - box.Position) * scale;
         DrawRect(new Rect2(Vector2.Zero, Size), new Color(0.55f, 0.40f, 0.18f, 0.10f), false, 1);
         foreach (var land in _land)
-            DrawRect(new Rect2(At(land.Area.Position), land.Area.Size * scale), new Color(0.35f, 0.42f, 0.26f, MathF.Abs(land.Height - _height) < 0.12f ? 0.45f : 0.16f));
+            DrawRect(new Rect2(At(land.Area.Position), land.Area.Size * scale), new Color(0.35f, 0.42f, 0.26f, MathF.Abs(land.Height - _height) < OwnLevelM ? 0.45f : 0.16f));
         foreach (var thing in _objects)
             DrawRect(new Rect2(At(thing.Area.Position), thing.Area.Size * scale), new Color(0.4f, 0.28f, 0.15f, 0.65f), false, 1.2f);
         var ink = new Color("694533");
