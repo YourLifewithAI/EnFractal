@@ -25,22 +25,55 @@ public sealed record CharacterChoice(string Id, string DisplayName, Texture2D? T
     /// <summary>The thumbnail's size: the 640 px render is scaled down once, so the row never shrinks a big texture every frame.</summary>
     public const int ThumbnailPx = 128;
 
+    /// <summary>The largest thumbnail file read (the converter's renders are about 0.4 MB).</summary>
+    public const int MaxThumbnailBytes = 4 * 1024 * 1024;
+    /// <summary>The largest thumbnail decoded, pixels a side (the converter renders 640 px): a bigger PNG is never decoded.</summary>
+    public const int MaxThumbnailSidePx = 2048;
+
     /// <summary>
     /// A character folder's thumbnail (its ThumbnailFile, the folder an absolute path), scaled to fit ThumbnailPx. Null when
-    /// the folder has none or it does not read as an image: the row then draws a swatch.
+    /// the folder has none, when the file is over MaxThumbnailBytes, when its PNG header says it is more than MaxThumbnailSidePx a
+    /// side (read before decoding), or when it does not read as an image: the row then draws a swatch.
     /// </summary>
     public static Texture2D? LoadThumbnail(string folder, int sizePx = ThumbnailPx)
     {
         if (string.IsNullOrEmpty(folder) || sizePx < 8) return null;
         var path = folder.TrimEnd('/', '\\') + "/" + ThumbnailFile;
         if (!Godot.FileAccess.FileExists(path)) return null;
-        var bytes = Godot.FileAccess.GetFileAsBytes(path);
+        byte[] bytes;
+        using (var file = Godot.FileAccess.Open(path, Godot.FileAccess.ModeFlags.Read))
+        {
+            if (file == null) return null;
+            var length = file.GetLength();
+            if (length == 0 || length > MaxThumbnailBytes) return null;
+            bytes = file.GetBuffer((long)length);
+            if ((ulong)bytes.Length != length) return null;
+        }
+        if (!PngSize(bytes, out var width, out var height) || width > MaxThumbnailSidePx || height > MaxThumbnailSidePx) return null;
         var image = new Image();
-        if (bytes.Length == 0 || image.LoadPngFromBuffer(bytes) != Error.Ok || image.IsEmpty()) return null;
+        if (image.LoadPngFromBuffer(bytes) != Error.Ok || image.IsEmpty()) return null;
         var scale = Mathf.Min(1f, (float)sizePx / Mathf.Max(image.GetWidth(), image.GetHeight()));
         if (scale < 1f)
             image.Resize(Mathf.Max(1, Mathf.RoundToInt(image.GetWidth() * scale)), Mathf.Max(1, Mathf.RoundToInt(image.GetHeight() * scale)), Image.Interpolation.Lanczos);
         return ImageTexture.CreateFromImage(image);
+    }
+
+    /// <summary>
+    /// A PNG's width and height from its header (the signature, then the IHDR chunk, which must come first), without decoding
+    /// it; false when the bytes do not start as a PNG.
+    /// </summary>
+    public static bool PngSize(System.ReadOnlySpan<byte> png, out int width, out int height)
+    {
+        width = height = 0;
+        System.ReadOnlySpan<byte> signature = stackalloc byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A };
+        if (png.Length < 33 || !System.MemoryExtensions.SequenceEqual(png[..8], signature) || System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(png[8..]) != 13 ||
+            !System.MemoryExtensions.SequenceEqual(png.Slice(12, 4), "IHDR"u8)) return false;
+        var w = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(png[16..]);
+        var h = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(png[20..]);
+        if (w == 0 || h == 0 || w > int.MaxValue || h > int.MaxValue) return false;
+        width = (int)w;
+        height = (int)h;
+        return true;
     }
 
     /// <summary>
