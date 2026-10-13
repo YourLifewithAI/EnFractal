@@ -180,20 +180,15 @@ class GlowMatchesTheKernel(unittest.TestCase):
         self.assertEqual([contract, kernel[0], kernel[1]], [pack, pack, pack])
 
     def test_the_mock_checks_effect_start_in_the_kernels_order_and_words(self):
-        """Shared checks keep the kernel's order and words. Water surface resnapping needs real terrain;
-        the mock explicitly refuses that variant, as exercised in test_glow_modes."""
+        """The codes PlanEffect throws, in order, are the mock's _plan_effect's, the water surface's two included; and every
+        refusal message and field path the mock gives for the abilities is the kernel's, word for word."""
         import ast
         import inspect
         import textwrap
         from enfractal_companion.mock_host import MockHost
         kernel = _method(_text(EFFECTS), "private EffectPlan PlanEffect(")
         mock = inspect.getsource(MockHost._plan_effect)
-        water_start = kernel.index('if (variant == "bioluminesce" && GlowWaterSurfaceAt(centre) is { } surface)')
-        water_end = kernel.index('if (variant == "torch")', water_start)
-        water_checks = kernel[water_start:water_end]
-        self.assertEqual(re.findall(r'new Refusal\("(\w+)"', water_checks), ["out_of_bounds", "target_not_found"])
-        shared_checks = kernel[:water_start] + kernel[water_end:]
-        self.assertEqual(re.findall(r'HostError\("(\w+)"', mock), re.findall(r'new Refusal\("(\w+)"', shared_checks))
+        self.assertEqual(re.findall(r'HostError\("(\w+)"', mock), re.findall(r'new Refusal\("(\w+)"', kernel))
         words = set()
         for function in (MockHost._plan_effect, MockHost._op_effect_start, MockHost._op_effect_stop):
             tree = ast.parse(textwrap.dedent(inspect.getsource(function)))
@@ -210,6 +205,52 @@ class GlowMatchesTheKernel(unittest.TestCase):
         cursor = "That cursor is not from this list."
         self.assertIn(cursor, _method(source, "private JsonObject Capabilities("))
         self.assertIn(cursor, inspect.getsource(MockHost._query))
+
+
+NATURE = KERNEL / "Kernel" / "CommandHostNature.cs"
+
+
+@unittest.skipUnless(NATURE.is_file(), "the kernel host's nature is not in this checkout")
+class NatureMatchesTheKernel(unittest.TestCase):
+    """Nature (contracts/README.md "Nature"). The mock does not simulate it yet: it checks the nature commands as the kernel
+    does before its nature runs, then answers unavailable (the one exception test_host_alignment.py allows). What it does
+    check must be the kernel's: the args (CheckNatureArgs), and room.undo of any change that is not nature's (NatureUndo)."""
+
+    def test_the_mock_checks_the_nature_commands_the_kernel_has(self):
+        from enfractal_companion.mock_host import NATURE_OPS
+        check = _method(_text(NATURE), "private static void CheckNatureArgs(")
+        self.assertEqual(set(re.findall(r'"(nature\.[a-z]+)" =>', check)), set(NATURE_OPS))
+        # Its refusals are field_unknown and request_invalid only, which is what the mock's mapping gives (refusals.py).
+        self.assertEqual(set(re.findall(r'new Refusal\("(\w+)"', check)), {"field_unknown", "request_invalid"})
+
+    def test_the_contract_bounds_the_args_as_the_kernel_does(self):
+        import json
+        defs = json.loads((REPO / "contracts" / "game-command.schema.json").read_bytes())["$defs"]
+        cast = defs["args"]["nature.cast"]["properties"]
+        check = _method(_text(NATURE), "private static void CheckNatureArgs(")
+        self.assertIn('is not ("bloom" or "fire")', check)
+        self.assertEqual(cast["capability"]["enum"], ["bloom", "fire"])
+        self.assertIn('("radius_m", NatureBlock.MaxFireRadiusM), ("duration_s", 600f)', check)
+        radius = float(_match(KERNEL / "Kernel" / "NatureStore.cs", r"\bconst float MaxFireRadiusM = ([0-9.]+)f;"))
+        self.assertEqual((cast["radius_m"]["maximum"], cast["duration_s"]["maximum"]), (radius, 600))
+        self.assertEqual(_match(NATURE, r'PreviewIdPattern = new\(@"\\A([^"]+)\\z"'), defs["preview_id"]["pattern"].strip("^$"))
+        self.assertEqual(_match(COMMAND_HOST, r'CreationId = new\(@"\\A([^"]+)\\z"'), defs["creation_id"]["pattern"].strip("^$"))
+        for op in ("nature.cast", "nature.trail", "nature.repair"):
+            with self.subTest(op=op):
+                allowed = re.search(rf'"{re.escape(op)}" => new\[\] \{{([^}}]*)\}}', check).group(1)
+                self.assertEqual(set(re.findall(r'"([a-z_]+)"', allowed)), set(defs["args"][op]["properties"]))
+
+    def test_room_undo_of_any_other_change_answers_the_kernels_codes_and_words(self):
+        import inspect
+        from enfractal_companion import mock_host
+        undo = _method(_text(NATURE), "private JsonObject NatureUndo(")
+        for words in (mock_host.UNDO_NOT_EARLIER, mock_host.UNDO_ONLY_NATURE):
+            self.assertIn(f'"{words}"', undo)
+        # After the kernel's nature and role checks (not_ready, permission_denied), the refusals the mock gives, in order.
+        in_kernel = re.findall(r'new Refusal\("(\w+)"', undo)
+        self.assertEqual(in_kernel[:2], ["invalid_args", "unsupported_capability"])
+        self.assertEqual(re.findall(r'HostError\("(\w+)"', inspect.getsource(mock_host.MockHost._op_room_undo)), in_kernel[:2])
+        self.assertIn('"room.undo" when !NatureConfigured', _text(COMMAND_HOST))
 
 
 EYES = KERNEL / "Kernel" / "CommandHostEyes.cs"

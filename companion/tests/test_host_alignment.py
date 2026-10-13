@@ -43,6 +43,11 @@ FIRE_SUMMARY = {"capability": "fire", "category": "fire", "params": {"intensity"
                 "area_radius_max_m": 1.5, "duration_max_s": 60, "reach_m": 2.0, "max_active": 1,
                 "command_op": "nature.cast"}
 LACKING = "teleport"
+# The one exception in these scenarios (the integrator, 13 October): the mock does not simulate nature yet. A nature command
+# that passes the kernel's checks runs on the kernel host, and the mock answers it unavailable; so does nature.describe.
+# Only these ops, and only once their checks have passed. The follow-up that models nature in the mock removes it
+# (contracts/README.md, "Known open points").
+NATURE_NOT_IN_THE_MOCK = frozenset({"nature.cast", "nature.trail", "nature.repair", "nature.describe"})
 
 
 def refusal(result: dict):
@@ -72,6 +77,8 @@ class AlignmentScenarios:
 
     # Outcome keys a host cannot yet be held to (each with its reason in the subclass).
     unchecked: tuple[str, ...] = ()
+    # Whether this host simulates nature: the kernel host does; the mock answers it unavailable (NATURE_NOT_IN_THE_MOCK).
+    simulates_nature: bool = False
 
     def next_id(self, prefix: str) -> str:
         self._n = getattr(self, "_n", 0) + 1
@@ -121,12 +128,18 @@ class AlignmentScenarios:
 
         revise = await refused("creation.revise", lambda t: {"target": t, "source": block("Renamed vault")})
         remove = await refused("entity.remove", lambda t: {"target": t})
+        # room.undo takes back nature changes only: a build is not one, and nothing is undone (the kernel's NatureUndo).
+        undo = {to: refusal(await self.ask(command("room.undo", {"to_revision": to}, self.next_id("undo"),
+                                                    expected_revision=placed["revision"])))
+                for to in (placed["revision"] - 1, placed["revision"])}
         after = (await self.ask(query("journal.read", {"limit": 50}, self.next_id("q"))))["data"]
         outcome = {
             "inspect": inspect["ok"] or inspect["error"]["code"],
             "built facts": [(e["line"], "subject" in e, "pin_m" in e) for e in built],
             "revise refused like an unknown id": revise and revise[0],
             "remove refused like an unknown id": remove and remove[0],
+            "undo of the build": undo[placed["revision"] - 1],
+            "undo to now": undo[placed["revision"]],
             "nothing written since": after == before,
             "named anywhere": "Hidden vault" in json.dumps(after) or made in json.dumps(after),
         }
@@ -135,6 +148,8 @@ class AlignmentScenarios:
             "built facts": [("Built something, on its own initiative", False, False)],
             "revise refused like an unknown id": "target_not_found",
             "remove refused like an unknown id": "target_not_found",
+            "undo of the build": ("unsupported_capability", "$.args.to_revision"),
+            "undo to now": ("invalid_args", "$.args.to_revision"),
             "nothing written since": True,
             "named anywhere": False,
         }
@@ -144,6 +159,55 @@ class AlignmentScenarios:
         self.assertEqual(outcome, expected)
 
 
+
+    # ----- Nature: checked alike on both hosts; nature itself is the one exception (NATURE_NOT_IN_THE_MOCK) -----
+
+    async def test_nature_commands_are_checked_alike_and_nature_itself_is_the_one_exception(self):
+        """Every check the kernel makes before its nature runs gives the same answer on both hosts. Past them, on the mock
+        only, the excepted ops answer unavailable; the kernel host runs them (previews only here, so nothing changes)."""
+        await self.companion_home()
+        bloom = {"capability": "bloom", "center_m": IN_THE_OPEN, "radius_m": 0.25, "duration_s": 30}
+
+        async def sent(op, args, **options):
+            return refusal(await self.ask(command(op, args, self.next_id("nature"), **options)))
+
+        checked = {
+            "an argument it does not know": await sent("nature.cast", {**bloom, "intensity": 2}, preview=True),
+            "an effect, not nature": await sent("nature.cast", {**bloom, "capability": "glow"}, preview=True),
+            "a radius past the engine's": await sent("nature.cast", {**bloom, "radius_m": 2}, preview=True),
+            "a place of two numbers": await sent("nature.cast", {**bloom, "center_m": [0, 0]}, preview=True),
+            "a made-up preview id": await sent("nature.cast", {**bloom, "capability": "fire", "preview_id": "preview-1"}),
+            "a trail that is neither": await sent("nature.trail", {"enabled": "yes"}),
+            "a repair of an object": await sent("nature.repair", {"target": "obj:box"}),
+            "a repair of something unseen": await sent("nature.repair", {"target": "creation:zz-not-here"}),
+            "a stale revision": await sent("nature.trail", {"enabled": False}, expected_revision=10 ** 6, preview=True),
+        }
+        self.assertEqual(checked, {
+            "an argument it does not know": ("field_unknown", "$.args.intensity"),
+            "an effect, not nature": ("request_invalid", "$.args.capability"),
+            "a radius past the engine's": ("request_invalid", "$.args.radius_m"),
+            "a place of two numbers": ("request_invalid", "$.args.center_m"),
+            "a made-up preview id": ("request_invalid", "$.args.preview_id"),
+            "a trail that is neither": ("request_invalid", "$.args.enabled"),
+            "a repair of an object": ("request_invalid", "$.args.target"),
+            "a repair of something unseen": ("target_not_found", "$.args.target"),
+            "a stale revision": ("revision_conflict", "$.expected_revision"),
+        })
+        excepted = {
+            "nature.cast": [await sent("nature.cast", bloom, preview=True),
+                            await sent("nature.cast", {**bloom, "capability": "fire"}, preview=True)],
+            "nature.trail": [await sent("nature.trail", {"enabled": False}, preview=True)],
+            "nature.describe": [refusal(await self.ask(query("nature.describe", {}, self.next_id("q"))))],
+        }
+        self.assertLessEqual(set(excepted), NATURE_NOT_IN_THE_MOCK)
+        for op, answers in excepted.items():
+            for answer in answers:
+                with self.subTest(op=op):
+                    if self.simulates_nature:
+                        # Past the checks above: whatever nature answers, never a malformed request or a missing host.
+                        self.assertNotIn(answer[0] if answer != "ok" else answer, ("request_invalid", "field_unknown", "unavailable"))
+                    else:
+                        self.assertEqual(answer, ("unavailable", "$.op"))
 
     # ----- The Gubble's eyes (view.look): the same refusals on both hosts; a picture wherever the host can draw -----
 
@@ -200,12 +264,7 @@ class AlignmentScenarios:
     async def test_capabilities_list_answers_the_islands_rules(self):
         async def listed(args):
             result = await self.ask(query("capabilities.list", args, self.next_id("q")))
-            if not result["ok"]:
-                return refusal(result)
-            # The mock adds an optional native_required marker for its simulation boundary.
-            # test_glow_modes verifies those markers and actual refusals; the shared rule data must match here.
-            return dict(result["data"], items=[{key: value for key, value in item.items() if key != "native_required"}
-                                              for item in result["data"]["items"]])
+            return result["data"] if result["ok"] else refusal(result)
 
         outcome = {
             "all": await listed({}),

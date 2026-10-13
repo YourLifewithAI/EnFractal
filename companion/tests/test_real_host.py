@@ -662,6 +662,8 @@ class AlignmentOnTheRealHost(AlignmentScenarios, RealHostCase):
 
     # The suite's game runs headless: no renderer, so the Gubble's eyes answer unavailable (a real picture is the windowed check).
     renders = False
+    # The kernel host runs the island's nature (RoomWorld.ConfigureNature); the mock does not yet.
+    simulates_nature = True
 
     async def asyncSetUp(self):
         await super().asyncSetUp()

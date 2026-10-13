@@ -1992,6 +1992,14 @@ class MockHost(JournalMixin):
         bubble_source = None
         if ability.capability == "glow":
             variant = self._resolve_glow_variant(variant, own, centre)
+            surface = self._glow_water_surface_at(centre) if variant == "bioluminesce" else None
+            if surface is not None:
+                # The kernel lifts a bioluminescent glow to the water's surface, which must still be in reach and in sight.
+                centre = [centre[0], surface, centre[2]]
+                if math.dist(body.position, centre) > ability.reach_m:
+                    raise HostError("out_of_bounds", "The water surface is beyond the Gubble's reach.", field_path="$.args.area.center_m")
+                if not self._team_sees_spot(centre, principal, carrier):
+                    raise HostError("target_not_found", "Neither of you can see the water surface.", field_path="$.args.area.center_m")
             if variant == "glowing_bubbles":
                 nearby = [effect for effect in self.effects.values() if effect.capability == "bubbles" and
                           (effect.follows if own else not effect.follows and math.dist(effect.centre, centre) <= 0.45)]
@@ -2010,6 +2018,12 @@ class MockHost(JournalMixin):
     def _runtime_required(feature: str) -> None:
         # The contract's code for "this host cannot do that here" (the kernel's, for a game with no renderer).
         raise HostError("unavailable", f"{feature} needs the game itself; this mock host does not simulate it.", field_path="$.op")
+
+    @staticmethod
+    def _glow_water_surface_at(centre: list[float]) -> float | None:
+        """The water surface a bioluminescent glow rises to (the kernel's GlowWaterSurfaceAt). The box world has no water,
+        and it refuses that variant before asking (_resolve_glow_variant), so this never finds any."""
+        return None
 
     def _require_mock_primitive(self, ability: Ability) -> None:
         if ability.primitive not in {"light.emit", "particles.float", "particles.burst"}:
