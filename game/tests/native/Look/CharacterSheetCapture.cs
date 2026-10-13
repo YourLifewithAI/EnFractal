@@ -249,6 +249,9 @@ public partial class CharacterSheetCapture : Node
         var props = new List<Node3D>();
         var frontEye = new Vector3(0.15f, 0.1f, -0.23f);
         var middle = new Vector3(0f, 0.05f, 0f);
+        // A stride swings the legs fore and aft, which a view from the front hides: travelling, it is seen more from the side.
+        // (A waddle's roll and a hop's height read from the front.)
+        var travelEye = info.Motion == "stride" ? new Vector3(0.22f, 0.085f, -0.14f) : frontEye;
         switch (tileId)
         {
             case "slope_30":
@@ -276,7 +279,7 @@ public partial class CharacterSheetCapture : Node
                     Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
                 };
                 props.Add(Prop("Water", new Vector3(0.6f, depth, 0.6f), new Transform3D(Basis.Identity, Station + Vector3.Up * (depth / 2)), water, shadow: false));
-                return new TileSet(feet, new CharacterSheetStage(feet, Vector3.Up, Station.Y + depth, null), props, frontEye, middle, 36f);
+                return new TileSet(feet, new CharacterSheetStage(feet, Vector3.Up, Station.Y + depth, null), props, travelEye, middle, 36f);
             }
             case "climbing":
             {
@@ -302,7 +305,7 @@ public partial class CharacterSheetCapture : Node
             default:
             {
                 var feet = Station + Vector3.Up * lift;
-                return new TileSet(feet, new CharacterSheetStage(feet, Vector3.Up, null, null), props, frontEye, middle, 36f);
+                return new TileSet(feet, new CharacterSheetStage(feet, Vector3.Up, null, null), props, tileId is "walk" or "run" ? travelEye : frontEye, middle, 36f);
             }
         }
     }
