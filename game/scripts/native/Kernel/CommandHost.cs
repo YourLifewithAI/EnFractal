@@ -1679,6 +1679,7 @@ public partial class CommandHost : Node
         if (!_runningGoals.Remove(actor, out var job)) return;
         job.State = "cancelled";
         TaskEnded(job);
+        WishGoalEnded(job);
         GoalFinished?.Invoke(actor, job.Id, job.State);
     }
 
@@ -1740,6 +1741,7 @@ public partial class CommandHost : Node
         if (error != null) _lastGoalError[job.Actor] = error.Message;
         else _lastGoalError.Remove(job.Actor);
         TaskEnded(job);
+        WishGoalEnded(job);
         GoalFinished?.Invoke(job.Actor, job.Id, job.State);
     }
 

@@ -132,12 +132,16 @@ public partial class CommandHost
             throw new Refusal("permission_denied", "This wish is no longer running.");
         if (Op(root) is not ("goal.set" or "effect.start" or "effect.adjust" or "nature.cast" or "nature.trail" or "nature.repair" or "entity.grab" or "entity.release" or "entity.place" or "entity.push" or "entity.remove" or "protect.lock" or "room.undo" or "creation.place" or "creation.revise" or "creation.activate"))
             throw new Refusal("permission_denied", "The wish runner can use only its game actions.");
-        if (active.SuccessfulActionIds.Contains(actionId) || active.Refusals.Any(item => item.ActionId == actionId))
-            throw new Refusal("action_id_conflict", "That wish action has already finished; look up its receipt.");
+        if (active.Recorded(actionId))
+            throw new Refusal("action_id_conflict", "That wish action already has a receipt; look it up.");
         if (active.CommandCount >= WishQueue.MaxCommands)
             throw new Refusal("budget_exceeded", "This wish has reached its action limit.");
     }
-    /// <summary>The receipt itself is evidence. Runner claims and model prose can never write a success.</summary>
+    /// <summary>
+    /// The receipt itself is evidence. Runner claims and model prose can never write a success. An accepted goal with a
+    /// job (fetch, go_to, come, look_at, point_at) has not happened yet: it stays pending until <see cref="WishGoalEnded"/>
+    /// sees the job end. A follow runs until something replaces it, so it counts once accepted.
+    /// </summary>
     private void ObserveWishCommand(JsonElement root, JsonObject result, string principal)
     {
         if (principal != CompanionPrincipal || Str(root, "schema") != "enfractal.command" || Wishes.Active is not { } active ||
@@ -149,19 +153,47 @@ public partial class CommandHost
         var code = result["error"]?["code"]?.GetValue<string>() ?? "completed";
         // Approval-required is still pending work: the final result is observed after the player's click.
         if (code == "approval_required") return;
-        if (active.SuccessfulActionIds.Contains(actionId) || active.Refusals.Any(item => item.ActionId == actionId)) return;
+        if (active.Recorded(actionId)) return;
+        var pending = ok && Op(root) == "goal.set" && _runningGoals.TryGetValue(CompanionAvatarId, out var job) &&
+            job.ActionId == actionId && job.Principal == principal && job.Goal != "follow";
         try
         {
             // A refused 33rd action cannot fit another receipt. End this bounded wish honestly;
             // reaching the action cap is not a journal-storage failure.
-            PublishWishes(active.CommandCount >= WishQueue.MaxCommands
-                ? Wishes.Complete(active.Id, "failed") : Wishes.RecordReceipt(active.Id, actionId, ok, code));
+            if (active.CommandCount >= WishQueue.MaxCommands)
+            {
+                StopWishGoal(active);
+                PublishWishes(Wishes.Complete(active.Id, "failed"));
+            }
+            else PublishWishes(Wishes.RecordReceipt(active.Id, actionId, ok, code, pending));
         }
         catch (WishQueueException)
         {
             _wishesUnavailable = true;
             WishNotice = "The action finished, but its wish record could not be saved. Further wish actions are waiting for recovery.";
         }
+    }
+
+    /// <summary>CancelGoal and Finish call this when a goal job ends: a wish's pending goal becomes its success or refusal.</summary>
+    private void WishGoalEnded(GoalJob job)
+    {
+        if (job.Principal != CompanionPrincipal || Wishes.Active is not { } active || !active.PendingActionIds.Contains(job.ActionId)) return;
+        var succeeded = job.State == "succeeded";
+        var code = succeeded ? "completed" : job.Result?["error"]?["code"]?.GetValue<string>() ?? job.State;
+        try { PublishWishes(Wishes.Settle(active.Id, job.ActionId, succeeded, code)); }
+        catch (WishQueueException)
+        {
+            _wishesUnavailable = true;
+            WishNotice = "A wish action ended, but its wish record could not be saved. Further wish actions are waiting for recovery.";
+        }
+    }
+
+    /// <summary>A wish that ends without completing takes its still-running goal with it, recorded as cancelled.</summary>
+    private void StopWishGoal(WishEntry wish)
+    {
+        if (Companion == null || !_runningGoals.TryGetValue(CompanionAvatarId, out var job) || !wish.PendingActionIds.Contains(job.ActionId)) return;
+        CancelGoal(CompanionAvatarId);
+        Companion.Stop();
     }
 
     public void WishRunnerSession(bool connected)
@@ -209,10 +241,14 @@ public partial class CommandHost
             if (status != "running")
             {
                 var active = Wishes.Active!;
+                // A completion report waits for the host to see every accepted action end; ask again later.
+                if (code == "completed" && active.PendingActionIds.Count > 0)
+                    throw new WishQueueException("not_ready", "This wish's actions are still running.");
                 // A result cannot silently leave a held action alive. Deny while the wish is active,
                 // so the host's normal approval result is included in its receipt evidence.
                 foreach (var approval in PendingApprovals.Where(approval => approval.ActionId.StartsWith(active.ActionPrefix, StringComparison.Ordinal)).ToArray())
                     Deny(approval.RequestId);
+                if (Wishes.Active is { } ending && ending.Id == id) StopWishGoal(ending);
                 if (Wishes.Active?.Id == id) PublishWishes(Wishes.Complete(id, code));
             }
             return new JsonObject { ["ok"] = true, ["status"] = Wishes.Items.First(entry => entry.Id == id).Status };

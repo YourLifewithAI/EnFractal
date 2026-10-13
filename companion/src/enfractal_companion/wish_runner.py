@@ -166,6 +166,7 @@ class WishRunner:
             await self.runner_link.close()
 
     async def run_wish(self, wish: dict):
+        deadline = asyncio.get_running_loop().time() + self.config.timeout_s
         # A watcher notices the player's stop even while the AI process is thinking without output.
         work = asyncio.create_task(self._invoke(wish))
         watch = asyncio.create_task(self._watch(wish["wish_id"]))
@@ -186,7 +187,21 @@ class WishRunner:
                 if not task.done():
                     task.cancel()
             await asyncio.gather(work, watch, return_exceptions=True)
-        await self.update(wish["wish_id"], status)
+        await self._report(wish["wish_id"], status, deadline)
+
+    async def _report(self, wish_id, status, deadline):
+        """The host accepts a completion only after it has seen every accepted action end (a goal job may still be
+        walking); until then it answers not_ready. Ask again until the wish's time limit, then report a failure, which
+        ends the still-running goal. A player Stop meanwhile makes the wish unknown to the host, which also ends this."""
+        loop = asyncio.get_running_loop()
+        while True:
+            answer = await self.update(wish_id, status)
+            error = answer.get("error") if isinstance(answer, dict) else None
+            if status != "completed" or not isinstance(error, dict) or error.get("code") != "not_ready":
+                return answer
+            if loop.time() >= deadline:
+                return await self.update(wish_id, "failed")
+            await asyncio.sleep(self.poll_s)
 
     async def _watch(self, wish_id):
         while True:

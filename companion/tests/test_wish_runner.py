@@ -73,6 +73,8 @@ class Control:
         self.active = None
         self.finished = []
         self.verified = []
+        self.running_jobs = 0  # completion reports the host answers not_ready, as while a goal job still runs
+        self.reports = []
 
     def handle(self, principal, message):
         assert principal == "runner:local"
@@ -82,8 +84,12 @@ class Control:
             return {"ok": True, "wish": self.active}
         if message.get("op") == "wish.update":
             args = message["args"]
+            self.reports.append(args["status"])
             if self.active is None or args["wish_id"] != self.active["wish_id"]:
                 return {"ok": False, "error": {"code": "target_not_found"}}
+            if args["status"] == "completed" and self.running_jobs:
+                self.running_jobs -= 1
+                return {"ok": False, "error": {"code": "not_ready"}}
             status = "granted" if args["status"] == "completed" and self.active["wish_id"] in self.verified else "failed"
             self.finished.append((self.active["wish_id"], status))
             self.active = None
@@ -165,6 +171,19 @@ class WishRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.control.finished, [("wish:" + "a" * 26, "granted"), ("wish:" + "b" * 26, "granted")])
         self.assertEqual([message["action_id"] for message in self.commands], ["w-" + "a" * 26 + "-0", "w-" + "b" * 26 + "-0"])
         self.assertEqual(len(self.host.active_effect_ids()), 2)
+
+    async def test_a_completion_waits_for_the_host_to_see_its_running_goal_end(self):
+        self.control.running_jobs = 2
+        await self.runner("light").run(once=True)
+        self.assertEqual(self.control.reports, ["completed"] * 3)
+        self.assertEqual(self.control.finished, [("wish:" + "a" * 26, "granted")])
+        self.assertEqual(len(self.commands), 1)  # waiting never asks the adapter (or a provider) again
+
+    async def test_a_goal_still_running_at_the_time_limit_ends_the_wish_as_failed(self):
+        self.control.running_jobs = 10_000
+        await asyncio.wait_for(self.runner("light", timeout=0.5).run(once=True), 3)
+        self.assertEqual(self.control.reports[-1], "failed")
+        self.assertEqual(self.control.finished, [("wish:" + "a" * 26, "failed")])
 
     async def test_unsafe_inventory_never_receives_player_intent_or_calls_game(self):
         await self.runner("unsafe").run(once=True)
