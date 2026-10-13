@@ -43,8 +43,16 @@ path and material edges showed as triangles, and thin rock was planed 30 cm wide
 - **1x is unchanged:** byte-identical (four corpus rooms; the 25 unit tests pass).
 
 The 10x garage passes `overall` (walk 5 of 5, sea, footprints 16 of 16, water, grounded). Two yard things (a woodpile
-and the laundry) are still left out at 10x, as in S3. Generation takes about 3.7 to 4.2 minutes (S3: 2.2 to 2.9);
-the detail's own stages take about 1.2 minutes, and writing the bigger land (75 MB) about 0.5 more (see S4's report).
+and the laundry) are still left out at 10x, as in S3. The land is 0.99 million base triangles (5,960 of them fans) and
+1.55 million detail triangles (land.glb 75 MB). Generation, S3's and this run back to back on the same loaded machine:
+184 s and 227 s (S3 alone earlier: 133 s). The detail's own stages: climbs 4 s, detail 11 s, lips 7 s (the base's
+30 cm planing, 13 s, is gone), the surface and the stitched mesh +20 s, the yards' walk over the finer land +10 s,
+writing the bigger land +15 s.
+
+```
+python -B -m pipeline.landscape.generator.generate --room pipeline/landscape/corpus/rooms/garage_nominal --world-scale 10 --out <pkg>
+python -B -m pipeline.landscape.generator.checks --package <pkg> --room pipeline/landscape/corpus/rooms/garage_nominal --world-scale 10
+```
 
 ## Generation fast enough at world scale (Run 2, scale packet S3, 13 October)
 
