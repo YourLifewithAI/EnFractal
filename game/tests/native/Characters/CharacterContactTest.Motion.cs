@@ -26,11 +26,18 @@ public partial class CharacterContactTest
             var face = s.Course.Origin + new Vector3(1.5f, 0.1f, 2.5f);
             var space = GetWorld3D().DirectSpaceState;
             var cube = new Aabb(new Vector3(-0.01f, -0.01f, -0.01f), new Vector3(0.02f, 0.02f, 0.02f));
-            var inside = meter.Depth(space, new Transform3D(Basis.Identity, face + new Vector3(-0.005f, 0, 0)), cube);
-            var turned = meter.Depth(space, new Transform3D(new Basis(Vector3.Up, 0.3f), face + new Vector3(-0.012f, 0, 0)), cube);
-            var clear = meter.Depth(space, new Transform3D(Basis.Identity, face + new Vector3(-0.02f, 0, 0)), cube);
-            Report(Mathf.Abs(inside - 0.005f) < 0.001f && turned > 0.0005f && clear == 0,
-                $"the intrusion meter reads a 2 cm box 5 mm into a wall as {Mm(inside)}, a turned one as {Mm(turned)}, one beside it as {Mm(clear)}");
+            // Swept in from 5 cm in front of the wall, as a part is from the body's axis.
+            var from = face + new Vector3(-0.05f, 0, 0);
+            var inside = meter.Depth(space, new Transform3D(Basis.Identity, face + new Vector3(-0.005f, 0, 0)), cube, from);
+            var turned = meter.Depth(space, new Transform3D(new Basis(Vector3.Up, 0.3f), face + new Vector3(-0.012f, 0, 0)), cube, from);
+            var clear = meter.Depth(space, new Transform3D(Basis.Identity, face + new Vector3(-0.011f, 0, 0)), cube, from);
+            var sunk = meter.Depth(space, new Transform3D(Basis.Identity, face + new Vector3(0.015f, 0, 0)),
+                new Aabb(new Vector3(-0.004f, -0.004f, -0.004f), new Vector3(0.008f, 0.008f, 0.008f)), from);
+            var pairsOnly = meter.Depth(space, new Transform3D(Basis.Identity, face + new Vector3(-0.005f, 0, 0)), cube);
+            // The sweep is as fine as the engine's shape cast (about half a millimetre here).
+            Report(Mathf.Abs(inside - 0.005f) < 0.0008f && turned > 0 && turned < 0.001f && clear == 0 && Mathf.Abs(sunk - 0.019f) < 0.0015f &&
+                   Mathf.Abs(pairsOnly - 0.005f) < 0.0005f,
+                $"the intrusion meter reads a 2 cm box 5 mm into a wall as {Mm(inside)} ({Mm(pairsOnly)} from the contact alone), a turned one as {Mm(turned)}, one 1 mm short of it as {Mm(clear)}, an 8 mm box sunk whole 1.9 cm past the face of a 10 cm wall as {Mm(sunk)}");
         }
 
         var meters = _subjects.ToDictionary(s => s.Id, s => new IntrusionMeter(s.Rig, RoomBuilder.BodyMask, s.Course.Floors.Append(s.Body.GetRid())));
@@ -76,7 +83,7 @@ public partial class CharacterContactTest
         {
             var meter = meters[s.Id];
             var walks = string.Join(", ", perWalk[s.Id].Select(w => FormattableString.Invariant($"{w.Walk} {w.MmS:0.0}")));
-            GD.Print(FormattableString.Invariant($"CHARACTERS_INTRUSION {s.Id}: {meter.TotalMmS:0.0} mm·s ({walks}) over {meter.SampledS:0.0} s; worst depth {meter.WorstDepthM * 1000:0.0} mm; ") +
+            GD.Print(FormattableString.Invariant($"CHARACTERS_INTRUSION {s.Id}: {meter.TotalMmS:0.0} mm·s ({walks}) over {meter.SampledS:0.0} s; worst depth {meter.WorstDepthM * 1000:0.0} mm ({meter.WorstPart}); ") +
                 meter.Describe(4)[(meter.Describe(4).IndexOf("; ", StringComparison.Ordinal) + 2)..]);
             Check(meter.Samples > 700 && double.IsFinite(meter.TotalMmS), $"{s.Id}: the intrusion walks were measured");
         }

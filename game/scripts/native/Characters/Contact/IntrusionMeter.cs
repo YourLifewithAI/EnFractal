@@ -10,9 +10,13 @@ namespace EnFractal.Native.Characters.Contact;
 /// <summary>
 /// The intrusion metric (docs/runs/RUN-2-CHARACTERS.md, "Later: wide poses meet the world", item 1): a measurement only. Each
 /// sample asks the physics space how deep each part's mesh bounds (a box riding the part's final bone) reach into world
-/// geometry, and adds depth × time, in millimetre-seconds, to the part's total. Only the shared capsule collides, so wide parts
-/// pass into walls, gaps and posts; this baseline is what the later round's tucks, braces and turns must lower. It changes
-/// nothing about where a body can go. Allocates per sample (a test and tuning tool, not a frame-budget path).
+/// geometry, and adds depth × time, in millimetre-seconds, to the part's total. The depth is how far the box has travelled into
+/// the world along the line out from the body's own axis (the capsule's, which is always clear): the box is swept from the axis
+/// to where it is, and what lies past its first contact is inside. That is what a later tuck must undo, and it stays right for a
+/// part sunk whole in a thick wall, where the engine's contact pairs push it out through the far face. A box that already
+/// overlaps the world at the axis (a body wider than the capsule) falls back to the contact pairs' depth. Only the shared
+/// capsule collides, so wide parts pass into walls, gaps and posts; this baseline is what the later round's tucks, braces and
+/// turns must lower. It changes nothing about where a body can go. Allocates per sample (a test and tuning tool).
 /// </summary>
 public sealed class IntrusionMeter
 {
@@ -42,8 +46,10 @@ public sealed class IntrusionMeter
     public double TotalMmS => _mmS.Sum();
     public double SampledS { get; private set; }
     public int Samples { get; private set; }
-    /// <summary>The deepest any part reached on any sample, metres.</summary>
+    /// <summary>The deepest any part reached on any sample, metres, and which part and where (world).</summary>
     public float WorstDepthM { get; private set; }
+    public string WorstPart { get; private set; } = "";
+    public Vector3 WorstAt { get; private set; }
 
     /// <summary>Each part with its millimetre-seconds, the most first.</summary>
     public IEnumerable<(string Part, double MmS)> Parts =>
@@ -64,28 +70,56 @@ public sealed class IntrusionMeter
         for (var i = 0; i < _parts.Length; i++)
         {
             var bone = _rig.Bones[_parts[i]];
-            var depth = Depth(space, body * _rig.FinalBoneTransform(bone.Index), bone.MeshBounds);
+            var transform = body * _rig.FinalBoneTransform(bone.Index);
+            var centre = transform * bone.MeshBounds.GetCenter();
+            var depth = Depth(space, transform, bone.MeshBounds, new Vector3(body.Origin.X, centre.Y, body.Origin.Z));
             if (depth <= 0) continue;
             _mmS[i] += depth * 1000.0 * dt;
-            WorstDepthM = Mathf.Max(WorstDepthM, depth);
+            if (depth > WorstDepthM)
+            {
+                WorstDepthM = depth;
+                WorstPart = bone.Name;
+                WorstAt = body * _rig.FinalBoneTransform(bone.Index) * bone.MeshBounds.GetCenter();
+            }
         }
         SampledS += dt;
         Samples++;
     }
 
-    /// <summary>How deep a box (the bounds under <paramref name="transform"/>) reaches into the world: the deepest contact pair's separation.</summary>
-    public float Depth(PhysicsDirectSpaceState3D space, Transform3D transform, Aabb bounds)
+    /// <summary>
+    /// How deep a box (the bounds under <paramref name="transform"/>) reaches into the world: how far it travels past its first
+    /// contact when swept from <paramref name="from"/> (clear of the world) to where it is; without a clear start, the deepest
+    /// contact pair's separation.
+    /// </summary>
+    public float Depth(PhysicsDirectSpaceState3D space, Transform3D transform, Aabb bounds, Vector3? from = null)
     {
         var scale = transform.Basis.Scale;
         var size = new Vector3(Mathf.Max(bounds.Size.X * Mathf.Abs(scale.X), MinBoxM), Mathf.Max(bounds.Size.Y * Mathf.Abs(scale.Y), MinBoxM),
             Mathf.Max(bounds.Size.Z * Mathf.Abs(scale.Z), MinBoxM));
         if (!float.IsFinite(size.X + size.Y + size.Z)) return 0;
         _box.Size = size;
-        _query.Transform = new Transform3D(transform.Basis.Orthonormalized(), transform * bounds.GetCenter());
+        var basis = transform.Basis.Orthonormalized();
+        var centre = transform * bounds.GetCenter();
+        _query.Motion = Vector3.Zero;
+        _query.Transform = new Transform3D(basis, centre);
         var pairs = space.CollideShape(_query, 16);
+        if (pairs.Count < 2) return 0;
         var deepest = 0f;
         for (var p = 0; p + 1 < pairs.Count; p += 2) deepest = Mathf.Max(deepest, pairs[p].DistanceTo(pairs[p + 1]));
-        return deepest;
+        if (from is not { } start || !float.IsFinite(start.X + start.Y + start.Z)) return deepest;
+        var path = centre - start;
+        if (path.Length() < 1e-4f) return deepest;
+        _query.Transform = new Transform3D(basis, start);
+        if (space.IntersectShape(_query, 1).Count > 0)
+        {
+            _query.Transform = new Transform3D(basis, centre);
+            return deepest;
+        }
+        _query.Motion = path;
+        var cast = space.CastMotion(_query);
+        _query.Motion = Vector3.Zero;
+        _query.Transform = new Transform3D(basis, centre);
+        return cast.Length == 2 && cast[1] < 1 ? (1 - cast[1]) * path.Length() : 0;
     }
 
     /// <summary>One line for the run's evidence: the total, the time measured and the parts that intrude most.</summary>
