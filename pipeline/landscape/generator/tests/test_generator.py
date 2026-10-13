@@ -340,11 +340,10 @@ class RoomFrames(unittest.TestCase):
     def test_same_numbers(self):
         import random
         from pipeline.landscape.generator.land import inside_distance, wall_frame, wall_frame_plain
-        from pipeline.landscape.generator.scale import scale_room
+        from pipeline.landscape.generator.scale import magnify_room
         from pipeline.landscape.harness.common import load_json
         rooms = [load_json(path/'room.json') for path in sorted(ROOMS.iterdir()) if (path/'room.json').exists()]
-        scale_room(ROOMS/'garage_nominal', workdir('x10'), 10)
-        rooms.append(load_json(Path(RUN_DIR)/'x10'/'room.json'))
+        rooms.append(magnify_room(load_json(ROOMS/'garage_nominal'/'room.json'), 10))
         rnd = random.Random(4)
         for room in rooms:
             lo, hi = room['bounds']['min_m'], room['bounds']['max_m']
@@ -507,6 +506,103 @@ class ClimbLips(unittest.TestCase):
                 self.assertGreater(moved, 0, name)
                 self.assertLess(deepest, .2, name)
                 self.assertEqual(knife_edges(g, h, lambda q: True), [], name)
+
+
+
+class DetailSeams(unittest.TestCase):
+    """The 10x world's ground (detail.py): 2.5 cm blocks of 1 m on a 10 cm
+    base, stitched without a crack. Blocks in an L, a lone block and a pair
+    touching only at a corner, a path cut through them: every edge inside the
+    land is shared by exactly two triangles (no T-junction), a vertical ray
+    anywhere across the blocks' sides finds the land at the height the
+    generator reads there, and the checks' plain-ground shortcut over the
+    blocks answers exactly as reading every sample."""
+
+    @classmethod
+    def setUpClass(cls):
+        from pipeline.landscape.generator.detail import Detail
+        from pipeline.landscape.generator.field import Grid, Noise
+        g = Grid(-3., -3., 3., 3., .1)
+
+        def land(x, z):
+            return .3+.2*math.sin(x*1.3)*math.cos(z*.9)+.01*math.sin(x*7+z*5)
+
+        def landform(xs, zs):
+            return [(land(x, z), 0., -1, 0.) for z in zs for x in xs]
+        h = [r[0] for r in landform(g.xs, g.zs)]
+        d = Detail(g, 10., Noise(1, scale=10.), landform)
+        for b in ((1, 1), (2, 1), (1, 2), (4, 4), (3, 2)):
+            d.marks[b] = {'test'}
+        # A path cut 4 cm into the land through the blocks (a graded line).
+        pts = [(-1.95+.025*k, -1.6+.016*k) for k in range(100)]
+        d.road(pts, [land(x, z)-.04 for x, z in pts], .085, .185)
+        d.marks = {b: {'test'} for b, w in d.marks.items() if 'test' in w}
+        d.build(h, [])
+        d.merge(h)
+        one = {'meadow': 1.}
+        prims, cls.counts = d.assemble(h, [one]*g.n, [(1., 1., 1.)]*g.n, [one]*d.n, [(1., 1., 1.)]*d.n)
+        cls.g, cls.d, cls.h, cls.prims, cls.land = g, d, h, prims, staticmethod(land)
+        cls.doc = dict(terrain=[{'mesh': 'land'}], scenery=[], water=[], scatter=[], objects=[], prototypes={},
+                       x_generator=dict(cell_m=.1, world_scale=10., detail=dict(cell_m=d.fc)))
+        cls.meshes = {'land': prims}
+
+    def test_no_crack(self):
+        edges = {}
+        for p in self.prims:
+            vs = p['positions']
+            for t in p['triangles']:
+                a, b, c = (vs[k] for k in t)
+                # Every face is a real triangle, wound like the base's (counter-clockwise seen from +Y).
+                self.assertGreater((b[2]-a[2])*(c[0]-a[0])-(b[0]-a[0])*(c[2]-a[2]), 1e-9)
+                for u, v in ((a, b), (b, c), (c, a)):
+                    key = tuple(sorted(((round(u[0], 6), round(u[2], 6)), (round(v[0], 6), round(v[2], 6)))))
+                    edges[key] = edges.get(key, 0)+1
+        lo, hi = self.g.xs[0], self.g.xs[-1]
+
+        def outer(e):
+            (x0, z0), (x1, z1) = e
+            return (x0 == x1 and x0 in (lo, hi)) or (z0 == z1 and z0 in (lo, hi))
+        open_ = [e for e, n in edges.items() if n != 2 and not (n == 1 and outer(e))]
+        self.assertEqual(open_, [])
+        self.assertGreater(self.counts['seam_fans'], 50)
+        self.assertEqual(self.counts['blocks'], 5)
+
+    def test_rays_find_the_land(self):
+        terrain = checks.Terrain(self.doc, self.meshes)
+        ground = self.d.ground(self.h)
+        # Every 7 mm across the blocks and their sides, and on the block sides and corners exactly.
+        pts = [(-2.05+.007*i, -2.05+.007*j) for i in range(330) for j in range(330)]
+        pts += [(x, z) for x in (-2., -1., 0., 1.) for z in [-2.+.0125*k for k in range(240)]]
+        pts += [(x, z) for z in (-2., -1., 0., 1.) for x in [-2.+.0125*k for k in range(240)]]
+        for x, z in pts:
+            hit = terrain.hit(x, z)
+            self.assertIsNotNone(hit, (x, z))
+            self.assertAlmostEqual(hit[0], ground.tri_height(self.h, x, z), delta=2e-5, msg=(x, z))
+        # The path's cut is in the blocks' 2.5 cm land (4 cm down on its line).
+        x, z = -1.95+.025*20, -1.6+.016*20
+        self.assertAlmostEqual(ground.tri_height(self.h, x, z), self.land(x, z)-.04, delta=.003)
+
+    def test_plain_shortcut_over_the_blocks(self):
+        fast = checks.Terrain(self.doc, self.meshes)
+        slow = checks.Terrain(self.doc, self.meshes)
+        b = slow.bucket
+        slow.candidates = lambda x, z: slow.grid.get((int(math.floor(x/b)), int(math.floor(z/b))), ())
+        slow.plain_slope = lambda i, j: None
+        room = {'bounds': {'min_m': [-2.9, 0., -2.9], 'max_m': [2.9, 2., 2.9]}, 'shell': {'parts': []},
+                'spawns': [{'role': 'player', 'position_m': [0., 0., 0.]}]}
+        a = checks.Walker(self.doc, self.meshes, fast, room).reach((-1.6, -1.9))
+        c = checks.Walker(self.doc, self.meshes, slow, room).reach((-1.6, -1.9))
+        self.assertGreater(len(a), 5000)
+        self.assertEqual(a.nodes(), c.nodes())
+        # Buckets wholly in a block are vouched for; one on a seam is read in full.
+        self.assertIsNotNone(fast.plain_slope(-16, -16))
+        self.assertIsNone(fast.plain_slope(-20, -16))
+        import random
+        rnd = random.Random(7)
+        for _ in range(4000):
+            x, z = rnd.uniform(-2.2, .2), rnd.uniform(-2.2, .2)
+            self.assertEqual(fast.hit(x, z), slow.hit(x, z), (x, z))
+            self.assertEqual(fast.land_height(x, z), slow.height(x, z), (x, z))
 
 
 if __name__ == '__main__':

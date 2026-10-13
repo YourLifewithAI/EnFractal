@@ -119,10 +119,11 @@ class Coast:
         c, hl, bw, hw = self._coast(px, pz)
         # The reef a short swim off: off the farthest-reaching coast nearby (so a
         # headland next door never brings it close), and farther off a beach, so
-        # the beach's shelf reaches swimming water first.
-        W = world.W
-        near = max([c]+[self._coast(px+dx*W, pz+dz*W)[0] for dx, dz in ((.2, 0), (-.2, 0), (0, .2), (0, -.2),
-                                                                           (.35, 0), (-.35, 0), (0, .35), (0, -.35))])
+        # the beach's shelf reaches swimming water first. The swim is the body's
+        # (the 10x world keeps it): "nearby" is within a short swim (.2 and .35 m),
+        # not the room's size, so a cove keeps its reef a short swim off too.
+        near = max([c]+[self._coast(px+dx, pz+dz)[0] for dx, dz in ((.2, 0), (-.2, 0), (0, .2), (0, -.2),
+                                                                     (.35, 0), (-.35, 0), (0, .35), (0, -.35))])
         n = self.noise
         lo = near+lerp(REEF_OFFSHORE[0], .55, bw)
         reef = clamp(.48+.12*n(px*1.1+41, pz*1.1-23), lo, max(lo, c+REEF_OFFSHORE[1]))
