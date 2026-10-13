@@ -1,0 +1,94 @@
+{
+  "applied_notes": [
+    "The founder, 13 October 2026: the torch is no longer part of the Gubble; it becomes a separate item, made by the Gubble's Glow (Torch), that the Gubble and the player carry. Removed the torch and torch_flame parts; the arm and hand stay, reaching out to hold what the Gubble carries. The tallest point is now a floating sparkle, so the whole Gubble scales up to stay 0.10 m tall."
+  ],
+  "bounds_m": {
+    "max": [
+      0.010074836467608182,
+      0.1,
+      -0.0011227367527577824
+    ],
+    "min": [
+      -0.0026188790501408036,
+      0.0,
+      -0.013285379719968422
+    ]
+  },
+  "collision_hint": {
+    "height_m": 0.1,
+    "kind": "capsule",
+    "radius_m": 0.02,
+    "visual_overhang": false
+  },
+  "depth_m": 0.01216264296721064,
+  "forward": "-Z",
+  "height_m": 0.1,
+  "motion": {
+    "kind": "float",
+    "reason": "A carried prop; it does not move by itself."
+  },
+  "name": "the Gubble's torch",
+  "parts": [
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.0007484911685051882,
+        0.01578465178327113,
+        -0.006736420516546694
+      ],
+      "name": "torch",
+      "node_index": 1,
+      "parent": null,
+      "pivot_m": [
+        0.0007484911685051882,
+        0.01578465178327113,
+        -0.006736420516546694
+      ],
+      "role": "the Gubble's drawn torch: a wooden handle"
+    },
+    {
+      "kind": "effect",
+      "local_pivot_m": [
+        0.0022454735055155647,
+        0.034056348166986064,
+        0.0
+      ],
+      "motion_hint": {
+        "kind": "flicker",
+        "reason": "Independent flame motion around the character"
+      },
+      "name": "torch_flame",
+      "node_index": 2,
+      "parent": "torch",
+      "pivot_m": [
+        0.002993964674020753,
+        0.049840999950257196,
+        -0.006736420516546694
+      ],
+      "role": "the torch's flame, always lit until put out"
+    }
+  ],
+  "provenance": {
+    "description_sha256": "375ddd684b879a567495746bb3994b47e21ed6075d234fa5da55698d0d296546",
+    "interpretation_sha256": "00bd7540a99ab8c3a3bb510c9db84cdd735bf272206b2e9f3915376bbe7eb4b8",
+    "photo_sha256": "dafeed7029de16db07167a8e7a9e26062bc4add5bc9a7b976b8d4bcb28487a21",
+    "photo_size_px": [
+      4284,
+      5712
+    ]
+  },
+  "root_pivot_m": [
+    0,
+    0,
+    0
+  ],
+  "schema": "enfractal.character.draft",
+  "triangles": 1032,
+  "uncertainties": [
+    "The handle's depth and the flame's shape were inferred in the Gubble's reading."
+  ],
+  "units": "metres",
+  "up": "+Y",
+  "version": 1,
+  "width_m": 0.012693715517748986
+}

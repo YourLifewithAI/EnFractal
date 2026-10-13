@@ -94,6 +94,11 @@ done
 echo "== native fixtures and room boot"
 run native_contract_probe "Native release probe passed" --headless --path "$P" res://scenes/native_contract_probe.tscn
 run native_small_avatar "checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_small_avatar.tscn
+run native_characters "NATIVE_CHARACTERS: [0-9]+/[0-9]+ checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_characters.tscn -- --skip-budget
+run native_character_gaits "NATIVE_CHARACTER_GAITS: [0-9]+/[0-9]+ checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_character_gaits.tscn -- --skip-budget
+run native_character_contact "NATIVE_CHARACTER_CONTACT: [0-9]+/[0-9]+ checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_character_contact.tscn
+# 40 seeded tumbles per character and ground (the Windows runner takes all 200, about 4 minutes) to fit run()'s 180 s.
+run native_character_tumble "NATIVE_CHARACTER_TUMBLE: [0-9]+/[0-9]+ checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_character_tumble.tscn -- --tumbles=40 --skip-budget
 run native_room_navigation "checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_room_navigation.tscn
 # Play on the land: the 1x garage landscape from the shared fixture cache (above; built there first when missing).
 if ! LR=$(landscape_fixture 1); then echo "FAIL landscape fixture"; tail -15 "$LOG/landscape_fixture_x1.log"; failed=1; fi
@@ -102,6 +107,7 @@ run native_room_data "checks passed" --headless --path "$P" --fixed-fps 60 res:/
 run native_island_loading "checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_island_loading.tscn
 run native_look_preset "checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_look_preset.tscn -- --landscape="$LR"
 if grep -q "checks were skipped" "$LOG/native_look_preset.out"; then echo "FAIL native_look_preset skipped its real-garage checks"; grep "checks were skipped" "$LOG/native_look_preset.out"; failed=1; fi
+run native_look_characters "NATIVE_LOOK_CHARACTERS: [0-9]+/[0-9]+ checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_look_characters.tscn
 run room_boot "ROOM_WORLD_QUIT" --headless --path "$P" --fixed-fps 60 res://scenes/room.tscn -- --quit-after-ready=240
 # The landscape as the player opens it: installed in the user folder and booted by id through the main scene (which reads --room),
 # quitting by --quit-after-ready (a smoke boot of 13 October never quit: it ran an assembly built before the option existed).

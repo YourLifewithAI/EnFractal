@@ -1,6 +1,7 @@
 using Godot;
 using System.Collections.Generic;
 using System.Globalization;
+using EnFractal.Native.Characters.Gaits;
 using EnFractal.Native.Look;
 
 namespace EnFractal.Native;
@@ -255,17 +256,18 @@ public partial class RoomHud : CanvasLayer
         AddKeyLine(_keyHelp, MagicKeysLine, "GubbleSlots");
         // The toggles that bend the world for testing, apart from the keys the game is played with.
         _keyHelp.AddChild(new Label { Name = "TestingHeading", Text = "Testing" });
-        AddKeyLine(_keyHelp, () => $"{K(Act.PhysicsNext)} gravity · {K(Act.TimeStep)} time of day · {K(Act.SeasonStep)} season (each steps round to the real clock) · {K(Act.Lamps)} lamps", "TestingKeys");
+        AddKeyLine(_keyHelp, () => $"{K(Act.PhysicsNext)} gravity · {K(Act.TimeStep)} time of day · {K(Act.SeasonStep)} season (each steps round to the real clock) · {K(Act.Lamps)} lamps · {K(Act.BounceStep)} your character's bounce (x0.5, x1, x1.5) · {K(Act.BouncePrint)} print its motion profile", "TestingKeys");
         _notice = new Label { Name = "Notice", Text = _noticeText }; help.AddChild(_notice);
         help.MinimumSizeChanged += () => _footer.Size = new Vector2(_footer.Size.X, 0);
         _customization = new PanelContainer { Position = new Vector2(18, 190), Theme = theme, Visible = false };
         AddChild(_customization);
         var options = new VBoxContainer(); _customization.AddChild(options);
         options.AddChild(new Label { Text = "YOUR TWO AVATARS" });
+        // The player's character, the row of the prototype figure and the drawn ones, and its colour button (RoomHud.Customize.cs).
+        BuildCharacterChoice(options);
         var name = new LineEdit { Text = Companion.CompanionName, MaxLength = 40, PlaceholderText = "Your companion's name (the Gubble)", CustomMinimumSize = new Vector2(360, 40) };
         options.AddChild(name);
         name.TextChanged += value => Companion.SetDisplayName(value);
-        AddButton(options, "Change player color", () => { _playerColor = (_playerColor + 1) % Palette.Length; Player.SetAppearance(Palette[_playerColor]); });
         AddButton(options, "Change the Gubble's color", () => { _companionColor = (_companionColor + 1) % Palette.Length; Companion.SetAppearance(Palette[_companionColor]); ApplyAura(); });
         options.AddChild(new Label { Text = $"Player height: {Player.BodyHeightM * 100:0} cm. Appearance keeps each avatar's identity." });
         BuildEyesSetting(options);
@@ -651,6 +653,13 @@ public partial class RoomHud : CanvasLayer
             else if (PlayerControls.Hit(press, Act.ViewDiorama)) SetViewMode(2);
             else if (PlayerControls.Hit(press, Act.ViewIso)) SetViewMode(3);
             else if (PlayerControls.Hit(press, Act.Lamps) && Look != null) Look.SetLamps(!Look.LampsOn);
+            // The tuning keys (docs/runs/RUN-2-CHARACTERS.md, "Tuning by playing"): Shift+P before P.
+            else if (PlayerControls.Hit(press, Act.BouncePrint))
+                _noticeText = BounceKey.Print(Player.BodyVisual) != null ? "Your character's motion profile is in the log." : "The prototype figure has no motion profile.";
+            else if (PlayerControls.Hit(press, Act.BounceStep))
+                _noticeText = BounceKey.Cycle(Player.BodyVisual) is { } bounce
+                    ? "Your character's bounce: x" + bounce.ToString("0.#", CultureInfo.InvariantCulture) + " of its profile."
+                    : "The prototype figure has no bounce to tune.";
             else if (PlayerControls.Hit(press, Act.ViewObserve) && Look != null) Look.Observe = !Look.Observe;
             else if (PlayerControls.Hit(press, Act.SeasonStep)) StepSeason();
             else if (PlayerControls.Hit(press, Act.TimeStep)) StepTimeOfDay();
@@ -752,6 +761,7 @@ public partial class RoomHud : CanvasLayer
         _customization.Visible = !_customization.Visible;
         Player.SetInputEnabled(!_customization.Visible);
         Input.MouseMode = Input.MouseModeEnum.Visible;
+        if (_customization.Visible) OnCustomizeOpened();
     }
 
     private void LoadPreferences()
@@ -773,6 +783,7 @@ public partial class RoomHud : CanvasLayer
             Companion.SetDisplayName(CompanionAvatar.SavedName(name.AsString()));
         Player.SetAppearance(Palette[_playerColor]);
         Companion.SetAppearance(Palette[_companionColor]);
+        RestoreCharacter(config.GetValue("profile", CharacterProfileKey, CharacterChoice.PrototypeId));
     }
 
     /// <summary>
@@ -793,6 +804,7 @@ public partial class RoomHud : CanvasLayer
             config.SetValue("profile", "companion_color", _companionColor);
             config.SetValue("profile", "companion_name", Companion.CompanionName);
             config.SetValue("profile", "has_used_glow", HasUsedGlow);
+            config.SetValue("profile", CharacterProfileKey, ChosenCharacterId);
         }
         _noticeText = readable && WriteProfile(config) ? "Appearance saved. Room changes are not saved by this placeholder." : "Could not save appearance; current session is still usable.";
     }

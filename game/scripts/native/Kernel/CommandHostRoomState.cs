@@ -87,7 +87,7 @@ public partial class CommandHost
             entities[id] = new JsonObject
             {
                 ["id"] = id, ["kind"] = "avatar", ["revision"] = 1,
-                ["avatar"] = new JsonObject { ["role"] = role, ["display_name"] = KernelJson.DisplayText(name, 40), ["appearance"] = new JsonObject { ["color"] = "#" + body.AppearanceColor.ToHtml(false) } },
+                ["avatar"] = new JsonObject { ["role"] = role, ["display_name"] = KernelJson.DisplayText(name, 40), ["appearance"] = Appearance(body) },
                 ["provenance"] = new JsonObject { ["kind"] = "hand_authored", ["created_by"] = "system:room", ["created_revision"] = 0 },
                 ["protection"] = new JsonObject { ["locked"] = false },
             };
@@ -139,6 +139,30 @@ public partial class CommandHost
     private static readonly System.Text.RegularExpressions.Regex Hex64 = new(@"\A[0-9a-f]{64}\z", System.Text.RegularExpressions.RegexOptions.Compiled);
     private static readonly System.Text.RegularExpressions.Regex Hex16 = new(@"\A[0-9a-f]{16}\z", System.Text.RegularExpressions.RegexOptions.Compiled);
     private static readonly System.Text.RegularExpressions.Regex ColorHex = new(@"\A#[0-9a-fA-F]{6}\z", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    /// <summary>
+    /// An avatar's appearance as room state writes it: its colour, and the drawn character it wears when it wears one
+    /// (room-state.schema.json's optional appearance.body, a token; the characters round).
+    /// </summary>
+    private static JsonObject Appearance(SmallPlayerController body) => WithBody(new JsonObject { ["color"] = "#" + body.AppearanceColor.ToHtml(false) }, body);
+
+    /// <summary>Adds the body's drawn character, when it has one, as "body".</summary>
+    private static JsonObject WithBody(JsonObject identity, SmallPlayerController body)
+    {
+        if (body.CharacterId.Length > 0) identity["body"] = body.CharacterId;
+        return identity;
+    }
+
+    /// <summary>A colour, and at most an optional body token beside it.</summary>
+    private static bool AppearanceIsValid(JsonObject look) =>
+        look.Count == (look.ContainsKey("body") ? 2 : 1) && StrOf(look["color"]) is { } color && ColorHex.IsMatch(color) && BodyIsValid(look);
+
+    /// <summary>
+    /// No "body" key, or a token string under it (room-state.schema.json's optional appearance.body, common.schema.json's token):
+    /// a key present with null, or any other value, is refused.
+    /// </summary>
+    private static bool BodyIsValid(JsonObject holder) =>
+        !holder.TryGetPropertyValue("body", out var body) || (StrOf(body) is { } token && SmallPlayerController.IsCharacterToken(token));
     private static readonly System.Text.RegularExpressions.Regex SessionHex = new(@"\A[a-f0-9]{16,64}\z", System.Text.RegularExpressions.RegexOptions.Compiled);
     private static readonly System.Text.RegularExpressions.Regex CheckpointId = new(@"\Acp[0-9]{4,9}\z", System.Text.RegularExpressions.RegexOptions.Compiled);
     private static readonly System.Text.RegularExpressions.Regex HostCreationId = new(@"\Acreation:[0-9]{8}\z", System.Text.RegularExpressions.RegexOptions.Compiled);
@@ -290,7 +314,7 @@ public partial class CommandHost
                 if (key is not (PlayerAvatar or CompanionAvatarId)) return "an avatar this room does not have";
                 if (entity["transform"] != null || entity["creation"] != null || locked) return "fields an avatar does not have";
                 if (entity["avatar"] is not JsonObject avatar || avatar.Count != 3 || StrOf(avatar["role"]) != (key == PlayerAvatar ? "player" : "companion") ||
-                    !Text(avatar["display_name"], 40) || avatar["appearance"] is not JsonObject look || look.Count != 1 || StrOf(look["color"]) is not { } color || !ColorHex.IsMatch(color))
+                    !Text(avatar["display_name"], 40) || avatar["appearance"] is not JsonObject look || !AppearanceIsValid(look))
                     return "its identity";
                 if (key == PlayerAvatar && StrOf(avatar["display_name"]) != "Player") return "a player's name this host cannot restore";
                 break;
@@ -420,7 +444,11 @@ public partial class CommandHost
                 });
             }
             else
+            {
                 avatars[id] = new JsonObject { ["display_name"] = entity["avatar"]!["display_name"]!.GetValue<string>(), ["color"] = entity["avatar"]!["appearance"]!["color"]!.GetValue<string>().ToLowerInvariant() };
+                // The drawn character the avatar wore (room-state.schema.json's optional appearance.body), when it wore one.
+                if (StrOf(entity["avatar"]!["appearance"]!["body"]) is { } wore) avatars[id]!["body"] = wore;
+            }
         }
         var receipts = new JsonObject();
         foreach (var (key, node) in state["receipts"]!.AsObject())

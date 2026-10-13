@@ -78,6 +78,17 @@ The integrator owns `docs/codex/README.md`, `docs/codex/briefs/**` and `tools/co
 | `game/scripts/native/Companion/**` (in-game bridge endpoint and goal runner; drives CompanionAvatar through its public API) | A1, A2 |
 | `docs/companion/**` | A notes |
 
+## Track K: Characters (from the characters round, 13 October)
+
+| Path | Packets |
+|---|---|
+| `game/scripts/native/Characters/**` (the rig and library, the gaits, contact, the Gubble's port; one agent per subfolder) | K1, K3, K4, K5 ([RUN-2-CHARACTERS.md](RUN-2-CHARACTERS.md)) |
+| `assets/characters/**` (the shipped characters and their `rig.json` sidecars; the models themselves change only by rerunning the converter) | K1; the integrator for new characters |
+| `game/tests/native/Characters/**`, `game/tests/native_characters*.tscn` | K tests |
+| `docs/characters/**` | K notes |
+
+The bodies' own files stay Lane P's: `SmallPlayerController.cs` and `CompanionAvatar.cs` take the round's hooks from the integrator, and K5 edits `CompanionAvatar.cs` only on the run-specific grant the plan names.
+
 ## Rules for crossing a boundary
 
 - **Need a change in a file you do not own?** Write the exact diff and the reason in your lane report. The integrator applies it or hands it to the owning lane. Do not edit it yourself, even for a one-line fix.

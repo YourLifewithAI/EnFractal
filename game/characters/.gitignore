@@ -1,0 +1,3 @@
+# The repository ignores *.import; these sidecars are source here (importer="keep": Godot never imports the
+# character models, and an export packs each GLB as raw bytes). tools/characters/sync_characters.py writes them.
+!character.glb.import

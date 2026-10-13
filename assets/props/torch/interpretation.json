@@ -1,0 +1,153 @@
+{
+  "applied_notes": [
+    "The founder, 13 October 2026: the torch is no longer part of the Gubble; it becomes a separate item, made by the Gubble's Glow (Torch), that the Gubble and the player carry. Removed the torch and torch_flame parts; the arm and hand stay, reaching out to hold what the Gubble carries. The tallest point is now a floating sparkle, so the whole Gubble scales up to stay 0.10 m tall."
+  ],
+  "colour_reasoning": "The handle's brown and the flame's orange and yellow, as the Gubble's reading placed them.",
+  "image_size": [
+    1000,
+    1333
+  ],
+  "motion": {
+    "kind": "float",
+    "reason": "A carried prop; it does not move by itself."
+  },
+  "name": "the Gubble's torch",
+  "observations": [
+    "The torch drawn in the Gubble's hand, taken out of the Gubble's interpretation unchanged (13 October 2026)."
+  ],
+  "origin": [
+    768,
+    1112,
+    0
+  ],
+  "palette": {
+    "flame": "#FF9A2E",
+    "flame_core": "#FFE36B",
+    "torch_handle": "#6B4528"
+  },
+  "parts": [
+    {
+      "name": "torch",
+      "parent": null,
+      "pivot": [
+        766,
+        1070,
+        18
+      ],
+      "role": "the Gubble's drawn torch: a wooden handle",
+      "shapes": [
+        {
+          "colour": "torch_handle",
+          "kind": "tube",
+          "points": [
+            [
+              768,
+              1112,
+              18
+            ],
+            [
+              766,
+              1040,
+              18
+            ],
+            [
+              762,
+              976,
+              18
+            ]
+          ],
+          "radii": [
+            7,
+            7,
+            8
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "effect",
+      "motion_hint": {
+        "kind": "flicker",
+        "reason": "Independent flame motion around the character"
+      },
+      "name": "torch_flame",
+      "parent": "torch",
+      "pivot": [
+        760,
+        979,
+        18
+      ],
+      "role": "the torch's flame, always lit until put out",
+      "shapes": [
+        {
+          "colour": "flame",
+          "kind": "tube",
+          "points": [
+            [
+              762,
+              982,
+              18
+            ],
+            [
+              758,
+              942,
+              18
+            ],
+            [
+              753,
+              902,
+              18
+            ],
+            [
+              750,
+              870,
+              18
+            ],
+            [
+              751,
+              845,
+              18
+            ]
+          ],
+          "radii": [
+            13,
+            15,
+            12,
+            6,
+            0.5
+          ]
+        },
+        {
+          "colour": "flame_core",
+          "kind": "tube",
+          "points": [
+            [
+              762,
+              976,
+              27
+            ],
+            [
+              758,
+              946,
+              28
+            ],
+            [
+              755,
+              912,
+              26
+            ]
+          ],
+          "radii": [
+            7,
+            7.5,
+            0.5
+          ]
+        }
+      ]
+    }
+  ],
+  "uncertainties": [
+    "The handle's depth and the flame's shape were inferred in the Gubble's reading."
+  ],
+  "version": 1
+}

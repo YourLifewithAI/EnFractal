@@ -1,0 +1,532 @@
+{
+  "applied_notes": [
+    "Puffier, thicker cloud like a plush pillow: widen the scalloped body 8%, increase its vertical fullness 23%, and author 318 drawing units of body depth (at least 0.046 m after scaling). The face and rainbow keep their proportions."
+  ],
+  "bounds_m": {
+    "max": [
+      0.05545258402649505,
+      0.1,
+      0.024511473517268092
+    ],
+    "min": [
+      -0.05423640448847727,
+      0.0,
+      -0.02585274056270399
+    ]
+  },
+  "collision_hint": {
+    "height_m": 0.1,
+    "kind": "capsule",
+    "radius_m": 0.02,
+    "visual_overhang": true
+  },
+  "depth_m": 0.05036421407997208,
+  "forward": "-Z",
+  "height_m": 0.1,
+  "motion": {
+    "kind": "hop",
+    "reason": "Short dangling legs below a wide buoyant body; gentle alternating little hops."
+  },
+  "name": "Cloudpuff",
+  "parts": [
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.0,
+        0.03622764953810064,
+        0.0
+      ],
+      "name": "body",
+      "node_index": 1,
+      "parent": null,
+      "pivot_m": [
+        0.0,
+        0.03622764953810064,
+        0.0
+      ],
+      "role": "body"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        -0.001233281686403426,
+        0.018499225296051386,
+        0.002466563372806852
+      ],
+      "name": "arch_red",
+      "node_index": 2,
+      "parent": "body",
+      "pivot_m": [
+        -0.001233281686403426,
+        0.05472687483415203,
+        0.002466563372806852
+      ],
+      "role": "prop"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        -0.001233281686403426,
+        0.018499225296051386,
+        0.002466563372806852
+      ],
+      "name": "arch_orange",
+      "node_index": 3,
+      "parent": "body",
+      "pivot_m": [
+        -0.001233281686403426,
+        0.05472687483415203,
+        0.002466563372806852
+      ],
+      "role": "prop"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        -0.001233281686403426,
+        0.018499225296051386,
+        0.002466563372806852
+      ],
+      "name": "arch_yellow",
+      "node_index": 4,
+      "parent": "body",
+      "pivot_m": [
+        -0.001233281686403426,
+        0.05472687483415203,
+        0.002466563372806852
+      ],
+      "role": "prop"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        -0.001233281686403426,
+        0.018499225296051386,
+        0.002466563372806852
+      ],
+      "name": "arch_green",
+      "node_index": 5,
+      "parent": "body",
+      "pivot_m": [
+        -0.001233281686403426,
+        0.05472687483415203,
+        0.002466563372806852
+      ],
+      "role": "prop"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        -0.001233281686403426,
+        0.018499225296051386,
+        0.002466563372806852
+      ],
+      "name": "arch_blue",
+      "node_index": 6,
+      "parent": "body",
+      "pivot_m": [
+        -0.001233281686403426,
+        0.05472687483415203,
+        0.002466563372806852
+      ],
+      "role": "prop"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        -0.001233281686403426,
+        0.018499225296051386,
+        0.002466563372806852
+      ],
+      "name": "arch_indigo",
+      "node_index": 7,
+      "parent": "body",
+      "pivot_m": [
+        -0.001233281686403426,
+        0.05472687483415203,
+        0.002466563372806852
+      ],
+      "role": "prop"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        -0.001233281686403426,
+        0.018499225296051386,
+        0.002466563372806852
+      ],
+      "name": "arch_violet",
+      "node_index": 8,
+      "parent": "body",
+      "pivot_m": [
+        -0.001233281686403426,
+        0.05472687483415203,
+        0.002466563372806852
+      ],
+      "role": "prop"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.03345276574369293,
+        -0.0015416021080042822,
+        0.0
+      ],
+      "name": "arm_screen_left",
+      "node_index": 9,
+      "parent": "body",
+      "pivot_m": [
+        0.03345276574369293,
+        0.03468604743009636,
+        0.0
+      ],
+      "role": "arm"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.005087286956414132,
+        -0.023586512252465525,
+        -0.0023124031620064237
+      ],
+      "name": "hand_screen_left",
+      "node_index": 10,
+      "parent": "arm_screen_left",
+      "pivot_m": [
+        0.03854005270010706,
+        0.011099535177630834,
+        -0.0023124031620064237
+      ],
+      "role": "hand"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        -0.033915246376094214,
+        -0.0016957623188047152,
+        0.0
+      ],
+      "name": "arm_screen_right",
+      "node_index": 11,
+      "parent": "body",
+      "pivot_m": [
+        -0.033915246376094214,
+        0.034531887219295926,
+        0.0
+      ],
+      "role": "arm"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        -0.002774883794407712,
+        -0.0191158661392531,
+        -0.0023124031620064237
+      ],
+      "name": "hand_screen_right",
+      "node_index": 12,
+      "parent": "arm_screen_right",
+      "pivot_m": [
+        -0.036690130170501926,
+        0.015416021080042825,
+        -0.0023124031620064237
+      ],
+      "role": "hand"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.013874418972038543,
+        -0.006166408432017132,
+        0.0
+      ],
+      "name": "leg_screen_left",
+      "node_index": 13,
+      "parent": "body",
+      "pivot_m": [
+        0.013874418972038543,
+        0.03006124110608351,
+        0.0
+      ],
+      "role": "leg"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.003237364426808994,
+        -0.024203153095667236,
+        -0.001233281686403426
+      ],
+      "name": "foot_screen_left",
+      "node_index": 14,
+      "parent": "leg_screen_left",
+      "pivot_m": [
+        0.017111783398847537,
+        0.005858088010416274,
+        -0.001233281686403426
+      ],
+      "role": "foot"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        -0.01772842424204925,
+        -0.006320568642817562,
+        0.0
+      ],
+      "name": "leg_screen_right",
+      "node_index": 15,
+      "parent": "body",
+      "pivot_m": [
+        -0.01772842424204925,
+        0.02990708089528308,
+        0.0
+      ],
+      "role": "leg"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.0023124031620064232,
+        -0.02559059499287109,
+        -0.001233281686403426
+      ],
+      "name": "foot_screen_right",
+      "node_index": 16,
+      "parent": "leg_screen_right",
+      "pivot_m": [
+        -0.015416021080042825,
+        0.004316485902411991,
+        -0.001233281686403426
+      ],
+      "role": "foot"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.011099535177630834,
+        0.010791214756029975,
+        -0.02451973634322913
+      ],
+      "name": "eye_screen_left",
+      "node_index": 17,
+      "parent": "body",
+      "pivot_m": [
+        0.011099535177630834,
+        0.047018864294130616,
+        -0.02451973634322913
+      ],
+      "role": "eye"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.0,
+        0.0,
+        -0.0006166408432017115
+      ],
+      "name": "pupil_screen_left",
+      "node_index": 18,
+      "parent": "eye_screen_left",
+      "pivot_m": [
+        0.011099535177630834,
+        0.047018864294130616,
+        -0.02513637718643084
+      ],
+      "role": "pupil"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.0,
+        0.0046248063240128465,
+        0.0006247455380191183
+      ],
+      "name": "lid_screen_left",
+      "node_index": 19,
+      "parent": "eye_screen_left",
+      "pivot_m": [
+        0.011099535177630834,
+        0.05164367061814346,
+        -0.02389499080521001
+      ],
+      "role": "eyelid"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        -0.011870336231632975,
+        0.009712093280426978,
+        -0.022767163755253807
+      ],
+      "name": "eye_screen_right",
+      "node_index": 20,
+      "parent": "body",
+      "pivot_m": [
+        -0.011870336231632975,
+        0.04593974281852762,
+        -0.022767163755253807
+      ],
+      "role": "eye"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.0,
+        0.0,
+        -0.0006166408432017115
+      ],
+      "name": "pupil_screen_right",
+      "node_index": 21,
+      "parent": "eye_screen_right",
+      "pivot_m": [
+        -0.011870336231632975,
+        0.04593974281852762,
+        -0.02338380459845552
+      ],
+      "role": "pupil"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.0,
+        0.0046248063240128465,
+        0.00031382640301671344
+      ],
+      "name": "lid_screen_right",
+      "node_index": 22,
+      "parent": "eye_screen_right",
+      "pivot_m": [
+        -0.011870336231632975,
+        0.050564549142540466,
+        -0.022453337352237094
+      ],
+      "role": "eyelid"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.010945374966830406,
+        0.019115866139253097,
+        -0.020712961534602597
+      ],
+      "name": "brow_screen_left",
+      "node_index": 23,
+      "parent": "body",
+      "pivot_m": [
+        0.010945374966830406,
+        0.05534351567735374,
+        -0.020712961534602597
+      ],
+      "role": "brow"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        -0.011716176020832548,
+        0.020503308036456953,
+        -0.018501452079674408
+      ],
+      "name": "brow_screen_right",
+      "node_index": 24,
+      "parent": "body",
+      "pivot_m": [
+        -0.011716176020832548,
+        0.056730957574557594,
+        -0.018501452079674408
+      ],
+      "role": "brow"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        -0.0007708010540021413,
+        0.004778966534813273,
+        -0.023776860885555865
+      ],
+      "name": "nose",
+      "node_index": 25,
+      "parent": "body",
+      "pivot_m": [
+        -0.0007708010540021413,
+        0.041006616072913914,
+        -0.023776860885555865
+      ],
+      "role": "nose"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        -0.000616640843201713,
+        -0.001387441897203856,
+        -0.02153833056783952
+      ],
+      "name": "mouth",
+      "node_index": 26,
+      "parent": "body",
+      "pivot_m": [
+        -0.000616640843201713,
+        0.034840207640896785,
+        -0.02153833056783952
+      ],
+      "role": "mouth"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        0.016803462977246678,
+        -0.0018499225296051414,
+        -0.021597211707841533
+      ],
+      "name": "cheek_screen_left",
+      "node_index": 27,
+      "parent": "body",
+      "pivot_m": [
+        0.016803462977246678,
+        0.0343777270084955,
+        -0.021597211707841533
+      ],
+      "role": "mark"
+    },
+    {
+      "kind": "solid",
+      "local_pivot_m": [
+        -0.017265943609647963,
+        -0.0018499225296051414,
+        -0.019952354053056
+      ],
+      "name": "cheek_screen_right",
+      "node_index": 28,
+      "parent": "body",
+      "pivot_m": [
+        -0.017265943609647963,
+        0.0343777270084955,
+        -0.019952354053056
+      ],
+      "role": "mark"
+    }
+  ],
+  "provenance": {
+    "description_sha256": "d3f0494842fed1b34312d11bd4d86f3d9619e900313e4a545627fbaeaeabdce9",
+    "interpretation_sha256": "15c8477aedbeea09de890d3dadaed3fe00350aa67d8191b862b25d839709b8d8",
+    "photo_sha256": "986f436eff572a0d68cecdbdfb609da987a1834b51e3e61e9fac003113210102",
+    "photo_size_px": [
+      3024,
+      4032
+    ]
+  },
+  "root_pivot_m": [
+    0,
+    0,
+    0
+  ],
+  "schema": "enfractal.character.draft",
+  "triangles": 26504,
+  "uncertainties": [
+    "Back depth is inferred from a single front drawing. Static pose and motion hints await family and game review."
+  ],
+  "units": "metres",
+  "up": "+Y",
+  "version": 1,
+  "width_m": 0.10968898851497232
+}

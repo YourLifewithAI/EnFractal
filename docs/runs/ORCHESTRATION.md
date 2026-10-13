@@ -216,6 +216,16 @@ Add one row per agent run.
 | 2026-10-13 | Consequences (the founder's rules), resumed after a usage limit | Opus | 562k | Clean; resumed from its own notes with uncommitted work intact |
 | 2026-10-13 | Two contract rounds (resumed after a usage limit) | Opus (same agent) | 735k | Clean; contracts 78 to 89; alignment tests restored with one narrow exception |
 | 2026-10-13 | The 10x scale experiment; the move plan; the traits draft | Opus; Opus (Plan); Opus (web) | 572k, 267k, 323k | The experiment measured everything asked and left a safe launcher; the founder chose 10x |
+| 2026-10-13 | Characters K1: rig and library | Opus 5.5 | 607k | Clean; 229 checks; one deviation named (BodySide) |
+| 2026-10-13 | Characters L8: the bubble and character look | Opus 5.5 | 476k | Clean; measured the bubble on the GPU and switched it to unshaded for its budget |
+| 2026-10-13 | Characters K6: the choice in Customize | Opus 5.5 | 303k | Clean; a mutation check found a real focus bug, fixed |
+| 2026-10-13 | Characters K3: gaits and life | Opus 5.5 | 586k | Clean; found a PoseBuffer composition bug and over-soft springs, with patches |
+| 2026-10-13 | Characters K4: contact with the land | Opus 5.5 | 612k | Clean; one wind floor loosened at merge after K3's stiffer springs |
+| 2026-10-13 | Characters K5: the drawn Gubble | Opus 5.5 | 488k | Clean; its first hand-back was a stray word, the real report followed |
+| 2026-10-13 | Characters K7: the tumble | Opus 5.5 | 745k | Clean; physical bones failed the spike at this scale, the planned hull fallback shipped |
+| 2026-10-13 | Characters: the sheets with real motion | Opus 5.5 | 518k | Clean; three capture launches |
+| 2026-10-13 | Characters: whole-lane review (fresh) | Opus 5.5 | 457k | 3 majors, 8 minors; every one confirmed real by the fix round |
+| 2026-10-13 | Characters: the review's fix round | Opus 5.5 | 617k | All 11 fixed, failing-before evidence for the majors |
 
 The first Codex launches failed at once, "blocked by policy". They had skipped the founder's config, which also turned off the Windows sandbox, and the sandbox then could not start the Store-packaged PowerShell 7. Codex stopped and reported, as its rules say. `tools/codex/run.ps1` now handles both.
 

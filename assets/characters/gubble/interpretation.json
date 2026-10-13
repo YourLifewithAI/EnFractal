@@ -1,4 +1,7 @@
 {
+  "applied_notes": [
+    "The founder, 13 October 2026: the torch is no longer part of the Gubble; it becomes a separate item, made by the Gubble's Glow (Torch), that the Gubble and the player carry. Removed the torch and torch_flame parts; the arm and hand stay, reaching out to hold what the Gubble carries. The tallest point is now a floating sparkle, so the whole Gubble scales up to stay 0.10 m tall."
+  ],
   "colour_reasoning": "Clear bubble body, arm and hand with mint aura #B4EED8 and shimmering rim. Pale blue is an opaque fallback only. Eyes and smile stay dark outlines. Warm brown torch, orange/gold flame, pale mint floating sparkles.",
   "image_size": [
     1000,
@@ -13,7 +16,8 @@
     "Re-read round2/gubble.jpg: choose the bottom complete sketch because it shows the two uneven open eyes, smile, three-lobed hem and full torch grip most clearly.",
     "The middle sketch clarifies the clear bubble body; ruled paper and handwriting are excluded. Preserve the approved lopsided outline.",
     "Colour is a shimmering rim and mint aura, not opaque skin stripes. Torch flame and four floating sparkles have independent effect pivots.",
-    "Requested sparkles are not unambiguous in this photo; their small asymmetric placement around the bubble and torch is inferred from the family direction."
+    "Requested sparkles are not unambiguous in this photo; their small asymmetric placement around the bubble and torch is inferred from the family direction.",
+    "The torch drawn in the Gubble's hand is now a separate item (see applied_notes)."
   ],
   "origin": [
     594,
@@ -22,14 +26,11 @@
   ],
   "palette": {
     "bubble": "#DDEBF2",
-    "flame": "#FF9A2E",
-    "flame_core": "#FFE36B",
     "ink": "#2E2A3A",
     "shimmer_gold": "#F6E3A2",
     "shimmer_mint": "#B4EED8",
     "shimmer_pink": "#F6B8DA",
-    "sparkle": "#D2F9EE",
-    "torch_handle": "#6B4528"
+    "sparkle": "#D2F9EE"
   },
   "parts": [
     {
@@ -614,7 +615,7 @@
         1113,
         30
       ],
-      "role": "short ghostly arm reaching out to hold the torch",
+      "role": "short ghostly arm reaching out to hold what the Gubble carries",
       "shapes": [
         {
           "colour": "bubble",
@@ -658,7 +659,7 @@
         1076,
         18
       ],
-      "role": "hand wrapped round the torch handle",
+      "role": "open hand that holds what the Gubble carries (its torch is now a separate item)",
       "shapes": [
         {
           "center": [
@@ -672,125 +673,6 @@
             15,
             28,
             14
-          ]
-        }
-      ]
-    },
-    {
-      "name": "torch",
-      "parent": "hand_screen_right",
-      "pivot": [
-        766,
-        1070,
-        18
-      ],
-      "role": "hand-held flaming torch",
-      "shapes": [
-        {
-          "colour": "torch_handle",
-          "kind": "tube",
-          "points": [
-            [
-              768,
-              1112,
-              18
-            ],
-            [
-              766,
-              1040,
-              18
-            ],
-            [
-              762,
-              976,
-              18
-            ]
-          ],
-          "radii": [
-            7,
-            7,
-            8
-          ]
-        }
-      ]
-    },
-    {
-      "kind": "effect",
-      "motion_hint": {
-        "kind": "flicker",
-        "reason": "Independent flame motion around the character"
-      },
-      "name": "torch_flame",
-      "parent": "torch",
-      "pivot": [
-        760,
-        979,
-        18
-      ],
-      "role": "flame",
-      "shapes": [
-        {
-          "colour": "flame",
-          "kind": "tube",
-          "points": [
-            [
-              762,
-              982,
-              18
-            ],
-            [
-              758,
-              942,
-              18
-            ],
-            [
-              753,
-              902,
-              18
-            ],
-            [
-              750,
-              870,
-              18
-            ],
-            [
-              751,
-              845,
-              18
-            ]
-          ],
-          "radii": [
-            13,
-            15,
-            12,
-            6,
-            0.5
-          ]
-        },
-        {
-          "colour": "flame_core",
-          "kind": "tube",
-          "points": [
-            [
-              762,
-              976,
-              27
-            ],
-            [
-              758,
-              946,
-              28
-            ],
-            [
-              755,
-              912,
-              26
-            ]
-          ],
-          "radii": [
-            7,
-            7.5,
-            0.5
           ]
         }
       ]

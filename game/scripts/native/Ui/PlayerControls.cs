@@ -62,6 +62,10 @@ public static class Act
     public static readonly StringName TimeStep = "time_step";
     public static readonly StringName SeasonStep = "season_step";
     public static readonly StringName Lamps = "lamps";
+    /// <summary>Steps the drawn character's bounce through 0.5x, 1x and 1.5x of its profile (Characters/Gaits/BounceKey).</summary>
+    public static readonly StringName BounceStep = "bounce_step";
+    /// <summary>Prints every value of the drawn character's motion profile to the log.</summary>
+    public static readonly StringName BouncePrint = "bounce_print";
     // The panels and the mouse. The cursor is always free (the Glow playtest, 9 October): it is the aim in every view.
     public static readonly StringName HudHelp = "hud_help";
     public static readonly StringName HudCustomize = "hud_customize";
@@ -119,6 +123,7 @@ public static class PlayerControls
         new(Act.Hands, ControlContext.Always), new(Act.Push, ControlContext.Always),
         new(Act.PhysicsNext, ControlContext.Always), new(Act.TimeStep, ControlContext.Always),
         new(Act.SeasonStep, ControlContext.Always), new(Act.Lamps, ControlContext.Always),
+        new(Act.BounceStep, ControlContext.Always), new(Act.BouncePrint, ControlContext.Always),
         new(Act.HudHelp, ControlContext.Always),
         new(Act.HudCustomize, ControlContext.Always | ControlContext.Customize),
         new(Act.Journal, ControlContext.Always | ControlContext.Customize | ControlContext.Reading),
@@ -131,7 +136,7 @@ public static class PlayerControls
     /// Pairs on one key whose modifiers nest: the first is checked before the second, so Shift+T is the season and a bare T the
     /// time of day. (Matching is not exact: Shift+T also satisfies a bare T, as it did when the keys were keycodes.)
     /// </summary>
-    public static readonly (StringName First, StringName Second)[] CheckedBefore = { (Act.SeasonStep, Act.TimeStep) };
+    public static readonly (StringName First, StringName Second)[] CheckedBefore = { (Act.SeasonStep, Act.TimeStep), (Act.BouncePrint, Act.BounceStep) };
 
     /// <summary>When set (a test), every action a handler asks about is recorded here, to show the code uses the map's actions and no others.</summary>
     public static HashSet<string>? Trace { get; set; }

@@ -1,6 +1,6 @@
 # Run 2 status
 
-**Run 2 started on 7 October 2026 (evening, local). The tenth session's handoff was written on 13 October (DiamondAge); start at "The next session".** Then read [ORCHESTRATION.md](ORCHESTRATION.md) and [AGENTS.md](../../AGENTS.md). [RUN-2-REVISION.md](RUN-2-REVISION.md) is the approved plan (8 October); it supersedes [RUN-2.md](RUN-2.md)'s Lane C, C7, Lane L and Codex sections. [RUN-2-TEN-TIMES.md](RUN-2-TEN-TIMES.md) is the plan for the 10x world (13 October).
+**Run 2 started on 7 October 2026 (evening, local). The eleventh session's handoff was written on 13 October, night (the first Windows machine), on `run2/characters-in-game`; start at "The next session".** Then read [ORCHESTRATION.md](ORCHESTRATION.md) and [AGENTS.md](../../AGENTS.md). [RUN-2-REVISION.md](RUN-2-REVISION.md) is the approved plan (8 October); it supersedes [RUN-2.md](RUN-2.md)'s Lane C, C7, Lane L and Codex sections. [RUN-2-TEN-TIMES.md](RUN-2-TEN-TIMES.md) is the plan for the 10x world (13 October).
 
 ## The founder's new direction: the room becomes a landscape (7 October, late evening)
 
@@ -546,6 +546,20 @@
 - **The founder's saves:** copies booted on the merge. The landscape loads; its creations are from before the 10 October coast and stay on disk, unloaded, as before. The test room's save migrates to version 6.
 - **Not done:** the Linux suite was not rerun (the contract tests and both Windows runners were); no GPU captures of the journal, the eye view or fire; the founder has not yet played the corrected build.
 
+## The eleventh session (13 October, night, the first Windows machine, not DiamondAge)
+
+- **The characters come alive** ([RUN-2-CHARACTERS.md](RUN-2-CHARACTERS.md)): planned with the founder (eight decisions, then four more answers) and built the same night in four waves on `run2/characters-in-game` (pushed). Its hub worktree is `C:\dev\EnFractal-run2\characters`; the integrator checkout stayed on `run2/integration`, so the desktop shortcuts play the same build as before.
+  - **Wave 0** (the integrator): `BodyState` each physics tick, `IBodyVisual` in the prototype's place, `HoldControl`, `CharacterId` with `appearance.body` in room state and the save, a knockout's recovery waiting for its tumble.
+  - **Wave 1:** K1 the rig and library (a `Skeleton3D` from each `character.json`, roles from part names, springs, look-ats, leg IK, motion profiles measured from the geometry, `rig.json` sidecars, the game's copies in `game/characters/`); L8 the look (the Gubble's soap bubble, felt in the family's colours, ink, glowing effects); K6 the character choice in Customize (never the Gubble; the colour button hides for a drawn character).
+  - **Wave 2:** K3 the gaits (float, hop, waddle, stride, phased by distance) and life (breathing, blinks, effects), with the bounce keys P and Shift+P; K4 contact (feet on slopes and steps, landings and stumbles, water, climbing, carrying, wind, look targets, an intrusion baseline for the later wide-poses round); K5 the drawn Gubble (gestures as a layer, the glow on its aura bone); K7 the tumble at the landings that would hurt in Challenge, in every mode (physical bones failed their spike at 1 to 4 cm under Jolt, so one rigid hull shaped like the character tumbles while the springs are held).
+  - **Wave 3:** a fresh Opus review (3 majors, 8 minors, all real) and its fix round, every major with failing-before evidence; the five character sheets with real motion (sent to the founder for the family's verdict).
+  - **Both Windows runners GREEN on `b4d4548`:** command host 745, play HUD 474, sandbox 159, journal 101, rebuild 74, nature 182, companion 761; small avatar 343, characters 236, gaits 183, contact 194, tumble 231 (200 tumbles a ground), navigation 19, landscape 48, room data 56, look 1165, character look 309, sheet motion 45/45. Budgets: every layer on both bodies about 0.08 ms a frame (0.4 allowed); a tumble 0.05 ms flopping and 0.135 ms getting up (0.3 allowed); the five characters load in about 125 ms of processor time (150 allowed).
+- **The Gubble without its torch** (the founder: "Let's get rid of the torch for the Gubble"): rebuilt by the converter from its interpretation without the torch parts (round 3; the bubble grows to about 8.3 cm). The family's drawn torch is a prop of its own (`assets/props/torch/`), and the torch item is planned in [RUN-2-TORCH.md](RUN-2-TORCH.md) with the founder's answers (made by Glow's Torch, carried by the Gubble and the player, always lit until put out, able to start fires).
+- **`run2/invention-exit-fix`** (pushed, made from `60f320e`): `invention_runtime_smoke.gd` passed every check but often crashed Godot at exit (5 of 6 runs on a busy machine); it now lets its bodies go and collects before quitting (0 of 20). Merged into the characters branch as well.
+- **Not merged to `run2/integration`:** the founder unifies the branches on DiamondAge (decided).
+- **Open:** the family's verdict on the sheets (Stickbear keeps his arms raised as drawn in every pose; the Gubble's cast tile is washed out by the default halo); the fix round's 5 mm tolerance for leg-IK feet at a tumble's get-up (2 mm everywhere else); the Linux suite was not run (no WSL here); nothing of the tumble or the gaits was judged in play.
+- **Worktrees on this machine,** each with `.cache` junctions to unlink before removing (`[System.IO.Directory]::Delete(path, $false)` on each junction): `C:\dev\EnFractal-run2\characters-{rig,look,choice,gaits,contact,gubble,tumble,sheets,fixes}` (all merged into the hub) and `base-check` (on `run2/invention-exit-fix`).
+
 ## The next session
 
 1. **The founder's playtest of the merged build** ("EnFractal Landscape" and "EnFractal Playtest"):
@@ -565,6 +579,7 @@
    - remove the merged Run 2 worktrees of this session the same way (`growth-nature`, `growth-wishes`, `journal`, `eyes`, `gubble-view`, `consequences`, `traits`; `growth` can go once nothing is merged through it);
    - model nature in the companion's mock (removes `NATURE_NOT_IN_THE_MOCK`);
    - the ninth session's list below still holds (storybook_wild v1, Lane C's corpus failures, the characters).
+8. **The characters and the torch:** on DiamondAge, merge `run2/invention-exit-fix`, then `run2/characters-in-game` into `run2/integration` (both GREEN here; run the Linux suite there); the family's verdict on the five sheets, which names the tuning; then the torch round ([RUN-2-TORCH.md](RUN-2-TORCH.md): its five decisions first, then T0 the contract round, then T1 to T4 in parallel).
 
 ## The ninth session's next steps (10 October, for the record)
 

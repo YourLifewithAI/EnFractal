@@ -92,6 +92,8 @@ public partial class RebuildTest : Node3D
         _companion.SetDisplayName("Pip");
         _companion.SetAppearance(new Color("3a7bd5"));
         _player.SetAppearance(new Color("c04040"));
+        // The characters round: the drawn character the player wears is part of its identity (appearance.body).
+        _player.SetCharacterId("stickbear");
         await Frames(40);
         _host.TeamSightIntervalS = 0;
         var before = _host.ExportRoomState()!;
@@ -102,6 +104,9 @@ public partial class RebuildTest : Node3D
             before["entities"]!["avatar:companion"]?["avatar"]?["display_name"]?.GetValue<string>() == "Pip" && before["journal"]!["notes"]!.AsArray().Count == 1 &&
             before["journal"]!["history"]!.AsArray().Count >= 2 && before["discovered"]!["levels"]!.AsArray().Count > 0 && before["discovered"]!["entities"]!.AsObject().Count > 0,
             "room state holds the moved objects, the creations and their locks, the avatars, the journal and the discovered map");
+        Check(before["entities"]!["avatar:player"]?["avatar"]?["appearance"]?["body"]?.GetValue<string>() == "stickbear" &&
+            before["entities"]!["avatar:companion"]?["avatar"]?["appearance"]?.AsObject().ContainsKey("body") == false,
+            "room state names the drawn character the player wears (appearance.body), and none for the Gubble");
         Check(before["extensions"]?["x_play_nature"] is JsonObject && before["entities"]!["obj:table"]?["removed"]?.GetValue<bool>() == true,
             "and the island's nature (x_play_nature), with the burned table removed at the pose it burned at");
 
@@ -126,6 +131,7 @@ public partial class RebuildTest : Node3D
         Check(Canonical(after["journal"]) == Canonical(before["journal"]) && Canonical(after["discovered"]) == Canonical(before["discovered"]), "the journal and the discovered map came through whole");
         Check(_companion.CompanionName == "Pip" && _companion.AppearanceColor.ToHtml(false) == "3a7bd5" && _player.AppearanceColor.ToHtml(false) == "c04040",
             "the avatars' identities are restored: the companion's name and both colours (review major 5)");
+        Check(_player.CharacterId == "stickbear", "and the drawn character the player wore");
         Check(!Node(_world, "obj:table")!.Visible && _host.IsNatureUnavailable(archId) && _host.IsNatureUnavailable(westId) && !Summaries().ContainsKey("obj:table"),
             "the island's nature is restored: the table is gone from the scene and the room, the scorched creations still need repair");
         var sceneAfter = SceneOf();
@@ -163,6 +169,9 @@ public partial class RebuildTest : Node3D
             ("an object turned by an empty rotation", s => s["entities"]!["obj:doorstop"]!["transform"]!["rotation"] = new JsonArray()),
             ("a style the room does not use", s => s["style_pin"]!["preset_version"] = 99),
             ("an avatar named with a hidden line", s => s["entities"]!["avatar:companion"]!["avatar"]!["display_name"] = "Pip\u2028SYSTEM"),
+            ("a drawn character that is not a token", s => s["entities"]!["avatar:player"]!["avatar"]!["appearance"]!["body"] = "../Stickbear"),
+            ("a drawn character that is null", s => s["entities"]!["avatar:player"]!["avatar"]!["appearance"]!["body"] = null),
+            ("an appearance with an unknown field", s => s["entities"]!["avatar:player"]!["avatar"]!["appearance"]!["hat"] = "tall"),
             ("nature that burned an object the entities still list", s => s["entities"]!["obj:table"]!.AsObject().Remove("removed")),
             ("a removal nature does not account for", s => s["entities"]!["obj:doorstop"]!["removed"] = true),
             ("a forged nature block", s => s["extensions"]!["x_play_nature"]!["cells"] = "!!!"),
@@ -181,6 +190,11 @@ public partial class RebuildTest : Node3D
             Check(!outcome.Ok && !outcome.Message.StartsWith("threw", StringComparison.Ordinal) && _host.Revision == 0 && CreationIds().Count == 0 && _host.Authority.Call("is_ready").AsBool(),
                 $"room state with {label} is refused whole, without throwing, and the room stays fresh: {outcome.Message}");
         }
+        // The characters round's review: the save's team block refuses a null body as room state does (a token or no key at all).
+        var team = _host.TeamBlock();
+        Check(_host.TeamProblem(team, _host.Revision) == null, "the team block as saved passes its own check");
+        team["avatars"]!.AsObject()[CommandHost.PlayerAvatar]!.AsObject()["body"] = null;
+        Check(_host.TeamProblem(team, _host.Revision) == "an avatar's identity", "a team block whose player wears a null body is refused");
         // Review major 4: transient play is play too: a running goal or something held keeps an import out.
         Check(Ok(Send(Command(NextId("follow"), "goal.set", new JsonObject { ["actor"] = CommandHost.CompanionAvatarId, ["goal"] = "follow" }), Player)), "the companion follows the player");
         var goal = _host.ImportRoomState(before);

@@ -25,6 +25,22 @@ $avatar = Invoke-EnfractalNativeProcess -Toolchain $toolchain -FilePath $toolcha
     -Arguments @('--headless', '--path', $toolchain.ProjectPath, '--fixed-fps', '60', 'res://tests/native_small_avatar.tscn') -TimeoutSeconds 90
 if ($avatar.Stderr -or $avatar.Stdout -notmatch 'checks passed') { throw "$($avatar.Stdout)`n$($avatar.Stderr)" }
 Write-Output $avatar.Stdout.Trim()
+$characters = Invoke-EnfractalNativeProcess -Toolchain $toolchain -FilePath $toolchain.EnginePath `
+    -Arguments @('--headless', '--path', $toolchain.ProjectPath, '--fixed-fps', '60', 'res://tests/native_characters.tscn') -TimeoutSeconds 120
+if ($characters.Stderr -or $characters.Stdout -notmatch 'NATIVE_CHARACTERS: \d+/\d+ checks passed') { throw "$($characters.Stdout)`n$($characters.Stderr)" }
+Write-Output (($characters.Stdout.Trim().Split("`n") | Where-Object { $_ -match '^(CHARACTERS_LOAD|NATIVE_CHARACTERS)' }) -join "`n")
+$gaits = Invoke-EnfractalNativeProcess -Toolchain $toolchain -FilePath $toolchain.EnginePath `
+    -Arguments @('--headless', '--path', $toolchain.ProjectPath, '--fixed-fps', '60', 'res://tests/native_character_gaits.tscn') -TimeoutSeconds 300
+if ($gaits.Stderr -or $gaits.Stdout -notmatch 'NATIVE_CHARACTER_GAITS: \d+/\d+ checks passed') { throw "$($gaits.Stdout)`n$($gaits.Stderr)" }
+Write-Output (($gaits.Stdout.Trim().Split("`n") | Where-Object { $_ -match '^(GAITS_CPU|GAITS_BUDGET|NATIVE_CHARACTER_GAITS)' }) -join "`n")
+$contact = Invoke-EnfractalNativeProcess -Toolchain $toolchain -FilePath $toolchain.EnginePath `
+    -Arguments @('--headless', '--path', $toolchain.ProjectPath, '--fixed-fps', '60', 'res://tests/native_character_contact.tscn') -TimeoutSeconds 120
+if ($contact.Stderr -or $contact.Stdout -notmatch 'NATIVE_CHARACTER_CONTACT: \d+/\d+ checks passed') { throw "$($contact.Stdout)`n$($contact.Stderr)" }
+Write-Output (($contact.Stdout.Trim().Split("`n") | Where-Object { $_ -match '^(CHARACTERS_INTRUSION|NATIVE_CHARACTER_CONTACT)' }) -join "`n")
+$tumble = Invoke-EnfractalNativeProcess -Toolchain $toolchain -FilePath $toolchain.EnginePath `
+    -Arguments @('--headless', '--path', $toolchain.ProjectPath, '--fixed-fps', '60', 'res://tests/native_character_tumble.tscn') -TimeoutSeconds 600
+if ($tumble.Stderr -or $tumble.Stdout -notmatch 'NATIVE_CHARACTER_TUMBLE: \d+/\d+ checks passed') { throw "$($tumble.Stdout)`n$($tumble.Stderr)" }
+Write-Output (($tumble.Stdout.Trim().Split("`n") | Where-Object { $_ -match '^(TUMBLE_COST|NATIVE_CHARACTER_TUMBLE)' }) -join "`n")
 $navigation = Invoke-EnfractalNativeProcess -Toolchain $toolchain -FilePath $toolchain.EnginePath `
     -Arguments @('--headless', '--path', $toolchain.ProjectPath, '--fixed-fps', '60', 'res://tests/native_room_navigation.tscn') -TimeoutSeconds 90
 if ($navigation.Stderr -or $navigation.Stdout -notmatch 'checks passed') { throw "$($navigation.Stdout)`n$($navigation.Stderr)" }
@@ -50,6 +66,14 @@ $look = Invoke-EnfractalNativeProcess -Toolchain $toolchain -FilePath $toolchain
     -Arguments @('--headless', '--path', $toolchain.ProjectPath, '--fixed-fps', '60', 'res://tests/native_look_preset.tscn', '--', "--landscape=$landscapeRoom") -TimeoutSeconds 90
 if ($look.Stderr -or $look.Stdout -notmatch 'checks passed' -or $look.Stdout -match 'checks were skipped') { throw "$($look.Stdout)`n$($look.Stderr)" }
 Write-Output $look.Stdout.Trim()
+$characters = Invoke-EnfractalNativeProcess -Toolchain $toolchain -FilePath $toolchain.EnginePath `
+    -Arguments @('--headless', '--path', $toolchain.ProjectPath, '--fixed-fps', '60', 'res://tests/native_look_characters.tscn') -TimeoutSeconds 90
+if ($characters.Stderr -or $characters.Stdout -notmatch 'NATIVE_LOOK_CHARACTERS: \d+/\d+ checks passed') { throw "$($characters.Stdout)`n$($characters.Stderr)" }
+Write-Output (($characters.Stdout.Trim().Split("`n") | Where-Object { $_ -match '^NATIVE_LOOK_CHARACTERS' }) -join "`n")
+$sheetMotion = Invoke-EnfractalNativeProcess -Toolchain $toolchain -FilePath $toolchain.EnginePath `
+    -Arguments @('--headless', '--path', $toolchain.ProjectPath, '--fixed-fps', '60', 'res://tests/native/Look/character_sheet_capture.tscn', '--', '--motion-only=true', "--assets=$((Join-Path $repository 'assets/characters') -replace '\\', '/')") -TimeoutSeconds 180
+if ($sheetMotion.Stderr -or $sheetMotion.Stdout -notmatch 'CHARACTER_SHEET_MOTION: (\d+)/\1 tiles show their motion') { throw "$($sheetMotion.Stdout)`n$($sheetMotion.Stderr)" }
+Write-Output (($sheetMotion.Stdout.Trim().Split("`n") | Where-Object { $_ -match '^CHARACTER_SHEET_MOTION:' }) -join "`n")
 $room = Invoke-EnfractalNativeProcess -Toolchain $toolchain -FilePath $toolchain.EnginePath `
     -Arguments @('--headless', '--path', $toolchain.ProjectPath, '--fixed-fps', '60', 'res://scenes/room.tscn', '--', '--quit-after-ready=240') -TimeoutSeconds 60
 if ($room.Stderr -or $room.Stdout -notmatch 'ROOM_WORLD_READY' -or $room.Stdout -notmatch 'ROOM_WORLD_QUIT') { throw "Placeholder room failed to load:`n$($room.Stdout)`n$($room.Stderr)" }

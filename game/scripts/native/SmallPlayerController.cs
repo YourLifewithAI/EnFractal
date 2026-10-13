@@ -321,6 +321,8 @@ public partial class SmallPlayerController : CharacterBody3D
     public System.Action<float, bool>? FallObserved { get; set; }
     public System.Action<Vector3, Vector3>? ClimbCompleted { get; set; }
     private float _vitalsLandingSpeedMps;
+    /// <summary>The last on-foot tick's descent before the water caught it (m/s): a deep-water landing's speed.</summary>
+    private float _airDescentMps;
     private Vector3? _vitalsClimbStart;
     public bool IsPullingOver => _climbing && _pullPhase > 0;
     public bool IsSwimming => _swimming;
@@ -341,6 +343,95 @@ public partial class SmallPlayerController : CharacterBody3D
     /// body that is carrying does not grab a face, and one that picks something up lets go.
     /// </summary>
     public System.Func<bool>? HandsFull { get; set; }
+
+    // ---- The characters round (docs/runs/RUN-2-CHARACTERS.md, Wave 0): hooks for a drawn body. None of them moves the capsule.
+
+    /// <summary>The longest a tumble may hold control (a knockout's is about 2 s).</summary>
+    public const float MaxControlHoldS = 5.0f;
+    /// <summary>What draws the body now; null for the prototype figure.</summary>
+    public IBodyVisual? BodyVisual => _bodyVisual;
+    /// <summary>The state of the last physics tick (BodyState.Tick is 0 before the first).</summary>
+    public BodyState LastBodyState { get; private set; }
+    /// <summary>The drawn character the player chose (a token, its folder's id), or "" for the prototype figure.</summary>
+    public string CharacterId { get; private set; } = "";
+    /// <summary>Told when CharacterId changes; the composition root builds the new visual (RoomWorld).</summary>
+    public System.Action<string>? CharacterChanged { get; set; }
+    /// <summary>Control is held: movement, jumps, sprint and dives are ignored (a tumble). Looking round still works.</summary>
+    public bool ControlHeld => _controlHoldS > 0;
+    /// <summary>Seconds of control hold left.</summary>
+    public float ControlHoldS => _controlHoldS;
+    /// <summary>The movement asked for while control is held (zero otherwise): a tumble's early get-up reads it.</summary>
+    public Vector2 HeldInput { get; private set; }
+    /// <summary>
+    /// How long the command host waits after a fall knocks the player out before it recovers them at the spawn, so the knockout
+    /// tumble plays where they landed (0, the default: at once, as before the characters round). The tumble sets it.
+    /// </summary>
+    public float KnockoutRecoveryDelayS
+    {
+        get => _knockoutRecoveryDelayS;
+        set => _knockoutRecoveryDelayS = float.IsFinite(value) ? Mathf.Clamp(value, 0, MaxControlHoldS) : 0;
+    }
+
+    /// <summary>
+    /// Draw the body with a visual in place of the prototype figure, or with the prototype again (null). The prototype's parts
+    /// stay under the visual root, hidden, so the tests and the look still find them; the visual's root is added beside them and
+    /// marked for the eye views. The caller owns a visual it replaces and frees it. Before the body is ready it applies at _Ready.
+    /// </summary>
+    public void SetBodyVisual(IBodyVisual? visual)
+    {
+        if (ReferenceEquals(visual, _bodyVisual)) return;
+        if (_bodyVisual != null && GodotObject.IsInstanceValid(_bodyVisual.Root) && VisualRoot != null && _bodyVisual.Root.GetParent() == VisualRoot)
+            VisualRoot.RemoveChild(_bodyVisual.Root);
+        _bodyVisual = visual;
+        if (VisualRoot != null && _ready) ApplyBodyVisual();
+    }
+
+    /// <summary>
+    /// Choose the drawn character by its id (a lowercase token) or the prototype (""). Refuses anything else. Only records the
+    /// choice and tells CharacterChanged; the visual comes from the character library through the composition root.
+    /// </summary>
+    public bool SetCharacterId(string id)
+    {
+        if (id == null || (id.Length > 0 && !IsCharacterToken(id))) return false;
+        if (id == CharacterId) return true;
+        CharacterId = id;
+        CharacterChanged?.Invoke(id);
+        return true;
+    }
+
+    /// <summary>The room state's token: a lowercase letter, then up to 63 of a-z, 0-9, '_' and '-' (common.schema.json's token).</summary>
+    public static bool IsCharacterToken(string id)
+    {
+        if (string.IsNullOrEmpty(id) || id.Length > 64 || id[0] is < 'a' or > 'z') return false;
+        foreach (var c in id)
+            if (!(c is >= 'a' and <= 'z' or >= '0' and <= '9' or '_' or '-')) return false;
+        return true;
+    }
+
+    /// <summary>Hold control for a while (the longer of what is left and this, at most MaxControlHoldS): a tumble.</summary>
+    public void HoldControl(float seconds)
+    {
+        if (!float.IsFinite(seconds) || seconds <= 0) return;
+        _controlHoldS = Mathf.Max(_controlHoldS, Mathf.Min(seconds, MaxControlHoldS));
+    }
+
+    /// <summary>Give control back now (a tumble's get-up).</summary>
+    public void ReleaseControl()
+    {
+        _controlHoldS = 0;
+        HeldInput = Vector2.Zero;
+    }
+
+    private void ApplyBodyVisual()
+    {
+        foreach (var part in _prototypeParts)
+            if (GodotObject.IsInstanceValid(part)) part.Visible = _bodyVisual == null;
+        if (_bodyVisual == null || !GodotObject.IsInstanceValid(_bodyVisual.Root)) return;
+        var root = _bodyVisual.Root;
+        if (root.GetParent() is { } parent && parent != VisualRoot) parent.RemoveChild(root);
+        if (root.GetParent() == null) VisualRoot.AddChild(root);
+        EnFractal.Native.Look.EyeView.MarkBody(VisualRoot, OwnBodyLayer);
+    }
 
     protected virtual WorldScaleProfile Profile => WorldScaleProfile.SmallPlayer;
     /// <summary>
@@ -410,6 +501,13 @@ public partial class SmallPlayerController : CharacterBody3D
     private bool _diveUp;
     private bool _wasDiving;
     private bool _homeArrived;
+    private IBodyVisual? _bodyVisual;
+    private readonly System.Collections.Generic.List<Node3D> _prototypeParts = new();
+    private float _controlHoldS;
+    private float _knockoutRecoveryDelayS;
+    private ulong _bodyTick;
+    private double _distanceM;
+    private float _airTimeS;
 
     public override void _Ready()
     {
@@ -438,6 +536,8 @@ public partial class SmallPlayerController : CharacterBody3D
         };
         AddChild(EyeCamera);
         BuildVisual();
+        foreach (var child in VisualRoot.GetChildren())
+            if (child is Node3D part) _prototypeParts.Add(part);
         EnFractal.Native.Look.EyeView.MarkBody(VisualRoot, OwnBodyLayer);
         EyeCamera.CullMask = EnFractal.Native.Look.EyeView.AllLayers & ~OwnBodyLayer;
         ReferenceGravityMps2 = (float)DefaultWorldPhysics()["gravity_mps2"].AsDouble();
@@ -445,6 +545,7 @@ public partial class SmallPlayerController : CharacterBody3D
         _spawnPoint = GlobalPosition;
         LastSafePosition = _spawnPoint;
         _ready = true;
+        if (_bodyVisual != null) ApplyBodyVisual();
     }
 
     protected virtual void BuildVisual()
@@ -857,7 +958,21 @@ public partial class SmallPlayerController : CharacterBody3D
             diveDown = PlayerControls.Held(Act.MoveDive);
             diveUp = PlayerControls.Held(Act.Jump);
         }
+        // A tumble holds control: the body still falls, slides and is caught by water, but takes no input (the movement asked
+        // for is kept for the tumble's early get-up).
+        if (_controlHoldS > 0)
+        {
+            _controlHoldS = Mathf.Max(0, _controlHoldS - dt);
+            HeldInput = control;
+            control = Vector2.Zero;
+            sprint = false;
+            diveDown = false;
+            diveUp = false;
+            _jumpBuffer = 0;
+        }
+        else HeldInput = Vector2.Zero;
         var onFloor = IsOnFloor();
+        var wasSwimming = _swimming;
         _coyote = onFloor ? CoyoteTimeS : Mathf.Max(0, _coyote - dt);
         _regrabBlock = Mathf.Max(0, _regrabBlock - dt);
         var local = new Vector3(control.X, 0, -control.Y);
@@ -916,6 +1031,10 @@ public partial class SmallPlayerController : CharacterBody3D
         var actual = GlobalPosition - before;
         if (!_climbing) actual.Y = 0;
         IsBlocked = control.LengthSquared() > 0.1f && actual.LengthSquared() < 0.0000001f;
+        // The distance a gait phases by: what the body really moved this tick. A wrap or a jump home is not a step.
+        var moved = actual.Length();
+        if (moved > MaxTickTravelM || !float.IsFinite(moved)) moved = 0;
+        _distanceM += moved;
         if ((IsOnFloor() || (Floats && HoverSupportY != null)) && Mathf.Abs(Velocity.Y) < 0.1f && (!HasCreationGuard || GuardAllows(GlobalPosition)))
         {
             LastSafePosition = GlobalPosition;
@@ -931,7 +1050,53 @@ public partial class SmallPlayerController : CharacterBody3D
             Recover();
         }
         ObserveBodyVitals(dt);
+        TakeBodyState(dt, moved, onFloor, wasSwimming, sprint);
         UpdateVisual(dt);
+        _bodyVisual?.BodyTicked(LastBodyState, dt);
+    }
+
+    /// <summary>More than this in one tick is a jump (a wrap, a trip home, a recovery), not travel.</summary>
+    private const float MaxTickTravelM = 0.25f;
+
+    /// <summary>The tick's BodyState, for the drawn body (IBodyVisual) and anything else that reads it.</summary>
+    private void TakeBodyState(float dt, float moved, bool wasOnFloor, bool wasSwimming, bool sprinting)
+    {
+        var grounded = IsOnFloor();
+        var caught = _swimming && !wasSwimming && !wasOnFloor && !_climbing;
+        var landed = !Floats && !_climbing && ((grounded && !wasOnFloor) || caught);
+        _airTimeS = grounded || _climbing || _swimming || Floats ? 0 : _airTimeS + dt;
+        _bodyTick++;
+        LastBodyState = new BodyState
+        {
+            Tick = _bodyTick,
+            Position = GlobalPosition,
+            Yaw = GlobalRotation.Y,
+            Velocity = Velocity,
+            SpeedMps = dt > 0 ? moved / dt : 0,
+            DistanceM = _distanceM,
+            Grounded = grounded,
+            FloorNormal = grounded ? GetFloorNormal() : Vector3.Up,
+            AirTimeS = _airTimeS,
+            Landed = landed,
+            LandingSpeedMps = !landed ? 0 : caught ? Mathf.Max(_vitalsLandingSpeedMps, _airDescentMps) : _vitalsLandingSpeedMps,
+            LandedInDeepWater = landed && caught,
+            Climbing = _climbing,
+            ClimbNormal = _climbNormal,
+            Swimming = _swimming,
+            SwimTilt = _tilt,
+            Diving = IsDiving,
+            Floating = Floats,
+            Carrying = HandsFull?.Invoke() ?? false,
+            Sprinting = sprinting,
+            Blocked = IsBlocked,
+            WindMps = WindMps,
+            ControlHeld = _controlHoldS > 0,
+            HeldInput = HeldInput,
+            WaterSurfaceY = Water.Wet ? Water.SurfaceY : float.NaN,
+            WaterDepthM = Water.Wet ? Water.DepthM : 0,
+            BodyHeightM = BodyHeightM,
+            GravityMps2 = GravityMps2,
+        };
     }
 
     private void ObserveBodyVitals(float dt)
@@ -968,7 +1133,9 @@ public partial class SmallPlayerController : CharacterBody3D
         if (_creationAcceleration.Y > 0) vertical = Mathf.Max(vertical, 0);
         if (_creationGlideLimit > 0) vertical = Mathf.Max(vertical, -_creationGlideLimit);
         var total = WithCreation(new Vector3(horizontal.X, vertical, horizontal.Z), dt);
-        // Falling into deep water: the water catches the body this tick, before the eye goes under.
+        // Falling into deep water: the water catches the body this tick, before the eye goes under. The descent it had in the air
+        // is the landing's speed (BodyState.LandingSpeedMps) on the tick the body starts to swim, not what is left after the catch.
+        _airDescentMps = onFloor ? 0 : Mathf.Max(0, -total.Y);
         total.Y = CatchInWater(total.Y, dt);
         Velocity = total;
         if (onFloor && !jumped && vertical <= 0 && _creationApplied == Vector3.Zero &&

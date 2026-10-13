@@ -24,7 +24,49 @@ public partial class CommandHostTest
         TestModeCommands();
         TestModeLandingCallbacks();
         await TestModeClimbingBody();
+        await TestKnockoutOffTheFloor();
         _host.ConfigurePlayerVitals(new ModeTestStore());
+    }
+
+    /// <summary>
+    /// The characters round's review (minor 4): a knockout's recovery waits for the tumble only where one plays, a body on the floor.
+    /// The out-of-bounds net reports its fall while the body is still falling: no tumble, so the recovery at the spawn is at once,
+    /// and the player is never frozen for the tumble's length with nothing to see.
+    /// </summary>
+    private async Task TestKnockoutOffTheFloor()
+    {
+        _host.ConfigurePlayerVitals(new ModeTestStore());
+        Check(Ok(_host.PlayerMode("challenge")), "the knockout fixture plays in Challenge");
+        var spawn = _room.SpawnFor("player").PositionM;
+        var knockout = PlayerVitals.SafeLandingSpeedMps + (PlayerVitals.MaximumHealth + 1) / PlayerVitals.FallDamagePerMps;
+        _player.KnockoutRecoveryDelayS = 2;
+        try
+        {
+            _player.ReleaseControl();
+            _player.GlobalPosition = spawn + new Vector3(0, 0.25f, 0);
+            _player.Velocity = Vector3.Zero;
+            _player.ResetVitalsObservation();
+            await Frames(3);
+            var falling = !_player.IsOnFloor();
+            var recoveries = _host.Vitals.Recoveries;
+            _player.FallObserved?.Invoke(knockout, false);
+            Check(falling && _host.Vitals.Recoveries == recoveries + 1 && !_host.RecoveryPending && !_player.ControlHeld &&
+                  _player.GlobalPosition.DistanceTo(spawn) < 0.05f,
+                "a knockout reported while the body is still falling (the out-of-bounds net) recovers at the spawn at once: no tumble to wait for, control never held");
+            // Standing again, past the recovery's grace: a knockout on the floor waits for its tumble, control held meanwhile.
+            for (var i = 0; i < 120 && !_player.IsOnFloor(); i++) await Frames(1);
+            _player.VitalsTick?.Invoke(1.1f, true);
+            _player.FallObserved?.Invoke(knockout, false);
+            Check(_player.IsOnFloor() && _host.RecoveryPending && _player.ControlHeld && _host.Vitals.Recoveries == recoveries + 1,
+                "a knockout on the floor waits for the tumble, control held");
+            _player.VitalsTick?.Invoke(2.01f, false);
+            Check(!_host.RecoveryPending && _host.Vitals.Recoveries == recoveries + 2, "and recovers when the wait ends");
+        }
+        finally
+        {
+            _player.KnockoutRecoveryDelayS = 0;
+            _player.ReleaseControl();
+        }
     }
 
     private void TestVitalsModelAndStore()
@@ -139,6 +181,24 @@ public partial class CommandHostTest
         Check(_host.Vitals.Health == 50 && _host.Vitals.Recoveries == 1 && _host.Vitals.CompletedClimbs == 1 &&
             _player.GlobalPosition.DistanceTo(_room.SpawnFor("player").PositionM) < 0.05f,
             "zero health recovers at the spawn with half health, preserving learned traits");
+        // The characters round: a knockout fall waits for its tumble before the recovery, with control held meanwhile.
+        _player.VitalsTick?.Invoke(1.1f, false);
+        _player.KnockoutRecoveryDelayS = 2;
+        _host.ApplyPlayerDamage(100, PlayerDamageSource.Fall);
+        Check(_host.Vitals.Health == 0 && _host.Vitals.Recoveries == 1 && _host.RecoveryPending && _player.ControlHeld,
+            "a knockout fall waits for the tumble: no recovery yet, control held");
+        _host.ApplyPlayerDamage(30, PlayerDamageSource.Fire);
+        _player.VitalsTick?.Invoke(1, false);
+        Check(_host.Vitals.Recoveries == 1 && _host.RecoveryPending, "nothing hurts and nothing recovers while the tumble plays");
+        _player.VitalsTick?.Invoke(1.01f, false);
+        Check(!_host.RecoveryPending && _host.Vitals.Recoveries == 2 && _host.Vitals.Health == 50 &&
+            _player.GlobalPosition.DistanceTo(_room.SpawnFor("player").PositionM) < 0.05f,
+            "when the tumble's wait ends, the recovery at the spawn follows");
+        _player.KnockoutRecoveryDelayS = 0;
+        _player.ReleaseControl();
+        _host.ApplyPlayerDamage(100, PlayerDamageSource.Fire);
+        Check(_host.Vitals.Recoveries == 2, "the recovery grace still follows a delayed recovery");
+        _player.VitalsTick?.Invoke(1.1f, false);
         var before = _host.Mode;
         store.FailSave = true;
         Check(Code(_host.PlayerMode("creative")) == "not_ready" && _host.Mode == before && _host.VitalsNotice.Length > 0,
