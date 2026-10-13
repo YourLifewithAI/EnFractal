@@ -42,6 +42,14 @@ def check_primitives(primitives):
 def encode_mesh(primitives):
     finite(primitives)
     check_primitives(primitives)
+    return _encode(primitives)
+
+
+def _encode(primitives):
+    """encode_mesh after its checks. decode_mesh re-encodes with this: it has just run check_primitives on the same
+    primitives, unchanged since, and every float a decoded mesh holds is a position, tint or blend weight, which
+    check_primitives already requires to be finite, so encode_mesh's checks could not refuse anything there (10x package:
+    read_package 35 s -> 24 s)."""
     binary = bytearray()
     doc = {'asset': {'version': '2.0'}, 'scene': 0, 'scenes': [{'nodes': [0]}],
            'nodes': [{'mesh': 0}], 'meshes': [{'primitives': []}],
@@ -138,7 +146,7 @@ def decode_mesh(data, canonical=True):
                 primitive['blend_weights'] = get(attrs['_ROLE_BLEND'], 'SCALAR')
             result.append(primitive)
         check_primitives(result)
-        require(not canonical or encode_mesh(result) == data, 'GLB must use the documented canonical subset/writer')
+        require(not canonical or _encode(result) == data, 'GLB must use the documented canonical subset/writer')
         return result
     except (KeyError, IndexError, TypeError, struct.error, json.JSONDecodeError) as exc:
         raise ValueError('malformed GLB: ' + str(exc)) from exc
