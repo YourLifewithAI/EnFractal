@@ -156,9 +156,9 @@ func submit(principal: String, request: Dictionary, receipt_meta: Dictionary = {
 		if request.has(block):
 			if not request[block] is Dictionary or not _json_safe(request[block], MAX_SAVE_BYTES):
 				return _failure("request_invalid", block, "The " + block + " block must be bounded finite JSON data.")
-			if bounded == request:
-				bounded = request.duplicate()
-			bounded.erase(block)
+			if bounded.has(block):
+				bounded = bounded.duplicate()
+				bounded.erase(block)
 	if not _json_safe(bounded, MAX_REQUEST_BYTES) or COMPILER.canonical_json(bounded).to_utf8_buffer().size() > MAX_REQUEST_BYTES:
 		return _failure("request_invalid", "", "The command must contain bounded finite JSON data.")
 	var action: Variant = request.get("action_id")
