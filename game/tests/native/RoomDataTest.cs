@@ -89,6 +89,7 @@ public partial class RoomDataTest : Node3D
             var shelfHit = Ray(new Vector3(-0.1f, 2.5f, -2.5f), new Vector3(-0.1f, 0.5f, -2.5f));
             Check(Entity(shelfHit) == "obj:shelving_left" && Mathf.Abs(shelfHit["position"].AsVector3().Y - 1.79f) < 0.01f, "the shelving collides at its 1.79 m top");
             garageBuilt.QueueFree();
+            CheckMeshBytesReleased(garage, garageDirectory);
 
             CheckIslands(room);
 
@@ -295,6 +296,35 @@ public partial class RoomDataTest : Node3D
         var text = System.Text.Encoding.UTF8.GetString(bytes);
         if (!text.Contains(from)) throw new InvalidOperationException($"fixture text '{from}' not found");
         return System.Text.Encoding.UTF8.GetBytes(text.Replace(from, to));
+    }
+
+    /// <summary>
+    /// S12b: a build lets the room's mesh bytes go (a 10x island's are about 40 MB); a second build reads each file again and checks
+    /// it against the manifest as the load did, so a file changed on disk since the load fails closed instead of being drawn.
+    /// </summary>
+    private void CheckMeshBytesReleased(RoomData garage, string garageDirectory)
+    {
+        Check(garage.VerifiedMeshes.Count == 0, "the build lets the room's mesh bytes go");
+        var again = RoomBuilder.Build(garage);
+        Check(again.GetNode("Objects").GetChildren().OfType<Node3D>().All(n => n.GetNode("Visual").FindChildren("*", "MeshInstance3D", true, false).Count > 0) && garage.VerifiedMeshes.Count == 0,
+            "a second build reads the meshes again, checked against the manifest, and lets them go again");
+        again.Free();
+        var copy = "user://tests/rooms/garage_example";
+        var absolute = ProjectSettings.GlobalizePath(copy);
+        if (System.IO.Directory.Exists(absolute)) System.IO.Directory.Delete(absolute, recursive: true);
+        foreach (var file in System.IO.Directory.EnumerateFiles(garageDirectory, "*", SearchOption.AllDirectories))
+        {
+            var target = Path.Combine(absolute, Path.GetRelativePath(garageDirectory, file));
+            System.IO.Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            File.Copy(file, target);
+        }
+        var copied = RoomData.Load(copy);
+        RoomBuilder.Build(copied).Free();
+        var mesh = System.IO.Directory.EnumerateFiles(absolute, "*.glb", SearchOption.AllDirectories).OrderBy(p => p, StringComparer.Ordinal).First();
+        var bytes = File.ReadAllBytes(mesh);
+        bytes[^1] ^= 0x20;
+        File.WriteAllBytes(mesh, bytes);
+        CheckRejected(() => RoomBuilder.Build(copied), "hash does not match", "a mesh changed on disk since the load fails closed when a later build reads it again");
     }
 
     private void CheckRejected(Action action, string fragment, string label)

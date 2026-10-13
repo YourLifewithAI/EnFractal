@@ -80,6 +80,7 @@ public partial class IslandLoadingTest : Node3D
             await CheckNavigation(world, room);
             world.QueueFree();
             await Frames(2);
+            await CheckGroundStreaming();
             if (OS.GetCmdlineUserArgs().Contains("--scale")) await MeasureScale();
             Finish();
         }
@@ -113,9 +114,12 @@ public partial class IslandLoadingTest : Node3D
         var tile = view.TileNode("grass", -1, -2)!;
         var instances = tile.GetChildren().OfType<MultiMeshInstance3D>().ToArray();
         var (_, _, first, count) = grass.Tile(grass.FindTile(-1, -2));
-        Check(instances.Length == bands.Length && instances.All(m => m.Multimesh.InstanceCount == count) &&
-              instances.Select(m => (m.VisibilityRangeBegin, m.VisibilityRangeEnd, m.CastShadow == GeometryInstance3D.ShadowCastingSetting.On)).SequenceEqual(bands.Select(b => (b.BeginM, b.EndM, b.CastsShadow))),
-            "a grass tile is one MultiMesh per band, each holding every copy of the tile, drawn only within its band");
+        var band = view.BandOf("grass", -1, -2);
+        Check(instances.Length == 1 && instances[0].Name == PlantCopiesView.DrawnName && instances[0].Multimesh.InstanceCount == count && band >= 0 &&
+              instances[0].Multimesh.Mesh == view.MeshOfBand("grass", band) && instances[0].VisibilityRangeBegin == 0 && instances[0].VisibilityRangeEnd == bands[^1].EndM &&
+              (instances[0].CastShadow == GeometryInstance3D.ShadowCastingSetting.On) == bands[band].CastsShadow,
+            $"a grass tile is one MultiMesh holding every copy of the tile once, drawing the mesh and shadow of its distance band (band {band}), to the set's range");
+        Check(view.InstancesHeld == copies.TotalCount, $"every copy of the small island is held once ({view.InstancesHeld} of {copies.TotalCount}), not once per band");
         var middle = count / 2;
         var row = first + middle;
         var buffer = PlantCopiesView.InstanceBuffer(grass, first, count);
@@ -138,8 +142,19 @@ public partial class IslandLoadingTest : Node3D
             Check(multimesh.GetInstanceTransform(middle).IsEqualApprox(expected) && multimesh.GetInstanceColor(middle).IsEqualApprox(grass.Tint(row)),
                 $"the renderer reads the instance back as its row ({multimesh.GetInstanceTransform(middle)}, {multimesh.GetInstanceColor(middle)})");
         }
-        Check(instances[0].Multimesh.Mesh.SurfaceGetMaterial(0) != null && instances[1].Multimesh.Mesh != instances[0].Multimesh.Mesh,
+        Check(instances[0].Multimesh.Mesh.SurfaceGetMaterial(0) != null && view.MeshOfBand("grass", 0) != view.MeshOfBand("grass", bands.Length - 1),
             "the bands draw the set's own meshes, painted: the full one near, the lighter one further out");
+        // A tile's band by its distance (DrawDistances' bands): kept across an edge by the margin, filled a little before its
+        // range so it is drawn before it shows, emptied only well past it.
+        var range = bands[^1].EndM;
+        Check(PlantCopiesView.WantedBand(bands, -1, 1f) == 0 && PlantCopiesView.WantedBand(bands, -1, bands[0].EndM + 0.1f) == 1 &&
+              PlantCopiesView.WantedBand(bands, 0, bands[0].EndM + 0.5f) == 0 && PlantCopiesView.WantedBand(bands, 0, bands[0].EndM + 1.5f) == 1 &&
+              PlantCopiesView.WantedBand(bands, 1, bands[0].EndM - 0.5f) == 1 && PlantCopiesView.WantedBand(bands, 1, bands[0].EndM - 1.5f) == 0 &&
+              PlantCopiesView.WantedBand(bands, -1, range + DrawDistances.CopyBuildLeadM - 0.5f) == bands.Length - 1 &&
+              PlantCopiesView.WantedBand(bands, -1, range + DrawDistances.CopyBuildLeadM + 0.5f) == -1 &&
+              PlantCopiesView.WantedBand(bands, bands.Length - 1, range + DrawDistances.CopyReleaseM - 0.5f) == bands.Length - 1 &&
+              PlantCopiesView.WantedBand(bands, bands.Length - 1, range + DrawDistances.CopyReleaseM + 0.5f) == -1,
+            "a tile's band follows its distance, held a metre across each edge, filled before its range and emptied well past it");
     }
 
     /// <summary>Terrain tiles: each tile's levels drawn only within their bands, and collision from level 0 alone, the faces the importer itself would give.</summary>
@@ -153,17 +168,18 @@ public partial class IslandLoadingTest : Node3D
             "the grass's two tiles are drawn at three levels each, each level only within its distance band");
         Check(bands[0].BeginM == 0 && bands[0].EndM == bands[1].BeginM && bands[1].EndM == bands[2].BeginM && bands[2].EndM == 0,
             $"one terrain level per tile at every distance: {bands[0]}, {bands[1]}, {bands[2]}");
-        var shapes = part.GetChildren().OfType<CollisionShape3D>().ToArray();
         var lod0 = meshes.Where(m => m.GetMeta(RoomBuilder.TerrainLevelMeta).AsInt32() == 0).OrderBy(m => m.Name.ToString()).ToArray();
         var imported = lod0.Select(m => m.Mesh.CreateTrimeshShape().GetFaces()).ToArray();
-        var ours = shapes.OrderBy(s => s.Name.ToString()).Select(s => ((ConcavePolygonShape3D)s.Shape).Data).ToArray();
+        var tiled = room.Terrain!.Part("shell:terrain_grass")!;
+        var ours = Enumerable.Range(0, tiled.Tiles.Count).OrderBy(i => $"tile_{tiled.Tiles[i].Tx}_{tiled.Tiles[i].Tz}_lod0", StringComparer.Ordinal).Select(tiled.GroundFaces).ToArray();
         // The importer may store positions compressed (a fraction of a millimetre over a 16 m tile); the corners' order is the winding.
         var worst = imported.Zip(ours).SelectMany(p => p.First.Zip(p.Second).Select(v => v.First.DistanceTo(v.Second))).DefaultIfEmpty(float.MaxValue).Max();
         var same = imported.Length == ours.Length && imported.Zip(ours).All(p => p.First.Length == p.Second.Length) && worst < 1e-3f;
         Measure($"ISLAND_TERRAIN level-0 collision against the importer's faces: worst corner {worst * 1000:0.000} mm apart");
-        Check(shapes.Length == 2 && shapes.All(s => s.Shape is ConcavePolygonShape3D { BackfaceCollision: false } c && c.Data.Length == 32 * 3) && same,
-            $"the terrain collides through level 0 alone, one one-sided shape per tile, with the importer's own faces in its winding ({string.Join(", ", ours.Select(o => o.Length / 3))} triangles)");
-        Check(part.GetMeta(RoomBuilder.TerrainTilesMeta).AsInt32() == 2 && part.GetMeta("entity_id").AsString() == "shell:terrain_grass", "a tiled part stays one shell part with its id");
+        var ground = world.Built.GetNode<TerrainCollision>(TerrainCollision.ViewName);
+        Check(!part.GetChildren().OfType<CollisionShape3D>().Any() && ground.TileCount == 3 && ground.TilesBuilt == 3 && ours.All(o => o.Length == 32 * 3) && same &&
+              ground.TrianglesBuilt == 2 * 32 + 2,
+            $"the terrain collides through level 0 alone, one one-sided shape per tile made on the physics server (no node, no shape resource), with the importer's own faces in its winding ({string.Join(", ", ours.Select(o => o.Length / 3))} triangles)");        Check(part.GetMeta(RoomBuilder.TerrainTilesMeta).AsInt32() == 2 && part.GetMeta("entity_id").AsString() == "shell:terrain_grass", "a tiled part stays one shell part with its id");
     }
 
     /// <summary>The trees and stones collide as their rows say, on their layers, and every hit names its copy.</summary>
