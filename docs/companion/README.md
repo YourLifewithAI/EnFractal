@@ -28,6 +28,7 @@ any MCP client or harness --stdio--> enfractal-companion --loopback link--> game
 | `.../link.py` | The loopback link: session file, mutual HMAC handshake, canonical frames |
 | `.../canonical.py` | Canonical JSON v1, byte for byte as Lane P defined it: fingerprints, size limits, frames |
 | `.../mock_host.py`, `.../mock_game.py` | The mock game host (with perception memory and goal jobs), and a console that runs it as a stand-in game |
+| `.../mock_wishes.py`, `.../gubble_phrases.py` | The mock host's wishes and the Gubble's words (the kernel's `CommandHostWishes.cs` and `CommandHostSpeech.cs`); the curated phrases and the rules for the AI's own words, kept word for word with the kernel by `test_kernel_alignment.py` |
 | `.../perception.py` | Line of sight and the 10 cm body for the mock host |
 | `.../lockdown.py` | Environment scrub and audit-hook sandbox for the server process |
 | `.../refusals.py`, `.../textsafety.py` | One mapping from contract violations to error codes; untrusted-text rules, emoji markers in place |
@@ -40,7 +41,8 @@ any MCP client or harness --stdio--> enfractal-companion --loopback link--> game
 ## Tools
 
 One tool per op in `$defs/command_op` and `$defs/query_op`, except `$defs/player_only_ops`
-(`protect.unlock`), which has no tool and which the game refuses from a companion anyway. The list is
+(`protect.unlock`, the world's physics and mode, Glow's settings, and the player's own wish box: `wish.submit`,
+`wish.stop`, `wishes.read`), which have no tool and which the game refuses from a companion anyway. The list is
 derived from the contract at startup, so a new player-only op disappears from the surface without a
 code change.
 
@@ -48,8 +50,12 @@ code change.
 |---|---|---|
 | `room_describe`, `entities_list`, `entity_inspect`, `capabilities_list`, `observe`, `jobs_status`, `receipt_lookup`, `approval_status`, `journal_read`, `map_find` | the query of the same name | read-only |
 | `entity_grab`, `entity_release`, `entity_place`, `entity_push`, `entity_set_part`, `entity_remove`, `entity_transform`, `creation_place`, `creation_revise`, `creation_activate`, `protect_lock`, `goal_set`, `goal_stop`, `effect_start`, `effect_stop`, `style_set`, `room_checkpoint`, `room_undo`, `journal_note` | the command of the same name | command |
+| `player_status`, `nature_describe`; `effect_adjust`, `nature_cast`, `nature_trail`, `nature_repair` | the growth round's query and commands (docs/magic/README.md) | read-only / command |
+| `wish_list`, `wish_wait` | the player's wishes for the AI: the active one and those waiting; `wish_wait` waits up to 30 s for one ([TRANSPORT.md](TRANSPORT.md#wishes-travel-on-this-link-13-october-2026-no-runner)) | read-only |
+| `wish_take`, `wish_report` | take the next wish (it becomes active; the game ties your commands to it), report it done, unable or unsupported (the game decides granted) | command |
+| `companion_say` | the Gubble's words over its head and in the journal: a curated phrase by key, or the AI's own words only in the player's grown-ups' test mode | command |
 
-29 tools. The contract round added `entity_push`, `journal_note`, `journal_read` and `map_find` (8 October); the hosts
+40 tools on 13 October (the wish and speech tools came with the wishes-live round). The contract round added `entity_push`, `journal_note`, `journal_read` and `map_find` (8 October); the hosts
 answer the three journal ops as not available yet until the journal's round, and the push until Lane P's verbs.
 
 Tool names use underscores because several vendors' function-calling APIs reject dots. A tool's
@@ -77,9 +83,9 @@ uv sync --project companion --frozen                       # once: creates compa
 uv run --project companion --locked python -m unittest discover -s companion/tests
 ```
 
-Expected: `Ran 661 tests ... OK (skipped=7)` in two to three minutes. Skipped: the stand-in for a `contracts/` without
-the memory fields (today's contract carries them, so its counterpart runs instead), and the real host's go_to and
-fetch, which run once the host walks to things and fetches. `test_real_host.py` starts one headless game; it needs the
+Expected: `Ran 719 tests ... OK (skipped=1)` in about three minutes (13 October, with the wish and speech tests).
+Skipped: the stand-in for a `contracts/` without the memory fields (today's contract carries them, so its counterpart
+runs instead). `test_real_host.py` starts one headless game; it needs the
 pinned Godot .NET and .NET SDK and the C# project built (the runners build it first), and skips with the reason
 otherwise.
 The canonical JSON test uses the kernel's golden fixture in `game/tests/fixtures/kernel/` when the
@@ -138,7 +144,7 @@ it on their own machine.
    `test_profile.py` shows both). The OpenClaw file sets no environment, because its persisted shape was not
    established; its `README.txt` entry says what to do if the server exits with that error.
 
-3. Check that the client lists 29 tools, one resource (the journal) and no prompts, then ask, for example: "Observe what
+3. Check that the client lists the game's tools (40 on 13 October), one resource (the journal) and no prompts, then ask, for example: "Observe what
    the companion can see, then set a follow goal for it." Expect an `observe` result listing the
    test-room props and a `goal_set` result with `"ok": true` and `"transient": true`.
 
@@ -174,6 +180,63 @@ it on their own machine.
 Without `--mock` or `--session-file`, the server reads the real game's session file from
 `%APPDATA%\Godot\app_userdata\EnFractal\companion\session.json` (Godot's `user://`). With no game running,
 every tool answers `not_ready`.
+
+## Play with your AI
+
+For a grown-up who wants an AI to play the Gubble in a running game, for example the playtest where Claude Code and
+Codex join the founder's game (13 October: the separate wish runner is shelved). The AI connects once, through this
+server; the player's wishes and the Gubble's words go through the same connection. The game never starts another
+program.
+
+**One AI per game at a time.** The link admits one AI; a second gets `busy`. To have two AIs play, take turns (close
+one client before the next connects) or run two games with two profiles (`-Profile claude` and `-Profile codex`), each
+with its own session file and its own Gubble.
+
+1. Once, in the checkout the game runs from: `uv sync --project companion --frozen`.
+2. Start the game from that checkout, in PowerShell 7:
+
+   ```powershell
+   pwsh -NoProfile -File run-room.ps1 -Profile growth -Room landscape
+   ```
+
+   Once the room is up it listens for the AI. With `-Profile growth` its session file is
+   `.cache\profiles\growth\roaming\Godot\app_userdata\EnFractal\companion\session.json` in the checkout; without
+   `-Profile` it is `%APPDATA%\Godot\app_userdata\EnFractal\companion\session.json`, which the server reads by default.
+3. Write the client files into an empty play folder (nothing is written anywhere else; `README.txt` there says where
+   each file goes), from the checkout:
+
+   ```powershell
+   companion\.venv\Scripts\python.exe -m enfractal_companion.profile --session-file "$PWD\.cache\profiles\growth\roaming\Godot\app_userdata\EnFractal\companion\session.json" --write C:\dev\play\growth
+   ```
+
+4. **Claude Code**, in that folder (from `clients.json`; not yet run with this server in this project):
+
+   ```powershell
+   cd C:\dev\play\growth
+   claude --strict-mcp-config --mcp-config claude-code\play-mcp.json --tools "" --allowedTools "mcp__enfractal-companion"
+   ```
+
+   `--strict-mcp-config` loads this server alone, `--tools ""` removes the built-in shell, file and web tools, and
+   `--allowedTools` lets the game's tools run without asking each time (the game itself holds anything the player must
+   approve). Type `/mcp`: `enfractal-companion` is connected with the game's tools and nothing else.
+5. **Codex CLI** (0.162 drove this server against the real game on 8 October): copy `codex\config.toml` to
+   `C:\dev\play\growth\.codex\config.toml`, then in that folder run `codex --sandbox read-only`, trust the folder when
+   asked, and type `/mcp` to see `enfractal-companion`. For a play-only session, use the integrator's recipe in
+   `clients.json` (`codex exec --ignore-user-config -s read-only`, the server as `-c mcp_servers.enfractal-companion.*`
+   overrides, and `--disable` for the shell, browser and other tools).
+6. Give the AI its part, for example: "You are the Gubble, the player's companion in EnFractal. Use only the
+   enfractal-companion tools. Start with journal_read and observe. Talk to the player with companion_say. When a result
+   says wishes_waiting, call wish_take, carry the wish out with the game's tools, then wish_report. When you have nothing
+   to do, call wish_wait and keep going. When we stop, tell me what it was like to play."
+7. In the game, **Magic → Wishes** says "Your AI is connected". Make a wish: the AI hears of it the next time it acts
+   (every result says how many wishes wait) or from `wish_wait`. Its words appear over the Gubble's head. For a
+   grown-ups' test, tick **Grown-ups' test mode: let the AI speak in its own words** on the same page; a banner shows
+   while it is on. Untick it before children play.
+8. Stop at any time with the Wishes page's Stop button, or the Gubble's own stop key: the wish ends and the Gubble
+   stops at once. Closing the AI's client leaves an active wish interrupted; waiting wishes wait for the next AI.
+
+Every call to `wish_wait` is a step of the AI's turn, so an AI that keeps waiting spends tokens while nothing happens:
+about two calls a minute.
 
 ## Proposals for files this lane does not own
 

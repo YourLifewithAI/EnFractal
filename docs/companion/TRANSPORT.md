@@ -117,8 +117,35 @@ game:      {"type": "response", "seq": 1, "message": <enfractal.result>}
   retrying, which the contract's idempotency rules make safe.
 - The game's end tells its host when an authenticated session starts and when it ends
   (`LinkServer(on_session=...)` in Python, `CommandHost.SessionEvent` from the C# bridge, called with the principal
-  and `"start"` or `"end"`). The host clears that companion's perception memory on both, so nothing it remembers
-  outlives a session (PERCEPTION.md). Nothing about this crosses the wire.
+  and `"start"` or `"end"`). Since Run 2 the team's map and journal belong to the room, so a session no longer clears
+  them (JOURNAL.md). An open session is what the host calls a connected AI: the player's wishes wait while there is
+  none, and one that ends in the middle of a wish leaves that wish interrupted (below). Nothing about this crosses the
+  wire.
+
+## Wishes travel on this link (13 October 2026: no runner)
+
+The founder shelved the separate wish runner: wishes go to the AI that is already connected and playing as the
+Gubble, over this one link, in its one role. There is no second listener, no runner token and no `wish-runner.json`
+(the original stays on `codex/gubble-growth-runtime`), and `companion-link.schema.json` has no runner frames: a
+request carries an `enfractal.command` or `enfractal.query`, a response an `enfractal.result`.
+
+- **The wish ops are ordinary contract ops** (`contracts/game-command.schema.json`), so they reach the host as
+  `companion:local`, through the same adapter checks, rate limits and result validation as everything else:
+  `wish.list` and `wish.wait` (queries), `wish.take` and `wish.report` (commands, transient receipts), and
+  `companion.say` for the Gubble's words. The player's own `wish.submit`, `wish.stop` and `wishes.read` stay
+  player-only and have no tool.
+- **How the AI hears of a wish.** MCP gives the game no way to start a model's turn (docs/magic/README.md, "Making a
+  wish"), so the AI hears of one when it next acts: while the player has wishes waiting, every companion result
+  carries `wishes_waiting` (a count, never a wish's words), and the server adds one fixed notice line under the
+  result's JSON. When it is idle, the AI calls `wish_wait`.
+- **`wish_wait` is a bounded wait in the adapter, not in the game.** The host answers `wish.wait` at once. The link
+  carries one request at a time, so a wait held inside the game would sit in front of the AI's next command; instead
+  the adapter asks again about once a second (`WISH_POLL_S`), within its query rate limit, until a wish is waiting or
+  active, for at most 30 seconds (`WISH_WAIT_S`), and then answers `waiting: 0` ("none yet"). The player's Stop is the
+  game's own button and never waits on the link.
+- **The host keeps its own record.** While a wish is active, every command the companion sends is that wish's action
+  (a command held for the player's click belongs to the wish it was asked under); stops, notes, speech and the wish ops
+  themselves are not. No action id, note or report the AI chooses can tie, untie or grant anything (SECURITY.md).
 
 ## The C# end
 

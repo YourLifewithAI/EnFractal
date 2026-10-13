@@ -347,6 +347,8 @@ None of this is built yet: not the draft in the host, the kit (Lane L's art), th
 
 ## Making a wish
 
+**Decided 13 October: no separate runner.** The founder shelved the wish runner below because it "takes away from the concept of playing with your AI directly". Wishes and the Gubble's words go through the AI that is already connected and playing, over the normal companion connection: it reads, takes and reports wishes (`wish.list`, `wish.wait`, `wish.take`, `wish.report`), learns of a waiting wish from a count on every result or a bounded wait, and speaks with `companion.say`. The host's own records tie its commands to the active wish. Children get curated phrases; a grown-ups' test mode, a player-only setting that is off by default and shown on screen, lets the AI's own words through for grown-up playtests ([docs/companion/TRANSPORT.md](../companion/TRANSPORT.md), [SECURITY.md](../companion/SECURITY.md)). The runner design is kept below as the record; it remains on `codex/gubble-growth-runtime`.
+
 From research 5.
 
 **What doesn't work.** No MCP feature reliably wakes the player's model when the game has a wish:

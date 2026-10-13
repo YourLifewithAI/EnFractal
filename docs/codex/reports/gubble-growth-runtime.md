@@ -2,9 +2,9 @@
 
 11 October 2026 · `codex/gubble-growth-runtime` · foundation commit `66aeef0` on integration `7173ed0`.
 
-The requested playable slice is implemented on one branch: five earned Glow discoveries, four/five-light growth, constellation editing, glowing particles, expressive touches and sound controls; Bloom/trail; saved rain/wind patterns and bounded Fire; Creative/Challenge/Live traits and consequences; and a player-started, vendor-neutral FIFO wish runner. The HUD exposes these through Magic. Player and AI changes use the host, with preview, ownership, protection and approval checks.
+The requested playable slice is implemented on one branch: five earned Glow discoveries, four/five-light growth, constellation editing, glowing particles, expressive touches and sound controls; Bloom/trail; saved rain/wind patterns and bounded Fire; Creative/Challenge/Live traits and consequences; and a player-started, vendor-neutral FIFO wish runner (shelved on 13 October: wishes now go to the AI already connected as the Gubble, through the companion server's wish tools; see the note below). The HUD exposes these through Magic. Player and AI changes use the host, with preview, ownership, protection and approval checks.
 
-Glow/traits are isolated by mode. Fire preserves scorched creation designs, disables their triggers and quotes repair from the original material parts; other flammable objects can disappear. Atomic nature saves include weather, grouped undo and receipts. AI undo retains ownership checks and player approval for player changes. Wishes require receipt evidence, reject provider prose, cancel promptly, and revoke held work. Separate authenticated runner credentials grant no world authority.
+Glow/traits are isolated by mode. Fire preserves scorched creation designs, disables their triggers and quotes repair from the original material parts; other flammable objects can disappear. Atomic nature saves include weather, grouped undo and receipts. AI undo retains ownership checks and player approval for player changes. Wishes require receipt evidence, reject provider prose, cancel promptly, and revoke held work.
 
 ## Validation
 
@@ -16,6 +16,8 @@ Initial integration failures were corrected: pinned Godot API names, numeric bou
 
 ## Playtest and limits
 
-Run `run-room.ps1 -Profile growth -Room landscape` (this replaced `play-growth.ps1` in the 13 October review round); follow [the checklist](../../magic/PLAYTEST.md). `start-growth-wishes.ps1 -Demo` exercises wishes without a provider. Live CLI inference remains unverified; the optional Claude adapter uses API authentication, and subscription-driven adapters require separate verification. Balance is provisional. Individual bubble grabbing, weather control, combat/multiplayer and a broader resource economy remain later work. Export includes nature; aggregate import refuses that extension until both stores can be restored transactionally.
+Run `run-room.ps1 -Profile growth -Room landscape` (this replaced `play-growth.ps1` in the 13 October review round); follow [the checklist](../../magic/PLAYTEST.md). Live CLI inference remains unverified. Balance is provisional. Individual bubble grabbing, weather control, combat/multiplayer and a broader resource economy remain later work. Export includes nature; aggregate import refuses that extension until both stores can be restored transactionally.
 
 No GPU captures, paid inference, integrator checkout changes or automatic merges were performed. The reported Codex router WebSocket issue remains separate and unfixed.
+
+**13 October, `run2/wishes-live`.** The founder shelved the separate wish runner: it "takes away from the concept of playing with your AI directly". The runner process, its adapters, its second listener, token and session file, `start-growth-wishes.ps1` and `companion/WISH-RUNNER.md` are gone from that line (this branch keeps the original). Wishes go to the connected AI through `wish_list`, `wish_wait`, `wish_take` and `wish_report`; the host ties the AI's commands to the active wish by its own record rather than an action-id prefix, and still decides "granted" from its own receipts. `companion_say` shows the Gubble's words: curated phrases, or the AI's own words in the player's grown-ups' test mode. See docs/companion/TRANSPORT.md and SECURITY.md.
