@@ -39,7 +39,7 @@ public static class IslandNavigation
     /// <summary>
     /// The walkable ground's 16 m tiles, each read with its part's GroundFaces(tile): every tile of every tiled part that collides
     /// on the world layer (drawn; a part that is not drawn collides on the hidden layer, which navigation ignores). For a caller
-    /// that reads the ground once and keeps it (RoomNavigation: the land never changes).
+    /// that reads the ground for a bake (RoomNavigation reads only the tiles under the tiles it bakes, and keeps none: S12b).
     /// </summary>
     public static List<(TiledPart Part, int Tile)> GroundTiles(RoomData room)
     {

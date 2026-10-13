@@ -42,6 +42,11 @@ public static class DrawDistances
         kind == PlantKind.Tree ? TreeShadowM : typicalHeightM <= SmallPlantHeightM ? SmallDetailM : CopyShadowM;
     /// <summary>Hysteresis at every copy band's edge.</summary>
     public const float CopyMarginM = 1f;
+    /// <summary>
+    /// A set's tile is filled once the nearest focus (the camera or an avatar) comes within its range and this much more, so it is
+    /// drawn before it can show, and emptied again only past its range and CopyReleaseM (S12b: only copies in reach are held).
+    /// </summary>
+    public const float CopyBuildLeadM = 4f, CopyReleaseM = 10f;
     /// <summary>Where each lighter mesh takes over, as fractions of the set's range, for a set with 1 to 4 meshes.</summary>
     private static readonly float[][] DetailEnds =
     {
@@ -79,8 +84,8 @@ public static class DrawDistances
     };
 
     /// <summary>
-    /// A set's bands. Every copy of a tile is held once per band (a MultiMesh per band, and Godot keeps three CPU copies of each
-    /// MultiMesh's buffer besides the GPU's), so the bands are as few as the look allows (S9):
+    /// A set's bands. A tile's copies are held once, in the one MultiMesh of the band its distance chooses (PlantCopiesView, S12b;
+    /// S9 held them once per band), and a band change fills the tile again, so the bands are as few as the look allows (S9):
     /// <list type="bullet">
     /// <item>small plants and stones with two or more meshes: two bands, full detail with shadows to SmallDetailM, the lightest mesh
     /// beyond;</item>

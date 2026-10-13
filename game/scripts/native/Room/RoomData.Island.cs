@@ -71,7 +71,7 @@ public sealed partial class RoomData
             {
                 var (path, triangles) = record.Meshes[m];
                 var key = directory + "/" + path;
-                if (!meshes.TryGetValue(key, out var bytes)) meshes[key] = bytes = ReadMesh(directory, listed, path, "room.json");
+                if (!meshes.TryGetValue(key, out var bytes)) bytes = Keep(meshes, key, path, listed, ReadMesh(directory, listed, path, "room.json"));
                 var glb = GlbReader.Read(bytes, path);
                 var held = glb.Triangles();
                 Expect(held == triangles, $"{where}: {path} holds {(held?.ToString(CultureInfo.InvariantCulture) ?? "None")} triangles; the manifest says {triangles}");
@@ -380,7 +380,23 @@ public sealed partial class RoomData
             if (part.Collides || RoomWater.IsWater(part))
                 foreach (var (tx, tz, byLevel) in tiles)
                     if (glb.Unreadable(byLevel[0]) is { } why) throw new RoomLoadException($"{where}: tile ({tx}, {tz}) level 0 cannot be read for collision: {why}");
-            parts.Add(new TiledPart { PartId = id, MeshPath = path, Glb = glb, Tiles = tiles });
+            // The ground is kept as positions and corners (TiledPart.Ground), so the file's bytes can go once the land is drawn.
+            (float[], ushort[]?, int[]?)[]? ground = null;
+            if (part.Collides || RoomWater.IsWater(part))
+            {
+                var read = ground = new (float[], ushort[]?, int[]?)[tiles.Count];
+                System.Threading.Tasks.Parallel.For(0, tiles.Count, i => read[i] = glb.Ground(tiles[i].MeshByLevel[0]));
+            }
+            // Sight and aim see the far land through its next level (S12b): kept for a drawn, colliding part.
+            (float[], ushort[]?, int[]?)[]? coarse = null;
+            if (part.Collides && part.Drawn)
+            {
+                var level = Math.Min(1, levels.Length - 1);
+                var read = coarse = new (float[], ushort[]?, int[]?)[tiles.Count];
+                // A level the reader cannot take (compressed positions: the contract only promises level 0) falls back to level 0.
+                System.Threading.Tasks.Parallel.For(0, tiles.Count, i => read[i] = glb.Ground(tiles[i].MeshByLevel[glb.Unreadable(tiles[i].MeshByLevel[level]) == null ? level : 0]));
+            }
+            parts.Add(new TiledPart { PartId = id, MeshPath = path, Ground = ground, Coarse = coarse, Tiles = tiles });
         }
         return new TerrainTiles { LevelGridM = levels.Select(l => (float)l).ToArray(), Parts = parts };
     }

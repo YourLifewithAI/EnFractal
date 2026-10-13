@@ -23,6 +23,7 @@ namespace EnFractal.Tests.Look;
 public partial class LookCaptureHarness
 {
     private readonly List<string> _deriveNotes = new();
+    private List<DerivedCamera>? _derived;
 
     /// <summary>The cameras file's entries with every "derive" entry replaced by the island's own cameras (as ordinary entries).</summary>
     private IEnumerable<JsonElement> Entries(JsonElement root)
@@ -31,9 +32,16 @@ public partial class LookCaptureHarness
         {
             if (!entry.TryGetProperty("derive", out var derive)) { yield return entry; continue; }
             var wanted = derive.GetString() ?? "island";
-            var space = _world.GetWorld3D().DirectSpaceState;
-            var derived = IslandCameras.Derive(_world.Room, IslandCameras.RayGround(space, _world.Room.Bounds), IslandCameras.RaySky(space), _deriveNotes);
-            foreach (var note in _deriveNotes) GD.Print("LOOK_CAPTURE derive: " + note);
+            if (_derived == null)
+            {
+                // The rays go over the whole land: every tile of its collision is built for an instant (TerrainCollision keeps
+                // it where the bodies are), once, so later camera lookups never hold the whole land again.
+                TerrainCollision.EnsureAll(_world, holdS: 0.5);
+                var space = _world.GetWorld3D().DirectSpaceState;
+                _derived = IslandCameras.Derive(_world.Room, IslandCameras.RayGround(space, _world.Room.Bounds), IslandCameras.RaySky(space), _deriveNotes);
+                foreach (var note in _deriveNotes) GD.Print("LOOK_CAPTURE derive: " + note);
+            }
+            var derived = _derived;
             foreach (var camera in derived.Where(c => wanted == "island" || c.Id == wanted)) yield return ToEntry(camera);
         }
     }
@@ -128,6 +136,8 @@ public partial class LookCaptureHarness
         }
         var faces = _world.Built.FindChildren("*", "CollisionShape3D", true, false).OfType<CollisionShape3D>()
             .Sum(c => c.Shape is ConcavePolygonShape3D concave ? (long)concave.Data.Length / 3 : 0);
+        var ground = _world.Built.GetNodeOrNull<TerrainCollision>(TerrainCollision.ViewName);
+        var copies = _world.Built.GetNodeOrNull<PlantCopiesView>(PlantCopiesView.ViewName);
         var verified = _world.Room.VerifiedMeshes.Values.Sum(b => (long)b.Length);
         return new Dictionary<string, object>
         {
@@ -137,7 +147,10 @@ public partial class LookCaptureHarness
             ["copies"] = _world.Room.Copies?.TotalCount ?? 0,
             ["terrain_levels"] = levels.ToDictionary(p => p.Key.ToString(), p => (object)new Dictionary<string, object>
                 { ["meshes"] = p.Value.Meshes, ["vertices"] = p.Value.Vertices, ["indices"] = p.Value.Indices }),
-            ["collision_triangles"] = faces,
+            ["collision_triangles"] = faces + (ground?.TrianglesBuilt ?? 0),
+            ["ground_tiles_built"] = ground?.TilesBuilt ?? 0,
+            ["ground_tiles"] = ground?.TileCount ?? 0,
+            ["copies_held"] = copies?.InstancesHeld ?? 0,
             ["room_verified_mesh_bytes_mib"] = Round(verified / 1048576.0),
             ["navigation_polygons"] = Performance.GetMonitor(Performance.Monitor.NavigationPolygonCount),
             ["objects"] = Performance.GetMonitor(Performance.Monitor.ObjectCount),
@@ -163,7 +176,7 @@ public partial class LookCaptureHarness
             Performance.GetMonitor(Performance.Monitor.PipelineCompilationsCanvas) + Performance.GetMonitor(Performance.Monitor.PipelineCompilationsMesh)
             + Performance.GetMonitor(Performance.Monitor.PipelineCompilationsSurface) + Performance.GetMonitor(Performance.Monitor.PipelineCompilationsDraw)
             + Performance.GetMonitor(Performance.Monitor.PipelineCompilationsSpecialization),
-            view?.VisualTilesBuilt + view?.CollisionTilesBuilt ?? 0,
+            view?.TilesBuiltTotal ?? 0,
             Performance.GetMonitor(Performance.Monitor.RenderTotalObjectsInFrame));
     }
 

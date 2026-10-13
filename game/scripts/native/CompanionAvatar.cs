@@ -1590,7 +1590,7 @@ public partial class CompanionAvatar : SmallPlayerController
         if (camera == null || !camera.IsInsideTree() || !point.IsFinite()) return false;
         var eye = camera.GlobalPosition;
         if (camera.IsPositionBehind(point) || !camera.IsPositionInFrustum(point) || eye.DistanceTo(point) > camera.Far) return false;
-        using var query = PhysicsRayQueryParameters3D.Create(eye, point, RoomBuilder.WorldLayer,
+        using var query = PhysicsRayQueryParameters3D.Create(eye, point, RoomBuilder.SightMask,
             _player != null && GodotObject.IsInstanceValid(_player) ? ExcludeSelfAnd(_player.GetRid()) : ExcludeSelf);
         using var hit = GetWorld3D().DirectSpaceState.IntersectRay(query);
         return hit.Count == 0;

@@ -146,7 +146,7 @@ public partial class RoomHud
             to = from + camera.ProjectRayNormal(screen) * AimRangeM;
         }
         if (Player == null || !Player.IsInsideTree() || !from.IsFinite() || !to.IsFinite()) return default;
-        using var query = PhysicsRayQueryParameters3D.Create(from, to, Room.RoomBuilder.WorldLayer | GubbleLayer | Room.RoomWater.Layer,
+        using var query = PhysicsRayQueryParameters3D.Create(from, to, Room.RoomBuilder.SightMask | GubbleLayer | Room.RoomWater.Layer,
             _aimExclude ??= new Godot.Collections.Array<Rid> { Player.GetRid() });
         query.CollideWithAreas = true;
         using var hit = Player.GetWorld3D().DirectSpaceState.IntersectRay(query);

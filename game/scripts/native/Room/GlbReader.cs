@@ -2,6 +2,7 @@ using Godot;
 using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 
 namespace EnFractal.Native.Room;
@@ -186,6 +187,46 @@ public sealed class GlbReader
                 }
         }
         return faces.ToArray();
+    }
+
+    /// <summary>
+    /// A mesh's triangles as Faces gives them, kept small: its float positions (three a vertex, every primitive's in turn) and the
+    /// faces' corners as indices into them, in the same order (so the face list rebuilt from them is Faces' exactly), as unsigned
+    /// shorts when the positions allow.
+    /// </summary>
+    public (float[] Positions, ushort[]? Small, int[]? Large) Ground(int mesh)
+    {
+        Expect(mesh >= 0 && mesh < Meshes.Count, $"{Label}: mesh {mesh} does not exist");
+        var points = new List<Vector3>();
+        var corners = new List<int>();
+        foreach (var primitive in Meshes[mesh])
+        {
+            Expect(primitive.Mode == 4, $"{Label}: mesh {mesh} holds a primitive that is not a triangle list");
+            var positions = ReadVec3(primitive.Position);
+            var offset = points.Count;
+            points.AddRange(positions);
+            if (primitive.Indices >= 0)
+            {
+                var indices = ReadIndices(primitive.Indices);
+                for (var i = 0; i + 2 < indices.Length; i += 3)
+                {
+                    Expect(indices[i] < positions.Length && indices[i + 1] < positions.Length && indices[i + 2] < positions.Length, $"{Label}: an index points past its positions");
+                    corners.Add(offset + indices[i]);
+                    corners.Add(offset + indices[i + 2]);
+                    corners.Add(offset + indices[i + 1]);
+                }
+            }
+            else
+                for (var i = 0; i + 2 < positions.Length; i += 3)
+                {
+                    corners.Add(offset + i);
+                    corners.Add(offset + i + 2);
+                    corners.Add(offset + i + 1);
+                }
+        }
+        var flat = new float[points.Count * 3];
+        for (var i = 0; i < points.Count; i++) (flat[i * 3], flat[i * 3 + 1], flat[i * 3 + 2]) = (points[i].X, points[i].Y, points[i].Z);
+        return points.Count <= ushort.MaxValue + 1 ? (flat, corners.Select(c => (ushort)c).ToArray(), null) : (flat, null, corners.ToArray());
     }
 
     /// <summary>Whether Faces can read a mesh (float positions, triangle lists, plain indices inside the BIN chunk), without reading it: null, or why not.</summary>

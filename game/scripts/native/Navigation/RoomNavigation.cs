@@ -539,15 +539,19 @@ public partial class RoomNavigation : Node
     }
 
     /// <summary>
-    /// The room's ground (IslandNavigation.GroundTiles): each 16 m tile's level-0 faces, nine floats a triangle in Godot's face order
-    /// (as a trimesh's faces come), with which of them each tile holds. Read on the bake's worker at the first bake and kept: the
-    /// land never changes, and a re-bake then copies a tile's share of it, as it does a body's. The bake's worker's alone.
+    /// The room's ground under the tiles to bake (IslandNavigation.GroundTiles): each 16 m tile's level-0 faces, nine floats a
+    /// triangle in Godot's face order (as a trimesh's faces come), with which of them each tile holds. Read on the bake's worker for
+    /// that bake and let go (S12b: kept, the 10x island's was about 45 MB of C#'s heap; the room's data holds the ground compactly,
+    /// and a re-bake reads only the few ground tiles under the tiles it bakes).
     /// </summary>
-    private List<(float[] Triangles, List<int>?[] ByTile)>? _roomGround;
-
-    private static List<(float[] Triangles, List<int>?[] ByTile)> ReadRoomGround(RoomData room, Tile[] tiles, NavigationSeams.Layout layout)
+    private static List<(float[] Triangles, List<int>?[] ByTile)> ReadRoomGround(RoomData room, Tile[] tiles, NavigationSeams.Layout layout, List<Tile> chosen)
     {
-        var pieces = IslandNavigation.GroundTiles(room);
+        var pieces = IslandNavigation.GroundTiles(room).Where(piece =>
+        {
+            var (tx, tz, _) = piece.Part.Tiles[piece.Tile];
+            float x0 = tx * TerrainTiles.TileM, z0 = tz * TerrainTiles.TileM, x1 = x0 + TerrainTiles.TileM, z1 = z0 + TerrainTiles.TileM;
+            return chosen.Any(t => t.BakeBox.Position.X <= x1 && t.BakeBox.End.X >= x0 && t.BakeBox.Position.Z <= z1 && t.BakeBox.End.Z >= z0);
+        }).ToList();
         var ground = new (float[] Triangles, List<int>?[] ByTile)[pieces.Count];
         System.Threading.Tasks.Parallel.For(0, pieces.Count, new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, System.Environment.ProcessorCount - 2) }, i =>
         {
@@ -642,15 +646,15 @@ public partial class RoomNavigation : Node
                 foreach (var tile in touched)
                     if (Overlaps(tile.BakeBox, block.Bounds)) blocks[tile.Index].Add(block);
         }
-        // The room's own ground (see Room), read once; each tile to bake takes its share, as it takes a body's.
+        // The room's own ground under the tiles to bake (see ReadRoomGround); each takes its share, as it takes a body's.
         var room = Room;
         if (room != null)
         {
-            _roomGround ??= ReadRoomGround(room, tiles, layout);
-            foreach (var (triangles, byTile) in _roomGround)
+            var ground = ReadRoomGround(room, tiles, layout, chosen);
+            foreach (var (triangles, byTile) in ground)
                 foreach (var tile in chosen)
                     if (byTile[tile.Index] is { } ids) shares[tile.Index].Add((triangles, ids));
-            result.RoomGroundTriangles = _roomGround.Sum(g => g.Triangles.Length / 9);
+            result.RoomGroundTriangles = ground.Sum(g => g.Triangles.Length / 9);
         }
         var obstructed = 0;
         result.ReadMs = clock.Elapsed.TotalMilliseconds;

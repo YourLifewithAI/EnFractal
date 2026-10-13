@@ -18,13 +18,47 @@ public sealed class TiledPart
     public string MeshPath { get; init; } = "";
     /// <summary>The part's tiles, sorted by tx then tz; each tile's mesh index in the GLB by level, finest first.</summary>
     public IReadOnlyList<(int Tx, int Tz, int[] MeshByLevel)> Tiles { get; init; } = Array.Empty<(int, int, int[])>();
-    internal GlbReader Glb { get; init; } = null!;
+    /// <summary>
+    /// Each tile's level-0 ground as read from the file at load (a colliding or water part only): its float positions and its
+    /// triangles' corners in Godot's winding, kept so the file's bytes need not be (S12b: about half their size on the 10x island).
+    /// </summary>
+    internal (float[] Positions, ushort[]? Small, int[]? Large)[]? Ground { get; init; }
 
     /// <summary>
     /// The ground of one tile: its level-0 triangles as a face list in Godot's winding, from the file's float positions. Level 0
     /// is the walkable ground: a colliding part collides through it alone, and navigation bakes it. Pure C#: any thread.
     /// </summary>
-    public Vector3[] GroundFaces(int tileIndex) => Glb.Faces(Tiles[tileIndex].MeshByLevel[0]);
+    public Vector3[] GroundFaces(int tileIndex) =>
+        Faces((Ground ?? throw new InvalidOperationException($"{PartId} neither collides nor holds water: its ground was not kept"))[tileIndex]);
+
+    /// <summary>
+    /// Each tile's coarse ground (level 1, about 5 cm from level 0 on the 10x garage; level 0 when the land has one level) for a
+    /// drawn colliding part: the far ground sight and aim see where the walkable ground is not built (TerrainCollision). Bodies
+    /// never touch it. Null for a part that is not drawn or does not collide.
+    /// </summary>
+    internal (float[] Positions, ushort[]? Small, int[]? Large)[]? Coarse { get; init; }
+
+    /// <summary>The coarse ground of one tile as a face list in Godot's winding (see Coarse). Pure C#: any thread.</summary>
+    public Vector3[] CoarseFaces(int tileIndex) =>
+        Faces((Coarse ?? throw new InvalidOperationException($"{PartId} has no far ground: it is not drawn or does not collide"))[tileIndex]);
+
+    public bool HasCoarse => Coarse != null;
+
+    private static Vector3[] Faces((float[] Positions, ushort[]? Small, int[]? Large) ground)
+    {
+        var (positions, small, large) = ground;
+        var count = small?.Length ?? large!.Length;
+        var faces = new Vector3[count];
+        for (var i = 0; i < count; i++)
+        {
+            var corner = small != null ? small[i] : large![i];
+            faces[i] = new Vector3(positions[corner * 3], positions[corner * 3 + 1], positions[corner * 3 + 2]);
+        }
+        return faces;
+    }
+
+    /// <summary>Triangles in a tile's level-0 ground (0 when its ground was not kept).</summary>
+    public int GroundTriangles(int tileIndex) => Ground is { } ground ? (ground[tileIndex].Small?.Length ?? ground[tileIndex].Large!.Length) / 3 : 0;
 
     /// <summary>The level of a tile node named by the contract (tile_&lt;tx&gt;_&lt;tz&gt;_lod&lt;level&gt;), or null.</summary>
     public static (int Tx, int Tz, int Level)? ParseNodeName(string name)

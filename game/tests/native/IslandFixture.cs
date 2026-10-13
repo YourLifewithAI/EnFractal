@@ -68,7 +68,135 @@ public static class IslandFixture
     /// An island at user://tests/rooms/&lt;roomId&gt;: the example's files, sets as given (a set naming an example mesh reuses it),
     /// bounds as given (null keeps the example's). Returns the room's directory.
     /// </summary>
-    public static string Write(string roomId, IReadOnlyList<SetSpec> sets, int groups, Vector3? boundsMin = null, Vector3? boundsMax = null)
+    public static string Write(string roomId, IReadOnlyList<SetSpec> sets, int groups, Vector3? boundsMin = null, Vector3? boundsMax = null) =>
+        Write(roomId, sets, groups, boundsMin, boundsMax, customize: null);
+
+    /// <summary>
+    /// A wide island for the land's collision streaming (S12b): the example's grass part replaced by tiles over tx0..tx1, tz0..tz1
+    /// (16 m each) of gently rolling ground (Height), three levels each (2, 4 and 8 m grids), no sand; a sea round it at -0.05 m
+    /// with a beach at each end and a jetty whose root stands on the land at the east end; spawns at (0, -8) and (0.5, -8).
+    /// </summary>
+    public static string WriteWideLand(string roomId, int tx0, int tx1, int tz0, int tz1, IReadOnlyList<SetSpec> sets)
+    {
+        var (x0, x1, z0, z1) = (tx0 * 16f, (tx1 + 1) * 16f, tz0 * 16f, (tz1 + 1) * 16f);
+        return Write(roomId, sets, 2, new Vector3(x0 - 24, -1, z0 - 24), new Vector3(x1 + 24, 8, z1 + 24), (manifest, files) =>
+        {
+            files["shell/terrain_grass.glb"] = TerrainGlb(tx0, tx1, tz0, tz1);
+            files.Remove("shell/terrain_sand.glb");
+            var parts = manifest["shell"]!["parts"]!.AsArray();
+            foreach (var part in parts.Where(p => p!["id"]!.GetValue<string>() == "shell:terrain_sand").ToArray()) parts.Remove(part);
+            var tiled = manifest["terrain_tiles"]!["parts"]!.AsArray();
+            foreach (var part in tiled.Where(p => p!["part"]!.GetValue<string>() == "shell:terrain_sand").ToArray()) tiled.Remove(part);
+            tiled[0]!["tiles"] = (tx1 - tx0 + 1) * (tz1 - tz0 + 1);
+            foreach (var spawn in manifest["spawns"]!.AsArray())
+            {
+                var at = spawn!["position_m"]!.AsArray();
+                at[1] = Height(at[0]!.GetValue<double>(), at[2]!.GetValue<double>());
+            }
+            static JsonArray Loop(float a0, float a1, float b0, float b1) =>
+                new(new JsonArray(a0, b0), new JsonArray(a1, b0), new JsonArray(a1, b1), new JsonArray(a0, b1));
+            var root = new Vector2(x1 - 2, 0);
+            var deck = (float)Height(root.X, root.Y);
+            manifest["extensions"] = new JsonObject
+            {
+                ["x_landscape_sea"] = new JsonObject
+                {
+                    ["level_m"] = -0.05, ["swim_depth_m"] = 0.12, ["grid_margin_m"] = 1.7,
+                    ["coast"] = new JsonObject { ["outline_m"] = Loop(x0, x1, z0, z1) },
+                    ["reef"] = new JsonObject { ["outline_m"] = Loop(x0 - 4, x1 + 4, z0 - 4, z1 + 4), ["crest_y_m"] = -0.03, ["band_half_width_m"] = 0.5, ["passes"] = new JsonArray() },
+                    ["play_area"] = new JsonObject { ["outline_m"] = Loop(x0 - 10, x1 + 10, z0 - 10, z1 + 10) },
+                    ["beaches"] = new JsonArray(
+                        new JsonObject { ["id"] = "beach_west", ["wash_ashore_m"] = new JsonArray(x0 + 1, Height(x0 + 1, 8), 8), ["water_m"] = new JsonArray(x0 - 1, -0.05, 8), ["yaw_deg"] = 90 },
+                        new JsonObject { ["id"] = "beach_east", ["wash_ashore_m"] = new JsonArray(x1 - 1, Height(x1 - 1, z1 - 8), z1 - 8), ["water_m"] = new JsonArray(x1 + 1, -0.05, z1 - 8), ["yaw_deg"] = -90 }),
+                    ["jetty"] = new JsonObject
+                    {
+                        ["root_m"] = new JsonArray(root.X, deck, root.Y), ["end_m"] = new JsonArray(x1 + 3, deck, root.Y), ["yaw_deg"] = -90, ["width_m"] = 0.16, ["deck_top_m"] = deck,
+                    },
+                },
+            };
+        });
+    }
+
+    /// <summary>
+    /// The wide island's ground height: a few centimetres of roll over a 0.3 m plateau, always above its sea, and one hill 2 m high
+    /// round (HillX, 0), far from the spawn, for sight across the land.
+    /// </summary>
+    public static double Height(double x, double z) =>
+        0.3 + 0.05 * Math.Sin(0.37 * x) + 0.03 * Math.Cos(0.53 * z) + 2.0 * Math.Exp(-((x - HillX) * (x - HillX) + z * z) / (2 * 6.0 * 6.0));
+
+    public const double HillX = 120;
+
+    /// <summary>A tiled terrain GLB as the contract has it: one root node per tile and level (tile_tx_tz_lodN), a grid of Height's points.</summary>
+    private static byte[] TerrainGlb(int tx0, int tx1, int tz0, int tz1)
+    {
+        var bin = new MemoryStream();
+        var writer = new BinaryWriter(bin);
+        var nodes = new JsonArray();
+        var meshes = new JsonArray();
+        var views = new JsonArray();
+        var accessors = new JsonArray();
+        void Align() { while (bin.Length % 4 != 0) writer.Write((byte)0); }
+        for (var tx = tx0; tx <= tx1; tx++)
+        for (var tz = tz0; tz <= tz1; tz++)
+            for (var level = 0; level < 3; level++)
+            {
+                var cells = 8 >> level;
+                var step = 16f / cells;
+                var low = new[] { float.MaxValue, float.MaxValue, float.MaxValue };
+                var high = new[] { float.MinValue, float.MinValue, float.MinValue };
+                Align();
+                var start = bin.Length;
+                for (var j = 0; j <= cells; j++)
+                for (var i = 0; i <= cells; i++)
+                {
+                    var p = new[] { tx * 16f + i * step, (float)Height(tx * 16f + i * step, tz * 16f + j * step), tz * 16f + j * step };
+                    for (var k = 0; k < 3; k++) { writer.Write(p[k]); low[k] = Math.Min(low[k], p[k]); high[k] = Math.Max(high[k], p[k]); }
+                }
+                views.Add(new JsonObject { ["buffer"] = 0, ["byteOffset"] = start, ["byteLength"] = bin.Length - start, ["target"] = 34962 });
+                accessors.Add(new JsonObject { ["bufferView"] = views.Count - 1, ["componentType"] = 5126, ["count"] = (cells + 1) * (cells + 1), ["type"] = "VEC3",
+                    ["min"] = new JsonArray(low[0], low[1], low[2]), ["max"] = new JsonArray(high[0], high[1], high[2]) });
+                start = bin.Length;
+                // Each cell two triangles, counter-clockwise seen from above (glTF's front faces), so the ground faces up.
+                for (var j = 0; j < cells; j++)
+                for (var i = 0; i < cells; i++)
+                {
+                    ushort a = (ushort)(j * (cells + 1) + i), b = (ushort)(a + 1), d = (ushort)(a + cells + 1), c = (ushort)(d + 1);
+                    foreach (var index in new[] { a, c, b, a, d, c }) writer.Write(index);
+                }
+                views.Add(new JsonObject { ["buffer"] = 0, ["byteOffset"] = start, ["byteLength"] = bin.Length - start, ["target"] = 34963 });
+                accessors.Add(new JsonObject { ["bufferView"] = views.Count - 1, ["componentType"] = 5123, ["count"] = cells * cells * 6, ["type"] = "SCALAR" });
+                meshes.Add(new JsonObject { ["primitives"] = new JsonArray(new JsonObject { ["attributes"] = new JsonObject { ["POSITION"] = accessors.Count - 2 }, ["indices"] = accessors.Count - 1, ["material"] = 0 }) });
+                nodes.Add(new JsonObject { ["mesh"] = meshes.Count - 1, ["name"] = $"tile_{tx}_{tz}_lod{level}" });
+            }
+        Align();
+        writer.Flush();
+        var json = new JsonObject
+        {
+            ["asset"] = new JsonObject { ["version"] = "2.0", ["generator"] = "EnFractal tests" }, ["scene"] = 0,
+            ["scenes"] = new JsonArray(new JsonObject { ["nodes"] = new JsonArray(Enumerable.Range(0, nodes.Count).Select(i => (JsonNode)i).ToArray()) }),
+            ["nodes"] = nodes, ["meshes"] = meshes,
+            ["materials"] = new JsonArray(new JsonObject { ["name"] = "grass", ["pbrMetallicRoughness"] = new JsonObject { ["baseColorFactor"] = new JsonArray(0.45, 0.62, 0.3, 1.0), ["metallicFactor"] = 0.0, ["roughnessFactor"] = 0.9 } }),
+            ["buffers"] = new JsonArray(new JsonObject { ["byteLength"] = bin.Length }), ["bufferViews"] = views, ["accessors"] = accessors,
+        };
+        var text = System.Text.Encoding.UTF8.GetBytes(json.ToJsonString());
+        var padded = (text.Length + 3) / 4 * 4;
+        using var glb = new MemoryStream();
+        using var output = new BinaryWriter(glb);
+        output.Write(0x46546C67u);
+        output.Write(2u);
+        output.Write((uint)(12 + 8 + padded + 8 + bin.Length));
+        output.Write((uint)padded);
+        output.Write(0x4E4F534Au);
+        output.Write(text);
+        for (var i = text.Length; i < padded; i++) output.Write((byte)0x20);
+        output.Write((uint)bin.Length);
+        output.Write(0x004E4942u);
+        output.Write(bin.ToArray());
+        output.Flush();
+        return glb.ToArray();
+    }
+
+    private static string Write(string roomId, IReadOnlyList<SetSpec> sets, int groups, Vector3? boundsMin, Vector3? boundsMax, Action<JsonObject, Dictionary<string, byte[]>>? customize)
     {
         var target = "user://tests/rooms/" + roomId;
         var absolute = ProjectSettings.GlobalizePath(target);
@@ -106,6 +234,7 @@ public static class IslandFixture
         manifest["plant_copies"]!["sets"] = records;
         if (boundsMin is { } low && boundsMax is { } high)
             manifest["bounds"] = new JsonObject { ["min_m"] = new JsonArray(low.X, low.Y, low.Z), ["max_m"] = new JsonArray(high.X, high.Y, high.Z) };
+        customize?.Invoke(manifest, files);
         var listed = new JsonArray();
         foreach (var (path, bytes) in files.OrderBy(f => f.Key, StringComparer.Ordinal))
         {
