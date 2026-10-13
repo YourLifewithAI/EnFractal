@@ -178,6 +178,9 @@ public sealed class RoomSea
     /// world-layer ground under the surface or else the open-sea bed. Ground at or above the surface (a sea stack's top) is
     /// dry, as RoomWater.At has it. RoomWater.Column.Dry otherwise.
     /// </summary>
+    /// <summary>A ray answer's key, made once (S12).</summary>
+    private static readonly Variant HitPosition = "position";
+
     public RoomWater.Column OpenWater(PhysicsDirectSpaceState3D space, Vector3 point, float aboveM, float belowM, Rid exclude = default, bool throughRoof = false)
     {
         if (!point.IsFinite() || LevelM > point.Y + aboveM || LevelM < point.Y - belowM) return RoomWater.Column.Dry;
@@ -187,18 +190,21 @@ public sealed class RoomSea
         // the open-sea bed, so ground below it read as that made-up bed); the open-sea bed stands in only where there is none.
         var bedY = OpenSeaBedAt(flat);
         var top = new Vector3(point.X, LevelM + RoomWater.BedLookAboveM, point.Z);
-        using var query = PhysicsRayQueryParameters3D.Create(top, new Vector3(point.X, LevelM - RoomWater.BedSearchM, point.Z), RoomBuilder.WorldLayer);
-        if (exclude.IsValid) query.Exclude = new Godot.Collections.Array<Rid> { exclude };
+        // The exclusions go to Create itself and are freed here (S12).
+        var excluded = new Godot.Collections.Array<Rid>();
+        using var excludedArray = (Godot.Collections.Array)excluded;
+        if (exclude.IsValid) excluded.Add(exclude);
+        using var query = PhysicsRayQueryParameters3D.Create(top, new Vector3(point.X, LevelM - RoomWater.BedSearchM, point.Z), RoomBuilder.WorldLayer, excluded);
         query.HitBackFaces = false;
         var real = false;
         using (var hit = space.IntersectRay(query))
-            if (hit.Count > 0) { bedY = hit["position"].AsVector3().Y; real = true; }
+            if (hit.Count > 0) { bedY = hit[HitPosition].AsVector3().Y; real = true; }
         // A body already in the sea under a roof (a shelf): the bed is what lies under the body (Codex's reviews).
         if (throughRoof && real && bedY > point.Y + RoomWater.BedToleranceM && bedY <= LevelM - RoomWater.RimM)
         {
             query.From = new Vector3(point.X, point.Y + RoomWater.BedToleranceM, point.Z);
             using var under = space.IntersectRay(query);
-            (bedY, real) = under.Count > 0 ? (under["position"].AsVector3().Y, true) : (OpenSeaBedAt(flat), false);
+            (bedY, real) = under.Count > 0 ? (under[HitPosition].AsVector3().Y, true) : (OpenSeaBedAt(flat), false);
         }
         if (bedY > LevelM - RoomWater.RimM) return RoomWater.Column.Dry;
         // The open-sea bed has no collider: a body under it (off a deep ledge) is still in the sea, and the bed holds it up.

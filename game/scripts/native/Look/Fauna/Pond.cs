@@ -148,12 +148,17 @@ public static class PondSurvey
     /// <summary>A bed probe that casts a ray straight down to the world layer; returns the bed's height or null.</summary>
     public static Func<Vector3, float?> RayProbe(PhysicsDirectSpaceState3D space) => from =>
     {
-        var query = PhysicsRayQueryParameters3D.Create(from, from + Vector3.Down * MaxDepthM, WorldMask);
+        // Disposed at once, with the exclusions and the key made once (S12): the survey casts thousands of rays in one frame,
+        // and each left a query, an answer, an empty array (Create makes one when given none) and a key to the .NET finalizer.
+        using var query = PhysicsRayQueryParameters3D.Create(from, from + Vector3.Down * MaxDepthM, WorldMask, NoExclusions);
         query.CollideWithAreas = false;
         query.HitBackFaces = false;
-        var hit = space.IntersectRay(query);
-        return hit.Count > 0 ? hit["position"].AsVector3().Y : null;
+        using var hit = space.IntersectRay(query);
+        return hit.Count > 0 ? hit[HitPosition].AsVector3().Y : null;
     };
+
+    private static readonly Godot.Collections.Array<Rid> NoExclusions = new();
+    private static readonly Variant HitPosition = "position";
 
     /// <summary>Survey every body of water under root, in a stable order (by where it lies), probing beds with bedBelow.</summary>
     public static List<Pond> Survey(Node root, Func<Vector3, float?> bedBelow)

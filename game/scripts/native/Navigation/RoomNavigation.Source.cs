@@ -245,7 +245,10 @@ public partial class RoomNavigation
     /// </summary>
     public bool Parses(StaticBody3D body) =>
         IsInstanceValid(body) && body.IsInsideTree() && (body.CollisionLayer & RoomBuilder.WorldLayer) != 0 &&
-        !(Room?.Terrain != null && body.HasMeta(RoomBuilder.TerrainTilesMeta));
+        !(Room?.Terrain != null && body.HasMeta(TerrainTilesMeta));
+
+    /// <summary>RoomBuilder.TerrainTilesMeta as a StringName made once (S12: a string makes a new one, for the finalizer, each call).</summary>
+    private static readonly StringName TerrainTilesMeta = RoomBuilder.TerrainTilesMeta;
 
     /// <summary>One body's fingerprint: its identity, where it is, and its shapes.</summary>
     private int BodySignature(StaticBody3D body)
@@ -261,7 +264,9 @@ public partial class RoomNavigation
     private int ShapesSignature(StaticBody3D body)
     {
         var hash = new HashCode();
-        foreach (var child in body.GetChildren())
+        var children = body.GetChildren();
+        using var childArray = (Godot.Collections.Array)children;
+        foreach (var child in children)
             if (child is CollisionShape3D shape)
             {
                 hash.Add(shape.GetInstanceId());
