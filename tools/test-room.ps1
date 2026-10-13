@@ -44,11 +44,16 @@ $roomData = Invoke-EnfractalNativeProcess -Toolchain $toolchain -FilePath $toolc
     -Arguments @('--headless', '--path', $toolchain.ProjectPath, '--fixed-fps', '60', 'res://tests/native_room_data.tscn') -TimeoutSeconds 90
 if ($roomData.Stderr -or $roomData.Stdout -notmatch 'checks passed') { throw "$($roomData.Stdout)`n$($roomData.Stderr)" }
 Write-Output $roomData.Stdout.Trim()
+# The 10x world's loading (S6): plant copies and terrain tiles read, drawn per tile, built per frame, collided from their rows.
+$island = Invoke-EnfractalNativeProcess -Toolchain $toolchain -FilePath $toolchain.EnginePath `
+    -Arguments @('--headless', '--path', $toolchain.ProjectPath, '--fixed-fps', '60', 'res://tests/native_island_loading.tscn') -TimeoutSeconds 180
+if ($island.Stderr -or $island.Stdout -notmatch 'NATIVE_ISLAND_LOADING: \d+/\d+ checks passed') { throw "$($island.Stdout)`n$($island.Stderr)" }
+Write-Output (($island.Stdout.Trim().Split("`n") | Where-Object { $_ -match '^(ISLAND_|NATIVE_ISLAND)' }) -join "`n")
 $look = Invoke-EnfractalNativeProcess -Toolchain $toolchain -FilePath $toolchain.EnginePath `
     -Arguments @('--headless', '--path', $toolchain.ProjectPath, '--fixed-fps', '60', 'res://tests/native_look_preset.tscn') -TimeoutSeconds 90
 if ($look.Stderr -or $look.Stdout -notmatch 'checks passed') { throw "$($look.Stdout)`n$($look.Stderr)" }
 Write-Output $look.Stdout.Trim()
 $room = Invoke-EnfractalNativeProcess -Toolchain $toolchain -FilePath $toolchain.EnginePath `
-    -Arguments @('--headless', '--path', $toolchain.ProjectPath, '--fixed-fps', '60', '--quit-after', '240', 'res://scenes/room.tscn') -TimeoutSeconds 60
+    -Arguments @('--headless', '--path', $toolchain.ProjectPath, '--fixed-fps', '60', 'res://scenes/room.tscn', '--', '--quit-after-ready=240') -TimeoutSeconds 60
 if ($room.Stderr -or $room.Stdout -notmatch 'ROOM_WORLD_READY') { throw "Placeholder room failed to load:`n$($room.Stdout)`n$($room.Stderr)" }
 Write-Output $room.Stdout.Trim()

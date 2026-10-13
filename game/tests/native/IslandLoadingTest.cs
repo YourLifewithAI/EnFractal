@@ -6,6 +6,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using EnFractal.Native;
 using EnFractal.Native.Look;
+using EnFractal.Native.Navigation;
 using EnFractal.Native.Room;
 
 namespace EnFractal.Tests;
@@ -21,7 +22,8 @@ namespace EnFractal.Tests;
 /// Measurements of an exported island (S5's 10x garage), instead of the checks: "-- --room=DIR" boots it and prints the load,
 /// the copies' arrival and memory, and in a window (not --headless) the frame time at the spawn; "-- --room=DIR --phases" times
 /// RoomWorld's boot steps one by one (the shell part by part as it enters the scene). The 1080p frame times of record are the
-/// look harness's (tools/look/capture-look.ps1 -Room DIR with the island's cameras).
+/// look harness's (tools/look/capture-look.ps1 -Room DIR with the island's cameras). The island's navigation takes the trunks and
+/// stones from the rows too: a route across a tree or a stone goes round it.
 /// </summary>
 public partial class IslandLoadingTest : Node3D
 {
@@ -75,6 +77,7 @@ public partial class IslandLoadingTest : Node3D
             await CheckCollision(world, room);
             await ClimbATree(world, room);
             CheckNavigationSources(room);
+            await CheckNavigation(world, room);
             world.QueueFree();
             await Frames(2);
             if (OS.GetCmdlineUserArgs().Contains("--scale")) await MeasureScale();
@@ -268,6 +271,87 @@ public partial class IslandLoadingTest : Node3D
     }
 
     /// <summary>
+    /// The Gubble's navigation keeps off the copies (the merge of S5 and S6 into S7's navigation): the copies' collision is no scene
+    /// node, so the island's tiles take the trunks and solid stones, and the ground, from the room's data (IslandNavigation), on
+    /// worker threads. A route across a tree goes round its trunk and one across a stone round the stone, after the first bake
+    /// and again after a re-bake of the tiles round them.
+    /// </summary>
+    private async Task CheckNavigation(RoomWorld world, RoomData room)
+    {
+        var navigation = world.GetNode<RoomNavigation>("RoomNavigation");
+        for (var waited = Stopwatch.StartNew(); waited.Elapsed.TotalSeconds < 60 && !navigation.IsReady;) await Frames(1);
+        Check(navigation.IsReady, "the island's navigation is ready");
+        if (!navigation.IsReady) return;
+        var trees = room.Copies!.Find("broadleaf")!;
+        var tree = trees.Tree(Enumerable.Range(0, trees.Count).First(r => trees.Position(r).IsEqualApprox(new Vector3(-5, 0, -9))));
+        var axis = new Vector2(tree.AxisX, tree.AxisZ);
+        var stones = room.Copies.Find("stones")!;
+        var stone = Enumerable.Range(0, stones.Count).First(r => stones.Position(r).X == 4f);
+        var outline = PlantCollision.Footprint(PlantCollision.Solid(stones, stone), 0).Select(p => new Vector2(p.X, p.Z)).ToArray();
+        var (stoneLow, stoneHigh) = (outline.Aggregate(Vector2.Inf, (a, p) => a.Min(p)), outline.Aggregate(-Vector2.Inf, (a, p) => a.Max(p)));
+        var stoneZ = (stoneLow.Y + stoneHigh.Y) * 0.5f;
+        var terrain = world.Built.GetNode<StaticBody3D>("Shell/terrain_grass");
+        Check(!navigation.Parses(terrain) && navigation.RoomGroundTriangles == IslandNavigation.GroundFaces(room, new Rect2(-16, -16, 32, 16)).Length / 3,
+            $"the island's tiles bake its ground from the room's data ({navigation.RoomGroundTriangles} triangles), not its tiled parts' scene bodies");
+        foreach (var pass in new[] { "its first bake", "a re-bake of the tiles round them" })
+        {
+            var acrossTree = navigation.FindRoute(new Vector3(axis.X - 0.6f, 0, axis.Y), new Vector3(axis.X + 0.6f, 0, axis.Y), 0.06f);
+            var treeClearance = Clearance(acrossTree, p => p.DistanceTo(axis) - tree.TrunkRadiusM);
+            var acrossStone = navigation.FindRoute(new Vector3(stoneLow.X - 0.4f, 0, stoneZ), new Vector3(stoneHigh.X + 0.4f, 0, stoneZ), 0.06f);
+            var stoneClearance = Clearance(acrossStone, p => SignedDistance(p, outline));
+            var nearest = navigation.ClosestPoint(new Vector3(axis.X, 0, axis.Y));
+            Measure($"ISLAND_NAVIGATION after {pass}: a route across the tree {(acrossTree.Reaches ? "reaches" : "falls short")} in {acrossTree.Points.Length} corners, at least {treeClearance * 100:0.0} cm off its trunk; " +
+                    $"across the stone {(acrossStone.Reaches ? "reaches" : "falls short")} in {acrossStone.Points.Length} corners, at least {stoneClearance * 100:0.0} cm off it; " +
+                    $"the nearest walkable point to the trunk's axis {new Vector2(nearest.X, nearest.Z).DistanceTo(axis) * 100:0.0} cm from it; {navigation.PolygonCount} polygons, {navigation.LastRoomObstructions} obstructions from the room");
+            // Never through it: a body on the route (the Gubble's radius) keeps off the trunk and the stone.
+            var body = world.Companion.BodyRadiusM;
+            Check(acrossTree.Reaches && treeClearance >= body && new Vector2(nearest.X, nearest.Z).DistanceTo(axis) >= tree.TrunkRadiusM + body,
+                $"after {pass}, a route across a tree goes round its trunk, a body's radius ({body * 100:0} cm) off it at least ({treeClearance * 100:0.0} cm), and nothing inside the trunk is walkable");
+            Check(acrossStone.Reaches && stoneClearance >= body, $"after {pass}, a route across a solid stone goes round it, a body's radius off it at least ({stoneClearance * 100:0.0} cm)");
+            if (pass != "its first bake") break;
+            var revision = navigation.Revision;
+            var tiles = navigation.TileCount;
+            navigation.MarkDirty(new Aabb(new Vector3(axis.X - 0.3f, -0.5f, axis.Y - 0.3f), new Vector3(0.6f, 1.5f, 0.6f)));
+            navigation.MarkDirty(new Aabb(new Vector3(stoneLow.X, -0.5f, stoneLow.Y), new Vector3(stoneHigh.X - stoneLow.X, 1.5f, stoneHigh.Y - stoneLow.Y)));
+            for (var waited = Stopwatch.StartNew(); waited.Elapsed.TotalSeconds < 60 && navigation.Revision == revision;) await Frames(1);
+            Check(navigation.Revision > revision && navigation.LastTilesBaked < tiles,
+                $"the tiles round the tree and the stone bake again on their own ({navigation.LastTilesBaked} of {tiles} tiles)");
+        }
+    }
+
+    /// <summary>The least of a distance along a route's corners and every 5 mm between them, seen from above (negative: it went in).</summary>
+    private static float Clearance(RoomNavigation.Route route, Func<Vector2, float> distance)
+    {
+        var least = float.MaxValue;
+        for (var i = 0; i < route.Points.Length; i++)
+        {
+            var a = new Vector2(route.Points[i].X, route.Points[i].Z);
+            var b = i + 1 < route.Points.Length ? new Vector2(route.Points[i + 1].X, route.Points[i + 1].Z) : a;
+            var steps = Math.Max(1, Mathf.CeilToInt(a.DistanceTo(b) / 0.005f));
+            for (var s = 0; s <= steps; s++) least = Math.Min(least, distance(a.Lerp(b, s / (float)steps)));
+        }
+        return least;
+    }
+
+    /// <summary>How far a point is outside a convex outline (negative inside it).</summary>
+    private static float SignedDistance(Vector2 point, Vector2[] outline)
+    {
+        var edge = float.MaxValue;
+        int left = 0, right = 0;
+        for (var i = 0; i < outline.Length; i++)
+        {
+            var a = outline[i];
+            var b = outline[(i + 1) % outline.Length];
+            var cross = (b - a).Cross(point - a);
+            if (cross > 0) left++;
+            else if (cross < 0) right++;
+            var t = Mathf.Clamp((point - a).Dot(b - a) / Mathf.Max(1e-12f, (b - a).LengthSquared()), 0, 1);
+            edge = Math.Min(edge, point.DistanceTo(a + (b - a) * t));
+        }
+        return left == 0 || right == 0 ? -edge : edge;
+    }
+
+    /// <summary>
     /// An island with the 10x garage's numbers of copies (docs/runs/RUN-2-TEN-TIMES.md: about 350,000 plants and stones, 4,900
     /// trees) on a 64 x 72 m footprint, booted headless: what reading and checking the tables, entering the scene and building
     /// every tile cost the main thread here. Headless renders nothing, so this is the CPU's share only; frame times need the GPU.
@@ -360,9 +444,18 @@ public partial class IslandLoadingTest : Node3D
         Check(world.WorldReady, $"{label}: the island boots: " + world.LoadError);
         if (!world.WorldReady) return;
         var view = world.Built.GetNodeOrNull<PlantCopiesView>(PlantCopiesView.ViewName);
-        for (var waited = Stopwatch.StartNew(); waited.Elapsed.TotalSeconds < 120 && view is { Complete: false };) await Frames(1);
+        var navigation = world.GetNodeOrNull<RoomNavigation>("RoomNavigation");
+        var navigationMs = double.NaN;
+        for (var waited = Stopwatch.StartNew(); waited.Elapsed.TotalSeconds < 120 && (view is { Complete: false } || navigation is { IsReady: false });)
+        {
+            await Frames(1);
+            if (double.IsNaN(navigationMs) && navigation is { IsReady: true }) navigationMs = clock.Elapsed.TotalMilliseconds;
+        }
         var builtMs = clock.Elapsed.TotalMilliseconds;
         using var process = Process.GetCurrentProcess();
+        if (navigation != null)
+            Measure($"{label}_NAVIGATION ready {navigationMs:0} ms after the boot began ({navigationMs - readyMs:0} ms after ROOM_WORLD_READY): {navigation.PolygonCount} polygons in {navigation.TileCount} tiles, " +
+                    $"baked in {navigation.LastBakeMs:0} ms on worker threads ({navigation.LastBakeMainThreadMs:0.0} ms of the main thread), {navigation.RoomGroundTriangles} ground triangles and {navigation.LastRoomObstructions} obstructions from the room");
         Measure($"{label} {room.Copies?.TotalCount ?? 0} copies in {room.Copies?.Sets.Sum(s => s.TileCount) ?? 0} set tiles, {room.Terrain?.Parts.Sum(p => p.Tiles.Count) ?? 0} terrain tiles: RoomData.LoadAsync {loadMs:0} ms off the main thread (the boot reads it again), " +
                 $"boot to ROOM_WORLD_READY {readyMs:0} ms (copies' collision near the spawns {view?.EnterMs ?? 0:0} ms of it), every tile built {builtMs - readyMs:0} ms later over {view?.BuildFrames ?? 0} frames: " +
                 $"{view?.BuildMs ?? 0:0} ms of main-thread work, longest frame {view?.LongestFrameMs ?? 0:0.0} ms (budget {DrawDistances.BuildBudgetMs} ms), {view?.VisualTiles ?? 0} drawn tiles, {view?.CollisionTiles ?? 0} collided; " +

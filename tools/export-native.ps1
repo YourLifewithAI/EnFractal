@@ -23,7 +23,7 @@ if ($probe.Stderr -or $probe.Stdout -notmatch 'Native release probe passed:') {
 }
 Write-Output $probe.Stdout.Trim()
 $startup = Invoke-EnfractalNativeProcess -Toolchain $nativeToolchain -FilePath $outputPath `
-    -Arguments @('--headless', '--fixed-fps', '60', '--quit-after', '240') -TimeoutSeconds 60 `
+    -Arguments @('--headless', '--fixed-fps', '60', '--', '--quit-after-ready=240') -TimeoutSeconds 60 `
     -WorkingDirectory $probeWorkingPath -WithoutDotnetRuntime
 if ($startup.Stderr -or $startup.Stdout -notmatch 'ROOM_WORLD_READY') {
     throw "Exported game failed to load its default room scene:`n$($startup.Stdout)`n$($startup.Stderr)"

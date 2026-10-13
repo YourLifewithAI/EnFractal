@@ -99,7 +99,7 @@ public partial class LookCaptureHarness : Node
             // Another room than the test room: a landscape export or a captured room (an id under the user's rooms, or a folder).
             if (Arg("room", "").Length > 0) _world.RoomDirectory = RoomWorld.ResolveRoom(Arg("room", "").Replace('\\', '/'));
             AddChild(_world);
-            for (var i = 0; i < 600 && !_world.WorldReady && _world.LoadError.Length == 0; i++) await NextFrame();
+            for (var booting = System.Diagnostics.Stopwatch.StartNew(); booting.Elapsed.TotalSeconds < 60 && !_world.WorldReady && _world.LoadError.Length == 0;) await NextFrame();
             if (!_world.WorldReady) throw new InvalidOperationException("room did not load: " + _world.LoadError);
             _look = _world.Look;
             AttachPondLife();

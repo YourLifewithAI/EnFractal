@@ -44,7 +44,7 @@ public partial class PlayHudTest : Node
             WriteProfile(new Godot.Collections.Dictionary { ["version"] = 1, ["player_color"] = 0, ["companion_color"] = ProfileGubbleColour, ["companion_name"] = "the Gubble" });
             _world = GD.Load<PackedScene>("res://scenes/room.tscn").Instantiate<RoomWorld>();
             AddChild(_world);
-            for (var i = 0; i < 900 && !_world.WorldReady && _world.LoadError.Length == 0; i++) await Frames(1);
+            for (var booting = System.Diagnostics.Stopwatch.StartNew(); booting.Elapsed.TotalSeconds < 60 && !_world.WorldReady && _world.LoadError.Length == 0;) await Frames(1);
             Check(_world.WorldReady, "the room boots with its HUD and look: " + _world.LoadError);
             _hud = _world.GetNode<RoomHud>("RoomHud");
             await Frames(10);

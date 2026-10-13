@@ -117,7 +117,7 @@ public partial class RoomNavigation
         var hash = new HashCode();
         foreach (var body in Bodies())
         {
-            if (!IsInstanceValid(body) || !body.IsInsideTree() || (body.CollisionLayer & RoomBuilder.WorldLayer) == 0) continue;
+            if (!Parses(body)) continue;
             var source = Snapshot(body, toRoot);
             hash.Add(source.Signature);
             bodies.Add(source);
@@ -235,9 +235,17 @@ public partial class RoomNavigation
     {
         var hash = new HashCode();
         foreach (var body in Bodies())
-            if (IsInstanceValid(body) && body.IsInsideTree() && (body.CollisionLayer & RoomBuilder.WorldLayer) != 0) hash.Add(BodySignature(body));
+            if (Parses(body)) hash.Add(BodySignature(body));
         return hash.ToHashCode();
     }
+
+    /// <summary>
+    /// Whether the bake reads a body from the scene: a static body on the world layer, except a tiled terrain part
+    /// (RoomBuilder.TerrainTilesMeta) when the bake takes the ground from the room's data instead (Room; the same faces).
+    /// </summary>
+    public bool Parses(StaticBody3D body) =>
+        IsInstanceValid(body) && body.IsInsideTree() && (body.CollisionLayer & RoomBuilder.WorldLayer) != 0 &&
+        !(Room?.Terrain != null && body.HasMeta(RoomBuilder.TerrainTilesMeta));
 
     /// <summary>One body's fingerprint: its identity, where it is, and its shapes.</summary>
     private int BodySignature(StaticBody3D body)

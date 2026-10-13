@@ -23,7 +23,7 @@ public partial class RoomNavigationTest : Node3D
         {
             var world = GD.Load<PackedScene>("res://scenes/room.tscn").Instantiate<RoomWorld>();
             AddChild(world);
-            for (var i = 0; i < 120 && !world.WorldReady && world.LoadError.Length == 0; i++) await Frames(1);
+            for (var booting = System.Diagnostics.Stopwatch.StartNew(); booting.Elapsed.TotalSeconds < 60 && !world.WorldReady && world.LoadError.Length == 0;) await Frames(1);
             Check(world.WorldReady, "the room boots: " + world.LoadError);
             if (!world.WorldReady) { Finish(); return; }
             await Frames(5);

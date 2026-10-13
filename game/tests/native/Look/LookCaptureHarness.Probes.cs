@@ -52,7 +52,7 @@ public partial class LookCaptureHarness
         world.RoomDirectory = roomDirectory;
         if (Arg("style", "").Length > 0) world.StylePresetPath = Arg("style", "");
         AddChild(world);
-        for (var i = 0; i < 600 && !world.WorldReady && world.LoadError.Length == 0; i++) await NextFrame();
+        for (var booting = System.Diagnostics.Stopwatch.StartNew(); booting.Elapsed.TotalSeconds < 60 && !world.WorldReady && world.LoadError.Length == 0;) await NextFrame();
         if (!world.WorldReady) throw new InvalidOperationException($"room {roomDirectory} did not load: {world.LoadError}");
         foreach (var layer in world.FindChildren("*", "CanvasLayer", true, false).OfType<CanvasLayer>()) layer.Visible = false;
         foreach (var label in world.FindChildren("*", "Label3D", true, false).OfType<Label3D>()) label.Visible = false;

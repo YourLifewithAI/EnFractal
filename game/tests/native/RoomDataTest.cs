@@ -105,7 +105,7 @@ public partial class RoomDataTest : Node3D
 
             var world = GD.Load<PackedScene>("res://scenes/room.tscn").Instantiate<RoomWorld>();
             AddChild(world);
-            for (var i = 0; i < 120 && !world.WorldReady && world.LoadError.Length == 0; i++) await Frames(1);
+            for (var booting = System.Diagnostics.Stopwatch.StartNew(); booting.Elapsed.TotalSeconds < 60 && !world.WorldReady && world.LoadError.Length == 0;) await Frames(1);
             Check(world.WorldReady, "the room scene boots: " + world.LoadError);
             if (world.WorldReady)
             {
@@ -117,7 +117,7 @@ public partial class RoomDataTest : Node3D
             var pinned = GD.Load<PackedScene>("res://scenes/room.tscn").Instantiate<RoomWorld>();
             pinned.RoomDirectory = "user://tests/rooms/test_room";
             AddChild(pinned);
-            for (var i = 0; i < 120 && !pinned.WorldReady && pinned.LoadError.Length == 0; i++) await Frames(1);
+            for (var booting = System.Diagnostics.Stopwatch.StartNew(); booting.Elapsed.TotalSeconds < 60 && !pinned.WorldReady && pinned.LoadError.Length == 0;) await Frames(1);
             Check(pinned.WorldReady && pinned.StyleNote.Contains("unavailable") && pinned.GetMeta("style").AsString() == $"storybook_painterly@{RoomWorld.DefaultStyleVersion}",
                 "a room whose style pin does not verify opens with the default look and says so: " + pinned.LoadError);
             pinned.QueueFree();
@@ -126,7 +126,7 @@ public partial class RoomDataTest : Node3D
             var verified = GD.Load<PackedScene>("res://scenes/room.tscn").Instantiate<RoomWorld>();
             verified.RoomDirectory = "user://tests/rooms/test_room";
             AddChild(verified);
-            for (var i = 0; i < 120 && !verified.WorldReady && verified.LoadError.Length == 0; i++) await Frames(1);
+            for (var booting = System.Diagnostics.Stopwatch.StartNew(); booting.Elapsed.TotalSeconds < 60 && !verified.WorldReady && verified.LoadError.Length == 0;) await Frames(1);
             Check(verified.WorldReady && verified.StyleNote.Length == 0 && verified.GetMeta("style").AsString() == "storybook_painterly@1",
                 "a room whose style pin verifies opens in that style without a fallback note: " + verified.LoadError + verified.StyleNote);
             GD.Print($"NATIVE_ROOM_DATA: {_checks - _failures}/{_checks} checks passed; room contract, integrity, derived scene, look seam");

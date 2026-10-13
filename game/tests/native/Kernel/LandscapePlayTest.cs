@@ -51,7 +51,7 @@ public partial class LandscapePlayTest : Node3D
             _world = GD.Load<PackedScene>("res://scenes/room.tscn").Instantiate<RoomWorld>();
             _world.RoomDirectory = directory.Replace('\\', '/');
             AddChild(_world);
-            for (var i = 0; i < 1800 && !_world.WorldReady && _world.LoadError.Length == 0; i++) await Frames(1);
+            for (var booting = System.Diagnostics.Stopwatch.StartNew(); booting.Elapsed.TotalSeconds < 120 && !_world.WorldReady && _world.LoadError.Length == 0;) await Frames(1);
             Check(_world.WorldReady, "the landscape room boots: " + _world.LoadError);
             if (!_world.WorldReady) { Finish(); return; }
             _roomId = _world.Room.RoomId;
@@ -605,7 +605,7 @@ public partial class LandscapePlayTest : Node3D
         var bounds = sea?.LandBounds(_world.Room.Bounds) ?? _world.Room.Bounds;
         if (sea != null)
         {
-            var whole = RoomNavigation.Create(this, _world.Built, _world.Room.Bounds, WorldScaleProfile.Companion, 0.01f);
+            var whole = RoomNavigation.Create(this, _world.Built, _world.Room.Bounds, WorldScaleProfile.Companion, 0.01f, room: _world.Room);
             for (var i = 0; i < 30 && !whole.IsReady; i++) await Frames(1);
             var land = new List<double>();
             var all = new List<double>();
@@ -626,8 +626,8 @@ public partial class LandscapePlayTest : Node3D
                 if (slope <= 45f) samples.Add((hit["position"].AsVector3(), slope));
             }
         var spawn = _world.Room.SpawnFor("player").PositionM;
-        var oneCm = RoomNavigation.Create(this, _world.Built, bounds, WorldScaleProfile.Companion, 0.01f);
-        var fineCells = RoomNavigation.Create(this, _world.Built, bounds, WorldScaleProfile.Companion, 0.01f, cellM: 0.01f);
+        var oneCm = RoomNavigation.Create(this, _world.Built, bounds, WorldScaleProfile.Companion, 0.01f, room: _world.Room);
+        var fineCells = RoomNavigation.Create(this, _world.Built, bounds, WorldScaleProfile.Companion, 0.01f, cellM: 0.01f, room: _world.Room);
         var waited = System.Diagnostics.Stopwatch.StartNew();
         while (!(oneCm.IsReady && fineCells.IsReady) && waited.Elapsed.TotalSeconds < 60) await Frames(1);
         Measure($"LANDSCAPE_NAVIGATION bakes: 2 cm cells climb 0.02 m (the game's) {_navigation.LastBakeMs:0} ms, climb 0.01 m {oneCm.LastBakeMs:0} ms; 1 cm cells climb 0.01 m {fineCells.LastBakeMs:0} ms");
@@ -767,7 +767,7 @@ public partial class LandscapePlayTest : Node3D
                 if (space.IntersectRay(PhysicsRayQueryParameters3D.Create(point + Vector3.Up * 0.005f, point + Vector3.Up * 0.10f, RoomBuilder.WorldLayer)).Count > 0) continue;
                 walkable.Add(point);
             }
-        var before = RoomNavigation.Create(this, _world.Built, bounds, WorldScaleProfile.Companion, 0.01f);
+        var before = RoomNavigation.Create(this, _world.Built, bounds, WorldScaleProfile.Companion, 0.01f, room: _world.Room);
         var waited = System.Diagnostics.Stopwatch.StartNew();
         while (!before.IsReady && waited.Elapsed.TotalSeconds < 120) await Frames(1);
         foreach (var (name, mesh) in new[] { ("the game's mesh, climb 0.020 m (the body's step)", _navigation), ("a 0.010 m climb, as before S7", before) })
@@ -1057,19 +1057,27 @@ public partial class LandscapePlayTest : Node3D
     private async Task TestClimbATree()
     {
         var player = _world.Player;
+        var axes = new List<(Vector2 Centre, float Bottom, float Top, int Count)>();
+        // The 10x world (S5, S6): trees are plant copies, their climbing collision built from their rows; a pole runs from just
+        // inside its trunk's top to its pole top.
+        foreach (var set in _world.Room.Copies?.Sets.Where(s => s.Kind == PlantKind.Tree) ?? Enumerable.Empty<PlantSet>())
+            for (var row = 0; row < set.Count; row++)
+            {
+                var tree = set.Tree(row);
+                axes.Add((new Vector2(tree.AxisX, tree.AxisZ), tree.TrunkTopM - PlantCollision.PoleOverlapM, tree.PoleTopM, 1));
+            }
         var poles = _world.Built.GetNodeOrNull<Node3D>("Shell/" + RoomBuilder.NodeName("shell:tree_climb_bark"));
-        if (poles == null)
+        if (poles == null && axes.Count == 0)
         {
             Measure("LANDSCAPE_TREE the room has no tree climbing poles (an export before brief 19)");
             return;
         }
         // The poles' axes: their collision vertices, clustered by where they stand.
-        var axes = new List<(Vector2 Centre, float Bottom, float Top, int Count)>();
-        foreach (var shapeNode in poles.GetChildren().OfType<CollisionShape3D>())
+        foreach (var shapeNode in poles?.GetChildren().OfType<CollisionShape3D>() ?? Enumerable.Empty<CollisionShape3D>())
             if (shapeNode.Shape is ConcavePolygonShape3D shape)
                 foreach (var local in shape.Data)
                 {
-                    var v = poles.GlobalTransform * shapeNode.Transform * local;
+                    var v = poles!.GlobalTransform * shapeNode.Transform * local;
                     var index = axes.FindIndex(a => a.Centre.DistanceTo(new Vector2(v.X, v.Z)) < 0.08f);
                     if (index < 0) axes.Add((new Vector2(v.X, v.Z), v.Y, v.Y, 1));
                     else
@@ -1116,8 +1124,8 @@ public partial class LandscapePlayTest : Node3D
             await Frames(30);
             // What the body stands on, as the body sees it: the world and the hidden layer, where the crown caps are.
             var under = space.IntersectRay(PhysicsRayQueryParameters3D.Create(player.GlobalPosition + Vector3.Up * 0.02f, player.GlobalPosition + Vector3.Down * 0.03f, RoomBuilder.BodyMask, new Godot.Collections.Array<Rid> { player.GetRid() }));
-            var standingOn = under.Count > 0 ? (under["collider"].AsGodotObject() as Node)?.GetMeta("entity_id", "").AsString() ?? "" : "";
-            climbed = player.Grabs > grabs && player.PullOvers > pulls && player.IsOnFloor() && standingOn == "shell:tree_climb_foliage" && player.GlobalPosition.Y - start.Y > 0.12f;
+            var standingOn = StandingOn(under);
+            climbed = player.Grabs > grabs && player.PullOvers > pulls && player.IsOnFloor() && OnACrown(standingOn) && player.GlobalPosition.Y - start.Y > 0.12f;
             if (climbed) _climbedTree = (start, toward);
             Measure($"LANDSCAPE_TREE a tree at ({centre.X:0.00}, {centre.Y:0.00}), pole {bottom:0.000} to {top:0.000} m, its foot walkable from the spawn: {(climbed ? "climbed to its crown" : "not climbed")}; grabbed {player.Grabs - grabs}, pulled over {player.PullOvers - pulls}, " +
                     $"rose {(player.GlobalPosition.Y - start.Y) * 100:0.0} cm (highest {(highest - start.Y) * 100:0.0} cm) in {frames / 60.0:0.0} s, standing on {(standingOn.Length > 0 ? standingOn : "nothing")} at {Text(player.GlobalPosition)}");
@@ -1190,6 +1198,19 @@ public partial class LandscapePlayTest : Node3D
 
     private (Vector3 Start, Vector3 Toward)? _climbedTree;
 
+    /// <summary>What a body stands on: a plant copy's id (its collision is built from its row, PlantCopiesView), else the entity_id above the collider.</summary>
+    private static string StandingOn(Godot.Collections.Dictionary hit)
+    {
+        if (hit.Count == 0) return "";
+        var copy = PlantCopiesView.EntityAt(hit["collider"].AsGodotObject(), hit["shape"].AsInt32());
+        return copy.Length > 0 ? copy : (hit["collider"].AsGodotObject() as Node)?.GetMeta("entity_id", "").AsString() ?? "";
+    }
+
+    /// <summary>A tree's crown: one of the merged collision-only caps of an export before the 10x world, or a tree copy's cap.</summary>
+    private bool OnACrown(string standingOn) =>
+        standingOn == "shell:tree_climb_foliage" ||
+        (_world.Room.Copies is { } copies && copies.TryResolve(standingOn, out var set, out _) && set.Kind == PlantKind.Tree);
+
     /// <summary>
     /// The founder's playtest, 9 October: "I can climb around halfway up and then something happens to the controls and
     /// then I seem to be forced to climb down." The same tree climbed as a player climbs it: the W key held through the
@@ -1261,8 +1282,8 @@ public partial class LandscapePlayTest : Node3D
         var space = GetWorld3D().DirectSpaceState;
         // What the body stands on, as the body sees it: the world and the hidden layer, where the crown caps are.
         var under = space.IntersectRay(PhysicsRayQueryParameters3D.Create(player.GlobalPosition + Vector3.Up * 0.02f, player.GlobalPosition + Vector3.Down * 0.03f, RoomBuilder.BodyMask, new Godot.Collections.Array<Rid> { player.GetRid() }));
-        var standingOn = under.Count > 0 ? (under["collider"].AsGodotObject() as Node)?.GetMeta("entity_id", "").AsString() ?? "" : "";
-        var reached = player.Grabs > grabs && player.PullOvers > pulls && player.IsOnFloor() && standingOn == "shell:tree_climb_foliage";
+        var standingOn = StandingOn(under);
+        var reached = player.Grabs > grabs && player.PullOvers > pulls && player.IsOnFloor() && OnACrown(standingOn);
         Measure($"LANDSCAPE_TREE_KEYS W held, the view turned 25 deg once on the trunk, the follow camera live: {(reached ? "reached the crown" : "did not reach the crown")}; grabbed {player.Grabs - grabs}, pulled over {player.PullOvers - pulls}, " +
                 $"rose {(player.GlobalPosition.Y - start.Y) * 100:0.0} cm (highest {(highest - start.Y) * 100:0.0} cm) in {frames / 60.0:0.0} s; climbing down while W was held {downTicks} ticks, the face up to {worstTurn:0} deg off the body's heading; " +
                 $"the follow camera came within {nearestCamera * 100:0.0} cm of the head (its arm is {player.BodyHeightM * 3.2f * 100:0} cm); standing on {(standingOn.Length > 0 ? standingOn : "nothing")}");

@@ -31,6 +31,11 @@ namespace EnFractal.Native.Navigation;
 /// grown, every tile lies on one lattice half a cell off the map's, margin joins are off, and NavigationSeams matches the
 /// few corners Recast still leaves unmatched.
 /// </para>
+/// <para>
+/// The 10x world (S5, S6): trees and stones are plant copies whose collision is built from the room's rows, not scene nodes, and
+/// the land is tiled terrain. Given the room (Room), each tile also bakes the trunks and solid stones round it as obstructions and
+/// the tiled ground, both from the room's data (IslandNavigation), on the bake's workers, first bake and re-bakes alike.
+/// </para>
 /// </summary>
 public partial class RoomNavigation : Node
 {
@@ -128,6 +133,18 @@ public partial class RoomNavigation : Node
     }
 
     public Node3D SourceRoot { get; private set; } = null!;
+    /// <summary>
+    /// The room the source root was built from (RoomBuilder.Build: room metres are the source root's own space), when the bake
+    /// takes part of its sources from the room's data (IslandNavigation; the 10x world): the copies' collision is built from their
+    /// rows as physics-server bodies (PlantCopiesView), never scene nodes, so the scene parse cannot see a trunk or a stone. Each
+    /// tile then bakes the trunks and solid stones round it as obstructions, at every bake, and the ground of the tiled terrain
+    /// parts, read from the room once and kept; those parts' scene bodies are not parsed (Parses). Null: the scene alone.
+    /// </summary>
+    public RoomData? Room { get; private set; }
+    /// <summary>The room's ground triangles the tiles bake (read once, at the first bake; 0 before it or without a room).</summary>
+    public int RoomGroundTriangles { get; private set; }
+    /// <summary>Obstructions the last bake took from the room's data, counted once per tile they reach into.</summary>
+    public int LastRoomObstructions { get; private set; }
     /// <summary>The baking box in the source root's space: the room bounds, a little deeper below and above.</summary>
     public Aabb BakeBounds { get; private set; }
     /// <summary>The horizontal cell of this mesh (CellSizeM unless a measurement asks for another).</summary>
@@ -279,7 +296,7 @@ public partial class RoomNavigation : Node
         // An island bakes its land only: the sea floor out to the reef doubled the bake (garage: 86-114 ms against 50-57 ms),
         // and nobody walks there (swimmers swim, the Gubble floats).
         var bounds = world.Room.Sea?.LandBounds(world.Room.Bounds) ?? world.Room.Bounds;
-        var navigation = Create(world, world.Built, bounds, WorldScaleProfile.Companion, world.Companion.StepHeightM);
+        var navigation = Create(world, world.Built, bounds, WorldScaleProfile.Companion, world.Companion.StepHeightM, room: world.Room);
         world.Companion.BindNavigation(navigation);
         return navigation;
     }
@@ -289,11 +306,12 @@ public partial class RoomNavigation : Node
     /// degrees, which split the land so only 31% of it was connected to the Gubble's spawn; a 2 cm climb keeps slopes to 45
     /// degrees, the body's own steepest walkable floor.
     /// </param>
-    public static RoomNavigation Create(Node parent, Node3D sourceRoot, Aabb bounds, WorldScaleProfile agent, float maxClimbM, float cellM = CellSizeM)
+    /// <param name="room">The room sourceRoot was built from, for the sources its data gives (see Room); null bakes the scene alone.</param>
+    public static RoomNavigation Create(Node parent, Node3D sourceRoot, Aabb bounds, WorldScaleProfile agent, float maxClimbM, float cellM = CellSizeM, RoomData? room = null)
     {
         var navigation = new RoomNavigation
         {
-            Name = "RoomNavigation", SourceRoot = sourceRoot, CellM = cellM,
+            Name = "RoomNavigation", SourceRoot = sourceRoot, CellM = cellM, Room = room,
             BakeBounds = new Aabb(bounds.Position - new Vector3(0, 0.1f, 0), bounds.Size + new Vector3(0, 0.2f, 0)),
             // Whole cells, as the baker rounds them anyway (and warns when it has to). For the 10 cm companion:
             // 2 + 2 cm clearance is 4 cm, the height 10 cm, and its 2 cm step a 2 cm climb.
@@ -516,6 +534,34 @@ public partial class RoomNavigation : Node
         public List<(Tile Tile, NavigationIslands.TileGeometry? Raw, NavigationIslands.TileGeometry? Geometry, NavigationMesh? Mesh)> Changed = new();
         public int Baked;
         public NavigationIslands? Islands;
+        /// <summary>The room's ground triangles kept for the tiles, and the obstructions from its data put into the tiles baked (see Room).</summary>
+        public int RoomGroundTriangles, RoomObstructions;
+    }
+
+    /// <summary>
+    /// The room's ground (IslandNavigation.GroundTiles): each 16 m tile's level-0 faces, nine floats a triangle in Godot's face order
+    /// (as a trimesh's faces come), with which of them each tile holds. Read on the bake's worker at the first bake and kept: the
+    /// land never changes, and a re-bake then copies a tile's share of it, as it does a body's. The bake's worker's alone.
+    /// </summary>
+    private List<(float[] Triangles, List<int>?[] ByTile)>? _roomGround;
+
+    private static List<(float[] Triangles, List<int>?[] ByTile)> ReadRoomGround(RoomData room, Tile[] tiles, NavigationSeams.Layout layout)
+    {
+        var pieces = IslandNavigation.GroundTiles(room);
+        var ground = new (float[] Triangles, List<int>?[] ByTile)[pieces.Count];
+        System.Threading.Tasks.Parallel.For(0, pieces.Count, new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, System.Environment.ProcessorCount - 2) }, i =>
+        {
+            var faces = pieces[i].Part.GroundFaces(pieces[i].Tile);
+            var triangles = new float[faces.Length / 3 * 9];
+            for (var k = 0; k < triangles.Length / 3; k++)
+            {
+                triangles[k * 3] = faces[k].X;
+                triangles[k * 3 + 1] = faces[k].Y;
+                triangles[k * 3 + 2] = faces[k].Z;
+            }
+            ground[i] = (triangles, IndexByTile(triangles, tiles, layout));
+        });
+        return ground.Where(g => g.Triangles.Length > 0).ToList();
     }
 
     /// <summary>Read the scene (main thread: references and transforms, never the big arrays) and start a bake on the workers.</summary>
@@ -596,6 +642,17 @@ public partial class RoomNavigation : Node
                 foreach (var tile in touched)
                     if (Overlaps(tile.BakeBox, block.Bounds)) blocks[tile.Index].Add(block);
         }
+        // The room's own ground (see Room), read once; each tile to bake takes its share, as it takes a body's.
+        var room = Room;
+        if (room != null)
+        {
+            _roomGround ??= ReadRoomGround(room, tiles, layout);
+            foreach (var (triangles, byTile) in _roomGround)
+                foreach (var tile in chosen)
+                    if (byTile[tile.Index] is { } ids) shares[tile.Index].Add((triangles, ids));
+            result.RoomGroundTriangles = _roomGround.Sum(g => g.Triangles.Length / 9);
+        }
+        var obstructed = 0;
         result.ReadMs = clock.Elapsed.TotalMilliseconds;
         var baked = new NavigationIslands.TileGeometry?[chosen.Count];
         var next = -1;
@@ -625,6 +682,10 @@ public partial class RoomNavigation : Node
                     var source = new NavigationMeshSourceGeometryData3D();
                     source.AppendArrays(floats.AsSpan(0, count * 9), indices.AsSpan(0, count * 3));
                     foreach (var block in blocks[tile.Index]) source.AddProjectedObstruction(block.Corners, block.Bottom, block.Height, false);
+                    // The trunks and solid stones that reach into the tile's bake box, from the room's rows (see Room).
+                    if (room != null)
+                        Interlocked.Add(ref obstructed, IslandNavigation.AddTo(room, source,
+                            new Rect2(tile.BakeBox.Position.X, tile.BakeBox.Position.Z, tile.BakeBox.Size.X, tile.BakeBox.Size.Z), ground: false));
                     var mesh = TileSettings(tile);
                     NavigationServer3D.BakeFromSourceGeometryData(mesh, source);
                     if (mesh.GetPolygonCount() > 0) baked[k] = NavigationIslands.TileGeometry.From(tile.Index, mesh);
@@ -641,6 +702,7 @@ public partial class RoomNavigation : Node
         System.Threading.Tasks.Task.WaitAll(workers);
         result.BakeMs = clock.Elapsed.TotalMilliseconds - result.ReadMs;
         result.Baked = chosen.Count;
+        result.RoomObstructions = obstructed;
         if (_closed) return result;
         // Seams: the baked tiles and their neighbours, matched corner for corner (NavigationSeams), as the map will hold them.
         var raw = tiles.Select(t => t.Raw).ToArray();
@@ -780,9 +842,12 @@ public partial class RoomNavigation : Node
         LastTilesBaked = result.Baked;
         LastBakeMs = Elapsed(owner.Started);
         LastBakeMainThreadMs = owner.MainMs + ms;
+        RoomGroundTriangles = result.RoomGroundTriangles;
+        LastRoomObstructions = result.RoomObstructions;
+        var fromRoom = Room == null ? "" : $"from the room's data {result.RoomGroundTriangles} ground triangles and {result.RoomObstructions} obstructions in the tiles baked; ";
         GD.Print(string.Create(System.Globalization.CultureInfo.InvariantCulture,
             $"ROOM_NAVIGATION bake {_appliedRevision}: {PolygonCount} polygons in {LastBakeMs:0.0} ms ({LastTilesBaked} of {TileCount} tiles of {_tileStep:0.##} m baked on worker threads, {result.Changed.Count} handed over: reading {result.ReadMs:0} ms, baking {result.BakeMs:0} ms, seams {result.SeamsMs:0} ms, islands {result.IslandsMs:0} ms; " +
-            $"the main thread {LastBakeMainThreadMs:0.0} ms in all, reading the scene {owner.SnapshotMs:0.0} ms, handing over {ms:0.0} ms; {GC.CollectionCount(2) - owner.Collections} full collections; " +
+            $"{fromRoom}the main thread {LastBakeMainThreadMs:0.0} ms in all, reading the scene {owner.SnapshotMs:0.0} ms, handing over {ms:0.0} ms; {GC.CollectionCount(2) - owner.Collections} full collections; " +
             $"agent radius {AgentRadiusM:0.000} m, height {AgentHeightM:0.00} m, climb {AgentMaxClimbM:0.000} m; {result.Islands?.Count ?? 0} islands)"));
     }
 
