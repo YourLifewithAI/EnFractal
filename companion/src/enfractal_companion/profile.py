@@ -234,8 +234,9 @@ def readme(launch: ServerLaunch) -> str:
         "Nothing here was copied into a client's own settings. Registering a server is the player's choice: copy or",
         "merge the file as described, then let the client show its own review or trust prompt.",
         "A configuration connects the server; it does not make a session play-only. Play with this server only, in a",
-        "session with no shell, file, browser or other MCP tools, and check the client's final tool list: 29 game",
-        "tools, no resources, no prompts.",
+        "session with no shell, file, browser or other MCP tools, and check the client's final tool list: the game's",
+        "tools alone (wish_take, companion_say and observe among them; never a shell, file or browser tool), one",
+        "resource (the journal), no prompts.",
         "",
     ]
     for entry in clients():

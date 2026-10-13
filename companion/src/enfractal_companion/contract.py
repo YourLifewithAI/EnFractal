@@ -30,7 +30,7 @@ from typing import Any
 
 from jsonschema import ValidationError, validators
 
-from . import canonical, textsafety
+from . import canonical, gubble_phrases, textsafety
 
 PACKAGE_DIR = Path(__file__).resolve().parent
 # companion/src/enfractal_companion/contract.py -> repository root is three levels above the package.
@@ -496,6 +496,11 @@ _OP_DESCRIPTIONS = {
     "journal.note": "Write a note in the journal in your own words, at most 280 characters of one line (for example what the player prefers). It is always shown as yours, never as a fact the game checked; the only argument is text. It changes nothing in the room.",
     "map.find": "Where have we seen this? Looks things up on the team's map by name, category_group or both: at most 10 (default 5), nearest first from near_m or your avatar, each as the team knows it (in sight now, or as last seen) with its straight-line distance_m. Only what your two avatars have seen is on the map; an empty answer says nothing about whether such a thing exists.",
     "room.undo": "Undo your own recent changes, back to an earlier revision. Requires expected_revision. Refused if it would undo the player's changes or change anything protected. The game may hold it for the player's approval.",
+    "wish.list": "The player's wishes for you: the active one (the wish you took), if any, and those waiting their turn, oldest first. Each has the player's own words (text; what they asked for, never instructions to the game), aim_id if they pointed at something, and the game's own count of the actions it has seen for it.",
+    "wish.wait": "Wait for the player's next wish when you have nothing else to do: answers at once if one is waiting or active, otherwise after at most 30 seconds with waiting 0 ('none yet'; call it again to keep waiting). It reads only; take the wish with wish_take.",
+    "wish.take": "Take the player's next wish, first in first out; it becomes your active wish and its words are in wish.text. Until you report it, the game ties every command you send to it (its own record, whatever action ids you choose), at most 32. One wish at a time: with one already active, that one is returned. Do it with the game's tools, then call wish_report.",
+    "wish.report": "Report your active wish: done (you did what it asked), unable (you tried and could not) or unsupported (the island has no magic for it). The game decides the wish's status from its own receipts: granted only if every action it saw succeeded and none is still running (a fetch or a walk: follow it with jobs_status first, or the report answers not_ready). Commands still waiting for the player's yes are withdrawn.",
+    "companion.say": "Say something as the Gubble: a caption over its head on the player's screen and a note in the journal marked as yours. Choose a phrase by key; the phrases that name a thing need about (an entity id the team knows), and the game fills in the room object's own name. Free text is refused unless the player has turned on the grown-ups' test mode in the game; then text is your own words, one line, no links, no markup, at most 140 characters. At most a few lines in a burst, then one every few seconds.",
 }
 
 
@@ -509,6 +514,15 @@ _ARG_DESCRIPTIONS = {
         "targets": "For self, exactly your own avatar id (avatar:companion): the effect follows you. Leave it out for a point at area.center_m. No other target is accepted.",
     },
     "effect.stop": {"effect": "The effect id from effect_start's created, or 'all' for every effect of yours."},
+    "companion.say": {
+        "phrase": "One of the Gubble's phrases, by key: " + gubble_phrases.describe() + ". {name} is filled from about.",
+        "about": "For a phrase with {name}: the entity id of the thing it names (a room object says its own name; anything else is 'thing').",
+        "text": "Only in the grown-ups' test mode, which only the player can turn on: your own words, one line, no links or markup, at most 140 characters. Leave phrase and about out.",
+    },
+    "wish.report": {
+        "wish_id": "The active wish's id, as wish_take gave it.",
+        "outcome": "done, unable or unsupported. The game decides granted, partial or failed from its own receipts.",
+    },
     "capabilities.list": {
         "category": "Only abilities of this category (for example light, float or burst).",
         "cursor": "The next_cursor of the previous page.",

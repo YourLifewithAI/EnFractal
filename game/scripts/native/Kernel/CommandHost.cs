@@ -102,11 +102,13 @@ public partial class CommandHost : Node
         "creation.place", "creation.revise", "creation.activate", "protect.lock", "protect.unlock",
         "goal.set", "goal.stop", "effect.start", "effect.stop", "effect.adjust", "glow.configure", "style.set", "room.checkpoint", "room.undo", "world.set_physics", "world.set_mode", "journal.note",
         "nature.cast", "nature.trail", "nature.repair", "wish.submit", "wish.stop",
+        "wish.take", "wish.report", "companion.say",
     };
     private static readonly HashSet<string> QueryOps = new()
     {
         "room.describe", "entities.list", "entity.inspect", "capabilities.list", "observe", "jobs.status", "receipt.lookup", "approval.status",
         "journal.read", "map.find", "player.status", "nature.describe", "wishes.read",
+        "wish.list", "wish.wait",
     };
     private static readonly HashSet<string> DestructiveOps = new() { "entity.remove", "entity.transform", "creation.revise", "protect.lock", "protect.unlock" };
     /// <summary>
@@ -114,7 +116,7 @@ public partial class CommandHost : Node
     /// effects, grabs, activations and, while it is not saved, the world's physics. Never entity.release: putting a
     /// thing down is saved state (kernel-host-gaps P8). Transient() refuses any other op.
     /// </summary>
-    private static readonly HashSet<string> TransientOps = new() { "goal.set", "goal.stop", "effect.start", "effect.stop", "effect.adjust", "glow.configure", "entity.grab", "creation.activate", "world.set_physics", "world.set_mode", "wish.stop" };
+    private static readonly HashSet<string> TransientOps = new() { "goal.set", "goal.stop", "effect.start", "effect.stop", "effect.adjust", "glow.configure", "entity.grab", "creation.activate", "world.set_physics", "world.set_mode", "wish.stop", "wish.take", "wish.report", "companion.say" };
     /// <summary>contracts $defs/player_only_ops: refused from a companion with permission_denied, never held.</summary>
     private static readonly HashSet<string> PlayerOnlyOps = new() { "protect.unlock", "world.set_physics", "world.set_mode", "glow.configure", "wish.submit", "wish.stop" };
     private static readonly HashSet<string> StopOps = new() { "goal.stop", "effect.stop", "wish.stop" };
@@ -265,7 +267,7 @@ public partial class CommandHost : Node
     public override void _ExitTree()
     {
         UnbindPlayerVitals();
-        WishRunnerSession(false);
+        WishesClosing();
         if (_teamDirty) SaveTeam();
         // The room unloads: its effects end, and the look's glows with them.
         EndAllEffects();
@@ -321,7 +323,8 @@ public partial class CommandHost : Node
         if (principal is not (PlayerPrincipal or CompanionPrincipal))
             return Fail("invalid", "system:host", null, null, new Refusal("principal_unknown", "The host did not admit this caller."));
         _perceived = null;
-        try { return HandleChecked(message, principal); }
+        // While the player's wishes wait, every companion result says how many (never their words): CommandHostWishes.cs.
+        try { return principal == CompanionPrincipal ? WithWishNotice(HandleChecked(message, principal)) : HandleChecked(message, principal); }
         catch (Exception error)
         {
             // The host always answers (Lane P review: a result that could not be serialised threw out of Handle).
@@ -550,6 +553,9 @@ public partial class CommandHost : Node
                 "room.undo" => NatureUndo(root, principal, fingerprint, approvedBy),
                 "wish.submit" => WishSubmit(args, principal, actionId, fingerprint, preview),
                 "wish.stop" => WishStop(principal, actionId, preview),
+                "wish.take" => WishTake(principal, actionId, fingerprint, preview),
+                "wish.report" => WishReport(args, principal, actionId, fingerprint, preview),
+                "companion.say" => Say(args, principal, actionId, fingerprint, preview),
                 "room.checkpoint" => Checkpoint(args, principal, actionId, meta, preview),
                 "world.set_physics" => SetPhysics(args, principal, actionId, fingerprint, preview),
                 "world.set_mode" => SetMode(args, principal, actionId, fingerprint, preview),
@@ -999,6 +1005,7 @@ public partial class CommandHost : Node
         approval.Held = (JsonObject)result.DeepClone();
         _approvals[approval.RequestId] = approval;
         _approvalByAction[principal + "|" + actionId] = approval.RequestId;
+        HeldForWish(principal, actionId);
         ApprovalRequested?.Invoke(approval);
         if (_prompt != null) Input.MouseMode = Input.MouseModeEnum.Visible;
         return result;
@@ -1076,6 +1083,8 @@ public partial class CommandHost : Node
                 "player.status" => PlayerStatus(),
                 "nature.describe" => NatureSnapshot(),
                 "wishes.read" => WishesRead(principal),
+                "wish.list" => WishList(),
+                "wish.wait" => WishWait(),
                 _ => throw new Refusal("request_invalid", "That operation does not exist.", "$.op"),
             };
             return result;
@@ -1604,6 +1613,7 @@ public partial class CommandHost : Node
     /// </summary>
     public void SessionEvent(string principal, string sessionEvent)
     {
+        WishCompanionSession(principal, sessionEvent);
     }
 
     /// <summary>Test seam: forget the team's map (the discovered entities; space stays).</summary>
@@ -2031,6 +2041,8 @@ public partial class CommandHost : Node
         if (op.StartsWith("nature.", StringComparison.Ordinal)) { CheckNatureArgs(op, args); return; }
         if (op == "effect.adjust") { CheckEffectAdjustArgs(args); return; }
         if (op == "glow.configure") { CheckGlowConfigureArgs(args); return; }
+        if (op is "wish.take" or "wish.report") { CheckWishArgs(op, args); return; }
+        if (op == "companion.say") { CheckSayArgs(args); return; }
         string[] allowed = op switch
         {
             "entity.grab" => new[] { "target", "actor" },

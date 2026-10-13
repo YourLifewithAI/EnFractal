@@ -714,6 +714,7 @@ public partial class RoomHud : CanvasLayer
         config.SetValue("profile", "companion_color", _companionColor);
         config.SetValue("profile", "companion_name", Companion.CompanionName);
         config.SetValue("profile", "has_used_glow", HasUsedGlow);
+        config.SetValue("profile", "ai_own_words", CompanionOwnWords);
         _noticeText = WriteProfile(config) ? "Appearance saved. Room changes are not saved by this placeholder." : "Could not save appearance; current session is still usable.";
     }
 

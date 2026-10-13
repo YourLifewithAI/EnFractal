@@ -86,9 +86,11 @@ public partial class PlayHudTest
               host.Wishes.Items[0].Text == "Build a small bridge." && host.Wishes.Items[1].Text == "Add a flower beside it.",
             "wishes entered in the panel queue in their submitted order without launching a runner");
         var queue = (Label)_hud.FindChild("WishQueueWords", true, false)!;
+        var aiStatus = (Label)_hud.FindChild("WishAiStatus", true, false)!;
         Check(queue.Text.Contains("Wish 1 · Waiting its turn", StringComparison.Ordinal) &&
-              !queue.Text.Contains("Build a small bridge", StringComparison.Ordinal) && !host.WishRunnerConnected,
-            "wish feedback uses curated statuses while a disconnected runner leaves the wishes waiting");
+              !queue.Text.Contains("Build a small bridge", StringComparison.Ordinal) && !host.CompanionConnected &&
+              aiStatus.Text.Contains("No AI is connected, so your wishes are waiting", StringComparison.Ordinal),
+            "wish feedback uses curated statuses, and with no AI connected the page says the wishes wait for one: " + aiStatus.Text);
         stop.EmitSignal(Button.SignalName.Pressed);
         Check(host.Wishes.Items.All(wish => wish.Status == "cancelled"), "the panel's Stop button cancels the waiting wishes through the host");
         _hud._UnhandledInput(Press(Key.Escape));

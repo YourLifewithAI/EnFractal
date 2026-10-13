@@ -85,6 +85,7 @@ public partial class RoomHud
         _wheel.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
         _cue = new GubbleCue { Companion = Companion };
         AddChild(_cue);
+        BuildSpeech();
     }
 
     /// <summary>The ability the island has in a slot (by its category), or null: the slot shows "?" and shrugs.</summary>

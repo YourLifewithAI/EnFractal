@@ -71,6 +71,7 @@ from typing import Any, Callable
 
 from . import perception, textsafety
 from .mock_journal import JournalMixin
+from .mock_wishes import WishMixin
 from .glow_progress import GlowProgress
 from .canonical import CanonicalJsonError
 from .contract import (
@@ -91,11 +92,12 @@ log = logging.getLogger("enfractal.mock_host")
 PLAYER = "player:local"
 COMPANION = "companion:local"
 OWN_AVATAR = {PLAYER: "avatar:player", COMPANION: "avatar:companion"}
-STOP_OPS = frozenset({"goal.stop", "effect.stop"})
+STOP_OPS = frozenset({"goal.stop", "effect.stop", "wish.stop"})
 TRANSIENT_OPS = frozenset({"entity.grab", "creation.activate", "goal.set", "goal.stop", "effect.start", "effect.stop",
-                           "world.set_physics", "world.set_mode", "glow.configure", "effect.adjust"})
+                           "world.set_physics", "world.set_mode", "glow.configure", "effect.adjust",
+                           "wish.stop", "wish.take", "wish.report", "companion.say"})
 # Durable, but they change no world state, so they do not move the room revision.
-NO_REVISION_OPS = frozenset({"room.checkpoint", "journal.note"})
+NO_REVISION_OPS = frozenset({"room.checkpoint", "journal.note", "wish.submit"})
 # The game's world physics presets (game/scripts/world_physics_profile.gd PRESET_IDS). Player-only, not saved.
 PHYSICS_PRESETS = frozenset({"room_tuned", "room_real", "room_floaty"})
 LOCKABLE_KINDS = frozenset({"object", "creation"})
@@ -465,7 +467,7 @@ def _might_be_stop(raw: bytes) -> bool:
     return b"goal.stop" in raw or b"effect.stop" in raw or b"\\u" in raw
 
 
-class MockHost(JournalMixin):
+class MockHost(JournalMixin, WishMixin):
     """The game side of the companion boundary, minus physics."""
 
     def __init__(self, contracts: Contracts, room_dir: Path | None = None, styles_dir: Path | None = None,
@@ -496,6 +498,9 @@ class MockHost(JournalMixin):
         self._vitals_profiles = {mode: {"health": 100.0, "max_health": 100.0, "stamina": 0.45,
                                        "max_stamina": 0.45, "completed_climbs": 0, "recoveries": 0}
                                  for mode in ("creative", "challenge", "live")}
+        # The player's grown-ups' test mode (off by default) and the AI's link sessions belong to the host, not the room.
+        self.companion_own_words = False
+        self._companion_sessions = 0
         self._reset_room()
         # As RoomWorld hands the kernel host its rules (LoadRules), read before the server locks itself down.
         self.load_rules(rules_file or rules_path())
@@ -535,6 +540,7 @@ class MockHost(JournalMixin):
         self._checkpoint_counter = 0
         self._load_room()
         self.history[0] = self._snapshot()
+        self._reset_wishes()
 
     # ------------------------------------------------------------------ room loading
 
@@ -675,7 +681,10 @@ class MockHost(JournalMixin):
 
     def session_event(self, principal: str, event: str) -> None:
         """The link reports a companion session starting or ending ("start", "end"). Since Run 2 the team's map
-        is the room's (the kernel saves it with the room), so a session no longer clears it; the hook stays."""
+        is the room's (the kernel saves it with the room), so a session no longer clears it. An open session is a
+        connected AI, which takes the player's wishes; one that ends mid-wish leaves it interrupted (mock_wishes.py)."""
+        with self._lock:
+            self._wish_session(principal, event)
 
     # ------------------------------------------------------------------ perception
 
@@ -859,7 +868,7 @@ class MockHost(JournalMixin):
         with self._lock:
             # The rate limit comes before every other check, so a flood of invalid messages is limited too.
             if not _is_stop(message) and not self._take_token(principal):
-                return self._rate_limited(principal)
+                return self._with_wish_notice(principal, self._rate_limited(principal))
             self._expire()
             # The sweep on the host's clock; a player's own request is the player looking, so it always sweeps.
             self._maybe_sweep(now=principal.startswith("player:"))
@@ -880,7 +889,8 @@ class MockHost(JournalMixin):
                 log.error("mock host built an invalid result: %s", problems[:3])
                 result = self._fail(principal, None, HostError(
                     "internal_error", "The game could not handle that request.", retryable=True))
-            return result
+            # While the player's wishes wait, every companion result says how many, never their words.
+            return self._with_wish_notice(principal, result)
 
     def handle_bytes(self, principal: str, raw: bytes) -> dict:
         """Parse strictly (no duplicate keys, NaN or overflow), then answer. As in the kernel host, a
@@ -890,16 +900,16 @@ class MockHost(JournalMixin):
             raise ValueError(f"the transport passed an unknown principal {principal!r}")
         with self._lock:
             if not self._tokens_left(principal) and not _might_be_stop(raw):
-                return self._rate_limited(principal)
+                return self._with_wish_notice(principal, self._rate_limited(principal))
         try:
             message = self.contracts.loads_strict(raw.decode("utf-8"))
         except (UnicodeDecodeError, self.contracts.ContractError, ValueError, RecursionError):
             # ValueError: an integer literal longer than Python converts; RecursionError: absurd nesting.
             with self._lock:
                 if not self._take_token(principal):
-                    return self._rate_limited(principal)
-                return self._fail(principal, None, HostError(
-                    "request_invalid", "The request is not valid JSON (duplicate keys and non-finite numbers are refused)."))
+                    return self._with_wish_notice(principal, self._rate_limited(principal))
+                return self._with_wish_notice(principal, self._fail(principal, None, HostError(
+                    "request_invalid", "The request is not valid JSON (duplicate keys and non-finite numbers are refused).")))
         return self.handle(principal, message)
 
     # ------------------------------------------------------------------ the companion's rate limit
@@ -942,7 +952,15 @@ class MockHost(JournalMixin):
             raise HostError("permission_denied", "Only the player can do that, directly in the game.", field_path="$.op")
         if is_command:
             self._view = self._view_for(principal, for_command=True)
-            return self._command(principal, message)
+            self._past_replay = False
+            try:
+                result = self._command(principal, message)
+            except HostError as error:
+                if self._past_replay:  # as the kernel: a refusal after the replay check is evidence for an active wish
+                    self._observe_wish_command(principal, message, self._fail(principal, message, error))
+                raise
+            self._observe_wish_command(principal, message, result)
+            return result
         self._view = self._view_for(principal, for_command=False)
         return self._query(principal, message)
 
@@ -1016,6 +1034,8 @@ class MockHost(JournalMixin):
             earlier = self._earlier(key, fingerprint, message)
             if earlier is not None:
                 return earlier
+            self._past_replay = True
+            self._check_wish_budget(principal, message)
             self._check_revisions(principal, message)
         prediction = handler(principal, message, False, None)
         if preview:
@@ -1180,6 +1200,7 @@ class MockHost(JournalMixin):
                             expires_at, touched, self.revision, copy.deepcopy(result))
         self.approvals[request_id] = approval
         self.approval_by_action[(principal, message["action_id"])] = request_id
+        self._held_for_wish(principal, message["action_id"])
         self._emit("approval_requested", {"request_id": request_id, "op": message["op"], "principal": principal,
                                           "reason": result["approval_needed"]["reason"]})
         return result
@@ -1262,6 +1283,7 @@ class MockHost(JournalMixin):
                         result = self._commit(approval.principal, message, handler, approved_by=PLAYER)
                         self._store_receipt(key, approval.fingerprint, result)
                         approval.state, approval.result = "approved", result
+                        self._observe_wish_command(approval.principal, message, result, held=True)
                     except HostError as error:
                         self._finish(approval, "expired", error if error.code == "receipt_limit" else HostError(
                             "approval_mismatch", "The change can no longer be made as approved. To ask again, use a new action_id."))
@@ -1280,6 +1302,7 @@ class MockHost(JournalMixin):
         approval.state, approval.result = state, result
         key = (approval.principal, approval.action_id)
         self.terminal[key] = Receipt(approval.fingerprint, copy.deepcopy(result), durable=False)
+        self._observe_wish_command(approval.principal, approval.message, result, held=True)
 
     def _lapsed(self, approval: Approval) -> bool:
         if "expected_revision" in approval.message and self.revision != approval.room_revision:
@@ -1690,6 +1713,7 @@ class MockHost(JournalMixin):
         if job is not None and job["state"] == "running":
             job["state"] = "cancelled"
             self._task_ended(goal["job_id"], "cancelled")
+            self._wish_goal_ended(job, "cancelled", "cancelled")
 
     def goal_arrived(self, actor_id: str) -> str:
         """The game's goal runner: the avatar has reached its goal (walked there, or turned to look or
@@ -1790,6 +1814,7 @@ class MockHost(JournalMixin):
             message = {"schema": COMMAND_SCHEMA, "op": "goal.set", "action_id": job["action_id"]}
             job["result"] = self._fail(job["principal"], message, error)
         self._task_ended(goal["job_id"], job["state"])
+        self._wish_goal_ended(job, job["state"], "completed" if error is None else error.code)
         self._emit("goal_finished", {"actor": actor_id, "job_id": goal["job_id"], "state": job["state"]})
         return job["state"]
 
@@ -2109,16 +2134,6 @@ class MockHost(JournalMixin):
     def _op_nature_repair(self, principal, message, apply, new_revision):
         self._runtime_required("Scorched creation repair")
 
-    def _op_wish_submit(self, principal, message, apply, new_revision):
-        if principal != PLAYER:
-            raise HostError("permission_denied", "Only the player can start a wish.")
-        self._runtime_required("The wish queue and player-started runner")
-
-    def _op_wish_stop(self, principal, message, apply, new_revision):
-        if principal != PLAYER:
-            raise HostError("permission_denied", "Only the player can stop a wish.")
-        self._runtime_required("The wish queue and player-started runner")
-
     def _op_style_set(self, principal, message, apply, new_revision):
         args = message["args"]
         key = (args["preset_id"], args["preset_version"])
@@ -2274,10 +2289,12 @@ class MockHost(JournalMixin):
             result["data"] = data
         elif op == "player.status":
             result["data"] = dict(self._vitals_profiles[self.mode], mode=self.mode, consequences=self.mode != "creative")
-        elif op in {"nature.describe", "wishes.read"}:
-            if op == "wishes.read" and principal != PLAYER:
-                raise HostError("permission_denied", "Only the player can read wishes.")
-            self._runtime_required("Nature simulation" if op == "nature.describe" else "The wish queue")
+        elif op == "nature.describe":
+            self._runtime_required("Nature simulation")
+        elif op == "wishes.read":
+            result["data"] = self._wishes_read(principal)
+        elif op in ("wish.list", "wish.wait"):
+            result["data"] = self._wish_query(op)
         elif op == "capabilities.list":
             # From the island's rules: capability_summary items by capability, filtered by category, paged by a
             # plain decimal offset (the kernel's Capabilities). A cursor it did not give is invalid_args.

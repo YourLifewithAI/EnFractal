@@ -9,7 +9,7 @@ from pathlib import Path
 from support import contract_problems, contracts, new_host
 
 from enfractal_companion.link import LinkClient, LinkServer
-from enfractal_companion.server import RESULT_PREAMBLE, Adapter, build_server
+from enfractal_companion.server import RESULT_PREAMBLE, WISH_NOTICE, Adapter, build_server
 
 
 class McpHarness:
@@ -53,8 +53,11 @@ class McpHarness:
         text = response.content[0].text
         preamble, _, line = text.partition("\n")
         assert preamble == RESULT_PREAMBLE, preamble
+        line, _, notice = line.partition("\n")
         assert "\n" not in line and line.isascii(), "the result line must be one ASCII line"
         parsed = json.loads(line)
+        # While the player's wishes wait, one more line: the fixed notice, never a wish's words.
+        assert notice == (WISH_NOTICE if parsed.get("wishes_waiting") else ""), notice
         assert parsed == response.structured_content, "text and structured content differ"
         assert response.is_error == (not parsed["ok"])
         problems = self.problems(parsed)

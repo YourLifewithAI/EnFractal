@@ -1,7 +1,6 @@
-"""Both authenticated transports match their schemas without mixing game and runner authority."""
+"""The link schema (contracts/companion-link.schema.json, bundled in companion/schemas/) matches what the link sends."""
 from __future__ import annotations
 
-import copy
 import json
 import tempfile
 import unittest
@@ -27,15 +26,6 @@ def link_validator() -> Draft202012Validator:
     schema = json.loads(SCHEMA_PATH.read_bytes())
     Draft202012Validator.check_schema(schema)
     return Draft202012Validator(schema, registry=Registry().with_resources(resources))
-
-
-WISH_ID = "wish:" + "a" * 26
-RUNNER_WISH = {"wish_id": WISH_ID, "text": "Make a light", "room_id": "test_room"}
-
-
-def runner_update(status="completed", code=None):
-    return {"op": "wish.update", "args": {"wish_id": WISH_ID, "status": status,
-                                          "result_code": code if code is not None else status}}
 
 
 def framed(message, kind="request"):
@@ -83,121 +73,23 @@ class LinkSchema(unittest.IsolatedAsyncioTestCase):
             with self.subTest(frame=frame["type"]):
                 self.assertValid(frame)
 
-    async def test_runner_handshake_and_actual_wire_frames_validate(self):
-        sent = []
-        real = link.encode_frame
-        calls = []
-
-        def recording(document):
-            sent.append(copy.deepcopy(document))
-            return real(document)
-
-        # Fixed replies from the native protocol: no queue or gameplay simulation in this fixture.
-        requests_and_replies = [
-            ({"op": "wish.wait"}, {"ok": True, "wish": dict(RUNNER_WISH, aim_id="obj:box")}),
-            (runner_update("running", "completed"), {"ok": True, "status": "running"}),
-            (runner_update("failed"), {"ok": True, "status": "failed"}),
-            ({"op": "wish.wait"}, {"ok": True, "wish": None}),
-            (runner_update("failed"), {"ok": False, "error": {"code": "target_not_found"}}),
-        ]
-
-        def handle(principal, message):
-            self.assertEqual(principal, "runner:local")
-            expected, answer = requests_and_replies[len(calls)]
-            self.assertEqual(message, expected)
-            calls.append(message)
-            return answer
-
-        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(link, "encode_frame", recording):
-            session = Path(tmp) / "wish-runner-session.json"
-            server = LinkServer(handle, "test_room", principal="runner:local", avatar="")
-            await server.start(session)
-            client = LinkClient.from_file(session)
-            try:
-                self.assertValid(json.loads(session.read_bytes()))
-                ready = await client.connect()
-                self.assertEqual((ready["principal"], ready["avatar"]), ("runner:local", ""))
-                for message, answer in requests_and_replies:
-                    self.assertEqual(await client.request(message), answer)
-            finally:
-                await client.close()
-                await server.close()
-        self.assertEqual(len(calls), len(requests_and_replies))
-        for frame in sent:
-            with self.subTest(frame=frame):
-                self.assertValid(frame)
-
-    def test_runner_ready_identity_is_paired_and_does_not_expand_game_principals(self):
+    def test_ready_names_a_game_principal_and_an_avatar(self):
         ready = {"type": "ready", "session_id": "a" * 32, "room_id": "test_room",
                  "limits": {"max_request_frame": 65536, "max_response_frame": 262144}}
-        for principal, avatar in (("runner:local", ""), ("companion:local", "avatar:companion"),
-                                  ("player:local", "avatar:player"), ("guest_companion:guest", "avatar:guest")):
-            with self.subTest(principal=principal, avatar=avatar):
-                self.assertValid(dict(ready, principal=principal, avatar=avatar))
-        for principal, avatar in (("runner:local", "avatar:companion"), ("runner:local", "avatar:player"),
-                                  ("runner:other", ""), ("runner:other", "avatar:companion"),
-                                  ("companion:local", ""), ("player:local", ""), ("companion:local", "obj:box")):
+        self.assertValid(dict(ready, principal="companion:local", avatar="avatar:companion"))
+        # There is no second role: the shelved wish runner's principal and empty avatar are not a link identity.
+        for principal, avatar in (("runner:local", ""), ("companion:local", ""), ("companion:local", "obj:box")):
             with self.subTest(principal=principal, avatar=avatar):
                 self.assertFalse(self.validator.is_valid(dict(ready, principal=principal, avatar=avatar)))
-        game_result = self.host.handle("companion:local", query("room.describe", {}))
-        self.assertValid(framed(game_result, "response"))
-        game_result["principal"] = "runner:local"
-        self.assertFalse(self.validator.is_valid(framed(game_result, "response")))
 
-    def test_runner_requests_allow_only_exact_wait_or_paired_update(self):
-        self.assertValid(framed({"op": "wish.wait"}))
-        for code in ("completed", "failed", "unsupported", "cancelled"):
-            with self.subTest(code=code):
-                self.assertValid(framed(runner_update(code)))
-                self.assertValid(framed(runner_update("running", code)))
-        invalid = [
-            {}, {"op": "wish.wait", "args": {}}, {"op": "wish.wait", "principal": "player:local"},
-            {"op": "world.set_mode", "args": {"mode": "creative"}},
-            {"op": "wish.submit", "args": {"text": "Let me run this wish"}},
-            {"op": "effect.start", "args": {}},
-            runner_update("completed", "failed"), runner_update("running", "anything"),
-            runner_update("granted"), runner_update("partial"), runner_update("interrupted"),
-            dict(runner_update(), approved_by="player:local"),
-        ]
-        for field, value in (("text", "I grant this wish"), ("action_count", 1), ("approved", True),
-                             ("successful_actions", ["action-1"]), ("principal", "player:local")):
-            message = runner_update()
-            message["args"][field] = value
-            invalid.append(message)
-        for field in ("wish_id", "status", "result_code"):
-            message = runner_update()
-            del message["args"][field]
-            invalid.append(message)
-        for bad_id in ("wish:anything", WISH_ID + "\n", "wish:" + "A" * 26):
-            message = runner_update()
-            message["args"]["wish_id"] = bad_id
-            invalid.append(message)
-        for message in invalid:
+    def test_requests_carry_only_game_commands_and_queries(self):
+        # The runner's frames (wish.wait, wish.update) are gone: a request is an enfractal.command or enfractal.query.
+        for message in ({"op": "wish.wait"}, {"op": "wish.update", "args": {"wish_id": "wish:" + "a" * 26,
+                                                                           "status": "completed", "result_code": "completed"}}):
             with self.subTest(message=message):
                 self.assertFalse(self.validator.is_valid(framed(message)))
-
-    def test_runner_replies_have_fixed_shapes_statuses_and_codes(self):
-        for wish in (None, RUNNER_WISH, dict(RUNNER_WISH, aim_id="obj:box")):
-            self.assertValid(framed({"ok": True, "wish": wish}, "response"))
-        for status in ("running", "granted", "partial", "failed", "unsupported", "cancelled"):
-            self.assertValid(framed({"ok": True, "status": status}, "response"))
-        for code in ("not_ready", "request_invalid", "permission_denied", "invalid_args", "target_not_found", "budget_exceeded"):
-            self.assertValid(framed({"ok": False, "error": {"code": code}}, "response"))
-        invalid = [
-            {"ok": True}, {"ok": True, "status": "completed"}, {"ok": True, "status": "queued"},
-            {"ok": True, "wish": None, "status": "running"}, {"ok": True, "wish": {}},
-            {"ok": False, "error": {"code": "anything"}},
-            {"ok": False, "error": {"code": "not_ready", "message": "Model-authored prose"}},
-            {"ok": True, "status": "granted", "text": "Model-authored prose"},
-            {"ok": True, "wish": dict(RUNNER_WISH, approved_by="player:local")},
-            {"ok": True, "wish": dict(RUNNER_WISH, text="x" * 281)},
-            {"ok": True, "wish": dict(RUNNER_WISH, text="")},
-            {"ok": True, "wish": dict(RUNNER_WISH, text="two\nlines")},
-            {"ok": True, "wish": dict(RUNNER_WISH, aim_id="file:C:/outside")},
-        ]
-        for message in invalid:
-            with self.subTest(message=message):
-                self.assertFalse(self.validator.is_valid(framed(message, "response")))
+                self.assertFalse(self.validator.is_valid(framed({"ok": True, "wish": None}, "response")))
+        self.assertValid(framed(query("wish.wait", {})))
 
     def test_valid_game_examples_keep_their_frame_direction(self):
         checked = 0

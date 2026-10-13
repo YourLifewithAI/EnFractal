@@ -138,10 +138,6 @@ class Surface(unittest.IsolatedAsyncioTestCase):
         published = json.dumps([t.model_dump(mode="json", by_alias=True) for t in self.tools]) + INSTRUCTIONS + SERVER_NAME
         self.assertIsNone(VENDOR_WORDS.search(published))
         for path in sorted((SRC / "enfractal_companion").glob("*.py")):
-            if path.name == "wish_runner.py":
-                # This explicitly started client has optional provider adapters. It is never
-                # imported or published by the provider-neutral MCP server checked above.
-                continue
             with self.subTest(source=path.name):
                 self.assertIsNone(VENDOR_WORDS.search(path.read_text(encoding="utf-8")))
         self.assertIsNone(self.harness.client.server_capabilities.experimental)

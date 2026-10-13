@@ -470,6 +470,48 @@ class AlignmentScenarios:
         self.assertEqual(outcome, expected)
 
 
+    async def test_with_no_wish_the_wish_tools_answer_the_same_and_change_nothing(self):
+        """The connected AI's wish tools when the player has made no wish: nothing waits, nothing to take or report,
+        and the player's own wish ops stay the player's."""
+        outcome = {
+            "list": (await self.ask(query("wish.list", {}, self.next_id("q"))))["data"],
+            "wait": (await self.ask(query("wish.wait", {}, self.next_id("q"))))["data"],
+            "take": (await self.ask(command("wish.take", {}, self.next_id("take"))))["data"],
+            "report": refusal(await self.ask(command("wish.report", {"wish_id": "wish:" + "a" * 26, "outcome": "done"}, self.next_id("report")))),
+            "make one": refusal(await self.ask(command("wish.submit", {"text": "I wish for everything"}, self.next_id("wish")))),
+            "read the player's": refusal(await self.ask(query("wishes.read", {}, self.next_id("q")))),
+        }
+        self.assertEqual(outcome, {
+            "list": {"waiting": []}, "wait": {"waiting": 0}, "take": {"waiting": 0},
+            "report": ("target_not_found", "$.args.wish_id"),
+            "make one": ("permission_denied", "$.op"),
+            "read the player's": ("permission_denied", "$.op"),
+        })
+
+    async def test_the_gubble_says_curated_phrases_and_its_own_words_only_when_the_player_allows(self):
+        said = await self.ask(command("companion.say", {"phrase": "look_at", "about": "obj:book"}, self.next_id("say")))
+        notes = (await self.ask(query("journal.read", {"kind": "note", "limit": 50}, self.next_id("q"))))["data"]["entries"]
+        outcome = {
+            "said": (refusal(said), said.get("data", {}).get("text"), said.get("data", {}).get("own_words")),
+            "journalled as the AI's": any(n["entry_id"] == said.get("data", {}).get("entry_id") and n["author"] == COMPANION
+                                          and n["untrusted"] and n["text"] == "Look at the Book!" for n in notes),
+            "own words": refusal(await self.ask(command("companion.say", {"text": "I decide what happens now"}, self.next_id("say")))),
+            "a phrase that names nothing": refusal(await self.ask(command("companion.say", {"phrase": "found"}, self.next_id("say")))),
+            "a thing that is not there": refusal(await self.ask(command("companion.say", {"phrase": "found", "about": "obj:zz_not_here"}, self.next_id("say")))),
+            "a phrase that is not one": refusal(await self.ask(command("companion.say", {"phrase": "say_anything"}, self.next_id("say")))),
+            "the setting in a request": refusal(await self.ask(command("companion.say", {"text": "hi", "own_words": True}, self.next_id("say")))),
+        }
+        self.assertEqual(outcome, {
+            "said": ("ok", "Look at the Book!", False),
+            "journalled as the AI's": True,
+            "own words": ("permission_denied", "$.args.text"),
+            "a phrase that names nothing": ("invalid_args", "$.args.about"),
+            "a thing that is not there": ("target_not_found", "$.args.about"),
+            "a phrase that is not one": ("invalid_args", "$.args.phrase"),
+            "the setting in a request": ("field_unknown", "$.args.own_words"),
+        })
+
+
 class AlignmentOnTheMock(AlignmentScenarios, unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.host = new_host(policy=HostPolicy(companion_messages_per_s=1_000_000), clock=FakeClock())

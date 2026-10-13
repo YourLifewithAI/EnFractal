@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 import unittest
 
-from support import COMPANION, PLAYER, REPO, FakeClock, HostPolicy, command, new_host, query
+from support import COMPANION, PLAYER, REPO, FakeClock, HostPolicy, command, contracts, new_host, query
 
 from enfractal_companion.mock_host import Receipt
 
@@ -251,6 +251,48 @@ class DefaultPolicyBoundaries(unittest.TestCase):
         self.assertEqual(results[30]["error"]["code"], "rate_limited")
         self.clock.advance(1.01)
         self.assertTrue(self.host.handle(COMPANION, query("room.describe", {}, "q-late"))["ok"])
+
+
+SPEECH = KERNEL / "Kernel" / "CommandHostSpeech.cs"
+WISHES = KERNEL / "Kernel" / "CommandHostWishes.cs"
+WISH_QUEUE = KERNEL / "Kernel" / "WishQueue.cs"
+
+
+@unittest.skipUnless(SPEECH.is_file() and WISHES.is_file() and WISH_QUEUE.is_file(), "the kernel host's wishes are not in this checkout")
+class WishesAndWordsMatchTheKernel(unittest.TestCase):
+    """The mock's wish queue and the Gubble's words (mock_wishes.py, gubble_phrases.py) against the kernel's."""
+
+    def test_the_gubbles_phrases_are_the_kernels_word_for_word(self):
+        from enfractal_companion import gubble_phrases
+        source = _text(SPEECH)
+        start = source.index("GubblePhrases = new")
+        table = re.findall(r'\["([a-z_]+)"\] = "([^"\\]*)",', source[start:source.index("};", start)])
+        self.assertEqual(table, list(gubble_phrases.PHRASES.items()))
+        self.assertEqual(contracts().command_schema["$defs"]["gubble_phrase"]["enum"], [key for key, _ in table])
+
+    def test_the_rules_for_the_ais_own_words_are_the_kernels(self):
+        from enfractal_companion import gubble_phrases as g
+        self.assertEqual(_match(SPEECH, r'LinkLike = new\(@"([^"]+)"'), g.LINK_LIKE.pattern)
+        self.assertEqual(_match(SPEECH, r'MarkupCharacters = "([^"]+)";').replace("\\\\", "\\"), g.MARKUP_CHARACTERS)
+        self.assertEqual((_constant(SPEECH, r"\bconst int MaxOwnWords = (\d+);"), _constant(SPEECH, r"\bconst int SpeechBurst = (\d+);"),
+                          float(_match(SPEECH, r"\bconst double SpeechRefillS = ([0-9.]+);")), _match(SPEECH, r'\bconst string UnnamedThing = "([a-z]+)";')),
+                         (g.MAX_OWN_WORDS, g.SPEECH_BURST, g.SPEECH_REFILL_S, g.UNNAMED_THING))
+        # One rule in two regex dialects: a letter or digit, then letters, digits, spaces, apostrophes, hyphens; 32 at most.
+        self.assertEqual(_match(SPEECH, r'PlainName = new\(@"([^"]+)"'), r"\A[\p{L}\p{N}][\p{L}\p{N} '\-]{0,31}\z")
+        for name, plain in (("Book", True), ("Cardboard box", True), ("Teddy's hat", True), ("Café-2", True), ("x" * 32, True),
+                            ("x" * 33, False), (" box", False), ("<b>", False), ("look: here", False), ("a_b", False)):
+            with self.subTest(name=name):
+                self.assertEqual(bool(g.PLAIN_NAME.fullmatch(name)), plain)
+
+    def test_the_wish_bounds_and_bookkeeping_are_the_kernels(self):
+        from enfractal_companion import mock_wishes, server
+        self.assertIn("public const int MaxQueued = 16, MaxHistory = 64, MaxCommands = 32;", _text(WISH_QUEUE))
+        self.assertEqual((mock_wishes.MAX_QUEUED, mock_wishes.MAX_FINISHED, mock_wishes.MAX_COMMANDS), (16, 64, 32))
+        bookkeeping = _match(WISHES, r"WishBookkeepingOps = new\(\) \{ ([^}]+) \};")
+        self.assertEqual(set(re.findall(r'"([a-z.]+)"', bookkeeping)), mock_wishes.BOOKKEEPING_OPS)
+        # The host answers wish.wait at once; the adapter's bound is what the tool promises (30 s).
+        self.assertEqual(server.WISH_WAIT_S, 30.0)
+        self.assertIn("for up to 30 s", _text(WISHES))
 
 
 if __name__ == "__main__":

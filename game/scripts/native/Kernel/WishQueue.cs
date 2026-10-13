@@ -16,8 +16,9 @@ public sealed class WishQueueException(string code, string message) : Exception(
 
 public sealed record WishRefusal(string ActionId, string Code);
 /// <summary>
-/// A wish and the host's own evidence for it. An accepted action whose outcome comes later (a goal job) stays pending
-/// until the host observes its end; only then is it a success or a refusal.
+/// A wish and the host's own evidence for it: the commands the companion sent while this wish was active, as the host
+/// recorded them (never an id the AI chose to tag them with). An accepted action whose outcome comes later (a goal job)
+/// stays pending until the host observes its end; only then is it a success or a refusal.
 /// </summary>
 public sealed record WishEntry(string Id, string ActionId, string Fingerprint, string Text, string? AimId,
     string Status, string? ResultCode, IReadOnlyList<string> SuccessfulActionIds, IReadOnlyList<WishRefusal> Refusals,
@@ -26,7 +27,6 @@ public sealed record WishEntry(string Id, string ActionId, string Fingerprint, s
     public int CommandCount => SuccessfulActionIds.Count + Refusals.Count + PendingActionIds.Count;
     public bool Recorded(string actionId) => SuccessfulActionIds.Contains(actionId) || PendingActionIds.Contains(actionId) || Refusals.Any(item => item.ActionId == actionId);
     public bool Terminal => Status is not ("queued" or "running");
-    public string ActionPrefix => "w-" + Id[5..] + "-";
 }
 
 /// <summary>Immutable FIFO candidates: the host saves a candidate before making it current.</summary>
@@ -34,8 +34,11 @@ public sealed class WishQueue
 {
     public const int MaxQueued = 16, MaxHistory = 64, MaxCommands = 32;
     public const string Schema = "enfractal.wish_queue";
-    /// <summary>Version 2 adds each wish's pending actions. Version 1 journals (no pending actions) still load.</summary>
-    public const int Version = 2;
+    /// <summary>
+    /// Version 3: a wish's actions are whatever the host tied to it, under any action id (13 October: no runner, no
+    /// "w-" prefix). Version 2 added each wish's pending actions. Version 1 and 2 journals still load.
+    /// </summary>
+    public const int Version = 3;
     private static readonly Regex Action = new(@"\A[A-Za-z0-9][A-Za-z0-9_-]{0,63}\z");
     private static readonly Regex Id = new(@"\Awish:[a-z2-7]{26}\z");
     private static readonly Regex Code = new(@"\A[a-z][a-z_]{0,63}\z");
@@ -84,8 +87,8 @@ public sealed class WishQueue
     {
         var active = RequireActive(wishId);
         if (active.Recorded(actionId)) return this;
-        if (!actionId.StartsWith(active.ActionPrefix, StringComparison.Ordinal) || !Action.IsMatch(actionId) || !Code.IsMatch(code) || pending && !succeeded)
-            throw Error("invalid_args", "That action does not belong to this wish.");
+        if (!Action.IsMatch(actionId) || !Code.IsMatch(code) || pending && !succeeded)
+            throw Error("invalid_args", "That action cannot be recorded for this wish.");
         if (active.CommandCount >= MaxCommands) throw Error("budget_exceeded", "This wish has reached its action limit.");
         if (pending) return Replace(active with { PendingActionIds = Append(active.PendingActionIds, actionId) });
         return Replace(Recorded(active, actionId, succeeded, code));
@@ -103,7 +106,7 @@ public sealed class WishQueue
     {
         var active = RequireActive(wishId);
         if (resultCode is not ("completed" or "failed" or "unsupported" or "cancelled" or "interrupted"))
-            throw Error("invalid_args", "The runner supplied an unknown result code.");
+            throw Error("invalid_args", "That is not a known wish result code.");
         // Nothing grants a wish while one of its actions is still running.
         if (resultCode == "completed" && active.PendingActionIds.Count > 0) throw Error("not_ready", "This wish's actions are still running.");
         active = Unfinished(active);
@@ -154,7 +157,7 @@ public sealed class WishQueue
             var root = doc.RootElement;
             Exact(root, "schema", "version", "room_id", "items");
             var version = root.GetProperty("version").GetInt32();
-            if (root.GetProperty("schema").GetString() != Schema || version is not (1 or Version) || root.GetProperty("room_id").GetString() != roomId)
+            if (root.GetProperty("schema").GetString() != Schema || version is not (1 or 2 or Version) || root.GetProperty("room_id").GetString() != roomId)
                 throw new FormatException();
             var rows = root.GetProperty("items");
             if (rows.ValueKind != JsonValueKind.Array || rows.GetArrayLength() > MaxHistory + MaxQueued + 1) throw new FormatException();
@@ -180,9 +183,8 @@ public sealed class WishQueue
                     return new WishRefusal(value.GetProperty("action_id").GetString()!, value.GetProperty("code").GetString()!);
                 }).ToArray();
                 var pending = version == 1 ? Array.Empty<string>() : row.GetProperty("pending_actions").EnumerateArray().Select(value => value.GetString()!).ToArray();
-                var prefix = "w-" + id[5..] + "-";
                 var actions = successes.Concat(failures.Select(value => value.ActionId)).Concat(pending).ToArray();
-                if (actions.Length > MaxCommands || actions.Distinct().Count() != actions.Length || actions.Any(value => !Action.IsMatch(value) || !value.StartsWith(prefix, StringComparison.Ordinal)) ||
+                if (actions.Length > MaxCommands || actions.Distinct().Count() != actions.Length || actions.Any(value => !Action.IsMatch(value)) ||
                     failures.Any(value => !Code.IsMatch(value.Code)) || status == "granted" && (successes.Length == 0 || failures.Length != 0) || status == "partial" && successes.Length == 0 ||
                     status is "queued" or "running" && result != null || status == "queued" && actions.Length != 0 ||
                     status is not ("queued" or "running") && result == null ||

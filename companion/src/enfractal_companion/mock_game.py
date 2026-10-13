@@ -14,6 +14,10 @@ command. Type at the console, as the player:
     move <entity> <x> <y> <z>  the world moves something (out of the companion's sight, say)
     arrive               the companion's avatar reaches its goal; the game re-checks the target (a fetch
                          arrives twice: at the thing, which it picks up, then back beside the player)
+    wish <text>          make a wish, as the player in the wish box (the connected AI takes it in order)
+    wishes               the wish journal: each wish and how it stands
+    stopwishes           the player's Stop: the active wish and the waiting ones end, and the Gubble stops
+    ownwords on|off      the player's grown-ups' test mode: let the AI say things in its own words
     quit                 stop the game
 
 The console is the player's UI. Nothing typed into the MCP client can reach it.
@@ -91,7 +95,9 @@ async def _serve(host: MockHost, session_path: Path) -> None:
             pass
 
 
-COMMANDS = "list | approve <id> | deny <id> | say <entity> <text> | walk <x> <y> <z> | move <entity> <x> <y> <z> | arrive | quit"
+COMMANDS = ("list | approve <id> | deny <id> | say <entity> <text> | walk <x> <y> <z> | move <entity> <x> <y> <z> | arrive | "
+            "wish <text> | wishes | stopwishes | ownwords on|off | quit")
+_wishes = iter(range(1, 1_000_000))
 
 
 def _position(words: list[str]) -> list[float] | None:
@@ -149,6 +155,28 @@ def _console(host: MockHost, line: str) -> None:
             return
         host.move_entity(entity_id, _position(line.split()[2:]))
         print(f"  {entity_id} moved", flush=True)
+    elif word == "wish" and len(parts) >= 2:
+        text = line.split(" ", 1)[1].strip()
+        result = host.player_command({"schema": "enfractal.command", "version": 1, "action_id": f"console-wish-{next(_wishes)}",
+                                      "room_id": host.room_id, "op": "wish.submit", "args": {"text": text}})
+        print("  your wish is waiting its turn" if result["ok"] else f"  refused: {result['error']['code']}", flush=True)
+    elif word == "wishes":
+        for wish in host.wishes:
+            print(f"  {wish.id} {wish.status}: {wish.command_count} actions, refusals {[code for _, code in wish.refusals]}", flush=True)
+        if not host.wishes:
+            print("  no wishes yet", flush=True)
+        print(f"  the AI is {'connected' if host.companion_connected else 'not connected'}; "
+              f"the grown-ups' test mode is {'on' if host.companion_own_words else 'off'}", flush=True)
+        if host.gubble_said is not None:
+            words, own, _ = host.gubble_said
+            print(f"  the Gubble last said ({'the AI' + chr(39) + 's own words' if own else 'a curated phrase'}): {words!a}", flush=True)
+    elif word == "stopwishes":
+        result = host.player_command({"schema": "enfractal.command", "version": 1, "action_id": f"console-stop-{next(_wishes)}",
+                                      "room_id": host.room_id, "op": "wish.stop", "args": {}})
+        print(f"  stopped: {result['data']['cancelled']} wishes cancelled", flush=True)
+    elif word == "ownwords" and len(parts) == 2 and parts[1] in ("on", "off"):
+        host.player_set_companion_own_words(parts[1] == "on")
+        print(f"  the grown-ups' test mode is {parts[1]}", flush=True)
     elif word == "arrive":
         try:
             print(f"  the goal {host.goal_arrived('avatar:companion')}", flush=True)

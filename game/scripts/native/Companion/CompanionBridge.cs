@@ -26,7 +26,8 @@ namespace EnFractal.Native.Companion;
 /// - Answers every request on Godot's main thread through <see cref="CommandHost.HandleObject"/> as
 ///   companion:local. Nothing a connection sends chooses the principal.
 /// - Tells the host when a link session starts and ends (<see cref="CommandHost.SessionEvent"/>). Since Run 2 the
-///   team's map and journal belong to the room and are saved with it, so a session no longer clears them.
+///   team's map and journal belong to the room and are saved with it, so a session no longer clears them; the host
+///   knows from it whether an AI is connected to take the player's wishes (there is no other wish connection).
 /// - Shows the companion's state on its avatar (<see cref="CompanionStatusCue"/>): listening, planning, acting, or
 ///   waiting for the player's yes; nothing when no AI is linked.
 /// The goals themselves (follow, come, look_at, point_at) run in the host, which watches the body for their arrival.
@@ -55,10 +56,6 @@ public partial class CompanionBridge : Node
     /// <summary>user:// or an absolute path.</summary>
     public string SessionPath { get; private set; } = DefaultSessionPath;
     public CompanionLinkServer? Link { get; private set; }
-    /// <summary>A separate token and listener grant only wish claim/update access, never world commands.</summary>
-    public CompanionLinkServer? RunnerLink { get; private set; }
-    public string RunnerSessionPath => Path.Combine(Path.GetDirectoryName(Globalize(SessionPath))!, "wish-runner.json");
-    public string RunnerNotice { get; private set; } = "";
     /// <summary>Why the link is not running, for the player; empty while it runs.</summary>
     public string LinkNotice { get; private set; } = "";
     /// <summary>offline (no AI linked), listening, planning, acting or waiting.</summary>
@@ -134,21 +131,6 @@ public partial class CompanionBridge : Node
         }
         // Never the token: the session file is the only place it is written.
         GD.Print($"COMPANION_LINK listening room={Host.Room.RoomId} host={Link.Host} port={Link.Port}");
-        // This starts a local listener only. The player explicitly launches their chosen runner program.
-        RunnerLink = new CompanionLinkServer(Host.Room.RoomId, DispatchRunner,
-            name => _work.Enqueue(() => { if (!_closed && IsInstanceValid(Host)) Host.WishRunnerSession(name == "start"); }),
-            principal: CommandHost.RunnerPrincipal, avatar: "");
-        RunnerLink.Note += Noted;
-        try
-        {
-            RunnerLink.Start();
-            WriteSessionFile(RunnerSessionPath, RunnerLink.Host, RunnerLink.Port, RunnerLink.Token, RunnerLink.RoomId);
-        }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Net.Sockets.SocketException)
-        {
-            RunnerLink.Stop(); RunnerLink = null;
-            RunnerNotice = "The local wish runner link could not start.";
-        }
     }
 
     public override void _Process(double delta)
@@ -163,13 +145,10 @@ public partial class CompanionBridge : Node
     {
         _closed = true;
         Link?.Stop();
-        RunnerLink?.Stop();
-        if (IsInstanceValid(Host)) Host.WishRunnerSession(false);
         // Anything still queued is refused, so no connection waits on a host that is gone.
         while (_work.TryDequeue(out var work)) work();
         // Still holding the lock: no other game can write a session file between the check and the delete.
         if (Link != null) DeleteSessionFileIfOurs(Globalize(SessionPath), Link.Token);
-        if (RunnerLink != null) DeleteSessionFileIfOurs(RunnerSessionPath, RunnerLink.Token);
         ReleaseOwnership();
     }
 
@@ -230,9 +209,7 @@ public partial class CompanionBridge : Node
 
     // ---- requests, on the main thread ----
 
-    private Task<string> Dispatch(string message) => Dispatch(message, runner: false);
-    private Task<string> DispatchRunner(string message) => Dispatch(message, runner: true);
-    private Task<string> Dispatch(string message, bool runner)
+    private Task<string> Dispatch(string message)
     {
         // Only an authenticated companion reaches here, one request at a time; a backlog means something is wrong,
         // and that connection is closed rather than queued.
@@ -252,12 +229,11 @@ public partial class CompanionBridge : Node
             }
             try
             {
-                // The authenticated endpoint assigns the role. No message can promote a runner to a companion.
-                var result = runner ? Host.HandleWishRunner(message) : Host.HandleObject(message, CommandHost.CompanionPrincipal);
+                var result = Host.HandleObject(message, CommandHost.CompanionPrincipal);
                 Answered++;
                 var op = result["op"]?.GetValue<string>() ?? "invalid";
                 // A stop is not planning: the avatar shows the stop at once.
-                if (!runner) _lastRequestS = op is "goal.stop" or "effect.stop" ? double.NegativeInfinity : Seconds();
+                _lastRequestS = op is "goal.stop" or "effect.stop" ? double.NegativeInfinity : Seconds();
                 answer.TrySetResult(CanonicalJson.Text(result));
             }
             catch (Exception error) { answer.TrySetException(error); }

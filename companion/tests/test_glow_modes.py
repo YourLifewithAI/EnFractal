@@ -150,8 +150,6 @@ class GlowAndModes(unittest.TestCase):
             ("nature.cast", {"capability": "bloom", "center_m": IN_THE_OPEN, "radius_m": 0.25, "duration_s": 30}),
             ("nature.trail", {"enabled": True}),
             ("nature.repair", {"target": "creation:unbuilt"}),
-            ("wish.submit", {"text": "Help me make a garden"}),
-            ("wish.stop", {}),
         ]
         before = (self.host.revision, len(self.host.receipts), len(self.host.transient))
         for op, args in messages:
@@ -159,9 +157,10 @@ class GlowAndModes(unittest.TestCase):
                 result = self.send(op, args)
                 self.assertEqual(result["error"]["code"], "unsupported_capability", result)
                 self.assertIn("native game runtime", result["error"]["message"])
-        for op in ("nature.describe", "wishes.read"):
-            result = self.host.handle(PLAYER, query(op, {}))
-            self.assertEqual(result["error"]["code"], "unsupported_capability")
+        result = self.host.handle(PLAYER, query("nature.describe", {}))
+        self.assertEqual(result["error"]["code"], "unsupported_capability")
+        # The wish queue is simulated (mock_wishes.py, test_wishes.py); its journal stays the player's.
+        self.assertEqual(self.host.handle(PLAYER, query("wishes.read", {}))["data"], {"items": []})
         self.assertEqual(self.host.handle(COMPANION, query("wishes.read", {}))["error"]["code"], "permission_denied")
         self.assertEqual((self.host.revision, len(self.host.receipts), len(self.host.transient)), before)
         self.assertEqual(self.host.glow_progress.discoveries, set())

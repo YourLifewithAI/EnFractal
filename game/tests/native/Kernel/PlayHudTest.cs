@@ -74,6 +74,7 @@ public partial class PlayHudTest : Node
             await TestWheel();
             await TestAcknowledgement();
             await TestReadableWords();
+            await TestGubbleSpeechCaption();
             await TestLookDrag();
             await TestGlowWherePointed();
             await TestPutDown();
