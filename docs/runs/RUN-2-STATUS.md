@@ -439,7 +439,7 @@
 
 - **The founder's checkout:** `C:\dev\EnFractal` was 28 commits behind (the Glow round, pushed from the cloud). It was fast-forwarded to `ca6656d`. It builds on the pinned SDK (0 warnings), and a headless boot of `landscape_garage_nominal` loads cleanly (`ROOM_WORLD_READY ... objects=37`).
   - The installed landscape needed no refresh: nothing in the landscape pipeline changed since `4266153`, and `room.json` is still `723B8D6A…`.
-  - **A safe smoke boot:** set `APPDATA` to a scratch folder for the Godot process, so the founder's saves and profile (`has_used_glow`) stay untouched. Boot through the main scene (`--path game -- --room=<id>`): passing `res://scenes/room.tscn` skips `NativeGameBoot` and silently loads `test_room`.
+  - **A safe smoke boot:** set `APPDATA` to a scratch folder for the Godot process, so the founder's saves and profile (`has_used_glow`) stay untouched. Boot through the main scene (`--path game -- --room=<id>`): passing `res://scenes/room.tscn` skips `NativeGameBoot` and silently loads `test_room`. **Since 13 October (S10): `tools/smoke-boot.ps1 -Room <id>`** does all of this: it builds first (Godot runs the C# last built, never the source; a boot on a checkout not rebuilt since its merge ran an assembly older than `--quit-after-ready` and never quit), copies the room into a scratch profile, boots through the main scene and requires `ROOM_WORLD_READY`, `ROOM_WORLD_QUIT` and exit 0.
 - **The founder's Glow playtest:** its findings, the causes and the founder's decisions are in [RUN-2-GLOW-PLAYTEST.md](RUN-2-GLOW-PLAYTEST.md). In short:
   - the cursor goes free, and left-drag looks around;
   - a cast travels from the Gubble to where you point;

@@ -128,7 +128,7 @@ public partial class LookPresetTest
     private async Task CheckRealOpenSea(StylePreset preset)
     {
         var directory = FindLandscapeFixture();
-        if (directory == null) { GD.Print("LOOK_INFO: no island garage exported under .cache/landscape-fixture; the open sea's real-room checks were skipped"); return; }
+        if (directory == null) { GD.Print("LOOK_INFO: no island garage (-- --landscape=DIR); the open sea's real-room checks were skipped"); return; }
         MaterialLibrary.Configure(preset);
         var land = RoomData.Load(directory);
         if (land.Sea == null) { GD.Print("LOOK_INFO: the exported garage has no sea; the open sea's real-room checks were skipped"); return; }
