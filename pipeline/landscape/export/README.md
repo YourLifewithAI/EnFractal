@@ -151,9 +151,11 @@ like the rest.
 
 ## Speed
 
-The 10x garage (S4's ground) exports in about 45-47 s and 96 MB on a shared machine
-(before S4's detail: 43.5 s, 60 MB). The land's work alone takes about 37 s and
-`read_package` about 32 s; they overlap.
+The 10x garage (S4's ground: 2.5 million land triangles) exports in 38-40 s and 96 MB on
+a shared machine; the export before S4, back to back, took 30-31 s and 60 MB. The land's
+work runs in two more processes (`landwork.PARTS`: the tiles and open edges, about 22 s;
+the trees' fits, about 18 s) beside `read_package`, the longest of the three; the
+harness checks a mesh's vertices and triangles inline (S4's land: 20 s to 13.5 s).
 
 At 10x a third of the export is the land's (`landwork.py`: tiling, the open-edge
 diagnostic, every scatter tree's fit) and as much again is `read_package`'s

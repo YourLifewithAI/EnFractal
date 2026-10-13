@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 from pipeline.landscape.harness.build_reference import ROOM, REFERENCE, build, quad
 from pipeline.landscape.harness.common import FRAME, MAX_BYTES, SETUP, canonical, load_json, sha, harness_revision
-from pipeline.landscape.harness.glb import encode_mesh, decode_mesh
+from pipeline.landscape.harness.glb import check_primitives, encode_mesh, decode_mesh
 from pipeline.landscape.harness.kit import SIZES, prototype
 from pipeline.landscape.harness.package import (read_package, validate_package, footprint_inside, land_factor,
                                               write_package)
@@ -165,6 +165,26 @@ class PackageTests(Workspace):
         self.assertNotEqual(first['sha256'],harness_revision(source)['sha256'])
         with patch('pipeline.landscape.harness.common.MATERIALS_VERSION',2):
             self.assertNotEqual(first['sha256'],harness_revision(source)['sha256'])
+
+    def test_mesh_checks_refuse_each_bad_value_by_name(self):
+        # check_primitives inlines common.vector for the 10x land's million vertices: the same refusals, by name.
+        p=quad(-1,1,-1,1,0,'meadow')
+        cases=[(lambda v:v['positions'][1].__setitem__(0,1000.5),'invalid number'),
+               (lambda v:v['positions'][1].__setitem__(1,math.nan),'invalid number'),
+               (lambda v:v['positions'][1].__setitem__(2,True),'invalid number'),
+               (lambda v:v['positions'][2].pop(),'invalid vector'),
+               (lambda v:v.update(triangles=[[0,1,4]]),'triangle indices'),
+               (lambda v:v.update(triangles=[[0,1,-1]]),'triangle indices'),
+               (lambda v:v.update(triangles=[[0,1,True]]),'triangle indices'),
+               (lambda v:v.update(triangles=[[0,1]]),'triangle indices'),
+               (lambda v:v.update(triangles=[[0,1,1]]),'degenerate triangle'),
+               (lambda v:v['positions'][2].__setitem__(0,v['positions'][1][0]+1e-12),'degenerate triangle'),
+               (lambda v:v.update(tints=[[1,1,1,1]]*3+[[1,1,1.5,1]]),'invalid number'),
+               (lambda v:v.update(tints=[[1,1,1,.5]]+[[1,1,1.5,1]]*3),'tint alpha must be opaque')]
+        for change,message in cases:
+            v=copy.deepcopy(p); change(v)
+            with self.subTest(message=message),self.assertRaisesRegex(ValueError,message): check_primitives([v])
+        check_primitives([p])
 
     def test_glb_bad_geometry_and_features(self):
         p=quad(-1,1,-1,1,0,'meadow')
