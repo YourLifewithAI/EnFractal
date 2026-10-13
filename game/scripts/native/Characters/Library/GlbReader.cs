@@ -23,6 +23,11 @@ internal sealed class GlbReader
     private sealed record MaterialInfo(string Name, Color BaseColourLinear, float Metallic, float Roughness, bool DoubleSided);
 
     public const int MaxBytes = 32 * 1024 * 1024;
+    /// <summary>
+    /// The vertices the built primitives may copy in all, per triangle of the budget (three: a triangle soup). The converter writes
+    /// about half a vertex per triangle; the bound keeps a small file from making the reader copy one huge accessor many times.
+    /// </summary>
+    public const int MaxVerticesPerTriangle = 3;
     private const string Label = "character.glb";
 
     private readonly List<Accessor> _accessors = new();
@@ -150,6 +155,9 @@ internal sealed class GlbReader
 
         var meshTriangles = new List<int>();
         var total = 0L;
+        // Every primitive copies its whole POSITION accessor (BuildMesh), so the vertices are bounded like the triangles: an
+        // accessor shared by several primitives counts once for each, and vertices no triangle uses count too.
+        var vertexTotal = 0L;
         if (root.TryGetProperty("meshes", out var meshList))
         {
             StrictJson.Array(meshList, "meshes", 0, 4096);
@@ -190,6 +198,7 @@ internal sealed class GlbReader
                     if (material >= reader._materials.Count) throw new CharacterLoadException($"{Label}: {primitivePath} names a missing material");
                     parsed.Add(new Primitive(position, normal, indices, material, corners / 3));
                     triangles += corners / 3;
+                    vertexTotal += vertices;
                 }
                 total += triangles;
                 reader._meshes.Add(parsed.ToArray());
@@ -199,6 +208,9 @@ internal sealed class GlbReader
         }
         if (total > triangleBudget)
             throw new CharacterLoadException(FormattableString.Invariant($"character.glb has {total:N0} triangles, over the {triangleBudget:N0}-triangle limit per character (the converter's refinement is the knob)"));
+        if (vertexTotal > MaxVerticesPerTriangle * (long)triangleBudget)
+            throw new CharacterLoadException(FormattableString.Invariant(
+                $"character.glb's primitives name {vertexTotal:N0} vertices in all (an accessor shared by several primitives counts for each), over the {MaxVerticesPerTriangle * (long)triangleBudget:N0}-vertex limit per character"));
 
         var nodes = new List<Node>();
         var nodeList = StrictJson.Array(StrictJson.Get(root, "nodes", Label), "nodes", 1, 129);

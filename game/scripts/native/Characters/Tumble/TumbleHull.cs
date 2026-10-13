@@ -76,20 +76,41 @@ public sealed class TumbleHull : IDisposable
 
     private readonly Shape _shape;
     private readonly int[] _candidates = new int[RayPoints];
-    /// <summary>One ray query, reused for every ray of every tick.</summary>
+    /// <summary>
+    /// The ray every tick casts, a top-level child of the body cast by hand: through a node a ray allocates nothing, where the
+    /// space's query answers each ray with a new dictionary (review minor 9). The query below is for a body out of the tree.
+    /// </summary>
+    private readonly RayCast3D? _caster;
+    /// <summary>One ray query, reused, for when there is no ray node in the tree.</summary>
     private readonly PhysicsRayQueryParameters3D _ray = new() { CollisionMask = RoomBuilder.BodyMask, CollideWithAreas = false, CollideWithBodies = true };
+    /// <summary>The physics space's own gravity (the project setting), read once.</summary>
+    private static float _spaceGravity = float.NaN;
     private readonly float[] _candidateY = new float[RayPoints];
     private Rid _body;
+    /// <summary>
+    /// The body's direct state, kept while it lives: its transform is read through it each tick, because a Transform3D read as a
+    /// Variant (PhysicsServer3D.BodyGetState) costs a managed allocation every time.
+    /// </summary>
+    private PhysicsDirectBodyState3D? _direct;
     private World3D? _world;
     /// <summary>Last tick's push out of the world, a velocity (taken back this tick once the step has used it).</summary>
     private Vector3 _push;
     private float _ageS;
     private float _damping = -1;
 
-    private TumbleHull(Shape shape) => _shape = shape;
+    private TumbleHull(Shape shape, Node owner)
+    {
+        _shape = shape;
+        _caster = new RayCast3D
+        {
+            Name = "TumbleRay", TopLevel = true, Enabled = false, ExcludeParent = false, CollisionMask = RoomBuilder.BodyMask,
+            CollideWithAreas = false, CollideWithBodies = true, HitFromInside = false, HitBackFaces = true, TargetPosition = Vector3.Down * 0.01f,
+        };
+        owner.AddChild(_caster);
+    }
 
-    /// <summary>The hull for a body's character (built once per character, from its rest pose).</summary>
-    public static TumbleHull For(CharacterBody body) => new(Shapes.GetValue(body.Definition, _ => Build(body)));
+    /// <summary>The hull for a body's character (built once per character, from its rest pose), casting its rays from a node of the body's.</summary>
+    public static TumbleHull For(CharacterBody body) => new(Shapes.GetValue(body.Definition, _ => Build(body)), body);
 
     public int Points => _shape.Points.Length;
     public float Mass => _shape.Mass;
@@ -317,6 +338,7 @@ public sealed class TumbleHull : IDisposable
         start = Corrected(start, out _, out var drawn);
         PhysicsServer3D.BodySetState(_body, PhysicsServer3D.BodyState.Transform, start);
         PhysicsServer3D.BodySetSpace(_body, world.Space);
+        _direct = PhysicsServer3D.BodyGetDirectState(_body);
         // The kick is the motion of the centre of mass; the body's spin carries the rest.
         PhysicsServer3D.BodySetState(_body, PhysicsServer3D.BodyState.LinearVelocity, kick.Linear);
         PhysicsServer3D.BodySetState(_body, PhysicsServer3D.BodyState.AngularVelocity, kick.Angular);
@@ -341,9 +363,11 @@ public sealed class TumbleHull : IDisposable
     public void Tick(Vector3 anchor, float gravityMps2, float deltaS)
     {
         if (!_body.IsValid) return;
-        var transform = PhysicsServer3D.BodyGetState(_body, PhysicsServer3D.BodyState.Transform).AsTransform3D();
-        var linear = PhysicsServer3D.BodyGetState(_body, PhysicsServer3D.BodyState.LinearVelocity).AsVector3();
-        var angular = PhysicsServer3D.BodyGetState(_body, PhysicsServer3D.BodyState.AngularVelocity).AsVector3();
+        if (_direct == null || !GodotObject.IsInstanceValid(_direct)) _direct = PhysicsServer3D.BodyGetDirectState(_body);
+        if (_direct == null) { End(); return; }
+        var transform = _direct.Transform;
+        var linear = _direct.LinearVelocity;
+        var angular = _direct.AngularVelocity;
         if (!transform.Origin.IsFinite() || !linear.IsFinite() || !angular.IsFinite()) { End(); return; }
         LinearVelocity = linear;
         AngularVelocity = angular;
@@ -378,7 +402,7 @@ public sealed class TumbleHull : IDisposable
             if (distance > TetherReachM + TetherGiveM)
             {
                 transform = transform.Translated(-outward * (distance - TetherReachM));
-                PhysicsServer3D.BodySetState(_body, PhysicsServer3D.BodyState.Transform, transform);
+                _direct.Transform = transform;
             }
         }
         // Out of the world: Jolt leaves anything under its slop, so the body is sent back out within the next step, by velocity
@@ -433,6 +457,7 @@ public sealed class TumbleHull : IDisposable
     {
         if (_body.IsValid) PhysicsServer3D.FreeRid(_body);
         _body = default;
+        _direct = null;
         _push = Vector3.Zero;
         LinearVelocity = Vector3.Zero;
         AngularVelocity = Vector3.Zero;
@@ -462,23 +487,26 @@ public sealed class TumbleHull : IDisposable
         return drawn;
     }
 
-    private void Depths(World3D world, Transform3D transform, out Vector3 surface, out Vector3 drawn)
+    /// <summary>
+    /// <see cref="DrawnDepth(World3D, Transform3D)"/> in the world of the body the hull belongs to, through its ray node (no world
+    /// to fetch: the get-up asks twice a tick). A zero vector when clear, or while the body is out of the tree.
+    /// </summary>
+    public Vector3 DrawnDepth(Transform3D transform)
+    {
+        if (!CasterReady) return Vector3.Zero;
+        Depths(null, transform, out _, out var drawn);
+        return drawn;
+    }
+
+    private void Depths(World3D? world, Transform3D transform, out Vector3 surface, out Vector3 drawn)
     {
         surface = Vector3.Zero;
         drawn = Vector3.Zero;
-        var space = world.DirectSpaceState;
+        var space = CasterReady ? null : world?.DirectSpaceState;
+        if (space == null && !CasterReady) return;
         var centre = transform * _shape.CentreOfMass;
         var ground = Vector3.Up;
-        _ray.From = centre;
-        _ray.To = centre + Vector3.Down * (_shape.Reach + RayBandM);
-        using (var below = space.IntersectRay(_ray))
-        {
-            if (below.Count > 0)
-            {
-                var n = below["normal"].AsVector3();
-                if (n.IsNormalized()) ground = n;
-            }
-        }
+        if (Cast(space, centre, centre + Vector3.Down * (_shape.Reach + RayBandM), out _, out var below) && below.IsNormalized()) ground = below;
         var count = Lowest(transform, ground);
         var deepestSurface = 0f;
         var deepestPoint = 0f;
@@ -489,13 +517,7 @@ public sealed class TumbleHull : IDisposable
             var ray = point - centre;
             var length = ray.Length();
             if (length < 1e-5f) continue;
-            _ray.From = centre;
-            _ray.To = point;
-            using var hit = space.IntersectRay(_ray);
-            if (hit.Count == 0) continue;
-            var normal = hit["normal"].AsVector3();
-            if (!normal.IsNormalized()) continue;
-            var at = hit["position"].AsVector3();
+            if (!Cast(space, centre, point, out var at, out var normal) || !normal.IsNormalized()) continue;
             var cos = Mathf.Max(-(ray / length).Dot(normal), 0.2f);
             // Along the normal: how far the point, and Jolt's surface short of it, lie behind the surface the ray met.
             var pointDepth = (at - point).Dot(normal);
@@ -503,6 +525,32 @@ public sealed class TumbleHull : IDisposable
             if (surfaceDepth > deepestSurface) { deepestSurface = surfaceDepth; surface = normal * surfaceDepth; }
             if (pointDepth > deepestPoint) { deepestPoint = pointDepth; drawn = normal * pointDepth; }
         }
+    }
+
+    private bool CasterReady => _caster != null && GodotObject.IsInstanceValid(_caster) && _caster.IsInsideTree();
+
+    /// <summary>One ray from <paramref name="from"/> to <paramref name="to"/> (world space): the node's when it is in the tree, else the space's query.</summary>
+    private bool Cast(PhysicsDirectSpaceState3D? space, Vector3 from, Vector3 to, out Vector3 position, out Vector3 normal)
+    {
+        position = normal = Vector3.Zero;
+        if (CasterReady)
+        {
+            _caster!.GlobalTransform = new Transform3D(Basis.Identity, from);
+            _caster.TargetPosition = to - from;
+            _caster.ForceRaycastUpdate();
+            if (!_caster.IsColliding()) return false;
+            position = _caster.GetCollisionPoint();
+            normal = _caster.GetCollisionNormal();
+            return true;
+        }
+        if (space == null) return false;
+        _ray.From = from;
+        _ray.To = to;
+        using var hit = space.IntersectRay(_ray);
+        if (hit.Count == 0) return false;
+        position = hit["position"].AsVector3();
+        normal = hit["normal"].AsVector3();
+        return true;
     }
 
     /// <summary>The body moved straight out of the world (its start): Jolt's surface out, and what the drawing still needs.</summary>
@@ -569,6 +617,7 @@ public sealed class TumbleHull : IDisposable
     {
         if (_body.IsValid) PhysicsServer3D.FreeRid(_body);
         _body = default;
+        _direct = null;
         _world = null;
         Resting = false;
         DrawnLift = Vector3.Zero;
@@ -582,8 +631,11 @@ public sealed class TumbleHull : IDisposable
     /// </summary>
     private static float GravityScale(float gravityMps2)
     {
-        var space = (float)ProjectSettings.GetSetting("physics/3d/default_gravity", 9.8).AsDouble();
-        if (!float.IsFinite(space) || space <= 0) space = 9.8f;
-        return (float.IsFinite(gravityMps2) && gravityMps2 > 0 ? gravityMps2 : 3.5f) / space;
+        if (float.IsNaN(_spaceGravity))
+        {
+            var space = (float)ProjectSettings.GetSetting("physics/3d/default_gravity", 9.8).AsDouble();
+            _spaceGravity = float.IsFinite(space) && space > 0 ? space : 9.8f;
+        }
+        return (float.IsFinite(gravityMps2) && gravityMps2 > 0 ? gravityMps2 : 3.5f) / _spaceGravity;
     }
 }

@@ -8,39 +8,35 @@ namespace EnFractal.Native.Characters;
 /// flop to the end of the get-up, every part riding the hull the ground holds, then reset to the pose they ride in and let go.
 /// Measured in the suite: free, a chain lagging 20° behind a body turning at 6 rad/s sweeps a hat's brim or a hand up to 1.7 cm
 /// into the ground the body rolls onto, and still 1 to 3 mm while the body rises; a spring collider (a plane on the ground) only
-/// keeps the chain's centre line out, never the part's mesh. The rig's own setup is restored as it was.
+/// keeps the chain's centre line out, never the part's mesh. The hold is the rig's own (<see cref="SecondaryMotion.Held"/>), so
+/// the contact layer letting go of the leg IK while the tumble suspends it (which asks for the leg springs) never frees the legs
+/// mid-flop (review major 3); let go, each simulator is as active as the rig wants it then.
 /// </summary>
 public sealed class TumbleSprings
 {
     private readonly CharacterBody _body;
-    private readonly List<(SpringBoneSimulator3D Simulator, bool WasActive)> _held = new();
+    private bool _holding;
 
     public TumbleSprings(CharacterBody body) => _body = body;
 
     /// <summary>The springs are held still.</summary>
-    public bool Held => _held.Count > 0;
+    public bool Held => _holding;
 
     /// <summary>Every chain rides its parent as posed.</summary>
     public void Hold()
     {
-        if (Held) return;
-        foreach (var simulator in new[] { _body.Secondary.LegSimulator, _body.Secondary.Simulator })
-        {
-            if (simulator == null || !GodotObject.IsInstanceValid(simulator)) continue;
-            _held.Add((simulator, simulator.Active));
-            simulator.Active = false;
-        }
+        if (_holding) return;
+        _holding = true;
+        _body.Secondary.Held = true;
     }
 
-    /// <summary>The springs start again from the pose they ride in (no jump from where they last were), as active as the rig had them.</summary>
+    /// <summary>The springs start again from the pose they ride in (no jump from where they last were), as active as the rig wants them.</summary>
     public void Release()
     {
-        foreach (var (simulator, wasActive) in _held)
-        {
-            if (!GodotObject.IsInstanceValid(simulator)) continue;
-            simulator.Reset();
-            simulator.Active = wasActive;
-        }
-        _held.Clear();
+        if (!_holding) return;
+        _holding = false;
+        foreach (var simulator in new[] { _body.Secondary.LegSimulator, _body.Secondary.Simulator })
+            if (simulator != null && GodotObject.IsInstanceValid(simulator)) simulator.Reset();
+        _body.Secondary.Held = false;
     }
 }

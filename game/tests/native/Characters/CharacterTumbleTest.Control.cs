@@ -31,7 +31,17 @@ public partial class CharacterTumbleTest
         public bool StarsShown;
         public bool StarsNearHead = true;
         public float RootTurned;
+        public bool SpringsHeld = true;
     }
+
+    /// <summary>Every spring of the body still: both simulators inactive (review major 3).</summary>
+    private static bool SpringsStill(CharacterBody rig) =>
+        (rig.Secondary.LegSimulator is not { } legs || !legs.Active) && (rig.Secondary.Simulator is not { } others || !others.Active);
+
+    /// <summary>After a tumble the leg springs run exactly while the leg IK does not plant the feet.</summary>
+    private static bool LegsAsTheIkWants(CharacterBody rig) =>
+        (rig.Secondary.LegSimulator is not { } legs || legs.Active == !(rig.LegSolver?.Active ?? false)) &&
+        (rig.Secondary.Simulator is not { } others || others.Active);
 
     private async Task<List<Watch>> WatchFalls(Vector3 origin, (string Id, float Height, bool Move)[] falls, Action<SmallPlayerController>? prepare = null, int frames = 260)
     {
@@ -60,6 +70,7 @@ public partial class CharacterTumbleTest
                 }
                 if (watch.StartS < 0) continue;
                 var stack = watch.Wearer.Visual.Stack;
+                if (tumble.IsTumbling) watch.SpringsHeld &= SpringsStill(watch.Wearer.Visual.Body);
                 if (tumble.Phase == TumblePhase.Flop)
                 {
                     watch.SawFlop = true;
@@ -109,6 +120,8 @@ public partial class CharacterTumbleTest
             var length = watch.Wearer.Tumble.LastLengthS;
             Check(watch.StartS >= 0 && watch.SawFlop && watch.SawGetUp && watch.EndS > 0, $"{name}: a 0.9 m fall tumbles, flops and gets up");
             Check(watch.SuspendedInFlop && watch.ResumedInGetUp, $"{name}: Gait, Contact and Life wait while it flops and pose the standing body again for the get-up");
+            Check(watch.SpringsHeld && LegsAsTheIkWants(watch.Wearer.Visual.Body),
+                $"{name}: every spring is held still from the flop to the end of the get-up, though contact lets go of the leg IK meanwhile, then runs as the leg IK wants (review major 3)");
             Check(watch.RootTurned > 0.3f, Inv($"{name}: physics turns the root bone (by up to {Mathf.RadToDeg(watch.RootTurned):0} degrees)"));
             if (!watch.Move)
                 Check(Mathf.Abs(length - TumbleTiers.TumbleSeconds) <= 1.5f * Dt && Mathf.Abs((float)(watch.ReleasedS - watch.StartS) - TumbleTiers.TumbleSeconds) <= 2.5f * Dt &&
@@ -120,10 +133,16 @@ public partial class CharacterTumbleTest
                     Inv($"{name}: moving starts the get-up early, at most {TumbleTiers.EarlyGetUpSeconds} s sooner, then control is released (tumbled {length:0.000} s, released after {watch.ReleasedS - watch.StartS:0.000} s)"));
             Check(watch.HeldDrift < 0.002f, Inv($"{name}: while control is held the capsule takes no input (drifted {watch.HeldDrift * 1000:0.0} mm)"));
             if (watch.Move) Check(watch.MovedAfter, $"{name}: released, the body walks off");
-            var pose = watch.Wearer.Visual.Body.Pose;
-            Check(pose.GetRotation(CharacterBody.RootBone).IsEqualApprox(Quaternion.Identity) && pose.GetPosition(CharacterBody.RootBone).IsEqualApprox(watch.Wearer.Visual.Body.Bones[0].RestLocal) &&
-                  pose.NonFiniteWrites == 0 && !watch.Wearer.Tumble.Hull.Active,
-                $"{name}: the get-up blends back to the standing pose exactly and the tumbling body is gone");
+            // The layers below pose the standing body (the gait's breath and lean, contact's feet on the floor): the get-up hands the
+            // root back to them upright where the capsule stands, and the tumble leaves the pose alone.
+            var rig = watch.Wearer.Visual.Body;
+            var pose = rig.Pose;
+            var turned = pose.GetRotation(CharacterBody.RootBone).GetAngle();
+            turned = Mathf.Min(turned, Mathf.Tau - turned);
+            var away = pose.GetPosition(CharacterBody.RootBone).DistanceTo(rig.Bones[0].RestLocal);
+            // (A body that walks off leans into its walk: only one that stays is upright.)
+            Check(watch.Wearer.Tumble.Phase == TumblePhase.Idle && (watch.Move || turned < 0.05f && away < 0.006f) && pose.NonFiniteWrites == 0 && !watch.Wearer.Tumble.Hull.Active,
+                Inv($"{name}: the get-up blends back to the standing pose (root {Mathf.RadToDeg(turned):0.0}° from upright, {away * 1000:0.0} mm from its rest) and the tumbling body is gone"));
         }
         foreach (var watch in watches) watch.Wearer.Body.QueueFree();
         floor.QueueFree();
@@ -162,6 +181,20 @@ public partial class CharacterTumbleTest
         Check(tumble.LastTier == TumbleTier.Tumble && hurt[0].StarsShown && Mathf.Abs(tumble.LastLengthS - TumbleTiers.KnockoutSeconds) <= 1.5f * Dt,
             Inv($"a tumble-tier fall that the host turns into a knockout (its recovery waits KnockoutRecoveryDelayS) tumbles dazed for the knockout's length ({tumble.LastLengthS:0.000} s)"));
         hurt[0].Wearer.Body.QueueFree();
+        // Review minor 4: a fall below the tumble tier that knocks the player out (a stumble's cost from their last health) is the
+        // knockout's tumble too: the host's recovery waits for it, so the body never stands frozen with control held and no tumble.
+        var stumbled = await WatchFalls(origin, new[] { ("tomato_man", 0.42f, false) }, body =>
+        {
+            body.FallObserved = (speed, deep) =>
+            {
+                if (PlayerVitals.FallDamage(speed, deep) > 0) body.HoldControl(body.KnockoutRecoveryDelayS);
+            };
+        }, frames: 220);
+        var knocked = stumbled[0].Wearer.Tumble;
+        Check(knocked.LastTier == TumbleTier.Stumble && knocked.Tumbles == 1 && knocked.EarlyGetUps == 0 && stumbled[0].StarsShown &&
+              Mathf.Abs(knocked.LastLengthS - TumbleTiers.KnockoutSeconds) <= 1.5f * Dt && !stumbled[0].Wearer.Body.ControlHeld,
+            Inv($"a stumble-tier fall that knocks the player out tumbles dazed for the knockout's length while the recovery waits ({knocked.LastTier}, {knocked.LastLengthS:0.000} s)"));
+        stumbled[0].Wearer.Body.QueueFree();
         floor.QueueFree();
         await Frames(2);
     }
@@ -233,13 +266,61 @@ public partial class CharacterTumbleTest
         await Frames(2);
     }
 
-    /// <summary>The tumble's frame cost: 16 bodies (four of each character) standing, then all tumbling, frame time compared.</summary>
+    /// <summary>
+    /// Brackets the tumble layer (the stack's last) to count what it allocates on the managed heap: the start probe runs just
+    /// before it (a Gesture layer added after the others), the end probe just after it (a Tumble layer added after it).
+    /// </summary>
+    private sealed class AllocationProbe : IPoseLayer<BodyState>
+    {
+        private readonly AllocationProbe? _start;
+        private readonly CharacterTumble? _tumble;
+        public AllocationProbe(PoseLayer layer, AllocationProbe? start = null, CharacterTumble? tumble = null)
+        {
+            Layer = layer;
+            _start = start;
+            _tumble = tumble;
+        }
+        public PoseLayer Layer { get; }
+        public long Mark;
+        public long Bytes;
+        public long GetUpBytes;
+        public int Ticks;
+        public bool Counting;
+        public void Apply(PoseBuffer pose, in BodyState state, in PoseClock clock)
+        {
+            var now = GC.GetAllocatedBytesForCurrentThread();
+            if (_start == null)
+            {
+                Mark = now;
+                return;
+            }
+            if (!Counting) return;
+            Bytes += now - _start.Mark;
+            if (_tumble?.Phase == TumblePhase.GetUp) GetUpBytes += now - _start.Mark;
+            Ticks++;
+        }
+    }
+
+    /// <summary>
+    /// The tumble's frame cost: 16 bodies (four of each character) standing, then all tumbling, frame time compared through the flop
+    /// and through the get-up (review minor 9: the get-up casts its own rays); and what the tumble layer allocates while it plays.
+    /// </summary>
     private async Task TestFrameCost(bool skipBudget)
     {
         var origin = new Vector3(120, 0, 0);
         var floor = Floor(origin + new Vector3(1, 0, 1), 6);
         var wearers = new List<Wearer>();
-        for (var i = 0; i < 16; i++) wearers.Add(Wear(PlayerCharacters[i % 4], origin + new Vector3(0.5f * (i % 4), 0.003f, 0.5f * (i / 4))));
+        var probes = new List<AllocationProbe>();
+        for (var i = 0; i < 16; i++)
+        {
+            var wearer = Wear(PlayerCharacters[i % 4], origin + new Vector3(0.5f * (i % 4), 0.003f, 0.5f * (i / 4)));
+            var start = new AllocationProbe(PoseLayer.Gesture);
+            var end = new AllocationProbe(PoseLayer.Tumble, start, wearer.Tumble);
+            wearer.Visual.Stack.Add(start);
+            wearer.Visual.Stack.Add(end);
+            probes.Add(end);
+            wearers.Add(wearer);
+        }
         await Frames(30);
         async Task<double> FrameMs(int frames)
         {
@@ -261,11 +342,25 @@ public partial class CharacterTumbleTest
             wearer.Tumble.NextSeed = seed++;
             wearer.Tumble.Tumble(new Vector3(0.3f, 0, 0.2f), TumbleTiers.KnockoutSeconds);
         }
+        // The first two ticks make the tumble's one-time things (each character's measured hull, the stars): not counted.
         await Frames(2);
-        var tumbling = await FrameMs(45);
-        var perTumble = Math.Max(0, tumbling - idle) / wearers.Count;
-        GD.Print(Inv($"TUMBLE_COST median frame {idle:0.000} ms with 16 bodies standing, {tumbling:0.000} ms with all 16 tumbling: {perTumble:0.000} ms per tumble (budget 0.3 ms)"));
-        if (!skipBudget) Check(perTumble <= 0.3, Inv($"a tumble costs at most 0.3 ms of frame time ({perTumble:0.000} ms)"));
+        foreach (var probe in probes) probe.Counting = true;
+        var flopping = await FrameMs(45);
+        var flopped = wearers.All(w => w.Tumble.Phase == TumblePhase.Flop);
+        for (var f = 0; f < 120 && wearers.Any(w => w.Tumble.Phase != TumblePhase.GetUp); f++) await Frames(1);
+        var risingAll = wearers.All(w => w.Tumble.Phase == TumblePhase.GetUp);
+        var rising = await FrameMs(16);
+        var gotUp = wearers.All(w => w.Tumble.Phase == TumblePhase.GetUp);
+        foreach (var probe in probes) probe.Counting = false;
+        var perFlop = Math.Max(0, flopping - idle) / wearers.Count;
+        var perGetUp = Math.Max(0, rising - idle) / wearers.Count;
+        var bytes = probes.Sum(p => p.Bytes);
+        var getUpBytes = probes.Sum(p => p.GetUpBytes);
+        var ticks = probes.Sum(p => p.Ticks);
+        GD.Print(Inv($"TUMBLE_COST median frame {idle:0.000} ms with 16 bodies standing, {flopping:0.000} ms with all 16 flopping, {rising:0.000} ms with all 16 getting up: {perFlop:0.000} and {perGetUp:0.000} ms per tumble (budget 0.3 ms); the tumble layer allocated {bytes} bytes over {ticks} ticks ({getUpBytes} getting up)"));
+        Check(flopped && risingAll && gotUp, "the cost is sampled while all 16 flop and while all 16 get up");
+        Check(bytes == 0 && ticks > 16 * 50, Inv($"the tumble layer allocates nothing per tick while it flops and gets up ({bytes} bytes over {ticks} ticks)"));
+        if (!skipBudget) Check(perFlop <= 0.3 && perGetUp <= 0.3, Inv($"a tumble costs at most 0.3 ms of frame time flopping ({perFlop:0.000} ms) and getting up ({perGetUp:0.000} ms)"));
         foreach (var wearer in wearers) wearer.Body.QueueFree();
         floor.QueueFree();
         await Frames(2);

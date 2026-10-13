@@ -173,6 +173,10 @@ public partial class CharacterTumbleTest
         var deep = await DropAll(origin, "room_tuned", new[] { 1.9f, 1.9f, 1.9f, 1.9f }, framesAfter: 10);
         Check(deep.All(d => d.Observed > 0 && d.Deep && d.Wearer.Tumble.Tumbles == 0 && !d.Wearer.Tumble.IsTumbling && !d.Wearer.Body.ControlHeld),
             Inv($"deep water catches a 1.9 m fall ({string.Join(", ", deep.Select(d => $"{d.Landing:0.00} m/s{(d.Deep ? " deep" : "")}"))}) and no character tumbles"));
+        // Review minor 8: the landing the tumble reads into deep water is the fall's real speed (one that would tumble on dry ground),
+        // so it is the deep water, not a speed of 0, that keeps the tiers from tumbling.
+        Check(deep.All(d => d.Wearer.Tumble.LastTier == TumbleTier.None && TumbleTiers.Classify(d.Wearer.Tumble.LastLandingSpeedMps, false) >= TumbleTier.Tumble),
+            Inv($"the deep-water landings reach the tumble at their falling speed ({string.Join(", ", deep.Select(d => $"{d.Wearer.Tumble.LastLandingSpeedMps:0.00} m/s"))}), a tumble's on dry ground"));
         Check(deep.All(d => !d.Wearer.Body.IsSwimming || !d.Wearer.Tumble.Tumble(Vector3.Right, 1)),
             "a swimmer is never knocked over by a hazard either");
         foreach (var drop in deep) drop.Wearer.Body.QueueFree();

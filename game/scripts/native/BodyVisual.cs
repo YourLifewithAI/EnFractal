@@ -21,9 +21,10 @@ public readonly struct BodyState
     public float SpeedMps { get; init; }
     /// <summary>
     /// Metres moved since the body was made, along the ground, the water or the face (a teleport, a trip home or a wrap does not
-    /// count). Gaits phase their steps by it, so feet never slide.
+    /// count). Gaits phase their steps by it, so feet never slide. A double: a float's step passes a 5 mm tick within kilometres,
+    /// and the phase would stall (the characters round's review).
     /// </summary>
-    public float DistanceM { get; init; }
+    public double DistanceM { get; init; }
     public bool Grounded { get; init; }
     /// <summary>The floor's normal while grounded; up otherwise.</summary>
     public Vector3 FloorNormal { get; init; }

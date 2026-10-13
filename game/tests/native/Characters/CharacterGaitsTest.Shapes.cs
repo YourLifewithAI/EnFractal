@@ -16,10 +16,10 @@ public partial class CharacterGaitsTest
 
     /// <summary>Feeds <paramref name="frames"/> frames of a scripted motion to a fresh installed visual and calls back after each.</summary>
     private (CharacterVisual Visual, GaitLayer Gait, LifeLayer Life) Drive(string id, int frames, Func<int, Motion> motion,
-        Action<int, BodyState, CharacterVisual, GaitLayer, LifeLayer>? each = null, float dt = Dt, double timeOffset = 0)
+        Action<int, BodyState, CharacterVisual, GaitLayer, LifeLayer>? each = null, float dt = Dt, double timeOffset = 0, double distanceFrom = 0)
     {
         var (visual, gait, life) = Installed(id);
-        var walker = new Walker();
+        var walker = new Walker { Distance = distanceFrom };
         for (var frame = 0; frame < frames; frame++)
         {
             var step = motion(frame);
@@ -40,6 +40,10 @@ public partial class CharacterGaitsTest
             var (b, gaitB, _) = Drive(id, 180, _ => new Motion(MotionProfile.WalkSpeedMps), timeOffset: 1000);
             // Half the frame rate over the same 3 s: the same distance, the same phase.
             var (c, gaitC, _) = Drive(id, 90, _ => new Motion(MotionProfile.WalkSpeedMps), dt: 2 * Dt);
+            // 2,000 km from home (a float's step there is 12.5 cm, far over a 5 mm tick): the same walk, the same phase.
+            var (far, gaitFar, _) = Drive(id, 180, _ => new Motion(MotionProfile.WalkSpeedMps), distanceFrom: 2_000_000);
+            Check(Math.Abs(gaitFar.Cycles / gaitA.Cycles - 1) < 1e-4, F($"{id}: 2,000 km from home the same walk gives the same phase ({gaitFar.Cycles:0.0000} against {gaitA.Cycles:0.0000})"));
+            far.Body.Free();
             Check(gaitA.Cycles == gaitB.Cycles && gaitA.Cycles > 0, F($"{id}: the phase ignores the clock ({gaitA.Cycles:0.0000} cycles either way)"));
             Check(Math.Abs(gaitC.Cycles / gaitA.Cycles - 1) < 0.02, F($"{id}: at 30 frames a second the same walk gives the same phase ({gaitC.Cycles:0.0000} against {gaitA.Cycles:0.0000})"));
             foreach (var visual in new[] { a, b, c }) visual.Body.Free();

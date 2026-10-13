@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Reflection;
 using System.Threading.Tasks;
 using EnFractal.Native;
 using EnFractal.Native.Characters;
@@ -14,7 +15,10 @@ namespace EnFractal.Tests.Characters;
 /// <summary>The budget, a real body walking a floor, and how bones compose.</summary>
 public partial class CharacterGaitsTest
 {
-    /// <summary>The layers' CPU time for both bodies (the player and the Gubble), against the plan's 0.4 ms frame budget.</summary>
+    /// <summary>
+    /// The gait and life layers' CPU time for both bodies (the player and the Gubble), synthetic frames: reported, not the budget's
+    /// check (TestMotionBudget measures every layer CharacterMotion installs, on real bodies).
+    /// </summary>
     private void TestCpu()
     {
         double Measure(IReadOnlyList<CharacterVisual> visuals, bool run)
@@ -40,10 +44,89 @@ public partial class CharacterGaitsTest
         var all = Shipped.Select(id => Installed(id).Visual).ToArray();
         Measure(all, false);
         var five = Measure(all, false);
-        GD.Print(F($"GAITS_CPU: the gait and life layers for both bodies (Stickbear, the most bones, and the Gubble): {layers * 1000:0.0} µs a frame; with the pose handed to the skeletons and the springs kept tuned: {withSkeleton * 1000:0.0} µs; all five characters: {five * 1000:0.0} µs (best of five rounds of 600 frames, headless, Debug build)"));
-        if (!OS.GetCmdlineUserArgs().Contains("--skip-budget"))
-            Check(layers < 0.4, F($"both bodies' layers fit the 0.4 ms frame budget ({layers:0.000} ms)"));
+        GD.Print(F($"GAITS_CPU: the gait and life layers alone for both bodies (Stickbear, the most bones, and the Gubble): {layers * 1000:0.0} µs a frame; with the pose handed to the skeletons and the springs kept tuned: {withSkeleton * 1000:0.0} µs; all five characters: {five * 1000:0.0} µs (best of five rounds of 600 frames, headless, Debug build)"));
         foreach (var visual in both.Concat(all)) visual.Body.Free();
+    }
+
+    /// <summary>Times a drawn body's whole tick: every layer of its stack, the pose handed to the skeleton, the springs kept tuned.</summary>
+    private sealed class TimedVisual : IBodyVisual
+    {
+        public required CharacterVisual Inner { get; init; }
+        public readonly List<double> TickMs = new();
+        public bool Timing;
+        public Node3D Root => Inner.Root;
+        public void BodyTicked(in BodyState state, float delta)
+        {
+            var start = Stopwatch.GetTimestamp();
+            Inner.BodyTicked(state, delta);
+            if (Timing) TickMs.Add(Stopwatch.GetElapsedTime(start).TotalMilliseconds);
+        }
+    }
+
+    /// <summary>
+    /// Review minor 10: the plan's 0.4 ms is both bodies' layers, so the check runs every layer CharacterMotion installs (the gaits
+    /// and life, contact with its rays and look targets, the tumble's watch) on real bodies as the room dresses them: Stickbear
+    /// (the most bones) walking, running, stopping and turning on a floor, and a floating Gubble beside him, each tick timed whole
+    /// (the stack, the pose handed to the skeleton, the springs tuned). The engine's own modifier pass is not in it. "--skip-budget"
+    /// reports without checking, where wall time means nothing.
+    /// </summary>
+    private async Task TestMotionBudget()
+    {
+        var fixture = new Node3D { Name = "BudgetFixture", Position = new Vector3(-40, 0, 20) };
+        AddChild(fixture);
+        var floor = new StaticBody3D { Position = new Vector3(0, -0.05f, 0), CollisionLayer = RoomBuilder.WorldLayer, CollisionMask = 0 };
+        floor.AddChild(new CollisionShape3D { Shape = new BoxShape3D { Size = new Vector3(8, 0.1f, 8) } });
+        fixture.AddChild(floor);
+        await Frames(2);
+        TimedVisual Dress(string id, SmallPlayerController body)
+        {
+            var visual = Visual(id);
+            CharacterMotion.Install(visual, body);
+            var timed = new TimedVisual { Inner = visual };
+            body.SetBodyVisual(timed);
+            fixture.AddChild(body);
+            return timed;
+        }
+        var walker = new SmallPlayerController { Name = "BudgetWalker", ReadKeyboard = false, Position = new Vector3(0, 0.01f, 1.5f) };
+        var floater = new SmallPlayerController { Name = "BudgetFloater", ReadKeyboard = false, Floats = true, Position = new Vector3(0.3f, 0.03f, 1.5f) };
+        var player = Dress("stickbear", walker);
+        var gubble = Dress("gubble", floater);
+        await Frames(30);
+        player.Timing = gubble.Timing = true;
+        async Task Go(int frames, Vector2 input, bool sprint = false, float turn = 0)
+        {
+            walker.SetControlInput(input, sprint: sprint);
+            floater.SetControlInput(input, sprint: sprint);
+            for (var i = 0; i < frames; i++)
+            {
+                if (turn != 0) walker.SetMovementFrame((walker.MovementFrameYaw ?? walker.GlobalRotation.Y) + turn * Dt);
+                await Frames(1);
+            }
+        }
+        await Go(150, new Vector2(0, 1));
+        await Go(150, new Vector2(0, 1), sprint: true);
+        await Go(140, Vector2.Zero);
+        await Go(160, new Vector2(0, 1), turn: 2.5f);
+        walker.SetMovementFrame(null);
+        walker.SetControlInput(Vector2.Zero);
+        floater.SetControlInput(Vector2.Zero);
+        player.Timing = gubble.Timing = false;
+        var ticks = Math.Min(player.TickMs.Count, gubble.TickMs.Count);
+        var both = Enumerable.Range(0, ticks).Select(i => player.TickMs[i] + gubble.TickMs[i]).OrderBy(ms => ms).ToList();
+        var median = ticks > 0 ? both[ticks / 2] : double.NaN;
+        var p95 = ticks > 0 ? both[(int)(ticks * 0.95)] : double.NaN;
+        var layers = string.Join(", ", player.Inner.Stack.Count > 0 ? Enumerable.Range(0, player.Inner.Stack.Count).Select(i => player.Inner.Stack[i].GetType().Name) : Array.Empty<string>());
+        GD.Print(F($"GAITS_BUDGET: every layer CharacterMotion installs ({layers}) on both real bodies, Stickbear walking, running, stopping and turning and the Gubble floating: median {median * 1000:0.0} µs a tick, 95th percentile {p95 * 1000:0.0} µs, over {ticks} ticks (headless, Debug build; the engine's modifier pass not included)"));
+        Check(ticks >= 550 && CharacterTumble.Find(player.Inner) != null && EnFractal.Native.Characters.Contact.CharacterContact.FindContact(gubble.Inner) != null,
+            $"both bodies were dressed as the room dresses them and timed every tick ({ticks} ticks)");
+        if (!OS.GetCmdlineUserArgs().Contains("--skip-budget"))
+            Check(median < 0.4, F($"both bodies' layers, all of CharacterMotion's, fit the 0.4 ms frame budget (median {median:0.000} ms a tick)"));
+        walker.SetBodyVisual(null);
+        floater.SetBodyVisual(null);
+        player.Inner.Body.QueueFree();
+        gubble.Inner.Body.QueueFree();
+        fixture.QueueFree();
+        await Frames(2);
     }
 
     /// <summary>
@@ -67,6 +150,10 @@ public partial class CharacterGaitsTest
             body.SetBodyVisual(visual);
             fixture.AddChild(body);
             await Frames(30);
+            // Stickbear walks 2,000 km from home: the controller keeps the distance in double, so its 5 mm ticks still count
+            // (review minor 11; in a float they rounded to nothing and the phase stalled).
+            if (id == "stickbear") typeof(SmallPlayerController).GetField("_distanceM", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(body, 2_000_000.0);
+            await Frames(2);
             var pose = visual.Body.Pose;
             var nonFinite = pose.NonFiniteWrites;
             var lowest = float.MaxValue;

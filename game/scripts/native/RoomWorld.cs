@@ -83,15 +83,26 @@ public partial class RoomWorld : Node3D
         return library;
     }
 
-    /// <summary>The player chose a character ("" for the prototype figure): draw their body with it.</summary>
+    /// <summary>
+    /// The player chose a character ("" for the prototype figure): draw their body with it. Only a character the HUD offers is
+    /// worn (never the family's Gubble); anything else, a save's or a room state's token included, draws the prototype figure.
+    /// </summary>
     private void WearCharacter(string id)
     {
         var previous = PlayerVisual;
-        PlayerVisual = CharacterVisual.Create(Characters, id);
+        PlayerVisual = Offered(id) ? CharacterVisual.Create(Characters, id) : null;
         if (PlayerVisual != null)
             CharacterMotion.Install(PlayerVisual, Player, () => GodotObject.IsInstanceValid(Companion) ? Companion.EyeCamera.GlobalPosition : null);
         Player.SetBodyVisual(PlayerVisual);
         if (previous != null && GodotObject.IsInstanceValid(previous.Root)) previous.Root.QueueFree();
+    }
+
+    /// <summary>Whether the HUD's row offers <paramref name="id"/> (the shipped characters but the Gubble).</summary>
+    private bool Offered(string id)
+    {
+        foreach (var choice in _characterChoices)
+            if (choice.Id == id) return true;
+        return false;
     }
 
     public override async void _Ready()

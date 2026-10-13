@@ -10,8 +10,8 @@ namespace EnFractal.Tests.Characters;
 
 /// <summary>
 /// K7's suite: the tumble on a big fall (docs/runs/RUN-2-CHARACTERS.md, "The tumble (K7)" and acceptance item 2), on real
-/// physics with real SmallPlayerControllers wearing the four player characters (CharacterVisual.Create, SetBodyVisual and
-/// TumbleInstaller.Install, as the room does). Headless, --fixed-fps 60.
+/// physics with real SmallPlayerControllers wearing the four player characters (CharacterVisual.Create, CharacterMotion.Install
+/// and SetBodyVisual, as the room does: the gaits and contact run under the tumble). Headless, --fixed-fps 60.
 /// Run: res://tests/native_character_tumble.tscn ("-- --spike" also runs the physical-bones spike and prints its numbers;
 /// "-- --skip-budget" drops the wall-clock frame-cost check where wall time means nothing).
 /// </summary>
@@ -91,15 +91,20 @@ public partial class CharacterTumbleTest : Node3D
     private CharacterDefinition Definition(string id) =>
         _library.TryGet(id, out var definition) ? definition : throw new InvalidOperationException($"{id} is not in the library");
 
-    /// <summary>A body wearing a character with the tumble installed, as the room dresses the player.</summary>
+    /// <summary>
+    /// A body wearing a character dressed as the room dresses the player (RoomWorld.WearCharacter: CharacterMotion.Install, the
+    /// gaits, contact with the land and the tumble, then SetBodyVisual). A floating body also gets the tumble layer the room never
+    /// gives it, so the suite can check that the layer itself never tumbles one.
+    /// </summary>
     private sealed record Wearer(SmallPlayerController Body, CharacterVisual Visual, CharacterTumble Tumble);
 
     private Wearer Wear(string id, Vector3 position, float yaw = 0, bool floats = false)
     {
         var body = new SmallPlayerController { Name = $"Wearer{_serial++}_{id}", ReadKeyboard = false, Position = position, Rotation = new Vector3(0, yaw, 0), Floats = floats };
         var visual = CharacterVisual.Create(Definition(id));
+        CharacterMotion.Install(visual, body);
+        if (floats) TumbleInstaller.Install(visual, body);
         body.SetBodyVisual(visual);
-        TumbleInstaller.Install(visual, body);
         AddChild(body);
         return new Wearer(body, visual, CharacterTumble.Find(visual)!);
     }

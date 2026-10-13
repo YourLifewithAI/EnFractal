@@ -47,6 +47,7 @@ public partial class CharacterRigTest : Node3D
             await TestRestInTheTree();
             await TestDeterministicHashes();
             await TestSpringFrequency();
+            await TestSpringsOnThePhysicsTick();
             await TestLegIk();
             await TestLookAt();
             GD.Print(FormattableString.Invariant(

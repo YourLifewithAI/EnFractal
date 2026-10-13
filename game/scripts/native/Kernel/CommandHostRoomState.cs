@@ -155,10 +155,14 @@ public partial class CommandHost
 
     /// <summary>A colour, and at most an optional body token beside it.</summary>
     private static bool AppearanceIsValid(JsonObject look) =>
-        look.Count == (look.ContainsKey("body") ? 2 : 1) && StrOf(look["color"]) is { } color && ColorHex.IsMatch(color) && BodyIsValid(look["body"]);
+        look.Count == (look.ContainsKey("body") ? 2 : 1) && StrOf(look["color"]) is { } color && ColorHex.IsMatch(color) && BodyIsValid(look);
 
-    /// <summary>Absent, or a token (common.schema.json).</summary>
-    private static bool BodyIsValid(JsonNode? body) => body == null || (StrOf(body) is { } token && SmallPlayerController.IsCharacterToken(token));
+    /// <summary>
+    /// No "body" key, or a token string under it (room-state.schema.json's optional appearance.body, common.schema.json's token):
+    /// a key present with null, or any other value, is refused.
+    /// </summary>
+    private static bool BodyIsValid(JsonObject holder) =>
+        !holder.TryGetPropertyValue("body", out var body) || (StrOf(body) is { } token && SmallPlayerController.IsCharacterToken(token));
     private static readonly System.Text.RegularExpressions.Regex SessionHex = new(@"\A[a-f0-9]{16,64}\z", System.Text.RegularExpressions.RegexOptions.Compiled);
     private static readonly System.Text.RegularExpressions.Regex CheckpointId = new(@"\Acp[0-9]{4,9}\z", System.Text.RegularExpressions.RegexOptions.Compiled);
     private static readonly System.Text.RegularExpressions.Regex HostCreationId = new(@"\Acreation:[0-9]{8}\z", System.Text.RegularExpressions.RegexOptions.Compiled);

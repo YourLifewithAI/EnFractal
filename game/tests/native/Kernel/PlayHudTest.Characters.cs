@@ -58,6 +58,39 @@ public partial class PlayHudTest
             Check(potato != null && Math.Max(potato.GetWidth(), potato.GetHeight()) == CharacterChoice.ThumbnailPx &&
                   CharacterChoice.LoadThumbnail(root + "/assets/characters/no_such_character") == null,
                 $"a character folder's {CharacterChoice.ThumbnailFile} loads as a {CharacterChoice.ThumbnailPx} px thumbnail; a folder without one gives none");
+            // Review: a thumbnail is bounded before it is decoded, by the file's length and by the size its PNG header claims.
+            var limits = ProjectSettings.GlobalizePath("user://thumbnail_limits");
+            try
+            {
+                string Folder(string name, byte[] png)
+                {
+                    var folder = System.IO.Path.Combine(limits, name);
+                    System.IO.Directory.CreateDirectory(folder);
+                    System.IO.File.WriteAllBytes(System.IO.Path.Combine(folder, CharacterChoice.ThumbnailFile), png);
+                    return folder;
+                }
+                byte[] Png(int width, int height)
+                {
+                    var image = Image.CreateEmpty(width, height, false, Image.Format.Rgba8);
+                    image.Fill(new Color(0.5f, 0.6f, 0.7f));
+                    return image.SavePngToBuffer();
+                }
+                var wide = Png(CharacterChoice.MaxThumbnailSidePx + 1, 8);
+                var widest = Png(CharacterChoice.MaxThumbnailSidePx, 8);
+                var padded = Png(16, 16).Concat(new byte[CharacterChoice.MaxThumbnailBytes]).ToArray();
+                var forged = Png(16, 16);
+                System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(forged.AsSpan(16), 100_000);
+                System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(forged.AsSpan(20), 100_000);
+                var fits = CharacterChoice.LoadThumbnail(Folder("widest", widest));
+                Check(CharacterChoice.PngSize(wide, out var w, out var h) && w == CharacterChoice.MaxThumbnailSidePx + 1 && h == 8 && !CharacterChoice.PngSize(padded.AsSpan(1), out _, out _) &&
+                      CharacterChoice.LoadThumbnail(Folder("wide", wide)) == null && CharacterChoice.LoadThumbnail(Folder("padded", padded)) == null &&
+                      CharacterChoice.LoadThumbnail(Folder("forged", forged)) == null && fits != null && fits.GetWidth() == CharacterChoice.ThumbnailPx,
+                    $"a thumbnail over {CharacterChoice.MaxThumbnailSidePx} px a side or {CharacterChoice.MaxThumbnailBytes} bytes, or whose header claims 100,000 px, is never decoded (a swatch instead); {CharacterChoice.MaxThumbnailSidePx} px still loads");
+            }
+            finally
+            {
+                if (System.IO.Directory.Exists(limits)) System.IO.Directory.Delete(limits, true);
+            }
             _hud.CharacterChoices = () => SuppliedCharacters(potato);
             await OpenCustomize();
             var buttons = _hud.CharacterButtons;

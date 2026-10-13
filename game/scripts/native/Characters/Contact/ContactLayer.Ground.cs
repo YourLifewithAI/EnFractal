@@ -98,7 +98,7 @@ public sealed partial class ContactLayer
         _dive += ((state.Diving ? 1 : 0) - _dive) * rate;
         _climb += ((state.Climbing ? 1 : 0) - _climb) * rate;
         _carry += ((state.Carrying ? 1 : 0) - _carry) * rate;
-        var moved = Mathf.Abs(state.DistanceM - _lastDistance);
+        var moved = (float)System.Math.Abs(state.DistanceM - _lastDistance);
         if (!(moved < 0.25f)) moved = 0;
         var speed = float.IsFinite(state.SpeedMps) ? Mathf.Max(state.SpeedMps, 0) : 0;
         var stroking = Mathf.Clamp(speed / 0.1f, 0, 1);
@@ -233,7 +233,7 @@ public sealed partial class ContactLayer
                 if (rise >= MinStepM && rise <= MaxStepM) target = rise;
             }
             var best = float.MinValue;
-            var parity = (int)Mathf.Floor(state.DistanceM / Mathf.Max(0.5f * _rig.Profile.WalkStrideM, 0.01f)) & 1;
+            var parity = (int)((long)System.Math.Floor(state.DistanceM / Mathf.Max(0.5f * _rig.Profile.WalkStrideM, 0.01f)) & 1);
             for (var i = 0; i < _feet.Length; i++)
             {
                 var along = (skeleton * _posed[i] - origin).Dot(_stepDir);

@@ -54,6 +54,8 @@ public sealed class SecondaryMotion
 
     private readonly List<SpringChain> _chains = new();
     private float _tunedDelta;
+    private bool _legSpringsWanted = true;
+    private bool _held;
 
     public static readonly SecondaryMotion None = new();
 
@@ -66,10 +68,38 @@ public sealed class SecondaryMotion
     /// <summary>Every chain, in priority order (hats, hair, ears and tails, dangling legs, arms, horns, flames, props, sparkles).</summary>
     public IReadOnlyList<SpringChain> Chains => _chains;
 
-    /// <summary>Turns the dangling legs' and feet's springs on or off (off while the feet are planted by IK or contact).</summary>
+    /// <summary>
+    /// Turns the dangling legs' and feet's springs on or off (off while the feet are planted by IK or contact). While the springs
+    /// are <see cref="Held"/> this only records the wish: the legs take it when they are let go.
+    /// </summary>
     public void SetLegSpringsActive(bool active)
     {
-        if (LegSimulator != null) LegSimulator.Active = active;
+        _legSpringsWanted = active;
+        ApplyActive();
+    }
+
+    /// <summary>Whether the leg springs run when the springs are not held (off while the leg IK plants the feet).</summary>
+    public bool LegSpringsWanted => _legSpringsWanted;
+
+    /// <summary>
+    /// Every spring held still, riding its parent as posed (the tumble, from the flop to the end of its get-up): nothing turns a
+    /// simulator on meanwhile, not even the leg IK letting go. Let go, each simulator is as active as the rig wants it then.
+    /// </summary>
+    public bool Held
+    {
+        get => _held;
+        set
+        {
+            _held = value;
+            ApplyActive();
+        }
+    }
+
+    private void ApplyActive()
+    {
+        if (Simulator != null && GodotObject.IsInstanceValid(Simulator) && Simulator.Active == _held) Simulator.Active = !_held;
+        var legs = _legSpringsWanted && !_held;
+        if (LegSimulator != null && GodotObject.IsInstanceValid(LegSimulator) && LegSimulator.Active != legs) LegSimulator.Active = legs;
     }
 
     /// <summary>The Δt the stiffness and drag are tuned for (1/60 s until the first <see cref="MatchTimestep"/>).</summary>
