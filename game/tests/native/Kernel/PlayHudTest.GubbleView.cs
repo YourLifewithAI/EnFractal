@@ -136,11 +136,13 @@ public partial class PlayHudTest
     {
         var companion = _world.Companion;
         var profile = Godot.FileAccess.FileExists(RoomHud.ProfilePath) ? Godot.FileAccess.GetFileAsString(RoomHud.ProfilePath) : "";
+        // The floating Gubble bobs about 4 mm on its own; its height rounded to the centimetre could cross a boundary between
+        // two reads, so only where it is across the ground counts as world state here (K6's finding, the characters round).
         static string Round(Vector3 v) => $"{v.X:0.00},{v.Y:0.00},{v.Z:0.00}";
         var state = host.ExportRoomState();
         return string.Join("\n", host.Revision, state?["entities"]?.ToJsonString() ?? "", state?["journal"]?.ToJsonString() ?? "", host.TransientReceiptCount(CommandHost.PlayerPrincipal),
             host.TransientReceiptCount(CommandHost.CompanionPrincipal), string.Join(",", host.ActiveEffectIds), companion.CurrentIntent,
-            Round(_world.Player.GlobalPosition), Round(companion.GlobalPosition), Round(-companion.GlobalBasis.Z), host.HeldBy(CommandHost.PlayerAvatar) ?? "",
+            Round(_world.Player.GlobalPosition), Round(companion.GlobalPosition with { Y = 0 }), Round(-companion.GlobalBasis.Z), host.HeldBy(CommandHost.PlayerAvatar) ?? "",
             host.HeldBy(CommandHost.CompanionAvatarId) ?? "", host.GubbleEyesAllowed, profile);
     }
 
