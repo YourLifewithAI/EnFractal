@@ -338,6 +338,12 @@ public partial class SmallPlayerController : CharacterBody3D
     public System.Func<bool>? HandsFull { get; set; }
 
     protected virtual WorldScaleProfile Profile => WorldScaleProfile.SmallPlayer;
+    /// <summary>
+    /// The render layer of this body's drawn parts. The body's own eye camera leaves that layer out of its cull mask, so the
+    /// first-person view (F1) never shows the inside of the head, while every other camera, the Gubble's eye among them, still
+    /// draws the body: a per-camera choice (Look/EyeView.cs), never the body hidden for everyone.
+    /// </summary>
+    protected virtual uint OwnBodyLayer => EnFractal.Native.Look.EyeView.PlayerBodyLayer;
     protected Node3D VisualRoot = null!;
     protected StandardMaterial3D BodyMaterial = null!;
     protected bool HasSafePosition;
@@ -409,6 +415,8 @@ public partial class SmallPlayerController : CharacterBody3D
         };
         AddChild(EyeCamera);
         BuildVisual();
+        EnFractal.Native.Look.EyeView.MarkBody(VisualRoot, OwnBodyLayer);
+        EyeCamera.CullMask = EnFractal.Native.Look.EyeView.AllLayers & ~OwnBodyLayer;
         ReferenceGravityMps2 = (float)DefaultWorldPhysics()["gravity_mps2"].AsDouble();
         if (WorldPhysicsRevision < 0) ApplyWorldPhysics(DefaultWorldPhysics());
         _spawnPoint = GlobalPosition;
@@ -901,7 +909,6 @@ public partial class SmallPlayerController : CharacterBody3D
         }
         ObserveBodyVitals(dt);
         UpdateVisual(dt);
-        VisualRoot.Visible = !EyeCamera.Current;
     }
 
     private void ObserveBodyVitals(float dt)

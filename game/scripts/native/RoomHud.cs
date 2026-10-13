@@ -247,7 +247,7 @@ public partial class RoomHud : CanvasLayer
         AddKeyLine(_keyHelp, () => $"{K(Act.Hands)} pick up what you face · {K(Act.Hands)} again sets it down in front of you, or on top of what you face (the box, the book) · {K(Act.Push)} push what you face 10 cm");
         // The Gubble's keys, under its name (the Glow playtest: the player should see whose magic this is).
         AddKeyLine(_keyHelp, () => $"{Companion.NameTag}, your companion:", "GubbleHeading");
-        AddKeyLine(_keyHelp, () => $"{K(Act.GubbleAsk)} asks for what fits where you point (wait or follow, fetch or put down, light the dark, go and look); hold it for the wheel · {K(Act.GubbleRecall)} come, then follow · {K(Act.GubbleStop)} stop", "GubbleKeys");
+        AddKeyLine(_keyHelp, () => $"{K(Act.GubbleAsk)} asks for what fits where you point (wait or follow, fetch or put down, light the dark, go and look); hold it for the wheel · {K(Act.GubbleRecall)} come, then follow · {K(Act.GubbleStop)} stop · {K(Act.GubbleEyes)} look through its eyes", "GubbleKeys");
         AddKeyLine(_keyHelp, MagicKeysLine, "GubbleSlots");
         // The toggles that bend the world for testing, apart from the keys the game is played with.
         _keyHelp.AddChild(new Label { Name = "TestingHeading", Text = "Testing" });
@@ -268,8 +268,10 @@ public partial class RoomHud : CanvasLayer
         AddButton(options, "Save appearance and return", () => { SavePreferences(); ToggleCustomization(); });
         BuildGubbleControls(compactTheme);
         BuildMagicPanel(actions, column, theme);
-        // The journal last: the book opens over everything else on screen (RoomHud.Journal.cs).
+        // The journal last: the book opens over everything else on screen (RoomHud.Journal.cs). Then the eye icon above its dock,
+        // whose view through the Gubble's eyes covers the whole screen, the book's dock too (RoomHud.GubbleView.cs).
         BuildJournal();
+        BuildGubbleView(compactTheme);
         ApplyAura();
         SetViewMode(1);
         if (LookNotice.Length > 0) _noticeText = LookNotice;
@@ -360,7 +362,8 @@ public partial class RoomHud : CanvasLayer
         // Enter the isometric view at the quarter-turn heading nearest the player's facing.
         if (mode == 3 && ViewMode != 3) IsoYaw = Mathf.Wrap(Mathf.Snapped(Player.GlobalRotation.Y - Mathf.Pi / 4, Mathf.Pi / 2) + Mathf.Pi / 4, -Mathf.Pi, Mathf.Pi);
         ViewMode = mode;
-        Player.GetNode<Node3D>("OriginalPrototypeBody").Visible = mode != 0;
+        // The body stays drawn in every view: in F1 the player's own eye leaves its layer out (EyeView.PlayerEyeCullMask),
+        // so the Gubble's eye still sees the player.
         if (mode == 0) Player.EyeCamera.MakeCurrent();
         else if (mode == 1) _shoulder.MakeCurrent();
         else
@@ -429,6 +432,7 @@ public partial class RoomHud : CanvasLayer
         _wheel.Tick(delta);
         if (GubblePaused) return;
         TickMagicPanel(delta);
+        TickGubbleView();
         if (ViewMode >= 2) PlaceDioramaRig(snap: false, (float)delta);
         _arm.Rotation = new Vector3(Mathf.Clamp(Player.EyeCamera.Rotation.X - 0.18f, -1.1f, 0.8f), 0, 0);
         _arm.SpringLength = ArmLengthOverBed(_arm.GlobalPosition, _arm.GlobalBasis.Z, _armLength, Player.Water.Wet ? Player.Water.BedY : float.NegativeInfinity, ArmBedClearanceM);
@@ -575,9 +579,17 @@ public partial class RoomHud : CanvasLayer
         if (GubblePaused) return;
         if (fresh)
         {
-            // The journal's keys come first: while the book is open or moving, they are the only keys (RoomHud.Journal.cs).
-            if (HandleJournalKeys(press))
+            // While the player looks through the Gubble's eyes, the view's keys are the only keys (RoomHud.GubbleView.cs).
+            // Then the journal's: while the book is open or moving, they are the only keys (RoomHud.Journal.cs).
+            if (HandleGubbleViewKeys(press) || HandleJournalKeys(press))
             {
+                GetViewport().SetInputAsHandled();
+                return;
+            }
+            // The eye icon's key opens the view from the game and from the appearance and Magic panels, as J opens the book.
+            if (PlayerControls.Hit(press, Act.GubbleEyes))
+            {
+                OpenGubbleView();
                 GetViewport().SetInputAsHandled();
                 return;
             }
@@ -643,13 +655,14 @@ public partial class RoomHud : CanvasLayer
     /// <summary>Test seam: whether the drag button is held (events handed straight to the HUD never reach Input's own state).</summary>
     internal System.Func<bool>? DragHeldForTests { get; set; }
 
-    /// <summary>Whether a drag turns this view: F1 and F2 turn the body and the eye, F3 orbits; F4 turns only by quarter turns.</summary>
-    public bool DragTurnsView => ViewMode != 3;
+    /// <summary>Whether a drag turns this view: F1 and F2 turn the body and the eye, F3 orbits; F4 turns only by quarter turns. Through the Gubble's eyes, it turns the Gubble's eye.</summary>
+    public bool DragTurnsView => GubbleViewOpen || ViewMode != 3;
 
-    /// <summary>A drag's motion, in pixels, as the view's turn: the body and the eye in F1 and F2, the orbit in F3.</summary>
+    /// <summary>A drag's motion, in pixels, as the view's turn: the body and the eye in F1 and F2, the orbit in F3, the Gubble's eye through its eyes.</summary>
     public void TurnView(Vector2 relative)
     {
-        if (ViewMode == 2) OrbitDiorama(relative);
+        if (GubbleViewOpen) TurnGubbleEye(relative);
+        else if (ViewMode == 2) OrbitDiorama(relative);
         else if (ViewMode is 0 or 1) Player.TurnView(relative);
     }
 
