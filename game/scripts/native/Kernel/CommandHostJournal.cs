@@ -550,9 +550,9 @@ public partial class CommandHost
     {
         var avatars = new JsonObject();
         if (Player != null && IsInstanceValid(Player))
-            avatars[PlayerAvatar] = new JsonObject { ["display_name"] = "Player", ["color"] = "#" + Player.AppearanceColor.ToHtml(false) };
+            avatars[PlayerAvatar] = WithBody(new JsonObject { ["display_name"] = "Player", ["color"] = "#" + Player.AppearanceColor.ToHtml(false) }, Player);
         if (Companion != null && IsInstanceValid(Companion))
-            avatars[CompanionAvatarId] = new JsonObject { ["display_name"] = KernelJson.DisplayText(Companion.CompanionName, 40), ["color"] = "#" + Companion.AppearanceColor.ToHtml(false) };
+            avatars[CompanionAvatarId] = WithBody(new JsonObject { ["display_name"] = KernelJson.DisplayText(Companion.CompanionName, 40), ["color"] = "#" + Companion.AppearanceColor.ToHtml(false) }, Companion);
         return avatars;
     }
 
@@ -667,7 +667,7 @@ public partial class CommandHost
         if (team == null) return "not an object";
         if (team.Any(p => p.Key is not ("journal" or "discovered" or "task_goals" or "avatars"))) return "an unknown block";
         if (team["avatars"] is { } avatars && (avatars is not JsonObject identities || identities.Any(p => p.Key is not (PlayerAvatar or CompanionAvatarId) ||
-            p.Value is not JsonObject identity || identity.Count != 2 || !Text(identity["display_name"], 40) ||
+            p.Value is not JsonObject identity || identity.Count != (identity.ContainsKey("body") ? 3 : 2) || !BodyIsValid(identity["body"]) || !Text(identity["display_name"], 40) ||
             identity["color"]?.GetValueKind() != JsonValueKind.String || !System.Text.RegularExpressions.Regex.IsMatch(identity["color"]!.GetValue<string>(), @"\A#[0-9a-fA-F]{6}\z") ||
             (p.Key == PlayerAvatar && identity["display_name"]!.GetValue<string>() != "Player")))) return "an avatar's identity";
         if (team["journal"] is JsonObject journal && JournalProblem(journal, revision) is { } j) return j;
@@ -829,7 +829,11 @@ public partial class CommandHost
                 Companion.SetAppearance(new Color(companion["color"]!.GetValue<string>()));
             }
             if (identities[PlayerAvatar] is JsonObject player && Player != null && IsInstanceValid(Player))
+            {
                 Player.SetAppearance(new Color(player["color"]!.GetValue<string>()));
+                // The drawn character the player wore in this room (the characters round), when the save names one.
+                if (StrOf(player["body"]) is { } body) Player.SetCharacterId(body);
+            }
         }
         EvictPastTheBound(TeamMemory(), new HashSet<string>(StringComparer.Ordinal));
         if (!closeOpenTasks || _openTasks.Count == 0) return;

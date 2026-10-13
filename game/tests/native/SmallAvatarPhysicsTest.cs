@@ -78,6 +78,7 @@ public partial class SmallAvatarPhysicsTest : Node3D
 
             await TestMovementAndJump();
             await TestLandingImpacts();
+            await TestBodyHooks();
             await TestKeyboardActions();
             await TestObstacles();
             await TestDioramaCamera();
@@ -2701,6 +2702,114 @@ public partial class SmallAvatarPhysicsTest : Node3D
                 Mathf.Max(Mathf.Abs(bounds.Position.Z), Mathf.Abs(bounds.End.Z)) > _player.BodyRadiusM + 0.001f) return false;
         }
         return true;
+    }
+
+    /// <summary>
+    /// The characters round's hooks (Wave 0, docs/runs/RUN-2-CHARACTERS.md): the tick's BodyState, a drawn visual in the
+    /// prototype's place, the tumble's control hold and the character id. None of them moves the capsule.
+    /// </summary>
+    private async Task TestBodyHooks()
+    {
+        var fixture = new Node3D { Name = "BodyHooksFixture", Position = new Vector3(-20, 0, 20) };
+        AddChild(fixture);
+        var floor = new StaticBody3D { Position = new Vector3(0, -0.05f, 0), CollisionLayer = RoomBuilder.WorldLayer, CollisionMask = 0 };
+        floor.AddChild(new CollisionShape3D { Shape = new BoxShape3D { Size = new Vector3(4, 0.1f, 4) } });
+        fixture.AddChild(floor);
+        var visual = new RecordingVisual();
+        var body = new SmallPlayerController { Name = "HooksBody", ReadKeyboard = false, Position = new Vector3(0, 0.6f, 0) };
+        body.SetBodyVisual(visual);
+        fixture.AddChild(body);
+        await Frames(2);
+        var prototype = body.GetNode<Node3D>("OriginalPrototypeBody");
+        var prototypeParts = prototype.GetChildren().OfType<Node3D>().Where(n => n != visual.Root).ToList();
+        Check(visual.Root.GetParent() == prototype && prototypeParts.Count > 0 && prototypeParts.All(n => !n.Visible),
+            "a visual set before the body is ready takes the prototype's place at _Ready; the prototype's parts stay, hidden");
+        Check(visual.Mesh.Layers == EnFractal.Native.Look.EyeView.PlayerBodyLayer, "the drawn body is on the body's own layer, so its own eye leaves it out");
+        var landing = default(BodyState);
+        for (var i = 0; i < 180 && !landing.Landed; i++)
+        {
+            await Frames(1);
+            if (visual.Last.Landed) landing = visual.Last;
+        }
+        var freeFall = Mathf.Sqrt(2 * body.GravityMps2 * 0.6f);
+        Report(landing.Landed && Mathf.Abs(landing.LandingSpeedMps - freeFall) < 0.25f && !landing.LandedInDeepWater && landing.Grounded && landing.AirTimeS == 0,
+            $"the tick's state reports a 0.6 m landing at {landing.LandingSpeedMps:0.00} m/s (free fall {freeFall:0.00})");
+        await Frames(10);
+        Check(visual.Ticks > 0 && visual.Last.Tick == body.LastBodyState.Tick && !body.LastBodyState.Landed && body.LastBodyState.LandingSpeedMps == 0,
+            "the visual is ticked with the body's state every physics tick, and a landing is reported once");
+        var startDistance = body.LastBodyState.DistanceM;
+        var start = body.GlobalPosition;
+        body.SetControlInput(new Vector2(0, 1));
+        await Frames(60);
+        body.SetControlInput(Vector2.Zero);
+        await Frames(20);
+        var walked = PlanarDistance(body.GlobalPosition, start);
+        var counted = body.LastBodyState.DistanceM - startDistance;
+        Report(walked > 0.1f && Mathf.Abs(counted - walked) < 0.01f, $"the distance a gait phases by follows the ground walked ({counted:0.000} m counted, {walked:0.000} m walked)");
+        var beforeJump = body.LastBodyState.DistanceM;
+        body.TryTeleportTo(fixture.GlobalPosition + new Vector3(1, 0.003f, 1));
+        await Frames(5);
+        Check(body.LastBodyState.DistanceM - beforeJump < 0.01f, "a teleport is not travel");
+
+        var held = body.GlobalPosition;
+        body.HoldControl(0.5f);
+        body.SetControlInput(new Vector2(0, 1), jump: true);
+        await Frames(15);
+        Check(body.ControlHeld && PlanarDistance(body.GlobalPosition, held) < 0.002f && body.IsOnFloor() && body.LastBodyState.ControlHeld &&
+            body.LastBodyState.HeldInput == new Vector2(0, 1), "held control ignores movement and jumps, and keeps what was asked for the get-up");
+        await Frames(25);
+        var resumed = body.GlobalPosition;
+        await Frames(10);
+        Check(!body.ControlHeld && PlanarDistance(body.GlobalPosition, resumed) > 0.01f && body.HeldInput == Vector2.Zero, "control returns when the hold runs out");
+        body.HoldControl(3);
+        await Frames(2);
+        body.ReleaseControl();
+        var freed = body.GlobalPosition;
+        await Frames(10);
+        Check(!body.ControlHeld && PlanarDistance(body.GlobalPosition, freed) > 0.01f, "ReleaseControl gives control back at once");
+        body.SetControlInput(Vector2.Zero);
+        body.HoldControl(float.NaN);
+        body.HoldControl(-1);
+        Check(!body.ControlHeld, "a hold that is not a positive number does nothing");
+        body.HoldControl(60);
+        Check(Mathf.IsEqualApprox(body.ControlHoldS, SmallPlayerController.MaxControlHoldS), "a hold never exceeds MaxControlHoldS");
+        body.ReleaseControl();
+        body.KnockoutRecoveryDelayS = float.NaN;
+        var nanDelay = body.KnockoutRecoveryDelayS;
+        body.KnockoutRecoveryDelayS = 99;
+        Check(nanDelay == 0 && body.KnockoutRecoveryDelayS == SmallPlayerController.MaxControlHoldS, "the knockout delay is finite and bounded");
+        body.KnockoutRecoveryDelayS = 0;
+
+        var told = new List<string>();
+        body.CharacterChanged = id => told.Add(id);
+        Check(body.SetCharacterId("stickbear") && body.CharacterId == "stickbear" && body.SetCharacterId("stickbear") &&
+            !body.SetCharacterId("Stickbear") && !body.SetCharacterId("../x") && !body.SetCharacterId("9lives") && !body.SetCharacterId(new string('a', 65)) &&
+            body.CharacterId == "stickbear" && body.SetCharacterId("") && body.CharacterId == "" && told.SequenceEqual(new[] { "stickbear", "" }),
+            "the character id is a lowercase token or empty, and each change is told once");
+
+        body.SetBodyVisual(null);
+        Check(visual.Root.GetParent() == null && prototypeParts.All(n => n.Visible), "taking the visual off brings the prototype back");
+        var ticks = visual.Ticks;
+        await Frames(3);
+        Check(visual.Ticks == ticks, "a visual taken off is no longer ticked");
+        visual.Root.QueueFree();
+        fixture.QueueFree();
+        await Frames(2);
+    }
+
+    /// <summary>A stand-in drawn body: one small sphere, and the states it was given.</summary>
+    private sealed class RecordingVisual : IBodyVisual
+    {
+        public Node3D Root { get; } = new() { Name = "RecordingVisual" };
+        public MeshInstance3D Mesh { get; } = new() { Name = "RecordingMesh", Mesh = new SphereMesh { Radius = 0.02f, Height = 0.04f } };
+        public BodyState Last { get; private set; }
+        public int Ticks { get; private set; }
+        public RecordingVisual() => Root.AddChild(Mesh);
+        public void BodyTicked(in BodyState state, float delta)
+        {
+            Last = state;
+            Ticks++;
+        }
     }
 
     private async Task Frames(int count)

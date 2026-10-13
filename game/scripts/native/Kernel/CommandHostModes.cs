@@ -25,6 +25,7 @@ public partial class CommandHost
     private double _vitalsSaveElapsed;
     private float _damageRestS;
     private float _recoveryGraceS;
+    private float _pendingRecoveryS;
     /// <summary>After an injury recovery, fire cannot hurt the player for NatureLaws.RecoveryFireGraceS (counted in nature steps).</summary>
     private float _fireGraceS;
     /// <summary>Where the player last recovered: its ground stays out of the fire while the grace lasts.</summary>
@@ -44,6 +45,7 @@ public partial class CommandHost
             _vitalsDirty = false;
             _damageRestS = 0;
             _recoveryGraceS = 0;
+            _pendingRecoveryS = 0;
             _fireGraceS = 0;
             _vitalsSaveElapsed = 0;
             VitalsNotice = "";
@@ -127,6 +129,12 @@ public partial class CommandHost
     {
         if (Mode == "creative" || _playerVitalsUnavailable) return;
         _damageRestS += seconds;
+        // A knockout fall's tumble plays where the player landed before the recovery at the spawn (DelayKnockout).
+        if (_pendingRecoveryS > 0)
+        {
+            _pendingRecoveryS = Math.Max(0, _pendingRecoveryS - seconds);
+            if (_pendingRecoveryS > 0) return;
+        }
         _recoveryGraceS = Math.Max(0, _recoveryGraceS - seconds);
         if (Vitals.Health <= 0) RecoverPlayerFromInjury();
         if (safelyGrounded && (Vitals.Stamina < Vitals.MaxStamina || (_damageRestS >= 10 && Vitals.Health < Vitals.MaxHealth)))
@@ -165,7 +173,7 @@ public partial class CommandHost
     /// </summary>
     public PlayerHarm? ApplyPlayerDamage(float amount, PlayerDamageSource source)
     {
-        if (!Enum.IsDefined(source) || !float.IsFinite(amount) || amount <= 0 || Mode == "creative" || _playerVitalsUnavailable || _recoveryGraceS > 0) return null;
+        if (!Enum.IsDefined(source) || !float.IsFinite(amount) || amount <= 0 || Mode == "creative" || _playerVitalsUnavailable || _recoveryGraceS > 0 || _pendingRecoveryS > 0) return null;
         if (source == PlayerDamageSource.Fire && _fireGraceS > 0) return null;
         var before = Vitals.Health;
         LastDamageSource = source;
@@ -173,9 +181,25 @@ public partial class CommandHost
         _playerModes = _playerModes.WithCurrent(Vitals.Damage(amount));
         _vitalsDirty = true;
         var after = Vitals.Health;
-        var recovered = after <= 0 && RecoverPlayerFromInjury();
+        var recovered = after <= 0 && !DelayKnockout(source) && RecoverPlayerFromInjury();
         FlushPlayerVitals();
         return new PlayerHarm(before, after, recovered);
+    }
+
+    /// <summary>A knockout fall's recovery is waiting for its tumble to finish (nothing hurts meanwhile).</summary>
+    public bool RecoveryPending => _pendingRecoveryS > 0;
+
+    /// <summary>
+    /// A fall that knocks the player out waits for the knockout tumble (docs/runs/RUN-2-CHARACTERS.md, the tumble) before the
+    /// recovery at the spawn moves them: the delay is the body's KnockoutRecoveryDelayS, 0 unless a tumble set it, and control
+    /// is held meanwhile. The recovery then happens on the vitals tick that ends the wait.
+    /// </summary>
+    private bool DelayKnockout(PlayerDamageSource source)
+    {
+        if (source != PlayerDamageSource.Fall || Player == null || !IsInstanceValid(Player) || Player.KnockoutRecoveryDelayS <= 0) return false;
+        _pendingRecoveryS = Player.KnockoutRecoveryDelayS;
+        Player.HoldControl(_pendingRecoveryS);
+        return true;
     }
 
     private void ObservePlayerFall(float landingSpeedMps, bool deepWater) =>

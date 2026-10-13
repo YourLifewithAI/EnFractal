@@ -504,6 +504,13 @@ public partial class CompanionAvatar : SmallPlayerController
     /// <summary>Where the last cast gesture leaned (the spot), or null for a glow on itself.</summary>
     public Vector3? LastCastToward { get; private set; }
     public bool Dimmed { get; private set; }
+    /// <summary>How far through the gesture playing it is, 0 to 1 (0 with none): a drawn Gubble's arms follow it (K5).</summary>
+    public float GestureProgress { get; private set; }
+    /// <summary>
+    /// The gesture's transform this frame, about the body's middle (or its feet for a cast), identity with none. Today it moves the
+    /// visual root's children; a drawn Gubble (K5) may apply it as the pose stack's last layer instead.
+    /// </summary>
+    public Transform3D GestureOffset { get; private set; } = Transform3D.Identity;
 
     private double _gestureAge;
     private double _gestureS;
@@ -610,6 +617,8 @@ public partial class CompanionAvatar : SmallPlayerController
         // Turned about the body's middle, so a shake turns it in place; a cast's lean tips it about its feet.
         var pivot = Playing == Gesture.Cast ? Vector3.Zero : Vector3.Up * (BodyHeightM * 0.5f);
         var about = new Transform3D(Basis.Identity, pivot) * GesturePose(t) * new Transform3D(Basis.Identity, -pivot);
+        GestureProgress = t;
+        GestureOffset = about;
         foreach (var (node, pose0) in _rest)
             if (GodotObject.IsInstanceValid(node)) node.Transform = about * pose0;
     }
@@ -620,6 +629,8 @@ public partial class CompanionAvatar : SmallPlayerController
             if (GodotObject.IsInstanceValid(node)) node.Transform = pose0;
         _rest.Clear();
         Playing = Gesture.None;
+        GestureProgress = 0;
+        GestureOffset = Transform3D.Identity;
     }
 
     public override void _ExitTree()
