@@ -39,9 +39,9 @@ public partial class RoomHud
     {
         _introToggle = new CheckButton
         {
-            Name = "PlayIntroSetting", Text = "Play the intro when the island loads",
+            Name = "PlayIntroSetting", Text = "Play the intro",
             ButtonPressed = LoadPlayIntro(ProfilePath),
-            TooltipText = "About 15 seconds of your room turning into its island. Any key skips it.",
+            TooltipText = "When the island loads: about 15 seconds of your room turning into its island. Any key skips it.",
             FocusMode = Control.FocusModeEnum.All, CustomMinimumSize = new Vector2(0, 38),
         };
         _introToggle.Toggled += SetPlayIntro;
