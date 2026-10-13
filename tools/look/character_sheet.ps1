@@ -7,14 +7,19 @@ Renders one contact sheet per drawn character (nine tiles each) on this machine'
 Runs res://tests/native/Look/character_sheet_capture.tscn in a real window (never --headless: headless renders nothing) and
 writes sheet_<id>.png per character plus character_sheets.json into -OutDir, then quits. A Godot window appears briefly.
 
-Each sheet stands the character (its GLB with CharacterLook applied) on the test room's floor at the review clock (17:00 on
-15 April, the lamps on, where the low sun through the west window lands on the player's spawn), in nine tiles: idle, walk, run,
-a hop landing, a 30 degree slope, wading, climbing, a tumble mid-flop, and for a floating character floating and casting (its
-halo lit through the real look) or for the others a close look at the face. The poses come from later packets through
-CharacterSheetPoses (game/tests/native/Look/CharacterSheetPoses.cs); until a packet registers one, a tile shows the rest pose and
-its label says so. -Timing adds the bubble's cost: GPU time of a 1920 x 1080 frame with the bubble parts shown and hidden, in
-alternating blocks, at a play distance and close up, for characters that have bubble parts; -Variants with it also measures
-the bubble shader's render-mode variants (one skin, lit with and without shadows) for the budget's record.
+Each sheet stands the character on the test room's floor at the review clock (17:00 on 15 April, the lamps on, where the low sun
+through the west window lands on the player's spawn), in nine tiles: idle, walk, run, a hop landing, a 30 degree slope (across
+it), wading (water at the shins), climbing (a wall), a tumble mid-flop, and for a floating character floating and casting (its
+halo lit through the real look) or for the others a close look at the face. Every tile builds the character as the room does
+(the rig, its look and every packet's pose layers: CharacterVisual and CharacterMotion; a floating body with the Gubble's gesture
+layer and glow anchors) and runs its pose stack once a physics tick from scripted body states until a telling moment
+(game/tests/native/Look/CharacterSheetMotion.cs and CharacterSheetActor.cs, through the hook in CharacterSheetPoses.cs); each
+label says what the moment is. -Timing adds the bubble's cost: GPU time of a 1920 x 1080 frame with the bubble parts shown and
+hidden, in alternating blocks, at a play distance and close up, for characters that have bubble parts; -Variants with it also
+measures the bubble shader's render-mode variants (one skin, lit with and without shadows) for the budget's record.
+
+-MotionOnly renders nothing: it runs the same tiles headless (no window, no GPU) and checks that every tile reaches its moment
+and shows what its label names (the feet found the slope, the tumble flops, the cast's arm swings), printing one line a tile.
 
 As the look captures do (capture-look.ps1), it refuses to start while a game window titled "EnFractal..." is open (someone is
 playing on this GPU; -AllowOpenGame overrides), waits until nvidia-smi shows the card quiet for six seconds, keeps the player's
@@ -23,6 +28,7 @@ user:// data out of the run, and writes the engine's log to character_sheet.log 
 .EXAMPLE
 pwsh -NoProfile -File tools/look/character_sheet.ps1 -OutDir .cache/character-sheets/after
 pwsh -NoProfile -File tools/look/character_sheet.ps1 -Characters gubble -Timing -OutDir C:\temp\sheets
+pwsh -NoProfile -File tools/look/character_sheet.ps1 -MotionOnly
 #>
 param(
     [string]$Label = 'after',
@@ -33,10 +39,27 @@ param(
     [switch]$Variants,
     [int]$MaxBusyVramMiB = 3072,
     [int]$MaxBusyUtilisation = 60,
-    [int]$TimeoutSeconds = 300,
-    [switch]$AllowOpenGame
+    [int]$TimeoutSeconds = 600,
+    [switch]$AllowOpenGame,
+    [switch]$MotionOnly
 )
 $ErrorActionPreference = 'Stop'
+
+if ($MotionOnly) {
+    # Headless: nothing is drawn, so neither a game window nor the GPU's load matters.
+    $repository = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
+    . (Join-Path $repository 'tools/native-toolchain.ps1')
+    $toolchain = Get-EnfractalNativeToolchain
+    Build-EnfractalNativeProject -Toolchain $toolchain | Out-Null
+    $assets = (Join-Path $repository 'assets/characters') -replace '\\', '/'
+    $motionArgs = @('--headless', '--path', $toolchain.ProjectPath, '--fixed-fps', '60', 'res://tests/native/Look/character_sheet_capture.tscn', '--',
+        '--motion-only=true', "--assets=$assets")
+    if ($Characters) { $motionArgs += "--characters=$Characters" }
+    $motion = Invoke-EnfractalNativeProcess -Toolchain $toolchain -FilePath $toolchain.EnginePath -Arguments $motionArgs -TimeoutSeconds $TimeoutSeconds
+    if ($motion.Stderr -or $motion.Stdout -notmatch 'CHARACTER_SHEET_MOTION: (\d+)/\1 tiles show their motion') { throw "$($motion.Stdout)`n$($motion.Stderr)" }
+    $motion.Stdout.Split("`n") | Where-Object { $_ -match '^CHARACTER_SHEET_MOTION' } | ForEach-Object { Write-Output $_.TrimEnd() }
+    return
+}
 
 # Someone playing the game on this GPU: never render over them.
 $openGame = Get-Process | Where-Object { $_.MainWindowTitle -like 'EnFractal*' }
