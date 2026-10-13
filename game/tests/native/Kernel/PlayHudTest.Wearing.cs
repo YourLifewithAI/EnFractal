@@ -48,6 +48,16 @@ public partial class PlayHudTest
             Check(_world.PlayerVisual?.Body.Definition.Id == "cloudpuff" && !GodotObject.IsInstanceValid(stickbear.Root),
                 "changing character frees the one worn before");
             Check(!player.SetCharacterId("../stickbear") && _world.PlayerVisual?.Body.Definition.Id == "cloudpuff", "a choice that is not a token changes nothing");
+            // Review: a save or a room state names the body with any token; only the characters the HUD offers are worn.
+            var cloudpuff = _world.PlayerVisual!;
+            Check(player.SetCharacterId("gubble"), "a token the HUD never offers (the family's Gubble) is still recorded");
+            await Frames(3);
+            Check(_world.PlayerVisual == null && player.BodyVisual == null && prototypeParts.All(p => p.Visible) && !GodotObject.IsInstanceValid(cloudpuff.Root) &&
+                  GubbleCharacter.Of(_world.Companion) is { } companionGubble && companionGubble.Visual.Body.IsInsideTree(),
+                "but the player is never dressed as the Gubble: the prototype figure is drawn, the companion keeps its own");
+            Check(player.SetCharacterId("no_such_character"), "an unknown token is recorded too");
+            await Frames(2);
+            Check(_world.PlayerVisual == null && prototypeParts.All(p => p.Visible), "and draws the prototype figure");
         }
         finally
         {
