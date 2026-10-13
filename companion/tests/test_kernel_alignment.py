@@ -70,6 +70,38 @@ class PolicyMatchesTheKernel(unittest.TestCase):
         # The activation receipts the authority keeps are bounded the same way as the host's transient ones.
         self.assertEqual(gd("MAX_TRANSIENT_PER_PRINCIPAL"), policy.max_transient_receipts_per_principal)
 
+    def test_observe_sees_the_whole_island_and_bounds_a_given_radius_as_the_contract_does(self):
+        """The 10x world (S2): observe has no distance cut-off unless radius_m narrows it, and the contract, the kernel
+        and the mock bound radius_m alike."""
+        import json
+        import math
+        args = json.loads((REPO / "contracts" / "game-command.schema.json").read_bytes())["$defs"]["args"]["observe"]
+        maximum = _constant(COMMAND_HOST, r"\bconst int ObserveRadiusMaxM = (\d+);")
+        self.assertEqual((args["properties"]["radius_m"]["maximum"], maximum), (150, 150))
+        self.assertNotIn("radius_m", args["required"])
+        source = COMMAND_HOST.read_text(encoding="utf-8")
+        self.assertIn('var radius = args.TryGetProperty("radius_m", out var r) ? (float)CanonicalJson.ReadNumber(r) : float.PositiveInfinity;', source)
+        self.assertIn('radius.GetDouble() is <= 0 or > ObserveRadiusMaxM', source)
+        self.assertEqual(HostPolicy().observe_max_radius_m, math.inf)
+
+    def test_entity_ids_are_the_contracts_in_the_kernel(self):
+        """A plant copy's id (plant:<set>-<row>) is well formed in both hosts, so both answer target_not_found for a copy
+        they do not know, and both refuse a second spelling of the same copy."""
+        import json
+        common = json.loads((REPO / "contracts" / "common.schema.json").read_bytes())["$defs"]
+        kernel = re.search(r'Regex EntityId = new\(@"\\A(.+)\\z", RegexOptions\.Compiled\);', COMMAND_HOST.read_text(encoding="utf-8"))
+        self.assertIsNotNone(kernel)
+        self.assertEqual(kernel.group(1), common["entity_id"]["pattern"].removeprefix("^").removesuffix("$"))
+        self.assertTrue(common["plant_id"]["pattern"].removeprefix("^").removesuffix("$") in kernel.group(1))
+        host = new_host()
+        known = host.handle(COMPANION, query("entity.inspect", {"target": "plant:broadleaf-0"}))
+        self.assertEqual(known["error"]["code"], "target_not_found")
+        # A second spelling of the same copy is malformed in both (the kernel's CommandHostTest checks request_invalid;
+        # the mock maps any argument the schema refuses to invalid_args, for every malformed id alike).
+        second = host.handle(COMPANION, query("entity.inspect", {"target": "plant:broadleaf-007"}, "q-2"))
+        self.assertEqual((second["ok"], second["error"]["field_path"]), (False, "$.args.target"))
+        self.assertNotEqual(second["error"]["code"], "target_not_found")
+
 
 KERNEL = REPO / "game" / "scripts" / "native"
 EFFECTS = KERNEL / "Kernel" / "CommandHostEffects.cs"

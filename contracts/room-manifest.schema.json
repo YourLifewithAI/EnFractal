@@ -166,6 +166,12 @@
     "reference": {
       "$ref": "#/$defs/reference"
     },
+    "plant_copies": {
+      "$ref": "#/$defs/plant_copies"
+    },
+    "terrain_tiles": {
+      "$ref": "#/$defs/terrain_tiles"
+    },
     "files": {
       "description": "Every file the manifest references (shell meshes, asset.json files, reference media), with hashes. Files not listed here must not be loaded.",
       "type": "array",
@@ -751,6 +757,318 @@
                     "exclusiveMaximum": 180
                   }
                 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "plant_copies": {
+      "description": "Plants, trees and stones drawn as copies of one mesh per set: the 10x world (13 October 2026), promoted from the scale experiment's x_landscape_instances. Each set lists its copies in one table file of fixed-width little-endian rows (the layout is in contracts/README.md, 'Plant copies'), sorted by 8 m tile and then by x and z, behind a tile index. A copy is the entity plant:<set>-<row> (common.schema.json plant_id). Copies are part of the immutable baseline: what fire, seeding and replanting do to them lives in room state, never here. No manifest object rests on a copy, and copies count toward no other cap (objects, shell parts).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tile_m",
+        "groups",
+        "sets"
+      ],
+      "properties": {
+        "tile_m": {
+          "description": "The side of a table tile in metres: a copy at (x, z) is in tile (floor(x / 8), floor(z / 8)). Fire's ground-fuel grid and far fires use the same tiles.",
+          "const": 8
+        },
+        "groups": {
+          "description": "How many groves and patches the room has: copies the generator placed together (a grove of trees, a patch of flowers, a bed of reeds), numbered 1 to groups across every set, each number used by at least one copy. A copy in no group has group 0. This lets perception say 'a grove of 40' instead of listing each tree.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1048576
+        },
+        "sets": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/plant_set"
+          }
+        }
+      }
+    },
+    "plant_set": {
+      "description": "One kind of copy: one mesh (with lighter meshes for distance), one table of rows. Trees carry their climbing collision in their rows (kind tree); the drawn mesh itself never collides.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "set",
+        "prototype",
+        "kind",
+        "species",
+        "collides",
+        "fuel_class",
+        "seeds",
+        "mesh",
+        "triangle_count",
+        "table",
+        "tiles",
+        "count"
+      ],
+      "properties": {
+        "set": {
+          "description": "The set's name, unique in the room, and the first half of its copies' ids (plant:<set>-<row>). No hyphen, so the row after the last '-' is unambiguous.",
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,31}$"
+        },
+        "prototype": {
+          "description": "The landscape prototype the copies are drawn from (a kit name such as broadleaf, or a generator prototype such as daisies). Provenance only.",
+          "$ref": "common.schema.json#/$defs/token"
+        },
+        "kind": {
+          "description": "plant (grass, flowers, ferns, heather, reeds, shrubs), tree (climbable: its rows carry the climbing collision) or stone.",
+          "enum": [
+            "plant",
+            "tree",
+            "stone"
+          ]
+        },
+        "species": {
+          "description": "What grows (or lies) there, for perception, fire, seeds and replanting: a lowercase name such as grass, daisies, heather, broadleaf, conifer or rock. Several sets may share one. Untrusted like every name.",
+          "$ref": "common.schema.json#/$defs/token"
+        },
+        "collides": {
+          "description": "none: drawn only, bodies pass through. tree_climb: the row's trunk, pole and caps collide (trees only; README 'Plant copies'). solid: each copy collides with the convex hull of its level-0 mesh under the row's transform (stones).",
+          "enum": [
+            "none",
+            "tree_climb",
+            "solid"
+          ]
+        },
+        "fuel_class": {
+          "description": "How a copy burns, for the fire rebuild: none (never burns: stones), grass (fine and fast: grass, reeds), herb (leafy: flowers, ferns, heather), shrub (woody brush), broadleaf or conifer (trees). Fire's numbers per class belong to the host and the island rules, never to the room.",
+          "enum": [
+            "none",
+            "grass",
+            "herb",
+            "shrub",
+            "broadleaf",
+            "conifer"
+          ]
+        },
+        "seeds": {
+          "description": "Whether its copies set seed: seeds of its species can be gathered from them, and a copy lost to fire is replanted and regrows. Stones never seed.",
+          "type": "boolean"
+        },
+        "mesh": {
+          "description": "The copy at full detail: a self-contained GLB in the prototype's own frame, metres, pivot at the bottom centre (its lowest point at y 0, centred in x and z), unscaled. Its materials name their landscape roles as the shell's landscape meshes do.",
+          "$ref": "common.schema.json#/$defs/glb_path"
+        },
+        "triangle_count": {
+          "description": "Triangles in mesh, as its GLB holds them.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000
+        },
+        "lods": {
+          "description": "Lighter meshes for distance, in order, each lighter than the one before and in the same frame. The game chooses by distance; the data names no ranges.",
+          "type": "array",
+          "maxItems": 3,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "mesh",
+              "triangle_count"
+            ],
+            "properties": {
+              "mesh": {
+                "$ref": "common.schema.json#/$defs/glb_path"
+              },
+              "triangle_count": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000000
+              }
+            }
+          }
+        },
+        "table": {
+          "description": "The set's rows: one table file (README, 'Plant copies'), listed in files with its hash and size like every other file.",
+          "allOf": [
+            {
+              "$ref": "common.schema.json#/$defs/rel_path"
+            },
+            {
+              "pattern": "\\.bin$"
+            }
+          ]
+        },
+        "cap_slots": {
+          "description": "Trees only: cap slots in each row (a broadleaf has up to 5 crowns, a conifer 1). A row uses cap_count of them; the rest are zero bytes.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8
+        },
+        "tiles": {
+          "description": "Entries in the table's tile index: the 8 m tiles that hold at least one copy.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65536
+        },
+        "count": {
+          "description": "Rows in the table: the set's copies, plant:<set>-0 to plant:<set>-<count - 1>.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16777216
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "tree"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "cap_slots"
+            ],
+            "properties": {
+              "collides": {
+                "const": "tree_climb"
+              },
+              "fuel_class": {
+                "enum": [
+                  "broadleaf",
+                  "conifer"
+                ]
+              }
+            }
+          },
+          "else": {
+            "not": {
+              "required": [
+                "cap_slots"
+              ]
+            },
+            "properties": {
+              "collides": {
+                "not": {
+                  "const": "tree_climb"
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "plant"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "collides": {
+                "const": "none"
+              },
+              "fuel_class": {
+                "enum": [
+                  "grass",
+                  "herb",
+                  "shrub"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "stone"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "fuel_class": {
+                "const": "none"
+              },
+              "seeds": {
+                "const": false
+              }
+            }
+          }
+        }
+      ]
+    },
+    "terrain_tiles": {
+      "description": "The land cut into 16 m tiles with distance detail (the 10x world). Each listed part's GLB holds one node per tile and level, named tile_<tx>_<tz>_lod<level>: tx = floor(x / 16) and tz = floor(z / 16) in decimal ('-' before a negative, no leading zeros), level the index into levels. Every node in such a GLB is a tile node: a root of its scene with a mesh, no transform and no children, its positions in room metres inside its tile's square. Every tile of a part has every level. Level 0 is the finest and the walkable ground: a colliding part collides through level 0 only, and the game draws one level per tile, choosing by distance. Shell part ids, support targets and the 128-part cap are unchanged: a tiled part is still one shell part.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tile_m",
+        "levels",
+        "parts"
+      ],
+      "properties": {
+        "tile_m": {
+          "description": "The side of a terrain tile in metres.",
+          "const": 16
+        },
+        "levels": {
+          "description": "The levels of detail, finest first, each coarser than the one before: today 0.1 m (with finer detail where a body meets the land), 0.4 m and 1.6 m.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "grid_m"
+            ],
+            "properties": {
+              "grid_m": {
+                "description": "The level's nominal grid spacing in metres.",
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 16
+              }
+            }
+          }
+        },
+        "parts": {
+          "description": "The tiled shell parts, each a mesh part listed once. Parts not listed (water, scenery, collision-only aids) keep one mesh drawn whole.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 128,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "part",
+              "tiles"
+            ],
+            "properties": {
+              "part": {
+                "type": "string",
+                "pattern": "^shell:[A-Za-z0-9_-]{1,64}$"
+              },
+              "tiles": {
+                "description": "How many tiles the part's GLB holds (each at every level).",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 16384
               }
             }
           }

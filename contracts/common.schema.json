@@ -15,9 +15,14 @@
       "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
     },
     "entity_id": {
-      "description": "Namespaced entity identity. shell: room shell part; obj: captured or authored object instance; creation: compiled creation instance; avatar: player or companion body; effect: running effect; edit: legacy world_state entity.",
+      "description": "Namespaced entity identity. shell: room shell part; obj: captured or authored object instance; creation: compiled creation instance; avatar: player or companion body; effect: running effect; edit: legacy world_state entity; plant: one copy of a plant, tree or stone in the room manifest's plant_copies (see plant_id), the one form with a single spelling per copy.",
       "type": "string",
-      "pattern": "^(shell|obj|creation|avatar|effect|edit):[A-Za-z0-9_-]{1,64}$"
+      "pattern": "^((shell|obj|creation|avatar|effect|edit):[A-Za-z0-9_-]{1,64}|plant:[a-z][a-z0-9_]{0,31}-(0|[1-9][0-9]{0,7}))$"
+    },
+    "plant_id": {
+      "description": "One copy in the room manifest's plant_copies: 'plant:', its set's name (no hyphen), '-' and its zero-based row in that set's table, in decimal without leading zeros (plant:broadleaf-0, plant:grass-1207). Stable for the room: the rows are pinned by the manifest's hash and saves are pinned to it. Fire, seeds, replanting and the companion's perception address single copies by it.",
+      "type": "string",
+      "pattern": "^plant:[a-z][a-z0-9_]{0,31}-(0|[1-9][0-9]{0,7})$"
     },
     "principal_id": {
       "description": "Who issued an action. Assigned by the trusted adapter, never accepted from a request body.",

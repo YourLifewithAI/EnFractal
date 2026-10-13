@@ -55,7 +55,7 @@
   "observe": {
     "properties": {
       "remembered": {
-        "description": "Things the team knows that are out of sight now, within the radius of where they were last seen, nearest first. Each carries seen 'remembered'. Only what the two avatars' eyes saw, never the camera.",
+        "description": "Things the team knows that are out of sight now, nearest first (when the query gives radius_m, only those last seen within it). Each carries seen 'remembered'. Only what the two avatars' eyes saw, never the camera.",
         "type": "array",
         "maxItems": 50,
         "items": {

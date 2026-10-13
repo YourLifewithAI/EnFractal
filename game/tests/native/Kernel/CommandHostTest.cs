@@ -693,7 +693,7 @@ public partial class CommandHostTest : Node3D
             "transient receipts are for goals, stops, effects, grabs, activations and the world's physics; entity.release is saved state (P8)");
     }
 
-    /// <summary>Kernel-host gaps P4 and P5: observe defaults to everything in line of sight (20 m) and lists no shell parts.</summary>
+    /// <summary>Kernel-host gaps P4 and P5: observe defaults to everything in line of sight (no distance cut-off since the 10x world) and lists no shell parts.</summary>
     private async Task TestObserveDefaults()
     {
         var far = Send(Command("place-0400", "creation.place", new JsonObject { ["source"] = Source("Far totem"), ["placement"] = Placement(1.85, 0, 0.85) }), Player);
@@ -703,7 +703,13 @@ public partial class CommandHostTest : Node3D
         var observed = Query("observe", new JsonObject { ["actor"] = CommandHost.CompanionAvatarId }, Companion)["data"]!;
         var item = observed["visible"]!.AsArray().FirstOrDefault(v => v!["id"]!.GetValue<string>() == id);
         var distance = item == null ? 0 : DistanceTo(item.AsObject(), _companion.EyeCamera.GlobalPosition);
-        Check(item != null && distance > 3.0f, $"observe with no radius sees a creation in clear sight {distance:0.00} m away: the default is 20 m, not 3 (P4)");
+        Check(item != null && distance > 3.0f, $"observe with no radius sees a creation in clear sight {distance:0.00} m away: no distance cut-off, not 3 m (P4)");
+        Check(Ok(Query("observe", new JsonObject { ["actor"] = CommandHost.CompanionAvatarId, ["radius_m"] = CommandHost.ObserveRadiusMaxM }, Companion)) &&
+            Code(Query("observe", new JsonObject { ["actor"] = CommandHost.CompanionAvatarId, ["radius_m"] = CommandHost.ObserveRadiusMaxM + 1 }, Companion)) == "request_invalid",
+            "observe takes a radius up to 150 m, the contract's maximum, and refuses one past it");
+        Check(Code(Query("entity.inspect", new JsonObject { ["target"] = "plant:broadleaf-0" }, Companion)) == "target_not_found" &&
+            Code(Query("entity.inspect", new JsonObject { ["target"] = "plant:broadleaf-007" }, Companion)) == "request_invalid",
+            "a plant copy's id is well formed (one spelling, no leading zeros) and names nothing this room has");
         Check(observed["visible"]!.AsArray().All(v => v!["kind"]!.GetValue<string>() != "shell"), "observe lists no shell parts, which would use up its 100 places (P5)");
         Send(Command("place-0400-remove", "entity.remove", new JsonObject { ["target"] = id }, expectedEntities: new JsonObject { [id] = 1 }), Player);
         await MoveCompanion(CompanionSpawn, "back to its spawn");

@@ -182,8 +182,10 @@ class HostPolicy:
     # counted before parsing, so invalid messages count too. Stops are exempt; the player is never limited.
     # The MCP adapter keeps its own, tighter per-kind buckets in front of this (server.py).
     companion_messages_per_s: int = 30
-    # Perception (founder decision 1: line of sight). See docs/companion/PERCEPTION.md.
-    observe_max_radius_m: float = 20.0
+    # Perception (founder decision 1: line of sight). See docs/companion/PERCEPTION.md. observe answers everything in
+    # line of sight with no distance cut-off (the kernel's, since the 10x world); the contract bounds a given radius_m
+    # to 150 m. A finite value here caps whatever radius observe asks for (tests).
+    observe_max_radius_m: float = math.inf
     companion_targets_need_perception: bool = True  # commands may only name entities in sight now
     follow_player_out_of_sight: bool = True  # follow/come keep working when the player is not in sight
     # Perception memory (founder decision, 6 October 2026: the companion remembers what it saw).

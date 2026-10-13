@@ -1,0 +1,231 @@
+{
+  "schema": "enfractal.room",
+  "version": 1,
+  "room_id": "plant_tree_that_does_not_climb",
+  "display_name": "Island (example manifest)",
+  "description": "Illustrative 10x island manifest: terrain tiles with distance detail and plant copies. Small, flat and made up; no real place.",
+  "created_utc": "2026-10-13T00:00:00Z",
+  "units": "m",
+  "axes": "y_up_neg_z_forward",
+  "source": {
+    "kind": "procedural",
+    "pipeline": {
+      "name": "EnFractal landscape (contract example)",
+      "version": "0.0.0-example"
+    }
+  },
+  "bounds": {
+    "min_m": [
+      -16.0,
+      -1.0,
+      -16.0
+    ],
+    "max_m": [
+      16.0,
+      6.0,
+      0.0
+    ]
+  },
+  "shell": {
+    "parts": [
+      {
+        "id": "shell:terrain_grass",
+        "role": "ground",
+        "geometry": {
+          "kind": "mesh",
+          "mesh": "shell/terrain_grass.glb"
+        },
+        "collides": true,
+        "material_role": "grass",
+        "base_color": "#73a04d"
+      },
+      {
+        "id": "shell:terrain_sand",
+        "role": "ground",
+        "geometry": {
+          "kind": "mesh",
+          "mesh": "shell/terrain_sand.glb"
+        },
+        "collides": true,
+        "material_role": "soil",
+        "base_color": "#dccc9e"
+      },
+      {
+        "id": "shell:water_still",
+        "role": "backdrop",
+        "geometry": {
+          "kind": "mesh",
+          "mesh": "shell/water_still.glb"
+        },
+        "collides": false,
+        "material_role": "water",
+        "base_color": "#4d8099"
+      }
+    ]
+  },
+  "objects": [],
+  "spawns": [
+    {
+      "id": "player_start",
+      "role": "player",
+      "position_m": [
+        0.0,
+        0.0,
+        -8.0
+      ],
+      "yaw_deg": 0.0
+    },
+    {
+      "id": "companion_start",
+      "role": "companion",
+      "position_m": [
+        0.5,
+        0.0,
+        -8.0
+      ],
+      "yaw_deg": 0.0
+    }
+  ],
+  "plant_copies": {
+    "tile_m": 8,
+    "groups": 2,
+    "sets": [
+      {
+        "set": "grass",
+        "prototype": "grass_tuft",
+        "kind": "plant",
+        "species": "grass",
+        "collides": "none",
+        "fuel_class": "grass",
+        "seeds": true,
+        "mesh": "plants/grass.glb",
+        "triangle_count": 12,
+        "lods": [
+          {
+            "mesh": "plants/grass_far.glb",
+            "triangle_count": 2
+          }
+        ],
+        "table": "plants/grass.bin",
+        "tiles": 4,
+        "count": 5
+      },
+      {
+        "set": "broadleaf",
+        "prototype": "broadleaf",
+        "kind": "tree",
+        "species": "broadleaf",
+        "collides": "none",
+        "fuel_class": "broadleaf",
+        "seeds": true,
+        "mesh": "plants/broadleaf.glb",
+        "triangle_count": 12,
+        "lods": [
+          {
+            "mesh": "plants/broadleaf_far.glb",
+            "triangle_count": 2
+          }
+        ],
+        "table": "plants/broadleaf.bin",
+        "cap_slots": 2,
+        "tiles": 1,
+        "count": 2
+      },
+      {
+        "set": "stones",
+        "prototype": "rock",
+        "kind": "stone",
+        "species": "rock",
+        "collides": "solid",
+        "fuel_class": "none",
+        "seeds": false,
+        "mesh": "plants/stones.glb",
+        "triangle_count": 12,
+        "table": "plants/stones.bin",
+        "tiles": 2,
+        "count": 2
+      }
+    ]
+  },
+  "terrain_tiles": {
+    "tile_m": 16,
+    "levels": [
+      {
+        "grid_m": 0.1
+      },
+      {
+        "grid_m": 0.4
+      },
+      {
+        "grid_m": 1.6
+      }
+    ],
+    "parts": [
+      {
+        "part": "shell:terrain_grass",
+        "tiles": 2
+      },
+      {
+        "part": "shell:terrain_sand",
+        "tiles": 1
+      }
+    ]
+  },
+  "files": [
+    {
+      "path": "plants/broadleaf.bin",
+      "sha256": "be5e53defc2ef97937d1ed49d1b947f7123ca87764fe2684c9edcdc51895880d",
+      "bytes": 352
+    },
+    {
+      "path": "plants/broadleaf.glb",
+      "sha256": "d1099478b256c7cae21b1554232ddc7d80a993e8b37031c7f51c2259f5685873",
+      "bytes": 1548
+    },
+    {
+      "path": "plants/broadleaf_far.glb",
+      "sha256": "48964f63f8848f00d249e9b925536239bec36fa93cfcef0d4df72256269edc0b",
+      "bytes": 828
+    },
+    {
+      "path": "plants/grass.bin",
+      "sha256": "403127ceecdc067ea6652cd6949d9d6d9bd25840ba444b23648a7c17c2e7905f",
+      "bytes": 384
+    },
+    {
+      "path": "plants/grass.glb",
+      "sha256": "f3df984a4ab54ebdd9e87c3ffa1199c1ab6c6da22687544c21d97a25184a4071",
+      "bytes": 1544
+    },
+    {
+      "path": "plants/grass_far.glb",
+      "sha256": "dc1345f98d495df3cd7d80562de3880f890834f0a7d35e8366592df4de3bee38",
+      "bytes": 832
+    },
+    {
+      "path": "plants/stones.bin",
+      "sha256": "0deee8558c558f0425b9d6f21f7177ca805a4709b3b12fb09921b20a0e2305b9",
+      "bytes": 184
+    },
+    {
+      "path": "plants/stones.glb",
+      "sha256": "9046b469321e039e2a26ce4ffa14f0bc78f8dc8b6c2ed21249e2302095d450d3",
+      "bytes": 1540
+    },
+    {
+      "path": "shell/terrain_grass.glb",
+      "sha256": "09def7c79c8b5a412d88257ea54ea9a9e60a91f6a1d57504664700817fadece3",
+      "bytes": 4192
+    },
+    {
+      "path": "shell/terrain_sand.glb",
+      "sha256": "db7f74cd99abb54c35767fa081217f415c02a9c623b6be24c397789a8ccc3bbe",
+      "bytes": 1836
+    },
+    {
+      "path": "shell/water_still.glb",
+      "sha256": "c88bfbd9174984c0c81e4f6030c5a1b3b536061e281191d4cadeaa1dcc066548",
+      "bytes": 820
+    }
+  ]
+}

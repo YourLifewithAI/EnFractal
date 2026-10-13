@@ -140,6 +140,21 @@ EXPECTED_FAILURES = {
     "result_stop_putting_out_two_fires": "2 is greater than the maximum of 1",
     "result_fire_preview_without_who_is_there": "'avatars_in_area' is a dependency of 'preview_id'",
     "result_fire_preview_naming_a_thing_as_an_avatar": "'obj:bean_bag' does not match '^avatar:",
+    # The 10x world (S2): observe's radius is at most 150 m, and a plant copy has one spelling.
+    "query_observe_past_150_m": "151 is greater than the maximum of 150",
+    "command_go_to_a_tree_spelt_with_a_leading_zero": "'plant:broadleaf-01' does not match",
+}
+# Each invalid island (examples/rooms_invalid) and the reason it must fail. The game's loader (S6) refuses the same rooms.
+ISLAND_FAILURES = {
+    "plant_rows_out_of_order": "row 2 (plant:grass-2) is out of order: rows in a tile are sorted by x, then z",
+    "plant_row_in_the_wrong_tile": "row 1 (plant:grass-1) at (-3.25, -4.75) lies in tile (-1, -1), not in its index entry (-1, -2)",
+    "plant_table_cut_short": "table plants/grass.bin is 328 bytes; its header's 4 tiles and 5 rows of 56 bytes make 384",
+    "plant_tree_pole_above_its_caps": "row 1 (plant:broadleaf-1) has its pole above its highest cap",
+    "plant_group_left_unused": "plant group 3 has no copy",
+    "plant_flag_undefined": "row 0 (plant:stones-0) sets flag bits 0x4; only 0x1 are defined",
+    "plant_tree_that_does_not_climb": "$.plant_copies.sets[1].collides: 'tree_climb' was expected",
+    "terrain_tile_without_its_far_level": "tile (0, -1) has no level 2; every tile has every level",
+    "terrain_tile_outside_its_square": "node tile_-1_-1_lod0 reaches outside its tile's square",
 }
 
 
@@ -690,6 +705,199 @@ class RoomStateRun2Tests(unittest.TestCase):
         self.assertRefused(lambda s: s["discovered"]["levels"][0].update(min_xz_m=[50.0, 0.0]), "beyond the room bounds")
         self.assertRefused(lambda s: s["discovered"]["levels"][1].update(support="obj:ghost"), "object the pinned room does not have")
         self.assertRefused(lambda s: s["discovered"]["levels"][0].update(support="shell:attic"), "shell part the pinned room does not have")
+
+
+ISLAND = EXAMPLES / "rooms" / "island_example"
+INVALID_ISLANDS = EXAMPLES / "rooms_invalid"
+
+
+class TenTimesWorldTests(unittest.TestCase):
+    """S2 of the 10x world (13 October): plant copies and terrain tiles in the room manifest, the plant: namespace and
+    observe's radius. The exporter (S5) writes against these rules and the game's loader (S6) reads against them."""
+
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.room = Path(self.temporary.name) / "island_example"
+        shutil.copytree(ISLAND, self.room)
+        self.manifest = validate.load_strict(self.room / "room.json")
+
+    def tearDown(self):
+        self.temporary.cleanup()
+
+    def rewrite(self, mutate):
+        document = copy.deepcopy(self.manifest)
+        mutate(document)
+        write_json(self.room / "room.json", document)
+        return validate.check_room(self.room)
+
+    def rewrite_table(self, name: str, mutate) -> list[str]:
+        """Rewrite one set's table bytes and its files entry, so only the table's own rules can fail."""
+        path = self.room / "plants" / f"{name}.bin"
+        data = mutate(bytearray(path.read_bytes()))
+        path.write_bytes(bytes(data))
+
+        def repin(document):
+            for entry in document["files"]:
+                if entry["path"] == f"plants/{name}.bin":
+                    entry.update(sha256=hashlib.sha256(bytes(data)).hexdigest(), bytes=len(data))
+        return self.rewrite(repin)
+
+    def assertProblem(self, problems, fragment):
+        self.assertTrue(any(fragment in p for p in problems), problems)
+
+    def test_the_island_example_is_valid(self):
+        self.assertEqual(validate.check_room(ISLAND), [])
+        manifest = validate.load_strict(ISLAND / "room.json")
+        self.assertEqual([s["kind"] for s in manifest["plant_copies"]["sets"]], ["plant", "tree", "stone"])
+        self.assertEqual([p["part"] for p in manifest["terrain_tiles"]["parts"]], ["shell:terrain_grass", "shell:terrain_sand"])
+
+    def test_each_invalid_island_fails_for_its_reason(self):
+        self.assertEqual({p.name for p in INVALID_ISLANDS.iterdir()}, set(ISLAND_FAILURES))
+        for name, reason in ISLAND_FAILURES.items():
+            with self.subTest(island=name):
+                problems = validate.check_room(INVALID_ISLANDS / name)
+                self.assertTrue(any(reason in p for p in problems), problems)
+
+    def test_every_row_is_a_plant_entity_with_one_spelling(self):
+        common = validate.load_strict(CONTRACTS / "common.schema.json")["$defs"]
+        entity, plant = (re.compile(validate.ecma_pattern(common[name]["pattern"])) for name in ("entity_id", "plant_id"))
+        for record in self.manifest["plant_copies"]["sets"]:
+            data = (ISLAND / record["table"]).read_bytes()
+            _header, _tiles, rows = validate.read_plant_table(data, record["kind"], record.get("cap_slots", 0))
+            for row in range(len(rows)):
+                self.assertTrue(plant.search(f"plant:{record['set']}-{row}") and entity.search(f"plant:{record['set']}-{row}"))
+        for spelling in ("plant:grass-01", "plant:grass-", "plant:Grass-1", "plant:tall-grass-1", "plant:grass-123456789", "plant:grass-1\n"):
+            with self.subTest(spelling=spelling):
+                self.assertIsNone(entity.search(spelling))
+        # Before the 10x world, any id of the six namespaces was well formed; it still is.
+        for kept in ("shell:floor", "obj:bean_bag", "creation:00000001", "avatar:companion", "effect:abc", "edit:x-1"):
+            self.assertTrue(entity.search(kept))
+
+    def test_the_table_layout_is_the_readmes(self):
+        self.assertEqual((validate.PLANT_TABLE_HEADER.size, validate.PLANT_TILE_ENTRY.size, validate.PLANT_ROW.size,
+                          validate.PLANT_TREE_TAIL.size, validate.PLANT_CAP.size), (40, 16, 56, 28, 32))
+        self.assertEqual([validate.plant_row_bytes("plant"), validate.plant_row_bytes("stone"), validate.plant_row_bytes("tree", 1),
+                          validate.plant_row_bytes("tree", 5)], [56, 56, 116, 244])
+        schema = validate.load_strict(CONTRACTS / "room-manifest.schema.json")["$defs"]
+        self.assertEqual(schema["plant_copies"]["properties"]["tile_m"]["const"], validate.PLANT_TILE_M)
+        self.assertEqual(schema["terrain_tiles"]["properties"]["tile_m"]["const"], validate.TERRAIN_TILE_M)
+        readme = (CONTRACTS / "README.md").read_text(encoding="utf-8")
+        for words in ("`EFPLANTS`", "40 bytes", "56 bytes", "84 + 32 × cap_slots", "tile_<tx>_<tz>_lod<level>"):
+            self.assertIn(words, readme)
+        # The example's tables, read back: the header is the manifest's, and a grove is two trees.
+        grass = (ISLAND / "plants" / "grass.bin").read_bytes()
+        header, tiles, rows = validate.read_plant_table(grass, "plant")
+        self.assertEqual((header["row_count"], header["tile_count"], header["tile_m"]), (5, 4, 8))
+        self.assertEqual([t[:2] for t in tiles], sorted(t[:2] for t in tiles))
+        trees = validate.read_plant_table((ISLAND / "plants" / "broadleaf.bin").read_bytes(), "tree", 2)[2]
+        self.assertEqual([row[12] for row in trees], [1, 1])
+        self.assertEqual([row[20] for row in trees], [2, 1])  # cap_count; the second tree's spare slot is zero bytes
+        self.assertEqual(trees[1][29:], (0.0,) * 8)
+
+    def test_a_set_says_what_it_is_and_how_it_collides(self):
+        def set_field(index, **changes):
+            def mutate(d):
+                d["plant_copies"]["sets"][index].update(changes)
+            return mutate
+        cases = {
+            "a tree without cap slots": (lambda d: d["plant_copies"]["sets"][1].pop("cap_slots"), "'cap_slots' is a required property"),
+            "a plant with cap slots": (set_field(0, cap_slots=1), 'must not match {"required": ["cap_slots"]}'),
+            "a plant that collides": (set_field(0, collides="solid"), "'none' was expected"),
+            "a stone that climbs": (set_field(2, collides="tree_climb"), 'must not match {"const": "tree_climb"}'),
+            "a stone that seeds": (set_field(2, seeds=True), "False was expected"),
+            "a stone that burns": (set_field(2, fuel_class="herb"), "'none' was expected"),
+            "a tree that burns like grass": (set_field(1, fuel_class="grass"), "is not one of ['broadleaf', 'conifer']"),
+            "a set name with a hyphen": (set_field(0, set="tall-grass"), "does not match"),
+            "a table that is not .bin": (set_field(0, table="plants/grass.json"), "does not match"),
+            "an empty set": (set_field(0, count=0), "less than the minimum of 1"),
+            "an unknown field": (set_field(0, draw_to_m=60), "'draw_to_m' was unexpected"),
+        }
+        for name, (mutate, reason) in cases.items():
+            with self.subTest(case=name):
+                self.assertProblem(self.rewrite(mutate), reason)
+
+    def test_the_manifest_and_its_tables_agree(self):
+        def mutate_set(index, **changes):
+            def mutate(d):
+                d["plant_copies"]["sets"][index].update(changes)
+            return mutate
+        self.assertProblem(self.rewrite(mutate_set(0, count=6)), "the manifest says 6 in 4")
+        self.assertProblem(self.rewrite(mutate_set(0, triangle_count=11)), "holds 12 triangles; the manifest says 11")
+        self.assertProblem(self.rewrite(lambda d: d["plant_copies"]["sets"][0]["lods"][0].update(triangle_count=12)), "is not lighter")
+        self.assertProblem(self.rewrite(mutate_set(1, cap_slots=3)), "header row_bytes is 148; expected 180")
+        self.assertProblem(self.rewrite(mutate_set(2, kind="plant", collides="none", fuel_class="grass")), "header kind is 2; expected 0")
+        self.assertProblem(self.rewrite(mutate_set(2, set="grass")), "plant set grass is listed twice")
+        self.assertProblem(self.rewrite(mutate_set(2, table="plants/grass.bin")), "belongs to more than one set")
+        self.assertProblem(self.rewrite(lambda d: d["files"].pop()), "is not in the files list")
+
+    def test_the_table_bytes_are_checked_row_by_row(self):
+        header = 40 + 16 * 4  # the grass table: four tiles
+
+        def at(row, field):
+            return header + 56 * row + 4 * field
+
+        def poke(row, field, fmt, value):
+            def mutate(data):
+                struct.pack_into(fmt, data, at(row, field), value)
+                return data
+            return mutate
+        cases = {
+            "the magic": (lambda data: data.__setitem__(slice(0, 8), b"EFPLANTZ") or data, "header magic"),
+            "a non-finite number": (poke(0, 3, "<f", float("nan")), "has a non-finite number"),
+            "a yaw past 180": (poke(0, 3, "<f", 200.0), "has yaw 200.0"),
+            "a negative scale": (poke(0, 4, "<f", -1.0), "has a scale outside (0, 100]"),
+            "a tint past 1": (poke(0, 8, "<f", 1.5), "has a tint outside [0, 1]"),
+            "a wrong top": (poke(0, 10, "<f", 0.5), "has top_m 0.5"),
+            "a group the room does not have": (poke(0, 12, "<I", 9), "is in group 9; the room has 2"),
+            "a copy outside the bounds": (poke(0, 1, "<f", 50.0), "is outside the room bounds"),
+            "a reserved header word": (lambda data: data.__setitem__(slice(36, 40), b"\x01\x00\x00\x00") or data, "header reserved is 1"),
+        }
+        for name, (mutate, reason) in cases.items():
+            with self.subTest(case=name):
+                shutil.rmtree(self.room)
+                shutil.copytree(ISLAND, self.room)
+                self.assertProblem(self.rewrite_table("grass", mutate), reason)
+
+    def test_no_manifest_object_rests_on_a_copy_and_copies_have_a_density_limit(self):
+        def rest_on_a_tree(d):
+            d["objects"].append({"id": "obj:nest", "asset": "objects/nest/asset.json",
+                                 "transform": {"position_m": [-5.0, 0.94, -9.0], "rotation": [0.0, 0.0, 0.0, 1.0]},
+                                 "support": {"kind": "object", "target_id": "plant:broadleaf-1"}})
+        self.assertProblem(self.rewrite(rest_on_a_tree), "rests on the plant copy plant:broadleaf-1; no manifest object rests on a copy")
+        original = validate.PLANT_DENSITY_PER_M2
+        try:
+            validate.PLANT_DENSITY_PER_M2 = 0.01  # 9 copies on 512 square metres of bounds
+            self.assertProblem(validate.check_room(ISLAND), "9 plant copies on 512 m2 of bounds")
+        finally:
+            validate.PLANT_DENSITY_PER_M2 = original
+
+    def test_terrain_tiles_name_their_parts_and_levels(self):
+        cases = {
+            "a part the shell does not have": (lambda d: d["terrain_tiles"]["parts"].append({"part": "shell:terrain_rock", "tiles": 1}), "is not a shell part"),
+            "a part listed twice": (lambda d: d["terrain_tiles"]["parts"].append({"part": "shell:terrain_sand", "tiles": 1}), "is listed twice"),
+            "a tile count the GLB does not hold": (lambda d: d["terrain_tiles"]["parts"][0].update(tiles=3), "holds 2 tiles; the manifest says 3"),
+            "levels out of order": (lambda d: d["terrain_tiles"]["levels"].reverse(), "finest first"),
+            "fewer levels than the GLB holds": (lambda d: d["terrain_tiles"]["levels"].pop(), "names level 2; the room has 2"),
+            "a part drawn whole that is not tiled": (lambda d: d["terrain_tiles"]["parts"].append({"part": "shell:water_still", "tiles": 1}),
+                                                     "is not named tile_<tx>_<tz>_lod<level>"),
+            "another tile size": (lambda d: d["terrain_tiles"].update(tile_m=8), "16 was expected"),
+        }
+        for name, (mutate, reason) in cases.items():
+            with self.subTest(case=name):
+                self.assertProblem(self.rewrite(mutate), reason)
+        names = [validate.TERRAIN_NODE.match(n) is not None for n in ("tile_0_-1_lod0", "tile_-12_3_lod2", "tile_-0_1_lod0", "tile_01_1_lod0", "tile_1_1_lod")]
+        self.assertEqual(names, [True, True, False, False, False])
+
+    def test_a_room_without_them_is_unchanged(self):
+        """Both blocks are optional: every room valid before stays valid, byte for byte."""
+        self.assertEqual(validate.check_room(GARAGE), [])
+        self.assertEqual(validate.check_room(TEST_ROOM), [])
+        self.assertEqual(hashlib.sha256((EXAMPLES / "room_state" / "garage_example_state.json").read_bytes()).hexdigest(), PRE_RUN2_STATE_SHA256)
+
+    def test_observe_sees_the_whole_island(self):
+        args = validate.load_strict(COMMAND_SCHEMA)["$defs"]["args"]["observe"]
+        self.assertEqual((args["properties"]["radius_m"]["maximum"], args["required"]), (150, ["actor"]))
+        self.assertEqual(validate.check_document(EXAMPLES / "messages" / "valid" / "query_observe_everything_in_sight.json"), [])
 
 
 class TestRoomTests(unittest.TestCase):
