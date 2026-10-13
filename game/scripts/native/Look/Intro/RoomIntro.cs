@@ -48,7 +48,7 @@ public partial class RoomIntro : Node
     /// </summary>
     public const float CoarseLandShare = 0.01f;
     /// <summary>The land's haze starts this much farther out for every metre the camera is from the play camera, up to HazeLiftMaxM.</summary>
-    public const float HazeLiftPerM = 0.9f, HazeLiftMaxM = 150f;
+    public const float HazeLiftPerM = 0.5f, HazeLiftMaxM = 90f;
     /// <summary>Tests: draw the land coarse (true) or fine (false) whatever the island's size; null follows CoarseLandShare.</summary>
     internal static bool? ForceCoarseLand { get; set; }
 
