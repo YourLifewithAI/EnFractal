@@ -86,13 +86,19 @@ public partial class CommandHost : Node
     public const int CapabilitiesDefaultLimit = 50;
     /// <summary>A point effect's place must be in the team's sight: a column twice this wide (metres) over the centre, as tall as the wisp floats above it.</summary>
     public const float EffectSightHalfWidthM = 0.02f;
+    /// <summary>
+    /// observe's radius_m is at most this (contract, 13 October: past the 10x garage island's farthest corner, about
+    /// 100 m). Omitted, observe has no distance cut-off: line of sight is the real limit, on the whole island.
+    /// </summary>
+    public const int ObserveRadiusMaxM = 150;
     public static readonly TimeSpan ApprovalLifetime = TimeSpan.FromMinutes(5);
     public const string RuntimeScript = "res://scripts/invention_runtime.gd";
 
     // \A and \z, never ^ and $: in .NET, $ also matches before a final newline (Lane P review).
     private static readonly Regex ActionId = new(@"\A[A-Za-z0-9][A-Za-z0-9_-]{0,63}\z", RegexOptions.Compiled);
     private static readonly Regex Token = new(@"\A[a-z][a-z0-9_-]{0,63}\z", RegexOptions.Compiled);
-    private static readonly Regex EntityId = new(@"\A(shell|obj|creation|avatar|effect|edit):[A-Za-z0-9_-]{1,64}\z", RegexOptions.Compiled);
+    // A plant copy (plant:<set>-<row>, the 10x world) has one spelling: its row in decimal without leading zeros.
+    private static readonly Regex EntityId = new(@"\A((shell|obj|creation|avatar|effect|edit):[A-Za-z0-9_-]{1,64}|plant:[a-z][a-z0-9_]{0,31}-(0|[1-9][0-9]{0,7}))\z", RegexOptions.Compiled);
     private static readonly Regex AvatarId = new(@"\Aavatar:[A-Za-z0-9_-]{1,64}\z", RegexOptions.Compiled);
     private static readonly Regex CreationId = new(@"\Acreation:[A-Za-z0-9_-]{1,64}\z", RegexOptions.Compiled);
     private static readonly Regex EffectId = new(@"\Aeffect:[A-Za-z0-9_-]{1,64}\z", RegexOptions.Compiled);
@@ -1208,8 +1214,9 @@ public partial class CommandHost : Node
             throw new Refusal("actor_denied", "A companion observes only through its own avatar.", "$.args.actor");
         SmallPlayerController? body = actor == CompanionAvatarId ? Companion : actor == PlayerAvatar ? Player : null;
         if (body == null) throw new Refusal("target_not_found", "There is no such actor in this room.", "$.args.actor");
-        // The founder's rule: everything in line of sight, so the radius defaults to its 20 m maximum (P4).
-        var radius = args.TryGetProperty("radius_m", out var r) ? (float)CanonicalJson.ReadNumber(r) : 20.0f;
+        // The founder's rule: everything in line of sight (P4). Omitted, there is no distance cut-off: on the 10x island
+        // line of sight is the real limit; a given radius narrows the answer.
+        var radius = args.TryGetProperty("radius_m", out var r) ? (float)CanonicalJson.ReadNumber(r) : float.PositiveInfinity;
         var eye = body.EyeCamera.GlobalPosition;
         var entities = Entities();
         // A companion's own sight was taken (and remembered) for this request; the player looking through either
@@ -2274,8 +2281,8 @@ public partial class CommandHost : Node
             case "observe":
                 if (!args.TryGetProperty("actor", out var actor) || actor.ValueKind != JsonValueKind.String || !AvatarId.IsMatch(actor.GetString()!))
                     throw new Refusal("request_invalid", "actor is an avatar id.", "$.args.actor");
-                if (args.TryGetProperty("radius_m", out var radius) && (radius.ValueKind != JsonValueKind.Number || radius.GetDouble() is <= 0 or > 20))
-                    throw new Refusal("request_invalid", "radius_m is between 0 and 20.", "$.args.radius_m");
+                if (args.TryGetProperty("radius_m", out var radius) && (radius.ValueKind != JsonValueKind.Number || radius.GetDouble() is <= 0 or > ObserveRadiusMaxM))
+                    throw new Refusal("request_invalid", $"radius_m is more than 0 and at most {ObserveRadiusMaxM}.", "$.args.radius_m");
                 break;
             case "view.look":
                 CheckLookArgs(args);

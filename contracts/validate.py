@@ -10,8 +10,8 @@ Usage:
   python contracts/validate.py --pin FILE                                # print a file's SHA-256 pin
 
 A directory containing room.json is validated as a room: the manifest, every asset.json it
-references, every listed file (hash, size, self-contained GLB), and the semantic rules JSON
-Schema cannot express. A .json file is validated by its own 'schema' field (a style preset or an
+references, every listed file (hash, size, self-contained GLB), its plant tables and tiled terrain
+GLBs (the 10x world), and the semantic rules JSON Schema cannot express. A .json file is validated by its own 'schema' field (a style preset or an
 island rules pack is one such file). Exit status is 0 only when everything passes. Requires the packages in contracts/requirements.txt.
 """
 from __future__ import annotations
@@ -552,7 +552,10 @@ def check_room(room_dir: Path, check_style_pins: bool = False, manifest_name: st
     known = set(ids)
     for instance in room["objects"]:
         target = instance["support"].get("target_id")
-        if target is not None and target not in known:
+        if target is not None and target.startswith("plant:"):
+            # Copies burn and regrow, so nothing in the baseline rests on one.
+            problems.append(f"{label}: {instance['id']} rests on the plant copy {target}; no manifest object rests on a copy")
+        elif target is not None and target not in known:
             problems.append(f"{label}: {instance['id']} rests on unknown entity {target}")
         if target == instance["id"]:
             problems.append(f"{label}: {instance['id']} cannot rest on itself")
@@ -576,10 +579,337 @@ def check_room(room_dir: Path, check_style_pins: bool = False, manifest_name: st
         if not _quat_ok(view["camera"]["transform"]["rotation"]):
             problems.append(f"{label}: reference view {view['id']} rotation is not a unit quaternion")
 
+    listed = {entry["path"] for entry in room["files"]}
+    if "plant_copies" in room:
+        problems += check_plant_copies(room, room_dir, listed, referenced, label)
+    if "terrain_tiles" in room:
+        problems += check_terrain_tiles(room, room_dir, listed, label)
     problems += _check_listed_files(room_dir, room["files"], referenced, label)
     if check_style_pins and "default_style" in room:
         problems += check_style_pin(room["default_style"], label, styles_dir)
     return problems
+
+
+# ---------- plant copies and terrain tiles (the 10x world) ----------
+
+# A plant table (README, "Plant copies"): a 40-byte header, the tile index, then fixed-width rows, all little-endian.
+PLANT_TABLE_MAGIC = b"EFPLANTS"
+PLANT_TABLE_VERSION = 1
+PLANT_TABLE_HEADER = struct.Struct("<8s8I")  # magic, version, kind, row_bytes, row_count, tile_count, cap_slots, tile_m, reserved
+PLANT_TILE_ENTRY = struct.Struct("<iiII")  # tx, tz, first row, row count
+PLANT_ROW = struct.Struct("<11f3I")  # x, y, z, yaw_deg, scale x, y, z, tint r, g, b, top_m; flags, group, variant_seed
+PLANT_TREE_TAIL = struct.Struct("<6fI")  # trunk x, z, trunk_radius_m, pole_radius_m, trunk_top_m, pole_top_m; cap_count
+PLANT_CAP = struct.Struct("<8f")  # x, z, rim_half_x_m, rim_half_z_m, rim_m, top_m, top_half_x_m, top_half_z_m
+PLANT_KIND_CODES = {"plant": 0, "tree": 1, "stone": 2}
+PLANT_TILE_M = 8
+PLANT_FLAGS = {"submerged": 1}  # bit 0: the copy's base is under water; every other bit is 0
+# Copies per square metre of the bounds' footprint, all sets together: a limit that grows with the land, not with a
+# scale factor (today about 60 per square metre at 1x and at 10x).
+PLANT_DENSITY_PER_M2 = 256
+TERRAIN_TILE_M = 16
+TERRAIN_NODE = re.compile(r"tile_(0|-?[1-9][0-9]{0,4})_(0|-?[1-9][0-9]{0,4})_lod([0-9])\Z")
+PIVOT_TOLERANCE_M = 2e-3
+
+
+def plant_row_bytes(kind: str, cap_slots: int = 0) -> int:
+    """The width of one row: 56 bytes, and for a tree 28 more and 32 per cap slot."""
+    if kind == "tree":
+        return PLANT_ROW.size + PLANT_TREE_TAIL.size + PLANT_CAP.size * cap_slots
+    return PLANT_ROW.size
+
+
+def plant_tile(x: float, z: float) -> tuple[int, int]:
+    """The 8 m tile of a copy, from its stored float32 coordinates (exact: 8 is a power of two)."""
+    return math.floor(x / PLANT_TILE_M), math.floor(z / PLANT_TILE_M)
+
+
+def read_plant_table(data: bytes, kind: str, cap_slots: int = 0):
+    """Split a plant table into its header, tile index and rows. Each row is a tuple: the 14 common fields, then for a
+    tree the 7 tail fields and cap_slots groups of 8 cap fields. Raises ContractError when the bytes cannot be split."""
+    if len(data) < PLANT_TABLE_HEADER.size:
+        raise ContractError(f"is {len(data)} bytes, shorter than the {PLANT_TABLE_HEADER.size}-byte header")
+    magic, version, kind_code, row_bytes, row_count, tile_count, slots, tile_m, reserved = PLANT_TABLE_HEADER.unpack_from(data, 0)
+    header = {"magic": magic, "version": version, "kind": kind_code, "row_bytes": row_bytes, "row_count": row_count,
+              "tile_count": tile_count, "cap_slots": slots, "tile_m": tile_m, "reserved": reserved}
+    expected = {"magic": PLANT_TABLE_MAGIC, "version": PLANT_TABLE_VERSION, "kind": PLANT_KIND_CODES[kind],
+                "row_bytes": plant_row_bytes(kind, cap_slots), "cap_slots": cap_slots if kind == "tree" else 0,
+                "tile_m": PLANT_TILE_M, "reserved": 0}
+    for name, value in expected.items():
+        if header[name] != value:
+            raise ContractError(f"header {name} is {header[name]!r}; expected {value!r}")
+    size = PLANT_TABLE_HEADER.size + PLANT_TILE_ENTRY.size * tile_count + row_bytes * row_count
+    if len(data) != size:
+        raise ContractError(f"is {len(data)} bytes; its header's {tile_count} tiles and {row_count} rows of {row_bytes} bytes make {size}")
+    start = PLANT_TABLE_HEADER.size
+    tiles = list(PLANT_TILE_ENTRY.iter_unpack(data[start:start + PLANT_TILE_ENTRY.size * tile_count]))
+    row_format = struct.Struct("<11f3I" + ("6fI" + "8f" * cap_slots if kind == "tree" else ""))
+    rows = list(row_format.iter_unpack(data[start + PLANT_TILE_ENTRY.size * tile_count:]))
+    return header, tiles, rows
+
+
+def _glb_document(data: bytes) -> dict | None:
+    """The JSON chunk of a GLB check_glb accepts, or None."""
+    if check_glb(data, "mesh"):
+        return None
+    length = struct.unpack_from("<I", data, 12)[0]
+    return loads_strict(data[20:20 + length].decode("utf-8").rstrip(" \x00"))
+
+
+def _glb_mesh_extent(gltf: dict, mesh_index: int) -> tuple[list[float], list[float]] | None:
+    """The union of a mesh's POSITION accessor bounds (glTF requires min and max on them), or None when missing."""
+    try:
+        low, high = [math.inf] * 3, [-math.inf] * 3
+        for primitive in gltf["meshes"][mesh_index]["primitives"]:
+            accessor = gltf["accessors"][primitive["attributes"]["POSITION"]]
+            for i in range(3):
+                low[i] = min(low[i], float(accessor["min"][i]))
+                high[i] = max(high[i], float(accessor["max"][i]))
+        return (low, high) if all(math.isfinite(v) for v in low + high) else None
+    except (KeyError, IndexError, TypeError, ValueError):
+        return None
+
+
+def _glb_triangles(gltf: dict) -> int | None:
+    """Triangles a GLB's meshes hold (indexed or not, mode 4 only), or None when it holds anything else."""
+    try:
+        total = 0
+        for mesh in gltf.get("meshes", []):
+            for primitive in mesh["primitives"]:
+                if primitive.get("mode", 4) != 4:
+                    return None
+                accessor = gltf["accessors"][primitive["indices"] if "indices" in primitive else primitive["attributes"]["POSITION"]]
+                total += int(accessor["count"]) // 3
+        return total
+    except (KeyError, IndexError, TypeError, ValueError):
+        return None
+
+
+def _read_listed(room_dir: Path, listed: set[str], path: str) -> bytes | None:
+    """A listed file's bytes for the semantic checks; unlisted or missing files are reported by the files check."""
+    target = room_dir / PurePosixPath(path)
+    if path not in listed or not target.is_file():
+        return None
+    return target.read_bytes()
+
+
+def check_plant_copies(room: dict, room_dir: Path, listed: set[str], referenced: set[str], label: str) -> list[str]:
+    """What the schema cannot say about plant_copies: each set's meshes and table against its manifest record, every
+    row's numbers, the sort order and the tile index, the group numbering and the density limit."""
+    copies, bounds = room["plant_copies"], room["bounds"]
+    problems: list[str] = []
+    names = [s["set"] for s in copies["sets"]]
+    for name in sorted({n for n in names if names.count(n) > 1}):
+        problems.append(f"{label}: plant set {name} is listed twice")
+    tables = [s["table"] for s in copies["sets"]]
+    for path in sorted({t for t in tables if tables.count(t) > 1}):
+        problems.append(f"{label}: plant table {path} belongs to more than one set")
+    footprint = (bounds["max_m"][0] - bounds["min_m"][0]) * (bounds["max_m"][2] - bounds["min_m"][2])
+    total = sum(s["count"] for s in copies["sets"])
+    if total > PLANT_DENSITY_PER_M2 * footprint:
+        problems.append(f"{label}: {total} plant copies on {footprint:.0f} m2 of bounds; at most {PLANT_DENSITY_PER_M2} per square metre")
+    groups_used: set[int] = set()
+    complete = True  # every table read: only then can a group be known to be unused
+    for record in copies["sets"]:
+        where = f"{label}: plant set {record['set']}"
+        meshes = [(record["mesh"], record["triangle_count"])] + [(lod["mesh"], lod["triangle_count"]) for lod in record.get("lods", [])]
+        referenced.update(path for path, _ in meshes)
+        referenced.add(record["table"])
+        for (path, triangles), (_previous, lighter_than) in zip(meshes[1:], meshes):
+            if triangles >= lighter_than:
+                problems.append(f"{where}: {path} is not lighter than the mesh before it")
+        height = None
+        for index, (path, triangles) in enumerate(meshes):
+            data = _read_listed(room_dir, listed, path)
+            gltf = _glb_document(data) if data is not None else None
+            if gltf is None:
+                continue  # missing, unlisted or not self-contained: the files check reports it
+            if _glb_triangles(gltf) != triangles:
+                problems.append(f"{where}: {path} holds {_glb_triangles(gltf)} triangles; the manifest says {triangles}")
+            extents = [_glb_mesh_extent(gltf, m) for m in range(len(gltf.get("meshes", [])))]
+            if not extents or None in extents:
+                problems.append(f"{where}: {path} has no mesh with POSITION bounds")
+                continue
+            low = [min(e[0][i] for e in extents) for i in range(3)]
+            high = [max(e[1][i] for e in extents) for i in range(3)]
+            if (abs(low[1]) > PIVOT_TOLERANCE_M or abs(low[0] + high[0]) > PIVOT_TOLERANCE_M
+                    or abs(low[2] + high[2]) > PIVOT_TOLERANCE_M):
+                problems.append(f"{where}: {path} is not pivoted at its bottom centre")
+            if index == 0:
+                height = high[1]
+        data = _read_listed(room_dir, listed, record["table"])
+        if data is None:
+            complete = False
+            continue
+        try:
+            _header, tiles, rows = read_plant_table(data, record["kind"], record.get("cap_slots", 0))
+        except ContractError as error:
+            problems.append(f"{where}: table {record['table']} {error}")
+            complete = False
+            continue
+        if len(rows) != record["count"] or len(tiles) != record["tiles"]:
+            problems.append(f"{where}: table holds {len(rows)} rows in {len(tiles)} tiles; the manifest says {record['count']} in {record['tiles']}")
+            complete = False
+            continue
+        problems += _check_plant_rows(record, tiles, rows, bounds, copies["groups"], height, groups_used, where)
+    missing = sorted(set(range(1, copies["groups"] + 1)) - groups_used)
+    if complete and missing:
+        problems.append(f"{label}: plant group {missing[0]} has no copy; groups are numbered 1 to {copies['groups']} with none unused")
+    return problems
+
+
+def _check_plant_rows(record: dict, tiles: list, rows: list, bounds: dict, groups: int, height: float | None,
+                      groups_used: set[int], where: str, limit: int = 8) -> list[str]:
+    """The tile index, the sort order and every row's numbers. Stops after `limit` problems: a broken table repeats."""
+    problems: list[str] = []
+    low, high = bounds["min_m"], bounds["max_m"]
+    tol = BOUNDS_TOLERANCE_M
+    expected_first, previous_tile = 0, None
+    for index, (tx, tz, first, count) in enumerate(tiles):
+        if previous_tile is not None and (tx, tz) <= previous_tile:
+            problems.append(f"{where}: tile index entry {index} ({tx}, {tz}) is not after ({previous_tile[0]}, {previous_tile[1]}); tiles are sorted by tx, then tz")
+        if count < 1 or first != expected_first:
+            problems.append(f"{where}: tile index entry {index} ({tx}, {tz}) starts at row {first} with {count}; expected row {expected_first} and at least one")
+        previous_tile, expected_first = (tx, tz), first + count
+        if problems:
+            return problems
+    if expected_first != len(rows):
+        return [f"{where}: the tile index covers {expected_first} rows; the table has {len(rows)}"]
+    tree = record["kind"] == "tree"
+    slots = record.get("cap_slots", 0)
+    for tx, tz, first, count in tiles:
+        previous = None
+        for row in range(first, first + count):
+            values = rows[row]
+            x, y, z, yaw, sx, sy, sz, r, g, b, top, flags, group, _seed = values[:14]
+            at = f"{where}: row {row} (plant:{record['set']}-{row})"
+            floats = [v for v in values if isinstance(v, float)]
+            if not all(math.isfinite(v) for v in floats):
+                problems.append(f"{at} has a non-finite number")
+            elif plant_tile(x, z) != (tx, tz):
+                problems.append(f"{at} at ({x}, {z}) lies in tile {plant_tile(x, z)}, not in its index entry ({tx}, {tz})")
+            elif previous is not None and (x, z) < previous:
+                problems.append(f"{at} is out of order: rows in a tile are sorted by x, then z")
+            elif not all(low[i] - tol <= (x, y, z)[i] <= high[i] + tol for i in range(3)):
+                problems.append(f"{at} is outside the room bounds")
+            elif not -180 <= yaw <= 180:
+                problems.append(f"{at} has yaw {yaw}; it is between -180 and 180 degrees")
+            elif not all(0 < s <= 100 for s in (sx, sy, sz)):
+                problems.append(f"{at} has a scale outside (0, 100]")
+            elif not all(0 <= c <= 1 for c in (r, g, b)):
+                problems.append(f"{at} has a tint outside [0, 1]")
+            elif height is not None and abs(top - (y + height * sy)) > 1e-3:
+                problems.append(f"{at} has top_m {top}; its y plus its mesh's height times its y scale is {y + height * sy:.4f}")
+            elif top > high[1] + tol:
+                problems.append(f"{at} reaches above the room bounds")
+            elif flags & ~sum(PLANT_FLAGS.values()):
+                problems.append(f"{at} sets flag bits {flags:#x}; only {sum(PLANT_FLAGS.values()):#x} are defined")
+            elif group > groups:
+                problems.append(f"{at} is in group {group}; the room has {groups}")
+            elif tree:
+                problem = _tree_row_problem(values[14:], slots, y, low, high)
+                if problem:
+                    problems.append(f"{at} {problem}")
+            groups_used.add(group)
+            previous = (x, z)
+            if len(problems) >= limit:
+                return problems + [f"{where}: stopped after {limit} problems"]
+    return problems
+
+
+def _tree_row_problem(tail, slots: int, y: float, low, high) -> str | None:
+    """A tree row's climbing collision (pipeline/landscape/export/trees.py fits it to the ground): a trunk from the
+    copy's base to trunk_top_m, a pole of pole_radius_m from there to pole_top_m, and cap_count caps, the highest
+    reaching at least the pole's top. Nothing finer is checked: the exporter fits them and the walk checks prove them."""
+    tol = BOUNDS_TOLERANCE_M
+    tx, tz, trunk_radius, pole_radius, trunk_top, pole_top, cap_count = tail[:7]
+    if not 1 <= cap_count <= slots:
+        return f"has cap_count {cap_count}; it is 1 to the set's {slots} cap slots"
+    if trunk_radius <= 0 or pole_radius <= 0:
+        return "has a trunk or pole radius that is not positive"
+    if not y < trunk_top < pole_top <= high[1] + tol:
+        return "needs its base below trunk_top_m, below pole_top_m, inside the bounds"
+    if not (low[0] - tol <= tx <= high[0] + tol and low[2] - tol <= tz <= high[2] + tol):
+        return "has its trunk outside the room bounds"
+    caps = [tail[7 + 8 * k:15 + 8 * k] for k in range(slots)]
+    if any(v != 0 for cap in caps[cap_count:] for v in cap):
+        return "has an unused cap slot that is not all zero"
+    for k, (cx, cz, rim_x, rim_z, rim, top, top_x, top_z) in enumerate(caps[:cap_count]):
+        if not (0 < top_x <= rim_x and 0 < top_z <= rim_z):
+            return f"has cap {k} with a top wider than its rim or a size that is not positive"
+        if not (y < rim < top <= high[1] + tol):
+            return f"has cap {k} whose rim is not between the copy's base and the cap's top, inside the bounds"
+        if not (low[0] - tol <= cx <= high[0] + tol and low[2] - tol <= cz <= high[2] + tol):
+            return f"has cap {k} outside the room bounds"
+    if pole_top > max(cap[5] for cap in caps[:cap_count]):
+        return "has its pole above its highest cap: a climber comes up through a cap"
+    return None
+
+
+def check_terrain_tiles(room: dict, room_dir: Path, listed: set[str], label: str) -> list[str]:
+    """Each tiled part's GLB: tile nodes only, named for their tile and level, every tile at every level, inside its
+    square, as many tiles as the manifest says."""
+    tiles_block = room["terrain_tiles"]
+    problems: list[str] = []
+    grids = [level["grid_m"] for level in tiles_block["levels"]]
+    if any(b <= a for a, b in zip(grids, grids[1:])):
+        problems.append(f"{label}: terrain levels must be finest first, each coarser than the one before")
+    parts = {p["id"]: p for p in room["shell"]["parts"]}
+    named = [entry["part"] for entry in tiles_block["parts"]]
+    for part_id in sorted({p for p in named if named.count(p) > 1}):
+        problems.append(f"{label}: terrain part {part_id} is listed twice")
+    for entry in tiles_block["parts"]:
+        where = f"{label}: terrain part {entry['part']}"
+        part = parts.get(entry["part"])
+        if part is None:
+            problems.append(f"{where} is not a shell part")
+            continue
+        if part["geometry"]["kind"] != "mesh":
+            problems.append(f"{where} is not a mesh part")
+            continue
+        data = _read_listed(room_dir, listed, part["geometry"]["mesh"])
+        gltf = _glb_document(data) if data is not None else None
+        if gltf is None:
+            continue  # the files check reports a missing or broken mesh
+        problems += _check_tile_nodes(gltf, len(grids), entry["tiles"], where)
+    return problems
+
+
+def _check_tile_nodes(gltf: dict, levels: int, tiles: int, where: str) -> list[str]:
+    nodes = gltf.get("nodes", [])
+    scenes = gltf.get("scenes", [])
+    scene = gltf.get("scene", 0)
+    roots = scenes[scene].get("nodes", []) if isinstance(scenes, list) and isinstance(scene, int) and 0 <= scene < len(scenes) else []
+    if not isinstance(nodes, list) or not nodes or sorted(roots) != list(range(len(nodes))):
+        return [f"{where}: every node of a tiled GLB is a root of its scene"]
+    found: dict[tuple[int, int], set[int]] = {}
+    for index, node in enumerate(nodes):
+        name = node.get("name") if isinstance(node, dict) else None
+        match = TERRAIN_NODE.match(name) if isinstance(name, str) else None
+        if match is None:
+            return [f"{where}: node {index} ({name!r}) is not named tile_<tx>_<tz>_lod<level>"]
+        tx, tz, level = int(match.group(1)), int(match.group(2)), int(match.group(3))
+        if level >= levels:
+            return [f"{where}: node {name} names level {level}; the room has {levels}"]
+        if any(key in node for key in ("children", "matrix", "translation", "rotation", "scale")) or "mesh" not in node:
+            return [f"{where}: node {name} must hold a mesh with no transform and no children"]
+        if level in found.setdefault((tx, tz), set()):
+            return [f"{where}: node {name} appears twice"]
+        found[(tx, tz)].add(level)
+        extent = _glb_mesh_extent(gltf, node["mesh"]) if isinstance(node["mesh"], int) else None
+        if extent is None:
+            return [f"{where}: node {name} has no mesh with POSITION bounds"]
+        (x0, _y0, z0), (x1, _y1, z1) = extent
+        square = (tx * TERRAIN_TILE_M, tz * TERRAIN_TILE_M)
+        if (x0 < square[0] - BOUNDS_TOLERANCE_M or x1 > square[0] + TERRAIN_TILE_M + BOUNDS_TOLERANCE_M
+                or z0 < square[1] - BOUNDS_TOLERANCE_M or z1 > square[1] + TERRAIN_TILE_M + BOUNDS_TOLERANCE_M):
+            return [f"{where}: node {name} reaches outside its tile's square"]
+    for (tx, tz), have in sorted(found.items()):
+        if have != set(range(levels)):
+            missing = sorted(set(range(levels)) - have)
+            return [f"{where}: tile ({tx}, {tz}) has no level {missing[0]}; every tile has every level"]
+    if len(found) != tiles:
+        return [f"{where}: its GLB holds {len(found)} tiles; the manifest says {tiles}"]
+    return []
 
 
 # ---------- styles ----------

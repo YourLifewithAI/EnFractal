@@ -472,7 +472,7 @@ _OP_DESCRIPTIONS = {
     "entities.list": "List the entities the companion's avatar can see (paged). Filter by kind, category group, affordance, provenance or distance.",
     "entity.inspect": "Inspect one entity the companion's avatar can see, by id: summary, parts and who protected it.",
     "capabilities.list": "List the island's abilities (for example glow, a light; bubbles, a stream of bubbles; fireworks, a burst with a brief flash; bloom, flowers; fire): each one's category, the command that casts it (command_op: effect_start, or nature_cast for bloom and fire), its numeric params with their min and max, area_radius_max_m, duration_max_s, reach_m and how many may be active now. The island's rules decide which exist; a capability not listed is refused.",
-    "observe": "What the companion's own avatar can perceive within a radius: visible entities and words seen in the world.",
+    "observe": "What the companion's own avatar can perceive now: visible entities and words seen in the world, everything in its line of sight anywhere on the island, or only within radius_m (at most 150 m) when you give one.",
     "jobs.status": "Status of a job by job_id, such as a goal with a target (goal_set returns its job_id): running, succeeded, failed with the reason, or cancelled.",
     "receipt.lookup": "Ask whether one of your earlier actions committed, by its action_id. Use this before retrying.",
     "approval.status": "Poll a held command by the request_id the game returned. The player approves or denies it in the game; you cannot.",
@@ -532,7 +532,7 @@ _ARG_DESCRIPTIONS = {
 _MEMORY_DESCRIPTIONS = {
     "entities.list": "List the entities the companion's avatar can see now, and those it remembers seeing this session, marked seen 'remembered' with last_seen_ago_s and may_be_stale (it may have moved or gone since). Paged. Filter by kind, category group, affordance, provenance or distance; filters apply to what was seen.",
     "entity.inspect": "Inspect one entity by id that the companion's avatar can see now or remembers seeing (then marked seen 'remembered', with last_seen_ago_s and may_be_stale): summary, parts and who protected it.",
-    "observe": "What the companion's own avatar can perceive now within a radius: visible entities and words seen in the world, plus 'remembered': things it saw earlier this session that are out of sight now, with last_seen_ago_s and may_be_stale.",
+    "observe": "What the companion's own avatar can perceive now: visible entities and words seen in the world, everything in its line of sight anywhere on the island, or only within radius_m (at most 150 m) when you give one; plus 'remembered': things it saw earlier this session that are out of sight now, with last_seen_ago_s and may_be_stale.",
 }
 
 

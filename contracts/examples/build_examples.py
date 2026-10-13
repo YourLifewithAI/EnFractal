@@ -268,6 +268,240 @@ def build_garage(out: Path) -> Path:
     return room_path
 
 
+# ---------- the 10x world: plant copies and terrain tiles (S2, 13 October) ----------
+
+PLANT_TABLE_MAGIC = b"EFPLANTS"
+PLANT_KIND_CODES = {"plant": 0, "tree": 1, "stone": 2}
+
+
+def nodes_glb(nodes) -> bytes:
+    """A self-contained GLB with one root node per entry: (node name or None, positions, triangles, material, rgb).
+    Every node has its own mesh and no transform; POSITION accessors carry min and max as glTF requires."""
+    binary = bytearray()
+    gltf = {"asset": {"version": "2.0", "generator": "EnFractal contract examples"}, "scene": 0,
+            "scenes": [{"nodes": list(range(len(nodes)))}], "nodes": [], "meshes": [], "materials": [],
+            "buffers": [], "bufferViews": [], "accessors": []}
+    materials = {}
+    for name, positions, triangles, material, rgb in nodes:
+        if material not in materials:
+            materials[material] = len(gltf["materials"])
+            gltf["materials"].append({"name": material, "pbrMetallicRoughness": {"baseColorFactor": [*rgb, 1.0], "metallicFactor": 0.0, "roughnessFactor": 0.9}})
+        rounded = [struct.unpack("<3f", struct.pack("<3f", *p)) for p in positions]
+        pos_bytes = b"".join(struct.pack("<3f", *p) for p in rounded)
+        idx_bytes = b"".join(struct.pack("<H", i) for t in triangles for i in t)
+        idx_bytes += b"\x00" * (-len(idx_bytes) % 4)
+        accessor = len(gltf["accessors"])
+        for data, target in ((pos_bytes, 34962), (idx_bytes, 34963)):
+            gltf["bufferViews"].append({"buffer": 0, "byteOffset": len(binary), "byteLength": len(data), "target": target})
+            binary += data
+        gltf["accessors"].append({"bufferView": accessor, "componentType": 5126, "count": len(rounded), "type": "VEC3",
+                                  "min": [min(p[i] for p in rounded) for i in range(3)], "max": [max(p[i] for p in rounded) for i in range(3)]})
+        gltf["accessors"].append({"bufferView": accessor + 1, "componentType": 5123, "count": 3 * len(triangles), "type": "SCALAR"})
+        mesh = len(gltf["meshes"])
+        gltf["meshes"].append({"primitives": [{"attributes": {"POSITION": accessor}, "indices": accessor + 1, "material": materials[material]}]})
+        node = {"mesh": mesh}
+        if name is not None:
+            node["name"] = name
+        gltf["nodes"].append(node)
+    gltf["buffers"].append({"byteLength": len(binary)})
+    json_chunk = json.dumps(gltf, separators=(",", ":")).encode("utf-8")
+    json_chunk += b" " * (-len(json_chunk) % 4)
+    total = 12 + 8 + len(json_chunk) + 8 + len(binary)
+    return (struct.pack("<4sII", b"glTF", 2, total) + struct.pack("<I4s", len(json_chunk), b"JSON") + json_chunk
+            + struct.pack("<I4s", len(binary), b"BIN\x00") + bytes(binary))
+
+
+def card(width: float, height: float):
+    """A standing card for distance, pivot at its bottom centre: 2 triangles."""
+    w = width / 2
+    return [(-w, 0.0, 0.0), (w, 0.0, 0.0), (w, height, 0.0), (-w, height, 0.0)], [(0, 1, 2), (0, 2, 3)]
+
+
+def ground_grid(x0: float, z0: float, size: float, cells: int, y: float = 0.0):
+    """A flat square of cells x cells quads at height y, facing up."""
+    step = size / cells
+    positions = [(x0 + i * step, y, z0 + j * step) for j in range(cells + 1) for i in range(cells + 1)]
+    triangles = []
+    for j in range(cells):
+        for i in range(cells):
+            a = j * (cells + 1) + i
+            triangles += [(a, a + cells + 1, a + 1), (a + 1, a + cells + 1, a + cells + 2)]
+    return positions, triangles
+
+
+def f32(value: float) -> float:
+    return struct.unpack("<f", struct.pack("<f", value))[0]
+
+
+def plant_table(kind: str, cap_slots: int, rows: list[dict]) -> tuple[bytes, int, list[dict]]:
+    """Rows sorted by 8 m tile (tx, then tz), then x, then z, behind the tile index (README, 'Plant copies').
+    Returns the table bytes, its tile count and the rows in table order (a row's index is its plant id's number)."""
+    ordered = sorted(rows, key=lambda r: (math.floor(f32(r["x"]) / 8), math.floor(f32(r["z"]) / 8), f32(r["x"]), f32(r["z"])))
+    tiles = []
+    for index, row in enumerate(ordered):
+        tile = (math.floor(f32(row["x"]) / 8), math.floor(f32(row["z"]) / 8))
+        if tiles and tuple(tiles[-1][:2]) == tile:
+            tiles[-1][3] += 1
+        else:
+            tiles.append([tile[0], tile[1], index, 1])
+    row_bytes = 56 + (28 + 32 * cap_slots if kind == "tree" else 0)
+    data = struct.pack("<8s8I", PLANT_TABLE_MAGIC, 1, PLANT_KIND_CODES[kind], row_bytes, len(ordered), len(tiles),
+                       cap_slots if kind == "tree" else 0, 8, 0)
+    data += b"".join(struct.pack("<iiII", *tile) for tile in tiles)
+    for row in ordered:
+        data += struct.pack("<11f3I", row["x"], row["y"], row["z"], row["yaw"], *row["scale"], *row["tint"], row["top"],
+                            row.get("flags", 0), row["group"], row["seed"])
+        if kind == "tree":
+            trunk = row["trunk"]
+            data += struct.pack("<6fI", trunk["x"], trunk["z"], trunk["radius"], trunk["pole_radius"], trunk["top"], trunk["pole_top"], len(row["caps"]))
+            for cap in row["caps"] + [None] * (cap_slots - len(row["caps"])):
+                data += struct.pack("<8f", *(cap if cap else [0.0] * 8))
+    return data, len(tiles), ordered
+
+
+def variant_seed(name: str, x: float, z: float) -> int:
+    return int.from_bytes(hashlib.sha256(f"{name} {x} {z}".encode("ascii")).digest()[:4], "little")
+
+
+def plant(name, x, z, yaw, scale, tint, height, group, flags=0, y=0.0, **extra):
+    row = {"x": x, "y": y, "z": z, "yaw": yaw, "scale": scale, "tint": tint, "top": y + height * scale[1], "group": group,
+           "flags": flags, "seed": variant_seed(name, x, z)}
+    row.update(extra)
+    return row
+
+
+def broadleaf(x, z, yaw, group, caps):
+    """A broadleaf copy and its climbing collision, as pipeline/landscape/export/trees.py fits it: a trunk to 0.53 m,
+    a pole of the trunk's top radius to just under the highest perch, and a cap (rim and perch ellipses) per crown."""
+    return plant("broadleaf", x, z, yaw, [1.0, 1.0, 1.0], [0.9, 1.0, 0.85], 0.95, group,
+                 trunk={"x": x, "z": z, "radius": 0.055, "pole_radius": 0.035, "top": 0.53, "pole_top": 0.935},
+                 caps=[[x + dx, z + dz, 0.15, 0.15, rim, top, 0.06, 0.06] for dx, dz, rim, top in caps])
+
+
+# Each invalid island and what it breaks; the contract tests name the reason each must fail for.
+INVALID_ISLANDS = ("plant_rows_out_of_order", "plant_row_in_the_wrong_tile", "plant_table_cut_short",
+                   "plant_tree_pole_above_its_caps", "plant_group_left_unused", "plant_flag_undefined",
+                   "plant_tree_that_does_not_climb", "terrain_tile_without_its_far_level", "terrain_tile_outside_its_square")
+
+
+def build_island(base: Path, room_id: str = "island_example", variant: str | None = None) -> Path:
+    """An island room with terrain tiles and plant copies, the shape S5's exporter writes at 10x and S6's loader reads.
+    Synthetic: small, flat and made up. A variant breaks exactly one rule (INVALID_ISLANDS)."""
+    folder = base / room_id
+    files = []
+
+    def put(path: str, data: bytes) -> str:
+        files.append({"path": path, **write(folder / path, data)})
+        return path
+
+    # The land: two 16 m tiles of grass, a beach in one of them, and a sea surface drawn whole.
+    levels = [0.1, 0.4, 1.6]
+    grass_nodes, sand_nodes = [], []
+    for tx in (-1, 0):
+        for level, cells in enumerate((4, 2, 1)):
+            if variant == "terrain_tile_without_its_far_level" and (tx, level) == (0, 2):
+                continue
+            positions, triangles = ground_grid(tx * 16.0, -16.0, 16.0, cells)
+            if variant == "terrain_tile_outside_its_square" and (tx, level) == (-1, 0):
+                positions = [(x - 0.5, y, z) for x, y, z in positions]
+            grass_nodes.append((f"tile_{tx}_-1_lod{level}", positions, triangles, "grass", (0.45, 0.62, 0.3)))
+    for level in range(3):
+        positions, triangles = ground_grid(14.0, -16.0, 2.0, 1, y=0.02)
+        sand_nodes.append((f"tile_0_-1_lod{level}", positions, triangles, "sand", (0.86, 0.8, 0.62)))
+    sea_positions, sea_triangles = ground_grid(16.0, -16.0, 16.0, 1, y=-0.05)
+    parts = [
+        {"id": "shell:terrain_grass", "role": "ground", "geometry": {"kind": "mesh", "mesh": put("shell/terrain_grass.glb", nodes_glb(grass_nodes))},
+         "collides": True, "material_role": "grass", "base_color": "#73a04d"},
+        {"id": "shell:terrain_sand", "role": "ground", "geometry": {"kind": "mesh", "mesh": put("shell/terrain_sand.glb", nodes_glb(sand_nodes))},
+         "collides": True, "material_role": "soil", "base_color": "#dccc9e"},
+        {"id": "shell:water_still", "role": "backdrop",
+         "geometry": {"kind": "mesh", "mesh": put("shell/water_still.glb", nodes_glb([(None, sea_positions, sea_triangles, "still_water", (0.3, 0.5, 0.6))]))},
+         "collides": False, "material_role": "water", "base_color": "#4d8099"},
+    ]
+
+    # The copies: a patch of grass (group 2), a grove of two broadleaf trees (group 1) and two stones in no group.
+    grass_box, grass_triangles = box_glb((0.12, 0.13, 0.12), "foliage", (0.5, 0.75, 0.35))
+    card_positions, card_triangles = card(0.12, 0.13)
+    tree_box, tree_triangles = box_glb((0.65, 0.95, 0.65), "foliage", (0.35, 0.55, 0.3))
+    tree_card, tree_card_triangles = card(0.65, 0.95)
+    stone_box, stone_triangles = box_glb((0.2, 0.13, 0.18), "rock", (0.6, 0.58, 0.55))
+    grass = [
+        plant("grass", 9.75, -9.5, 30.0, [1.0, 1.2, 1.0], [0.85, 0.95, 0.7], 0.13, 0),
+        plant("grass", -3.25, -2.5, -45.0, [0.9, 0.9, 0.9], [0.9, 1.0, 0.75], 0.13, 2),
+        plant("grass", -12.5, -12.25, 120.0, [1.1, 1.0, 1.1], [0.8, 0.9, 0.7], 0.13, 0),
+        plant("grass", 2.5, -6.0, 0.0, [1.0, 1.0, 1.0], [0.85, 0.95, 0.7], 0.13, 0),
+        plant("grass", -3.25, -4.75, 75.0, [1.0, 0.8, 1.0], [0.9, 0.95, 0.75], 0.13, 2),
+    ]
+    trees = [
+        broadleaf(-5.0, -9.0, -60.0, 1, [(0.0, 0.0, 0.8, 0.94)]),
+        broadleaf(-6.0, -10.0, 15.0, 1, [(-0.17, 0.0, 0.72, 0.84), (0.0, 0.0, 0.8, 0.94)]),
+    ]
+    stones = [
+        plant("stones", 12.5, -3.0, 10.0, [1.0, 1.0, 1.0], [0.95, 0.9, 0.85], 0.13, 0, flags=1),  # in the shallows
+        plant("stones", 4.0, -12.0, -100.0, [1.5, 1.2, 1.4], [1.0, 1.0, 1.0], 0.13, 0),
+    ]
+    if variant == "plant_tree_pole_above_its_caps":
+        trees[0]["trunk"]["pole_top"] = 0.98
+    if variant == "plant_flag_undefined":
+        stones[1]["flags"] = 4
+    sets = []
+    for record, kind, cap_slots, rows in (
+            ({"set": "grass", "prototype": "grass_tuft", "kind": "plant", "species": "grass", "collides": "none", "fuel_class": "grass",
+              "seeds": True, "mesh": put("plants/grass.glb", grass_box), "triangle_count": grass_triangles,
+              "lods": [{"mesh": put("plants/grass_far.glb", nodes_glb([(None, card_positions, card_triangles, "foliage", (0.5, 0.75, 0.35))])),
+                        "triangle_count": len(card_triangles)}]}, "plant", 0, grass),
+            ({"set": "broadleaf", "prototype": "broadleaf", "kind": "tree", "species": "broadleaf", "collides": "tree_climb",
+              "fuel_class": "broadleaf", "seeds": True, "mesh": put("plants/broadleaf.glb", tree_box), "triangle_count": tree_triangles,
+              "lods": [{"mesh": put("plants/broadleaf_far.glb", nodes_glb([(None, tree_card, tree_card_triangles, "foliage", (0.35, 0.55, 0.3))])),
+                        "triangle_count": len(tree_card_triangles)}]}, "tree", 2, trees),
+            ({"set": "stones", "prototype": "rock", "kind": "stone", "species": "rock", "collides": "solid", "fuel_class": "none",
+              "seeds": False, "mesh": put("plants/stones.glb", stone_box), "triangle_count": stone_triangles}, "stone", 0, stones)):
+        if variant == "plant_tree_that_does_not_climb" and kind == "tree":
+            record["collides"] = "none"
+        data, tiles, ordered = plant_table(kind, cap_slots, rows)
+        if kind == "plant" and variant in ("plant_rows_out_of_order", "plant_row_in_the_wrong_tile", "plant_table_cut_short"):
+            header = 40 + 16 * tiles
+            if variant == "plant_rows_out_of_order":  # rows 1 and 2 share a tile: swap them
+                data = data[:header + 56] + data[header + 112:header + 168] + data[header + 56:header + 112] + data[header + 168:]
+            elif variant == "plant_row_in_the_wrong_tile":  # the second index entry claims the tile 8 m further along -z
+                tx, tz, first, count = struct.unpack_from("<iiII", data, 40 + 16)
+                data = data[:56] + struct.pack("<iiII", tx, tz - 1, first, count) + data[72:]
+            else:
+                data = data[:-56]
+        record.update({"table": put(f"plants/{record['set']}.bin", data), "tiles": tiles, "count": len(ordered)})
+        if kind == "tree":
+            record["cap_slots"] = cap_slots
+        sets.append({key: record[key] for key in ("set", "prototype", "kind", "species", "collides", "fuel_class", "seeds", "mesh",
+                                                  "triangle_count", "lods", "table", "cap_slots", "tiles", "count") if key in record})
+
+    room = {
+        "schema": "enfractal.room", "version": 1, "room_id": room_id, "display_name": "Island (example manifest)",
+        "description": "Illustrative 10x island manifest: terrain tiles with distance detail and plant copies. Small, flat and made up; no real place.",
+        "created_utc": "2026-10-13T00:00:00Z", "units": "m", "axes": "y_up_neg_z_forward",
+        "source": {"kind": "procedural", "pipeline": {"name": "EnFractal landscape (contract example)", "version": "0.0.0-example"}},
+        "bounds": {"min_m": [-16.0, -1.0, -16.0], "max_m": [16.0, 6.0, 0.0]},
+        "shell": {"parts": parts},
+        "objects": [],
+        "spawns": [
+            {"id": "player_start", "role": "player", "position_m": [0.0, 0.0, -8.0], "yaw_deg": 0.0},
+            {"id": "companion_start", "role": "companion", "position_m": [0.5, 0.0, -8.0], "yaw_deg": 0.0},
+        ],
+        "plant_copies": {"tile_m": 8, "groups": 3 if variant == "plant_group_left_unused" else 2, "sets": sets},
+        "terrain_tiles": {"tile_m": 16, "levels": [{"grid_m": grid} for grid in levels],
+                          "parts": [{"part": "shell:terrain_grass", "tiles": 2}, {"part": "shell:terrain_sand", "tiles": 1}]},
+        "files": sorted(files, key=lambda entry: entry["path"]),
+    }
+    room_path = folder / "room.json"
+    write(room_path, dump(room))
+    return room_path
+
+
+def build_islands(out: Path) -> None:
+    build_island(out / "rooms")
+    for variant in INVALID_ISLANDS:
+        build_island(out / "rooms_invalid", variant, variant)
+
+
 def result(op, action_id, principal, revision, at, **extra):
     document = {"schema": "enfractal.result", "version": 1, "ok": True, "op": op, "action_id": action_id,
                 "principal": principal, "room_id": "garage_example", "revision": revision,
@@ -727,6 +961,10 @@ def build_messages(out: Path) -> None:
                                 "data": {"items": [{"entity": remembered, "distance_m": 2.53}]},
                                 "at_utc": at}
     valid.update(magic_modes_and_wishes(at))
+    # The 10x world (S2): observe sees the whole island unless a radius narrows it, and a plant copy is an entity.
+    valid["query_observe_everything_in_sight"] = query("observe", "q-0030", {"actor": "avatar:companion"})
+    valid["query_observe_across_the_island"] = query("observe", "q-0031", {"actor": "avatar:companion", "radius_m": 150})
+    valid["query_journal_read_about_a_tree"] = query("journal.read", "q-0032", {"about": "plant:broadleaf-1"})
     for name, document in valid.items():
         write(out / "messages" / "valid" / f"{name}.json", dump(document))
 
@@ -798,6 +1036,10 @@ def build_messages(out: Path) -> None:
                                                       "principal": "companion:local", "room_id": "garage_example", "revision": 4, "replayed": False,
                                                       "preview": False, "data": {"items": [], "not_yet_seen": 2}, "at_utc": at}
     invalid.update(magic_modes_and_wishes_refused(at))
+    # The 10x world (S2): a radius past 150 m, and a second spelling of one plant copy.
+    invalid["query_observe_past_150_m"] = query("observe", "q-0033", {"actor": "avatar:companion", "radius_m": 151})
+    invalid["command_go_to_a_tree_spelt_with_a_leading_zero"] = command("goal.set", "go-to-tree-0001", {
+        "actor": "avatar:companion", "goal": "go_to", "target": "plant:broadleaf-01"})
     for name, document in invalid.items():
         write(out / "messages" / "invalid" / f"{name}.json", dump(document))
     duplicate = '{\n  "schema": "enfractal.command",\n  "schema": "enfractal.query"\n}\n'
@@ -810,6 +1052,7 @@ def main() -> None:
     args = parser.parse_args()
     room_path = build_garage(args.out)
     build_state(args.out, room_path)
+    build_islands(args.out)
     build_messages(args.out)
     print(f"wrote examples under {args.out}")
 

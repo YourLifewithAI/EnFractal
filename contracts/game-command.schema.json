@@ -3073,7 +3073,7 @@
         }
       },
       "observe": {
-        "description": "What the actor can currently perceive, limited to its line of sight and radius.",
+        "description": "What the actor perceives now: everything in its line of sight, on the whole island unless radius_m narrows it. Line of sight is the real limit.",
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -3084,10 +3084,10 @@
             "$ref": "#/$defs/avatar_id"
           },
           "radius_m": {
-            "description": "Defaults to 20, the maximum: an avatar perceives everything in its line of sight.",
+            "description": "Optional. Narrows the answer to this distance from the actor's eye, at most 150 m (more than the 10x garage island's farthest corner, about 100 m). Omitted: no distance cut-off, everything in line of sight anywhere on the island.",
             "type": "number",
             "exclusiveMinimum": 0,
-            "maximum": 20
+            "maximum": 150
           }
         }
       },
@@ -3518,7 +3518,7 @@
             }
           },
           "remembered": {
-            "description": "Things the team knows that are out of sight now, within the radius of where they were last seen, nearest first. Each carries seen 'remembered'. Only what the two avatars' eyes saw, never the camera.",
+            "description": "Things the team knows that are out of sight now, nearest first (when the query gives radius_m, only those last seen within it). Each carries seen 'remembered'. Only what the two avatars' eyes saw, never the camera.",
             "type": "array",
             "maxItems": 50,
             "items": {
