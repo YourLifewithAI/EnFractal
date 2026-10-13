@@ -146,7 +146,7 @@ public partial class TerrainCollision : Node3D
         Gather(delta);
         if (_bodies.Count == 0) return;
         _bodiesForS += delta;
-        var budget = Stopwatch.StartNew();
+        var started = Stopwatch.GetTimestamp();
         _queue.Clear();
         foreach (var tile in _tiles)
         {
@@ -165,10 +165,10 @@ public partial class TerrainCollision : Node3D
             tile.Wanted = wanted;
             if (sync && !tile.Built)
             {
-                var clock = Stopwatch.StartNew();
+                var clock = Stopwatch.GetTimestamp();
                 Build(tile);
                 SyncBuilds++;
-                LongestSyncMs = Math.Max(LongestSyncMs, clock.Elapsed.TotalMilliseconds);
+                LongestSyncMs = Math.Max(LongestSyncMs, Stopwatch.GetElapsedTime(clock).TotalMilliseconds);
             }
             else if (wanted && !tile.Built) _queue.Add(tile);
             if (wanted) tile.UnneededS = 0;
@@ -183,7 +183,7 @@ public partial class TerrainCollision : Node3D
         var built = 0;
         foreach (var tile in _queue)
         {
-            if (built > 0 && budget.Elapsed.TotalMilliseconds >= BuildBudgetMs) break;
+            if (built > 0 && Stopwatch.GetElapsedTime(started).TotalMilliseconds >= BuildBudgetMs) break;
             Build(tile);
             built++;
         }
@@ -250,7 +250,8 @@ public partial class TerrainCollision : Node3D
     private void Gather(double delta)
     {
         _bodies.Clear();
-        foreach (var body in Bodies(this))
+        Bodies(this, _bodyNodes);
+        foreach (var body in _bodyNodes)
         {
             var at = body.GlobalPosition;
             var velocity = body switch
@@ -267,24 +268,31 @@ public partial class TerrainCollision : Node3D
         }
         // The places a body may be put without walking there: the room's own, a fire (looked for once a second: it starts and goes
         // out), and each body's last safe footing (where it recovers to).
-        _pins.Clear();
-        foreach (var spawn in _room.Spawns) _pins.Add((spawn.PositionM, PinM));
-        if (_room.Sea is { } sea)
+        if (_fixedPins == null)
         {
-            if (sea.JettyData is { } jetty) _pins.Add((jetty.RootM, PinM));
-            foreach (var beach in sea.Beaches) _pins.Add((beach.WashAshoreM, PinM));
+            _fixedPins = new List<(Vector3, float)>();
+            foreach (var spawn in _room.Spawns) _fixedPins.Add((spawn.PositionM, PinM));
+            if (_room.Sea is { } sea)
+            {
+                if (sea.JettyData is { } jetty) _fixedPins.Add((jetty.RootM, PinM));
+                foreach (var beach in sea.Beaches) _fixedPins.Add((beach.WashAshoreM, PinM));
+            }
         }
+        _pins.Clear();
+        _pins.AddRange(_fixedPins);
         if (_timeS - _hostCheckedS >= 1.0)
         {
             _hostCheckedS = _timeS;
             _fire = Fire();
         }
         if (_fire is { } fire) _pins.Add(fire);
-        foreach (var body in Bodies(this))
+        foreach (var body in _bodyNodes)
             if (body is SmallPlayerController avatar && avatar.LastSafePosition.IsFinite()) _pins.Add((avatar.LastSafePosition, PinM));
     }
 
     private (Vector3, float)? _fire;
+    private List<(Vector3, float)>? _fixedPins;
+    private readonly List<Node3D> _bodyNodes = new();
     /// <summary>A fire burning on the land (the kernel's nature): its disk, so it never runs out of ground while nobody watches.</summary>
     private (Vector3, float)? Fire()
     {
@@ -297,15 +305,19 @@ public partial class TerrainCollision : Node3D
     /// The moving bodies sharing a node's world: every CharacterBody3D and RigidBody3D in the scene, and the nodes in AnchorGroup.
     /// The scene is scanned once; the tree's added and removed nodes keep the list after that.
     /// </summary>
-    public static List<Node3D> Bodies(Node inWorld)
+    public static List<Node3D> Bodies(Node inWorld) => Bodies(inWorld, new List<Node3D>());
+
+    /// <summary>Bodies(inWorld) into a list the caller keeps (cleared first), so a caller every frame allocates nothing.</summary>
+    public static List<Node3D> Bodies(Node inWorld, List<Node3D> result)
     {
-        var result = new List<Node3D>();
+        result.Clear();
         if (!inWorld.IsInsideTree()) return result;
         var tree = inWorld.GetTree();
         var tracker = Trackers.GetValue(tree, t => new BodyTracker(t));
         var space = inWorld is Node3D spatial ? spatial.GetWorld3D().Space : default;
         foreach (var body in tracker.Bodies)
             if (GodotObject.IsInstanceValid(body) && body.IsInsideTree() && (!space.IsValid || body.GetWorld3D().Space == space)) result.Add(body);
+        if (!tree.HasGroup(AnchorGroup)) return result;
         foreach (var node in tree.GetNodesInGroup(AnchorGroup))
             if (node is Node3D anchor && anchor.IsInsideTree() && !result.Contains(anchor) && (!space.IsValid || anchor.GetWorld3D().Space == space)) result.Add(anchor);
         return result;

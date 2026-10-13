@@ -38,6 +38,7 @@ public partial class PlantCopiesView : Node3D
     private readonly List<Vector3> _foci = new();
     private readonly List<Vector3> _fociChosen = new();
     private readonly List<TileDraw> _changes = new();
+    private readonly List<Node3D> _bodies3D = new();
     private Vector3 _sortedAround = new(float.NaN, 0, float.NaN);
     private int _framesSinceSort, _framesSinceChoice = int.MaxValue / 2;
     private bool _reported;
@@ -251,7 +252,7 @@ public partial class PlantCopiesView : Node3D
         foci.Clear();
         if (GetViewport()?.GetCamera3D() is { } camera && camera.IsInsideTree()) foci.Add(camera.GlobalPosition);
         if (ExtraFoci != null) foci.AddRange(ExtraFoci());
-        else foci.AddRange(TerrainCollision.Bodies(this).Select(b => b.GlobalPosition));
+        else foreach (var body in TerrainCollision.Bodies(this, _bodies3D)) foci.Add(body.GlobalPosition);
         if (foci.Count == 0) foci.Add(_room.SpawnFor("player").PositionM);
     }
 
