@@ -1,0 +1,20 @@
+{
+  "schema": "enfractal.character.rig",
+  "version": 1,
+  "notes": "Waddle: a heavy, rolling waddle with short quick steps; the hat and the hair lag. Starting values from the round's profile table, to be tuned by playing.",
+  "chains": {
+    "hat": {
+      "springiness": 0.8
+    },
+    "hair": {
+      "springiness": 0.8,
+      "damping": 0.8
+    }
+  },
+  "profile": {
+    "settle": 1.2,
+    "squash": 1.1,
+    "stride": 0.8,
+    "sway": 1.3
+  }
+}
