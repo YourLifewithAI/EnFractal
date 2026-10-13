@@ -2,251 +2,542 @@ using Godot;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text.Json;
-using System.Text.Json.Serialization;
-using System.Text.Json.Nodes;
 
 namespace EnFractal.Native.Kernel;
 
-/// <summary>Saved simulation data; the meshes are a disposable view of these cells.</summary>
+/// <summary>
+/// The island's nature laws in one place (docs/magic/README.md "The ground layer", "Weather patterns" and "Fire"). Every
+/// number here is provisional: a first guess for playtests, not a decision. What a pack grants (reach, radius, duration,
+/// intensity, who may cast) comes from the island's rules instead, and the engine's caps sit on NatureState.
+/// </summary>
+public static class NatureLaws
+{
+    // ---- the clock ----
+
+    /// <summary>One simulation step, in seconds of play. The host runs whole steps and keeps the remainder.</summary>
+    public const float StepS = 0.5f;
+    /// <summary>At most this many steps run in one physics tick; time beyond them is dropped (no catch-up after a stall or a reload).</summary>
+    public const int MaxCatchUpSteps = 2;
+    /// <summary>Cells farther than this, horizontally, from both avatars rest unchanged until an avatar comes near; a fire's own cells always run.</summary>
+    public const float ActiveRadiusM = 12f;
+    /// <summary>Cells whose light is measured per physics tick (up to four rays each), in turn.</summary>
+    public const int LightProbesPerTick = 24;
+    /// <summary>The light a cell assumes when the room has no look to measure it.</summary>
+    public const float DefaultLight = 0.6f;
+
+    // ---- weather: one six-minute sequence, the same everywhere on the island ----
+
+    public const double WeatherCycleS = 360;
+    /// <summary>The cycle starts dry for this long, then rain ramps up over WeatherRampS.</summary>
+    public const double WeatherDryS = 120;
+    public const double WeatherRampS = 45;
+    /// <summary>Rain is full until this point of the cycle, then ramps down over WeatherRampS.</summary>
+    public const double WeatherWetUntilS = 225;
+    /// <summary>The wind turns one radian in this many seconds.</summary>
+    public const double WindTurnS = 150;
+    public const float WindCalmMps = 0.12f;
+    public const float WindRainMps = 0.22f;
+    /// <summary>Above this much rain the pattern reads "rain"; above WeatherShowers01, "showers"; otherwise "fair".</summary>
+    public const float WeatherRain01 = 0.65f;
+    public const float WeatherShowers01 = 0.02f;
+
+    // ---- the ground ----
+
+    public const float FreshMoisture = 0.35f;
+    /// <summary>Fresh ground is this much wetter in full rain.</summary>
+    public const float RainMoisture = 0.35f;
+    public const float RainWettingPerS = 0.18f;
+    public const float LightDryingPerS = 0.009f;
+    public const float GrassFuel = 0.7f;
+    public const float WoodFuel = 1f;
+    public const float LightFuel = 0.8f;
+    /// <summary>Flowers add at least this much fuel to their cell.</summary>
+    public const float FlowerFuel = 0.35f;
+
+    // ---- Bloom and the flower trail ----
+
+    /// <summary>A Bloom's flowers start at this much growth per unit of the pack's intensity (0.6 starts them at 0.2).</summary>
+    public const float BloomStartGrowthPerIntensity = 1f / 3f;
+    public const float GrowthPerS = 0.035f;
+    public const float GrowthMinMoisture = 0.12f;
+    public const float GrowthMinLight = 0.12f;
+    public const float FadeWhileAlivePerS = 0.006f;
+    public const float FadeAfterLifePerS = 0.025f;
+    public const float TrailRadiusM = 0.07f;
+    public const float TrailSpacingM = 0.07f;
+    public const float TrailLifeS = 120f;
+
+    // ---- Fire ----
+
+    /// <summary>Ignition takes hold within this radius of the centre; spread does the rest.</summary>
+    public const float IgnitionRadiusM = 0.13f;
+    public const float IgnitionMaxS = 10f;
+    public const float SpreadBurnMaxS = 8f;
+    /// <summary>At or above this moisture nothing ignites; at or above SpreadMaxMoisture fire does not spread into a cell.</summary>
+    public const float IgnitionMaxMoisture = 0.8f;
+    public const float SpreadMaxMoisture = 0.7f;
+    public const float SpreadMinFuel = 0.03f;
+    /// <summary>A cell keeps burning only while its ground stays within this height of where it caught.</summary>
+    public const float BurnHeightToleranceM = 0.04f;
+    /// <summary>Fire climbs or drops at most this much between neighbouring cells.</summary>
+    public const float SpreadStepM = 0.07f;
+    /// <summary>Downwind, one neighbour in this many catches per step; upwind and across, one in SpreadGateOther.</summary>
+    public const int SpreadGateDownwind = 3;
+    public const int SpreadGateOther = 7;
+    /// <summary>Rain at or above this stops spread; each unit of rain burns a cell out this many times faster.</summary>
+    public const float RainStopsSpread01 = 0.8f;
+    public const float RainQuench = 5f;
+    /// <summary>Fuel burned and ash laid per second, per unit of the pack's intensity (0.6 gives 0.08 and 0.2).</summary>
+    public const float FuelBurnPerIntensityS = 0.08f / 0.6f;
+    public const float AshPerIntensityS = 0.2f / 0.6f;
+    public const float BurntOutFuel = 0.005f;
+    /// <summary>An object near burning ground burns this fast per unit of intensity, slowed by rain (0.6 gives 0.22).</summary>
+    public const float ObjectBurnPerIntensityS = 0.22f / 0.6f;
+    /// <summary>Burning ground this close to the object's bounds burns it.</summary>
+    public const float ObjectCatchM = 0.08f;
+    /// <summary>Fireproof bounds (locks, Creative's creations) shelter the ground within this margin.</summary>
+    public const float ShelterMarginM = 0.04f;
+    /// <summary>The player is hurt this much per step within PlayerBurnM of burning ground (in modes with consequences).</summary>
+    public const float PlayerBurnDamage = 6f;
+    public const float PlayerBurnM = 0.12f;
+
+    // ---- regrowth ----
+
+    public const float AshRegrowMoisture = 0.2f;
+    public const float AshFadePerS = 0.006f;
+    public const float FuelRegrowPerS = 0.002f;
+}
+
+/// <summary>One cell of the ground field: saved simulation data. The meshes are a disposable view of these cells.</summary>
 public sealed class NatureCell
 {
     public int X { get; set; }
     public int Z { get; set; }
     public float Y { get; set; }
+    /// <summary>The entity the cell lies on (a shell part, an object, a creation).</summary>
     public string Surface { get; set; } = "";
     public string Material { get; set; } = "soil";
     public bool Fertile { get; set; }
-    public float Moisture { get; set; } = .35f;
+    public float Moisture { get; set; } = NatureLaws.FreshMoisture;
     public float Growth { get; set; }
     public float LifeS { get; set; }
     public float Fuel { get; set; }
     public float BurningS { get; set; }
     public float Ash { get; set; }
-    public float Light { get; set; } = .5f;
+    public float Light { get; set; } = NatureLaws.DefaultLight;
     public bool Exposed { get; set; } = true;
-    [JsonIgnore] public string Key => NatureState.Key(X, Z);
-    [JsonIgnore] public Vector3 Position => new((X + .5f) * NatureState.CellM, Y, (Z + .5f) * NatureState.CellM);
+    public string Key => NatureState.Key(X, Z);
+    public Vector3 Position => new((X + 0.5f) * NatureState.CellM, Y, (Z + 0.5f) * NatureState.CellM);
     public NatureCell Copy() => (NatureCell)MemberwiseClone();
 }
 
+/// <summary>
+/// What fire has done to one object or creation. A creation keeps its scorch and its repair quote (one unit of material
+/// per original part, from the hash-pinned design). A stock object that burned down keeps its manifest id and the pose it
+/// stood at when it burned, which is all a later rebuild needs; the manifest itself is never edited.
+/// </summary>
 public sealed class NatureObject
 {
     public string Id { get; set; } = "";
     public bool Creation { get; set; }
+    /// <summary>0 to 1. A creation with any burn is scorched; a stock object at 1 has burned down.</summary>
     public float Burn { get; set; }
     public string SourceHash { get; set; } = "";
-    public Dictionary<string, int> RepairCost { get; set; } = new();
-    public NatureObject Copy() => new() { Id = Id, Creation = Creation, Burn = Burn, SourceHash = SourceHash, RepairCost = new(RepairCost) };
+    public Dictionary<string, int> RepairCost { get; set; } = new(StringComparer.Ordinal);
+    /// <summary>A stock object's pose when it burned down (the authority's, else the manifest's); null until then.</summary>
+    public Vector3? PositionM { get; set; }
+    public Quaternion? Rotation { get; set; }
+    public bool BurnedDown => !Creation && Burn >= 1;
+    public NatureObject Copy() => new()
+    {
+        Id = Id, Creation = Creation, Burn = Burn, SourceHash = SourceHash, RepairCost = new(RepairCost, StringComparer.Ordinal),
+        PositionM = PositionM, Rotation = Rotation,
+    };
 }
 
+/// <summary>The one fire that may burn at a time, and what it was allowed to touch.</summary>
 public sealed class NatureFire
 {
-    public float X { get; set; }
-    public float Y { get; set; }
-    public float Z { get; set; }
+    public Vector3 Center { get; set; }
     public float RadiusM { get; set; }
     public float RemainingS { get; set; }
-    public int AuthorityRevision { get; set; }
-    // Only these creations can be harmed. A newly built or revised creation never inherits an old approval.
-    public Dictionary<string, int> AuthorizedCreations { get; set; } = new();
-    [JsonIgnore] public Vector3 Center => new(X, Y, Z);
+    /// <summary>The pack's intensity for Fire when it was lit: it scales how fast fuel burns and objects catch.</summary>
+    public float Intensity { get; set; } = 0.6f;
+    /// <summary>The room revision the fire was lit at: its cells are recorded in that revision's undo step.</summary>
+    public int Revision { get; set; }
+    /// <summary>Only these creations, at these revisions, may be scorched: a creation built or revised since never inherits an approval.</summary>
+    public Dictionary<string, int> AuthorizedCreations { get; set; } = new(StringComparer.Ordinal);
+    public NatureFire Copy() => new()
+    {
+        Center = Center, RadiusM = RadiusM, RemainingS = RemainingS, Intensity = Intensity, Revision = Revision,
+        AuthorizedCreations = new(AuthorizedCreations, StringComparer.Ordinal),
+    };
 }
 
+/// <summary>
+/// One durable nature change, as room.undo takes it back: the room revision it committed at, the revision whose state it
+/// started from (Base), and every cell and object as it was before the change touched it (null: it did not exist).
+/// </summary>
 public sealed class NatureUndoStep
 {
-    // Captured by the host. Older saves without ownership remain player-owned.
-    public string Principal { get; init; } = CommandHost.PlayerPrincipal;
-    public int AuthorityRevision { get; set; }
-    public int NatureRevision { get; set; }
+    public string Principal { get; set; } = CommandHost.PlayerPrincipal;
+    public int Revision { get; set; }
+    public int Base { get; set; }
     public string Label { get; set; } = "";
-    public Dictionary<string, NatureCell?> Cells { get; set; } = new();
-    public Dictionary<string, NatureObject?> Objects { get; set; } = new();
-    public Dictionary<string, int> Wallet { get; set; } = new();
+    public Dictionary<string, NatureCell?> Cells { get; set; } = new(StringComparer.Ordinal);
+    public Dictionary<string, NatureObject?> Objects { get; set; } = new(StringComparer.Ordinal);
+    public Dictionary<string, int> Wallet { get; set; } = new(StringComparer.Ordinal);
     public bool TrailEnabled { get; set; }
     public string TrailPrincipal { get; set; } = "player";
     public string TrailRulesSha256 { get; set; } = "";
+
+    public NatureUndoStep Copy() => new()
+    {
+        Principal = Principal, Revision = Revision, Base = Base, Label = Label,
+        Cells = Cells.ToDictionary(p => p.Key, p => p.Value?.Copy(), StringComparer.Ordinal),
+        Objects = Objects.ToDictionary(p => p.Key, p => p.Value?.Copy(), StringComparer.Ordinal),
+        Wallet = new(Wallet, StringComparer.Ordinal), TrailEnabled = TrailEnabled, TrailPrincipal = TrailPrincipal, TrailRulesSha256 = TrailRulesSha256,
+    };
 }
 
 public readonly record struct NatureWeather(float Rain01, Vector3 WindMps, string Pattern);
 
+/// <summary>
+/// The island's nature: the ground field (sparse 5 cm cells, only where nature has acted), the objects fire has touched,
+/// the weather clock, the flower trail's setting, the team's material wallet, the one fire and the undo steps. It is
+/// room state, saved by the authority as the host's nature block (NatureBlock); the simulation runs on it in memory.
+/// </summary>
 public sealed class NatureState
 {
-    public const float CellM = .05f;
+    public const float CellM = 0.05f;
+    /// <summary>The engine's caps: cells that exist at once, cells burning at once, objects fire has touched.</summary>
     public const int MaxCells = 16000;
     public const int MaxBurning = 200;
-    public const float MaxFireRadiusM = 1.5f;
-    public const int MaxReceipts = 1024;
-    public string Schema { get; set; } = "enfractal.nature_state";
-    public int Version { get; set; } = 1;
-    public string RoomId { get; set; } = "";
-    public string ManifestSha256 { get; set; } = "";
-    public int Revision { get; set; }
+    public const int MaxObjects = 1024;
+    /// <summary>Durable nature changes room.undo can still take back, and the cells they remember together; the oldest go first.</summary>
+    public const int MaxUndoSteps = 8;
+    public const int MaxUndoCells = 8192;
+    public const int MaxWalletKinds = 32;
+    public const int MaxWalletUnits = 100000;
+
     public double WeatherS { get; set; }
+    /// <summary>The room revision of the latest durable nature change (0 before any): nature.describe's nature_revision.</summary>
+    public int ChangedAt { get; set; }
     public bool TrailEnabled { get; set; } = true;
+    /// <summary>Whose choice the trail's setting is ("player" or "companion"): the trail plants with that caster's permission.</summary>
     public string TrailPrincipal { get; set; } = "player";
+    /// <summary>The rules pack a companion's keyed trail was approved under ("" otherwise); other rules stop it.</summary>
     public string TrailRulesSha256 { get; set; } = "";
-    public Dictionary<string, NatureCell> Cells { get; set; } = new();
-    public Dictionary<string, NatureObject> Objects { get; set; } = new();
-    // Prototype material accounting: one unit per original authored part; no prior economy exists.
-    public Dictionary<string, int> Wallet { get; set; } = new() { ["wood"] = 20, ["stone"] = 10, ["copper"] = 10, ["leaf"] = 20 };
+    public Dictionary<string, NatureCell> Cells { get; set; } = new(StringComparer.Ordinal);
+    public Dictionary<string, NatureObject> Objects { get; set; } = new(StringComparer.Ordinal);
+    /// <summary>Prototype material accounting: one unit per original authored part; no prior economy exists.</summary>
+    public Dictionary<string, int> Wallet { get; set; } = FreshWallet();
     public NatureFire? Fire { get; set; }
-    public NatureUndoStep? Undo { get; set; }
-    public Dictionary<string, JsonObject> Receipts { get; set; } = new();
+    /// <summary>The undo steps room.undo can reach, oldest first.</summary>
+    public List<NatureUndoStep> Undo { get; set; } = new();
+    /// <summary>The latest room.undo: the room revision it committed at, and the revision whose state it restored (-1, -1 for none).</summary>
+    public int UndoneAt { get; set; } = -1;
+    public int UndoneTo { get; set; } = -1;
+
+    public static Dictionary<string, int> FreshWallet() => new(StringComparer.Ordinal) { ["wood"] = 20, ["stone"] = 10, ["copper"] = 10, ["leaf"] = 20 };
     public static string Key(int x, int z) => $"{x}:{z}";
     public static (int X, int Z) Grid(Vector3 at) => ((int)Math.Floor(at.X / CellM), (int)Math.Floor(at.Z / CellM));
-    public static NatureState Fresh(string room, string hash) => new() { RoomId = room, ManifestSha256 = hash };
-    internal static readonly JsonSerializerOptions JsonOptions = new()
+
+    /// <summary>
+    /// Nothing has happened to this nature yet, the weather clock aside. trailAllowed lets the flower trail's own flowers
+    /// count as nothing, as sightings do: the trail plants as the Gubble walks, with no command.
+    /// </summary>
+    public bool Untouched(bool trailAllowed) =>
+        Objects.Count == 0 && Fire == null && Undo.Count == 0 && UndoneAt < 0 && ChangedAt == 0 && TrailEnabled && TrailPrincipal == "player" &&
+        TrailRulesSha256.Length == 0 && Wallet.Count == FreshWallet().Count && FreshWallet().All(p => Wallet.GetValueOrDefault(p.Key, -1) == p.Value) &&
+        (trailAllowed || Cells.Count == 0);
+
+    public NatureState Copy() => new()
     {
-        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
-        UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
+        WeatherS = WeatherS, ChangedAt = ChangedAt, TrailEnabled = TrailEnabled, TrailPrincipal = TrailPrincipal, TrailRulesSha256 = TrailRulesSha256,
+        Cells = Cells.ToDictionary(p => p.Key, p => p.Value.Copy(), StringComparer.Ordinal),
+        Objects = Objects.ToDictionary(p => p.Key, p => p.Value.Copy(), StringComparer.Ordinal),
+        Wallet = new(Wallet, StringComparer.Ordinal), Fire = Fire?.Copy(), Undo = Undo.Select(s => s.Copy()).ToList(),
+        UndoneAt = UndoneAt, UndoneTo = UndoneTo,
     };
-    public NatureState Copy() => JsonSerializer.Deserialize<NatureState>(JsonSerializer.SerializeToUtf8Bytes(this, JsonOptions), JsonOptions)!;
-    public JsonObject ToJson() => JsonSerializer.SerializeToNode(this, JsonOptions)!.AsObject();
-    [JsonIgnore] public NatureWeather Weather
+
+    /// <summary>The weather now: a function of the saved clock, so a reload resumes the same weather (with no offline catch-up).</summary>
+    public NatureWeather Weather
     {
         get
         {
-            // A six-minute local sequence. Saving its clock resumes the same weather, with no offline catch-up.
-            var t = (float)(WeatherS % 360);
-            var rain = t < 120 ? 0 : t < 165 ? (t - 120) / 45 : t < 225 ? 1 : t < 270 ? (270 - t) / 45 : 0;
-            var direction = (float)(WeatherS / 150);
-            return new NatureWeather(rain, new Vector3(MathF.Cos(direction), 0, MathF.Sin(direction)) * (.12f + .22f * rain), rain > .65f ? "rain" : rain > .02f ? "showers" : "fair");
+            var t = WeatherS % NatureLaws.WeatherCycleS;
+            var fallFrom = NatureLaws.WeatherWetUntilS + NatureLaws.WeatherRampS;
+            var rain = (float)(t < NatureLaws.WeatherDryS ? 0
+                : t < NatureLaws.WeatherDryS + NatureLaws.WeatherRampS ? (t - NatureLaws.WeatherDryS) / NatureLaws.WeatherRampS
+                : t < NatureLaws.WeatherWetUntilS ? 1
+                : t < fallFrom ? (fallFrom - t) / NatureLaws.WeatherRampS
+                : 0);
+            var direction = (float)(WeatherS / NatureLaws.WindTurnS);
+            var wind = new Vector3(MathF.Cos(direction), 0, MathF.Sin(direction)) * (NatureLaws.WindCalmMps + NatureLaws.WindRainMps * rain);
+            var pattern = rain > NatureLaws.WeatherRain01 ? "rain" : rain > NatureLaws.WeatherShowers01 ? "showers" : "fair";
+            return new NatureWeather(rain, wind, pattern);
         }
     }
 
+    /// <summary>The grid cells whose centres lie within radius of center, horizontally.</summary>
     public static IEnumerable<(int X, int Z)> Disk(Vector3 center, float radius)
     {
         var (cx, cz) = Grid(center);
         var span = (int)Math.Ceiling(radius / CellM) + 1;
         for (var x = cx - span; x <= cx + span; x++)
         for (var z = cz - span; z <= cz + span; z++)
-            if (new Vector2((x + .5f) * CellM - center.X, (z + .5f) * CellM - center.Z).LengthSquared() <= radius * radius)
+            if (new Vector2((x + 0.5f) * CellM - center.X, (z + 0.5f) * CellM - center.Z).LengthSquared() <= radius * radius)
                 yield return (x, z);
     }
 
-    public void BeginUndo(string label, int authorityRevision, string principal = CommandHost.PlayerPrincipal)
+    // ---- undo steps ----
+
+    /// <summary>The revision whose state the room is in at roomRevision: a room.undo's revision stands for the state it restored.</summary>
+    public int Effective(int roomRevision) => roomRevision == UndoneAt ? UndoneTo : roomRevision;
+
+    /// <summary>
+    /// Opens the undo step of a durable change committing at revision (the room's next revision). Steps that no longer
+    /// connect to it (a newer non-nature change came between) can never be reached again and go now; past the bounds
+    /// the oldest go first.
+    /// </summary>
+    public NatureUndoStep BeginUndo(string label, int revision, string principal)
     {
-        Revision++;
-        Undo = new NatureUndoStep { Principal = principal, AuthorityRevision = authorityRevision, NatureRevision = Revision, Label = label, Wallet = new(Wallet), TrailEnabled = TrailEnabled, TrailPrincipal = TrailPrincipal, TrailRulesSha256 = TrailRulesSha256 };
-    }
-    public void RememberCell(string key)
-    {
-        if (Undo != null && !Undo.Cells.ContainsKey(key)) Undo.Cells[key] = Cells.TryGetValue(key, out var value) ? value.Copy() : null;
-    }
-    public void RememberObject(string key)
-    {
-        if (Undo != null && !Undo.Objects.ContainsKey(key)) Undo.Objects[key] = Objects.TryGetValue(key, out var value) ? value.Copy() : null;
-    }
-    public void UndoLast()
-    {
-        if (Undo == null) throw new InvalidOperationException("No nature change can be undone.");
-        foreach (var (key, cell) in Undo.Cells) { if (cell == null) Cells.Remove(key); else Cells[key] = cell.Copy(); }
-        foreach (var (key, item) in Undo.Objects) { if (item == null) Objects.Remove(key); else Objects[key] = item.Copy(); }
-        Wallet = new(Undo.Wallet); TrailEnabled = Undo.TrailEnabled; TrailPrincipal = Undo.TrailPrincipal; TrailRulesSha256 = Undo.TrailRulesSha256; Fire = null; Undo = null; Revision++;
-        foreach (var cell in Cells.Values) cell.BurningS = 0;
+        var step = new NatureUndoStep
+        {
+            Principal = principal, Revision = revision, Base = Effective(revision - 1), Label = label, Wallet = new(Wallet, StringComparer.Ordinal),
+            TrailEnabled = TrailEnabled, TrailPrincipal = TrailPrincipal, TrailRulesSha256 = TrailRulesSha256,
+        };
+        if (Undo.Count > 0 && Undo[^1].Revision != step.Base) Undo.Clear();
+        Undo.Add(step);
+        TrimUndo();
+        return step;
     }
 
-    /// <summary>Plant only on a verified physical fertile surface, never on an assumed rectangle.</summary>
-    public int Bloom(Vector3 center, float radius, float duration, Func<int, int, NatureCell?> sample, bool remember = true)
+    /// <summary>Keeps the undo steps within MaxUndoSteps and MaxUndoCells, dropping the oldest first (never the newest).</summary>
+    public void TrimUndo()
+    {
+        while (Undo.Count > MaxUndoSteps) Undo.RemoveAt(0);
+        while (Undo.Count > 1 && Undo.Sum(s => s.Cells.Count) > MaxUndoCells) Undo.RemoveAt(0);
+    }
+
+    /// <summary>
+    /// The newest steps, newest first, that take the room back to target from roomRevision; null when they cannot. The
+    /// target may be the revision a step started from, or a room.undo's revision standing for that state.
+    /// </summary>
+    public List<NatureUndoStep>? StepsBackTo(int target, int roomRevision)
+    {
+        var steps = new List<NatureUndoStep>();
+        var goal = Effective(target);
+        var expected = Effective(roomRevision);
+        for (var i = Undo.Count - 1; i >= 0 && goal < expected; i--)
+        {
+            if (Undo[i].Revision != expected) return null;
+            steps.Add(Undo[i]);
+            expected = Undo[i].Base;
+            if (expected == goal) return steps;
+        }
+        return null;
+    }
+
+    /// <summary>The revision the latest reachable nature change started from (what room.undo names to take it back), or null.</summary>
+    public int? UndoTarget(int roomRevision) => Undo.Count > 0 && Undo[^1].Revision == Effective(roomRevision) ? Undo[^1].Base : null;
+
+    private NatureUndoStep? StepAt(int revision) => Undo.LastOrDefault(s => s.Revision == revision);
+
+    public static void RememberCell(NatureUndoStep? step, Dictionary<string, NatureCell> cells, string key)
+    {
+        if (step != null && !step.Cells.ContainsKey(key)) step.Cells[key] = cells.TryGetValue(key, out var value) ? value.Copy() : null;
+    }
+
+    public void RememberObject(NatureUndoStep? step, string id)
+    {
+        if (step != null && !step.Objects.ContainsKey(id)) step.Objects[id] = Objects.TryGetValue(id, out var value) ? value.Copy() : null;
+    }
+
+    /// <summary>
+    /// Takes the given steps back (newest first, as StepsBackTo lists them): every cell, object, wallet and trail setting
+    /// as it was before them. Any fire goes out. The undo itself is a room revision (at) standing for target's state.
+    /// </summary>
+    public void UndoSteps(IReadOnlyList<NatureUndoStep> steps, int at, int target)
+    {
+        foreach (var step in steps)
+        {
+            foreach (var (key, cell) in step.Cells)
+            {
+                if (cell == null) Cells.Remove(key);
+                else Cells[key] = cell.Copy();
+            }
+            foreach (var (id, item) in step.Objects)
+            {
+                if (item == null) Objects.Remove(id);
+                else Objects[id] = item.Copy();
+            }
+            Wallet = new(step.Wallet, StringComparer.Ordinal);
+            TrailEnabled = step.TrailEnabled;
+            TrailPrincipal = step.TrailPrincipal;
+            TrailRulesSha256 = step.TrailRulesSha256;
+            Undo.Remove(step);
+        }
+        Fire = null;
+        foreach (var cell in Cells.Values) cell.BurningS = 0;
+        UndoneTo = Effective(target);
+        UndoneAt = at;
+        ChangedAt = at;
+    }
+
+    // ---- the casts ----
+
+    /// <summary>Plants only on verified fertile ground the sampler found, never on an assumed rectangle; returns the cells planted.</summary>
+    public int Bloom(Vector3 center, float radius, float lifeS, float intensity, Func<int, int, NatureCell?> sample, NatureUndoStep? step)
     {
         var planted = 0;
+        var start = Math.Clamp(intensity * NatureLaws.BloomStartGrowthPerIntensity, 0.05f, 1);
         foreach (var (x, z) in Disk(center, radius))
         {
             var key = Key(x, z);
             var ground = sample(x, z);
             if (ground is not { Fertile: true } || ground.BurningS > 0) continue;
             if (!Cells.ContainsKey(key) && Cells.Count >= MaxCells) break;
-            if (remember) RememberCell(key);
+            RememberCell(step, Cells, key);
             var cell = Cells.GetValueOrDefault(key) ?? ground;
-            cell.Y = ground.Y; cell.Surface = ground.Surface; cell.Exposed = ground.Exposed;
-            cell.Growth = Math.Max(.2f, cell.Growth); cell.LifeS = Math.Max(cell.LifeS, duration);
-            cell.Fuel = Math.Max(cell.Fuel, .35f); Cells[key] = cell; planted++;
+            cell.Y = ground.Y;
+            cell.Surface = ground.Surface;
+            cell.Exposed = ground.Exposed;
+            cell.Growth = Math.Max(start, cell.Growth);
+            cell.LifeS = Math.Max(cell.LifeS, lifeS);
+            cell.Fuel = Math.Max(cell.Fuel, NatureLaws.FlowerFuel);
+            Cells[key] = cell;
+            planted++;
         }
         return planted;
     }
 
-    public int Ignite(Vector3 center, float radius, float duration, int authorityRevision, Dictionary<string, int> authorized, Func<int, int, NatureCell?> sample)
+    /// <summary>Lights the one fire: dry fuel near the centre catches, and the fire may spread within radius for durationS.</summary>
+    public int Ignite(Vector3 center, float radius, float durationS, float intensity, int revision, Dictionary<string, int> authorized, Func<int, int, NatureCell?> sample, NatureUndoStep? step)
     {
-        Fire = new NatureFire { X = center.X, Y = center.Y, Z = center.Z, RadiusM = radius, RemainingS = duration, AuthorityRevision = authorityRevision, AuthorizedCreations = new(authorized) };
+        Fire = new NatureFire
+        {
+            Center = center, RadiusM = radius, RemainingS = durationS, Intensity = intensity, Revision = revision,
+            AuthorizedCreations = new(authorized, StringComparer.Ordinal),
+        };
         var lit = 0;
-        foreach (var (x, z) in Disk(center, Math.Min(radius, .13f)))
+        foreach (var (x, z) in Disk(center, Math.Min(radius, NatureLaws.IgnitionRadiusM)))
         {
             var key = Key(x, z);
             var ground = sample(x, z);
-            if (ground == null || ground.Fuel <= 0 || ground.Moisture >= .8f) continue;
+            if (ground == null || ground.Fuel <= 0 || ground.Moisture >= NatureLaws.IgnitionMaxMoisture) continue;
             if (!Cells.ContainsKey(key) && Cells.Count >= MaxCells) break;
-            RememberCell(key);
             var cell = Cells.GetValueOrDefault(key) ?? ground;
-            if (cell.Moisture >= .8f || cell.Fuel <= 0) continue;
-            cell.BurningS = Math.Min(10, duration); Cells[key] = cell; lit++;
+            if (cell.Moisture >= NatureLaws.IgnitionMaxMoisture || cell.Fuel <= 0) continue;
+            RememberCell(step, Cells, key);
+            cell.BurningS = Math.Min(NatureLaws.IgnitionMaxS, durationS);
+            Cells[key] = cell;
+            lit++;
         }
         return lit;
     }
 
-    /// <summary>A bounded deterministic step: wind biases spread; rain/wet soil and nonfuel gaps stop it.</summary>
-    public void Step(float seconds, Func<int, int, NatureCell?> sample, Func<NatureCell, bool> fireproof, Func<Vector3, float> light)
+    // ---- the simulation ----
+
+    /// <summary>
+    /// One bounded, deterministic step. Wind biases spread; rain, wet soil, fireproof ground and gaps without fuel stop it.
+    /// Cells for which active is false rest unchanged (the weather clock runs everywhere); burning cells always run. Every
+    /// cell the fire changes is recorded in the fire's undo step. Light is measured elsewhere (the host's light batch).
+    /// Returns whether anything but the clock changed.
+    /// </summary>
+    public bool Step(float seconds, Func<int, int, NatureCell?> sample, Func<NatureCell, bool> fireproof, Func<NatureCell, bool> active)
     {
         if (!float.IsFinite(seconds) || seconds <= 0 || seconds > 1) throw new ArgumentOutOfRangeException(nameof(seconds));
         WeatherS += seconds;
         var weather = Weather;
-        var burning = Cells.Values.Where(c => c.BurningS > 0).OrderBy(c => c.Key, StringComparer.Ordinal).Take(MaxBurning).ToArray();
-        var next = new HashSet<string>(StringComparer.Ordinal);
+        var changed = false;
+        var burning = Cells.Values.Where(c => c.BurningS > 0).OrderBy(c => c.X).ThenBy(c => c.Z).Take(MaxBurning).ToArray();
         foreach (var cell in Cells.Values)
         {
-            cell.Light = Math.Clamp(light(cell.Position + Vector3.Up * .02f), 0, 2);
-            cell.Moisture = Math.Clamp(cell.Moisture + seconds * ((cell.Exposed ? weather.Rain01 * .18f : 0) - .009f * cell.Light), 0, 1);
+            if (cell.BurningS <= 0 && !active(cell)) continue;
+            changed = true;
+            var wetting = cell.Exposed ? weather.Rain01 * NatureLaws.RainWettingPerS : 0;
+            cell.Moisture = Math.Clamp(cell.Moisture + seconds * (wetting - NatureLaws.LightDryingPerS * cell.Light), 0, 1);
             cell.LifeS = Math.Max(0, cell.LifeS - seconds);
             if (cell.BurningS > 0) continue;
-            if (cell.LifeS > 0 && cell.Moisture > .12f && cell.Light > .12f)
-                cell.Growth = Math.Min(1, cell.Growth + seconds * .035f * cell.Moisture * Math.Min(1, cell.Light));
-            else cell.Growth = Math.Max(0, cell.Growth - seconds * (cell.LifeS > 0 ? .006f : .025f));
-            if (cell.Ash > 0 && cell.Fertile && cell.Moisture > .2f)
+            if (cell.LifeS > 0 && cell.Moisture > NatureLaws.GrowthMinMoisture && cell.Light > NatureLaws.GrowthMinLight)
+                cell.Growth = Math.Min(1, cell.Growth + seconds * NatureLaws.GrowthPerS * cell.Moisture * Math.Min(1, cell.Light));
+            else cell.Growth = Math.Max(0, cell.Growth - seconds * (cell.LifeS > 0 ? NatureLaws.FadeWhileAlivePerS : NatureLaws.FadeAfterLifePerS));
+            if (cell.Ash > 0 && cell.Fertile && cell.Moisture > NatureLaws.AshRegrowMoisture)
             {
-                cell.Ash = Math.Max(0, cell.Ash - seconds * .006f * cell.Moisture);
-                cell.Fuel = Math.Min(.35f, cell.Fuel + seconds * .002f * cell.Moisture);
+                cell.Ash = Math.Max(0, cell.Ash - seconds * NatureLaws.AshFadePerS * cell.Moisture);
+                cell.Fuel = Math.Min(NatureLaws.FlowerFuel, cell.Fuel + seconds * NatureLaws.FuelRegrowPerS * cell.Moisture);
             }
         }
+        changed |= Burn(seconds, weather, burning, sample, fireproof);
+        // Expired flower-only cells can be sampled again. Ash stays until regrowth consumes it.
+        var expired = Cells.Where(p => p.Value.Growth <= 0 && p.Value.LifeS <= 0 && p.Value.BurningS <= 0 && p.Value.Ash <= 0).Select(p => p.Key).ToArray();
+        foreach (var key in expired) Cells.Remove(key);
+        return changed || expired.Length > 0;
+    }
+
+    /// <summary>The fire's half of a step: burning cells eat fuel and lay ash, and catch their neighbours through the gates.</summary>
+    private bool Burn(float seconds, NatureWeather weather, NatureCell[] burning, Func<int, int, NatureCell?> sample, Func<NatureCell, bool> fireproof)
+    {
+        if (Fire == null && burning.Length == 0) return false;
+        var step = Fire == null ? null : StepAt(Fire.Revision);
+        var intensity = Fire?.Intensity ?? 0.6f;
+        var next = new Dictionary<string, (int X, int Z)>(StringComparer.Ordinal);
         foreach (var cell in burning)
         {
             var surface = sample(cell.X, cell.Z);
-            if (Fire == null || Fire.RemainingS <= 0 || fireproof(cell) || surface is not { Fuel: > 0 } || Math.Abs(surface.Y - cell.Y) > .04f || cell.Moisture >= .8f)
-            { cell.BurningS = 0; continue; }
-            RememberCell(cell.Key);
-            cell.Fuel = Math.Max(0, cell.Fuel - seconds * .08f);
-            cell.Growth = 0; cell.LifeS = 0; cell.Ash = Math.Min(1, cell.Ash + seconds * .2f);
-            cell.BurningS = Math.Max(0, cell.BurningS - seconds * (1 + weather.Rain01 * 5));
-            if (cell.Fuel <= .005f) cell.BurningS = 0;
-            if (cell.BurningS <= 0 || weather.Rain01 >= .8f) continue;
+            var unsupported = surface is not { Fuel: > 0 } || Math.Abs(surface.Y - cell.Y) > NatureLaws.BurnHeightToleranceM;
+            if (Fire == null || Fire.RemainingS <= 0 || fireproof(cell) || unsupported || cell.Moisture >= NatureLaws.IgnitionMaxMoisture)
+            {
+                cell.BurningS = 0;
+                continue;
+            }
+            RememberCell(step, Cells, cell.Key);
+            cell.Fuel = Math.Max(0, cell.Fuel - seconds * NatureLaws.FuelBurnPerIntensityS * intensity);
+            cell.Growth = 0;
+            cell.LifeS = 0;
+            cell.Ash = Math.Min(1, cell.Ash + seconds * NatureLaws.AshPerIntensityS * intensity);
+            cell.BurningS = Math.Max(0, cell.BurningS - seconds * (1 + weather.Rain01 * NatureLaws.RainQuench));
+            if (cell.Fuel <= NatureLaws.BurntOutFuel) cell.BurningS = 0;
+            if (cell.BurningS <= 0 || weather.Rain01 >= NatureLaws.RainStopsSpread01) continue;
             foreach (var (dx, dz) in new[] { (1, 0), (-1, 0), (0, 1), (0, -1) })
             {
                 if (burning.Length + next.Count >= MaxBurning || Cells.Count + next.Count >= MaxCells) break;
-                var x = cell.X + dx; var z = cell.Z + dz; var key = Key(x, z);
-                if (next.Contains(key) || Cells.TryGetValue(key, out var existing) && existing.BurningS > 0) continue;
+                var x = cell.X + dx;
+                var z = cell.Z + dz;
+                var key = Key(x, z);
+                if (next.ContainsKey(key) || Cells.TryGetValue(key, out var existing) && existing.BurningS > 0) continue;
                 var ground = sample(x, z);
-                if (ground == null || ground.Fuel <= 0 || ground.Moisture >= .7f || fireproof(ground)) continue;
-                if (new Vector2(ground.Position.X - Fire.Center.X, ground.Position.Z - Fire.Center.Z).Length() > Fire.RadiusM || Math.Abs(ground.Y - cell.Y) > .07f) continue;
+                if (ground == null || ground.Fuel <= 0 || ground.Moisture >= NatureLaws.SpreadMaxMoisture || fireproof(ground)) continue;
+                var away = new Vector2(ground.Position.X - Fire.Center.X, ground.Position.Z - Fire.Center.Z).Length();
+                if (away > Fire.RadiusM || Math.Abs(ground.Y - cell.Y) > NatureLaws.SpreadStepM) continue;
                 var fuel = existing ?? ground;
-                if (fuel.Fuel < .03f || fuel.Moisture >= .7f) continue;
-                // A reproducible rotating gate keeps one half-second update from burning the entire circle.
+                if (fuel.Fuel < NatureLaws.SpreadMinFuel || fuel.Moisture >= NatureLaws.SpreadMaxMoisture) continue;
+                // A reproducible rotating gate keeps one step from burning the whole circle at once.
                 var downwind = new Vector3(dx, 0, dz).Dot(weather.WindMps) > 0;
-                var gate = Math.Abs((long)x * 31 + (long)z * 17 + (long)(WeatherS * 2)) % (downwind ? 3 : 7);
+                var gate = Math.Abs((long)x * 31 + (long)z * 17 + (long)(WeatherS * 2)) % (downwind ? NatureLaws.SpreadGateDownwind : NatureLaws.SpreadGateOther);
                 if (gate != 0) continue;
-                RememberCell(key); next.Add(key);
+                next[key] = (x, z);
             }
         }
-        foreach (var key in next)
+        foreach (var (key, (x, z)) in next)
         {
-            var pieces = key.Split(':'); var x = int.Parse(pieces[0]); var z = int.Parse(pieces[1]);
-            var cell = Cells.GetValueOrDefault(key) ?? sample(x, z)!;
-            cell.BurningS = Math.Min(8, Fire!.RemainingS); Cells[key] = cell;
+            var cell = Cells.GetValueOrDefault(key) ?? sample(x, z);
+            if (cell == null) continue;
+            RememberCell(step, Cells, key);
+            cell.BurningS = Math.Min(NatureLaws.SpreadBurnMaxS, Fire!.RemainingS);
+            Cells[key] = cell;
         }
         if (Fire != null)
         {
             Fire.RemainingS = Math.Max(0, Fire.RemainingS - seconds);
-            if (Fire.RemainingS <= 0 || !Cells.Values.Any(c => c.BurningS > 0)) { foreach (var cell in Cells.Values) cell.BurningS = 0; Fire = null; }
+            if (Fire.RemainingS <= 0 || !Cells.Values.Any(c => c.BurningS > 0))
+            {
+                foreach (var cell in Cells.Values) cell.BurningS = 0;
+                Fire = null;
+            }
         }
-        // Expired flower-only cells can be sampled again. Ash stays until regrowth consumes it.
-        foreach (var key in Cells.Where(p => p.Value.Growth <= 0 && p.Value.LifeS <= 0 && p.Value.BurningS <= 0 && p.Value.Ash <= 0).Select(p => p.Key).ToArray()) Cells.Remove(key);
+        return true;
     }
 }

@@ -160,7 +160,7 @@ public partial class RoomHud
             _repairChoice.Select(Math.Max(0, previous == null ? 0 : _repairIds.IndexOf(previous)));
         }
         _repairChoice.Disabled = ids.Length == 0;
-        _undoNature.Disabled = host.Nature.Undo == null || host.Nature.Undo.AuthorityRevision != host.Revision;
+        _undoNature.Disabled = !host.NatureCanUndo;
         RefreshRepairCost();
     }
 

@@ -7,6 +7,10 @@ using Godot;
 
 namespace EnFractal.Tests.Kernel;
 
+/// <summary>
+/// The Glow journal in the HUD: fresh, it claims no discovery and spoils none; learned, it offers the cast it teaches,
+/// plays its chime and stops offering once the discovery is made.
+/// </summary>
 public partial class PlayHudTest
 {
     private const string HudGlowProfile = "user://tests/play_hud/profile/glow_progress_v1.json";

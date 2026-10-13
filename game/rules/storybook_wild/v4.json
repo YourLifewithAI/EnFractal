@@ -4,7 +4,7 @@
   "rules_id": "storybook_wild",
   "rules_version": 4,
   "display_name": "Storybook wild",
-  "description": "Storybook nature magic with Glow discoveries, Bloom and weather-driven Fire.",
+  "description": "Storybook nature magic: Glow with its discoveries, Bubbles, Fireworks, Bloom and weather-driven Fire.",
   "status": "draft",
   "magic_word": "magic",
   "abilities": [
@@ -13,23 +13,11 @@
       "category": "light",
       "primitive": "light.emit",
       "display_name": "Glow",
-      "cast_by": [
-        "player",
-        "companion"
-      ],
+      "cast_by": ["player", "companion"],
       "tier": "auto",
-      "targets": [
-        "self",
-        "point"
-      ],
+      "targets": ["self", "point"],
       "reach_m": 2.0,
-      "params": {
-        "intensity": {
-          "min": 0.2,
-          "max": 1.0,
-          "default": 0.6
-        }
-      },
+      "params": { "intensity": { "min": 0.2, "max": 1.0, "default": 0.6 } },
       "area_radius_default_m": 0.6,
       "area_radius_max_m": 1.5,
       "duration_default_s": 300,
@@ -41,23 +29,11 @@
       "category": "float",
       "primitive": "particles.float",
       "display_name": "Bubbles",
-      "cast_by": [
-        "player",
-        "companion"
-      ],
+      "cast_by": ["player", "companion"],
       "tier": "auto",
-      "targets": [
-        "self",
-        "point"
-      ],
+      "targets": ["self", "point"],
       "reach_m": 2.0,
-      "params": {
-        "intensity": {
-          "min": 0.2,
-          "max": 1.0,
-          "default": 0.6
-        }
-      },
+      "params": { "intensity": { "min": 0.2, "max": 1.0, "default": 0.6 } },
       "area_radius_default_m": 0.5,
       "area_radius_max_m": 1.0,
       "duration_default_s": 20,
@@ -69,23 +45,11 @@
       "category": "burst",
       "primitive": "particles.burst",
       "display_name": "Fireworks",
-      "cast_by": [
-        "player",
-        "companion"
-      ],
+      "cast_by": ["player", "companion"],
       "tier": "auto",
-      "targets": [
-        "self",
-        "point"
-      ],
+      "targets": ["self", "point"],
       "reach_m": 4.0,
-      "params": {
-        "intensity": {
-          "min": 0.3,
-          "max": 1.0,
-          "default": 0.8
-        }
-      },
+      "params": { "intensity": { "min": 0.3, "max": 1.0, "default": 0.8 } },
       "area_radius_default_m": 1.0,
       "area_radius_max_m": 2.0,
       "duration_default_s": 4,
@@ -97,22 +61,11 @@
       "category": "growth",
       "primitive": "growth.seed",
       "display_name": "Bloom",
-      "cast_by": [
-        "player",
-        "companion"
-      ],
+      "cast_by": ["player", "companion"],
       "tier": "auto_undo",
-      "targets": [
-        "point"
-      ],
-      "reach_m": 2,
-      "params": {
-        "intensity": {
-          "min": 0.2,
-          "max": 1,
-          "default": 0.6
-        }
-      },
+      "targets": ["point"],
+      "reach_m": 2.0,
+      "params": { "intensity": { "min": 0.2, "max": 1.0, "default": 0.6 } },
       "area_radius_default_m": 0.25,
       "area_radius_max_m": 0.6,
       "duration_default_s": 180,
@@ -124,23 +77,12 @@
       "category": "fire",
       "primitive": "element.ignite",
       "display_name": "Fire",
-      "cast_by": [
-        "player",
-        "companion"
-      ],
+      "cast_by": ["player", "companion"],
       "tier": "preview_commit",
-      "targets": [
-        "point"
-      ],
-      "reach_m": 2,
-      "params": {
-        "intensity": {
-          "min": 0.2,
-          "max": 1,
-          "default": 0.6
-        }
-      },
-      "area_radius_default_m": 0.25,
+      "targets": ["point"],
+      "reach_m": 2.0,
+      "params": { "intensity": { "min": 0.2, "max": 1.0, "default": 0.6 } },
+      "area_radius_default_m": 1.5,
       "area_radius_max_m": 1.5,
       "duration_default_s": 30,
       "duration_max_s": 60,
