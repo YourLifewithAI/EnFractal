@@ -22,6 +22,24 @@ public static class DrawDistances
     public const float TreeM = 150f;
     /// <summary>Copies cast shadows only nearer than this: past it a 10 cm plant's shadow is a few pixels, and 350,000 casters cost the shadow passes.</summary>
     public const float CopyShadowM = 20f;
+    /// <summary>
+    /// Trees cast shadows as far as the sun's shadows reach on the biggest island (ViewDistances.MaxShadowM, S9): a tree is ten to
+    /// twenty body heights, so its shadow on a meadow 50 m away is plain to see; there are only about 5,000 of them.
+    /// </summary>
+    public const float TreeShadowM = ViewDistances.MaxShadowM;
+
+    /// <summary>
+    /// Small plants and stones (no taller than SmallPlantHeightM: the 10x garage's grass, flowers, ferns and heather, 2 to 4 cm) are
+    /// drawn in full detail, casting shadows, only this near (S9): at 8 m a 3 cm tuft is three pixels tall and its shadow one or two,
+    /// so a lighter mesh with no shadow looks the same and each copy is held in two distance bands instead of four.
+    /// </summary>
+    public const float SmallDetailM = 8f;
+    /// <summary>How far a set with three or more meshes keeps its full detail, as a fraction of its range (trees: TreeDetailFraction).</summary>
+    public const float DetailFraction = 0.2f, TreeDetailFraction = 0.12f;
+
+    /// <summary>How far a kind of copy casts shadows: trees to TreeShadowM, small plants and stones to SmallDetailM, the rest to CopyShadowM.</summary>
+    public static float CopyShadowRangeM(PlantKind kind, float typicalHeightM = float.PositiveInfinity) =>
+        kind == PlantKind.Tree ? TreeShadowM : typicalHeightM <= SmallPlantHeightM ? SmallDetailM : CopyShadowM;
     /// <summary>Hysteresis at every copy band's edge.</summary>
     public const float CopyMarginM = 1f;
     /// <summary>Where each lighter mesh takes over, as fractions of the set's range, for a set with 1 to 4 meshes.</summary>
@@ -60,22 +78,43 @@ public static class DrawDistances
         _ => typicalHeightM <= SmallPlantHeightM ? SmallPlantM : PlantM,
     };
 
-    /// <summary>A set's bands: each mesh from where the one before ends, the full-detail band split at CopyShadowM so only near copies cast shadows.</summary>
+    /// <summary>
+    /// A set's bands. Every copy of a tile is held once per band (a MultiMesh per band, and Godot keeps three CPU copies of each
+    /// MultiMesh's buffer besides the GPU's), so the bands are as few as the look allows (S9):
+    /// <list type="bullet">
+    /// <item>small plants and stones with two or more meshes: two bands, full detail with shadows to SmallDetailM, the lightest mesh
+    /// beyond;</item>
+    /// <item>any other set with three or more meshes: three bands, full detail to a fraction of the range, its first lighter mesh to
+    /// its shadow range, the lightest beyond, the shadow's edge on a band's edge so no band is split for it;</item>
+    /// <item>one or two meshes: each mesh from where the one before ends, the band that crosses the shadow range split there.</item>
+    /// </list>
+    /// </summary>
     public static CopyBand[] CopyBands(PlantKind kind, float typicalHeightM, int meshes)
     {
         var range = CopyRangeM(kind, typicalHeightM);
+        var shadow = CopyShadowRangeM(kind, typicalHeightM);
+        var small = kind != PlantKind.Tree && typicalHeightM <= SmallPlantHeightM;
+        if (small && meshes >= 2)
+            return new[] { new CopyBand(0, 0f, SmallDetailM, true), new CopyBand(meshes - 1, SmallDetailM, range, false) };
+        if (meshes >= 3)
+        {
+            var near = range * (kind == PlantKind.Tree ? TreeDetailFraction : DetailFraction);
+            if (shadow > near && shadow < range)
+                return new[] { new CopyBand(0, 0f, near, true), new CopyBand(1, near, shadow, true), new CopyBand(meshes - 1, shadow, range, false) };
+            return new[] { new CopyBand(0, 0f, near, near <= shadow), new CopyBand(meshes - 1, near, range, range <= shadow) };
+        }
         var ends = DetailEnds[Math.Clamp(meshes, 1, DetailEnds.Length) - 1];
         var bands = new System.Collections.Generic.List<CopyBand>();
         var begin = 0f;
         for (var mesh = 0; mesh < ends.Length; mesh++)
         {
             var end = ends[mesh] * range;
-            if (begin < CopyShadowM && end > CopyShadowM)
+            if (begin < shadow && end > shadow)
             {
-                bands.Add(new CopyBand(mesh, begin, CopyShadowM, true));
-                bands.Add(new CopyBand(mesh, CopyShadowM, end, false));
+                bands.Add(new CopyBand(mesh, begin, shadow, true));
+                bands.Add(new CopyBand(mesh, shadow, end, false));
             }
-            else bands.Add(new CopyBand(mesh, begin, end, end <= CopyShadowM));
+            else bands.Add(new CopyBand(mesh, begin, end, end <= shadow));
             begin = end;
         }
         return bands.ToArray();

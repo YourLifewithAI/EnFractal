@@ -56,6 +56,13 @@ public partial class LookDirector : Node3D
     /// land: the sun needs no opening, the sky's own light fills the shade, and there is no closed interior to bake.
     /// </summary>
     public bool OpenLand { get; private set; }
+    /// <summary>
+    /// The far plane of the room's play cameras (ViewDistances.FarPlaneM: 100 m in a room and on the 1x island, 250 m on the 10x
+    /// island). The look keeps the game's current camera at it every frame; cameras the review harness frames keep their own.
+    /// </summary>
+    public float FarPlaneM { get; private set; } = ViewDistances.MinFarM;
+    /// <summary>The sun's shadows on open land (ViewDistances.OpenLandShadows); unused indoors.</summary>
+    public LandShadows LandShadows { get; private set; }
     public VoxelGI? Gi { get; private set; }
     /// <summary>
     /// The focus highlight (Run 2): the one thing the next key press would act on wears a soft rim and line (FocusLook). The play
@@ -171,6 +178,8 @@ public partial class LookDirector : Node3D
         preset = Preset;
         _room = room;
         OpenLand = LandscapeLook.IsOpenLand(room);
+        FarPlaneM = ViewDistances.FarPlaneM(room);
+        LandShadows = ViewDistances.OpenLandShadows(ViewDistances.SpanM(room));
         SiteNote = siteNote;
         if (siteNote.Length > 0) GD.Print("LOOK: " + siteNote);
         MaterialLibrary.Configure(preset);
@@ -320,21 +329,27 @@ public partial class LookDirector : Node3D
             ShadowEnabled = preset.KeyCastsShadows && preset.ShadowsEnabled,
             LightAngularDistance = s.KeyAngularBaseDeg + s.KeyAngularPerSoftnessDeg * softness,
             ShadowBlur = s.BlurBase + s.BlurPerSoftness * softness,
-            DirectionalShadowMode = s.KeySplits switch
+            DirectionalShadowMode = (OpenLand ? LandShadows.Splits : s.KeySplits) switch
             {
                 1 => DirectionalLight3D.ShadowMode.Orthogonal,
                 4 => DirectionalLight3D.ShadowMode.Parallel4Splits,
                 _ => DirectionalLight3D.ShadowMode.Parallel2Splits,
             },
-            // Open land casts its shadows as far as the eye sees them (the hills and trees of the backdrop), not just over a room.
-            DirectionalShadowMaxDistance = OpenLand ? OpenLandLight.ShadowDistanceM : Mathf.Max(s.KeyMinDistanceM, diagonal * s.KeyDistancePerDiagonal),
-            DirectionalShadowSplit1 = OpenLand ? OpenLandLight.ShadowSplit1 : s.KeySplit1,
+            // Open land casts its shadows as far as the eye judges them (the hills and trees around), not just over a room: 30 m in
+            // two splits on the 1x island, up to 60 m in four on a big one (ViewDistances.OpenLandShadows).
+            DirectionalShadowMaxDistance = OpenLand ? LandShadows.DistanceM : Mathf.Max(s.KeyMinDistanceM, diagonal * s.KeyDistancePerDiagonal),
+            DirectionalShadowSplit1 = OpenLand ? LandShadows.Split1 : s.KeySplit1,
             DirectionalShadowBlendSplits = true,
             ShadowBias = s.KeyBias,
             ShadowNormalBias = s.KeyNormalBias,
             LightBakeMode = Light3D.BakeMode.Dynamic,
             Visible = SunScale > 0f,
         };
+        if (OpenLand && LandShadows.Splits == 4)
+        {
+            Key.DirectionalShadowSplit2 = LandShadows.Split2;
+            Key.DirectionalShadowSplit3 = LandShadows.Split3;
+        }
         AddChild(Key);
         // The moon stands outside the room's brightest window, so moonlight falls in through it.
         var window = room.LightHints
@@ -520,6 +535,8 @@ public partial class LookDirector : Node3D
         var skyLook = LookSky.At(Preset, Moment, _moonYaw);
         if (_skyMaterial != null) LookSky.Apply(_skyMaterial, skyLook);
         OpenSea?.SetHorizon(skyLook.Horizon, skyLook.Brightness);
+        // Open land without a sea has the haze alone (with a sea, OpenSea draws it and closes the mist in from it).
+        if (OpenLand && OpenSea == null) ViewDistances.Apply(Environment, ViewDistances.Fog(0f, FarPlaneM, haze: true), skyLook.Horizon, skyLook.Brightness);
         Key.RotationDegrees = new Vector3(-Moment.KeyElevationDeg, Moment.KeyAzimuthDeg, 0);
         var sky = SkyLevel(Preset, Moment);
         foreach (var fill in _skyFills)
@@ -646,6 +663,7 @@ public partial class LookDirector : Node3D
         OpenSea = OpenSea.Build(sea, _room.Bounds, meshes.Where(m => m.HasMeta(WaterMeta)),
             meshes.Where(m => !m.HasMeta(WaterMeta) && m.HasMeta(LandscapeLook.LandscapePaintedMeta)));
         OpenSea.Atmosphere = Environment;
+        OpenSea.Haze = OpenLand;
         AddChild(OpenSea);
         // The sea's fish follow the player's body, as depth of field does; never the Gubble.
         OpenSea.SetSwimmer(() => FocusTarget ?? GetParent()?.GetChildren().OfType<SmallPlayerController>().FirstOrDefault(c => c is not CompanionAvatar));
@@ -967,7 +985,15 @@ public partial class LookDirector : Node3D
         _ => null,
     };
 
-    private Node3D? CompanionBody() => FocusCompanion ?? GetParent()?.GetChildren().OfType<CompanionAvatar>().FirstOrDefault();
+    private Node3D? CompanionBody()
+    {
+        if (FocusCompanion != null) return FocusCompanion;
+        // Found once and kept (asked every frame: a list of the parent's children each time was garbage for the collector).
+        if (_companion == null || !IsInstanceValid(_companion)) _companion = GetParent()?.GetChildren().OfType<CompanionAvatar>().FirstOrDefault();
+        return _companion;
+    }
+
+    private CompanionAvatar? _companion;
 
     private RoomHud? _hud;
 
@@ -1038,6 +1064,7 @@ public partial class LookDirector : Node3D
         UpdateGlows(delta);
         UpdateEffects(delta);
         if (Preset == null) return;
+        KeepFarPlane();
         _highlight?.Prune();
         CollectLut();
         if (_framesSinceApply++ == 2 && !Dressed)
@@ -1051,6 +1078,17 @@ public partial class LookDirector : Node3D
         var camera = GetViewport()?.GetCamera3D();
         if (camera == null || _framed.Contains(camera.GetInstanceId())) return;
         Focus(camera, FocusPointFor(camera), CrispFromFor(camera), AlsoInFocusFor(camera), delta);
+    }
+
+    /// <summary>
+    /// The game's current camera sees to the room's far plane (FarPlaneM): the HUD's views and the player's eye are made at 100 m, so
+    /// the look sets the rule's distance whenever one of them is current. A camera the review harness framed keeps its own.
+    /// </summary>
+    private void KeepFarPlane()
+    {
+        var camera = GetViewport()?.GetCamera3D();
+        if (camera == null || _framed.Contains(camera.GetInstanceId()) || Mathf.IsEqualApprox(camera.Far, FarPlaneM)) return;
+        camera.Far = FarPlaneM;
     }
 
     /// <summary>

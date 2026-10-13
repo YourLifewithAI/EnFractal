@@ -28,8 +28,8 @@ namespace EnFractal.Native.Look;
 /// </summary>
 public partial class OpenSea : Node3D
 {
-    /// <summary>Half the size of the follow surface and bed, metres: past every play camera's far plane (100 m).</summary>
-    public const float ReachM = 160f;
+    /// <summary>Half the size of the follow surface, metres: well past every play camera's far plane (ViewDistances.MaxFarM, 250 m).</summary>
+    public const float ReachM = 1.6f * ViewDistances.MaxFarM;
     /// <summary>How far out the open-sea bed reaches from the island, metres: past Lane P's far net (1 km) and a camera's far plane.</summary>
     public const float BedReachM = 1500f;
     /// <summary>How many sides the open-sea bed has when the room has no backdrop floor to continue.</summary>
@@ -90,6 +90,13 @@ public partial class OpenSea : Node3D
     public float SeamM => IslandReachM + SeamPastIslandM;
     /// <summary>How thick the mist is now, 0 (none: at the island) to 1 (full: from SeamM out), from the swimmer's distance.</summary>
     public float Mist { get; private set; }
+    /// <summary>
+    /// Whether the land has an aerial haze (ViewDistances: open land, the look sets it): with no mist the fog is the haze, and the
+    /// mist closes in from it as a swimmer swims out. Without it the fog is off until there is mist.
+    /// </summary>
+    public bool Haze { get; set; }
+    /// <summary>The fog drawn now (the haze, the mist or both).</summary>
+    public DepthFog Fog { get; private set; }
     /// <summary>The environment the mist is drawn in (the look's own); without one the open sea draws no mist.</summary>
     public Godot.Environment? Atmosphere { get; set; }
     /// <summary>The camera the sea follows: the one a review or preview framed, else the viewport's current camera.</summary>
@@ -417,7 +424,9 @@ public partial class OpenSea : Node3D
     /// </summary>
     public bool UnderSea(Vector3 eye)
     {
-        if (!IsInsideTree() || GetWorld3D()?.DirectSpaceState is not { } space || !eye.IsFinite()) return false;
+        // An eye above the sea's level is under no sea surface: no rays (the look asks every frame, and the queries' answers are garbage).
+        if (!eye.IsFinite() || eye.Y >= Sea.LevelM + SeaLevelToleranceM) return false;
+        if (!IsInsideTree() || GetWorld3D()?.DirectSpaceState is not { } space) return false;
         var column = RoomWater.At(space, eye, RoomWater.SearchM, 0f);
         if (!column.Wet) column = Sea.OpenWater(space, eye, RoomWater.SearchM, 0f);
         return column.Wet && eye.Y < column.SurfaceY && Mathf.Abs(column.SurfaceY - Sea.LevelM) < SeaLevelToleranceM;
@@ -471,26 +480,15 @@ public partial class OpenSea : Node3D
         ApplyMist(MistFor(new Vector2(swimmer.X, swimmer.Z).DistanceTo(SeamCentre), IslandReachM), camera.Far);
     }
 
-    /// <summary>Draw the mist: the environment's depth fog in the sky's horizon colour, off the sky, and off entirely while there is none.</summary>
+    /// <summary>
+    /// Draw the mist (and the land's haze, ViewDistances.Fog): the environment's depth fog in the sky's horizon colour, off the sky;
+    /// off entirely while there is neither.
+    /// </summary>
     private void ApplyMist(float mist, float far)
     {
         Mist = mist;
-        if (Atmosphere == null) return;
-        var on = mist > 0f;
-        if (Atmosphere.FogEnabled != on) Atmosphere.FogEnabled = on;
-        if (!on) return;
-        var (begin, end) = MistFog(mist, far);
-        Atmosphere.FogMode = Godot.Environment.FogModeEnum.Depth;
-        Atmosphere.FogDensity = 1f;
-        Atmosphere.FogDepthBegin = begin;
-        Atmosphere.FogDepthEnd = end;
-        Atmosphere.FogDepthCurve = 1f;
-        Atmosphere.FogLightColor = _horizon;
-        Atmosphere.FogLightEnergy = _horizonEnergy;
-        Atmosphere.FogSunScatter = 0f;
-        Atmosphere.FogAerialPerspective = 0f;
-        Atmosphere.FogSkyAffect = 0f;
-        Atmosphere.FogHeightDensity = 0f;
+        Fog = ViewDistances.Fog(mist, far, Haze);
+        if (Atmosphere != null) ViewDistances.Apply(Atmosphere, Fog, _horizon, _horizonEnergy);
     }
 
     public override void _Process(double delta)

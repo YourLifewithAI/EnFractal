@@ -120,9 +120,12 @@ public partial class LookCaptureHarness : Node
             BuildTarget(resolution);
             // Let the avatars settle on the floor and the companion come to rest.
             for (var i = 0; i < 45; i++) await NextFrame();
+            // An island's copies arrive over its first frames: every camera (and every camera worked out from the island) waits for them.
+            var copies = _world.Built.GetNodeOrNull<EnFractal.Native.Room.PlantCopiesView>(EnFractal.Native.Room.PlantCopiesView.ViewName);
+            for (var waited = System.Diagnostics.Stopwatch.StartNew(); copies != null && waited.Elapsed.TotalSeconds < 60 && !copies.Complete;) await NextFrame();
 
             var only = Arg("only", "").Split(',', StringSplitOptions.RemoveEmptyEntries).ToHashSet();
-            foreach (var entry in root.GetProperty("cameras").EnumerateArray())
+            foreach (var entry in Entries(root).ToList())
             {
                 var id = entry.GetProperty("id").GetString()!;
                 if (only.Count > 0 && !only.Contains(id)) continue;
@@ -136,7 +139,8 @@ public partial class LookCaptureHarness : Node
                     while ((Time.GetTicksUsec() - lit) / 1e6 < settleS.GetDouble()) await NextFrame();
                 }
                 for (var i = 0; i < warmup; i++) await NextFrame();
-                var timing = await Measure(frames);
+                var timing = await Measure(FlightFrames(entry, frames), entry);
+                timing["memory"] = MemoryNow();
                 if (entry.TryGetProperty("spark_s", out var sparkS))
                 {
                     LightGlows(entry);
@@ -153,7 +157,9 @@ public partial class LookCaptureHarness : Node
                 timing["image_size"] = new[] { image.GetWidth(), image.GetHeight() };
                 if (ContactCameras(root).Contains(id)) timing["contact_crops"] = SaveContactCrops(image, id, outDir);
                 _results.Add(timing);
-                GD.Print($"LOOK_CAPTURE camera={id} frame_ms_p50={timing["frame_ms_p50"]} frame_ms_p95={timing["frame_ms_p95"]} gpu_ms_mean={timing["gpu_ms_mean"]} image={image.GetWidth()}x{image.GetHeight()}");
+                var memory = (Dictionary<string, object>)timing["memory"];
+                GD.Print($"LOOK_CAPTURE camera={id} frame_ms_p50={timing["frame_ms_p50"]} frame_ms_p95={timing["frame_ms_p95"]} frame_ms_max={timing["frame_ms_max"]} gpu_ms_mean={timing["gpu_ms_mean"]} " +
+                         $"working_set_mib={memory["working_set_mib"]} peak_mib={memory["peak_working_set_mib"]} video_mib={memory["video_mib"]} spikes={((List<Dictionary<string, object>>)timing["spikes"]).Count} image={image.GetWidth()}x{image.GetHeight()}");
             }
             if (Arg("sweep", "false") == "true") await Sweep(root, outDir);
             if (Arg("light-checks", "true") == "true") _lightChecks = await LightChecks(root, outDir);
@@ -400,6 +406,8 @@ public partial class LookCaptureHarness : Node
         _camera.Fov = (float)entry.GetProperty("fov_deg").GetDouble();
         _camera.Near = 0.005f;
         _camera.Far = 50f;
+        // A camera worked out from the island (a flight) sees as far as the game's cameras do there (the look's FarPlaneM, where it has one).
+        if (entry.TryGetProperty("derived", out _)) _camera.Far = _look?.GetType().GetProperty("FarPlaneM")?.GetValue(_look) is float far ? far : 100f;
         var hideBody = entry.TryGetProperty("hide_player_body", out var hide) && hide.GetBoolean();
         _camera.CullMask = hideBody ? 0xFFFFFu & ~HiddenBodyLayer : 0xFFFFFu;
         var focus = entry.TryGetProperty("focus_m", out var focusElement) ? Vec(focusElement) : focused?.LookAt ?? lookAt;
@@ -455,8 +463,10 @@ public partial class LookCaptureHarness : Node
         return image;
     }
 
-    private async Task<Dictionary<string, object>> Measure(int frames)
+    private async Task<Dictionary<string, object>> Measure(int frames, JsonElement entry = default)
     {
+        var flying = entry.ValueKind == JsonValueKind.Object && entry.TryGetProperty("flight", out _);
+        var costs = new List<(FrameCost Before, FrameCost After)>(frames);
         var wall = new List<double>(frames);
         var gpu = new List<double>(frames);
         var cpu = new List<double>(frames);
@@ -466,17 +476,25 @@ public partial class LookCaptureHarness : Node
         if (_target == null) RenderingServer.ViewportSetMeasureRenderTime(rid, true);
         await NextFrame();
         var last = Time.GetTicksUsec();
+        var started = last;
+        var cost = CostNow(rid);
         for (var i = 0; i < frames; i++)
         {
+            if (flying) Fly(entry, (Time.GetTicksUsec() - started) / 1e6);
             await NextFrame();
             var now = Time.GetTicksUsec();
             wall.Add((now - last) / 1000.0);
             last = now;
+            var next = CostNow(rid);
+            costs.Add((cost, next));
+            cost = next;
             gpu.Add(RenderingServer.ViewportGetMeasuredRenderTimeGpu(rid));
             cpu.Add(RenderingServer.ViewportGetMeasuredRenderTimeCpu(rid));
             drawCalls.Add(Performance.GetMonitor(Performance.Monitor.RenderTotalDrawCallsInFrame));
             primitives.Add(Performance.GetMonitor(Performance.Monitor.RenderTotalPrimitivesInFrame));
         }
+        // A slow frame: over the 16.7 ms of 60 frames a second, and well over this view's own median.
+        var threshold = Math.Max(16.7, 2.5 * Percentile(wall, 0.50));
         return new Dictionary<string, object>
         {
             ["frames"] = frames,
@@ -491,6 +509,11 @@ public partial class LookCaptureHarness : Node
             ["draw_calls_mean"] = Round(drawCalls.Average()),
             ["primitives_mean"] = Round(primitives.Average()),
             ["video_mem_mib"] = Round(Performance.GetMonitor(Performance.Monitor.RenderVideoMemUsed) / 1048576.0),
+            ["spike_threshold_ms"] = Round(threshold),
+            ["spikes"] = wall.Select((ms, i) => (ms, i)).Where(f => f.ms > threshold).Select(f => Spike(f.i, f.ms, costs[f.i].Before, costs[f.i].After)).ToList(),
+            ["frames_over_25_ms"] = wall.Count(ms => ms > 25.0),
+            ["gc_collections"] = new[] { costs[^1].After.Gen0 - costs[0].Before.Gen0, costs[^1].After.Gen1 - costs[0].Before.Gen1, costs[^1].After.Gen2 - costs[0].Before.Gen2 },
+            ["pipeline_compilations"] = costs[^1].After.Pipelines - costs[0].Before.Pipelines,
         };
     }
 
@@ -514,7 +537,7 @@ public partial class LookCaptureHarness : Node
         // The cameras file may name the sweep's camera, hours and dates ("sweep"); --sweep-camera overrides the camera.
         var sweep = root.TryGetProperty("sweep", out var configured) ? configured : default;
         var cameraId = Arg("sweep-camera", sweep.ValueKind == JsonValueKind.Object && sweep.TryGetProperty("camera", out var named) ? named.GetString()! : "ceiling_corner");
-        var entry = root.GetProperty("cameras").EnumerateArray().First(c => c.GetProperty("id").GetString() == cameraId);
+        var entry = Entries(root).First(c => c.GetProperty("id").GetString() == cameraId);
         Frame(entry);
         // The sweep shows the day as it goes: the lamps switch themselves with the light.
         _look.GetType().GetMethod("SetLamps")?.Invoke(_look, new object?[] { null });
@@ -557,7 +580,7 @@ public partial class LookCaptureHarness : Node
             result["note"] = "this build has no grain and vignette effect to check";
             return result;
         }
-        Frame(root.GetProperty("cameras")[0]);
+        Frame(Entries(root).First());
         post.Enabled = true;
         for (var i = 0; i < 30; i++) await NextFrame();
         var with = Grab();
@@ -622,8 +645,8 @@ public partial class LookCaptureHarness : Node
     private Dictionary<string, object>? _postCheck;
     private Dictionary<string, object>? _lightChecks;
 
-    private static JsonElement CameraEntry(JsonElement root, string id) =>
-        root.GetProperty("cameras").EnumerateArray().First(c => c.GetProperty("id").GetString() == id);
+    private JsonElement CameraEntry(JsonElement root, string id) =>
+        Entries(root).First(c => c.GetProperty("id").GetString() == id);
 
     private static JsonElement LightConfig(JsonElement root) => root.TryGetProperty("light_checks", out var c) && c.ValueKind == JsonValueKind.Object ? c : default;
 
@@ -881,6 +904,9 @@ public partial class LookCaptureHarness : Node
             ["screen_space_aa"] = (_target != null ? _target.ScreenSpaceAA : GetViewport().ScreenSpaceAA).ToString(),
             ["use_taa"] = _target != null ? _target.UseTaa : GetViewport().UseTaa,
             ["cameras"] = _results,
+            ["memory_end"] = MemoryNow(),
+            ["memory_breakdown"] = MemoryBreakdown(),
+            ["derive_notes"] = _deriveNotes.Distinct().ToList(),
         };
         if (_look != null && _look.HasMethod("DescribeLook")) report["look"] = _look.Call("DescribeLook").AsString();
         report["look_problems"] = problems;

@@ -183,7 +183,7 @@ public partial class LookPresetTest
             var swimmer = new Vector2(at.X, at.Z);
             var expected = OpenSea.MistFor(swimmer.DistanceTo(open.SeamCentre), open.IslandReachM);
             Check(new Vector2(open.Surface.GlobalPosition.X, open.Surface.GlobalPosition.Z).IsEqualApprox(swimmer) && Mathf.IsEqualApprox(open.Surface.GlobalPosition.Y, land.Sea.LevelM)
-                && Mathf.IsEqualApprox(open.Mist, expected) && look.Environment.FogEnabled == expected > 0f,
+                && Mathf.IsEqualApprox(open.Mist, expected) && open.Haze && look.Environment.FogEnabled && open.Fog == ViewDistances.Fog(expected, camera.Far, haze: true),
                 $"at {at} the sea's surface is under the swimmer and the mist is {open.Mist:0.##}");
         }
         // At the seam: the look's own environment draws the full mist as depth fog in the horizon's colour, off the sky.
@@ -195,7 +195,8 @@ public partial class LookPresetTest
             $"at the seam the mist is whole from {env.FogDepthEnd:0.#} m, on everything but the sky");
         camera.GlobalPosition = new Vector3(0.3f, 0.1f, 0.2f);
         open.Follow(camera);
-        Check(!env.FogEnabled && open.Mist == 0f, "back on the island the mist is gone");
+        Check(open.Mist == 0f && env.FogEnabled && Mathf.IsEqualApprox(env.FogDepthBegin, ViewDistances.HazeStartM) && Mathf.IsEqualApprox(env.FogDensity, ViewDistances.HazeMax),
+            "back on the island the mist is gone: only the land's soft haze is left, from 40 m (past the whole 1x island)");
         Check(Mathf.IsEqualApprox(surface.GetShaderParameter("horizon_fade_end_m").AsSingle(), 100f * OpenSea.HorizonFadeEnd), "the far sea turns into the horizon just before the camera's far plane");
         // The sea's look: the sea's water (and only water at its level) paints the sea's depths and foam.
         Check(surface.GetShaderParameter("use_sea").AsBool() && Mathf.IsEqualApprox(surface.GetShaderParameter("sea_level").AsSingle(), land.Sea.LevelM)
