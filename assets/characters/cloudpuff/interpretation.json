@@ -1,0 +1,1752 @@
+{
+  "applied_notes": [
+    "Puffier, thicker cloud like a plush pillow: widen the scalloped body 8%, increase its vertical fullness 23%, and author 318 drawing units of body depth (at least 0.046 m after scaling). The face and rainbow keep their proportions."
+  ],
+  "colour_reasoning": "White with a cool blue hint for the cloud, pale blue limbs and cheek hatching; seven saturated rainbow bands. Dark navy facial marks preserve the ink expression.",
+  "image_size": [
+    1050,
+    1400
+  ],
+  "motion": {
+    "kind": "hop",
+    "reason": "Short dangling legs below a wide buoyant body; gentle alternating little hops."
+  },
+  "name": "Cloudpuff",
+  "observations": [
+    "Re-read round2/cloudpuff.jpg: the single complete drawing above its label; broad low cloud, unequal scallops, narrow tall rainbow, dipped eyelids and zigzag cheeks.",
+    "The Notes line overrides the literal low cloud contour: fuller unequal scallops and a deeper plush cushion; the narrow rainbow, dipped lids, U-nose, smile and cheek zigzags retain their drawn character.",
+    "Screen-right foot is slightly lower and supports the pose; the left foot stays lifted rather than changing leg lengths."
+  ],
+  "origin": [
+    540,
+    975,
+    0
+  ],
+  "palette": {
+    "blue": "#6DBBE4",
+    "cheek": "#90BFD8",
+    "cloud": "#EDF7FF",
+    "eye": "#FBFDFF",
+    "green": "#7DCE97",
+    "indigo": "#8686CF",
+    "ink": "#35394E",
+    "limb": "#C7E0F2",
+    "orange": "#FFAD60",
+    "red": "#F27080",
+    "violet": "#B39ADD",
+    "yellow": "#F7D961"
+  },
+  "parts": [
+    {
+      "name": "body",
+      "parent": null,
+      "pivot": [
+        540,
+        740,
+        0
+      ],
+      "role": "body",
+      "shapes": [
+        {
+          "center": [
+            540,
+            714,
+            0
+          ],
+          "colour": "cloud",
+          "contour": [
+            [
+              205.2,
+              820.7
+            ],
+            [
+              183.59999999999997,
+              796.1
+            ],
+            [
+              182.51999999999998,
+              734.6
+            ],
+            [
+              205.2,
+              691.55
+            ],
+            [
+              248.39999999999998,
+              673.1
+            ],
+            [
+              290.52,
+              684.17
+            ],
+            [
+              299.15999999999997,
+              636.2
+            ],
+            [
+              331.55999999999995,
+              587.0
+            ],
+            [
+              382.32,
+              574.7
+            ],
+            [
+              436.32,
+              593.15
+            ],
+            [
+              455.76,
+              558.71
+            ],
+            [
+              491.4,
+              537.8
+            ],
+            [
+              529.2,
+              537.8
+            ],
+            [
+              570.24,
+              572.24
+            ],
+            [
+              598.32,
+              550.1
+            ],
+            [
+              635.04,
+              551.33
+            ],
+            [
+              666.36,
+              571.01
+            ],
+            [
+              687.96,
+              602.99
+            ],
+            [
+              725.76,
+              582.08
+            ],
+            [
+              763.56,
+              582.08
+            ],
+            [
+              790.56,
+              611.6
+            ],
+            [
+              806.76,
+              686.63
+            ],
+            [
+              838.08,
+              676.79
+            ],
+            [
+              866.1600000000001,
+              689.09
+            ],
+            [
+              886.6800000000001,
+              718.61
+            ],
+            [
+              891.0,
+              755.51
+            ],
+            [
+              873.72,
+              796.1
+            ],
+            [
+              777.6,
+              805.94
+            ],
+            [
+              669.6,
+              807.17
+            ],
+            [
+              540.0,
+              802.25
+            ],
+            [
+              432.0,
+              805.94
+            ],
+            [
+              318.6,
+              814.55
+            ]
+          ],
+          "kind": "volume",
+          "smooth": true,
+          "thickness": 318
+        }
+      ]
+    },
+    {
+      "name": "arch_red",
+      "parent": "body",
+      "pivot": [
+        548,
+        620,
+        -16
+      ],
+      "role": "prop",
+      "shapes": [
+        {
+          "colour": "red",
+          "kind": "tube",
+          "points": [
+            [
+              365,
+              614,
+              -16
+            ],
+            [
+              373,
+              478,
+              -16
+            ],
+            [
+              415,
+              390,
+              -16
+            ],
+            [
+              498,
+              346,
+              -16
+            ],
+            [
+              590,
+              340,
+              -16
+            ],
+            [
+              680,
+              382,
+              -16
+            ],
+            [
+              718,
+              470,
+              -16
+            ],
+            [
+              731,
+              619,
+              -16
+            ]
+          ],
+          "radii": [
+            10.8,
+            10.8,
+            10.8,
+            10.8,
+            10.8,
+            10.8,
+            10.8,
+            10.8
+          ]
+        }
+      ]
+    },
+    {
+      "name": "arch_orange",
+      "parent": "body",
+      "pivot": [
+        548,
+        620,
+        -16
+      ],
+      "role": "prop",
+      "shapes": [
+        {
+          "colour": "orange",
+          "kind": "tube",
+          "points": [
+            [
+              385,
+              614,
+              -16
+            ],
+            [
+              393,
+              493,
+              -16
+            ],
+            [
+              432,
+              414,
+              -16
+            ],
+            [
+              505,
+              373,
+              -16
+            ],
+            [
+              585,
+              367,
+              -16
+            ],
+            [
+              664,
+              406,
+              -16
+            ],
+            [
+              699,
+              485,
+              -16
+            ],
+            [
+              711,
+              619,
+              -16
+            ]
+          ],
+          "radii": [
+            10.8,
+            10.8,
+            10.8,
+            10.8,
+            10.8,
+            10.8,
+            10.8,
+            10.8
+          ]
+        }
+      ]
+    },
+    {
+      "name": "arch_yellow",
+      "parent": "body",
+      "pivot": [
+        548,
+        620,
+        -16
+      ],
+      "role": "prop",
+      "shapes": [
+        {
+          "colour": "yellow",
+          "kind": "tube",
+          "points": [
+            [
+              405,
+              614,
+              -16
+            ],
+            [
+              413,
+              508,
+              -16
+            ],
+            [
+              449,
+              438,
+              -16
+            ],
+            [
+              512,
+              400,
+              -16
+            ],
+            [
+              580,
+              394,
+              -16
+            ],
+            [
+              648,
+              430,
+              -16
+            ],
+            [
+              680,
+              500,
+              -16
+            ],
+            [
+              691,
+              619,
+              -16
+            ]
+          ],
+          "radii": [
+            10.8,
+            10.8,
+            10.8,
+            10.8,
+            10.8,
+            10.8,
+            10.8,
+            10.8
+          ]
+        }
+      ]
+    },
+    {
+      "name": "arch_green",
+      "parent": "body",
+      "pivot": [
+        548,
+        620,
+        -16
+      ],
+      "role": "prop",
+      "shapes": [
+        {
+          "colour": "green",
+          "kind": "tube",
+          "points": [
+            [
+              425,
+              614,
+              -16
+            ],
+            [
+              433,
+              523,
+              -16
+            ],
+            [
+              466,
+              462,
+              -16
+            ],
+            [
+              519,
+              427,
+              -16
+            ],
+            [
+              575,
+              421,
+              -16
+            ],
+            [
+              632,
+              454,
+              -16
+            ],
+            [
+              661,
+              515,
+              -16
+            ],
+            [
+              671,
+              619,
+              -16
+            ]
+          ],
+          "radii": [
+            10.8,
+            10.8,
+            10.8,
+            10.8,
+            10.8,
+            10.8,
+            10.8,
+            10.8
+          ]
+        }
+      ]
+    },
+    {
+      "name": "arch_blue",
+      "parent": "body",
+      "pivot": [
+        548,
+        620,
+        -16
+      ],
+      "role": "prop",
+      "shapes": [
+        {
+          "colour": "blue",
+          "kind": "tube",
+          "points": [
+            [
+              445,
+              614,
+              -16
+            ],
+            [
+              453,
+              538,
+              -16
+            ],
+            [
+              483,
+              486,
+              -16
+            ],
+            [
+              526,
+              454,
+              -16
+            ],
+            [
+              570,
+              448,
+              -16
+            ],
+            [
+              616,
+              478,
+              -16
+            ],
+            [
+              642,
+              530,
+              -16
+            ],
+            [
+              651,
+              619,
+              -16
+            ]
+          ],
+          "radii": [
+            10.8,
+            10.8,
+            10.8,
+            10.8,
+            10.8,
+            10.8,
+            10.8,
+            10.8
+          ]
+        }
+      ]
+    },
+    {
+      "name": "arch_indigo",
+      "parent": "body",
+      "pivot": [
+        548,
+        620,
+        -16
+      ],
+      "role": "prop",
+      "shapes": [
+        {
+          "colour": "indigo",
+          "kind": "tube",
+          "points": [
+            [
+              465,
+              614,
+              -16
+            ],
+            [
+              473,
+              553,
+              -16
+            ],
+            [
+              500,
+              510,
+              -16
+            ],
+            [
+              533,
+              481,
+              -16
+            ],
+            [
+              565,
+              475,
+              -16
+            ],
+            [
+              600,
+              502,
+              -16
+            ],
+            [
+              623,
+              545,
+              -16
+            ],
+            [
+              631,
+              619,
+              -16
+            ]
+          ],
+          "radii": [
+            10.8,
+            10.8,
+            10.8,
+            10.8,
+            10.8,
+            10.8,
+            10.8,
+            10.8
+          ]
+        }
+      ]
+    },
+    {
+      "name": "arch_violet",
+      "parent": "body",
+      "pivot": [
+        548,
+        620,
+        -16
+      ],
+      "role": "prop",
+      "shapes": [
+        {
+          "colour": "violet",
+          "kind": "tube",
+          "points": [
+            [
+              485,
+              614,
+              -16
+            ],
+            [
+              493,
+              568,
+              -16
+            ],
+            [
+              517,
+              534,
+              -16
+            ],
+            [
+              540,
+              508,
+              -16
+            ],
+            [
+              560,
+              502,
+              -16
+            ],
+            [
+              584,
+              526,
+              -16
+            ],
+            [
+              604,
+              560,
+              -16
+            ],
+            [
+              611,
+              619,
+              -16
+            ]
+          ],
+          "radii": [
+            10.8,
+            10.8,
+            10.8,
+            10.8,
+            10.8,
+            10.8,
+            10.8,
+            10.8
+          ]
+        }
+      ]
+    },
+    {
+      "name": "arm_screen_left",
+      "parent": "body",
+      "pivot": [
+        323,
+        750,
+        0
+      ],
+      "role": "arm",
+      "shapes": [
+        {
+          "colour": "limb",
+          "kind": "tube",
+          "points": [
+            [
+              323,
+              750,
+              0
+            ],
+            [
+              302,
+              800,
+              3
+            ],
+            [
+              289,
+              856,
+              8
+            ],
+            [
+              290,
+              908,
+              15
+            ]
+          ],
+          "radii": [
+            16,
+            15,
+            13,
+            12
+          ]
+        }
+      ]
+    },
+    {
+      "name": "hand_screen_left",
+      "parent": "arm_screen_left",
+      "pivot": [
+        290,
+        903,
+        15
+      ],
+      "role": "hand",
+      "shapes": [
+        {
+          "center": [
+            302,
+            925,
+            16
+          ],
+          "colour": "cloud",
+          "kind": "ellipsoid",
+          "radii": [
+            27,
+            24,
+            18
+          ]
+        },
+        {
+          "colour": "cloud",
+          "kind": "tube",
+          "points": [
+            [
+              290,
+              914,
+              16
+            ],
+            [
+              281,
+              930,
+              20
+            ],
+            [
+              280,
+              944,
+              20
+            ]
+          ],
+          "radii": [
+            10,
+            9,
+            6
+          ]
+        },
+        {
+          "colour": "cloud",
+          "kind": "tube",
+          "points": [
+            [
+              301,
+              925,
+              16
+            ],
+            [
+              304,
+              951,
+              22
+            ],
+            [
+              309,
+              952,
+              22
+            ]
+          ],
+          "radii": [
+            11,
+            9,
+            6
+          ]
+        },
+        {
+          "colour": "cloud",
+          "kind": "tube",
+          "points": [
+            [
+              314,
+              919,
+              16
+            ],
+            [
+              329,
+              935,
+              20
+            ],
+            [
+              334,
+              940,
+              20
+            ]
+          ],
+          "radii": [
+            10,
+            9,
+            6
+          ]
+        }
+      ]
+    },
+    {
+      "name": "arm_screen_right",
+      "parent": "body",
+      "pivot": [
+        760,
+        751,
+        0
+      ],
+      "role": "arm",
+      "shapes": [
+        {
+          "colour": "limb",
+          "kind": "tube",
+          "points": [
+            [
+              760,
+              751,
+              0
+            ],
+            [
+              777,
+              794,
+              3
+            ],
+            [
+              782,
+              842,
+              8
+            ],
+            [
+              778,
+              876,
+              15
+            ]
+          ],
+          "radii": [
+            16,
+            15,
+            13,
+            12
+          ]
+        }
+      ]
+    },
+    {
+      "name": "hand_screen_right",
+      "parent": "arm_screen_right",
+      "pivot": [
+        778,
+        875,
+        15
+      ],
+      "role": "hand",
+      "shapes": [
+        {
+          "center": [
+            784,
+            894,
+            17
+          ],
+          "colour": "cloud",
+          "kind": "ellipsoid",
+          "radii": [
+            25,
+            24,
+            18
+          ]
+        },
+        {
+          "colour": "cloud",
+          "kind": "tube",
+          "points": [
+            [
+              770,
+              884,
+              16
+            ],
+            [
+              764,
+              901,
+              20
+            ],
+            [
+              769,
+              913,
+              20
+            ]
+          ],
+          "radii": [
+            10,
+            9,
+            6
+          ]
+        },
+        {
+          "colour": "cloud",
+          "kind": "tube",
+          "points": [
+            [
+              783,
+              892,
+              16
+            ],
+            [
+              791,
+              913,
+              22
+            ],
+            [
+              795,
+              913,
+              22
+            ]
+          ],
+          "radii": [
+            10,
+            9,
+            6
+          ]
+        },
+        {
+          "colour": "cloud",
+          "kind": "tube",
+          "points": [
+            [
+              797,
+              883,
+              16
+            ],
+            [
+              810,
+              897,
+              20
+            ],
+            [
+              818,
+              904,
+              20
+            ]
+          ],
+          "radii": [
+            10,
+            9,
+            6
+          ]
+        }
+      ]
+    },
+    {
+      "name": "leg_screen_left",
+      "parent": "body",
+      "pivot": [
+        450,
+        780,
+        0
+      ],
+      "role": "leg",
+      "shapes": [
+        {
+          "colour": "limb",
+          "kind": "tube",
+          "points": [
+            [
+              450,
+              780,
+              0
+            ],
+            [
+              448,
+              840,
+              0
+            ],
+            [
+              438,
+              898,
+              0
+            ],
+            [
+              429,
+              945,
+              8
+            ]
+          ],
+          "radii": [
+            16,
+            15,
+            14,
+            14
+          ]
+        }
+      ]
+    },
+    {
+      "name": "foot_screen_left",
+      "parent": "leg_screen_left",
+      "pivot": [
+        429,
+        937,
+        8
+      ],
+      "role": "foot",
+      "shapes": [
+        {
+          "center": [
+            415,
+            953,
+            14
+          ],
+          "colour": "cloud",
+          "kind": "ellipsoid",
+          "radii": [
+            34,
+            17,
+            29
+          ]
+        }
+      ]
+    },
+    {
+      "name": "leg_screen_right",
+      "parent": "body",
+      "pivot": [
+        655,
+        781,
+        0
+      ],
+      "role": "leg",
+      "shapes": [
+        {
+          "colour": "limb",
+          "kind": "tube",
+          "points": [
+            [
+              655,
+              781,
+              0
+            ],
+            [
+              653,
+              842,
+              0
+            ],
+            [
+              640,
+              900,
+              2
+            ],
+            [
+              640,
+              955,
+              8
+            ]
+          ],
+          "radii": [
+            17,
+            16,
+            14,
+            14
+          ]
+        }
+      ]
+    },
+    {
+      "name": "foot_screen_right",
+      "parent": "leg_screen_right",
+      "pivot": [
+        640,
+        947,
+        8
+      ],
+      "role": "foot",
+      "shapes": [
+        {
+          "center": [
+            651,
+            958,
+            14
+          ],
+          "colour": "cloud",
+          "kind": "ellipsoid",
+          "radii": [
+            31,
+            17,
+            29
+          ]
+        }
+      ]
+    },
+    {
+      "name": "eye_screen_left",
+      "parent": "body",
+      "pivot": [
+        468,
+        670,
+        159.0535989534403
+      ],
+      "role": "eye",
+      "shapes": [
+        {
+          "center": [
+            468,
+            670,
+            2
+          ],
+          "colour": "eye",
+          "contour": [
+            [
+              444,
+              634
+            ],
+            [
+              459,
+              641
+            ],
+            [
+              471,
+              641
+            ],
+            [
+              486,
+              635
+            ],
+            [
+              491,
+              662
+            ],
+            [
+              489,
+              691
+            ],
+            [
+              479,
+              708
+            ],
+            [
+              464,
+              709
+            ],
+            [
+              450,
+              696
+            ],
+            [
+              445,
+              673
+            ]
+          ],
+          "kind": "volume",
+          "smooth": true,
+          "surface": "body",
+          "thickness": 9
+        }
+      ]
+    },
+    {
+      "name": "pupil_screen_left",
+      "parent": "eye_screen_left",
+      "pivot": [
+        468,
+        670,
+        163.0535989534403
+      ],
+      "role": "pupil",
+      "shapes": [
+        {
+          "center": [
+            470,
+            674,
+            6
+          ],
+          "colour": "ink",
+          "kind": "ellipsoid",
+          "radii": [
+            11,
+            26,
+            4
+          ],
+          "surface": "body"
+        }
+      ]
+    },
+    {
+      "name": "lid_screen_left",
+      "parent": "eye_screen_left",
+      "pivot": [
+        468,
+        640,
+        155.0010257584808
+      ],
+      "role": "eyelid",
+      "shapes": [
+        {
+          "colour": "ink",
+          "kind": "tube",
+          "points": [
+            [
+              444,
+              634,
+              7
+            ],
+            [
+              456,
+              642,
+              7
+            ],
+            [
+              470,
+              643,
+              7
+            ],
+            [
+              486,
+              635,
+              7
+            ]
+          ],
+          "radii": [
+            2.7,
+            2.7,
+            2.7,
+            2.7
+          ],
+          "surface": "body"
+        }
+      ]
+    },
+    {
+      "name": "eye_screen_right",
+      "parent": "body",
+      "pivot": [
+        617,
+        677,
+        147.68508447830015
+      ],
+      "role": "eye",
+      "shapes": [
+        {
+          "center": [
+            617,
+            677,
+            2
+          ],
+          "colour": "eye",
+          "contour": [
+            [
+              593,
+              641
+            ],
+            [
+              608,
+              648
+            ],
+            [
+              620,
+              648
+            ],
+            [
+              635,
+              642
+            ],
+            [
+              640,
+              669
+            ],
+            [
+              638,
+              698
+            ],
+            [
+              628,
+              715
+            ],
+            [
+              613,
+              716
+            ],
+            [
+              599,
+              703
+            ],
+            [
+              594,
+              680
+            ]
+          ],
+          "kind": "volume",
+          "smooth": true,
+          "surface": "body",
+          "thickness": 9
+        }
+      ]
+    },
+    {
+      "name": "pupil_screen_right",
+      "parent": "eye_screen_right",
+      "pivot": [
+        617,
+        677,
+        151.68508447830015
+      ],
+      "role": "pupil",
+      "shapes": [
+        {
+          "center": [
+            619,
+            681,
+            6
+          ],
+          "colour": "ink",
+          "kind": "ellipsoid",
+          "radii": [
+            11,
+            26,
+            4
+          ],
+          "surface": "body"
+        }
+      ]
+    },
+    {
+      "name": "lid_screen_right",
+      "parent": "eye_screen_right",
+      "pivot": [
+        617,
+        647,
+        145.64936850861338
+      ],
+      "role": "eyelid",
+      "shapes": [
+        {
+          "colour": "ink",
+          "kind": "tube",
+          "points": [
+            [
+              593,
+              641,
+              7
+            ],
+            [
+              605,
+              649,
+              7
+            ],
+            [
+              619,
+              650,
+              7
+            ],
+            [
+              635,
+              642,
+              7
+            ]
+          ],
+          "radii": [
+            2.7,
+            2.7,
+            2.7,
+            2.7
+          ],
+          "surface": "body"
+        }
+      ]
+    },
+    {
+      "name": "brow_screen_left",
+      "parent": "body",
+      "pivot": [
+        469,
+        616,
+        134.35997153258342
+      ],
+      "role": "brow",
+      "shapes": [
+        {
+          "colour": "ink",
+          "kind": "tube",
+          "points": [
+            [
+              454,
+              618,
+              3
+            ],
+            [
+              470,
+              617,
+              3
+            ],
+            [
+              484,
+              608,
+              3
+            ]
+          ],
+          "radii": [
+            2.8,
+            2.8,
+            2.8
+          ],
+          "surface": "body"
+        }
+      ]
+    },
+    {
+      "name": "brow_screen_right",
+      "parent": "body",
+      "pivot": [
+        616,
+        607,
+        120.01444460675978
+      ],
+      "role": "brow",
+      "shapes": [
+        {
+          "colour": "ink",
+          "kind": "tube",
+          "points": [
+            [
+              602,
+              612,
+              3
+            ],
+            [
+              612,
+              599,
+              3
+            ],
+            [
+              624,
+              597,
+              3
+            ],
+            [
+              633,
+              611,
+              3
+            ]
+          ],
+          "radii": [
+            2.8,
+            2.8,
+            2.8,
+            2.8
+          ],
+          "surface": "body"
+        }
+      ]
+    },
+    {
+      "name": "nose",
+      "parent": "body",
+      "pivot": [
+        545,
+        709,
+        154.2347455423291
+      ],
+      "role": "nose",
+      "shapes": [
+        {
+          "colour": "ink",
+          "kind": "tube",
+          "points": [
+            [
+              534,
+              690,
+              2
+            ],
+            [
+              534,
+              718,
+              2
+            ],
+            [
+              542,
+              742,
+              2
+            ],
+            [
+              552,
+              742,
+              2
+            ],
+            [
+              559,
+              722,
+              2
+            ],
+            [
+              561,
+              692,
+              2
+            ]
+          ],
+          "radii": [
+            2.8,
+            2.8,
+            2.8,
+            2.8,
+            2.8,
+            2.8
+          ],
+          "surface": "body"
+        }
+      ]
+    },
+    {
+      "name": "mouth",
+      "parent": "body",
+      "pivot": [
+        544,
+        749,
+        139.71394081526313
+      ],
+      "role": "mouth",
+      "shapes": [
+        {
+          "colour": "ink",
+          "kind": "tube",
+          "points": [
+            [
+              504,
+              735,
+              3
+            ],
+            [
+              517,
+              757,
+              3
+            ],
+            [
+              540,
+              768,
+              3
+            ],
+            [
+              563,
+              765,
+              3
+            ],
+            [
+              583,
+              746,
+              3
+            ]
+          ],
+          "radii": [
+            2.8,
+            2.8,
+            2.8,
+            2.8,
+            2.8
+          ],
+          "surface": "body"
+        }
+      ]
+    },
+    {
+      "name": "cheek_screen_left",
+      "parent": "body",
+      "pivot": [
+        431,
+        752,
+        140.0958885285952
+      ],
+      "role": "mark",
+      "shapes": [
+        {
+          "colour": "cheek",
+          "kind": "tube",
+          "points": [
+            [
+              396,
+              748,
+              3
+            ],
+            [
+              403,
+              757,
+              3
+            ],
+            [
+              410,
+              748,
+              3
+            ],
+            [
+              417,
+              757,
+              3
+            ],
+            [
+              424,
+              748,
+              3
+            ],
+            [
+              431,
+              757,
+              3
+            ],
+            [
+              438,
+              748,
+              3
+            ],
+            [
+              445,
+              757,
+              3
+            ],
+            [
+              452,
+              748,
+              3
+            ],
+            [
+              459,
+              757,
+              3
+            ],
+            [
+              466,
+              748,
+              3
+            ]
+          ],
+          "radii": [
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2
+          ],
+          "surface": "body"
+        }
+      ]
+    },
+    {
+      "name": "cheek_screen_right",
+      "parent": "body",
+      "pivot": [
+        652,
+        752,
+        129.42609477153474
+      ],
+      "role": "mark",
+      "shapes": [
+        {
+          "colour": "cheek",
+          "kind": "tube",
+          "points": [
+            [
+              617,
+              748,
+              3
+            ],
+            [
+              624,
+              757,
+              3
+            ],
+            [
+              631,
+              748,
+              3
+            ],
+            [
+              638,
+              757,
+              3
+            ],
+            [
+              645,
+              748,
+              3
+            ],
+            [
+              652,
+              757,
+              3
+            ],
+            [
+              659,
+              748,
+              3
+            ],
+            [
+              666,
+              757,
+              3
+            ],
+            [
+              673,
+              748,
+              3
+            ],
+            [
+              680,
+              757,
+              3
+            ],
+            [
+              687,
+              748,
+              3
+            ]
+          ],
+          "radii": [
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2
+          ],
+          "surface": "body"
+        }
+      ]
+    }
+  ],
+  "uncertainties": [
+    "Back depth is inferred from a single front drawing. Static pose and motion hints await family and game review."
+  ],
+  "version": 1
+}

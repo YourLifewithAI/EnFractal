@@ -1,0 +1,1068 @@
+{
+  "colour_reasoning": "Clear bubble body, arm and hand with mint aura #B4EED8 and shimmering rim. Pale blue is an opaque fallback only. Eyes and smile stay dark outlines. Warm brown torch, orange/gold flame, pale mint floating sparkles.",
+  "image_size": [
+    1000,
+    1333
+  ],
+  "motion": {
+    "kind": "float",
+    "reason": "A ghost with a wavy hem and no legs or feet."
+  },
+  "name": "the Gubble",
+  "observations": [
+    "Re-read round2/gubble.jpg: choose the bottom complete sketch because it shows the two uneven open eyes, smile, three-lobed hem and full torch grip most clearly.",
+    "The middle sketch clarifies the clear bubble body; ruled paper and handwriting are excluded. Preserve the approved lopsided outline.",
+    "Colour is a shimmering rim and mint aura, not opaque skin stripes. Torch flame and four floating sparkles have independent effect pivots.",
+    "Requested sparkles are not unambiguous in this photo; their small asymmetric placement around the bubble and torch is inferred from the family direction."
+  ],
+  "origin": [
+    594,
+    1251,
+    0
+  ],
+  "palette": {
+    "bubble": "#DDEBF2",
+    "flame": "#FF9A2E",
+    "flame_core": "#FFE36B",
+    "ink": "#2E2A3A",
+    "shimmer_gold": "#F6E3A2",
+    "shimmer_mint": "#B4EED8",
+    "shimmer_pink": "#F6B8DA",
+    "sparkle": "#D2F9EE",
+    "torch_handle": "#6B4528"
+  },
+  "parts": [
+    {
+      "material_hint": {
+        "aura_colour": "#B4EED8",
+        "kind": "bubble",
+        "rim": "shimmer",
+        "see_through": true
+      },
+      "name": "body",
+      "parent": null,
+      "pivot": [
+        594,
+        1110,
+        0
+      ],
+      "role": "ghost bubble body with wavy three-lobed hem",
+      "shapes": [
+        {
+          "center": [
+            594,
+            1110,
+            0
+          ],
+          "colour": "bubble",
+          "contour": [
+            [
+              600,
+              978
+            ],
+            [
+              650,
+              985
+            ],
+            [
+              695,
+              1003
+            ],
+            [
+              722,
+              1035
+            ],
+            [
+              735,
+              1075
+            ],
+            [
+              741,
+              1115
+            ],
+            [
+              744,
+              1150
+            ],
+            [
+              742,
+              1175
+            ],
+            [
+              728,
+              1190
+            ],
+            [
+              712,
+              1180
+            ],
+            [
+              697,
+              1174
+            ],
+            [
+              680,
+              1190
+            ],
+            [
+              662,
+              1218
+            ],
+            [
+              632,
+              1241
+            ],
+            [
+              602,
+              1236
+            ],
+            [
+              580,
+              1213
+            ],
+            [
+              558,
+              1203
+            ],
+            [
+              536,
+              1218
+            ],
+            [
+              512,
+              1242
+            ],
+            [
+              486,
+              1251
+            ],
+            [
+              466,
+              1240
+            ],
+            [
+              460,
+              1205
+            ],
+            [
+              456,
+              1165
+            ],
+            [
+              447,
+              1120
+            ],
+            [
+              444,
+              1078
+            ],
+            [
+              450,
+              1040
+            ],
+            [
+              468,
+              1010
+            ],
+            [
+              500,
+              990
+            ],
+            [
+              548,
+              979
+            ]
+          ],
+          "kind": "volume"
+        }
+      ]
+    },
+    {
+      "name": "eye_screen_left",
+      "parent": "body",
+      "pivot": [
+        529,
+        1064,
+        112.53287934351319
+      ],
+      "role": "open oval eye outline with a curled highlight line",
+      "shapes": [
+        {
+          "colour": "ink",
+          "kind": "tube",
+          "points": [
+            [
+              540.6,
+              1023.6,
+              2
+            ],
+            [
+              548.7,
+              1027.8,
+              2
+            ],
+            [
+              555.1,
+              1035.1,
+              2
+            ],
+            [
+              559.3,
+              1044.8,
+              2
+            ],
+            [
+              561.0,
+              1056.1,
+              2
+            ],
+            [
+              559.9,
+              1068.1,
+              2
+            ],
+            [
+              556.2,
+              1079.8,
+              2
+            ],
+            [
+              550.2,
+              1090.1,
+              2
+            ],
+            [
+              542.3,
+              1098.2,
+              2
+            ],
+            [
+              533.4,
+              1103.4,
+              2
+            ],
+            [
+              524.1,
+              1105.3,
+              2
+            ],
+            [
+              515.2,
+              1103.6,
+              2
+            ],
+            [
+              507.5,
+              1098.6,
+              2
+            ],
+            [
+              501.6,
+              1090.6,
+              2
+            ],
+            [
+              498.0,
+              1080.4,
+              2
+            ],
+            [
+              497.1,
+              1068.8,
+              2
+            ],
+            [
+              498.9,
+              1056.7,
+              2
+            ],
+            [
+              503.2,
+              1045.3,
+              2
+            ],
+            [
+              509.7,
+              1035.5,
+              2
+            ],
+            [
+              517.9,
+              1028.1,
+              2
+            ],
+            [
+              527.0,
+              1023.8,
+              2
+            ],
+            [
+              536.3,
+              1022.8,
+              2
+            ]
+          ],
+          "radii": [
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5
+          ],
+          "surface": "body"
+        },
+        {
+          "colour": "ink",
+          "kind": "tube",
+          "points": [
+            [
+              527,
+              1057,
+              2
+            ],
+            [
+              537,
+              1046,
+              2
+            ],
+            [
+              545,
+              1034,
+              2
+            ],
+            [
+              540,
+              1021,
+              2
+            ]
+          ],
+          "radii": [
+            3,
+            3,
+            3,
+            2.5
+          ],
+          "surface": "body"
+        }
+      ]
+    },
+    {
+      "name": "eye_screen_right",
+      "parent": "body",
+      "pivot": [
+        616,
+        1057,
+        123.64271771391162
+      ],
+      "role": "open round eye outline with a curled highlight line",
+      "shapes": [
+        {
+          "colour": "ink",
+          "kind": "tube",
+          "points": [
+            [
+              630.0,
+              1018.5,
+              2
+            ],
+            [
+              641.4,
+              1024.4,
+              2
+            ],
+            [
+              650.5,
+              1033.2,
+              2
+            ],
+            [
+              656.8,
+              1044.0,
+              2
+            ],
+            [
+              659.5,
+              1055.8,
+              2
+            ],
+            [
+              658.6,
+              1067.8,
+              2
+            ],
+            [
+              654.1,
+              1078.9,
+              2
+            ],
+            [
+              646.3,
+              1088.1,
+              2
+            ],
+            [
+              635.9,
+              1094.6,
+              2
+            ],
+            [
+              623.9,
+              1098.0,
+              2
+            ],
+            [
+              611.2,
+              1097.9,
+              2
+            ],
+            [
+              598.9,
+              1094.3,
+              2
+            ],
+            [
+              588.0,
+              1087.5,
+              2
+            ],
+            [
+              579.5,
+              1078.2,
+              2
+            ],
+            [
+              574.2,
+              1067.0,
+              2
+            ],
+            [
+              572.3,
+              1055.0,
+              2
+            ],
+            [
+              574.2,
+              1043.2,
+              2
+            ],
+            [
+              579.7,
+              1032.5,
+              2
+            ],
+            [
+              588.2,
+              1023.9,
+              2
+            ],
+            [
+              599.1,
+              1018.2,
+              2
+            ],
+            [
+              611.4,
+              1015.7,
+              2
+            ],
+            [
+              624.1,
+              1016.8,
+              2
+            ]
+          ],
+          "radii": [
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5
+          ],
+          "surface": "body"
+        },
+        {
+          "colour": "ink",
+          "kind": "tube",
+          "points": [
+            [
+              614,
+              1019,
+              2
+            ],
+            [
+              624,
+              1024,
+              2
+            ],
+            [
+              629,
+              1031,
+              2
+            ],
+            [
+              626,
+              1040,
+              2
+            ]
+          ],
+          "radii": [
+            3,
+            3,
+            3,
+            2.5
+          ],
+          "surface": "body"
+        }
+      ]
+    },
+    {
+      "name": "mouth",
+      "parent": "body",
+      "pivot": [
+        563,
+        1152,
+        120.69601381704743
+      ],
+      "role": "small lopsided smile",
+      "shapes": [
+        {
+          "colour": "ink",
+          "kind": "tube",
+          "points": [
+            [
+              508,
+              1150,
+              2
+            ],
+            [
+              525,
+              1162,
+              2
+            ],
+            [
+              548,
+              1166,
+              2
+            ],
+            [
+              580,
+              1156,
+              2
+            ],
+            [
+              618,
+              1132,
+              2
+            ]
+          ],
+          "radii": [
+            3,
+            3.5,
+            3.5,
+            3.5,
+            3
+          ],
+          "surface": "body"
+        }
+      ]
+    },
+    {
+      "material_hint": {
+        "aura_colour": "#B4EED8",
+        "kind": "bubble",
+        "rim": "shimmer",
+        "see_through": true
+      },
+      "name": "arm_screen_right",
+      "parent": "body",
+      "pivot": [
+        682,
+        1113,
+        30
+      ],
+      "role": "short ghostly arm reaching out to hold the torch",
+      "shapes": [
+        {
+          "colour": "bubble",
+          "kind": "tube",
+          "points": [
+            [
+              680,
+              1113,
+              35
+            ],
+            [
+              722,
+              1100,
+              30
+            ],
+            [
+              762,
+              1080,
+              20
+            ]
+          ],
+          "radii": [
+            22,
+            19,
+            16
+          ]
+        }
+      ]
+    },
+    {
+      "material_hint": {
+        "aura_colour": "#B4EED8",
+        "kind": "bubble",
+        "rim": "shimmer",
+        "see_through": true
+      },
+      "name": "hand_screen_right",
+      "parent": "arm_screen_right",
+      "pivot": [
+        766,
+        1076,
+        18
+      ],
+      "role": "hand wrapped round the torch handle",
+      "shapes": [
+        {
+          "center": [
+            771,
+            1068,
+            15
+          ],
+          "colour": "bubble",
+          "kind": "ellipsoid",
+          "radii": [
+            15,
+            28,
+            14
+          ]
+        }
+      ]
+    },
+    {
+      "name": "torch",
+      "parent": "hand_screen_right",
+      "pivot": [
+        766,
+        1070,
+        18
+      ],
+      "role": "hand-held flaming torch",
+      "shapes": [
+        {
+          "colour": "torch_handle",
+          "kind": "tube",
+          "points": [
+            [
+              768,
+              1112,
+              18
+            ],
+            [
+              766,
+              1040,
+              18
+            ],
+            [
+              762,
+              976,
+              18
+            ]
+          ],
+          "radii": [
+            7,
+            7,
+            8
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "effect",
+      "motion_hint": {
+        "kind": "flicker",
+        "reason": "Independent flame motion around the character"
+      },
+      "name": "torch_flame",
+      "parent": "torch",
+      "pivot": [
+        760,
+        979,
+        18
+      ],
+      "role": "flame",
+      "shapes": [
+        {
+          "colour": "flame",
+          "kind": "tube",
+          "points": [
+            [
+              762,
+              982,
+              18
+            ],
+            [
+              758,
+              942,
+              18
+            ],
+            [
+              753,
+              902,
+              18
+            ],
+            [
+              750,
+              870,
+              18
+            ],
+            [
+              751,
+              845,
+              18
+            ]
+          ],
+          "radii": [
+            13,
+            15,
+            12,
+            6,
+            0.5
+          ]
+        },
+        {
+          "colour": "flame_core",
+          "kind": "tube",
+          "points": [
+            [
+              762,
+              976,
+              27
+            ],
+            [
+              758,
+              946,
+              28
+            ],
+            [
+              755,
+              912,
+              26
+            ]
+          ],
+          "radii": [
+            7,
+            7.5,
+            0.5
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "effect",
+      "motion_hint": {
+        "kind": "pulse",
+        "reason": "Independent glow motion around the character"
+      },
+      "name": "aura",
+      "parent": "body",
+      "pivot": [
+        594,
+        1110,
+        0
+      ],
+      "role": "glow",
+      "shapes": []
+    },
+    {
+      "kind": "effect",
+      "motion_hint": {
+        "kind": "twinkle",
+        "reason": "Independent sparkle motion around the character"
+      },
+      "name": "floating_sparkle_0",
+      "parent": "body",
+      "pivot": [
+        424,
+        1040,
+        18
+      ],
+      "role": "sparkle",
+      "shapes": [
+        {
+          "center": [
+            424,
+            1040,
+            18
+          ],
+          "colour": "sparkle",
+          "contour": [
+            [
+              424,
+              1028
+            ],
+            [
+              427.0,
+              1037.6
+            ],
+            [
+              434.2,
+              1040
+            ],
+            [
+              426.4,
+              1042.4
+            ],
+            [
+              422.8,
+              1054.4
+            ],
+            [
+              420.64,
+              1043.0
+            ],
+            [
+              414.4,
+              1038.56
+            ],
+            [
+              421.0,
+              1037.0
+            ]
+          ],
+          "kind": "volume",
+          "smooth": false,
+          "thickness": 4
+        }
+      ]
+    },
+    {
+      "kind": "effect",
+      "motion_hint": {
+        "kind": "drift",
+        "reason": "Independent sparkle motion around the character"
+      },
+      "name": "floating_sparkle_1",
+      "parent": "body",
+      "pivot": [
+        458,
+        956,
+        -3
+      ],
+      "role": "sparkle",
+      "shapes": [
+        {
+          "center": [
+            458,
+            956,
+            -3
+          ],
+          "colour": "sparkle",
+          "contour": [
+            [
+              458,
+              946
+            ],
+            [
+              460.5,
+              954.0
+            ],
+            [
+              466.5,
+              956
+            ],
+            [
+              460.0,
+              958.0
+            ],
+            [
+              457.0,
+              968.0
+            ],
+            [
+              455.2,
+              958.5
+            ],
+            [
+              450.0,
+              954.8
+            ],
+            [
+              455.5,
+              953.5
+            ]
+          ],
+          "kind": "volume",
+          "smooth": false,
+          "thickness": 4
+        }
+      ]
+    },
+    {
+      "kind": "effect",
+      "motion_hint": {
+        "kind": "twinkle",
+        "reason": "Independent sparkle motion around the character"
+      },
+      "name": "floating_sparkle_2",
+      "parent": "body",
+      "pivot": [
+        714,
+        935,
+        10
+      ],
+      "role": "sparkle",
+      "shapes": [
+        {
+          "center": [
+            714,
+            935,
+            10
+          ],
+          "colour": "sparkle",
+          "contour": [
+            [
+              714,
+              923
+            ],
+            [
+              717.0,
+              932.6
+            ],
+            [
+              724.2,
+              935
+            ],
+            [
+              716.4,
+              937.4
+            ],
+            [
+              712.8,
+              949.4
+            ],
+            [
+              710.64,
+              938.0
+            ],
+            [
+              704.4,
+              933.56
+            ],
+            [
+              711.0,
+              932.0
+            ]
+          ],
+          "kind": "volume",
+          "smooth": false,
+          "thickness": 4
+        }
+      ]
+    },
+    {
+      "kind": "effect",
+      "motion_hint": {
+        "kind": "drift",
+        "reason": "Independent sparkle motion around the character"
+      },
+      "name": "floating_sparkle_3",
+      "parent": "body",
+      "pivot": [
+        806,
+        1100,
+        -8
+      ],
+      "role": "sparkle",
+      "shapes": [
+        {
+          "center": [
+            806,
+            1100,
+            -8
+          ],
+          "colour": "sparkle",
+          "contour": [
+            [
+              806,
+              1091
+            ],
+            [
+              808.25,
+              1098.2
+            ],
+            [
+              813.65,
+              1100
+            ],
+            [
+              807.8,
+              1101.8
+            ],
+            [
+              805.1,
+              1110.8
+            ],
+            [
+              803.48,
+              1102.25
+            ],
+            [
+              798.8,
+              1098.92
+            ],
+            [
+              803.75,
+              1097.75
+            ]
+          ],
+          "kind": "volume",
+          "smooth": false,
+          "thickness": 4
+        }
+      ]
+    }
+  ],
+  "uncertainties": [
+    "Back depth is inferred from a single front drawing. Static pose and motion hints await family and game review.",
+    "Sparkle positions are inferred, not claimed as traced marks. The preview shader is an illustration of the material hint; the game shader is still the Look lane work."
+  ],
+  "version": 1
+}

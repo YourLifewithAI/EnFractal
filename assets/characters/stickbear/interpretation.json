@@ -1,0 +1,1889 @@
+{
+  "colour_reasoning": "Reference conv_b palette: warm brown fur #8B5A3C, palms #9A6646, red pads #D8343F, dark brown horns #5B2A1C, red horn bands #CF3A3A, cream claws #F3E7D0, dark feet #6E4329; preserve conv_a anatomy.",
+  "image_size": [
+    1050,
+    1400
+  ],
+  "motion": {
+    "kind": "stride",
+    "reason": "Extraordinarily long thin legs and outward feet suggest loose swinging strides; paws wave from the shoulders."
+  },
+  "name": "Stickbear",
+  "observations": [
+    "Re-read round2/stickbear.jpg: the single long-legged figure, ignoring binding and page shadows; huge unequal upraised paws, heart pads, two horns, ten claws, and an off-centre little smile.",
+    "Preserve the approved asymmetry and exceptionally long legs; use the reference converter brown/red palette requested by the family.",
+    "Feet are drawn at almost equal heights; retain the slightly lower screen-right sole."
+  ],
+  "origin": [
+    611,
+    1272,
+    0
+  ],
+  "palette": {
+    "claw": "#F3E7D0",
+    "foot": "#6E4329",
+    "fur": "#8B5A3C",
+    "horn": "#5B2A1C",
+    "horn_band": "#CF3A3A",
+    "ink": "#22160F",
+    "palm": "#9A6646",
+    "red": "#D8343F",
+    "white": "#FBFAF5"
+  },
+  "parts": [
+    {
+      "name": "body",
+      "parent": null,
+      "pivot": [
+        554,
+        780,
+        0
+      ],
+      "role": "body",
+      "shapes": [
+        {
+          "center": [
+            551,
+            630,
+            0
+          ],
+          "colour": "fur",
+          "contour": [
+            [
+              494,
+              467
+            ],
+            [
+              527,
+              461
+            ],
+            [
+              575,
+              465
+            ],
+            [
+              604,
+              466
+            ],
+            [
+              615,
+              488
+            ],
+            [
+              614,
+              559
+            ],
+            [
+              617,
+              634
+            ],
+            [
+              624,
+              720
+            ],
+            [
+              622,
+              790
+            ],
+            [
+              604,
+              821
+            ],
+            [
+              576,
+              837
+            ],
+            [
+              551,
+              826
+            ],
+            [
+              522,
+              795
+            ],
+            [
+              507,
+              758
+            ],
+            [
+              498,
+              697
+            ],
+            [
+              493,
+              622
+            ],
+            [
+              486,
+              548
+            ],
+            [
+              484,
+              500
+            ]
+          ],
+          "kind": "volume",
+          "smooth": true
+        }
+      ]
+    },
+    {
+      "name": "head",
+      "parent": "body",
+      "pivot": [
+        548,
+        466,
+        0
+      ],
+      "role": "head",
+      "shapes": [
+        {
+          "center": [
+            534,
+            384,
+            0
+          ],
+          "colour": "fur",
+          "contour": [
+            [
+              436,
+              358
+            ],
+            [
+              451,
+              329
+            ],
+            [
+              483,
+              308
+            ],
+            [
+              523,
+              298
+            ],
+            [
+              571,
+              300
+            ],
+            [
+              601,
+              321
+            ],
+            [
+              619,
+              356
+            ],
+            [
+              630,
+              389
+            ],
+            [
+              621,
+              416
+            ],
+            [
+              596,
+              441
+            ],
+            [
+              566,
+              462
+            ],
+            [
+              528,
+              468
+            ],
+            [
+              493,
+              465
+            ],
+            [
+              460,
+              452
+            ],
+            [
+              444,
+              433
+            ],
+            [
+              434,
+              400
+            ]
+          ],
+          "kind": "volume",
+          "smooth": true
+        }
+      ]
+    },
+    {
+      "name": "horn_screen_left",
+      "parent": "head",
+      "pivot": [
+        477,
+        317,
+        0
+      ],
+      "role": "horn",
+      "shapes": [
+        {
+          "colour": "horn",
+          "kind": "tube",
+          "points": [
+            [
+              467,
+              326,
+              0
+            ],
+            [
+              486,
+              289,
+              -1
+            ],
+            [
+              512,
+              247,
+              0
+            ],
+            [
+              529,
+              223,
+              2
+            ]
+          ],
+          "radii": [
+            23,
+            19,
+            11,
+            0.6
+          ]
+        }
+      ]
+    },
+    {
+      "name": "horn_screen_right",
+      "parent": "head",
+      "pivot": [
+        603,
+        324,
+        0
+      ],
+      "role": "horn",
+      "shapes": [
+        {
+          "colour": "horn",
+          "kind": "tube",
+          "points": [
+            [
+              602,
+              325,
+              0
+            ],
+            [
+              610,
+              294,
+              -2
+            ],
+            [
+              615,
+              252,
+              -1
+            ],
+            [
+              615,
+              222,
+              1
+            ]
+          ],
+          "radii": [
+            18,
+            14,
+            8,
+            0.6
+          ]
+        }
+      ]
+    },
+    {
+      "name": "horn_bands_left",
+      "parent": "horn_screen_left",
+      "pivot": [
+        489,
+        282,
+        0
+      ],
+      "role": "mark",
+      "shapes": [
+        {
+          "colour": "horn_band",
+          "kind": "tube",
+          "points": [
+            [
+              468,
+              304,
+              14
+            ],
+            [
+              486,
+              291,
+              19
+            ],
+            [
+              507,
+              287,
+              14
+            ]
+          ],
+          "radii": [
+            2.6,
+            2.6,
+            2.6
+          ]
+        },
+        {
+          "colour": "horn_band",
+          "kind": "tube",
+          "points": [
+            [
+              485,
+              276,
+              11
+            ],
+            [
+              500,
+              266,
+              16
+            ],
+            [
+              518,
+              262,
+              10
+            ]
+          ],
+          "radii": [
+            2.5,
+            2.5,
+            2.5
+          ]
+        },
+        {
+          "colour": "horn_band",
+          "kind": "tube",
+          "points": [
+            [
+              503,
+              249,
+              7
+            ],
+            [
+              516,
+              242,
+              9
+            ],
+            [
+              524,
+              242,
+              5
+            ]
+          ],
+          "radii": [
+            2,
+            2,
+            2
+          ]
+        }
+      ]
+    },
+    {
+      "name": "horn_bands_right",
+      "parent": "horn_screen_right",
+      "pivot": [
+        612,
+        280,
+        0
+      ],
+      "role": "mark",
+      "shapes": [
+        {
+          "colour": "horn_band",
+          "kind": "tube",
+          "points": [
+            [
+              600,
+              284,
+              11
+            ],
+            [
+              610,
+              290,
+              15
+            ],
+            [
+              623,
+              302,
+              9
+            ]
+          ],
+          "radii": [
+            2.5,
+            2.5,
+            2.5
+          ]
+        },
+        {
+          "colour": "horn_band",
+          "kind": "tube",
+          "points": [
+            [
+              608,
+              254,
+              7
+            ],
+            [
+              617,
+              262,
+              10
+            ],
+            [
+              625,
+              272,
+              7
+            ]
+          ],
+          "radii": [
+            2.3,
+            2.3,
+            2.3
+          ]
+        }
+      ]
+    },
+    {
+      "name": "arm_screen_left",
+      "parent": "body",
+      "pivot": [
+        493,
+        583,
+        0
+      ],
+      "role": "arm",
+      "shapes": [
+        {
+          "colour": "fur",
+          "kind": "tube",
+          "points": [
+            [
+              493,
+              583,
+              0
+            ],
+            [
+              429,
+              559,
+              -2
+            ],
+            [
+              360,
+              511,
+              -1
+            ],
+            [
+              262,
+              463,
+              0
+            ]
+          ],
+          "radii": [
+            39,
+            40,
+            40,
+            41
+          ]
+        }
+      ]
+    },
+    {
+      "name": "arm_screen_right",
+      "parent": "body",
+      "pivot": [
+        609,
+        581,
+        0
+      ],
+      "role": "arm",
+      "shapes": [
+        {
+          "colour": "fur",
+          "kind": "tube",
+          "points": [
+            [
+              609,
+              581,
+              0
+            ],
+            [
+              683,
+              531,
+              -3
+            ],
+            [
+              765,
+              468,
+              -2
+            ],
+            [
+              851,
+              392,
+              0
+            ]
+          ],
+          "radii": [
+            39,
+            41,
+            40,
+            40
+          ]
+        }
+      ]
+    },
+    {
+      "name": "paw_screen_left",
+      "parent": "arm_screen_left",
+      "pivot": [
+        260,
+        463,
+        0
+      ],
+      "role": "hand",
+      "shapes": [
+        {
+          "center": [
+            222,
+            366,
+            0
+          ],
+          "colour": "palm",
+          "contour": [
+            [
+              202,
+              499
+            ],
+            [
+              163,
+              492
+            ],
+            [
+              130,
+              467
+            ],
+            [
+              116,
+              431
+            ],
+            [
+              120,
+              391
+            ],
+            [
+              133,
+              351
+            ],
+            [
+              155,
+              318
+            ],
+            [
+              185,
+              287
+            ],
+            [
+              222,
+              257
+            ],
+            [
+              267,
+              237
+            ],
+            [
+              293,
+              238
+            ],
+            [
+              312,
+              255
+            ],
+            [
+              323,
+              281
+            ],
+            [
+              325,
+              318
+            ],
+            [
+              319,
+              364
+            ],
+            [
+              302,
+              406
+            ],
+            [
+              272,
+              437
+            ],
+            [
+              239,
+              468
+            ]
+          ],
+          "kind": "volume",
+          "smooth": true
+        }
+      ]
+    },
+    {
+      "name": "paw_screen_right",
+      "parent": "arm_screen_right",
+      "pivot": [
+        858,
+        385,
+        0
+      ],
+      "role": "hand",
+      "shapes": [
+        {
+          "center": [
+            893,
+            319,
+            0
+          ],
+          "colour": "palm",
+          "contour": [
+            [
+              816,
+              346
+            ],
+            [
+              816,
+              308
+            ],
+            [
+              831,
+              279
+            ],
+            [
+              853,
+              257
+            ],
+            [
+              884,
+              246
+            ],
+            [
+              919,
+              249
+            ],
+            [
+              947,
+              261
+            ],
+            [
+              970,
+              272
+            ],
+            [
+              971,
+              301
+            ],
+            [
+              960,
+              330
+            ],
+            [
+              944,
+              361
+            ],
+            [
+              924,
+              385
+            ],
+            [
+              900,
+              395
+            ],
+            [
+              869,
+              391
+            ],
+            [
+              841,
+              372
+            ]
+          ],
+          "kind": "volume",
+          "smooth": true
+        }
+      ]
+    },
+    {
+      "name": "heart_screen_left",
+      "parent": "paw_screen_left",
+      "pivot": [
+        215,
+        393,
+        100.87437685007932
+      ],
+      "role": "pad",
+      "shapes": [
+        {
+          "center": [
+            222,
+            390,
+            3
+          ],
+          "colour": "red",
+          "contour": [
+            [
+              236,
+              438
+            ],
+            [
+              188,
+              421
+            ],
+            [
+              170,
+              406
+            ],
+            [
+              165,
+              384
+            ],
+            [
+              174,
+              365
+            ],
+            [
+              190,
+              355
+            ],
+            [
+              207,
+              359
+            ],
+            [
+              220,
+              369
+            ],
+            [
+              220,
+              342
+            ],
+            [
+              232,
+              323
+            ],
+            [
+              250,
+              325
+            ],
+            [
+              264,
+              338
+            ],
+            [
+              258,
+              366
+            ],
+            [
+              249,
+              401
+            ]
+          ],
+          "kind": "volume",
+          "smooth": true,
+          "surface": "paw_screen_left",
+          "thickness": 10
+        }
+      ]
+    },
+    {
+      "name": "heart_screen_right",
+      "parent": "paw_screen_right",
+      "pivot": [
+        898,
+        331,
+        72.85875341212483
+      ],
+      "role": "pad",
+      "shapes": [
+        {
+          "center": [
+            897,
+            332,
+            3
+          ],
+          "colour": "red",
+          "contour": [
+            [
+              900,
+              365
+            ],
+            [
+              879,
+              352
+            ],
+            [
+              869,
+              335
+            ],
+            [
+              864,
+              309
+            ],
+            [
+              867,
+              290
+            ],
+            [
+              878,
+              286
+            ],
+            [
+              890,
+              298
+            ],
+            [
+              903,
+              320
+            ],
+            [
+              919,
+              309
+            ],
+            [
+              932,
+              309
+            ],
+            [
+              937,
+              321
+            ],
+            [
+              928,
+              343
+            ],
+            [
+              917,
+              361
+            ]
+          ],
+          "kind": "volume",
+          "smooth": true,
+          "surface": "paw_screen_right",
+          "thickness": 9
+        }
+      ]
+    },
+    {
+      "name": "digit_pad_left_0",
+      "parent": "paw_screen_left",
+      "pivot": [
+        148,
+        352,
+        64.32421848063353
+      ],
+      "role": "pad",
+      "shapes": [
+        {
+          "center": [
+            148,
+            352,
+            3
+          ],
+          "colour": "red",
+          "kind": "ellipsoid",
+          "radii": [
+            16,
+            21,
+            4
+          ],
+          "surface": "paw_screen_left"
+        }
+      ]
+    },
+    {
+      "name": "digit_pad_left_1",
+      "parent": "paw_screen_left",
+      "pivot": [
+        188,
+        326,
+        83.03302116217097
+      ],
+      "role": "pad",
+      "shapes": [
+        {
+          "center": [
+            188,
+            326,
+            3
+          ],
+          "colour": "red",
+          "kind": "ellipsoid",
+          "radii": [
+            17,
+            22,
+            4
+          ],
+          "surface": "paw_screen_left"
+        }
+      ]
+    },
+    {
+      "name": "digit_pad_left_2",
+      "parent": "paw_screen_left",
+      "pivot": [
+        230,
+        303,
+        85.22928057014823
+      ],
+      "role": "pad",
+      "shapes": [
+        {
+          "center": [
+            230,
+            303,
+            3
+          ],
+          "colour": "red",
+          "kind": "ellipsoid",
+          "radii": [
+            18,
+            26,
+            4
+          ],
+          "surface": "paw_screen_left"
+        }
+      ]
+    },
+    {
+      "name": "digit_pad_right_0",
+      "parent": "paw_screen_right",
+      "pivot": [
+        885,
+        262,
+        53.0132301490675
+      ],
+      "role": "pad",
+      "shapes": [
+        {
+          "center": [
+            885,
+            262,
+            3
+          ],
+          "colour": "red",
+          "kind": "ellipsoid",
+          "radii": [
+            9,
+            13,
+            3
+          ],
+          "surface": "paw_screen_right"
+        }
+      ]
+    },
+    {
+      "name": "digit_pad_right_1",
+      "parent": "paw_screen_right",
+      "pivot": [
+        906,
+        273,
+        62.56462052191589
+      ],
+      "role": "pad",
+      "shapes": [
+        {
+          "center": [
+            906,
+            273,
+            3
+          ],
+          "colour": "red",
+          "kind": "ellipsoid",
+          "radii": [
+            9,
+            13,
+            3
+          ],
+          "surface": "paw_screen_right"
+        }
+      ]
+    },
+    {
+      "name": "digit_pad_right_2",
+      "parent": "paw_screen_right",
+      "pivot": [
+        930,
+        281,
+        59.00118149821362
+      ],
+      "role": "pad",
+      "shapes": [
+        {
+          "center": [
+            930,
+            281,
+            3
+          ],
+          "colour": "red",
+          "kind": "ellipsoid",
+          "radii": [
+            9,
+            13,
+            3
+          ],
+          "surface": "paw_screen_right"
+        }
+      ]
+    },
+    {
+      "name": "digit_pad_right_3",
+      "parent": "paw_screen_right",
+      "pivot": [
+        950,
+        292,
+        52.045488148061466
+      ],
+      "role": "pad",
+      "shapes": [
+        {
+          "center": [
+            950,
+            292,
+            3
+          ],
+          "colour": "red",
+          "kind": "ellipsoid",
+          "radii": [
+            9,
+            13,
+            3
+          ],
+          "surface": "paw_screen_right"
+        }
+      ]
+    },
+    {
+      "name": "claw_left_0",
+      "parent": "paw_screen_left",
+      "pivot": [
+        129,
+        380,
+        0
+      ],
+      "role": "claw",
+      "shapes": [
+        {
+          "colour": "claw",
+          "kind": "tube",
+          "points": [
+            [
+              129,
+              380,
+              0
+            ],
+            [
+              116.0,
+              331.5,
+              6
+            ],
+            [
+              103,
+              283,
+              3
+            ]
+          ],
+          "radii": [
+            16,
+            9.28,
+            0.5
+          ]
+        }
+      ]
+    },
+    {
+      "name": "claw_left_1",
+      "parent": "paw_screen_left",
+      "pivot": [
+        162,
+        323,
+        0
+      ],
+      "role": "claw",
+      "shapes": [
+        {
+          "colour": "claw",
+          "kind": "tube",
+          "points": [
+            [
+              162,
+              323,
+              0
+            ],
+            [
+              155.5,
+              277.5,
+              6
+            ],
+            [
+              149,
+              232,
+              3
+            ]
+          ],
+          "radii": [
+            18,
+            10.44,
+            0.5
+          ]
+        }
+      ]
+    },
+    {
+      "name": "claw_left_2",
+      "parent": "paw_screen_left",
+      "pivot": [
+        207,
+        282,
+        0
+      ],
+      "role": "claw",
+      "shapes": [
+        {
+          "colour": "claw",
+          "kind": "tube",
+          "points": [
+            [
+              207,
+              282,
+              0
+            ],
+            [
+              208.5,
+              244.0,
+              6
+            ],
+            [
+              210,
+              206,
+              3
+            ]
+          ],
+          "radii": [
+            19,
+            11.02,
+            0.5
+          ]
+        }
+      ]
+    },
+    {
+      "name": "claw_left_3",
+      "parent": "paw_screen_left",
+      "pivot": [
+        250,
+        260,
+        0
+      ],
+      "role": "claw",
+      "shapes": [
+        {
+          "colour": "claw",
+          "kind": "tube",
+          "points": [
+            [
+              250,
+              260,
+              0
+            ],
+            [
+              258.5,
+              225.5,
+              6
+            ],
+            [
+              267,
+              191,
+              3
+            ]
+          ],
+          "radii": [
+            19,
+            11.02,
+            0.5
+          ]
+        }
+      ]
+    },
+    {
+      "name": "claw_left_4",
+      "parent": "paw_screen_left",
+      "pivot": [
+        277,
+        250,
+        0
+      ],
+      "role": "claw",
+      "shapes": [
+        {
+          "colour": "claw",
+          "kind": "tube",
+          "points": [
+            [
+              277,
+              250,
+              0
+            ],
+            [
+              285.5,
+              227.0,
+              6
+            ],
+            [
+              294,
+              204,
+              3
+            ]
+          ],
+          "radii": [
+            13,
+            7.539999999999999,
+            0.5
+          ]
+        }
+      ]
+    },
+    {
+      "name": "claw_right_0",
+      "parent": "paw_screen_right",
+      "pivot": [
+        858,
+        263,
+        0
+      ],
+      "role": "claw",
+      "shapes": [
+        {
+          "colour": "claw",
+          "kind": "tube",
+          "points": [
+            [
+              858,
+              263,
+              0
+            ],
+            [
+              867.5,
+              244.5,
+              5
+            ],
+            [
+              877,
+              226,
+              2
+            ]
+          ],
+          "radii": [
+            11,
+            6.6,
+            0.5
+          ]
+        }
+      ]
+    },
+    {
+      "name": "claw_right_1",
+      "parent": "paw_screen_right",
+      "pivot": [
+        882,
+        258,
+        0
+      ],
+      "role": "claw",
+      "shapes": [
+        {
+          "colour": "claw",
+          "kind": "tube",
+          "points": [
+            [
+              882,
+              258,
+              0
+            ],
+            [
+              891.0,
+              241.5,
+              5
+            ],
+            [
+              900,
+              225,
+              2
+            ]
+          ],
+          "radii": [
+            10,
+            6.0,
+            0.5
+          ]
+        }
+      ]
+    },
+    {
+      "name": "claw_right_2",
+      "parent": "paw_screen_right",
+      "pivot": [
+        907,
+        262,
+        0
+      ],
+      "role": "claw",
+      "shapes": [
+        {
+          "colour": "claw",
+          "kind": "tube",
+          "points": [
+            [
+              907,
+              262,
+              0
+            ],
+            [
+              918.5,
+              246.0,
+              5
+            ],
+            [
+              930,
+              230,
+              2
+            ]
+          ],
+          "radii": [
+            10,
+            6.0,
+            0.5
+          ]
+        }
+      ]
+    },
+    {
+      "name": "claw_right_3",
+      "parent": "paw_screen_right",
+      "pivot": [
+        932,
+        270,
+        0
+      ],
+      "role": "claw",
+      "shapes": [
+        {
+          "colour": "claw",
+          "kind": "tube",
+          "points": [
+            [
+              932,
+              270,
+              0
+            ],
+            [
+              952.0,
+              252.0,
+              5
+            ],
+            [
+              972,
+              234,
+              2
+            ]
+          ],
+          "radii": [
+            11,
+            6.6,
+            0.5
+          ]
+        }
+      ]
+    },
+    {
+      "name": "claw_right_4",
+      "parent": "paw_screen_right",
+      "pivot": [
+        955,
+        279,
+        0
+      ],
+      "role": "claw",
+      "shapes": [
+        {
+          "colour": "claw",
+          "kind": "tube",
+          "points": [
+            [
+              955,
+              279,
+              0
+            ],
+            [
+              971.5,
+              262.5,
+              5
+            ],
+            [
+              988,
+              246,
+              2
+            ]
+          ],
+          "radii": [
+            10,
+            6.0,
+            0.5
+          ]
+        }
+      ]
+    },
+    {
+      "name": "leg_screen_left",
+      "parent": "body",
+      "pivot": [
+        558,
+        812,
+        0
+      ],
+      "role": "leg",
+      "shapes": [
+        {
+          "colour": "fur",
+          "kind": "tube",
+          "points": [
+            [
+              558,
+              812,
+              0
+            ],
+            [
+              564,
+              938,
+              0
+            ],
+            [
+              563,
+              1074,
+              0
+            ],
+            [
+              565,
+              1217,
+              0
+            ]
+          ],
+          "radii": [
+            15,
+            14,
+            13,
+            15
+          ]
+        }
+      ]
+    },
+    {
+      "name": "leg_screen_right",
+      "parent": "body",
+      "pivot": [
+        609,
+        809,
+        0
+      ],
+      "role": "leg",
+      "shapes": [
+        {
+          "colour": "fur",
+          "kind": "tube",
+          "points": [
+            [
+              609,
+              809,
+              0
+            ],
+            [
+              628,
+              936,
+              0
+            ],
+            [
+              650,
+              1065,
+              0
+            ],
+            [
+              678,
+              1215,
+              0
+            ]
+          ],
+          "radii": [
+            15,
+            14,
+            14,
+            16
+          ]
+        }
+      ]
+    },
+    {
+      "name": "foot_screen_left",
+      "parent": "leg_screen_left",
+      "pivot": [
+        565,
+        1210,
+        0
+      ],
+      "role": "foot",
+      "shapes": [
+        {
+          "center": [
+            494,
+            1227,
+            8
+          ],
+          "colour": "foot",
+          "contour": [
+            [
+              585,
+              1243
+            ],
+            [
+              552,
+              1253
+            ],
+            [
+              502,
+              1262
+            ],
+            [
+              448,
+              1264
+            ],
+            [
+              416,
+              1260
+            ],
+            [
+              403,
+              1246
+            ],
+            [
+              397,
+              1225
+            ],
+            [
+              405,
+              1202
+            ],
+            [
+              418,
+              1186
+            ],
+            [
+              432,
+              1196
+            ],
+            [
+              450,
+              1213
+            ],
+            [
+              477,
+              1208
+            ],
+            [
+              514,
+              1189
+            ],
+            [
+              553,
+              1176
+            ],
+            [
+              573,
+              1190
+            ]
+          ],
+          "kind": "volume",
+          "smooth": true,
+          "thickness": 62
+        }
+      ]
+    },
+    {
+      "name": "foot_screen_right",
+      "parent": "leg_screen_right",
+      "pivot": [
+        678,
+        1208,
+        0
+      ],
+      "role": "foot",
+      "shapes": [
+        {
+          "center": [
+            739,
+            1226,
+            8
+          ],
+          "colour": "foot",
+          "contour": [
+            [
+              658,
+              1213
+            ],
+            [
+              698,
+              1199
+            ],
+            [
+              740,
+              1185
+            ],
+            [
+              779,
+              1177
+            ],
+            [
+              813,
+              1178
+            ],
+            [
+              822,
+              1197
+            ],
+            [
+              825,
+              1226
+            ],
+            [
+              815,
+              1245
+            ],
+            [
+              788,
+              1260
+            ],
+            [
+              755,
+              1270
+            ],
+            [
+              720,
+              1270
+            ],
+            [
+              688,
+              1261
+            ],
+            [
+              666,
+              1244
+            ]
+          ],
+          "kind": "volume",
+          "smooth": true,
+          "thickness": 65
+        }
+      ]
+    },
+    {
+      "name": "eye_screen_left",
+      "parent": "head",
+      "pivot": [
+        466,
+        375,
+        68.56896623843127
+      ],
+      "role": "eye",
+      "shapes": [
+        {
+          "center": [
+            466,
+            375,
+            3
+          ],
+          "colour": "ink",
+          "kind": "ellipsoid",
+          "radii": [
+            23,
+            34,
+            5
+          ],
+          "surface": "head"
+        }
+      ]
+    },
+    {
+      "name": "eye_glint_screen_left",
+      "parent": "eye_screen_left",
+      "pivot": [
+        466,
+        361,
+        71.40257735686455
+      ],
+      "role": "eye_highlight",
+      "shapes": [
+        {
+          "center": [
+            464,
+            360,
+            8
+          ],
+          "colour": "white",
+          "kind": "ellipsoid",
+          "radii": [
+            17.25,
+            15.979999999999999,
+            3
+          ],
+          "surface": "head"
+        },
+        {
+          "center": [
+            471,
+            394,
+            7
+          ],
+          "colour": "white",
+          "kind": "ellipsoid",
+          "radii": [
+            7,
+            4,
+            2
+          ],
+          "surface": "head"
+        }
+      ]
+    },
+    {
+      "name": "eye_screen_right",
+      "parent": "head",
+      "pivot": [
+        563,
+        369,
+        78.0351742940911
+      ],
+      "role": "eye",
+      "shapes": [
+        {
+          "center": [
+            563,
+            369,
+            3
+          ],
+          "colour": "ink",
+          "kind": "ellipsoid",
+          "radii": [
+            26,
+            30,
+            5
+          ],
+          "surface": "head"
+        }
+      ]
+    },
+    {
+      "name": "eye_glint_screen_right",
+      "parent": "eye_screen_right",
+      "pivot": [
+        563,
+        355,
+        80.73536231972528
+      ],
+      "role": "eye_highlight",
+      "shapes": [
+        {
+          "center": [
+            561,
+            354,
+            8
+          ],
+          "colour": "white",
+          "kind": "ellipsoid",
+          "radii": [
+            19.5,
+            14.1,
+            3
+          ],
+          "surface": "head"
+        },
+        {
+          "center": [
+            568,
+            388,
+            7
+          ],
+          "colour": "white",
+          "kind": "ellipsoid",
+          "radii": [
+            7,
+            4,
+            2
+          ],
+          "surface": "head"
+        }
+      ]
+    },
+    {
+      "name": "mouth",
+      "parent": "head",
+      "pivot": [
+        507,
+        396,
+        81.43558107598547
+      ],
+      "role": "mouth",
+      "shapes": [
+        {
+          "colour": "ink",
+          "kind": "tube",
+          "points": [
+            [
+              496,
+              393,
+              3
+            ],
+            [
+              507,
+              399,
+              3
+            ],
+            [
+              518,
+              395,
+              3
+            ]
+          ],
+          "radii": [
+            2.3,
+            2.3,
+            2.3
+          ],
+          "surface": "head"
+        }
+      ]
+    }
+  ],
+  "uncertainties": [
+    "Back depth is inferred from a single front drawing. Static pose and motion hints await family and game review."
+  ],
+  "version": 1
+}

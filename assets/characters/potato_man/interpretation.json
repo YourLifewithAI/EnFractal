@@ -1,0 +1,2068 @@
+{
+  "applied_notes": [
+    "Wider and rounder, real potato shape, plump and a little lumpy: replace the narrow egg outline with broad unequal shoulders and softly bulging flanks; move each arm and hand outward 75 units and spread curl centres across the crown without stretching the face. Move the intact U-smile 40 units upward so it stays visible on the fuller front instead of curling underneath.",
+    "Golden skin: retain the warm golden #DDA52D palette."
+  ],
+  "colour_reasoning": "Warm golden #DDA52D skin, rainbow curls, black hat with red band, pink nose, blue shoes with orange straps. Golden colour is painted skin, not metallic material.",
+  "image_size": [
+    1000,
+    1333
+  ],
+  "motion": {
+    "kind": "waddle",
+    "reason": "A wide egg body sitting straight on two chunky shoes with no legs."
+  },
+  "name": "Potato Man",
+  "observations": [
+    "Re-read round2/potato_man.jpg: the one complete egg-shaped figure; retain uneven eyes, wide U smile, crooked hat brim and outward striped shoes.",
+    "The shape note overrides the narrow egg contour: broad, uneven potato shoulders and softly lumpy flanks. Eyes, pink nose, hooked nostrils and deep U-smile retain their shapes; curls remain asymmetric and arms reconnect farther out.",
+    "Screen-right shoe is drawn slightly lower; preserve that pose."
+  ],
+  "origin": [
+    419,
+    856,
+    0
+  ],
+  "palette": {
+    "blush": "#F29AAE",
+    "eye_black": "#141216",
+    "eye_white": "#F7F5F0",
+    "hair_blue": "#3A7FD8",
+    "hair_green": "#4DB848",
+    "hair_orange": "#F28C28",
+    "hair_red": "#E8413A",
+    "hair_violet": "#8E4FC4",
+    "hair_yellow": "#F6D23A",
+    "hat": "#1E1C22",
+    "hat_band": "#D42A2A",
+    "highlight": "#FFFFFF",
+    "ink": "#2B2730",
+    "nose": "#FF4FA3",
+    "shoe": "#2F6FD6",
+    "skin": "#DDA52D",
+    "strap": "#F28A1E"
+  },
+  "parts": [
+    {
+      "name": "body",
+      "parent": null,
+      "pivot": [
+        400,
+        600,
+        0
+      ],
+      "role": "plump slightly lumpy potato body that is also the head",
+      "shapes": [
+        {
+          "center": [
+            400,
+            557,
+            0
+          ],
+          "colour": "skin",
+          "contour": [
+            [
+              395,
+              340
+            ],
+            [
+              455,
+              347
+            ],
+            [
+              510,
+              371
+            ],
+            [
+              550,
+              415
+            ],
+            [
+              591,
+              453
+            ],
+            [
+              611,
+              497
+            ],
+            [
+              625,
+              540
+            ],
+            [
+              621,
+              585
+            ],
+            [
+              630,
+              620
+            ],
+            [
+              618,
+              662
+            ],
+            [
+              588,
+              700
+            ],
+            [
+              543,
+              730
+            ],
+            [
+              483,
+              758
+            ],
+            [
+              420,
+              774
+            ],
+            [
+              377,
+              771
+            ],
+            [
+              323,
+              765
+            ],
+            [
+              268,
+              744
+            ],
+            [
+              217,
+              714
+            ],
+            [
+              182,
+              677
+            ],
+            [
+              159,
+              632
+            ],
+            [
+              164,
+              580
+            ],
+            [
+              173,
+              531
+            ],
+            [
+              197,
+              482
+            ],
+            [
+              227,
+              439
+            ],
+            [
+              270,
+              399
+            ],
+            [
+              326,
+              362
+            ]
+          ],
+          "kind": "volume"
+        }
+      ]
+    },
+    {
+      "name": "hair",
+      "parent": "body",
+      "pivot": [
+        400,
+        380,
+        0
+      ],
+      "role": "curly rainbow hair: two side puffs joined over the top of the head",
+      "shapes": [
+        {
+          "center": [
+            153.59999999999997,
+            468,
+            0
+          ],
+          "colour": "hair_red",
+          "kind": "ellipsoid",
+          "radii": [
+            30,
+            28,
+            30
+          ]
+        },
+        {
+          "center": [
+            144.64,
+            425,
+            0
+          ],
+          "colour": "hair_red",
+          "kind": "ellipsoid",
+          "radii": [
+            28,
+            28,
+            30
+          ]
+        },
+        {
+          "center": [
+            203.99999999999997,
+            452,
+            0
+          ],
+          "colour": "hair_red",
+          "kind": "ellipsoid",
+          "radii": [
+            36,
+            40,
+            38
+          ]
+        },
+        {
+          "center": [
+            187.2,
+            393,
+            0
+          ],
+          "colour": "hair_orange",
+          "kind": "ellipsoid",
+          "radii": [
+            32,
+            30,
+            34
+          ]
+        },
+        {
+          "center": [
+            237.6,
+            368,
+            0
+          ],
+          "colour": "hair_orange",
+          "kind": "ellipsoid",
+          "radii": [
+            32,
+            30,
+            40
+          ]
+        },
+        {
+          "center": [
+            254.39999999999998,
+            418,
+            0
+          ],
+          "colour": "hair_orange",
+          "kind": "ellipsoid",
+          "radii": [
+            30,
+            36,
+            44
+          ]
+        },
+        {
+          "center": [
+            293.6,
+            347,
+            0
+          ],
+          "colour": "hair_yellow",
+          "kind": "ellipsoid",
+          "radii": [
+            34,
+            28,
+            48
+          ]
+        },
+        {
+          "center": [
+            346.24,
+            335,
+            0
+          ],
+          "colour": "hair_yellow",
+          "kind": "ellipsoid",
+          "radii": [
+            36,
+            26,
+            50
+          ]
+        },
+        {
+          "center": [
+            405.6,
+            332,
+            0
+          ],
+          "colour": "hair_green",
+          "kind": "ellipsoid",
+          "radii": [
+            36,
+            26,
+            50
+          ]
+        },
+        {
+          "center": [
+            461.6,
+            338,
+            0
+          ],
+          "colour": "hair_green",
+          "kind": "ellipsoid",
+          "radii": [
+            36,
+            26,
+            50
+          ]
+        },
+        {
+          "center": [
+            512.0,
+            355,
+            0
+          ],
+          "colour": "hair_blue",
+          "kind": "ellipsoid",
+          "radii": [
+            32,
+            28,
+            46
+          ]
+        },
+        {
+          "center": [
+            556.8,
+            368,
+            0
+          ],
+          "colour": "hair_blue",
+          "kind": "ellipsoid",
+          "radii": [
+            32,
+            30,
+            40
+          ]
+        },
+        {
+          "center": [
+            540.0,
+            420,
+            0
+          ],
+          "colour": "hair_blue",
+          "kind": "ellipsoid",
+          "radii": [
+            30,
+            36,
+            44
+          ]
+        },
+        {
+          "center": [
+            607.2,
+            378,
+            0
+          ],
+          "colour": "hair_violet",
+          "kind": "ellipsoid",
+          "radii": [
+            36,
+            32,
+            34
+          ]
+        },
+        {
+          "center": [
+            644.1600000000001,
+            415,
+            0
+          ],
+          "colour": "hair_violet",
+          "kind": "ellipsoid",
+          "radii": [
+            30,
+            34,
+            30
+          ]
+        },
+        {
+          "center": [
+            596.0,
+            450,
+            0
+          ],
+          "colour": "hair_violet",
+          "kind": "ellipsoid",
+          "radii": [
+            40,
+            40,
+            38
+          ]
+        },
+        {
+          "center": [
+            635.2,
+            468,
+            0
+          ],
+          "colour": "hair_violet",
+          "kind": "ellipsoid",
+          "radii": [
+            32,
+            26,
+            30
+          ]
+        },
+        {
+          "center": [
+            288.0,
+            415,
+            -50
+          ],
+          "colour": "hair_orange",
+          "kind": "ellipsoid",
+          "radii": [
+            40,
+            38,
+            32
+          ]
+        },
+        {
+          "center": [
+            366.4,
+            385,
+            -55
+          ],
+          "colour": "hair_yellow",
+          "kind": "ellipsoid",
+          "radii": [
+            42,
+            36,
+            30
+          ]
+        },
+        {
+          "center": [
+            444.8,
+            385,
+            -55
+          ],
+          "colour": "hair_green",
+          "kind": "ellipsoid",
+          "radii": [
+            42,
+            36,
+            30
+          ]
+        },
+        {
+          "center": [
+            517.6,
+            415,
+            -50
+          ],
+          "colour": "hair_blue",
+          "kind": "ellipsoid",
+          "radii": [
+            40,
+            38,
+            32
+          ]
+        }
+      ]
+    },
+    {
+      "name": "hairline",
+      "parent": "hair",
+      "pivot": [
+        400,
+        390,
+        139.02902437653395
+      ],
+      "role": "front curls of the hair over the forehead",
+      "shapes": [
+        {
+          "center": [
+            318,
+            410,
+            5
+          ],
+          "colour": "hair_orange",
+          "kind": "ellipsoid",
+          "radii": [
+            24,
+            22,
+            14
+          ],
+          "surface": "body"
+        },
+        {
+          "center": [
+            362,
+            382,
+            5
+          ],
+          "colour": "hair_yellow",
+          "kind": "ellipsoid",
+          "radii": [
+            26,
+            22,
+            14
+          ],
+          "surface": "body"
+        },
+        {
+          "center": [
+            412,
+            374,
+            5
+          ],
+          "colour": "hair_green",
+          "kind": "ellipsoid",
+          "radii": [
+            26,
+            22,
+            14
+          ],
+          "surface": "body"
+        },
+        {
+          "center": [
+            458,
+            384,
+            5
+          ],
+          "colour": "hair_blue",
+          "kind": "ellipsoid",
+          "radii": [
+            26,
+            22,
+            14
+          ],
+          "surface": "body"
+        },
+        {
+          "center": [
+            494,
+            410,
+            5
+          ],
+          "colour": "hair_blue",
+          "kind": "ellipsoid",
+          "radii": [
+            22,
+            22,
+            14
+          ],
+          "surface": "body"
+        }
+      ]
+    },
+    {
+      "name": "hat",
+      "parent": "body",
+      "pivot": [
+        400,
+        330,
+        0
+      ],
+      "role": "black top hat sitting on the hair, brim tilted lower on screen-left",
+      "shapes": [
+        {
+          "center": [
+            398,
+            240,
+            0
+          ],
+          "colour": "hat",
+          "contour": [
+            [
+              322,
+              145
+            ],
+            [
+              472,
+              145
+            ],
+            [
+              474,
+              335
+            ],
+            [
+              322,
+              335
+            ]
+          ],
+          "kind": "volume",
+          "smooth": false,
+          "thickness": 120
+        },
+        {
+          "center": [
+            403,
+            322,
+            0
+          ],
+          "colour": "hat",
+          "contour": [
+            [
+              281,
+              302
+            ],
+            [
+              533,
+              299
+            ],
+            [
+              531,
+              331
+            ],
+            [
+              265,
+              357
+            ]
+          ],
+          "kind": "volume",
+          "smooth": false,
+          "thickness": 170
+        }
+      ]
+    },
+    {
+      "name": "hat_band",
+      "parent": "hat",
+      "pivot": [
+        398,
+        280,
+        57.711923674092134
+      ],
+      "role": "red strip round the bottom of the hat crown",
+      "shapes": [
+        {
+          "center": [
+            398,
+            280,
+            1
+          ],
+          "colour": "hat_band",
+          "contour": [
+            [
+              323,
+              262
+            ],
+            [
+              472,
+              262
+            ],
+            [
+              472,
+              298
+            ],
+            [
+              323,
+              298
+            ]
+          ],
+          "kind": "volume",
+          "smooth": false,
+          "surface": "hat",
+          "thickness": 6
+        }
+      ]
+    },
+    {
+      "name": "eye_screen_left",
+      "parent": "body",
+      "pivot": [
+        319,
+        524,
+        191.72409252894838
+      ],
+      "role": "big shiny eye: black iris filling the top, white crescent below, two highlights",
+      "shapes": [
+        {
+          "center": [
+            319,
+            524,
+            3
+          ],
+          "colour": "eye_white",
+          "kind": "ellipsoid",
+          "radii": [
+            41,
+            73,
+            5
+          ],
+          "surface": "body"
+        },
+        {
+          "center": [
+            318,
+            516,
+            5
+          ],
+          "colour": "eye_black",
+          "kind": "ellipsoid",
+          "radii": [
+            39,
+            64,
+            5
+          ],
+          "surface": "body"
+        },
+        {
+          "center": [
+            313,
+            477,
+            10
+          ],
+          "colour": "highlight",
+          "kind": "ellipsoid",
+          "radii": [
+            10,
+            19,
+            3
+          ],
+          "surface": "body"
+        },
+        {
+          "center": [
+            312,
+            505,
+            10
+          ],
+          "colour": "highlight",
+          "kind": "ellipsoid",
+          "radii": [
+            7,
+            8,
+            2.5
+          ],
+          "surface": "body"
+        },
+        {
+          "colour": "ink",
+          "kind": "tube",
+          "points": [
+            [
+              319.0,
+              451.0,
+              4
+            ],
+            [
+              329.8,
+              453.6,
+              4
+            ],
+            [
+              339.9,
+              461.2,
+              4
+            ],
+            [
+              348.4,
+              473.2,
+              4
+            ],
+            [
+              354.9,
+              488.9,
+              4
+            ],
+            [
+              358.9,
+              507.0,
+              4
+            ],
+            [
+              360.0,
+              526.3,
+              4
+            ],
+            [
+              358.2,
+              545.5,
+              4
+            ],
+            [
+              353.6,
+              563.2,
+              4
+            ],
+            [
+              346.6,
+              578.0,
+              4
+            ],
+            [
+              337.6,
+              589.1,
+              4
+            ],
+            [
+              327.3,
+              595.5,
+              4
+            ],
+            [
+              316.4,
+              596.9,
+              4
+            ],
+            [
+              305.7,
+              593.0,
+              4
+            ],
+            [
+              295.9,
+              584.3,
+              4
+            ],
+            [
+              287.8,
+              571.3,
+              4
+            ],
+            [
+              281.9,
+              555.0,
+              4
+            ],
+            [
+              278.6,
+              536.5,
+              4
+            ],
+            [
+              278.2,
+              517.0,
+              4
+            ],
+            [
+              280.7,
+              498.1,
+              4
+            ],
+            [
+              285.9,
+              481.0,
+              4
+            ],
+            [
+              293.4,
+              467.0,
+              4
+            ],
+            [
+              302.8,
+              457.0,
+              4
+            ],
+            [
+              313.3,
+              451.7,
+              4
+            ]
+          ],
+          "radii": [
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3
+          ],
+          "surface": "body"
+        }
+      ]
+    },
+    {
+      "name": "eye_screen_right",
+      "parent": "body",
+      "pivot": [
+        459,
+        532,
+        204.49429079527408
+      ],
+      "role": "big shiny eye, slightly taller and lower than the other, one highlight",
+      "shapes": [
+        {
+          "center": [
+            459,
+            532,
+            3
+          ],
+          "colour": "eye_white",
+          "kind": "ellipsoid",
+          "radii": [
+            41,
+            81,
+            5
+          ],
+          "surface": "body"
+        },
+        {
+          "center": [
+            458,
+            521,
+            5
+          ],
+          "colour": "eye_black",
+          "kind": "ellipsoid",
+          "radii": [
+            40,
+            69,
+            5
+          ],
+          "surface": "body"
+        },
+        {
+          "center": [
+            450,
+            476,
+            10
+          ],
+          "colour": "highlight",
+          "kind": "ellipsoid",
+          "radii": [
+            11,
+            21,
+            3
+          ],
+          "surface": "body"
+        },
+        {
+          "colour": "ink",
+          "kind": "tube",
+          "points": [
+            [
+              459.0,
+              451.0,
+              4
+            ],
+            [
+              469.8,
+              453.9,
+              4
+            ],
+            [
+              479.9,
+              462.3,
+              4
+            ],
+            [
+              488.4,
+              475.6,
+              4
+            ],
+            [
+              494.9,
+              493.0,
+              4
+            ],
+            [
+              498.9,
+              513.1,
+              4
+            ],
+            [
+              500.0,
+              534.6,
+              4
+            ],
+            [
+              498.2,
+              555.9,
+              4
+            ],
+            [
+              493.6,
+              575.4,
+              4
+            ],
+            [
+              486.6,
+              591.9,
+              4
+            ],
+            [
+              477.6,
+              604.2,
+              4
+            ],
+            [
+              467.3,
+              611.3,
+              4
+            ],
+            [
+              456.4,
+              612.8,
+              4
+            ],
+            [
+              445.7,
+              608.6,
+              4
+            ],
+            [
+              435.9,
+              598.9,
+              4
+            ],
+            [
+              427.8,
+              584.5,
+              4
+            ],
+            [
+              421.9,
+              566.4,
+              4
+            ],
+            [
+              418.6,
+              545.8,
+              4
+            ],
+            [
+              418.2,
+              524.3,
+              4
+            ],
+            [
+              420.7,
+              503.3,
+              4
+            ],
+            [
+              425.9,
+              484.3,
+              4
+            ],
+            [
+              433.4,
+              468.7,
+              4
+            ],
+            [
+              442.8,
+              457.6,
+              4
+            ],
+            [
+              453.3,
+              451.8,
+              4
+            ]
+          ],
+          "radii": [
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3,
+            3
+          ],
+          "surface": "body"
+        }
+      ]
+    },
+    {
+      "name": "nose",
+      "parent": "body",
+      "pivot": [
+        376,
+        623,
+        215.29024725174247
+      ],
+      "role": "round bright pink snub nose",
+      "shapes": [
+        {
+          "center": [
+            376,
+            623,
+            12
+          ],
+          "colour": "nose",
+          "contour": [
+            [
+              331,
+              618
+            ],
+            [
+              338,
+              604
+            ],
+            [
+              360,
+              597
+            ],
+            [
+              385,
+              596
+            ],
+            [
+              405,
+              600
+            ],
+            [
+              418,
+              610
+            ],
+            [
+              422,
+              622
+            ],
+            [
+              418,
+              638
+            ],
+            [
+              405,
+              648
+            ],
+            [
+              385,
+              652
+            ],
+            [
+              365,
+              652
+            ],
+            [
+              345,
+              648
+            ],
+            [
+              334,
+              636
+            ]
+          ],
+          "kind": "volume",
+          "surface": "body",
+          "thickness": 40
+        }
+      ]
+    },
+    {
+      "name": "nostrils",
+      "parent": "nose",
+      "pivot": [
+        380,
+        636,
+        232.05362177832623
+      ],
+      "role": "two hooked nostril marks",
+      "shapes": [
+        {
+          "colour": "ink",
+          "kind": "tube",
+          "points": [
+            [
+              352,
+              644,
+              2
+            ],
+            [
+              355,
+              633,
+              2
+            ],
+            [
+              363,
+              630,
+              2
+            ],
+            [
+              367,
+              638,
+              2
+            ]
+          ],
+          "radii": [
+            3,
+            3,
+            3,
+            2.5
+          ],
+          "surface": "nose"
+        },
+        {
+          "colour": "ink",
+          "kind": "tube",
+          "points": [
+            [
+              387,
+              640,
+              2
+            ],
+            [
+              394,
+              630,
+              2
+            ],
+            [
+              405,
+              628,
+              2
+            ],
+            [
+              410,
+              635,
+              2
+            ]
+          ],
+          "radii": [
+            3,
+            3,
+            3,
+            2.5
+          ],
+          "surface": "nose"
+        }
+      ]
+    },
+    {
+      "name": "cheeks",
+      "parent": "body",
+      "pivot": [
+        376,
+        648,
+        197.28032869305977
+      ],
+      "role": "short blush strokes under each eye",
+      "shapes": [
+        {
+          "colour": "blush",
+          "kind": "tube",
+          "points": [
+            [
+              270,
+              638,
+              2
+            ],
+            [
+              272,
+              650,
+              2
+            ]
+          ],
+          "radii": [
+            2.5,
+            2.5
+          ],
+          "surface": "body"
+        },
+        {
+          "colour": "blush",
+          "kind": "tube",
+          "points": [
+            [
+              285,
+              638,
+              2
+            ],
+            [
+              287,
+              650,
+              2
+            ]
+          ],
+          "radii": [
+            2.5,
+            2.5
+          ],
+          "surface": "body"
+        },
+        {
+          "colour": "blush",
+          "kind": "tube",
+          "points": [
+            [
+              304,
+              638,
+              2
+            ],
+            [
+              306,
+              650,
+              2
+            ]
+          ],
+          "radii": [
+            2.5,
+            2.5
+          ],
+          "surface": "body"
+        },
+        {
+          "colour": "blush",
+          "kind": "tube",
+          "points": [
+            [
+              320,
+              638,
+              2
+            ],
+            [
+              322,
+              650,
+              2
+            ]
+          ],
+          "radii": [
+            2.5,
+            2.5
+          ],
+          "surface": "body"
+        },
+        {
+          "colour": "blush",
+          "kind": "tube",
+          "points": [
+            [
+              437,
+              648,
+              2
+            ],
+            [
+              439,
+              660,
+              2
+            ]
+          ],
+          "radii": [
+            2.5,
+            2.5
+          ],
+          "surface": "body"
+        },
+        {
+          "colour": "blush",
+          "kind": "tube",
+          "points": [
+            [
+              452,
+              648,
+              2
+            ],
+            [
+              454,
+              660,
+              2
+            ]
+          ],
+          "radii": [
+            2.5,
+            2.5
+          ],
+          "surface": "body"
+        },
+        {
+          "colour": "blush",
+          "kind": "tube",
+          "points": [
+            [
+              467,
+              648,
+              2
+            ],
+            [
+              469,
+              660,
+              2
+            ]
+          ],
+          "radii": [
+            2.5,
+            2.5
+          ],
+          "surface": "body"
+        },
+        {
+          "colour": "blush",
+          "kind": "tube",
+          "points": [
+            [
+              480,
+              648,
+              2
+            ],
+            [
+              482,
+              660,
+              2
+            ]
+          ],
+          "radii": [
+            2.5,
+            2.5
+          ],
+          "surface": "body"
+        }
+      ]
+    },
+    {
+      "name": "mouth",
+      "parent": "body",
+      "pivot": [
+        376,
+        695,
+        174.20989923611668
+      ],
+      "role": "deep U-shaped smile on the lower face",
+      "shapes": [
+        {
+          "colour": "ink",
+          "kind": "tube",
+          "points": [
+            [
+              309,
+              636,
+              2
+            ],
+            [
+              318,
+              665,
+              2
+            ],
+            [
+              338,
+              698,
+              2
+            ],
+            [
+              365,
+              717,
+              2
+            ],
+            [
+              392,
+              722,
+              2
+            ],
+            [
+              418,
+              712,
+              2
+            ],
+            [
+              433,
+              692,
+              2
+            ],
+            [
+              440,
+              668,
+              2
+            ],
+            [
+              442,
+              648,
+              2
+            ]
+          ],
+          "radii": [
+            3,
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3
+          ],
+          "surface": "body"
+        }
+      ]
+    },
+    {
+      "name": "arm_screen_left",
+      "parent": "body",
+      "pivot": [
+        180,
+        605,
+        0
+      ],
+      "role": "thin arm angled down and out",
+      "shapes": [
+        {
+          "colour": "skin",
+          "kind": "tube",
+          "points": [
+            [
+              183,
+              603,
+              0
+            ],
+            [
+              147,
+              653,
+              0
+            ],
+            [
+              113,
+              703,
+              0
+            ]
+          ],
+          "radii": [
+            20,
+            18,
+            17
+          ]
+        }
+      ]
+    },
+    {
+      "name": "hand_screen_left",
+      "parent": "arm_screen_left",
+      "pivot": [
+        113,
+        705,
+        0
+      ],
+      "role": "mitten hand: thumb out to the side, two fingers pointing down",
+      "shapes": [
+        {
+          "center": [
+            85,
+            735,
+            0
+          ],
+          "colour": "skin",
+          "contour": [
+            [
+              95,
+              699
+            ],
+            [
+              65,
+              707
+            ],
+            [
+              43,
+              716
+            ],
+            [
+              34,
+              730
+            ],
+            [
+              42,
+              740
+            ],
+            [
+              68,
+              735
+            ],
+            [
+              71,
+              757
+            ],
+            [
+              77,
+              773
+            ],
+            [
+              88,
+              776
+            ],
+            [
+              92,
+              752
+            ],
+            [
+              100,
+              736
+            ],
+            [
+              106,
+              768
+            ],
+            [
+              120,
+              776
+            ],
+            [
+              129,
+              757
+            ],
+            [
+              129,
+              730
+            ],
+            [
+              130,
+              711
+            ]
+          ],
+          "kind": "volume",
+          "thickness": 30
+        }
+      ]
+    },
+    {
+      "name": "arm_screen_right",
+      "parent": "body",
+      "pivot": [
+        620,
+        600,
+        0
+      ],
+      "role": "thin arm angled down and out",
+      "shapes": [
+        {
+          "colour": "skin",
+          "kind": "tube",
+          "points": [
+            [
+              617,
+              598,
+              0
+            ],
+            [
+              649,
+              652,
+              0
+            ],
+            [
+              675,
+              702,
+              0
+            ]
+          ],
+          "radii": [
+            20,
+            18,
+            17
+          ]
+        }
+      ]
+    },
+    {
+      "name": "hand_screen_right",
+      "parent": "arm_screen_right",
+      "pivot": [
+        675,
+        705,
+        0
+      ],
+      "role": "hand with two fingers and a thumb all pointing down",
+      "shapes": [
+        {
+          "center": [
+            689,
+            740,
+            0
+          ],
+          "colour": "skin",
+          "contour": [
+            [
+              694,
+              702
+            ],
+            [
+              717,
+              708
+            ],
+            [
+              735,
+              726
+            ],
+            [
+              742,
+              746
+            ],
+            [
+              730,
+              766
+            ],
+            [
+              715,
+              764
+            ],
+            [
+              705,
+              740
+            ],
+            [
+              700,
+              766
+            ],
+            [
+              686,
+              783
+            ],
+            [
+              674,
+              776
+            ],
+            [
+              669,
+              736
+            ],
+            [
+              662,
+              752
+            ],
+            [
+              651,
+              769
+            ],
+            [
+              639,
+              762
+            ],
+            [
+              638,
+              735
+            ],
+            [
+              645,
+              715
+            ],
+            [
+              656,
+              699
+            ]
+          ],
+          "kind": "volume",
+          "thickness": 30
+        }
+      ]
+    },
+    {
+      "name": "shoe_screen_left",
+      "parent": "body",
+      "pivot": [
+        350,
+        768,
+        0
+      ],
+      "role": "blue shoe, toe pointing out to screen-left",
+      "shapes": [
+        {
+          "center": [
+            350,
+            802,
+            0
+          ],
+          "colour": "shoe",
+          "contour": [
+            [
+              300,
+              758
+            ],
+            [
+              287,
+              780
+            ],
+            [
+              277,
+              805
+            ],
+            [
+              279,
+              826
+            ],
+            [
+              292,
+              837
+            ],
+            [
+              345,
+              840
+            ],
+            [
+              392,
+              840
+            ],
+            [
+              410,
+              836
+            ],
+            [
+              419,
+              820
+            ],
+            [
+              419,
+              775
+            ],
+            [
+              390,
+              768
+            ],
+            [
+              345,
+              764
+            ]
+          ],
+          "kind": "volume",
+          "thickness": 45
+        }
+      ]
+    },
+    {
+      "name": "straps_screen_left",
+      "parent": "shoe_screen_left",
+      "pivot": [
+        350,
+        768,
+        11.752020601083988
+      ],
+      "role": "two orange velcro straps across the toe",
+      "shapes": [
+        {
+          "center": [
+            324,
+            784,
+            1
+          ],
+          "colour": "strap",
+          "contour": [
+            [
+              305,
+              765
+            ],
+            [
+              319,
+              764
+            ],
+            [
+              343,
+              792
+            ],
+            [
+              330,
+              803
+            ]
+          ],
+          "kind": "volume",
+          "smooth": false,
+          "surface": "shoe_screen_left",
+          "thickness": 5
+        },
+        {
+          "center": [
+            295,
+            811,
+            1
+          ],
+          "colour": "strap",
+          "contour": [
+            [
+              292,
+              794
+            ],
+            [
+              308,
+              814
+            ],
+            [
+              298,
+              828
+            ],
+            [
+              283,
+              810
+            ]
+          ],
+          "kind": "volume",
+          "smooth": false,
+          "surface": "shoe_screen_left",
+          "thickness": 5
+        }
+      ]
+    },
+    {
+      "name": "shoe_screen_right",
+      "parent": "body",
+      "pivot": [
+        490,
+        770,
+        0
+      ],
+      "role": "blue shoe, toe pointing out to screen-right, sitting a little lower",
+      "shapes": [
+        {
+          "center": [
+            485,
+            810,
+            0
+          ],
+          "colour": "shoe",
+          "contour": [
+            [
+              425,
+              770
+            ],
+            [
+              424,
+              810
+            ],
+            [
+              426,
+              852
+            ],
+            [
+              470,
+              856
+            ],
+            [
+              520,
+              857
+            ],
+            [
+              556,
+              855
+            ],
+            [
+              552,
+              830
+            ],
+            [
+              540,
+              805
+            ],
+            [
+              520,
+              785
+            ],
+            [
+              495,
+              770
+            ],
+            [
+              465,
+              762
+            ]
+          ],
+          "kind": "volume",
+          "thickness": 45
+        }
+      ]
+    },
+    {
+      "name": "straps_screen_right",
+      "parent": "shoe_screen_right",
+      "pivot": [
+        490,
+        770,
+        6.311104293466618
+      ],
+      "role": "two orange velcro straps across the toe",
+      "shapes": [
+        {
+          "center": [
+            486,
+            789,
+            1
+          ],
+          "colour": "strap",
+          "contour": [
+            [
+              478,
+              770
+            ],
+            [
+              499,
+              775
+            ],
+            [
+              494,
+              804
+            ],
+            [
+              472,
+              806
+            ]
+          ],
+          "kind": "volume",
+          "smooth": false,
+          "surface": "shoe_screen_right",
+          "thickness": 5
+        },
+        {
+          "center": [
+            519,
+            813,
+            1
+          ],
+          "colour": "strap",
+          "contour": [
+            [
+              521,
+              793
+            ],
+            [
+              537,
+              805
+            ],
+            [
+              516,
+              833
+            ],
+            [
+              501,
+              822
+            ]
+          ],
+          "kind": "volume",
+          "smooth": false,
+          "surface": "shoe_screen_right",
+          "thickness": 5
+        }
+      ]
+    }
+  ],
+  "uncertainties": [
+    "Back depth is inferred from a single front drawing. Static pose and motion hints await family and game review."
+  ],
+  "version": 1
+}

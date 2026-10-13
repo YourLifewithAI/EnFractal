@@ -1,0 +1,1992 @@
+{
+  "applied_notes": [
+    "Wider, real tomato shape, rounder and wider than tall, gently lobed: author a broad lobed outline instead of the narrow oval; reconnect the raised arms and feet, keep facial stroke shapes, and separate the eyes slightly without scaling them.",
+    "Small green leafy top under the hat: add a separate calyx part with five pointed leaves.",
+    "Sparkles should twinkle: retain eight independently pivoted effect parts, set all motion hints to twinkle, and move side sparkles outward to stay clear of the wider body."
+  ],
+  "colour_reasoning": "Keep the approved red tomato, black/red hat, green shoes and cream stripes; all loose magic stars keep the approved warm gold.",
+  "image_size": [
+    1000,
+    1333
+  ],
+  "motion": {
+    "kind": "hop",
+    "reason": "Arms flung up waving a wand, with short oval feet tucked right under a round body: an excited bouncing pose."
+  },
+  "name": "Tomato Man",
+  "observations": [
+    "Re-read round2/tomato_man.jpg: the single magician, with a screen-left wink, open other eye, laughing mouth, raised hands, tilted top hat and upright wand.",
+    "The Notes line replaces the narrow upright egg outline with a wider-than-tall tomato, gently unequal lobes and a shallow crown indentation. Preserve the wink, pupil-free open eye, laughing mouth, jaunty hat, raised wand and waving fingers. A small green calyx sits under the hat.",
+    "All eight four-pointed sparkles are retained as independent twinkling effect parts. Side sparkles move outward to clear the wider body; the two below the drawn shoes remain slightly outward and upward to keep the supporting sole at ground level.",
+    "Screen-left foot supports the pose; the right foot remains a little lifted."
+  ],
+  "origin": [
+    539,
+    768,
+    0
+  ],
+  "palette": {
+    "eye_white": "#F7F5F0",
+    "hat": "#1E1C22",
+    "hat_band": "#C21F2A",
+    "ink": "#2B2730",
+    "leaf": "#3D862F",
+    "mouth": "#4A1620",
+    "shoe": "#2E7D32",
+    "sparkle": "#F7D54A",
+    "stripe": "#F2E6B8",
+    "tomato": "#D93425",
+    "wand": "#1A1A1E",
+    "wand_tip": "#F7F5F0"
+  },
+  "parts": [
+    {
+      "name": "body",
+      "parent": null,
+      "pivot": [
+        532,
+        560,
+        0
+      ],
+      "role": "wide gently lobed tomato body that is also the head",
+      "shapes": [
+        {
+          "center": [
+            541,
+            548,
+            0
+          ],
+          "colour": "tomato",
+          "contour": [
+            [
+              553,
+              386
+            ],
+            [
+              592,
+              372
+            ],
+            [
+              637,
+              381
+            ],
+            [
+              670,
+              409
+            ],
+            [
+              708,
+              435
+            ],
+            [
+              735,
+              477
+            ],
+            [
+              752,
+              523
+            ],
+            [
+              749,
+              560
+            ],
+            [
+              755,
+              596
+            ],
+            [
+              741,
+              636
+            ],
+            [
+              712,
+              667
+            ],
+            [
+              674,
+              687
+            ],
+            [
+              631,
+              701
+            ],
+            [
+              585,
+              707
+            ],
+            [
+              546,
+              716
+            ],
+            [
+              508,
+              710
+            ],
+            [
+              467,
+              713
+            ],
+            [
+              426,
+              698
+            ],
+            [
+              389,
+              675
+            ],
+            [
+              358,
+              644
+            ],
+            [
+              337,
+              603
+            ],
+            [
+              326,
+              563
+            ],
+            [
+              330,
+              527
+            ],
+            [
+              326,
+              494
+            ],
+            [
+              343,
+              452
+            ],
+            [
+              375,
+              418
+            ],
+            [
+              412,
+              390
+            ],
+            [
+              450,
+              379
+            ],
+            [
+              489,
+              384
+            ],
+            [
+              520,
+              392
+            ]
+          ],
+          "kind": "volume"
+        }
+      ]
+    },
+    {
+      "name": "calyx",
+      "parent": "body",
+      "pivot": [
+        576,
+        389,
+        73.5633477684062
+      ],
+      "role": "small green leafy calyx under the hat",
+      "shapes": [
+        {
+          "center": [
+            533.6,
+            397.0,
+            6
+          ],
+          "colour": "leaf",
+          "contour": [
+            [
+              568,
+              380
+            ],
+            [
+              541,
+              383
+            ],
+            [
+              474,
+              410
+            ],
+            [
+              521,
+              413
+            ],
+            [
+              564,
+              399
+            ]
+          ],
+          "kind": "volume",
+          "smooth": false,
+          "surface": "body",
+          "thickness": 12
+        },
+        {
+          "center": [
+            553.2,
+            409.0,
+            6
+          ],
+          "colour": "leaf",
+          "contour": [
+            [
+              573,
+              384
+            ],
+            [
+              546,
+              399
+            ],
+            [
+              514,
+              441
+            ],
+            [
+              553,
+              423
+            ],
+            [
+              580,
+              398
+            ]
+          ],
+          "kind": "volume",
+          "smooth": false,
+          "surface": "body",
+          "thickness": 12
+        },
+        {
+          "center": [
+            588.8,
+            405.8,
+            6
+          ],
+          "colour": "leaf",
+          "contour": [
+            [
+              580,
+              384
+            ],
+            [
+              579,
+              404
+            ],
+            [
+              588,
+              434
+            ],
+            [
+              601,
+              416
+            ],
+            [
+              596,
+              391
+            ]
+          ],
+          "kind": "volume",
+          "smooth": false,
+          "surface": "body",
+          "thickness": 12
+        },
+        {
+          "center": [
+            614.6,
+            399.8,
+            6
+          ],
+          "colour": "leaf",
+          "contour": [
+            [
+              585,
+              381
+            ],
+            [
+              605,
+              388
+            ],
+            [
+              661,
+              415
+            ],
+            [
+              632,
+              417
+            ],
+            [
+              590,
+              398
+            ]
+          ],
+          "kind": "volume",
+          "smooth": false,
+          "surface": "body",
+          "thickness": 12
+        },
+        {
+          "center": [
+            551.8,
+            378.0,
+            6
+          ],
+          "colour": "leaf",
+          "contour": [
+            [
+              575,
+              380
+            ],
+            [
+              554,
+              369
+            ],
+            [
+              528,
+              360
+            ],
+            [
+              536,
+              384
+            ],
+            [
+              566,
+              397
+            ]
+          ],
+          "kind": "volume",
+          "smooth": false,
+          "surface": "body",
+          "thickness": 12
+        }
+      ]
+    },
+    {
+      "name": "hat",
+      "parent": "body",
+      "pivot": [
+        575,
+        375,
+        0
+      ],
+      "role": "small black top hat perched on top, brim lower on screen-left",
+      "shapes": [
+        {
+          "center": [
+            577,
+            285,
+            0
+          ],
+          "colour": "hat",
+          "contour": [
+            [
+              541,
+              226
+            ],
+            [
+              619,
+              232
+            ],
+            [
+              624,
+              270
+            ],
+            [
+              617,
+              365
+            ],
+            [
+              530,
+              365
+            ],
+            [
+              532,
+              270
+            ]
+          ],
+          "kind": "volume",
+          "smooth": false,
+          "thickness": 80
+        },
+        {
+          "center": [
+            572,
+            359,
+            0
+          ],
+          "colour": "hat",
+          "contour": [
+            [
+              472,
+              346
+            ],
+            [
+              670,
+              333
+            ],
+            [
+              673,
+              370
+            ],
+            [
+              473,
+              387
+            ]
+          ],
+          "kind": "volume",
+          "smooth": false,
+          "thickness": 130
+        }
+      ]
+    },
+    {
+      "name": "hat_band",
+      "parent": "hat",
+      "pivot": [
+        573,
+        325,
+        39.17127164278464
+      ],
+      "role": "little red band round the bottom of the crown",
+      "shapes": [
+        {
+          "center": [
+            573,
+            327,
+            1
+          ],
+          "colour": "hat_band",
+          "contour": [
+            [
+              531,
+              308
+            ],
+            [
+              617,
+              321
+            ],
+            [
+              614,
+              339
+            ],
+            [
+              531,
+              341
+            ]
+          ],
+          "kind": "volume",
+          "smooth": false,
+          "surface": "hat",
+          "thickness": 6
+        }
+      ]
+    },
+    {
+      "name": "eye_screen_left",
+      "parent": "body",
+      "pivot": [
+        453,
+        490,
+        147.62229173157598
+      ],
+      "role": "winking eye drawn as a closed arch",
+      "shapes": [
+        {
+          "colour": "ink",
+          "kind": "tube",
+          "points": [
+            [
+              424,
+              498,
+              2
+            ],
+            [
+              440,
+              483,
+              2
+            ],
+            [
+              457,
+              477,
+              2
+            ],
+            [
+              472,
+              484,
+              2
+            ],
+            [
+              481,
+              502,
+              2
+            ]
+          ],
+          "radii": [
+            3,
+            3.5,
+            3.5,
+            3.5,
+            3
+          ],
+          "surface": "body"
+        }
+      ]
+    },
+    {
+      "name": "eye_screen_right",
+      "parent": "body",
+      "pivot": [
+        575,
+        497,
+        152.55144942939205
+      ],
+      "role": "open eye: flat top, rounded bottom, no pupil drawn",
+      "shapes": [
+        {
+          "center": [
+            575,
+            495,
+            1
+          ],
+          "colour": "eye_white",
+          "contour": [
+            [
+              540,
+              463
+            ],
+            [
+              577,
+              463
+            ],
+            [
+              613,
+              463
+            ],
+            [
+              613,
+              482
+            ],
+            [
+              609,
+              498
+            ],
+            [
+              599,
+              512
+            ],
+            [
+              583,
+              524
+            ],
+            [
+              565,
+              533
+            ],
+            [
+              550,
+              532
+            ],
+            [
+              540,
+              522
+            ],
+            [
+              538,
+              500
+            ],
+            [
+              539,
+              480
+            ]
+          ],
+          "kind": "volume",
+          "smooth": false,
+          "surface": "body",
+          "thickness": 5
+        },
+        {
+          "colour": "ink",
+          "kind": "tube",
+          "points": [
+            [
+              577,
+              463,
+              4
+            ],
+            [
+              613,
+              463,
+              4
+            ],
+            [
+              613,
+              482,
+              4
+            ],
+            [
+              609,
+              498,
+              4
+            ],
+            [
+              599,
+              512,
+              4
+            ],
+            [
+              583,
+              524,
+              4
+            ],
+            [
+              565,
+              533,
+              4
+            ],
+            [
+              550,
+              532,
+              4
+            ],
+            [
+              540,
+              522,
+              4
+            ],
+            [
+              538,
+              500,
+              4
+            ],
+            [
+              539,
+              480,
+              4
+            ],
+            [
+              540,
+              463,
+              4
+            ],
+            [
+              570,
+              463,
+              4
+            ]
+          ],
+          "radii": [
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5
+          ],
+          "surface": "body"
+        }
+      ]
+    },
+    {
+      "name": "mouth",
+      "parent": "body",
+      "pivot": [
+        530,
+        615,
+        153.21572054935984
+      ],
+      "role": "wide open laughing mouth: straight top edge, deep rounded bottom",
+      "shapes": [
+        {
+          "center": [
+            530,
+            615,
+            1
+          ],
+          "colour": "mouth",
+          "contour": [
+            [
+              464,
+              581
+            ],
+            [
+              530,
+              580
+            ],
+            [
+              595,
+              581
+            ],
+            [
+              597,
+              600
+            ],
+            [
+              588,
+              622
+            ],
+            [
+              565,
+              638
+            ],
+            [
+              537,
+              650
+            ],
+            [
+              506,
+              659
+            ],
+            [
+              488,
+              653
+            ],
+            [
+              474,
+              638
+            ],
+            [
+              466,
+              618
+            ],
+            [
+              464,
+              598
+            ]
+          ],
+          "kind": "volume",
+          "smooth": false,
+          "surface": "body",
+          "thickness": 5
+        },
+        {
+          "colour": "ink",
+          "kind": "tube",
+          "points": [
+            [
+              530,
+              580,
+              4
+            ],
+            [
+              595,
+              581,
+              4
+            ],
+            [
+              597,
+              600,
+              4
+            ],
+            [
+              588,
+              622,
+              4
+            ],
+            [
+              565,
+              638,
+              4
+            ],
+            [
+              537,
+              650,
+              4
+            ],
+            [
+              506,
+              659,
+              4
+            ],
+            [
+              488,
+              653,
+              4
+            ],
+            [
+              474,
+              638,
+              4
+            ],
+            [
+              466,
+              618,
+              4
+            ],
+            [
+              464,
+              598,
+              4
+            ],
+            [
+              464,
+              581,
+              4
+            ],
+            [
+              522,
+              580,
+              4
+            ]
+          ],
+          "radii": [
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5,
+            3.5
+          ],
+          "surface": "body"
+        }
+      ]
+    },
+    {
+      "name": "arm_screen_left",
+      "parent": "body",
+      "pivot": [
+        327,
+        493,
+        0
+      ],
+      "role": "long arm raised up and out, widening toward the hand",
+      "shapes": [
+        {
+          "colour": "tomato",
+          "kind": "tube",
+          "points": [
+            [
+              327,
+              493,
+              0
+            ],
+            [
+              275,
+              430,
+              0
+            ],
+            [
+              220,
+              368,
+              0
+            ]
+          ],
+          "radii": [
+            24,
+            27,
+            30
+          ]
+        }
+      ]
+    },
+    {
+      "name": "hand_screen_left",
+      "parent": "arm_screen_left",
+      "pivot": [
+        215,
+        365,
+        0
+      ],
+      "role": "fist gripping the wand with one finger raised beside it",
+      "shapes": [
+        {
+          "center": [
+            183,
+            362,
+            0
+          ],
+          "colour": "tomato",
+          "contour": [
+            [
+              234,
+              339
+            ],
+            [
+              225,
+              315
+            ],
+            [
+              216,
+              293
+            ],
+            [
+              205,
+              286
+            ],
+            [
+              193,
+              289
+            ],
+            [
+              188,
+              302
+            ],
+            [
+              191,
+              325
+            ],
+            [
+              197,
+              345
+            ],
+            [
+              198,
+              360
+            ],
+            [
+              175,
+              360
+            ],
+            [
+              147,
+              358
+            ],
+            [
+              130,
+              365
+            ],
+            [
+              126,
+              378
+            ],
+            [
+              135,
+              392
+            ],
+            [
+              155,
+              398
+            ],
+            [
+              185,
+              396
+            ],
+            [
+              207,
+              414
+            ],
+            [
+              245,
+              372
+            ]
+          ],
+          "kind": "volume",
+          "thickness": 45
+        }
+      ]
+    },
+    {
+      "name": "wand",
+      "parent": "hand_screen_left",
+      "pivot": [
+        165,
+        378,
+        0
+      ],
+      "role": "magic wand held upright: black stick with a white tip",
+      "shapes": [
+        {
+          "colour": "wand",
+          "kind": "tube",
+          "points": [
+            [
+              163,
+              445,
+              0
+            ],
+            [
+              171,
+              300,
+              0
+            ],
+            [
+              177,
+              186,
+              0
+            ]
+          ],
+          "radii": [
+            10,
+            10,
+            10
+          ]
+        },
+        {
+          "colour": "wand_tip",
+          "kind": "tube",
+          "points": [
+            [
+              177,
+              184,
+              0
+            ],
+            [
+              179,
+              157,
+              0
+            ]
+          ],
+          "radii": [
+            11,
+            11
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "effect",
+      "motion_hint": {
+        "kind": "twinkle",
+        "reason": "The description requests independent twinkling sparkles."
+      },
+      "name": "wand_sparkle_0",
+      "parent": "wand",
+      "pivot": [
+        120,
+        196,
+        0
+      ],
+      "role": "sparkle",
+      "shapes": [
+        {
+          "center": [
+            120,
+            196,
+            0
+          ],
+          "colour": "sparkle",
+          "contour": [
+            [
+              100,
+              188
+            ],
+            [
+              118.1,
+              189.2
+            ],
+            [
+              133,
+              179
+            ],
+            [
+              126.5,
+              193.3
+            ],
+            [
+              148,
+              196
+            ],
+            [
+              125.6,
+              200.3
+            ],
+            [
+              122,
+              219
+            ],
+            [
+              114.6,
+              200.5
+            ]
+          ],
+          "kind": "volume",
+          "smooth": false,
+          "thickness": 10
+        }
+      ]
+    },
+    {
+      "kind": "effect",
+      "motion_hint": {
+        "kind": "twinkle",
+        "reason": "The description requests independent twinkling sparkles."
+      },
+      "name": "wand_sparkle_1",
+      "parent": "wand",
+      "pivot": [
+        229,
+        172,
+        0
+      ],
+      "role": "sparkle",
+      "shapes": [
+        {
+          "center": [
+            229,
+            172,
+            0
+          ],
+          "colour": "sparkle",
+          "contour": [
+            [
+              207,
+              170
+            ],
+            [
+              225.0,
+              167.5
+            ],
+            [
+              235,
+              156
+            ],
+            [
+              234.39999999999998,
+              169.2
+            ],
+            [
+              252,
+              173
+            ],
+            [
+              233.5,
+              176.0
+            ],
+            [
+              227,
+              190
+            ],
+            [
+              224.0,
+              175.3
+            ]
+          ],
+          "kind": "volume",
+          "smooth": false,
+          "thickness": 10
+        }
+      ]
+    },
+    {
+      "kind": "effect",
+      "motion_hint": {
+        "kind": "twinkle",
+        "reason": "The description requests independent twinkling sparkles."
+      },
+      "name": "wand_sparkle_2",
+      "parent": "wand",
+      "pivot": [
+        103,
+        411,
+        0
+      ],
+      "role": "sparkle",
+      "shapes": [
+        {
+          "center": [
+            103,
+            411,
+            0
+          ],
+          "colour": "sparkle",
+          "contour": [
+            [
+              75,
+              401
+            ],
+            [
+              98.30000000000001,
+              405.7
+            ],
+            [
+              105,
+              392
+            ],
+            [
+              108.5,
+              406.6
+            ],
+            [
+              125,
+              411
+            ],
+            [
+              107.19999999999999,
+              416.7
+            ],
+            [
+              98,
+              434
+            ],
+            [
+              96.4,
+              413.6
+            ]
+          ],
+          "kind": "volume",
+          "smooth": false,
+          "thickness": 10
+        }
+      ]
+    },
+    {
+      "name": "arm_screen_right",
+      "parent": "body",
+      "pivot": [
+        755,
+        584,
+        0
+      ],
+      "role": "long arm raised up and out in a wave, widening toward the hand",
+      "shapes": [
+        {
+          "colour": "tomato",
+          "kind": "tube",
+          "points": [
+            [
+              755,
+              584,
+              0
+            ],
+            [
+              812,
+              527,
+              0
+            ],
+            [
+              872,
+              478,
+              0
+            ]
+          ],
+          "radii": [
+            15,
+            19,
+            24
+          ]
+        }
+      ]
+    },
+    {
+      "name": "hand_screen_right",
+      "parent": "arm_screen_right",
+      "pivot": [
+        876,
+        474,
+        0
+      ],
+      "role": "big open waving hand: tall thumb up, three fingers pointing out to screen-right",
+      "shapes": [
+        {
+          "center": [
+            908,
+            440,
+            0
+          ],
+          "colour": "tomato",
+          "contour": [
+            [
+              867,
+              438
+            ],
+            [
+              852,
+              420
+            ],
+            [
+              842,
+              395
+            ],
+            [
+              844,
+              370
+            ],
+            [
+              856,
+              360
+            ],
+            [
+              872,
+              362
+            ],
+            [
+              882,
+              380
+            ],
+            [
+              885,
+              405
+            ],
+            [
+              887,
+              425
+            ],
+            [
+              900,
+              402
+            ],
+            [
+              915,
+              386
+            ],
+            [
+              936,
+              379
+            ],
+            [
+              954,
+              388
+            ],
+            [
+              955,
+              405
+            ],
+            [
+              942,
+              420
+            ],
+            [
+              962,
+              418
+            ],
+            [
+              973,
+              433
+            ],
+            [
+              971,
+              448
+            ],
+            [
+              954,
+              457
+            ],
+            [
+              940,
+              462
+            ],
+            [
+              945,
+              475
+            ],
+            [
+              938,
+              489
+            ],
+            [
+              915,
+              500
+            ],
+            [
+              890,
+              508
+            ]
+          ],
+          "kind": "volume",
+          "thickness": 50
+        }
+      ]
+    },
+    {
+      "name": "foot_screen_left",
+      "parent": "body",
+      "pivot": [
+        439,
+        712,
+        0
+      ],
+      "role": "oval foot, toe out to screen-left",
+      "shapes": [
+        {
+          "center": [
+            438,
+            737,
+            0
+          ],
+          "colour": "shoe",
+          "contour": [
+            [
+              378,
+              736
+            ],
+            [
+              386,
+              720
+            ],
+            [
+              406,
+              710
+            ],
+            [
+              438,
+              704
+            ],
+            [
+              471,
+              707
+            ],
+            [
+              491,
+              713
+            ],
+            [
+              499,
+              726
+            ],
+            [
+              494,
+              746
+            ],
+            [
+              479,
+              758
+            ],
+            [
+              454,
+              766
+            ],
+            [
+              428,
+              768
+            ],
+            [
+              404,
+              764
+            ],
+            [
+              386,
+              752
+            ]
+          ],
+          "kind": "volume",
+          "thickness": 35
+        }
+      ]
+    },
+    {
+      "name": "stripes_screen_left",
+      "parent": "foot_screen_left",
+      "pivot": [
+        439,
+        712,
+        15.32229181510386
+      ],
+      "role": "two curved stripes across the toe",
+      "shapes": [
+        {
+          "colour": "stripe",
+          "kind": "tube",
+          "points": [
+            [
+              406,
+              715,
+              2
+            ],
+            [
+              409,
+              740,
+              2
+            ],
+            [
+              410,
+              762,
+              2
+            ]
+          ],
+          "radii": [
+            4.5,
+            4.5,
+            4
+          ],
+          "surface": "foot_screen_left"
+        },
+        {
+          "colour": "stripe",
+          "kind": "tube",
+          "points": [
+            [
+              425,
+              710,
+              2
+            ],
+            [
+              431,
+              735,
+              2
+            ],
+            [
+              434,
+              762,
+              2
+            ]
+          ],
+          "radii": [
+            4.5,
+            4.5,
+            4
+          ],
+          "surface": "foot_screen_left"
+        }
+      ]
+    },
+    {
+      "name": "foot_screen_right",
+      "parent": "body",
+      "pivot": [
+        636,
+        708,
+        0
+      ],
+      "role": "oval foot, toe out to screen-right, slightly higher",
+      "shapes": [
+        {
+          "center": [
+            639,
+            729,
+            0
+          ],
+          "colour": "shoe",
+          "contour": [
+            [
+              575,
+              713
+            ],
+            [
+              589,
+              706
+            ],
+            [
+              614,
+              704
+            ],
+            [
+              642,
+              703
+            ],
+            [
+              669,
+              706
+            ],
+            [
+              692,
+              716
+            ],
+            [
+              704,
+              731
+            ],
+            [
+              701,
+              745
+            ],
+            [
+              680,
+              754
+            ],
+            [
+              644,
+              755
+            ],
+            [
+              612,
+              747
+            ],
+            [
+              590,
+              734
+            ]
+          ],
+          "kind": "volume",
+          "thickness": 30
+        }
+      ]
+    },
+    {
+      "name": "stripes_screen_right",
+      "parent": "foot_screen_right",
+      "pivot": [
+        636,
+        708,
+        12.240161917951657
+      ],
+      "role": "two stripes across the foot",
+      "shapes": [
+        {
+          "colour": "stripe",
+          "kind": "tube",
+          "points": [
+            [
+              631,
+              707,
+              2
+            ],
+            [
+              634,
+              728,
+              2
+            ],
+            [
+              637,
+              750,
+              2
+            ]
+          ],
+          "radii": [
+            4.5,
+            4.5,
+            4
+          ],
+          "surface": "foot_screen_right"
+        },
+        {
+          "colour": "stripe",
+          "kind": "tube",
+          "points": [
+            [
+              652,
+              708,
+              2
+            ],
+            [
+              655,
+              730,
+              2
+            ],
+            [
+              656,
+              752,
+              2
+            ]
+          ],
+          "radii": [
+            4.5,
+            4.5,
+            4
+          ],
+          "surface": "foot_screen_right"
+        }
+      ]
+    },
+    {
+      "kind": "effect",
+      "motion_hint": {
+        "kind": "twinkle",
+        "reason": "The description requests independent twinkling sparkles."
+      },
+      "name": "floating_sparkle_0",
+      "parent": "body",
+      "pivot": [
+        710,
+        188,
+        -6
+      ],
+      "role": "sparkle",
+      "shapes": [
+        {
+          "center": [
+            710,
+            188,
+            -6
+          ],
+          "colour": "sparkle",
+          "contour": [
+            [
+              710,
+              160
+            ],
+            [
+              717.0,
+              182.4
+            ],
+            [
+              733.8,
+              188
+            ],
+            [
+              715.6,
+              193.6
+            ],
+            [
+              707.2,
+              221.6
+            ],
+            [
+              702.16,
+              195.0
+            ],
+            [
+              687.6,
+              184.64
+            ],
+            [
+              703.0,
+              181.0
+            ]
+          ],
+          "kind": "volume",
+          "smooth": false,
+          "thickness": 4
+        }
+      ]
+    },
+    {
+      "kind": "effect",
+      "motion_hint": {
+        "kind": "twinkle",
+        "reason": "The description requests independent twinkling sparkles."
+      },
+      "name": "floating_sparkle_1",
+      "parent": "body",
+      "pivot": [
+        199,
+        583,
+        -6
+      ],
+      "role": "sparkle",
+      "shapes": [
+        {
+          "center": [
+            199,
+            583,
+            -6
+          ],
+          "colour": "sparkle",
+          "contour": [
+            [
+              199,
+              511
+            ],
+            [
+              217.0,
+              568.6
+            ],
+            [
+              260.2,
+              583
+            ],
+            [
+              213.39999999999998,
+              597.4
+            ],
+            [
+              191.8,
+              669.4
+            ],
+            [
+              178.83999999999997,
+              601.0
+            ],
+            [
+              141.4,
+              574.36
+            ],
+            [
+              181.0,
+              565.0
+            ]
+          ],
+          "kind": "volume",
+          "smooth": false,
+          "thickness": 4
+        }
+      ]
+    },
+    {
+      "kind": "effect",
+      "motion_hint": {
+        "kind": "twinkle",
+        "reason": "The description requests independent twinkling sparkles."
+      },
+      "name": "floating_sparkle_2",
+      "parent": "body",
+      "pivot": [
+        814,
+        621,
+        -6
+      ],
+      "role": "sparkle",
+      "shapes": [
+        {
+          "center": [
+            814,
+            621,
+            -6
+          ],
+          "colour": "sparkle",
+          "contour": [
+            [
+              814,
+              588
+            ],
+            [
+              822.25,
+              614.4
+            ],
+            [
+              842.05,
+              621
+            ],
+            [
+              820.6,
+              627.6
+            ],
+            [
+              810.7,
+              660.6
+            ],
+            [
+              804.76,
+              629.25
+            ],
+            [
+              787.6,
+              617.04
+            ],
+            [
+              805.75,
+              612.75
+            ]
+          ],
+          "kind": "volume",
+          "smooth": false,
+          "thickness": 4
+        }
+      ]
+    },
+    {
+      "kind": "effect",
+      "motion_hint": {
+        "kind": "twinkle",
+        "reason": "The description requests independent twinkling sparkles."
+      },
+      "name": "floating_sparkle_3",
+      "parent": "body",
+      "pivot": [
+        308,
+        736,
+        -6
+      ],
+      "role": "sparkle",
+      "shapes": [
+        {
+          "center": [
+            308,
+            736,
+            -6
+          ],
+          "colour": "sparkle",
+          "contour": [
+            [
+              308,
+              718
+            ],
+            [
+              312.5,
+              732.4
+            ],
+            [
+              323.3,
+              736
+            ],
+            [
+              311.6,
+              739.6
+            ],
+            [
+              306.2,
+              757.6
+            ],
+            [
+              302.96,
+              740.5
+            ],
+            [
+              293.6,
+              733.84
+            ],
+            [
+              303.5,
+              731.5
+            ]
+          ],
+          "kind": "volume",
+          "smooth": false,
+          "thickness": 4
+        }
+      ]
+    },
+    {
+      "kind": "effect",
+      "motion_hint": {
+        "kind": "twinkle",
+        "reason": "The description requests independent twinkling sparkles."
+      },
+      "name": "floating_sparkle_4",
+      "parent": "body",
+      "pivot": [
+        796,
+        712,
+        -6
+      ],
+      "role": "sparkle",
+      "shapes": [
+        {
+          "center": [
+            796,
+            712,
+            -6
+          ],
+          "colour": "sparkle",
+          "contour": [
+            [
+              796,
+              680
+            ],
+            [
+              804.0,
+              705.6
+            ],
+            [
+              823.2,
+              712
+            ],
+            [
+              802.4,
+              718.4
+            ],
+            [
+              792.8,
+              750.4
+            ],
+            [
+              787.04,
+              720.0
+            ],
+            [
+              770.4,
+              708.16
+            ],
+            [
+              788.0,
+              704.0
+            ]
+          ],
+          "kind": "volume",
+          "smooth": false,
+          "thickness": 4
+        }
+      ]
+    }
+  ],
+  "uncertainties": [
+    "Back depth is inferred from a single front drawing. Static pose and motion hints await family and game review."
+  ],
+  "version": 1
+}
