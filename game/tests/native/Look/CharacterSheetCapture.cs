@@ -6,7 +6,9 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
 using EnFractal.Native;
+using EnFractal.Native.Characters;
 using EnFractal.Native.Look;
+using EnFractal.Native.Room;
 
 namespace EnFractal.Tests.Look;
 
@@ -14,21 +16,29 @@ namespace EnFractal.Tests.Look;
 /// The character sheets (Run 2, characters round, L8): one contact sheet per character, nine tiles, rendered on the GPU in the
 /// test room at the review clock (17:00 on 15 April, the lamps on: the low sun through the west window lands on the player's
 /// spawn, where every tile stands). Run it through tools/look/character_sheet.ps1, never by hand over someone playing.
-/// Each character is its GLB (or the body CharacterSheetPoses.BuildBody makes, once the rig exists) with CharacterLook applied.
-/// The tiles are idle, walk, run, a hop landing, a 30° slope, wading, climbing, a tumble mid-flop, and for a floating character
-/// floating and casting (the Gubble's halo lit through the real look) or for the others a close look at the face. A tile shows
-/// the pose CharacterSheetPoses has for it, or the rest pose with "rest pose" in its label. With --timing it also measures what
-/// a bubble costs: the GPU time of a 1920 x 1080 frame with the character's bubble parts shown and hidden, at a play distance and
-/// close up, in alternating blocks. Needs a real window: under --headless it says so and exits with code 2.
+/// Each tile builds its character afresh (the body CharacterSheetPoses.BuildBody makes, or the bare GLB with CharacterLook applied)
+/// and stands it on the tile's stage: the room's floor, a 30° slope across it, water at the shins, a wall, each with real
+/// collision. The tiles are idle, walk, run, a hop landing, a 30° slope, wading, climbing, a tumble mid-flop, and for a floating
+/// character floating and casting (the halo lit through the real look) or for the others a close look at the face. The pose for
+/// a tile is called once per physics tick, as the game ticks a body's pose stack, until it says the tile is ready; a tile without
+/// one shows the rest pose with "rest pose" in its label. With --timing it also measures what a bubble costs: the GPU time of a
+/// 1920 x 1080 frame with the character's bubble parts shown and hidden, at a play distance and close up, in alternating blocks.
+/// Needs a real window: under --headless it says so and exits with code 2.
 /// With --variants as well, it measures the shader's render-mode variants (one skin, lit) the same way, for the budget's record.
-/// User arguments (after "--"): --out=DIR --assets=DIR [--characters=ID,ID] [--tile=WxH] [--timing=true] [--variants=true] [--commit=TEXT] [--note=TEXT]
+/// With --motion-only=true it renders nothing and may run headless (with --fixed-fps 60): every tile's motion is run on its stage
+/// and judged by its pose, one CHARACTER_SHEET_MOTION line a tile, then "CHARACTER_SHEET_MOTION: n/n tiles show their motion"
+/// (exit 1 when any does not): the sheets' motion, checked without a GPU.
+/// User arguments (after "--"): --out=DIR --assets=DIR [--characters=ID,ID] [--tile=WxH] [--timing=true] [--variants=true] [--motion-only=true] [--commit=TEXT] [--note=TEXT]
 /// </summary>
 public partial class CharacterSheetCapture : Node
 {
     /// <summary>The player's spawn in the test room: the 17:00 April sun lands here.</summary>
     private static readonly Vector3 Station = new(0f, 0f, 0.6f);
     private const float FloatLiftM = 0.02f;
+    private const float SlopeDeg = 30f;
     private const int ReviewDay = 105; // 15 April
+    /// <summary>The sheets run at the physics rate: a body's pose stack runs once a physics tick and its springs are tuned to that step.</summary>
+    private const int SheetFps = 60;
 
     private readonly Dictionary<string, string> _args = new();
     private RoomWorld _world = null!;
@@ -37,10 +47,15 @@ public partial class CharacterSheetCapture : Node
     private Camera3D _camera = null!;
     private readonly List<object> _sheets = new();
     private readonly List<object> _costs = new();
+    /// <summary>--motion-only=true: no rendering (headless allowed); every tile's motion is run and judged, and nothing is written.</summary>
+    private bool _motionOnly;
+    private int _motionTiles, _motionShown;
 
     private string Arg(string name, string fallback) => _args.TryGetValue(name, out var value) ? value : fallback;
 
     private async Task NextFrame() => await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+
+    private async Task NextPhysicsFrame() => await ToSignal(GetTree(), SceneTree.SignalName.PhysicsFrame);
 
     public override async void _Ready()
     {
@@ -53,7 +68,8 @@ public partial class CharacterSheetCapture : Node
                 if (split > 2) _args[argument[2..split]] = argument[(split + 1)..];
                 else _args[argument[2..]] = "true";
             }
-            if (DisplayServer.GetName() == "headless")
+            _motionOnly = Arg("motion-only", "false") == "true";
+            if (DisplayServer.GetName() == "headless" && !_motionOnly)
             {
                 GD.Print("CHARACTER_SHEET: needs a real window on the GPU; headless renders nothing");
                 GetTree().Quit(2);
@@ -61,8 +77,8 @@ public partial class CharacterSheetCapture : Node
             }
             var outDir = Arg("out", "");
             var assets = Arg("assets", "");
-            if (outDir.Length == 0 || assets.Length == 0) throw new ArgumentException("--out=DIR and --assets=DIR are required");
-            System.IO.Directory.CreateDirectory(outDir);
+            if ((outDir.Length == 0 && !_motionOnly) || assets.Length == 0) throw new ArgumentException("--out=DIR and --assets=DIR are required");
+            if (outDir.Length > 0) System.IO.Directory.CreateDirectory(outDir);
             var ids = Arg("characters", "").Split(',', StringSplitOptions.RemoveEmptyEntries);
             if (ids.Length == 0)
                 ids = System.IO.Directory.GetDirectories(assets).Where(d => System.IO.File.Exists(System.IO.Path.Combine(d, "character.json")))
@@ -71,7 +87,8 @@ public partial class CharacterSheetCapture : Node
             var registered = CharacterSheetPoses.Discover();
             GD.Print($"CHARACTER_SHEET: pose providers: {(registered.Count == 0 ? "none yet (every tile is the rest pose)" : string.Join(", ", registered))}");
 
-            Engine.MaxFps = 0;
+            // Headless (--fixed-fps) the motion runs as fast as it can, one physics tick a frame.
+            Engine.MaxFps = _motionOnly ? 0 : SheetFps;
             DisplayServer.WindowSetVsyncMode(DisplayServer.VSyncMode.Disabled);
             _world = GD.Load<PackedScene>("res://scenes/room.tscn").Instantiate<RoomWorld>();
             AddChild(_world);
@@ -92,6 +109,15 @@ public partial class CharacterSheetCapture : Node
             for (var i = 0; i < 30; i++) await NextFrame();
 
             foreach (var id in ids) await Sheet(id, System.IO.Path.Combine(assets, id), outDir, new Vector2I(tile[0], tile[1]));
+            if (_motionOnly)
+            {
+                // The headless check of the sheets' motion: every tile reached its moment and the pose found what its label names.
+                GD.Print($"CHARACTER_SHEET_MOTION: {_motionShown}/{_motionTiles} tiles show their motion");
+                GetTree().Quit(_motionShown == _motionTiles && _motionTiles > 0 ? 0 : 1);
+                return;
+            }
+            // The bubble's cost is a GPU time: measured uncapped, as before.
+            Engine.MaxFps = 0;
             if (Arg("timing", "false") == "true")
                 foreach (var id in ids) await BubbleCost(id, System.IO.Path.Combine(assets, id), outDir);
 
@@ -124,7 +150,11 @@ public partial class CharacterSheetCapture : Node
     {
         foreach (var body in new Node[] { _world.Player, _world.Companion })
             foreach (var mesh in body.FindChildren("*", nameof(GeometryInstance3D), true, false).OfType<GeometryInstance3D>())
+            {
                 mesh.Visible = false;
+                // The companion shows its name tag again whenever the window's camera is far enough away: on no render layer, it never draws.
+                if (mesh is Label3D) mesh.Layers = 0;
+            }
     }
 
     /// <summary>An offscreen target of the tile's size mirroring the window's 3D settings (as the review harness), and a framed window camera so the look's own focus stays ours.</summary>
@@ -159,18 +189,17 @@ public partial class CharacterSheetCapture : Node
 
     // ---------- one character ----------
 
+    /// <summary>What a sheet reads once from character.json: the name, the motion kind and the drawn bounds.</summary>
+    private sealed record CharacterInfo(string Folder, string Json, string Name, string Motion, Aabb Bounds);
+
     private sealed class Character
     {
         public required Node3D Holder;
         public required Node3D Visual;
         public required CharacterLookResult Look;
-        public required string Name;
-        public required string Motion;
-        public required Aabb Bounds;
-        public required List<(Node3D Node, Transform3D Pose)> Rest;
     }
 
-    private Character Build(string folder)
+    private static CharacterInfo ReadInfo(string folder)
     {
         var json = System.IO.File.ReadAllText(System.IO.Path.Combine(folder, "character.json"));
         using var document = JsonDocument.Parse(json);
@@ -179,17 +208,26 @@ public partial class CharacterSheetCapture : Node
         var motion = root.GetProperty("motion").GetProperty("kind").GetString() ?? "";
         var min = root.GetProperty("bounds_m").GetProperty("min").EnumerateArray().Select(v => (float)v.GetDouble()).ToArray();
         var max = root.GetProperty("bounds_m").GetProperty("max").EnumerateArray().Select(v => (float)v.GetDouble()).ToArray();
-        var visual = CharacterSheetPoses.BuildBody?.Invoke(folder) ?? LoadGlb(System.IO.Path.Combine(folder, "character.glb"));
-        var holder = new Node3D { Name = "SheetCharacter" };
+        return new CharacterInfo(folder, json, name, motion,
+            new Aabb(new Vector3(min[0], min[1], min[2]), new Vector3(max[0] - min[0], max[1] - min[1], max[2] - min[2])));
+    }
+
+    /// <summary>A fresh body for one tile, standing with its feet at <paramref name="feet"/>, facing -Z.</summary>
+    private Character Build(CharacterInfo info, string tileId, Vector3 feet)
+    {
+        var holder = new Node3D { Name = "SheetCharacter", Transform = new Transform3D(Basis.Identity, feet) };
+        var built = CharacterSheetPoses.BuildBody?.Invoke(new CharacterSheetBuild(info.Folder, tileId, _world));
+        if (built != null)
+        {
+            holder.AddChild(built.Root);
+            AddChild(holder);
+            return new Character { Holder = holder, Visual = built.Root, Look = built.Look };
+        }
+        var visual = LoadGlb(System.IO.Path.Combine(info.Folder, "character.glb"));
         holder.AddChild(visual);
         AddChild(holder);
-        var look = CharacterLook.Apply(visual, CharacterLook.PartsFromJson(json), holder);
-        var rest = visual.FindChildren("*", nameof(Node3D), true, false).OfType<Node3D>().Prepend(visual).Select(n => (n, n.Transform)).ToList();
-        return new Character
-        {
-            Holder = holder, Visual = visual, Look = look, Name = name, Motion = motion, Rest = rest,
-            Bounds = new Aabb(new Vector3(min[0], min[1], min[2]), new Vector3(max[0] - min[0], max[1] - min[1], max[2] - min[2])),
-        };
+        var look = CharacterLook.Apply(visual, CharacterLook.PartsFromJson(info.Json), holder);
+        return new Character { Holder = holder, Visual = visual, Look = look };
     }
 
     private static Node3D LoadGlb(string path)
@@ -201,19 +239,13 @@ public partial class CharacterSheetCapture : Node
         return document.GenerateScene(state) as Node3D ?? throw new InvalidOperationException($"{path} has no 3D scene");
     }
 
-    private static void ToRest(Character character)
-    {
-        foreach (var (node, pose) in character.Rest)
-            if (GodotObject.IsInstanceValid(node)) node.Transform = pose;
-        foreach (var skeleton in character.Visual.FindChildren("*", nameof(Skeleton3D), true, false).OfType<Skeleton3D>()) skeleton.ResetBonePoses();
-    }
-
     /// <summary>A tile's set: where the feet stand, the props around them, and where the camera looks from (relative to the feet).</summary>
     private sealed record TileSet(Vector3 Feet, CharacterSheetStage Stage, List<Node3D> Props, Vector3 EyeOffset, Vector3 LookOffset, float FovDeg);
 
-    private TileSet Set(string tileId, Character character)
+    private TileSet Set(string tileId, CharacterInfo info)
     {
-        var lift = character.Motion == "float" ? FloatLiftM : 0f;
+        var floats = info.Motion == "float";
+        var lift = floats ? FloatLiftM : 0f;
         var props = new List<Node3D>();
         var frontEye = new Vector3(0.15f, 0.1f, -0.23f);
         var middle = new Vector3(0f, 0.05f, 0f);
@@ -221,137 +253,224 @@ public partial class CharacterSheetCapture : Node
         {
             case "slope_30":
             {
-                var feet = Station + new Vector3(0f, 0.06f + lift, 0f);
-                var tilt = new Basis(Vector3.Right, Mathf.DegToRad(30f));
+                // Across the slope (it rises to the character's right, +X), so feet on legs plant at two heights and a body
+                // without legs rolls to the ground; seen from the front, low, from the downhill side.
+                var surface = Station + new Vector3(0f, 0.06f, 0f);
+                var tan = Mathf.Tan(Mathf.DegToRad(SlopeDeg));
+                // A floating body hovers clear of the slope under its whole width.
+                var feet = surface + Vector3.Up * (floats ? lift + tan * Mathf.Max(Mathf.Abs(info.Bounds.Position.X), Mathf.Abs(info.Bounds.End.X)) : 0f);
+                var tilt = new Basis(Vector3.Back, Mathf.DegToRad(SlopeDeg));
                 var normal = tilt * Vector3.Up;
-                props.Add(Prop("Slope", new Vector3(0.36f, 0.02f, 0.4f), new Transform3D(tilt, feet - Vector3.Up * lift - normal * 0.01f), MaterialLibrary.For("wood", new Color("9a6f45"))));
-                return new TileSet(feet, new CharacterSheetStage(feet, normal, null, null), props, new Vector3(0.3f, 0.09f, -0.12f), middle, 36f);
+                props.Add(Prop("Slope", new Vector3(0.44f, 0.02f, 0.36f), new Transform3D(tilt, surface - normal * 0.01f), MaterialLibrary.For("wood", new Color("9a6f45")), collide: true));
+                return new TileSet(feet, new CharacterSheetStage(feet, normal, null, null), props, new Vector3(-0.1f, 0.075f, -0.3f), middle, 36f);
             }
             case "wading":
             {
-                var feet = Station + Vector3.Up * lift;
+                // At the shins: a 10 cm character's knees are 2 to 2.5 cm up.
+                const float depth = 0.02f;
+                // A floating body hovers over the water, never in it.
+                var feet = Station + Vector3.Up * (floats ? depth + lift : 0f);
                 var water = new StandardMaterial3D
                 {
                     ResourceName = "sheet water", AlbedoColor = new Color(0.36f, 0.56f, 0.6f, 0.55f), Roughness = 0.08f,
                     Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
                 };
-                props.Add(Prop("Water", new Vector3(0.6f, 0.03f, 0.6f), new Transform3D(Basis.Identity, Station + Vector3.Up * 0.015f), water, shadow: false));
-                return new TileSet(feet, new CharacterSheetStage(feet, Vector3.Up, Station.Y + 0.03f, null), props, frontEye, middle, 36f);
+                props.Add(Prop("Water", new Vector3(0.6f, depth, 0.6f), new Transform3D(Basis.Identity, Station + Vector3.Up * (depth / 2)), water, shadow: false));
+                return new TileSet(feet, new CharacterSheetStage(feet, Vector3.Up, Station.Y + depth, null), props, frontEye, middle, 36f);
             }
             case "climbing":
             {
                 var feet = Station + new Vector3(0f, 0.04f + lift, 0f);
-                var wallZ = feet.Z + character.Bounds.Position.Z - 0.004f;
-                props.Add(Prop("Wall", new Vector3(0.6f, 0.36f, 0.04f), new Transform3D(Basis.Identity, new Vector3(feet.X, 0.18f, wallZ - 0.02f)), MaterialLibrary.For("plaster", new Color("c9bfae"))));
-                return new TileSet(feet, new CharacterSheetStage(feet, Vector3.Up, null, new Plane(Vector3.Back, wallZ)), props, new Vector3(0.2f, 0.13f, 0.24f), middle, 36f);
+                var wallZ = feet.Z + info.Bounds.Position.Z - 0.004f;
+                props.Add(Prop("Wall", new Vector3(0.6f, 0.36f, 0.04f), new Transform3D(Basis.Identity, new Vector3(feet.X, 0.18f, wallZ - 0.02f)), MaterialLibrary.For("plaster", new Color("c9bfae")), collide: true));
+                // From its right and a little behind, so the body against the face and the hands reaching up it both show.
+                return new TileSet(feet, new CharacterSheetStage(feet, Vector3.Up, null, new Plane(Vector3.Back, wallZ)), props, new Vector3(0.25f, 0.1f, 0.14f), new Vector3(0f, 0.055f, -0.01f), 36f);
             }
-            case "ninth" when character.Motion != "float":
+            case "ninth" when !floats:
             {
                 var feet = Station + Vector3.Up * lift;
                 return new TileSet(feet, new CharacterSheetStage(feet, Vector3.Up, null, null), props, new Vector3(0.06f, 0.075f, -0.15f), new Vector3(0f, 0.06f, 0f), 32f);
             }
+            case "ninth":
+            {
+                // Floating and casting: from the front, a little to its left, where its arm is; the spot it casts at is off to
+                // its left, in the frame, so the lean, the arm's swing and the spark all read.
+                var feet = Station + Vector3.Up * lift;
+                var spot = feet + new Vector3(-0.16f, 0.08f, -0.06f);
+                return new TileSet(feet, new CharacterSheetStage(feet, Vector3.Up, null, null, spot), props, new Vector3(-0.07f, 0.12f, -0.34f), new Vector3(-0.05f, 0.06f, 0f), 36f);
+            }
             default:
             {
                 var feet = Station + Vector3.Up * lift;
-                var eye = tileId == "ninth" ? new Vector3(0.21f, 0.13f, -0.32f) : frontEye;
-                return new TileSet(feet, new CharacterSheetStage(feet, Vector3.Up, null, null), props, eye, middle, 36f);
+                return new TileSet(feet, new CharacterSheetStage(feet, Vector3.Up, null, null), props, frontEye, middle, 36f);
             }
         }
     }
 
-    private Node3D Prop(string name, Vector3 size, Transform3D transform, Material material, bool shadow = true)
+    /// <summary>A box prop; with collide, a static body on the world's collision layer, so feet, rays and a tumble find it.</summary>
+    private Node3D Prop(string name, Vector3 size, Transform3D transform, Material material, bool shadow = true, bool collide = false)
     {
         var mesh = new MeshInstance3D
         {
-            Name = "Sheet" + name, Mesh = new BoxMesh { Size = size }, MaterialOverride = material, Transform = transform,
+            Name = "Sheet" + name, Mesh = new BoxMesh { Size = size }, MaterialOverride = material,
             CastShadow = shadow ? GeometryInstance3D.ShadowCastingSetting.On : GeometryInstance3D.ShadowCastingSetting.Off,
         };
-        AddChild(mesh);
-        return mesh;
+        if (!collide)
+        {
+            mesh.Transform = transform;
+            AddChild(mesh);
+            return mesh;
+        }
+        var body = new StaticBody3D { Name = "Sheet" + name, CollisionLayer = RoomBuilder.WorldLayer, CollisionMask = 0, Transform = transform };
+        body.AddChild(new CollisionShape3D { Name = "Shape", Shape = new BoxShape3D { Size = size } });
+        mesh.Name = "Mesh";
+        body.AddChild(mesh);
+        AddChild(body);
+        return body;
     }
 
-    private string LabelFor(string tileId, string label, Character character, bool posed)
+    private static string LabelFor(string tileId, string label, CharacterInfo info, CharacterSheetPoseStatus status, string note)
     {
-        if (tileId == "ninth") label = character.Motion == "float" ? "floating and casting (the halo lit)" : "a close look";
-        // A floating body never climbs, swims or tumbles (RUN-2-CHARACTERS.md): the tile still shows it, and says so.
-        var never = character.Motion == "float" && tileId is "climbing" or "wading" or "tumble" ? " (a floating body never does this)" : "";
-        return $"{label}{never}{(posed ? "" : " - rest pose")}";
+        var floats = info.Motion == "float";
+        if (tileId == "ninth") label = floats ? "floating and casting (the halo lit)" : "a close look";
+        // A floating body never lands, climbs, swims or tumbles (RUN-2-CHARACTERS.md): the tile shows it floating, and says so.
+        var never = floats && tileId is "hop_landing" or "climbing" or "wading" or "tumble" ? " (a floating body never does this: it floats)" : "";
+        var said = status == CharacterSheetPoseStatus.Rest ? " - rest pose" : note.Length > 0 ? ": " + note : "";
+        return $"{label}{never}{said}";
     }
 
     private async Task Sheet(string id, string folder, string outDir, Vector2I tileSize)
     {
-        var character = Build(folder);
+        var info = ReadInfo(folder);
         var tiles = new List<(Image Image, string Label)>();
+        CharacterLookResult? lookResult = null;
+        var posedTiles = 0;
+        var floats = info.Motion == "float";
+        var deltaS = 1f / Engine.PhysicsTicksPerSecond;
         foreach (var (tileId, tileLabel) in CharacterSheetPoses.Tiles)
         {
             HideAvatars();
-            ToRest(character);
-            var set = Set(tileId, character);
-            var casting = tileId == "ninth" && character.Motion == "float";
+            var set = Set(tileId, info);
+            var casting = tileId == "ninth" && floats;
             var glowId = "character_sheet_halo";
+            var companion = _world.Companion;
+            var savedAnchors = new List<(StringName Meta, Variant? Value)>();
             if (casting)
             {
-                // The halo through the real look, on the companion's body (its height and aura rules), the drawing riding on it.
-                _world.Companion.TryTeleportTo(set.Feet - Vector3.Up * FloatLiftM);
-                _world.Companion.Rotation = Vector3.Zero;
-                _world.Companion.ResetPhysicsInterpolation();
+                // The halo through the real look, on the companion's body (its height and aura rules); the companion stands where
+                // the drawing does, facing the same way, so a cast it plays leans the drawing toward the spot.
+                companion.TryTeleportTo(set.Feet - Vector3.Up * FloatLiftM);
+                companion.Rotation = Vector3.Zero;
+                companion.ResetPhysicsInterpolation();
                 for (var i = 0; i < 20; i++) await NextFrame();
-                _look.StartGlow(glowId, _world.Companion, Vector3.Zero, 0.6f, 0.6f);
             }
-            character.Holder.GlobalTransform = new Transform3D(Basis.Identity, set.Feet);
+            var character = Build(info, tileId, set.Feet);
+            lookResult ??= character.Look;
+            var drawn = character.Visual.GetNodeOrNull<DrawnGubble>(GubbleCharacter.NodeName);
+            if (casting)
+            {
+                // The look puts the halo (and its light) on the anchors the companion names: here, this drawing's own.
+                if (drawn != null)
+                    foreach (var (meta, anchor) in new (StringName, Node3D?)[] { (GlowLook.HaloAnchorMeta, drawn.HaloAnchor), (GlowLook.LightAnchorMeta, drawn.LightAnchor) })
+                    {
+                        savedAnchors.Add((meta, companion.HasMeta(meta) ? (Variant?)companion.GetMeta(meta) : null));
+                        if (anchor != null) companion.SetMeta(meta, anchor);
+                        else if (companion.HasMeta(meta)) companion.RemoveMeta(meta);
+                    }
+                _look.StartGlow(glowId, companion, Vector3.Zero, 0.6f, 0.6f);
+            }
             // The film is unshaded: it takes the place's light from the look's own estimate, as the game would give it.
             var level = _look.LightLevelAt(set.Feet + Vector3.Up * 0.05f);
             CharacterLook.SetLightLevel(character.Visual, level);
             _camera.Fov = set.FovDeg;
             _camera.LookAtFromPosition(set.Feet + set.EyeOffset, set.Feet + set.LookOffset, Vector3.Up);
             _look.FrameCamera(_camera, set.Feet + set.LookOffset);
-            var posed = false;
-            var started = Time.GetTicksUsec();
-            for (var frame = 0; frame < 30 || (Time.GetTicksUsec() - started) / 1e6 < 0.8; frame++)
+            // New props' collision is in the physics space from the next step: let two pass before anything casts at them.
+            await NextPhysicsFrame();
+            await NextPhysicsFrame();
+
+            var context = new CharacterSheetPoseContext(tileId, character.Holder, character.Visual, folder, info.Motion, set.Stage, _world, _camera, deltaS);
+            var status = CharacterSheetPoseStatus.Rest;
+            var maxTicks = (int)Math.Ceiling(CharacterSheetPoses.MaxTileSeconds / deltaS);
+            var capped = false;
+            for (var tick = 0; tick < maxTicks; tick++)
             {
-                if (casting) character.Holder.GlobalPosition = _world.Companion.GlobalPosition;
-                var context = new CharacterSheetPoseContext(tileId, character.Holder, character.Visual, folder, character.Motion, (Time.GetTicksUsec() - started) / 1e6, set.Stage);
-                posed = CharacterSheetPoses.TryPose(context);
+                await NextPhysicsFrame();
+                context.Tick = tick;
+                status = CharacterSheetPoses.TryPose(context);
                 _look.FrameCamera(_camera, character.Holder.GlobalPosition + set.LookOffset);
-                await NextFrame();
+                if (status != CharacterSheetPoseStatus.Posing) break;
+                capped = tick == maxTicks - 1;
             }
-            await ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
-            var image = _target.GetTexture().GetImage();
-            image.Convert(Image.Format.Rgb8);
-            tiles.Add((image, LabelFor(tileId, tileLabel, character, posed) + (character.Look.Count(CharacterSurfaceRole.Bubble) > 0 ? $" (light {level:0.00})" : "")));
+            if (status == CharacterSheetPoseStatus.Rest)
+            {
+                // No pose: the rest pose, the look given a moment to settle on the new framing.
+                var started = Time.GetTicksUsec();
+                for (var frame = 0; frame < 30 || (Time.GetTicksUsec() - started) / 1e6 < 0.8; frame++)
+                {
+                    if (casting && drawn == null) character.Holder.GlobalPosition = companion.GlobalPosition;
+                    _look.FrameCamera(_camera, character.Holder.GlobalPosition + set.LookOffset);
+                    await NextFrame();
+                }
+            }
+            else posedTiles++;
+            var note = context.Note + (capped ? " (taken at the time limit)" : "") + (context.Shows == false ? $" (not shown: {context.Missing})" : "");
+            var text = LabelFor(tileId, tileLabel, info, status, note) + (character.Look.Count(CharacterSurfaceRole.Bubble) > 0 ? $" (light {level:0.00})" : "");
+            if (_motionOnly)
+            {
+                var shown = status == CharacterSheetPoseStatus.Ready && !capped && context.Shows != false;
+                _motionTiles++;
+                if (shown) _motionShown++;
+                GD.Print($"CHARACTER_SHEET_MOTION character={id} tile={tileId} {(shown ? "ok" : "FAIL")} status={status} ticks={context.Tick + 1} label=\"{text}\"");
+                tiles.Add((Image.CreateEmpty(1, 1, false, Image.Format.Rgb8), text));
+            }
+            else
+            {
+                await ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
+                var image = _target.GetTexture().GetImage();
+                image.Convert(Image.Format.Rgb8);
+                tiles.Add((image, text));
+            }
+            _look.StopGlow(CharacterSheetPoses.CastGlowId);
             if (casting)
             {
                 _look.StopGlow(glowId);
-                _world.Companion.TryTeleportTo(new Vector3(1.75f, 0f, -1.2f));
+                foreach (var (meta, value) in savedAnchors)
+                    if (value is { } kept) companion.SetMeta(meta, kept);
+                    else if (companion.HasMeta(meta)) companion.RemoveMeta(meta);
+                companion.TryTeleportTo(new Vector3(1.75f, 0f, -1.2f));
             }
             foreach (var prop in set.Props) prop.QueueFree();
+            character.Holder.QueueFree();
             await NextFrame();
         }
-        var sheet = await Compose(character.Name, tiles, tileSize);
+        if (_motionOnly) return;
+        var sheet = await Compose(info.Name, info.Motion, posedTiles == tiles.Count, tiles, tileSize);
         var file = $"sheet_{id}.png";
         sheet.SavePng(System.IO.Path.Combine(outDir, file));
+        var look = lookResult!;
         _sheets.Add(new Dictionary<string, object>
         {
-            ["character"] = id, ["name"] = character.Name, ["motion"] = character.Motion, ["file"] = file,
+            ["character"] = id, ["name"] = info.Name, ["motion"] = info.Motion, ["file"] = file,
             ["tiles"] = tiles.Select(t => t.Label).ToArray(),
-            ["surfaces"] = Enum.GetValues<CharacterSurfaceRole>().ToDictionary(r => r.ToString().ToLowerInvariant(), r => character.Look.Count(r)),
+            ["surfaces"] = Enum.GetValues<CharacterSurfaceRole>().ToDictionary(r => r.ToString().ToLowerInvariant(), r => look.Count(r)),
         });
-        GD.Print($"CHARACTER_SHEET character={id} file={file} bubble={character.Look.Count(CharacterSurfaceRole.Bubble)} ink={character.Look.Count(CharacterSurfaceRole.Ink)} effect={character.Look.Count(CharacterSurfaceRole.Effect)} felt={character.Look.Count(CharacterSurfaceRole.Plain)}");
-        character.Holder.QueueFree();
-        await NextFrame();
+        GD.Print($"CHARACTER_SHEET character={id} file={file} posed={posedTiles}/{tiles.Count} bubble={look.Count(CharacterSurfaceRole.Bubble)} ink={look.Count(CharacterSurfaceRole.Ink)} effect={look.Count(CharacterSurfaceRole.Effect)} felt={look.Count(CharacterSurfaceRole.Plain)}");
+        foreach (var (_, label) in tiles) GD.Print($"CHARACTER_SHEET_TILE character={id} {label}");
     }
 
     /// <summary>The nine tiles in three rows with their labels under a title, drawn by a 2D viewport and read back.</summary>
-    private async Task<Image> Compose(string title, List<(Image Image, string Label)> tiles, Vector2I tileSize)
+    private async Task<Image> Compose(string title, string motion, bool posed, List<(Image Image, string Label)> tiles, Vector2I tileSize)
     {
-        const int titleH = 44, labelH = 30, columns = 3;
+        const int titleH = 44, labelH = 46, columns = 3;
         var rows = (tiles.Count + columns - 1) / columns;
         var size = new Vector2I(tileSize.X * columns, titleH + rows * (labelH + tileSize.Y));
         var canvas = new SubViewport { Size = size, Disable3D = true, TransparentBg = false, RenderTargetUpdateMode = SubViewport.UpdateMode.Always };
         AddChild(canvas);
         var background = new ColorRect { Color = new Color("1d1f24"), Size = size };
         canvas.AddChild(background);
-        var heading = new Label { Text = $"{title}: the look (L8), rest pose until the pose packets land; {Arg("commit", "")}", Position = new Vector2(12, 8), Size = new Vector2(size.X - 24, titleH - 8) };
+        var what = posed ? $"{motion}: the rig, its look and every packet's motion, run from scripted body states" : "the look (L8), rest pose where no pose is registered";
+        var heading = new Label { Text = $"{title} ({what}); {Arg("commit", "")}", Position = new Vector2(12, 8), Size = new Vector2(size.X - 24, titleH - 8) };
         heading.AddThemeFontSizeOverride("font_size", 22);
         heading.AddThemeColorOverride("font_color", new Color("f2efe6"));
         canvas.AddChild(heading);
@@ -359,8 +478,13 @@ public partial class CharacterSheetCapture : Node
         {
             var x = i % columns * tileSize.X;
             var y = titleH + i / columns * (labelH + tileSize.Y);
-            var label = new Label { Text = $"{i + 1}. {tiles[i].Label}", Position = new Vector2(x + 10, y + 4), Size = new Vector2(tileSize.X - 20, labelH - 4) };
-            label.AddThemeFontSizeOverride("font_size", 17);
+            var label = new Label
+            {
+                Text = $"{i + 1}. {tiles[i].Label}", Position = new Vector2(x + 10, y + 3), Size = new Vector2(tileSize.X - 20, labelH - 4),
+                AutowrapMode = TextServer.AutowrapMode.WordSmart, ClipText = true,
+            };
+            label.AddThemeFontSizeOverride("font_size", 15);
+            label.AddThemeConstantOverride("line_spacing", -2);
             label.AddThemeColorOverride("font_color", new Color("d9d4c7"));
             canvas.AddChild(label);
             canvas.AddChild(new TextureRect { Texture = ImageTexture.CreateFromImage(tiles[i].Image), Position = new Vector2(x, y + labelH), Size = tileSize });
@@ -403,7 +527,9 @@ public partial class CharacterSheetCapture : Node
     /// </summary>
     private async Task BubbleCost(string id, string folder, string outDir)
     {
-        var character = Build(folder);
+        var info = ReadInfo(folder);
+        var feet = Station + Vector3.Up * (info.Motion == "float" ? FloatLiftM : 0f);
+        var character = Build(info, "bubble_cost", feet);
         var bubbles = character.Look.Of(CharacterSurfaceRole.Bubble).ToList();
         var meshes = bubbles.Select(s => s.Mesh).Distinct().ToList();
         if (meshes.Count == 0)
@@ -411,8 +537,6 @@ public partial class CharacterSheetCapture : Node
             character.Holder.QueueFree();
             return;
         }
-        var feet = Station + Vector3.Up * (character.Motion == "float" ? FloatLiftM : 0f);
-        character.Holder.GlobalTransform = new Transform3D(Basis.Identity, feet);
         CharacterLook.SetLightLevel(character.Visual, _look.LightLevelAt(feet + Vector3.Up * 0.05f));
         var previousSize = _target.Size;
         _target.Size = new Vector2I(1920, 1080);
