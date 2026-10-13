@@ -93,12 +93,22 @@ public partial class CharacterRigTest
             var (crowdJson, crowdGlb) = Synthetic(4, extraParts: 63);
             Folder("too_many_parts", crowdJson, crowdGlb);
             Expect("too_many_parts", "64-bone budget");
+            // Review major 1: the vertices a GLB makes the reader copy are bounded, not only its triangles. Primitives sharing one
+            // POSITION accessor each copy it whole: 48 primitives of one triangle naming 5,000 vertices each is 240,000 vertices.
+            var (sharedJson, sharedGlb) = SharedVertices(parts: 6, primitivesPerPart: 8, vertices: 5_000);
+            Folder("shared_vertices", sharedJson, sharedGlb);
+            Expect("shared_vertices", "240,000 vertices in all");
+            var (unusedJson, unusedGlb) = SharedVertices(parts: 1, primitivesPerPart: 1, vertices: 250_000);
+            Folder("unused_vertices", unusedJson, unusedGlb);
+            Expect("unused_vertices", "over the 210,000-vertex limit");
+            var (withinJson, withinGlb) = SharedVertices(parts: 2, primitivesPerPart: 2, vertices: 5_000);
+            Folder("shared_within", withinJson, withinGlb);
             var (kiteJson, kiteGlb) = Synthetic(48);
             Folder("synthetic_kite", kiteJson, kiteGlb,
                 "{\"schema\": \"enfractal.character.rig\", \"version\": 1, \"roles\": {\"wing_screen_left\": \"arm\"}, \"rigid\": [\"hat\"], \"chains\": {\"leg_screen_left\": {\"enabled\": false}}}");
 
             var library = CharacterLibrary.Load(root);
-            Check(library.Entries.Count == expected.Count + 3, $"every fixture folder is listed ({library.Entries.Count})");
+            Check(library.Entries.Count == expected.Count + 4, $"every fixture folder is listed ({library.Entries.Count})");
             foreach (var (id, reason) in expected)
             {
                 var entry = library.Entry(id);
@@ -108,6 +118,8 @@ public partial class CharacterRigTest
             }
             Check(library.Entry("a_copy")?.IsLoaded == true && library.Entry("at_triangle_limit")?.IsLoaded == true,
                 "a copied character and one at exactly 70,000 triangles load from an absolute path: " + library.Entry("at_triangle_limit")?.RefusalReason);
+            Check(library.Entry("shared_within")?.IsLoaded == true,
+                "primitives may share an accessor while the vertices they copy stay within the limit: " + library.Entry("shared_within")?.RefusalReason);
             Check(library.Build(null) == null && library.Build("nobody_here") == null, "no id or an unknown id builds no body");
             Check(CharacterRig.Build(System.IO.Path.Combine(root, "unknown_motion")) == null &&
                   !CharacterRig.TryBuild(System.IO.Path.Combine(root, "unknown_motion"), out _, out var why) && why!.Contains("unknown motion kind"),
@@ -141,6 +153,93 @@ public partial class CharacterRigTest
         {
             Directory.Delete(root, true);
         }
+    }
+
+    /// <summary>
+    /// A character whose every primitive names one shared POSITION accessor of <paramref name="vertices"/> vertices (a box from
+    /// the ground to 0.10 m) and one shared index accessor of a single triangle: a body and <paramref name="parts"/> - 1 marks at
+    /// its joint, each mesh with <paramref name="primitivesPerPart"/> primitives. Valid in every other way, so only the vertex
+    /// bound can refuse it.
+    /// </summary>
+    private static (byte[] Json, byte[] Glb) SharedVertices(int parts, int primitivesPerPart, int vertices)
+    {
+        var low = new Vector3(-0.02f, -0.05f, -0.01f);
+        var high = new Vector3(0.02f, 0.05f, 0.01f);
+        var pivot = new Vector3(0, 0.05f, 0);
+        var binary = new byte[vertices * 12 + 12];
+        var at = 0;
+        void Put(float f) { BitConverter.TryWriteBytes(binary.AsSpan(at), f); at += 4; }
+        for (var k = 0; k < vertices; k++)
+        {
+            var t = k / (float)Math.Max(1, vertices - 1);
+            var v = k == 0 ? low : k == 1 ? high : new Vector3(Mathf.Lerp(low.X, high.X, t), (k & 1) == 0 ? low.Y * 0.5f : high.Y * 0.5f, 0);
+            Put(v.X); Put(v.Y); Put(v.Z);
+        }
+        foreach (var index in new uint[] { 0, 2, 1 }) { BitConverter.TryWriteBytes(binary.AsSpan(at), index); at += 4; }
+        var meshes = new JsonArray();
+        var nodes = new JsonArray { new JsonObject { ["name"] = "character_root", ["children"] = new JsonArray(1) } };
+        var metaParts = new JsonArray();
+        for (var p = 0; p < parts; p++)
+        {
+            var name = p == 0 ? "body" : $"mark_{p}";
+            var primitives = new JsonArray();
+            for (var q = 0; q < primitivesPerPart; q++)
+                primitives.Add(new JsonObject { ["attributes"] = new JsonObject { ["POSITION"] = 0 }, ["indices"] = 1, ["mode"] = 4, ["material"] = 0 });
+            meshes.Add(new JsonObject { ["name"] = name, ["primitives"] = primitives });
+            var local = p == 0 ? pivot : Vector3.Zero;
+            var node = new JsonObject { ["name"] = name, ["translation"] = new JsonArray(local.X, local.Y, local.Z), ["mesh"] = p };
+            if (p == 0 && parts > 1) node["children"] = new JsonArray(Enumerable.Range(2, parts - 1).Select(i => (JsonNode)i).ToArray());
+            nodes.Add(node);
+            metaParts.Add(new JsonObject
+            {
+                ["kind"] = "solid", ["local_pivot_m"] = new JsonArray(local.X, local.Y, local.Z), ["name"] = name, ["node_index"] = p + 1,
+                ["parent"] = p == 0 ? null : "body", ["pivot_m"] = new JsonArray(pivot.X, pivot.Y, pivot.Z), ["role"] = "shared " + name,
+            });
+        }
+        var gltf = new JsonObject
+        {
+            ["asset"] = new JsonObject { ["version"] = "2.0", ["generator"] = "EnFractal review fix test" },
+            ["scene"] = 0, ["scenes"] = new JsonArray(new JsonObject { ["nodes"] = new JsonArray(0) }),
+            ["nodes"] = nodes, ["meshes"] = meshes,
+            ["accessors"] = new JsonArray(
+                new JsonObject { ["bufferView"] = 0, ["componentType"] = 5126, ["count"] = vertices, ["type"] = "VEC3" },
+                new JsonObject { ["bufferView"] = 1, ["componentType"] = 5125, ["count"] = 3, ["type"] = "SCALAR" }),
+            ["bufferViews"] = new JsonArray(
+                new JsonObject { ["buffer"] = 0, ["byteOffset"] = 0, ["byteLength"] = vertices * 12 },
+                new JsonObject { ["buffer"] = 0, ["byteOffset"] = vertices * 12, ["byteLength"] = 12 }),
+            ["buffers"] = new JsonArray(new JsonObject { ["byteLength"] = binary.Length }),
+            ["materials"] = new JsonArray(new JsonObject { ["name"] = "body", ["pbrMetallicRoughness"] = new JsonObject { ["baseColorFactor"] = new JsonArray(0.8, 0.6, 0.4, 1.0) } }),
+        };
+        var json = Encoding.UTF8.GetBytes(gltf.ToJsonString()).ToList();
+        while (json.Count % 4 != 0) json.Add((byte)' ');
+        using var glb = new MemoryStream();
+        using (var writer = new BinaryWriter(glb, Encoding.UTF8, leaveOpen: true))
+        {
+            writer.Write(0x46546C67u);
+            writer.Write(2u);
+            writer.Write((uint)(12 + 8 + json.Count + 8 + binary.Length));
+            writer.Write((uint)json.Count);
+            writer.Write(0x4E4F534Au);
+            writer.Write(json.ToArray());
+            writer.Write((uint)binary.Length);
+            writer.Write(0x004E4942u);
+            writer.Write(binary);
+        }
+        var hex = new string('0', 64);
+        var top = pivot + high;
+        var bottom = pivot + low;
+        var character = new JsonObject
+        {
+            ["bounds_m"] = new JsonObject { ["max"] = new JsonArray(top.X, top.Y, top.Z), ["min"] = new JsonArray(bottom.X, bottom.Y, bottom.Z) },
+            ["collision_hint"] = new JsonObject { ["height_m"] = 0.1, ["kind"] = "capsule", ["radius_m"] = 0.02, ["visual_overhang"] = false },
+            ["depth_m"] = high.Z - low.Z, ["forward"] = "-Z", ["height_m"] = 0.1,
+            ["motion"] = new JsonObject { ["kind"] = "waddle", ["reason"] = "A test box" },
+            ["name"] = "A shared-vertex box", ["parts"] = metaParts,
+            ["provenance"] = new JsonObject { ["description_sha256"] = hex, ["interpretation_sha256"] = hex, ["photo_sha256"] = hex, ["photo_size_px"] = new JsonArray(800, 1000) },
+            ["root_pivot_m"] = new JsonArray(0, 0, 0), ["schema"] = "enfractal.character.draft", ["triangles"] = parts * primitivesPerPart,
+            ["uncertainties"] = new JsonArray("Synthetic"), ["units"] = "metres", ["up"] = "+Y", ["version"] = 1, ["width_m"] = high.X - low.X,
+        };
+        return (Encoding.UTF8.GetBytes(character.ToJsonString()), glb.ToArray());
     }
 
     /// <summary>
