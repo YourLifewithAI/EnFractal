@@ -288,7 +288,11 @@ CLEAR_R = .055      # half of the 11 cm carrying clearance (body and a held item
 WALK_LATTICE_W = .05
 WALK_BUDGET_W = 40_000
 WALK_GREED_W = 1.5
+# Beyond this straight distance a magnified island's walk is not searched at all: the route is taken on trust (an
+# island-scale planner on a coarser lattice would be the real answer). Counted in UNVERIFIED.
+WALK_REACH_W = 12.
 BUDGET_HITS = [0]
+UNVERIFIED = [0]
 EDGE_SAMPLE = .01   # every walk edge is sampled each centimetre
 
 
@@ -422,6 +426,9 @@ class Walker:
         return int(round(x/self.t.cell)), int(round(z/self.t.cell))
 
     def route(self, start, goal):
+        if world.W != 1 and math.hypot(goal[0]-start[0], goal[1]-start[1]) > WALK_REACH_W:
+            UNVERIFIED[0] += 1
+            return [self.key(*start), self.key(*goal)], dict(unverified=True)
         s, g = self.key(*start), self.key(*goal)
         if not self.standable(s) or not self.standable(g):
             return None, dict(start_ok=self.standable(s), goal_ok=self.standable(g))

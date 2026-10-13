@@ -556,7 +556,7 @@ def flow_accumulation(grid, h):
     return acc, down
 
 
-def weather(grid, h, outside, slope, noise, rounds=3, area=1.):
+def weather(grid, h, outside, slope, noise, rounds=3):
     """Erosion signature: a few rounds of stream-power incision, so gullies
     gather into branching drainage and the ground between them stands as
     spurs; then softened crests and talus below steep faces."""
@@ -569,7 +569,7 @@ def weather(grid, h, outside, slope, noise, rounds=3, area=1.):
             s = s_now[q]
             if s < 10:
                 continue
-            a = min(acc[q] if area == 1. else acc[q]*area, 600.)
+            a = min(acc[q], 600.)
             out[q] -= .0016*math.sqrt(a)*smooth((s-10)/25)*(1.25 if r == 0 else 1.)
     # Soften crests: blur where convex and steep.
     nx = grid.nx

@@ -65,6 +65,9 @@ public partial class RoomNavigation : Node
     /// </summary>
     public const float TileM = 16f;
     private readonly System.Collections.Generic.List<Rid> _tiles = new();
+    private NavigationMesh?[]? _tileMeshes;
+    private NavigationMeshSourceGeometryData3D? _shellSource;
+    private readonly System.Collections.Generic.Dictionary<ulong, Vector3> _objectsAt = new();
     public int TileCount => Math.Max(1, _tiles.Count);
     private int _signature;
     /// <summary>Change counts of shapes whose data is too large to hash each poll (concave meshes, height maps), from their changed signal.</summary>
@@ -171,15 +174,15 @@ public partial class RoomNavigation : Node
             FilterWalkableLowHeightSpans = true, FilterLedgeSpans = true, FilterLowHangingObstacles = true,
             FilterBakingAabb = BakeBounds
         };
-        var source = new NavigationMeshSourceGeometryData3D();
-        NavigationServer3D.ParseSourceGeometryData(mesh, source, SourceRoot);
-        ObstructSolids(SourceRoot, source);
         if (BakeBounds.Size.X > TileM || BakeBounds.Size.Z > TileM)
         {
-            BakeTiles(mesh, source);
+            BakeTiles(mesh);
         }
         else
         {
+            var source = new NavigationMeshSourceGeometryData3D();
+            NavigationServer3D.ParseSourceGeometryData(mesh, source, SourceRoot);
+            ObstructSolids(SourceRoot, source);
             if (source.HasData()) NavigationServer3D.BakeFromSourceGeometryData(mesh, source);
             NavigationServer3D.RegionSetTransform(_region, SourceRoot.GlobalTransform);
             NavigationServer3D.RegionSetNavigationMesh(_region, mesh);
@@ -193,14 +196,53 @@ public partial class RoomNavigation : Node
             $"ROOM_NAVIGATION bake {Revision}: {PolygonCount} polygons in {LastBakeMs:0.0} ms (agent radius {AgentRadiusM:0.000} m, height {AgentHeightM:0.00} m, climb {AgentMaxClimbM:0.000} m)"));
     }
 
-    /// <summary>SCALE EXPERIMENT: bake the box in cell-aligned square tiles (TileM), one region each, from one parse of the source.</summary>
-    private void BakeTiles(NavigationMesh settings, NavigationMeshSourceGeometryData3D source)
+    /// <summary>
+    /// SCALE EXPERIMENT: bake the box in cell-aligned square tiles (TileM), one region each. The room's shell (the land, the
+    /// merged plants, the trees) never moves, so its parsed geometry is kept; each bake parses only the objects, and a re-bake
+    /// (an object carried and put down) bakes only the tiles round the objects that moved, instead of the whole island.
+    /// </summary>
+    private void BakeTiles(NavigationMesh settings)
     {
+        var shellNode = SourceRoot.GetNodeOrNull<Node3D>("Shell");
+        var objectsNode = SourceRoot.GetNodeOrNull<Node3D>("Objects");
+        var source = new NavigationMeshSourceGeometryData3D();
+        var moved = new System.Collections.Generic.List<Aabb>();
+        var all = _tileMeshes == null || shellNode == null || objectsNode == null;
+        if (shellNode != null && objectsNode != null)
+        {
+            if (_shellSource == null)
+            {
+                _shellSource = new NavigationMeshSourceGeometryData3D();
+                NavigationServer3D.ParseSourceGeometryData(settings, _shellSource, shellNode);
+            }
+            var objectsSource = new NavigationMeshSourceGeometryData3D();
+            NavigationServer3D.ParseSourceGeometryData(settings, objectsSource, objectsNode);
+            source.Merge(_shellSource);
+            source.Merge(objectsSource);
+            // What moved since the last bake: its old and new places (a metre round each) need new tiles.
+            var now = new System.Collections.Generic.Dictionary<ulong, Vector3>();
+            foreach (var body in objectsNode.FindChildren("*", "StaticBody3D", true, false).OfType<StaticBody3D>())
+                if ((body.CollisionLayer & RoomBuilder.WorldLayer) != 0) now[body.GetInstanceId()] = body.GlobalPosition;
+            foreach (var (id, at) in now)
+                if (!_objectsAt.TryGetValue(id, out var was) || was.DistanceTo(at) > 0.001f)
+                {
+                    moved.Add(new Aabb(at - Vector3.One, Vector3.One * 2));
+                    if (_objectsAt.ContainsKey(id)) moved.Add(new Aabb(was - Vector3.One, Vector3.One * 2));
+                }
+            foreach (var (id, was) in _objectsAt)
+                if (!now.ContainsKey(id)) moved.Add(new Aabb(was - Vector3.One, Vector3.One * 2));
+            _objectsAt.Clear();
+            foreach (var (id, at) in now) _objectsAt[id] = at;
+        }
+        else NavigationServer3D.ParseSourceGeometryData(settings, source, SourceRoot);
+        ObstructSolids(SourceRoot, source);
         var low = BakeBounds.Position;
         var high = BakeBounds.End;
         var step = Mathf.Ceil(TileM / CellM) * CellM;
-        var x0 = Mathf.Floor(low.X / CellM) * CellM;
-        var z0 = Mathf.Floor(low.Z / CellM) * CellM;
+        // Tile edges half a cell off the map's cell lattice: a shared edge's vertices then fall well inside one merge cell on both
+        // sides (exactly on a cell boundary, float noise splits them and the tiles do not join).
+        var x0 = Mathf.Floor(low.X / CellM) * CellM - 0.5f * CellM;
+        var z0 = Mathf.Floor(low.Z / CellM) * CellM - 0.5f * CellM;
         var columns = (int)Mathf.Ceil((high.X - x0) / step);
         var rows = (int)Mathf.Ceil((high.Z - z0) / step);
         while (_tiles.Count < columns * rows)
@@ -210,12 +252,23 @@ public partial class RoomNavigation : Node
             NavigationServer3D.RegionSetMap(region, Map);
             _tiles.Add(region);
         }
+        _tileMeshes ??= new NavigationMesh?[columns * rows];
         var polygons = 0;
+        var baked = 0;
         for (var j = 0; j < rows; j++)
             for (var i = 0; i < columns; i++)
             {
+                var box = new Aabb(new Vector3(x0 + i * step, low.Y, z0 + j * step), new Vector3(step, BakeBounds.Size.Y, step));
+                var flat = new Rect2(box.Position.X - 1, box.Position.Z - 1, box.Size.X + 2, box.Size.Z + 2);
+                if (!all && _tileMeshes[j * columns + i] is { } kept &&
+                    !moved.Any(m => flat.Intersects(new Rect2(m.Position.X, m.Position.Z, m.Size.X, m.Size.Z))))
+                {
+                    polygons += kept.GetPolygonCount();
+                    continue;
+                }
+                baked++;
                 var tile = (NavigationMesh)settings.Duplicate();
-                tile.FilterBakingAabb = new Aabb(new Vector3(x0 + i * step, low.Y, z0 + j * step), new Vector3(step, BakeBounds.Size.Y, step));
+                tile.FilterBakingAabb = box;
                 // Tile edges stay on the tile's border instead of shrinking by the agent's radius, so neighbours meet.
                 tile.BorderSize = AgentRadiusM;
                 tile.EdgeMaxError = 1.0f;
@@ -223,10 +276,11 @@ public partial class RoomNavigation : Node
                 var region = _tiles[j * columns + i];
                 NavigationServer3D.RegionSetTransform(region, SourceRoot.GlobalTransform);
                 NavigationServer3D.RegionSetNavigationMesh(region, tile);
+                _tileMeshes[j * columns + i] = tile;
                 polygons += tile.GetPolygonCount();
             }
         PolygonCount = polygons;
-        GD.Print($"ROOM_NAVIGATION tiles: {columns} x {rows} of {step:0.##} m");
+        GD.Print($"ROOM_NAVIGATION tiles: {columns} x {rows} of {step:0.##} m, {baked} baked");
     }
 
     /// <summary>

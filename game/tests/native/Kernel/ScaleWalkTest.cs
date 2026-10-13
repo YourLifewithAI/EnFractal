@@ -54,7 +54,20 @@ public partial class ScaleWalkTest : Node3D
         var player = _world.Player;
         player.ReadKeyboard = false;
         var start = player.GlobalPosition;
-        // Across the island: the walkable point nearest a coast point, a little inland, farthest from the spawn that a route reaches.
+        if (OS.GetCmdlineUserArgs().Contains("--debug-nav"))
+        {
+            var regions = NavigationServer3D.MapGetRegions(navigation.Map);
+            Print($"SCALE_NAV_DEBUG regions={regions.Count} closest={NavigationServer3D.MapGetClosestPoint(navigation.Map, start)} owner={NavigationServer3D.MapGetClosestPointOwner(navigation.Map, start)}");
+            Print($"SCALE_NAV_DEBUG connections total={regions.Sum(r => NavigationServer3D.RegionGetConnectionsCount(r))} zero={regions.Count(r => NavigationServer3D.RegionGetConnectionsCount(r) == 0)}");
+            if (regions.Count <= 5) foreach (var region in regions)
+                Print($"SCALE_NAV_DEBUG region {region} connections={NavigationServer3D.RegionGetConnectionsCount(region)} enabled={NavigationServer3D.RegionGetEnabled(region)}");
+            foreach (var d in new[] { 0.5f, 2f, 5f, 10f })
+            {
+                var r = navigation.FindRoute(start, navigation.ClosestPoint(start + new Vector3(d, 0, d)), 0.1f);
+                Print($"SCALE_NAV_DEBUG route +{d} m: reaches={r.Reaches} points={r.Points.Length} length={r.LengthM:0.00}");
+            }
+        }
+        // Across the island: toward coast points (a little inland) farthest from the spawn, the farthest place a route gets to.
         var far = start;
         var route = RoomNavigation.Route.None;
         if (room.Sea is { Coast.Length: > 0 } sea)
@@ -62,23 +75,37 @@ public partial class ScaleWalkTest : Node3D
             var centre = sea.Coast.Aggregate(Vector2.Zero, (a, p) => a + p) / sea.Coast.Length;
             var space = GetWorld3D().DirectSpaceState;
             var candidates = sea.Coast.Where((_, i) => i % Math.Max(1, sea.Coast.Length / 64) == 0)
-                .Select(p => p + (centre - p) * 0.08f).OrderByDescending(p => (p - new Vector2(start.X, start.Z)).Length()).Take(24);
+                .Select(p => p + (centre - p) * 0.15f).OrderByDescending(p => (p - new Vector2(start.X, start.Z)).Length()).Take(24);
             foreach (var p in candidates)
             {
                 var hit = space.IntersectRay(PhysicsRayQueryParameters3D.Create(new Vector3(p.X, room.Bounds.End.Y + 1, p.Y), new Vector3(p.X, -5, p.Y), RoomBuilder.WorldLayer));
                 if (hit.Count == 0) continue;
                 var ground = navigation.ClosestPoint((Vector3)hit["position"]);
                 var tried = navigation.FindRoute(start, ground, 0.1f);
-                if (!tried.Reaches) continue;
-                far = ground;
+                if (OS.GetCmdlineUserArgs().Contains("--debug-nav"))
+                    Print($"SCALE_NAV_DEBUG candidate {p} hit={(Vector3)hit["position"]} ground={ground} points={tried.Points.Length} reaches={tried.Reaches} end={(tried.Points.Length > 0 ? tried.Points[^1] : Vector3.Zero)}");
+                // As far across as a body can walk: where the route toward that coast point ends (water or cliffs may stop it short).
+                if (tried.Points.Length == 0) continue;
+                var end = tried.Points[^1];
+                if (Planar(end - start).Length() <= Planar(far - start).Length()) continue;
+                far = end;
                 route = tried;
-                break;
             }
         }
         Print($"SCALE_ROUTE from=({start.X:0.##},{start.Z:0.##}) to=({far.X:0.##},{far.Z:0.##}) straight_m={Planar(far - start).Length():0.0} " +
               $"route_m={route.LengthM:0.0} reaches={route.Reaches} corners={route.Points.Length}");
         await Walk("walk across", navigation, far, sprint: false, maxWalkS);
         await Walk("run back", navigation, start, sprint: true, maxWalkS);
+        // A carried thing put down: one movable object moves 30 cm, and the navigation mesh is baked again (as after a carry).
+        var movable = _world.Built.GetNodeOrNull<Node3D>("Objects")?.GetChildren().OfType<StaticBody3D>()
+            .FirstOrDefault(b => b.HasMeta("movable") && b.GetMeta("movable").AsBool());
+        if (movable != null)
+        {
+            movable.GlobalPosition += new Vector3(0.3f, 0, 0);
+            await Frames(2);
+            navigation.Bake();
+            Print($"SCALE_REBAKE after moving {movable.Name}: {navigation.LastBakeMs:0} ms, {navigation.PolygonCount} polygons");
+        }
         GetTree().Quit(0);
     }
 

@@ -121,23 +121,23 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=
     inside = [wall_frame(room, grid.xs[q % nx], grid.zs[q//nx])[0] <= 0 for q in range(grid.n)]
     outlet = choose_outlet(room, spawns)
     diag = math.hypot(hi[0]-lo[0], hi[2]-lo[2])
-    # World scale: the plain, the landforms and their weathering are the
-    # unmagnified room's, computed on this grid with its coordinates divided by
-    # W (`ugrid`, unmagnified noise and boxes) and their heights multiplied by W.
+    # World scale: the plain, the landforms and their weathering are today's
+    # island exactly: computed on the unmagnified room on today's 3 cm grid (its
+    # own margin, unmagnified noise and boxes), then magnified onto this grid
+    # (bilinear between today's samples, which lie 3 cm x W apart; heights x W).
     ugrid, unoise, uobjects = grid, noise, objects
     if W != 1:
-        ugrid = Grid(grid.x0/W, grid.z0/W, grid.x0/W+(nx-1)*cell/W, grid.z0/W+(grid.nz-1)*cell/W, cell/W)
-        assert (ugrid.nx, ugrid.nz) == (grid.nx, grid.nz)
+        ugrid = Grid(lo[0]/W-MARGIN, lo[2]/W-MARGIN, hi[0]/W+MARGIN, hi[2]/W+MARGIN, CELL)
         unoise = Noise(seed)
         uobjects = [dict(o, cx=o['cx']/W, cz=o['cz']/W, base=o['base']/W, top=o['top']/W, sx=o['sx']/W,
                          sy=o['sy']/W, sz=o['sz']/W) for o in objects]
     # The plain: living ground tilting gently toward the pass where water leaves.
     base = []
-    for q in range(grid.n):
-        x, z = ugrid.xs[q % nx], ugrid.zs[q//nx]
+    for q in range(ugrid.n):
+        x, z = ugrid.xs[q % ugrid.nx], ugrid.zs[q//ugrid.nx]
         t = clamp(math.hypot(x*W-outlet['x'], z*W-outlet['z'])/diag)
         base.append(.035+.055*t+.018*unoise.fbm(x*.55+2, z*.55-1, 3))
-    owner = [-1]*grid.n
+    owner = [-1]*ugrid.n
     # One lee for the whole land: soft hills trail their long gentle side the
     # way the land drains, from the high country toward the pass, so every
     # hill shares the same weathering, like crag-and-tail country.
@@ -149,11 +149,17 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=
     h = uplift(ugrid, uobjects, base, unoise, owner)
     outside = [not v for v in inside]
     slope = slope_field(ugrid, h)
-    # The weathering's catchment is counted in today's 3 cm cells of the unmagnified room.
-    h, acc = weather(ugrid, h, outside, slope, unoise, area=(ugrid.cell/CELL)**2)
+    h, acc = weather(ugrid, h, outside, slope, unoise)
     if W != 1:
-        h = [v*W for v in h]
-        base = [v*W for v in base]
+        hu, bu, ou, au = h, base, owner, acc
+        h, base, owner, acc = [], [], [], []
+        for q in range(grid.n):
+            xu, zu = grid.xs[q % nx]/W, grid.zs[q//nx]/W
+            h.append(ugrid.sample(hu, xu, zu)*W)
+            base.append(ugrid.sample(bu, xu, zu)*W)
+            i, j = ugrid.nearest(xu, zu)
+            owner.append(ou[j*ugrid.nx+i])
+            acc.append(au[j*ugrid.nx+i])
     _tick('landforms')
     # ---------------- the island: the walls become a ragged coast, the door a jetty
     coast = Sea.carve_coast(grid, room, h, base, noise, objects, spawns, seed)
@@ -986,8 +992,9 @@ def main():
     t0 = time.perf_counter()
     doc = generate(args.room, args.out, load_json(args.setup), args.seed, cell=args.cell)
     if args.world_scale != 1:
-        from .checks import BUDGET_HITS
-        print('LANDSCAPE_TIMING generate_s %.1f walks_over_budget %d' % (time.perf_counter()-t0, BUDGET_HITS[0]))
+        from .checks import BUDGET_HITS, UNVERIFIED
+        print('LANDSCAPE_TIMING generate_s %.1f walks_over_budget %d walks_taken_on_trust %d' % (
+            time.perf_counter()-t0, BUDGET_HITS[0], UNVERIFIED[0]))
     print('LANDSCAPE_PACKAGE', args.out, 'meshes', len(doc['meshes']), 'scatter', len(doc['scatter']),
           'objects', len(doc['objects']))
 

@@ -16,11 +16,12 @@ default output is byte-identical.
 
 What belongs to the room (x W) and what to the body (kept), constant by constant:
 
-ROOM (x W): the landforms and the plain (computed on the unmagnified room, then
-magnified: `generate` runs uplift and weathering on the same grid with its
-coordinates divided by W and multiplies the heights by W, so every hill, mesa,
-spire, crag and its noise is exactly the garage's, ten times bigger; the
-weathering's catchment is counted in today's 3 cm cells); every spatial noise
+ROOM (x W): the landforms and the plain (today's island exactly: `generate`
+runs the plain, uplift and weathering on the unmagnified room on today's 3 cm
+grid, then samples it bilinearly onto the coarser grid with heights x W, so
+every hill, mesa, spire, crag and gully is the garage's, ten times bigger;
+computing them on a finer grid instead deepened the weathering until the tarn
+sat below the sea and lost its river); every spatial noise
 frequency (Noise(scale=W)); the coast's coves and headlands (cove/head offsets,
 headland reach, beach/rocky noise, the harbour's opening); the dry beach and the
 rocky shore inland of the waterline (their 9/16/30 degree runs reach the
@@ -53,6 +54,14 @@ riparian trees by a body-sized stream; the walker's 2.5 cm lattice.
 
 RESOLUTION FLOORS (x the cell, only bite when the cell is coarser than today's
 3 cm): painted path widths; the outline simplification.
+
+THE WALKER on a magnified room (checks.py, only when W != 1): the body's limits
+are kept, but on a 5 cm lattice (today 2.5 cm), a route gives up after 40,000
+nodes (an unreachable goal would otherwise flood the whole island), its
+heuristic is weighted 1.5, and a goal more than 12 m away in a straight line
+is taken on trust (not searched). The generator then promises paths, beaches
+and the jetty it could not prove reachable on foot; the game's headless walk
+(game/tests/native_scale_walk.tscn) measures the crossing instead.
 """
 import argparse
 import json

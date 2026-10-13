@@ -20,7 +20,10 @@ param(
     [double]$Factor = 10,
     [double]$Cell = 0.1,
     [switch]$Play,
-    [switch]$Rebuild
+    [switch]$Rebuild,
+    # For checking the launch without a window: -Play -Headless -QuitAfter 600 boots the room and quits.
+    [switch]$Headless,
+    [int]$QuitAfter = 0
 )
 $ErrorActionPreference = 'Stop'
 $repository = Split-Path -Parent $PSScriptRoot
@@ -64,7 +67,10 @@ try {
     $env:APPDATA = Join-Path $profile 'appdata'
     $env:LOCALAPPDATA = Join-Path $profile 'localappdata'
     New-Item -ItemType Directory -Force $env:APPDATA, $env:LOCALAPPDATA | Out-Null
-    & $toolchain.EnginePath --path $toolchain.ProjectPath -- "--room=$($exported -replace '\\', '/')"
+    $engineArgs = @('--path', $toolchain.ProjectPath)
+    if ($Headless) { $engineArgs += '--headless' }
+    if ($QuitAfter -gt 0) { $engineArgs += @('--quit-after', "$QuitAfter") }
+    & $toolchain.EnginePath @engineArgs -- "--room=$($exported -replace '\\', '/')"
 } finally {
     foreach ($key in $saved.Keys) { Set-Item -Path "env:$key" -Value $saved[$key] }
 }
