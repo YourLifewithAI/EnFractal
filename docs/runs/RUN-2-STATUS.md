@@ -1,12 +1,6 @@
 # Run 2 status
 
-**Run 2 started on 7 October 2026 (evening, local). The latest Gubble playtest handoff is the 11 October section below.** The eighth integration session's handoff was written on 9 October (night, UTC), in a Linux cloud session; its earlier starting point is "The next session". Read [ORCHESTRATION.md](ORCHESTRATION.md) and [AGENTS.md](../../AGENTS.md). [RUN-2-REVISION.md](RUN-2-REVISION.md) is the approved plan (8 October); it supersedes [RUN-2.md](RUN-2.md)'s Lane C, C7, Lane L and Codex sections.
-
-## 11 October: Gubble growth playtest branch
-
-The founder asked for Torch, the remaining Glow discoveries and expressive touches, weather, Fire, mode-specific stamina/health and the wish runner together on **`codex/gubble-growth-runtime`**. That implementation is in `C:\dev\EnFractal-codex\gubble-growth-runtime`, based on integration `7173ed0`. It also includes Bloom and the flower trail. The design and the founder's later answers are preserved in [the magic README](../magic/README.md).
-
-Use [the playtest launcher and checklist](../magic/PLAYTEST.md) for this branch's build and saved test profile. The existing desktop shortcuts still launch the integrator checkout. [The implementation report](../codex/reports/gubble-growth-runtime.md) records regression results and practical limits; [the wish runner guide](../../companion/WISH-RUNNER.md) covers the player-started runner and its no-provider demo. Live provider inference, individual bubble grabbing, weather control, combat/multiplayer and the broader resource economy remain later work. The integrator checkout has not been changed or merged.
+**Run 2 started on 7 October 2026 (evening, local). The tenth session's handoff was written on 13 October (DiamondAge); start at "The next session".** Then read [ORCHESTRATION.md](ORCHESTRATION.md) and [AGENTS.md](../../AGENTS.md). [RUN-2-REVISION.md](RUN-2-REVISION.md) is the approved plan (8 October); it supersedes [RUN-2.md](RUN-2.md)'s Lane C, C7, Lane L and Codex sections. [RUN-2-TEN-TIMES.md](RUN-2-TEN-TIMES.md) is the plan for the 10x world (13 October).
 
 ## The founder's new direction: the room becomes a landscape (7 October, late evening)
 
@@ -521,7 +515,58 @@ Use [the playtest launcher and checklist](../magic/PLAYTEST.md) for this branch'
   - more beach (shorter headlands; the garage is 79% cliff);
   - sound, with the "touches".
 
+## The tenth session (13 October, DiamondAge)
+
+- **Codex's work since the ninth session, reviewed and corrected.** Codex worked four branches on 11 and 12 October at the founder's direction, outside the briefs:
+  - `codex/daily-journal`: the making journal's weekly edition (11 October). Not part of the runs. From 18 October Claude writes it: a scheduled task in the Claude app, Sundays 8 p.m. (`enfractal-making-journal`), in the same checkout and branch.
+  - `codex/gubble-growth` (the founder's decisions in the magic design) and `codex/gubble-growth-runtime` (about 9,700 lines on `7173ed0`): three Opus reviews and one Codex review, every major real. Corrected on `run2/growth` and merged.
+  - `origin/codex/fire-and-journal` (967b583, made on the other machine from the stale `main` 9af7509): the journal book is ported. Fire, ecology and planting are to be rebuilt on the growth line and the 10x plant copies; its fire look, `export/ecology.py` tagging and `docs/codex/reports/fire-rules.md` are inputs. Kept unmerged.
+- **Merged on `run2/integration` (`6e41bc7`).** Both Windows runners GREEN on `c7c36b0` (command host 737, play HUD 394, sandbox 159, journal 101, rebuild 67, nature 182, companion 761, small avatar 313, navigation 15, landscape 48, room data 56, look 1165); contracts 89; 1,876 kernel messages valid against the schemas. Through `run2/growth`:
+  - **nature review fixes** (`run2/growth-nature`): nature in the authority's save as `x_play_nature` (save version 6); receipts compacted by checkpoint; saves at most every 5 s; `room.undo` by room revision; `RequireChange` and perception filters; burnt stock leaves the room with its tree climb;
+  - **wish fixes** (`run2/growth-wishes`): a wish is granted only after the host sees every action finish; the wish page's disclosure; `run-room.ps1 -Profile <name>` (play-growth.ps1 is gone);
+  - **fall damage from landing speed** (Codex, `02d2b08`): a glide or low gravity no longer hurts;
+  - **the journal book** (`run2/journal`) as the one journal, on J; the Glow journal is its Discoveries page; the map's compass follows the site;
+  - **the AI's eyes** (`run2/eyes`): `view.look`, a 512×288 picture from the Gubble's eye; "Let my AI see", on by default (decided);
+  - **the player's view through the Gubble's eyes** (`run2/gubble-view`): the eye icon above the journal, or I; the Gubble's words show over it; the icon blinks when the AI looks; render layers 19 (player body) and 20 (Gubble body), so the Gubble sees the player in F1;
+  - **consequences** (`run2/consequences`): the founder's rules below;
+  - **two contract rounds:** every new op typed, with examples, invalid examples and tests; alignment tests at full strength except nature in the mock (`NATURE_NOT_IN_THE_MOCK`); "Save appearance" keeps the other settings;
+  - **docs:** [docs/world/TRAITS.md](../world/TRAITS.md) (the first draft of base traits) and [docs/ideas/GUBBLE-EYES-AND-STEALTH.md](../ideas/GUBBLE-EYES-AND-STEALTH.md).
+- **The founder's decisions (13 October):**
+  - **Fire and builds:** Creative asks once before any fire burns a build (yes: it burns, repair is free). Challenge and Live never ask, for the player's fire or the Gubble's; a scorched build repairs at its material cost. Locks are fireproof.
+  - **Consequences teach the AI:** in Challenge and Live a companion's fire hurts the player. Guardrails: one Gubble fire at a time, a 20 s cooldown, 5 s of grace after recovery, X puts its fires out, "Let the Gubble use fire". Feedback: the preview's `avatars_in_area`, a notice, a journal `consequence` fact as its memory.
+  - **Undo only in Creative.**
+  - **Lost things come back by real work:** structures burn down and will be rebuildable; trees and plants are replanted and regrow over time; loose boxes and logs go away; planted plants count as nature.
+  - **Fire spreads as far as there is fuel** until the player, the Gubble or weather puts it out; wind makes it faster and hotter (the fire rebuild).
+  - **The world keeps living while the player is away** (catch-up on return); fire never rests.
+  - **The wish runner is shelved:** wishes and speech go to the AI already playing (`run2/wishes-live`, parked). The grown-ups' test mode (the AI's own words) stays on the Wishes page behind a password or other check; kids get curated lines.
+  - **AI eyes on by default;** no cue on the Gubble, the player's eye icon instead.
+  - **The 10x world** (after walking the experiment): see [RUN-2-TEN-TIMES.md](RUN-2-TEN-TIMES.md).
+- **Codex is retired** (the founder cancelled the subscription). Second opinions now come from a fresh Claude reviewer ([ORCHESTRATION.md](ORCHESTRATION.md)).
+- **Desktop shortcuts:** "EnFractal Landscape" points at this checkout again (on 12 October Codex had pointed it at its worktree's play-growth.ps1; the backup is in that worktree's `.cache/shortcut-backups`). New: "EnFractal 10x Island" (the experiment, with its own profile).
+- **The founder's saves:** copies booted on the merge. The landscape loads; its creations are from before the 10 October coast and stay on disk, unloaded, as before. The test room's save migrates to version 6.
+- **Not done:** the Linux suite was not rerun (the contract tests and both Windows runners were); no GPU captures of the journal, the eye view or fire; the founder has not yet played the corrected build.
+
 ## The next session
+
+1. **The founder's playtest of the merged build** ("EnFractal Landscape" and "EnFractal Playtest"):
+   - the Glow discoveries, Bloom and the trail, the weather;
+   - fire in each mode (Creative's ask; Challenge's consequences; the Gubble's fire and its notice);
+   - Creative, Challenge and Live: stamina, falls, recovery; undo only in Creative;
+   - the journal book (J) and the eye icon (I); "Let my AI see" and "Let the Gubble use fire" in Customize.
+
+   Open tuning: fire's default size (1.5 m), the Gubble's 31 curated phrases, the eye view's details.
+2. **The 10x world** ([RUN-2-TEN-TIMES.md](RUN-2-TEN-TIMES.md)): S1 (the Gubble getting lost, `run2/gubble-lost`) and S3 (generator speed, `run2/scale-gen`) were started at this session's close. Then S2 (the contract round) and S4 to S7 in parallel. The plan's seven decisions are for the founder.
+3. **The fire rebuild,** after S2 and S5 (plant copies with ids): spread by fuel and wind across the island on plant rows and a 50 cm ground-fuel grid; structures burn down with a rebuild record; replanting with regrowth; loose things vanish. Inputs from 967b583.
+4. **Traits:** the founder reads [docs/world/TRAITS.md](../world/TRAITS.md) and answers its six decisions (the animals' size first); then its first build, rabbits on a meadow with materials as data.
+5. **Playing with the AI:** Claude joins the founder's game as the Gubble through the companion connection (the eyes now work) and reports as a player.
+6. **Parked: wishes and speech** (`run2/wishes-live`, GREEN on its base `c2fa187`): the password gate for the grown-ups' test mode, a contract round for its ops (`c64e390`), then merge; it removes Codex's runner, which is still in the tree, dormant.
+7. **Housekeeping:**
+   - remove the finished Codex worktrees (`C:\dev\EnFractal-codex\{gubble-growth, gubble-growth-runtime, growth-falls, scratch}`; keep `daily-journal`, the making journal's checkout): unlink their `.cache` junctions first and hand the founder the commands;
+   - remove the merged Run 2 worktrees of this session the same way (`growth-nature`, `growth-wishes`, `journal`, `eyes`, `gubble-view`, `consequences`, `traits`; `growth` can go once nothing is merged through it);
+   - model nature in the companion's mock (removes `NATURE_NOT_IN_THE_MOCK`);
+   - the ninth session's list below still holds (storybook_wild v1, Lane C's corpus failures, the characters).
+
+## The ninth session's next steps (10 October, for the record)
 
 **Glow, Bubbles and Fireworks are built** (the ninth session). Next:
 - **On DiamondAge:**
