@@ -11,8 +11,10 @@ The generator reads the true-size room and magnifies it in memory (`magnify`:
 shell, openings, spawns, lights and every inventory box); the package's source
 is the true-size room (its hashes and id), so the source contract's limits (a
 20 m opening, export/source.py) hold, and the room is never written magnified.
-The harness validates the package's places against the room magnified
-(`harness_rooms`, until its change request is merged). The ground is a 10 cm
+The harness validates the package's places against the room magnified by the
+package's `x_generator.world_scale` (harness/package.py: `magnify_room`, which
+the generator uses too), and the exporter exports that magnified room; the
+package limits grow with the land (the harness's `land_factor`). The ground is a 10 cm
 grid with 2.5 cm detail where the body meets the land (detail.py). At W = 1
 (the default) every expression that reads `W` reduces to today's, because
 multiplying or dividing by 1.0 is exact in floating point: the default output
@@ -77,9 +79,7 @@ again. The ways the land is graded along are least-cost (one flood for all of
 them; a goal shut in a pocket of its own is found so by a small flood back from
 it); on today's room they are the same A* searches as before.
 """
-import copy
-from contextlib import contextmanager
-from pathlib import Path
+from pipeline.landscape.harness.package import magnify_inventory, magnify_room
 
 W = 1.
 
@@ -91,111 +91,6 @@ def set_world(w):
     return W
 
 
-def allow_package_limits(w):
-    """A room magnified x w holds w^2 times today's land, sea and planting at
-    today's density, so the package's byte, triangle and instance limits grow
-    by w^2 for this process only (the harness's `allow_world_scale`)."""
-    try:
-        from pipeline.landscape.harness.package import allow_world_scale
-    except ImportError:
-        allow_world_scale = None
-    if allow_world_scale is not None:
-        return allow_world_scale(w)
-    from pipeline.landscape.harness import common, package
-    area = float(w)**2
-    for m in (common, package):
-        m.MAX_BYTES = int(50_000_000*area)
-        m.MAX_TRIANGLES = int(2_000_000*area)
-        m.MAX_INSTANCES = int(20_000*area)
-        m.MAX_EXPANDED_TRIANGLES = int(8_000_000*area)
-
-
-def _scale_points(pts, f):
-    return [[v*f for v in p] for p in pts]
-
-
-def magnify_room(room, f):
-    """The room magnified x f (a copy; metres only: bounds, the shell's
-    polygons, openings, spawns and lights; angles, ids and text unchanged;
-    wall thickness stays, it is not part of the land). The player arrives
-    where the room puts it (x f); every other spawn keeps its offset from the
-    player (the Gubble arrives beside the player as it does today)."""
-    room = copy.deepcopy(room)
-    f = float(f)
-    if f == 1:
-        return room
-    room['bounds'] = {k: [v*f for v in room['bounds'][k]] for k in ('min_m', 'max_m')}
-    for p in room['shell']['parts']:
-        g = p['geometry']
-        if 'points_m' in g:
-            g['points_m'] = _scale_points(g['points_m'], f)
-    for o in room['shell'].get('openings', []):
-        o['center_m'] = [v*f for v in o['center_m']]
-        o['size_m'] = [v*f for v in o['size_m']]
-    player = next((s for s in room['spawns'] if s['role'] == 'player'), room['spawns'][0])
-    p0 = list(player['position_m'])
-    for s in room['spawns']:
-        s['position_m'] = [a*f+(b-a) for a, b in zip(p0, s['position_m'])]
-    for lh in room.get('light_hints', []):
-        if 'position_m' in lh:
-            lh['position_m'] = [v*f for v in lh['position_m']]
-    return room
-
-
 def magnify(room, inventory, f):
     """The room and its inventory magnified x f, in memory (copies)."""
     return magnify_room(room, f), magnify_inventory(inventory, f)
-
-
-def magnify_inventory(inventory, f):
-    """The inventory magnified x f (a copy: boxes, footprints, placements and
-    support heights in metres; kinds, confidences and colours unchanged)."""
-    f = float(f)
-    inv = copy.deepcopy(inventory)
-    if f == 1:
-        return inv
-    for e in inv['objects']:
-        b = e['box']
-        b['centre_m'] = [v*f for v in b['centre_m']]
-        b['size_m'] = [v*f for v in b['size_m']]
-        if 'footprint_m' in b:
-            b['footprint_m'] = [v*f for v in b['footprint_m']]
-        pl = e['placement']
-        pl['position_m'] = [v*f for v in pl['position_m']]
-        if 'height_m' in pl.get('support', {}):
-            pl['support']['height_m'] *= f
-        if e.get('recipe_needed') and 'size_m' in e['recipe_needed']:
-            e['recipe_needed']['size_m'] = [v*f for v in e['recipe_needed']['size_m']]
-    return inv
-
-
-@contextmanager
-def harness_rooms(w):
-    """While open, the harness reads a package of a room magnified x w against
-    that room magnified: `write_package` and `read_package` load the true-size
-    room.json (its hash is the package's source) and validate every place
-    against it, so for this process only the room they load is magnified (by
-    `w` when writing, by the package's own `x_generator.world_scale` when
-    reading). `read_package` then returns the magnified room. The harness's
-    change request (S4's report) does the same in the harness; when it is
-    merged (`package.ROOM_WORLD_SCALE`), nothing is patched here."""
-    from pipeline.landscape.harness import package
-    if getattr(package, 'ROOM_WORLD_SCALE', False):
-        yield
-        return
-    original = package.load_json
-    state = {'w': float(w)}
-
-    def load(path):
-        doc = original(path)
-        name = Path(path).name
-        if name == 'package.json':
-            state['w'] = float((doc.get('x_generator') or {}).get('world_scale', 1.))
-        elif name == 'room.json' and state['w'] != 1:
-            doc = magnify_room(doc, state['w'])
-        return doc
-    package.load_json = load
-    try:
-        yield
-    finally:
-        package.load_json = original

@@ -769,11 +769,11 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=
         extensions = {'x_generator': dict(seed=seed, cell_m=cell, margin_m=margin, sea=sea_doc, **rest)}
         if W != 1:
             extensions['x_generator']['world_scale'] = W
-        with world.harness_rooms(W):
-            return write_package(folder, room_dir, meshes=meshes, setup=setup, generator=GENERATOR,
-                                 terrain=terrain_records, water=water_records,
-                                 scenery=[{'mesh': 'distant_islands', 'reachable': False}],
-                                 prototypes=proto_records, scatter=scatter, objects=objects_out, extensions=extensions)
+        # The harness validates the places against the room magnified by x_generator.world_scale.
+        return write_package(folder, room_dir, meshes=meshes, setup=setup, generator=GENERATOR,
+                             terrain=terrain_records, water=water_records,
+                             scenery=[{'mesh': 'distant_islands', 'reachable': False}],
+                             prototypes=proto_records, scatter=scatter, objects=objects_out, extensions=extensions)
     # Promise only the beaches a body reaches in the written package itself:
     # its meshes are stored in single precision, and the walk is that strict.
     # The package is written once: the walk reads the meshes as the package
@@ -1267,7 +1267,6 @@ def main():
     args = parser.parse_args()
     if args.world_scale != 1:
         world.set_world(args.world_scale)
-        world.allow_package_limits(args.world_scale)
     t0 = time.perf_counter()
     doc = generate(args.room, args.out, load_json(args.setup), args.seed, cell=args.cell,
                    detail=False if args.no_detail else None)

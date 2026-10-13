@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 from pipeline.landscape.harness.common import canonical, sha, require
 from pipeline.landscape.harness.kit import SIZES, prototype
-from pipeline.landscape.harness.package import read_package
+from pipeline.landscape.harness.package import read_package, world_scale
 from .materials import CONTRACT_ROLES, PALETTE, hex_color, material
 from .copies import build_copies, classify, MAX_SETS
 from .mesh import encode, transform
@@ -62,8 +62,10 @@ def export_room(package_folder, source_room_folder, room_id, out):
 
 
 def _export(land, package_folder, source_room_folder, room_id, out):
+    # The 10x world: a package of the true-size room magnified x W (x_generator.world_scale) is read against that
+    # room magnified, and that magnified room is what is exported (bounds, spawns, the intro's room and boxes).
     doc, meshes, source, _ = read_package(package_folder, source_room_folder)
-    intro_source = source_data(source, doc['source'], source_room_folder)
+    intro_source = source_data(source, doc['source'], source_room_folder, world_scale(doc))
     # An island's sea (generator v4 on): the bounds grow out past the reef, and the game gets the reef,
     # the beaches and the jetty. A package without one keeps the room's own bounds.
     sea = doc.get('x_generator', {}).get('sea') if isinstance(doc.get('x_generator'), dict) else None

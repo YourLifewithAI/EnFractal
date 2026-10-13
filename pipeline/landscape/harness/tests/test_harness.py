@@ -122,6 +122,29 @@ class PackageTests(Workspace):
                 with self.assertRaisesRegex(ValueError,message): validate_package(packages['small'],ROOM)
                 self.assertEqual(validate_package(packages['large'],ROOM)['instances'],6)
 
+    def test_a_magnified_package_is_read_against_its_room_magnified(self):
+        # The 10x world (S4): the source stays the true-size room (its hashes); x_generator.world_scale says how much
+        # it was magnified, and every place is checked against the room magnified that much.
+        self.rejects(lambda d:d['objects'][0].update(position_m=[20,0,-25]))
+        self.mutate(lambda d:(d['objects'][0].update(position_m=[20,0,-25]),d.update(x_generator=dict(world_scale=10.))))
+        doc,_,room,_=read_package(self.folder,ROOM)
+        self.assertEqual(room['bounds'],{'min_m':[-30.,0.,-35.],'max_m':[30.,27.,35.]})
+        self.assertEqual(doc['source']['room_sha256'],sha((ROOM/'room.json').read_bytes()))
+        # The player arrives where the room puts it, magnified; the companion keeps its offset beside it.
+        self.assertEqual([s['position_m'] for s in room['spawns']],[[0.,0.,-30.],[1.,0.,-30.]])
+        for bad in (0,-1,1000,'10',True):
+            with self.subTest(world_scale=bad): self.rejects(lambda d:d['x_generator'].update(world_scale=bad))
+        written=self.work/'written'
+        write_package(written,ROOM,meshes={'land':[quad(-30,30,-35,35,0,'meadow')]},setup=dict(SETUP),
+                      generator=dict(name='test',version='1'),terrain=[dict(mesh='land')],
+                      scatter=[dict(prototype='rock',position_m=[20,0,-25],yaw_deg=0,scale=[1,1,1])],
+                      extensions={'x_generator':{'world_scale':10.}})
+        self.assertEqual(validate_package(written,ROOM)['instances'],1)
+        with self.assertRaisesRegex(ValueError,'outside bounds'):
+            write_package(self.work/'unscaled',ROOM,meshes={'land':[quad(-30,30,-35,35,0,'meadow')]},setup=dict(SETUP),
+                          generator=dict(name='test',version='1'),terrain=[dict(mesh='land')],
+                          scatter=[dict(prototype='rock',position_m=[20,0,-25],yaw_deg=0,scale=[1,1,1])])
+
     def test_setup_pinned_before_blender_or_output(self):
         expected=self.work/'setup.json'; expected.write_bytes(canonical(SETUP))
         self.mutate(lambda d:d['setup'].update(water='none'))

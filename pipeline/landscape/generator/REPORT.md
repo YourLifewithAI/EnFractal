@@ -25,7 +25,8 @@ path and material edges showed as triangles, and thin rock was planed 30 cm wide
   the beaches are proved on the same reading.
 - **Magnified inside the generator** from the true-size room (`--world-scale 10`; `scale.magnify`): the package's source
   is the true-size room (its hashes), so the source contract's 20 m opening holds; the harness reads the package against
-  the room magnified (`scale.harness_rooms`, until its change request is merged). The x10 room file is gone.
+  the room magnified by the package's `x_generator.world_scale` (the harness's `magnify_room`, merged with S5), and the
+  exporter exports that magnified room. The x10 room file is gone.
 - **The 10x gaps:**
   - the hamlet's third door: its forecourt lies 6 cm under the next cottage's, and the cottages were levelled again
     after grading, over the ramp graded to it. On the 10x world the hamlet is levelled before the walk, and every way

@@ -1,5 +1,6 @@
 """Portable records, hash verification and bounded package validation."""
 import argparse
+import copy
 import math
 from pathlib import Path, PurePosixPath
 from .common import (FORMAT, VERSION, FRAME, MAX_BYTES, MAX_TRIANGLES, MAX_INSTANCES, MAX_EXPANDED_TRIANGLES,
@@ -73,6 +74,62 @@ def footprint_inside(position,size,yaw,room):
         cuts=sorted(cuts)
         probes=cuts+[(t+u)/2 for t,u in zip(cuts,cuts[1:])]
         require(all(any(inside_polygon(a[0]+t*dx,a[1]+t*dz,p) for p in floors) for t in probes), 'object outside floor polygon')
+
+
+def world_scale(doc):
+    """The 10x world (S4): a package of a room magnified x W says so (`x_generator.world_scale`); its source stays the
+    true-size room (its hashes), and its places are validated against that room magnified. 1 for any other package."""
+    gen=doc.get('x_generator') if isinstance(doc,dict) else None
+    w=gen.get('world_scale',1) if isinstance(gen,dict) else 1
+    require(type(w) in (int,float) and math.isfinite(w) and 0<w<=100, 'world scale')
+    return float(w)
+
+
+def magnify_room(room, w):
+    """The room magnified x w (a copy; metres only: bounds, the shell's polygons, openings, spawns and lights; angles,
+    ids and text unchanged; wall thickness stays, it is not part of the land). The player arrives where the room puts
+    it (x w); every other spawn keeps its offset from the player (the Gubble arrives beside the player as it does
+    today). The generator magnifies with this too (generator/scale.py)."""
+    room=copy.deepcopy(room); w=float(w)
+    if w==1:
+        return room
+    room['bounds']={k:[v*w for v in room['bounds'][k]] for k in ('min_m','max_m')}
+    for part in room['shell']['parts']:
+        g=part['geometry']
+        if 'points_m' in g:
+            g['points_m']=[[v*w for v in p] for p in g['points_m']]
+    for o in room['shell'].get('openings',[]):
+        o['center_m']=[v*w for v in o['center_m']]
+        o['size_m']=[v*w for v in o['size_m']]
+    player=next((s for s in room['spawns'] if s['role']=='player'),room['spawns'][0])
+    p0=list(player['position_m'])
+    for s in room['spawns']:
+        s['position_m']=[a*w+(b-a) for a,b in zip(p0,s['position_m'])]
+    for lh in room.get('light_hints',[]):
+        if 'position_m' in lh:
+            lh['position_m']=[v*w for v in lh['position_m']]
+    return room
+
+
+def magnify_inventory(inventory, w):
+    """The inventory magnified x w (a copy: boxes, footprints, placements and support heights in metres; kinds,
+    confidences and colours unchanged)."""
+    inv=copy.deepcopy(inventory); w=float(w)
+    if w==1:
+        return inv
+    for e in inv['objects']:
+        b=e['box']
+        b['centre_m']=[v*w for v in b['centre_m']]
+        b['size_m']=[v*w for v in b['size_m']]
+        if 'footprint_m' in b:
+            b['footprint_m']=[v*w for v in b['footprint_m']]
+        pl=e['placement']
+        pl['position_m']=[v*w for v in pl['position_m']]
+        if 'height_m' in pl.get('support',{}):
+            pl['support']['height_m']*=w
+        if e.get('recipe_needed') and 'size_m' in e['recipe_needed']:
+            e['recipe_needed']['size_m']=[v*w for v in e['recipe_needed']['size_m']]
+    return inv
 
 
 def validate_setup(setup):
@@ -201,6 +258,7 @@ def read_package(folder, room_folder):
     room=load_json(room_folder/'room.json')
     require(doc['source']['room_sha256']==sha((room_folder/'room.json').read_bytes()), 'room hash mismatch')
     require(doc['source']['inventory_sha256']==sha((room_folder/'inventory.json').read_bytes()), 'inventory hash mismatch')
+    room=magnify_room(room,world_scale(doc))  # the 10x world: places are the magnified room's (returned so)
     require(isinstance(doc['meshes'],dict) and len(doc['meshes'])<=128, 'mesh count')
     require(set(doc['meshes'].values())==set(blobs) and len(set(doc['meshes'].values()))==len(doc['meshes']), 'mesh file mapping')
     # The terrain first: its extent sets the limits (land_factor), so the byte limit is checked before the rest.
@@ -238,7 +296,7 @@ def write_package(folder,room_folder,*,meshes,setup,generator,terrain,water=(),s
              scatter=list(scatter),objects=list(objects))
     for key,value in (extensions or {}).items():
         require(key.startswith('x_'),'extension prefix'); doc[key]=value
-    validate_records(doc,rounded,room)
+    validate_records(doc,rounded,magnify_room(room,world_scale(doc)))
     require(sum(map(len,blobs.values()))+len(canonical(doc))<=MAX_BYTES*land_factor(doc,rounded),'package byte limit')
     folder.mkdir(parents=True,exist_ok=True)
     for name,data in blobs.items(): (folder/name).write_bytes(data)

@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 
 from pipeline.landscape.harness.common import load_json, require, sha
+from pipeline.landscape.harness.package import magnify_inventory
 
 
 def number(value, low, high):
@@ -34,16 +35,19 @@ def sorted_ids(value):
     return sorted(value, key=lambda r: r['id'])
 
 
-def source_data(room, pins, folder):
+def source_data(room, pins, folder, world_scale=1.):
     """Whitelist the C3 shell and C4 inventory shared by corpus and roomscan.
 
     Poses use the bottom-centre pivot, metres, +Y up, -Z forward. Polygon winding
     stays authored; sorting points would destroy geometry. Never read truth.json,
     assets, evidence sheets, labels, display names, recipes or capture metadata.
+    The 10x world: `room` is the room as read_package returns it (magnified by the
+    package's world scale), and the inventory is magnified as much, so the intro's
+    boxes stand where the land grew from them; the pins stay the true-size files'.
     """
     inventory_path = Path(folder)/'inventory.json'
     require(sha(inventory_path.read_bytes()) == pins['inventory_sha256'], 'inventory hash mismatch')
-    inventory = load_json(inventory_path)
+    inventory = magnify_inventory(load_json(inventory_path), world_scale)
     bounds = {k: vector(room['bounds'][k]) for k in ('min_m', 'max_m')}
     require(all(a < b for a, b in zip(bounds['min_m'], bounds['max_m'])), 'invalid source bounds')
     parts = []

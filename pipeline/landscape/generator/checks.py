@@ -1843,9 +1843,8 @@ def _fine_climbs(detail, blocks, grid, h, points, water, level, meshes):
 
 
 def run(package, room_dir):
-    # A magnified room's package is read against the room magnified (scale.harness_rooms).
-    with world.harness_rooms(world.W):
-        doc, meshes, room, stats = read_package(package, room_dir)
+    # A magnified room's package is read against the room magnified (the harness's magnify_room).
+    doc, meshes, room, stats = read_package(package, room_dir)
     inventory = world.magnify_inventory(load_json(Path(room_dir)/'inventory.json'), world_scale(doc))
     terrain = Terrain(doc, meshes)
     w_ok, water, joins = water_checks(doc, meshes, terrain)
@@ -1871,7 +1870,6 @@ def main():
     args = parser.parse_args()
     if args.world_scale != 1:
         world.set_world(args.world_scale)
-        world.allow_package_limits(args.world_scale)
     result = run(args.package, args.room)
     if args.json:
         Path(args.json).write_text(json.dumps(result, indent=2, sort_keys=True)+'\n', encoding='utf-8', newline='\n')

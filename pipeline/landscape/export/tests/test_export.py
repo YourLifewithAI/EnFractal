@@ -316,6 +316,45 @@ class ExportTests(unittest.TestCase):
                     export_room(package, source, out.name, out)
                 self.assertFalse(out.exists())
 
+    def test_a_magnified_package_exports_its_room_magnified(self):
+        # The 10x world (S4): the package's source is the true-size room; x_generator.world_scale magnifies it, and the
+        # export is of that magnified room: bounds, spawns, the intro's walls, openings and boxes. The pins stay.
+        w = 10.
+        room = json.loads((ROOM/'room.json').read_bytes())
+        inventory = json.loads((ROOM/'inventory.json').read_bytes())
+        land = [dict(p, positions=[[v[0]*w, v[1], v[2]*w] for v in p['positions']]) for p in self.meshes['land']]
+        package = self.scratch/'magnified-package'
+        write_package(package, ROOM, meshes={'land': land}, setup=dict(SETUP), generator={'name': 'test', 'version': '1'},
+                      terrain=[{'mesh': 'land'}], extensions={'x_generator': {'world_scale': w}})
+        out = self.scratch/'magnified'/'landscape_magnified'
+        export_room(package, ROOM, out.name, out)
+        manifest = json.loads((out/'room.json').read_bytes())
+        source = manifest['extensions']['x_landscape_source']
+        for name in ('room', 'inventory'):
+            self.assertEqual(source[name+'_sha256'], hashlib.sha256((ROOM/(name+'.json')).read_bytes()).hexdigest())
+        self.assertEqual(source['room_id'], room['room_id'])
+        bounds = {k: [v*w for v in room['bounds'][k]] for k in ('min_m', 'max_m')}
+        self.assertEqual((source['bounds'], manifest['bounds']), (bounds, bounds))
+        parts = {p['id']: p for p in source['shell']['parts']}
+        for part in room['shell']['parts']:
+            self.assertEqual(parts[part['id']]['geometry']['points_m'],
+                             [[v*w for v in p] for p in part['geometry']['points_m']])
+        openings = {o['id']: o for o in source['shell']['openings']}
+        for o in room['shell']['openings']:
+            self.assertEqual((openings[o['id']]['center_m'], openings[o['id']]['size_m']),
+                             ([v*w for v in o['center_m']], [v*w for v in o['size_m']]))
+        boxes = {o['id']: o for o in source['objects']}
+        for obj in inventory['objects']:
+            self.assertEqual(boxes[obj['id']]['position_m'], [v*w for v in obj['placement']['position_m']])
+            self.assertEqual(boxes[obj['id']]['size_m'], [v*w for v in obj['box']['size_m']])
+            if 'height_m' in obj['placement']['support']:
+                self.assertEqual(boxes[obj['id']]['support']['height_m'], obj['placement']['support']['height_m']*w)
+        # The player arrives where the room puts it, magnified; the companion keeps its offset beside it.
+        player = next(s for s in room['spawns'] if s['role'] == 'player')['position_m']
+        for a, b in zip(room['spawns'], manifest['spawns']):
+            self.assertEqual([b['position_m'][0], b['position_m'][2]],
+                             [player[i]*w+a['position_m'][i]-player[i] for i in (0, 2)])
+
     def test_terrain_level0_is_the_package_land_cut_into_tiles(self):
         original = [p for r in self.package['terrain'] for p in self.meshes[r['mesh']]]
         block = self.manifest['terrain_tiles']
@@ -932,6 +971,22 @@ class TileTests(unittest.TestCase):
             self.assertTrue(skirt, level)
         self.assertFalse([p for tile in self.levels.values() for m in tile[0].values() for p in m.pos
                           if p[1] < lowest-1e-9])
+
+    def test_a_fine_cell_over_a_tile_corner_leaves_no_empty_triangle(self):
+        # S4's 2.5 cm cells: a cell's diagonal passing through a tile's corner cuts into points that differ only below
+        # float32. They are one vertex as the GLB stores them, and no level-0 triangle has two equal corners.
+        f32 = struct.Struct('<3f')
+        corners = [[-32.02, -.63517, 31.98], [-31.995, -.6356, 31.98], [-31.995, -.6357, 32.005], [-32.02, -.63517, 32.005]]
+        land = [dict(role='meadow', positions=[list(f32.unpack(f32.pack(*p))) for p in corners],
+                     triangles=[[0, 2, 1], [0, 3, 2]])]
+        _, tiles = tile_level0(land)
+        self.assertEqual(sorted(tiles), [(-3, 1), (-3, 2), (-2, 1), (-2, 2)])
+        meshes = [dict(positions=[list(f32.unpack(f32.pack(*p))) for p in m.pos], triangles=m.tris)
+                  for t in tiles.values() for m in t.values()]
+        for m in meshes:
+            for face in m['triangles']:
+                self.assertEqual(len({tuple(m['positions'][i]) for i in face}), 3, face)
+        self.assertAlmostEqual(area(meshes), area(land), delta=1e-8)  # float32 positions
 
     def test_every_level_keeps_every_role_of_a_tile(self):
         for tile, per_level in self.levels.items():
