@@ -55,13 +55,14 @@ riparian trees by a body-sized stream; the walker's 2.5 cm lattice.
 RESOLUTION FLOORS (x the cell, only bite when the cell is coarser than today's
 3 cm): painted path widths; the outline simplification.
 
-THE WALKER on a magnified room (checks.py, only when W != 1): the body's limits
-are kept, but on a 5 cm lattice (today 2.5 cm), a route gives up after 40,000
-nodes (an unreachable goal would otherwise flood the whole island), its
-heuristic is weighted 1.5, and a goal more than 12 m away in a straight line
-is taken on trust (not searched). The generator then promises paths, beaches
-and the jetty it could not prove reachable on foot; the game's headless walk
-(game/tests/native_scale_walk.tscn) measures the crossing instead.
+THE WALKER (checks.py) keeps the body's limits on a magnified room (the 11 cm
+disc, 2 cm steps sampled each centimetre, 20 degrees) on a 5 cm lattice (today
+2.5 cm), and walks the whole island exactly: one flood from the spawn per
+planting state answers every goal (no budget, nothing taken on trust); where
+the package's land grid is plain (gentle, dry, nothing on it) no sample is read
+again. The ways the land is graded along are least-cost (one flood for all of
+them; a goal shut in a pocket of its own is found so by a small flood back from
+it); on today's room they are the same A* searches as before.
 """
 import argparse
 import json

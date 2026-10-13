@@ -6,12 +6,9 @@ Deterministic: the same room, inventory and setup answers give identical bytes.
 """
 import argparse
 import math
-import os
 import random
-import shutil
-import tempfile
+import struct
 import time
-import uuid
 from pathlib import Path
 
 from pipeline.landscape.harness import write_package
@@ -118,7 +115,9 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=
     grid = Grid(lo[0]-margin, lo[2]-margin, hi[0]+margin, hi[2]+margin, cell)
     nx = grid.nx
     spawns = [s['position_m'] for s in room['spawns']]
-    inside = [wall_frame(room, grid.xs[q % nx], grid.zs[q//nx])[0] <= 0 for q in range(grid.n)]
+    # Each vertex's wall frame (signed distance, nearest wall point and normal), read once for the coast too.
+    frames = [wall_frame(room, grid.xs[q % nx], grid.zs[q//nx]) for q in range(grid.n)]
+    inside = [f[0] <= 0 for f in frames]
     outlet = choose_outlet(room, spawns)
     diag = math.hypot(hi[0]-lo[0], hi[2]-lo[2])
     # World scale: the plain, the landforms and their weathering are today's
@@ -162,7 +161,8 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=
             acc.append(au[j*ugrid.nx+i])
     _tick('landforms')
     # ---------------- the island: the walls become a ragged coast, the door a jetty
-    coast = Sea.carve_coast(grid, room, h, base, noise, objects, spawns, seed)
+    coast = Sea.carve_coast(grid, room, h, base, noise, objects, spawns, seed, frames)
+    del frames
     jetty = coast['jetty']
     _tick('coast')
     Sea.land_jetty(grid, h, jetty)
@@ -349,7 +349,7 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=
     sea_pos, sea_tris = Sea.sea_surface(grid, sea)
     # The checks' walker looks only at the island and its water, not out to the horizon.
     look = dict(sea=dict(play_area=dict(bounds_m=dict(min_m=[grid.xs[0], 0, grid.zs[0]],
-                                                      max_m=[grid.xs[-1], 0, grid.zs[-1]]))))
+                                                      max_m=[grid.xs[-1], 0, grid.zs[-1]]))), cell_m=cell)
     beaches = Sea.find_beaches(grid, h, room, coast['coast'], jetty)
     shore_goals = [b['stand'] for b in beaches]+([jetty['root']] if jetty is not None else [])
     # Walk the graded land as a body would (11 cm lane, cottages in the way,
@@ -369,22 +369,34 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=
         goals = [(fx, fz)]+[(hh['x']-math.sin(math.radians(hh['yaw']))*(hh['hz']+.08),
                              hh['z']-math.cos(math.radians(hh['yaw']))*(hh['hz']+.08)) for hh in houses]
         goals += shore_goals
+        # The land is read once; after grading, only where it moved (`Terrain.moved`).
+        land_pos = [[grid.xs[q % nx], h[q], grid.zs[q//nx]] for q in range(grid.n)]
+        terr0 = land = probe0 = None
         for _ in range(2):
-            land = {'land': [dict(role='meadow', positions=[[grid.xs[q % nx], h[q], grid.zs[q//nx]] for q in range(grid.n)],
-                                  triangles=keep_tris)], **wmesh}
-            if jetty is not None:
-                land['jetty'] = Sea.jetty_mesh(grid, h, jetty)
-            probe0 = dict(terrain=[{'mesh': 'land'}]+([{'mesh': 'jetty'}] if jetty is not None else []),
-                          scenery=[], water=wrec, scatter=cots+decks, objects=[], x_generator=look,
-                          prototypes={'footbridge': {'size_m': list(BRIDGE)}})
-            terr0 = _T(probe0, land)
+            jmesh = Sea.jetty_mesh(grid, h, jetty) if jetty is not None else None
+            if terr0 is not None and jmesh == land.get('jetty'):
+                moved = [q for q in range(grid.n) if land_pos[q][1] != h[q]]
+                for q in moved:
+                    land_pos[q][1] = h[q]
+                terr0.moved([(land_pos[q][0], land_pos[q][2]) for q in moved])
+            else:
+                for q in range(grid.n):
+                    land_pos[q][1] = h[q]
+                land = {'land': [dict(role='meadow', positions=land_pos, triangles=keep_tris)], **wmesh}
+                if jmesh is not None:
+                    land['jetty'] = jmesh
+                probe0 = dict(terrain=[{'mesh': 'land'}]+([{'mesh': 'jetty'}] if jetty is not None else []),
+                              scenery=[], water=wrec, scatter=cots+decks, objects=[], x_generator=look,
+                              prototypes={'footbridge': {'size_m': list(BRIDGE)}})
+                terr0 = _T(probe0, land)
             strict = _W(probe0, land, terr0, room)
             loose = _W(probe0, land, terr0, room, limit=40., step=.04)
+            # One flood from the spawn answers every goal; the steeper walk
+            # finds its least-cost way only to the goals out of reach.
+            near = strict.reach((px, pz))
+            failing = [goal for goal in goals if not near.has(goal)]
             fixed = 0
-            for goal in goals:
-                if strict.route((px, pz), goal)[0]:
-                    continue
-                path = loose.route((px, pz), goal)[0]
+            for path in (loose.ways((px, pz), failing) if failing else ()):
                 if path:
                     grade_line(grid, h, wet, keep_out, resample([(k[0]*terr0.cell, k[1]*terr0.cell) for k in path], .025),
                                bridges=bridges)
@@ -524,6 +536,9 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=
     # thing that even a cleared lane cannot reach is left out.
     keep = {'cottage', 'footbridge'} | set(YARD)
     terr = Terrain(probe, meshes)
+    # One flood from the spawn per planting state answers every target here,
+    # the beaches and the jetty (flooded again only when the planting changes).
+    walks = Walks(probe, meshes, terr, room, (px, pz))
 
     def size_of(rec):
         base_size = SIZES[rec['prototype']] if rec['prototype'] in SIZES else proto_records[rec['prototype']]['size_m']
@@ -537,29 +552,35 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=
     for rec_, goals_ in targets:
         if rec_ is not None and rec_ not in scatter:
             continue
-        full = Walker(probe, meshes, terr, room)
-        if any(full.route((px, pz), g)[0] for g in goals_):
+        if any(walks.now().has(g) for g in goals_):
             continue
         # Toward the crate or a door even a yard thing may stand aside; toward
         # a yard, the other yards stay.
         hold = keep if rec_ is not None else {'cottage', 'footbridge'}
         fixed = Walker(dict(probe, scatter=[r for r in scatter if r['prototype'] in hold]), meshes, terr, room)
-        path = next((pth for pth in (fixed.route((px, pz), g)[0] for g in goals_) if pth), None)
+        path = next((pth for pth in fixed.ways((px, pz), goals_, first=True) if pth), None)
         if path:
             pts = [(k[0]*terr.cell, k[1]*terr.cell) for k in path]
+            near_path = {}
+            for a, b in pts:
+                near_path.setdefault((int(math.floor(a/.4)), int(math.floor(b/.4))), []).append((a, b))
             for rec in [r for r in scatter if r['prototype'] in BLOCKING and r['prototype'] not in hold and r is not rec_]:
                 x, z = rec['position_m'][0], rec['position_m'][2]
-                near = [(a, b) for a, b in pts if math.hypot(x-a, z-b) < .4]
+                ix, iz = int(math.floor(x/.4)), int(math.floor(z/.4))
+                near = [(a, b) for di in (-1, 0, 1) for dj in (-1, 0, 1) for a, b in near_path.get((ix+di, iz+dj), ())
+                        if math.hypot(x-a, z-b) < .4]
                 if near:
                     one = Walker(dict(probe, scatter=[rec]), meshes, terr, room)
                     if any(one.blocked(a, b) for a, b in near):
                         scatter.remove(rec)
+                        walks.changed()
                         if rec['prototype'] in YARD:
                             dropped.append(rec['prototype'])
-        if rec_ is not None and not any(Walker(probe, meshes, terr, room).route((px, pz), g)[0] for g in goals_):
+        if rec_ is not None and not any(walks.now().has(g) for g in goals_):
             # Move the yard rather than lose it: the first level, reachable spot
             # around any cottage.
             scatter.remove(rec_)
+            walks.changed()
             moved = None
             size = DRYING_LINE if rec_['prototype'] == 'drying_line' else [.09, .044, .1]
             for hh in houses:
@@ -574,22 +595,23 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=
                                      hh['yaw']+turn, .02, size, sink=.002, built=True)
                     if not cand:
                         continue
-                    one = Walker(dict(probe, scatter=scatter+[cand]), meshes, terr, room)
-                    if any(one.route((px, pz), g)[0] for g in approaches(cand, size_of(cand))) and                             all(one.route((px, pz), g[0])[0] for _, g in targets if _ is None):
+                    if any(walks.reaches_with(cand, g) for g in approaches(cand, size_of(cand))) and \
+                            all(walks.reaches_with(cand, g[0]) for _, g in targets if _ is None):
                         moved = cand
                         break
             if moved:
                 scatter.append(moved)
+                walks.changed()
             else:
                 dropped.append(rec_['prototype'])
     _tick('yards')
     # Promise only the beaches a body can walk to from the spawn.
-    final = Walker(probe, meshes, terr, room)
-    beaches = [b for b in Sea.find_beaches(grid, h, room, coast['coast'], jetty) if final.route((px, pz), b['stand'])[0]]
+    final = walks.now()
+    beaches = [b for b in Sea.find_beaches(grid, h, room, coast['coast'], jetty) if final.has(b['stand'])]
     if not beaches:
         # No beach stretch a body reaches: the harbour's sand beside the jetty.
         beaches = [b for b in Sea.find_beaches(grid, h, room, coast['coast'], jetty, harbour=True)
-                   if final.route((px, pz), b['stand'])[0]][:1]
+                   if final.has(b['stand'])][:1]
     rest = dict(walk_limit_deg=WALK_LIMIT_DEG, step_limit_m=STEP_LIMIT_M,
                                   water_character=water.get('character'), water_why=water.get('why'),
                                   lake=water['lake'], pools=water.get('pools', []),
@@ -609,26 +631,103 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=
                              prototypes=proto_records, scatter=scatter, objects=objects_out, extensions=extensions)
     # Promise only the beaches a body reaches in the written package itself:
     # its meshes are stored in single precision, and the walk is that strict.
+    # The package is written once: the walk reads the meshes as the package
+    # will hold them (`as_written`), and the flood's own way to each beach is
+    # proved there step by step (flooded again only if a way fails).
     if beaches:
-        from pipeline.landscape.harness import read_package
-        # A unique folder by name (tempfile.mkdtemp's owner-only ACL blocks
-        # sandboxed writes on Windows).
-        scratch = Path(tempfile.gettempdir())/('landscape-promise-%d-%s' % (os.getpid(), uuid.uuid4().hex[:12]))
-        try:
-            written = write(scratch/'package', beaches)
-            wdoc, wmeshes, _, _ = read_package(scratch/'package', room_dir)
-            walker = Walker(wdoc, wmeshes, Terrain(wdoc, wmeshes), room)
-            kept = [b for b, rec in zip(beaches, written['x_generator']['sea']['beaches'])
-                    if walker.route((px, pz), (rec['wash_ashore_m'][0], rec['wash_ashore_m'][2]))[0]]
-            beaches = kept or beaches
-        finally:
-            shutil.rmtree(scratch, ignore_errors=True)
+        sea_doc = describe_sea(grid, h, room, coast, jetty, beaches, islands, player0, water['streams'])
+        written = dict(terrain=terrain_records, scenery=[{'mesh': 'distant_islands', 'reachable': False}],
+                       water=water_records, scatter=scatter, prototypes=proto_records, objects=objects_out,
+                       x_generator=dict(sea=sea_doc, cell_m=cell, **({'world_scale': W} if W != 1 else {})))
+        promised = [(rec['wash_ashore_m'][0], rec['wash_ashore_m'][2]) for rec in sea_doc['beaches']]
+        kept = [b for b, ok in zip(beaches, written_walk(final, promised, written, meshes, room, (px, pz))) if ok]
+        beaches = kept or beaches
     _tick('beaches')
     doc = write(out_dir, beaches)
     _tick('written')
     if return_state:
         return doc, dict(grid=grid, h=h, route=route, carry=carry, houses=houses)
     return doc
+
+
+class Walks:
+    """The walk from the spawn over the planted island: one flood per
+    planting state (the scatter list as it stands), answering every target,
+    beach and the jetty until something is taken out or put in (`changed`)."""
+
+    def __init__(self, probe, meshes, terrain, room, start):
+        self.probe, self.meshes, self.terrain, self.room, self.start = probe, meshes, terrain, room, start
+        self._now = None
+        self._with = {}
+
+    def changed(self):
+        self._now = None
+        self._with = {}
+
+    def now(self):
+        from .checks import Walker
+        if self._now is None:
+            self._now = Walker(self.probe, self.meshes, self.terrain, self.room).reach(self.start)
+        return self._now
+
+    def reaches_with(self, extra, goal):
+        """Whether `goal` is reached once `extra` stands too. An obstacle more
+        never opens a way; when the flood's own way keeps clear of it the way
+        stands; otherwise the planting with `extra` is flooded."""
+        from .checks import Walker, holds, obstacles
+        base = self.now()
+        path = base.path(goal)
+        if path is None:
+            return False
+        if holds(base.walker, path, obstacles(dict(self.probe, scatter=[extra]))):
+            return True
+        got = self._with.get(id(extra))
+        if got is None or got[0] is not extra:
+            probe = dict(self.probe, scatter=self.probe['scatter']+[extra])
+            got = self._with[id(extra)] = (extra, Walker(probe, self.meshes, self.terrain, self.room).reach(self.start))
+        return got[1].has(goal)
+
+
+def as_written(primitives):
+    """Primitives as a written package reads them back: positions in single
+    precision (the harness's GLB stores float32), triangles as they are."""
+    out = []
+    for p in primitives:
+        flat = [v for row in p['positions'] for v in row]
+        r = struct.unpack('<%df' % len(flat), struct.pack('<%df' % len(flat), *flat))
+        out.append(dict(role=p['role'], positions=[list(r[i:i+3]) for i in range(0, len(r), 3)],
+                        triangles=p['triangles']))
+    return out
+
+
+def written_walk(reach, goals, doc, meshes, room, start):
+    """Which goals a body reaches on the package as written (`doc` as the
+    package will read, its meshes in single precision), without writing it.
+    The flood `reach` (the same walk on the generator's own meshes) offers a
+    way to each goal; the written package's walker proves that way node by
+    node and edge by edge, reading only the ground along it. A goal with no
+    way, or whose way fails, is answered by flooding the written package."""
+    from .checks import CLEAR_R, Terrain, Walker, proves
+    single = {r['mesh']: as_written(meshes[r['mesh']]) for r in doc['terrain']+doc['scenery']+doc['water']}
+    paths = [reach.path(g) for g in goals]
+    cell, b = reach.walker.t.cell, .1
+    r = CLEAR_R+.01
+    only = set()
+    for path in paths:
+        for k in path or ():
+            x0, x1, z0, z1 = (k[0]-1)*cell-r, (k[0]+1)*cell+r, (k[1]-1)*cell-r, (k[1]+1)*cell+r
+            only.update((i, j) for i in range(int(math.floor(x0/b)), int(math.floor(x1/b))+1)
+                        for j in range(int(math.floor(z0/b)), int(math.floor(z1/b))+1))
+    walker = Walker(doc, single, Terrain(doc, single, only=only), room)
+    out, full = [], None
+    for g, path in zip(goals, paths):
+        if path is not None and proves(walker, path):
+            out.append(True)
+            continue
+        if full is None:
+            full = Walker(doc, single, Terrain(doc, single), room).reach(start)
+        out.append(full.has(g))
+    return out
 
 
 def _godot_yaw(dx, dz):
@@ -991,9 +1090,7 @@ def main():
     t0 = time.perf_counter()
     doc = generate(args.room, args.out, load_json(args.setup), args.seed, cell=args.cell)
     if args.world_scale != 1:
-        from .checks import BUDGET_HITS, UNVERIFIED
-        print('LANDSCAPE_TIMING generate_s %.1f walks_over_budget %d walks_taken_on_trust %d' % (
-            time.perf_counter()-t0, BUDGET_HITS[0], UNVERIFIED[0]))
+        print('LANDSCAPE_TIMING generate_s %.1f' % (time.perf_counter()-t0))
     print('LANDSCAPE_PACKAGE', args.out, 'meshes', len(doc['meshes']), 'scatter', len(doc['scatter']),
           'objects', len(doc['objects']))
 

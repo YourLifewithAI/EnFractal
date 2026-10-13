@@ -532,18 +532,23 @@ def plan_and_carve(grid, room, objects, h, base, inside, spawns, setup, noise, o
     lo, hi, _ = room_shape(room)
 
     if lake is not None:
+        # Only within reach of the shore: lake_rho is the lake-frame radius over
+        # a wobble of at most 1.12, so past 1.35 x 1.12 x the longer radius it
+        # is over 1.35 (the shore's outer edge) and nothing changes there.
+        R = 1.35*1.12*max(lake['rx'], lake['rz'])*1.001+grid.cell
+        lake_rx, lake_rz = grid.span(lake['x']-R, lake['x']+R, lake['z']-R, lake['z']+R)
         # Lake level: just under the lowest point of its rim.
         rim = []
-        for j in range(grid.nz):
-            for i in range(nx):
+        for j in lake_rz:
+            for i in lake_rx:
                 x, z = grid.xs[i], grid.zs[j]
                 r = lake_rho(lake, noise, x, z)
                 if 1.05 <= r <= 1.25:
                     rim.append(h[j*nx+i])
         level = min(rim)-FREEBOARD
         lake['level'] = round(level, 5)
-        for j in range(grid.nz):
-            for i in range(nx):
+        for j in lake_rz:
+            for i in lake_rx:
                 x, z = grid.xs[i], grid.zs[j]
                 r = lake_rho(lake, noise, x, z)
                 q = j*nx+i

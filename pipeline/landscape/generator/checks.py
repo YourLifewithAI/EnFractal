@@ -18,6 +18,9 @@ import argparse
 import heapq
 import json
 import math
+from array import array
+from bisect import bisect_right
+from collections import deque
 from pathlib import Path
 
 from pipeline.landscape.harness import read_package
@@ -31,34 +34,98 @@ STEP_M = .02       # the body's step-up
 BUILT = {'cottage', 'tower', 'fence', 'crate', 'lantern', 'woodpile', 'drying_line', 'footbridge'}
 
 
+def _face_slope(a, b, c):
+    """A triangle's slope in degrees (the one formula `Terrain.hit` reports)."""
+    ux, uy, uz = b[0]-a[0], b[1]-a[1], b[2]-a[2]
+    vx, vy, vz = c[0]-a[0], c[1]-a[1], c[2]-a[2]
+    nx_, ny_, nz_ = uy*vz-uz*vy, uz*vx-ux*vz, ux*vy-uy*vx
+    return math.degrees(math.acos(min(1., abs(ny_)/(math.sqrt(nx_*nx_+ny_*ny_+nz_*nz_) or 1e-30))))
+
+
+def world_scale(doc):
+    """The world scale a package (or a generator probe) was built at: its
+    x_generator.world_scale, else this process's (generator/scale.py)."""
+    return (doc.get('x_generator') or {}).get('world_scale', world.W)
+
+
+def walk_lattice(doc):
+    """The walk's lattice: 2.5 cm on today's room; on a magnified room the
+    body's limits are kept (the 11 cm disc, 2 cm steps sampled each
+    centimetre, 20 degrees) on a 5 cm lattice, a quarter of the nodes."""
+    return .025 if world_scale(doc) == 1 else WALK_LATTICE_W
+
+
+_SUB = 4          # sub-buckets per bucket side (candidate lists for `hit`)
+_BLOCK = 8        # buckets per block side, judged together (`Terrain.plain_slope`)
+_MISSING = object()
+_BROKEN = object()
+
+
 class Terrain:
     """The decoded package surface: topmost triangle under a point, from the
     package's own terrain (and scenery) meshes, with no knowledge of how the
-    generator built them. `cell` is the sampling step the checks use."""
+    generator built them. `cell` is the sampling step the checks use.
 
-    def __init__(self, doc, meshes, cell=None, bucket=.1):
-        # The scale experiment: on a magnified room the walk keeps the body's limits (the 11 cm disc, 2 cm steps sampled each
-        # centimetre, 20 degrees) on a 5 cm lattice (WALK_LATTICE_W), a quarter of the nodes.
-        self.cell = cell if cell is not None else (.025 if world.W == 1 else WALK_LATTICE_W)
+    Speed without changing an answer: each bucket's triangles (in their
+    order) are narrowed to the ones whose box, widened past the barycentric
+    tolerance, reaches a quarter-bucket; a triangle's slope is worked out
+    once. `plain_slope` vouches for a whole bucket of the package's own land
+    grid (read back from its mesh and `x_generator.cell_m`): every point there
+    hits the land, nothing else on top, no face steeper than the value; the
+    walker skips sampling such ground (`Walker.passable`)."""
+
+    def __init__(self, doc, meshes, cell=None, bucket=.1, only=None):
+        self.cell = cell if cell is not None else walk_lattice(doc)
         self.bucket = bucket
-        self.tris = []
+        self.tris = []      # (a, b, c, det, box x0, x1, z0, z1, land)
         self.grid = {}
-        records = doc['terrain']+doc['scenery']
-        win = window(doc)
-        for rec in records:
+        self.win = win = window(doc)
+        grid, tris = self.grid, self.tris
+        floor = math.floor
+        self.land = None
+        for rec in doc['terrain']+doc['scenery']:
+            is_land = rec['mesh'] == 'land'
             for p in meshes[rec['mesh']]:
                 vs = p['positions']
                 for t in p['triangles']:
                     a, b, c = vs[t[0]], vs[t[1]], vs[t[2]]
                     det = (b[2]-c[2])*(a[0]-c[0])+(c[0]-b[0])*(a[2]-c[2])
-                    if abs(det) < 1e-12 or not _meets(win, a, b, c):
+                    if abs(det) < 1e-12:
                         continue
-                    k = len(self.tris)
-                    self.tris.append((a, b, c, det))
-                    i0, i1, j0, j1 = _span(win, bucket, (a, b, c))
+                    ax, az, bx, bz, cx, cz = a[0], a[2], b[0], b[2], c[0], c[2]
+                    x0 = ax if ax < bx else bx
+                    x0 = x0 if x0 < cx else cx
+                    x1 = ax if ax > bx else bx
+                    x1 = x1 if x1 > cx else cx
+                    z0 = az if az < bz else bz
+                    z0 = z0 if z0 < cz else cz
+                    z1 = az if az > bz else bz
+                    z1 = z1 if z1 > cz else cz
+                    if win is not None:
+                        if x1 < win[0] or x0 > win[2] or z1 < win[1] or z0 > win[3]:
+                            continue
+                        i0, i1 = int(floor(max(x0, win[0])/bucket)), int(floor(min(x1, win[2])/bucket))
+                        j0, j1 = int(floor(max(z0, win[1])/bucket)), int(floor(min(z1, win[3])/bucket))
+                    else:
+                        i0, i1, j0, j1 = int(floor(x0/bucket)), int(floor(x1/bucket)), int(floor(z0/bucket)), \
+                            int(floor(z1/bucket))
+                    if only is not None and not any((i, j) in only for j in range(j0, j1+1) for i in range(i0, i1+1)):
+                        continue
+                    k = len(tris)
+                    tris.append((a, b, c, det, x0, x1, z0, z1, is_land))
                     for j in range(j0, j1+1):
                         for i in range(i0, i1+1):
-                            self.grid.setdefault((i, j), []).append(k)
+                            cell_ = grid.get((i, j))
+                            if cell_ is None:
+                                grid[(i, j)] = [k]
+                            else:
+                                cell_.append(k)
+        self.only = only
+        if only is not None:
+            # Only these buckets are read (a corridor round a few walks): elsewhere hit() would be wrong, so it says None.
+            self.grid = {key: v for key, v in grid.items() if key in only}
+        self.slopes = {}
+        self._sub = {}
         # Footbridge decks are walkable surfaces too: level, at the deck's top.
         self.decks = []
         for item in doc.get('scatter', ()):
@@ -69,6 +136,74 @@ class Terrain:
             self.decks.append((item['position_m'][0], item['position_m'][2], math.cos(a), math.sin(a),
                                size[0]/2, size[2]/2, item['position_m'][1]+size[1]))
         self._memo = {}
+        self._plain = {}
+        self._halves, self._cell_halves, self._corners, self._whole = {}, {}, {}, {}
+        self._lattice = _MISSING
+        self._lattice_src = (doc, meshes)
+        self.walks = {}     # the walkers' shared answers about this ground (Walker._shared)
+
+    def moved(self, points):
+        """The land's vertices at these (x, z) were raised or lowered in place
+        (the same position lists, so every triangle reads their new height):
+        forget every answer that may read them. Hits and slopes are read
+        again; the plain buckets and whole grid cells round them, their
+        corners, and the walkers' shared answers (a disc's ground, an edge, a
+        node's height) for nodes within reach are judged again when asked."""
+        if not points:
+            return
+        self._memo.clear()
+        self.slopes.clear()
+        b, floor = self.bucket, math.floor
+        lat = self._land_lattice()
+        lc = lat[2] if lat is not None else b
+        R = 2*lc+1e-3        # a bucket's verdict reads the cells within a cell of its square
+        buckets = set()
+        for x, z in points:
+            buckets.update((i, j) for i in range(int(floor((x-R)/b)), int(floor((x+R)/b))+1)
+                           for j in range(int(floor((z-R)/b)), int(floor((z+R)/b))+1))
+        for key in buckets:
+            self._plain.pop(key, None)
+        if lat is not None:
+            lx, lz, c = lat
+            moved = set()
+            for x, z in points:
+                ri, rj = round((x-lx)/c), round((z-lz)/c)
+                moved.add((ri, rj))
+                for ci in (ri-1, ri):
+                    for cj in (rj-1, rj):
+                        self._whole.pop((ci, cj), None)
+            corners, tris = self._corners, self.tris
+            for key in buckets:
+                for k in self.grid.get(key, ()):
+                    t = tris[k]
+                    if not t[8] or k not in self._halves:
+                        continue
+                    for v in t[:3]:
+                        p = (round((v[0]-lx)/c), round((v[2]-lz)/c))
+                        if p in moved and corners.get(p) is not _BROKEN:
+                            corners[p] = (v[0], v[1], v[2])
+        # Walkers: a node reads the buckets within a disc's or an edge's reach.
+        for got in self.walks.values():
+            i0, j0, ni, nj = got[-1]
+            c = self.cell
+            Rn = R+b+max(CLEAR_R, c)+c
+            nodes = set()
+            for x, z in points:
+                for i in range(int(floor((x-Rn)/c))-i0, int(floor((x+Rn)/c))+2-i0):
+                    if 0 <= i < ni:
+                        base = i*nj
+                        nodes.update(base+j for j in range(max(0, int(floor((z-Rn)/c))-j0),
+                                                           min(nj, int(floor((z+Rn)/c))+2-j0)))
+            if len(got) == 6:
+                _, _, ground, safe, edges, _ = got
+                for n in nodes:
+                    ground[n] = safe[n] = 0
+                    for d in range(8):
+                        edges.pop(n*8+d, None)
+            else:
+                heights = got[1]
+                for n in nodes:
+                    heights.pop(n, None)
 
     def deck(self, x, z):
         for x0, z0, c, s, hw, hl, top in self.decks:
@@ -77,18 +212,55 @@ class Terrain:
                 return top
         return None
 
+    def slope(self, k):
+        s = self.slopes.get(k)
+        if s is None:
+            a, b, c = self.tris[k][:3]
+            s = self.slopes[k] = _face_slope(a, b, c)
+        return s
+
+    def candidates(self, x, z):
+        """The triangles `hit` tests at (x, z): its bucket's, in their order,
+        narrowed to those whose widened box reaches the point's quarter-bucket
+        (every triangle the barycentric test can accept there is kept)."""
+        bucket = self.bucket
+        i, j = int(math.floor(x/bucket)), int(math.floor(z/bucket))
+        sb = bucket/_SUB
+        si = min(_SUB-1, max(0, int(math.floor((x-i*bucket)/sb))))
+        sj = min(_SUB-1, max(0, int(math.floor((z-j*bucket)/sb))))
+        key = (i, j, si, sj)
+        got = self._sub.get(key)
+        if got is None:
+            full = self.grid.get((i, j), ())
+            X0, Z0 = i*bucket+si*sb, j*bucket+sj*sb
+            X1, Z1 = X0+sb, Z0+sb
+            got = []
+            tris = self.tris
+            for k in full:
+                t = tris[k]
+                # A point the test accepts lies within 2e-7 of the triangle's extent outside its box.
+                m = 1e-6*max(t[5]-t[4], t[7]-t[6])+1e-6
+                if t[5]+m >= X0 and t[4]-m <= X1 and t[7]+m >= Z0 and t[6]-m <= Z1:
+                    got.append(k)
+            self._sub[key] = got
+        return got
+
     def hit(self, x, z):
         """(height, slope degrees) of the topmost triangle at (x, z), or None."""
         key = (round(x, 5), round(z, 5))
-        if key in self._memo:
-            return self._memo[key]
+        best = self._memo.get(key, _MISSING)
+        if best is not _MISSING:
+            return best
         best = None
-        for k in self.grid.get((int(math.floor(x/self.bucket)), int(math.floor(z/self.bucket))), ()):
-            a, b, c, det = self.tris[k]
+        tris = self.tris
+        for k in self.candidates(x, z):
+            a, b, c, det = tris[k][:4]
             u = ((b[2]-c[2])*(x-c[0])+(c[0]-b[0])*(z-c[2]))/det
+            if u < -1e-7:
+                continue
             v = ((c[2]-a[2])*(x-c[0])+(a[0]-c[0])*(z-c[2]))/det
             w = 1-u-v
-            if min(u, v, w) < -1e-7:
+            if v < -1e-7 or w < -1e-7:
                 continue
             y = u*a[1]+v*b[1]+w*c[1]
             # On an edge or vertex several faces meet at one height. Ties
@@ -96,10 +268,7 @@ class Terrain:
             # package) take the gentlest face, decided by value, never by
             # triangle order, so the generator's memory and its package agree.
             if best is None or y > best[0]-1e-6:
-                ux, uy, uz = b[0]-a[0], b[1]-a[1], b[2]-a[2]
-                vx, vy, vz = c[0]-a[0], c[1]-a[1], c[2]-a[2]
-                nx_, ny_, nz_ = uy*vz-uz*vy, uz*vx-ux*vz, ux*vy-uy*vx
-                slope = math.degrees(math.acos(min(1., abs(ny_)/(math.sqrt(nx_*nx_+ny_*ny_+nz_*nz_) or 1e-30))))
+                slope = self.slope(k)
                 if best is None or y > best[0]+1e-6:
                     best = (y, slope)
                 else:
@@ -114,6 +283,163 @@ class Terrain:
     def height(self, x, z):
         r = self.hit(x, z)
         return math.nan if r is None else r[0]
+
+    # ---------------------------------------------------------------- plain ground
+    def _land_lattice(self):
+        """(x0, z0, cell) of the package's land grid, read back from its land
+        mesh and `x_generator.cell_m`, or None (no such grid: nothing is vouched for)."""
+        if self._lattice is _MISSING:
+            self._lattice = None
+            doc, meshes = self._lattice_src
+            cell = (doc.get('x_generator') or {}).get('cell_m')
+            if cell and 'land' in meshes and any(r['mesh'] == 'land' for r in doc['terrain']):
+                xs = [v[0] for p in meshes['land'] for v in p['positions']]
+                zs = [v[2] for p in meshes['land'] for v in p['positions']]
+                if xs:
+                    self._lattice = (min(xs), min(zs), cell)
+            self._lattice_src = None
+        return self._lattice
+
+    def plain_slope(self, i, j):
+        """For bucket (i, j): the steepest land face there when the bucket is
+        plain land, else None. Plain: inside the checks' window; every grid
+        cell the bucket reaches is whole (both halves of the package's land
+        grid, its corners shared exactly with the neighbouring cells, so the
+        land is one unbroken surface there); every other terrain or scenery
+        triangle in the bucket lies wholly below that land; no footbridge deck
+        reaches it. Then every point of the bucket hits that land, and no face
+        under it is steeper than the value returned."""
+        got = self._plain.get((i, j), _MISSING)
+        if got is _MISSING:
+            self._plain_block(i//_BLOCK, j//_BLOCK)
+            got = self._plain[(i, j)]
+        return got
+
+    def _half(self, k):
+        """Read land triangle k as half of a grid cell: ((ci, cj), the corner
+        it misses: 0 (ci, cj), 1 (ci+1, cj), 2 (ci, cj+1), 3 (ci+1, cj+1)), or
+        None when it is not. Its corners are kept: a lattice point met with two
+        different positions is marked broken (the land is not one surface there)."""
+        got = self._halves.get(k, _MISSING)
+        if got is not _MISSING:
+            return got
+        lx, lz, c = self._land_lattice()
+        tol = 1e-3
+        t = self.tris[k]
+        x0, x1, z0, z1 = t[4], t[5], t[6], t[7]
+        fi, fj = (x0-lx)/c, (z0-lz)/c
+        ri, rj = round(fi), round(fj)
+        got = None
+        if abs(fi-ri) <= tol and abs(fj-rj) <= tol and abs((x1-lx)/c-ri-1) <= tol and abs((z1-lz)/c-rj-1) <= tol:
+            present = 0
+            corners = self._corners
+            for v in t[:3]:
+                bx, bz = (1 if v[0] == x1 else 0), (1 if v[2] == z1 else 0)
+                bit = 1 << (bx+2*bz)
+                if present & bit:
+                    present = -1
+                    break
+                present |= bit
+                key = (ri+bx, rj+bz)
+                val = (v[0], v[1], v[2])
+                was = corners.get(key)
+                if was is None:
+                    corners[key] = val
+                elif was != val:
+                    corners[key] = _BROKEN
+            if present > 0:
+                missing = (15 & ~present).bit_length()-1
+                got = ((ri, rj), missing)
+                self._cell_halves.setdefault((ri, rj), []).append((k, missing))
+        self._halves[k] = got
+        return got
+
+    def _cell(self, ci, cj):
+        """(steepest face, lowest corner) of a whole grid cell: both halves on
+        one diagonal, every corner one position; else None."""
+        key = (ci, cj)
+        got = self._whole.get(key, _MISSING)
+        if got is not _MISSING:
+            return got
+        got = None
+        halves = self._cell_halves.get(key)
+        if halves is not None and len(halves) == 2 and {halves[0][1], halves[1][1]} in ({0, 3}, {1, 2}):
+            ys = []
+            for p in ((ci, cj), (ci+1, cj), (ci, cj+1), (ci+1, cj+1)):
+                v = self._corners.get(p)
+                if v is None or v is _BROKEN:
+                    ys = None
+                    break
+                ys.append(v[1])
+            if ys is not None:
+                got = (max(self.slope(halves[0][0]), self.slope(halves[1][0])), min(ys))
+        self._whole[key] = got
+        return got
+
+    def _plain_block(self, bi, bj):
+        """Judge a block of buckets at once."""
+        keys = [(i, j) for j in range(bj*_BLOCK, (bj+1)*_BLOCK) for i in range(bi*_BLOCK, (bi+1)*_BLOCK)]
+        lat = self._land_lattice()
+        if lat is None:
+            for key in keys:
+                self._plain[key] = None
+            return
+        lx, lz, c = lat
+        tris, grid, halves = self.tris, self.grid, self._halves
+        # The land triangles of the block and a ring of buckets round it: every
+        # half of a grid cell that reaches a bucket of the block is among them.
+        for j in range(bj*_BLOCK-1, (bj+1)*_BLOCK+1):
+            for i in range(bi*_BLOCK-1, (bi+1)*_BLOCK+1):
+                for k in grid.get((i, j), ()):
+                    if k not in halves and tris[k][8]:
+                        self._half(k)
+        b, win, eps = self.bucket, self.win, 1e-4
+        boxes = self._deck_boxes()
+        cell = self._cell
+        for i, j in keys:
+            X0, X1, Z0, Z1 = i*b-eps, (i+1)*b+eps, j*b-eps, (j+1)*b+eps
+            out = None
+            if (win is None or (X0 >= win[0] and X1 <= win[2] and Z0 >= win[1] and Z1 <= win[3])) and                     not any(x0+r >= X0 and x0-r <= X1 and z0+r >= Z0 and z0-r <= Z1 for x0, z0, r in boxes):
+                steepest, low = 0., math.inf
+                for cj in range(int(math.floor((Z0-lz)/c)), int(math.floor((Z1-lz)/c))+1):
+                    for ci in range(int(math.floor((X0-lx)/c)), int(math.floor((X1-lx)/c))+1):
+                        got = cell(ci, cj)
+                        if got is None:
+                            low = None
+                            break
+                        if got[0] > steepest:
+                            steepest = got[0]
+                        if got[1] < low:
+                            low = got[1]
+                    if low is None:
+                        break
+                # Every land triangle here is half a whole cell; anything else lies below.
+                if low is not None and all(halves[k] is not None if tris[k][8] else
+                                           max(tris[k][0][1], tris[k][1][1], tris[k][2][1]) < low-1e-5
+                                           for k in grid.get((i, j), ())):
+                    out = steepest
+            self._plain[(i, j)] = out
+
+    def _deck_boxes(self):
+        if not hasattr(self, '_dboxes'):
+            self._dboxes = [(x0, z0, math.hypot(hw, hl)) for x0, z0, c, s, hw, hl, top in self.decks]
+        return self._dboxes
+
+    def plain(self, x, z, limit):
+        """Whether the bucket holding (x, z) is plain land no steeper than `limit`."""
+        b = self.bucket
+        s = self.plain_slope(int(math.floor(x/b)), int(math.floor(z/b)))
+        return s is not None and s <= limit
+
+    def plain_box(self, x0, x1, z0, z1, limit):
+        """Whether every bucket a box reaches (widened a hair past rounding) is plain land no steeper than `limit`."""
+        b = self.bucket
+        for j in range(int(math.floor((z0-1e-9)/b)), int(math.floor((z1+1e-9)/b))+1):
+            for i in range(int(math.floor((x0-1e-9)/b)), int(math.floor((x1+1e-9)/b))+1):
+                s = self.plain_slope(i, j)
+                if s is None or s > limit:
+                    return False
+        return True
 
 
 def _sea(doc):
@@ -283,17 +609,13 @@ def _in_tri(x, z, vs):
 
 
 CLEAR_R = .055      # half of the 11 cm carrying clearance (body and a held item)
-# The scale experiment (generator/scale.py), only for a magnified room: the walker's lattice, how many nodes one route may
-# expand before it gives up (an unreachable goal would otherwise flood the whole island), and its heuristic's weight.
-WALK_LATTICE_W = .05
-WALK_BUDGET_W = 40_000
-WALK_GREED_W = 1.5
-# Beyond this straight distance a magnified island's walk is not searched at all: the route is taken on trust (an
-# island-scale planner on a coarser lattice would be the real answer). Counted in UNVERIFIED.
-WALK_REACH_W = 12.
-BUDGET_HITS = [0]
-UNVERIFIED = [0]
+WALK_LATTICE_W = .05   # the walk's lattice on a magnified room (`walk_lattice`)
 EDGE_SAMPLE = .01   # every walk edge is sampled each centimetre
+# On a magnified island (`Walker.ways`): a goal's own pocket is flooded back up to this many nodes before the
+# least-cost flood is left to find whether a way exists.
+POCKET_NODES = 60_000
+N8 = ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1))
+_PASSABLE = frozenset(('grass', 'wildflowers', 'daisies', 'buttercups', 'heather', 'fern', 'reeds'))
 
 
 def obstacles(doc):
@@ -304,11 +626,11 @@ def obstacles(doc):
     out = []
     for item in doc['scatter']:
         name = item['prototype']
+        if name in _PASSABLE or name == 'footbridge':
+            continue   # ground cover is walked through; a footbridge is walked on, not around
         base = SIZES[name] if name in SIZES else protos[name]['size_m']
         size = [b*s for b, s in zip(base, item['scale'])]
         x, _, z = item['position_m']
-        if name == 'footbridge':
-            continue   # walked on, not around
         if name in BUILT:
             out.append(('box', x, z, size[0]/2, size[2]/2, math.radians(item['yaw_deg'])))
         elif name in ('broadleaf', 'conifer'):
@@ -318,14 +640,99 @@ def obstacles(doc):
     return out
 
 
+def blocks(o, x, z):
+    """Whether obstacle `o` keeps an 11 cm lane from (x, z)."""
+    if o[0] == 'disc':
+        return math.hypot(x-o[1], z-o[2]) < o[3]+CLEAR_R
+    a = o[5]
+    c, s = math.cos(a), math.sin(a)
+    dx, dz = x-o[1], z-o[2]
+    lx, lz = c*dx-s*dz, s*dx+c*dz
+    ex, ez = max(0., abs(lx)-o[3]), max(0., abs(lz)-o[4])
+    return math.hypot(ex, ez) < CLEAR_R
+
+
+def obstacle_index(obs):
+    """Obstacles by the 20 cm buckets their lane reaches."""
+    index = {}
+    floor = math.floor
+    for o in obs:
+        r = o[3] if o[0] == 'disc' else math.hypot(o[3], o[4])
+        for i in range(int(floor((o[1]-r-CLEAR_R)/.2)), int(floor((o[1]+r+CLEAR_R)/.2))+1):
+            for j in range(int(floor((o[2]-r-CLEAR_R)/.2)), int(floor((o[2]+r+CLEAR_R)/.2))+1):
+                got = index.get((i, j))
+                if got is None:
+                    index[(i, j)] = [o]
+                else:
+                    got.append(o)
+    return index
+
+
+def inside_row(room, c, i0, ni, j, r=CLEAR_R):
+    """Whether each node (i, j), i0 <= i < i0+ni, has its disc inside the
+    walkable floor (`inside_distance(room, i*c, j*c) >= r`), a row at a time,
+    with the same answers: off the bounds or nearer a bound than r, no; with
+    no floor outline, yes; near a floor outline's edge, read in full; away from
+    every edge, yes when inside an outline (its crossings counted as
+    `point_in_poly` counts them, so the deepest edge is over r away)."""
+    from .land import _shape, inside_distance
+    lo0, lo2, hi0, hi2, polys = _shape(room)
+    z = j*c
+    D = r+1e-6
+    near, crossings = [], []
+    for edges in polys:
+        xs_ = []
+        for a0, a2, b2, ex, ez, L, b0 in edges:
+            if min(a2, b2)-D <= z <= max(a2, b2)+D:
+                near.append((min(a0, b0)-D, max(a0, b0)+D))
+            if (a2 > z) != (b2 > z):
+                xs_.append(ex*(z-a2)/ez+a0)
+        crossings.append(sorted(xs_))
+    out = bytearray(ni)
+    zl, zh = z-lo2, hi2-z
+    for k in range(ni):
+        x = (i0+k)*c
+        a, b = lo0-x, x-hi0
+        dx = b if b > a else a
+        a, b = lo2-z, z-hi2
+        dz = b if b > a else a
+        if not (dx <= 0 and dz <= 0) or min(x-lo0, hi0-x, zl, zh) < r:
+            out[k] = 2
+        elif not polys:
+            out[k] = 1
+        elif any(lo_ <= x <= hi_ for lo_, hi_ in near):
+            out[k] = 1 if inside_distance(room, x, z) >= r else 2
+        else:
+            # Crossings with x < xc, counted as point_in_poly counts them.
+            out[k] = 1 if any((len(xs_)-bisect_right(xs_, x)) % 2 for xs_ in crossings) else 2
+    return out
+
+
 _WATER_INDEX = {}   # one shared water index (see Walker)
+_INSIDE = {}        # one shared answer per room and lattice: is a node's disc inside the walkable floor
+_RUN = 32           # nodes along a lattice row judged safe or not together (`Walker._is_safe`)
 
 
 class Walker:
-    """A* over a 2.5 cm lattice of the decoded surface. A node is standable
-    when an 11 cm disc around it is dry, clear of obstacles, inside the
-    walkable floor and on triangles no steeper than the limit; every edge is
-    sampled each centimetre for its rise and incline."""
+    """The walk over a lattice of the decoded surface (2.5 cm; 5 cm on a
+    magnified room, `walk_lattice`). A node is standable when an 11 cm disc
+    around it is dry, clear of obstacles, inside the walkable floor and on
+    triangles no steeper than the limit; every edge is sampled each
+    centimetre for its rise and incline.
+
+    `reach(start)` floods every node a body reaches from the start (one flood
+    answers every goal); `ways(start, goals)` finds the least-cost way (length
+    plus twice the climb) to goals the flood reaches: one A* search per goal
+    on today's room, exactly as before; on a magnified island one least-cost
+    flood for all of them.
+
+    Answers about the ground alone (a disc's ground and water, an edge) are
+    kept on the Terrain and shared by every Walker over it, and whether a disc
+    is inside the floor on the room; obstacles are each Walker's own. Where
+    the Terrain vouches for plain land no steeper than the limit and no water
+    within reach of a node (`Terrain.plain_slope`), the node's disc and every
+    edge from it need no reading: each sample hits that land, gentle enough,
+    dry, and a centimetre of it rises less than a step."""
 
     def __init__(self, doc, meshes, terrain, room, limit=WALK_DEG, step=STEP_M):
         from .land import inside_distance
@@ -333,20 +740,18 @@ class Walker:
         self.room = room
         self.limit = limit
         self.step = step
+        self.scale = world_scale(doc)
         self.inside = lambda x, z: inside_distance(room, x, z)
-        self.obs = {}
-        for o in obstacles(doc):
-            r = o[3] if o[0] == 'disc' else math.hypot(o[3], o[4])
-            for i in range(int(math.floor((o[1]-r-CLEAR_R)/.2)), int(math.floor((o[1]+r+CLEAR_R)/.2))+1):
-                for j in range(int(math.floor((o[2]-r-CLEAR_R)/.2)), int(math.floor((o[2]+r+CLEAR_R)/.2))+1):
-                    self.obs.setdefault((i, j), []).append(o)
+        self.obs = obstacle_index(obstacles(doc))
         win = window(doc, .2)
         # The water's index depends only on the water records, the meshes and the
         # window: Walkers over the same package share it (the generator builds
-        # dozens of them, each with a different scatter).
-        key = (id(doc['water']), id(meshes), win)
+        # dozens of them, each with a different scatter). A Terrain read only in
+        # a corridor (`only`) has its water read there too.
+        only = terrain.only
+        key = (id(doc['water']), id(meshes), win, None if only is None else id(only))
         hit = _WATER_INDEX.get(key)
-        if hit is not None and hit[0] is doc['water'] and hit[1] is meshes:
+        if hit is not None and hit[0] is doc['water'] and hit[1] is meshes and hit[4] is only:
             self.water, self.wbuck = hit[2], hit[3]
         else:
             self.water = []
@@ -357,15 +762,63 @@ class Walker:
                         vs = [p['positions'][k] for k in t]
                         if not _meets(win, *vs):
                             continue
+                        i0, i1, j0, j1 = _span(win, .1, vs)
+                        cells = [(i, j) for i in range(i0, i1+1) for j in range(j0, j1+1)]
+                        if only is not None:
+                            cells = [c for c in cells if c in only]
+                            if not cells:
+                                continue
                         k = len(self.water)
                         self.water.append(vs)
-                        i0, i1, j0, j1 = _span(win, .1, vs)
-                        for i in range(i0, i1+1):
-                            for j in range(j0, j1+1):
-                                self.wbuck.setdefault((i, j), []).append(k)
-            _WATER_INDEX.clear()
-            _WATER_INDEX[key] = (doc['water'], meshes, self.water, self.wbuck)
-        self.cache = {}
+                        for c in cells:
+                            self.wbuck.setdefault(c, []).append(k)
+            if len(_WATER_INDEX) > 4:
+                _WATER_INDEX.clear()
+            _WATER_INDEX[key] = (doc['water'], meshes, self.water, self.wbuck, only)
+        # The lattice over the room's bounds (nodes outside them never stand:
+        # their disc is outside the floor). A node's id orders as its (i, j).
+        c = terrain.cell
+        lo, hi = room['bounds']['min_m'], room['bounds']['max_m']
+        i0, j0 = int(math.floor(lo[0]/c))-2, int(math.floor(lo[2]/c))-2
+        ni, nj = int(math.ceil(hi[0]/c))+3-i0, int(math.ceil(hi[2]/c))+3-j0
+        self.i0, self.j0, self.ni, self.nj = i0, j0, ni, nj
+        self.state = bytearray(ni*nj)    # this walker's answer per node: 0 unread, 1 standable, 2 not
+        # Shared by every Walker over this ground, water, room and limits.
+        key = (id(self.wbuck), id(room), limit, step)
+        shared = terrain.walks.get(key)
+        if shared is None or shared[0] is not self.wbuck or shared[1] is not room:
+            shared = terrain.walks[key] = (self.wbuck, room, bytearray(ni*nj), bytearray(ni*nj), {},
+                                           (i0, j0, ni, nj))
+        _, _, self.ground, self.safe, self.edges, _ = shared
+        hkey = ('heights', id(room))
+        got = terrain.walks.get(hkey)
+        if got is None or got[0] is not room:
+            got = terrain.walks[hkey] = (room, {}, (i0, j0, ni, nj))
+        self.heights = got[1]
+        inside = _INSIDE.get((id(room), c))
+        if inside is None or inside[0] is not room:
+            if len(_INSIDE) > 8:
+                _INSIDE.clear()
+            inside = _INSIDE[(id(room), c)] = (room, bytearray(ni*nj), set())
+        self.inside_ok, self.inside_rows = inside[1], inside[2]
+        # A centimetre of plain land no steeper than the limit rises less than a step.
+        self.vouch = EDGE_SAMPLE*math.tan(math.radians(min(limit, 89.)))+1e-9 < step
+        self.d8 = tuple(di*nj+dj for di, dj in N8)
+
+    # ---------------------------------------------------------------- nodes
+    def key(self, x, z):
+        return int(round(x/self.t.cell)), int(round(z/self.t.cell))
+
+    def node(self, k):
+        """A key's id, or None off the lattice (never standable)."""
+        i, j = k[0]-self.i0, k[1]-self.j0
+        if 0 <= i < self.ni and 0 <= j < self.nj:
+            return i*self.nj+j
+        return None
+
+    def ij(self, n):
+        i, j = divmod(n, self.nj)
+        return i+self.i0, j+self.j0
 
     def wet(self, x, z):
         g = self.t.height(x, z)
@@ -377,33 +830,90 @@ class Walker:
 
     def blocked(self, x, z):
         for o in self.obs.get((int(math.floor(x/.2)), int(math.floor(z/.2))), ()):
-            if o[0] == 'disc':
-                if math.hypot(x-o[1], z-o[2]) < o[3]+CLEAR_R:
-                    return True
-            else:
-                a = o[5]
-                c, s = math.cos(a), math.sin(a)
-                dx, dz = x-o[1], z-o[2]
-                lx, lz = c*dx-s*dz, s*dx+c*dz
-                ex, ez = max(0., abs(lx)-o[3]), max(0., abs(lz)-o[4])
-                if math.hypot(ex, ez) < CLEAR_R:
-                    return True
+            if blocks(o, x, z):
+                return True
         return False
 
     def standable(self, k):
-        if k in self.cache:
-            return self.cache[k]
-        x, z = k[0]*self.t.cell, k[1]*self.t.cell
-        ok = self.inside(x, z) >= CLEAR_R and not self.blocked(x, z)
+        n = self.node(k)
+        return n is not None and self._stand(n)
+
+    def _stand(self, n):
+        s = self.state[n]
+        if s:
+            return s == 1
+        nj = self.nj
+        j = n % nj
+        if not self.inside_ok[n]:
+            if j not in self.inside_rows:
+                row = inside_row(self.room, self.t.cell, self.i0, self.ni, j+self.j0)
+                self.inside_ok[j::nj] = row
+                self.inside_rows.add(j)
+        ok = self.inside_ok[n] == 1
         if ok:
-            for dx, dz in ((0, 0), (CLEAR_R, 0), (-CLEAR_R, 0), (0, CLEAR_R), (0, -CLEAR_R)):
-                hit = self.t.hit(x+dx, z+dz)
-                if hit is None or hit[1] > self.limit or self.wet(x+dx, z+dz):
-                    ok = False
-                    break
-        self.cache[k] = ok
+            c = self.t.cell
+            i = n//nj+self.i0
+            x, z = i*c, (j+self.j0)*c
+            ok = not self.blocked(x, z)
+            if ok:
+                g = self.ground[n]
+                if not g:
+                    g = self.ground[n] = 1 if self._is_safe(n) or self._ground(x, z) else 2
+                ok = g == 1
+        self.state[n] = 1 if ok else 2
         return ok
 
+    def _is_safe(self, n):
+        """Whether every bucket within a disc's or an edge's reach of the node
+        is plain land no steeper than the limit, with no water: its disc and
+        every edge from it pass without a reading (judged 32 nodes at a time)."""
+        s = self.safe[n]
+        if not s:
+            self._safe_run(n//self.nj//_RUN, n % self.nj)
+            s = self.safe[n]
+        return s == 1
+
+    def _safe_run(self, ci, j):
+        t, nj = self.t, self.nj
+        c, b, eps = t.cell, t.bucket, 1e-9
+        r = max(CLEAR_R, c)
+        z = (j+self.j0)*c
+        floor = math.floor
+        jbs = range(int(floor((z-r-eps)/b)), int(floor((z+r+eps)/b))+1)
+        limit, wbuck, plain = self.limit, self.wbuck, t.plain_slope
+        cols = {}
+        safe = self.safe
+        for k in range(ci*_RUN, min(self.ni, (ci+1)*_RUN)):
+            x = (self.i0+k)*c
+            ok = 1
+            for ib in range(int(floor((x-r-eps)/b)), int(floor((x+r+eps)/b))+1):
+                col = cols.get(ib)
+                if col is None:
+                    col = True
+                    for jb in jbs:
+                        s = plain(ib, jb)
+                        if s is None or s > limit or (ib, jb) in wbuck:
+                            col = False
+                            break
+                    cols[ib] = col
+                if not col:
+                    ok = 2
+                    break
+            safe[k*nj+j] = ok
+
+    def _ground(self, x, z):
+        """The disc's ground: every sample on a face no steeper than the limit, and dry."""
+        t, limit, wbuck, floor = self.t, self.limit, self.wbuck, math.floor
+        for dx, dz in ((0, 0), (CLEAR_R, 0), (-CLEAR_R, 0), (0, CLEAR_R), (0, -CLEAR_R)):
+            px, pz = x+dx, z+dz
+            if t.plain(px, pz, limit) and (int(floor(px/.1)), int(floor(pz/.1))) not in wbuck:
+                continue   # plain land, no water near: it hits the land, gentle enough, and is dry
+            hit = t.hit(px, pz)
+            if hit is None or hit[1] > limit or self.wet(px, pz):
+                return False
+        return True
+
+    # ---------------------------------------------------------------- edges
     def edge(self, a, b):
         ax, az, bx, bz = a[0]*self.t.cell, a[1]*self.t.cell, b[0]*self.t.cell, b[1]*self.t.cell
         run = math.hypot(bx-ax, bz-az)
@@ -422,13 +932,206 @@ class Walker:
             return None
         return rise, grade
 
-    def key(self, x, z):
-        return int(round(x/self.t.cell)), int(round(z/self.t.cell))
+    def passable(self, a, b):
+        """Whether the edge a -> b (lattice keys) passes (`edge` is not None)."""
+        return self._pass(self.node(a), N8.index((b[0]-a[0], b[1]-a[1])))
+
+    def _pass(self, n, d):
+        """Whether the edge from node n in direction N8[d] passes, read once per ground."""
+        if self.vouch and self._is_safe(n):
+            return True
+        key = n*8+d
+        ok = self.edges.get(key)
+        if ok is None:
+            a = self.ij(n)
+            di, dj = N8[d]
+            b = (a[0]+di, a[1]+dj)
+            c = self.t.cell
+            ax, az, bx, bz = a[0]*c, a[1]*c, b[0]*c, b[1]*c
+            if self.vouch and self.t.plain_box(min(ax, bx), max(ax, bx), min(az, bz), max(az, bz), self.limit):
+                ok = True
+            else:
+                ok = self.edge(a, b) is not None
+            self.edges[key] = ok
+        return ok
+
+    def height(self, n):
+        h = self.heights.get(n)
+        if h is None:
+            i, j = self.ij(n)
+            c = self.t.cell
+            h = self.heights[n] = self.t.height(i*c, j*c)
+        return h
+
+    # ---------------------------------------------------------------- walks
+    def reach(self, start):
+        """Every node a body reaches from `start` (a breadth-first flood fill)."""
+        s = self.node(self.key(*start))
+        parent = array('i', [-2])*(self.ni*self.nj)
+        count = 0
+        if s is not None and self._stand(s):
+            parent[s] = -1
+            count = 1
+            queue = deque((s,))
+            pop, push = queue.popleft, queue.append
+            state, stand, pass_ = self.state, self._stand, self._pass
+            nj, safe, vouch = self.nj, self.safe, self.vouch
+            steps = tuple(enumerate(zip(self.d8, N8)))
+            while queue:
+                k = pop()
+                free = vouch and self._is_safe(k)
+                for d, (step, (di, dj)) in steps:
+                    n = k+step
+                    if parent[n] != -2:
+                        continue
+                    s_ = state[n]
+                    if not (s_ == 1 if s_ else stand(n)):
+                        continue
+                    if di and dj:
+                        o = k+di*nj
+                        s_ = state[o]
+                        if not (s_ == 1 if s_ else stand(o)):
+                            continue
+                        o = k+dj
+                        s_ = state[o]
+                        if not (s_ == 1 if s_ else stand(o)):
+                            continue
+                    if not (free or pass_(k, d)):
+                        continue
+                    parent[n] = k
+                    count += 1
+                    push(n)
+        return Reach(self, s, parent, count)
+
+    def ways(self, start, goals, first=False):
+        """A least-cost way (lattice keys; length plus twice the climb) from
+        start to each goal, None where there is none. On today's room: one A*
+        search per goal (`route`), only toward goals a flood reaches, exactly
+        as before. On a magnified island: a goal shut in a pocket of its own
+        is found so by a small flood back from it (`pocket`), and one
+        least-cost flood serves all the others (`cheapest`). `first`: stop at
+        the first goal with a way."""
+        out = [None]*len(goals)
+        if self.scale == 1:
+            reach = self.reach(start)
+            for m, g in enumerate(goals):
+                if reach.has(g):
+                    out[m] = self.route(start, g)[0]
+                    if first and out[m]:
+                        break
+            return out
+        open_ = [m for m, g in enumerate(goals) if self.pocket(start, g) != 'shut']
+        for m, w in zip(open_, self.cheapest(start, [goals[m] for m in open_], first)):
+            out[m] = w
+        return out
+
+    def pocket(self, start, goal, cap=POCKET_NODES):
+        """Flood back from `goal` (edges walked toward it): 'shut' when no
+        more than `cap` nodes reach it and the start is not among them (no
+        way from the start), 'start' when the start is, 'open' otherwise."""
+        s, g = self.node(self.key(*start)), self.node(self.key(*goal))
+        if g is None or not self._stand(g):
+            return 'shut'
+        seen = {g}
+        queue = deque((g,))
+        state, stand, pass_, nj = self.state, self._stand, self._pass, self.nj
+        steps = tuple(enumerate(zip(self.d8, N8)))
+        while queue:
+            n = queue.popleft()
+            for d, (step, (di, dj)) in steps:
+                k = n-step     # k -> n in direction d
+                if k in seen:
+                    continue
+                s_ = state[k]
+                if not (s_ == 1 if s_ else stand(k)):
+                    continue
+                if di and dj:
+                    o = k+di*nj
+                    s_ = state[o]
+                    if not (s_ == 1 if s_ else stand(o)):
+                        continue
+                    o = k+dj
+                    s_ = state[o]
+                    if not (s_ == 1 if s_ else stand(o)):
+                        continue
+                if not pass_(k, d):
+                    continue
+                if k == s:
+                    return 'start'
+                seen.add(k)
+                if len(seen) > cap:
+                    return 'open'
+                queue.append(k)
+        return 'shut'
+
+    def cheapest(self, start, goals, first=False):
+        """Least-cost ways (length plus twice the climb, as `route` counts)
+        from start to every goal, one Dijkstra flood for all of them; it stops
+        once every goal it can reach is settled."""
+        out = [None]*len(goals)
+        s = self.node(self.key(*start))
+        want = {}
+        for m, g in enumerate(goals):
+            n = self.node(self.key(*g))
+            if n is not None:
+                want.setdefault(n, []).append(m)
+        if s is None or not self._stand(s) or not want:
+            return out
+        c = self.t.cell
+        diag = c*math.sqrt(2)
+        N = self.ni*self.nj
+        cost = array('d', [math.inf])*N
+        prev = array('i', [-1])*N
+        done = bytearray(N)
+        cost[s] = 0.
+        heap = [(0., s)]
+        state, stand, pass_, nj = self.state, self._stand, self._pass, self.nj
+        steps = tuple(enumerate(zip(self.d8, N8)))
+        left = len(want)
+        while heap and left:
+            d, k = heapq.heappop(heap)
+            if done[k]:
+                continue
+            done[k] = 1
+            if k in want:
+                left -= 1
+                path = [k]
+                while path[-1] != s:
+                    path.append(prev[path[-1]])
+                path = [self.ij(n) for n in reversed(path)]
+                for m in want[k]:
+                    out[m] = path
+                if first:
+                    break
+            free = self.vouch and self._is_safe(k)
+            hk = self.height(k)
+            for e, (step, (di, dj)) in steps:
+                n = k+step
+                if done[n]:
+                    continue
+                s_ = state[n]
+                if not (s_ == 1 if s_ else stand(n)):
+                    continue
+                if di and dj:
+                    o = k+di*nj
+                    s_ = state[o]
+                    if not (s_ == 1 if s_ else stand(o)):
+                        continue
+                    o = k+dj
+                    s_ = state[o]
+                    if not (s_ == 1 if s_ else stand(o)):
+                        continue
+                if not (free or pass_(k, e)):
+                    continue
+                nd = d+(diag if di and dj else c)+2*abs(self.height(n)-hk)
+                if nd < cost[n]:
+                    cost[n] = nd
+                    prev[n] = k
+                    heapq.heappush(heap, (nd, n))
+        return out
 
     def route(self, start, goal):
-        if world.W != 1 and math.hypot(goal[0]-start[0], goal[1]-start[1]) > WALK_REACH_W:
-            UNVERIFIED[0] += 1
-            return [self.key(*start), self.key(*goal)], dict(unverified=True)
+        """One shortest way (A*, the lattice's least climbing length) from start to goal, or None."""
         s, g = self.key(*start), self.key(*goal)
         if not self.standable(s) or not self.standable(g):
             return None, dict(start_ok=self.standable(s), goal_ok=self.standable(g))
@@ -436,43 +1139,38 @@ class Walker:
         cost = {s: 0.}
         prev = {}
         heap = [(0., 0., s)]
-        budget = math.inf if world.W == 1 else WALK_BUDGET_W
-        greed = 1. if world.W == 1 else WALK_GREED_W
-        expanded = 0
         while heap:
             _, d, k = heapq.heappop(heap)
             if d > cost.get(k, math.inf)+1e-12:
                 continue
             if k == g:
                 break
-            expanded += 1
-            if expanded > budget:
-                BUDGET_HITS[0] += 1
-                print('LANDSCAPE_WALK_OVER_BUDGET from (%.2f, %.2f) to (%.2f, %.2f) after %d nodes' % (
-                    start[0], start[1], goal[0], goal[1], expanded), flush=True)
-                return None, dict(budget=budget)
-            for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)):
+            kn = self.node(k)
+            for e, (di, dj) in enumerate(N8):
                 n = (k[0]+di, k[1]+dj)
                 if not self.standable(n):
                     continue
                 if di and dj and not (self.standable((k[0]+di, k[1])) and self.standable((k[0], k[1]+dj))):
                     continue
-                e = self.edge(k, n)
-                if e is None:
+                if not self._pass(kn, e):
                     continue
                 length = c*(math.sqrt(2) if di and dj else 1)
-                nd = d+length+2*abs(self.t.height(n[0]*c, n[1]*c)-self.t.height(k[0]*c, k[1]*c))
+                nd = d+length+2*abs(self.height(self.node(n))-self.height(kn))
                 if nd < cost.get(n, math.inf)-1e-12:
                     cost[n] = nd
                     prev[n] = k
-                    heapq.heappush(heap, (nd+c*math.hypot(n[0]-g[0], n[1]-g[1])*greed if greed != 1. else
-                                          nd+c*math.hypot(n[0]-g[0], n[1]-g[1]), nd, n))
+                    heapq.heappush(heap, (nd+c*math.hypot(n[0]-g[0], n[1]-g[1]), nd, n))
         if g not in cost:
             return None, {}
         path = [g]
         while path[-1] != s:
             path.append(prev[path[-1]])
         path.reverse()
+        return path, self.measure(path)
+
+    def measure(self, path):
+        """A way's length, steepest face, highest step and climb (each edge read in full)."""
+        c = self.t.cell
         rises, grades, length = [0.], [0.], 0.
         for a, b in zip(path, path[1:]):
             r, gr = self.edge(a, b)
@@ -480,9 +1178,91 @@ class Walker:
             grades.append(gr)
             length += c*math.hypot(b[0]-a[0], b[1]-a[1])
         hs = [self.t.height(k[0]*c, k[1]*c) for k in path]
-        return path, dict(length_m=round(length, 3), nodes=len(path), max_face_slope_deg=round(max(grades), 2),
-                          max_step_m=round(max(rises), 4), climb_m=round(max(hs)-min(hs), 3),
-                          clearance_m=2*CLEAR_R, lattice_m=c)
+        return dict(length_m=round(length, 3), nodes=len(path), max_face_slope_deg=round(max(grades), 2),
+                    max_step_m=round(max(rises), 4), climb_m=round(max(hs)-min(hs), 3),
+                    clearance_m=2*CLEAR_R, lattice_m=c)
+
+
+class Reach:
+    """The nodes one flood reached from its start, each with the node it was
+    reached from (so a way back to the start is at hand for any of them)."""
+
+    def __init__(self, walker, start, parent, count):
+        self.walker, self.start, self.parent, self.count = walker, start, parent, count
+
+    def __len__(self):
+        return self.count
+
+    def _id(self, goal):
+        return self.walker.node(self.walker.key(*goal))
+
+    def has(self, goal):
+        n = self._id(goal)
+        return n is not None and self.parent[n] != -2
+
+    def nodes(self):
+        """Every reached node's lattice key."""
+        ij = self.walker.ij
+        return {ij(n) for n, p in enumerate(self.parent) if p != -2}
+
+    def path(self, goal):
+        """The flood's way from the start to `goal` (lattice keys), or None."""
+        n = self._id(goal)
+        if n is None or self.parent[n] == -2:
+            return None
+        out = [n]
+        while self.parent[out[-1]] != -1:
+            out.append(self.parent[out[-1]])
+        ij = self.walker.ij
+        return [ij(k) for k in reversed(out)]
+
+    def route(self, goal):
+        """(path, measures) like Walker.route, along the flood's own way (as few steps as any)."""
+        path = self.path(goal)
+        w = self.walker
+        if path is None:
+            return None, dict(start_ok=self.start is not None and w._stand(self.start),
+                              goal_ok=w.standable(w.key(*goal)))
+        return path, w.measure(path)
+
+
+def holds(walker, path, extra):
+    """Whether `path` (a way through the lattice that `walker` passes) still
+    passes once the obstacles `extra` stand too: no node on it, and no corner
+    a diagonal step cuts, lies in their lane. Edges are the ground's and do
+    not change. True proves the way; False proves nothing."""
+    if not extra:
+        return True
+    c = walker.t.cell
+    index = obstacle_index(extra)
+
+    def free(k):
+        x, z = k[0]*c, k[1]*c
+        return not any(blocks(o, x, z) for o in index.get((int(math.floor(x/.2)), int(math.floor(z/.2))), ()))
+    if not free(path[0]):
+        return False
+    for a, b in zip(path, path[1:]):
+        if not free(b):
+            return False
+        if a[0] != b[0] and a[1] != b[1] and not (free((b[0], a[1])) and free((a[0], b[1]))):
+            return False
+    return True
+
+
+def proves(walker, path):
+    """Whether `walker` (other ground, other obstacles) passes every node,
+    every cut corner and every edge of `path`. True proves the way; False
+    proves nothing."""
+    if not path or not walker.standable(path[0]):
+        return False
+    for a, b in zip(path, path[1:]):
+        if not walker.standable(b):
+            return False
+        if a[0] != b[0] and a[1] != b[1] and not (walker.standable((b[0], a[1])) and walker.standable((a[0], b[1]))):
+            return False
+        if not walker.passable(a, b):
+            return False
+    return True
 
 
 def approaches(item, size, gap=.08):
@@ -500,9 +1280,11 @@ def approaches(item, size, gap=.08):
 YARD = ('woodpile', 'drying_line', 'firewood')
 
 
-def walk_checks(doc, meshes, terrain, room):
+def walk_checks(doc, meshes, terrain, room, floods=None):
     """From the player's spawn to every carryable object and back carrying it,
-    to every cottage door and to every workyard thing (any free side)."""
+    to every cottage door and to every workyard thing (any free side). One
+    flood from each start answers every goal (`floods`, by start, may be
+    shared with `sea_checks`)."""
     walker = Walker(doc, meshes, terrain, room)
     player = next((s for s in room['spawns'] if s['role'] == 'player'), room['spawns'][0])
     start = (player['position_m'][0], player['position_m'][2])
@@ -522,11 +1304,14 @@ def walk_checks(doc, meshes, terrain, room):
         base = SIZES[item['prototype']] if item['prototype'] in SIZES else protos[item['prototype']]['size_m']
         size = [b*s for b, s in zip(base, item['scale'])]
         targets.append(('to %s %d' % (item['prototype'], k), start, approaches(item, size)))
+    floods = {} if floods is None else floods
     for name, a, goals in targets:
+        if a not in floods:
+            floods[a] = walker.reach(a)
         info = {}
         path = None
         for goal in goals:
-            path, info = walker.route(a, goal)
+            path, info = floods[a].route(goal)
             if path is not None:
                 break
         good = path is not None
@@ -643,7 +1428,7 @@ def offshore_checks(doc, meshes, room, level):
     return not walls, rows
 
 
-def sea_checks(doc, meshes, terrain, room):
+def sea_checks(doc, meshes, terrain, room, floods=None):
     """The island: a sea at a level below the land, all round it past the reef;
     a reef a short swim off the coast; beaches a swimmer walks out of the sea
     up (water over SWIM_M deep, then no step steeper than the walk limit to dry
@@ -684,8 +1469,11 @@ def sea_checks(doc, meshes, terrain, room):
     rows['reef_offshore_m'] = [round(min(offs or [0]), 3), round(max(offs or [0]), 3)]
     ok &= bool(offs) and min(offs) >= .2 and max(offs) <= 1.
     # Beaches: walk out of the sea, then on to the spawn.
-    walker = Walker(doc, meshes, terrain, room)
     start = (player[0], player[2])
+    floods = {} if floods is None else floods
+    if start not in floods:
+        floods[start] = Walker(doc, meshes, terrain, room).reach(start)
+    reach = floods[start]
     beaches = []
     for b in sea['beaches']:
         (wx, _, wz), (bx, _, bz) = b['water_m'], b['wash_ashore_m']
@@ -701,7 +1489,7 @@ def sea_checks(doc, meshes, terrain, room):
                     wet_steep = max(wet_steep, grade)
                 else:
                     steep = max(steep, grade)
-        path, info = walker.route(start, (bx, bz))
+        path, info = reach.route((bx, bz))
         good = depth0 >= SWIM_M and wet_steep <= WADE_DEG and steep <= WALK_DEG and hs[-1] > level+.02 \
             and path is not None
         beaches.append(dict(id=b['id'], start_depth_m=round(depth0, 3), wade_max_deg=round(wet_steep, 2),
@@ -716,7 +1504,7 @@ def sea_checks(doc, meshes, terrain, room):
     jetty = sea.get('jetty')
     if jetty:
         rx, ry, rz = jetty['root_m']
-        path, info = walker.route(start, (rx, rz))
+        path, info = reach.route((rx, rz))
         deck = terrain.height(rx, rz)
         rows['jetty'] = dict(reachable=path is not None, deck_at_root_m=round(deck, 4), **info)
         ok &= path is not None and abs(deck-jetty['deck_top_m']) < .005
@@ -831,9 +1619,10 @@ def run(package, room_dir):
     terrain = Terrain(doc, meshes)
     w_ok, water, joins = water_checks(doc, meshes, terrain)
     g_ok, ground = grounding_checks(doc, terrain)
-    p_ok, walks = walk_checks(doc, meshes, terrain, room)
+    floods = {}
+    p_ok, walks = walk_checks(doc, meshes, terrain, room, floods)
     f_ok, prints = footprint_checks(inventory, terrain, room)
-    s_ok, sea = sea_checks(doc, meshes, terrain, room)
+    s_ok, sea = sea_checks(doc, meshes, terrain, room, floods)
     c_ok, climbs = climb_checks(doc, meshes)
     # The climb principle is reported beside the others; it joins `ok` once the
     # generator meets it on the whole corpus (tall object crests still fail it).

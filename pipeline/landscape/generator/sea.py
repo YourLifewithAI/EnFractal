@@ -163,19 +163,20 @@ class Coast:
         return c, hl, bw, hw
 
 
-def carve_coast(grid, room, h, base, noise, objects, spawns, seed):
+def carve_coast(grid, room, h, base, noise, objects, spawns, seed, frames=None):
     """Shape the coast, the shelf and the deep water into h. Returns the plan:
     per-vertex wall offset s, coast offset c, the shelf's edge (the reef line),
     beach weight, the jetty and the coast reader. Nothing stands offshore: no
-    reef rocks and no sea stacks (`stacks` stays, empty, for the package)."""
+    reef rocks and no sea stacks (`stacks` stays, empty, for the package).
+    `frames`: each vertex's `wall_frame`, when the caller has read them."""
     coast = Coast(room, objects, [s for s in spawns], noise)
     nx = grid.nx
-    S, C, R, BW, HL, PX, PZ, NX, NZ = ([0.]*grid.n for _ in range(9))
+    S, C, R, BW, HL = ([0.]*grid.n for _ in range(5))
+    at = coast.at
     for q in range(grid.n):
-        x, z = grid.xs[q % nx], grid.zs[q//nx]
-        s, px, pz, ox, oz = wall_frame(room, x, z)
-        c, hl, bw, hw, reef = coast.at(px, pz)
-        S[q], C[q], R[q], BW[q], HL[q], PX[q], PZ[q], NX[q], NZ[q] = s, c, reef, bw, hl, px, pz, ox, oz
+        s, px, pz, ox, oz = frames[q] if frames is not None else wall_frame(room, grid.xs[q % nx], grid.zs[q//nx])
+        c, hl, bw, hw, reef = at(px, pz)
+        S[q], C[q], R[q], BW[q], HL[q] = s, c, reef, bw, hl
     # No sea stacks: nothing stands offshore (the founder, 10 October).
     stacks = []
     # The jetty: from a landing in the harbour, square to the door's wall, out over the lagoon.
