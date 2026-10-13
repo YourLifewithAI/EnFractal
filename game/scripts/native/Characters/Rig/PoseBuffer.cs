@@ -78,7 +78,8 @@ public sealed class PoseBuffer
     public Vector3 GetPosition(int bone) => _position[bone];
     public Quaternion GetRotation(int bone) => _rotation[bone];
     public Vector3 GetScale(int bone) => _scale[bone];
-    public Transform3D GetLocal(int bone) => new(new Basis(_rotation[bone]).Scaled(_scale[bone]), _position[bone]);
+    /// <summary>The bone's local transform as Skeleton3D composes it: turned, then scaled in its own frame (rotation x scale).</summary>
+    public Transform3D GetLocal(int bone) => new(new Basis(_rotation[bone]).ScaledLocal(_scale[bone]), _position[bone]);
 
     /// <summary>Sets the bone's position relative to its parent's joint (rest is <see cref="RestPosition"/>).</summary>
     public void SetPosition(int bone, Vector3 position)

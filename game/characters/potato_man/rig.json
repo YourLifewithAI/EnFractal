@@ -1,10 +1,10 @@
 {
   "schema": "enfractal.character.rig",
   "version": 1,
-  "notes": "Waddle: a heavy, rolling waddle with short quick steps; the hat and the hair lag. Starting values from the round's profile table, to be tuned by playing. K3 (gaits): Godot's spring drag damps a part's world velocity, like air, so a travelling body leaves its springs streaming behind at sin = 2 x damping ratio x speed / (2 pi f x segment), and the controller's 6 m/s2 starts throw soft springs past 90 degrees; the springs here are stiffer and less dragged so parts lag and settle without flipping. The hat keeps its slow 0.8x spring (K1's suite pins it); only its drag is lower.",
+  "notes": "Waddle: a heavy, rolling waddle with short quick steps; the hat and the hair lag. Starting values from the round's profile table, to be tuned by playing. K3 (gaits): Godot's spring drag damps a part's world velocity, like air, so a travelling body leaves its springs streaming behind at sin = 2 x damping ratio x speed / (2 pi f x segment), and the controller's 6 m/s2 starts throw soft springs past 90 degrees; the springs here are stiffer and less dragged so parts lag and settle without flipping. The hat's spring is 2.2x, with less drag.",
   "chains": {
     "hat": {
-      "springiness": 0.8,
+      "springiness": 2.2,
       "damping": 0.5
     },
     "hair": {

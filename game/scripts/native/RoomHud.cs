@@ -1,6 +1,7 @@
 using Godot;
 using System.Collections.Generic;
 using System.Globalization;
+using EnFractal.Native.Characters.Gaits;
 using EnFractal.Native.Look;
 
 namespace EnFractal.Native;
@@ -251,7 +252,7 @@ public partial class RoomHud : CanvasLayer
         AddKeyLine(_keyHelp, MagicKeysLine, "GubbleSlots");
         // The toggles that bend the world for testing, apart from the keys the game is played with.
         _keyHelp.AddChild(new Label { Name = "TestingHeading", Text = "Testing" });
-        AddKeyLine(_keyHelp, () => $"{K(Act.PhysicsNext)} gravity · {K(Act.TimeStep)} time of day · {K(Act.SeasonStep)} season (each steps round to the real clock) · {K(Act.Lamps)} lamps", "TestingKeys");
+        AddKeyLine(_keyHelp, () => $"{K(Act.PhysicsNext)} gravity · {K(Act.TimeStep)} time of day · {K(Act.SeasonStep)} season (each steps round to the real clock) · {K(Act.Lamps)} lamps · {K(Act.BounceStep)} your character's bounce (x0.5, x1, x1.5) · {K(Act.BouncePrint)} print its motion profile", "TestingKeys");
         _notice = new Label { Name = "Notice", Text = _noticeText }; help.AddChild(_notice);
         help.MinimumSizeChanged += () => _footer.Size = new Vector2(_footer.Size.X, 0);
         _customization = new PanelContainer { Position = new Vector2(18, 190), Theme = theme, Visible = false };
@@ -614,6 +615,13 @@ public partial class RoomHud : CanvasLayer
             else if (PlayerControls.Hit(press, Act.ViewDiorama)) SetViewMode(2);
             else if (PlayerControls.Hit(press, Act.ViewIso)) SetViewMode(3);
             else if (PlayerControls.Hit(press, Act.Lamps) && Look != null) Look.SetLamps(!Look.LampsOn);
+            // The tuning keys (docs/runs/RUN-2-CHARACTERS.md, "Tuning by playing"): Shift+P before P.
+            else if (PlayerControls.Hit(press, Act.BouncePrint))
+                _noticeText = BounceKey.Print(Player.BodyVisual) != null ? "Your character's motion profile is in the log." : "The prototype figure has no motion profile.";
+            else if (PlayerControls.Hit(press, Act.BounceStep))
+                _noticeText = BounceKey.Cycle(Player.BodyVisual) is { } bounce
+                    ? "Your character's bounce: x" + bounce.ToString("0.#", CultureInfo.InvariantCulture) + " of its profile."
+                    : "The prototype figure has no bounce to tune.";
             else if (PlayerControls.Hit(press, Act.ViewObserve) && Look != null) Look.Observe = !Look.Observe;
             else if (PlayerControls.Hit(press, Act.SeasonStep)) StepSeason();
             else if (PlayerControls.Hit(press, Act.TimeStep)) StepTimeOfDay();

@@ -15,7 +15,7 @@ public partial class CharacterGaitsTest
     /// Springs K1's suite pins to their starting tuning (Cloudpuff's legs at 0.7 of their pendulum, Potato Man's hat at 0.8),
     /// which stay floppy when the body travels; the K3 report proposes the retune. Every other spring must stay calm.
     /// </summary>
-    private static readonly HashSet<string> PinnedSprings = new() { "cloudpuff/leg_screen_left", "cloudpuff/leg_screen_right", "potato_man/hat" };
+    private static readonly HashSet<string> PinnedSprings = new();
 
     /// <summary>Cancels the root's squash and stretch (a test layer after the gait), to see what the squash itself does to the springs.</summary>
     private sealed class NoSquash : IPoseLayer<BodyState>

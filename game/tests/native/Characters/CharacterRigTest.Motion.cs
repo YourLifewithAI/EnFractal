@@ -255,7 +255,7 @@ public partial class CharacterRigTest
         var peak = samples.Max(Mathf.Abs);
         var tail = samples.Skip(240).Max(Mathf.Abs);
         Check(Mathf.Abs(measured / chain.FrequencyHz - 1) < 0.2f,
-            FormattableString.Invariant($"Cloudpuff's dangling leg swings at {measured:0.00} Hz, tuned for {chain.FrequencyHz:0.00} Hz (its {chain.LengthM * 100:0.0} cm pendulum's {chain.PendulumHz:0.00} Hz x 0.7)"));
+            FormattableString.Invariant($"Cloudpuff's dangling leg swings at {measured:0.00} Hz, tuned for {chain.FrequencyHz:0.00} Hz (its {chain.LengthM * 100:0.0} cm pendulum's {chain.PendulumHz:0.00} Hz x 1.61)"));
         Check(peak > 0.05f && tail < 0.3f * peak, FormattableString.Invariant($"the leg swings when the body jerks and settles ({Mathf.RadToDeg(peak):0.0}° to {Mathf.RadToDeg(tail):0.0}°)"));
         holder.QueueFree();
         await Frames(1);

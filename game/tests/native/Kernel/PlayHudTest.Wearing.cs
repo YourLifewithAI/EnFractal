@@ -3,6 +3,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using EnFractal.Native;
 using EnFractal.Native.Characters;
+using EnFractal.Native.Characters.Gaits;
 using EnFractal.Native.Look;
 
 namespace EnFractal.Tests.Kernel;
@@ -37,6 +38,9 @@ public partial class PlayHudTest
             await Frames(5);
             Check(stickbear.LastState.Tick > tick && stickbear.LastState.Tick == player.LastBodyState.Tick && stickbear.Look.Surfaces.Count > 0 &&
                 stickbear.Look.Count(CharacterSurfaceRole.Plain) > 0, "the drawn body is ticked with the player's state every physics tick and wears its look");
+            Check(CharacterGaits.FindGait(stickbear.Stack) != null, "the drawn player walks with its own gait and breathes (CharacterMotion)");
+            Check(GubbleCharacter.Of(_world.Companion) is { } gubble && CharacterGaits.FindGait(gubble.Visual.Stack) != null,
+                "and the drawn Gubble floats with its own gait");
             Check(player.SetCharacterId("cloudpuff"), "and can change to Cloudpuff");
             await Frames(3);
             Check(_world.PlayerVisual?.Body.Definition.Id == "cloudpuff" && !GodotObject.IsInstanceValid(stickbear.Root),

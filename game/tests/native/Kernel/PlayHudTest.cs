@@ -143,6 +143,7 @@ public partial class PlayHudTest : Node
         ("gubble_slot_4", Key.Key4, false), ("gubble_slot_5", Key.Key5, false),
         ("hands", Key.F, false), ("push", Key.V, false),
         ("physics_next", Key.G, false), ("time_step", Key.T, false), ("season_step", Key.T, true), ("lamps", Key.L, false),
+        ("bounce_step", Key.P, false), ("bounce_print", Key.P, true),
         ("hud_help", Key.H, false), ("hud_customize", Key.C, false), ("journal", Key.J, false), ("gubble_eyes", Key.I, false), ("mouse_release", Key.Escape, false),
     };
 
@@ -319,7 +320,7 @@ public partial class PlayHudTest : Node
                 "right-click asks for what fits where you point (wait or follow, fetch or put down, light the dark, go and look); hold it for the wheel · Q come, then follow · X stop · I look through its eyes",
                 "1 Glow, 2 Bloom, 3 Bubbles, 4 Fireworks where you point (it comes closer first if it must; at the sky, on itself) · 5 magic still to come · it floats after you, over water and up cliffs",
                 "Testing",
-                "G gravity · T time of day · Shift+T season (each steps round to the real clock) · L lamps",
+                "G gravity · T time of day · Shift+T season (each steps round to the real clock) · L lamps · P your character's bounce (x0.5, x1, x1.5) · Shift+P print its motion profile",
             };
             var lines = HelpLines();
             Check(lines.SequenceEqual(expected), "with the default keys the help says drag where it said click, groups the Gubble's keys (its ask, Q, X, 1 to 5) under its name, and puts the testing toggles (G, T, Shift+T, L) under a \"Testing\" heading:\n" + string.Join("\n", lines.Except(expected)));
@@ -336,7 +337,7 @@ public partial class PlayHudTest : Node
                 Key.F13, Key.F14, Key.F15, Key.F16, Key.F17, Key.F18, Key.F19, Key.F20, Key.F21, Key.F22, Key.F23, Key.F24,
                 Key.Kp0, Key.Kp1, Key.Kp2, Key.Kp3, Key.Kp4, Key.Kp5, Key.Kp6, Key.Kp7, Key.Kp8, Key.Kp9,
                 Key.KpAdd, Key.KpSubtract, Key.KpMultiply, Key.KpDivide, Key.KpPeriod, Key.KpEnter, Key.Insert, Key.Delete, Key.Pause, Key.Pageup, Key.Pagedown,
-                Key.Home, Key.End, Key.Numlock, Key.Scrolllock, Key.Sysreq,
+                Key.Home, Key.End, Key.Numlock, Key.Scrolllock, Key.Sysreq, Key.F25, Key.F26,
             };
             var actions = PlayerControls.Specs.Select(spec => spec.Action).ToArray();
             Check(pool.Length >= actions.Length, "enough spare keys to give every control its own");

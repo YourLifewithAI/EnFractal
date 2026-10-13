@@ -1,7 +1,15 @@
 {
   "schema": "enfractal.character.rig",
   "version": 1,
-  "notes": "Hop: floaty hops that drift down; dangling legs on slow springs. Starting values from the round's profile table, to be tuned by playing. K3 (gaits): Godot's spring drag damps a part's world velocity, like air, so a travelling body leaves its springs streaming behind at sin = 2 x damping ratio x speed / (2 pi f x segment), and the controller's 6 m/s2 starts throw soft springs past 90 degrees; the springs here are stiffer and less dragged so parts lag and settle without flipping. The legs keep their slow 0.7x springs (K1's suite pins them); only their drag is lower.",
+  "notes": "Hop: floaty hops that drift down; dangling legs on slow springs. Starting values from the round's profile table, to be tuned by playing. K3 (gaits): Godot's spring drag damps a part's world velocity, like air, so a travelling body leaves its springs streaming behind at sin = 2 x damping ratio x speed / (2 pi f x segment), and the controller's 6 m/s2 starts throw soft springs past 90 degrees; the springs here are stiffer and less dragged so parts lag and settle without flipping. The legs' springs are 2.3x their profile's 0.7x, with less drag.",
+  "chains": {
+    "leg_screen_left": {
+      "springiness": 2.3
+    },
+    "leg_screen_right": {
+      "springiness": 2.3
+    }
+  },
   "profile": {
     "drift": 1.6,
     "hop_height": 1.1,

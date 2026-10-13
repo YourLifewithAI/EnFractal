@@ -88,6 +88,8 @@ public partial class RoomWorld : Node3D
     {
         var previous = PlayerVisual;
         PlayerVisual = CharacterVisual.Create(Characters, id);
+        if (PlayerVisual != null)
+            CharacterMotion.Install(PlayerVisual, Player, () => GodotObject.IsInstanceValid(Companion) ? Companion.GlobalPosition + Vector3.Up * Companion.BodyHeightM * 0.6f : null);
         Player.SetBodyVisual(PlayerVisual);
         if (previous != null && GodotObject.IsInstanceValid(previous.Root)) previous.Root.QueueFree();
     }
@@ -123,7 +125,8 @@ public partial class RoomWorld : Node3D
             // before the HUD, which restores the saved choice when it is ready.
             Characters = LoadCharacters();
             Player.CharacterChanged = WearCharacter;
-            GubbleCharacter.Dress(Companion, Characters, Look);
+            if (GubbleCharacter.Dress(Companion, Characters, Look) is { } gubble)
+                CharacterMotion.Install(gubble.Visual, Companion, () => GodotObject.IsInstanceValid(Player) ? Player.GlobalPosition + Vector3.Up * Player.BodyHeightM * 0.8f : null);
             // Living scenery (Run 2, Lane L): fish in the ponds and the veil under the water. Only the player frightens
             // fish; the Gubble is set apart from the world, a ghost only the player can see (the founder, 8 October).
             var pondLife = PondLife.Create(Room.RoomId, Built);
