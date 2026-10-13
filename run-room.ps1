@@ -1,19 +1,18 @@
 #requires -Version 7.0
 # -Style v2 plays the default style's v2 (or -Style <preset_id>/v<N>) instead of the room's pinned look; -Room <id> picks the room,
-# and -Room landscape the newest landscape tools/test-room.ps1 prepared. -Profile <name> keeps this play's saves, settings and
+# -Room landscape the garage island from the shared fixture cache, and -Room landscape10 the same island at the 10x world's scale. -Profile <name> keeps this play's saves, settings and
 # companion session under .cache/profiles/<name> instead of your own user folders, so a playtest can be repeated or reset.
 param([string]$Style, [string]$Room, [string]$Profile)
 $ErrorActionPreference = 'Stop'
 if ($Profile -and $Profile -notmatch '^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$') { throw '-Profile takes a short name of letters, digits, - and _.' }
-if ($Room -eq 'landscape') {
-    $manifest = Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot '.cache/landscape-fixture') -Filter 'room.json' -Recurse -File -ErrorAction SilentlyContinue |
-        Where-Object { $_.Directory.Name -eq 'landscape_garage_nominal' } |
-        Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
-    if (-not $manifest) { throw 'Run tools/test-room.ps1 once to prepare the landscape.' }
-    $Room = $manifest.Directory.FullName.Replace('\', '/')
-}
 . (Join-Path $PSScriptRoot 'tools/native-toolchain.ps1')
 $nativeToolchain = Get-EnfractalNativeToolchain
+if ($Room -eq 'landscape' -or $Room -eq 'landscape10') {
+    # The garage island from the shared fixture cache (tools/landscape-fixture.ps1), built there first if it is missing.
+    . (Join-Path $PSScriptRoot 'tools/landscape-fixture.ps1')
+    $scale = if ($Room -eq 'landscape10') { 10 } else { 1 }
+    $Room = (Get-EnfractalLandscapeFixture -Toolchain $nativeToolchain -Scale $scale).Room.Replace('\', '/')
+}
 Build-EnfractalNativeProject -Toolchain $nativeToolchain
 $env:DOTNET_ROOT = Split-Path -Parent $nativeToolchain.DotnetPath
 $env:PATH = $env:DOTNET_ROOT + [System.IO.Path]::PathSeparator + $env:PATH
