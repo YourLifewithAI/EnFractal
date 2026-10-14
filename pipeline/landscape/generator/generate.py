@@ -17,8 +17,8 @@ from pipeline.landscape.harness.kit import SIZES
 from .field import Grid, Noise, clamp, distance_field, face_slope_max, lerp, slope_field, smooth
 from .land import (high_country, inside_distance, local, parse_objects, room_shape, sun_shadow, uplift,
                    wall_frame, weather, rr_dist)
-from .life import (BRIDGE, grade_line, STEP_LIMIT_M, WALK_LIMIT_DEG, build_mesh, build_road, find_hamlet, flatten, paint_line,
-                   paint_path, prototypes, reachable_from, surface, walk)
+from .life import (BRIDGE, grade_line, STEP_LIMIT_M, WALK_LIMIT_DEG, build_mesh, build_road, find_hamlet, flatten, pad_hold,
+                   paint_line, paint_path, prototypes, reachable_from, surface, walk)
 from .water import channel_cells, choose_outlet, lake_rho, plan_and_carve, resample
 from . import sea as Sea
 from . import scale as world
@@ -32,6 +32,25 @@ CELL_W = .1    # the base grid on a magnified room (2.5 cm detail where the body
 MARGIN = 1.7   # the sea out past the reef and the playable water; beyond it the far sea mesh
 REPO = Path(__file__).resolve().parents[3]
 SETUP_PATH = REPO/'pipeline'/'landscape'/'harness'/'ab-setup.json'
+# The hamlet on a magnified room is proved by the exact walk from the spawn (the 10x world: its cottages stand on
+# narrow shores below banks the quick reachability flood cannot judge). Where no graded way reaches a door or the
+# crate, the site is given up for the next one; if none of HAMLET_SITES sites is reached, the first stands.
+HAMLET_SITES = 6
+RAMP_PASSES = 6    # ways graded (each proved by a new walk) before a site is given up
+PAD_HOLD_M = .07   # the pad's flattened margin: nothing is cut or filled there by a way graded later
+
+
+def hamlet_lost(reach, goals, houses):
+    """The hamlet's goals (the crate, then each door) the flood `reach` from the player's spawn does not reach."""
+    return [g for g in goals[:1+houses] if not reach.has(g)]
+
+
+class HamletCutOff(Exception):
+    """The hamlet at `site` cannot be reached on foot: its crate or a door has no way from the spawn."""
+
+    def __init__(self, site, why):
+        super().__init__('hamlet at (%.2f, %.2f) cut off: %s' % (site[0], site[1], why))
+        self.site, self.why = site, why
 
 
 _T0 = [None]
@@ -101,6 +120,21 @@ def grounding(grid, h, objects, base):
 
 
 def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=None, detail=None):
+    """The package of a room. On a magnified room a hamlet no graded road reaches (the exact walk from the player's
+    spawn finds no way to the crate or a door) is given up and the land generated again with the next site."""
+    skip, accept = [], None
+    while True:
+        try:
+            return _generate(room_dir, out_dir, setup, seed, return_state, cell, detail, skip, accept)
+        except HamletCutOff as cut:
+            skip.append(cut.site)
+            print('LANDSCAPE_HAMLET_CUT_OFF', cut, flush=True)
+        _T0[0] = None
+        if len(skip) >= HAMLET_SITES:
+            accept = skip[0]   # no site is reached by any way: the best-ranked one stands, as it always did
+
+
+def _generate(room_dir, out_dir, setup, seed, return_state, cell, detail, skip, accept=None):
     room_dir = Path(room_dir)
     room = load_json(room_dir/'room.json')
     inventory = load_json(room_dir/'inventory.json')
@@ -260,7 +294,11 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=
             return False
         return lake is None or lake_rho(lake, noise, grid.xs[q % nx], grid.zs[q//nx]) > 1.15
     dry = reachable_from(grid, h, wet, inside, (player0[0], player0[2]), crossable=crossable)
-    site = find_hamlet(grid, h, slope, wet, inside, spawns, avoid, lambda x, z: inside_distance(room, x, z), dry)
+    site = accept or find_hamlet(grid, h, slope, wet, inside, spawns, avoid, lambda x, z: inside_distance(room, x, z),
+                                 dry, skip)
+    if site is None and skip:
+        site = skip[0]   # no site left to try: the first one stands
+    last = site is not None and site in skip   # the first site again, taken back: nothing more is tried
     # Every object's own footprint keeps its landform: no cottage, path or
     # grading cuts into it (paths go round).
     protect = [False]*grid.n
@@ -279,7 +317,18 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=
                     protect[j*nx+i] = True
                     floor_at[j*nx+i] = max(floor_at[j*nx+i], o['top']-max(.15*W, o['sy']/3)+.04*W)
     houses = []
+    # A magnified room's coarse grid: the vertices of every cell meeting a cottage's footprint are levelled with its pad.
+    pad_reach = 0. if detail is None else grid.cell
+
+    def pad_cores(cottages):
+        """A magnified room: each pad's core (its margin and the cells meeting the footprint) on its own level again,
+        after the feathering of the pads laid beside it (a neighbour's skirt reached a footing)."""
+        if pad_reach:
+            for hh in cottages:
+                flatten(grid, h, hh['x'], hh['z'], hh['hx'], hh['hz'], hh['yaw'], blend=1e-6, level=hh['y'],
+                        reach=pad_reach)
     pads = [0.]*grid.n
+    hold = [False]*grid.n   # a magnified room: the cottages' flattened pads, never cut or filled by a way graded later
     fields = [0.]*grid.n
     blocked = [False]*grid.n
     scatter = []
@@ -322,7 +371,7 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=
                 continue
             if not clear_of_eyes(views, x, z, .6, (2.0, .3)):
                 continue
-            level = flatten(grid, h, x, z, hx, hz, yaw)
+            level = flatten(grid, h, x, z, hx, hz, yaw, reach=pad_reach)
             # A level forecourt before the door: the land gives way to the threshold.
             ya = math.radians(yaw)
             flatten(grid, h, x-math.sin(ya)*(hz+.12), z-math.cos(ya)*(hz+.12), hx, .1, yaw, margin=.03,
@@ -334,6 +383,7 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=
             if len(houses) == 3:
                 break
         nx_ = grid.nx
+        pad_cores(houses)
         for hh in houses:
             R = max(hh['hx'], hh['hz'])+.1
             rx, rz = grid.span(hh['x']-R, hh['x']+R, hh['z']-R, hh['z']+R)
@@ -348,7 +398,13 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=
                         blocked[q] = True
                     d = max(abs(lx)-hh['hx'], abs(lz)-hh['hz'], 0.)
                     pads[q] = max(pads[q], .55*(1-smooth(d/.08)))
+        if detail:
+            # The pad is levelled to its margin, but a way graded beside it (or through a gap between two cottages)
+            # cut and filled cells of that margin outside `pads` > .3, which left a cottage's footing in the slope.
+            hold = pad_hold(grid, houses, PAD_HOLD_M, pad_reach)
         hamlet = dict(x=sx, z=sz, water=[wx, wz], houses=len(houses))
+        if skip:
+            hamlet['given_up'] = [[round(a, 2), round(b, 2)] for a, b in skip]   # sites no way reached
         if detail:
             detail.hamlet(houses)
     _tick('hamlet')
@@ -366,7 +422,7 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=
     # Paths keep an 11 cm carrying lane clear of walls: route them that far off.
     near_built = distance_field(grid, blocked)
     lane_blocked = [d < .07 or protect[q] for q, d in enumerate(near_built)]
-    keep_out = [1. if protect[q] else pads[q] for q in range(grid.n)]
+    keep_out = [1. if protect[q] or hold[q] else pads[q] for q in range(grid.n)]
     # The detail replays each path's cut and fill (its graded line) and its worn surface.
     on_road = None if detail is None else (lambda pts, g, width, reach: detail.road(pts, g, width, reach))
     on_grade = None if detail is None else (lambda pts, g, width, reach: detail.road(pts, g, width, reach, grade=True))
@@ -464,7 +520,7 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=
         # Grading toward the beaches and the jetty may have nicked a cottage's pad or
         # forecourt: level them again at the cottage's own floor.
         for hh in (houses if houses_too else ()):
-            flatten(grid, h, hh['x'], hh['z'], hh['hx'], hh['hz'], hh['yaw'], level=hh['y'])
+            flatten(grid, h, hh['x'], hh['z'], hh['hx'], hh['hz'], hh['yaw'], level=hh['y'], reach=pad_reach)
             ya = math.radians(hh['yaw'])
             flatten(grid, h, hh['x']-math.sin(ya)*(hh['hz']+.12), hh['z']-math.cos(ya)*(hh['hz']+.12), hh['hx'], .1,
                     hh['yaw'], margin=.03, blend=.14, level=hh['y'])
@@ -472,6 +528,8 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=
                 detail.flatten(hh['x'], hh['z'], hh['hx'], hh['hz'], hh['yaw'], .07, .12, hh['y'])
                 detail.flatten(hh['x']-math.sin(ya)*(hh['hz']+.12), hh['z']-math.cos(ya)*(hh['hz']+.12), hh['hx'], .1,
                                hh['yaw'], .03, .14, hh['y'])
+        if houses_too:
+            pad_cores(houses)
 
     if detail is not None:
         # The 10x world: the hamlet, the landing and the tarn's rim are put
@@ -483,6 +541,9 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=
     # Walk the graded land as a body would (11 cm lane, cottages in the way,
     # bridges underfoot). Where it cannot reach the crate or a door, the land
     # gives way: the route a steeper walk finds is cut and filled to grade.
+    cut_off = None
+    if detail is not None and site is not None and not last and not (houses and roads):
+        cut_off = 'no cottage placed' if not houses else 'no road built'
     if houses and roads:
         from .checks import Terrain as _T, Walker as _W
         keep_tris = [list(t) for t in grid.triangles() if inside_tri(grid, inside, t)]
@@ -500,7 +561,9 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=
         # The land is read once; after grading, only where it moved (`Terrain.moved`).
         land_pos = [[grid.xs[q % nx], h[q], grid.zs[q//nx]] for q in range(grid.n)]
         terr0 = land = probe0 = None
-        for _ in range(2):
+        # A magnified room: the ways are graded (and each proved by a new walk) until every goal is reached or
+        # RAMP_PASSES are spent; the last pass only proves. Today's room keeps its two passes.
+        for _pass in range(2 if detail is None else RAMP_PASSES+1):
             jmesh = Sea.jetty_mesh(grid, h, jetty) if jetty is not None else None
             if terr0 is not None and jmesh == land.get('jetty'):
                 moved = [q for q in range(grid.n) if land_pos[q][1] != h[q]]
@@ -523,6 +586,13 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=
             # finds its least-cost way only to the goals out of reach.
             near = strict.reach((px, pz))
             failing = [goal for goal in goals if not near.has(goal)]
+            if detail is not None:
+                lost = hamlet_lost(near, goals, len(houses))
+                cut_off = None if not lost else 'no way to %d of %d goals after %d passes' % (len(lost), 1+len(houses), _pass)
+                # Two passes as on today's room; more only while the hamlet is cut off (a way is graded in pieces, so
+                # the count of goals reached may not move for several passes before it joins).
+                if _pass == RAMP_PASSES or (_pass >= 2 and not lost):
+                    break
             fixed = 0
             for path in (loose.ways((px, pz), failing) if failing else ()):
                 if path:
@@ -531,6 +601,9 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=
                     fixed += 1
             if not fixed:
                 break
+    if cut_off and not last:
+        # No way graded to the hamlet's crate and doors on the land as built: the next site is tried.
+        raise HamletCutOff(site, cut_off)
     _tick('graded')
     # On the 10x world only the tarn's rim and the landing are put right again (the ways keep the hamlet's levels).
     settle(houses_too=detail is None)
@@ -746,6 +819,12 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=
                 walks.changed()
             else:
                 dropped.append(rec_['prototype'])
+    if detail is not None and site is not None and not last:
+        # The walk the checks make, on the land and the planting as they will be written: the crate and every door
+        # still have their way (the base's proof above does not see the 2.5 cm ground or the planting).
+        hamlet_goals = [g for _, goals_ in targets[:(1 if carry else 0)+len(houses)] for g in goals_]
+        if hamlet_lost(walks.now(), hamlet_goals, len(houses)):
+            raise HamletCutOff(site, 'the crate or a door is cut off on the land as written')
     _tick('yards')
     # Promise only the beaches a body can walk to from the spawn.
     final = walks.now()

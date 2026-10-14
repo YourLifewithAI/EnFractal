@@ -626,5 +626,203 @@ class DetailSeams(unittest.TestCase):
             self.assertEqual(fast.land_height(x, z), slow.height(x, z), (x, z))
 
 
+class CottageFooting(unittest.TestCase):
+    """A cottage stands on its pad on a coarse grid (the founder's garage at 10x: a cottage 10 cm into its bank).
+    Two things left its footing in the slope: a way graded beside the pad cut and filled the pad's rim outside
+    `pads` > .3 (4 cm from the footprint; the pad is levelled 7 cm out), and a 10 cm cell meeting the footprint's
+    edge had vertices beyond that rim, in the bank. `flatten(reach=)` levels those, `pad_hold` keeps them from the ways."""
+
+    def footing(self, offset, held, yaw=25., reach=.1):
+        """The checks' grounding of one cottage on a 30 degree bank after a way is graded `offset` m beside it."""
+        from pipeline.landscape.generator import scale as world
+        from pipeline.landscape.generator.field import Grid, smooth
+        from pipeline.landscape.generator.life import flatten, grade_line, pad_hold
+        from pipeline.landscape.harness.kit import SIZES
+        world.set_world(10.)
+        self.addCleanup(world.set_world, 1.)
+        g = Grid(-1.2, -1.2, 1.2, 1.2, .1)
+        n = g.n
+        h = [.6*g.zs[q//g.nx]+.12*math.sin(3*g.xs[q % g.nx]) for q in range(n)]
+        sc = .74
+        hx, hz = SIZES['cottage'][0]*sc/2, SIZES['cottage'][2]*sc/2
+        level = flatten(g, h, 0., 0., hx, hz, yaw, reach=reach if held else 0.)
+        a = math.radians(yaw)
+        c, s_ = math.cos(a), math.sin(a)
+        pads = [.55*(1-smooth(max(abs(c*g.xs[q % g.nx]-s_*g.zs[q//g.nx])-hx, abs(s_*g.xs[q % g.nx]+c*g.zs[q//g.nx])-hz,
+                                 0.)/.08)) for q in range(n)]
+        hold = pad_hold(g, [dict(x=0., z=0., yaw=yaw, hx=hx, hz=hz)], .07, reach) if held else [False]*n
+        keep_out = [1. if hold[q] else pads[q] for q in range(n)]
+        grade_line(g, h, [1.]*n, keep_out, [(offset, -1.+.02*k) for k in range(101)])
+        land = [dict(role='meadow', positions=[[g.xs[q % g.nx], h[q], g.zs[q//g.nx]] for q in range(n)],
+                     triangles=[list(t) for t in g.triangles()])]
+        doc = dict(terrain=[{'mesh': 'land'}], scenery=[], water=[], objects=[], prototypes={},
+                   x_generator=dict(cell_m=.1, world_scale=10.),
+                   scatter=[dict(prototype='cottage', position_m=[0., level-.004, 0.], yaw_deg=yaw, scale=[sc]*3)])
+        ok, rows = checks.grounding_checks(doc, checks.Terrain(doc, {'land': land}))
+        return ok, rows[0]
+
+    def test_a_graded_way_beside_a_pad_leaves_the_footing(self):
+        for offset in (-.45, -.3, .3, .4):
+            was, row = self.footing(offset, False)
+            self.assertFalse(was, ('a way beside the pad as it was', offset, row))   # the defect
+            ok, row = self.footing(offset, True)
+            self.assertTrue(ok, (offset, row))
+            self.assertLess(row['sunk_m'], .025)
+            self.assertLess(row['hang_m'], .012)
+
+    def test_a_cell_at_the_footprints_edge_is_levelled_whole(self):
+        # The pad alone on a 45 degree bank (no way near it): the ground over the whole footprint, read every few cm.
+        from pipeline.landscape.generator.field import Grid
+        from pipeline.landscape.generator.life import flatten
+        from pipeline.landscape.harness.kit import SIZES
+        hx, hz = SIZES['cottage'][0]*.74/2, SIZES['cottage'][2]*.74/2
+
+        def span(yaw, reach):
+            g = Grid(-1.2, -1.2, 1.2, 1.2, .1)
+            h = [g.zs[q//g.nx]+.12*math.sin(3*g.xs[q % g.nx]) for q in range(g.n)]
+            flatten(g, h, 0., 0., hx, hz, yaw, reach=reach)
+            c, s_ = math.cos(math.radians(yaw)), math.sin(math.radians(yaw))
+            ys = [g.tri_height(h, c*i/20*hx+s_*j/20*hz, -s_*i/20*hx+c*j/20*hz) for i in range(-20, 21) for j in range(-20, 21)]
+            return max(ys)-min(ys)
+        was = [span(yaw, 0.) for yaw in (0., 10., 25., 45., 70., 110., 155.)]
+        self.assertGreater(max(was), .03, was)                                   # the bank beyond the rim, in a corner
+        for yaw in (0., 10., 25., 45., 70., 110., 155.):
+            self.assertLess(span(yaw, .1), 1e-9, yaw)                            # every cell meeting the footprint, level
+
+    def test_the_hold_is_the_rim_and_the_cells_meeting_the_footprint(self):
+        from pipeline.landscape.generator.field import Grid
+        from pipeline.landscape.generator.life import pad_hold, touches
+        g = Grid(-1., -1., 1., 1., .1)
+        house = dict(x=0., z=0., yaw=0., hx=.2, hz=.2)
+        rim = pad_hold(g, [house], .07)
+        for q in range(g.n):
+            d = max(abs(g.xs[q % g.nx])-.2, abs(g.zs[q//g.nx])-.2, 0.)
+            self.assertEqual(rim[q], d <= .07+1e-9, (g.xs[q % g.nx], g.zs[q//g.nx]))
+        both = pad_hold(g, [house], .07, .1)
+        self.assertTrue(all(b or not r for r, b in zip(rim, both)))
+        for q in range(g.n):
+            x, z = g.xs[q % g.nx], g.zs[q//g.nx]
+            self.assertEqual(touches(x, z, .1, .2, .2, 1., 0.), abs(x) <= .3+1e-9 and abs(z) <= .3+1e-9)
+        self.assertGreater(sum(both), sum(rim))
+        # A turned footprint: the vertices meeting it, against a reading of its points every 5 mm.
+        a = math.radians(33)
+        c, s_ = math.cos(a), math.sin(a)
+        points = [(c*lx+s_*lz, -s_*lx+c*lz) for lx in [i*.005 for i in range(-40, 41)] for lz in [j*.005 for j in range(-40, 41)]]
+        for x in [i*.05 for i in range(-12, 13)]:
+            for z in [j*.05 for j in range(-12, 13)]:
+                reach = min(max(abs(x-px), abs(z-pz)) for px, pz in points)
+                got = touches(x, z, .1, .2, .2, c, s_)
+                self.assertTrue(not got or reach <= .1+.0036, (x, z, reach))
+                self.assertTrue(got or reach >= .1-.0036, (x, z, reach))
+
+
+class HamletSites(unittest.TestCase):
+    """The hamlet's site is the best the land offers; a site given up (no way reaches it) rules out its
+    neighbourhood and the best of the rest is found, until none is left."""
+
+    @staticmethod
+    def shore(reachable=None):
+        from pipeline.landscape.generator.field import Grid, slope_field
+        g = Grid(-6., -6., 6., 6., .1)
+        n, nx = g.n, g.nx
+        h = [.05+sum(.5*max(0., 1-math.hypot(g.xs[q % nx]-cx, g.zs[q//nx]-2.5)/1.6) for cx in (-3., 3.)) for q in range(n)]
+        wet = [max(0., 5.-g.zs[q//nx]) for q in range(n)]   # a shore along z = 5, the sea beyond it
+        return (g, h, slope_field(g, h), wet, [True]*n, [[0., 0., -5.]], lambda x, z: True, lambda x, z: 5., reachable)
+
+    def test_the_next_site_lies_beyond_the_neighbourhood_given_up(self):
+        from pipeline.landscape.generator.life import SITE_GAP_M, find_hamlet
+        args = self.shore()
+        best = find_hamlet(*args)
+        self.assertEqual(find_hamlet(*args, skip=()), best)
+        given_up = []
+        for _ in range(12):
+            site = find_hamlet(*args, skip=given_up)
+            self.assertIsNotNone(site)
+            self.assertTrue(all(math.hypot(site[0]-a, site[1]-b) >= SITE_GAP_M for a, b in given_up), (site, given_up))
+            given_up.append(site)
+        self.assertEqual(given_up[0], best)
+        self.assertEqual(len(set(given_up)), 12)
+
+    def test_none_left(self):
+        from pipeline.landscape.generator.life import find_hamlet
+        g = self.shore()[0]
+        best = find_hamlet(*self.shore())
+        only = {q for q in range(g.n) if math.hypot(g.xs[q % g.nx]-best[0], g.zs[q//g.nx]-best[1]) < .5}
+        args = self.shore(only)
+        self.assertEqual(find_hamlet(*args), best)
+        self.assertIsNone(find_hamlet(*args, skip=[best]))
+
+
+class HamletProvedByTheWalk(unittest.TestCase):
+    """On a magnified room the hamlet is proved by the exact walk from the player's spawn: a site whose crate or
+    door no graded way reaches is given up and the land is made again with the next site (the founder's garage at
+    10x: three cottages on a shore below a bank, which the quick reachability flood accepted and the exact walk
+    never reached). A world of 2x runs the same code on a small room in about a minute."""
+
+    room = 'bedroom_nominal'
+
+    def generate_at_2x(self, name, lost):
+        from unittest import mock
+        from pipeline.landscape.generator import generate as gen, scale as world
+        world.set_world(2.)
+        self.addCleanup(world.set_world, 1.)
+        out = os.path.join(workdir(name), 'pkg')
+        with mock.patch.object(gen, 'hamlet_lost', lost(gen.hamlet_lost)):
+            return out, gen.generate(ROOMS/self.room, out)
+
+    def test_a_cut_off_site_is_given_up_for_the_next(self):
+        first = []
+
+        def lost(real):
+            def hamlet_lost(reach, goals, houses):
+                """The first site's crate and doors have no way from the spawn; the next site's are the walk's own."""
+                first.append(goals[0]) if not first else None
+                return list(goals[:1+houses]) if goals[0] == first[0] else real(reach, goals, houses)
+            return hamlet_lost
+        out, doc = self.generate_at_2x('hamlet2x', lost)
+        hamlet = doc['x_generator']['hamlet']
+        self.assertEqual(len(hamlet['given_up']), 1, hamlet)
+        site = hamlet['given_up'][0]
+        self.assertGreaterEqual(math.hypot(hamlet['x']-site[0], hamlet['z']-site[1]), 1.5, hamlet)
+        result = checks.run(out, ROOMS/self.room)
+        self.assertTrue(result['walk_ok'], [w for w in result['walks'] if not w['found']])
+        self.assertTrue(result['grounded_ok'], [g for g in result['grounding'] if not g['ok']])
+
+    def test_a_hamlet_the_old_generator_left_cut_off(self):
+        """home_office_nominal at 3x, as the generator was before this packet: no way from the spawn to the crate or
+        the first door (the other rooms of the corpus at 3x with such a hamlet: home_office scan 73, garage scan 17,
+        workshop scans 17 and 73, each with a door or the crate out of reach)."""
+        from pipeline.landscape.generator import generate as gen, scale as world
+        world.set_world(3.)
+        self.addCleanup(world.set_world, 1.)
+        room = ROOMS/'home_office_nominal'
+        out = os.path.join(workdir('hamlet3x'), 'pkg')
+        gen.generate(room, out)
+        result = checks.run(out, room)
+        self.assertTrue(result['walk_ok'], [w for w in result['walks'] if not w['found']])
+        self.assertTrue(result['grounded_ok'], [g for g in result['grounding'] if not g['ok']])
+
+    def test_the_first_site_stands_when_none_is_reached(self):
+        from unittest import mock
+        from pipeline.landscape.generator import generate as gen
+        sites = []
+
+        def lost(real):
+            def hamlet_lost(reach, goals, houses):
+                if not sites or sites[-1] != goals[0]:
+                    sites.append(goals[0])
+                return list(goals[:1+houses])       # no site is ever reached
+            return hamlet_lost
+        with mock.patch.object(gen, 'HAMLET_SITES', 2):
+            out, doc = self.generate_at_2x('hamlet2x_none', lost)
+        hamlet = doc['x_generator']['hamlet']
+        self.assertEqual(len(sites), 3)             # two given up, then the first again
+        self.assertEqual(sites[0], sites[2])
+        self.assertEqual(len(hamlet['given_up']), 2)
+        self.assertAlmostEqual(hamlet['x'], hamlet['given_up'][0][0], delta=.006)
+        self.assertAlmostEqual(hamlet['z'], hamlet['given_up'][0][1], delta=.006)
+        self.assertEqual(hamlet['houses'], 3)
+
+
 if __name__ == '__main__':
     unittest.main()
