@@ -10,8 +10,8 @@ using EnFractal.Native.Sandbox;
 namespace EnFractal.Tests.Kernel;
 
 /// <summary>
-/// The second playtest's fix round, in the real room with the real look and HUD: [ and ] turn the isometric view (Q and E
-/// were theirs until the Gubble's keys arrived), T and Shift+T step the time of day and the season through the day's
+/// The second playtest's fix round, in the real room with the real look and HUD: the diorama and isometric views are shelved
+/// (F3, F4, [ and ] do nothing; the third-person view zooms out to orbit instead: PlayHudTest.Views.cs), T and Shift+T step the time of day and the season through the day's
 /// own light and the solstices and equinoxes and end back on the real clock, the HUD says what the clock is, and the
 /// companion's name tag is drawn solid so depth of field and temporal anti-aliasing cannot blur it. Keys are handed to the
 /// HUD as the engine would hand them; nothing here needs a window, so it runs headless like the other room tests.
@@ -54,7 +54,6 @@ public partial class PlayHudTest : Node
             await TestGlowJournalFresh();
             await TestMagicPanel();
             await TestFoldedHelp();
-            TestViewKeys();
             TestWorkshopGone();
             await TestTimeOfDay();
             await TestSeason();
@@ -87,6 +86,13 @@ public partial class PlayHudTest : Node
             await TestWearingCharacters();
             await TestDrawnGubble();
             await TestGlowJournalLearned();
+            // The two views last: they move the player about the room and leave the Gubble where it was.
+            await TestShelvedViewKeys();
+            await TestShoulderRange();
+            await TestShoulderOrbit();
+            await TestShoulderMovementFrame();
+            await TestShoulderNearEndUnchanged();
+            await TestShoulderFocusAndSwitches();
 
             // Unload while the final cast's chime is still active. AudioServer
             // retires stopped playback on subsequent frames, before engine exit.
@@ -111,7 +117,7 @@ public partial class PlayHudTest : Node
             CommandHost.DefaultPlayerVitalsPath = previousVitalsPath;
             CommandHost.DefaultWishSaveRoot = previousWishRoot;
             RemoveSaves();
-            GD.Print($"NATIVE_KERNEL_PLAY_HUD: {_checks - _failures}/{_checks} checks passed; every key is a named input action with the Glow round's defaults and the help reads them (a remapped key changes both what it does and what the help shows), H folds the help, [ and ] turn the isometric view, T and Shift+T step the time of day and the season back to the real clock, the companion's solid name tag stays small and hides near the camera, F and V pick up, carry, set down on the box and push, the right button's tap asks what fits the frozen aim and its hold opens the wheel, 1 casts Glow, Q recalls, X stops, the Gubble's bubble answers with the host's result, its glow takes its colour, the dusk moment teaches Glow once, and J or a click opens the journal book at its index, written from the host's data, holding the game until it is back in its dock, and I or the eye icon above it looks through the Gubble's eyes, live, its eye turned by a drag within the AI's bounds, holding the game and changing nothing, the icon blinking when the AI looks");
+            GD.Print($"NATIVE_KERNEL_PLAY_HUD: {_checks - _failures}/{_checks} checks passed; every key is a named input action with the Glow round's defaults and the help reads them (a remapped key changes both what it does and what the help shows), H folds the help, F3, F4, [ and ] do nothing while the wheel zooms the third-person view out to an orbit with movement following it, T and Shift+T step the time of day and the season back to the real clock, the companion's solid name tag stays small and hides near the camera, F and V pick up, carry, set down on the box and push, the right button's tap asks what fits the frozen aim and its hold opens the wheel, 1 casts Glow, Q recalls, X stops, the Gubble's bubble answers with the host's result, its glow takes its colour, the dusk moment teaches Glow once, and J or a click opens the journal book at its index, written from the host's data, holding the game until it is back in its dock, and I or the eye icon above it looks through the Gubble's eyes, live, its eye turned by a drag within the AI's bounds, holding the game and changing nothing, the icon blinking when the AI looks");
             GetTree().Quit(_failures == 0 ? 0 : 1);
         }
         catch (Exception error)
@@ -137,8 +143,7 @@ public partial class PlayHudTest : Node
         ("move_forward", Key.W, false), ("move_back", Key.S, false), ("move_left", Key.A, false), ("move_right", Key.D, false),
         ("move_sprint", Key.Shift, false), ("move_dive", Key.Ctrl, false), ("jump", Key.Space, false),
         ("body_recover", Key.R, false), ("body_home", Key.B, false),
-        ("view_eye", Key.F1, false), ("view_shoulder", Key.F2, false), ("view_diorama", Key.F3, false), ("view_iso", Key.F4, false),
-        ("view_observe", Key.O, false), ("iso_turn_left", Key.Bracketleft, false), ("iso_turn_right", Key.Bracketright, false),
+        ("view_eye", Key.F1, false), ("view_shoulder", Key.F2, false), ("view_observe", Key.O, false),
         ("gubble_recall", Key.Q, false), ("gubble_stop", Key.X, false),
         ("gubble_slot_1", Key.Key1, false), ("gubble_slot_2", Key.Key2, false), ("gubble_slot_3", Key.Key3, false),
         ("gubble_slot_4", Key.Key4, false), ("gubble_slot_5", Key.Key5, false),
@@ -194,8 +199,8 @@ public partial class PlayHudTest : Node
         var found = new System.Collections.Generic.List<string>();
         var contexts = new (string Name, ControlContext Live, ControlContext Extra)[]
         {
-            ("always", ControlContext.Always, 0), ("F3", ControlContext.Always, ControlContext.Diorama),
-            ("F4", ControlContext.Always, ControlContext.Isometric), ("customise", ControlContext.Customize, 0),
+            ("always", ControlContext.Always, 0), ("F2", ControlContext.Always, ControlContext.Shoulder),
+            ("customise", ControlContext.Customize, 0),
             ("reading", ControlContext.Reading, 0), ("looking", ControlContext.Looking, 0),
         };
         foreach (var (name, live, extra) in contexts)
@@ -259,10 +264,10 @@ public partial class PlayHudTest : Node
             Check(specs.SequenceEqual(mapped) && constants.SequenceEqual(mapped), "the map, the list of controls and the action names in code are the same set");
 
             // The code asks for the map's actions and for no others: record what the two handlers ask while a key that is none of
-            // them goes through the HUD (in F3, where the zoom keys are live) and the body, which also polls its held keys.
+            // them goes through the HUD (in F2, where the zoom keys are live) and the body, which also polls its held keys.
             var player = _world.Player;
             PlayerControls.Trace = new System.Collections.Generic.HashSet<string>();
-            _hud.SetViewMode(2);
+            _hud.SetViewMode(1);
             _hud._UnhandledInput(Press(Key.Backslash));
             player._UnhandledInput(Press(Key.Backslash));
             await Frames(4);
@@ -274,13 +279,13 @@ public partial class PlayHudTest : Node
 
             // No two keys of a context are one key.
             var conflicts = KeyConflicts();
-            Check(conflicts.Count == 0, "no two actions share a key in the same context (always, F3, F4, the appearance panel): " + string.Join("; ", conflicts));
+            Check(conflicts.Count == 0, "no two actions share a key in the same context (always, F2's wheel, the appearance panel): " + string.Join("; ", conflicts));
             Bind(Act.Push, Key.F);
             Check(KeyConflicts().Any(c => c.Contains("hands", StringComparison.Ordinal) && c.Contains("push", StringComparison.Ordinal)), "and the check does see two actions put on one key");
             RestoreMap();
-            Bind(Act.IsoTurnLeft, Key.F);
-            Check(KeyConflicts().Any(c => c.StartsWith("F4", StringComparison.Ordinal)) && !KeyConflicts().Any(c => c.StartsWith("F3", StringComparison.Ordinal)),
-                "a key two contexts use for different things is no conflict: F4's turn on the hands' key conflicts in F4 only");
+            Bind(Act.ViewZoomIn, Key.F);
+            Check(KeyConflicts().Any(c => c.StartsWith("F2", StringComparison.Ordinal)) && !KeyConflicts().Any(c => c.StartsWith("always", StringComparison.Ordinal)),
+                "a key two contexts use for different things is no conflict: F2's zoom on the hands' key conflicts in F2 only");
             RestoreMap();
             Check(KeyConflicts().Count == 0, "the defaults are back");
 
@@ -317,8 +322,8 @@ public partial class PlayHudTest : Node
                 "H keys",
                 $"WASD move · Shift run · Space jump · B back to {home} · R recover · drag to look around",
                 "Climb: keep walking into a steep face, W up, S down, A/D across, Space lets go · Swim: deep water floats you, Space leaps · Dive: hold Ctrl, Space rises, W swims the way you look, let go to drift up",
-                "F1 eye · F2 shoulder · F3 diorama: drag orbits, wheel zooms, WASD follows the view · F4 isometric: [/] turn the view",
-                "O observe (a very tight tilt-shift view, best from F3 or F4) · C customize · J journal (Esc closes either)",
+                "F1 first person · F2 third person: wheel zooms out to look around, and zoomed out drag orbits and WASD follows the view",
+                "O observe (a very tight tilt-shift view, best zoomed out) · C customize · J journal (Esc closes either)",
                 "F pick up what you face · F again sets it down in front of you, or on top of what you face (the box, the book) · V push what you face 10 cm",
                 "The Gubble, your companion:",
                 "right-click asks for what fits where you point (wait or follow, fetch or put down, light the dark, go and look); hold it for the wheel · Q come, then follow · X stop · I look through its eyes",
@@ -414,46 +419,32 @@ public partial class PlayHudTest : Node
             Check(_hud.TimeStop == -1 && _hud.SeasonStop == -1 && look.ClockNote.StartsWith("real clock, real calendar", StringComparison.Ordinal), "both stepped round to the real clock again");
             RestoreMap();
 
-            // [ and ] (here Z) belong to F4 alone, wherever they are bound.
-            Bind(Act.IsoTurnLeft, Key.Z);
-            _hud.SetViewMode(3);
-            var yaw = _hud.IsoYaw;
-            _hud._UnhandledInput(Press(Key.Bracketleft));
-            Check(Mathf.IsEqualApprox(yaw, _hud.IsoYaw), "with the left turn on Z, [ turns nothing in F4");
-            _hud._UnhandledInput(Press(Key.Z));
-            Check(Mathf.Abs(Mathf.AngleDifference(yaw, _hud.IsoYaw) + Mathf.Pi / 2) < 0.001f, "Z turns the view the way [ did");
-            _hud.SetViewMode(1);
-            yaw = _hud.IsoYaw;
-            _hud._UnhandledInput(Press(Key.Z));
-            Check(Mathf.IsEqualApprox(yaw, _hud.IsoYaw), "and outside F4 Z turns nothing");
-            RestoreMap();
-
-            // The wheel zooms F3 only; moved to keys it zooms the same way, and the wheel goes quiet.
+            // The wheel zooms F2 only (F1 has nothing to zoom); moved to keys it zooms the same way, and the wheel goes quiet.
             Func<MouseButton, InputEventMouseButton> wheel = which => new InputEventMouseButton { ButtonIndex = which, Pressed = true };
-            _hud.SetViewMode(1);
-            var distance = _hud.DioramaDistanceM;
-            _hud._UnhandledInput(wheel(MouseButton.WheelUp));
-            Check(Mathf.IsEqualApprox(distance, _hud.DioramaDistanceM), "the wheel zooms nothing outside F3");
-            _hud.SetViewMode(2);
-            distance = _hud.DioramaDistanceM;
-            _hud._UnhandledInput(wheel(MouseButton.WheelUp));
-            var closer = _hud.DioramaDistanceM;
+            _hud.SetViewMode(0);
+            var distance = _hud.ShoulderDistanceM;
             _hud._UnhandledInput(wheel(MouseButton.WheelDown));
-            Check(closer < distance - 0.01f && Mathf.IsEqualApprox(distance, _hud.DioramaDistanceM), $"in F3 the wheel zooms in and out ({distance:0.00} to {closer:0.00} m and back)");
+            Check(Mathf.IsEqualApprox(distance, _hud.ShoulderDistanceM), "the wheel zooms nothing in F1");
+            _hud.SetViewMode(1);
+            _hud.ZoomShoulder(-6);
+            distance = _hud.ShoulderDistanceM;
+            _hud._UnhandledInput(wheel(MouseButton.WheelUp));
+            var closer = _hud.ShoulderDistanceM;
+            _hud._UnhandledInput(wheel(MouseButton.WheelDown));
+            Check(closer < distance - 0.01f && Mathf.IsEqualApprox(distance, _hud.ShoulderDistanceM), $"in F2 the wheel zooms in and out ({distance:0.00} to {closer:0.00} m and back)");
             Bind(Act.ViewZoomIn, Key.U);
             await Frames(2);
             _hud._UnhandledInput(wheel(MouseButton.WheelUp));
-            Check(Mathf.IsEqualApprox(distance, _hud.DioramaDistanceM), "with zoom-in on U the wheel up zooms nothing");
+            Check(Mathf.IsEqualApprox(distance, _hud.ShoulderDistanceM), "with zoom-in on U the wheel up zooms nothing");
             _hud._UnhandledInput(Press(Key.U));
-            Check(_hud.DioramaDistanceM < distance - 0.01f, "U zooms in");
-            Check(HelpLines().Any(l => l.Contains("drag orbits, U/wheel down zooms", StringComparison.Ordinal)), "and the help names both zoom keys");
+            Check(_hud.ShoulderDistanceM < distance - 0.01f, "U zooms in");
+            Check(HelpLines().Any(l => l.Contains("U/wheel down zooms out", StringComparison.Ordinal)), "and the help names both zoom keys");
             RestoreMap();
-            var zoomed = _hud.DioramaDistanceM;
+            var zoomed = _hud.ShoulderDistanceM;
             _hud._UnhandledInput(wheel(MouseButton.WheelUp));
-            Check(_hud.DioramaDistanceM < zoomed - 0.01f, "the wheel zooms again with the defaults back");
-            _hud.ZoomDiorama(Mathf.Log(distance / _hud.DioramaDistanceM) / Mathf.Log(0.88f));
-            _hud.SetViewMode(1);
-            Check(Mathf.IsEqualApprox(_hud.DioramaDistanceM, distance), "(the zoom put back where it was)");
+            Check(_hud.ShoulderDistanceM < zoomed - 0.01f, "the wheel zooms again with the defaults back");
+            _hud.ZoomShoulder(1000);
+            Check(Mathf.IsEqualApprox(_hud.ShoulderDistanceM, _hud.ShoulderNearM), "(the zoom put back at the shoulder)");
 
             // Esc and the appearance panel: the panel blocks every key but its own two.
             Bind(Act.HudCustomize, Key.K);
@@ -462,7 +453,7 @@ public partial class PlayHudTest : Node
             _hud._UnhandledInput(Press(Key.K));
             Check(_hud.Customizing, "K opens the panel");
             var before = _hud.ViewMode;
-            _hud._UnhandledInput(Press(Key.F3));
+            _hud._UnhandledInput(Press(Key.F1));
             Check(_hud.ViewMode == before, "and with it open the view keys do nothing");
             _hud._UnhandledInput(Press(Key.Escape));
             Check(!_hud.Customizing, "Esc closes the panel");
@@ -1418,33 +1409,13 @@ public partial class PlayHudTest : Node
         Check(notice.IsVisibleInTree() && notice.Text == noticeText, "refolding the help keeps the notice visible");
     }
 
-    private void TestViewKeys()
-    {
-        _hud.SetViewMode(3);
-        var yaw = _hud.IsoYaw;
-        _hud._UnhandledInput(Press(Key.Bracketright));
-        Check(Mathf.Abs(Mathf.AngleDifference(yaw, _hud.IsoYaw) - Mathf.Pi / 2) < 0.001f, "] turns the isometric view a quarter turn");
-        _hud._UnhandledInput(Press(Key.Bracketleft));
-        _hud._UnhandledInput(Press(Key.Bracketleft));
-        Check(Mathf.Abs(Mathf.AngleDifference(yaw, _hud.IsoYaw) + Mathf.Pi / 2) < 0.001f, "[ turns it a quarter turn the other way");
-        Check(_world.Player.MovementFrameYaw is { } frame && Mathf.IsEqualApprox(frame, _hud.IsoYaw), "movement follows the turned view");
-        yaw = _hud.IsoYaw;
-        _hud._UnhandledInput(Press(Key.E));
-        Check(Mathf.IsEqualApprox(yaw, _hud.IsoYaw), "E no longer turns the view (it is free for now)");
-        _hud.SetViewMode(1);
-        var before = _hud.IsoYaw;
-        _hud._UnhandledInput(Press(Key.Bracketleft));
-        _hud._UnhandledInput(Press(Key.Bracketright));
-        Check(Mathf.IsEqualApprox(before, _hud.IsoYaw), "outside the isometric view [ and ] turn nothing");
-    }
-
     private void TestWorkshopGone()
     {
         var texts = _world.FindChildren("*", "Label", true, false).OfType<Label>().Select(l => l.Text).ToArray();
         Check(!texts.Any(t => t.Contains("INVENTIONS", StringComparison.Ordinal) || t.Contains("worn design", StringComparison.Ordinal)), "the room shows no INVENTIONS panel");
         var help = string.Join("\n", texts);
-        Check(help.Contains("[/] turn the view", StringComparison.Ordinal) && help.Contains("T time of day", StringComparison.Ordinal) && help.Contains("Shift+T season", StringComparison.Ordinal),
-            "the help lines name [ and ], T and Shift+T");
+        Check(!help.Contains("[/]", StringComparison.Ordinal) && help.Contains("T time of day", StringComparison.Ordinal) && help.Contains("Shift+T season", StringComparison.Ordinal),
+            "the help lines name T and Shift+T, and no longer [ and ] (the isometric turn is gone)");
         Check(!help.Contains("B Build", StringComparison.Ordinal), "and say nothing of the retired build keys");
     }
 
@@ -1572,7 +1543,7 @@ public partial class PlayHudTest : Node
         Check(label.FixedSize, "the tag uses distance-independent rendering");
         foreach (var (view, distance, fov) in new[]
         {
-            ("F2 close", 0.26f, 68f), ("F2", 0.5f, 68f),
+            ("F2 close", 0.26f, 68f), ("F2", 0.5f, 68f), ("F2 orbit", RoomHud.OrbitFromM, RoomHud.ShoulderFovDeg), ("F2 far", RoomHud.ShoulderFarM, RoomHud.ShoulderFovDeg),
             ("F3 near", RoomHud.DioramaMinDistanceM, RoomHud.DioramaFovDeg),
             ("F3", RoomHud.DioramaDefaultDistanceM, RoomHud.DioramaFovDeg),
             ("F3 far", RoomHud.DioramaMaxDistanceM, RoomHud.DioramaFovDeg),

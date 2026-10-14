@@ -53,14 +53,16 @@ public partial class PlayHudTest
         Check(host.TransientReceiptCount(CommandHost.PlayerPrincipal) == receipts && host.ActiveEffectIds.Count == 0,
             "reading the journal does not cast a light when an ability key is pressed");
         var previousView = _hud.ViewMode;
-        _hud.SetViewMode(2);
-        var distance = _hud.DioramaDistanceM;
+        _hud.SetViewMode(1);
+        _hud.ZoomShoulder(-4);
+        var distance = _hud.ShoulderDistanceM;
         _hud._UnhandledInput(LeftButton(true));
         _hud._UnhandledInput(new InputEventMouseMotion { Relative = new Vector2(50, 20) });
         _hud._UnhandledInput(new InputEventMouseButton { ButtonIndex = MouseButton.WheelUp, Pressed = true });
         _hud._UnhandledInput(RightButton(true));
-        Check(!_hud.Drag.Pressed && !_hud.Wheel.Held && _hud.DioramaDistanceM == distance,
+        Check(!_hud.Drag.Pressed && !_hud.Wheel.Held && _hud.ShoulderDistanceM == distance,
             "mouse presses over the open journal cannot begin a look drag, zoom or open the magic wheel");
+        _hud.ZoomShoulder(1000);
         _hud.SetViewMode(previousView);
         _hud._UnhandledInput(Press(Key.C));
         Check(_hud.JournalOpen && !_hud.Customizing && !_world.Player.InputEnabled,

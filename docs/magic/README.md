@@ -265,7 +265,7 @@ They are the player's own laws for their island, on the same layer as the island
 
 From research 4 (Apex's ping, Pikmin, marking menus, Valheim, Dragon Quest Builders 2). **Tap does the smart thing; hold shows the choices.** One icon set and one numbering serve the wheel, the number keys and a hotbar, so each teaches the others.
 
-**Built (10 October, the Glow round):** the smart ask on the right button, the wheel, 1 for Glow, Q for the recall, X for stop and [ and ] for the F4 view are in `run2/integration`, sent as the player's commands through the host, with no AI needed **(decided: the wheel works with no AI connected)**. Before the round, keys 1 to 5 sent follow, stay, come, stop and point.
+**Built (10 October, the Glow round):** the smart ask on the right button, the wheel, 1 for Glow, Q for the recall, X for stop and [ and ] for the F4 view (shelved on 13 October: the game has two views, first and third person, and `[` and `]` are free) are in `run2/integration`, sent as the player's commands through the host, with no AI needed **(decided: the wheel works with no AI connected)**. Before the round, keys 1 to 5 sent follow, stay, come, stop and point.
 
 ### The keys: today and proposed
 
@@ -279,18 +279,18 @@ From research 4 (Apex's ping, Pikmin, marking menus, Valheim, Dragon Quest Build
 | Key | Today | Proposed | Why |
 |---|---|---|---|
 | W A S D, Shift, Space, Ctrl | Move, sprint, jump (rise when diving), dive | Unchanged | |
-| Mouse, left button | Look (F1, F2); orbit (F3); the left button captures the mouse | Unchanged, plus aim. The reticle shows what "this" is | |
+| Mouse, left button | Look (F1, F2); orbit (F2 zoomed out past 0.8 m; was F3); the left button captures the mouse | Unchanged, plus aim. The reticle shows what "this" is | |
 | Right button | Unbound | **Tap: the smart ask. Hold: the Gubble wheel** | The Gubble's own button (Apex's ping) |
 | 1 to 5 | Follow, stay, come, stop, point ahead | **Glow, Bloom, Bubbles, Fireworks, Build** (hold for the ghost, release to cast; unlearned ones shrug) | The orders move to the smart ask, the wheel and Q; "point ahead" becomes the smart ask's "go and look there" |
 | Q, E | Turn the F4 view | **Q: come, then follow** (the recall). E unbound for now | The recall is the most-used order, next to W A S D |
-| [ and ] | Unbound | **Turn the F4 view** (and drag with the middle button) | Q and E move to the Gubble |
+| [ and ] | Unbound | **Turn the F4 view** (and drag with the middle button). Shelved on 13 October with F4: unbound again | Q and E move to the Gubble |
 | X | Unbound | **Stop** the Gubble's action or countdown | |
 | Z | Unbound | **Undo** the Gubble's last change | |
 | Enter | Unbound | **The wish box** | |
 | F, V | Pick up or put down, push | Unchanged | The player's own hands |
 | B, R | Home to the jetty, recover | Unchanged | |
-| Mouse wheel | Zoom (F3) | Zoom; **while a ghost shows, it turns the ghost** | |
-| F1 to F4, O | Views, observe | Unchanged | |
+| Mouse wheel | Zoom (F3; since 13 October F2, from the shoulder out to 8 m) | Zoom; **while a ghost shows, it turns the ghost** | |
+| F1, F2, O | Views (first person, third person), observe | Unchanged. F3 and F4 are shelved (13 October) | |
 | H, C, Esc | Help, customise, release the mouse | Unchanged | |
 | G | Next world physics (the founder's low-gravity leaps) | Unchanged for now; listed under "testing" in help; later a setting | |
 | T, Shift+T, L | Time of day, season, lamps | Unchanged for now; listed under "testing" in help (time follows the real clock); later a setting | |

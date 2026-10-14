@@ -26,7 +26,7 @@ public partial class SmallPlayerController : CharacterBody3D
     [Export] public float GroundAccelerationMps2 { get; set; } = 6.0f;
     /// <summary>Scaled by the world profile's air_control (more in floaty gravity).</summary>
     [Export] public float AirAccelerationMps2 { get; set; } = 2.0f;
-    /// <summary>How fast the body turns to face its motion when movement follows a free camera (F3).</summary>
+    /// <summary>How fast the body turns to face its motion when movement follows a free camera (F2 zoomed out to orbit).</summary>
     [Export] public float TurnRateRadPerS { get; set; } = 10.0f;
     /// <summary>Jump apex above the take-off floor in the room's default gravity and heavier. Clears the 4 cm book with room to spare.</summary>
     [Export] public float JumpApexM { get; set; } = 0.065f;
@@ -108,8 +108,10 @@ public partial class SmallPlayerController : CharacterBody3D
 
     public bool InputEnabled { get; private set; } = true;
     /// <summary>
-    /// Set while a free camera (the F3 diorama view) owns the mouse: movement input is relative to this
-    /// heading instead of the body's, the body turns to face where it moves, and mouse look is off.
+    /// Set while a free camera owns the mouse (F2 zoomed out past the HUD's orbit threshold; the shelved F3 and F4 views the look
+    /// harness still sets): movement input is relative to this heading instead of the body's, the body turns to face where it
+    /// moves, and mouse look is off. Under water W then swims level across this heading (it swims the way you look only while the
+    /// camera is the body's own: F1 and F2 at the shoulder).
     /// </summary>
     public float? MovementFrameYaw { get; private set; }
     public Camera3D EyeCamera { get; private set; } = null!;
@@ -769,8 +771,8 @@ public partial class SmallPlayerController : CharacterBody3D
     public Dictionary WorldPhysicsProfile => _worldPhysics.Duplicate(true);
 
     /// <summary>
-    /// Free-camera movement (F3): movement input is relative to <paramref name="yaw"/> and the body turns to face
-    /// its motion. Null returns to body-relative movement and mouse look (F1, F2).
+    /// Free-camera movement (F2 zoomed out): movement input is relative to <paramref name="yaw"/> and the body turns to face
+    /// its motion. Null returns to body-relative movement and mouse look (F1, F2 near the shoulder).
     /// </summary>
     public void SetMovementFrame(float? yaw) =>
         MovementFrameYaw = yaw is { } value && float.IsFinite(value) ? value : null;
@@ -908,8 +910,8 @@ public partial class SmallPlayerController : CharacterBody3D
     public const float LookRadiansPerPixel = 0.0025f;
 
     /// <summary>
-    /// Turn the body and tilt the eye by a mouse motion in pixels: the HUD's look drag in F1 and F2 (the cursor is free otherwise,
-    /// the Glow playtest). Nothing while input is off or a view frame steers movement (F3, F4).
+    /// Turn the body and tilt the eye by a mouse motion in pixels: the HUD's look drag in F1 and in F2 near the shoulder (the cursor
+    /// is free otherwise, the Glow playtest). Nothing while input is off or a view frame steers movement (F2 zoomed out to orbit).
     /// </summary>
     public void TurnView(Vector2 relative)
     {
@@ -917,6 +919,20 @@ public partial class SmallPlayerController : CharacterBody3D
         RotateY(-relative.X * LookRadiansPerPixel);
         _pitch = Mathf.Clamp(_pitch - relative.Y * LookRadiansPerPixel, -1.35f, 1.35f);
         EyeCamera.Rotation = new Vector3(_pitch, 0, 0);
+    }
+
+    /// <summary>
+    /// Face a heading and tilt the eye in one go, with no swing between the old view and the new: the HUD's F2 wheel, zooming in from
+    /// the orbit view, hands the camera's heading and pitch to the body, so the shoulder camera ends up looking where the orbit
+    /// camera looked (a free camera and a body turned to face its motion would otherwise jump when the shoulder view takes over).
+    /// </summary>
+    public void SetView(float yaw, float eyePitch)
+    {
+        if (!float.IsFinite(yaw) || !float.IsFinite(eyePitch)) return;
+        Rotation = new Vector3(Rotation.X, yaw, Rotation.Z);
+        _pitch = Mathf.Clamp(eyePitch, -1.35f, 1.35f);
+        EyeCamera.Rotation = new Vector3(_pitch, 0, 0);
+        ResetPhysicsInterpolation();
     }
 
     public override void _UnhandledInput(InputEvent input)
@@ -1511,7 +1527,8 @@ public partial class SmallPlayerController : CharacterBody3D
 
     /// <summary>
     /// Under water: W swims the way you look (the view's pitch, the eye's in F1 and the shoulder camera's, which follows it,
-    /// in F2; in F3 and F4 across the view, level), A and D across; Ctrl down, Space up; no key, a slow drift up. The water's
+    /// in F2 near the shoulder; in F2 zoomed out to orbit, and in the shelved F3 and F4, across the view's heading, level), A and
+    /// D across; Ctrl down, Space up; no key, a slow drift up. The water's
     /// drag eases every change. The bed holds the body: the room's ground by collision, the open-sea bed by this clamp.
     /// </summary>
     private void Dive(float dt, Vector2 control, bool sprint, bool down, bool up)

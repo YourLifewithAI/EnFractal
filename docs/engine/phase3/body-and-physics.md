@@ -70,7 +70,9 @@ Real gravity at 10 cm reads as a hopping insect: a jump is over in a quarter of 
 
 ## Cameras
 
-`game/scripts/native/RoomHud.cs` owns the three views. F1 and F2 are unchanged.
+`game/scripts/native/RoomHud.cs` owns the views. **Two views since 13 October** (the founder: the game commits to first person and third person): F1 and F2, where F2 now zooms (below). F3 (diorama) and F4 (isometric) are shelved: their keys, and `[` and `]`, are unbound and free, and the rows below describe code that only the look harness reaches (`hud_view` 2 and 3 in `tools/look`).
+
+**F2 zooms and orbits (13 October).** The wheel moves the over-the-shoulder camera from today's arm (3.2 body heights, 32 cm for the 10 cm body: exactly the view it always was) out to **8 m** (80 body heights, where the body is about 1 % of the frame's height), a click being 15 % in or 18 % out, about 20 clicks in all. Walls, furniture, the ceiling and the ground hold the lens in as they always held the arm. Up to **0.8 m** (eight body heights, six clicks) it is still the shoulder camera: a drag turns the body, W A S D are the body's, and the arm's pivot slides from the shoulder to the player's middle. Past 0.8 m the camera is the orbit rig's (the F3 rig, with F2's 68° lens): a left drag orbits it round the player (0.0025 rad a pixel, tilting between 2° and 63° down), W A S D move relative to the camera's heading and the body turns to face its motion, and the focus stays the player's body. **Under water, orbiting, W swims level across the camera's heading** (Space rises, Ctrl sinks); in F1, and in F2 up to 0.8 m, W swims the way you look. Zooming back in past 0.8 m hands the camera's heading and pitch to the body, so the view does not swing.
 
 | Key | View | Framing | Mouse and wheel |
 |---|---|---|---|
@@ -215,9 +217,9 @@ Run `pwsh -NoProfile -File run-room.ps1`. The cursor is free (since the Glow pla
 | Space | Jump (6.5 cm) |
 | R | Recover to the last safe footing |
 | **G** | Cycle gravity: tuned (3.5) → real (9.8) → floaty (0.6, slow falls, more air steering) → tuned; the console prints which |
-| F1 / F2 / F3 | Eye camera / over-the-shoulder / **diorama**: in F3 a left drag orbits, the wheel zooms, and W A S D move relative to the view |
+| F1 / F2 | Eye camera / over-the-shoulder (13 October: the wheel zooms F2 out to 8 m; past 0.8 m a left drag orbits and W A S D move relative to the view). F3, the diorama, is shelved |
 | 1 2 3 4 5 | Companion: follow, stay, come, stop, point ahead |
-| F4 | Isometric view; **Q** and **E** turn it a quarter turn (the invention workshop that also bound them is gone) |
+| F4 | (Shelved, 13 October.) The isometric view; **Q** and **E** turned it a quarter turn (the invention workshop that also bound them is gone), then `[` and `]` |
 | L | Lamps on or off |
 | **T** | Step the time of day: dawn, morning, noon, late afternoon, sunset, dusk, night, then back to the real clock |
 | **Shift+T** | Step the season: March equinox, June solstice, September equinox, December solstice, then back to the real calendar |

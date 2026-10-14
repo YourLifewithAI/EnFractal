@@ -43,6 +43,46 @@ public partial class RoomHud : CanvasLayer
     /// <summary>Times the focus was asked for (the test keeps it cheap).</summary>
     public int FocusQueries { get; private set; }
     private float _armLength;
+    // F2, the third-person view, zooms (the founder, 13 October: "zoom out further to pan around and see the world from more angles").
+    // Near the shoulder it is the view it always was: the camera on a short arm off the body's right shoulder, and a drag turns the
+    // body. Zoomed out, the arm's pivot slides from the shoulder to the player's middle; past OrbitFromM the camera is the orbit rig's
+    // (the one F3 used), a drag orbits it round the player and movement follows its heading. The numbers are in the body's scale.
+    private Vector3 _shoulderAt;
+    private Vector3 _centreAt;
+    /// <summary>F2's lens: the shoulder camera's, and the orbit camera's once the view is zoomed out (nothing jumps when one takes over).</summary>
+    public const float ShoulderFovDeg = 68.0f;
+    /// <summary>
+    /// The far end of F2's wheel: 8 m, 80 body heights. There the 10 cm body is about 1 % of the frame's height and the frame shows
+    /// some 19 m of the 67 x 77 m island across; much further and the player would be lost in it.
+    /// </summary>
+    public const float ShoulderFarM = 8.0f;
+    /// <summary>
+    /// Past this arm length a drag orbits the camera round the player instead of turning the body: 2.5 times today's arm, eight body
+    /// heights, about six wheel clicks out. Up to it the view is still the shoulder camera, its pivot sliding to the player's middle.
+    /// </summary>
+    public const float OrbitFromM = 0.8f;
+    /// <summary>One wheel click multiplies F2's arm by this (15 % shorter) or by its inverse (18 % longer): about 20 clicks from the shoulder to ShoulderFarM.</summary>
+    public const float ShoulderZoomStep = 0.85f;
+    // The shoulder camera's arm swings by the eye's pitch less a little, between these (radians).
+    private const float ShoulderArmPitchOffsetRad = 0.18f, ShoulderArmPitchMinRad = -1.1f, ShoulderArmPitchMaxRad = 0.8f;
+    /// <summary>
+    /// How far the orbit camera may look down, in degrees: from 2 (nearly level, the horizon in view; lower and the arm would meet the
+    /// ground at once and put the lens inside the 10 cm body) to the shoulder camera's own limit, about 63, so the orbit hands over to
+    /// the shoulder camera, and back, at the same pitch.
+    /// </summary>
+    public const float OrbitMinPitchDeg = 2.0f;
+    /// <summary>The steepest the orbit camera looks down (see OrbitMinPitchDeg).</summary>
+    public static readonly float OrbitMaxPitchDeg = -Mathf.RadToDeg(ShoulderArmPitchMinRad);
+    /// <summary>Today's arm, 3.2 body heights (32 cm for the 10 cm body): the near end of F2's wheel, where the view is exactly the shoulder view.</summary>
+    public float ShoulderNearM => _armLength;
+    /// <summary>F2's wanted arm length, from ShoulderNearM to ShoulderFarM; walls and the ground may hold the camera closer.</summary>
+    public float ShoulderDistanceM { get; private set; }
+    /// <summary>Whether F2 is zoomed out past OrbitFromM: the camera is the orbit rig's, a drag orbits it and movement follows its heading.</summary>
+    public bool Orbiting => ViewMode == 1 && ShoulderDistanceM > OrbitFromM;
+    /// <summary>The F2 orbit's heading (radians about +Y; 0 looks along -Z). Movement follows it while Orbiting.</summary>
+    public float OrbitYaw { get; private set; }
+    /// <summary>How far the F2 orbit camera looks down, in degrees (OrbitMinPitchDeg to OrbitMaxPitchDeg).</summary>
+    public float OrbitPitchDeg { get; private set; } = 30.0f;
     /// <summary>How far over the bed the shoulder camera keeps its lens (the open-sea bed has no collider for the arm to meet).</summary>
     public const float ArmBedClearanceM = 0.02f;
 
@@ -69,7 +109,9 @@ public partial class RoomHud : CanvasLayer
     private PanelContainer _customization = null!;
     private SpringArm3D _arm = null!;
     private Camera3D _shoulder = null!;
-    // F3, the diorama view: a high-angle camera orbiting the player (founder playtest, 6 October: F3 froze).
+    // F3, the diorama view: a high-angle camera orbiting the player (founder playtest, 6 October: F3 froze). SHELVED on 13 October
+    // (the game commits to first person and third person): no key reaches it, but ViewMode 2 stays in code for the look harness
+    // (tools/look cameras observe_f3 and observe_f4 set hud_view 2 and 3), and the orbit rig below is the one F2 uses zoomed out.
     // Framed for the 10 cm body; a narrow lens and the look's depth of field make the room read as a miniature.
     public const float DioramaMinPitchDeg = 20.0f;
     public const float DioramaMaxPitchDeg = 80.0f;
@@ -78,17 +120,17 @@ public partial class RoomHud : CanvasLayer
     public const float DioramaMaxDistanceM = 2.4f;
     public const float DioramaDefaultDistanceM = 1.4f;
     public const float DioramaFovDeg = 40.0f;
-    // F4, the isometric view (Look lane, 6 October art direction): the isometric angle, a long narrow lens, and a
-    // heading that turns in quarter turns with [ and ], so the room reads as a diorama from above.
+    // F4, the isometric view (Look lane, 6 October art direction): the isometric angle, a long narrow lens. SHELVED like F3 (and its
+    // quarter turns on [ and ] are gone); ViewMode 3 stays in code for the look harness only.
     public const float IsoPitchDeg = 35.26f;
     public const float IsoDistanceM = 2.7f;
     public const float IsoFovDeg = 30.0f;
     /// <summary>While the companion is this close, the high views frame both avatars, centred between them.</summary>
     public const float FrameCompanionWithinM = 0.8f;
-    /// <summary>The isometric heading: 45 degrees off the room's axes plus whole quarter turns.</summary>
+    /// <summary>The isometric heading: 45 degrees off the room's axes, the quarter turn nearest the player's facing (nothing turns it now).</summary>
     public float IsoYaw { get; private set; } = Mathf.Pi / 4;
     public const float MouseRadiansPerPixel = 0.0025f;
-    /// <summary>The orbit's heading (radians about +Y; 0 looks along -Z). Movement follows it in F3.</summary>
+    /// <summary>The shelved F3's orbit heading (radians about +Y; 0 looks along -Z). Movement follows it in F3.</summary>
     public float DioramaYaw { get; private set; }
     /// <summary>How far the diorama camera looks down, in degrees.</summary>
     public float DioramaPitchDeg { get; private set; } = DioramaDefaultPitchDeg;
@@ -228,7 +270,7 @@ public partial class RoomHud : CanvasLayer
         AddChild(_washVeil);
         _washVeil.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
         // The sea wraps round: the high views' rig, eased every frame, is put straight on the player again, never swept across the island.
-        Player.Wrapped += (_, _) => { if (ViewMode >= 2) PlaceDioramaRig(snap: true); };
+        Player.Wrapped += (_, _) => { if (ViewMode >= 2 || Orbiting) PlaceDioramaRig(snap: true); };
         Player.WentHome += body => _noticeText = body.LastHome switch
         {
             "jetty" => "Home: back at the jetty.",
@@ -247,8 +289,8 @@ public partial class RoomHud : CanvasLayer
         // Every key named below comes from the input map (PlayerControls.Label), so a remapped key shows here.
         AddKeyLine(_keyHelp, () => MoveKeys, "MoveKeys");
         AddKeyLine(_keyHelp, () => $"Climb: keep walking into a steep face, {K(Act.MoveForward)} up, {K(Act.MoveBack)} down, {K(Act.MoveLeft)}/{K(Act.MoveRight)} across, {K(Act.Jump)} lets go · Swim: deep water floats you, {K(Act.Jump)} leaps · Dive: hold {K(Act.MoveDive)}, {K(Act.Jump)} rises, {K(Act.MoveForward)} swims the way you look, let go to drift up");
-        AddKeyLine(_keyHelp, () => $"{K(Act.ViewEye)} eye · {K(Act.ViewShoulder)} shoulder · {K(Act.ViewDiorama)} diorama: {PlayerControls.DragLabel()} orbits, {PlayerControls.ZoomLabel()} zooms, {PlayerControls.MoveLabel()} follows the view · {K(Act.ViewIso)} isometric: {K(Act.IsoTurnLeft)}/{K(Act.IsoTurnRight)} turn the view");
-        AddKeyLine(_keyHelp, () => $"{K(Act.ViewObserve)} observe (a very tight tilt-shift view, best from {K(Act.ViewDiorama)} or {K(Act.ViewIso)}) · {K(Act.HudCustomize)} customize · {K(Act.Journal)} journal ({K(Act.MouseRelease)} closes either)");
+        AddKeyLine(_keyHelp, () => $"{K(Act.ViewEye)} first person · {K(Act.ViewShoulder)} third person: {PlayerControls.ZoomLabel()} zooms out to look around, and zoomed out {PlayerControls.DragLabel()} orbits and {PlayerControls.MoveLabel()} follows the view");
+        AddKeyLine(_keyHelp, () => $"{K(Act.ViewObserve)} observe (a very tight tilt-shift view, best zoomed out) · {K(Act.HudCustomize)} customize · {K(Act.Journal)} journal ({K(Act.MouseRelease)} closes either)");
         AddKeyLine(_keyHelp, () => $"{K(Act.Hands)} pick up what you face · {K(Act.Hands)} again sets it down in front of you, or on top of what you face (the box, the book) · {K(Act.Push)} push what you face 10 cm");
         // The Gubble's keys, under its name (the Glow playtest: the player should see whose magic this is).
         AddKeyLine(_keyHelp, () => $"{Companion.NameTag}, your companion:", "GubbleHeading");
@@ -342,8 +384,11 @@ public partial class RoomHud : CanvasLayer
         _arm = new SpringArm3D { Name = "FollowCameraArm", Position = new Vector3(Player.BodyRadiusM * 2.2f, height * 0.8f, 0), SpringLength = height * 3.2f, Margin = height * 0.1f, CollisionMask = 1 };
         Player.AddChild(_arm);
         _armLength = _arm.SpringLength;
+        ShoulderDistanceM = _armLength;
+        _shoulderAt = _arm.Position;
+        _centreAt = new Vector3(0, height * 0.5f, 0);
         _arm.AddExcludedObject(Player.GetRid());
-        _shoulder = new Camera3D { Name = "FollowCamera", Near = 0.005f, Far = Look?.FarPlaneM ?? 100, Fov = 68 };
+        _shoulder = new Camera3D { Name = "FollowCamera", Near = 0.005f, Far = Look?.FarPlaneM ?? 100, Fov = ShoulderFovDeg };
         _arm.AddChild(_shoulder);
         // The diorama rig is not a child of the body, so it orbits independently of the body's facing. The arm's
         // sphere keeps the lens out of walls, furniture and the ceiling; only world geometry (layer 1) stops it.
@@ -385,13 +430,19 @@ public partial class RoomHud : CanvasLayer
     {
         if (mode is < 0 or > 3 || _shoulder == null) return;
         var entering = mode == 2 && ViewMode != 2;
+        var enteringShoulder = mode == 1 && ViewMode != 1;
         // Enter the isometric view at the quarter-turn heading nearest the player's facing.
         if (mode == 3 && ViewMode != 3) IsoYaw = Mathf.Wrap(Mathf.Snapped(Player.GlobalRotation.Y - Mathf.Pi / 4, Mathf.Pi / 2) + Mathf.Pi / 4, -Mathf.Pi, Mathf.Pi);
         ViewMode = mode;
         // The body stays drawn in every view: in F1 the player's own eye leaves its layer out (EyeView.PlayerEyeCullMask),
         // so the Gubble's eye still sees the player.
         if (mode == 0) Player.EyeCamera.MakeCurrent();
-        else if (mode == 1) _shoulder.MakeCurrent();
+        else if (mode == 1)
+        {
+            // Back in F2 zoomed out: the orbit camera starts behind the player again, at the pitch it had.
+            if (enteringShoulder && Orbiting) OrbitYaw = PlayerYaw();
+            ApplyShoulderCamera();
+        }
         else
         {
             // Enter behind the player, at the last pitch and zoom the player chose.
@@ -400,7 +451,43 @@ public partial class RoomHud : CanvasLayer
             PlaceDioramaRig(snap: true);
             _diorama.MakeCurrent();
         }
-        Player.SetMovementFrame(mode switch { 2 => DioramaYaw, 3 => IsoYaw, _ => null });
+        Player.SetMovementFrame(mode switch { 2 => DioramaYaw, 3 => IsoYaw, 1 when Orbiting => OrbitYaw, _ => null });
+    }
+
+    /// <summary>The body's heading as it is drawn this frame (the interpolated one, as the shoulder camera on its arm sees it).</summary>
+    private float PlayerYaw()
+    {
+        var back = Player.GetGlobalTransformInterpolated().Basis.Z;
+        return Mathf.Atan2(back.X, back.Z);
+    }
+
+    /// <summary>F2's camera for the arm it has now: the shoulder camera up to OrbitFromM, the orbit rig's beyond it.</summary>
+    private void ApplyShoulderCamera()
+    {
+        if (Orbiting)
+        {
+            _diorama.Fov = ShoulderFovDeg;
+            PlaceDioramaRig(snap: true);
+            _diorama.MakeCurrent();
+        }
+        else
+        {
+            UpdateShoulderArm();
+            _shoulder.MakeCurrent();
+        }
+    }
+
+    /// <summary>
+    /// The shoulder camera's arm for this frame: it swings by the eye's pitch, its pivot slides from the shoulder to the player's middle
+    /// as the arm grows to OrbitFromM (so the orbit camera, which circles the middle, takes over without a jump), and it is held a
+    /// little over the open-sea bed. At ShoulderNearM it is exactly the arm F2 always had.
+    /// </summary>
+    private void UpdateShoulderArm()
+    {
+        var slide = Mathf.SmoothStep(ShoulderNearM, OrbitFromM, ShoulderDistanceM);
+        _arm.Position = slide <= 0 ? _shoulderAt : _shoulderAt.Lerp(_centreAt, slide);
+        _arm.Rotation = new Vector3(Mathf.Clamp(Player.EyeCamera.Rotation.X - ShoulderArmPitchOffsetRad, ShoulderArmPitchMinRad, ShoulderArmPitchMaxRad), 0, 0);
+        _arm.SpringLength = ArmLengthOverBed(_arm.GlobalPosition, _arm.GlobalBasis.Z, Mathf.Min(ShoulderDistanceM, OrbitFromM), Player.Water.Wet ? Player.Water.BedY : float.NegativeInfinity, ArmBedClearanceM);
     }
 
     /// <summary>Orbit the diorama camera by a mouse movement in pixels: sideways turns around the player, up and down tilts.</summary>
@@ -419,23 +506,53 @@ public partial class RoomHud : CanvasLayer
         DioramaDistanceM = Mathf.Clamp(DioramaDistanceM * Mathf.Pow(0.88f, steps), DioramaMinDistanceM, DioramaMaxDistanceM);
     }
 
-    /// <summary>Turn the isometric view a quarter turn ([: -1, ]: +1).</summary>
-    public void TurnIso(int quarterTurns)
+    /// <summary>
+    /// Zoom F2 by wheel steps: positive moves in, negative out. Each step is ShoulderZoomStep, between today's arm (ShoulderNearM, exactly the
+    /// shoulder view) and ShoulderFarM. Crossing OrbitFromM swaps the cameras where they agree: going out, the orbit takes the body's
+    /// heading and the arm's pitch and movement follows it; coming in, the body takes the orbit's heading and pitch (it turns to
+    /// face the way the camera looked) and movement is the body's own again.
+    /// </summary>
+    public void ZoomShoulder(float steps)
     {
-        IsoYaw = Mathf.Wrap(IsoYaw + quarterTurns * Mathf.Pi / 2, -Mathf.Pi, Mathf.Pi);
-        if (ViewMode == 3) Player.SetMovementFrame(IsoYaw);
+        if (!float.IsFinite(steps)) return;
+        var orbiting = Orbiting;
+        ShoulderDistanceM = Mathf.Clamp(ShoulderDistanceM * Mathf.Pow(ShoulderZoomStep, steps), ShoulderNearM, ShoulderFarM);
+        if (ViewMode != 1) return;
+        if (Orbiting == orbiting)
+        {
+            if (!orbiting) UpdateShoulderArm();
+            return;
+        }
+        if (Orbiting)
+        {
+            OrbitYaw = PlayerYaw();
+            OrbitPitchDeg = Mathf.Clamp(-Mathf.RadToDeg(Mathf.Clamp(Player.EyeCamera.Rotation.X - ShoulderArmPitchOffsetRad, ShoulderArmPitchMinRad, ShoulderArmPitchMaxRad)), OrbitMinPitchDeg, OrbitMaxPitchDeg);
+        }
+        else Player.SetView(OrbitYaw, ShoulderArmPitchOffsetRad - Mathf.DegToRad(OrbitPitchDeg));
+        ApplyShoulderCamera();
+        Player.SetMovementFrame(Orbiting ? OrbitYaw : null);
+    }
+
+    /// <summary>Orbit F2's camera by a mouse movement in pixels, while it is zoomed out: sideways turns round the player, up and down tilts.</summary>
+    public void OrbitShoulder(Vector2 mouseRelative)
+    {
+        if (!Orbiting || !mouseRelative.IsFinite()) return;
+        OrbitYaw = Mathf.Wrap(OrbitYaw - mouseRelative.X * MouseRadiansPerPixel, -Mathf.Pi, Mathf.Pi);
+        OrbitPitchDeg = Mathf.Clamp(OrbitPitchDeg + Mathf.RadToDeg(mouseRelative.Y * MouseRadiansPerPixel), OrbitMinPitchDeg, OrbitMaxPitchDeg);
+        Player.SetMovementFrame(OrbitYaw);
     }
 
     /// <summary>
     /// Centre the rig on the player's middle, or between the two avatars while the companion is near (fading over the
-    /// last 30% of FrameCompanionWithinM so the view never jumps), eased so a jump or a step does not jolt the view.
+    /// last 30% of FrameCompanionWithinM so the view never jumps), eased so a jump or a step does not jolt the view. F2's orbit
+    /// is always on the player alone (the focus is the body, wherever the Gubble is).
     /// </summary>
     private void PlaceDioramaRig(bool snap, float delta = 0)
     {
         // Where the bodies are drawn this frame: the interpolated position when physics interpolation is on, else the physics one.
         var playerAt = Player.GetGlobalTransformInterpolated().Origin;
         var centre = playerAt + Vector3.Up * (Player.BodyHeightM * 0.5f);
-        if (Companion != null)
+        if (Companion != null && ViewMode != 1)
         {
             var companionAt = Companion.GetGlobalTransformInterpolated().Origin;
             var apart = companionAt.DistanceTo(playerAt);
@@ -445,9 +562,15 @@ public partial class RoomHud : CanvasLayer
         var weight = snap ? 1.0f : 1.0f - Mathf.Exp(-12.0f * delta);
         var position = _dioramaPivot.GlobalPosition.Lerp(centre, weight);
         var iso = ViewMode == 3;
-        var pitch = iso ? IsoPitchDeg : DioramaPitchDeg;
-        _dioramaPivot.GlobalTransform = new Transform3D(Basis.FromEuler(new Vector3(-Mathf.DegToRad(pitch), iso ? IsoYaw : DioramaYaw, 0), EulerOrder.Yxz), position);
-        _dioramaArm.SpringLength = iso ? IsoDistanceM : DioramaDistanceM;
+        var shoulder = ViewMode == 1;
+        var pitch = iso ? IsoPitchDeg : shoulder ? OrbitPitchDeg : DioramaPitchDeg;
+        var yaw = iso ? IsoYaw : shoulder ? OrbitYaw : DioramaYaw;
+        _dioramaPivot.GlobalTransform = new Transform3D(Basis.FromEuler(new Vector3(-Mathf.DegToRad(pitch), yaw, 0), EulerOrder.Yxz), position);
+        // F2's orbit is also held over the open-sea bed, which has no collider for the arm to meet; its arm is kept at the length where
+        // the shoulder camera hands over while that camera is the current one, so the swap finds it where it should be.
+        _dioramaArm.SpringLength = iso ? IsoDistanceM : shoulder
+            ? ArmLengthOverBed(_dioramaArm.GlobalPosition, _dioramaArm.GlobalBasis.Z, Orbiting ? ShoulderDistanceM : OrbitFromM, Player.Water.Wet ? Player.Water.BedY : float.NegativeInfinity, ArmBedClearanceM)
+            : DioramaDistanceM;
     }
 
     public override void _Process(double delta)
@@ -461,9 +584,9 @@ public partial class RoomHud : CanvasLayer
         if (GubblePaused) return;
         TickMagicPanel(delta);
         TickGubbleView();
-        if (ViewMode >= 2) PlaceDioramaRig(snap: false, (float)delta);
-        _arm.Rotation = new Vector3(Mathf.Clamp(Player.EyeCamera.Rotation.X - 0.18f, -1.1f, 0.8f), 0, 0);
-        _arm.SpringLength = ArmLengthOverBed(_arm.GlobalPosition, _arm.GlobalBasis.Z, _armLength, Player.Water.Wet ? Player.Water.BedY : float.NegativeInfinity, ArmBedClearanceM);
+        if (ViewMode >= 2 || Orbiting) PlaceDioramaRig(snap: false, (float)delta);
+        else if (ViewMode == 1) _dioramaArm.SpringLength = OrbitFromM;
+        UpdateShoulderArm();
         // The state line and the notice are written only when what they say changed (S12: no new string every frame).
         var held = Host?.HeldBy(Kernel.CommandHost.PlayerAvatar);
         var state = (Player.BodyHeightM, Player.WorldPhysicsId, PlayerControls.MapVersion, Companion.CompanionName, Companion.CurrentIntent,
@@ -654,8 +777,6 @@ public partial class RoomHud : CanvasLayer
             }
             else if (PlayerControls.Hit(press, Act.ViewEye)) SetViewMode(0);
             else if (PlayerControls.Hit(press, Act.ViewShoulder)) SetViewMode(1);
-            else if (PlayerControls.Hit(press, Act.ViewDiorama)) SetViewMode(2);
-            else if (PlayerControls.Hit(press, Act.ViewIso)) SetViewMode(3);
             else if (PlayerControls.Hit(press, Act.Lamps) && Look != null) Look.SetLamps(!Look.LampsOn);
             // The tuning keys (docs/runs/RUN-2-CHARACTERS.md, "Tuning by playing"): Shift+P before P.
             else if (PlayerControls.Hit(press, Act.BouncePrint))
@@ -667,9 +788,6 @@ public partial class RoomHud : CanvasLayer
             else if (PlayerControls.Hit(press, Act.ViewObserve) && Look != null) Look.Observe = !Look.Observe;
             else if (PlayerControls.Hit(press, Act.SeasonStep)) StepSeason();
             else if (PlayerControls.Hit(press, Act.TimeStep)) StepTimeOfDay();
-            // [ and ] turn the F4 view (Q and E moved to the Gubble's recall and stay free).
-            else if (PlayerControls.Hit(press, Act.IsoTurnLeft) && ViewMode == 3) TurnIso(-1);
-            else if (PlayerControls.Hit(press, Act.IsoTurnRight) && ViewMode == 3) TurnIso(1);
             // The Gubble's keys are the player's commands, carried out by the Gubble, on the same path as the companion's own.
             else if (PlayerControls.Hit(press, Act.GubbleAsk)) { BeginAsk(); GetViewport().SetInputAsHandled(); }
             else if (PlayerControls.Hit(press, Act.GubbleRecall)) Recall();
@@ -678,23 +796,21 @@ public partial class RoomHud : CanvasLayer
             // Hand keys: pick up, put down and push, as commands from the player.
             else if (PlayerControls.Hit(press, Act.Hands)) Hands();
             else if (PlayerControls.Hit(press, Act.Push)) Push();
-            // The look drag arms on the press; a click that never moves does nothing. F4 turns only with its keys.
+            // The look drag arms on the press; a click that never moves does nothing.
             else if (PlayerControls.Hit(press, Act.LookDrag))
             {
                 if (DragTurnsView && !_wheel.Held) _drag.Press(GetViewport().GetMousePosition());
             }
         }
-        if (ViewMode == 2 && !ReadingPanelOpen)
+        if (ViewMode is 1 or 2 && !ReadingPanelOpen)
         {
-            // The diorama camera orbits with the look drag; the body does not turn with it (SetMovementFrame).
-            if (fresh && PlayerControls.Hit(press, Act.ViewZoomIn))
+            // The wheel zooms F2 (and the shelved F3). Zoomed out, F2's camera orbits with the look drag and the body does not turn
+            // with it (SetMovementFrame).
+            var steps = fresh && PlayerControls.Hit(press, Act.ViewZoomIn) ? 1 : fresh && PlayerControls.Hit(press, Act.ViewZoomOut) ? -1 : 0;
+            if (steps != 0)
             {
-                ZoomDiorama(1);
-                GetViewport().SetInputAsHandled();
-            }
-            else if (fresh && PlayerControls.Hit(press, Act.ViewZoomOut))
-            {
-                ZoomDiorama(-1);
+                if (ViewMode == 1) ZoomShoulder(steps);
+                else ZoomDiorama(steps);
                 GetViewport().SetInputAsHandled();
             }
         }
@@ -706,14 +822,15 @@ public partial class RoomHud : CanvasLayer
     /// <summary>Test seam: whether the drag button is held (events handed straight to the HUD never reach Input's own state).</summary>
     internal System.Func<bool>? DragHeldForTests { get; set; }
 
-    /// <summary>Whether a drag turns this view: F1 and F2 turn the body and the eye, F3 orbits; F4 turns only by quarter turns. Through the Gubble's eyes, it turns the Gubble's eye.</summary>
+    /// <summary>Whether a drag turns this view: F1 and F2 near the shoulder turn the body and the eye, F2 zoomed out orbits (so does the shelved F3); the shelved F4 does not turn. Through the Gubble's eyes, it turns the Gubble's eye.</summary>
     public bool DragTurnsView => GubbleViewOpen || ViewMode != 3;
 
-    /// <summary>A drag's motion, in pixels, as the view's turn: the body and the eye in F1 and F2, the orbit in F3, the Gubble's eye through its eyes.</summary>
+    /// <summary>A drag's motion, in pixels, as the view's turn: the body and the eye in F1 and in F2 near the shoulder, the orbit in F2 zoomed out, the Gubble's eye through its eyes.</summary>
     public void TurnView(Vector2 relative)
     {
         if (GubbleViewOpen) TurnGubbleEye(relative);
         else if (ViewMode == 2) OrbitDiorama(relative);
+        else if (Orbiting) OrbitShoulder(relative);
         else if (ViewMode is 0 or 1) Player.TurnView(relative);
     }
 
