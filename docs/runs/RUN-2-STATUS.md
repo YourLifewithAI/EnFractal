@@ -589,6 +589,7 @@
    - the traits draft's six (the animals' size first): [docs/world/TRAITS.md](../world/TRAITS.md);
    - the 10x plan's seven: [RUN-2-TEN-TIMES.md](RUN-2-TEN-TIMES.md);
    - the eleventh session's: the family's verdict on the five sheets, the 5 mm foot tolerance, the torch round's five.
+   - **Answered 13 October, evening:** the traits' six (1: storybook size; 2 to 6 as recommended), the 10x plan's seven (all as recommended; 2 and 4 judged again from the playtest notes), the 5 mm foot tolerance (accepted) and the torch round's five (all as recommended). Still open: the family's verdict on the five sheets.
 4. **The torch round** (planned in the eleventh session; a fresh session, as it recommends).
 5. **The fire rebuild,** now unblocked (S2 and S5 are in): spread by fuel and wind on plant rows and a 50 cm ground-fuel grid; structures burn down with a rebuild record; replanting with regrowth; loose things vanish. Inputs from 967b583.
 6. **The 10x follow-ups:**

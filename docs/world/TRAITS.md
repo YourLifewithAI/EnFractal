@@ -193,6 +193,8 @@ Sizes below assume storybook sizes (decision 1).
 
 ## 7. Decisions for the founder
 
+**Answered by the founder, 13 October 2026 (evening):** 1: C, storybook size, as one pack number with a key that cycles A, B and C; 2 to 6: as recommended. The same evening the founder asked for chosen physical traits at character creation (faster walking or running, stamina efficiency, one more heart, swimming, breath, jumping, building, crops, hitting); how that squares with decision 4's shared body is worked out in [docs/game/MECHANICS.md](../game/MECHANICS.md).
+
 1. **How big are the animals?** Trees (about 0.3 to 0.9 m) and cottages (about 0.4 m) are sized as if the 10 cm player were a person.
    - **A, true to the miniature** (as a real animal is to a person, about ÷17): a rabbit 2.5 cm long, a fox knee-high, an owl smaller than the player. Natural and harmless, but tiny across a 70 m island, with no believable night danger.
    - **B, real-life size** (a 40 cm rabbit beside the 10 cm figure): a rabbit four times the player's height, a fox as tall as many of the trees, an owl with 1 m wings. Awe: walking into a warren, riding a rabbit, hiding from giants. But the ecology breaks (an owl can't roost in a tree shorter than itself), the danger overwhelms a child, and on the 10× island they no longer even match the room (there, a rabbit would be 4 m long).

@@ -33,6 +33,8 @@
 
 ## Decisions for the founder (recommended defaults)
 
+**Accepted by the founder, 13 October 2026 (evening): all five as recommended.**
+
 1. **How many torches?** Each lit torch is a real light. **Recommended:** at most 8 lit at once per island (the look's light budget), any number put out; a ninth lit asks to put one out.
 2. **Does a lit torch ever start a fire by itself** (dropped in dry grass)? **Recommended:** never in Creative and Challenge; in Live, a torch left lying in dry grass for a minute catches it, with a warning first.
 3. **Does making one cost anything?** **Recommended:** no cost beyond the Glow cast's own (no materials), limited by the count above.

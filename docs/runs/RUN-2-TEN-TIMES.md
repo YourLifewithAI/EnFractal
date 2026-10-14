@@ -58,6 +58,8 @@ The founder saw the Gubble stuck high in the sky saying "can't get there". From 
 
 ## Decisions for the founder (recommended defaults)
 
+**Confirmed by the founder, 13 October 2026 (evening): all seven as recommended.** 2 (how far you see; grass to 40 m) and 4 (the Gubble catching up) are judged again from the founder's playtest notes.
+
 1. **Keep a ×1 option?** No player option; ×1 stays only as a quick test fixture. Keeping both doubles the look and play tuning.
 2. **How far you can see:** about 250 m, with soft haze from about 40 m; small plants to 40–60 m, trees to about 150 m. Farther costs frame time.
 3. **Ground detail against generation time:** 10 cm ground with 2.5 cm detail where you walk (about 2–3 min an island). 5 cm everywhere takes about four times as long; 10 cm only gives cruder paths and banks.
