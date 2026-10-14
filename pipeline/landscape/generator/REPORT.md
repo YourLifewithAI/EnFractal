@@ -1,5 +1,49 @@
 # The garage as land: the landscape generator (C5)
 
+## The hamlet proved by the walk, and a cottage on its pad (Run 2, garage-road, 13 October)
+
+The founder's real garage at 10x (`landscape_my_garage`, converted by `from_capture.py`) failed `overall` with its hamlet
+out of reach and one cottage 10 cm into its slope. Both came from the 10 cm base grid meeting a 5 cm walk:
+
+- **Why the hamlet was cut off.** `find_hamlet` takes the best-sheltered flat place the quick flood (`reachable_from`:
+  10 cm cells, slope up to 38 degrees, 24 cm off the water) calls reachable. On the garage that is a shelf 0.2 to 0.4 m wide
+  at (9.38, 22.22) between three cottages, the sea and a bank. The exact walk (11 cm disc, 20 degrees, 5 cm lattice) found
+  the crate's pocket and the first door's enclosed by the pads' skirts, which are steeper than 20 degrees; the ways graded
+  to them (`grade_line` along the steeper walk's route) stopped at the skirts or cut the pads' rims, and the grading loop
+  made two passes and never looked again. The checks found none of its five routes (the crate there and back, three doors).
+- **Why the cottage sat in its slope.** The pad is levelled 7 cm out from the footprint, but a way graded later cut and
+  filled the rim cells that lie outside `pads` > .3 (that protects only 4 cm from the footprint), the vertices of a
+  10 cm cell meeting the footprint's edge lie beyond the rim, in the bank, and the next cottage's feathering reaches
+  them. The garage's first cottage (floor at 6.4 cm) read 8.5 cm of ground at one corner after the pad and 16.1 cm after
+  the ways: 9.7 cm sunk, where the check allows 8.6.
+- **What changed (a magnified room only; every 1x corpus room stays byte-identical):**
+  - `flatten(reach=)` levels the vertices of every cell that meets a footprint, and `pad_hold` keeps them, with the pad's
+    margin, from `build_road` and `grade_line` (`keep_out`); a second pass puts each pad's core back on its own level after
+    the neighbours' feathering (a footing now reads flat, 4 mm under its floor, at every yaw).
+  - The ways are graded and **proved by a new exact walk** until the crate and every door are reached (up to 6 passes and
+    one more that only proves; the room at 1x keeps its two).
+  - A hamlet no way reaches is **given up for the next site** (`HamletCutOff`): `find_hamlet(skip=)` takes the best site
+    1.5 m or more from each given up, up to 6 sites; if none is reached the first stands, as it always did.
+    `x_generator.hamlet.given_up` lists them (only after a retry). A second proof reads the land and the planting as they
+    will be written (the 2.5 cm ground and the plants), so a hamlet the base proved but the detail cut is also given up.
+- **The corpus at 3x (the generator before this cut the hamlet off in five rooms):** home_office nominal and scan 73
+  (the crate and the first door), garage scan 17 (a door), workshop scans 17 and 73 (the third door) all walk now, and
+  their cottages stand flat (4 mm under the floor by design; 3.4 to 5.2 cm in before, in three of them).
+- **The real garage:** the first site stands (no retry), every walk found (the crate and back, three doors, the
+  woodpile), the jetty and four beaches reached, all five built things grounded and all three cottages exactly on their
+  pads (4 mm under the floor). Generation about 3 to 4 min on a loaded machine. The 10x nominal garage's first site is now
+  given up (once the pads' rims are held, no way reaches its goals) and its hamlet moves 1.6 m, to (2.78, -34.02); it still
+  passes `overall`, and generating it takes about 100 s longer (the failed attempt).
+- **Still failing on the real garage (`overall` is not yet true), as before this packet:**
+  - `footprints`: six objects (cardboard box 2, desktop computer, jar, laptop, monitor, printer) rest on surfaces the
+    inventory does not hold, so they read as lost; they become ordinary children once the furniture the scan dropped is
+    in the inventory (the founder is supplying it).
+  - `sea`: the reef line comes 0.044 m from the coast at one vertex, (-27.0, -22.1), where the coast has a notch the reef's
+    offset curve cuts across, and lies 1.046 m from it at another, (-12.9, 22.5); the check keeps 0.2 to 1.0 m. The reef is
+    shaped in wall offsets and the coast it is measured against is the waterline; shaping it from the waterline's own
+    distance field is the likely fix. Not touched here (it reshapes the sea floor of every magnified room). The game reads
+    the line only for how far a point is past the reef (`RoomSea.PastReefM`).
+
 ## A captured room as a generator room (Run 2, 13 October)
 
 - **`from_capture.py`** turns a captured shell (`room.json`, shell only) and its C4 inventory into a corpus-shaped room

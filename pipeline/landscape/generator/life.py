@@ -269,18 +269,25 @@ def build_mesh(grid, h, weights, tints, tris):
 
 
 # ---------------------------------------------------------------- people
-def find_hamlet(grid, h, slope, wet, inside, spawns, avoid, indist, reachable=None):
+SITE_GAP_M = 1.5   # a site given up (no road reached it) rules out its neighbourhood: the cottages spread a metre round it
+
+
+def find_hamlet(grid, h, slope, wet, inside, spawns, avoid, indist, reachable=None, skip=()):
     """The best site where water, flat ground and shelter meet; when a room
     offers none, the demands relax a step at a time (steeper ground, farther
-    from water) before giving up."""
+    from water) before giving up. `skip`: sites already given up (the exact
+    walk found no road to them); the best site farther than SITE_GAP_M from
+    each is found instead."""
     for flat_max, far_water, near in ((14, 1.2, .9), (17, 1.8, .9), (20, 3., .9), (24, 9., .6)):
-        site = _find_hamlet(grid, h, slope, wet, inside, spawns, avoid, indist, reachable, flat_max, far_water, near)
+        site = _find_hamlet(grid, h, slope, wet, inside, spawns, avoid, indist, reachable, flat_max, far_water, near,
+                            skip)
         if site is not None:
             return site
     return None
 
 
-def _find_hamlet(grid, h, slope, wet, inside, spawns, avoid, indist, reachable, flat_max, far_water, near_spawn=.9):
+def _find_hamlet(grid, h, slope, wet, inside, spawns, avoid, indist, reachable, flat_max, far_water, near_spawn=.9,
+                 skip=()):
     nx = grid.nx
     best = None
     for j in range(0, grid.nz, 2):
@@ -289,6 +296,8 @@ def _find_hamlet(grid, h, slope, wet, inside, spawns, avoid, indist, reachable, 
             if not inside[q]:
                 continue
             x, z = grid.xs[i], grid.zs[j]
+            if skip and any(math.hypot(x-a, z-b) < SITE_GAP_M for a, b in skip):
+                continue
             if indist(x, z) < (.6 if near_spawn > .8 else .45):
                 continue
             w = wet[q]
@@ -321,11 +330,23 @@ def inside_distance_q(grid, inside, i, j):
     return min(i, j, grid.nx-1-i, grid.nz-1-j)*grid.cell if inside[j*grid.nx+i] else 0.
 
 
-def flatten(grid, h, x, z, hx, hz, yaw, margin=.07, blend=.12, level=None):
-    """Level a house pad to its mean height (or a given level) and feather it into the land."""
+def touches(dx, dz, r, hx, hz, c, s):
+    """Whether the square of half-side `r` round a point (dx, dz) from a footprint's centre meets the footprint
+    (half sizes hx, hz; c, s the cosine and sine of its yaw, as `flatten` turns the plan): a separating-axis test."""
+    ax, az = abs(c), abs(s)
+    return (abs(dx) <= r+hx*ax+hz*az and abs(dz) <= r+hx*az+hz*ax and
+            abs(c*dx-s*dz) <= hx+r*(ax+az) and abs(s*dx+c*dz) <= hz+r*(ax+az))
+
+
+def flatten(grid, h, x, z, hx, hz, yaw, margin=.07, blend=.12, level=None, reach=0.):
+    """Level a house pad to its mean height (or a given level) and feather it into the land. `reach`: every vertex
+    of a grid cell that meets the footprint within `reach` is levelled too (a coarse grid's cell at the footprint's
+    edge would otherwise read the bank beyond the margin: the footing stood in the slope)."""
     a = math.radians(yaw)
     c, s = math.cos(a), math.sin(a)
     R = max(hx, hz)+margin+blend
+    if reach:
+        R = max(R, math.hypot(hx, hz)+reach*1.5)
     rx, rz = grid.span(x-R, x+R, z-R, z+R)
     inner = []
     for j in rz:
@@ -342,9 +363,31 @@ def flatten(grid, h, x, z, hx, hz, yaw, margin=.07, blend=.12, level=None):
             lx, lz = c*dx-s*dz, s*dx+c*dz
             d = max(abs(lx)-hx-margin, abs(lz)-hz-margin, 0.)
             q = j*grid.nx+i
-            t = smooth(d/blend)
+            t = 0. if reach and touches(dx, dz, reach, hx, hz, c, s) else smooth(d/blend)
             h[q] = lerp(level, h[q], t)
     return level
+
+
+def pad_hold(grid, houses, margin, reach=0.):
+    """The cells within `margin` of a cottage's footprint (the rim of the pad `flatten` levels) and, with `reach`,
+    the vertices of every cell meeting the footprint. A way graded later (`build_road`, `grade_line`) cut and filled
+    the cells of that rim that lie outside `pads` > .3 (that protects 4 cm from the footprint, the pad levels 7), so on
+    a coarse grid a way beside a cottage left its footing standing in the slope. Held as a keep-out, they stay as
+    the pad made them."""
+    nx = grid.nx
+    out = [False]*grid.n
+    for hh in houses:
+        R = math.hypot(hh['hx'], hh['hz'])+max(margin, reach*1.5)+grid.cell
+        rx, rz = grid.span(hh['x']-R, hh['x']+R, hh['z']-R, hh['z']+R)
+        a = math.radians(hh['yaw'])
+        c, s = math.cos(a), math.sin(a)
+        for j in rz:
+            for i in rx:
+                dx, dz = grid.xs[i]-hh['x'], grid.zs[j]-hh['z']
+                if max(abs(c*dx-s*dz)-hh['hx'], abs(s*dx+c*dz)-hh['hz'], 0.) <= margin or (
+                        reach and touches(dx, dz, reach, hh['hx'], hh['hz'], c, s)):
+                    out[j*nx+i] = True
+    return out
 
 
 def walk_graph(grid, h, face_slope, wet, inside, blocked_mask, limit=WALK_LIMIT_DEG):
