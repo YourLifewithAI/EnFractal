@@ -226,6 +226,9 @@ Add one row per agent run.
 | 2026-10-13 | Characters: the sheets with real motion | Opus 5.5 | 518k | Clean; three capture launches |
 | 2026-10-13 | Characters: whole-lane review (fresh) | Opus 5.5 | 457k | 3 majors, 8 minors; every one confirmed real by the fix round |
 | 2026-10-13 | Characters: the review's fix round | Opus 5.5 | 617k | All 11 fixed, failing-before evidence for the majors |
+| 2026-10-13 | C: the real garage's hamlet proved by the exact walk, cottages on held pads, a planting salt for a navigation bake quirk (`run2/garage-road`) | Sonnet 5.5 | 1.24M | Clean in two rounds: 41 unit tests, scale suite 10/10, 1x corpus byte-identical; the second round found Godot's bake, not the data, behind two edge errors |
+| 2026-10-13 | P: the two views, F2 zoom and orbit, F3 and F4 shelved (`run2/two-views`) | Sonnet 5.5 | 538k | Clean: 81 new tests, 5 mutations caught, both runners GREEN; one change request (`OpenSea.CameraReachM`) applied by the integrator |
+| 2026-10-13 | Design: the baseline game mechanics strategy as a 23-agent workflow (5 readers, 6 researchers, 5 designers, 3 judges, synthesis, 2 critics, revision) | Fable 5.1; research on Sonnet 5.5 | 4.64M | [docs/game/MECHANICS.md](../game/MECHANICS.md); judges 172, 171, 170, 156, 153 of 210; 40 critic issues (12 major) folded in; the integrator fixed one fact |
 
 The first Codex launches failed at once, "blocked by policy". They had skipped the founder's config, which also turned off the Windows sandbox, and the sandbox then could not start the Store-packaged PowerShell 7. Codex stopped and reported, as its rules say. `tools/codex/run.ps1` now handles both.
 
