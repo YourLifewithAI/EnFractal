@@ -42,8 +42,8 @@ public partial class OpenSea : Node3D
     // ---------- the sea mist and the seam ----------
 
     /// <summary>
-    /// The swim speed the seam is measured in: the small avatar's walk (0.32 m/s) times its swim factor (0.6). A minute's swim is
-    /// about 16.5 m.
+    /// The swim speed the seam is measured in: the small avatar's walk (0.32 m/s) times its swim factor (0.6). A minute's swim is about 11.5 m; the seam is
+    /// 16.5 m out.
     /// </summary>
     public const float SwimMps = 0.192f;
     /// <summary>
