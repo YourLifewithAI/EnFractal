@@ -119,13 +119,15 @@ def grounding(grid, h, objects, base):
     return rows
 
 
-def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=None, detail=None):
+def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=None, detail=None, plant_salt=0):
     """The package of a room. On a magnified room a hamlet no graded road reaches (the exact walk from the player's
-    spawn finds no way to the crate or a door) is given up and the land generated again with the next site."""
+    spawn finds no way to the crate or a door) is given up and the land generated again with the next site.
+    `plant_salt` (0: none) draws the planting again, on the same land: the plants, trees and stones are a free
+    choice, and the game's navigation bake meets a rare layout of trunk holes it cannot triangulate (see REPORT.md)."""
     skip, accept = [], None
     while True:
         try:
-            return _generate(room_dir, out_dir, setup, seed, return_state, cell, detail, skip, accept)
+            return _generate(room_dir, out_dir, setup, seed, return_state, cell, detail, skip, accept, plant_salt)
         except HamletCutOff as cut:
             skip.append(cut.site)
             print('LANDSCAPE_HAMLET_CUT_OFF', cut, flush=True)
@@ -134,7 +136,7 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=
             accept = skip[0]   # no site is reached by any way: the best-ranked one stands, as it always did
 
 
-def _generate(room_dir, out_dir, setup, seed, return_state, cell, detail, skip, accept=None):
+def _generate(room_dir, out_dir, setup, seed, return_state, cell, detail, skip, accept=None, plant_salt=0):
     room_dir = Path(room_dir)
     room = load_json(room_dir/'room.json')
     inventory = load_json(room_dir/'inventory.json')
@@ -147,7 +149,7 @@ def _generate(room_dir, out_dir, setup, seed, return_state, cell, detail, skip, 
         room, inventory = world.magnify(room, inventory, W)
     _tick('start')
     noise = Noise(seed, scale=W)
-    rnd = random.Random(seed)
+    rnd = random.Random(seed if not plant_salt else '%d/%d' % (seed, plant_salt))   # the planting's stream alone
     objects = parse_objects(inventory)
     lo, hi, _ = room_shape(room)
     # The grid's margin holds the coast's widest headland (x W), the reef, the
@@ -842,6 +844,8 @@ def _generate(room_dir, out_dir, setup, seed, return_state, cell, detail, skip, 
                                   grounding=grounding(grid, h, objects, base))
     if detail:
         rest['detail'] = detail.describe()
+    if plant_salt:
+        rest['plant_salt'] = plant_salt
 
     def write(folder, beaches):
         sea_doc = describe_sea(grid, h, room, coast, jetty, beaches, islands, player0, water['streams'], ground)
@@ -1343,12 +1347,13 @@ def main():
     parser.add_argument('--cell', type=float, default=None,
                         help='base grid cell (m); default %g, or %g on a magnified room' % (CELL, CELL_W))
     parser.add_argument('--no-detail', action='store_true', help='a magnified room without its 2.5 cm detail')
+    parser.add_argument('--plant-salt', type=int, default=0, help='draw the planting again on the same land (0: as always)')
     args = parser.parse_args()
     if args.world_scale != 1:
         world.set_world(args.world_scale)
     t0 = time.perf_counter()
     doc = generate(args.room, args.out, load_json(args.setup), args.seed, cell=args.cell,
-                   detail=False if args.no_detail else None)
+                   detail=False if args.no_detail else None, plant_salt=args.plant_salt)
     if args.world_scale != 1:
         print('LANDSCAPE_TIMING generate_s %.1f' % (time.perf_counter()-t0))
     print('LANDSCAPE_PACKAGE', args.out, 'meshes', len(doc['meshes']), 'scatter', len(doc['scatter']),

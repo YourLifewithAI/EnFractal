@@ -44,6 +44,29 @@ out of reach and one cottage 10 cm into its slope. Both came from the 10 cm base
     distance field is the likely fix. Not touched here (it reshapes the sea floor of every magnified room). The game reads
     the line only for how far a point is past the reef (`RoomSea.PastReefM`).
 
+## Navigation edge errors, and the planting salt (Run 2, garage-road, 13 October)
+
+The first regenerated real garage booted (`tools/smoke-boot.ps1`) with "Navigation region synchronization had 2 edge
+error(s)", which the installed one, made before the hamlet fix, did not. Looking for overlapping data found none:
+
+- **The land is not at fault.** At the one place the errors are, the land of the two packages is the same: all 60,830
+  vertices of an 11 by 10 m window round it compared, none differs. No triangle there is doubled or coincident (288 triangles
+  of 0.005 m2, each point of the window under exactly one), and no trunk or stone stands within 2.4 m.
+- **Where it is** (the game's island builder read in a copy of `game/`, nothing of the repository's changed): tile 35 of the
+  8 m navigation lattice, round (1.73, 11.73). Recast's triangulation of that tile's one open region, which has 31 trunk and
+  stone holes in it, made five triangles meet at one vertex with one covering two of the others, so one edge had three
+  polygons (Godot's map keys edges to 1 mm and allows two). Six of the tile's holes are needed for it (broadleaf 282, 524,
+  526, 531, 621 and rock 433): taking any one out, or all of them, bakes clean, and another partitioning scheme only
+  moves it to another tile.
+- **Why this export and not the old.** The planting is one random stream, so every difference upstream (the hamlet's pads
+  and ways) draws every plant on the island again; the trunk holes of the old garage did not make this layout.
+  Of the layouts tried one in five does (the old garage, the 10x nominal garage and three salted layouts of the
+  real garage all boot clean).
+- **What changed.** `generate(plant_salt=N)` and `--plant-salt N` draw the planting again on the very same land (0, the
+  default, is as always; the package says `x_generator.plant_salt` only when it is not 0). The real garage is generated
+  with `--plant-salt 1`. A bake that does not meet such holes needs a change in the game's navigation (the contour or
+  hole handling in `game/Scripts/native/Navigation/RoomNavigation.cs`), which is not this lane's.
+
 ## A captured room as a generator room (Run 2, 13 October)
 
 - **`from_capture.py`** turns a captured shell (`room.json`, shell only) and its C4 inventory into a corpus-shaped room

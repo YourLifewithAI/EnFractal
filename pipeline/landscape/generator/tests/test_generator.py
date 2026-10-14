@@ -824,5 +824,32 @@ class HamletProvedByTheWalk(unittest.TestCase):
         self.assertEqual(hamlet['houses'], 3)
 
 
+class PlantSalt(unittest.TestCase):
+    """A planting salt draws the plants, trees and stones again on the very same land. The game's navigation bake
+    triangulates every tile's open ground round its trunk holes, and a rare layout of them (on the real garage, six
+    holes in one open 8 m tile) makes it put three polygons on one edge ("Navigation region synchronization had 2
+    edge error(s)"), where the land itself holds no overlap: the land there was the same in a layout that boots clean."""
+
+    def test_the_same_land_and_other_plants(self):
+        import json
+        room = ROOMS/'bedroom_nominal'
+        plain, salted = os.path.join(workdir('salt0'), 'pkg'), os.path.join(workdir('salt1'), 'pkg')
+        generate(room, plain)
+        generate(room, salted, plant_salt=2)
+        for name in ('land.glb', 'jetty.glb', 'sea.glb'):
+            self.assertEqual(Path(plain, name).read_bytes(), Path(salted, name).read_bytes(), name)
+        before = json.loads(Path(plain, 'package.json').read_text(encoding='utf-8'))
+        after = json.loads(Path(salted, 'package.json').read_text(encoding='utf-8'))
+        self.assertNotIn('plant_salt', before['x_generator'])
+        self.assertEqual(after['x_generator']['plant_salt'], 2)
+        self.assertEqual(after['x_generator']['hamlet'], before['x_generator']['hamlet'])
+
+        def plants(d):
+            return sorted((r['prototype'], tuple(r['position_m'])) for r in d['scatter']
+                          if r['prototype'] in ('broadleaf', 'conifer', 'rock', 'shrub'))
+        self.assertGreater(len(plants(before)), 50)
+        self.assertNotEqual(plants(before), plants(after))
+
+
 if __name__ == '__main__':
     unittest.main()
