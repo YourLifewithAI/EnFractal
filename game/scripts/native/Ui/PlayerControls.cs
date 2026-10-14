@@ -24,20 +24,15 @@ public static class Act
     // The body.
     public static readonly StringName BodyRecover = "body_recover";
     public static readonly StringName BodyHome = "body_home";
-    // The views.
+    // The views: first person (F1) and third person over the shoulder (F2, the default). The diorama (F3) and isometric (F4)
+    // views are shelved (the founder, 13 October): their keys, and [ and ] with them, are unbound and stay free.
     public static readonly StringName ViewEye = "view_eye";
     public static readonly StringName ViewShoulder = "view_shoulder";
-    public static readonly StringName ViewDiorama = "view_diorama";
-    public static readonly StringName ViewIso = "view_iso";
     public static readonly StringName ViewObserve = "view_observe";
-    /// <summary>F3 only.</summary>
+    /// <summary>F2 only: the wheel zooms the over-the-shoulder view in, towards the shoulder.</summary>
     public static readonly StringName ViewZoomIn = "view_zoom_in";
-    /// <summary>F3 only.</summary>
+    /// <summary>F2 only: the wheel zooms the over-the-shoulder view out, to look around.</summary>
     public static readonly StringName ViewZoomOut = "view_zoom_out";
-    /// <summary>F4 only.</summary>
-    public static readonly StringName IsoTurnLeft = "iso_turn_left";
-    /// <summary>F4 only.</summary>
-    public static readonly StringName IsoTurnRight = "iso_turn_right";
     // The companion (the magic design's "The keys", step 2). Enter is kept free for the wish box.
     /// <summary>Tap: the smart ask at the aim. Hold: the Gubble wheel.</summary>
     public static readonly StringName GubbleAsk = "gubble_ask";
@@ -85,10 +80,8 @@ public enum ControlContext
 {
     /// <summary>Every view, while the appearance panel is shut.</summary>
     Always = 1,
-    /// <summary>The diorama view (F3) only.</summary>
-    Diorama = 2,
-    /// <summary>The isometric view (F4) only.</summary>
-    Isometric = 4,
+    /// <summary>The over-the-shoulder view (F2) only.</summary>
+    Shoulder = 2,
     /// <summary>While the appearance panel is open, which blocks every key but these.</summary>
     Customize = 8,
     /// <summary>While the journal is open, opening or closing, which blocks every key but these (RoomHud.Journal.cs).</summary>
@@ -114,9 +107,8 @@ public static class PlayerControls
         new(Act.MoveSprint, ControlContext.Always), new(Act.MoveDive, ControlContext.Always), new(Act.Jump, ControlContext.Always),
         new(Act.BodyRecover, ControlContext.Always), new(Act.BodyHome, ControlContext.Always),
         new(Act.ViewEye, ControlContext.Always), new(Act.ViewShoulder, ControlContext.Always),
-        new(Act.ViewDiorama, ControlContext.Always), new(Act.ViewIso, ControlContext.Always), new(Act.ViewObserve, ControlContext.Always),
-        new(Act.ViewZoomIn, ControlContext.Diorama), new(Act.ViewZoomOut, ControlContext.Diorama),
-        new(Act.IsoTurnLeft, ControlContext.Isometric), new(Act.IsoTurnRight, ControlContext.Isometric),
+        new(Act.ViewObserve, ControlContext.Always),
+        new(Act.ViewZoomIn, ControlContext.Shoulder), new(Act.ViewZoomOut, ControlContext.Shoulder),
         new(Act.GubbleAsk, ControlContext.Always), new(Act.GubbleRecall, ControlContext.Always), new(Act.GubbleStop, ControlContext.Always),
         new(Act.GubbleSlot1, ControlContext.Always), new(Act.GubbleSlot2, ControlContext.Always), new(Act.GubbleSlot3, ControlContext.Always),
         new(Act.GubbleSlot4, ControlContext.Always), new(Act.GubbleSlot5, ControlContext.Always),
