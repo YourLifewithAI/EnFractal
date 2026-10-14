@@ -43,11 +43,14 @@ public partial class OpenSea : Node3D
 
     /// <summary>
     /// The swim speed the seam is measured in: the small avatar's walk (0.32 m/s) times its swim factor (0.6). A minute's swim is
-    /// about 11.5 m.
+    /// about 16.5 m.
     /// </summary>
     public const float SwimMps = 0.192f;
-    /// <summary>How far any play camera stands from the swimmer: F4's arm is 2.7 m, F3's at most 2.4 m, plus the framing's shift toward the Gubble.</summary>
-    public const float CameraReachM = 3.5f;
+    /// <summary>
+    /// How far any play camera stands from the swimmer: F2 zoomed out to RoomHud.ShoulderFarM (8 m; the shelved F4's arm is 2.7 m, F3's at most
+    /// 2.4 m, plus the framing's shift toward the Gubble), and half a metre to spare.
+    /// </summary>
+    public const float CameraReachM = RoomHud.ShoulderFarM + 0.5f;
     /// <summary>At full mist (from SeamM out), nothing farther than this from the camera shows: wholly the mist (the sky's horizon colour).</summary>
     public const float MistFullM = 8f;
     /// <summary>At full mist, the nearest the mist begins, metres from the camera: the swimmer's own water stays clear.</summary>

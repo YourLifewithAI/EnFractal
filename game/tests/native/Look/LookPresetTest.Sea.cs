@@ -119,9 +119,9 @@ public partial class LookPresetTest
             foreach (var offset in new[] { Vector2.Zero, new Vector2(OpenSea.CameraReachM, 0f), new Vector2(0f, -OpenSea.CameraReachM), Vector2.FromAngle(Mathf.DegToRad(a + 180)) * OpenSea.CameraReachM })
                 hidden &= (swimmer + offset).Length() - reach >= OpenSea.MistFullM - 1e-3f;
         }
-        Check(hidden && OpenSea.CameraReachM >= RoomHud.IsoDistanceM + 0.5f && OpenSea.CameraReachM >= RoomHud.DioramaMaxDistanceM + 0.5f, $"from the seam ({seam:0.#} m for an island reaching {reach} m) no play camera is nearer the island than {OpenSea.MistFullM} m: wholly hidden in every view");
+        Check(hidden && OpenSea.CameraReachM >= RoomHud.ShoulderFarM + 0.5f && OpenSea.CameraReachM >= RoomHud.IsoDistanceM + 0.5f && OpenSea.CameraReachM >= RoomHud.DioramaMaxDistanceM + 0.5f, $"from the seam ({seam:0.#} m for an island reaching {reach} m) no play camera is nearer the island than {OpenSea.MistFullM} m: wholly hidden in every view");
         var minute = OpenSea.SeamPastIslandM / OpenSea.SwimMps;
-        Check(minute is > 45f and < 80f && Mathf.IsEqualApprox(OpenSea.SwimMps, 0.32f * 0.6f), $"the seam is about a minute's swim past the island ({minute:0} s at {OpenSea.SwimMps} m/s)");
+        Check(minute is > 45f and < 95f && Mathf.IsEqualApprox(OpenSea.SwimMps, 0.32f * 0.6f), $"the seam is about a minute and a half's swim past the island ({minute:0} s at {OpenSea.SwimMps} m/s)");
     }
 
     /// <summary>The real island garage, when exported: the surface follows the camera and leaves the room's sea to it, the bed lies under the backdrop's floor with the distant islands laid flat on it, and the mist hides the island from the seam out.</summary>
