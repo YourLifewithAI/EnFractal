@@ -8,15 +8,15 @@
 - **Scenery, as the fish are.** No entity, no save, no collider, no light, nothing in the kernel's sight or the journal's map. The same drawing in Creative and Challenge (which Fractals remain is the save's), in every view and at any hour, on the world layer.
 - **Attached beside `NatureLook`** in `RoomWorld` once the host's nature is configured (so the Fractals picked up in an earlier session are simply not there): `AddChild(FractalLook.Create(commandHost, Look))`.
 
-## The body: three candidates, the founder's pick
+## The body: the star, the founder's pick of three
 
-The founder chooses the body from a sheet of three, rendered on the 10x garage by day (09:00, the island's own setup) and at 21:00, blind (`fractal_forms.png`; the rows' order was a coin flip, kept in the agent's scratch key until the founder has picked). `FractalLook.Tuning.Form` holds the choice; `--look-fractal-form=crystal|seed|star` after `--` (or `ENFRACTAL_LOOK_FRACTAL_FORM`) pins one for a capture.
+The founder chose the body from a sheet of three, rendered on the 10x garage by day (09:00, the island's own setup) and at 21:00, blind (`fractal_forms.png`; the rows' order was a coin flip, written down before the sheet was shown: 1 the seed, 2 the crystal, 3 the star). **The founder picked 3, the star (15 October).** The agent had recommended the crystal, in writing before the sheet went out. `FractalLook.Tuning.Form` holds the pick; the crystal and the seed stay built, and `--look-fractal-form=crystal|seed|star` after `--` (or `ENFRACTAL_LOOK_FRACTAL_FORM`) pins one for a capture.
 
 | Form | What it is | Triangles |
 |---|---|---|
 | **Crystal** | A held fractal: a tetrahedron that grows a smaller one on the middle of each face, twice (the Koch tetrahedron's second step), a body diagonal upright, so it is a star of 144 facets with a point up and a point down, 2.7 cm tall. Pale gold-white, each facet its own tone, a crisp sparkle where a facet turns between the sun and the eye, a faint cool rainbow at grazing angles (a thin film). | 144 |
 | **Seed** | A fern's crosier: a felt tube that rises from a short stem into a plump coil of 1.6 turns whose rounds touch, drifting sideways as it winds so it reads from every side as it turns, 2.5 cm tall. Pale gold felt (soft, matte, a velvet sheen and a rim from a light behind, as the characters' felt), a faint light from the heart of its curl. | about 180 |
-| **Star** | No body: a soft heart of light 1.2 cm across in a halo 4.5 cm across, with four long rays and four short, cool white fringed with a rainbow: the wisp's heart (GLOW.md) made small and cool. It casts no shadow. | 0 (a quad) |
+| **Star** (the pick) | No body: a soft heart of light 1.2 cm across in a halo 4.5 cm across, with four long rays and four short, between the body's pale gold and the glint's cool white, the rays fringed with a rainbow: the wisp's heart (GLOW.md) made small and cool. It hovers 2 cm up and bobs as a wisp does, so its halo reaches the ground: where its light meets a surface it softens over 3 cm, from the depth buffer, as the wisp's halo does, so no hard line cuts it. It casts no shadow and lights nothing. | 0 (a quad) |
 
 The crystal and the seed carry a faint inner light (`InnerLight`, 0.12 of their colour) so a Fractal in reach still reads at night; it lights nothing.
 
