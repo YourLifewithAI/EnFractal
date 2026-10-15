@@ -179,10 +179,10 @@
     },
     "wallet": {
       "start": {
-        "wood": 20,
-        "stone": 10,
-        "copper": 10,
-        "leaf": 20
+        "wood": 0,
+        "stone": 0,
+        "copper": 0,
+        "leaf": 0
       }
     }
   },
