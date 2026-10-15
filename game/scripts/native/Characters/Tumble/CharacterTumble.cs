@@ -151,7 +151,7 @@ public sealed class CharacterTumble : IPoseLayer<BodyState>
             var ownHold = Math.Max(Math.Max(0, _holdEndS - now), _pending ? _pendingSeconds : 0);
             var hostHold = _controller.ControlHoldS > ownHold + 0.05f ? _controller.ControlHoldS : 0;
             LastLandingSpeedMps = state.LandingSpeedMps;
-            LastLandingCost = TumbleTiers.Cost(state.LandingSpeedMps, state.LandedInDeepWater);
+            LastLandingCost = TumbleTiers.Cost(state.LandingSpeedMps, state.LandedInDeepWater, _controller.Knacks);
             LastTier = TumbleTiers.Classify(LastLandingCost);
             // A landing below the tumble tier that knocks the player out (a stumble's cost from their last health) is the knockout's
             // tumble too: the host's recovery waits for one, and the player must not stand frozen meanwhile.

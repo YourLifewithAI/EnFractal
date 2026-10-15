@@ -29,6 +29,16 @@ $characters = Invoke-EnfractalNativeProcess -Toolchain $toolchain -FilePath $too
     -Arguments @('--headless', '--path', $toolchain.ProjectPath, '--fixed-fps', '60', 'res://tests/native_characters.tscn') -TimeoutSeconds 120
 if ($characters.Stderr -or $characters.Stdout -notmatch 'NATIVE_CHARACTERS: \d+/\d+ checks passed') { throw "$($characters.Stdout)`n$($characters.Stderr)" }
 Write-Output (($characters.Stdout.Trim().Split("`n") | Where-Object { $_ -match '^(CHARACTERS_LOAD|NATIVE_CHARACTERS)' }) -join "`n")
+# The knacks and the body (the mechanics round, M5): every knack, rank and costume diffed on reach, hop distance, dive length and
+# climbable height; then the real game's boot with --knack= arguments, headless, reaching the body.
+$knacks = Invoke-EnfractalNativeProcess -Toolchain $toolchain -FilePath $toolchain.EnginePath `
+    -Arguments @('--headless', '--path', $toolchain.ProjectPath, '--fixed-fps', '60', 'res://tests/native_body_knacks.tscn') -TimeoutSeconds 120
+if ($knacks.Stderr -or $knacks.Stdout -notmatch 'NATIVE_BODY_KNACKS: \d+/\d+ checks passed') { throw "$($knacks.Stdout)`n$($knacks.Stderr)" }
+Write-Output (($knacks.Stdout.Trim().Split("`n") | Where-Object { $_ -match '^(KNACK_TABLE|NATIVE_BODY_KNACKS)' }) -join "`n")
+$knackBoot = Invoke-EnfractalNativeProcess -Toolchain $toolchain -FilePath $toolchain.EnginePath `
+    -Arguments @('--headless', '--path', $toolchain.ProjectPath, '--fixed-fps', '60', 'res://tests/native_body_knacks.tscn', '--', '--boot-room', '--knack=quick_feet:3', '--knack=cat_feet:2') -TimeoutSeconds 120
+if ($knackBoot.Stderr -or $knackBoot.Stdout -notmatch 'NATIVE_BODY_KNACKS_BOOT: \d+/\d+ checks passed') { throw "$($knackBoot.Stdout)`n$($knackBoot.Stderr)" }
+Write-Output (($knackBoot.Stdout.Trim().Split("`n") | Where-Object { $_ -match '^NATIVE_BODY_KNACKS_BOOT' }) -join "`n")
 $gaits = Invoke-EnfractalNativeProcess -Toolchain $toolchain -FilePath $toolchain.EnginePath `
     -Arguments @('--headless', '--path', $toolchain.ProjectPath, '--fixed-fps', '60', 'res://tests/native_character_gaits.tscn') -TimeoutSeconds 300
 if ($gaits.Stderr -or $gaits.Stdout -notmatch 'NATIVE_CHARACTER_GAITS: \d+/\d+ checks passed') { throw "$($gaits.Stdout)`n$($gaits.Stderr)" }

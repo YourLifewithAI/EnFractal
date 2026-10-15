@@ -52,6 +52,7 @@ public partial class CommandHost
     private Action<float, bool>? _priorFallObserved;
     private Action<Vector3, Vector3>? _priorClimbCompleted;
     private IStaminaLedger? _priorStaminaLedger;
+    private BodyKnacks? _priorKnacks;
 
     public void ConfigurePlayerVitals(IPlayerVitalsStore store)
     {
@@ -94,6 +95,8 @@ public partial class CommandHost
         Player.FallObserved = ObservePlayerFall;
         Player.ClimbCompleted = ObservePlayerClimb;
         Player.StaminaLedger = _ledger;
+        _priorKnacks = Player.Knacks;
+        ApplyBodyKnacks();
         Player.ResetVitalsObservation();
     }
 
@@ -106,6 +109,7 @@ public partial class CommandHost
         if (Player.FallObserved == ObservePlayerFall) Player.FallObserved = _priorFallObserved;
         if (Player.ClimbCompleted == ObservePlayerClimb) Player.ClimbCompleted = _priorClimbCompleted;
         if (ReferenceEquals(Player.StaminaLedger, _ledger)) Player.StaminaLedger = _priorStaminaLedger;
+        if (_priorKnacks != null) Player.Knacks = _priorKnacks;
     }
 
     public JsonObject PlayerMode(string mode) => PlayerCommand("world.set_mode", new JsonObject { ["mode"] = mode });
@@ -353,7 +357,7 @@ public partial class CommandHost
     }
 
     private void ObservePlayerFall(float landingSpeedMps, bool deepWater) =>
-        ApplyPlayerDamage(PlayerVitals.FallDamage(landingSpeedMps, deepWater), PlayerDamageSource.Fall);
+        ApplyPlayerDamage((Player?.Knacks ?? BodyKnacks.None).FallDamage(landingSpeedMps, deepWater), PlayerDamageSource.Fall);
 
     /// <summary>
     /// Injury recovery at the spawn (the camp, today): half the hearts and the bar, the pool at least half full, a moment when

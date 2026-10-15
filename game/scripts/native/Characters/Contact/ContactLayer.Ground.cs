@@ -1,4 +1,5 @@
 using Godot;
+using EnFractal.Native.Characters.Gaits;
 using EnFractal.Native.Kernel;
 
 namespace EnFractal.Native.Characters.Contact;
@@ -13,9 +14,11 @@ public sealed partial class ContactLayer
         {
             var speed = float.IsFinite(state.LandingSpeedMps) ? Mathf.Max(0, state.LandingSpeedMps) : 0;
             var deep = state.LandedInDeepWater;
-            var damage = PlayerVitals.FallDamage(speed, deep);
-            var tier = deep ? LandingTier.Water : damage <= 0 ? LandingTier.Squash : damage < TumbleFromHealth ? LandingTier.Stumble : LandingTier.Tumble;
-            var depth = Mathf.Clamp(speed / PlayerVitals.SafeLandingSpeedMps, 0, 1);
+            // What this landing would cost this body at Standard (its Cat feet safe drop included): the tumble's own measure.
+            var knacks = _controller.Knacks;
+            var damage = TumbleTiers.Cost(speed, deep, knacks);
+            var tier = deep ? LandingTier.Water : damage <= TumbleTiers.StumbleHealth ? LandingTier.Squash : damage < TumbleFromHealth ? LandingTier.Stumble : LandingTier.Tumble;
+            var depth = Mathf.Clamp(speed / knacks.SafeLandingSpeedMps, 0, 1);
             var amplitude = tier switch
             {
                 LandingTier.Squash => _rig.Profile.Squash * depth,
@@ -104,7 +107,7 @@ public sealed partial class ContactLayer
         var stroking = Mathf.Clamp(speed / 0.1f, 0, 1);
         _strokePhase = Wrap(_strokePhase + dt * StrokeIdleHz * (1 - stroking) + (state.Swimming ? moved / StrokeLengthM : 0));
         if (state.Climbing) _climbPhase = Wrap(_climbPhase + moved / ClimbCycleM);
-        var stride = Mathf.Max(_rig.Profile.StrideAt(Mathf.Max(speed, MotionProfile.WalkSpeedMps)), 0.02f);
+        var stride = Mathf.Max(_rig.Profile.StrideAt(Mathf.Max(speed, BodyPace.Walk(state))), 0.02f);
         _wadePhase = Wrap(_wadePhase + 2 * moved / stride + dt * 0.4f * (1 - stroking));
     }
 

@@ -104,7 +104,7 @@ public sealed class LifeLayer : IPoseLayer<BodyState>
         _lastTime = time;
         var speed = float.IsFinite(state.SpeedMps) ? Mathf.Clamp(state.SpeedMps, 0, 5) : 0;
         _speed.Step(speed, 6, dt);
-        var run = Mathf.Clamp((_speed.Value - MotionProfile.WalkSpeedMps) / (MotionProfile.RunSpeedMps - MotionProfile.WalkSpeedMps), 0, 1);
+        var run = BodyPace.Blend(state, _speed.Value);
         // Exertion builds over a few seconds of running and fades as slowly: the breath quickens with it.
         _exertion.Step(run, run > _exertion.Value ? 0.8f : 0.35f, dt);
 
@@ -165,7 +165,7 @@ public sealed class LifeLayer : IPoseLayer<BodyState>
         _trailX.Step(localX, 5, dt);
         _trailZ.Step(localZ, 5, dt);
         var drift = _rig.Profile.Multipliers.Drift;
-        var fast = Mathf.Clamp(_speed.Value / MotionProfile.RunSpeedMps, 0, 1.5f);
+        var fast = BodyPace.OfRun(state, _speed.Value);
         var trail = new Vector3(-_trailX.Value, 0, -_trailZ.Value) * (0.015f * drift);
         trail = trail.LimitLength(0.02f * drift);
         foreach (var effect in _effects)

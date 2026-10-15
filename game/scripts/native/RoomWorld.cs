@@ -174,6 +174,8 @@ public partial class RoomWorld : Node3D
             });
             var commandHost = Kernel.CommandHost.Attach(this);
             commandHost.LoadRules(DefaultRulesId, DefaultRulesVersion);
+            // Until the team file (M3) holds a knack, a boot argument names it (--knack=quick_feet:3); none, today's body.
+            commandHost.UseKnacks(BodyKnacks.FromArguments(OS.GetCmdlineUserArgs()));
             commandHost.ConfigureNature();
             var natureLook = new NatureLook { Name = "NatureLook" };
             AddChild(natureLook);

@@ -55,6 +55,7 @@ public partial class CharacterContactTest : Node3D
             await TestStep();
             await TestLedge();
             await TestLandings();
+            await TestLandingsWithCatFeet();
             await TestWater();
             await TestClimb();
             await TestCarry();

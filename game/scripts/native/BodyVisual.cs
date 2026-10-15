@@ -48,6 +48,13 @@ public readonly struct BodyState
     /// <summary>Its hands are full (the command host's answer).</summary>
     public bool Carrying { get; init; }
     public bool Sprinting { get; init; }
+    /// <summary>
+    /// The speeds this body walks and runs at now, m/s: its own base times its knack (Quick feet) and the empty bar's slow. The
+    /// gaits and the contact layers measure a body's pace against these, not against fixed numbers. 0 where a state was built
+    /// without them (a test double): readers then fall back to the shared base (Characters/Gaits/BodyPace).
+    /// </summary>
+    public float WalkSpeedMps { get; init; }
+    public float RunSpeedMps { get; init; }
     /// <summary>The player pushes but the body does not move.</summary>
     public bool Blocked { get; init; }
     /// <summary>The wind's push on the body, m/s in X and Z.</summary>
