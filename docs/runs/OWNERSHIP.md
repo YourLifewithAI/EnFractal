@@ -15,6 +15,7 @@ Every run is built by parallel agent lanes. A lane **edits only the paths it own
 | `.gitattributes`, `.gitignore` | Line-ending pins and ignore rules |
 | `run-engine-tests.ps1`, `run-room.ps1`, `tools/*.ps1`, `tools/native-toolchain.lock.json`, `tools/linux/**` | Toolchain and the test lists every lane runs |
 | `game/scripts/native/RoomWorld.cs`, `game/native/**`, `game/scenes/room.tscn`, `game/scenes/native_*.tscn` | Composition root, boot and release probe |
+| `game/scripts/native/Seams/**` | Interfaces two lanes share (the stamina ledger between the kernel and the body, M0 of the mechanics round): a change is a contract change |
 | `tools/rooms/**`, `game/rooms/test_room/**` | The placeholder room (regenerate with its builder; lanes request changes) |
 | `game/tests/native/RoomDataTest.cs`, `game/tests/native_room_data.tscn` | Contract-consumption fixture |
 | `docs/engine/persistence-notes.md`, `docs/engine/quality-gates.md`, `docs/engine/decisions/**` | Cross-track rules |
