@@ -26,6 +26,8 @@ public partial class JournalPresentation : Control
     public Action DockPressed { get; set; } = () => { };
     /// <summary>IsActive changed: the HUD holds or frees the player's controls.</summary>
     public Action ActivityChanged { get; set; } = () => { };
+    /// <summary>A button on a page was pressed: the HUD does what it asks and answers with the words for the page's foot.</summary>
+    public Func<string, string> ButtonPressed { get; set; } = _ => "";
     public JournalPanel Panel { get; private set; } = null!;
     public JournalBookIcon Dock { get; private set; } = null!;
     /// <summary>Whether the book is opening or open (false while it closes or rests in its dock).</summary>
@@ -54,7 +56,7 @@ public partial class JournalPresentation : Control
         _shade = new ColorRect { Name = "JournalShade", Color = new Color(0.06f, 0.04f, 0.025f, 0), MouseFilter = MouseFilterEnum.Stop, Visible = false };
         AddChild(_shade);
         _shade.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-        Panel = new JournalPanel { Visible = false, FindHost = FindHost, CloseRequested = () => Close(), KeyLabel = KeyLabel };
+        Panel = new JournalPanel { Visible = false, FindHost = FindHost, CloseRequested = () => Close(), KeyLabel = KeyLabel, ButtonPressed = action => ButtonPressed(action) };
         AddChild(Panel);
         _flight = new JournalFlight { Name = "JournalFlight", Visible = false, Presentation = this, MouseFilter = MouseFilterEnum.Stop };
         AddChild(_flight);

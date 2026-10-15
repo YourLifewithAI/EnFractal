@@ -177,7 +177,7 @@ public partial class RoomHud
     /// <summary>An empty pool refused a cast: the pips blink; the words are the host's.</summary>
     private string FlashPips(string words)
     {
-        _pips.Flash();
+        FlashPipMeters();
         return words;
     }
 
