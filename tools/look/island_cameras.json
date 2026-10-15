@@ -2,7 +2,7 @@
   "schema": "enfractal.look_review_cameras",
   "version": 1,
   "room_id": "any island",
-  "description": "The look suite's island cameras (S9, the 10x world), worked out from the island's own data instead of fixed world coordinates, so the same file serves any island at any scale (the 1x and 10x garage alike): spawn (at the player's spawn facing the island's middle), summit (on the highest ground facing the farthest land), hamlet (beside the densest cluster of structures facing its middle), beach (on the beach nearest the spawn facing along the coast), each the HUD's F2 view with both avatars staged, and a flight over the island from the spawn to the far side above the summit, for the frame-time record while moving. The rules are in game/tests/native/Look/IslandCameras.cs; the harness writes each camera's derived placement into timings.json. Pass the island with -Room (a folder: the 10x export, or .cache/landscape-fixture's 1x garage with -Room landscape). The clock is the landscape's own setup answer, as in landscape_cameras.json.",
+  "description": "The look suite's island cameras (S9, the 10x world), worked out from the island's own data instead of fixed world coordinates, so the same file serves any island at any scale (the 1x and 10x garage alike): spawn (at the player's spawn facing the island's middle), summit (on the highest ground facing the farthest land), hamlet (beside the densest cluster of structures facing its middle), beach (on the beach nearest the spawn facing along the coast), each the HUD's F2 view with both avatars staged, and a flight over the island from the spawn to the far side above the summit, for the frame-time record while moving; and two fixed cameras on the 10x garage alone (L9), fractal_near and fractal_far, at the Fractal nearest its spawn. The rules are in game/tests/native/Look/IslandCameras.cs; the harness writes each camera's derived placement into timings.json. Pass the island with -Room (a folder: the 10x export, or .cache/landscape-fixture's 1x garage with -Room landscape). The clock is the landscape's own setup answer, as in landscape_cameras.json.",
   "resolution": [1920, 1080],
   "clock": {
     "hour": 9.0,
@@ -11,6 +11,29 @@
     "note": "The landscape package's own setup: summer, day 172 (21 June), 09:00 apparent solar time."
   },
   "cameras": [
-    { "derive": "island" }
+    { "derive": "island" },
+    {
+      "id": "fractal_near",
+      "label": "A Fractal at reach",
+      "purpose": "The 10x garage only (its Fractals are placed at 10x): the Fractal nearest the spawn (fractal:de2175ec95e1, one band above it, 8 m off), seen from a body length away a little above the 10 cm eye, the player beside it for scale: the form, its facets or felt, its glint up close (docs/look/FRACTALS.md).",
+      "stage": { "player_m": [7.426, 1.388, -26.72], "yaw_deg": 155.41, "companion_m": [7.423, 1.388, -26.425] },
+      "position_m": [7.18, 1.363, -26.712],
+      "look_at_m": [7.38, 1.308, -26.62],
+      "focus_m": [7.38, 1.308, -26.62],
+      "fov_deg": 50,
+      "view": "shoulder"
+    },
+    {
+      "id": "fractal_far",
+      "label": "The same Fractal from below",
+      "purpose": "The 10x garage only: the player 12 m off and 0.26 m below that Fractal (two thirds of a band: from most spots a band below, its crest hides it; this one has a clear line over the land), facing it, seen as the F2 view zoomed out with the wheel (1.2 m behind the player and 0.55 m up, F2's 68-degree lens, its focus on the player as the game's is; the default arm sits among the meadow's shrubs): where its glint must read (docs/look/FRACTALS.md).",
+      "stage": { "player_m": [-2.45, 1.062, -33.5], "yaw_deg": -124.99, "companion_m": [-2.495, 1.062, -33.348] },
+      "position_m": [-3.433, 1.787, -34.188],
+      "look_at_m": [7.38, 1.308, -26.62],
+      "focus_m": [-2.45, 1.077, -33.5],
+      "fov_deg": 68,
+      "view": "shoulder",
+      "derived": true
+    }
   ]
 }

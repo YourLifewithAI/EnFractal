@@ -1,0 +1,57 @@
+# The look of a Fractal
+
+**Run 2, L9, Lane L (15 October).** The found things that grow the body, the game's namesake ([MECHANICS.md](../game/MECHANICS.md) section 6), drawn where the generator placed them: a body you can reach for, a glint that reads from a band away and at night, a slow life, and the moment one is picked up. The plan is [RUN-2-LOOK.md](../runs/RUN-2-LOOK.md), L9. The code is `game/scripts/native/Look/Fractals/` (`FractalLook`, its numbers in `FractalLook.Tuning`; the bodies in `FractalMesh`), the shaders `game/shaders/fractal_form.gdshader` and `fractal_glint.gdshader`, the checks `game/tests/native/Look/LookPresetTest.Fractals.cs`.
+
+## What it reads, and what it never touches
+
+- **The host's read-only state, nothing else.** `CommandHost.AllFractals` sizes the pools (at most `MaxFractals`, 1000), `Fractals` says which are still on the island, `FractalBox` is the 4 cm box the body stays in, and `NatureChanged` says when to read `Fractals` again (a pickup commits through the nature block). Never the manifest: the kernel read it, fail-closed, and a manifest it refused draws nothing (the look's summary repeats `FractalsNotice`).
+- **Scenery, as the fish are.** No entity, no save, no collider, no light, nothing in the kernel's sight or the journal's map. The same drawing in Creative and Challenge (which Fractals remain is the save's), in every view and at any hour, on the world layer.
+- **Attached beside `NatureLook`** in `RoomWorld` once the host's nature is configured (so the Fractals picked up in an earlier session are simply not there): `AddChild(FractalLook.Create(commandHost, Look))`.
+
+## The body: three candidates, the founder's pick
+
+The founder chooses the body from a sheet of three, rendered on the 10x garage by day (09:00, the island's own setup) and at 21:00, blind (`fractal_forms.png`; the rows' order was a coin flip, kept in the agent's scratch key until the founder has picked). `FractalLook.Tuning.Form` holds the choice; `--look-fractal-form=crystal|seed|star` after `--` (or `ENFRACTAL_LOOK_FRACTAL_FORM`) pins one for a capture.
+
+| Form | What it is | Triangles |
+|---|---|---|
+| **Crystal** | A held fractal: a tetrahedron that grows a smaller one on the middle of each face, twice (the Koch tetrahedron's second step), a body diagonal upright, so it is a star of 144 facets with a point up and a point down, 2.7 cm tall. Pale gold-white, each facet its own tone, a crisp sparkle where a facet turns between the sun and the eye, a faint cool rainbow at grazing angles (a thin film). | 144 |
+| **Seed** | A fern's crosier: a felt tube that rises from a short stem into a plump coil of 1.6 turns whose rounds touch, drifting sideways as it winds so it reads from every side as it turns, 2.5 cm tall. Pale gold felt (soft, matte, a velvet sheen and a rim from a light behind, as the characters' felt), a faint light from the heart of its curl. | about 180 |
+| **Star** | No body: a soft heart of light 1.2 cm across in a halo 4.5 cm across, with four long rays and four short, cool white fringed with a rainbow: the wisp's heart (GLOW.md) made small and cool. It casts no shadow. | 0 (a quad) |
+
+The crystal and the seed carry a faint inner light (`InnerLight`, 0.12 of their colour) so a Fractal in reach still reads at night; it lights nothing.
+
+## The glint
+
+Above each body a camera-facing quad of light (one MultiMesh, written on the CPU each frame, one draw), added to what is behind it: a heart, a halo and rays, cool white with a rainbow on the rays, never the Gubble's warm glow colour.
+
+- **It reads from a band away:** 2 cm across up close, and never under 9 pixels on screen however far (its size grows with distance in the shader), so it is drawn at every distance the island is seen. Its body fades out at the small plants' 40 m, dithered; the glint goes on to the far plane.
+- **It twinkles** on its own slow period (2.6 to 4.2 s, from its id, so no two blink together), never below 0.45 of its brightness, peaking briefly; its rays turn once in 20 s.
+- **Up close it steps back:** within 35 cm of the eye it dims to 0.3, so the body in reach reads rather than a flare.
+- **At night** its brightness (2.5, the wisp heart's) is over 1, so the bloom catches it. **It casts no light** (recommended): the light budget's spare slots are the wisps'.
+- **The haze and the sea mist hide it as they hide the land.** The engine's own fog over an additive quad would add the fog's colour to the whole quad, so the shader skips it and mirrors the look's depth fog itself (`ViewDistances.FogAt`, the environment's begin, end, density and curve, followed each frame). From the seam out no play camera sees a glint, as it sees no island.
+
+## The slow life
+
+The body turns once in 12 s and bobs 5 mm up and down over 3 s about the middle of the kernel's box (2 cm up); the star bobs as a wisp does, 1.2 cm over 3.2 s. Each Fractal's phase comes from its id. Through its whole life every body stays inside `FractalBox`, so what the player reaches for is what they see. The life is a clock the look keeps (`LifeS`), so it is the same for the same ticks.
+
+## The pickup moment
+
+When `Fractals` loses an id (read on the next tick after `NatureChanged`), that Fractal's body shrinks away over 0.25 s while its glint flares and goes out, and eight sparks rise from its spot over about 0.6 s, spreading a little (the Fractal look's own small MultiMesh of the glint's quads; never `StartGlow` or the effects, whose cap is magic's). No words, no sound. A Fractal that comes back (a save restored) simply appears.
+
+## Cost
+
+Three MultiMeshes, one draw each, under 200 triangles a body. The CPU writes each pool's buffer once a frame (no allocation in steady state); the look suite measures a thousand Fractals. See the report of L9 for the 10x island's probe and capture numbers.
+
+## The cameras
+
+`tools/look/island_cameras.json` has two fixed cameras for the 10x garage alone (its Fractals exist at 10x only): **`fractal_near`**, the Fractal nearest the spawn (`fractal:de2175ec95e1`, one band above it) seen from a body length away with the player beside it, and **`fractal_far`**, the same Fractal from 12 m off and 0.26 m below in the HUD's F2 view. From most spots a full band below, the crest it rests on hides it; this one has a clear line over the land. Capture with `capture-look.ps1 -Room landscape10 -Cameras tools/look/island_cameras.json -Only fractal_near,fractal_far,spawn -NoLightChecks`.
+
+## What needs the founder's eye
+
+1. **The form**, from the sheet, blind.
+2. **Does a Fractal light its surroundings at night?** Recommended and built: no, a self-lit glint only.
+3. **Does it move?** Recommended and built: the slow turn and the small bob; the star bobs like a wisp.
+4. **The colour:** recommended and built: one family, pale gold-white with a cool rainbow glint, never the aura colour.
+5. **The pickup moment:** recommended and built: the sparks, no words; sound later.
+
+These numbers are code constants for this round (`FractalLook.Tuning`); the preset's `x_look_fractals` block carries them once the founder has judged.
