@@ -899,7 +899,7 @@ MECHANICS = {
             ("green_thumb", "plant_growth", "factor", [1.1, 1.15, 1.2], False),
             ("strong_arm", "gather_speed", "factor", [1.1, 1.15, 1.2], False))],
     },
-    "fractals": {"budget_min": 20, "budget_max": 25, "reachable_first_run": 15, "per_heart": 5, "per_band": 5, "typed": False},
+    "fractals": {"budget_min": 25, "budget_max": 30, "reachable_first_run": 15, "per_heart": 5, "per_band": 5, "typed": False},
 }
 
 
@@ -959,7 +959,7 @@ INVALID_PACKS = {
     "rules_creative_without_a_shadow_pool": lambda p: row(p, "creative").update(shadow_pool=False),
     "rules_difficulty_on_creative": lambda p: row(p, "creative").update(difficulty="gentle"),
     "rules_names_a_knack_it_does_not_have": lambda p: p["names"]["knacks"].update(flying="Flying"),
-    "rules_fractal_budget_upside_down": lambda p: p["fractals"].update(budget_min=30),
+    "rules_fractal_budget_upside_down": lambda p: p["fractals"].update(budget_min=30, budget_max=25),
     "rules_stamina_without_running": lambda p: p["traits"]["stamina"].pop("running_m_per_s"),
     "rules_half_a_pip": lambda p: p["traits"]["pips"].update(start=8.5),
 }
