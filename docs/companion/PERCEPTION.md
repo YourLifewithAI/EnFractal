@@ -1,5 +1,7 @@
 # What the companion perceives and remembers
 
+Squared with [docs/game/MECHANICS.md](../game/MECHANICS.md) on 14 October 2026: where this page and that design differ, the design wins.
+
 > **To be replaced in Run 2.** On 7 October 2026 the founder chose shared knowledge between the player and their companion, and selective memory. [JOURNAL.md](JOURNAL.md) is the draft design. The rules below hold until that lands.
 
 **The founder's rule (6 October 2026):** the companion perceives anything within its avatar's line of
@@ -139,7 +141,9 @@ block after one line of facts, so clients such as Claude Code and Codex show it 
 - **It counts as the Gubble looking, no more.** A look is a companion request like any other: the team's sight fills the
   team's map as for every query. The pixels add nothing to the map.
 - **Bounds.** At most 3 looks at once, one more each second (`rate_limited`, retryable), at the host and again at the adapter.
-- **The player's setting.** "Let my AI see through the Gubble's eyes", a switch in the player's Customize panel. It lives in
+- **The player's setting.** "Let my AI see through the Gubble's eyes", a switch in the player's Customize panel
+  (when the opening menu lands, packet M7 lifts that panel out of the HUD and moves this switch to a small in-play
+  settings panel; where the stored key lives once teams land, M3, the design does not yet say). It lives in
   the player's profile (`avatar_profile_v1.cfg`, key `ai_eyes`), never in room state; it is on unless the player turns it off
   (the founder's default for now), and a profile that exists but cannot be read counts as off. Off, a look is
   `permission_denied` and says so; nothing in a request changes it. The player's own controls are not limited by it.
@@ -177,4 +181,4 @@ Each is one policy flag in `HostPolicy`.
 | May "follow me" and "come here" work when the player is out of the companion's sight? | Yes (recommended, unchanged): a companion that loses sight of the player would otherwise stop following at the first corner. | `follow_player_out_of_sight` |
 | Does the companion remember what it saw? | **Yes** (founder, 6 October 2026), as above: bounded, per session and room, never saved, one-bit staleness. | `perception_memory_entries`, `perception_memory_stale_after_s` |
 | May commands name things out of sight? | **Only non-destructive goals, at remembered things** (founder, 6 October 2026); everything that changes a thing needs it in sight now. Turning the flag off lets commands name anything room-wide (queries stay limited). | `companion_targets_need_perception` |
-| May companion effects target the player's avatar? | **No** (the island's rules, 9 October): a companion's effect targets only its own avatar, or a point in reach and in sight. | the pack's `targets` and the host's own-avatar rule |
+| May companion effects target the player's avatar? | **No, with one planned exception** (the island's rules, 9 October; the exception is the founder's decision 14 of 14 October): a companion's effect targets only its own avatar, or a point in reach and in sight. The exception is the Bubbles expertise (carry and lift, [MECHANICS.md](../game/MECHANICS.md) section 5): the companion may cast it on the player's avatar, the preview or the player's step-in is the consent, the dive key or X the exit, and a pop in the air drifts down; no op moves a body directly. The Gubble may also nudge a Bubble Boat, empty or occupied. Until that packet lands (M0 writes the pack's `targets` rule, M9 builds it) the answer is No. | the pack's `targets` and the host's own-avatar rule |

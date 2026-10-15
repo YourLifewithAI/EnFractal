@@ -1,5 +1,7 @@
 # The journal, memory and map: design
 
+Squared with [docs/game/MECHANICS.md](../game/MECHANICS.md) on 14 October 2026: where this page and that design differ, the design wins.
+
 **Status: draft, 7 October 2026. The founder answered its three questions the same day.** It turns the founder's decisions of 7 October into rules the host can enforce. It is design input for Lane A (the MCP surface and the mock), Lane P (the host's stores, saves and later the UI) and Lane L (the look of the notepad and the map), with contract changes by the integrator. Nothing here is implemented yet. Numbers marked *start* are first guesses for playtests.
 
 ## The founder's decisions this rests on
@@ -86,6 +88,8 @@ The host builds each entry's line of text from a template and sanitised names. N
 
 What the player said to their AI outside the game (in their harness) is not something the host can see, so it is never claimed.
 
+**Direction is not price.** This field records what the host verified about who confirmed or approved. The price of an ability follows the principal alone, the identity the game stamps on the connection a command arrived on ([MECHANICS.md](../game/MECHANICS.md) section 5): a key, the wheel or a HUD ask is the player's command and pays full price; every command on the Gubble's connection is its own idea and pays half. So a companion command the player approves with a click (a held command that commits `approved_by` the player) arrived on the Gubble's connection: it pays the Gubble's price and, for Trust, counts as initiative only if no consequence follows, while this journal still records the player's approval as the direction. **[Open H: priced as the Gubble's idea is the recommendation, for the later in-game suggestions the player approves.]** An instruction typed to the AI in its own window is invisible to the host and counts as the Gubble's own idea.
+
 | Kind | Written when | Example line |
 |---|---|---|
 | **Working on** | A goal or task starts, changes or ends. One entry per task, updated in place, never one per step | "Building: a two-storey Victorian on the big box (at your direction)" |
@@ -94,7 +98,10 @@ What the player said to their AI outside the game (in their harness) is not some
 | **Fell or removed** | A structure breaks apart or is removed | "The house on the big box fell when the box was moved" |
 | **Found** | Modes with resources only: a needed resource is seen while its task's search is active | "Found buttons (3) under the shelf" |
 | **Gathered** | Modes with resources: progress on a task's needs | "Wood: 6 of 10 gathered" |
-| **Consequence** (`consequence`) | The Gubble's action hurt the player (today: its fire, in Challenge or Live). One entry per fire, updated in place if the same fire later puts the player down. The AI's lessons: it reads them back with `journal.read` and kind `consequence` (the founder, 13 October: consequences are feedback the AI learns from) | "The Gubble's fire burned you near "the jetty"." |
+| **Consequence** (`consequence`) | The Gubble's action hurt the player (today: its fire, in Challenge or Live; the Trust packet, M8, adds a fact for a build of the player's that its fire burnt). One entry per fire, updated in place if the same fire later puts the player down. The AI's lessons: it reads them back with `journal.read` and kind `consequence` (the founder, 13 October: consequences are feedback the AI learns from) | "The Gubble's fire burned you near "the jetty"." |
+| **Own idea** (proposed; M0 and M8) | The Gubble cast an ability on its own connection, with no order from the player, and the game charged the own-idea price. One entry per cast, so a Trust mark has a subject | "The Gubble lit a glow near "the jetty", on its own idea." |
+
+**Trust and the own-idea entry (proposed).** Trust ([MECHANICS.md](../game/MECHANICS.md) section 5) is computed by the host from facts like these and from the player's marks on a receipt ("yes, like that" or "not that", player-only), and the AI reads its Trust as words here and never writes it. The own-idea entry gives a mark, and the host's "lesson applied" observation, a subject to attach to. Where receipts live and the entry's contract kind are settled in the contract round (M0) and the Trust packet (M8).
 
 **The companion's own notes** (the founder, 7 October). The companion may write notes in its own words, for example "you prefer Victorian" or "the shelf is a good spot for a garden". Notes make it feel like a buddy you play with, not rote AI.
 - **Marked as its own words,** in the companion's hand on the page, never presented as a fact the game verified. The facts in the table above stay host-written.
@@ -102,7 +109,7 @@ What the player said to their AI outside the game (in their harness) is not some
 - **The player may remove any note.** At most 100 notes per room (*start*), the oldest dropped first. Saved with the room.
 - **Simple now, richer later.** The game is designed for AI that grows more capable over the next couple of years (the founder), so notes start as plain text and gain structure when models can use it.
 
-**Not journaled:** movement, follow, stay, look, point, each command, scenery, and every observation.
+**Not journaled:** movement, follow, stay, look, point, each command (the one proposed exception is an ability the Gubble cast on its own idea, above), scenery, and every observation.
 
 A **follow** or **come** shows only as the current state in "Working on" ("following you"). It leaves no history.
 
@@ -134,7 +141,9 @@ A **follow** or **come** shows only as the current state in "Working on" ("follo
 - **Minimap:**
   - a small circle in an upper corner (*start*: right; left as a setting);
   - it turns with the player's view, with north marked on the ring;
-  - it shows the companion even out of the player's sight, because they are a team.
+  - it shows the companion even out of the player's sight, because they are a team;
+  - it is wanted from the first minute, before the overview camera, which opens at the summit ([MECHANICS.md](../game/MECHANICS.md) section 6, decision 12; packet M2), and it is drawn from the same discovered map the journal's map page reads (`JournalMap.cs`), so it shows nothing neither avatar has seen;
+  - shards appear on it as pins only once either avatar's eyes have seen them, and the Gubble's leads (a shard it has seen that the player cannot yet reach) are marks on it; the Gubble finds and marks, and never gathers.
 - **Journal open:** the notepad takes one side of the screen and the expanded map the other. The pages are "Working on", "Built", "Log", and in resource modes "Resources".
 - **What the map draws:**
   - shell outlines, object footprints and built things;
@@ -152,9 +161,9 @@ A **follow** or **come** shows only as the current state in "Working on" ("follo
 
 ## Modes (designed later)
 
-This design only marks the seams; the modes doc decides the rules:
+This design only marks the seams; the modes doc (now [MECHANICS.md](../game/MECHANICS.md) section 8) decides the rules:
 - whether resources are tracked (the "Found", "Gathered" and "Resources" parts);
-- whether the overview cameras are locked, which keeps the blank map meaningful;
+- whether the overview cameras are locked, which keeps the blank map meaningful (settled 14 October: the overview camera opens at the summit, MECHANICS decision 12);
 - whether the map starts blank. It always does, but it matters little in creative mode.
 
 ## Multiplayer (later)
