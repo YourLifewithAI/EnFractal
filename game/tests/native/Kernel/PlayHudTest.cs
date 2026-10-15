@@ -74,7 +74,12 @@ public partial class PlayHudTest : Node
             await TestAskTagPrice();
             await TestPipsTrail();
             await TestMinimap();
+            // The follow-up (PlayHudTest.Spend.cs): the pips under the bar when the Gubble is out of frame, Fractals spent through the journal.
+            await TestPipsMarker();
+            await TestSpendFractalsPage();
+            await TestSpendHint();
             await TestMeterFrameCost();
+            await TestMarkerFrameCost();
             TestAuraFromProfile();
             TestDuskLogic();
             await TestDuskInRoom();

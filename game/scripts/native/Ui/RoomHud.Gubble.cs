@@ -444,7 +444,7 @@ public partial class RoomHud
         if (result["ok"]!.GetValue<bool>()) { _cue.Done(wiggle); return true; }
         var reason = result["error"]?["message"]?.GetValue<string>();
         // An empty pool: the pips blink, and the host's words ("The Gubble needs a moment.") are the Gubble's head-shake.
-        if (result["error"]?["code"]?.GetValue<string>() == "energy_exhausted") _pips.Flash();
+        if (result["error"]?["code"]?.GetValue<string>() == "energy_exhausted") FlashPipMeters();
         _cue.Refuse(reason);
         if (reason != null) _noticeText = reason;
         return false;

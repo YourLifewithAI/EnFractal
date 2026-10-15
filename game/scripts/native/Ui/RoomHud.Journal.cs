@@ -30,6 +30,7 @@ public partial class RoomHud
         _book = new JournalPresentation
         {
             FindHost = () => Host, KeyLabel = () => K(Act.Journal), DockPressed = ToggleJournal, ActivityChanged = JournalActivityChanged,
+            ButtonPressed = JournalButton,
         };
         AddChild(_book);
         // The help footer stops short of the dock, and its long lines (the help, a long notice) wrap within it instead of

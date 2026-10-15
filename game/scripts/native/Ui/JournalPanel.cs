@@ -23,6 +23,11 @@ public partial class JournalPanel : Control
 
     public Func<CommandHost?> FindHost { get; set; } = () => null;
     public Action CloseRequested { get; set; } = () => { };
+    /// <summary>
+    /// A button on a page was pressed (its Target): the HUD does what it asks and answers with the words to show at the page's
+    /// foot (the host's own, written for a child). The page is read again at once.
+    /// </summary>
+    public Func<string, string> ButtonPressed { get; set; } = _ => "";
     /// <summary>The journal key's name now (the cover's words name it, with Esc).</summary>
     public Func<string> KeyLabel { get; set; } = () => "";
     /// <summary>Set by the book while it is opening or open: only then are the pages read again.</summary>
@@ -144,8 +149,26 @@ public partial class JournalPanel : Control
         });
         theme.SetColor("font_placeholder_color", "LineEdit", new Color("887352"));
         theme.SetColor("caret_color", "LineEdit", ink);
+        // An action button: the same ink in a box of its own, so it reads as something to press and not as a link to turn to.
+        theme.SetTypeVariation(ActionButton, "Button");
+        theme.SetColor("font_color", ActionButton, ink);
+        theme.SetColor("font_hover_color", ActionButton, new Color("8c482c"));
+        theme.SetColor("font_pressed_color", ActionButton, new Color("a46030"));
+        theme.SetColor("font_disabled_color", ActionButton, new Color(0.27f, 0.2f, 0.15f, 0.45f));
+        foreach (var state in new[] { "normal", "hover", "pressed", "disabled", "focus" })
+            theme.SetStylebox(state, ActionButton, new StyleBoxFlat
+            {
+                BgColor = new Color(0.45f, 0.29f, 0.12f, state == "hover" ? 0.2f : state == "pressed" ? 0.28f : state == "disabled" ? 0.03f : 0.1f),
+                BorderColor = new Color(0.45f, 0.29f, 0.12f, state == "disabled" ? 0.2f : 0.7f),
+                BorderWidthLeft = 1, BorderWidthTop = 1, BorderWidthRight = 1, BorderWidthBottom = 1,
+                CornerRadiusTopLeft = 8, CornerRadiusTopRight = 8, CornerRadiusBottomLeft = 8, CornerRadiusBottomRight = 8,
+                ContentMarginTop = 7, ContentMarginBottom = 7, ContentMarginLeft = 14, ContentMarginRight = 14,
+            });
         return theme;
     }
+
+    /// <summary>The look of a page's action buttons (the Fractals' two): a box round the words, dimmed when the button is off.</summary>
+    public const string ActionButton = "ActionButton";
 
     /// <summary>Words on a page: a plain label, wrapped, never markup.</summary>
     private static Label Write(Node parent, string text, int size = 19, Color? colour = null)
@@ -218,6 +241,13 @@ public partial class JournalPanel : Control
         Refresh();
     }
 
+    /// <summary>A button was pressed: the HUD does what it asks, the words it answers with go to the page's foot, and the page is read again.</summary>
+    public void Press(string action)
+    {
+        _message = ButtonPressed(action);
+        Refresh(force: true);
+    }
+
     /// <summary>Read the page again from the host; its lines are written out again only when they changed.</summary>
     public void Refresh(bool force = false)
     {
@@ -270,6 +300,15 @@ public partial class JournalPanel : Control
                 case JournalInk.Link:
                     var target = line.Target;
                     AddLink(group, line.Text, () => OpenPage(target));
+                    break;
+                case JournalInk.Button:
+                    var action = line.Target;
+                    var button = AddLink(group, line.Text, () => Press(action));
+                    button.ThemeTypeVariation = ActionButton;
+                    button.Name = action.Replace(':', '_');
+                    button.Disabled = !line.Enabled;
+                    button.SizeFlagsHorizontal = SizeFlags.ShrinkBegin;
+                    button.Alignment = HorizontalAlignment.Center;
                     break;
                 case JournalInk.Map:
                     MapView = new JournalMap { Name = "JournalMap", CustomMinimumSize = new Vector2(0, 325), SizeFlagsHorizontal = SizeFlags.ExpandFill };
