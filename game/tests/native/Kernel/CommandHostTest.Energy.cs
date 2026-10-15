@@ -49,8 +49,8 @@ public partial class CommandHostTest
         var traits = v5.Traits!;
         Check(traits.Hearts == new HeartsRules(5, 5, 30, 2.5, 10) && traits.Harm == new HarmRules(1, null) &&
               traits.Stamina == new StaminaRules(0.4, 0.4, 10, 5, 0.01, 0.1, null, null, 0.5, 0.25) &&
-              traits.Pips == new PipsRules(8, 5, 40, 5, 2, 15, 0.5) && traits.Wallet == new WalletRules(20, 10, 10, 20),
-            "v5's traits: 5 hearts of 5 health a quarter to 30, healing a quarter every 2.5 s after 10 s, fire a quarter a second and no fall cap, the bar 0.4 m in ten bands of 0.4 m, running 0.01 m/s, the refill 0.1 m/s, no water drains, 8 pips to 40, today's wallet");
+              traits.Pips == new PipsRules(8, 5, 40, 5, 2, 15, 0.5) && traits.Wallet == new WalletRules(0, 0, 0, 0),
+            "v5's traits: 5 hearts of 5 health a quarter to 30, healing a quarter every 2.5 s after 10 s, fire a quarter a second and no fall cap, the bar 0.4 m in ten bands of 0.4 m, running 0.01 m/s, the refill 0.1 m/s, no water drains, 8 pips to 40, an empty wallet (decision 26)");
         var prices = v5.Cost!.Prices;
         Check(prices.Count == 7 && prices["glow"] is { Ordered: 2, OwnIdea: 1 } && prices["bloom"] is { Ordered: 4, OwnIdea: 2 } && prices["fire"] is { Ordered: 6, OwnIdea: 3 } &&
               prices["bubble_carry"] is { Ordered: 4, OwnIdea: 2 } && prices["bubble_lift"] is { Ordered: 6, OwnIdea: 3 } && !prices.ContainsKey("bubble_boat") && v5.Cost.TorchFire == 0,

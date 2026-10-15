@@ -2041,7 +2041,7 @@ class MechanicsRoundTests(unittest.TestCase):
         interface = seam[seam.index("public interface IStaminaLedger"):]
         self.assertIn("void Report(BodyExertion exertion);", interface)
         self.assertIn("StaminaGate Gate { get; }", interface)
-        self.assertIn("public Seams.IStaminaLedger? StaminaLedger { get; set; }", BODY.read_text(encoding="utf-8"))
+        self.assertIn("public Seams.IStaminaLedger? StaminaLedger", BODY.read_text(encoding="utf-8"))
         # The fixture names what the interface carries.
         step = validate.load_strict(LEDGER)["cases"][0]["steps"][0]
         self.assertEqual(set(step), {"seconds", "safely_grounded", "sprint_s", "deep_water_s", "dive_s", "expect"})

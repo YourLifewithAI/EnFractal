@@ -860,7 +860,7 @@ MECHANICS = {
                     "empty_speed_factor": 0.5, "empty_slow_until_fraction": 0.25},
         "pips": {"start": 8, "expertise_per_pip": 5, "ceiling": 40, "refill_near_every_s": 5, "refill_near_within_m": 2,
                  "refill_far_every_s": 15, "camp_fraction": 0.5},
-        "wallet": {"start": {"wood": 20, "stone": 10, "copper": 10, "leaf": 20}},
+        "wallet": {"start": {"wood": 0, "stone": 0, "copper": 0, "leaf": 0}},
     },
     "cost": {
         "prices": {name: {"ordered": ordered, "own_idea_factor": 0.5} for name, ordered in (
