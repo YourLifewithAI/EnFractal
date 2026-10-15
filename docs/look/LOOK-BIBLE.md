@@ -208,6 +208,8 @@ The founder (8 October): "Can there be fish in the water?", answered as living s
 - **Rules.** Placement is deterministic from the room's id and its water; the motion runs freely (and is deterministic for the same steps, which the tests use). Fish are not entities: not saved, not in the kernel, sight or map, and they collide with nothing.
 - **Under the water.** When a camera dips below a pond's surface, a full-screen veil clouds the water with distance (two thirds hidden at 22 cm) and stops at the surface, so the underside stays clear; above water its vertex stage draws nothing.
 
+**Fractals** (Run 2, L9): the found things that grow the body, drawn where the generator placed them as a small star of light that turns and bobs inside the kernel's box, with a glint that reads from a band away and at night; it lights nothing, and its pickup sends up a few sparks. See [FRACTALS.md](FRACTALS.md).
+
 ## Budgets
 
 The preset budget is **16.7 ms per frame at 1920 × 1080 on an NVIDIA RTX 2070 SUPER (8 GB)**, at most three shadowed lights (sun, window sky fill, lamp). Reviews report p50, p95 and p99 frame time per camera; the numbers of this round are in `docs/look/reviews/run1/CAPTURES.md`. The VoxelGI bake runs once at room load (under 0.5 s for the test room) and is not part of the frame budget.

@@ -186,6 +186,8 @@ public partial class RoomWorld : Node3D
             var natureLook = new NatureLook { Name = "NatureLook" };
             AddChild(natureLook);
             natureLook.Configure(commandHost, Built);
+            // The Fractals still on the island, drawn with their glints (Run 2, L9: docs/look/FRACTALS.md).
+            AddChild(global::EnFractal.Native.Look.Fractals.FractalLook.Create(commandHost, Look));
             // The player's AI: the companion link in front of the command host (A2).
             CompanionBridge.Attach(this);
             Navigation.RoomNavigation.Attach(this);
