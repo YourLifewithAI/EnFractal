@@ -31,8 +31,11 @@ public partial class FractalLook : Node3D
     /// </summary>
     public static class Tuning
     {
-        /// <summary>The body every Fractal is drawn with, until the founder picks from the sheet (the pin below overrides it for a capture).</summary>
-        public const FractalForm Form = FractalForm.Crystal;
+        /// <summary>
+        /// The body every Fractal is drawn with: the star, the founder's pick from the sheet of three (15 October; the crystal and the
+        /// seed stay built, for the record and the pin below, which overrides this for a capture).
+        /// </summary>
+        public const FractalForm Form = FractalForm.Star;
 
         // ---------- the colour: one family for every Fractal, never the Gubble's aura ----------
 
@@ -77,6 +80,8 @@ public partial class FractalLook : Node3D
         public const float WrapLight = 0.35f, Sparkle = 2.5f, SparklePower = 48f, Sheen = 0.3f, RimLight = 0.5f;
         /// <summary>The star: a heart StarHeartM across (what stays in the box) in a soft halo StarSizeM across, with long rays.</summary>
         public const float StarHeartM = 0.012f, StarSizeM = 0.045f, StarEnergy = 2.2f, StarHalo = 0.9f, StarRays = 1f, StarHeartSharpness = 18f;
+        /// <summary>Where the star's light meets a surface (its halo reaches the ground it hovers over) it softens over this, as the wisp's halo does.</summary>
+        public const float StarSoftM = 0.03f;
 
         // ---------- the pickup ----------
 
@@ -101,7 +106,7 @@ public partial class FractalLook : Node3D
     public static readonly string[] GlintParameterNames =
     {
         "glint_color", "energy", "size_m", "min_pixels", "heart_sharpness", "halo", "ray_sharpness", "rays", "rainbow", "far_heart_sharpness", "far_ray_sharpness",
-        "near_m", "near_dim", "toward_camera_m",
+        "near_m", "near_dim", "toward_camera_m", "soft_m",
         "fog_on", "fog_begin_m", "fog_end_m", "fog_density", "fog_curve",
     };
 
@@ -523,6 +528,7 @@ public partial class FractalLook : Node3D
         material.SetShaderParameter("near_m", Tuning.GlintNearM);
         material.SetShaderParameter("near_dim", star ? 1f : Tuning.GlintNearDim);
         material.SetShaderParameter("toward_camera_m", star ? 0f : Tuning.GlintTowardCameraM);
+        material.SetShaderParameter("soft_m", star ? Tuning.StarSoftM : 0f);
         material.SetShaderParameter("fog_on", 0f);
         material.SetShaderParameter("fog_begin_m", 0f);
         material.SetShaderParameter("fog_end_m", 1f);

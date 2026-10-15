@@ -12,6 +12,8 @@ shader_type spatial;
 // pulled toward_camera_m toward the eye so its own body never hides it. Its brightness is over 1 (energy), so the bloom catches
 // it at night. It lights nothing. The haze and the sea mist hide it as they hide the land: the look's depth fog is mirrored here
 // (fog_*, ViewDistances.FogAt) instead of the engine's fog, which over an additive quad would add the fog's colour to its square.
+// Where its light meets a surface it softens over soft_m (the star's halo reaches the ground it hovers over; as the wisp's halo),
+// from the depth buffer, so no hard line cuts it.
 render_mode blend_add, unshaded, depth_draw_never, cull_disabled, skip_vertex_transform, fog_disabled, shadows_disabled;
 
 uniform vec3 glint_color : source_color = vec3(0.93, 0.96, 1.0);
@@ -32,6 +34,10 @@ group_uniforms near;
 uniform float near_m = 0.35;
 uniform float near_dim : hint_range(0.0, 1.0) = 0.3;
 uniform float toward_camera_m = 0.03;
+
+group_uniforms soft;
+uniform float soft_m = 0.0;
+uniform sampler2D depth_texture : hint_depth_texture, filter_nearest;
 
 group_uniforms fog;
 uniform float fog_on : hint_range(0.0, 1.0) = 0.0;
@@ -79,6 +85,11 @@ void fragment() {
 	float ray = (long_rays + short_rays) * rays * inst.z;
 	vec3 prism = 0.5 + 0.5 * cos(6.28318 * (vec3(0.0, 0.33, 0.67) + r * 1.3 + inst.x));
 	vec3 light = glint_color * (heart + glow) + mix(glint_color, prism, rainbow) * ray;
-	ALBEDO = light * COLOR.rgb * COLOR.a * energy * dimmed;
+	float soft = 1.0;
+	if (soft_m > 0.0) {
+		vec4 behind = INV_PROJECTION_MATRIX * vec4(SCREEN_UV * 2.0 - 1.0, texture(depth_texture, SCREEN_UV).r, 1.0);
+		soft = clamp((-behind.z / behind.w + VERTEX.z) / soft_m, 0.0, 1.0);
+	}
+	ALBEDO = light * COLOR.rgb * COLOR.a * energy * dimmed * soft;
 	ALPHA = 1.0;
 }

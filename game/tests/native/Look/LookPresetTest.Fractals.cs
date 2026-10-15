@@ -48,7 +48,8 @@ public partial class LookPresetTest
                  })
         {
             var shader = GD.Load<Shader>(path);
-            var declared = shader.GetShaderUniformList().Select(u => u.AsGodotDictionary()["name"].AsString()).ToHashSet();
+            // The depth buffer the star's soft edge reads is the engine's to give, as the water's is.
+            var declared = shader.GetShaderUniformList().Select(u => u.AsGodotDictionary()["name"].AsString()).Where(n => n != "depth_texture").ToHashSet();
             var set = names.ToHashSet();
             Check(declared.Count > 5 && set.Except(declared).Count() == 0, $"every parameter FractalLook gives {path} is one of its uniforms: not declared " + string.Join(",", set.Except(declared)));
             Check(declared.Except(set).Count() == 0, $"every uniform of {path} is set by FractalLook: unset " + string.Join(",", declared.Except(set)));
@@ -174,9 +175,10 @@ public partial class LookPresetTest
             $"a room whose manifest places six Fractals draws six bodies and six glints, in the host's order, and no sparks ({fractals.Summary})");
         Check(bodies.Multimesh.InstanceCount == host.AllFractals.Count && fractals.GetChildren().OfType<MultiMeshInstance3D>().Count() == 3
               && fractals.FindChildren("*", "Light3D", true, false).Count == 0 && fractals.FindChildren("*", "CollisionObject3D", true, false).Count == 0
-              && glints.CastShadow == GeometryInstance3D.ShadowCastingSetting.Off && bodies.CastShadow == GeometryInstance3D.ShadowCastingSetting.On
+              && glints.CastShadow == GeometryInstance3D.ShadowCastingSetting.Off
+              && bodies.CastShadow == (fractals.Form == FractalForm.Star ? GeometryInstance3D.ShadowCastingSetting.Off : GeometryInstance3D.ShadowCastingSetting.On)
               && bodies.Layers == 1u && glints.Layers == 1u,
-            "three MultiMeshes (bodies, glints, sparks), no light, no collider; the body casts a small shadow, the glint none; both on the world layer every view draws");
+            $"three MultiMeshes (bodies, glints, sparks), no light, no collider; the {fractals.Form} " + (fractals.Form == FractalForm.Star ? "is light and casts no shadow" : "casts a small shadow") + ", the glint none; both on the world layer every view draws");
         var inside = true;
         var lifted = true;
         var asLived = true;
@@ -190,16 +192,22 @@ public partial class LookPresetTest
                 var (half, radius) = FractalMesh.Extents(fractals.Form);
                 var extent = new Aabb(body.Origin - new Vector3(radius, half, radius), new Vector3(radius, half, radius) * 2f);
                 inside &= CommandHost.FractalBox(fractal).Grow(1e-5f).Encloses(extent);
-                lifted &= fractals.Instance(glints, i).Transform.Origin.Y > body.Origin.Y;
-                asLived &= body.IsEqualApprox(FractalLook.BodyTransform(fractals.Form, fractal.PositionM, FractalLook.PhaseOf(fractal.Id), fractals.LifeS));
+                // The star's glint is its heart, in the same place; any other body's stands above it.
+                var glintAt = fractals.Instance(glints, i).Transform.Origin;
+                lifted &= fractals.Form == FractalForm.Star ? glintAt.IsEqualApprox(body.Origin) : glintAt.Y > body.Origin.Y;
+                // The star is a quad of light facing the eye: only its place follows the life (it bobs, it does not turn).
+                asLived &= fractals.Form == FractalForm.Star
+                    ? body.Origin.IsEqualApprox(FractalLook.BodyCentre(fractals.Form, fractal.PositionM, FractalLook.PhaseOf(fractal.Id), fractals.LifeS))
+                    : body.IsEqualApprox(FractalLook.BodyTransform(fractals.Form, fractal.PositionM, FractalLook.PhaseOf(fractal.Id), fractals.LifeS));
             }
         }
-        Check(inside && lifted && asLived, "through 12 s of drawn life every body is drawn as its life says, stays inside its Fractal's box, and its glint stands above it");
+        Check(inside && lifted && asLived, "through 12 s of drawn life every body is drawn as its life says, stays inside its Fractal's box, and its glint stands over it");
         var before = fractals.Instance(bodies, 0).Transform;
         fractals.Advance(0.5f);
         Check(!fractals.Instance(bodies, 0).Transform.IsEqualApprox(before), "the bodies move with the ticks (the slow life is drawn)");
 
         // The pickup, through the host as the HUD sends it, with the player in reach of the Fractal in front of the spawn.
+        var restScale = fractals.Instance(bodies, 0).Transform.Basis.Column0.Length();
         player.TryTeleportTo(new Vector3(0f, 0f, 0.62f));
         await Frames(2);
         var picked = host.PlayerPickUp("fractal:near01");
@@ -208,8 +216,8 @@ public partial class LookPresetTest
         fractals.Advance(0.016f);
         var leavingScale = fractals.Instance(bodies, 0).Transform.Basis.Column0.Length();
         Check(fractals.Count == 5 && fractals.Leaving == 1 && fractals.SparkCount == FractalLook.Tuning.SparksPerPickup && sparks.Multimesh.VisibleInstanceCount == FractalLook.Tuning.SparksPerPickup
-              && !fractals.Drawn.Contains("fractal:near01") && leavingScale < 1f,
-            $"on NatureChanged the picked Fractal goes out (its body at {leavingScale:0.##} of its size) and {FractalLook.Tuning.SparksPerPickup} sparks rise from its spot");
+              && !fractals.Drawn.Contains("fractal:near01") && leavingScale < restScale,
+            $"on NatureChanged the picked Fractal goes out (its body at {leavingScale / restScale:0.##} of its size) and {FractalLook.Tuning.SparksPerPickup} sparks rise from its spot");
         var spot = CommandHost.FractalBox(host.AllFractals.First(f => f.Id == "fractal:near01"));
         var sparksStart = Enumerable.Range(0, fractals.SparkCount).Select(i => fractals.Instance(sparks, i).Transform.Origin).ToArray();
         fractals.Advance(FractalLook.Tuning.PickupFadeS);
