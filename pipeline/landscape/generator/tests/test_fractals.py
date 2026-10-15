@@ -230,6 +230,15 @@ class Summit(unittest.TestCase):
         self.assertEqual(len(summit), 1)
         self.assertEqual(summit[0]['reach_band'], self.block['summit']['reached_from']['base'])
 
+    def test_the_fractal_no_band_reaches_never_rests_on_the_corridor(self):
+        base = self.cr.run(1.)
+        at = Fractals.high_unreached(self.land, base, self.plan.keep)
+        g = self.land.grid
+        if at is not None:
+            i, j = g.nearest(*at)
+            self.assertNotIn(j*g.nx+i, self.plan.keep)
+            self.assertLess(base.band_at(*at) or 0, 1, 'no band reaches it')
+
     def test_a_cliff_without_a_wall_is_not_a_corridor(self):
         """A landmark whose flank is a hill (no cliff to cut into) is passed over: the corridor is walled in or it is not built."""
         g = self.land.grid
@@ -246,6 +255,64 @@ class Summit(unittest.TestCase):
         land.views = [(0., 12.)]
         siting = sites.Siting(land)
         self.assertIsNone(sites.plan_summit(land, siting, land.objects[0], lambda height: gates.ladder_rises(height)))
+
+
+class HighGround(unittest.TestCase):
+    """The Fractal no band reaches rests on a plateau cliffs close in, never on a hill the body walks up."""
+
+    def test_a_mesa_top_is_closed_in_and_a_hill_is_not(self):
+        from pipeline.landscape.generator.field import slope_field
+        half = 20.
+        for kind, closed in (('mesa', True), ('hill', False)):
+            land = synthetic_land(half)
+            g = land.grid
+            nx = g.nx
+            for j in range(g.nz):
+                for i in range(nx):
+                    x, z = g.xs[i], g.zs[j]
+                    d = max(abs(x)-4., abs(z+6.5)-5.5, 0.)
+                    land.h[j*nx+i] = (6.8 if d == 0. else 1.) if kind == 'mesa' else max(1., 6.8-d*.4)
+            land.fslope = slope_field(g, land.h)
+            i, j = g.nearest(0., -6.5)
+            got, region = Fractals.enclosed(land, i, j)
+            self.assertEqual(got, closed, kind)
+            if closed:
+                self.assertLess(len(region)*g.cell*g.cell, 100., 'the plateau and no more')
+
+
+class Held(unittest.TestCase):
+    """A flight inside a detail block keeps the base's surface there (the surface it was built as)."""
+
+    def test_the_blocks_vertices_under_a_flight_follow_the_base(self):
+        land = synthetic_land(8.)
+        g = land.grid
+        plan = Fractals.plan(land, 1, (0., 0.), dict(ladders=(), shortcuts=(), steps=1))
+        self.assertEqual(len(plan.routes), 1)
+
+        class Fake:
+            """The few things of a detail a rule needs: fine vertices on a lattice, the weights of the base's surface."""
+
+            def __init__(self):
+                self.ops = []
+                self.n = g.nx*g.nz
+                self.bench = [0.]*self.n
+
+            def op(self, fn):
+                self.ops.append(fn)
+                fn()
+
+            def span(self, x0, x1, z0, z1):
+                i, j = g.span(x0, x1, z0, z1)
+                return [b*g.nx+a for b in j for a in i]
+        fake = Fake()
+        plan.hold(fake)
+        self.assertEqual(len(fake.ops), 1)
+        route = plan.routes[0]
+        i0, i1, j0, j1 = sites.flight_box(route, 1)
+        held = {k for k, v in enumerate(fake.bench) if v == 1.}
+        for q, s, m in route.cells(g.nx):
+            self.assertIn(q, held)
+        self.assertLessEqual(len(held), (i1-i0+3)*(j1-j0+3))
 
 
 class Gates(unittest.TestCase):

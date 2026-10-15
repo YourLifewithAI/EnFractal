@@ -153,15 +153,18 @@ class Siting:
             return None
         lo = math.inf
         hi = -math.inf
-        for q, s, m in route.cells(nx):
-            if (s % 2 == 0) and (m % 2 == 0):
-                v = h[q]
+        limit = SHORTCUT_RELIEF_M if route.kind == 'shortcut' else RELIEF_M
+        di, dj, li, lj, half = route.di, route.dj, route.li, route.lj, route.half
+        for s in range(0, route.length+1, 2):
+            bi, bj = route.i0+di*s, route.j0+dj*s
+            for m in range(-half, half+1, 2):
+                v = h[(bj+lj*m)*nx+bi+li*m]
                 if v < lo:
                     lo = v
                 if v > hi:
                     hi = v
-        if hi-lo > (SHORTCUT_RELIEF_M if route.kind == 'shortcut' else RELIEF_M):
-            return None
+            if hi-lo > limit:
+                return None
         # The approach and the flight are inside the ground the walk reaches from the spawn.
         for s, m in ((-3, 0), (0, 0), (route.length//2, 0), (route.length, 0), (0, -route.half-2), (0, route.half+2)):
             x, z = route.xz(g, s, m)

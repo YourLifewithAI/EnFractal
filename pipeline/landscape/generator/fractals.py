@@ -164,8 +164,11 @@ def route_from_row(grid, row):
     ledges = [R.Ledge(l['rise_m'], l['band'], int(round(l['riser_run_m']/c)), int(round(l['bench_length_m']/c)))
               for l in row['ledges']]
     i0, j0 = grid.nearest(*row['origin_m'])
-    return R.Route(row['kind'], i0, j0, row['direction'][0], row['direction'][1], row['foot_level_m'], ledges,
-                   half=int(round(row['half_width_m']/c)), ident=row['id'])
+    route = R.Route(row['kind'], i0, j0, row['direction'][0], row['direction'][1], row['foot_level_m'], ledges,
+                    half=int(round(row['half_width_m']/c)), ident=row['id'])
+    if row['kind'] == 'shortcut':
+        route.over = row['ledges'][0]['band']-1   # the band whose bar falls short of it
+    return route
 
 
 def _expected_band(route, k):
@@ -217,43 +220,108 @@ def hidden_corners(land, labels, taken, count, spawn, jitter):
 
 HIGH_MIN_M = 3.      # high ground is at least this high
 HIGH_NEAR_M = 12.    # ... and no farther than this from ground the feet reach (a Fractal one can see from where one walks)
+HIGH_WALK_DEG = 40.  # ... and closed in by cliffs: ground no steeper than this (a body walks 45) leads no farther than ...
+HIGH_GENTLE_DEG = 15.  # ... and gentle where it rests
+HIGH_REGION_CELLS = 40000   # ... this many cells (a 400 m2 plateau), else a hillside leads down from it
 
 
-def high_unreached(land, labels, min_height=HIGH_MIN_M):
-    """The highest place the feet stand on that no band reaches (a landmark's top) within sight of reached ground: its
-    middle, standable all round."""
+def enclosed(land, i, j, max_deg=HIGH_WALK_DEG, limit=HIGH_REGION_CELLS):
+    """Whether the ground round vertex (i, j), walked over land no steeper than `max_deg`, is closed in (a plateau all
+    cliffs round it) rather than a hill one can walk up from below. Returns (closed, the vertices walked): when it is
+    not closed in, the vertices are a hill's, and none of them is closed in either."""
     g = land.grid
-    nx = g.nx
+    nx, nz = g.nx, g.nz
+    fs = land.fslope
+    start = j*nx+i
+    seen = {start}
+    stack = [start]
+    while stack:
+        q = stack.pop()
+        qi, qj = q % nx, q//nx
+        for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            ni, nj = qi+di, qj+dj
+            if not (0 <= ni < nx and 0 <= nj < nz):
+                return False, seen
+            n = nj*nx+ni
+            if n in seen or fs[n] > max_deg:
+                continue
+            seen.add(n)
+            if len(seen) > limit:
+                return False, seen
+            stack.append(n)
+    return True, seen
+
+
+def high_unreached(land, labels, keep=(), min_height=HIGH_MIN_M):
+    """The highest place no band reaches and cliffs close in (a landmark's top) within sight of reached ground: ground the
+    body stands on (gentle all round it, nothing planted in its lane), the place a Bubble lift or a built ladder would
+    bring the player to. It is not walked to, so it need not be a node the strict walk stands on. Never on a flight
+    (`keep`: the vertices of the flights and their skirts)."""
+    g = land.grid
+    nx, nz = g.nx, g.nz
     w = labels.walker
     reached = []
-    for j in range(0, g.nz, 20):
+    for j in range(0, nz, 20):
         for i in range(0, nx, 20):
             if labels.band_at(g.xs[i], g.zs[j]):
                 reached.append((g.xs[i], g.zs[j]))
     if not reached:
         return None
-    best = None
-    for j in range(0, g.nz, 10):
-        for i in range(0, nx, 10):
+    ring = 6    # 0.6 m, in cells
+    found = []
+    for j in range(ring, nz-ring, 10):
+        for i in range(ring, nx-ring, 10):
             q = j*nx+i
-            if land.h[q] < min_height or not land.inside[q]:
+            if land.h[q] < min_height or not land.inside[q] or land.fslope[q] > HIGH_GENTLE_DEG:
+                continue
+            around = [(j+dj)*nx+i+di for di, dj in ((ring, 0), (-ring, 0), (0, ring), (0, -ring))]
+            if any(land.fslope[a] > HIGH_GENTLE_DEG or a in keep for a in around) or q in keep:
                 continue
             x, z = g.xs[i], g.zs[j]
             n = labels.node(x, z)
-            if n is None or labels.label[n] or not w._stand(n):
+            if (n is not None and labels.label[n]) or w.blocked(x, z):
                 continue
-            ok = True
-            for k in range(8):
-                a = k*math.pi/4
-                m = labels.node(x+.6*math.cos(a), z+.6*math.sin(a))
-                if m is None or labels.label[m] or not w._stand(m):
-                    ok = False
-                    break
-            if not ok or min(math.hypot(x-a, z-b) for a, b in reached) > HIGH_NEAR_M:
+            if min(math.hypot(x-a, z-b) for a, b in reached) <= HIGH_NEAR_M:
+                found.append((-land.h[q], i, j))
+    found.sort()
+    open_ground = set()
+    for _, i, j in found:
+        if j*nx+i in open_ground:
+            continue
+        closed, region = enclosed(land, i, j)
+        if closed:
+            return g.xs[i], g.zs[j]
+        open_ground |= region    # a hillside: every candidate on it is the same hill
+    return None
+
+
+NATURAL_CLUSTER_M = 1.5   # climbs whose tops lie within this of each other are one way up in the report
+
+
+def natural_ways(plan, variants):
+    """The ways up the land itself offers (climbs not in a flight) that the exact walk used, one per top place:
+    where the climb ends, its rise, and the lowest band each variant of the body takes it from."""
+    grid = plan.land.grid
+    nx = grid.nx
+    keep = plan.keep
+
+    def built(xz):
+        i, j = grid.nearest(*xz)
+        return j*nx+i in keep
+    w = variants['base'].walker
+    ways = {}
+    for name, labels in variants.items():
+        for c, band in labels.climbs:
+            if built(c.foot_xz) or built(c.top_xz):
                 continue
-            if best is None or land.h[q] > best[0]:
-                best = (land.h[q], x, z)
-    return None if best is None else (best[1], best[2])
+            key = (int(round(c.top_xz[0]/NATURAL_CLUSTER_M)), int(round(c.top_xz[1]/NATURAL_CLUSTER_M)))
+            row = ways.setdefault(key, dict(top_m=[round(c.top_xz[0], 3), round(w.t.height(*c.top_xz), 3),
+                                                  round(c.top_xz[1], 3)], rise_m=round(c.rise, 3), reached_from={}))
+            row['rise_m'] = min(row['rise_m'], round(c.rise, 3))
+            got = row['reached_from'].get(name)
+            if got is None or band < got:
+                row['reached_from'][name] = band
+    return sorted(ways.values(), key=lambda r: (min(r['reached_from'].values()), r['top_m']))
 
 
 def finish(plan, cr, spawn, typed=False, budget=BUDGET):
@@ -319,7 +387,7 @@ def finish(plan, cr, spawn, typed=False, budget=BUDGET):
     for x, z in hidden_corners(land, base, taken, want, spawn, jitter):
         add(x, z, 1, 'corner')
     # One on high ground no band reaches: only the Gubble's lift or a built ladder (the design's other ways).
-    top = high_unreached(land, base)
+    top = high_unreached(land, base, plan.keep)
     if top is not None and len(items) < budget['max']:
         add(top[0], top[1], None, 'high')
     # The budget's ceiling, then typed kinds.
@@ -365,7 +433,8 @@ def finish(plan, cr, spawn, typed=False, budget=BUDGET):
                   routes=len(route_rows),
                   budget=budget, reached_nodes={name: v.histogram() for name, v in variants.items()})
     return dict(typed=typed, budget=budget, items=items, detail=detail, routes=route_rows, benches=benches,
-                shortcuts=shortcuts, summit=summit_row, counts=counts, notes=list(plan.notes),
+                shortcuts=shortcuts, natural=natural_ways(plan, variants), summit=summit_row, counts=counts,
+                notes=list(plan.notes),
                 arithmetic=gates.describe_arithmetic())
 
 
@@ -413,6 +482,15 @@ def report_text(block):
             out.append('  - ledge %d: rise %.2f m (needs band %d), bench at %s, base body from band %s%s%s' % (
                 k+1, l['rise_m'], l['band'], l['bench_m'], l['reached_from']['base'],
                 '' if l['proved'] else ' (NOT the band it was built as)', early))
+    if block.get('natural'):
+        out += ['', '## Ways up the land itself offers', '',
+                'Climbs the exact walk found outside the built flights (a real room may offer shortcuts of its own geometry), one '
+                'per place the climb ends: the rise, and the lowest band each body takes it from (none: not from any band).',
+                '', '| Top at (x, y, z) | Rise (m) | Base body | One knack | Strongest pair |', '|---|---|---|---|---|']
+        for n in block['natural']:
+            r = n['reached_from']
+            out.append('| %s | %.2f | %s | %s | %s |' % (n['top_m'], n['rise_m'], r.get('base', 'none'), r.get('one_knack', 'none'),
+                                                        r.get('pair', 'none')))
     if block['summit']:
         s = block['summit']
         out += ['', '## The summit', '',
