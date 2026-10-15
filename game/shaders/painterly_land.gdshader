@@ -114,6 +114,36 @@ global uniform sampler2D intro_colour;
 // it ends; at rest none of this runs.
 instance uniform float intro_part = 0.0;
 
+// The seasons on the land (L10, Look/LandSeason.cs, docs/look/SEASONS.md): Godot global shader parameters the look registers at run
+// time and sets once per moment from the season's cross-fade. All zero (summer, or before the look's first moment) the land draws
+// exactly as it was drawn. Every change is albedo along a season ramp; the light never reads them.
+// Leaves: x toward the spring colour, y the autumn turn (each tree at its own pace), z toward the winter pale, w the share of a
+// broadleaf's upward dabs flecked with blossom.
+global uniform vec4 season_leaf;
+// Ground: x the meadow's tips and the grass toward straw, y frost (on what faces the sky, most in the hollows; it carries the hour:
+// all of it at dawn), z how much darker and wetter soil and paths are, w the share of upward faces under a dusting of snow.
+global uniform vec4 season_ground;
+// x the meadow fresher (spring), y a conifer toward its winter colour, z how far apart the trees of a wood start to turn, w how
+// long one tree takes.
+global uniform vec4 season_tone;
+// The season's colours, each over the summer colour it replaces, channel by channel: leaves and grass over the foliage role's own
+// colour, the meadow's over the meadow's.
+global uniform vec3 season_fresh;
+global uniform vec3 season_gold;
+global uniform vec3 season_rust;
+global uniform vec3 season_pale;
+global uniform vec3 season_evergreen;
+global uniform vec3 season_straw;
+global uniform vec3 season_meadow_straw;
+global uniform vec3 season_meadow_fresh;
+// Colours laid over the land as they are (linear): blossom, snow (the snow role's own) and frost.
+global uniform vec3 season_blossom;
+global uniform vec3 season_snow;
+global uniform vec3 season_frost;
+// Which way this plant's leaves go through the year (LandSeason.Habit): 0 a broadleaf's (the default, and any foliage not known
+// otherwise), 1 a conifer's, 2 grass's. The plant copies' view sets it on each set's tiles from the set's fuel class.
+instance uniform float season_habit = 0.0;
+
 varying vec3 obj_pos;
 varying vec3 obj_normal;
 varying vec3 baked_color;
@@ -121,6 +151,8 @@ varying vec3 baked_color;
 varying vec4 intro_room;
 // How far this pixel has gone into the haze (0 to 1): light() fades the highlight by the same amount.
 varying float haze_v;
+// A number of the copy's own (0 to 1, from its origin), so each tree of a wood turns in its own time and to its own colour.
+varying float season_tree;
 
 float hash12(vec2 p) {
 	vec3 p3 = fract(vec3(p.xyx) * 0.1031);
@@ -235,6 +267,69 @@ vec2 plane_of(vec3 p, vec3 axis_n) {
 	return axis_n.y > 0.5 ? p.xz : (axis_n.x > 0.5 ? p.zy : p.xy);
 }
 
+// ---------- the season on the land (L10) ----------
+
+// How much of a surface a season's cover takes where the noise (0 to 1) is highest: amount 0 none, 1 nearly all, a soft edge.
+float season_cover(float noise, float amount) {
+	return amount <= 0.0 ? 0.0 : smoothstep(1.0 - amount - 0.12, 1.0 - amount + 0.12, noise);
+}
+
+// A dusting of snow on the faces that see the sky (the tops of rock and cliffs), where the noise says, as much as the season's share.
+vec3 season_snow_on(vec3 color, float up, float noise) {
+	if (season_ground.w <= 0.0) return color;
+	return mix(color, season_snow, smoothstep(0.55, 0.85, up) * season_cover(noise, season_ground.w));
+}
+
+// Soil and paths in the wet seasons: darker, and so a little richer.
+vec3 season_wet(vec3 color) {
+	float grey = dot(color, vec3(0.2126, 0.7152, 0.0722));
+	return mix(vec3(grey), color, 1.0 + season_ground.z) * (1.0 - season_ground.z);
+}
+
+// A leaf's colour through the year, by its plant's habit. A broadleaf's is fresh in spring with flecks of blossom, gold to rust in
+// autumn tree by tree, pale in winter under a dusting of snow; a conifer's turns a touch darker in winter and takes the snow too;
+// grass goes fresh, then to straw, and frosts. habit is the instance's (season_habit), tree its copy's own number (season_tree);
+// cell, local and dab are the leaf dab's (its cell, where in it, how much of it is paint), clump the canopy's clumps, up how much
+// it faces the sky, d how much of a dab the pixel resolves: far away a dab's random choices give way to their average, so nothing
+// sparkles.
+vec3 season_foliage(vec3 color, float habit_id, float tree, vec3 pw, vec3 cell, vec3 local, float dab, float clump, float up, float d) {
+	int habit = int(habit_id + 0.5);
+	vec3 ratio = vec3(1.0);
+	if (habit == 1) {
+		ratio += season_tone.y * (season_evergreen - 1.0);
+	} else if (habit == 2) {
+		ratio += season_leaf.x * (season_fresh - 1.0) + season_ground.x * (season_straw - 1.0);
+	} else {
+		ratio += season_leaf.x * (season_fresh - 1.0) + season_leaf.z * (season_pale - 1.0);
+		if (season_leaf.y > 0.0) {
+			// Autumn, tree by tree: each copy (its origin's number) and each grove (broad noise, for the land's merged meshes) starts to
+			// turn at its own moment and settles on its own colour between gold and rust; the clumps move it a little within a tree.
+			float broad = noise_r(pw / 1.4 + vec3(7.1, 3.3, 5.9)).x;
+			float start = fract(tree * 7.13 + broad * 0.6) * season_tone.z;
+			float turned = smoothstep(start, start + max(season_tone.w, 1e-3), season_leaf.y);
+			float phase = clamp(tree * tree * 0.8 + (broad - 0.5) * 0.6 + (clump - 0.5) * 0.35 * d + 0.1, 0.0, 1.0);
+			ratio += turned * (mix(season_gold, season_rust, phase) - 1.0);
+		}
+	}
+	color *= max(ratio, vec3(0.0));
+	if (habit == 0 && season_leaf.w > 0.0) {
+		// Blossom: a pale fleck in a share of the dabs that face up or out.
+		vec3 at = vec3(hash13(cell + 2.9), hash13(cell + 6.1), hash13(cell + 8.7)) - 0.5;
+		float fleck = (1.0 - smoothstep(0.09, 0.17, length(local - at * 0.5))) * step(hash13(cell + 4.4), season_leaf.w);
+		color = mix(color, season_blossom, mix(season_leaf.w * 0.08, fleck, d) * smoothstep(-0.2, 0.3, up));
+	}
+	if (habit != 2 && season_ground.w > 0.0) {
+		// Snow on the dabs that face the sky.
+		float lies = mix(season_ground.w, step(hash13(cell + 5.5), season_ground.w), d);
+		color = mix(color, season_snow, lies * smoothstep(0.35, 0.8, up) * mix(0.6, 0.35 + 0.65 * dab, d));
+	}
+	if (habit == 2 && season_ground.y > 0.0) {
+		// Frost on the blades that face the sky.
+		color = mix(color, season_frost, season_ground.y * smoothstep(0.1, 0.8, up));
+	}
+	return color;
+}
+
 // The land while the intro plays: each vertex drawn between the room's height at its place (the floor, or a box's top) and its
 // own, its normal between the room's slope and its own, by its own moment (the field's g: boxes first, the plains after, the coast
 // with the walls). Positions are moved in world space (MODEL_NORMAL_MATRIX's transpose takes a world direction back to the
@@ -282,6 +377,7 @@ void vertex() {
 	obj_pos = VERTEX;
 	obj_normal = NORMAL;
 	baked_color = COLOR.rgb;
+	season_tree = hash12(MODEL_MATRIX[3].xz * 0.37 + vec2(0.71, 0.13));
 }
 
 void fragment() {
@@ -342,11 +438,22 @@ void fragment() {
 		float dab = (1.0 - smoothstep(0.15, 0.62, tuft.x)) * (tuft.z - 0.35);
 		tone += dab * 0.55 * detail(s * 1.6, footprint);
 		warm_bias = (blotch.x - 0.5) * 1.2 * d_patch + (wash.x - 0.5) * 0.8 * d_wash;
-		// A few small bright flecks: seed heads and tiny flowers, only on gentle ground.
+		if (season_ground.x > 0.0 || season_ground.y > 0.0 || season_tone.x > 0.0) {
+			// The season (L10): the tufts' tips toward straw (autumn, some in winter) in broad patches, the greens fresher in spring, and
+			// frost on what faces the sky, most in the hollows between the tufts. Only the grass changes colour, never the soil it blends to.
+			float d_tuft = detail(s * 1.6, footprint);
+			float tip = (1.0 - smoothstep(0.15, 0.62, tuft.x)) * d_tuft;
+			float green = smoothstep(0.1, 0.4, (color.g - color.r) / max(max(color.r, max(color.g, color.b)), 1e-3));
+			float straw_patch = clamp(0.75 + (blotch.x - 0.5) * 1.2, 0.0, 1.0);
+			color *= vec3(1.0) + season_ground.x * green * mix(0.55, 1.0, tip) * straw_patch * (season_meadow_straw - 1.0)
+				+ season_tone.x * green * (season_meadow_fresh - 1.0);
+			color = mix(color, season_frost, season_ground.y * smoothstep(0.45, 0.95, up) * mix(0.6, 1.0 - tip, d_tuft));
+		}
+		// A few small bright flecks: seed heads and tiny flowers, only on gentle ground (and none under frost).
 		vec2 fcell = floor(plw / (s * 2.2));
 		vec2 fo = hash22(fcell + 3.7) * 0.5 + 0.25;
 		float fleck = (1.0 - smoothstep(0.05, 0.12, length(fract(plw / (s * 2.2)) - fo))) * step(0.972, hash12(fcell)) * smoothstep(0.7, 0.9, up);
-		color = mix(color, vec3(0.95, 0.88, 0.55) * (0.6 + 0.4 * hash12(fcell + 1.3)), fleck * 0.8 * detail(s * 0.4, footprint));
+		color = mix(color, vec3(0.95, 0.88, 0.55) * (0.6 + 0.4 * hash12(fcell + 1.3)), fleck * 0.8 * detail(s * 0.4, footprint) * (1.0 - season_ground.y));
 	} else if (kind == K_SOIL) {
 		// Turned earth: clods and pits.
 		vec3 clod = voronoi(plw / (s * 1.4));
@@ -355,6 +462,7 @@ void fragment() {
 		tone -= pit * 0.8;
 		cavity = max(cavity, pit * 0.5);
 		warm_bias = (blotch.x - 0.5) * 0.6 * d_patch;
+		color = season_wet(color);
 	} else if (kind == K_PATH) {
 		// A trodden path: packed, finely cross-hatched earth with the odd small stone.
 		vec4 cross_a = stroke_noise(pb + seed * 0.4, vec3(0.7071, 0.0, 0.7071), 3.0, s * 0.7);
@@ -366,6 +474,7 @@ void fragment() {
 		float pebble = (1.0 - smoothstep(0.1, 0.28, stone.x)) * step(0.8, stone.z) * detail(s * 2.2, footprint);
 		color = mix(color, color * 1.18 + vec3(0.03), pebble * 0.6);
 		cavity = max(cavity, pebble * 0.3);
+		color = season_wet(color);
 	} else if (kind == K_GRAVEL) {
 		// Pebbles, each its own tone, with dark gaps between them.
 		vec3 pebble = voronoi(plw / s2);
@@ -396,6 +505,7 @@ void fragment() {
 		float steep = clamp((0.7 - abs(up)) * 2.0, 0.0, 1.0);
 		float layer = (p.y + seed.y) / (s2 * 0.35) + (blotch.x - 0.5) * 3.0;
 		tone += sin(layer * 6.2831853) * 0.07 * steep * detail(s2 * 0.35, footprint);
+		color = season_snow_on(color, up, blotch.x * 0.6 + wash.x * 0.4);
 	} else if (kind == K_CLIFF) {
 		// Cut faces: wavy strata of alternating tone with dark seams, weathering streaks running down; none on the tops.
 		float steep = clamp((0.7 - abs(up)) * 2.0, 0.0, 1.0);
@@ -410,6 +520,7 @@ void fragment() {
 		vec4 streak = stroke_noise(pw, vec3(0.0, 1.0, 0.0), 10.0, s * 0.7);
 		tone += (streak.x - 0.5) * 0.45 * steep * detail(s * 0.7, footprint);
 		bump += streak.yzw * 0.5 * steep * detail(s * 0.7, footprint);
+		color = season_snow_on(color, up, blotch.x * 0.6 + wash.x * 0.4);
 	} else if (kind == K_MOSS) {
 		// Soft cushions with bright tips.
 		float mound = smoothstep(0.30, 0.72, blotch.x);
@@ -456,6 +567,7 @@ void fragment() {
 		warm_bias = (clump.x - 0.5) * 1.0 * d_leaf + up * 0.35;
 		cavity = max(cavity, (1.0 - dab) * 0.2 * d_leaf);
 		bump += (vec3(hash13(cell + 2.2), hash13(cell + 6.6), hash13(cell + 9.9)) - 0.5) * 0.8 * d_leaf;
+		color = season_foliage(color, season_habit, season_tree, pw, cell, local, dab, clump.x, up, d_leaf);
 	} else if (kind == K_BARK) {
 		// Bark: grain and furrows running up the trunk.
 		vec4 furrow = stroke_noise(pw, vec3(0.0, 1.0, 0.0), 9.0, s);
