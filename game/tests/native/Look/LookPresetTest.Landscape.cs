@@ -78,7 +78,7 @@ public partial class LookPresetTest
         var instances = Scoped("instance");
         var globals = Scoped("global");
         Check(declarations.Count == declared.Count + instances.Length + globals.Length && instances.SequenceEqual(new[] { "intro_part", "paint_seed", "season_habit" })
-            && globals.SequenceEqual(new[] { "intro_area", "intro_colour", "intro_grow", "intro_rise", "intro_start" }.Concat(LandSeason.Globals.Select(g => g.Name)).Order()) && ignored.Length == 0,
+            && globals.SequenceEqual(new[] { "intro_area", "intro_colour", "intro_grow", "intro_rise", "intro_start" }.Concat(LandSeason.Globals.Select(g => g.Name)).Concat(GrassLook.Globals.Select(g => g.Name)).Order()) && ignored.Length == 0,
             $"the land shader reads every uniform it declares (and its per-instance seed and intro mark, and the intro's globals: {string.Join(",", instances.Concat(globals))}): ignored " + string.Join(",", ignored));
         var lightFunction = body[body.IndexOf("void light()", StringComparison.Ordinal)..];
         Check(!Regex.IsMatch(lightFunction, @"1\.0\s*-\s*ATTENUATION") && Regex.IsMatch(lightFunction, @"band\s*=[^;]*\*\s*light_warmth\s*;"),

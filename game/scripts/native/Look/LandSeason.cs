@@ -214,6 +214,8 @@ public static class LandSeason
         // The room's own trees: the live oak's saturation (the juniper keeps its own all year).
         _roomTrees ??= GD.Load<GDScript>(RoomTreesScript);
         _roomTrees.Call(RoomTreesCall, state.RoomOakSaturation);
+        // Prototype (run2/look-grass-proto): the grass's canopy, which the meadow floor draws too.
+        GrassLook.ApplyGlobals();
     }
 
     /// <summary>

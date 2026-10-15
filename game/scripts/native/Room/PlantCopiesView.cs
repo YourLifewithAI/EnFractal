@@ -113,6 +113,7 @@ public partial class PlantCopiesView : Node3D
             node.SetMeta("plant_kind", set.Kind.ToString().ToLowerInvariant());
             view.AddChild(node);
             // Prototype (run2/look-grass-proto): the grass's tufts built in code (GrassLook), the kit's back with --look-grass=kit.
+            if (GrassLook.Draws(set)) GrassLook.BuildCanopy(room);
             var meshes = GrassLook.Draws(set) ? GrassLook.TuftMeshes(set.MeshPaths.Count) : set.MeshPaths.Select(path => CopyMesh(room, path, set.Name)).ToArray();
             return new SetView { Set = set, Node = node, Meshes = meshes, Bands = DrawDistances.CopyBands(set.Kind, TypicalHeightM(set), meshes.Length) };
         }).ToArray();
