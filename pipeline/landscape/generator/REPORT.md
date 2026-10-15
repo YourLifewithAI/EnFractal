@@ -23,16 +23,26 @@ the island's own Fractals can open. A corridor is cut into the tallest landmark 
 garage the couch, bands 1 to 5 and a remainder ledge). Where its top ledge needs no more than `own_band`, a stair of ledges one band more
 each (the gates: 2.38, 2.78 and 3.18 m for bands 6, 7 and 8) is built above its platform on the landmark's top, across the corridor's
 axis, on ground within 0.5 m over and 2.5 m under the platform and clear of everything but the landmark's own protected ground (the
-flatter of the two sides). Every ledge is a bench 1.2 by 1.4 m (the top 1.6 m) the exact walk stands on, each proved: the stair's ledges
-are reached from bands 6, 7 and 8, a knack at full rank from 5, 6 and 7. A landmark with no room for a stair keeps its corridor, and the
-notes and the report say the summit is within what the island's Fractals open.
+flatter of the two sides) and leaves no ledge of walkable ground beside it narrower than 0.6 m (`sites._ledge_ok`: the narrowest of 1.4, 2.0,
+2.6, 3.2 and 4.0 m that does not, so a stair on a crest takes the crest's width: on the garage 2.0 m). Every ledge is a bench 1.2 m long (the top 1.6 m)
+the exact walk stands on, each proved: the stair's ledges are reached from bands 6, 7 and 8, a knack at full rank from 5, 6 and 7. A landmark with
+no room for a stair keeps its corridor, and the notes and the report say the summit is within what the island's Fractals open.
+
+**Why the stair is as wide as the crest (the game's navigation bake).** The first stair was 1.4 m wide and left a 0.3 m ledge of crest ground between
+its north wall and the crest's north rim: the game's navigation bake (Recast, a 2 cm cell) triangulates a walkable ribbon 10 cm wide as overlapping
+slivers (duplicate triangles along the wall's foot, 5 edge keys with three or four polygons), and Godot's map answers "Navigation region
+synchronization had 8 edge error(s)", which fails the scale suite's runner (its 10 checks still pass). Not a plant-salt layout: the same 8 under salts
+1 to 3, and a clean island with the stair left out (or with one ledge, on the west). Found by listing the edge keys more than two polygons share in a
+copy of the game's bake (nothing of `game/` changed here); the rule is the generator's, so no stair leaves such a ledge. At 2.0 m the stair's wall
+stands at the rim and the bake is clean (scale suite 10 of 10, no warning, planting salts 1 and 3; salt 2 fails the suite's walk across the island, as
+a layout of its own).
 
 **Why a stair and not a longer corridor.** No landmark on the garage hosts a cut corridor to bands 7 and 8. A ladder to band 8 climbs 14.24 m
 (every gate from band 1) and runs about 21 m. The tall landmarks, the shelf (20.2 m) and the easel (16.5 m), lie in the unreached south: the
 shelf is a crag whose face is 3 m deep (the flight would stand 10 m or more up from the plain, where a corridor may stand 2.5 m), the easel a
 spire with no top to stand 1.6 by 1.4 m on. The couch (8.3 m) and the table (7.2 m) are the only landforms the corridor search cuts into, to
 7.6 m (band 5). So the stair stands on the couch's crest. **Its price:** the room's reading rule (every object's footprint reads in the land,
-its top within a third of its height of the box's) lost the couch under a stair 8.7 m over its box, so the rule is read without the 1.4 by 7.6 m
+its top within a third of its height of the box's) lost the couch under a stair 8.7 m over its box, so the rule is read without the 2.0 by 7.6 m
 under the stair (`checks.stair_rects`); the rest of the couch reads. An alternative the rule allows is raising the couch's own landform by at
 most 3.7 m (bands up to 7, not 8): a change to the geology, not made here.
 
@@ -43,7 +53,7 @@ most 3.7 m (bands up to 7, not 8): a change to the geology, not made here.
 | out of reach yet | 9 | **13** |
 | by the lowest band that reaches them | 1: 15, 2: 3, 3: 3, 4: 1, 5: 1, none: 1 | 1: 15, 2: 3, 3: 3, 4: 1, 6: 1, 7: 1, 8: 1, **none: 3** |
 | by where they rest | steps 8, corners 5, ladders 7, shortcuts 2, summit 1, high 1 | steps 8, corners 5, ladders 7, shortcuts 2, **stair 2, summit 1, high 3** |
-| the summit | a corridor through the couch, 6 ledges, bands 1 to 5, 7.62 m, its top reached from band 5 | the same corridor and **a stair of 3 ledges (bands 6, 7, 8)** on the couch's crest, 15.96 m above its foot; the top ledge needs band 8 and is reached from band 8 (one knack 7, the pair 6); `x_summit` centre (-13.42, 17.03, -30.92), radius 1.3 m, `top_band` 8 |
+| the summit | a corridor through the couch, 6 ledges, bands 1 to 5, 7.62 m, its top reached from band 5 | the same corridor and **a stair of 3 ledges (bands 6, 7, 8)** on the couch's crest, 15.96 m above its foot; the top ledge needs band 8 and is reached from band 8 (one knack 7, the pair 6); `x_summit` centre (-13.42, 17.03, -30.92), radius 1.5 m (the top bench is 1.6 by 2.0 m), `top_band` 8 |
 | benches and routes | 23 in 13, 22 proved | 26 in 14, 25 proved (the one not as built is as before: the corridor's fifth ledge, which the couch's seat terrace offers a way round) |
 | the strict walk's reach | 832 m2 | 805 m2 on the written package (820 m2 on the feet alone and 879 with the climbs the generator's rule knows, as the packet counts them) |
 | generation | stage lines: 63.1 s to the Fractals, 160.6 s to their reach, 204.1 s written | the Fractals' two stages cost 3.1 and 3.3 s (against 3.2 and 2.8), nothing else moved: the same |
@@ -59,7 +69,7 @@ need a higher band, a ladder, the Gubble's Bubble lift or Build. Ids are still t
 
 ### Why the strict walk reaches a fifth of the island
 
-Measured with `coverage.py` on the written 10x garage (the walkable floor's dry land is 3,990 m2):
+Measured with `coverage.py` on the written 10x garage (the walkable floor's dry land is 4,010 m2 by the tool, 3,990 by the generator's own count):
 
 | walk from the player's spawn | m2 | share |
 |---|---|---|

@@ -34,6 +34,10 @@ SUMMIT_BELOW_M = 1.5  # the summit's platform is this close to its landmark's hi
 WALL_SHARE = .8       # the corridor is walled in (its sides stand over its floor) along this share of its cut
 TOWER_UP_M = .5       # the old ground under a built stair stands at most this over its foot (the corridor's platform) ...
 TOWER_DOWN_M = 2.5    # ... and at most this under it: the stair stands on the landmark's top, not over its edge
+TOWER_HALF_CELLS = (R.HALF_CELLS, 10, 13, 16, 20)   # the half widths a stair may take, narrowest first (cells)
+LEDGE_DEG = 40.       # ground beside a stair is walkable up to this ...
+LEDGE_MIN_M = .6      # ... and a ledge of it beside the stair is at least this wide, or there is none
+LEDGE_LOOK_CELLS = 8  # ... looked for this far beyond the stair's side (cells)
 SUMMIT_BODY_M = .2    # the summit counts a body's disc beyond the top bench's corners (x_summit radius)
 SUMMIT_RADIUS_STEP_M = .05   # ... rounded up to this
 
@@ -382,12 +386,33 @@ def plan_summit(land, siting, obj, rises_for, stats=None, own_band=None):
     return cands[0][2]
 
 
+def _ledge_ok(land, tower):
+    """Whether no ledge of ground beside a built stair is too narrow to be ground: where the stair's sides stand over the old
+    land, the walkable ground (faces of LEDGE_DEG or less) beyond a side is either none (the wall stands at the rim) or at
+    least LEDGE_MIN_M wide. A ribbon of a few centimetres is not ground a body walks on, and the game's navigation bake
+    cannot triangulate it: it makes overlapping slivers, and the map reports edges more than two polygons share."""
+    g = land.grid
+    nx = g.nx
+    need = int(math.ceil(LEDGE_MIN_M/g.cell-1e-9))
+    for s in range(tower.length+1):
+        for side in (1, -1):
+            width = 0
+            for k in range(1, LEDGE_LOOK_CELLS+1):
+                if land.fslope[tower.vertex(s, side*(tower.half+k), nx)] > LEDGE_DEG:
+                    break
+                width += 1
+            if 0 < width < need:
+                return False
+    return True
+
+
 def plan_tower(land, siting, corridor, bands, obj, stats=None):
     """The stair built on a landmark's top above its corridor's platform, or None: a second flight (`bands`, one ledge
     each, the last bench a platform like the corridor's) that starts at the platform's side and runs across the
     corridor's axis over the landmark's top. It stands on ground within TOWER_UP_M over the platform's level and
     TOWER_DOWN_M under it (so its sides are cliffs, never a way up round it), clear of everything but the landmark's own
-    protected ground. The flatter side of the two is taken."""
+    protected ground, and leaves no ledge beside it too narrow to be ground (`_ledge_ok`: the narrowest of
+    TOWER_HALF_CELLS that does not, so a stair on a crest takes the crest's width). The flatter side of the two is taken."""
     g, h = land.grid, land.h
     nx, nz = g.nx, g.nz
     cell = g.cell
@@ -397,38 +422,43 @@ def plan_tower(land, siting, corridor, bands, obj, stats=None):
     z_p = corridor.levels[-1]
     s_c = corridor.length-plat//2     # the platform's middle, along the corridor
     ledges = R.make_ledges([(gates.gate_rise(b), b) for b in bands], cell, last_bench_m=SUMMIT_PLATFORM_M)
-    best = None
-    for sign in (1, -1):
-        di, dj = sign*corridor.li, sign*corridor.lj
-        i0 = corridor.i0+corridor.di*s_c+di*corridor.half
-        j0 = corridor.j0+corridor.dj*s_c+dj*corridor.half
-        tower = R.Route('summit', i0, j0, di, dj, z_p, ledges, ident='summit_top')
-        tower.stair = True
-        box = flight_box(tower, pad)
-        if box[0] < 1 or box[2] < 1 or box[1] > nx-2 or box[3] > nz-2 or siting.hard.count(*box):
-            _n(stats, 'stair: hard ground in the way')
-            continue
-        if any(not boxes_apart(box, t, gap) for t in siting.taken):
-            _n(stats, 'stair: too near another flight')
-            continue
-        ground, clear = [], True
-        for q, s, m in tower.cells(nx):
-            ground.append(h[q])
-            if land.protect[q] and not _in_object(g, q, obj):
-                clear = False
-                break
-        if not clear:
-            _n(stats, 'stair: other protected ground')
-            continue
-        if max(ground) > z_p+TOWER_UP_M or min(ground) < z_p-TOWER_DOWN_M:
-            _n(stats, 'stair: not on the landmark\'s top')
-            continue
-        relief = max(ground)-min(ground)
-        if best is None or relief < best[0]:
-            best = (relief, tower)
-    if best is not None:
-        _n(stats, 'stairs')
-    return None if best is None else best[1]
+    for half in TOWER_HALF_CELLS:
+        best = None
+        for sign in (1, -1):
+            di, dj = sign*corridor.li, sign*corridor.lj
+            i0 = corridor.i0+corridor.di*s_c+di*corridor.half
+            j0 = corridor.j0+corridor.dj*s_c+dj*corridor.half
+            tower = R.Route('summit', i0, j0, di, dj, z_p, ledges, half=half, ident='summit_top')
+            tower.stair = True
+            box = flight_box(tower, pad+LEDGE_LOOK_CELLS)
+            if box[0] < 1 or box[2] < 1 or box[1] > nx-2 or box[3] > nz-2 or siting.hard.count(*flight_box(tower, pad)):
+                _n(stats, 'stair: hard ground in the way')
+                continue
+            if any(not boxes_apart(flight_box(tower, pad), t, gap) for t in siting.taken):
+                _n(stats, 'stair: too near another flight')
+                continue
+            ground, clear = [], True
+            for q, s, m in tower.cells(nx):
+                ground.append(h[q])
+                if land.protect[q] and not _in_object(g, q, obj):
+                    clear = False
+                    break
+            if not clear:
+                _n(stats, 'stair: other protected ground')
+                continue
+            if max(ground) > z_p+TOWER_UP_M or min(ground) < z_p-TOWER_DOWN_M:
+                _n(stats, "stair: not on the landmark's top")
+                continue
+            if not _ledge_ok(land, tower):
+                _n(stats, 'stair: a ledge beside it too narrow')
+                continue
+            relief = max(ground)-min(ground)
+            if best is None or relief < best[0]:
+                best = (relief, tower)
+        if best is not None:
+            _n(stats, 'stairs')
+            return best[1]
+    return None
 
 
 def summit_radius(route, cell):

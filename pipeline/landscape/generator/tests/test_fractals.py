@@ -349,6 +349,9 @@ class SummitStair(unittest.TestCase):
         self.assertEqual(self.plan.summit_routes(), [summit, summit.tower])
         self.assertEqual(summit.tower.id, 'summit_top')
 
+    def test_a_mesa_with_room_all_round_keeps_the_narrowest_stair(self):
+        self.assertEqual(self.plan.summit.tower.half, R.HALF_CELLS)
+
     def test_it_stands_on_the_landmarks_top_and_leaves_the_plain_alone(self):
         g = self.land.grid
         tower = self.plan.summit.tower
@@ -512,6 +515,42 @@ class SummitShort(unittest.TestCase):
         stats = {}
         self.assertIsNone(sites.plan_tower(land, siting, corridor, [6, 7, 8], land.objects[0], stats))
         self.assertTrue(any(k.startswith('stair:') for k in stats), stats)
+
+
+class StairLedges(unittest.TestCase):
+    """A stair built over a landform's top must leave no ledge beside it too narrow to be ground: the game's navigation bake
+    cannot triangulate a ribbon of a few centimetres (it makes overlapping slivers, and the map reports edges more than
+    two polygons share: the 10x garage's first stair did, on the crest's north rim, and the scale suite's runner failed)."""
+
+    def lined(self, ledge_cells):
+        """A flat island and a stair along +x at z = 0; the ground beside its two sides is walkable for `ledge_cells`
+        vertices and then too steep to walk."""
+        land = synthetic_land(10.)
+        g = land.grid
+        route = R.Route('summit', 150, 100, 1, 0, 1., R.make_ledges([(gates.gate_rise(6), 6)], g.cell, last_bench_m=1.6),
+                        ident='summit_top')
+        route.stair = True
+        edge = route.half
+        for j in range(g.nz):
+            for i in range(g.nx):
+                row = abs(j-route.j0)
+                land.fslope[j*g.nx+i] = 0. if row <= edge+ledge_cells else 60.
+        return land, route
+
+    def test_a_ledge_of_a_few_centimetres_is_refused_and_none_or_a_wide_one_is_not(self):
+        need = int(math.ceil(sites.LEDGE_MIN_M/.1))
+        for cells, ok in ((0, True), (1, False), (3, False), (need-1, False), (need, True), (sites.LEDGE_LOOK_CELLS, True)):
+            land, route = self.lined(cells)
+            if cells == 0:
+                # no ledge: the ground beside the stair is too steep to walk from the first vertex on
+                for q in range(land.grid.n):
+                    j = q//land.grid.nx
+                    land.fslope[q] = 0. if abs(j-route.j0) <= route.half else 60.
+            self.assertEqual(sites._ledge_ok(land, route), ok, cells)
+
+    def test_the_widths_a_stair_may_take_run_narrowest_first(self):
+        self.assertEqual(sites.TOWER_HALF_CELLS[0], R.HALF_CELLS)
+        self.assertEqual(list(sites.TOWER_HALF_CELLS), sorted(sites.TOWER_HALF_CELLS))
 
 
 class LiftPlaces(unittest.TestCase):
