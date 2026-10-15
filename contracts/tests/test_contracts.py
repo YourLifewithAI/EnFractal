@@ -1814,7 +1814,7 @@ class MechanicsRoundTests(unittest.TestCase):
         self.assertEqual(sorted(k for k, v in knacks.items() if not v[3]), ["green_thumb", "handy", "strong_arm"])
         self.assertEqual(sorted(knacks), sorted(self.v5["names"]["knacks"]), "every knack has a name")
         self.assertEqual(self.v5["names"]["expertise"], "Expertise")
-        self.assertEqual(self.v5["fractals"], {"budget_min": 20, "budget_max": 25, "reachable_first_run": 15, "per_heart": 5,
+        self.assertEqual(self.v5["fractals"], {"budget_min": 25, "budget_max": 30, "reachable_first_run": 15, "per_heart": 5,
                                                "per_band": 5, "typed": False})
 
     def test_no_fall_cap_anywhere(self):

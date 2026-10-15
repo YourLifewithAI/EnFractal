@@ -1657,13 +1657,30 @@ def sea_checks(doc, meshes, terrain, room, floods=None):
     return ok, rows
 
 
-def footprint_checks(inventory, terrain, room, W=None):
+def stair_rects(doc, pad=.5):
+    """The ground under the stairs the generator built over a landform's top (a summit's, when its landmark is too short for
+    the bands the island's own Fractals open: the routes of x_generator.fractals marked `stair`), as axis-aligned rectangles
+    (x0, x1, z0, z1) in metres with `pad` round them: a flight runs along an axis."""
+    out = []
+    for row in ((doc.get('x_generator') or {}).get('fractals') or {}).get('routes', ()):
+        if not row.get('stair'):
+            continue
+        (ox, oz), (di, dj) = row['origin_m'], row['direction']
+        length, half = row['length_m'], row['half_width_m']
+        xs = (ox, ox+di*length) if di else (ox-half, ox+half)
+        zs = (oz, oz+dj*length) if dj else (oz-half, oz+half)
+        out.append((min(xs)-pad, max(xs)+pad, min(zs)-pad, max(zs)+pad))
+    return out
+
+
+def footprint_checks(inventory, terrain, room, W=None, stairs=()):
     """Per object: where its box went and how far the land's rise is from it
     (inside the walkable floor only). The reading rule is the room's: on a
     room magnified x W (the 10x world) its metres (the ring round the box,
     the sampling step, the 15 and 25 cm the land's top may lie from the box's)
     are W times today's, as the generator's own protection of a landform's
-    top is (generate's `floor_at`)."""
+    top is (generate's `floor_at`). `stairs` (`stair_rects`) are read without:
+    a stair built over a landform's top is the island's gate, not the landform."""
     from .land import inside_distance
     W = world.W if W is None else W
     rows = []
@@ -1705,7 +1722,7 @@ def footprint_checks(inventory, terrain, room, W=None):
                         olx, olz = math.cos(oa)*ox-math.sin(oa)*oz, math.sin(oa)*ox+math.cos(oa)*oz
                         if abs(olx) <= ob['size_m'][0]/2 and abs(olz) <= ob['size_m'][2]/2:
                             covered = True
-                    if not covered:
+                    if not covered and not any(a <= x <= b and c_ <= z <= d for a, b, c_, d in stairs):
                         inside.append(terrain.height(x, z))
                 elif .45*W <= max(dx, dz) <= .7*W and not e['placement']['support'].get('target_id') \
                         and inside_distance(room, x, z) >= 0:
@@ -1805,6 +1822,16 @@ def fractal_checks(doc, meshes, terrain, room, floods=None):
         got = base.band_at(x, z)
         if got != item.get('reach_band') or abs(terrain.height(x, z)-y) > .002:
             bad.append(dict(fractal=item['id'], says_band=item.get('reach_band'), reached_from=got))
+    # The summit the manifest will carry (x_summit): its centre lies on the top bench, inside the island, and the walk
+    # reaches it from the band it says (from a lower one only where the land beside the corridor offers a way round).
+    summit = (doc.get('x_generator') or {}).get('summit')
+    if summit:
+        x, y, z = summit['center_m']
+        lo, hi = room['bounds']['min_m'], room['bounds']['max_m']
+        got = base.band_at(x, z)
+        if not (lo[0] <= x <= hi[0] and lo[2] <= z <= hi[2]) or abs(terrain.height(x, z)-y) > .002 or not summit['radius_m'] > 0 \
+                or got is None or got > summit['top_band']:
+            bad.append(dict(summit=True, says_band=summit['top_band'], reached_from=got))
     return not bad, dict(placed=len(fx['items']), benches=benches, failing=len(bad), problems=bad[:8],
                          bypassed=bypassed, by_band=fx.get('counts', {}).get('by_band'))
 
@@ -1900,7 +1927,7 @@ def run(package, room_dir):
     g_ok, ground = grounding_checks(doc, terrain)
     floods = {}
     p_ok, walks = walk_checks(doc, meshes, terrain, room, floods)
-    f_ok, prints = footprint_checks(inventory, terrain, room, world_scale(doc))
+    f_ok, prints = footprint_checks(inventory, terrain, room, world_scale(doc), stair_rects(doc))
     s_ok, sea = sea_checks(doc, meshes, terrain, room, floods)
     c_ok, climbs = climb_checks(doc, meshes)
     x_ok, fractals = fractal_checks(doc, meshes, terrain, room, floods)

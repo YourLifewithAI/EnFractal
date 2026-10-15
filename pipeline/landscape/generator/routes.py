@@ -57,6 +57,8 @@ class Route:
             raise ValueError('a flight runs along an axis')
         self.kind, self.i0, self.j0, self.di, self.dj, self.z0 = kind, i0, j0, di, dj, z0
         self.ledges, self.half, self.id = list(ledges), half, ident
+        self.tower = None   # a summit's corridor: the stair built on its landmark's top (a second Route), if it has one
+        self.stair = False  # this flight is such a stair: built over a landform's top, which the footprint rule reads without it
         self.li, self.lj = -dj, di
         # Cell counts where each riser and bench begins, and the level above each.
         self.starts, self.levels = [], [z0]
@@ -152,9 +154,12 @@ class Route:
                        riser_run_m=round(ledge.riser_cells*grid.cell, 4))
             ledges.append(row)
         ox, oz = self.xz(grid, 0)
-        return dict(id=self.id, kind=self.kind, origin_m=[round(ox, 4), round(oz, 4)], direction=[self.di, self.dj],
-                    foot_level_m=round(self.z0, 4), half_width_m=round(self.half*grid.cell, 4),
-                    length_m=round(self.length*grid.cell, 4), ledges=ledges)
+        row = dict(id=self.id, kind=self.kind, origin_m=[round(ox, 4), round(oz, 4)], direction=[self.di, self.dj],
+                   foot_level_m=round(self.z0, 4), half_width_m=round(self.half*grid.cell, 4),
+                   length_m=round(self.length*grid.cell, 4), ledges=ledges)
+        if self.stair:
+            row['stair'] = True
+        return row
 
 
 def ladder(kind, grid, i0, j0, di, dj, z0, bands, ident=None, last_bench_m=None):
