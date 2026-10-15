@@ -16,7 +16,7 @@ The founder chose the body from a sheet of three, rendered on the 10x garage by 
 |---|---|---|
 | **Crystal** | A held fractal: a tetrahedron that grows a smaller one on the middle of each face, twice (the Koch tetrahedron's second step), a body diagonal upright, so it is a star of 144 facets with a point up and a point down, 2.7 cm tall. Pale gold-white, each facet its own tone, a crisp sparkle where a facet turns between the sun and the eye, a faint cool rainbow at grazing angles (a thin film). | 144 |
 | **Seed** | A fern's crosier: a felt tube that rises from a short stem into a plump coil of 1.6 turns whose rounds touch, drifting sideways as it winds so it reads from every side as it turns, 2.5 cm tall. Pale gold felt (soft, matte, a velvet sheen and a rim from a light behind, as the characters' felt), a faint light from the heart of its curl. | about 180 |
-| **Star** (the pick) | No body: a soft heart of light 1.2 cm across in a halo 4.5 cm across, with four long rays and four short, between the body's pale gold and the glint's cool white, the rays fringed with a rainbow: the wisp's heart (GLOW.md) made small and cool. It hovers 2 cm up and bobs as a wisp does, so its halo reaches the ground: where its light meets a surface it softens over 3 cm, from the depth buffer, as the wisp's halo does, so no hard line cuts it. It casts no shadow and lights nothing. | 0 (a quad) |
+| **Star** (the pick) | No body: a soft heart of light 1.2 cm across in a halo 4.5 cm across, with four long rays and four short, between the body's pale gold and the glint's cool white, the rays fringed with a rainbow: the wisp's heart (GLOW.md) made small and cool. It hovers 2 cm up and bobs as a wisp does, so its halo reaches the ground: where its light meets a surface it softens over 3 cm, from the depth buffer, as the wisp's halo does, so no hard line cuts it. It casts no shadow; at night it casts a small pool of light (below). | 0 (a quad) |
 
 The crystal and the seed carry a faint inner light (`InnerLight`, 0.12 of their colour) so a Fractal in reach still reads at night; it lights nothing.
 
@@ -28,8 +28,17 @@ Above each body a camera-facing quad of light (one MultiMesh, written on the CPU
 - **A pitfall, fixed (15 October):** the pixel rule divides by the projection's `[1][1]`, which the engine makes negative when it flips Y for a render target (the capture harness's SubViewport). Taken as it came, the glint never grew: one pixel at 3 m and nothing at 14 in the first captures. The shader takes its size, and the look suite pins that.
 - **It twinkles** on its own slow period (2.6 to 4.2 s, from its id, so no two blink together), never below 0.45 of its brightness, peaking briefly; its rays turn once in 20 s.
 - **Up close it steps back:** within 35 cm of the eye it dims to 0.3, so the body in reach reads rather than a flare.
-- **At night** its brightness (2.5, the wisp heart's) is over 1, so the bloom catches it. **It casts no light** (recommended): the light budget's spare slots are the wisps'.
+- **At night** its brightness (2.5, the wisp heart's) is over 1, so the bloom catches it.
 - **The haze and the sea mist hide it as they hide the land.** The engine's own fog over an additive quad would add the fog's colour to the whole quad, so the shader skips it and mirrors the look's depth fog itself (`ViewDistances.FogAt`, the environment's begin, end, density and curve, followed each frame). From the seam out no play camera sees a glint, as it sees no island.
+
+## The light at night
+
+**A Fractal casts a small pool of real light at night** (the founder, 15 October: "a fun way for players to find it"; the plan had recommended a self-lit glint only). Each is an omni light at the Fractal's heart, energy 0.18 reaching 0.6 m with a steep falloff (1.5), between the body's pale gold and the glint's cool white: a soft pool on the ground round it that lights a player's near side and the nearest flowers and fades into the night. It fades in as daylight falls through the lamps' own switch (the preset's `switch_on_below_daylight`, fully on at half of it), so the Fractals light up when lamps would, and goes out with the body when one is picked up.
+
+- **Within the budgets:** it casts no shadow, so it takes no slot of `max_shadowed_lights` (the sun's, the windows', the lamps' and the wisps'), and it is baked into nothing. At most 32 are lit (the 10x garage has 24, so all of them), those nearest the player, chosen again every 0.25 s; the engine fades a light out past 40 m from the camera.
+- **Cost:** on the 10x garage at 21:00, 0.15 to 0.26 ms more GPU time a frame than the same views without the lights (the first tuning, energy 0.3 over 0.4 m); the CPU's share stays in the 15 µs a frame below.
+- **Not in the light estimate:** `LookDirector.LightLevelAt` counts the lamps and the Gubble's glows, not the Fractals' pools, so a spot by a Fractal still reads dark to the dusk moment and the smart ask. Counting them is a small change in `LookDirector.Glow.cs` (not L9's file); a question for the founder, since it would make Fractals a light source the game reasons about.
+- **What it does and does not do for finding:** in reach and a few metres off the pool reads at once. From 14 m off and a band below, a Fractal on a ledge hides its pool behind the ledge's edge; there only the glint carries it.
 
 ## The slow life
 
@@ -43,8 +52,8 @@ When `Fractals` loses an id (read on the next tick after `NatureChanged`), that 
 
 Three MultiMeshes, one draw each, under 200 triangles a body; the sparks' pool is written only while a pickup moment lasts. Measured headless (the debug build the suites use):
 
-- **The 10x garage's 24 Fractals: 12 µs a frame on the CPU, nothing allocated** over 600 frames (the plan's target: under 0.1 ms). The look suite holds it under 100 µs and to zero bytes.
-- **A thousand (the kernel's most): about 0.4 ms a frame, nothing allocated**; the suite holds it under 0.6 ms.
+- **The 10x garage's 24 Fractals: about 15 µs a frame on the CPU with the night's lights, nothing allocated** over 600 frames (the plan's target: under 0.1 ms). The look suite holds it under 100 µs and to zero bytes.
+- **A thousand (the kernel's most): about 0.5 ms a frame, nothing allocated**; the suite holds it under 0.6 ms.
 - The island frame probe (`native_look_island_probe.tscn`, the 10x garage) cannot resolve it: switching the node off moves the frame by less than its noise (the process step 0.55 against 0.61 ms, other nodes swinging as much), and the allocations a frame do not change.
 
 ## The cameras
@@ -56,7 +65,7 @@ Three MultiMeshes, one draw each, under 200 triangles a body; the sparks' pool i
 ## What needs the founder's eye
 
 1. **The form**, from the sheet, blind.
-2. **Does a Fractal light its surroundings at night?** Recommended and built: no, a self-lit glint only.
+2. **Does a Fractal light its surroundings at night?** Decided by the founder (15 October): **yes**, a small pool of light (above). Still open: whether the light estimate counts it.
 3. **Does it move?** Recommended and built: the slow turn and the small bob; the star bobs like a wisp.
 4. **The colour:** recommended and built: one family, pale gold-white with a cool rainbow glint, never the aura colour.
 5. **The pickup moment:** recommended and built: the sparks, no words; sound later.
