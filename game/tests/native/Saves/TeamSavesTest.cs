@@ -47,10 +47,11 @@ public partial class TeamSavesTest : Node3D
             TestMigration();
             TestMigrationKeepsWhatItShould();
             await TestTheGameBoot();
+            await TestABootThatCannotSetItsMode();
             await TestAFixtureBootIsAsBefore();
             GC.Collect();
             GC.WaitForPendingFinalizers();
-            GD.Print($"NATIVE_TEAM_SAVES: {_checks - _failures}/{_checks} checks passed; the team folder and its layout (two teams never share a file), the team file, the expertise store's version 3 and the union of the per-mode Glow records, the migration (written and verified, the old files removed only on a later launch, never one that changed or whose copy does not read, never over a team's own file), the boot's team, mode and difficulty, world.set_mode and Live refused once the room is up, the save keeping its difficulty, and knack.set at the camp reaching the body; not the menu");
+            GD.Print($"NATIVE_TEAM_SAVES: {_checks - _failures}/{_checks} checks passed; the team folder and its layout (two teams never share a file), the team file, the expertise store's version 3 and the union of the per-mode Glow records, the migration (written and verified, the old files removed only on a later launch, never one that changed or whose copy does not read, never over a team's own file), the boot's team, mode and difficulty, world.set_mode and Live refused once the room is up, the save keeping its difficulty, an island whose mode could not be set held rather than played under another mode's rules, knack.set at the camp reaching the body with a swapped knack's earned rank kept, and no Windows device's name for a team; not the menu");
             GetTree().Quit(_failures == 0 ? 0 : 1);
         }
         catch (Exception error)
@@ -125,6 +126,16 @@ public partial class TeamSavesTest : Node3D
         var refused = 0;
         foreach (var bad in new[] { "../local", "a/b", "" }) try { layout.TeamFolder(bad); } catch (ArgumentException) { refused++; }
         Check(refused == 3, "a path is never made from a team id that is not one");
+        // The review's finding 3: Windows keeps these names for its devices (a teams\nul folder cannot be made), in any case.
+        var devices = new[] { "con", "prn", "aux", "nul", "com0", "com1", "com9", "lpt0", "lpt1", "lpt9", "NUL", "Con", "cOm1", "LPT9" };
+        var near = new[] { "con-1", "nul_team", "com10", "lpt", "console", "auxiliary", "com_1" };
+        Check(devices.All(id => !TeamLayout.ValidTeamId(id)) && near.All(TeamLayout.ValidTeamId) && devices.All(id => Refuses(() => new TeamStore(Path.Combine(layout.Root, "teams", id, "team.json"), id))),
+            "a Windows device's name is never a team id, whatever its case (nul, con, aux, prn, com0-9, lpt0-9); names that only start like one are");
+        var device = 0;
+        foreach (var bad in new[] { "nul", "com1", "lpt1" }) try { layout.TeamFolder(bad); } catch (ArgumentException) { device++; }
+        Check(device == 3 && Refuses(() => TeamFile.Create("nul", DateTime.UtcNow, "Mira", "prototype", "Wisp", "#65b9b0")) &&
+              Refuses(() => LocalGlowProgressStore.Serialize(GlowProgress.Fresh, "con")),
+            "and no folder, team file or expertise store is made for one");
     }
 
     // ---- the team file ----
@@ -158,6 +169,29 @@ public partial class TeamSavesTest : Node3D
         var ranked = quick with { Knacks = new[] { new ChosenKnack(1, "quick_feet", 3) } };
         Check(ranked.WithKnack(1, "quick_feet", table).Knacks.Single().Rank == 3 && ranked.WithKnack(1, "high_hop", table).Knacks.Single() == new ChosenKnack(1, "high_hop", 1),
             "a rank is earned, never set: the knack kept keeps it, a new one starts at 1");
+        // The review's finding 2: a free swap never costs an earned rank. Out, the rank is set aside; back in, it returns.
+        var aside = ranked.WithKnack(1, "high_hop", table);
+        var swappedBack = aside.WithKnack(1, "quick_feet", table);
+        Check(aside.Earned.Count == 1 && aside.Earned["quick_feet"] == 3 && swappedBack.Knacks.Single() == new ChosenKnack(1, "quick_feet", 3) && ReferenceEquals(swappedBack.Earned, TeamFile.NoneEarned),
+            $"a knack swapped out keeps the rank it earned (quick_feet {aside.Earned.GetValueOrDefault("quick_feet")}), and set back into its slot returns at it ({swappedBack.Knacks.Single().Rank})");
+        var twice = (aside with { Knacks = new[] { new ChosenKnack(1, "high_hop", 2) } }).WithKnack(1, "cat_feet", table);
+        Check(twice.Earned.Count == 2 && twice.Earned["high_hop"] == 2 && twice.Earned["quick_feet"] == 3 && twice.Knacks.Single() == new ChosenKnack(1, "cat_feet", 1) &&
+              ReferenceEquals(quick.WithKnack(1, "high_hop", table).Earned, TeamFile.NoneEarned),
+            "every knack set aside keeps its own rank; one that never ranked up is not kept (it returns at 1 anyway)");
+        var asideText = Encoding.UTF8.GetString(twice.Serialize());
+        Check(asideText.Contains("\"knacks\":{\"slots_open\":1,\"chosen\":[{\"slot\":1,\"knack\":\"cat_feet\",\"rank\":1}],\"earned\":{\"high_hop\":2,\"quick_feet\":3}}", StringComparison.Ordinal) &&
+              TeamFile.Parse(twice.Serialize()).WithKnack(1, "quick_feet", table).Knacks.Single().Rank == 3 && !text.Contains("earned", StringComparison.Ordinal),
+            "the ranks set aside are written as knacks.earned (only when there are any: a team without one writes the bytes it wrote before) and read back: " + asideText.Trim());
+        var badRanks = new[]
+        {
+            asideText.Replace("\"quick_feet\":3", "\"quick_feet\":1", StringComparison.Ordinal),
+            asideText.Replace("\"quick_feet\":3", "\"quick_feet\":4", StringComparison.Ordinal),
+            asideText.Replace("\"quick_feet\":3", "\"cat_feet\":3", StringComparison.Ordinal),
+            asideText.Replace("\"quick_feet\":3", "\"Quick Feet\":3", StringComparison.Ordinal),
+            asideText.Replace("\"earned\":{\"high_hop\":2,\"quick_feet\":3}", "\"earned\":[\"high_hop\"]", StringComparison.Ordinal),
+            asideText.Replace("\"earned\":{", "\"kept\":{", StringComparison.Ordinal),
+        }.Count(t => Refuses(() => TeamFile.Parse(Encoding.UTF8.GetBytes(t))));
+        Check(badRanks == 6, $"knacks.earned is read strictly: rank 1, rank 4, a knack in a slot, a name that is no knack id, a list, another field ({badRanks}/6 refused)");
         Check(Refuses(() => team.WithKnack(2, "high_hop", table)) && Refuses(() => team.WithKnack(1, "handy", table)) && Refuses(() => team.WithKnack(1, "reach", table)) &&
               Refuses(() => team.WithKnack(1, "quick_feet", null)) && Refuses(() => (quick with { SlotsOpen = 2 }).WithKnack(2, "quick_feet", table)),
             "knack.set's rules: only an open slot, only a knack the pack offers (Handy waits for Build), never one knack in two slots");
@@ -172,6 +206,14 @@ public partial class TeamSavesTest : Node3D
         Check(Refuses(() => other.Save(mira.WithKnack(1, "big_bar", table))) && store.Load()!.Knacks.Single().Knack == "cat_feet",
             "a store that read an older team file never overwrites a newer one (another session)");
         Check(Refuses(() => new TeamStore(miraPath, "theo").Load()), "a team file filed under another team's name is refused, never adopted");
+        // The contract's own examples: its team file reads (a rank set aside among them), and each invalid team file is refused.
+        var examples = ProjectSettings.GlobalizePath("res://") + "../contracts/examples/";
+        var example = TeamFile.Parse(File.ReadAllBytes(examples + "teams/example_team/team.json"));
+        var invalid = Directory.GetFiles(examples + "teams_invalid", "team_*.json").OrderBy(f => f, StringComparer.Ordinal).ToArray();
+        Check(example is { TeamId: "example_team", DisplayName: "Mira" } && example.Knacks.Single() == new ChosenKnack(1, "quick_feet", 1) && example.Earned.Count == 1 &&
+              example.Earned["high_hop"] == 2 && example.WithKnack(1, "high_hop", table).Knacks.Single() == new ChosenKnack(1, "high_hop", 2) &&
+              invalid.Length == 7 && invalid.All(f => Refuses(() => TeamFile.Parse(File.ReadAllBytes(f)))),
+            $"the contract's team file reads, High hop set back at the rank it earned, and its {invalid.Length} invalid team files are refused");
     }
 
     private static bool Refuses(Action action)
@@ -446,6 +488,75 @@ public partial class TeamSavesTest : Node3D
             Check(host.Mode == "creative" && host.ModeFixed && host.SaveTeamIdentity == new SaveTeam("other_team", "creative", null) && File.Exists(layout.TeamFile("other_team")) &&
                   !File.ReadAllText(layout.TeamFile("other_team")).Contains("high_hop", StringComparison.Ordinal),
                 "--mode=live is refused at the boot (another team, its own file, Creative)");
+            await Unboot();
+
+            // The review's finding 2 through the host: a team whose High hop earned rank 3 swaps it out and back at the camp, free.
+            var rankedStore = new TeamStore(layout.TeamFile("ranked_team"), "ranked_team");
+            rankedStore.Load();
+            rankedStore.Save(TeamFile.Create("ranked_team", DateTime.UtcNow, "Theo", "prototype", "the Gubble", "#75965c") with { Knacks = new[] { new ChosenKnack(1, "high_hop", 3) } });
+            host = await Boot(layout.Root, "--team=ranked_team", "--mode=creative");
+            if (host == null) return;
+            var ranked = layout.TeamFile("ranked_team");
+            var rankThree = _world!.Player.Knacks.HopFactor;
+            var swapped = Answer(host.PlayerSetKnack(1, "quick_feet"));
+            var aside = TeamFile.Parse(File.ReadAllBytes(ranked));
+            var returned = Answer(host.PlayerSetKnack(1, "high_hop"));
+            var after = TeamFile.Parse(File.ReadAllBytes(ranked));
+            Check(swapped.Ok && aside.Knacks.Single() == new ChosenKnack(1, "quick_feet", 1) && aside.Earned["high_hop"] == 3 &&
+                  returned.Ok && after.Knacks.Single() == new ChosenKnack(1, "high_hop", 3) && after.Earned.Count == 0 &&
+                  host.Knacks["high_hop"] == 3 && rankThree > 1.1f && Mathf.IsEqualApprox(_world.Player.Knacks.HopFactor, rankThree),
+                $"a knack swapped out at the camp keeps its earned rank in the team file and comes back at it, to the body too (hop x{_world.Player.Knacks.HopFactor:0.00})");
+            await Unboot();
+        }
+        finally
+        {
+            await Unboot();
+            TeamBoot.UserRootOverride = null;
+            (CommandHost.SaveRoot, CommandHost.DefaultGlowProgressPath, CommandHost.DefaultPlayerVitalsPath, CommandHost.DefaultWishSaveRoot, RoomHud.ProfilePath) = previous;
+        }
+    }
+
+    /// <summary>
+    /// The review's finding 1: a boot whose one set-mode is refused (here the team's vitals do not read, so the host cannot leave
+    /// Creative) never plays the island save under another mode's rules.
+    /// </summary>
+    private async Task TestABootThatCannotSetItsMode()
+    {
+        var previous = (CommandHost.SaveRoot, CommandHost.DefaultGlowProgressPath, CommandHost.DefaultPlayerVitalsPath, CommandHost.DefaultWishSaveRoot, RoomHud.ProfilePath);
+        var root = Folder("held");
+        var layout = new TeamLayout(root);
+        try
+        {
+            Write(layout.VitalsFile("held_team", "creative"), "not a vitals document");
+            var vitalsBefore = File.ReadAllBytes(layout.VitalsFile("held_team", "creative"));
+            var host = await Boot(root, "--team=held_team", "--mode=challenge");
+            if (host == null) return;
+            var savePath = Path.GetFullPath(ProjectSettings.GlobalizePath(host.SavePath));
+            GD.Print($"HELD_EVIDENCE asked challenge; the host plays {host.Mode} (shadow pool {host.BodyRules.ShadowPool}, consequences {host.BodyRules.Consequences}); " +
+                     $"the save is {host.SaveTeamIdentity}, at {layout.Relative(savePath)}; notice \"{host.TeamNotice}\"");
+            var note = Answer(host.PlayerJournalNote("Written while the island could not open in Challenge."));
+            await Frames(3);
+            GD.Print($"HELD_EVIDENCE the player's note: ok {note.Ok} {note.Code} \"{note.Message}\"; the Challenge island save exists: {File.Exists(savePath)}");
+            Check(host.Mode == host.SaveTeamIdentity?.Mode || (!note.Ok && !File.Exists(savePath)),
+                $"a Challenge island never plays under {host.Mode}'s rules into its save (note {note.Ok}, save written {File.Exists(savePath)})");
+            Check(host.IslandHeld && host.ModeFixed && host.TeamNotice == CommandHost.IslandHeldWords("challenge") && host.TeamNotice.StartsWith("This Challenge island could not open", StringComparison.Ordinal),
+                $"the island is held, and the player reads why: \"{host.TeamNotice}\"");
+            Check(note is { Ok: false, Code: "persistence_uncertain" } && note.Message == host.TeamNotice,
+                "every change is refused with the same words (the creation authority's persistence sink refuses, so nothing is written or published)");
+            var again = Answer(host.PlayerMode("challenge"));
+            var knack = Answer(host.PlayerSetKnack(1, "quick_feet"));
+            Check(again is { Ok: false, Code: "unsupported_capability" } && knack is { Ok: false, Code: "not_ready" } && knack.Message == host.TeamNotice &&
+                  TeamFile.Parse(File.ReadAllBytes(layout.TeamFile("held_team"))).Knacks.Count == 0,
+                "the mode stays fixed (no later set-mode plays it under yet another mode), and not even a knack is saved");
+            await Unboot();
+            Check(!File.Exists(savePath) && File.ReadAllBytes(layout.VitalsFile("held_team", "creative")).SequenceEqual(vitalsBefore),
+                "nothing reaches the island save, not even at exit, and the vitals file is kept as it was");
+
+            // The same broken vitals in Creative: the host already plays Creative, so the Creative save is not held (its rules are its own).
+            host = await Boot(root, "--team=held_team", "--mode=creative");
+            if (host == null) return;
+            Check(!host.IslandHeld && host.Mode == "creative" && host.SaveTeamIdentity?.Mode == "creative" && host.VitalsNotice.Length > 0,
+                $"a Creative boot with the same vitals plays its Creative save under Creative's rules, saying the traits wait (\"{host.TeamNotice}\")");
             await Unboot();
         }
         finally

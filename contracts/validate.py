@@ -1240,6 +1240,9 @@ def check_team_document(document: dict, label: str) -> list[str]:
         names = [entry["knack"] for entry in knacks["chosen"]]
         if len(names) != len(set(names)):
             problems.append(f"{label}: knacks.chosen picks one knack twice")
+        # M3's fix round (15 October): a rank set aside is for a knack in no slot.
+        for name in sorted(set(knacks.get("earned", {})) & set(names)):
+            problems.append(f"{label}: knacks.earned keeps a rank for {name}, which is in a slot")
     elif document["schema"] == "enfractal.player_modes":
         vitals = document["vitals"]
         if vitals["health"] > vitals["max_health"]:

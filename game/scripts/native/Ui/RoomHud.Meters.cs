@@ -7,7 +7,8 @@ namespace EnFractal.Native;
 
 /// <summary>
 /// The three meters (docs/game/MECHANICS.md sections 1, 4 and 5; the mechanics round's packet M2): hearts in quarters and the bar
-/// under them, always visible at the top of the status panel, and the pips trailing the Gubble. They are drawn, not written: no
+/// under them, always visible at the top of the status panel, and the pips trailing the Gubble, or, while it is out of frame, a
+/// small row of them under the bar (decision 38: hearts, then stamina, then pips). They are drawn, not written: no
 /// numbers unless the player's own setting "Show numbers on the meters" is on (it lives in the machine's profile, off by default,
 /// as the other switches do). Everything is read from the host (Vitals, BodyRules, Mode), never kept here; the HUD asks no
 /// command for it and changes nothing.
@@ -26,6 +27,8 @@ public partial class RoomHud
     public HeartsMeter Hearts => _hearts;
     public StaminaBar Bar => _bar;
     public PipsTrail Pips => _pips;
+    /// <summary>The pips as a row under the bar while the Gubble is out of frame (drawn only then).</summary>
+    public PipsMarker PipsRow => _pipsMarker;
     public Label HeartsNumbers => _heartsNumbers;
     public Label BarNumbers => _barNumbers;
     public CheckButton? NumbersToggle => _numbersToggle;
@@ -36,6 +39,7 @@ public partial class RoomHud
     private HeartsMeter _hearts = null!;
     private StaminaBar _bar = null!;
     private PipsTrail _pips = null!;
+    private PipsMarker _pipsMarker = null!;
     private Label _heartsNumbers = null!;
     private Label _barNumbers = null!;
     private CheckButton? _numbersToggle;
@@ -75,6 +79,9 @@ public partial class RoomHud
         barRow.AddChild(_bar);
         _barNumbers = new Label { Name = "BarNumbers", Visible = false, SizeFlagsVertical = Control.SizeFlags.ShrinkCenter };
         barRow.AddChild(_barNumbers);
+        // Under the bar, the pips' marker: hearts, then stamina, then pips. It keeps its room whether it is drawn or not.
+        _pipsMarker = new PipsMarker { Name = "PipsMarker", SizeFlagsHorizontal = Control.SizeFlags.ShrinkBegin };
+        _meterBox.AddChild(_pipsMarker);
         // The pips ride on the whole screen at the Gubble's place, under every panel (the first child draws first).
         _pips = new PipsTrail { Name = "GubblePips" };
         AddChild(_pips);
@@ -183,6 +190,7 @@ public partial class RoomHud
         {
             if (_meterBox.Visible) _meterBox.Visible = false;
             _pips.Follow(null, 0, delta);
+            _pipsMarker.Present(false, delta);
             return;
         }
         if (!_meterBox.Visible) _meterBox.Visible = true;
@@ -208,8 +216,11 @@ public partial class RoomHud
             _hearts.Set(quarters, maxQuarters, creative);
             _bar.Set(staminaM, maxM, rowM, bandM, creative, slowed);
             var aura = Companion.AuraColor ?? Companion.AppearanceColor;
+            var pipsNumbers = MeterNumbers && hasPool ? MeterMath.PipsNumbers(MeterWords.Name(host, "pips"), pips, maxPips) : "";
             _pips.SetPool(pips, maxPips, shadow, aura);
-            _pips.SetNumbers(MeterNumbers && hasPool ? MeterMath.PipsNumbers(MeterWords.Name(host, "pips"), pips, maxPips) : "");
+            _pips.SetNumbers(pipsNumbers);
+            _pipsMarker.SetPool(pips, maxPips, shadow, aura);
+            _pipsMarker.SetNumbers(pipsNumbers);
             _heartsNumbers.Visible = _barNumbers.Visible = MeterNumbers;
             if (MeterNumbers)
             {
@@ -218,9 +229,21 @@ public partial class RoomHud
             }
         }
         FollowGubble(delta);
+        TickSpendHint(host, delta);
     }
 
-    /// <summary>The pips at the Gubble's place on screen: over its head, with its height on screen as their scale; nothing when it is out of view.</summary>
+    /// <summary>An empty pool refused a cast: the pips blink wherever they are drawn, trailing the Gubble or in the row under the bar.</summary>
+    private void FlashPipMeters()
+    {
+        _pips.Flash();
+        _pipsMarker.Flash();
+    }
+
+    /// <summary>
+    /// The pips at the Gubble's place on screen: over its head, with its height on screen as their scale. When it is out of view
+    /// (behind the camera, off the screen, hidden, or seen through its own eyes) they cannot trail it, so the row under the stamina
+    /// bar is drawn instead (decision 38); in view, it is not.
+    /// </summary>
     private void FollowGubble(double delta)
     {
         Vector2? anchor = null;
@@ -242,5 +265,6 @@ public partial class RoomHud
             }
         }
         _pips.Follow(anchor, bodyPx, delta);
+        _pipsMarker.Present(anchor == null, delta);
     }
 }

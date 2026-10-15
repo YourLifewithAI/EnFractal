@@ -454,8 +454,8 @@
     ]
   },
   "fractals": {
-    "budget_min": 20,
-    "budget_max": 25,
+    "budget_min": 25,
+    "budget_max": 30,
     "reachable_first_run": 15,
     "per_heart": 5,
     "per_band": 5,

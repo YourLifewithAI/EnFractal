@@ -173,7 +173,7 @@ public partial class CommandHost
 
     // ---- fractal.spend: growing the body at the camp ----
 
-    public const string FractalsAtCamp = "Fractals are spent at the camp: go back to the spawn and try again.";
+    public const string FractalsAtCamp = "Fractals are spent at the camp: go back to where you started and try again.";
 
     /// <summary>The HUD's or the menu's spend: fractal.spend of "heart" or "band", as the player's command.</summary>
     public JsonObject PlayerSpendFractals(string grow, bool preview = false) => PlayerCommand("fractal.spend", new JsonObject { ["grow"] = grow }, preview);

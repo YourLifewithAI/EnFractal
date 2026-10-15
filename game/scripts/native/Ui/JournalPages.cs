@@ -8,11 +8,14 @@ using EnFractal.Native.Kernel;
 
 namespace EnFractal.Native.Ui;
 
-/// <summary>How a line of the journal is written: the size and ink of its words, or a link, or the map.</summary>
-public enum JournalInk { Heading, Title, Text, Faint, Smudge, Link, Map }
+/// <summary>How a line of the journal is written: the size and ink of its words, or a link, a button, or the map.</summary>
+public enum JournalInk { Heading, Title, Text, Faint, Smudge, Link, Map, Button }
 
-/// <summary>One line of a journal page. A link's Target is the page it opens.</summary>
-public readonly record struct JournalLine(JournalInk Ink, string Text, string Target = "");
+/// <summary>
+/// One line of a journal page. A link's Target is the page it opens; a button's Target is the action it asks the HUD for
+/// (FractalSpend.HeartTarget), and a button that is not Enabled is drawn dimmed and does nothing.
+/// </summary>
+public readonly record struct JournalLine(JournalInk Ink, string Text, string Target = "", bool Enabled = true);
 
 /// <summary>A page as written now: its lines, whether a further leaf follows, and the line at its foot.</summary>
 public sealed record JournalPage(IReadOnlyList<JournalLine> Lines, bool HasMore, string Footer);
@@ -35,7 +38,7 @@ public static class JournalPages
     public static readonly string[] Sections = { Discoveries, Abilities, Character, Map, Notes };
     private static readonly string[] SectionWords =
     {
-        "Magic, places and things we have found", "Magic and the ways we move", "Your character sheet",
+        "Magic, places and things we have found", "Magic and the ways we move", "Your character sheet, and Fractals to spend",
         "The world we know together", "Thoughts and things worth keeping",
     };
     /// <summary>Entries on one leaf of a long page (Places & things, memories).</summary>
@@ -246,6 +249,9 @@ public static class JournalPages
             lines.Add(Text($"Walk {body.WalkSpeedMps * 100:0} cm/s · run {body.RunSpeedMps * 100:0} cm/s"));
             lines.Add(Text($"Jump {body.JumpApexNowM * 100:0.#} cm · climb {body.ClimbSpeedMps * 100:0} cm/s"));
         }
+        // The Fractals in hand and, at the camp, the two ways to spend them (decision 41: the player's own command, no key of its own).
+        // High on the page, so the buttons are in view when the book opens on it.
+        lines.AddRange(FractalSpend.Lines(host));
         // The read-only player.status query: the mode and this mode's vitals, as the host keeps them.
         var status = host.PlayerQuery("player.status")["data"] as JsonObject;
         if (status != null)

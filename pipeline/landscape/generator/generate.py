@@ -897,6 +897,9 @@ def _generate(room_dir, out_dir, setup, seed, return_state, cell, detail, skip, 
         rest['plant_salt'] = plant_salt
     if fx_plan is not None:
         rest['fractals'] = _finish_fractals(fx_plan, final, grid, h, fslope, detail, (px, pz), typed_fractals)
+        summit = Fractals.summit_record(rest['fractals'])
+        if summit is not None:
+            rest['summit'] = summit    # the exporter writes it as the manifest's x_summit
         _tick('fractal reach')
     if tutorial:
         rest['tutorial'] = True
@@ -943,8 +946,13 @@ def _finish_fractals(plan, final, grid, h, fslope, detail, spawn, typed):
     cr = Reach.ClimbReach(final.walker, final, grid, h, fslope=fslope, skip=skip)
     block = Fractals.finish(plan, cr, spawn, typed=typed)
     c = block['counts']
-    print('LANDSCAPE_FRACTALS placed %d by_band %s benches %d proved %d routes %d' % (
-        c['placed'], c['by_band'], c['benches'], c['benches_proved'], c['routes']), flush=True)
+    print('LANDSCAPE_FRACTALS placed %d (first run %d, out of reach %d) by_band %s benches %d proved %d routes %d' % (
+        c['placed'], c['first_run'], c['out_of_reach'], c['by_band'], c['benches'], c['benches_proved'], c['routes']),
+        flush=True)
+    if block['summit']:
+        s = block['summit']
+        print('LANDSCAPE_SUMMIT %s top band %d (own bands %d) %d ledges (%d built) at %s, radius %.2f m' % (
+            s['landmark'], s['top_band'], s['own_band'], s['ledges'], s['built_ledges'], s['top_m'], s['radius_m']), flush=True)
     return block
 
 

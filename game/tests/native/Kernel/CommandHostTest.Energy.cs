@@ -62,8 +62,8 @@ public partial class CommandHostTest
             "v5's modes: Creative a shadow pool with undo and no harm; Gentle halves harm and refills 1.5 times; Brave 1.5 and 0.75; Live present and not available");
         Check(v5.Names!.Words["expertise"] == "Expertise" && v5.Names.Knacks["big_heart"] == "Big heart" && v5.Knacks!.Table.Count == 11 && v5.Knacks.Slots.Count == 3 &&
               v5.Knacks.Knack("cat_feet") is { Unit: "m", Ranks: [0.45, 0.6, 0.75] } && v5.Knacks.Knack("handy") is { Available: false } &&
-              v5.Fractals == new FractalsRules(20, 25, 15, 5, 5, false),
-            "v5's names, knacks (Cat feet in metres, Handy not available yet) and Fractals (20 to 25, five a heart and a band, untyped)");
+              v5.Fractals == new FractalsRules(25, 30, 15, 5, 5, false),
+            "v5's names, knacks (Cat feet in metres, Handy not available yet) and Fractals (25 to 30, fifteen within first-run reach, five a heart and a band, untyped)");
         var v4 = IslandRules.Load("storybook_wild", 4);
         Check(v4.Traits == null && v4.Cost == null && v4.Modes == null && v4.Names == null && v4.Knacks == null && v4.Fractals == null, "v4 has none of the blocks: today's behaviour");
         var example = IslandRules.Parse(File.ReadAllBytes(ContractsPath("examples/rules/mechanics_example.json")));

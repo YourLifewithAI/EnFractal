@@ -155,6 +155,6 @@
       { "knack": "strong_arm", "moves": "gather_speed", "unit": "factor", "ranks": [1.1, 1.15, 1.2], "available": false }
     ]
   },
-  "fractals": { "budget_min": 20, "budget_max": 25, "reachable_first_run": 15, "per_heart": 5, "per_band": 5, "typed": false },
+  "fractals": { "budget_min": 25, "budget_max": 30, "reachable_first_run": 15, "per_heart": 5, "per_band": 5, "typed": false },
   "extensions": {}
 }

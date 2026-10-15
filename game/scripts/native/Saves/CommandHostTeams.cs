@@ -18,7 +18,8 @@ public sealed record SaveTeam(string TeamId, string Mode, string? Difficulty);
 /// is up, with the difficulty the island save keeps (UseDifficulty, the trusted boot's call), and then fixes the mode: from then on
 /// the host refuses world.set_mode with unsupported_capability at $.op ("The mode is chosen at the menu; this save keeps its mode."),
 /// and Live, first, at $.args.mode with allowed creative and challenge (decided: switching modes means switching saves). A host no
-/// team boot brought up (a test fixture) changes modes as before, so the per-mode vitals stay testable.</item>
+/// team boot brought up (a test fixture) changes modes as before, so the per-mode vitals stay testable. A boot whose set-mode is
+/// refused while the host plays another mode holds the island save instead of playing it under that mode's rules (IslandHeld).</item>
 /// <item><b>The save's team block.</b> The island save's team block (the journal and the map's) also says whose save it is and how it
 /// plays: team_id, mode and, in Challenge, difficulty (room state's x_team). A save's difficulty, once made, wins over the boot's.</item>
 /// <item><b>knack.set</b>, the player's: a knack the island's pack offers into an open slot of the team file, in play only at the spawn
@@ -32,10 +33,15 @@ public partial class CommandHost
     /// a body's height of it). Provisional: the design names no distance; half a metre is five body heights, a small camp's clearing.
     /// </summary>
     public const float CampRadiusM = 0.5f;
-    public const string KnackAtCamp = "A knack is changed at the camp: go back to the spawn and try again.";
+    public const string KnackAtCamp = "A knack is changed at the camp: go back to where you started and try again.";
 
     /// <summary>True once the game's boot fixed this room's mode (BootMode): world.set_mode is refused from then on.</summary>
     public bool ModeFixed { get; private set; }
+    /// <summary>
+    /// True when the boot could not open the island in its mode (its one set-mode refused while the host plays another, the review's
+    /// finding 1): the island save is held as it was, and nothing done in this session reaches it (HoldIsland).
+    /// </summary>
+    public bool IslandHeld { get; private set; }
     /// <summary>Whose save this is and how it plays: the boot's, else what the loaded save's team block said (null: neither).</summary>
     public SaveTeam? SaveTeamIdentity => _bootTeam ?? _savedTeam;
     /// <summary>What the loaded island save's team block said about its team, mode and difficulty (null for a save from before teams).</summary>
@@ -73,6 +79,8 @@ public partial class CommandHost
     /// The boot's one world.set_mode, before the room is up (the menu's, later): the island save's mode, and in Challenge its
     /// difficulty (the save's own once it has one; else the boot's; else standard), then the mode is fixed for the session. The
     /// team block is written with the room's next save. Returns the command's result. Live never reaches here (TeamBoot refuses it).
+    /// A refused set-mode (the vitals or the expertise store did not read, or could not be saved) leaves the host in the mode it
+    /// had: when that is not the island save's, the island is held (HoldIsland), never played under another mode's rules.
     /// </summary>
     public JsonObject BootMode(string teamId, string mode, string? difficulty)
     {
@@ -90,12 +98,45 @@ public partial class CommandHost
         if (_savedTeam != null && (_savedTeam.TeamId != teamId || _savedTeam.Mode != mode))
             TeamNotice = "This island save was filed under another team or mode; it is kept, and plays as this one.";
         var result = PlayerCommand("world.set_mode", new JsonObject { ["mode"] = mode });
-        if (result["ok"]?.GetValue<bool>() != true) TeamNotice = (result["error"]?["message"]?.GetValue<string>() ?? "The mode could not be set.");
         _bootTeam = new SaveTeam(teamId, mode, chosen);
-        if (_bootTeam != _savedTeam) _teamDirty = true;
         ModeFixed = true;
+        if (result["ok"]?.GetValue<bool>() != true)
+        {
+            if (Mode != mode)
+            {
+                HoldIsland(mode);
+                return result;
+            }
+            TeamNotice = result["error"]?["message"]?.GetValue<string>() ?? "The mode could not be set.";
+        }
+        if (_bootTeam != _savedTeam) _teamDirty = true;
         return result;
     }
+
+    /// <summary>What the player reads when the island could not open in its mode (HoldIsland), in the mode's own name.</summary>
+    public static string IslandHeldWords(string mode) =>
+        $"This {Capitalised(mode)} island could not open: the traits or the expertise could not be read or saved. " +
+        "It is held as it was, and nothing done on it now is saved; quit and launch again.";
+
+    private static readonly Godot.StringName PersistenceSink = "persistence_sink";
+
+    /// <summary>
+    /// The island save held as it was: the mode stays fixed (no later set-mode plays it under yet another mode), and every write of
+    /// the save is refused at the creation authority's one persisting step (its persistence sink), which then publishes nothing:
+    /// no build, cast, gather, pickup, undo, note, nature step or team block reaches the file, during play or at exit. The save's
+    /// team block is not rewritten. The player reads why (TeamNotice; every refused change answers with the same words).
+    /// </summary>
+    private void HoldIsland(string mode)
+    {
+        IslandHeld = true;
+        TeamNotice = IslandHeldWords(mode);
+        if (Authority != null) Authority.Set(PersistenceSink, new Godot.Callable(this, MethodName.RefuseHeldSave));
+        Godot.GD.Print("COMMAND_HOST " + TeamNotice);
+        Runtime?.Call(KernelNames.Notice, TeamNotice);
+    }
+
+    /// <summary>The held island's persistence sink: nothing is written, and the change is refused with the player's words.</summary>
+    private Godot.Collections.Dictionary RefuseHeldSave(Godot.Collections.Dictionary envelope) => new() { ["ok"] = false, ["message"] = TeamNotice };
 
     private static string Capitalised(string word) => word.Length == 0 ? word : char.ToUpperInvariant(word[0]) + word[1..];
 
@@ -128,6 +169,8 @@ public partial class CommandHost
     private JsonObject SetKnack(JsonElement args, string principal, string actionId, string fingerprint, bool preview)
     {
         if (principal != PlayerPrincipal) throw new Refusal("permission_denied", "Only the player can do that, directly in the game.", "$.op");
+        // A held island (HoldIsland) changes nothing, the team file included: nothing done in this session is saved.
+        if (IslandHeld) throw new Refusal("not_ready", TeamNotice);
         if (_teamStore == null || Team is not { } team)
             throw new Refusal("not_ready", TeamNotice.Length > 0 ? TeamNotice : "No team is playing: knacks belong to a team.");
         var slot = args.GetProperty("slot").GetInt32();

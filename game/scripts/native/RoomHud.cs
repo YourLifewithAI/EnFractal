@@ -210,6 +210,7 @@ public partial class RoomHud : CanvasLayer
 
     private (float, string, int, string, string, bool, bool, string?, bool)? _stateAsOf;
     private string? _noticeShown;
+    private string? _teamNoticeShown;
     private (int, int, string?, int, int, int)? _clockAsOf;
 
     private Node3D _dioramaPivot = null!;
@@ -608,6 +609,8 @@ public partial class RoomHud : CanvasLayer
                 (Companion.FloatingThere ? " · floating there" : "") + (Companion.GoalBlocked ? " · path blocked" : "") +
                 (holding.Length > 0 ? $"  ·  holding {holding} ({K(Act.Hands)})" : "") + (Look?.Observe == true ? $"  ·  observe view ({K(Act.ViewObserve)})" : "");
         }
+        // An island held because its mode could not be set (M3's fix round) says why, once, without waiting for a refused change.
+        if (Host is { IslandHeld: true, TeamNotice: { Length: > 0 } heldWords } && !ReferenceEquals(heldWords, _teamNoticeShown)) _noticeText = _teamNoticeShown = heldWords;
         if (!ReferenceEquals(_noticeShown, _noticeText)) _notice.Text = _noticeShown = _noticeText;
         UpdateFocus(delta);
         UpdateAskTag(delta);

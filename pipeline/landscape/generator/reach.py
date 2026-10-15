@@ -80,10 +80,13 @@ class Labels:
 class ClimbReach:
     """The climb-aware reach of one land: `walker` (a checks.Walker), its flood `reach0` from the spawn, the base grid
     `grid` with heights `h`. `fslope` (per vertex, the steepest face: field.face_slope_max) is worked out if not given;
-    `skip(i, j)` says which cells are not read (the 10x world's detail blocks: their faces are not the grid's)."""
+    `skip(i, j)` says which cells are not read (the 10x world's detail blocks: their faces are not the grid's).
+    `face_deg` is the steepness of a face a climber grabs: the climb rule's 55 degrees, or the body's own 45 (any face past
+    what it stands on), for the body's own reach (`coverage.py`)."""
 
-    def __init__(self, walker, reach0, grid, h, fslope=None, skip=None):
+    def __init__(self, walker, reach0, grid, h, fslope=None, skip=None, face_deg=FACE_DEG):
         self.w, self.reach0, self.grid, self.h = walker, reach0, grid, h
+        self.face_deg = face_deg
         if fslope is None:
             fslope = face_slope_max(grid, h, grid.triangles())
         nx, nz = grid.nx, grid.nz
@@ -91,7 +94,7 @@ class ClimbReach:
         # Steep cells (a cell is named by its lower-left vertex), and the cells within one of them.
         steep = bytearray(nx*nz)
         for q, s in enumerate(fslope):
-            if s > FACE_DEG:
+            if s > face_deg:
                 i, j = q % nx, q//nx
                 for ci in (i-1, i):
                     for cj in (j-1, j):
@@ -154,7 +157,7 @@ class ClimbReach:
         c = grid.cell
         out = []
         for p, (fu, fv) in enumerate(climb._POINTS):
-            if self.slope_at(i, j, p) <= FACE_DEG:
+            if self.slope_at(i, j, p) <= self.face_deg:
                 continue
             x, z = grid.xs[i]+c*fu, grid.zs[j]+c*fv
             up = climb._uphill(grid, h, x, z)
@@ -182,7 +185,7 @@ class ClimbReach:
     def _trace(self, cand):
         """Follow the candidate's face to its crest and find the top (the result is kept on the candidate)."""
         r = climb.climb_from(self.grid, self.h, cand.foot_xz[0], cand.foot_xz[1], cand.dir[0], cand.dir[1],
-                             cand.foot_y, None, reach=MAX_RUN_M, max_rise=TOP_RISE_M)
+                             cand.foot_y, None, reach=MAX_RUN_M, max_rise=TOP_RISE_M, face_deg=self.face_deg)
         cand.result = False
         if r is None or r['rise'] < climb.MIN_RISE:
             return

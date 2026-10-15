@@ -9,8 +9,9 @@ namespace EnFractal.Native.Ui;
 /// "four of eight" reads at a glance. In Creative the pool is a shadow: the same dots, drawn as soft translucent shadows, for it
 /// drains and refills but never refuses. The dots are the HUD's own 2D drawing on the Gubble's place on screen, never a thing in
 /// the world, so they are not in the AI's pictures and cost the look nothing.
-/// The meter draws nothing while the Gubble is out of view (behind the camera or off the screen). It redraws every frame while
-/// it shows dots (they bob and ease after the Gubble), a handful of circles.
+/// The meter draws nothing while the Gubble is out of view (behind the camera or off the screen): the pips are then the row under
+/// the stamina bar (PipsMarker, decision 38). It redraws every frame while it shows dots (they bob and ease after the Gubble), a
+/// handful of circles.
 /// </summary>
 public partial class PipsTrail : Control
 {

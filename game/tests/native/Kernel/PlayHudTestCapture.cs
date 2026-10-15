@@ -16,7 +16,7 @@ namespace EnFractal.Tests.Kernel;
 /// scenarios run on the code before the meters and on the code after. Run it with a scratch profile (APPDATA elsewhere), never
 /// while someone plays: the window must not be open beside an "EnFractal*" window.
 ///
-/// User arguments (after "--"): --out=DIR [--tag=before|after] [--scenarios=play_challenge,play_creative,wheel,journal,probe]
+/// User arguments (after "--"): --out=DIR [--tag=before|after] [--scenarios=play_challenge,play_creative,wheel,journal,marker,spend,probe]
 /// [--room=ID|DIR] [--hour=15] [--date=2026-10-06]. The probe scenario prints the team's discovered map after a walk (it needs
 /// no window and also runs headless).
 /// </summary>
@@ -76,6 +76,8 @@ public partial class PlayHudTestCapture : Node
                     case "big": await Big(); break;
                     case "wheel_empty": await WheelEmpty(); break;
                     case "journal_pages": await JournalPages(); break;
+                    case "marker": await Marker(); break;
+                    case "spend": await Spend(); break;
                     case "probe": await Probe(); break;
                     case "alloc": await Alloc(); break;
                     case "dump": await Dump(); break;
@@ -262,6 +264,76 @@ public partial class PlayHudTestCapture : Node
         await Frames(70);
     }
 
+    /// <summary>
+    /// The pips as a row under the bar (the follow-up, decision 38): first person, turned away from the Gubble, so it is behind the eye;
+    /// in Challenge with a Glow spent, with the numbers on, in Creative's shadow pool, and for comparison in frame, trailing the Gubble.
+    /// </summary>
+    private async Task Marker()
+    {
+        var host = Host;
+        var player = _world.Player;
+        var companion = _world.Companion;
+        host.PlayerMode("challenge");
+        await Stage();
+        host.ApplyPlayerDamage(30f, PlayerDamageSource.Fall);
+        await Cast(1);
+        void Face(Vector3 facing) => player.Rotation = new Vector3(0, Mathf.Atan2(-facing.X, -facing.Z), 0);
+        _hud.SetViewMode(0);
+        Face(companion.GlobalPosition - player.GlobalPosition);
+        await Frames(60);
+        await Save("marker_in_frame");
+        Face(player.GlobalPosition - companion.GlobalPosition);
+        await Frames(60);
+        await Save("marker_challenge");
+        _hud.SetMeterNumbers(true);
+        await Frames(30);
+        await Save("marker_numbers");
+        _hud.SetMeterNumbers(false);
+        host.PlayerMode("creative");
+        await Frames(60);
+        await Save("marker_creative");
+        Face(companion.GlobalPosition - player.GlobalPosition);
+        _hud.SetViewMode(1);
+        await Frames(30);
+    }
+
+    /// <summary>The journal's Character page with Fractals in hand: at the camp (the two buttons), after a heart, and away from the camp.</summary>
+    private async Task Spend()
+    {
+        var host = Host;
+        var player = _world.Player;
+        var body = PlayerVitals.Of(100f, 100f, 0.4f, 0.4f, Array.Empty<string>(), 0, new PlayerFractals(7, 7, 0, 0), PlayerVitals.UnsetPool);
+        host.ConfigurePlayerVitals(new CaptureStore(PlayerModesProfile.Fresh.Select("challenge").WithCurrent(body)));
+        host.PlayerMode("challenge");
+        await Stage();
+        player.TryTeleportTo(host.Room.SpawnFor("player").PositionM);
+        player.ResetPhysicsInterpolation();
+        await Frames(30);
+        _hud.OpenJournal();
+        await Frames(80);
+        _hud.Journal.OpenPage(Native.Ui.JournalPages.Character);
+        await Frames(40);
+        await Save("spend_camp");
+        _hud.Journal.Press(Native.Ui.FractalSpend.HeartTarget);
+        await Frames(40);
+        await Save("spend_heart");
+        _hud.CloseJournal();
+        await Frames(70);
+        await Save("spend_hearts_drawn");
+        foreach (var offset in new[] { new Vector3(0.8f, 0, 0), new Vector3(-0.8f, 0, 0), new Vector3(0, 0, 0.8f), new Vector3(0, 0, -0.8f) })
+            if (player.TryTeleportTo(host.Room.SpawnFor("player").PositionM + offset) && !host.PlayerAtCamp()) break;
+        player.ResetPhysicsInterpolation();
+        _hud.OpenJournal();
+        await Frames(80);
+        _hud.Journal.OpenPage(Native.Ui.JournalPages.Character);
+        await Frames(40);
+        await Save("spend_away");
+        _hud.CloseJournal();
+        await Frames(70);
+        host.ConfigurePlayerVitals(new CaptureStore(PlayerModesProfile.Fresh));
+        host.PlayerMode("creative");
+    }
+
     /// <summary>The journal's index and its character page, open at the spread.</summary>
     private async Task Journal()
     {
@@ -313,6 +385,9 @@ public partial class PlayHudTestCapture : Node
         Blit(PipPixels(0), Native.Ui.MeterTextures.PipPx, 10, 190, aura);
         Blit(PipPixels(1), Native.Ui.MeterTextures.PipPx, 190, 190, Colors.White);
         Blit(PipPixels(2), Native.Ui.MeterTextures.PipPx, 370, 190, Colors.White);
+        // The shadow pool in the row under the bar (PipsMarker): a pip you have, then a spent one, in the grey of Creative's hearts and bar.
+        Blit(PipPixels(0), Native.Ui.MeterTextures.PipPx, 550, 190, Native.Ui.PipsMarker.GreyHave);
+        Blit(PipPixels(1), Native.Ui.MeterTextures.PipPx, 730, 190, Native.Ui.PipsMarker.GreySpent);
         if (_out.Length > 0) sheet.SavePng(System.IO.Path.Combine(_out, $"{_tag}_meter_pictures.png"));
         GD.Print("PLAY_HUD_CAPTURE_FRAME " + System.IO.Path.Combine(_out, $"{_tag}_meter_pictures.png"));
     }

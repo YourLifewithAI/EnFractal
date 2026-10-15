@@ -18,6 +18,7 @@ BAND_M = .4            # one band of the bar (traits.stamina.band_m)
 START_M = .4           # the starting bar (traits.stamina.start_m)
 BANDS = 10             # traits.stamina.bands: 0.4 m to 4.0 m
 BANDS_PER_BAR = 5      # traits.stamina.bands_per_bar
+PER_BAND = 5           # fractals.per_band: the Fractals spent at a camp for the next band
 # The knacks that stretch a climb: Big bar (stamina per bar) and Steady climber (distance climbed for the same stamina)
 # multiply the metres a bar climbs (knacks.table, rank 3 is full rank). Slots stack: two knacks multiply.
 FULL_RANK = 1.2
@@ -89,6 +90,22 @@ def ladder_rises(height, bands=BANDS, floor_m=.3):
     if rest > EPS:
         return None
     return [(r, band_for(r)) for r in out]
+
+
+def own_band(budget_max, per_band=PER_BAND):
+    """The highest band the island's own Fractals can open: every one of the budget's Fractals spent on a band, `per_band`
+    for each, from band 1 (the starting bar). A summit whose top ledge needs more than this waits for a return visit
+    (decided 15 October: there is still more to explore)."""
+    return min(BANDS, 1+budget_max//per_band)
+
+
+def stair_bands(last_band, own):
+    """The bands of the ledges built above a corridor whose highest ledge needs `last_band`, so that the summit needs more
+    than the island's own Fractals open (`own`): one band more each, up to `own`+1 (the top band at most). [] when the
+    corridor is beyond them already, or no band is."""
+    if last_band > own:
+        return []
+    return list(range(last_band+1, min(own+1, BANDS)+1))
 
 
 def describe_arithmetic():

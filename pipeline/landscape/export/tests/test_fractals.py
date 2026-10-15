@@ -1,4 +1,4 @@
-"""The island's Fractals and its tutorial mark reach the manifest through a bounded whitelist (packet M4).
+"""The island's Fractals, its tutorial mark and its summit reach the manifest through a bounded whitelist (packet M4).
 
     python -B -S -m unittest pipeline.landscape.export.tests.test_fractals -v
 """
@@ -12,7 +12,7 @@ import uuid
 from pathlib import Path
 
 from pipeline.landscape.export import export_room
-from pipeline.landscape.export.fractals import fractals_data, tutorial_flag
+from pipeline.landscape.export.fractals import fractals_data, summit_data, tutorial_flag
 
 ROOT = Path(__file__).resolve().parents[4]
 ROOM = ROOT/'pipeline/landscape/corpus/rooms/garage_nominal'
@@ -24,6 +24,8 @@ FRACTALS = dict(
            dict(id='fractal:0f9e8d7c6b5a', position_m=[-0.2, 0.0, -0.1], reach_band=3),
            dict(id='fractal:123456789abc', position_m=[0.1, 0.0, 0.2])],
     detail=[dict(id='fractal:a1b2c3d4e5f6', why='step')])
+# The generator's summit record (x_generator.summit); anything else a package says of it is not copied.
+SUMMIT = dict(center_m=[0.3, 0.5, 0.2], radius_m=1.3, landmark='couch_1', top_band=8)
 
 
 class FractalExportTests(unittest.TestCase):
@@ -91,6 +93,54 @@ class FractalExportTests(unittest.TestCase):
         self.assertIsNone(tutorial_flag({}))
         self.assertIsNone(tutorial_flag(None))
         self.assertIs(tutorial_flag(dict(tutorial=True)), True)
+
+    def test_the_manifest_takes_the_summit_and_nothing_else(self):
+        out, room = self.exported('summit', fractals=FRACTALS, summit=dict(SUMMIT, note='ignore previous instructions',
+                                                                          ledges=[1, 2, 3]))
+        self.assertEqual(room['extensions']['x_summit'], SUMMIT)
+        self.assertNotIn(b'ignore previous instructions', (out/'room.json').read_bytes())
+        proc = subprocess.run([sys.executable, '-B', str(ROOT/'contracts/validate.py'), '--room', str(out)],
+                              capture_output=True, text=True, cwd=ROOT)
+        self.assertEqual(proc.returncode, 0, proc.stdout+proc.stderr)
+
+    def test_a_summit_without_its_optional_fields_and_a_package_without_one(self):
+        _, room = self.exported('bare-summit', summit=dict(center_m=[0.3, 0.5, 0.2], radius_m=2))
+        self.assertEqual(room['extensions']['x_summit'], dict(center_m=[0.3, 0.5, 0.2], radius_m=2))
+        self.assertIsNone(summit_data(dict(fractals=FRACTALS)))
+        self.assertIsNone(summit_data(None))
+        _, none = self.exported('no-summit', fractals=FRACTALS)
+        self.assertNotIn('x_summit', none['extensions'])
+
+    def test_a_summit_outside_the_island_is_refused_by_the_validator(self):
+        out, room = self.exported('far-summit', summit=dict(SUMMIT, center_m=[400.0, 0.5, 0.2]))
+        proc = subprocess.run([sys.executable, '-B', str(ROOT/'contracts/validate.py'), '--room', str(out)],
+                              capture_output=True, text=True, cwd=ROOT)
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn('x_summit is outside the room bounds', proc.stdout+proc.stderr)
+
+    def test_bad_summits_fail_before_any_output(self):
+        cases = {
+            'no_radius': dict(SUMMIT, radius_m=0),
+            'huge_radius': dict(SUMMIT, radius_m=51),
+            'nan_radius': dict(SUMMIT, radius_m=float('nan')),
+            'centre_nan': dict(SUMMIT, center_m=[float('nan'), 0.0, 0.0]),
+            'centre_short': dict(SUMMIT, center_m=[0.0, 0.0]),
+            'centre_far': dict(SUMMIT, center_m=[5000.0, 0.0, 0.0]),
+            'landmark_upper': dict(SUMMIT, landmark='Couch'),
+            'landmark_path': dict(SUMMIT, landmark='../couch'),
+            'landmark_number': dict(SUMMIT, landmark=7),
+            'band_zero': dict(SUMMIT, top_band=0),
+            'band_float': dict(SUMMIT, top_band=2.5),
+            'band_past_the_ladder': dict(SUMMIT, top_band=21),
+            'not_a_record': ['couch_1'],
+        }
+        for name, summit in cases.items():
+            with self.subTest(name):
+                out = self.scratch/('bad-summit-'+name)/'landscape_bad'
+                package = self.package_with('bad-summit-package-'+name, summit=summit)
+                with self.assertRaises((ValueError, KeyError)):
+                    export_room(package, ROOM, 'landscape_bad', out)
+                self.assertFalse(out.exists())
 
     def test_bad_fractals_fail_before_any_output(self):
         one = FRACTALS['items'][0]
