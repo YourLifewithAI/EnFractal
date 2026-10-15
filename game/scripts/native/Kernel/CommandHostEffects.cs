@@ -84,7 +84,10 @@ public partial class CommandHost
     public void UseRules(IslandRules? rules, string notice = "")
     {
         EndEffects(_effects.ToList());
+        // An island nothing has happened to yet begins with the new rules' wallet (a save that holds play keeps its own).
+        var fresh = Nature.Untouched(trailAllowed: true, StartWallet);
         Rules = rules;
+        if (fresh) Nature.Wallet = NatureState.FreshWallet(rules?.Traits?.Wallet);
         RulesNotice = rules == null ? (notice.Length > 0 ? notice : "This island has no rules, so the Gubble has no abilities.") : "";
         if (rules == null) GD.Print("COMMAND_HOST " + RulesNotice);
         // The body and the pool play by the pack's traits, cost and modes blocks (today's numbers without them).
@@ -325,6 +328,10 @@ public partial class CommandHost
             previewed["data"] = EffectData(plan, null, null);
             return previewed;
         }
+        // The look's own budget first, as the preview says it: an empty pool is never the reason given for a start that could not
+        // be shown anyway (the review's minor).
+        if (look != null && look.EffectCount >= EffectLook.MaxEffects)
+            throw new Refusal("budget_exceeded", "The game cannot show another effect right now; stop one first.", "$.args.capability", retryable: true);
         // The guard at commit (CommandHostEnergy): the price by principal, after every other check; charged once it starts.
         var price = GuardEnergy(plan.Ability.Capability, principal);
         // 'effect:' and 26 lowercase base32 characters (130 random bits): opaque, like job ids, never a counter.

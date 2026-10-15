@@ -90,7 +90,8 @@ public partial class CommandHost
 
     /// <summary>
     /// A reward's pace line: a 'found' fact in the journal (its real time is the pace), in the game's own words and counted,
-    /// never an award, an announcement or a hint. Fractals found, expertise learned and the pool's maximum rising.
+    /// never an award, an announcement or a hint. Fractals found, expertise learned, the pool's maximum rising, and a heart or a
+    /// band grown from Fractals at the camp.
     /// </summary>
     private void NotePace(string reward, int count)
     {
@@ -99,6 +100,8 @@ public partial class CommandHost
             "fractal" => $"You found a Fractal ({count} found).",
             "expertise" => $"The Gubble learned something new ({count} expertise).",
             "pips" => $"The Gubble's pool grew to {count} pips.",
+            "heart" => $"You grew a new heart ({count} hearts).",
+            "band" => $"Your stamina bar grew a band ({count} bands).",
             _ => "",
         };
         if (line.Length == 0 || Authority == null) return;

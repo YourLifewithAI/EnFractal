@@ -54,9 +54,12 @@ public partial class CommandHost
     private VitalsRules ResolvedRules(string mode) => VitalsRules.For(Rules, mode, Difficulty, _knacks, ExpertiseCount());
 
     /// <summary>
-    /// The rules again, after the pack, the mode, the difficulty, the knacks or the expertise changed: the current body is
-    /// brought to them (its maxima, whole quarters, the pool within its maximum). With pace (a new expertise), a raised pool
-    /// maximum is a pace line.
+    /// The rules again, after the pack, the mode, the difficulty, the knacks or the expertise changed: the body is brought to
+    /// them (its maxima, whole quarters, the pool within its maximum). Until play begins, that is the body as the store gave it
+    /// (CommandHostModes' BroughtTo: a launch reads the vitals before the pack, the knacks and the difficulty, and each of them
+    /// brings the saved record, never what the rules before made of it; the time away caught up under them); with no rules
+    /// loaded the body is kept as it is. In play, the body as it is now. With pace (a new expertise), a raised pool maximum is a
+    /// pace line.
     /// </summary>
     private void ResolveVitalsRules(bool pace = false)
     {
@@ -65,11 +68,19 @@ public partial class CommandHost
         ApplyBodyKnacks();
         if (!_vitalsRules.InBands) _slowed = false;
         if (_playerVitalsUnavailable) return;
-        var normalized = _vitalsRules.Normalize(Vitals);
-        if (!ReferenceEquals(normalized, Vitals))
+        var asRead = BodyAsRead;
+        if (!asRead) _readBody = null;
+        var next = asRead ? BroughtTo(_vitalsRules, _readBody!, _readWritten) : Rules == null ? Vitals : _vitalsRules.Normalize(Vitals);
+        if (!ReferenceEquals(next, Vitals) && !next.Same(Vitals))
         {
-            _playerModes = _playerModes.WithCurrent(normalized);
+            _playerModes = _playerModes.WithCurrent(next);
             _vitalsDirty = true;
+        }
+        if (asRead)
+        {
+            _readResolved = Vitals;
+            // The bar as read: empty, no running until it refills (as ResetVitalsCounters says at the read).
+            _slowed = _vitalsRules.InBands && Vitals.Stamina <= 0;
         }
         if (pace && _vitalsRules.HasPool && before.HasPool && before.Mode == _vitalsRules.Mode && _vitalsRules.MaxPips > before.MaxPips)
             NotePace("pips", _vitalsRules.MaxPips);

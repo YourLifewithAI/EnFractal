@@ -30,6 +30,27 @@ public sealed record PlayerFractals(int Found, int Unspent, int Hearts, int Band
     public PlayerFractals Picked(string? kind) => kind == null
         ? this with { Found = Found + 1, Unspent = Unspent + 1 }
         : this with { Found = Found + 1, Unspent = Unspent + 1, TypedHeart = (TypedHeart ?? 0) + (kind == "heart" ? 1 : 0), TypedBand = (TypedBand ?? 0) + (kind == "band" ? 1 : 0) };
+
+    /// <summary>The Fractals in hand for growing this ("heart" or "band"): of that kind when typed is set, else every one unspent.</summary>
+    public int InHand(string grow, bool typed) => typed ? (grow == "heart" ? TypedHeart : TypedBand) ?? 0 : Unspent;
+
+    /// <summary>
+    /// price Fractals spent at a camp (fractal.spend) for one more heart or band. Typed counts give up the named kind first (all
+    /// of the price under the typed flag, which InHand checked), then the other, so they still add up to what is in hand.
+    /// </summary>
+    public PlayerFractals Spent(string grow, int price)
+    {
+        var heart = grow == "heart";
+        var next = this with { Unspent = Unspent - price, Hearts = Hearts + (heart ? 1 : 0), Bands = Bands + (heart ? 0 : 1) };
+        if (!Typed) return next;
+        var own = Math.Min(price, heart ? TypedHeart!.Value : TypedBand!.Value);
+        var other = price - own;
+        return next with
+        {
+            TypedHeart = TypedHeart!.Value - (heart ? own : other),
+            TypedBand = TypedBand!.Value - (heart ? other : own),
+        };
+    }
 }
 
 /// <summary>

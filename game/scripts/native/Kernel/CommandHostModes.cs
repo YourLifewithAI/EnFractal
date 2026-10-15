@@ -1,5 +1,6 @@
 using Godot;
 using System;
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -57,6 +58,17 @@ public partial class CommandHost
     private Action<Vector3, Vector3>? _priorClimbCompleted;
     private IStaminaLedger? _priorStaminaLedger;
     private BodyKnacks? _priorKnacks;
+    /// <summary>
+    /// The body as the store gave it for the mode in play, and when that mode was last written (the review's finding 1). A launch
+    /// reads the vitals before the island's rules, the team's knacks and the difficulty arrive (RoomWorld: CommandHost.Attach, then
+    /// LoadRules, then TeamBoot.Apply), so until play begins (the first vitals tick) or the body changes, each new set of rules
+    /// brings this record to itself, never what earlier rules made of it: the time away is caught up once, under the rules the
+    /// island plays by, and no launch changes a saved body. Null once play began.
+    /// </summary>
+    private PlayerVitals? _readBody;
+    private DateTime? _readWritten;
+    /// <summary>What the rules last made of _readBody: while the body in play is still this record, nothing has happened to it.</summary>
+    private PlayerVitals? _readResolved;
 
     public void ConfigurePlayerVitals(IPlayerVitalsStore store)
     {
@@ -72,17 +84,36 @@ public partial class CommandHost
             _fireGraceS = 0;
             _vitalsSaveElapsed = 0;
             VitalsNotice = "";
+            ReadBody(Vitals, _playerModes.Written(Mode));
+            // The rules bring the body as read: with none loaded yet it is kept as it is; once they are, normalized and caught up.
             ResolveVitalsRules();
-            CatchUpTimeAway();
             ResetVitalsCounters();
             Player?.ResetVitalsObservation();
         }
         catch (PlayerVitalsException)
         {
+            _readBody = null;
             _playerVitalsUnavailable = true;
             VitalsNotice = "Player traits could not be loaded. The saved profile has been kept; changing mode is waiting for recovery.";
         }
     }
+
+    private void ReadBody(PlayerVitals body, DateTime? written)
+    {
+        _readBody = body;
+        _readWritten = written;
+        _readResolved = body;
+    }
+
+    /// <summary>Whether the body in play is still what the rules made of the body as read (nothing happened to it since, and play has not begun).</summary>
+    private bool BodyAsRead => _readBody != null && ReferenceEquals(Vitals, _readResolved);
+
+    /// <summary>
+    /// A body as read, brought to these rules: with no rules loaded (a launch before LoadRules, or a pack that did not load) it is
+    /// kept exactly as saved, its own maxima and quarters, and no time away is caught up; with rules, normalized and then caught up.
+    /// </summary>
+    private PlayerVitals BroughtTo(VitalsRules rules, PlayerVitals body, DateTime? written) =>
+        Rules == null ? body : CaughtUp(rules, rules.Normalize(body), written);
 
     /// <summary>Called once by the host after its player exists. Fixture hosts restore the previous owner's callbacks on exit.</summary>
     public void BindPlayerVitals()
@@ -129,14 +160,20 @@ public partial class CommandHost
         // What the mode being left changed since its last save goes first: the store writes each mode's own document.
         FlushPlayerVitals();
         if (_vitalsDirty) throw new Refusal("not_ready", VitalsNotice, retryable: true);
+        // The body this mode is brought from: the one the store gave, while nothing has happened to it (the boot's one set-mode,
+        // so the time away is caught up once, under these rules); otherwise the mode's record as it stands.
+        var asRead = mode == Mode && BodyAsRead;
+        var readBody = asRead ? _readBody! : _playerModes.For(mode);
+        var readWritten = asRead ? _readWritten : _playerModes.Written(mode);
         var glowMode = PrepareGlowMode(mode);
         var selected = _playerModes.Select(mode);
         var rules = ResolvedRules(selected.Mode);
-        var normalized = rules.Normalize(selected.Current);
-        var next = selected.WithCurrent(CaughtUp(rules, normalized, selected.Written(mode)));
+        var next = selected.WithCurrent(BroughtTo(rules, readBody, readWritten));
         if (TrySaveVitals(next) is not { } saved) throw new Refusal("not_ready", VitalsNotice, retryable: true);
         _playerModes = saved;
         _vitalsRules = rules;
+        ReadBody(readBody, readWritten);
+        _readResolved = Vitals;
         CommitGlowMode(glowMode);
         _vitalsDirty = false;
         _damageRestS = 0;
@@ -155,8 +192,8 @@ public partial class CommandHost
         var vitals = Vitals;
         var data = new JsonObject
         {
-            ["mode"] = Mode, ["health"] = vitals.Health, ["max_health"] = vitals.MaxHealth,
-            ["stamina"] = vitals.Stamina, ["max_stamina"] = vitals.MaxStamina,
+            ["mode"] = Mode, ["health"] = Reported(vitals.Health, PlayerVitals.ContractMaxHealth), ["max_health"] = Reported(vitals.MaxHealth, PlayerVitals.ContractMaxHealth),
+            ["stamina"] = Reported(vitals.Stamina, PlayerVitals.ContractMaxStamina), ["max_stamina"] = Reported(vitals.MaxStamina, PlayerVitals.ContractMaxStamina),
             ["completed_climbs"] = vitals.CompletedClimbs, ["recoveries"] = vitals.Recoveries,
             ["consequences"] = _vitalsRules.Consequences,
         };
@@ -169,6 +206,17 @@ public partial class CommandHost
         // The team's wallet (the island save's): what gathering put in and repairs took out (CommandHostGather).
         data["wallet"] = WalletCounts();
         return data;
+    }
+
+    /// <summary>
+    /// A bounded float the host writes (player.status's health and stamina; the review's finding 3): within 0 and the contract's
+    /// bound, as the float's own shortest decimal. Canonical JSON widens a float to a double, so 4.8f would read 4.800000190734863,
+    /// past the contract's 4.8 m; its shortest decimal is 4.8, and no float at or under the bound has one above it.
+    /// </summary>
+    internal static double Reported(float value, float bound)
+    {
+        var within = float.IsFinite(value) ? Math.Clamp(value, 0f, bound) : 0f;
+        return double.Parse(within.ToString("R", CultureInfo.InvariantCulture), CultureInfo.InvariantCulture);
     }
 
     private bool SpendPlayerClimb(float seconds, float rise)
@@ -197,6 +245,8 @@ public partial class CommandHost
     {
         var reported = _exertion;
         _exertion = BodyExertion.None;
+        // Play has begun: from now on new rules bring the body as it is (ResolveVitalsRules), never the body as read.
+        _readBody = null;
         if (_playerVitalsUnavailable || !float.IsFinite(seconds) || seconds < 0) return;
         // What the body reported is raw seconds of this tick: never more than the tick.
         var exertion = new BodyExertion(Math.Min(reported.SprintS, seconds), Math.Min(reported.DeepWaterS, seconds), Math.Min(reported.DiveS, seconds));
@@ -409,7 +459,7 @@ public partial class CommandHost
     /// While the player is away the world keeps living (MECHANICS section 4): the time since this mode was last written heals
     /// hearts at the resting pace (after the unharmed wait), refills the bar, and wakes the pool at least half full, as at
     /// camp. Nothing in Creative needs it but the shadow pool. A mode never written by this host (fresh, or only in a version
-    /// 1 save) has no time away.
+    /// 1 save) has no time away. Applied to the body as read (BroughtTo), only once rules are loaded: never under none.
     /// </summary>
     private PlayerVitals CaughtUp(VitalsRules rules, PlayerVitals vitals, DateTime? written)
     {
@@ -427,14 +477,6 @@ public partial class CommandHost
         var stamina = (float)Math.Min(vitals.MaxStamina, vitals.Stamina + rules.RefillMPerS * away);
         if (health == vitals.Health && stamina == vitals.Stamina && pips == vitals.Pips) return vitals;
         return vitals.With(health: health, stamina: stamina, pips: pips);
-    }
-
-    private void CatchUpTimeAway()
-    {
-        var caught = CaughtUp(_vitalsRules, Vitals, _playerModes.Written(Mode));
-        if (ReferenceEquals(caught, Vitals)) return;
-        _playerModes = _playerModes.WithCurrent(caught);
-        _vitalsDirty = true;
     }
 }
 

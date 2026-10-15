@@ -218,9 +218,10 @@ public sealed class VitalsRules
         for (var i = 0; i < v.Challenges.Count; i++) climbs[i] = v.Challenges[i];
         climbs[^1] = challenge;
         Array.Sort(climbs, StringComparer.Ordinal);
-        // A reward raises capacity, not the remaining energy, so it cannot sustain a hanging climb indefinitely.
+        // A reward raises capacity, not the remaining energy, so it cannot sustain a hanging climb indefinitely. It never lowers
+        // a bar grown under another pack (a body kept as saved while no rules are loaded: CommandHostModes' BroughtTo).
         var recorded = PlayerVitals.Of(v.Health, v.MaxHealth, v.Stamina, v.MaxStamina, climbs, v.Recoveries, v.Fractals, v.Pips);
-        return Stamina == null ? recorded.With(maxStamina: PlayerVitals.LegacyMaxStamina(climbs.Length)) : recorded;
+        return Stamina == null ? recorded.With(maxStamina: Math.Max(v.MaxStamina, PlayerVitals.LegacyMaxStamina(climbs.Length))) : recorded;
     }
 
     /// <summary>
