@@ -320,17 +320,18 @@ public partial class LookPresetTest
         // off first: unpinned they follow the machine's own clock).
         look.SetLamps(false);
         charm.Advance(CharmLook.Tuning.LitFadeS + 0.05f);
-        var dayHidden = charm.Lit == 0f && !charm.Windows!.Visible && !charm.Lanterns!.Visible && !charm.FairyLights!.Visible && charm.Smoke!.Visible;
+        var (windows, lanterns, bulbs, smoke) = (charm.Windows!, charm.Lanterns!, charm.FairyLights!, charm.Smoke!);
+        var dayHidden = charm.Lit == 0f && !windows.Visible && !lanterns.Visible && !bulbs.Visible && smoke.Visible;
         look.SetLamps(true);
         charm.Advance(CharmLook.Tuning.LitFadeS * 0.5f);
         var half = charm.Lit;
-        var halfShown = charm.Windows.Visible && Mathf.IsEqualApprox(((ShaderMaterial)charm.Windows.MaterialOverride).GetShaderParameter("lit").AsSingle(), half);
+        var halfShown = windows.Visible && Mathf.IsEqualApprox(((ShaderMaterial)windows.MaterialOverride).GetShaderParameter("lit").AsSingle(), half);
         charm.Advance(CharmLook.Tuning.LitFadeS);
-        var full = charm.Lit == 1f && ((ShaderMaterial)charm.FairyLights.MaterialOverride).GetShaderParameter("lit").AsSingle() == 1f;
-        var nightAlpha = charm.Instance(charm.Smoke, 5).Colour.A;
+        var full = charm.Lit == 1f && ((ShaderMaterial)bulbs.MaterialOverride).GetShaderParameter("lit").AsSingle() == 1f;
+        var nightAlpha = charm.Instance(smoke, 5).Colour.A;
         look.SetLamps(false);
         charm.Advance(CharmLook.Tuning.LitFadeS + 0.05f);
-        Check(look.LampsOn == false && dayHidden && Mathf.IsEqualApprox(half, 0.5f, 0.02f) && halfShown && full && charm.Lit == 0f && !charm.Windows.Visible && !charm.FairyLights.Visible,
+        Check(look.LampsOn == false && dayHidden && Mathf.IsEqualApprox(half, 0.5f, 0.02f) && halfShown && full && charm.Lit == 0f && !windows.Visible && !bulbs.Visible,
             $"by day the windows, the lantern's glow and the fairy lights are not drawn; LampsOn brings them in over {CharmLook.Tuning.LitFadeS} s (half way at {half:0.##}) and they go when the lamps go out");
         Check(nightAlpha > 0f, "the smoke stays drawn through the night");
         charm.LampsPinned = true;
