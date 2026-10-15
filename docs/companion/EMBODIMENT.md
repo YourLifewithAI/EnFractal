@@ -1,5 +1,7 @@
 # The companion's body: goals, its visible state and fetch (A2)
 
+Squared with [docs/game/MECHANICS.md](../game/MECHANICS.md) on 14 October 2026: where this page and that design differ, the design wins.
+
 **Status: 8 October 2026, Run 2's A2 round.** The player's AI now reaches the real game: the kernel's command host
 in the room, through the C# end of the companion link. This page records what the body does for the AI, what the
 player sees, and how fetch works, including what the real host still needs for it.
@@ -42,6 +44,10 @@ The host drives these itself from the body's public state (`CompanionAvatar.Come
 `FacesLookTarget`, `IntentSerial`), keeps the job store and answers `jobs.status`. The bridge adds nothing to a
 goal; the AI polls `jobs_status` until the state is `succeeded`, `failed` or `cancelled`.
 
+**Goals and hands are free.** Only the Gubble's abilities carry a price in pips
+([MECHANICS.md](../game/MECHANICS.md) section 5, packet M1): follow, come, fetch, go_to, look_at, point_at and stay, and
+the sandbox hands (grab, release, place, push), cost nothing, and a stop never does. Nothing is charged today.
+
 ## What the player sees: the companion's state
 
 While an AI is linked, one short line under the companion's name tag says what it is doing (LIVE-VOICE.md's
@@ -59,6 +65,11 @@ The rules are checked in that order each frame (`CompanionBridge.UpdateState`), 
 a fixed screen size) so depth of field and anti-aliasing treat it as they treat the tag. The words and colours are a
 first pass for the founder's eye. "Planning" is inferred from traffic: the model's thinking happens in its own
 harness, which the game cannot see.
+
+**The pips are the second thing drawn on the Gubble.** Beside the state line, a trail of small lights behind it (or
+hovering round it) shows the connection energy that pays for its abilities, one pip per point of the pool (it starts at
+8; [MECHANICS.md](../game/MECHANICS.md) sections 4 and 5). They are the HUD's, like `GubbleCue`, not the body's or the
+link's: `CompanionStatusCue` still draws only the state line. Planned (packet M2); nothing of the kind is drawn today.
 
 ## Fetch
 
