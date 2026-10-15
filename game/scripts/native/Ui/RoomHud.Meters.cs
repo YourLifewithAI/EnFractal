@@ -43,7 +43,6 @@ public partial class RoomHud
     private (int, int, int, float, float, float, bool, bool, int, int, bool, bool, object?)? _meterAsOf;
     private string?[]? _slotCaps;
     private object? _slotCapsFor;
-    private int _poolHint = -1;
 
     /// <summary>The meters' small pictures go with the HUD (the next HUD draws them again), so none outlives the engine's own resources.</summary>
     public override void _ExitTree() => MeterTextures.Release();

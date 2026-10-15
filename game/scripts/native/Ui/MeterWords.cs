@@ -26,8 +26,4 @@ public static class MeterWords
             KernelJson.DisplayText(word, MaxLength).Trim() is { Length: > 0 } shown) return shown;
         return Today(key);
     }
-
-    /// <summary>A knack's name on this island (the pack's), or null when it names none.</summary>
-    public static string? Knack(CommandHost? host, string id) =>
-        host?.Rules?.Names?.Knacks.TryGetValue(id, out var word) == true && KernelJson.DisplayText(word, MaxLength).Trim() is { Length: > 0 } shown ? shown : null;
 }
