@@ -57,9 +57,9 @@ class Surface(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.tools), len(c.command_ops) + len(c.query_ops) - len(c.player_only_ops))
         self.assertEqual(c.player_only_ops, {"protect.unlock", "world.set_physics", "world.set_mode",
                                              "glow.configure", "wish.submit", "wish.stop", "wishes.read",
-                                             # The mechanics round (M0): no tool picks up a Fractal, sets a knack, marks a
+                                             # The mechanics round (M0): no tool picks up a Fractal, gathers, sets a knack, marks a
                                              # receipt or resets Trust.
-                                             "item.pickup", "knack.set", "receipt.mark", "trust.reset"})
+                                             "item.pickup", "item.gather", "knack.set", "receipt.mark", "trust.reset"})
 
     @with_harness
     async def test_mode_preferences_and_wish_controls_are_not_companion_tools(self):

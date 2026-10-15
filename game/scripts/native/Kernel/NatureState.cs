@@ -167,11 +167,17 @@ public sealed class NatureObject
     /// <summary>A stock object's pose when it burned down (the authority's, else the manifest's); null until then.</summary>
     public Vector3? PositionM { get; set; }
     public Quaternion? Rotation { get; set; }
+    /// <summary>
+    /// Gone from the room: a stock object burned down, or gathered into the wallet (item.gather, Gathered). Either way it is
+    /// hidden, has no collision, is refused like an unknown id and is a removed entity in room state, at the pose it left.
+    /// </summary>
     public bool BurnedDown => !Creation && Burn >= 1;
+    /// <summary>A stock object the player gathered into the wallet (its Burn is 1: gone); never set for one fire took.</summary>
+    public bool Gathered { get; set; }
     public NatureObject Copy() => new()
     {
         Id = Id, Creation = Creation, Burn = Burn, SourceHash = SourceHash, RepairCost = new(RepairCost, StringComparer.Ordinal),
-        PositionM = PositionM, Rotation = Rotation,
+        PositionM = PositionM, Rotation = Rotation, Gathered = Gathered,
     };
 }
 

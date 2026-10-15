@@ -149,6 +149,8 @@ EXPECTED_FAILURES = {
     "result_catch_up_notice_without_where_it_was": "'from_m' is a required property",
     # The mechanics round (M0, 14 October): the player's new ops, set-mode's difficulty, the targets rule, energy and the body.
     "command_pickup_of_an_object": "'obj:bean_bag' does not match '^fractal:",
+    "command_gather_of_a_creation": "'creation:00000001' does not match '^obj:",
+    "result_gather_with_data": "False schema does not allow {'wood': 21}",
     "command_knack_in_a_fourth_slot": "4 is greater than the maximum of 3",
     "command_receipt_marked_maybe": "'maybe' is not one of ['yes', 'not_that']",
     "command_trust_reset_to_a_number": "('count' was unexpected)",
@@ -290,8 +292,8 @@ GARAGE = EXAMPLES / "rooms" / "garage_example"
 PRE_RUN2_STATE_SHA256 = "9883c8a6da85cc801b6d3b916a168cd1929b30f043d691ffe30e8870fca7f2a5"
 SANDBOX_VERBS = ("entity.grab", "entity.release", "entity.place", "entity.push")
 PLAYER_ONLY_OPS = {"protect.unlock", "world.set_physics", "world.set_mode", "glow.configure", "wish.submit", "wish.stop", "wishes.read",
-                   # The mechanics round (M0): a Fractal's pickup, a knack, a receipt's mark and a Trust reset.
-                   "item.pickup", "knack.set", "receipt.mark", "trust.reset"}
+                   # The mechanics round: a Fractal's pickup and a held log or stone gathered (M0, M1), a knack, a receipt's mark and a Trust reset.
+                   "item.pickup", "item.gather", "knack.set", "receipt.mark", "trust.reset"}
 FACT_FIELDS = ("line", "subject", "actor", "directed_by", "pin_m", "state", "quantity", "job_id")
 NOTE_FIELDS = ("author", "text", "untrusted")
 
@@ -1692,7 +1694,7 @@ class IslandRulesTests(unittest.TestCase):
 # ---------- the mechanics round (M0, 14 October 2026; docs/runs/RUN-2-MECHANICS.md section 3) ----------
 
 MECHANICS_TRANSIENT = {"knack.set", "receipt.mark", "trust.reset"}
-MECHANICS_DURABLE = {"item.pickup"}
+MECHANICS_DURABLE = {"item.pickup", "item.gather"}
 MECHANICS_BLOCKS = ("traits", "cost", "modes", "names", "knacks", "fractals")
 STORYBOOK_WILD_V5 = RULES / "storybook_wild" / "v5.json"
 MECHANICS_EXAMPLE = EXAMPLES / "rules" / "mechanics_example.json"
@@ -1873,8 +1875,27 @@ class MechanicsRoundTests(unittest.TestCase):
             # "That operation does not exist."
             self.assertLessEqual(new, set(re.findall(r'"([a-z_.]+)"', re.search(r"CommandOps = new\(\)\s*\{([^}]*)\};", host).group(1))))
             unsupported = host[host.index("private string? Unsupported("):]
-            self.assertIn('"item.pickup" or "knack.set" or "receipt.mark" or "trust.reset" => MechanicsNotYet', unsupported)
+            # The player's pickup and gather are hosted since M1; the other new ops answer as not available yet.
+            self.assertIn('"knack.set" or "receipt.mark" or "trust.reset" => MechanicsNotYet', unsupported)
+            self.assertNotIn('"item.pickup" or', unsupported)
+            self.assertIn('"item.gather" => GatherHeld(', host)
             self.assertIn('"world.set_mode" when args.TryGetProperty("difficulty", out _) => DifficultyNotYet', unsupported)
+
+    def test_gathering_is_the_players_and_the_wallet_shows_on_the_status(self):
+        """M1's follow-up (decision 26): item.gather names the room object the player holds, never a creation or a Fractal;
+        player-only and durable with no data; the wallet's counts ride on player.status in the creation compiler's materials."""
+        args = self.defs["args"]["item.gather"]
+        self.assertEqual((args["required"], args["properties"]["target"]), (["target"], {"$ref": "#/$defs/object_id"}))
+        self.assertIn("item.gather", self.defs["player_only_ops"]["enum"])
+        for target in ("creation:00000001", "fractal:k3x9q2", "avatar:player", "obj:"):
+            with self.subTest(target=target):
+                self.assertTrue(validate.schema_errors({**valid_example("command_player_gathers_a_log"), "args": {"target": target}}))
+        wallet = self.defs["data"]["player.status"]["properties"]["wallet"]
+        self.assertEqual(wallet["propertyNames"], {"$ref": "#/$defs/creation_material"})
+        status = valid_example("result_player_status_with_energy")
+        self.assertEqual(status["data"]["wallet"], {"copper": 10, "leaf": 20, "stone": 10, "wood": 21})
+        self.assertTrue(validate.schema_errors({**status, "data": {**status["data"], "wallet": {"gold": 1}}}))
+        self.assertTrue(validate.schema_errors({**status, "data": {**status["data"], "wallet": {"wood": -1}}}))
 
     def test_a_fractal_has_one_spelling_and_the_kernel_reads_it_so(self):
         common = validate.load_strict(CONTRACTS / "common.schema.json")["$defs"]

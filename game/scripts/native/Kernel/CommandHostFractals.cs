@@ -30,11 +30,6 @@ public partial class CommandHost
     public const int MaxFractals = 1000;
     /// <summary>Why the island has no Fractals although its manifest names some (its block did not check), for the player; empty otherwise.</summary>
     public string FractalsNotice { get; private set; } = "";
-    /// <summary>
-    /// Whether the room's authority keeps item.pickup's receipt (its NATURE_OPS, which carry result data): a pickup is a durable
-    /// room revision, so until the authority keeps it the op answers as not available yet. Read once from the authority.
-    /// </summary>
-    internal bool FractalPickupsKept { get; set; }
     private IReadOnlyList<IslandFractal>? _fractals;
     private bool _fractalsTyped;
 
@@ -55,18 +50,6 @@ public partial class CommandHost
         new(fractal.PositionM - new Vector3(FractalHalfWidthM, 0, FractalHalfWidthM), new Vector3(FractalHalfWidthM * 2, FractalHeightM, FractalHalfWidthM * 2));
 
     public JsonObject PlayerPickUp(string fractal, bool preview = false) => PlayerCommand("item.pickup", new JsonObject { ["target"] = fractal }, preview);
-
-    /// <summary>Whether the authority records item.pickup among the receipts that carry data (its NATURE_OPS).</summary>
-    private bool AuthorityKeepsPickups()
-    {
-        try
-        {
-            if (Authority?.GetScript().AsGodotObject() is not Script script) return false;
-            using var constants = script.GetScriptConstantMap();
-            return constants.TryGetValue("NATURE_OPS", out var ops) && ops.AsGodotArray().Contains("item.pickup");
-        }
-        catch (Exception error) when (error is InvalidCastException or InvalidOperationException) { return false; }
-    }
 
     /// <summary>The manifest's x_fractals, read from the room's pinned manifest and checked as contracts/room-manifest.schema.json and validate.py do.</summary>
     private IReadOnlyList<IslandFractal> LoadFractals()

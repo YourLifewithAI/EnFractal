@@ -225,6 +225,7 @@ class AlignmentScenarios:
 
         outcome = {
             "pick up a Fractal": await sent("item.pickup", {"target": "fractal:k3x9q2"}),
+            "gather a log": await sent("item.gather", {"target": "obj:book"}),
             "set a knack": await sent("knack.set", {"slot": 1, "knack": "quick_feet"}),
             "mark a receipt": await sent("receipt.mark", {"action_id": "bloom-0002", "mark": "yes"}),
             "reset Trust": await sent("trust.reset", {}),
@@ -245,6 +246,7 @@ class AlignmentScenarios:
         }
         self.assertEqual(outcome, {
             "pick up a Fractal": ("permission_denied", "$.op"),
+            "gather a log": ("permission_denied", "$.op"),
             "set a knack": ("permission_denied", "$.op"),
             "mark a receipt": ("permission_denied", "$.op"),
             "reset Trust": ("permission_denied", "$.op"),

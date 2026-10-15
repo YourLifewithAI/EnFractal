@@ -47,8 +47,9 @@ const COORDINATE_LIMIT_M := 1000.0
 const OWNER_LIMITS := {"instances": 8, "parts": 96, "nodes": 64, "edges": 128, "fields": 16, "lights": 16, "rotors": 16}
 const WORLD_LIMITS := {"instances": 16, "parts": 192, "nodes": 128, "edges": 256, "fields": 32, "lights": 32, "rotors": 32}
 const DEFAULT_ROLES := {PLAYER: "owner", COMPANION: "editor"}
-## The contract ops whose durable receipts carry result data the trusted host wrote (nature changes and their undo).
-const NATURE_OPS := ["nature.cast", "nature.trail", "nature.repair", "room.undo"]
+## The contract ops whose durable receipts carry result data the trusted host wrote (nature changes and their undo), and
+## the mechanics round's player ops the host commits through the nature block: a Fractal picked up and a log or stone gathered.
+const NATURE_OPS := ["nature.cast", "nature.trail", "nature.repair", "room.undo", "item.pickup", "item.gather"]
 
 var revision := 0
 var permission_revision := 0

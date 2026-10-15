@@ -171,12 +171,12 @@ public partial class CommandHost
     private static readonly HashSet<string> DurableOps = new()
     {
         "creation.place", "creation.revise", "entity.remove", "protect.lock", "protect.unlock", "room.checkpoint", "entity.release", "entity.place", "entity.push", "journal.note",
-        "nature.cast", "nature.trail", "nature.repair", "room.undo", "item.pickup",
+        "nature.cast", "nature.trail", "nature.repair", "room.undo", "item.pickup", "item.gather",
     };
     /// <summary>The durable ops whose receipts keep the data their first answer had (the authority's NATURE_OPS).</summary>
     private static readonly HashSet<string> NatureOps = new() { "nature.cast", "nature.trail", "nature.repair", "room.undo" };
     /// <summary>The authority keeps a pickup's receipt by the nature path, with empty data: the contract's result carries none.</summary>
-    private static bool KeptWithData(string op) => NatureOps.Contains(op) || op == "item.pickup";
+    private static bool KeptWithData(string op) => NatureOps.Contains(op) || op is "item.pickup" or "item.gather";
 
     /// <summary>One canonical angle: a yaw in (-180, 180], so a half-turn either way is the same bytes everywhere.</summary>
     private static double CanonicalYaw(double yaw)
@@ -351,6 +351,8 @@ public partial class CommandHost
             : result["data"] != null) return "its data";
         if (op == "item.pickup" && (result["affected"] is not JsonArray { Count: 1 } picked || StrOf(picked[0]) is not { } fractal || !FractalId.IsMatch(fractal)))
             return "a pickup that names no Fractal";
+        if (op == "item.gather" && (result["affected"] is not JsonArray { Count: 1 } gathered || StrOf(gathered[0]) is not { } thing || !ObjectIdPattern.IsMatch(thing)))
+            return "a gather that names no object";
         return null;
     }
 
@@ -474,6 +476,8 @@ public partial class CommandHost
                 receipt["data"] = new JsonObject { ["fractal"] = result["affected"]![0]!.GetValue<string>() };
                 receipt["affected"] = new JsonArray();
             }
+            // A gather's receipt names its object in affected, with empty data (CommandHostGather).
+            if (op == "item.gather") receipt["data"] = new JsonObject();
             receipts[key] = new JsonObject
             {
                 ["principal"] = result["principal"]!.GetValue<string>(), ["action_id"] = result["action_id"]!.GetValue<string>(), ["fingerprint"] = node["fingerprint"]!.GetValue<string>(),

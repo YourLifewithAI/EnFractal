@@ -133,6 +133,8 @@ public static class NatureBlock
             }
             else if (item.PositionM is { } at && item.Rotation is { } turn)
                 saved["pose"] = new JsonObject { ["position_m"] = KernelJson.Vector(at), ["rotation"] = new JsonArray(KernelJson.Num(turn.X), KernelJson.Num(turn.Y), KernelJson.Num(turn.Z), KernelJson.Num(turn.W)) };
+            // Gathered into the wallet (item.gather), not burnt: gone all the same.
+            if (!item.Creation && item.Gathered) saved["gathered"] = true;
             map[item.Id] = saved;
         }
         return map;
@@ -289,6 +291,7 @@ public static class NatureBlock
                 var turn = pose["rotation"]!.AsArray().Select(v => Float(v)).ToArray();
                 item.Rotation = new Quaternion(turn[0], turn[1], turn[2], turn[3]);
             }
+            item.Gathered = !item.Creation && saved["gathered"]?.GetValueKind() == JsonValueKind.True;
             objects[id] = item;
         }
         return objects;
@@ -436,7 +439,10 @@ public static class NatureBlock
         }
         if (!ObjectId.IsMatch(id) || (room != null && room.Objects.All(o => o.Id != id))) return "an object not in this room";
         var burnedDown = item["burn"]!.GetValue<double>() >= 1;
-        if (item.Count != (burnedDown ? 2 : 1)) return "a stock object's fields";
+        // A gathered object (item.gather) is gone as a burnt one is, and says so: "gathered" is true, and only on one gone.
+        var gathered = item.ContainsKey("gathered");
+        if (gathered && (!burnedDown || item["gathered"]?.GetValueKind() != JsonValueKind.True)) return "a gathered object's mark";
+        if (item.Count != (burnedDown ? 2 : 1) + (gathered ? 1 : 0)) return "a stock object's fields";
         if (!burnedDown) return null;
         if (item["pose"] is not JsonObject pose || pose.Count != 2 || !Vec3(pose["position_m"]) || pose["rotation"] is not JsonArray q || q.Count != 4 || q.Any(v => !Number(v, 1)) ||
             Math.Abs(Math.Sqrt(q.Sum(v => v!.GetValue<double>() * v.GetValue<double>())) - 1) > 1e-3) return "a burned object's pose";

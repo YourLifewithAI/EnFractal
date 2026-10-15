@@ -158,6 +158,8 @@ public partial class CommandHost
             data["hearts"] = new JsonObject { ["quarters"] = _vitalsRules.Quarters(vitals), ["max_quarters"] = _vitalsRules.MaxQuarters(vitals) };
         if (_vitalsRules.InBands)
             data["bar"] = new JsonObject { ["bands"] = _vitalsRules.OpenBands(vitals), ["slowed"] = _slowed };
+        // The team's wallet (the island save's): what gathering put in and repairs took out (CommandHostGather).
+        data["wallet"] = WalletCounts();
         return data;
     }
 

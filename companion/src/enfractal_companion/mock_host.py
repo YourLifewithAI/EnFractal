@@ -108,9 +108,11 @@ UNDO_ONLY_NATURE = ("The latest change is not one the island can undo yet: only 
                     "can be undone.")
 # Outside Creative there is no undo at all (the founder, 13 October): the kernel's Unsupported, before any revision check.
 UNDO_NOT_IN_THIS_MODE = "There is no undo in Challenge or Live: what happens there stays."
-# The mechanics round (M0): its player-only ops, and the kernel's words for what is not built yet (CommandHost.Unsupported:
-# MechanicsNotYet, DifficultyNotYet, BubblesNotYet) and for a Fractal the companion may not gather (FractalRefusal).
-MECHANICS_PLAYER_OPS = frozenset({"item.pickup", "knack.set", "receipt.mark", "trust.reset"})
+# The mechanics round (M0, and M1's gather): its player-only ops, and the kernel's words for what is not built yet
+# (CommandHost.Unsupported: MechanicsNotYet, DifficultyNotYet, BubblesNotYet) and for a Fractal the companion may not gather
+# (FractalRefusal). The kernel hosts the player's item.pickup and item.gather since M1; the mock, which places no Fractals and
+# keeps no wallet, answers the player's not available yet.
+MECHANICS_PLAYER_OPS = frozenset({"item.pickup", "item.gather", "knack.set", "receipt.mark", "trust.reset"})
 BUBBLES_EXPERTISE = frozenset({"bubble_carry", "bubble_boat", "bubble_lift"})
 MECHANICS_NOT_YET = "This operation is not available yet."
 DIFFICULTY_NOT_YET = "Difficulties are chosen at the opening menu, which is not built yet."
@@ -2295,10 +2297,10 @@ class MockHost(JournalMixin):
         return {"data": {"checkpoint_revision": self.revision}}
 
     def _op_item_pickup(self, principal, message, apply, new_revision):
-        """A Fractal's pickup, the player's alone: refused before it reaches here (_check_unsupported) until M1 and M4."""
+        """A Fractal's pickup or a gather, the player's alone: refused before it reaches here (_check_unsupported) in the mock."""
         raise HostError("unsupported_capability", MECHANICS_NOT_YET, field_path="$.op")
 
-    _op_knack_set = _op_receipt_mark = _op_trust_reset = _op_item_pickup
+    _op_knack_set = _op_receipt_mark = _op_trust_reset = _op_item_gather = _op_item_pickup
 
     def _op_world_set_physics(self, principal, message, apply, new_revision):
         # Player-only: a companion is refused before any handler runs. Not saved in room state, so transient.

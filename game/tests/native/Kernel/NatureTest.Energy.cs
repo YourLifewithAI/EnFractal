@@ -46,6 +46,7 @@ public partial class NatureTest
         await TestQuartersInPlay();
         await TestVitalsTimeAway();
         await TestFractals();
+        await TestGather();
     }
 
     /// <summary>A world under v5 with a body of our choosing in a mode (and difficulty).</summary>
@@ -250,7 +251,10 @@ public partial class NatureTest
         Check(_host.Vitals.Health == 50 && Pips == 1, "a mode never written by this host has no time away to catch up");
     }
 
-    /// <summary>A copy of the test room whose manifest places two Fractals: one in front of the player's spawn, one across the room.</summary>
+    /// <summary>
+    /// A copy of the test room whose manifest places two Fractals (one in front of the player's spawn, one across the room) and
+    /// two loose things to gather beside the spawn: a log (bark) at its right and a stone at its left.
+    /// </summary>
     private RoomData FractalRoom()
     {
         var source = ProjectSettings.GlobalizePath(RoomWorld.DefaultRoom);
@@ -273,6 +277,31 @@ public partial class NatureTest
                     new JsonObject { ["id"] = "fractal:far02", ["position_m"] = new JsonArray(1.2, 0.0, 0.6) }),
             },
         };
+        var files = manifest["files"]!.AsArray();
+        var objects = manifest["objects"]!.AsArray();
+        foreach (var (id, asset, name, role, size, x) in new[] { ("obj:log", "log_proxy", "Log", "bark", new[] { 0.03, 0.03, 0.1 }, 0.12), ("obj:stone", "stone_proxy", "Stone", "stone", new[] { 0.04, 0.035, 0.04 }, -0.12) })
+        {
+            var record = JsonNode.Parse(File.ReadAllText(Path.Combine(target, "objects/doorstop_proxy/asset.json")))!.AsObject();
+            record["asset_id"] = asset;
+            record["display_name"] = name;
+            record["category"] = name == "Log" ? "woodpile" : "rock";
+            record["category_group"] = "decor";
+            record["dimensions_m"] = new JsonArray(size.Select(v => (JsonNode?)v).ToArray());
+            record["physics"] = new JsonObject { ["movable"] = true, ["mass_kg"] = 0.03 };
+            record["materials"] = new JsonArray(new JsonObject { ["slot"] = "body", ["role"] = role, ["base_color"] = "#8b6f59" });
+            record["affordances"] = new JsonArray("walkable_top");
+            var bytes = Encoding.UTF8.GetBytes(record.ToJsonString());
+            var relative = $"objects/{asset}/asset.json";
+            Directory.CreateDirectory(Path.Combine(target, "objects", asset));
+            File.WriteAllBytes(Path.Combine(target, relative), bytes);
+            files.Add(new JsonObject { ["path"] = relative, ["sha256"] = CanonicalJson.Sha256Hex(bytes), ["bytes"] = bytes.Length });
+            objects.Add(new JsonObject
+            {
+                ["id"] = id, ["asset"] = relative,
+                ["transform"] = new JsonObject { ["position_m"] = new JsonArray(x, 0.0, 0.62), ["rotation"] = new JsonArray(0.0, 0.0, 0.0, 1.0) },
+                ["support"] = new JsonObject { ["kind"] = "shell", ["target_id"] = "shell:floor" },
+            });
+        }
         File.WriteAllText(Path.Combine(target, "room.json"), manifest.ToJsonString(), new UTF8Encoding(false));
         return RoomData.Load($"{TestRoot}/fractals/test_room");
     }
@@ -302,14 +331,6 @@ public partial class NatureTest
         var mine = Send(Command(NextId("grab"), "entity.grab", new JsonObject { ["target"] = near, ["actor"] = CommandHost.PlayerAvatar }), Player);
         Check(Code(grab) == "permission_denied" && Code(mine) == "invalid_args" && mine["error"]?["message"]?.GetValue<string>().Contains("item.pickup", StringComparison.Ordinal) == true,
             "the Gubble never gathers one; the player's own grab says a Fractal is picked up, not carried");
-        if (!_host.FractalPickupsKept)
-        {
-            var stub = Send(Command(NextId("pickup"), "item.pickup", new JsonObject { ["target"] = near }), Player);
-            Check(Code(stub) == "unsupported_capability" && stub["error"]?["message"]?.GetValue<string>() == CommandHost.MechanicsNotYet,
-                "while the room's authority does not keep a pickup's receipt (its NATURE_OPS), the pickup answers as not available yet");
-            // Past this point the authority's receipt is kept for the session only (this test never reloads such a save).
-            _host.FractalPickupsKept = true;
-        }
         var far = Send(Command(NextId("pickup"), "item.pickup", new JsonObject { ["target"] = "fractal:far02" }), Player);
         Check(Code(far) == "out_of_bounds" && far["error"]?["retryable"]?.GetValue<bool>() == true, "a Fractal across the room is out of reach: come closer");
         var revision = _host.Revision;
@@ -337,14 +358,72 @@ public partial class NatureTest
             "room state keeps the Fractal picked up in the host's nature block, which checks whole");
         var companionList = Send(Query("entities.list", new JsonObject { ["filter"] = new JsonObject { ["kind"] = "fractal" } }), Companion)["data"]?["items"]?.AsArray();
         Check(companionList != null && companionList.All(e => e?["id"]?.GetValue<string>() != near), "a Fractal picked up is gone for the Gubble too");
-        if (_host.Authority.GetScript().AsGodotObject() is Script script && script.GetScriptConstantMap().TryGetValue("NATURE_OPS", out var ops) && ops.AsGodotArray().Contains("item.pickup"))
-        {
-            // The authority keeps the receipt (the integrator's line): the island save reloads with the Fractal still gone.
-            await EnergyWorld("energy-fractals", room: room);
-            var replayed = Send(pickup, Player);
-            Check(_host.Fractals.Select(f => f.Id).SequenceEqual(new[] { "fractal:far02" }) && replayed["replayed"]?.GetValue<bool>() == true,
-                "after a reload the Fractal is still gone and its receipt still replays");
-        }
-        else GD.Print("NATURE_NOTE the authority does not keep item.pickup receipts yet: the reload check waits for its NATURE_OPS line");
+        // The island save reloads (a new host on the same save path) with the Fractal still gone and its receipt still replaying.
+        await EnergyWorld("energy-fractals", room: room);
+        var replayed = Send(pickup, Player);
+        Check(_host.Authority.Call("is_ready").AsBool() && _host.Fractals.Select(f => f.Id).SequenceEqual(new[] { "fractal:far02" }) &&
+              replayed["replayed"]?.GetValue<bool>() == true && replayed["affected"]?[0]?.GetValue<string>() == near,
+            "after a save and reload the Fractal is still gone and its receipt still replays");
+    }
+
+    /// <summary>
+    /// Gathering (decision 26): the player picks a loose log up and gathers it into the wallet (wood); it leaves the island as
+    /// one durable revision, the wallet's count shows on player.status, and a save and reload keep both. The companion is
+    /// refused before anything is looked up; nothing held, or a thing that is no log or stone, is request_invalid.
+    /// </summary>
+    private async Task TestGather()
+    {
+        var room = FractalRoom();
+        await EnergyWorld("energy-gather", room: room);
+        var log = room.Objects.First(o => o.Id == "obj:log");
+        Check(CommandHost.GatherMaterial(log) == "wood" && CommandHost.GatherMaterial(room.Objects.First(o => o.Id == "obj:stone")) == "stone" &&
+              CommandHost.GatherMaterial(room.Objects.First(o => o.Id == "obj:book")) == null && CommandHost.GatherMaterial(room.Objects.First(o => o.Id == "obj:box")) == null,
+            "a log (bark) gathers as wood and a stone as stone; a book or a cardboard box is no loose log or stone");
+        var before = Send(Query("player.status", new JsonObject()), Player)["data"]?["wallet"];
+        var companion = Send(Command(NextId("gather"), "item.gather", new JsonObject { ["target"] = "obj:log" }), Companion);
+        var nothing = Send(Command(NextId("gather"), "item.gather", new JsonObject { ["target"] = "obj:log" }), Player);
+        Check(Code(companion) == "permission_denied" && companion["error"]?["field_path"]?.GetValue<string>() == "$.op" &&
+              Code(nothing) == "request_invalid" && nothing["error"]?["field_path"]?.GetValue<string>() == "$.args.target" &&
+              before?["wood"]?.GetValue<int>() == 20 && before["stone"]?.GetValue<int>() == 10,
+            "the companion is refused gathering outright, and the player holding nothing is told to pick it up first; the wallet starts as today: " + Canonical(before));
+        var grab = Send(Command(NextId("grab"), "entity.grab", new JsonObject { ["target"] = "obj:log", ["actor"] = CommandHost.PlayerAvatar }), Player);
+        var other = Send(Command(NextId("gather"), "item.gather", new JsonObject { ["target"] = "obj:stone" }), Player);
+        Check(Ok(grab) && _host.HeldBy(CommandHost.PlayerAvatar) == "obj:log" && Code(other) == "request_invalid",
+            "the player picks the log up; gathering a thing it does not hold is request_invalid: " + Code(grab));
+        var revision = _host.Revision;
+        var preview = Send(Command(NextId("gather"), "item.gather", new JsonObject { ["target"] = "obj:log" }, preview: true), Player);
+        Check(Ok(preview) && _host.Revision == revision && _host.HeldBy(CommandHost.PlayerAvatar) == "obj:log", "a preview gathers nothing");
+        var gather = Command("gather-log", "item.gather", new JsonObject { ["target"] = "obj:log" });
+        var gathered = Send(gather, Player);
+        var status = Send(Query("player.status", new JsonObject()), Player)["data"];
+        var entities = Send(Query("entities.list", new JsonObject()), Player)["data"]?["items"]?.AsArray();
+        Check(Ok(gathered) && gathered["transient"]?.GetValue<bool>() == false && gathered["revision"]?.GetValue<int>() == revision + 1 && gathered["data"] == null &&
+              gathered["affected"]?.AsArray().Select(a => a!.GetValue<string>()).SequenceEqual(new[] { "obj:log" }) == true,
+            "the log is gathered: one durable room revision, the log in affected, no data: " + Canonical(gathered));
+        Check(status?["wallet"]?["wood"]?.GetValue<int>() == 20 + CommandHost.GatherUnits && status["wallet"]?["stone"]?.GetValue<int>() == 10 &&
+              _host.HeldBy(CommandHost.PlayerAvatar) == null && entities?.All(e => e?["id"]?.GetValue<string>() != "obj:log") == true &&
+              _host.Nature.Objects["obj:log"] is { Gathered: true, BurnedDown: true },
+            "the wallet holds one more wood on player.status, the player's hands are empty and the log has left the island: " + Canonical(status?["wallet"]));
+        var replay = Send(gather, Player);
+        var fact = Send(Query("journal.read", new JsonObject { ["kind"] = "gathered" }), Player)["data"]?["entries"]?.AsArray().LastOrDefault();
+        Check(replay["replayed"]?.GetValue<bool>() == true && _host.Nature.Wallet["wood"] == 20 + CommandHost.GatherUnits &&
+              fact?["line"]?.GetValue<string>() == $"You gathered \"Log\": {20 + CommandHost.GatherUnits} wood in the wallet." && fact["quantity"]?["count"]?.GetValue<int>() == 21,
+            "a retry replays and counts nothing twice; the journal keeps a gathered fact: " + Canonical(fact));
+        var state = _host.ExportRoomState();
+        var removed = state?["entities"]?["obj:log"];
+        Check(removed?["removed"]?.GetValue<bool>() == true && state?["extensions"]?["x_play_nature"]?["objects"]?["obj:log"]?["gathered"]?.GetValue<bool>() == true &&
+              NatureBlock.Problem(state!["extensions"]!["x_play_nature"], _host.Revision, room) == null,
+            "room state keeps the log as a removed entity, marked gathered in the host's nature block, which checks whole");
+        // A pickup and a gather survive a save and reload (the authority keeps both receipts: its NATURE_OPS).
+        var pickup = Command("pickup-in-gather", "item.pickup", new JsonObject { ["target"] = "fractal:near01" });
+        Check(Ok(Send(pickup, Player)), "the player also picks up the Fractal before the reload");
+        await EnergyWorld("energy-gather", room: room);
+        var again = Send(gather, Player);
+        var picked = Send(pickup, Player);
+        var reloaded = Send(Query("player.status", new JsonObject()), Player)["data"]?["wallet"];
+        Check(_host.Authority.Call("is_ready").AsBool() && again["replayed"]?.GetValue<bool>() == true && picked["replayed"]?.GetValue<bool>() == true &&
+              reloaded?["wood"]?.GetValue<int>() == 21 && _host.Nature.Objects["obj:log"].Gathered && !_host.Fractals.Any(f => f.Id == "fractal:near01") &&
+              Send(Query("entities.list", new JsonObject()), Player)["data"]?["items"]?.AsArray().All(e => e?["id"]?.GetValue<string>() != "obj:log") == true,
+            "after a save and reload the log is still gone, the wallet still holds it, the Fractal is still picked up, and both receipts replay");
     }
 }

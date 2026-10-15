@@ -18,6 +18,7 @@ from enfractal_companion.mock_host import load_rules, rules_path
 
 NEW_PLAYER_OPS = {
     "item.pickup": {"target": "fractal:k3x9q2"},
+    "item.gather": {"target": "obj:book"},
     "knack.set": {"slot": 1, "knack": "quick_feet"},
     "receipt.mark": {"action_id": "bloom-0002", "mark": "not_that"},
     "trust.reset": {},
