@@ -174,11 +174,26 @@ public partial class LookPresetTest
               && bodies.Multimesh.VisibleInstanceCount == 6 && glints.Multimesh.VisibleInstanceCount == 6 && sparks.Multimesh.VisibleInstanceCount == 0,
             $"a room whose manifest places six Fractals draws six bodies and six glints, in the host's order, and no sparks ({fractals.Summary})");
         Check(bodies.Multimesh.InstanceCount == host.AllFractals.Count && fractals.GetChildren().OfType<MultiMeshInstance3D>().Count() == 3
-              && fractals.FindChildren("*", "Light3D", true, false).Count == 0 && fractals.FindChildren("*", "CollisionObject3D", true, false).Count == 0
+              && fractals.FindChildren("*", "Light3D", true, false).Count == fractals.Lights.Count && fractals.FindChildren("*", "CollisionObject3D", true, false).Count == 0
               && glints.CastShadow == GeometryInstance3D.ShadowCastingSetting.Off
               && bodies.CastShadow == (fractals.Form == FractalForm.Star ? GeometryInstance3D.ShadowCastingSetting.Off : GeometryInstance3D.ShadowCastingSetting.On)
               && bodies.Layers == 1u && glints.Layers == 1u,
-            $"three MultiMeshes (bodies, glints, sparks), no light, no collider; the {fractals.Form} " + (fractals.Form == FractalForm.Star ? "is light and casts no shadow" : "casts a small shadow") + ", the glint none; both on the world layer every view draws");
+            $"three MultiMeshes (bodies, glints, sparks) and the night's lights, no collider; the {fractals.Form} " + (fractals.Form == FractalForm.Star ? "is light and casts no shadow" : "casts a small shadow") + ", the glint none; both on the world layer every view draws");
+        // The light at night (the founder, 15 October): a small pool round each Fractal's heart, no shadow, on when lamps would be.
+        look.SetClock(2f, 172);
+        fractals.Advance(FractalLook.Tuning.LightChooseS + 0.05f);
+        var lights = fractals.Lights;
+        var centres = Enumerable.Range(0, host.AllFractals.Count).Select(i => FractalLook.BodyCentre(fractals.Form, host.AllFractals[i].PositionM, FractalLook.PhaseOf(host.AllFractals[i].Id), fractals.LifeS)).ToArray();
+        Check(lights.Count == 6 && fractals.Night > 0.99f
+              && lights.All(l => l.Visible && Mathf.IsEqualApprox(l.LightEnergy, FractalLook.Tuning.LightEnergy) && Mathf.IsEqualApprox(l.OmniRange, FractalLook.Tuning.LightRangeM)
+                                 && !l.ShadowEnabled && l.LightBakeMode == Light3D.BakeMode.Disabled)
+              && lights.Select(l => centres.Count(c => c.DistanceTo(l.Position) < 1e-4f)).All(n => n == 1),
+            $"at night (02:00) each of the six Fractals casts a small pool of light from its heart ({FractalLook.Tuning.LightEnergy} reaching {FractalLook.Tuning.LightRangeM} m), with no shadow (no slot of the shadow budget) and baked into nothing");
+        look.SetClock(12f, 172);
+        fractals.Advance(0.016f);
+        Check(fractals.Night == 0f && lights.All(l => !l.Visible && l.LightEnergy == 0f), "by day (noon) the lights are out: the glint alone");
+        look.SetClock(2f, 172);
+        fractals.Advance(0.016f);
         var inside = true;
         var lifted = true;
         var asLived = true;
@@ -227,6 +242,8 @@ public partial class LookPresetTest
             $"after {FractalLook.Tuning.PickupFadeS} s it is gone (five bodies, five glints), while its sparks, which began at its spot, are still rising");
         fractals.Advance(FractalLook.Tuning.SparkLifeS * 1.3f);
         Check(fractals.SparkCount == 0 && sparks.Multimesh.VisibleInstanceCount == 0, "the sparks are gone within their life: the moment is over");
+        Check(fractals.Lights.Count(l => l.Visible) == 5 && fractals.Lights.Where(l => l.Visible).All(l => l.Position.DistanceTo(spot.GetCenter()) > 0.05f),
+            "and its light has gone out with it: five pools of light at night, none where it rested");
 
         // The glint at the island's far plane: the shader's rule (wider with distance, never under its pixels) keeps it on screen.
         var far = ViewDistances.MaxFarM;
@@ -281,8 +298,9 @@ public partial class LookPresetTest
         var perTick = clock.Elapsed.TotalMilliseconds / ticks;
         allocated = GC.GetAllocatedBytesForCurrentThread() - allocated;
         GD.Print($"LOOK_INFO: the Fractal look with {CommandHost.MaxFractals} Fractals: {perTick * 1000.0:0} us a tick headless, {allocated} bytes allocated over {ticks} ticks");
-        Check(fractals.Count == CommandHost.MaxFractals && fractals.Bodies!.Multimesh.InstanceCount == CommandHost.MaxFractals && fractals.Bodies.Multimesh.VisibleInstanceCount == CommandHost.MaxFractals,
-            $"the kernel's most, {CommandHost.MaxFractals} Fractals, are every one drawn and never more");
+        Check(fractals.Count == CommandHost.MaxFractals && fractals.Bodies!.Multimesh.InstanceCount == CommandHost.MaxFractals && fractals.Bodies.Multimesh.VisibleInstanceCount == CommandHost.MaxFractals
+              && fractals.Lights.Count == FractalLook.Tuning.MaxLights,
+            $"the kernel's most, {CommandHost.MaxFractals} Fractals, are every one drawn and never more, and at most {FractalLook.Tuning.MaxLights} of them are lit at night (those nearest the player)");
         Check(allocated == 0 && perTick < 0.6, $"a thousand Fractals live within budget: {perTick * 1000.0:0} us a tick, {allocated} bytes allocated in steady state");
         world.QueueFree();
         await Frames(3);
@@ -319,7 +337,8 @@ public partial class LookPresetTest
         holder.AddChild(fractals);
         fractals.Advance(0.016f);
         var inBox = Enumerable.Range(0, fractals.Count).All(i => CommandHost.FractalBox(host.AllFractals[i]).Grow(1e-5f).HasPoint(fractals.Instance(fractals.Bodies!, i).Transform.Origin));
-        Check(host.FractalsNotice.Length == 0 && host.AllFractals.Count is >= 20 and <= 40 && fractals.Count == host.AllFractals.Count && inBox,
+        Check(host.FractalsNotice.Length == 0 && host.AllFractals.Count is >= 20 and <= 40 && fractals.Count == host.AllFractals.Count && inBox
+              && fractals.Lights.Count == Math.Min(host.AllFractals.Count, FractalLook.Tuning.MaxLights),
             $"the 10x garage's {host.AllFractals.Count} Fractals are every one drawn, each in its own box ({fractals.Summary})");
         // Its cost a frame on the island (the CPU's; the GPU's is in the captures): the life, the glints and the buffers written.
         for (var i = 0; i < 60; i++) fractals.Advance(1f / 60f);

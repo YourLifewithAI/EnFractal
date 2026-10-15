@@ -19,8 +19,9 @@ public enum FractalForm { Crystal, Seed, Star }
 /// </code>
 /// It reads only the host's read-only state: CommandHost.AllFractals (to size its pools), Fractals (those still on the island,
 /// re-read whenever NatureChanged says the nature moved on: a pickup commits through it) and FractalBox's size, never the manifest.
-/// Three MultiMeshes, one draw each: the bodies, the glints, and the pickup's sparks. Nothing here is an entity, saved, collides,
-/// lights anything, or is seen by the kernel, sight or map; the same drawing in every mode, every view and at any hour. The motion
+/// Three MultiMeshes, one draw each: the bodies, the glints, and the pickup's sparks; and at night a small pool of real light round
+/// each Fractal nearest the player (no shadow, at most Tuning.MaxLights). Nothing here is an entity, saved, collides, or is seen by
+/// the kernel, sight or map; the same drawing in every mode, every view and at any hour. The motion
 /// is deterministic for the same ticks (Advance), which the look suite uses.
 /// </summary>
 public partial class FractalLook : Node3D
@@ -83,6 +84,19 @@ public partial class FractalLook : Node3D
         /// <summary>Where the star's light meets a surface (its halo reaches the ground it hovers over) it softens over this, as the wisp's halo does.</summary>
         public const float StarSoftM = 0.03f;
 
+        // ---------- the light at night ----------
+
+        /// <summary>
+        /// At night each Fractal casts a small pool of real light round its heart (the founder, 15 October: "a fun way for players to
+        /// find it"): an omni light of LightEnergy reaching LightRangeM, in the star's colour, casting no shadow (so it takes no slot of
+        /// the shadow budget) and baked into nothing. It fades in as daylight falls through the lamps' own switch (the preset's
+        /// switch_on_below_daylight) to LightFullAtSwitch of it, so the Fractals light up when lamps would.
+        /// </summary>
+        public const float LightEnergy = 0.18f, LightRangeM = 0.6f, LightAttenuation = 1.5f, LightSpecular = 0.2f, LightFullAtSwitch = 0.5f;
+        /// <summary>At most MaxLights Fractals are lit, those nearest the player, chosen again every LightChooseS; the engine fades a light out past LightFadeBeginM from the camera.</summary>
+        public const int MaxLights = 32;
+        public const float LightChooseS = 0.25f, LightFadeBeginM = 40f, LightFadeLengthM = 10f;
+
         // ---------- the pickup ----------
 
         /// <summary>The body and its glint go out over PickupFadeS (the glint flaring PickupFlare as they go).</summary>
@@ -137,6 +151,9 @@ public partial class FractalLook : Node3D
     private int _capacity;
     private bool _dirty = true;
     private ShaderMaterial? _formMaterial, _glintMaterial, _starMaterial;
+    private OmniLight3D[] _lights = Array.Empty<OmniLight3D>();
+    private Shown?[] _lit = Array.Empty<Shown?>();
+    private float _chooseClock = float.MaxValue;
     private (bool On, float Begin, float End, float Density, float Curve) _fog = (false, -1f, -1f, -1f, -1f);
 
     /// <summary>The body every Fractal is drawn with now.</summary>
@@ -156,6 +173,10 @@ public partial class FractalLook : Node3D
     /// <summary>The ids drawn on the island, in id order (the host's own order).</summary>
     public IReadOnlyList<string> Drawn => _shown.Where(s => s.Leaving < 0f).Select(s => s.Id).ToArray();
     public string Summary { get; private set; } = "";
+    /// <summary>The lights of the night (at most Tuning.MaxLights), for the look suite.</summary>
+    public IReadOnlyList<OmniLight3D> Lights => _lights;
+    /// <summary>How much of the night's light is on now, 0 by day to 1 at night (the look's daylight through the lamps' switch).</summary>
+    public float Night { get; private set; }
 
     public static FractalLook Create(CommandHost host, LookDirector? look)
     {
@@ -233,6 +254,7 @@ public partial class FractalLook : Node3D
             if (_sparks[i].Age >= _sparks[i].Life) _sparks[i] = _sparks[--_sparkCount];
         }
         Draw();
+        Light(dt);
         FollowHaze();
     }
 
@@ -243,7 +265,12 @@ public partial class FractalLook : Node3D
     {
         foreach (var pool in new[] { Bodies, Glints, Sparks })
             if (pool != null && IsInstanceValid(pool)) { RemoveChild(pool); pool.QueueFree(); }
+        foreach (var light in _lights)
+            if (IsInstanceValid(light)) { RemoveChild(light); light.QueueFree(); }
         Bodies = Glints = Sparks = null;
+        _lights = Array.Empty<OmniLight3D>();
+        _lit = Array.Empty<Shown?>();
+        _chooseClock = float.MaxValue;
         _shown.Clear();
         _sparkCount = 0;
         if (_host == null) return;
@@ -271,6 +298,20 @@ public partial class FractalLook : Node3D
         // A glint is drawn wider with distance (never under its pixels), so its box reaches a few metres round the Fractals.
         Glints = Pool("Glints", quad, _capacity, _glintMaterial, box.Grow(4f), false);
         Sparks = Pool("Sparks", quad, _sparks.Length, _glintMaterial, box.Grow(Tuning.SparkRiseM + 0.1f), false);
+        // The night's lights: a fixed pool, given to the Fractals nearest the player.
+        var lightColor = Tuning.BodyColor.Lerp(Tuning.GlintColor, 0.5f);
+        _lights = new OmniLight3D[Math.Min(_capacity, Tuning.MaxLights)];
+        _lit = new Shown?[_lights.Length];
+        for (var i = 0; i < _lights.Length; i++)
+        {
+            _lights[i] = new OmniLight3D
+            {
+                Name = "Light" + i, OmniRange = Tuning.LightRangeM, OmniAttenuation = Tuning.LightAttenuation, LightColor = lightColor,
+                LightEnergy = 0f, LightSpecular = Tuning.LightSpecular, ShadowEnabled = false, LightBakeMode = Light3D.BakeMode.Disabled,
+                DistanceFadeEnabled = true, DistanceFadeBegin = Tuning.LightFadeBeginM, DistanceFadeLength = Tuning.LightFadeLengthM, Visible = false,
+            };
+            AddChild(_lights[i]);
+        }
         _formBuffer = new float[_capacity * Stride];
         _glintBuffer = new float[_capacity * Stride];
         _sparkBuffer = new float[_sparks.Length * Stride];
@@ -325,6 +366,8 @@ public partial class FractalLook : Node3D
         foreach (var fractal in present.Values.Where(f => !drawn.Contains(f.Id)))
             _shown.Add(new Shown { Id = fractal.Id, Rest = fractal.PositionM, Phase = PhaseOf(fractal.Id) });
         _shown.Sort((a, b) => string.CompareOrdinal(a.Id, b.Id));
+        // A picked one keeps its light while it goes out; the next choice, soon, gives the light to another.
+        _chooseClock = Tuning.LightChooseS * 0.5f;
     }
 
     /// <summary>The pickup moment begins: the body and its glint go out, and a handful of sparks rise from where it rested.</summary>
@@ -465,6 +508,55 @@ public partial class FractalLook : Node3D
         var o = index * Stride;
         var basis = new Basis(new Vector3(buffer[o], buffer[o + 4], buffer[o + 8]), new Vector3(buffer[o + 1], buffer[o + 5], buffer[o + 9]), new Vector3(buffer[o + 2], buffer[o + 6], buffer[o + 10]));
         return (new Transform3D(basis, new Vector3(buffer[o + 3], buffer[o + 7], buffer[o + 11])), new Color(buffer[o + 12], buffer[o + 13], buffer[o + 14], buffer[o + 15]));
+    }
+
+    /// <summary>
+    /// The night's light: how much of it is on (the look's daylight through the lamps' switch), each light riding its Fractal's heart
+    /// and going out with it when it is picked up, and every LightChooseS the lights given again to the Fractals nearest the player.
+    /// </summary>
+    private void Light(float dt)
+    {
+        if (_lights.Length == 0) return;
+        Night = _look != null && IsInstanceValid(_look) && _look.Moment != null && _look.Preset != null
+            ? 1f - Mathf.SmoothStep(_look.Preset.Tuning.Lamps.SwitchOnBelowDaylight * Tuning.LightFullAtSwitch, _look.Preset.Tuning.Lamps.SwitchOnBelowDaylight, _look.Moment.Daylight)
+            : 0f;
+        _chooseClock += dt;
+        if (_chooseClock >= Tuning.LightChooseS) { _chooseClock = 0f; ChooseLit(); }
+        for (var i = 0; i < _lights.Length; i++)
+        {
+            var light = _lights[i];
+            var shown = _lit[i];
+            var energy = 0f;
+            if (shown != null && Night > 0f)
+            {
+                var going = shown.Leaving >= 0f ? Mathf.Clamp(shown.Leaving / Tuning.PickupFadeS, 0f, 1f) : 0f;
+                energy = Tuning.LightEnergy * Night * (1f - going);
+                light.Position = BodyCentre(Form, shown.Rest, shown.Phase, LifeS);
+            }
+            if (light.LightEnergy != energy) light.LightEnergy = energy;
+            var on = energy > 0f;
+            if (light.Visible != on) light.Visible = on;
+        }
+    }
+
+    /// <summary>The lights to the Fractals on the island nearest the player (every one, when there are no more than the lights).</summary>
+    private void ChooseLit()
+    {
+        Array.Clear(_lit);
+        var anchor = _host?.Player is { } player && IsInstanceValid(player) ? player.GlobalPosition : (Vector3?)null;
+        var count = 0;
+        for (var i = 0; i < _shown.Count; i++)
+        {
+            var shown = _shown[i];
+            if (shown.Leaving >= 0f) continue;
+            if (count < _lit.Length) { _lit[count++] = shown; continue; }
+            if (anchor is not { } at) break;
+            // Replace the farthest lit one when this one is nearer.
+            var farthest = 0;
+            for (var k = 1; k < _lit.Length; k++)
+                if (_lit[k]!.Rest.DistanceSquaredTo(at) > _lit[farthest]!.Rest.DistanceSquaredTo(at)) farthest = k;
+            if (shown.Rest.DistanceSquaredTo(at) < _lit[farthest]!.Rest.DistanceSquaredTo(at)) _lit[farthest] = shown;
+        }
     }
 
     /// <summary>The look's haze and sea mist, mirrored into the glint (the engine's own fog would add its colour over the quad).</summary>
