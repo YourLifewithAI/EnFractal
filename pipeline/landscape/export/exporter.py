@@ -7,6 +7,7 @@ from pipeline.landscape.harness.kit import SIZES, prototype
 from pipeline.landscape.harness.package import read_package, world_scale
 from .materials import CONTRACT_ROLES, PALETTE, hex_color, material
 from .copies import build_copies, classify, MAX_SETS
+from .fractals import fractals_data, tutorial_flag
 from .mesh import encode, transform
 from .sea import sea_data
 from .source import source_data
@@ -69,6 +70,9 @@ def _export(land, package_folder, source_room_folder, room_id, out):
     # An island's sea (generator v4 on): the bounds grow out past the reef, and the game gets the reef,
     # the beaches and the jetty. A package without one keeps the room's own bounds.
     sea = doc.get('x_generator', {}).get('sea') if isinstance(doc.get('x_generator'), dict) else None
+    # The mechanics round: the island's Fractals and its tutorial mark, from the generator's package extension.
+    fractals = fractals_data(doc.get('x_generator'))
+    tutorial = tutorial_flag(doc.get('x_generator'))
     margin = doc['x_generator'].get('margin_m') if sea is not None else None
     sea, bounds = sea_data(sea, intro_source['bounds'], margin) if sea is not None else (None, intro_source['bounds'])
     require(doc['terrain'], 'landscape has no terrain')
@@ -415,7 +419,9 @@ def _export(land, package_folder, source_room_folder, room_id, out):
                        'x_landscape_terrain_open_edges': edges,
                        'x_landscape_loose': {'cap': LOOSE_CAP, 'count': len(loose_items),
                                              'items': loose_items, 'skipped': loose_skipped},
-                       **({'x_landscape_sea': sea} if sea is not None else {})},
+                       **({'x_landscape_sea': sea} if sea is not None else {}),
+                       **({'x_fractals': fractals} if fractals is not None else {}),
+                       **({'x_island_tutorial': tutorial} if tutorial is not None else {})},
     }
     blobs['room.json'] = canonical(room)
     # Output creation begins only after package, ids, budgets, and spawns pass.

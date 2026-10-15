@@ -24,6 +24,7 @@ from . import sea as Sea
 from . import scale as world
 from .climb import give_lips, knife_edges
 from .detail import Detail, plane_ok_fine
+from . import fractals as Fractals, reach as Reach, sites as Sites
 
 GENERATOR = {'name': 'landscape-generator', 'version': '5'}
 SEED = 20261008
@@ -37,6 +38,10 @@ SETUP_PATH = REPO/'pipeline'/'landscape'/'harness'/'ab-setup.json'
 # crate, the site is given up for the next one; if none of HAMLET_SITES sites is reached, the first stands.
 HAMLET_SITES = 6
 RAMP_PASSES = 6    # ways graded (each proved by a new walk) before a site is given up
+# The planting is one random stream, and the game's navigation bake trips on about one layout in five (a rare layout of trunk
+# holes it cannot triangulate: see REPORT.md, "Navigation edge errors"). A magnified room draws its planting with this salt
+# unless one is asked for (`plant_salt=0`: none), the one the 10x nominal garage with its Fractals boots clean under. 1x: none.
+WORLD_PLANT_SALT = 1
 PAD_HOLD_M = .07   # the pad's flattened margin: nothing is cut or filled there by a way graded later
 
 
@@ -119,15 +124,24 @@ def grounding(grid, h, objects, base):
     return rows
 
 
-def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=None, detail=None, plant_salt=0):
+def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=None, detail=None, plant_salt=None,
+             fractals=None, typed_fractals=False, tutorial=False):
     """The package of a room. On a magnified room a hamlet no graded road reaches (the exact walk from the player's
     spawn finds no way to the crate or a door) is given up and the land generated again with the next site.
-    `plant_salt` (0: none) draws the planting again, on the same land: the plants, trees and stones are a free
-    choice, and the game's navigation bake meets a rare layout of trunk holes it cannot triangulate (see REPORT.md)."""
+    `plant_salt` (None: `WORLD_PLANT_SALT` on a magnified room, none at 1x; 0: none) draws the planting again, on the same land: the plants, trees and stones are a free
+    choice, and the game's navigation bake meets a rare layout of trunk holes it cannot triangulate (see REPORT.md).
+    `fractals` (None: on a magnified room, off at today's scale, where nothing changes) places the island's Fractals and
+    builds the ladder of gates they sit on (fractals.py); `typed_fractals` gives each its kind (the rules pack's flag,
+    off by default); `tutorial` marks the island as one the menu lists first."""
+    if fractals and world.W == 1:
+        raise ValueError('Fractals are things at world scale 10: the 1x corpus stays byte-identical')
+    if plant_salt is None:
+        plant_salt = WORLD_PLANT_SALT if world.W != 1 else 0
     skip, accept = [], None
     while True:
         try:
-            return _generate(room_dir, out_dir, setup, seed, return_state, cell, detail, skip, accept, plant_salt)
+            return _generate(room_dir, out_dir, setup, seed, return_state, cell, detail, skip, accept, plant_salt,
+                             fractals, typed_fractals, tutorial)
         except HamletCutOff as cut:
             skip.append(cut.site)
             print('LANDSCAPE_HAMLET_CUT_OFF', cut, flush=True)
@@ -136,7 +150,8 @@ def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=
             accept = skip[0]   # no site is reached by any way: the best-ranked one stands, as it always did
 
 
-def _generate(room_dir, out_dir, setup, seed, return_state, cell, detail, skip, accept=None, plant_salt=0):
+def _generate(room_dir, out_dir, setup, seed, return_state, cell, detail, skip, accept=None, plant_salt=0,
+              fractals=None, typed_fractals=False, tutorial=False):
     room_dir = Path(room_dir)
     room = load_json(room_dir/'room.json')
     inventory = load_json(room_dir/'inventory.json')
@@ -543,6 +558,7 @@ def _generate(room_dir, out_dir, setup, seed, return_state, cell, detail, skip, 
     # Walk the graded land as a body would (11 cm lane, cottages in the way,
     # bridges underfoot). Where it cannot reach the crate or a door, the land
     # gives way: the route a steeper walk finds is cut and filled to grade.
+    near = None   # the exact walk's last flood of the graded land from the spawn: the Fractals' places lie inside it
     cut_off = None
     if detail is not None and site is not None and not last and not (houses and roads):
         cut_off = 'no cottage placed' if not houses else 'no road built'
@@ -609,6 +625,37 @@ def _generate(room_dir, out_dir, setup, seed, return_state, cell, detail, skip, 
     _tick('graded')
     # On the 10x world only the tarn's rim and the landing are put right again (the ways keep the hamlet's levels).
     settle(houses_too=detail is None)
+    # The mechanics round: the Fractals and the ladder of gates they sit on (fractals.py), built into the base grid
+    # before the 2.5 cm ground is worked, from places the exact walk reaches (1x: nothing changes).
+    fx_on = W != 1 if fractals is None else fractals
+    fx_plan = None
+    if fx_on and near is None:
+        # No hamlet was graded to (the walk's flood was not made): one exact flood of the land as it stands.
+        from .checks import Terrain as _T0, Walker as _W0
+        cmesh = {w['name']: [dict(role='still_water', positions=w['positions'], triangles=w['triangles'])]
+                 for w in water['meshes']}
+        cmesh['sea'] = [dict(role='still_water', positions=sea_pos, triangles=sea_tris)]
+        cmesh['land'] = [dict(role='meadow', positions=[[grid.xs[q % nx], h[q], grid.zs[q//nx]] for q in range(grid.n)],
+                              triangles=[list(t) for t in grid.triangles() if inside_tri(grid, inside, t)])]
+        if jetty is not None:
+            cmesh['jetty'] = Sea.jetty_mesh(grid, h, jetty)
+        cprobe = dict(terrain=[{'mesh': 'land'}]+([{'mesh': 'jetty'}] if jetty is not None else []), scenery=[],
+                      water=[{'mesh': w['name'], 'kind': w['kind']} for w in water['meshes']]+[{'mesh': 'sea', 'kind': 'still'}],
+                      scatter=[], objects=[], x_generator=look, prototypes={'footbridge': {'size_m': list(BRIDGE)}})
+        near = _W0(cprobe, cmesh, _T0(cprobe, cmesh), room).reach((px, pz))
+    if fx_on and near is not None:
+        land_fx = Sites.Land(grid, h, inside, wet, sea, [coast['s'][q] > coast['c'][q] for q in range(grid.n)], protect,
+                             pads, hold, paths, blocked, slope_field(grid, h),
+                             set(detail.marks) if detail is not None else set(), [(x, z) for x, z, _, _ in views], near,
+                             objects)
+        fx_plan = Fractals.plan(land_fx, seed, (px, pz))
+        for q in fx_plan.keep:
+            blocked[q] = True   # the planting leaves each flight and its skirt bare
+        if detail is not None:
+            fx_plan.hold(detail)
+        print('LANDSCAPE_FRACTALS_PLAN routes %d summit %s notes %s' % (
+            len(fx_plan.routes), fx_plan.summit is not None, fx_plan.notes), flush=True)
+        _tick('fractals')
     # What you climb, you can stand on top of: rock too thin to stand on (a
     # needle, a knife edge, the sliver where the coast cut a landform's
     # corner) weathers down to a ledge a body stands on (Lane P's climbs on
@@ -766,6 +813,8 @@ def _generate(room_dir, out_dir, setup, seed, return_state, cell, detail, skip, 
     targets += [(None, [(hh['x']-math.sin(math.radians(hh['yaw']))*(hh['hz']+.08),
                          hh['z']-math.cos(math.radians(hh['yaw']))*(hh['hz']+.08))]) for hh in houses]
     targets += [(None, [g]) for g in shore_goals]
+    # Each flight's foot is walked to: a tree in the way of it is taken out, as for the crate and the doors.
+    targets += [(None, [r.xz(grid, -3)]) for r in (fx_plan.all_routes() if fx_plan else ())]
     targets += [(rec, approaches(rec, size_of(rec))) for rec in scatter if rec['prototype'] in YARD]
     dropped = []
     for rec_, goals_ in targets:
@@ -846,6 +895,11 @@ def _generate(room_dir, out_dir, setup, seed, return_state, cell, detail, skip, 
         rest['detail'] = detail.describe()
     if plant_salt:
         rest['plant_salt'] = plant_salt
+    if fx_plan is not None:
+        rest['fractals'] = _finish_fractals(fx_plan, final, grid, h, fslope, detail, (px, pz), typed_fractals)
+        _tick('fractal reach')
+    if tutorial:
+        rest['tutorial'] = True
 
     def write(folder, beaches):
         sea_doc = describe_sea(grid, h, room, coast, jetty, beaches, islands, player0, water['streams'], ground)
@@ -878,6 +932,20 @@ def _generate(room_dir, out_dir, setup, seed, return_state, cell, detail, skip, 
     if return_state:
         return doc, dict(grid=grid, h=h, route=route, carry=carry, houses=houses)
     return doc
+
+
+def _finish_fractals(plan, final, grid, h, fslope, detail, spawn, typed):
+    """The climb-aware reach of the planted island (`final`: the exact walk's flood from the spawn), the benches proved
+    and the Fractals placed (fractals.finish): the package block."""
+    # The faces in a detail block are not the grid's (read at 2.5 cm), except a flight's, which keeps the base's surface.
+    nx = grid.nx
+    skip = None if detail is None else (lambda i, j: (i//10, j//10) in detail.block_set and j*nx+i not in plan.keep)
+    cr = Reach.ClimbReach(final.walker, final, grid, h, fslope=fslope, skip=skip)
+    block = Fractals.finish(plan, cr, spawn, typed=typed)
+    c = block['counts']
+    print('LANDSCAPE_FRACTALS placed %d by_band %s benches %d proved %d routes %d' % (
+        c['placed'], c['by_band'], c['benches'], c['benches_proved'], c['routes']), flush=True)
+    return block
 
 
 class Walks:
@@ -1058,6 +1126,21 @@ def inside_tri(grid, inside, t):
 
 
 DRYING_LINE = [.36, .2, .03]
+CROWN_GAP_M = .13   # the exporter's tree fit: a crown's top is this far over the highest ground under it (12 cm walk clearance)
+_CROWNS = {}
+
+
+def tree_crown(name):
+    """(R, high) of a tree prototype's highest crown at scale 1: the farthest a vertex lies from the trunk's axis, and its
+    top. The exporter fits a tree's climbing collision to the ground under the crown (export/trees.py `fit`) and refuses
+    a tree whose crown top is not 12 cm over the highest ground there."""
+    got = _CROWNS.get(name)
+    if got is None:
+        from pipeline.landscape.harness.kit import prototype
+        crowns = [p for p in prototype(name) if p['role'] == 'foliage']
+        top = max(crowns, key=lambda p: max(v[1] for v in p['positions']))
+        got = _CROWNS[name] = (max(math.hypot(v[0], v[2]) for v in top['positions']), max(v[1] for v in top['positions']))
+    return got
 _ROUND = tuple((math.cos(a), math.sin(a)) for a in (0, 1.57, 3.14, 4.71))   # a footing's four sides (Planter.ground)
 BLOCKING = {'broadleaf', 'conifer', 'rock', 'boulder', 'shrub', 'cottage', 'woodpile', 'fence', 'lantern',
             'crate', 'drying_line'}
@@ -1147,6 +1230,15 @@ class Planter:
         y = lo_-sink
         if y < .0005:
             return None
+        if world.W != 1 and proto in ('broadleaf', 'conifer'):
+            # The 10x world: no tree stands at the foot of a wall higher than its crown (the exporter refuses its fit:
+            # the first fixture with flights had two beside a 0.6 m bank). Today's room is as it was.
+            R_, high = tree_crown(proto)
+            r = max(.7*R_*scale[0], .07)+.02
+            top = y+high*scale[1]
+            if max(self.heights.tri_height(self.h, x+r*a, z+r*b) for a in (-1, -.5, 0, .5, 1)
+                   for b in (-1, -.5, 0, .5, 1)) > top-CROWN_GAP_M:
+                return None
         if y+size[1]*scale[1] > self.room['bounds']['max_m'][1]-.01:
             return None
         rec = dict(prototype=proto, position_m=[round(x, 4), round(y, 4), round(z, 4)],
@@ -1347,13 +1439,23 @@ def main():
     parser.add_argument('--cell', type=float, default=None,
                         help='base grid cell (m); default %g, or %g on a magnified room' % (CELL, CELL_W))
     parser.add_argument('--no-detail', action='store_true', help='a magnified room without its 2.5 cm detail')
-    parser.add_argument('--plant-salt', type=int, default=0, help='draw the planting again on the same land (0: as always)')
+    parser.add_argument('--plant-salt', type=int, default=None,
+                        help='draw the planting again on the same land (default: %d on a magnified room, none at 1x; 0: none)' % WORLD_PLANT_SALT)
+    # The mechanics round (fractals.py): on a magnified room the Fractals and the ladder of gates are built unless refused.
+    parser.add_argument('--no-fractals', action='store_true', help='a magnified room without its Fractals and gates')
+    parser.add_argument('--typed-fractals', action='store_true', help='each Fractal carries its kind (the rules pack flag)')
+    parser.add_argument('--tutorial', action='store_true', help='mark the island as one the menu lists first')
+    parser.add_argument('--reach-report', help='write the Fractals reach report (markdown) here')
     args = parser.parse_args()
     if args.world_scale != 1:
         world.set_world(args.world_scale)
     t0 = time.perf_counter()
     doc = generate(args.room, args.out, load_json(args.setup), args.seed, cell=args.cell,
-                   detail=False if args.no_detail else None, plant_salt=args.plant_salt)
+                   detail=False if args.no_detail else None, plant_salt=args.plant_salt,
+                   fractals=False if args.no_fractals else None, typed_fractals=args.typed_fractals,
+                   tutorial=args.tutorial)
+    if args.reach_report and 'fractals' in doc['x_generator']:
+        Path(args.reach_report).write_text(Fractals.report_text(doc['x_generator']['fractals']), encoding='utf-8', newline='\n')
     if args.world_scale != 1:
         print('LANDSCAPE_TIMING generate_s %.1f' % (time.perf_counter()-t0))
     print('LANDSCAPE_PACKAGE', args.out, 'meshes', len(doc['meshes']), 'scatter', len(doc['scatter']),
