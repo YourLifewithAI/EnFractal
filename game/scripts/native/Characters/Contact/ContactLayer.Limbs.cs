@@ -1,4 +1,5 @@
 using Godot;
+using EnFractal.Native.Characters.Gaits;
 
 namespace EnFractal.Native.Characters.Contact;
 
@@ -71,7 +72,7 @@ public sealed partial class ContactLayer
                     var travel = parent * new Vector3(velocity.X, 0, velocity.Z);
                     travel.Y = 0;
                     var trail = ContactMath.Direction(-travel, Vector3.Back);
-                    var angle = _wade * share * (TrailRad * Mathf.Clamp(flat / MotionProfile.WalkSpeedMps, 0, 1.5f) +
+                    var angle = _wade * share * (TrailRad * Mathf.Clamp(flat / BodyPace.Walk(state), 0, 1.5f) +
                         PaddleRad * Mathf.Sin(Mathf.Tau * _wadePhase + opposite));
                     rotation = ContactMath.AxisAngle(new Vector3(-trail.Z, 0, trail.X), angle) * rotation;
                 }

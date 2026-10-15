@@ -38,8 +38,8 @@ public sealed partial class ContactLayer : IPoseLayer<BodyState>
 {
     // ---- The named numbers. The landing tiers' numbers live in PlayerVitals (FallDamage); this is the one this layer adds.
 
-    /// <summary>From this much Challenge damage (health) a landing is the tumble's (K7); below it and above 0, a stumble.</summary>
-    public const float TumbleFromHealth = 25f;
+    /// <summary>From this much Challenge damage (health) a landing is the tumble's (K7); below it and above 0, a stumble. The tumble's own threshold, read from the vitals.</summary>
+    public const float TumbleFromHealth = TumbleTiers.TumbleHealth;
     /// <summary>A foot that finds no ground within this distance of where its pose puts it keeps its pose.</summary>
     public const float FootSearchM = 0.03f;
     /// <summary>A body without legs pitches and rolls its root to the floor normal by at most this much.</summary>

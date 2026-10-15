@@ -16,17 +16,21 @@ public enum TumbleTier
 }
 
 /// <summary>
-/// The tumble's tiers (docs/runs/RUN-2-CHARACTERS.md, "What counts as a big fall"): the tumble asks
-/// <see cref="PlayerVitals.FallDamage"/> what the landing would cost in Challenge, in every mode, Creative included, so a tumble
-/// always means "this would have hurt", and it follows the world's gravity, a glide and deep water exactly as damage does. There
-/// is never a second set of numbers: the two thresholds below are health, not speeds or heights, and retuning fall damage moves
-/// the tumble with it.
+/// The tumble's tiers (docs/runs/RUN-2-CHARACTERS.md, "What counts as a big fall"): the tumble asks the vitals' fall damage
+/// (<see cref="PlayerVitals.FallDamage"/>, with the team's safe drop: <see cref="BodyKnacks.FallDamage"/>) what the landing would
+/// cost, in every mode, Creative included, at Standard whatever the save's difficulty, so a tumble always means "this would have
+/// hurt", and it follows the world's gravity, a glide and deep water exactly as damage does. There is never a second set of numbers:
+/// the three thresholds are health points read from the vitals (decision 24 of docs/game/MECHANICS.md: absolute, so more hearts
+/// survive bigger falls and the look does not change with them), never speeds or heights, and retuning fall damage, or a Cat feet
+/// knack that raises the safe drop, moves the tumble with it.
 /// </summary>
 public static class TumbleTiers
 {
-    /// <summary>A landing that would cost at least this much health tumbles.</summary>
-    public const float TumbleHealth = 25f;
-    /// <summary>A landing that would cost this much (all of it: a knockout in Challenge) tumbles longer, dazed.</summary>
+    /// <summary>A landing that would cost anything at all, past the safe drop (0.30 m, or the team's Cat feet), stumbles: the contact layer's.</summary>
+    public const float StumbleHealth = 0f;
+    /// <summary>A landing that would cost at least this much health tumbles: a quarter of the base body's health (five quarters of a heart's, about 0.5 m).</summary>
+    public const float TumbleHealth = PlayerVitals.MaximumHealth / 4;
+    /// <summary>A landing that would cost this much (all of the base body's health: five hearts, a knockout in Challenge, about 1.6 m) tumbles longer, dazed.</summary>
     public const float KnockoutHealth = PlayerVitals.MaximumHealth;
 
     /// <summary>A tumble's length: the flop on the ground and the get-up.</summary>
@@ -38,15 +42,21 @@ public static class TumbleTiers
     /// <summary>Moving starts a tumble's get-up early by at most this much (never a knockout's).</summary>
     public const float EarlyGetUpSeconds = 0.5f;
 
-    /// <summary>What the landing would cost in Challenge (health), from the same function fall damage uses.</summary>
+    /// <summary>What the landing would cost in Challenge (health), from the same function fall damage uses, for a body without a knack.</summary>
     public static float Cost(float landingSpeedMps, bool deepWater) => PlayerVitals.FallDamage(landingSpeedMps, deepWater);
+
+    /// <summary>What the landing would cost this body (health): the vitals' curve with its Cat feet safe drop, the one the kernel hurts by.</summary>
+    public static float Cost(float landingSpeedMps, bool deepWater, BodyKnacks knacks) => knacks.FallDamage(landingSpeedMps, deepWater);
 
     /// <summary>The tier of a landing at <paramref name="landingSpeedMps"/> (downward, m/s); deep water never tumbles.</summary>
     public static TumbleTier Classify(float landingSpeedMps, bool deepWater) => Classify(Cost(landingSpeedMps, deepWater));
 
+    /// <summary>The tier of a landing at <paramref name="landingSpeedMps"/> for a body with these knacks.</summary>
+    public static TumbleTier Classify(float landingSpeedMps, bool deepWater, BodyKnacks knacks) => Classify(Cost(landingSpeedMps, deepWater, knacks));
+
     /// <summary>The tier of a landing that would cost <paramref name="health"/>.</summary>
     public static TumbleTier Classify(float health) =>
-        !(health > 0) ? TumbleTier.None :
+        !(health > StumbleHealth) ? TumbleTier.None :
         health >= KnockoutHealth ? TumbleTier.Knockout :
         health >= TumbleHealth ? TumbleTier.Tumble : TumbleTier.Stumble;
 

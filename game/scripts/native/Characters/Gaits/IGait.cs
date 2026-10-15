@@ -14,6 +14,8 @@ public struct GaitFrame
     public float SpeedMps;
     /// <summary>The stride cycle's length at this speed (<see cref="MotionProfile.StrideAt"/>).</summary>
     public float StrideM;
+    /// <summary>The walk and the run of the body now (m/s; BodyPace): what <see cref="Run"/> is measured against.</summary>
+    public float WalkMps, RunMps;
     /// <summary>0 standing to 1 moving.</summary>
     public float Move;
     /// <summary>0 at a walk to 1 at a run.</summary>

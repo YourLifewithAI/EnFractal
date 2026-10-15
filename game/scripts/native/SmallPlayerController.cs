@@ -74,8 +74,8 @@ public partial class SmallPlayerController : CharacterBody3D
     /// (half the gravity, about twice the height), up to MaxJumpApexM.
     /// </summary>
     public float JumpSpeedMps => GravityMps2 >= ReferenceGravityMps2
-        ? SpeedForApex(GravityMps2, JumpApexM)
-        : Mathf.Min(SpeedForApex(ReferenceGravityMps2, JumpApexM), SpeedForApex(GravityMps2, Mathf.Max(JumpApexM, MaxJumpApexM)));
+        ? SpeedForApex(GravityMps2, HopApexM)
+        : Mathf.Min(SpeedForApex(ReferenceGravityMps2, HopApexM), SpeedForApex(GravityMps2, Mathf.Max(HopApexM, MaxHopApexM)));
 
     /// <summary>The apex the jump reaches under the current gravity, integrated at the physics tick.</summary>
     public float JumpApexNowM
@@ -324,9 +324,19 @@ public partial class SmallPlayerController : CharacterBody3D
     public System.Action<Vector3, Vector3>? ClimbCompleted { get; set; }
     /// <summary>
     /// The ledger seam (the mechanics round, game/scripts/native/Seams/StaminaLedger.cs): the kernel binds it (M1), and the body
-    /// reports its sprint, deep-water and dive seconds to it once a tick and obeys its gate (M5). Unbound, as today: nothing gated.
+    /// reports its sprint, deep-water and dive seconds to it once a tick and obeys its gate (M5; SmallPlayerController.Exertion.cs).
+    /// Unbound, as today: nothing gated.
     /// </summary>
-    public Seams.IStaminaLedger? StaminaLedger { get; set; }
+    public Seams.IStaminaLedger? StaminaLedger
+    {
+        get => _staminaLedger;
+        set
+        {
+            _staminaLedger = value;
+            if (value == null) _gate = Seams.StaminaGate.Free;
+        }
+    }
+    private Seams.IStaminaLedger? _staminaLedger;
     private float _vitalsLandingSpeedMps;
     /// <summary>The last on-foot tick's descent before the water caught it (m/s): a deep-water landing's speed.</summary>
     private float _airDescentMps;
@@ -1016,10 +1026,21 @@ public partial class SmallPlayerController : CharacterBody3D
         SampleWater(dt);
         _wasDiving = IsDiving;
         IsDiving = false;
+        // What the bar pays for beyond a climb (the ledger): which way the body moved this tick.
+        var onFoot = false;
+        var swam = false;
         if (_climbing) Climb(dt, control);
         else if (Floats) Hover(dt, wish, sprint);
-        else if (UpdateSwimming()) Swim(dt, wish, sprint, control, diveDown, diveUp);
-        else Walk(dt, wish, sprint, onFloor);
+        else if (UpdateSwimming())
+        {
+            swam = true;
+            Swim(dt, wish, sprint, control, diveDown, diveUp);
+        }
+        else
+        {
+            onFoot = true;
+            Walk(dt, wish, sprint, onFloor);
+        }
         HoldInsideBounds();
         WrapRound();
         // The far net, hours of swimming out: home as by B. A floating body (the Gubble, sent off on its own) is held at the
@@ -1070,7 +1091,7 @@ public partial class SmallPlayerController : CharacterBody3D
                 FallObserved?.Invoke(_vitalsLandingSpeedMps, false);
             Recover();
         }
-        ObserveBodyVitals(dt);
+        ObserveBodyVitals(dt, TakeExertion(dt, moved, onFoot, swam, sprint, control));
         TakeBodyState(dt, moved, onFloor, wasSwimming, sprint);
         UpdateVisual(dt);
         _bodyVisual?.BodyTicked(LastBodyState, dt);
@@ -1109,6 +1130,8 @@ public partial class SmallPlayerController : CharacterBody3D
             Floating = Floats,
             Carrying = HandsFull?.Invoke() ?? false,
             Sprinting = sprinting,
+            WalkSpeedMps = WalkSpeedNowMps,
+            RunSpeedMps = RunSpeedNowMps,
             Blocked = IsBlocked,
             WindMps = WindMps,
             ControlHeld = _controlHoldS > 0,
@@ -1120,23 +1143,35 @@ public partial class SmallPlayerController : CharacterBody3D
         };
     }
 
-    private void ObserveBodyVitals(float dt)
+    /// <summary>
+    /// The trusted body's report to the kernel, once a physics tick: what it exerted (the ledger's Report, before VitalsTick, which
+    /// charges it and refills the bar on standable ground), a landing, then the tick. The gate the ledger then holds is what the
+    /// body obeys from the next tick on.
+    /// </summary>
+    private void ObserveBodyVitals(float dt, Seams.BodyExertion exertion)
     {
-        if (Floats || (VitalsTick == null && FallObserved == null)) return;
+        if (Floats || (VitalsTick == null && FallObserved == null && _staminaLedger == null)) return;
         var safelyGrounded = IsOnFloor() && !_climbing && !_swimming && !GoingHome;
         var caughtByWater = Water.Wet && Water.DepthM >= SwimDepthM && Water.Under(GlobalPosition) >= 0;
+        if (_staminaLedger != null)
+        {
+            _staminaLedger.Report(exertion);
+            ExertionReports++;
+        }
         if (safelyGrounded || caughtByWater)
             FallObserved?.Invoke(_vitalsLandingSpeedMps, caughtByWater);
         VitalsTick?.Invoke(dt, safelyGrounded);
+        TakeGate();
     }
 
     /// <summary>On foot or in the air: the walk, the run, steps, jumps and creation forces, slowed by the water it wades in.</summary>
     private void Walk(float dt, Vector3 wish, bool sprint, bool onFloor)
     {
         var start = GlobalPosition;
-        var desired = wish * (sprint ? RunSpeedMps : WalkSpeedMps) * WadeFactor();
+        // On land the pace is the base times the team's Quick feet and the empty bar's slow (WalkSpeedNowMps, RunSpeedNowMps).
+        var desired = wish * (sprint ? RunSpeedNowMps : WalkSpeedNowMps) * WadeFactor();
         if (!onFloor && WindMps != Vector2.Zero)
-            desired = (desired + new Vector3(WindMps.X, 0, WindMps.Y)).LimitLength(RunSpeedMps + WindMps.Length());
+            desired = (desired + new Vector3(WindMps.X, 0, WindMps.Y)).LimitLength(RunSpeedNowMps + WindMps.Length());
         var acceleration = onFloor ? GroundAccelerationMps2 : AirAccelerationMps2 * AirControl;
         var horizontal = WithinBounds(new Vector3(Velocity.X, 0, Velocity.Z).MoveToward(desired, acceleration * dt), dt);
         var vertical = onFloor ? Mathf.Min(0, Velocity.Y) : Mathf.Max(Velocity.Y - GravityMps2 * dt, -EffectiveTerminalFallMps);
@@ -1175,7 +1210,7 @@ public partial class SmallPlayerController : CharacterBody3D
         }
         // A face too steep to stand on, pushed into: grab it (at once in the air, after a deliberate push on the ground).
         var grounded = IsOnFloor();
-        TryGrab(dt, wish, deliberate: grounded, heldBack: !grounded || HeldBack(start, wish, WalkSpeedMps, dt));
+        TryGrab(dt, wish, deliberate: grounded, heldBack: !grounded || HeldBack(start, wish, WalkSpeedNowMps, dt));
     }
 
     /// <summary>
@@ -1498,10 +1533,14 @@ public partial class SmallPlayerController : CharacterBody3D
     /// </summary>
     private void Swim(float dt, Vector3 wish, bool sprint, Vector2 control, bool diveDown, bool diveUp)
     {
+        // An empty bar (the ledger's gate): a diver is not held down and swims no further than up, and a swimmer at the surface
+        // is carried to shore (ShoreDrift) instead of swimming or leaping out; nothing refills in the water.
+        var spent = _gate.Empty;
         // Only a dive takes the body under: a fall or a plunge is still caught at the surface (CatchInWater).
-        if (diveDown || (_wasDiving && GlobalPosition.Y < Water.SurfaceY - SwimFloatDepthM - DiveStartM))
+        if ((diveDown && !spent) || (_wasDiving && GlobalPosition.Y < Water.SurfaceY - SwimFloatDepthM - DiveStartM))
         {
-            Dive(dt, control, sprint, diveDown, diveUp);
+            if (spent) Dive(dt, Vector2.Zero, sprint, false, diveUp);
+            else Dive(dt, control, sprint, diveDown, diveUp);
             return;
         }
         _coyote = 0;
@@ -1512,7 +1551,7 @@ public partial class SmallPlayerController : CharacterBody3D
         var excess = Velocity.Y - spring;
         excess = excess / (1 + WaterDragQuadraticPerM * Mathf.Abs(excess) * dt) * Mathf.Exp(-WaterDragLinearPerS * dt);
         var vertical = spring + excess;
-        if (_jumpBuffer > 0 && InputEnabled && Mathf.Abs(feet.Y - target) < 0.015f)
+        if (!spent && _jumpBuffer > 0 && InputEnabled && Mathf.Abs(feet.Y - target) < 0.015f)
         {
             vertical = JumpSpeedMps;
             _jumpBuffer = 0;
@@ -1521,13 +1560,13 @@ public partial class SmallPlayerController : CharacterBody3D
             EndSwim();
         }
         else _jumpBuffer = Mathf.Max(0, _jumpBuffer - dt);
-        var desired = wish * WalkSpeedMps * (sprint ? 1.0f : SwimSpeedFactor);
+        var desired = spent ? ShoreDrift(feet) : wish * SwimPaceMps(sprint);
         var horizontal = WithinBounds(new Vector3(Velocity.X, 0, Velocity.Z).MoveToward(desired, SwimAccelerationMps2 * dt), dt);
         var total = WithCreation(new Vector3(horizontal.X, vertical, horizontal.Z), dt);
         if (_swimming) total.Y = CatchInWater(total.Y, dt);
         Velocity = total;
         MoveAndSlide();
-        if (_swimming) TryGrab(dt, wish, deliberate: true, heldBack: HeldBack(feet, wish, WalkSpeedMps * SwimSpeedFactor, dt));
+        if (_swimming) TryGrab(dt, wish, deliberate: true, heldBack: HeldBack(feet, wish, SwimPaceMps(false), dt));
     }
 
     /// <summary>
@@ -1546,7 +1585,7 @@ public partial class SmallPlayerController : CharacterBody3D
         Vector3 wish;
         if (MovementFrameYaw is { } frameYaw) wish = new Basis(Vector3.Up, frameYaw) * new Vector3(control.X, 0, -control.Y);
         else wish = ViewForward() * control.Y + GlobalBasis.X * control.X;
-        var desired = wish.LimitLength() * WalkSpeedMps * (sprint ? 1.0f : SwimSpeedFactor) * DiveSpeedFactor;
+        var desired = wish.LimitLength() * SwimPaceMps(sprint) * DiveSpeedFactor;
         if (down) desired.Y -= DiveSinkMps;
         if (up) desired.Y += DiveRiseMps;
         if (!down && !up && control.LengthSquared() < 0.01f) desired.Y = DriftUpMps;
@@ -1612,7 +1651,7 @@ public partial class SmallPlayerController : CharacterBody3D
     /// </summary>
     private void TryGrab(float dt, Vector3 wish, bool deliberate, bool heldBack)
     {
-        if (!CanClimb || _regrabBlock > 0 || !InputEnabled || wish.LengthSquared() < 0.25f || HandsAreFull() || (ClimbBudget != null && !ClimbBudget(0, 0)))
+        if (!CanClimb || _regrabBlock > 0 || !InputEnabled || wish.LengthSquared() < 0.25f || HandsAreFull() || _gate.Empty || (ClimbBudget != null && !ClimbBudget(0, 0)))
         {
             _grabPush = 0;
             return;
@@ -1704,9 +1743,11 @@ public partial class SmallPlayerController : CharacterBody3D
             LetGo(kick: true);
             return;
         }
+        // The grip fails when the bar is empty (the ledger's gate) or the climb cannot be paid for: the body falls from where it is.
         var budgetRise = (_pullPhase > 0 ? PullOverSpeedMps : Mathf.Max(0, control.Y) * ClimbSpeedMps) * dt;
-        if (ClimbBudget != null && !ClimbBudget(dt, budgetRise))
+        if (_gate.Empty || (ClimbBudget != null && !ClimbBudget(dt, budgetRise)))
         {
+            GripFailures++;
             LetGo(kick: false);
             return;
         }

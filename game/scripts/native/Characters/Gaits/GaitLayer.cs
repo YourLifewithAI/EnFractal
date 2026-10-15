@@ -105,7 +105,8 @@ public sealed class GaitLayer : IPoseLayer<BodyState>
 
         var omega = 5 / settle;
         _move.Step(yields ? 0 : GaitMath.Smoothstep(0.02f, 0.1f, speed), omega, dt);
-        _run.Step(Mathf.Clamp((speed - MotionProfile.WalkSpeedMps) / (MotionProfile.RunSpeedMps - MotionProfile.WalkSpeedMps), 0, 1), omega, dt);
+        // The walk-to-run blend is against this body's own walk and run (BodyPace): a Quick feet body walks at its full pace.
+        _run.Step(BodyPace.Blend(state, speed), omega, dt);
         _air.Step(airborne ? 1 : 0, 18, dt);
         _active.Step(yields ? 0 : 1, 10, dt);
 
@@ -131,7 +132,8 @@ public sealed class GaitLayer : IPoseLayer<BodyState>
 
         var frame = new GaitFrame
         {
-            Cycles = _cycles, SpeedMps = speed, StrideM = stride, Move = Mathf.Clamp(_move.Value, 0, 1), Run = Mathf.Clamp(_run.Value, 0, 1),
+            Cycles = _cycles, SpeedMps = speed, StrideM = stride, WalkMps = BodyPace.Walk(state), RunMps = BodyPace.Run(state),
+            Move = Mathf.Clamp(_move.Value, 0, 1), Run = Mathf.Clamp(_run.Value, 0, 1),
             Air = Mathf.Clamp(_air.Value, 0, 1), Active = Mathf.Clamp(_active.Value, 0, 1),
             VerticalMps = float.IsFinite(velocity.Y) ? velocity.Y : 0, TimeS = clock.TimeS, DeltaS = dt,
         };

@@ -45,20 +45,20 @@ public sealed class HopGait : IGait
     public int FootForStep(int step) => -1;
 
     /// <summary>The top of a hop at <paramref name="run"/> (0 walk to 1 run), metres.</summary>
-    public float HopHeightM(float run) =>
-        HopHeightAt(Mathf.Lerp(MotionProfile.WalkSpeedMps, MotionProfile.RunSpeedMps, Mathf.Clamp(run, 0, 1)), run);
+    public float HopHeightM(float run, float walkMps = MotionProfile.WalkSpeedMps, float runMps = MotionProfile.RunSpeedMps) =>
+        HopHeightAt(Mathf.Lerp(walkMps, runMps, Mathf.Clamp(run, 0, 1)), run, walkMps);
 
     /// <summary>
     /// The top of a hop at <paramref name="speedMps"/>: 11% of the height times rig.json's hop_height and the bounce, higher
     /// at a run, and never so high that the arc's downward curvature (about π²·H over the flight time squared) passes
     /// <see cref="MaxArcShare"/> of the weakest spring's pull.
     /// </summary>
-    public float HopHeightAt(float speedMps, float run)
+    public float HopHeightAt(float speedMps, float run, float walkMps = MotionProfile.WalkSpeedMps)
     {
         var profile = _rig.Profile;
         var height = 0.11f * profile.HeightM * profile.Multipliers.HopHeight * profile.Bounce * (1 + 0.35f * run);
         if (_springAccel == float.MaxValue) return height;
-        var speed = Mathf.Max(speedMps, 0.05f * MotionProfile.WalkSpeedMps);
+        var speed = Mathf.Max(speedMps, 0.05f * walkMps);
         var flight = (1 - ContactShare) * profile.StrideAt(speed) / speed;
         return Mathf.Min(height, MaxArcShare * _springAccel * flight * flight / (Mathf.Pi * Mathf.Pi));
     }
@@ -89,7 +89,7 @@ public sealed class HopGait : IGait
             var power = Mathf.Clamp(1 / (1 + 0.35f * (m.Drift - 1)), 0.6f, 1.4f);
             var g = MathF.Pow(f, power);
             var arc = MathF.Sin(Mathf.Pi * g);
-            height = HopHeightAt(frame.SpeedMps, frame.Run) * arc;
+            height = HopHeightAt(frame.SpeedMps, frame.Run, frame.WalkMps > 0 ? frame.WalkMps : MotionProfile.WalkSpeedMps) * arc;
             var stretch = 0.7f * squash * MathF.Abs(MathF.Cos(Mathf.Pi * g)) * GaitMath.Smoothstep(0, 0.06f, f) * (1 - GaitMath.Smoothstep(0.88f, 1, f));
             tuck = MathF.Pow(arc, 6);
             scale = 1 + stretch - 0.35f * squash * tuck;
