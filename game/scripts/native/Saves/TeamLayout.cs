@@ -34,7 +34,8 @@ public sealed class TeamLayout
     public TeamLayout(string root)
     {
         if (string.IsNullOrEmpty(root) || !Path.IsPathFullyQualified(root)) throw new ArgumentException("A team layout needs an absolute user folder.", nameof(root));
-        Root = Path.GetFullPath(root);
+        // Godot's user:// globalizes with a final separator: the same folder, spelt one way, so every path made from it compares.
+        Root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
     }
 
     /// <summary>A team id (contracts common.schema.json team_id): a lowercase token naming its folder.</summary>

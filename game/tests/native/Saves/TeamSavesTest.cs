@@ -118,6 +118,8 @@ public partial class TeamSavesTest : Node3D
         Check(a.All(p => p.StartsWith(layout.TeamFolder("mira") + Path.DirectorySeparatorChar, StringComparison.Ordinal)) &&
               b.All(p => p.StartsWith(layout.TeamFolder("theo") + Path.DirectorySeparatorChar, StringComparison.Ordinal)) && !a.Intersect(b).Any() &&
               !layout.TeamFolder("mira").StartsWith(layout.TeamFolder("theo"), StringComparison.Ordinal), "two teams never share a file: each one's files are under its own folder");
+        Check(new TeamLayout(layout.Root + "/").Root == layout.Root && new TeamLayout(layout.Root + "/").TeamFile("mira") == layout.TeamFile("mira"),
+            "a user folder named with a final separator (user:// globalized) is the same folder");
         Check(!TeamLayout.ValidTeamId("Mira") && !TeamLayout.ValidTeamId("../x") && !TeamLayout.ValidTeamId("") && TeamLayout.ValidTeamId("boot_probe"),
             "a team id is a lowercase token, never a path");
         var refused = 0;
@@ -273,7 +275,8 @@ public partial class TeamSavesTest : Node3D
         var changed = Path.Combine(layout.LegacyRooms, "other_room", "1111111111111111", "inventions.json");
         Write(changed, "{\"schema\":\"enfractal.creation-world\",\"version\":6,\"revision\":2}\n");
         File.WriteAllText(layout.IslandSave("local", "challenge", "old_room", "fedcba9876543210"), "not json");
-        var second = SaveMigration.Run(layout, Now + TimeSpan.FromHours(1));
+        // The game's user folder comes with a final separator (user:// globalized): the same folder.
+        var second = SaveMigration.Run(new TeamLayout(layout.Root + Path.DirectorySeparatorChar), Now + TimeSpan.FromHours(1));
         GD.Print("TEAM_SAVES_MIGRATION next launch: " + second.Line() + " | kept: " + string.Join("; ", second.Kept));
         Check(second.Phase == "removed" && second.Removed.Count == 5 && second.Kept.Count == 2,
             $"the next launch removes the five old files whose copies read: {second.Line()}");
@@ -506,7 +509,8 @@ public partial class TeamSavesTest : Node3D
                 GD.Print(Inv($"TEAM_SAVES_COPY team {Path.GetFileName(team)}: {rest} bytes without the island saves, {islands} bytes of island saves, {files.Length} files"));
             }
         var after = Hashes(layout.Root);
-        var changed = before.Where(p => after.TryGetValue(p.Key, out var h) && h != p.Value).Select(p => layout.Relative(p.Key)).ToList();
+        // Every file that was there is as it was (or removed by a later launch), the migration's own ledger aside.
+        var changed = before.Where(p => p.Key != layout.MigrationLedger && after.TryGetValue(p.Key, out var h) && h != p.Value).Select(p => layout.Relative(p.Key)).ToList();
         Check(changed.Count == 0, "no file that was there changed: " + string.Join(", ", changed));
         if (report.Phase == "moved")
         {
