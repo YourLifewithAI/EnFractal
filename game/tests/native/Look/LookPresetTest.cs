@@ -36,6 +36,14 @@ public partial class LookPresetTest : Node3D
             var preset = StylePreset.Resolve(RoomWorld.DefaultStyleId, RoomWorld.DefaultStyleVersion, FileAccess.GetSha256(RoomWorld.DefaultStyle));
             _presetText = Encoding.UTF8.GetString(FileAccess.GetFileAsBytes(RoomWorld.DefaultStyle));
             var room = RoomData.Load(RoomWorld.DefaultRoom);
+            if (OS.GetCmdlineUserArgs().Contains("--worldclock-only"))
+            {
+                CheckWorldClock(preset);
+                await CheckWorldClockInTheLook(preset, room);
+                GD.Print($"NATIVE_LOOK_WORLDCLOCK: {_checks - _failures}/{_checks} checks passed");
+                GetTree().Quit(_failures == 0 ? 0 : 1);
+                return;
+            }
             CheckPreset(preset, room);
             CheckLookNumbersLiveInThePreset(preset);
             CheckFailClosed();
@@ -46,6 +54,8 @@ public partial class LookPresetTest : Node3D
             CheckClock(preset);
             CheckClockAtEveryMinute(preset);
             CheckRealClockAndSwings(preset);
+            CheckWorldClock(preset);
+            await CheckWorldClockInTheLook(preset, room);
             CheckSolarModel(preset);
             CheckReducedGlobalTint(preset, room);
             CheckReviewCameras(preset, room);
@@ -89,7 +99,7 @@ public partial class LookPresetTest : Node3D
             await CheckEffects(preset, room);
             await CheckIntro(preset);
             MaterialLibrary.Configure(preset);
-            GD.Print($"NATIVE_LOOK: {_checks - _failures}/{_checks} checks passed; preset reader and look numbers, role materials and shader uniforms, grade, season tint and reduced global tint, clock at every minute, solar model, sun only through the window, night levels and lamps, golden-hour cool fill, depth of field and focus, post effect parameters, bake stand-ins, room dressing, grade cache, renderer notice, the landscape's role marks and baked colours, open land, water you can see into and the fish in it, each view's blur, the open sea, its mist and the seam (no distant islands), how far an island of any size is seen (far plane, haze, shadows) and its look-suite cameras, the focus highlight, the Gubble's glow and the light-level estimate, its bubbles and fireworks, and the room-to-island intro");
+            GD.Print($"NATIVE_LOOK: {_checks - _failures}/{_checks} checks passed; preset reader and look numbers, role materials and shader uniforms, grade, season tint and reduced global tint, clock at every minute, the island's world clock (today's reading unchanged, day_scale 4 midnights, dawn rollover, phase, zone, seasons and hemisphere), solar model, sun only through the window, night levels and lamps, golden-hour cool fill, depth of field and focus, post effect parameters, bake stand-ins, room dressing, grade cache, renderer notice, the landscape's role marks and baked colours, open land, water you can see into and the fish in it, each view's blur, the open sea, its mist and the seam (no distant islands), how far an island of any size is seen (far plane, haze, shadows) and its look-suite cameras, the focus highlight, the Gubble's glow and the light-level estimate, its bubbles and fireworks, and the room-to-island intro");
             GetTree().Quit(_failures == 0 ? 0 : 1);
         }
         catch (Exception exception)

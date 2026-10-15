@@ -118,8 +118,14 @@ public partial class LookDirector : Node3D
     /// other camera keeps the preset's miniature blur.
     /// </summary>
     public LookView? View { get; set; }
-    /// <summary>Where the clock comes from: the real clock and calendar, the preset's fixed hour and day, or a pin (and who pinned it).</summary>
+    /// <summary>Where the clock comes from: the real clock and calendar, the island's world clock, the preset's fixed hour and day, or a pin (and who pinned it).</summary>
     public string ClockNote { get; private set; } = "";
+    /// <summary>
+    /// The island's clock record (the room state's extensions.x_clock), or null for the machine's own clock. Null, or a record with
+    /// day_scale 1 and no phase, leaves the look exactly as it was; the preset's follow_clock and follow_calendar still decide whether
+    /// the look follows a clock at all, and a pin still wins over it.
+    /// </summary>
+    public WorldClock? WorldClock { get; private set; }
     /// <summary>Empty when the room declared its own site; otherwise why the sun uses the look's fallback site.</summary>
     public string SiteNote { get; private set; } = "";
     /// <summary>Things that went wrong with the look but did not stop the room: shown in reports and the review harness.</summary>
@@ -512,19 +518,45 @@ public partial class LookDirector : Node3D
         ApplyMoment(synchronous: true);
     }
 
+    /// <summary>
+    /// The hour and the day the world's clock reads now, before any pin: the machine's clock with no island clock record, the island's
+    /// clock with one. The HUD's time and season steps use it for the part they leave unpinned.
+    /// </summary>
+    public (float Hour, int DayOfYear) RealNow() => LookClock.Now(Preset, WorldClock);
+
+    /// <summary>Set the island's clock record (null: the machine's own clock) and redraw the sky for it. Reapplied when a new room state is read.</summary>
+    public void SetWorldClock(WorldClock? clock)
+    {
+        WorldClock = clock;
+        if (Preset != null) ApplyMoment(synchronous: true);
+    }
+
+    /// <summary>
+    /// Reads the room state's extensions.x_clock (null when it has none) and sets it. A record that does not pass the schema's checks, or names a
+    /// zone this machine does not know, is warned about and the look keeps the machine's clock. Returns the warning, or empty.
+    /// </summary>
+    public string SetWorldClockFrom(System.Text.Json.Nodes.JsonNode? record)
+    {
+        var clock = WorldClock.FromNode(record, out var error);
+        if (error.Length > 0) Warn(error + "; following the machine's clock instead");
+        SetWorldClock(clock);
+        return error;
+    }
+
     /// <summary>Whether the grade for the current moment is the one on screen (false while an off-thread LUT is building).</summary>
     public bool GradeCurrent => _wantedGrade != null && _luts.TryGetValue(_wantedGrade, out var lut) && Environment.AdjustmentColorCorrection == lut;
 
     private void ApplyMoment(bool synchronous)
     {
-        var now = LookClock.Now(Preset);
+        var now = RealNow();
         var hour = _pinnedHour ?? (Preset.FollowClock ? now.Hour : Preset.DefaultHour);
         var day = _pinnedDay ?? (Preset.FollowCalendar ? now.DayOfYear : Preset.Tuning.Seasons.FixedDayOfYear);
         var realClock = (_pinnedHour == null && Preset.FollowClock) || (_pinnedDay == null && Preset.FollowCalendar);
-        ClockNote = (_pinnedHour != null ? "hour pinned" : Preset.FollowClock ? "real clock" : "preset hour")
+        var world = WorldClock is { IsRealClock: false } clock ? clock : null;
+        ClockNote = (_pinnedHour != null ? "hour pinned" : Preset.FollowClock ? (world != null ? $"world clock x{world.DayScale} ({world.ZoneId})" : "real clock") : "preset hour")
             + (_pinnedDay != null ? ", day pinned" : Preset.FollowCalendar ? ", real calendar" : ", preset day")
             + (_clockSource.Length > 0 ? " (" + _clockSource + ")" : "")
-            + (realClock && Preset.Tuning.Sun.RealClockDaylightSaving ? "; read as standard time" : "");
+            + (realClock && Preset.Tuning.Sun.RealClockDaylightSaving && world is not { DayScale: > 1 } ? "; read as standard time" : "");
         Moment = LookClock.At(Preset, hour, day, _moonYaw);
         Key.LightColor = Moment.KeyColor;
         // On open land the whole ground stands in the sun, where indoors only a patch of floor does: the sun that is bright enough
