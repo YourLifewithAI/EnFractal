@@ -70,7 +70,7 @@ public static class JournalPages
     /// <summary>A page as the host's data writes it now. leaf counts PerLeaf entries from the start of a long page.</summary>
     public static JournalPage Build(string page, CommandHost? host, int leaf)
     {
-        if (page == Index) return IndexPage();
+        if (page == Index) return IndexPage(host);
         if (host == null || !GodotObject.IsInstanceValid(host)) return new(new[] { Text("The journal will be ready when the island is ready.") }, false, "");
         return page switch
         {
@@ -93,12 +93,19 @@ public static class JournalPages
         host.Companion is { } companion && GodotObject.IsInstanceValid(companion) ? KernelJson.DisplayText(companion.CompanionName, 40) : "the Gubble";
     private static string ModeWords(string mode) => mode switch { "challenge" => "Challenge", "live" => "Live", _ => "Creative" };
 
-    private static JournalPage IndexPage()
+    /// <summary>
+    /// What a page is called on screen: its id, except the Discoveries page, which reads the pack's word for expertise (the names
+    /// block, MECHANICS decision J: the founder's word for what the code calls discoveries; today's word without one). The ids
+    /// never change: they name the page in code and in the index's links.
+    /// </summary>
+    public static string Title(string page, CommandHost? host) => page == Discoveries ? MeterWords.Name(host, "expertise") : page;
+
+    private static JournalPage IndexPage(CommandHost? host)
     {
         var lines = new List<JournalLine> { Text("Where shall we turn?") };
         for (var i = 0; i < Sections.Length; i++)
         {
-            lines.Add(new JournalLine(JournalInk.Link, $"{i + 1:00}   {Sections[i]}", Sections[i]));
+            lines.Add(new JournalLine(JournalInk.Link, $"{i + 1:00}   {Title(Sections[i], host)}", Sections[i]));
             lines.Add(Faint(SectionWords[i]));
         }
         return new(lines, false, "Written together, a little at a time.");
@@ -141,7 +148,7 @@ public static class JournalPages
         yield return Text(limit > 0 ? $"Glow can hold {limit} {(limit == 1 ? "light" : "lights")} at a time." : "Glow is not available on this island.");
         yield return Faint($"What we learned in {ModeWords(host.Mode)} mode; each mode keeps its own.");
         var progress = host.GlowProgress;
-        if (progress.Discoveries.Count == 0) yield return Text("Your Glow discoveries will appear here.");
+        if (progress.Discoveries.Count == 0) yield return Text($"Your Glow {MeterWords.Name(host, "expertise").ToLowerInvariant()} will appear here.");
         foreach (var (id, title, words) in GlowDiscoveries)
         {
             if (!progress.HasDiscovery(id)) continue;
@@ -188,6 +195,9 @@ public static class JournalPages
                 lines.Add(Text(AbilityWords(ability)));
                 var limit = host.EffectiveEffectLimit(ability.Capability);
                 lines.Add(Faint($"Reaches {Distance(ability.ReachM)} from the Gubble · {(limit == 1 ? "one at a time" : $"up to {limit} at once")}"));
+                // What it costs you in pips (the ordered price: the player's order, never a field).
+                if (host.PriceFor(ability.Capability, CommandHost.PlayerPrincipal) is > 0 and var cost)
+                    lines.Add(Faint($"Costs {cost} {(cost == 1 ? "pip" : MeterWords.Name(host, "pips").ToLowerInvariant())}"));
                 if (ability.Category == "light" && host.GlowProgress.Discoveries.Count > 0)
                     lines.Add(Faint("Learned together: " + string.Join(", ", GlowDiscoveries.Where(d => host.GlowProgress.HasDiscovery(d.Id)).Select(d => d.Title))));
             }
@@ -237,7 +247,8 @@ public static class JournalPages
             lines.Add(Text($"Jump {body.JumpApexNowM * 100:0.#} cm · climb {body.ClimbSpeedMps * 100:0} cm/s"));
         }
         // The read-only player.status query: the mode and this mode's vitals, as the host keeps them.
-        if (host.PlayerQuery("player.status")["data"] is JsonObject status)
+        var status = host.PlayerQuery("player.status")["data"] as JsonObject;
+        if (status != null)
         {
             var mode = status["mode"]?.GetValue<string>() ?? "creative";
             lines.Add(Heading($"{ModeWords(mode)} mode"));
@@ -253,6 +264,14 @@ public static class JournalPages
                 lines.Add(Text($"Climbs completed {Number(status["completed_climbs"]):0} · recoveries {Number(status["recoveries"]):0}"));
             }
         }
+        if (status != null)
+        {
+            // The pool and the wallet keep their numbers here, as the sheet always has.
+            if (status["energy"] is JsonObject energy)
+                lines.Add(Text($"{MeterWords.Name(host, "pips")} {Number(energy["pips"]):0}/{Number(energy["max_pips"]):0}" +
+                    (energy["shadow"]?.GetValue<bool>() == true ? " · a shadow pool here: it drains and refills, and never says no" : "")));
+            if (status["wallet"] is JsonObject wallet) lines.Add(Text("In your wallet: " + WalletWords(wallet)));
+        }
         var held = host.HeldName(CommandHost.PlayerAvatar) ?? "";
         lines.Add(Text("Carrying: " + (held.Length == 0 ? "empty hands" : KernelJson.DisplayText(held, 60))));
         lines.Add(Heading("Your companion"));
@@ -260,6 +279,10 @@ public static class JournalPages
         lines.Add(Text("Floats after you, over water and up cliffs, and fetches the things you find."));
         return new(lines, false, "");
     }
+
+    /// <summary>The wallet's counts as the sheet writes them, by material.</summary>
+    private static string WalletWords(JsonObject wallet) => string.Join(" · ", wallet.OrderBy(p => p.Key, StringComparer.Ordinal).Select(p =>
+        (p.Key switch { "wood" => "Wood", "stone" => "Stone", "copper" => "Copper", "leaf" => "Leaves", _ => "Material" }) + " " + Number(p.Value).ToString("0", CultureInfo.InvariantCulture)));
 
     /// <summary>A JSON number, whatever type wrote it (the host writes floats and ints).</summary>
     private static double Number(JsonNode? node) => node == null ? 0 : double.Parse(node.ToJsonString(), CultureInfo.InvariantCulture);

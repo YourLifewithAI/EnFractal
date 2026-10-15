@@ -32,6 +32,12 @@ public partial class GubbleWheel : Control
 
     public enum Outcome { None, Tap, Wedge, Cancel }
 
+    /// <summary>
+    /// What an ability costs the player, under its wedge (the mechanics round, docs/game/MECHANICS.md section 5): its dots, or
+    /// "needs 4" while the pool is short. In Creative (the shadow pool, which never refuses) it is drawn faint.
+    /// </summary>
+    public readonly record struct Price(string Text, bool Needs, bool Faint);
+
     /// <summary>Whether the ask button is held (the wheel may not be drawn yet).</summary>
     public bool Held { get; private set; }
     /// <summary>Whether the wheel is drawn (and the game paused).</summary>
@@ -45,6 +51,7 @@ public partial class GubbleWheel : Control
     private bool _pausedTree;
     private Vector2 _centre;
     private readonly List<Label> _wedgeLabels = new();
+    private readonly List<Label> _priceLabels = new();
     private Label _centreLabel = null!;
     private Label _title = null!;
     private Color _rim = new("eec471");
@@ -56,6 +63,9 @@ public partial class GubbleWheel : Control
 
     /// <summary>The words on each wedge now, clockwise from the top (tests).</summary>
     public IReadOnlyList<Label> WedgeLabels => _wedgeLabels;
+
+    /// <summary>The price under each wedge, in the same order (empty and hidden for an order, or an ability without a price).</summary>
+    public IReadOnlyList<Label> PriceLabels => _priceLabels;
 
     public override void _Ready()
     {
@@ -72,6 +82,12 @@ public partial class GubbleWheel : Control
             label.AddThemeConstantOverride("outline_size", 4);
             AddChild(label);
             _wedgeLabels.Add(label);
+            var price = new Label { Name = "Price" + i, Visible = false, HorizontalAlignment = HorizontalAlignment.Center, MouseFilter = MouseFilterEnum.Ignore };
+            price.AddThemeFontSizeOverride("font_size", 15);
+            price.AddThemeColorOverride("font_outline_color", new Color("18332d"));
+            price.AddThemeConstantOverride("outline_size", 4);
+            AddChild(price);
+            _priceLabels.Add(price);
         }
         _centreLabel = new Label { Name = "WheelCentre", Text = "cancel", HorizontalAlignment = HorizontalAlignment.Center, MouseFilter = MouseFilterEnum.Ignore };
         _centreLabel.AddThemeFontSizeOverride("font_size", 13);
@@ -107,6 +123,25 @@ public partial class GubbleWheel : Control
                 : $"{wedge.Icon}\n{wedge.Slot + 1} {wedge.Name}\n{LackingWords}";
             if (label.Text != text) label.Text = text;
             label.Modulate = new Color(1, 1, 1, known ? 1f : LackingAlpha);
+        }
+    }
+
+    /// <summary>
+    /// The price under each ability's wedge: what the player pays (the ordered price), as dots, or "needs N" while the pool is short.
+    /// An order, an ability the island lacks, or one with no price shows none.
+    /// </summary>
+    public void SetPrices(System.Func<int, Price?> priceOfSlot)
+    {
+        for (var i = 0; i < _priceLabels.Count; i++)
+        {
+            var wedge = GubbleMagic.Wedges[i];
+            var price = wedge.Kind == GubbleMagic.WedgeKind.Ability ? priceOfSlot(wedge.Slot) : null;
+            var label = _priceLabels[i];
+            label.Visible = price != null;
+            if (price is not { } shown) continue;
+            if (label.Text != shown.Text) label.Text = shown.Text;
+            label.AddThemeColorOverride("font_color", shown.Needs ? new Color("f2b46b") : new Color("fff3d6"));
+            label.Modulate = new Color(1, 1, 1, shown.Faint && shown.Needs ? 0.5f : 1f);
         }
     }
 
@@ -186,6 +221,9 @@ public partial class GubbleWheel : Control
             var at = _centre + new Vector2(Mathf.Sin(angle), -Mathf.Cos(angle)) * RadiusPx;
             var size = _wedgeLabels[i].GetCombinedMinimumSize();
             _wedgeLabels[i].Position = at - size / 2;
+            // The price hangs just under its wedge's words.
+            var price = _priceLabels[i].GetCombinedMinimumSize();
+            _priceLabels[i].Position = new Vector2(at.X - price.X / 2, at.Y + size.Y / 2 - 2f);
         }
         _centreLabel.Position = _centre - _centreLabel.GetCombinedMinimumSize() / 2;
         var title = _title.GetCombinedMinimumSize();

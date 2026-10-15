@@ -52,6 +52,8 @@ public static class Act
     /// <summary>Pick up what the player faces, or put down what it holds.</summary>
     public static readonly StringName Hands = "hands";
     public static readonly StringName Push = "push";
+    /// <summary>Gather what the hands hold into the wallet: a loose log or stone (item.gather, the mechanics round's decision 26).</summary>
+    public static readonly StringName ItemGather = "item_gather";
     // The testing toggles (the help lists them under "Testing").
     public static readonly StringName PhysicsNext = "physics_next";
     public static readonly StringName TimeStep = "time_step";
@@ -99,6 +101,19 @@ public readonly record struct ControlSpec(StringName Action, ControlContext Live
 /// </summary>
 public static class PlayerControls
 {
+    /// <summary>
+    /// The gather key's binding, made here when the project's input map does not carry it yet (project.godot is the integrator's: its
+    /// [input] section holds item_gather on E once they apply the packet's diff, and then this does nothing). The deadzone and
+    /// the key are the ones the diff gives it.
+    /// </summary>
+    public static void EnsureDefaults()
+    {
+        if (InputMap.HasAction(Act.ItemGather)) return;
+        InputMap.AddAction(Act.ItemGather, 0.2f);
+        InputMap.ActionAddEvent(Act.ItemGather, new InputEventKey { PhysicalKeycode = Key.E });
+        MapChanged();
+    }
+
     /// <summary>Every control and where it is live; the map in project.godot and this list name the same actions (PlayHudTest).</summary>
     public static readonly ControlSpec[] Specs =
     {
@@ -112,7 +127,7 @@ public static class PlayerControls
         new(Act.GubbleAsk, ControlContext.Always), new(Act.GubbleRecall, ControlContext.Always), new(Act.GubbleStop, ControlContext.Always),
         new(Act.GubbleSlot1, ControlContext.Always), new(Act.GubbleSlot2, ControlContext.Always), new(Act.GubbleSlot3, ControlContext.Always),
         new(Act.GubbleSlot4, ControlContext.Always), new(Act.GubbleSlot5, ControlContext.Always),
-        new(Act.Hands, ControlContext.Always), new(Act.Push, ControlContext.Always),
+        new(Act.Hands, ControlContext.Always), new(Act.Push, ControlContext.Always), new(Act.ItemGather, ControlContext.Always),
         new(Act.PhysicsNext, ControlContext.Always), new(Act.TimeStep, ControlContext.Always),
         new(Act.SeasonStep, ControlContext.Always), new(Act.Lamps, ControlContext.Always),
         new(Act.BounceStep, ControlContext.Always), new(Act.BouncePrint, ControlContext.Always),

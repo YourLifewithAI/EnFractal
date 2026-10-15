@@ -272,6 +272,11 @@ public partial class PlayHudTest
                 $"in a room whose team has seen nothing, Discoveries names none of its {names.Length} things");
             hud.Journal.OpenPage(JournalPages.Map);
             Check(hud.Journal.MapView is { KnownObjectCount: 0, DiscoveredSpanCount: 0 }, "and its map is blank parchment: no ground and no things");
+            // The minimap in the corner draws from the same map: nothing is inked and no thing is boxed, though the room has them.
+            await Frames(70);
+            hud.Map.Read(host);
+            Check(hud.Map.Builds >= 1 && hud.Map.InkPixels == 0 && hud.Map.Strips == 0 && hud.Map.Things == 0,
+                $"and so is the minimap: no ground inked, no thing drawn ({hud.Map.InkPixels} pixels, {hud.Map.Things} things), its marks still on it");
             world.Free();
             await Frames(2);
         }

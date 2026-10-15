@@ -8,7 +8,7 @@ namespace EnFractal.Native;
 public partial class RoomHud
 {
     public const double FireConfirmSeconds = 1.25;
-    private OptionButton _modeChoice = null!;
+    private Label _modeName = null!;
     private Label _modeHelp = null!;
     private Label _weatherHelp = null!;
     private CheckButton _flowerTrail = null!;
@@ -32,15 +32,9 @@ public partial class RoomHud
     private void BuildNaturePage(VBoxContainer page)
     {
         MagicHeading(page, "YOUR ISLAND");
-        _modeChoice = new OptionButton { Name = "ModeChoice" };
-        foreach (var mode in new[] { "Creative", "Challenge", "Live" }) _modeChoice.AddItem(mode);
-        _modeChoice.ItemSelected += index =>
-        {
-            if (Host is not { } host) return;
-            CancelFirePreview();
-            MagicResult(host.PlayerMode(new[] { "creative", "challenge", "live" }[(int)index]), "The island is now in " + _modeChoice.GetItemText((int)index) + " mode.");
-        };
-        page.AddChild(_modeChoice);
+        // The mode is not changed in play (the mechanics round, decision 21: switching modes means switching saves, chosen at the
+        // menu): the page says which this save is, and that is all.
+        _modeName = WrapMagicLabel(""); _modeName.Name = "ModeName"; page.AddChild(_modeName);
         _modeHelp = WrapMagicLabel(""); page.AddChild(_modeHelp);
         _weatherHelp = WrapMagicLabel(""); _weatherHelp.Name = "WeatherReadout"; page.AddChild(_weatherHelp);
         MagicHeading(page, "FLOWERS");
@@ -155,14 +149,15 @@ public partial class RoomHud
     private void RefreshNaturePage()
     {
         if (Host is not { } host) return;
-        _modeChoice.Select(host.Mode == "challenge" ? 1 : host.Mode == "live" ? 2 : 0);
+        _modeName.Text = ModeWords(host.Mode) + (host.Mode == "challenge" ? " · " + char.ToUpperInvariant(host.Difficulty[0]) + host.Difficulty[1..] : "");
         _modeHelp.Text = host.Mode == "creative" ? "Explore freely. Climbing uses no stamina, and falls and fire do not hurt you." :
             $"Health {host.Vitals.Health:0}/{host.Vitals.MaxHealth:0} · Stamina {StaminaPercent(host.Vitals.Stamina, host.Vitals.MaxStamina):0}%\nClimbing capacity {host.Vitals.MaxStamina:0.00} m. Climbing uses stamina. Falls and fire can hurt. Completed climbs can extend your capacity.";
         if (host.VitalsNotice.Length > 0) _modeHelp.Text += "\n" + host.VitalsNotice;
         _weatherHelp.Text = $"{WeatherWords(host.NatureWeather.Pattern)} · Wind {host.NatureWeather.WindMps.Length():0.00} m/s\nThe weather changes naturally across the island.";
         _flowerTrail.SetPressedNoSignal(host.Nature.TrailEnabled);
         _flowerTrail.Disabled = !host.NatureConfigured;
-        _natureMaterials.Text = host.Mode == "creative" ? "Repairs are free in Creative mode." : "Materials: " + MaterialWords(host.Nature.Wallet);
+        // The wallet's counts, in every mode (a gathered log or stone is in it): repairs spend it outside Creative.
+        _natureMaterials.Text = (host.Mode == "creative" ? "Repairs are free in Creative mode.\n" : "") + "In your wallet: " + MaterialWords(host.Nature.Wallet);
         var previous = _repairChoice.Selected >= 0 && _repairChoice.Selected < _repairIds.Count ? _repairIds[_repairChoice.Selected] : null;
         var ids = host.Nature.Objects.Values.Where(item => item.Creation && item.Burn > 0).Select(item => item.Id).OrderBy(id => id, StringComparer.Ordinal).ToArray();
         if (!_repairIds.SequenceEqual(ids) || _repairChoice.ItemCount == 0)

@@ -225,7 +225,8 @@ public partial class JournalPanel : Control
         _refreshAge = 0;
         var host = FindHost();
         var page = JournalPages.Build(Page, host, _leaf);
-        _heading.Text = Page;
+        // The page's name on screen: the Discoveries page reads the pack's word for expertise (JournalPages.Title).
+        _heading.Text = JournalPages.Title(Page, host);
         _more.Visible = page.HasMore;
         _editor.Visible = Page == JournalPages.Notes;
         _footer.Text = _message.Length > 0 ? _message : page.Footer;

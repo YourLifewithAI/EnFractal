@@ -43,7 +43,7 @@ public partial class PlayHudTest
         _hud.Journal.OpenPage(JournalPages.Discoveries);
         var text = _hud.JournalText;
         Check(text.Contains("3 lights", StringComparison.Ordinal) &&
-              text.Contains("Your Glow discoveries will appear here.", StringComparison.Ordinal) &&
+              text.Contains("Your Glow expertise will appear here.", StringComparison.Ordinal) &&
               !text.Contains("Lantern", StringComparison.Ordinal) && NoGlowSpoilers(text),
             "the Discoveries page shows the current light allowance without naming undiscovered abilities or their unlock conditions");
         Check(_hud.Journal.Lines.Count(line => line.Ink == JournalInk.Smudge && line.Text == JournalPages.Smudge) == 5,
