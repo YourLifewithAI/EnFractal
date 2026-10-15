@@ -38,6 +38,16 @@ public partial class CommandHost
         ResolveVitalsRules();
     }
 
+    /// <summary>
+    /// The knacks that move the body's own numbers (walk and run, the hop, the swim, the safe drop in metres) are read from the pack's
+    /// table for the team's ranks and handed to the body (BodyKnacks, M5). The rest (Big bar, Steady climber, Long breath, Big heart)
+    /// are VitalsRules' own. No knack: today's body.
+    /// </summary>
+    private void ApplyBodyKnacks()
+    {
+        if (Player != null && IsInstanceValid(Player)) Player.Knacks = BodyKnacks.FromPack(Rules?.Knacks, _knacks);
+    }
+
     /// <summary>The expertise learned by the pair, which raises the pool's maximum one pip per expertise_per_pip (today Glow's discoveries).</summary>
     public int ExpertiseCount() => GlowProgress.Discoveries.Count;
 
@@ -52,6 +62,7 @@ public partial class CommandHost
     {
         var before = _vitalsRules;
         _vitalsRules = ResolvedRules(Mode);
+        ApplyBodyKnacks();
         if (!_vitalsRules.InBands) _slowed = false;
         if (_playerVitalsUnavailable) return;
         var normalized = _vitalsRules.Normalize(Vitals);
