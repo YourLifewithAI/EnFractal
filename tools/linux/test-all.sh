@@ -42,7 +42,7 @@ landscape_fixture() { # 1 or 10; prints the exported room's folder, built first 
       part="$variant/$key.partial"; rm -rf "$part"; mkdir -p "$part"
       if ! (cd "$REPO" && if [ "$scale" != 1 ]; then
               python3 -B -m pipeline.landscape.generator.scale --room "$source" --factor "$scale" --out "$part/room" && source="$part/room" &&
-              python3 -B -m pipeline.landscape.generator.generate --room "$source" --world-scale "$scale" --cell .1 --out "$part/package"
+              python3 -B -m pipeline.landscape.generator.generate --room "$source" --world-scale "$scale" --cell .1 --out "$part/package" --tutorial
             else python3 -B -m pipeline.landscape.generator.generate --room "$source" --out "$part/package"; fi &&
             python3 -B -S -m pipeline.landscape.export --package "$part/package" --room "$source" --room-id landscape_garage_nominal --out "$part/landscape_garage_nominal") \
           > "$LOG/landscape_fixture_x$scale.log" 2>&1; then flock -u 9; exec 9>&-; return 1; fi

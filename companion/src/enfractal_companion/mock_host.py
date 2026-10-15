@@ -152,7 +152,7 @@ DEFAULT_STYLES_DIR = DEFAULT_REPO_ROOT / "game" / "styles"
 # read from the same pack the kernel host loads (RoomWorld.DefaultRulesId and DefaultRulesVersion, res://rules/<id>/v<N>.json).
 # v4 retains Glow's earned five-light ceiling and advertises native nature abilities through their own command route.
 DEFAULT_RULES_ID = "storybook_wild"
-DEFAULT_RULES_VERSION = 4
+DEFAULT_RULES_VERSION = 5
 DEFAULT_RULES_DIR = DEFAULT_REPO_ROOT / "game" / "rules"
 # A pack is small (at most 32 abilities); anything larger is refused before it is parsed (IslandRules.MaxPackBytes).
 MAX_RULES_PACK_BYTES = 65536
