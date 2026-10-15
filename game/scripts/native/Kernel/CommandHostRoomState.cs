@@ -110,6 +110,8 @@ public partial class CommandHost
         };
         // The island's nature as it is now (the simulation runs ahead of its last save), where this room has any.
         if (NatureConfigured || envelope["nature"] is JsonObject { Count: > 0 }) extensions["x_play_nature"] = NatureBlock.Pack(Nature);
+        // Whose island save this is and how it plays (M3: the save's team block).
+        if (XTeam() is { } whose) extensions["x_team"] = whose;
         return new JsonObject
         {
             ["schema"] = "enfractal.room_state", ["version"] = 1, ["room_id"] = Room.RoomId,
@@ -406,6 +408,7 @@ public partial class CommandHost
             StrOf(cp["id"]) is not { } id || !CheckpointId.IsMatch(id) || !Whole(cp["revision"], store) || StrOf(cp["label"]) is not { } label ||
             KernelText.CodePoints(label).Length > 80 || KernelText.HasHidden(label)))) return "a checkpoint";
         if (x["x_play_task_goals"] is { } goals && (goals is not JsonObject g || g.Any(p => !EntryIdPattern.IsMatch(p.Key) || !TaskGoals.Contains(StrOf(p.Value) ?? "")))) return "an open task's goal";
+        if (x["x_team"] is { } whose && XTeamProblem(whose) is { } who) return who;
         // x_play_nature is checked whole before the entities (RoomStateProblem).
         return null;
     }
@@ -494,6 +497,8 @@ public partial class CommandHost
             ["task_goals"] = extensions["x_play_task_goals"]?.DeepClone() ?? new JsonObject(),
             ["avatars"] = avatars,
         };
+        // Whose save it is (x_team) goes into the save's team block (M3).
+        CopyXTeam(extensions, team);
         return new JsonObject
         {
             ["schema"] = "enfractal.creation-world", ["version"] = 6, ["compiler_version"] = 1, ["style_version"] = "painterly_v1",

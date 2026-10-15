@@ -172,10 +172,14 @@ public partial class RoomWorld : Node3D
                 Look = Look,
                 CharacterChoices = () => _characterChoices,
             });
+            // The team (M3): --team=, --mode= and --difficulty=; the saves from before teams moved under the default team; the host's
+            // stores pointed into the team's folder before it exists. A test's own RoomWorld keeps the paths it set (a fixture).
+            var team = Saves.TeamBoot.Prepare(this, OS.GetCmdlineUserArgs());
             var commandHost = Kernel.CommandHost.Attach(this);
             commandHost.LoadRules(DefaultRulesId, DefaultRulesVersion);
-            // Until the team file (M3) holds a knack, a boot argument names it (--knack=quick_feet:3); none, today's body.
-            commandHost.UseKnacks(BodyKnacks.FromArguments(OS.GetCmdlineUserArgs()));
+            // The team file's knacks and ranks, then the boot's one set-mode with the island save's difficulty, after which the mode is
+            // fixed; a --knack= argument (quick_feet:3) only as a test's override.
+            team.Apply(commandHost);
             commandHost.ConfigureNature();
             var natureLook = new NatureLook { Name = "NatureLook" };
             AddChild(natureLook);

@@ -122,8 +122,8 @@ public partial class CommandHost : Node
         "goal.set", "goal.stop", "effect.start", "effect.stop", "effect.adjust", "glow.configure", "style.set", "room.checkpoint", "room.undo", "world.set_physics", "world.set_mode", "journal.note",
         "nature.cast", "nature.trail", "nature.repair", "wish.submit", "wish.stop",
         // The mechanics round (M0): player-only. The player's item.pickup of a Fractal and item.gather of a held log or stone
-        // are hosted (M1); the others answer as not available yet until their packets land (Unsupported: knack.set with M3,
-        // receipt.mark and trust.reset with M8).
+        // are hosted (M1), knack.set too (M3, Saves/CommandHostTeams.cs); receipt.mark and trust.reset answer as not available
+        // yet until M8 (Unsupported).
         "item.pickup", "item.gather", "knack.set", "receipt.mark", "trust.reset",
     };
     private static readonly HashSet<string> QueryOps = new()
@@ -139,7 +139,7 @@ public partial class CommandHost : Node
     /// in the player's profile files, never in the room. Never entity.release: putting a thing down is saved state
     /// (kernel-host-gaps P8), and never a nature change, which is room state. Transient() refuses any other op.
     /// </summary>
-    private static readonly HashSet<string> TransientOps = new() { "goal.set", "goal.stop", "effect.start", "effect.stop", "effect.adjust", "glow.configure", "entity.grab", "creation.activate", "world.set_physics", "world.set_mode", "wish.stop" };
+    private static readonly HashSet<string> TransientOps = new() { "goal.set", "goal.stop", "effect.start", "effect.stop", "effect.adjust", "glow.configure", "entity.grab", "creation.activate", "world.set_physics", "world.set_mode", "wish.stop", "knack.set" };
     /// <summary>contracts $defs/player_only_ops: refused from a companion with permission_denied, never held.</summary>
     private static readonly HashSet<string> PlayerOnlyOps = new() { "protect.unlock", "world.set_physics", "world.set_mode", "glow.configure", "wish.submit", "wish.stop", "item.pickup", "item.gather", "knack.set", "receipt.mark", "trust.reset" };
     /// <summary>The mechanics round's player-only ops (contracts/README.md "Player-only operations"): the player's own, with no tool.</summary>
@@ -150,6 +150,10 @@ public partial class CommandHost : Node
     public const string MechanicsNotYet = "This operation is not available yet.";
     public const string DifficultyNotYet = "Difficulties are chosen at the opening menu, which is not built yet.";
     public const string BubblesNotYet = "The Bubble's carry, boat and lift are not available yet.";
+    /// <summary>world.set_mode once a team's boot fixed the mode (M3, CheckModeChange): unsupported_capability at $.op.</summary>
+    public const string ModeAtMenu = "The mode is chosen at the menu; this save keeps its mode.";
+    /// <summary>world.set_mode to Live on a team's room (M3): unsupported_capability at $.args.mode, allowed creative and challenge.</summary>
+    public const string LiveNotYet = "Live is not available yet.";
     private static readonly HashSet<string> StopOps = new() { "goal.stop", "effect.stop", "wish.stop" };
     /// <summary>Goals that only move or turn the companion: they may aim at something it remembers but cannot see now, re-checked on arrival.</summary>
     private static readonly HashSet<string> RememberedTargetGoals = new() { "go_to", "look_at", "point_at", "come", "fetch" };
@@ -225,9 +229,11 @@ public partial class CommandHost : Node
         var host = Create(world, world.Room, world.Player, world.Companion, world.Look?.Preset, SavePathFor(world.Room));
         // The island's abilities light the room through its look (glows); RoomWorld then hands the host its rules (LoadRules).
         host.LookHook = world.Look;
+        // The team's stores (M3: the boot points the paths at its team's folder): the vitals, one document per mode; one expertise
+        // store for every mode (expertise travels, decision 2), so each mode's Glow record is the same store.
         host.ConfigurePlayerVitals(new LocalPlayerVitalsStore(ProjectSettings.GlobalizePath(DefaultPlayerVitalsPath)));
-        host.ConfigureGlowProgressModes(mode => new LocalGlowProgressStore(ProjectSettings.GlobalizePath(
-            mode == "creative" ? DefaultGlowProgressPath : DefaultGlowProgressPath.Replace(".json", "." + mode + ".json", StringComparison.Ordinal))), host.Mode);
+        var expertise = new LocalGlowProgressStore(ProjectSettings.GlobalizePath(DefaultGlowProgressPath));
+        host.ConfigureGlowProgressModes(_ => expertise, host.Mode);
         host.ConfigureWishes(new LocalWishQueueStore(ProjectSettings.GlobalizePath($"{DefaultWishSaveRoot}/{world.Room.RoomId}.json"), world.Room.RoomId));
         return host;
     }
@@ -610,6 +616,8 @@ public partial class CommandHost : Node
             // anything is looked up, so the answer is the same whether or not it exists (contracts: common fractal_id).
             if (principal != PlayerPrincipal && NamesAFractal(op, args))
                 throw new Refusal("permission_denied", FractalRefusal, "$.args.target");
+            // The mode is the boot's once a team's room is up, and Live is not yet (M3, CheckModeChange).
+            if (op == "world.set_mode") CheckModeChange(args);
             var unsupported = Unsupported(op, args, principal);
             if (unsupported != null) throw new Refusal("unsupported_capability", unsupported, "$.op");
             if (!StopOps.Contains(op)) CheckExpectations(root, op, args, principal);
@@ -648,6 +656,7 @@ public partial class CommandHost : Node
                 "journal.note" => Note(args, principal, actionId, meta, preview),
                 "item.pickup" => PickUpFractal(args, principal, actionId, fingerprint, preview),
                 "item.gather" => GatherHeld(args, principal, actionId, fingerprint, preview),
+                "knack.set" => SetKnack(args, principal, actionId, fingerprint, preview),
                 _ => throw new Refusal("unsupported_capability", "This operation is not available yet.", "$.op"),
             };
             ObserveWishCommand(root, result, principal);
@@ -2673,8 +2682,9 @@ public partial class CommandHost : Node
     private string? Unsupported(string op, JsonElement args, string principal) => op switch
     {
         // The mechanics round's stubs (M0), each until its packet lands: the contract is fixed, nothing is built. The player's
-        // pickup of a Fractal (CommandHostFractals) and gathering (CommandHostGather) are hosted since M1.
-        "knack.set" or "receipt.mark" or "trust.reset" => MechanicsNotYet,
+        // pickup of a Fractal (CommandHostFractals) and gathering (CommandHostGather) are hosted since M1, knack.set since M3. A
+        // difficulty in a request waits for the menu (M7): the boot sets it from the island save (BootMode, UseDifficulty).
+        "receipt.mark" or "trust.reset" => MechanicsNotYet,
         "world.set_mode" when args.TryGetProperty("difficulty", out _) => DifficultyNotYet,
         "nature.cast" when Str(args, "capability") is "bubble_carry" or "bubble_boat" or "bubble_lift" => BubblesNotYet,
         "entity.set_part" => "Moving parts of objects (a lid, a door) is not available yet.",

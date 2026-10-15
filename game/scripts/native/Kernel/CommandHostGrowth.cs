@@ -14,8 +14,11 @@ namespace EnFractal.Native.Kernel;
 /// </summary>
 public partial class CommandHost
 {
-    /// <summary>Single-player trial profile; boot fixtures redirect this before creating RoomWorld.</summary>
-    public static string DefaultGlowProgressPath { get; set; } = LocalGlowProgressStore.DefaultUserPath;
+    /// <summary>
+    /// The team's expertise store (M3: &lt;team&gt;/expertise.json, one for every mode). The default team's until the boot
+    /// (Saves/TeamBoot.cs) points it at the team it plays; boot fixtures redirect this before creating RoomWorld.
+    /// </summary>
+    public static string DefaultGlowProgressPath { get; set; } = Saves.TeamLayout.UserExpertisePath(Saves.TeamLayout.DefaultTeamId);
     public GlowProgress GlowProgress { get; private set; } = GlowProgress.Fresh;
     public string GlowProgressNotice { get; private set; } = "";
     private IGlowProgressStore? _glowProgressStore;

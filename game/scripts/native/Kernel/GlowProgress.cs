@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace EnFractal.Native.Kernel;
 
@@ -12,9 +13,10 @@ namespace EnFractal.Native.Kernel;
 public sealed class GlowProgressException(string message) : Exception(message);
 
 /// <summary>
-/// Host-owned progress for the first single-player Glow trial. This is independent of room saves and
-/// physical player traits. Only completed host observations may advance it; model prose is not evidence.
-/// Discovery IDs name behaviours verified by the host; strings from commands or journals cannot award them.
+/// Host-owned progress for Glow: the verified uses, the expertise learned (the code's discoveries) and the hints delivered, with
+/// Glow's touch and sound. It is the team's, across modes (decision 2: expertise travels), independent of room saves and physical
+/// player traits. Only completed host observations may advance it; model prose is not evidence. Discovery IDs name behaviours
+/// verified by the host; strings from commands or journals cannot award them.
 /// </summary>
 public sealed class GlowProgress
 {
@@ -52,6 +54,11 @@ public sealed class GlowProgress
 
     public bool HasDiscovery(string id) => Discoveries.Contains(id, StringComparer.Ordinal);
 
+    /// <summary>Whether two records hold the same progress and settings (a migration's verification reads its write back with this).</summary>
+    public bool Same(GlowProgress other) => ReferenceEquals(this, other) || (other != null && SuccessfulCasts == other.SuccessfulCasts &&
+        Discoveries.SequenceEqual(other.Discoveries, StringComparer.Ordinal) && DeliveredHints.SequenceEqual(other.DeliveredHints, StringComparer.Ordinal) &&
+        SelectedTouch == other.SelectedTouch && SoundVolume == other.SoundVolume && SoundMuted == other.SoundMuted);
+
     /// <summary>
     /// Builds a candidate only. The host must save it successfully before publishing it. A self Glow is
     /// Lantern; a plain point Glow counts practice. Other discoveries require AfterObservedCast's
@@ -79,6 +86,23 @@ public sealed class GlowProgress
 
     public GlowProgress WithConfiguration(string touch, double volume, bool muted) =>
         Restore(SuccessfulCasts, Discoveries, DeliveredHints, touch, volume, muted);
+
+    /// <summary>
+    /// One team's expertise from the records each mode kept before the teams packet (version 2 kept one file per mode): the union.
+    /// Every expertise learned in any mode and every hint delivered in any mode is kept; the verified uses are the sum, since each
+    /// mode counted its own casts and none was counted twice (and a sum keeps a hint's ten uses each, where the larger count alone
+    /// could not). Glow's touch and sound are the first record's (the caller lists Creative first: the original trial's).
+    /// Throws GlowProgressException if no record is given; the result is checked as any restored record is.
+    /// </summary>
+    public static GlowProgress Union(IReadOnlyList<GlowProgress> records)
+    {
+        if (records == null || records.Count == 0 || records.Any(r => r == null)) throw new GlowProgressException("Glow progress has no records to merge.");
+        var first = records[0];
+        var casts = (int)Math.Min(MaxSuccessfulCasts, records.Sum(r => (long)r.SuccessfulCasts));
+        var found = DiscoveryOrder.Where(id => records.Any(r => r.HasDiscovery(id)));
+        var hints = HintOrder.Where(id => records.Any(r => r.DeliveredHints.Contains(id, StringComparer.Ordinal)));
+        return Restore(casts, found, hints, first.SelectedTouch, first.SoundVolume, first.SoundMuted);
+    }
 
     /// <summary>Validated restoration for the host's local save, never a command or companion input.</summary>
     public static GlowProgress Restore(int successfulCasts, IEnumerable<string> discoveries, IEnumerable<string> deliveredHints,
@@ -116,31 +140,52 @@ public interface IGlowProgressStore
 }
 
 /// <summary>
-/// A small, strict, versioned local profile. Load errors lock this instance against writes, preserving the
-/// original file. A persistent sidecar lease excludes other store writers across game instances, then saves
-/// replace a flushed temporary file atomically. A byte comparison detects external changes optimistically;
-/// unrelated tools that do not honour the lease are not coordinated writers.
-/// No raw names, hints, dialogue or other free text is stored here.
+/// The team's expertise store (contracts/team.schema.json $defs/expertise_store: enfractal.glow_progress version 3, the team
+/// folder's expertise.json), strict and bounded. Version 3 keys the expertise by ability (Glow's today: abilities.glow) and names
+/// its team; versions 1 and 2 (one file per mode, user://single_player/progression/glow_trial_v1.json and its .challenge and
+/// .live siblings) are read, never written: the teams packet's migration (Saves/SaveMigration.cs) merges them as their union.
+/// A store always writes version 3. Its team is the folder's name when the file is &lt;team&gt;/expertise.json, "local"
+/// otherwise (a test's own path). Load errors lock this instance against writes, preserving the original file. A persistent
+/// sidecar lease excludes other store writers across game instances, then saves replace a flushed temporary file atomically. A
+/// byte comparison detects external changes optimistically; unrelated tools that do not honour the lease are not coordinated
+/// writers. No raw names, hints, dialogue or other free text is stored here.
 /// </summary>
 public sealed class LocalGlowProgressStore : IGlowProgressStore
 {
-    public const string DefaultUserPath = "user://single_player/progression/glow_trial_v1.json";
+    /// <summary>The default team's store (Saves/TeamLayout.cs); the boot points the host at its team's.</summary>
+    public const string DefaultUserPath = "user://teams/local/expertise.json";
+    /// <summary>Version 2's Creative record (the original trial path); Challenge's and Live's add .challenge and .live before .json.</summary>
+    public const string LegacyUserPath = "user://single_player/progression/glow_trial_v1.json";
+    public const string FileName = "expertise.json";
     public const string SchemaId = "enfractal.glow_progress";
-    public const int Version = 2;
+    public const int Version = 3;
+    public const string LocalTeamId = "local";
+    /// <summary>Glow's key in version 3's abilities (the only ability with expertise in the code today).</summary>
+    public const string GlowAbility = "glow";
     public const int MaxSaveBytes = 4096;
     private static readonly string[] Fields = { "schema", "version", "successful_casts", "discoveries", "delivered_hints" };
     private static readonly string[] VersionTwoFields = Fields.Concat(new[] { "touch", "sound_volume", "muted" }).ToArray();
+    private static readonly string[] VersionThreeFields = { "schema", "version", "team_id", "abilities", "touch", "sound_volume", "muted" };
+    private static readonly string[] AbilityFields = { "successful_casts", "discoveries", "delivered_hints" };
+    private static readonly Regex TeamIdPattern = new(@"\A[a-z][a-z0-9_-]{0,63}\z", RegexOptions.Compiled);
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
 
     private readonly string _path;
+    private readonly string _teamId;
     private readonly object _gate = new();
     private bool _loaded;
     private bool _readOnly;
     private byte[]? _lastBytes;
 
     public bool IsReadOnly { get { lock (_gate) return _readOnly; } }
+    /// <summary>The team this store writes into its documents.</summary>
+    public string TeamId => _teamId;
 
-    /// <param name="absolutePath">The host globalizes DefaultUserPath; tests supply their own absolute scratch path.</param>
+    /// <summary>Version 2's per-mode file for a mode (Creative's is the original trial path), read for migration only.</summary>
+    public static string LegacyPathFor(string mode) =>
+        mode == "creative" ? LegacyUserPath : LegacyUserPath.Replace(".json", "." + mode + ".json", StringComparison.Ordinal);
+
+    /// <param name="absolutePath">The host globalizes its team's path; tests supply their own absolute scratch path.</param>
     public LocalGlowProgressStore(string absolutePath)
     {
         try
@@ -150,6 +195,8 @@ public sealed class LocalGlowProgressStore : IGlowProgressStore
             _path = Path.GetFullPath(absolutePath);
             if (string.IsNullOrEmpty(Path.GetFileName(_path)) || string.IsNullOrEmpty(Path.GetDirectoryName(_path)))
                 throw new GlowProgressException("Glow progress needs a local save filename.");
+            var folder = Path.GetFileName(Path.GetDirectoryName(_path)!);
+            _teamId = Path.GetFileName(_path) == FileName && TeamIdPattern.IsMatch(folder) ? folder : LocalTeamId;
         }
         catch (Exception error) when (IsFileError(error) || error is ArgumentException or NotSupportedException)
         {
@@ -204,7 +251,7 @@ public sealed class LocalGlowProgressStore : IGlowProgressStore
                     _readOnly = true;
                     throw new GlowProgressException("Glow progress changed outside this session. Reload it before continuing.");
                 }
-                var bytes = Serialize(state);
+                var bytes = Serialize(state, _teamId);
                 temporary = Path.Combine(directory, Path.GetFileName(_path) + "." + Guid.NewGuid().ToString("N") + ".tmp");
                 using (var stream = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
                 {
@@ -230,7 +277,13 @@ public sealed class LocalGlowProgressStore : IGlowProgressStore
         }
     }
 
-    public static GlowProgress Parse(byte[] bytes)
+    /// <summary>A store's document of any version as Glow's record (versions 1 and 2 for migration, 3 as written).</summary>
+    public static GlowProgress Parse(byte[] bytes) => ParseDocument(bytes).Progress;
+
+    /// <summary>What a document says: its version, its team (version 3 only; null before) and Glow's record.</summary>
+    public readonly record struct Document(int Version, string? TeamId, GlowProgress Progress);
+
+    public static Document ParseDocument(byte[] bytes)
     {
         if (bytes == null || bytes.Length == 0 || bytes.Length > MaxSaveBytes)
             throw new GlowProgressException("Glow progress has an invalid file size.");
@@ -250,40 +303,63 @@ public sealed class LocalGlowProgressStore : IGlowProgressStore
             if (root.ValueKind != JsonValueKind.Object)
                 throw new GlowProgressException("Glow progress has unsupported fields.");
             if (!root.TryGetProperty("version", out var version) || version.ValueKind != JsonValueKind.Number ||
-                !version.TryGetInt32(out var versionNumber) || versionNumber is not (1 or Version))
+                !version.TryGetInt32(out var versionNumber) || versionNumber is not (1 or 2 or Version) || version.GetRawText() != versionNumber.ToString(System.Globalization.CultureInfo.InvariantCulture))
                 throw new GlowProgressException("Glow progress has an unsupported save version.");
-            var allowedFields = versionNumber == 1 ? Fields : VersionTwoFields;
-            if (root.EnumerateObject().Count() != allowedFields.Length || root.EnumerateObject().Any(property => !allowedFields.Contains(property.Name, StringComparer.Ordinal)))
-                throw new GlowProgressException("Glow progress has unsupported fields.");
+            var allowedFields = versionNumber switch { 1 => Fields, 2 => VersionTwoFields, _ => VersionThreeFields };
+            ExactFields(root, allowedFields);
             if (root.GetProperty("schema").ValueKind != JsonValueKind.String || root.GetProperty("schema").GetString() != SchemaId)
                 throw new GlowProgressException("Glow progress has an unsupported save format.");
-            var casts = root.GetProperty("successful_casts");
+            string? team = null;
+            var record = root;
+            if (versionNumber == Version)
+            {
+                var id = root.GetProperty("team_id");
+                if (id.ValueKind != JsonValueKind.String || !TeamIdPattern.IsMatch(id.GetString()!))
+                    throw new GlowProgressException("Glow progress names an invalid team.");
+                team = id.GetString();
+                // Keyed by ability: Glow's is the one the code learns today. Another ability's record is a newer save's, refused
+                // whole and kept (fail-closed), never dropped on the next write.
+                var abilities = root.GetProperty("abilities");
+                if (abilities.ValueKind != JsonValueKind.Object || abilities.EnumerateObject().Count() != 1 || !abilities.TryGetProperty(GlowAbility, out record))
+                    throw new GlowProgressException("Glow progress has unsupported abilities.");
+                ExactFields(record, AbilityFields);
+            }
+            var casts = record.GetProperty("successful_casts");
             if (casts.ValueKind != JsonValueKind.Number || !casts.TryGetInt32(out var count))
                 throw new GlowProgressException("Glow progress has an invalid use count.");
-            var hints = Ids(root.GetProperty("delivered_hints"), versionNumber == 1 ? 1 : 5);
+            var hints = Ids(record.GetProperty("delivered_hints"), versionNumber == 1 ? 1 : 5);
             if (versionNumber == 1 && hints.Any(id => id != GlowProgress.LanternHint))
                 throw new GlowProgressException("Glow progress has invalid legacy hint records.");
-            if (versionNumber == 1) return GlowProgress.Restore(count, Ids(root.GetProperty("discoveries"), 5), hints);
+            if (versionNumber == 1) return new Document(1, null, GlowProgress.Restore(count, Ids(record.GetProperty("discoveries"), 5), hints));
             var touch = root.GetProperty("touch");
             var volume = root.GetProperty("sound_volume");
             var muted = root.GetProperty("muted");
             if (touch.ValueKind != JsonValueKind.String || volume.ValueKind != JsonValueKind.Number ||
                 !volume.TryGetDouble(out var level) || muted.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
                 throw new GlowProgressException("Glow progress has invalid touch or sound settings.");
-            return GlowProgress.Restore(count, Ids(root.GetProperty("discoveries"), 5), hints, touch.GetString()!, level, muted.GetBoolean());
+            return new Document(versionNumber, team, GlowProgress.Restore(count, Ids(record.GetProperty("discoveries"), 5), hints, touch.GetString()!, level, muted.GetBoolean()));
         }
     }
 
-    public static byte[] Serialize(GlowProgress state)
+    /// <summary>Version 3, as the store writes it: compact JSON, UTF-8 without a BOM, one final LF (also on Windows).</summary>
+    public static byte[] Serialize(GlowProgress state, string teamId = LocalTeamId)
     {
-        // Serialize emits UTF-8 without a BOM; the one final newline is always LF, including on Windows.
+        if (state == null) throw new GlowProgressException("Glow progress is missing.");
+        if (teamId == null || !TeamIdPattern.IsMatch(teamId)) throw new GlowProgressException("Glow progress names an invalid team.");
         var json = JsonSerializer.SerializeToUtf8Bytes(new
         {
             schema = SchemaId,
             version = Version,
-            successful_casts = state.SuccessfulCasts,
-            discoveries = state.Discoveries,
-            delivered_hints = state.DeliveredHints,
+            team_id = teamId,
+            abilities = new Dictionary<string, object>
+            {
+                [GlowAbility] = new
+                {
+                    successful_casts = state.SuccessfulCasts,
+                    discoveries = state.Discoveries,
+                    delivered_hints = state.DeliveredHints,
+                },
+            },
             touch = state.SelectedTouch,
             sound_volume = state.SoundVolume,
             muted = state.SoundMuted,
@@ -307,6 +383,13 @@ public sealed class LocalGlowProgressStore : IGlowProgressStore
         }
         catch (FileNotFoundException) { return null; }
         catch (DirectoryNotFoundException) { return null; }
+    }
+
+    private static void ExactFields(JsonElement value, string[] names)
+    {
+        if (value.ValueKind != JsonValueKind.Object || value.EnumerateObject().Count() != names.Length ||
+            value.EnumerateObject().Any(property => !names.Contains(property.Name, StringComparer.Ordinal)))
+            throw new GlowProgressException("Glow progress has unsupported fields.");
     }
 
     private static string[] Ids(JsonElement value, int maximum)

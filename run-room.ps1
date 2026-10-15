@@ -2,16 +2,20 @@
 # -Style v2 plays the default style's v2 (or -Style <preset_id>/v<N>) instead of the room's pinned look; -Room <id> picks the room,
 # -Room landscape the garage island from the shared fixture cache, and -Room landscape10 the same island at the 10x world's scale. -Profile <name> keeps this play's saves, settings and
 # companion session under .cache/profiles/<name> instead of your own user folders, so a playtest can be repeated or reset.
-# -Team <team id>, -Mode creative|challenge|live and -Difficulty gentle|standard|brave (with -Mode challenge) pass the team, the
-# mode and the difficulty to the game as --team=, --mode= and --difficulty= (the mechanics round, contracts/README.md "Teams and the
-# save layout"). The teams packet (M3) makes the boot honour them and refuse Live; until then the game ignores them.
-# -Knack quick_feet:3 (or -Knack quick_feet:3,cat_feet:2, up to three; the rank 1 to 3, 1 when left off) passes the team's knacks to the game as
-# --knack= until the team file (M3) holds them: the body takes the pack's rank for each, none by default (the mechanics round, M5).
+# -Team <team id>, -Mode creative|challenge and -Difficulty gentle|standard|brave (with -Mode challenge) pass the team, the mode and
+# the difficulty to the game as --team=, --mode= and --difficulty= (the teams packet, M3; contracts/README.md "Teams and the save
+# layout"): the team's folder under user://teams/<team id>/ (the default team, local, when none is named), the island save of that
+# mode, and in Challenge the difficulty, which a save keeps once it is made. With no -Mode the team plays the mode it played last.
+# Live is not available yet. The first launch moves the saves from before teams under the default team; a later launch removes the
+# old files (Saves/SaveMigration.cs).
+# -Knack quick_feet:3 (or -Knack quick_feet:3,cat_feet:2, up to three; the rank 1 to 3, 1 when left off) overrides the team file's
+# knacks for this play only, as --knack= (a test's override, M5); the team file keeps the knacks knack.set chose.
 param([string]$Style, [string]$Room, [string]$Profile, [string]$Team, [string]$Mode, [string]$Difficulty, [string[]]$Knack)
 $ErrorActionPreference = 'Stop'
 if ($Profile -and $Profile -notmatch '^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$') { throw '-Profile takes a short name of letters, digits, - and _.' }
 if ($Team -and $Team -cnotmatch '^[a-z][a-z0-9_-]{0,63}$') { throw '-Team takes a team id: lowercase letters, digits, - and _, starting with a letter.' }
-if ($Mode -and $Mode -cnotin @('creative', 'challenge', 'live')) { throw '-Mode is creative, challenge or live.' }
+if ($Mode -ceq 'live') { throw '-Mode live: Live is not available yet. Choose creative or challenge.' }
+if ($Mode -and $Mode -cnotin @('creative', 'challenge')) { throw '-Mode is creative or challenge.' }
 if ($Difficulty -and ($Difficulty -cnotin @('gentle', 'standard', 'brave') -or $Mode -cne 'challenge')) { throw '-Difficulty is gentle, standard or brave, with -Mode challenge.' }
 $knackArgs = @($Knack | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 if ($knackArgs.Count -gt 3) { throw '-Knack takes up to three knacks, one for each slot.' }
