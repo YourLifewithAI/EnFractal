@@ -14,8 +14,6 @@ the bar by up to a fifth, so from band 6 on Big bar or Steady climber at full ra
 band below (a fifth of 2.0 m is 0.4 m), and the strongest pair (both at full rank, 1.44) opens a gate from band 4 on.
 `early_open` lists exactly which, per gate, for the reach report.
 """
-import math
-
 BAND_M = .4            # one band of the bar (traits.stamina.band_m)
 START_M = .4           # the starting bar (traits.stamina.start_m)
 BANDS = 10             # traits.stamina.bands: 0.4 m to 4.0 m
@@ -102,12 +100,3 @@ def describe_arithmetic():
                          opened_from=dict(early_open(rise, band)['early'])))
     return dict(band_m=BAND_M, start_m=START_M, bands=BANDS, bands_per_bar=BANDS_PER_BAR, gate_slack_m=GATE_SLACK_M,
                 full_rank=FULL_RANK, pair=FULL_RANK*FULL_RANK, gates=rows)
-
-
-def margin(rise, band, factor):
-    """How far `rise` is under (positive) the reach of `band` for a body stretched by `factor`."""
-    return cap(band, factor)-rise
-
-
-def is_finite(x):
-    return isinstance(x, (int, float)) and math.isfinite(x)

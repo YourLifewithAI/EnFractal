@@ -315,6 +315,52 @@ class Held(unittest.TestCase):
         self.assertLessEqual(len(held), (i1-i0+3)*(j1-j0+3))
 
 
+class TreesKeepOffWalls(unittest.TestCase):
+    """The exporter fits a tree's climbing collision to the ground under its crown and refuses a crown whose top is not 12
+    cm over the highest ground there. At 10x the planting keeps a tree off the foot of a wall; at 1x it is as it was."""
+
+    def planter(self):
+        import random
+        from pipeline.landscape.generator.generate import Planter
+        g = Grid(-3., -3., 3., 3., .1)
+        nx = g.nx
+        h = [.3]*g.n
+        for j in range(g.nz):
+            for i in range(nx):
+                if g.xs[i] > .05:
+                    h[j*nx+i] = 1.     # a wall, 0.7 m high, a cell wide at x = 0 to 0.1
+        room = dict(bounds=dict(min_m=[-3., 0., -3.], max_m=[3., 3., 3.]), shell=dict(parts=[]), spawns=[])
+        n = g.n
+        p = Planter(g, h, [0.]*n, [9.]*n, [True]*n, [0.]*n, [0.]*n, [0.]*n, [False]*n, [0.]*n, [-1]*n, [], [], room,
+                    random.Random(1), None, [0.]*n)
+        p.path_gap = [9.]*n
+        return p
+
+    def put(self, planter, x):
+        from pipeline.landscape.harness.kit import SIZES
+        return planter.put('broadleaf', x, 0., [.5, .5, .5], 0., .02, SIZES['broadleaf'], sink=.008)
+
+    def test_at_10x_a_tree_stands_clear_of_a_wall_and_at_1x_it_is_as_it_was(self):
+        from pipeline.landscape.generator import scale
+        was = scale.W
+        try:
+            scale.set_world(10.)
+            self.assertIsNone(self.put(self.planter(), -.02), 'a tree at the foot of a 0.7 m wall is refused')
+            self.assertIsNotNone(self.put(self.planter(), -1.5), 'a tree in the open is planted')
+            scale.set_world(1.)
+            self.assertIsNotNone(self.put(self.planter(), -.02), '1x is as it was')
+        finally:
+            scale.set_world(was)
+
+    def test_the_crown_the_exporter_fits_is_the_highest_one(self):
+        from pipeline.landscape.generator.generate import tree_crown
+        r, high = tree_crown('broadleaf')
+        self.assertAlmostEqual(high, .95, places=6)
+        self.assertGreater(r, .15)
+        r, high = tree_crown('conifer')
+        self.assertAlmostEqual(high, 1.1, places=6)
+
+
 class Gates(unittest.TestCase):
     def test_the_pack_and_the_generator_agree(self):
         pack = json.loads(V5.read_text(encoding='utf-8'))

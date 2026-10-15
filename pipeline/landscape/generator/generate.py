@@ -1108,6 +1108,21 @@ def inside_tri(grid, inside, t):
 
 
 DRYING_LINE = [.36, .2, .03]
+CROWN_GAP_M = .13   # the exporter's tree fit: a crown's top is this far over the highest ground under it (12 cm walk clearance)
+_CROWNS = {}
+
+
+def tree_crown(name):
+    """(R, high) of a tree prototype's highest crown at scale 1: the farthest a vertex lies from the trunk's axis, and its
+    top. The exporter fits a tree's climbing collision to the ground under the crown (export/trees.py `fit`) and refuses
+    a tree whose crown top is not 12 cm over the highest ground there."""
+    got = _CROWNS.get(name)
+    if got is None:
+        from pipeline.landscape.harness.kit import prototype
+        crowns = [p for p in prototype(name) if p['role'] == 'foliage']
+        top = max(crowns, key=lambda p: max(v[1] for v in p['positions']))
+        got = _CROWNS[name] = (max(math.hypot(v[0], v[2]) for v in top['positions']), max(v[1] for v in top['positions']))
+    return got
 _ROUND = tuple((math.cos(a), math.sin(a)) for a in (0, 1.57, 3.14, 4.71))   # a footing's four sides (Planter.ground)
 BLOCKING = {'broadleaf', 'conifer', 'rock', 'boulder', 'shrub', 'cottage', 'woodpile', 'fence', 'lantern',
             'crate', 'drying_line'}
@@ -1197,6 +1212,15 @@ class Planter:
         y = lo_-sink
         if y < .0005:
             return None
+        if world.W != 1 and proto in ('broadleaf', 'conifer'):
+            # The 10x world: no tree stands at the foot of a wall higher than its crown (the exporter refuses its fit:
+            # the first fixture with flights had two beside a 0.6 m bank). Today's room is as it was.
+            R_, high = tree_crown(proto)
+            r = max(.7*R_*scale[0], .07)+.02
+            top = y+high*scale[1]
+            if max(self.heights.tri_height(self.h, x+r*a, z+r*b) for a in (-1, -.5, 0, .5, 1)
+                   for b in (-1, -.5, 0, .5, 1)) > top-CROWN_GAP_M:
+                return None
         if y+size[1]*scale[1] > self.room['bounds']['max_m'][1]-.01:
             return None
         rec = dict(prototype=proto, position_m=[round(x, 4), round(y, 4), round(z, 4)],

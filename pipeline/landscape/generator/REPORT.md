@@ -1,5 +1,81 @@
 # The garage as land: the landscape generator (C5)
 
+## Fractals and the ladder of gates (Run 2 mechanics round, packet M4, 15 October)
+
+The mechanics design (`docs/game/MECHANICS.md` sections 6 and 7) needs the land to be a ladder: the stamina bar grows in ten bands of
+0.4 m, a climb costs the metres it rises, and Fractals sit on ledges that need a band. Built here, at world scale 10 only (nothing
+changes at 1x: the corpus is byte-identical, three rooms compared against the generator before this packet).
+
+| File | What |
+|---|---|
+| `gates.py` | The bands, the knacks' reach (Big bar, Steady climber: x1.1, x1.15, x1.2; two stack), the two kinds of gate and their arithmetic (`early_open`, `ladder_rises`). Its copies of the pack's numbers are pinned to `game/rules/storybook_wild/v5.json` by a test |
+| `routes.py` | A **flight**: a straight run of ledges built into the base grid along one axis, each ledge a riser (66 degrees or steeper, over whole cells) and a flat bench 1.2 m long and 1.4 m wide; every vertex set to the profile, so a freestanding flight has a cliff on every side |
+| `sites.py` | Where flights go: flat dry meadow the exact walk reaches (3 cm of relief, 0.8 m clear all round, 1.5 m between flights, 5 m from where the player arrives); and the summit's corridor |
+| `reach.py` | The **climb-aware reach**: the walker's flood (`checks.Walker`, exact, unchanged) for the feet, and a climb as one more edge: from a standable foot, a face over 55 degrees followed up its fall line (`climb.climb_from`, its 0.6 m follow raised to the tallest rise a bar climbs, 5.76 m with the strongest pair) to a crest, a standable node beside it the top. A climb of rise r is open to a bar of band b when r is at most `gates.cap(b)`; the bar is full at every foot (it refills on standable ground). A label per lattice node: the lowest band that reaches it; flooded band by band, each node once. A body stretched by a knack is the same run with each bar multiplied |
+| `fractals.py` | `plan` (before the 2.5 cm ground: find places, build the flights, keep the planting off them) and `finish` (on the planted island: three runs of the reach, each bench proved, the Fractals placed, the report) |
+| `checks.py` | `fractal_checks`, in `overall`: the same reach, read back from the written package, puts every bench and every Fractal at the band it says |
+| `generate.py` | `--no-fractals`, `--typed-fractals`, `--tutorial`, `--reach-report <md>`; on by default when `--world-scale` is not 1 |
+| `export/fractals.py` | The exporter's whitelist: `x_generator.fractals` to the manifest's `x_fractals` (id, position, kind when typed, `reach_band`), `x_generator.tutorial` to `x_island_tutorial`; nothing else travels |
+
+**The two kinds of gate, as built.** A *band gate* is a rise of the band's full reach less 0.02 m, so the ladder runs 0.38, 0.78, 1.18,
+1.58, 1.98 ... m: each ledge-to-ledge rise on a route is one band more than the last, so the next ledge is always in view of a player
+one band short (the design's wording is "each ledge-to-ledge rise is one band"; this is the reading that gives the summit its "upper
+ledges at the top bands" and the first Fractal a 0.4 m climb). A *knack shortcut* is a higher ledge half way between the base bar and
+one knack at full rank (0.44 m over band 1, 0.88 m over band 2): the base body falls short by 0.04 and 0.08 m, one knack clears it by
+the same, and the base body reaches it one band later, so nothing is reachable only with a knack.
+
+**Where the arithmetic gives out** (printed in every reach report): a knack at full rank stretches a bar by a fifth, and a band is 0.4
+m, so from band 6 on Big bar or Steady climber opens the next gate from the band below, and the strongest pair (both at full rank,
+x1.44) opens a gate from band 4 on. Shortcuts are therefore built only over bands 1 and 2, where even the pair does not carry one into
+the next gate. The generator builds every gate and reports which a knack opens early; "no knack ever opens a gate early" cannot hold
+above band 5 with ranks of +20 percent (a decision for the founder, below).
+
+**On the nominal garage at 10x** (seed 20261008, `--tutorial`; the report is `--reach-report`):
+
+| | |
+|---|---|
+| Fractals placed | 24 (budget 20 to 25): 8 on steps, 7 on ladders, 5 in hidden corners, 2 on shortcuts, 1 on the summit, 1 no band reaches |
+| By the lowest band that reaches them | band 1: 15 (the pack's "reachable on a first run"), band 2: 3, band 3: 3, band 4: 1, band 5: 1, none: 1 (on the tote's top, 4.4 m up, closed in by cliffs: a Bubble lift or a built ladder) |
+| Routes and benches | 13 routes, 23 benches: a ladder of 4 (bands 1 to 4) and one of 3, 8 steps (one band-1 ledge, 0.38 m), 2 shortcuts, the summit; 22 benches reached from exactly the band they were built as |
+| Knack shortcuts | over band 1: a 0.44 m ledge, base body from band 2, one knack at full rank from band 1; over band 2: 0.88 m, base body from band 3, one knack from band 2 |
+| The summit | a corridor of 6 ledges (bands 1 to 5, the last a 1.72 m rise) cut through the couch's south cliff, seat and crest to 7.62 m above its foot; its top is reached from band 5 (one knack: 4, the strongest pair: 3) |
+| The one bench not as built | the summit's fifth ledge (built as band 5) is reached from band 4: the couch's own seat terrace beside the corridor offers a way round it; reported, not a fault (`fractal_checks` allows it for a summit only) |
+| Ways the land itself offers | one: a 0.29 m step at the north-east coast |
+| Added to generation | the stage lines say what the run spent: siting and building 5.1 s (`fractals`), the reach and the placing 3.7 s (`fractal reach`), on a machine other lanes were loading (the whole run took 430 s against 286 s before the packet, so the stage lines are the evidence: about 9 s) |
+| Checks | `overall` true with the Fractal check in it; the 1x corpus byte-identical (garage, near_empty, kitchen scan 17) |
+
+**What a Fractal is.** An entry of `x_generator.fractals.items`: `fractal:` and the first 12 hex digits of a hash of where it rests
+(centimetres, x then z), never a count, so an id says nothing about how many the island holds or which was placed first; the list is in
+id order. `reach_band` is what the exact walk measured, not what was built. Untyped by default; `--typed-fractals` gives each a kind
+(by the id's last digit, a placeholder: the design says only five per heart and per band). A Fractal no band reaches has no
+`reach_band`.
+
+**Built into a landscape that is already finished.** Flights go in after the hamlet and the ways are graded and proved, before the 2.5
+cm ground is worked, so nothing a walk was proved on changes. A flight inside a detail block keeps the base's surface there
+(`Plan.hold`, the way the ways the body walks do). The planting leaves each flight and 0.5 m round it bare, and each flight's foot is
+a goal of the planting walk, so a tree on the way to it is taken out like one on the way to a door.
+
+**What the walk does not model, so every claim is a lower bound for the body and every gate claim is made against the same walker:**
+slopes between 20 and 55 degrees (the body walks 45), shallow water (the body wades), drops, a hop onto a ledge under 6.5 cm, a tree's
+trunk and crown, and the Gubble's help. On the nominal garage the strict walk reaches about a fifth of the island (the north): a ditch
+about 0.5 m deep whose north bank is 58 degrees (at x = -10 m, z = -3 m) splits it, so every Fractal sits inside that region; the body,
+which walks 45 degrees, crosses the ditch.
+
+**Decisions and numbers for the founder:**
+- The gates' reading above (ascending ladders), against "every ledge-to-ledge rise is one band".
+- The arithmetic limit: a knack opens a gate early from band 6, the strongest pair from band 4. Options: accept it; make the high ranks +10 percent; or let a knack move only the first bar.
+- No swim shortcut (the deep-water and dive drains are unset in `v5`) and no hop shortcut (a hop of 6.5 cm is under the 2.5 cm ground's resolution to size, and the design gives no rule for a hop against a pull-over).
+- The summit's top band is 5, not the top bands: the tallest landmarks (the shelf, the easel) lie in the unreached south, so a team that finds all 24 Fractals (four spends) can climb the corridor without the Gubble.
+- The summit's place is in the package (`summit.top_m`) but the manifest has no field for it, and "past the tutorial" needs one.
+- Numbers the docs do not give, each a constant: gate slack 0.02 m, riser 66 degrees, bench 1.2 by 1.4 m, 8 steps, a ladder of 4 and one of 3, the corner spacing 6 m, a step placed about 12 m from the player's arrival (the nearest Fractal is 8 m away).
+
+```
+python -B -m pipeline.landscape.generator.generate --room pipeline/landscape/corpus/rooms/garage_nominal --world-scale 10 --tutorial --reach-report <report.md> --out <pkg>
+python -B -m pipeline.landscape.generator.checks --package <pkg> --room pipeline/landscape/corpus/rooms/garage_nominal --world-scale 10
+python -B -m unittest pipeline.landscape.generator.tests.test_fractals -v
+python -B -S -m unittest pipeline.landscape.export.tests.test_fractals -v
+```
+
 ## The hamlet proved by the walk, and a cottage on its pad (Run 2, garage-road, 13 October)
 
 The founder's real garage at 10x (`landscape_my_garage`, converted by `from_capture.py`) failed `overall` with its hamlet

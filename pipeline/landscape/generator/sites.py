@@ -14,7 +14,7 @@ ground.
 """
 import math
 
-from . import gates, routes as R
+from . import routes as R
 
 MARGIN_M = .8         # clear, flat ground round a freestanding flight
 SPACING_M = 1.5       # between two flights (beyond their margins)
