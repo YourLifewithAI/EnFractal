@@ -534,6 +534,7 @@ class LiftPlaces(unittest.TestCase):
         stand(-14., -12., 3., 9.)      # tall: a lift place
         stand(12., -14., 3., 9.5)      # tall, far from the first: another
         stand(0., -4., 3., 3.5)        # low: a bar climbs it
+        stand(-19., 0., 3., 5.4)       # 4.4 m over the plain: no bar of the base body climbs it (4.0 m), yet its rim is under 4.5 m
         stand(-12., 12., 3., 8.)       # tall, but a flight stands on it (kept)
         # a hill the body walks up: a 20 degree flank to a flat top
         for j in range(g.nz):
@@ -557,6 +558,8 @@ class LiftPlaces(unittest.TestCase):
         self.assertEqual(len(got), 3, got)
         for t in [(-14., -12.), (12., -14.), (-12., 12.)]:
             self.assertTrue(any(near(p, t) for p in got), (t, got))
+        self.assertFalse(any(near(p, (-19., 0.)) for p in got), 'a cliff of 4.4 m is under the rim a lift place needs')
+        self.assertFalse(any(near(p, (0., -4.)) for p in got), 'a low mesa the walk reaches')
         g = self.land.grid
         for p in got:
             i, j = g.nearest(*p)
