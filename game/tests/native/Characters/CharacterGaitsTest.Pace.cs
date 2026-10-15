@@ -31,9 +31,11 @@ public partial class CharacterGaitsTest
         Check(BodyPace.Run(odd) > BodyPace.Walk(odd) && !float.IsNaN(BodyPace.Blend(odd, 0.5f)), "a run is always above the walk, so the blend can divide");
         var broken = new BodyState { WalkSpeedMps = float.NaN, RunSpeedMps = -1 };
         Check(BodyPace.Walk(broken) == MotionProfile.WalkSpeedMps && BodyPace.Run(broken) == MotionProfile.RunSpeedMps, "speeds that are not positive numbers read as the base");
-        var hop = Installed("cloudpuff").Gait.Gait as HopGait;
+        var (hopVisual, hopLayer, _) = Installed("cloudpuff");
+        var hop = hopLayer.Gait as HopGait;
         Check(hop != null && Mathf.IsEqualApprox(hop.HopHeightM(0), hop.HopHeightAt(MotionProfile.WalkSpeedMps, 0)) && Mathf.IsEqualApprox(hop.HopHeightM(1), hop.HopHeightAt(MotionProfile.RunSpeedMps, 1)) &&
               Mathf.IsEqualApprox(hop.HopHeightM(1, 0.384f, 1.152f), hop.HopHeightAt(1.152f, 1, 0.384f)), "the hop's height at a walk and at a run follows the body's walk and run");
+        hopVisual.Body.Free();
     }
 
     /// <summary>Every character's gait layer, fed a walk and a run at the body's own pace, on the states the controller would give.</summary>

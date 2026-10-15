@@ -684,6 +684,10 @@ public partial class BodyKnackTest : Node3D
         Check(gubble.Floats && before == (gubble.WalkSpeedNowMps, gubble.RunSpeedNowMps, gubble.HopApexM, gubble.SwimSpeedNowMps) && gubble.WalkSpeedNowMps == gubble.WalkSpeedMps && gubble.RunSpeedNowMps == gubble.RunSpeedMps &&
               gubble.HopApexM == gubble.JumpApexM, "a floating body (the Gubble) takes no knack: its walk, run, hop and swim are its own");
         Check(gubble.ReachM == 0.15f && gubble.BodyHeightM == 0.10f && gubble.BodyRadiusM == 0.02f, "and its capsule and reach are the player's");
+        // The margin the follow has to close a gap on a player with the strongest Quick feet: the Gubble's run against the player's best.
+        var best = BodyKnacks.FromPack(_table, new Dictionary<string, int> { ["quick_feet"] = 3 });
+        var player = 0.96f * best.WalkRunFactor;
+        Report(CompanionAvatar.CompanionRunMps > player, Inv($"the Gubble's run ({CompanionAvatar.CompanionRunMps:0.000} m/s) still outpaces the player's with Quick feet at full rank ({player:0.000} m/s), by {(CompanionAvatar.CompanionRunMps / player - 1) * 100:0.0} percent: follow can close a gap, slowly"));
         gubble.QueueFree();
         await Frames(2);
     }
