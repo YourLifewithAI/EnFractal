@@ -499,6 +499,8 @@ def build_island(base: Path, room_id: str = "island_example", variant: str | Non
                 {"id": "fractal:w4n8t6", "position_m": [10.0, 0.0, -4.0]},
             ]},
             "x_island_tutorial": True,
+            # The second contract round (15 October): the summit, here the first tree's top.
+            "x_summit": {"center_m": [-5.0, 0.94, -9.0], "radius_m": 0.3, "landmark": "first_tree", "top_band": 3},
         },
     }
     room_path = folder / "room.json"
@@ -856,15 +858,15 @@ MECHANICS = {
     "traits": {
         "hearts": {"health_per_quarter": 5, "start_hearts": 5, "cap_hearts": 30, "heal_quarter_every_s": 2.5, "heal_after_unharmed_s": 10},
         "harm": {"fire_quarters_per_s": 1},
-        "stamina": {"start_m": 0.4, "band_m": 0.4, "bands": 10, "bands_per_bar": 5, "running_m_per_s": 0.01, "refill_m_per_s": 0.1,
-                    "empty_speed_factor": 0.5, "empty_slow_until_fraction": 0.25},
+        "stamina": {"start_m": 0.4, "band_m": 0.4, "bands": 10, "bands_per_bar": 5, "running_m_per_s": 0.02, "refill_m_per_s": 0.1,
+                    "deep_water_m_per_s": 0.02, "dive_m_per_s": 0.04, "empty_no_run_until_fraction": 1},
         "pips": {"start": 8, "expertise_per_pip": 5, "ceiling": 40, "refill_near_every_s": 5, "refill_near_within_m": 2,
                  "refill_far_every_s": 15, "camp_fraction": 0.5},
         "wallet": {"start": {"wood": 0, "stone": 0, "copper": 0, "leaf": 0}},
     },
     "cost": {
         "prices": {name: {"ordered": ordered, "own_idea_factor": 0.5} for name, ordered in (
-            ("glow", 2), ("bubbles", 2), ("fireworks", 2), ("bloom", 4), ("fire", 6), ("bubble_carry", 4), ("bubble_lift", 6))},
+            ("glow", 2), ("bubbles", 2), ("fireworks", 2), ("bloom", 4), ("fire", 6), ("bubble_carry", 4), ("bubble_boat", 4), ("bubble_lift", 6))},
         "torch_fire": 0,
     },
     "modes": {"rows": [
@@ -1012,13 +1014,17 @@ def build_teams(out: Path, at: str) -> None:
 
 
 # The ledger seam (game/scripts/native/Seams/StaminaLedger.cs): the body reports sprint, deep-water and dive seconds; the kernel
-# charges them from the pack's traits.stamina. One fixture both sides test against; its water rates are the fixture's own.
-LEDGER_STAMINA = {**MECHANICS["traits"]["stamina"], "deep_water_m_per_s": 0.02, "dive_m_per_s": 0.04}
+# charges them from the pack's traits.stamina. One fixture both sides test against, at v5's rates.
+LEDGER_STAMINA = MECHANICS["traits"]["stamina"]
 
 
-def step(seconds, grounded, stamina, empty, speed, sprint=0, deep=0, dive=0):
+def step(seconds, grounded, stamina, empty, no_run, sprint=0, deep=0, dive=0):
     return {"seconds": seconds, "safely_grounded": grounded, "sprint_s": sprint, "deep_water_s": deep, "dive_s": dive,
-            "expect": {"stamina_m": stamina, "empty": empty, "speed_factor": speed}}
+            "expect": {"stamina_m": stamina, "empty": empty, "no_run": no_run}}
+
+
+def case(name, top, first, bar, no_run, steps, **extra):
+    return {"name": name, "max_stamina_m": top, "first_bar_m": first, "stamina_m": bar, "no_run": no_run, **extra, "steps": steps}
 
 
 def ledger_fixture() -> dict:
@@ -1028,33 +1034,27 @@ def ledger_fixture() -> dict:
                         "long for reading: the body reports sprint_s, deep_water_s and dive_s (IStaminaLedger.Report), then the tick "
                         "runs (VitalsTick with seconds and safely_grounded), then the body reads the gate (IStaminaLedger.Gate). The "
                         "drain is each seconds times its rate, never below empty; the refill is refill_m_per_s for the seconds not "
-                        "spent running, on standable ground only; reaching empty slows the body (speed_factor) until the bar refills "
-                        "to empty_slow_until_fraction of its maximum. Compare within tolerance_m."),
+                        "spent running, on standable ground only; reaching empty takes the run away (no_run) until the first bar, "
+                        "first_bar_m, refills to empty_no_run_until_fraction of itself. Compare within tolerance_m."),
         "stamina": LEDGER_STAMINA,
-        "fixture_rates": ["deep_water_m_per_s", "dive_m_per_s"],
         "tolerance_m": 1e-6,
         "cases": [
-            {"name": "a full starting bar lasts 40 s of running", "max_stamina_m": 0.4, "stamina_m": 0.4, "slowed": False,
-             "steps": [step(40, True, 0.0, True, 0.5, sprint=40)]},
-            {"name": "half a bar of running, then walking refills it at 0.10 m a second", "max_stamina_m": 0.4, "stamina_m": 0.4, "slowed": False,
-             "steps": [step(20, True, 0.2, False, 1.0, sprint=20), step(1, True, 0.3, False, 1.0)]},
-            {"name": "empty, the body is slowed until the bar refills to a quarter", "max_stamina_m": 0.4, "stamina_m": 0.0, "slowed": True,
-             "steps": [step(0.5, True, 0.05, False, 0.5), step(0.6, True, 0.11, False, 1.0)]},
-            {"name": "deep water and diving drain at their rates, and nothing refills in the water", "max_stamina_m": 0.4, "stamina_m": 0.4,
-             "slowed": False, "steps": [step(5, False, 0.3, False, 1.0, deep=5), step(5, False, 0.1, False, 1.0, dive=5)]},
-            {"name": "without water rates in the pack nothing drains there (today's behaviour)", "max_stamina_m": 0.4, "stamina_m": 0.4,
-             "slowed": False, "omit": ["deep_water_m_per_s", "dive_m_per_s"],
-             "steps": [step(10, False, 0.4, False, 1.0, deep=10), step(10, False, 0.4, False, 1.0, dive=10)]},
-            {"name": "a drain never goes below empty", "max_stamina_m": 0.4, "stamina_m": 0.1, "slowed": False,
-             "steps": [step(30, True, 0.0, True, 0.5, sprint=30)]},
-            {"name": "running never refills, even on standable ground", "max_stamina_m": 0.4, "stamina_m": 0.2, "slowed": False,
-             "steps": [step(10, True, 0.1, False, 1.0, sprint=10)]},
-            {"name": "a tick that only partly runs refills the rest", "max_stamina_m": 0.4, "stamina_m": 0.2, "slowed": False,
-             "steps": [step(2, True, 0.29, False, 1.0, sprint=1)]},
-            {"name": "two bars: the top band runs down like the first", "max_stamina_m": 4.0, "stamina_m": 4.0, "slowed": False,
-             "steps": [step(100, True, 3.0, False, 1.0, sprint=100)]},
-            {"name": "the quarter is of the whole bar, both rows", "max_stamina_m": 2.4, "stamina_m": 0.0, "slowed": True,
-             "steps": [step(5, True, 0.5, False, 0.5), step(2, True, 0.7, False, 1.0)]},
+            case("a full starting bar lasts 20 s of running", 0.4, 0.4, 0.4, False, [step(20, True, 0.0, True, True, sprint=20)]),
+            case("half a bar of running, then walking refills it at 0.10 m a second", 0.4, 0.4, 0.4, False,
+                 [step(10, True, 0.2, False, False, sprint=10), step(1, True, 0.3, False, False)]),
+            case("empty, the body cannot run until the bar is full again", 0.4, 0.4, 0.0, True,
+                 [step(2, True, 0.2, False, True), step(2.1, True, 0.4, False, False)]),
+            case("deep water and diving drain at their rates, and nothing refills in the water", 0.4, 0.4, 0.4, False,
+                 [step(5, False, 0.3, False, False, deep=5), step(5, False, 0.1, False, False, dive=5)]),
+            case("without water rates in the pack nothing drains there", 0.4, 0.4, 0.4, False,
+                 [step(10, False, 0.4, False, False, deep=10), step(10, False, 0.4, False, False, dive=10)],
+                 omit=["deep_water_m_per_s", "dive_m_per_s"]),
+            case("a drain never goes below empty", 0.4, 0.4, 0.1, False, [step(30, True, 0.0, True, True, sprint=30)]),
+            case("running never refills, even on standable ground", 0.4, 0.4, 0.2, False, [step(5, True, 0.1, False, False, sprint=5)]),
+            case("a tick that only partly runs refills the rest", 0.4, 0.4, 0.2, False, [step(2, True, 0.28, False, False, sprint=1)]),
+            case("two bars: the top band runs down like the first", 4.0, 2.0, 4.0, False, [step(100, True, 2.0, False, False, sprint=100)]),
+            case("the run comes back with the first bar, not the whole bar", 2.4, 2.0, 0.0, True,
+                 [step(19, True, 1.9, False, True), step(2, True, 2.1, False, False)]),
         ],
     }
 
@@ -1088,6 +1088,15 @@ def mechanics_round(at: str) -> dict:
         "result_player_marks_a_receipt": result("receipt.mark", "mark-0001", "player:local", 5, at, transient=True),
         "command_player_resets_trust": command("trust.reset", "trust-0001", {}, note="Player-only: the menu, beside Change my AI."),
         "result_player_resets_trust": result("trust.reset", "trust-0001", "player:local", 5, at, transient=True),
+        # The second contract round (15 October): five Fractals spent at the camp for a heart or the next band, at will.
+        "command_player_spends_fractals_on_a_heart": command("fractal.spend", "spend-0001", {"grow": "heart"},
+                                                             note="Player-only, at the camp: five Fractals make a heart."),
+        "result_player_spends_fractals_on_a_heart": result("fractal.spend", "spend-0001", "player:local", 5, at, transient=True),
+        "command_player_spends_fractals_on_a_band": command("fractal.spend", "spend-0002", {"grow": "band"},
+                                                            note="Player-only, at the camp: five Fractals open the next band."),
+        "result_spend_away_from_the_camp": {**result("fractal.spend", "spend-0003", "player:local", 5, at), "ok": False,
+                                            "error": {"code": "not_ready", "retryable": True,
+                                                      "message": "Fractals are spent at the camp: go back to the spawn and try again."}},
         "command_player_mode_challenge_gentle": command("world.set_mode", "mode-0002", {"mode": "challenge", "difficulty": "gentle"},
                                                         note="Player-only: the opening menu, at boot."),
         # Once the room is up the mode is the save's (M3), and Live is refused until it exists.
@@ -1132,6 +1141,9 @@ def mechanics_round_refused(at: str) -> dict:
         "command_knack_in_a_fourth_slot": command("knack.set", "knack-0009", {"slot": 4, "knack": "quick_feet"}),
         "command_receipt_marked_maybe": command("receipt.mark", "mark-0009", {"action_id": "bloom-0002", "mark": "maybe"}),
         "command_trust_reset_to_a_number": command("trust.reset", "trust-0009", {"count": 30}),
+        "command_fractals_spent_on_a_knack": command("fractal.spend", "spend-0009", {"grow": "knack"}),
+        "command_fractals_spent_by_the_count": command("fractal.spend", "spend-0010", {"grow": "heart", "count": 5}),
+        "result_spend_with_data": {**valid["result_player_spends_fractals_on_a_heart"], "data": {"hearts": 6}},
         "command_difficulty_in_creative": command("world.set_mode", "mode-0009", {"mode": "creative", "difficulty": "brave"}),
         "command_carry_on_the_player_without_its_preview": {**carry, "args": {k: v for k, v in carry["args"].items() if k != "preview_id"}},
         "command_bloom_on_the_player": command("nature.cast", "bloom-0009", {**BLOOM, "target": "avatar:player"}, preview=True),

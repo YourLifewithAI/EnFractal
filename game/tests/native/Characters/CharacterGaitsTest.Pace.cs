@@ -43,7 +43,7 @@ public partial class CharacterGaitsTest
     {
         foreach (var id in Shipped)
         {
-            foreach (var (name, walk, run) in new[] { ("base", 0.32f, 0.96f), ("Quick feet", 0.384f, 1.152f), ("empty bar", 0.16f, 0.48f) })
+            foreach (var (name, walk, run) in new[] { ("base", 0.32f, 0.96f), ("Quick feet", 0.384f, 1.152f), ("half", 0.16f, 0.48f) })
             {
                 var (visual, gait, _) = Installed(id);
                 var knownPace = (Walk: 0.0f, Run: 0.0f);
@@ -125,10 +125,10 @@ public partial class CharacterGaitsTest
             Check(quick.Walk < 0.03f && quick.Run > 0.97f && Mathf.IsEqualApprox(quick.State.WalkSpeedMps, 0.384f),
                 F($"{id}: with Quick feet a walk at 0.384 m/s still reads as a walk ({quick.Walk:0.000}) and the faster run as a run ({quick.Run:0.000}); against the base the walk would read {Mathf.Clamp((0.384f - 0.32f) / 0.64f, 0, 1):0.000}"));
             body.Knacks = BodyKnacks.None;
-            ledger.GateValue = new StaminaGate(true, 0.5f);
-            var slow = await Measure("with an empty bar");
-            Check(slow.Walk < 0.03f && slow.Run > 0.97f && Mathf.IsEqualApprox(slow.State.RunSpeedMps, 0.48f),
-                F($"{id}: slowed by an empty bar the run at 0.48 m/s reads as a run ({slow.Run:0.000}), where the base would read {Mathf.Clamp((0.48f - 0.32f) / 0.64f, 0, 1):0.000}"));
+            ledger.GateValue = new StaminaGate(true, true);
+            var spent = await Measure("with an empty bar");
+            Check(spent.Walk < 0.03f && spent.Run < 0.03f && Mathf.IsEqualApprox(spent.State.RunSpeedMps, 0.96f),
+                F($"{id}: with an empty bar Shift held still walks and reads as a walk ({spent.Run:0.000}); the body's run stays {spent.State.RunSpeedMps:0.00} m/s for when it comes back"));
             body.StaminaLedger = null;
             body.VitalsTick = null;
             body.SetBodyVisual(null);

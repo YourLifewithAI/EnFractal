@@ -1,0 +1,11 @@
+{
+  "schema": "enfractal.command",
+  "version": 1,
+  "action_id": "spend-0002",
+  "room_id": "garage_example",
+  "op": "fractal.spend",
+  "args": {
+    "grow": "band"
+  },
+  "note": "Player-only, at the camp: five Fractals open the next band."
+}

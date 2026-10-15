@@ -11,9 +11,12 @@ public sealed record HeartsRules(double HealthPerQuarter, int StartHearts, int C
 /// <summary>How the world hurts, in quarters (traits.harm). FallCapQuarters null: no cap, today's behaviour.</summary>
 public sealed record HarmRules(double FireQuartersPerS, int? FallCapQuarters);
 
-/// <summary>The stamina bar in bands (traits.stamina). The water rates null: nothing drains there, today's behaviour.</summary>
+/// <summary>
+/// The stamina bar in bands (traits.stamina). The water rates null: nothing drains there, today's behaviour. At empty the body
+/// cannot run until the first bar refills to EmptyNoRunUntilFraction of itself (the founder, 15 October: completely).
+/// </summary>
 public sealed record StaminaRules(double StartM, double BandM, int Bands, int BandsPerBar, double RunningMPerS, double RefillMPerS,
-    double? DeepWaterMPerS, double? DiveMPerS, double EmptySpeedFactor, double EmptySlowUntilFraction);
+    double? DeepWaterMPerS, double? DiveMPerS, double EmptyNoRunUntilFraction);
 
 /// <summary>Connection energy in whole pips (traits.pips).</summary>
 public sealed record PipsRules(int Start, int ExpertisePerPip, int Ceiling, double RefillNearEveryS, double RefillNearWithinM, double RefillFarEveryS, double CampFraction);
@@ -149,14 +152,14 @@ public sealed partial class IslandRules
         {
             var where = at + ".stamina";
             Expect(s.ValueKind == JsonValueKind.Object, where + " must be an object.");
-            var required = new[] { "start_m", "band_m", "bands", "bands_per_bar", "running_m_per_s", "refill_m_per_s", "empty_speed_factor", "empty_slow_until_fraction" };
+            var required = new[] { "start_m", "band_m", "bands", "bands_per_bar", "running_m_per_s", "refill_m_per_s", "empty_no_run_until_fraction" };
             Fields(s, where, required.Concat(new[] { "deep_water_m_per_s", "dive_m_per_s" }).ToArray(), required);
             stamina = new StaminaRules(Num(s, "start_m", where, 0, 4.8, exclusiveMin: true), Num(s, "band_m", where, 0, 4.8, exclusiveMin: true),
                 IntIn(s, "bands", where, 1, 20), IntIn(s, "bands_per_bar", where, 1, 20), Num(s, "running_m_per_s", where, 0, 1),
                 Num(s, "refill_m_per_s", where, 0, 10, exclusiveMin: true),
                 s.TryGetProperty("deep_water_m_per_s", out _) ? Num(s, "deep_water_m_per_s", where, 0, 1) : null,
                 s.TryGetProperty("dive_m_per_s", out _) ? Num(s, "dive_m_per_s", where, 0, 1) : null,
-                Num(s, "empty_speed_factor", where, 0, 1, exclusiveMin: true), Num(s, "empty_slow_until_fraction", where, 0, 1, exclusiveMin: true));
+                Num(s, "empty_no_run_until_fraction", where, 0, 1, exclusiveMin: true));
         }
         PipsRules? pips = null;
         if (traits.TryGetProperty("pips", out var p))

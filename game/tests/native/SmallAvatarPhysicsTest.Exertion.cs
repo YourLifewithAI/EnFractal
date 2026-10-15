@@ -49,9 +49,10 @@ public partial class SmallAvatarPhysicsTest
     /// <summary>The ledger's rule as the README and the fixture state it (the kernel's side is Kernel/CommandHostModes.cs).</summary>
     private sealed class ModelLedger : ScriptedLedger
     {
-        public double Stamina, Max, Running = 0.01, Refill = 0.1, EmptyFactor = 0.5, SlowFraction = 0.25;
+        /// <summary>FirstBar: the top row (0: the whole bar, a bar with one row). NoRunFraction: of it, refilled before the run comes back.</summary>
+        public double Stamina, Max, FirstBar, Running = 0.02, Refill = 0.1, NoRunFraction = 1;
         public double? DeepRate = 0.02, DiveRate = 0.04;
-        public bool Slowed;
+        public bool NoRun;
         private BodyExertion _pending;
 
         public override void Report(BodyExertion exertion)
@@ -61,7 +62,7 @@ public partial class SmallAvatarPhysicsTest
             Refresh();
         }
 
-        public void Refresh() => GateValue = new StaminaGate(Stamina <= 1e-6, Slowed ? (float)EmptyFactor : 1f);
+        public void Refresh() => GateValue = new StaminaGate(Stamina <= 1e-6, NoRun);
 
         /// <summary>The kernel's VitalsTick: drain what was reported (never below empty), refill on standable ground for the seconds not run.</summary>
         public void Tick(float seconds, bool safelyGrounded)
@@ -73,11 +74,11 @@ public partial class SmallAvatarPhysicsTest
             if (drain > 0)
             {
                 Stamina = Math.Max(0, Stamina - drain);
-                if (Stamina <= 0) Slowed = true;
+                if (Stamina <= 0) NoRun = true;
             }
             var rest = Math.Max(0, seconds - Within(e.SprintS));
             if (safelyGrounded && Stamina < Max) Stamina = Math.Min(Max, Stamina + Refill * rest);
-            if (Slowed && Stamina >= Max * SlowFraction && Stamina > 0) Slowed = false;
+            if (NoRun && Stamina >= (FirstBar > 0 ? Math.Min(Max, FirstBar) : Max) * NoRunFraction - 1e-6 && Stamina > 0) NoRun = false;
             Refresh();
         }
     }
@@ -86,7 +87,7 @@ public partial class SmallAvatarPhysicsTest
     {
         TestLedgerModelHoldsTheFixture();
         await TestReportsAndOrder();
-        await TestEmptyBarSlowsTheLand();
+        await TestEmptyBarStopsTheRun();
         await TestEmptyBarDropsAClimber();
         await TestEmptyBarInDeepWater();
     }
@@ -108,9 +109,10 @@ public partial class SmallAvatarPhysicsTest
             double? Rate(string name) => omit.Contains(name) ? null : stamina.GetProperty(name).GetDouble();
             var model = new ModelLedger
             {
-                Max = item.GetProperty("max_stamina_m").GetDouble(), Stamina = item.GetProperty("stamina_m").GetDouble(), Slowed = item.GetProperty("slowed").GetBoolean(),
+                Max = item.GetProperty("max_stamina_m").GetDouble(), FirstBar = item.GetProperty("first_bar_m").GetDouble(),
+                Stamina = item.GetProperty("stamina_m").GetDouble(), NoRun = item.GetProperty("no_run").GetBoolean(),
                 Running = stamina.GetProperty("running_m_per_s").GetDouble(), Refill = stamina.GetProperty("refill_m_per_s").GetDouble(),
-                EmptyFactor = stamina.GetProperty("empty_speed_factor").GetDouble(), SlowFraction = stamina.GetProperty("empty_slow_until_fraction").GetDouble(),
+                NoRunFraction = stamina.GetProperty("empty_no_run_until_fraction").GetDouble(),
                 DeepRate = Rate("deep_water_m_per_s"), DiveRate = Rate("dive_m_per_s"),
             };
             var ok = true;
@@ -121,7 +123,7 @@ public partial class SmallAvatarPhysicsTest
                 var expect = step.GetProperty("expect");
                 var gate = model.Gate;
                 ok &= Math.Abs(model.Stamina - expect.GetProperty("stamina_m").GetDouble()) <= tolerance + 1e-6 && gate.Empty == expect.GetProperty("empty").GetBoolean() &&
-                      Math.Abs(gate.SpeedFactor - expect.GetProperty("speed_factor").GetDouble()) < 1e-6;
+                      gate.NoRun == expect.GetProperty("no_run").GetBoolean();
             }
             if (ok) held++;
             else Check(false, "the stand-in ledger gives the fixture's answers: " + item.GetProperty("name").GetString());
@@ -211,9 +213,9 @@ public partial class SmallAvatarPhysicsTest
         body.SetControlInput(Vector2.Zero);
 
         // Taking the ledger off frees the body again; the gate it held is gone with it.
-        ledger.GateValue = new StaminaGate(true, 0.5f);
+        ledger.GateValue = new StaminaGate(true, true);
         await Frames(3);
-        Check(body.Gate.Empty && Mathf.IsEqualApprox(body.Gate.SpeedFactor, 0.5f), "the body holds the gate the ledger gave after its tick");
+        Check(body.Gate.Empty && body.Gate.NoRun, "the body holds the gate the ledger gave after its tick");
         body.StaminaLedger = null;
         Check(body.Gate == StaminaGate.Free, "with no ledger bound, nothing is gated");
         var reports = ledger.Reports;
@@ -221,7 +223,7 @@ public partial class SmallAvatarPhysicsTest
         Check(ledger.Reports == reports, "an unbound ledger hears nothing more");
 
         // A floating body (the Gubble) neither exerts nor is gated.
-        var companionLedger = new ScriptedLedger { GateValue = new StaminaGate(true, 0.5f) };
+        var companionLedger = new ScriptedLedger { GateValue = new StaminaGate(true, true) };
         _companion.StaminaLedger = companionLedger;
         _companion.VitalsTick = (_, _) => { };
         await Frames(20);
@@ -235,19 +237,22 @@ public partial class SmallAvatarPhysicsTest
         await Frames(2);
     }
 
-    /// <summary>The empty bar slows the land by the gate's factor until the ledger refills it; the ledger meets the body through its own reports.</summary>
-    private async Task TestEmptyBarSlowsTheLand()
+    /// <summary>
+    /// The empty bar takes the run away, never the walk, until the first bar is full again (the founder, 15 October); the ledger
+    /// meets the body through its own reports.
+    /// </summary>
+    private async Task TestEmptyBarStopsTheRun()
     {
         var (fixture, body) = ExertionFixture(new Vector3(800, 0, 900), 90, "EmptyBarFixture");
         await Frames(5);
-        // The starting bar, a full one: 0.4 m, run down at 0.01 m a second.
+        // The starting bar, a full one: 0.4 m, run down at 0.02 m a second.
         var ledger = new ModelLedger { Max = 0.4, Stamina = 0.4 };
         ledger.Refresh();
         body.VitalsTick = (dt, grounded) => ledger.Tick(dt, grounded);
         body.StaminaLedger = ledger;
         await Frames(3);
 
-        // Speeds at the gate's factors, measured: the walk and the run, free, then at half.
+        // Paces measured on the floor: the walk, and Shift held.
         async Task<float> PaceFor(bool sprint, int frames = 40)
         {
             body.TryTeleportTo(fixture.GlobalPosition + new Vector3(0, 0.003f, 2));
@@ -264,10 +269,9 @@ public partial class SmallAvatarPhysicsTest
         var walk = await PaceFor(false);
         Report(Mathf.Abs(walk - 0.32f) < 0.01f && Mathf.IsEqualApprox(body.WalkSpeedNowMps, 0.32f), $"a full bar walks at the base pace ({walk:0.000} m/s)");
 
-        // A full starting bar lasts 40 s of running (the fixture's first case, here by the body's own reports).
-        ledger.Max = 0.4;
+        // A full starting bar lasts 20 s of running (the fixture's first case, here by the body's own reports).
         ledger.Stamina = 0.4;
-        ledger.Slowed = false;
+        ledger.NoRun = false;
         ledger.Refresh();
         body.TryTeleportTo(fixture.GlobalPosition + new Vector3(0, 0.003f, 2));
         await Frames(2);
@@ -275,43 +279,37 @@ public partial class SmallAvatarPhysicsTest
         var frames = 0;
         for (; frames < 3600 && !ledger.Gate.Empty; frames++) await Frames(1);
         var seconds = frames / 60f;
-        Report(seconds > 39.5f && seconds < 41.0f && ledger.Slowed && ledger.Stamina <= 1e-6,
-            $"a full starting bar lasts about 40 s of running, by what the body reports ({seconds:0.0} s, {ledger.SprintTotal:0.0} s of it running)");
+        Report(seconds > 19.5f && seconds < 21.0f && ledger.NoRun && ledger.Stamina <= 1e-6,
+            $"a full starting bar lasts about 20 s of running, by what the body reports ({seconds:0.0} s, {ledger.SprintTotal:0.0} s of it running)");
 
-        // Empty: the land is slow, run or walk, at the gate's factor; the running that goes on never refills the bar.
+        // Empty: Shift held no longer runs. The body walks at its whole pace, reports no running, and the walk refills the bar.
         await Frames(15);
-        var runFrom = body.GlobalPosition;
+        var sprintBefore = ledger.SprintTotal;
+        var heldFrom = body.GlobalPosition;
         await Frames(30);
-        var slowRun = PlanarDistance(body.GlobalPosition, runFrom) * 2;
+        var heldPace = PlanarDistance(body.GlobalPosition, heldFrom) * 2;
         var state = body.LastBodyState;
-        Report(Mathf.Abs(slowRun - 0.48f) < 0.03f && Mathf.IsEqualApprox(state.RunSpeedMps, 0.48f) && Mathf.IsEqualApprox(state.WalkSpeedMps, 0.16f) && ledger.Stamina <= 1e-6,
-            $"an empty bar halves the run ({slowRun:0.000} m/s; the body reports a walk of {state.WalkSpeedMps:0.00} and a run of {state.RunSpeedMps:0.00}) and running does not refill it");
-        body.SetControlInput(new Vector2(0, 1), sprint: false);
-        await Frames(15);
-        var walkFrom = body.GlobalPosition;
-        await Frames(6);
-        var slowWalk = PlanarDistance(body.GlobalPosition, walkFrom) * 10;
-        Report(Mathf.Abs(slowWalk - 0.16f) < 0.02f && ledger.Slowed, $"an empty bar halves the walk too, until it has refilled to a quarter ({slowWalk:0.000} m/s, {ledger.Stamina:0.000} m in the bar)");
+        Report(Mathf.Abs(heldPace - 0.32f) < 0.02f && body.Gate.NoRun && ledger.SprintTotal == sprintBefore && ledger.Stamina > 0 &&
+               Mathf.IsEqualApprox(state.WalkSpeedMps, 0.32f),
+            $"an empty bar takes the run away, never the walk: Shift held walks at {heldPace:0.000} m/s, reports no running and refills ({ledger.Stamina:0.000} m)");
 
-        // Walking refills at 0.10 m a second; at a quarter (0.10 m) the pace is whole again, a second after the running stopped.
-        var walked = 21;
-        for (; walked < 400 && ledger.Slowed; walked++) await Frames(1);
-        await Frames(25);
-        var restoredFrom = body.GlobalPosition;
-        await Frames(30);
-        var restored = PlanarDistance(body.GlobalPosition, restoredFrom) * 2;
-        Report(walked >= 54 && walked <= 70 && Mathf.Abs(restored - 0.32f) < 0.02f && !ledger.Slowed,
-            $"the pace is whole again when the bar is back to a quarter ({walked / 60f:0.00} s after the running stopped, then {restored:0.000} m/s)");
+        // The run comes back when the first bar is full again: 0.4 m at 0.10 m a second, about 4 s after the running stopped.
+        var walked = 45;
+        for (; walked < 600 && ledger.NoRun; walked++) await Frames(1);
+        Report(walked >= 225 && walked <= 255 && !ledger.NoRun && ledger.Stamina >= 0.4 - 1e-6,
+            $"the run comes back when the first bar is full again ({walked / 60f:0.00} s after the running stopped)");
+        var runAgain = await PaceFor(true);
+        Report(Mathf.Abs(runAgain - 0.96f) < 0.03f && !ledger.NoRun, $"then Shift runs at the whole pace again ({runAgain:0.000} m/s)");
 
-        // The knack and the gate multiply on land: Quick feet at full rank, and an empty bar.
+        // The lock takes the run, never the knack: Quick feet at full rank keeps its walk and its run's pace.
         body.SetControlInput(Vector2.Zero);
         body.Knacks = new BodyKnacks { WalkRunFactor = 1.2f };
         ledger.Stamina = 0;
-        ledger.Slowed = true;
+        ledger.NoRun = true;
         ledger.Refresh();
         await Frames(2);
-        Check(Mathf.IsEqualApprox(body.WalkSpeedNowMps, 0.32f * 1.2f * 0.5f) && Mathf.IsEqualApprox(body.RunSpeedNowMps, 0.96f * 1.2f * 0.5f),
-            $"Quick feet and an empty bar multiply: walk {body.WalkSpeedNowMps:0.000}, run {body.RunSpeedNowMps:0.000} m/s");
+        Check(Mathf.IsEqualApprox(body.WalkSpeedNowMps, 0.32f * 1.2f) && Mathf.IsEqualApprox(body.RunSpeedNowMps, 0.96f * 1.2f) && body.Gate.NoRun,
+            $"Quick feet with an empty bar: walk {body.WalkSpeedNowMps:0.000}, run {body.RunSpeedNowMps:0.000} m/s, the run held back by the gate");
         body.Knacks = BodyKnacks.None;
 
         body.VitalsTick = null;
@@ -341,7 +339,7 @@ public partial class SmallAvatarPhysicsTest
         Check(body.IsClimbing && body.GripFailures == 0, $"with the bar not empty the body grabs and climbs (at {held.Y - fixture.GlobalPosition.Y:0.000} m)");
 
         // The bar runs empty on the face: the very next tick the grip fails and the body falls from where it is.
-        ledger.GateValue = new StaminaGate(true, 0.5f);
+        ledger.GateValue = new StaminaGate(true, true);
         var failures = body.GripFailures;
         await Frames(3);
         Check(!body.IsClimbing && body.GripFailures == failures + 1 && body.ClimbReleases > 0,
@@ -431,7 +429,7 @@ public partial class SmallAvatarPhysicsTest
             $"diving reports its seconds as under water, not as deep water ({ledger.DiveTotal:0.000} s over half a second)");
 
         // The bar runs empty under water, the dive key still held: the diver is not held under, it drifts up and then is carried to shore.
-        ledger.GateValue = new StaminaGate(true, 0.5f);
+        ledger.GateValue = new StaminaGate(true, true);
         var depth = body.Water.SurfaceY - body.GlobalPosition.Y;
         var rose = false;
         var driftsFrom = body.ShoreDriftTicks;

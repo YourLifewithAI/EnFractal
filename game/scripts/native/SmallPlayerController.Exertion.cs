@@ -7,7 +7,7 @@ namespace EnFractal.Native;
 /// <summary>
 /// The body's side of the mechanics round (docs/runs/RUN-2-MECHANICS.md, packet M5): the knacks that move its own numbers, what it
 /// reports to the kernel's stamina ledger each tick (running, deep water, diving) and what it obeys from the ledger's gate (an empty
-/// bar: the grip fails, deep water carries it to shore, land is slower until the bar refills). Everything here is the controller's and
+/// bar: the grip fails, deep water carries it to shore, no running until the first bar refills). Everything here is the controller's and
 /// none of it touches the collision capsule, the size, the eye height or the reach.
 /// </summary>
 public partial class SmallPlayerController
@@ -26,10 +26,10 @@ public partial class SmallPlayerController
     private BodyKnacks _knacks = BodyKnacks.None;
 
     /// <summary>
-    /// The pace on land now: the base (WalkSpeedMps, RunSpeedMps) times Quick feet and the empty bar's slow. A floating body has
-    /// neither. Wading and swimming have their own factors on top (Walk, Swim).
+    /// The pace on land now: the base (WalkSpeedMps, RunSpeedMps) times Quick feet. A floating body has no knack. Wading and
+    /// swimming have their own factors on top (Walk, Swim). An empty bar takes the run away (the gate's NoRun), never the walk.
     /// </summary>
-    private float LandSpeedFactor => Floats ? 1f : _knacks.WalkRunFactor * _gate.SpeedFactor;
+    private float LandSpeedFactor => Floats ? 1f : _knacks.WalkRunFactor;
     public float WalkSpeedNowMps => WalkSpeedMps * LandSpeedFactor;
     public float RunSpeedNowMps => RunSpeedMps * LandSpeedFactor;
 
@@ -54,12 +54,10 @@ public partial class SmallPlayerController
 
     /// <summary>A moving body counts as running once it covers at least this share of a walk's distance in the tick (it is not pushing a wall).</summary>
     public const float RunningShareOfWalk = 0.5f;
-    /// <summary>Slowest and quickest a gate may ask for; anything else (a broken ledger) is no gate.</summary>
-    private const float MinGateSpeedFactor = 0.05f;
 
     private StaminaGate _gate = StaminaGate.Free;
 
-    /// <summary>The gate the ledger held after the last tick: the bar's emptiness and the slow on land. Free when no ledger is bound.</summary>
+    /// <summary>The gate the ledger held after the last tick: the bar's emptiness and whether the body may run. Free when no ledger is bound.</summary>
     public StaminaGate Gate => _gate;
     /// <summary>What the body reported to the ledger on the last tick.</summary>
     public BodyExertion LastExertion { get; private set; }
@@ -82,18 +80,8 @@ public partial class SmallPlayerController
         return exertion;
     }
 
-    /// <summary>The gate after the tick's report and VitalsTick (the ledger's, sanitized); free with no ledger.</summary>
-    private void TakeGate()
-    {
-        if (_staminaLedger == null)
-        {
-            _gate = StaminaGate.Free;
-            return;
-        }
-        var gate = _staminaLedger.Gate;
-        var speed = float.IsFinite(gate.SpeedFactor) && gate.SpeedFactor > 0 ? Mathf.Clamp(gate.SpeedFactor, MinGateSpeedFactor, 1f) : 1f;
-        _gate = new StaminaGate(gate.Empty, speed);
-    }
+    /// <summary>The gate after the tick's report and VitalsTick (the ledger's); free with no ledger.</summary>
+    private void TakeGate() => _gate = _staminaLedger?.Gate ?? StaminaGate.Free;
 
     // ---- Out of stamina in deep water: carried to shore ----
 

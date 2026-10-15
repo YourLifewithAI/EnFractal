@@ -1,50 +1,26 @@
 {
   "schema": "enfractal.stamina_ledger_fixture",
   "version": 1,
-  "description": "The stamina ledger's arithmetic, for the kernel (M1) and the body (M5) alike. Each step is one physics tick, long for reading: the body reports sprint_s, deep_water_s and dive_s (IStaminaLedger.Report), then the tick runs (VitalsTick with seconds and safely_grounded), then the body reads the gate (IStaminaLedger.Gate). The drain is each seconds times its rate, never below empty; the refill is refill_m_per_s for the seconds not spent running, on standable ground only; reaching empty slows the body (speed_factor) until the bar refills to empty_slow_until_fraction of its maximum. Compare within tolerance_m.",
+  "description": "The stamina ledger's arithmetic, for the kernel (M1) and the body (M5) alike. Each step is one physics tick, long for reading: the body reports sprint_s, deep_water_s and dive_s (IStaminaLedger.Report), then the tick runs (VitalsTick with seconds and safely_grounded), then the body reads the gate (IStaminaLedger.Gate). The drain is each seconds times its rate, never below empty; the refill is refill_m_per_s for the seconds not spent running, on standable ground only; reaching empty takes the run away (no_run) until the first bar, first_bar_m, refills to empty_no_run_until_fraction of itself. Compare within tolerance_m.",
   "stamina": {
     "start_m": 0.4,
     "band_m": 0.4,
     "bands": 10,
     "bands_per_bar": 5,
-    "running_m_per_s": 0.01,
+    "running_m_per_s": 0.02,
     "refill_m_per_s": 0.1,
-    "empty_speed_factor": 0.5,
-    "empty_slow_until_fraction": 0.25,
     "deep_water_m_per_s": 0.02,
-    "dive_m_per_s": 0.04
+    "dive_m_per_s": 0.04,
+    "empty_no_run_until_fraction": 1
   },
-  "fixture_rates": [
-    "deep_water_m_per_s",
-    "dive_m_per_s"
-  ],
   "tolerance_m": 1e-06,
   "cases": [
     {
-      "name": "a full starting bar lasts 40 s of running",
+      "name": "a full starting bar lasts 20 s of running",
       "max_stamina_m": 0.4,
+      "first_bar_m": 0.4,
       "stamina_m": 0.4,
-      "slowed": false,
-      "steps": [
-        {
-          "seconds": 40,
-          "safely_grounded": true,
-          "sprint_s": 40,
-          "deep_water_s": 0,
-          "dive_s": 0,
-          "expect": {
-            "stamina_m": 0.0,
-            "empty": true,
-            "speed_factor": 0.5
-          }
-        }
-      ]
-    },
-    {
-      "name": "half a bar of running, then walking refills it at 0.10 m a second",
-      "max_stamina_m": 0.4,
-      "stamina_m": 0.4,
-      "slowed": false,
+      "no_run": false,
       "steps": [
         {
           "seconds": 20,
@@ -53,9 +29,30 @@
           "deep_water_s": 0,
           "dive_s": 0,
           "expect": {
+            "stamina_m": 0.0,
+            "empty": true,
+            "no_run": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "half a bar of running, then walking refills it at 0.10 m a second",
+      "max_stamina_m": 0.4,
+      "first_bar_m": 0.4,
+      "stamina_m": 0.4,
+      "no_run": false,
+      "steps": [
+        {
+          "seconds": 10,
+          "safely_grounded": true,
+          "sprint_s": 10,
+          "deep_water_s": 0,
+          "dive_s": 0,
+          "expect": {
             "stamina_m": 0.2,
             "empty": false,
-            "speed_factor": 1.0
+            "no_run": false
           }
         },
         {
@@ -67,39 +64,40 @@
           "expect": {
             "stamina_m": 0.3,
             "empty": false,
-            "speed_factor": 1.0
+            "no_run": false
           }
         }
       ]
     },
     {
-      "name": "empty, the body is slowed until the bar refills to a quarter",
+      "name": "empty, the body cannot run until the bar is full again",
       "max_stamina_m": 0.4,
+      "first_bar_m": 0.4,
       "stamina_m": 0.0,
-      "slowed": true,
+      "no_run": true,
       "steps": [
         {
-          "seconds": 0.5,
+          "seconds": 2,
           "safely_grounded": true,
           "sprint_s": 0,
           "deep_water_s": 0,
           "dive_s": 0,
           "expect": {
-            "stamina_m": 0.05,
+            "stamina_m": 0.2,
             "empty": false,
-            "speed_factor": 0.5
+            "no_run": true
           }
         },
         {
-          "seconds": 0.6,
+          "seconds": 2.1,
           "safely_grounded": true,
           "sprint_s": 0,
           "deep_water_s": 0,
           "dive_s": 0,
           "expect": {
-            "stamina_m": 0.11,
+            "stamina_m": 0.4,
             "empty": false,
-            "speed_factor": 1.0
+            "no_run": false
           }
         }
       ]
@@ -107,8 +105,9 @@
     {
       "name": "deep water and diving drain at their rates, and nothing refills in the water",
       "max_stamina_m": 0.4,
+      "first_bar_m": 0.4,
       "stamina_m": 0.4,
-      "slowed": false,
+      "no_run": false,
       "steps": [
         {
           "seconds": 5,
@@ -119,7 +118,7 @@
           "expect": {
             "stamina_m": 0.3,
             "empty": false,
-            "speed_factor": 1.0
+            "no_run": false
           }
         },
         {
@@ -131,16 +130,17 @@
           "expect": {
             "stamina_m": 0.1,
             "empty": false,
-            "speed_factor": 1.0
+            "no_run": false
           }
         }
       ]
     },
     {
-      "name": "without water rates in the pack nothing drains there (today's behaviour)",
+      "name": "without water rates in the pack nothing drains there",
       "max_stamina_m": 0.4,
+      "first_bar_m": 0.4,
       "stamina_m": 0.4,
-      "slowed": false,
+      "no_run": false,
       "omit": [
         "deep_water_m_per_s",
         "dive_m_per_s"
@@ -155,7 +155,7 @@
           "expect": {
             "stamina_m": 0.4,
             "empty": false,
-            "speed_factor": 1.0
+            "no_run": false
           }
         },
         {
@@ -167,7 +167,7 @@
           "expect": {
             "stamina_m": 0.4,
             "empty": false,
-            "speed_factor": 1.0
+            "no_run": false
           }
         }
       ]
@@ -175,8 +175,9 @@
     {
       "name": "a drain never goes below empty",
       "max_stamina_m": 0.4,
+      "first_bar_m": 0.4,
       "stamina_m": 0.1,
-      "slowed": false,
+      "no_run": false,
       "steps": [
         {
           "seconds": 30,
@@ -187,7 +188,7 @@
           "expect": {
             "stamina_m": 0.0,
             "empty": true,
-            "speed_factor": 0.5
+            "no_run": true
           }
         }
       ]
@@ -195,19 +196,20 @@
     {
       "name": "running never refills, even on standable ground",
       "max_stamina_m": 0.4,
+      "first_bar_m": 0.4,
       "stamina_m": 0.2,
-      "slowed": false,
+      "no_run": false,
       "steps": [
         {
-          "seconds": 10,
+          "seconds": 5,
           "safely_grounded": true,
-          "sprint_s": 10,
+          "sprint_s": 5,
           "deep_water_s": 0,
           "dive_s": 0,
           "expect": {
             "stamina_m": 0.1,
             "empty": false,
-            "speed_factor": 1.0
+            "no_run": false
           }
         }
       ]
@@ -215,8 +217,9 @@
     {
       "name": "a tick that only partly runs refills the rest",
       "max_stamina_m": 0.4,
+      "first_bar_m": 0.4,
       "stamina_m": 0.2,
-      "slowed": false,
+      "no_run": false,
       "steps": [
         {
           "seconds": 2,
@@ -225,9 +228,9 @@
           "deep_water_s": 0,
           "dive_s": 0,
           "expect": {
-            "stamina_m": 0.29,
+            "stamina_m": 0.28,
             "empty": false,
-            "speed_factor": 1.0
+            "no_run": false
           }
         }
       ]
@@ -235,8 +238,9 @@
     {
       "name": "two bars: the top band runs down like the first",
       "max_stamina_m": 4.0,
+      "first_bar_m": 2.0,
       "stamina_m": 4.0,
-      "slowed": false,
+      "no_run": false,
       "steps": [
         {
           "seconds": 100,
@@ -245,29 +249,30 @@
           "deep_water_s": 0,
           "dive_s": 0,
           "expect": {
-            "stamina_m": 3.0,
+            "stamina_m": 2.0,
             "empty": false,
-            "speed_factor": 1.0
+            "no_run": false
           }
         }
       ]
     },
     {
-      "name": "the quarter is of the whole bar, both rows",
+      "name": "the run comes back with the first bar, not the whole bar",
       "max_stamina_m": 2.4,
+      "first_bar_m": 2.0,
       "stamina_m": 0.0,
-      "slowed": true,
+      "no_run": true,
       "steps": [
         {
-          "seconds": 5,
+          "seconds": 19,
           "safely_grounded": true,
           "sprint_s": 0,
           "deep_water_s": 0,
           "dive_s": 0,
           "expect": {
-            "stamina_m": 0.5,
+            "stamina_m": 1.9,
             "empty": false,
-            "speed_factor": 0.5
+            "no_run": true
           }
         },
         {
@@ -277,9 +282,9 @@
           "deep_water_s": 0,
           "dive_s": 0,
           "expect": {
-            "stamina_m": 0.7,
+            "stamina_m": 2.1,
             "empty": false,
-            "speed_factor": 1.0
+            "no_run": false
           }
         }
       ]

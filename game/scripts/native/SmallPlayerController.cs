@@ -1002,6 +1002,8 @@ public partial class SmallPlayerController : CharacterBody3D
             _jumpBuffer = 0;
         }
         else HeldInput = Vector2.Zero;
+        // An empty bar takes the run away until the first bar is full again (the stamina ledger's gate); the walk keeps its pace.
+        if (_gate.NoRun && !Floats) sprint = false;
         var onFloor = IsOnFloor();
         var wasSwimming = _swimming;
         _coyote = onFloor ? CoyoteTimeS : Mathf.Max(0, _coyote - dt);

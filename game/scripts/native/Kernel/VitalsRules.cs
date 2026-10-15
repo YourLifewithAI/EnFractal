@@ -238,12 +238,22 @@ public sealed class VitalsRules
 
     private static double Clean(float seconds) => float.IsFinite(seconds) && seconds > 0 ? seconds : 0;
 
-    /// <summary>The bar's level below which, once it ran empty, the body is slowed (both rows of the bar).</summary>
-    public float SlowUntil(PlayerVitals v) => Stamina == null ? 0 : (float)(v.MaxStamina * Stamina.EmptySlowUntilFraction);
+    /// <summary>
+    /// The first bar, the top row the meters draw: the bands up to bands_per_bar, with Big bar; the whole bar while it has no
+    /// second row.
+    /// </summary>
+    public float FirstBarOf(PlayerVitals v) => Stamina == null ? v.MaxStamina
+        : Math.Min(v.MaxStamina, (float)((Stamina.StartM + Stamina.BandM * (Math.Min(OpenBands(v), Stamina.BandsPerBar) - 1)) * StaminaPerBarFactor));
 
-    /// <summary>The gate the body obeys: empty at zero in bands with consequences; slowed by the pack's factor until the bar refills.</summary>
+    /// <summary>
+    /// The bar's level below which, once it ran empty, the body cannot run: the pack's fraction of the first bar (the founder,
+    /// 15 October: no running until the first bar is completely refilled).
+    /// </summary>
+    public float SlowUntil(PlayerVitals v) => Stamina == null ? 0 : (float)(FirstBarOf(v) * Stamina.EmptyNoRunUntilFraction);
+
+    /// <summary>The gate the body obeys: empty at zero in bands with consequences; no running from empty until the first bar refills.</summary>
     public StaminaGate Gate(PlayerVitals v, bool slowed) =>
-        Stamina == null || !Consequences ? StaminaGate.Free : new StaminaGate(v.Stamina <= 0.000001f, slowed ? (float)Stamina.EmptySpeedFactor : 1f);
+        Stamina == null || !Consequences ? StaminaGate.Free : new StaminaGate(v.Stamina <= 0.000001f, slowed);
 
     // ---- the pool ----
 

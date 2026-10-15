@@ -48,13 +48,13 @@ public partial class CommandHostTest
         var v5 = IslandRules.Load("storybook_wild", 5);
         var traits = v5.Traits!;
         Check(traits.Hearts == new HeartsRules(5, 5, 30, 2.5, 10) && traits.Harm == new HarmRules(1, null) &&
-              traits.Stamina == new StaminaRules(0.4, 0.4, 10, 5, 0.01, 0.1, null, null, 0.5, 0.25) &&
+              traits.Stamina == new StaminaRules(0.4, 0.4, 10, 5, 0.02, 0.1, 0.02, 0.04, 1) &&
               traits.Pips == new PipsRules(8, 5, 40, 5, 2, 15, 0.5) && traits.Wallet == new WalletRules(0, 0, 0, 0),
-            "v5's traits: 5 hearts of 5 health a quarter to 30, healing a quarter every 2.5 s after 10 s, fire a quarter a second and no fall cap, the bar 0.4 m in ten bands of 0.4 m, running 0.01 m/s, the refill 0.1 m/s, no water drains, 8 pips to 40, an empty wallet (decision 26)");
+            "v5's traits: 5 hearts of 5 health a quarter to 30, healing a quarter every 2.5 s after 10 s, fire a quarter a second and no fall cap, the bar 0.4 m in ten bands of 0.4 m, running and deep water 0.02 m/s, diving 0.04 m/s, the refill 0.1 m/s, no running from empty until the first bar is full, 8 pips to 40, an empty wallet (decision 26)");
         var prices = v5.Cost!.Prices;
-        Check(prices.Count == 7 && prices["glow"] is { Ordered: 2, OwnIdea: 1 } && prices["bloom"] is { Ordered: 4, OwnIdea: 2 } && prices["fire"] is { Ordered: 6, OwnIdea: 3 } &&
-              prices["bubble_carry"] is { Ordered: 4, OwnIdea: 2 } && prices["bubble_lift"] is { Ordered: 6, OwnIdea: 3 } && !prices.ContainsKey("bubble_boat") && v5.Cost.TorchFire == 0,
-            "v5's prices: Glow, Bubbles and Fireworks 2 and 1, Bloom 4 and 2, Fire 6 and 3, the carry 4 and 2, the lift 6 and 3, the boat unpriced, a torch's fire free");
+        Check(prices.Count == 8 && prices["glow"] is { Ordered: 2, OwnIdea: 1 } && prices["bloom"] is { Ordered: 4, OwnIdea: 2 } && prices["fire"] is { Ordered: 6, OwnIdea: 3 } &&
+              prices["bubble_carry"] is { Ordered: 4, OwnIdea: 2 } && prices["bubble_boat"] is { Ordered: 4, OwnIdea: 2 } && prices["bubble_lift"] is { Ordered: 6, OwnIdea: 3 } && v5.Cost.TorchFire == 0,
+            "v5's prices: Glow, Bubbles and Fireworks 2 and 1, Bloom 4 and 2, Fire 6 and 3, the carry and the boat 4 and 2, the lift 6 and 3, a torch's fire free");
         var modes = v5.Modes!;
         Check(modes.Rows.Count == 6 && modes.Row("creative", null) is { ShadowPool: true, DamageMultiplier: 0, Undo: true } &&
               modes.Row("challenge", "gentle") is { DamageMultiplier: 0.5, RefillMultiplier: 1.5 } && modes.Row("challenge", "brave") is { DamageMultiplier: 1.5, RefillMultiplier: 0.75 } &&
@@ -75,7 +75,7 @@ public partial class CommandHostTest
         {
             ("an unknown field in a block", V5("\"heal_after_unharmed_s\": 10 }", "\"heal_after_unharmed_s\": 10, \"regen\": 3 }")),
             ("an unknown block", V5("\"extensions\": {}", "\"extensions\": {}, \"economy\": {}")),
-            ("a missing required part", V5("\"running_m_per_s\": 0.01, ", "")),
+            ("a missing required part", V5("\"running_m_per_s\": 0.02, ", "")),
             ("a fractional heart count", V5("\"start_hearts\": 5", "\"start_hearts\": 5.5")),
             ("a quarter past 6 health", V5("\"health_per_quarter\": 5", "\"health_per_quarter\": 7")),
             ("30 hearts of 6 with Big heart past 720", V5("\"health_per_quarter\": 5", "\"health_per_quarter\": 6")),
@@ -89,8 +89,8 @@ public partial class CommandHostTest
         };
         foreach (var (label, pack) in cases) Check(Refused(pack), "the kernel refuses a pack with " + label);
         Check(!Refused(V5("\"fire_quarters_per_s\": 1 }", "\"fire_quarters_per_s\": 1, \"fall_cap_quarters\": 16 }")) &&
-              !Refused(V5("\"empty_speed_factor\": 0.5", "\"deep_water_m_per_s\": 0.02, \"dive_m_per_s\": 0.04, \"empty_speed_factor\": 0.5")),
-            "and loads the optional numbers the founder may set: a fall cap, the deep-water and dive drains");
+              !Refused(V5("\"deep_water_m_per_s\": 0.02, \"dive_m_per_s\": 0.04,", "")),
+            "and loads the optional numbers: a fall cap, and a pack without the deep-water and dive drains");
     }
 
     private void TestVitalsArithmetic()
@@ -162,8 +162,9 @@ public partial class CommandHostTest
         // Prices by principal: the ordered price for the player, half for the Gubble's own idea, ordered again while a wish runs.
         Check(standard.Price("glow", false, false) == 2 && standard.Price("glow", true, false) == 1 && standard.Price("glow", true, true) == 2 &&
               standard.Price("bloom", false, false) == 4 && standard.Price("bloom", true, false) == 2 && standard.Price("fire", true, false) == 3 &&
-              standard.Price("bubble_boat", false, false) == 0 && standard.Price("teleport", true, false) == 0 && VitalsRules.For(IslandRules.Load("storybook_wild", 4), "challenge").Price("fire", false, false) == 0,
-            "the price follows the principal alone: Glow 2 or 1, Bloom 4 or 2, Fire 6 or 3; a wish running makes the Gubble's ordered; unpriced and v4 abilities cost nothing");
+              standard.Price("bubble_boat", false, false) == 4 && standard.Price("bubble_boat", true, false) == 2 &&
+              standard.Price("teleport", true, false) == 0 && VitalsRules.For(IslandRules.Load("storybook_wild", 4), "challenge").Price("fire", false, false) == 0,
+            "the price follows the principal alone: Glow 2 or 1, Bloom 4 or 2, Fire 6 or 3, the boat 4 or 2; a wish running makes the Gubble's ordered; unpriced and v4 abilities cost nothing");
         Check(standard.RefillEveryS(1) == 5 && standard.RefillEveryS(2) == 5 && standard.RefillEveryS(2.5f) == 15 && Math.Abs(gentle.RefillEveryS(1) - 5 / 1.5) < 1e-9 &&
               Math.Abs(brave.RefillEveryS(3) - 20) < 1e-9 && VitalsRules.For(v5, "creative").RefillEveryS(1) == 5,
             "a pip every 5 s within 2 m, every 15 s apart; Gentle 1.5 times as fast, Brave 0.75; Creative's shadow pool at the Standard pace");
@@ -200,7 +201,8 @@ public partial class CommandHostTest
             var band = (int)Math.Round((max - stamina.GetProperty("start_m").GetDouble()) / stamina.GetProperty("band_m").GetDouble());
             var body = PlayerVitals.Of(100, 100, (float)item.GetProperty("stamina_m").GetDouble(), max, Array.Empty<string>(), 0, new PlayerFractals(band * 5, 0, 0, band), 8);
             _host.ConfigurePlayerVitals(new ModeTestStore(PlayerModesProfile.Fresh.Select("challenge").WithCurrent(body)));
-            var ok = _host.StaminaSlowed == item.GetProperty("slowed").GetBoolean() && Math.Abs(_host.Vitals.MaxStamina - max) < 1e-5;
+            var ok = _host.StaminaSlowed == item.GetProperty("no_run").GetBoolean() && Math.Abs(_host.Vitals.MaxStamina - max) < 1e-5 &&
+                Math.Abs(_host.BodyRules.FirstBarOf(_host.Vitals) - item.GetProperty("first_bar_m").GetDouble()) < 1e-5;
             var where = "";
             foreach (var step in item.GetProperty("steps").EnumerateArray())
             {
@@ -209,8 +211,8 @@ public partial class CommandHostTest
                 var expect = step.GetProperty("expect");
                 var gate = ledger.Gate;
                 var fine = Math.Abs(_host.Vitals.Stamina - expect.GetProperty("stamina_m").GetDouble()) <= tolerance + 1e-6 &&
-                    gate.Empty == expect.GetProperty("empty").GetBoolean() && Math.Abs(gate.SpeedFactor - expect.GetProperty("speed_factor").GetDouble()) < 1e-6;
-                if (!fine && where.Length == 0) where = $" (stamina {_host.Vitals.Stamina:0.0000}, empty {gate.Empty}, speed {gate.SpeedFactor})";
+                    gate.Empty == expect.GetProperty("empty").GetBoolean() && gate.NoRun == expect.GetProperty("no_run").GetBoolean();
+                if (!fine && where.Length == 0) where = $" (stamina {_host.Vitals.Stamina:0.0000}, empty {gate.Empty}, no run {gate.NoRun})";
                 ok &= fine;
             }
             Check(ok, "the ledger's fixture: " + item.GetProperty("name").GetString() + where);

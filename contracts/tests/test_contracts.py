@@ -154,6 +154,10 @@ EXPECTED_FAILURES = {
     "command_knack_in_a_fourth_slot": "4 is greater than the maximum of 3",
     "command_receipt_marked_maybe": "'maybe' is not one of ['yes', 'not_that']",
     "command_trust_reset_to_a_number": "('count' was unexpected)",
+    # The second contract round (15 October): the Fractal spend at a camp.
+    "command_fractals_spent_on_a_knack": "'knack' is not one of ['heart', 'band']",
+    "command_fractals_spent_by_the_count": "('count' was unexpected)",
+    "result_spend_with_data": "False schema does not allow {'hearts': 6}",
     "command_difficulty_in_creative": "$.args.mode: 'challenge' was expected",
     "command_carry_on_the_player_without_its_preview": "is not valid under any of the given schemas (closest: $: 'preview' is a required property)",
     "command_bloom_on_the_player": "$.args.capability: 'bloom' is not one of ['bubble_carry', 'bubble_lift']",
@@ -293,7 +297,9 @@ PRE_RUN2_STATE_SHA256 = "9883c8a6da85cc801b6d3b916a168cd1929b30f043d691ffe30e887
 SANDBOX_VERBS = ("entity.grab", "entity.release", "entity.place", "entity.push")
 PLAYER_ONLY_OPS = {"protect.unlock", "world.set_physics", "world.set_mode", "glow.configure", "wish.submit", "wish.stop", "wishes.read",
                    # The mechanics round: a Fractal's pickup and a held log or stone gathered (M0, M1), a knack, a receipt's mark and a Trust reset.
-                   "item.pickup", "item.gather", "knack.set", "receipt.mark", "trust.reset"}
+                   "item.pickup", "item.gather", "knack.set", "receipt.mark", "trust.reset",
+                   # The second contract round (15 October): five Fractals spent at a camp.
+                   "fractal.spend"}
 FACT_FIELDS = ("line", "subject", "actor", "directed_by", "pin_m", "state", "quantity", "job_id")
 NOTE_FIELDS = ("author", "text", "untrusted")
 
@@ -1693,7 +1699,7 @@ class IslandRulesTests(unittest.TestCase):
 
 # ---------- the mechanics round (M0, 14 October 2026; docs/runs/RUN-2-MECHANICS.md section 3) ----------
 
-MECHANICS_TRANSIENT = {"knack.set", "receipt.mark", "trust.reset"}
+MECHANICS_TRANSIENT = {"knack.set", "receipt.mark", "trust.reset", "fractal.spend"}
 MECHANICS_DURABLE = {"item.pickup", "item.gather"}
 MECHANICS_BLOCKS = ("traits", "cost", "modes", "names", "knacks", "fractals")
 STORYBOOK_WILD_V5 = RULES / "storybook_wild" / "v5.json"
@@ -1740,22 +1746,22 @@ TEAM_FAILURES = {
 
 def ledger_steps(stamina: dict, case: dict, tolerance: float):
     """The stamina ledger as contracts/README.md says it (the reference the fixture is checked against): each step drains the
-    reported seconds at their rates, never below empty; reaching empty slows the body; the tick refills the seconds not spent
-    running, on standable ground; the body is slowed until the bar is back to the pack's fraction of its maximum."""
+    reported seconds at their rates, never below empty; reaching empty takes the run away; the tick refills the seconds not
+    spent running, on standable ground; the run comes back when the first bar is back to the pack's fraction of itself."""
     rates = {k: v for k, v in stamina.items() if k not in case.get("omit", [])}
-    bar, slowed, top = case["stamina_m"], case["slowed"], case["max_stamina_m"]
+    bar, no_run, top, first = case["stamina_m"], case["no_run"], case["max_stamina_m"], case["first_bar_m"]
     for step in case["steps"]:
         drain = (step["sprint_s"] * rates["running_m_per_s"] + step["deep_water_s"] * rates.get("deep_water_m_per_s", 0)
                  + step["dive_s"] * rates.get("dive_m_per_s", 0))
         if drain > 0:
             bar = max(0.0, bar - drain)
             if bar <= tolerance:
-                bar, slowed = 0.0, True
+                bar, no_run = 0.0, True
         if step["safely_grounded"]:
             bar = min(top, bar + rates["refill_m_per_s"] * (step["seconds"] - step["sprint_s"]))
-        if slowed and bar >= rates["empty_slow_until_fraction"] * top - tolerance:
-            slowed = False
-        yield bar, bar <= tolerance, rates["empty_speed_factor"] if slowed else 1.0
+        if no_run and bar >= rates["empty_no_run_until_fraction"] * min(first, top) - tolerance:
+            no_run = False
+        yield bar, bar <= tolerance, no_run
 
 
 class MechanicsRoundTests(unittest.TestCase):
@@ -1784,13 +1790,14 @@ class MechanicsRoundTests(unittest.TestCase):
         self.assertEqual(traits["harm"], {"fire_quarters_per_s": 1})
         stamina = traits["stamina"]
         self.assertEqual((stamina["start_m"], stamina["band_m"], stamina["bands"], stamina["bands_per_bar"]), (0.4, 0.4, 10, 5))
-        self.assertAlmostEqual(stamina["start_m"] / stamina["running_m_per_s"], 40, msg="a full starting bar lasts about 40 s of running")
-        self.assertEqual((stamina["refill_m_per_s"], stamina["empty_speed_factor"], stamina["empty_slow_until_fraction"]), (0.1, 0.5, 0.25))
+        self.assertAlmostEqual(stamina["start_m"] / stamina["running_m_per_s"], 20, msg="a full starting bar lasts 20 s of running")
+        self.assertEqual((stamina["refill_m_per_s"], stamina["deep_water_m_per_s"], stamina["dive_m_per_s"], stamina["empty_no_run_until_fraction"]),
+                         (0.1, 0.02, 0.04, 1), "the founder's drains and the run lock of 15 October")
         self.assertEqual(traits["pips"], {"start": 8, "expertise_per_pip": 5, "ceiling": 40, "refill_near_every_s": 5,
                                           "refill_near_within_m": 2, "refill_far_every_s": 15, "camp_fraction": 0.5})
         prices = {name: (p["ordered"], round(p["ordered"] * p["own_idea_factor"])) for name, p in self.v5["cost"]["prices"].items()}
         self.assertEqual(prices, {"glow": (2, 1), "bubbles": (2, 1), "fireworks": (2, 1), "bloom": (4, 2), "fire": (6, 3),
-                                  "bubble_carry": (4, 2), "bubble_lift": (6, 3)})
+                                  "bubble_carry": (4, 2), "bubble_boat": (4, 2), "bubble_lift": (6, 3)})
         self.assertEqual(self.v5["cost"]["torch_fire"], 0, "decision O")
         rows = {(r["mode"], r.get("difficulty") or r.get("variant")): (r["damage_multiplier"], r["refill_multiplier"], r["available"])
                 for r in self.v5["modes"]["rows"]}
@@ -1807,13 +1814,10 @@ class MechanicsRoundTests(unittest.TestCase):
         self.assertEqual(self.v5["fractals"], {"budget_min": 20, "budget_max": 25, "reachable_first_run": 15, "per_heart": 5,
                                                "per_band": 5, "typed": False})
 
-    def test_numbers_the_design_does_not_give_are_left_out_not_invented(self):
-        """Absent means today's behaviour: no deep-water or dive drain, no fall cap, no price for the boat (it costs nothing)."""
-        self.assertNotIn("deep_water_m_per_s", self.v5["traits"]["stamina"])
-        self.assertNotIn("dive_m_per_s", self.v5["traits"]["stamina"])
+    def test_no_fall_cap_anywhere(self):
+        """The founder, 15 October: no fall cap per difficulty; a fall costs what its height costs (then the difficulty's multiplier)."""
         self.assertNotIn("fall_cap_quarters", self.v5["traits"]["harm"])
         self.assertFalse([r for r in self.v5["modes"]["rows"] if "fall_cap_quarters" in r])
-        self.assertNotIn("bubble_boat", self.v5["cost"]["prices"])
 
     def test_every_block_is_optional_and_a_pack_without_them_is_todays(self):
         schema = validate.load_strict(CONTRACTS / "island-rules.schema.json")
@@ -1876,8 +1880,8 @@ class MechanicsRoundTests(unittest.TestCase):
             self.assertLessEqual(new, set(re.findall(r'"([a-z_.]+)"', re.search(r"CommandOps = new\(\)\s*\{([^}]*)\};", host).group(1))))
             unsupported = host[host.index("private string? Unsupported("):]
             # The player's pickup and gather are hosted since M1 and knack.set since M3 (Saves/CommandHostTeams.cs); receipt.mark
-            # and trust.reset answer as not available yet until M8.
-            self.assertIn('"receipt.mark" or "trust.reset" => MechanicsNotYet', unsupported)
+            # and trust.reset answer as not available yet until M8, and fractal.spend until the kernel hosts it.
+            self.assertIn('"receipt.mark" or "trust.reset" or "fractal.spend" => MechanicsNotYet', unsupported)
             self.assertNotIn('"knack.set" or', unsupported)
             self.assertIn('"knack.set" => SetKnack(', host)
             self.assertNotIn('"item.pickup" or', unsupported)
@@ -1963,6 +1967,7 @@ class MechanicsRoundTests(unittest.TestCase):
         self.assertEqual(validate.check_room(island), [])
         self.assertTrue(manifest["extensions"]["x_island_tutorial"])
         self.assertEqual(len(manifest["extensions"]["x_fractals"]["items"]), 3)
+        self.assertEqual(manifest["extensions"]["x_summit"]["top_band"], 3)
 
         def problems(mutate):
             document = copy.deepcopy(manifest)
@@ -1978,6 +1983,10 @@ class MechanicsRoundTests(unittest.TestCase):
             "no kind when typed": (lambda x: x["x_fractals"].update(typed=True), "'kind' is a required property"),
             "a counter for an id": (lambda x: fractals(x)[0].update(id="fractal:0001-x"), "does not match '^fractal:"),
             "a tutorial in words": (lambda x: x.update(x_island_tutorial="yes"), "'yes' is not of type 'boolean'"),
+            "a summit outside the island": (lambda x: x["x_summit"].update(center_m=[40.0, 0.0, -9.0]), "x_summit is outside the room bounds"),
+            "a summit with no width": (lambda x: x["x_summit"].update(radius_m=0), "0 is less than or equal to the minimum of 0"),
+            "a summit without its centre": (lambda x: x["x_summit"].pop("center_m"), "'center_m' is a required property"),
+            "a summit past the top band": (lambda x: x["x_summit"].update(top_band=21), "21 is greater than the maximum of 20"),
         }
         for name, (mutate, reason) in cases.items():
             with self.subTest(case=name):
@@ -1990,7 +1999,8 @@ class MechanicsRoundTests(unittest.TestCase):
         self.assertEqual(validate.check_state(state, "state", GARAGE), [])
         clock, team = state["extensions"]["x_clock"], state["extensions"]["x_team"]
         for name, change in (("a day that drifts", {"day_scale": 5}), ("a place for a zone", {"zone_id": "../home/garage"}),
-                             ("a compass for a hemisphere", {"hemisphere": "east"}), ("a phase past half a day", {"phase_h": 13})):
+                             ("a compass for a hemisphere", {"hemisphere": "east"}), ("a phase past half a day", {"phase_h": 13}),
+                             ("eight seasons (four only, for now)", {"seasons_per_year": 8})):
             with self.subTest(clock=name):
                 self.assertTrue(validate.schema_errors({**state, "extensions": {**state["extensions"], "x_clock": {**clock, **change}}}))
         for name, value in (("challenge without its difficulty", {"team_id": team["team_id"], "mode": "challenge"}),
@@ -2021,18 +2031,17 @@ class MechanicsRoundTests(unittest.TestCase):
     def test_the_ledger_fixture_is_its_own_arithmetic(self):
         fixture = validate.load_strict(LEDGER)
         stamina = fixture["stamina"]
-        self.assertEqual({k: v for k, v in stamina.items() if k not in fixture["fixture_rates"]}, self.v5["traits"]["stamina"],
-                         "the fixture's rates are the pack's, but for the water rates the design has not set")
+        self.assertEqual(stamina, self.v5["traits"]["stamina"], "the fixture's rates are v5's")
         pack = copy.deepcopy(self.v5)
         pack["traits"]["stamina"] = stamina
         self.assertEqual(validate.schema_errors(pack), [], "the fixture's block is a pack's traits.stamina")
         tolerance = fixture["tolerance_m"]
         for case in fixture["cases"]:
             with self.subTest(case=case["name"]):
-                for step, (bar, empty, speed) in zip(case["steps"], ledger_steps(stamina, case, tolerance)):
+                for step, (bar, empty, no_run) in zip(case["steps"], ledger_steps(stamina, case, tolerance)):
                     expect = step["expect"]
                     self.assertAlmostEqual(bar, expect["stamina_m"], delta=tolerance)
-                    self.assertEqual((empty, speed), (expect["empty"], expect["speed_factor"]))
+                    self.assertEqual((empty, no_run), (expect["empty"], expect["no_run"]))
                     self.assertLessEqual(max(step["sprint_s"], step["deep_water_s"], step["dive_s"]), step["seconds"])
                     self.assertLessEqual(sum(1 for k in ("sprint_s", "deep_water_s", "dive_s") if step[k] > 0), 1)
 
@@ -2040,7 +2049,7 @@ class MechanicsRoundTests(unittest.TestCase):
     def test_the_seam_is_the_fixtures_and_the_body_holds_it(self):
         seam = SEAM.read_text(encoding="utf-8")
         self.assertIn("public readonly record struct BodyExertion(float SprintS, float DeepWaterS, float DiveS)", seam)
-        self.assertIn("public readonly record struct StaminaGate(bool Empty, float SpeedFactor)", seam)
+        self.assertIn("public readonly record struct StaminaGate(bool Empty, bool NoRun)", seam)
         interface = seam[seam.index("public interface IStaminaLedger"):]
         self.assertIn("void Report(BodyExertion exertion);", interface)
         self.assertIn("StaminaGate Gate { get; }", interface)
@@ -2048,7 +2057,7 @@ class MechanicsRoundTests(unittest.TestCase):
         # The fixture names what the interface carries.
         step = validate.load_strict(LEDGER)["cases"][0]["steps"][0]
         self.assertEqual(set(step), {"seconds", "safely_grounded", "sprint_s", "deep_water_s", "dive_s", "expect"})
-        self.assertEqual(set(step["expect"]), {"stamina_m", "empty", "speed_factor"})
+        self.assertEqual(set(step["expect"]), {"stamina_m", "empty", "no_run"})
 
     def test_run_room_passes_the_team_the_mode_and_the_difficulty(self):
         script = (ROOT / "run-room.ps1").read_text(encoding="utf-8")

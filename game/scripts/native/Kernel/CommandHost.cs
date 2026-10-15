@@ -123,8 +123,8 @@ public partial class CommandHost : Node
         "nature.cast", "nature.trail", "nature.repair", "wish.submit", "wish.stop",
         // The mechanics round (M0): player-only. The player's item.pickup of a Fractal and item.gather of a held log or stone
         // are hosted (M1), knack.set too (M3, Saves/CommandHostTeams.cs); receipt.mark and trust.reset answer as not available
-        // yet until M8 (Unsupported).
-        "item.pickup", "item.gather", "knack.set", "receipt.mark", "trust.reset",
+        // yet until M8 (Unsupported), and fractal.spend (the second contract round) until the kernel hosts it.
+        "item.pickup", "item.gather", "knack.set", "fractal.spend", "receipt.mark", "trust.reset",
     };
     private static readonly HashSet<string> QueryOps = new()
     {
@@ -139,11 +139,11 @@ public partial class CommandHost : Node
     /// in the player's profile files, never in the room. Never entity.release: putting a thing down is saved state
     /// (kernel-host-gaps P8), and never a nature change, which is room state. Transient() refuses any other op.
     /// </summary>
-    private static readonly HashSet<string> TransientOps = new() { "goal.set", "goal.stop", "effect.start", "effect.stop", "effect.adjust", "glow.configure", "entity.grab", "creation.activate", "world.set_physics", "world.set_mode", "wish.stop", "knack.set" };
+    private static readonly HashSet<string> TransientOps = new() { "goal.set", "goal.stop", "effect.start", "effect.stop", "effect.adjust", "glow.configure", "entity.grab", "creation.activate", "world.set_physics", "world.set_mode", "wish.stop", "knack.set", "fractal.spend" };
     /// <summary>contracts $defs/player_only_ops: refused from a companion with permission_denied, never held.</summary>
-    private static readonly HashSet<string> PlayerOnlyOps = new() { "protect.unlock", "world.set_physics", "world.set_mode", "glow.configure", "wish.submit", "wish.stop", "item.pickup", "item.gather", "knack.set", "receipt.mark", "trust.reset" };
+    private static readonly HashSet<string> PlayerOnlyOps = new() { "protect.unlock", "world.set_physics", "world.set_mode", "glow.configure", "wish.submit", "wish.stop", "item.pickup", "item.gather", "knack.set", "fractal.spend", "receipt.mark", "trust.reset" };
     /// <summary>The mechanics round's player-only ops (contracts/README.md "Player-only operations"): the player's own, with no tool.</summary>
-    private static readonly HashSet<string> MechanicsPlayerOps = new() { "item.pickup", "item.gather", "knack.set", "receipt.mark", "trust.reset" };
+    private static readonly HashSet<string> MechanicsPlayerOps = new() { "item.pickup", "item.gather", "knack.set", "fractal.spend", "receipt.mark", "trust.reset" };
     /// <summary>The Gubble may find a Fractal and go to it, never gather it: the same refusal whether or not the Fractal exists.</summary>
     public const string FractalRefusal = "Only the player can pick up a Fractal.";
     /// <summary>The mechanics round's stubs' words (unsupported_capability at $.op), the mock host's too.</summary>
@@ -2416,6 +2416,7 @@ public partial class CommandHost : Node
             "world.set_mode" => new[] { "mode", "difficulty" },
             "item.pickup" or "item.gather" => new[] { "target" },
             "knack.set" => new[] { "slot", "knack" },
+            "fractal.spend" => new[] { "grow" },
             "receipt.mark" => new[] { "action_id", "mark" },
             "trust.reset" => Array.Empty<string>(),
             "wish.submit" => new[] { "text", "aim_id" },
@@ -2444,6 +2445,7 @@ public partial class CommandHost : Node
             "world.set_mode" => new[] { "mode" },
             "item.pickup" or "item.gather" => new[] { "target" },
             "knack.set" => new[] { "slot", "knack" },
+            "fractal.spend" => new[] { "grow" },
             "receipt.mark" => new[] { "action_id", "mark" },
             "wish.submit" => new[] { "text" },
             "journal.note" => new[] { "text" },
@@ -2464,6 +2466,8 @@ public partial class CommandHost : Node
             throw new Refusal("request_invalid", "slot is 1, 2 or 3.", "$.args.slot");
         if (op == "knack.set" && (Str(args, "knack") is not { } knack || !Token.IsMatch(knack)))
             throw new Refusal("request_invalid", "knack names a knack.", "$.args.knack");
+        if (op == "fractal.spend" && Str(args, "grow") is not ("heart" or "band"))
+            throw new Refusal("request_invalid", "grow is heart or band.", "$.args.grow");
         if (op == "receipt.mark" && (Str(args, "action_id") is not { } marked || !ActionId.IsMatch(marked)))
             throw new Refusal("request_invalid", "action_id names a receipt of the Gubble's.", "$.args.action_id");
         if (op == "receipt.mark" && Str(args, "mark") is not ("yes" or "not_that"))
@@ -2684,7 +2688,7 @@ public partial class CommandHost : Node
         // The mechanics round's stubs (M0), each until its packet lands: the contract is fixed, nothing is built. The player's
         // pickup of a Fractal (CommandHostFractals) and gathering (CommandHostGather) are hosted since M1, knack.set since M3. A
         // difficulty in a request waits for the menu (M7): the boot sets it from the island save (BootMode, UseDifficulty).
-        "receipt.mark" or "trust.reset" => MechanicsNotYet,
+        "receipt.mark" or "trust.reset" or "fractal.spend" => MechanicsNotYet,
         "world.set_mode" when args.TryGetProperty("difficulty", out _) => DifficultyNotYet,
         "nature.cast" when Str(args, "capability") is "bubble_carry" or "bubble_boat" or "bubble_lift" => BubblesNotYet,
         "entity.set_part" => "Moving parts of objects (a lid, a door) is not available yet.",

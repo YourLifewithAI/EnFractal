@@ -98,6 +98,7 @@
         "item.pickup",
         "item.gather",
         "knack.set",
+        "fractal.spend",
         "receipt.mark",
         "trust.reset"
       ]
@@ -575,6 +576,18 @@
             "properties": {
               "args": {
                 "$ref": "#/$defs/args/knack.set"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "$ref": "#/$defs/is_op/fractal.spend"
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/$defs/args/fractal.spend"
               }
             }
           }
@@ -1865,6 +1878,7 @@
                   "item.pickup",
                   "item.gather",
                   "knack.set",
+                  "fractal.spend",
                   "receipt.mark",
                   "trust.reset"
                 ]
@@ -2711,6 +2725,16 @@
         "properties": {
           "op": {
             "const": "knack.set"
+          }
+        },
+        "required": [
+          "op"
+        ]
+      },
+      "fractal.spend": {
+        "properties": {
+          "op": {
+            "const": "fractal.spend"
           }
         },
         "required": [
@@ -3751,6 +3775,22 @@
           }
         }
       },
+      "fractal.spend": {
+        "description": "Spend Fractals at a camp to grow the body (docs/game/MECHANICS.md section 6; the founder, 15 October: the player's to do at will): grow heart spends the rules pack's fractals.per_heart (5) unspent Fractals for one more heart, grow band its per_band (5) for the next stamina band. Valid at the camp only (the spawn today, within the same 0.5 m as knack.set); refused elsewhere with not_ready (retryable). Refused with not_ready (retryable) while fewer than the price are unspent, and with request_invalid at $.args.grow at the cap (the pack's cap_hearts, or its last band). The new heart arrives full and the new band's metres are added to the bar (provisional). Under the pack's typed flag grow heart spends heart Fractals and grow band band Fractals. In every mode on that mode's own count, as the pickup. Player-only: the companion never spends, picks up or gathers a Fractal. Kept in the vitals store under the team and mode, never the room: a transient receipt with no data; player.status shows the hearts and the bands after. A pack without a fractals block answers unsupported_capability. Until the kernel's packet hosts it, the hosts answer the player unsupported_capability.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "grow"
+        ],
+        "properties": {
+          "grow": {
+            "enum": [
+              "heart",
+              "band"
+            ]
+          }
+        }
+      },
       "receipt.mark": {
         "description": "The player's mark on the receipt of one of the Gubble's commands, by its action_id: yes (\"yes, like that\") or not_that. Each receipt is marked once. The host computes Trust from the marks and the consequence facts; no request writes Trust. Player-only. Kept with the team, never the room: a transient receipt with no data. Until the Trust packet (M8) the hosts answer the player unsupported_capability.",
         "type": "object",
@@ -4263,7 +4303,7 @@
             }
           },
           "bar": {
-            "description": "The stamina bar: the bands open (1 is the starting bar, at most 10), and whether the body is slowed (the bar ran empty and has not refilled to a quarter yet).",
+            "description": "The stamina bar: the bands open (1 is the starting bar, at most 10), and whether the body is slowed: the bar ran empty and the body cannot run until the first bar, the top row, has refilled (the pack's empty_no_run_until_fraction of it; drawn amber).",
             "type": "object",
             "additionalProperties": false,
             "required": [
@@ -4994,7 +5034,7 @@
       }
     },
     "player_only_ops": {
-      "description": "Ops a companion principal can never perform. The companion adapter must not expose them and the host refuses them from companion principals (permission_denied), never holding them for a click. Unlocking is always a direct player action, and so are the player's own settings (the world's physics, the game mode, Glow's touch and sound), the player's wishes (submitting, stopping and reading them), and since the mechanics round picking up a Fractal (item.pickup), gathering a held loose log or stone into the wallet (item.gather), choosing a knack (knack.set), marking a receipt yes or not that (receipt.mark) and resetting Trust (trust.reset).",
+      "description": "Ops a companion principal can never perform. The companion adapter must not expose them and the host refuses them from companion principals (permission_denied), never holding them for a click. Unlocking is always a direct player action, and so are the player's own settings (the world's physics, the game mode, Glow's touch and sound), the player's wishes (submitting, stopping and reading them), and since the mechanics round picking up a Fractal (item.pickup), gathering a held loose log or stone into the wallet (item.gather), choosing a knack (knack.set), spending Fractals at a camp (fractal.spend, the second contract round), marking a receipt yes or not that (receipt.mark) and resetting Trust (trust.reset).",
       "enum": [
         "protect.unlock",
         "world.set_physics",
@@ -5006,6 +5046,7 @@
         "item.pickup",
         "item.gather",
         "knack.set",
+        "fractal.spend",
         "receipt.mark",
         "trust.reset"
       ]

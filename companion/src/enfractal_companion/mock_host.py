@@ -112,7 +112,7 @@ UNDO_NOT_IN_THIS_MODE = "There is no undo in Challenge or Live: what happens the
 # (CommandHost.Unsupported: MechanicsNotYet, DifficultyNotYet, BubblesNotYet) and for a Fractal the companion may not gather
 # (FractalRefusal). The kernel hosts the player's item.pickup and item.gather since M1; the mock, which places no Fractals and
 # keeps no wallet, answers the player's not available yet.
-MECHANICS_PLAYER_OPS = frozenset({"item.pickup", "item.gather", "knack.set", "receipt.mark", "trust.reset"})
+MECHANICS_PLAYER_OPS = frozenset({"item.pickup", "item.gather", "knack.set", "fractal.spend", "receipt.mark", "trust.reset"})
 BUBBLES_EXPERTISE = frozenset({"bubble_carry", "bubble_boat", "bubble_lift"})
 MECHANICS_NOT_YET = "This operation is not available yet."
 DIFFICULTY_NOT_YET = "Difficulties are chosen at the opening menu, which is not built yet."
@@ -2300,7 +2300,7 @@ class MockHost(JournalMixin):
         """A Fractal's pickup or a gather, the player's alone: refused before it reaches here (_check_unsupported) in the mock."""
         raise HostError("unsupported_capability", MECHANICS_NOT_YET, field_path="$.op")
 
-    _op_knack_set = _op_receipt_mark = _op_trust_reset = _op_item_gather = _op_item_pickup
+    _op_knack_set = _op_fractal_spend = _op_receipt_mark = _op_trust_reset = _op_item_gather = _op_item_pickup
 
     def _op_world_set_physics(self, principal, message, apply, new_revision):
         # Player-only: a companion is refused before any handler runs. Not saved in room state, so transient.

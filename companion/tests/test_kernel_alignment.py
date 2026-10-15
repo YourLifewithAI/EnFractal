@@ -347,8 +347,8 @@ class MechanicsMatchTheKernel(unittest.TestCase):
                 self.assertEqual(v5.price(name, "companion:local"), round(price["ordered"] * price["own_idea_factor"]))
         self.assertEqual({n: (v5.price(n, "player:local"), v5.price(n, "companion:local")) for n in pack["cost"]["prices"]},
                          {"glow": (2, 1), "bubbles": (2, 1), "fireworks": (2, 1), "bloom": (4, 2), "fire": (6, 3),
-                          "bubble_carry": (4, 2), "bubble_lift": (6, 3)})
-        self.assertEqual(v5.price("bubble_boat", "companion:local"), 0, "a price the pack does not set costs nothing")
+                          "bubble_carry": (4, 2), "bubble_boat": (4, 2), "bubble_lift": (6, 3)})
+        self.assertEqual(v5.price("teleport", "companion:local"), 0, "a price the pack does not set costs nothing")
         today = load_rules(contracts(), rules_path(rules_version=4))
         self.assertEqual({a.capability: today.price(a.capability, "companion:local") for a in today.abilities},
                          {"glow": 0, "bubbles": 0, "fireworks": 0, "bloom": 0, "fire": 0}, "v4 has no cost block: nothing is charged")

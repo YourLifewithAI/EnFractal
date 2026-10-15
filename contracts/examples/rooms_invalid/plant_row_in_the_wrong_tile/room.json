@@ -260,6 +260,16 @@
         }
       ]
     },
-    "x_island_tutorial": true
+    "x_island_tutorial": true,
+    "x_summit": {
+      "center_m": [
+        -5.0,
+        0.94,
+        -9.0
+      ],
+      "radius_m": 0.3,
+      "landmark": "first_tree",
+      "top_band": 3
+    }
   }
 }

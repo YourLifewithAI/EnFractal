@@ -94,8 +94,9 @@
     "harm": { "fire_quarters_per_s": 1 },
     "stamina": {
       "start_m": 0.4, "band_m": 0.4, "bands": 10, "bands_per_bar": 5,
-      "running_m_per_s": 0.01, "refill_m_per_s": 0.1,
-      "empty_speed_factor": 0.5, "empty_slow_until_fraction": 0.25
+      "running_m_per_s": 0.02, "refill_m_per_s": 0.1,
+      "deep_water_m_per_s": 0.02, "dive_m_per_s": 0.04,
+      "empty_no_run_until_fraction": 1
     },
     "pips": {
       "start": 8, "expertise_per_pip": 5, "ceiling": 40,
@@ -111,6 +112,7 @@
       "bloom": { "ordered": 4, "own_idea_factor": 0.5 },
       "fire": { "ordered": 6, "own_idea_factor": 0.5 },
       "bubble_carry": { "ordered": 4, "own_idea_factor": 0.5 },
+      "bubble_boat": { "ordered": 4, "own_idea_factor": 0.5 },
       "bubble_lift": { "ordered": 6, "own_idea_factor": 0.5 }
     },
     "torch_fire": 0

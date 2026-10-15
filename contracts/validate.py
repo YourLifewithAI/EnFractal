@@ -593,6 +593,10 @@ def check_room(room_dir: Path, check_style_pins: bool = False, manifest_name: st
         for item in fractals["items"]:
             if not _inside(item["position_m"], bounds):
                 problems.append(f"{label}: x_fractals {item['id']} is outside the room bounds")
+    summit = room.get("extensions", {}).get("x_summit")
+    if summit is not None and not _inside(summit["center_m"], bounds):
+        # The second contract round (15 October): the summit inside the island.
+        problems.append(f"{label}: x_summit is outside the room bounds")
 
     listed = {entry["path"] for entry in room["files"]}
     if "plant_copies" in room:

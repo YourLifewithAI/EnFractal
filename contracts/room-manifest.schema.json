@@ -181,7 +181,7 @@
       }
     },
     "extensions": {
-      "description": "Experiments (common.schema.json), and two keys the mechanics round (M0, 14 October 2026) types: x_fractals, the Fractals the island places, and x_island_tutorial. The landscape exporter writes both from the generator's package (M4); readers that do not know them ignore them, as every extension.",
+      "description": "Experiments (common.schema.json), and the keys the mechanics round types: x_fractals, the Fractals the island places, and x_island_tutorial (M0, 14 October 2026), and x_summit, the island's summit (the second contract round, 15 October). The landscape exporter writes them from the generator's package (M4); readers that do not know them ignore them, as every extension.",
       "$ref": "common.schema.json#/$defs/extensions",
       "properties": {
         "x_fractals": {
@@ -190,6 +190,9 @@
         "x_island_tutorial": {
           "description": "True for an island the opening menu lists first as a tutorial (none is locked). Absent: false.",
           "type": "boolean"
+        },
+        "x_summit": {
+          "$ref": "#/$defs/x_summit"
         }
       }
     }
@@ -1167,6 +1170,37 @@
         },
         "reach_band": {
           "description": "Optional: the lowest stamina band (1, the starting bar) from which the generator's walk reaches it, for the reach report; absent when not measured.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20
+        }
+      }
+    },
+    "x_summit": {
+      "description": "The island's summit (docs/game/MECHANICS.md section 6): the top of the one landmark whose route corridor the generator cuts (M4). Reaching it with the Gubble sets the \"past the tutorial\" achievement, opens the second knack slot, earns a souvenir and unlocks the overview camera; the player has reached it with their feet within radius_m of center_m. Part of the pinned baseline, like x_fractals: the exporter writes it from the generator's package. Absent: the island has no summit yet.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "center_m",
+        "radius_m"
+      ],
+      "properties": {
+        "center_m": {
+          "description": "The summit's top, on its ground, in room metres.",
+          "$ref": "common.schema.json#/$defs/vec3"
+        },
+        "radius_m": {
+          "description": "How far from center_m still counts as on the summit.",
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 50
+        },
+        "landmark": {
+          "description": "Optional: the generator's id for the landmark the summit tops; never shown as instructions.",
+          "$ref": "common.schema.json#/$defs/token"
+        },
+        "top_band": {
+          "description": "Optional: the band the corridor's highest ledge needs. The founder, 15 October: bands 7 to 8 on the garage, so its summit waits for a return visit, Bubble lift or a built ladder.",
           "type": "integer",
           "minimum": 1,
           "maximum": 20

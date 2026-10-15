@@ -22,15 +22,15 @@ public readonly record struct BodyExertion(float SprintS, float DeepWaterS, floa
 
 /// <summary>
 /// The bar as the body must obey it after the tick. Empty: the bar is at zero, so a climb's grip fails (the body falls from
-/// where it is, and the fall's rules decide the rest) and in deep water the body drifts to shore. SpeedFactor: the body's
-/// speed on land is multiplied by it, below 1 from the moment the bar runs empty until it refills to the pack's fraction of
-/// its maximum (traits.stamina.empty_speed_factor, empty_slow_until_fraction).
+/// where it is, and the fall's rules decide the rest) and in deep water the body is taken back to shore. NoRun: the body
+/// cannot run (sprint is ignored; the walk keeps its pace), from the moment the bar runs empty until the first bar, the top
+/// row, refills to the pack's fraction of itself (traits.stamina.empty_no_run_until_fraction; the founder, 15 October:
+/// completely). A floating body is never gated.
 /// </summary>
-public readonly record struct StaminaGate(bool Empty, float SpeedFactor)
+public readonly record struct StaminaGate(bool Empty, bool NoRun)
 {
     /// <summary>No ledger bound (fixture bodies, Creative, today's play): nothing is gated.</summary>
-    public static StaminaGate Free => new(false, 1f);
-    public bool Slowed => SpeedFactor < 1f;
+    public static StaminaGate Free => new(false, false);
 }
 
 /// <summary>

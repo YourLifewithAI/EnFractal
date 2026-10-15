@@ -674,7 +674,7 @@
       }
     },
     "stamina": {
-      "description": "The stamina bar, in metres of climbing (the bar's own unit). It opens in bands found with Fractals: the first band is the starting bar, each later band adds band_m, and bands_per_bar of them fill one bar before a second is drawn under it. Climbing drains it as today; running, deep water and diving drain it at the rates below, charged by the kernel from the seconds the body reports (the ledger seam, game/scripts/native/Seams/StaminaLedger.cs); it refills on standable ground, never while running; at empty the body is slowed until the bar refills to a fraction of its maximum. Knacks (Big bar, Steady climber, Strong swimmer, Long breath) multiply what they move, on the vitals and the body, never here.",
+      "description": "The stamina bar, in metres of climbing (the bar's own unit). It opens in bands found with Fractals: the first band is the starting bar, each later band adds band_m, and bands_per_bar of them fill one bar before a second is drawn under it. Climbing drains it as today; running, deep water and diving drain it at the rates below, charged by the kernel from the seconds the body reports (the ledger seam, game/scripts/native/Seams/StaminaLedger.cs); it refills on standable ground, never while running; at empty the body cannot run (it walks at its whole pace) until the first bar, the top row, refills to a fraction of itself (the founder, 15 October: completely). Knacks (Big bar, Steady climber, Strong swimmer, Long breath) multiply what they move, on the vitals and the body, never here.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -684,8 +684,7 @@
         "bands_per_bar",
         "running_m_per_s",
         "refill_m_per_s",
-        "empty_speed_factor",
-        "empty_slow_until_fraction"
+        "empty_no_run_until_fraction"
       ],
       "properties": {
         "start_m": {
@@ -713,7 +712,7 @@
           "maximum": 20
         },
         "running_m_per_s": {
-          "description": "Running's cost (0.01 m a second: a full starting bar lasts 40 s of running).",
+          "description": "Running's cost (0.02 m a second, the founder's number of 15 October: a full starting bar lasts 20 s of running).",
           "type": "number",
           "minimum": 0,
           "maximum": 1
@@ -725,25 +724,19 @@
           "maximum": 10
         },
         "deep_water_m_per_s": {
-          "description": "Optional: swimming in deep water's cost. Absent: nothing, today's behaviour. The design names no number: the founder's to set.",
+          "description": "Optional: swimming in deep water's cost, less by Strong swimmer's factor (0.02 m a second, the founder's number of 15 October: 20 s on a starting bar). Absent: nothing drains there.",
           "type": "number",
           "minimum": 0,
           "maximum": 1
         },
         "dive_m_per_s": {
-          "description": "Optional: time under water's cost. Absent: nothing (the diver's drift up stays as built). The design names no number: the founder's to set.",
+          "description": "Optional: time under water's cost, less by Long breath's factor (0.04 m a second, the founder's number of 15 October: 10 s on a starting bar). Absent: nothing drains there (the diver's drift up stays as built).",
           "type": "number",
           "minimum": 0,
           "maximum": 1
         },
-        "empty_speed_factor": {
-          "description": "At empty the body's speed on land is multiplied by this (0.5, halved) ...",
-          "type": "number",
-          "exclusiveMinimum": 0,
-          "maximum": 1
-        },
-        "empty_slow_until_fraction": {
-          "description": "... until the bar refills to this fraction of its maximum (0.25, a quarter).",
+        "empty_no_run_until_fraction": {
+          "description": "Once the bar runs empty the body cannot run (Shift is ignored; the walk keeps its whole pace) until the first bar, the top row of bands_per_bar bands with Big bar (the whole bar while it has one row), refills to this fraction of itself (1, completely: the founder, 15 October). It replaced 'half speed until a quarter', which still let an empty body run faster than a full one walked.",
           "type": "number",
           "exclusiveMinimum": 0,
           "maximum": 1

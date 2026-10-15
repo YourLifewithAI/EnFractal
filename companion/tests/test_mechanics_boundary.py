@@ -22,6 +22,7 @@ NEW_PLAYER_OPS = {
     "knack.set": {"slot": 1, "knack": "quick_feet"},
     "receipt.mark": {"action_id": "bloom-0002", "mark": "not_that"},
     "trust.reset": {},
+    "fractal.spend": {"grow": "heart"},
 }
 CARRY = {"capability": "bubble_carry", "center_m": IN_THE_OPEN, "radius_m": 0.08, "duration_s": 20, "target": "avatar:player"}
 
