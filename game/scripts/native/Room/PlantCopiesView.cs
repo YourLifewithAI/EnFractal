@@ -82,6 +82,8 @@ public partial class PlantCopiesView : Node3D
         public required Node3D Node;
         public required Mesh[] Meshes;
         public required CopyBand[] Bands;
+        /// <summary>Prototype (run2/look-grass-proto): the grass's parts tufts by band (GrassLook.PartsMeshes), drawn for one row in GrassLook.Tuning.PartsEvery; null for every other set.</summary>
+        public Mesh[]? PartsMeshes;
     }
 
     /// <summary>One set's tile as drawn: the middle of its copies' bounds (what its distance is measured to), its band now (-1: empty) and the one it should have.</summary>
@@ -95,6 +97,9 @@ public partial class PlantCopiesView : Node3D
         public float Distance = float.PositiveInfinity;
         public MultiMeshInstance3D? Instance;
         public MultiMesh? Multimesh;
+        /// <summary>Prototype (run2/look-grass-proto): the grass tile's parts tufts, a child of Instance (shown and hidden with it).</summary>
+        public MultiMeshInstance3D? Parts;
+        public MultiMesh? PartsMultimesh;
     }
 
     private readonly record struct Work(int Set, int Tile, bool Collision, Vector2 Centre);
@@ -112,8 +117,14 @@ public partial class PlantCopiesView : Node3D
             node.SetMeta("species", set.Species);
             node.SetMeta("plant_kind", set.Kind.ToString().ToLowerInvariant());
             view.AddChild(node);
-            var meshes = set.MeshPaths.Select(path => CopyMesh(room, path, set.Name)).ToArray();
-            return new SetView { Set = set, Node = node, Meshes = meshes, Bands = DrawDistances.CopyBands(set.Kind, TypicalHeightM(set), meshes.Length) };
+            // Prototype (run2/look-grass-proto): the grass's tufts built in code (GrassLook), the kit's back with --look-grass=kit.
+            if (GrassLook.Draws(set)) GrassLook.BuildCanopy(room);
+            var meshes = GrassLook.Draws(set) ? GrassLook.TuftMeshes(set.MeshPaths.Count) : set.MeshPaths.Select(path => CopyMesh(room, path, set.Name)).ToArray();
+            return new SetView
+            {
+                Set = set, Node = node, Meshes = meshes, Bands = DrawDistances.CopyBands(set.Kind, TypicalHeightM(set), meshes.Length),
+                PartsMeshes = GrassLook.Draws(set) ? GrassLook.PartsMeshes(set.MeshPaths.Count) : null,
+            };
         }).ToArray();
         var draws = new List<TileDraw>();
         for (var s = 0; s < view._sets.Length; s++)
@@ -285,7 +296,11 @@ public partial class PlantCopiesView : Node3D
                 _bodies.Clear();
                 _shapes.Clear();
                 // The MultiMeshes go with their nodes; their wrappers are let go now, not when the collector gets to them.
-                foreach (var draw in _draws) draw.Multimesh?.Dispose();
+                foreach (var draw in _draws)
+                {
+                    draw.Multimesh?.Dispose();
+                    draw.PartsMultimesh?.Dispose();
+                }
                 break;
         }
     }
@@ -367,6 +382,7 @@ public partial class PlantCopiesView : Node3D
         {
             if (draw.Band < 0) return;
             draw.Multimesh!.InstanceCount = 0;
+            if (draw.PartsMultimesh != null) draw.PartsMultimesh.InstanceCount = 0;
             draw.Instance!.Visible = false;
             InstancesHeld -= _sets[draw.Set].Set.Tile(draw.Tile).Count;
             draw.Band = -1;
@@ -403,13 +419,44 @@ public partial class PlantCopiesView : Node3D
         // camera (the Gubble's eyes) sees what is held rather than a hole.
         instance.VisibilityRangeEnd = view.Bands[^1].EndM;
         instance.VisibilityRangeEndMargin = DrawDistances.CopyMarginM;
-        instance.CastShadow = drawn.CastsShadow ? GeometryInstance3D.ShadowCastingSetting.On : GeometryInstance3D.ShadowCastingSetting.Off;
+        // Prototype (run2/look-grass-proto): procedural blades cast no shadow of their own (4 mm blades only alias in the sun's map).
+        instance.CastShadow = drawn.CastsShadow && !GrassLook.Draws(set) ? GeometryInstance3D.ShadowCastingSetting.On : GeometryInstance3D.ShadowCastingSetting.Off;
         instance.SetMeta("band", band);
+        if (view.PartsMeshes != null) FillParts(draw, view, drawn.Mesh, first, count);
         instance.Visible = true;
         draw.Band = band;
         InstancesHeld += count;
         VisualTilesBuilt++;
         VisualFills++;
+    }
+
+    /// <summary>
+    /// Prototype (run2/look-grass-proto): a grass tile's parts tufts (its tall grass, rosettes, flowers and stones), one row in
+    /// GrassLook.Tuning.PartsEvery, in their own MultiMesh under the tile's, drawing the band's parts mesh to GrassLook.Tuning.PartsDrawM
+    /// (past it every part has shrunk away). Not counted in InstancesHeld: the copies are the rows, these only dress some of them.
+    /// </summary>
+    private void FillParts(TileDraw draw, SetView view, int mesh, int first, int count)
+    {
+        var every = GrassLook.Tuning.PartsEvery;
+        var parts = (count + every - 1) / every;
+        if (draw.Parts == null)
+        {
+            draw.PartsMultimesh = new MultiMesh { TransformFormat = MultiMesh.TransformFormatEnum.Transform3D, UseColors = true };
+            draw.Parts = new MultiMeshInstance3D
+            {
+                Name = "Parts", Multimesh = draw.PartsMultimesh, GIMode = GeometryInstance3D.GIModeEnum.Disabled,
+                CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
+                VisibilityRangeEnd = GrassLook.Tuning.PartsDrawM, VisibilityRangeEndMargin = DrawDistances.CopyMarginM,
+            };
+            draw.Parts.SetInstanceShaderParameter(LandSeason.HabitParameter, (float)LandSeason.HabitFor(view.Set.FuelClass));
+            draw.Instance!.AddChild(draw.Parts);
+        }
+        var multimesh = draw.PartsMultimesh!;
+        multimesh.InstanceCount = 0;
+        multimesh.Mesh = view.PartsMeshes![mesh];
+        multimesh.InstanceCount = parts;
+        FillInstances(view.Set, first, parts, _scratch, every);
+        RenderingServer.MultimeshSetBuffer(multimesh.GetRid(), new ReadOnlySpan<float>(_scratch, 0, parts * 16));
     }
 
     /// <summary>The mesh a set's band draws (its meshes by detail, DrawDistances.CopyBands), for tests.</summary>
@@ -438,12 +485,12 @@ public partial class PlantCopiesView : Node3D
         return buffer;
     }
 
-    private static void FillInstances(PlantSet set, int first, int count, Span<float> buffer)
+    private static void FillInstances(PlantSet set, int first, int count, Span<float> buffer, int stride = 1)
     {
         var data = set.Data;
         for (var i = 0; i < count; i++)
         {
-            var row = data.AsSpan(set.RowsAt + (first + i) * set.RowBytes, PlantSet.RowBytesBase);
+            var row = data.AsSpan(set.RowsAt + (first + i * stride) * set.RowBytes, PlantSet.RowBytesBase);
             var (sin, cos) = MathF.SinCos(Field(row, 3) * (MathF.PI / 180f));
             float sx = Field(row, 4), sy = Field(row, 5), sz = Field(row, 6);
             // The basis is yaw about +Y times the scale: its columns sx (cos, 0, -sin), sy (0, 1, 0) and sz (sin, 0, cos).
