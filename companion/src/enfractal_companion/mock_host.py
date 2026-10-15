@@ -413,6 +413,12 @@ class IslandRules:
     # The pack's cost block (the mechanics round): each ability's ordered price and own-idea factor, in whole pips, read
     # from the same pack JSON the kernel loads. Empty when the pack has none: nothing is charged, today's behaviour.
     prices: tuple[tuple[str, int, float], ...] = ()
+    # The pack's traits (the mechanics round), as the kernel's VitalsRules reads them for a new body and player.status:
+    # hearts (health per quarter, start hearts), the bar's first band in metres, and the pool (start, expertise per pip,
+    # ceiling). None when the pack leaves them out: today's 100 health, 0.45 m and no pool.
+    hearts: tuple[float, int] | None = None
+    stamina_start_m: float | None = None
+    pips: tuple[int, int, int] | None = None
 
     def ability(self, capability: str | None) -> Ability | None:
         return next((a for a in self.abilities if a.capability == capability), None)
@@ -461,7 +467,11 @@ def parse_rules(contracts: Contracts, pack: Any, raw: bytes | None = None, path:
     body = raw if raw is not None else contracts.canonical_bytes(pack)
     prices = tuple((name, int(price["ordered"]), float(price["own_idea_factor"]))
                    for name, price in sorted(pack.get("cost", {}).get("prices", {}).items()))
-    return IslandRules(pack["rules_id"], int(pack["rules_version"]), abilities, hashlib.sha256(body).hexdigest(), prices)
+    traits = pack.get("traits", {})
+    hearts = (float(traits["hearts"]["health_per_quarter"]), int(traits["hearts"]["start_hearts"])) if "hearts" in traits else None
+    stamina = float(traits["stamina"]["start_m"]) if "stamina" in traits else None
+    pips = (int(traits["pips"]["start"]), int(traits["pips"]["expertise_per_pip"]), int(traits["pips"]["ceiling"])) if "pips" in traits else None
+    return IslandRules(pack["rules_id"], int(pack["rules_version"]), abilities, hashlib.sha256(body).hexdigest(), prices, hearts, stamina, pips)
 
 
 def load_rules(contracts: Contracts, path: Path) -> IslandRules:
@@ -536,10 +546,9 @@ class MockHost(JournalMixin):
         # Team profile, separate from room state and command receipts. Room/rules reloads never erase learning.
         self.mode = "creative"
         self._glow_profiles = {mode: GlowProgress() for mode in ("creative", "challenge", "live")}
-        # The box mock has no body tick: these profiles report state, never fabricate physical challenge completion.
-        self._vitals_profiles = {mode: {"health": 100.0, "max_health": 100.0, "stamina": 0.45,
-                                       "max_stamina": 0.45, "completed_climbs": 0, "recoveries": 0}
-                                 for mode in ("creative", "challenge", "live")}
+        # The box mock has no body tick: these profiles report state, never fabricate physical challenge completion. A new
+        # body is the rules pack's (the kernel's VitalsRules.Fresh), set again when the rules load while it is untouched.
+        self._vitals_profiles = {mode: self._fresh_vitals() for mode in ("creative", "challenge", "live")}
         # The player's own setting "Let my AI see through the Gubble's eyes" (the profile's ai_eyes, never room state):
         # only the player's control (set_gubble_eyes) changes it, never a request. Looks spent, per companion principal.
         self.gubble_eyes = eyes.DEFAULT_GUBBLE_EYES
@@ -712,8 +721,37 @@ class MockHost(JournalMixin):
             if isinstance(rules, dict):
                 rules = parse_rules(self.contracts, rules)
             self._end_effects(list(self.effects.values()))
+            fresh = self._fresh_vitals()
             self.rules = rules
             self.rules_notice = "" if rules is not None else (notice or "This island has no rules, so the Gubble has no abilities.")
+            for mode, profile in self._vitals_profiles.items():
+                if profile == fresh:
+                    self._vitals_profiles[mode] = self._fresh_vitals()
+
+    def _fresh_vitals(self) -> dict:
+        """A new body under the island's rules (the kernel's VitalsRules.Fresh): every heart, the first band full."""
+        rules = getattr(self, "rules", None)
+        hearts = rules.hearts if rules else None
+        health = float(hearts[1] * 4 * hearts[0]) if hearts else 100.0
+        bar = rules.stamina_start_m if rules and rules.stamina_start_m is not None else 0.45
+        return {"health": health, "max_health": health, "stamina": bar, "max_stamina": bar, "completed_climbs": 0, "recoveries": 0}
+
+    def _player_status(self) -> dict:
+        """player.status as the kernel answers it: the body and, with the pack's traits, the pool (the shadow pool in
+        Creative), the hearts in quarters and the bar's bands. The mock has no body tick and charges nothing yet: the pool
+        reads full."""
+        data = dict(self._vitals_profiles[self.mode], mode=self.mode, consequences=self.mode != "creative")
+        rules = self.rules
+        if rules and rules.pips:
+            start, per_pip, ceiling = rules.pips
+            most = min(ceiling, start + len(self.glow_progress.discoveries) // per_pip)
+            data["energy"] = {"pips": most, "max_pips": most, "shadow": self.mode == "creative"}
+        if rules and rules.hearts:
+            quarter = rules.hearts[0]
+            data["hearts"] = {"quarters": round(data["health"] / quarter), "max_quarters": round(data["max_health"] / quarter)}
+        if rules and rules.stamina_start_m is not None:
+            data["bar"] = {"bands": 1, "slowed": False}
+        return data
 
     def active_effect_ids(self) -> list[str]:
         """The running effects' ids, oldest first (the kernel's ActiveEffectIds)."""
@@ -2345,7 +2383,7 @@ class MockHost(JournalMixin):
                 data["protected_by"] = protected_by
             result["data"] = data
         elif op == "player.status":
-            result["data"] = dict(self._vitals_profiles[self.mode], mode=self.mode, consequences=self.mode != "creative")
+            result["data"] = self._player_status()
         elif op in {"nature.describe", "wishes.read"}:
             if op == "wishes.read" and principal != PLAYER:
                 raise HostError("permission_denied", "Only the player can read wishes.")

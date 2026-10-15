@@ -11,7 +11,7 @@ import inspect
 import unittest
 
 from mcp_harness import McpHarness
-from support import COMPANION, GUBBLE, IN_THE_OPEN, PLAYER, command, contract_problems, contracts, new_host
+from support import COMPANION, GUBBLE, IN_THE_OPEN, PLAYER, command, contract_problems, contracts, new_host, query
 
 from enfractal_companion import mock_host
 from enfractal_companion.mock_host import load_rules, rules_path
@@ -101,6 +101,24 @@ class OnTheMock(unittest.TestCase):
                 result = self.send(COMPANION, "nature.cast", {"capability": "bloom", "center_m": IN_THE_OPEN, "radius_m": 0.25,
                                                               "duration_s": 30, smuggled: 0}, preview=True)
                 self.assertEqual(refusal(result)[0], "field_unknown")
+
+
+    def test_the_status_reads_the_packs_body_and_pool_as_the_kernel_does(self):
+        """M1: under a pack with traits, player.status is the kernel's (VitalsRules.Fresh and PlayerStatus): five hearts in
+        quarters, the first band, a pool of 8 (the shadow pool in Creative); without them, today's numbers and no new field."""
+        host = new_host(rules_file=rules_path(rules_version=5))
+        status = host.handle(COMPANION, query("player.status", {}))["data"]
+        self.assertEqual(status, {"mode": "creative", "health": 100.0, "max_health": 100.0, "stamina": 0.4, "max_stamina": 0.4,
+                                  "completed_climbs": 0, "recoveries": 0, "consequences": False,
+                                  "energy": {"pips": 8, "max_pips": 8, "shadow": True},
+                                  "hearts": {"quarters": 20, "max_quarters": 20}, "bar": {"bands": 1, "slowed": False}})
+        self.assertTrue(host.handle(PLAYER, command("world.set_mode", {"mode": "challenge"}, "m1-mode"))["ok"])
+        self.assertEqual(host.handle(COMPANION, query("player.status", {}))["data"]["energy"], {"pips": 8, "max_pips": 8, "shadow": False})
+        for result in host.emitted:
+            self.assertEqual(contract_problems(result), [], result)
+        today = new_host(rules_file=rules_path(rules_version=4)).handle(COMPANION, query("player.status", {}))["data"]
+        self.assertFalse({"energy", "hearts", "bar"} & set(today))
+        self.assertEqual((today["max_health"], today["max_stamina"]), (100.0, 0.45))
 
 
 class ThroughMcp(unittest.IsolatedAsyncioTestCase):
