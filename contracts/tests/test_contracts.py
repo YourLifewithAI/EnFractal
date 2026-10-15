@@ -1875,8 +1875,11 @@ class MechanicsRoundTests(unittest.TestCase):
             # "That operation does not exist."
             self.assertLessEqual(new, set(re.findall(r'"([a-z_.]+)"', re.search(r"CommandOps = new\(\)\s*\{([^}]*)\};", host).group(1))))
             unsupported = host[host.index("private string? Unsupported("):]
-            # The player's pickup and gather are hosted since M1; the other new ops answer as not available yet.
-            self.assertIn('"knack.set" or "receipt.mark" or "trust.reset" => MechanicsNotYet', unsupported)
+            # The player's pickup and gather are hosted since M1 and knack.set since M3 (Saves/CommandHostTeams.cs); receipt.mark
+            # and trust.reset answer as not available yet until M8.
+            self.assertIn('"receipt.mark" or "trust.reset" => MechanicsNotYet', unsupported)
+            self.assertNotIn('"knack.set" or', unsupported)
+            self.assertIn('"knack.set" => SetKnack(', host)
             self.assertNotIn('"item.pickup" or', unsupported)
             self.assertIn('"item.gather" => GatherHeld(', host)
             self.assertIn('"world.set_mode" when args.TryGetProperty("difficulty", out _) => DifficultyNotYet', unsupported)

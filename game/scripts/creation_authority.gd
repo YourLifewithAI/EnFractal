@@ -13,10 +13,12 @@ const SCHEMA := "enfractal.creation-world"
 ## the compacted receipt index and the checkpoints. Version 4 adds object_poses: where play has moved the
 ## room's objects (the sandbox verbs, Run 2 P3). Version 5 adds team: the team's journal and discovered map, a block
 ## the trusted host owns and checks (team_check). Version 6 adds nature: the island's ground field, weather, fire and
-## their undo steps, another block the trusted host owns and checks (nature_check). Earlier saves still load (with none
-## of the later blocks).
-const VERSION := 6
-const LOADABLE_VERSIONS := [2, 3, 4, 5, 6]
+## their undo steps, another block the trusted host owns and checks (nature_check). Version 7 (the teams packet, M3) keeps
+## the same blocks; the island save now lives under its team and mode, and its team block also says whose save it is and
+## how it plays (team_id, mode and, in Challenge, difficulty: room state's x_team), checked by the host's team_check.
+## Earlier saves still load (with none of the later blocks).
+const VERSION := 7
+const LOADABLE_VERSIONS := [2, 3, 4, 5, 6, 7]
 const STYLE_VERSION := "painterly_v1"
 const MAX_SAVE_BYTES := 4 * 1024 * 1024
 ## Durable receipts in the ledger. The last PLAYER_RECEIPT_RESERVE slots are the player's alone, so a

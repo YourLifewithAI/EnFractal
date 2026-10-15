@@ -97,6 +97,7 @@ run native_small_avatar "checks passed" --headless --path "$P" --fixed-fps 60 re
 run native_characters "NATIVE_CHARACTERS: [0-9]+/[0-9]+ checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_characters.tscn -- --skip-budget
 run native_body_knacks "NATIVE_BODY_KNACKS: [0-9]+/[0-9]+ checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_body_knacks.tscn
 run native_body_knacks_boot "NATIVE_BODY_KNACKS_BOOT: [0-9]+/[0-9]+ checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_body_knacks.tscn -- --boot-room --knack=quick_feet:3 --knack=cat_feet:2
+run native_team_saves "NATIVE_TEAM_SAVES: [0-9]+/[0-9]+ checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_team_saves.tscn
 run native_character_gaits "NATIVE_CHARACTER_GAITS: [0-9]+/[0-9]+ checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_character_gaits.tscn -- --skip-budget
 run native_character_contact "NATIVE_CHARACTER_CONTACT: [0-9]+/[0-9]+ checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_character_contact.tscn
 # 40 seeded tumbles per character and ground (the Windows runner takes all 200, about 4 minutes) to fit run()'s 180 s.
@@ -110,7 +111,7 @@ run native_island_loading "checks passed" --headless --path "$P" --fixed-fps 60 
 run native_look_preset "checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_look_preset.tscn -- --landscape="$LR"
 if grep -q "checks were skipped" "$LOG/native_look_preset.out"; then echo "FAIL native_look_preset skipped its real-garage checks"; grep "checks were skipped" "$LOG/native_look_preset.out"; failed=1; fi
 run native_look_characters "NATIVE_LOOK_CHARACTERS: [0-9]+/[0-9]+ checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_look_characters.tscn
-# The boot carries a team, a mode and a difficulty as run-room.ps1 passes them: ignored until M3 honours them.
+# The boot carries a team, a mode and a difficulty as run-room.ps1 passes them, honoured since M3.
 run room_boot "ROOM_WORLD_QUIT" --headless --path "$P" --fixed-fps 60 res://scenes/room.tscn -- --quit-after-ready=240 --team=boot_probe --mode=challenge --difficulty=gentle
 # The landscape as the player opens it: installed in the user folder and booted by id through the main scene (which reads --room),
 # quitting by --quit-after-ready (a smoke boot of 13 October never quit: it ran an assembly built before the option existed).

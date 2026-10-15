@@ -82,7 +82,7 @@ public partial class CommandHostTest
         var validText = Encoding.UTF8.GetString(bytes);
         var malformed = new[]
         {
-            "{", validText.Replace("\"version\":2", "\"version\":99", StringComparison.Ordinal),
+            "{", validText.Replace("\"version\":3", "\"version\":99", StringComparison.Ordinal),
             validText.Replace("\"lantern\"", "\"wish-granted\"", StringComparison.Ordinal),
             validText.Replace("\"successful_casts\":11", "\"successful_casts\":1000001", StringComparison.Ordinal),
             validText.Replace("\"successful_casts\":11", "\"successful_casts\":11,\"successful_casts\":11", StringComparison.Ordinal),
@@ -92,8 +92,9 @@ public partial class CommandHostTest
             GrowthRefused(() => LocalGlowProgressStore.Parse(new byte[LocalGlowProgressStore.MaxSaveBytes + 1])) &&
             GrowthRefused(() => LocalGlowProgressStore.Parse(new byte[] { (byte)'{', 0xff, (byte)'}' })),
             "progress saves reject malformed JSON, newer versions, unknown IDs, excessive counts, duplicate or extra fields and oversized input");
-        var legacy = JsonNode.Parse(validText)!.AsObject();
-        legacy["version"] = 1; legacy.Remove("touch"); legacy.Remove("sound_volume"); legacy.Remove("muted");
+        // Versions 1 and 2 (one file per mode, before teams) still read, for the teams packet's migration: Glow's record at the top.
+        var legacy = JsonNode.Parse(validText)!["abilities"]!["glow"]!.DeepClone().AsObject();
+        legacy["schema"] = "enfractal.glow_progress"; legacy["version"] = 1;
         var migrated = LocalGlowProgressStore.Parse(Encoding.UTF8.GetBytes(legacy.ToJsonString()));
         var configured = migrated.WithConfiguration("frost", 0.25, true);
         var roundtrip = LocalGlowProgressStore.Parse(LocalGlowProgressStore.Serialize(configured));

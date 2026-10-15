@@ -39,6 +39,12 @@ $knackBoot = Invoke-EnfractalNativeProcess -Toolchain $toolchain -FilePath $tool
     -Arguments @('--headless', '--path', $toolchain.ProjectPath, '--fixed-fps', '60', 'res://tests/native_body_knacks.tscn', '--', '--boot-room', '--knack=quick_feet:3', '--knack=cat_feet:2') -TimeoutSeconds 120
 if ($knackBoot.Stderr -or $knackBoot.Stdout -notmatch 'NATIVE_BODY_KNACKS_BOOT: \d+/\d+ checks passed') { throw "$($knackBoot.Stdout)`n$($knackBoot.Stderr)" }
 Write-Output (($knackBoot.Stdout.Trim().Split("`n") | Where-Object { $_ -match '^NATIVE_BODY_KNACKS_BOOT' }) -join "`n")
+# Teams and save paths (the mechanics round, M3): the layout, the team file, the expertise store, the migration from before teams,
+# and three game boots (team, mode and difficulty honoured; set-mode and Live refused once the room is up; knack.set at the camp).
+$teams = Invoke-EnfractalNativeProcess -Toolchain $toolchain -FilePath $toolchain.EnginePath `
+    -Arguments @('--headless', '--path', $toolchain.ProjectPath, '--fixed-fps', '60', 'res://tests/native_team_saves.tscn') -TimeoutSeconds 180
+if ($teams.Stderr -or $teams.Stdout -notmatch 'NATIVE_TEAM_SAVES: \d+/\d+ checks passed') { throw "$($teams.Stdout)`n$($teams.Stderr)" }
+Write-Output (($teams.Stdout.Trim().Split("`n") | Where-Object { $_ -match '^(TEAM_SAVES_MIGRATION|NATIVE_TEAM_SAVES)' }) -join "`n")
 $gaits = Invoke-EnfractalNativeProcess -Toolchain $toolchain -FilePath $toolchain.EnginePath `
     -Arguments @('--headless', '--path', $toolchain.ProjectPath, '--fixed-fps', '60', 'res://tests/native_character_gaits.tscn') -TimeoutSeconds 300
 if ($gaits.Stderr -or $gaits.Stdout -notmatch 'NATIVE_CHARACTER_GAITS: \d+/\d+ checks passed') { throw "$($gaits.Stdout)`n$($gaits.Stderr)" }
@@ -84,8 +90,8 @@ $sheetMotion = Invoke-EnfractalNativeProcess -Toolchain $toolchain -FilePath $to
     -Arguments @('--headless', '--path', $toolchain.ProjectPath, '--fixed-fps', '60', 'res://tests/native/Look/character_sheet_capture.tscn', '--', '--motion-only=true', "--assets=$((Join-Path $toolchain.RepositoryPath 'assets/characters') -replace '\\', '/')") -TimeoutSeconds 180
 if ($sheetMotion.Stderr -or $sheetMotion.Stdout -notmatch 'CHARACTER_SHEET_MOTION: (\d+)/\1 tiles show their motion') { throw "$($sheetMotion.Stdout)`n$($sheetMotion.Stderr)" }
 Write-Output (($sheetMotion.Stdout.Trim().Split("`n") | Where-Object { $_ -match '^CHARACTER_SHEET_MOTION:' }) -join "`n")
-# The boot carries a team, a mode and a difficulty as run-room.ps1 passes them (the mechanics round): ignored until the teams
-# packet (M3) honours them, and never a reason not to boot.
+# The boot carries a team, a mode and a difficulty as run-room.ps1 passes them (the mechanics round, honoured since M3: the
+# team's folder in the runner's user folder, Challenge at Gentle), and they are never a reason not to boot.
 $room = Invoke-EnfractalNativeProcess -Toolchain $toolchain -FilePath $toolchain.EnginePath `
     -Arguments @('--headless', '--path', $toolchain.ProjectPath, '--fixed-fps', '60', 'res://scenes/room.tscn', '--', '--quit-after-ready=240', '--team=boot_probe', '--mode=challenge', '--difficulty=gentle') -TimeoutSeconds 60
 if ($room.Stderr -or $room.Stdout -notmatch 'ROOM_WORLD_READY' -or $room.Stdout -notmatch 'ROOM_WORLD_QUIT') { throw "Placeholder room failed to load:`n$($room.Stdout)`n$($room.Stderr)" }

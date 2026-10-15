@@ -553,7 +553,7 @@ func _test_version_two_saves() -> void:
 	var request := _command(host, "place", "before_upgrade", _source())
 	host.submit(PLAYER, request)
 	var old: Dictionary = host.export_envelope()
-	_expect(old.version == 6 and old.object_poses == {} and old.team == {} and old.nature == {}, "saves are version 6 and carry the object poses, the team block and the nature block")
+	_expect(old.version == 7 and old.object_poses == {} and old.team == {} and old.nature == {}, "saves are version 7 and carry the object poses, the team block and the nature block")
 	var four: Dictionary = old.duplicate(true)
 	four.version = 4
 	four.erase("team")

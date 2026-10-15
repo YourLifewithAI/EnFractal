@@ -143,8 +143,8 @@ public partial class PlayHudTest
         var places = panel.Lines.SkipWhile(line => line.Text != "Places & things").Where(line => line.Ink == JournalInk.Title).Select(line => line.Text).OrderBy(n => n, StringComparer.Ordinal).ToArray();
         Check(discovered.Length > 0 && places.Length == Math.Min(discovered.Length, JournalPages.PerLeaf) && places.All(discovered.Contains),
             $"Places & things lists the team's discovered things and nothing else: {string.Join(", ", places)}");
-        Check(panel.PageText.Contains($"Glow can hold {host.EffectiveEffectLimit("glow")} lights", StringComparison.Ordinal) && panel.PageText.Contains("Creative mode", StringComparison.Ordinal),
-            "Magic we found is the host's Glow progress in the current mode");
+        Check(panel.PageText.Contains($"Glow can hold {host.EffectiveEffectLimit("glow")} lights", StringComparison.Ordinal) && panel.PageText.Contains("into every mode", StringComparison.Ordinal),
+            "Magic we found is the team's Glow progress, the same in every mode (M3: one expertise store per team)");
 
         // Abilities: the loaded pack's abilities, each with its slot's key from the input map; a remapped key shows at once.
         panel.OpenPage(JournalPages.Abilities);
