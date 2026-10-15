@@ -251,6 +251,7 @@ public partial class LookPresetTest
             ("a compass for a hemisphere", """{"zone_id":"Etc/UTC","day_scale":4,"seasons_per_year":4,"phase_h":0,"hemisphere":"east"}""", "hemisphere"),
             ("a phase past half a day", """{"zone_id":"Etc/UTC","day_scale":4,"seasons_per_year":4,"phase_h":13,"hemisphere":"north"}""", "phase_h"),
             ("no seasons", """{"zone_id":"Etc/UTC","day_scale":4,"seasons_per_year":0,"phase_h":0,"hemisphere":"north"}""", "seasons_per_year"),
+            ("eight seasons a year (four only, for now)", """{"zone_id":"Etc/UTC","day_scale":4,"seasons_per_year":8,"phase_h":0,"hemisphere":"north"}""", "seasons_per_year"),
             ("a key the schema does not have", """{"zone_id":"Etc/UTC","day_scale":4,"seasons_per_year":4,"phase_h":0,"hemisphere":"north","place":"garage"}""", "place"),
             ("a missing key", """{"zone_id":"Etc/UTC","day_scale":4,"seasons_per_year":4,"hemisphere":"north"}""", "phase_h"),
             ("a string for a scale", """{"zone_id":"Etc/UTC","day_scale":"4","seasons_per_year":4,"phase_h":0,"hemisphere":"north"}""", "day_scale"),

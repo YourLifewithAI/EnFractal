@@ -87,6 +87,8 @@ public sealed class WorldClock
         if (!Text(record["hemisphere"], out var hemisphere)) { error = "x_clock.hemisphere must be a string"; return null; }
         if (!Number(record["day_scale"], out var scale) || scale != Math.Floor(scale)) { error = "x_clock.day_scale must be a whole number"; return null; }
         if (!Number(record["seasons_per_year"], out var seasons) || seasons != Math.Floor(seasons)) { error = "x_clock.seasons_per_year must be a whole number"; return null; }
+        // The founder, 15 October: four seasons a year only, for now (the contract's const); the mapping below stays general.
+        if (seasons != 4) { error = "x_clock.seasons_per_year must be 4 for now"; return null; }
         if (!Number(record["phase_h"], out var phase)) { error = "x_clock.phase_h must be a number"; return null; }
         return TryCreate(zoneId, (int)Math.Clamp(scale, -1, 1000), (int)Math.Clamp(seasons, -1, 1000), phase, hemisphere, out error);
     }

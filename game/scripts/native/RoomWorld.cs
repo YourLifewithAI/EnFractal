@@ -181,6 +181,8 @@ public partial class RoomWorld : Node3D
             // fixed; a --knack= argument (quick_feet:3) only as a test's override.
             team.Apply(commandHost);
             commandHost.ConfigureNature();
+            // The island's clock record once the save is read (M6): none, the machine's clock, as before.
+            Look.SetWorldClockFrom(commandHost.ClockRecord);
             var natureLook = new NatureLook { Name = "NatureLook" };
             AddChild(natureLook);
             natureLook.Configure(commandHost, Built);

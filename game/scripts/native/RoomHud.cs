@@ -193,7 +193,7 @@ public partial class RoomHud : CanvasLayer
         if (Look == null) return;
         _clockTimer = 0;
         if (TimeStop < 0 && SeasonStop < 0) { Look.ReleaseClock(); return; }
-        var real = LookClock.Now(Look.Preset);
+        var real = Look.RealNow();
         var day = SeasonStop >= 0 ? SeasonStops[SeasonStop].DayOfYear : real.DayOfYear;
         Look.SetClock(TimeStop >= 0 ? TimeStopHour(Look.Preset, TimeStop, day) : real.Hour, day);
     }

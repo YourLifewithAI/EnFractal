@@ -27,6 +27,13 @@ public partial class CommandHost
 {
     public const string RoomStateBuild = "enfractal-native";
 
+    /// <summary>
+    /// The island's clock record (room state's extensions.x_clock, M6): kept as read from an imported room state and written back
+    /// on export; the look's WorldTime reads it in place of the machine's clock (LookDirector.SetWorldClockFrom). Null: the machine's
+    /// clock, today's behaviour. The island save does not carry it yet.
+    /// </summary>
+    public JsonObject? ClockRecord { get; set; }
+
     /// <summary>Room state now, in the contract's form. Null while the save is not loaded.</summary>
     public JsonObject? ExportRoomState()
     {
@@ -110,6 +117,8 @@ public partial class CommandHost
         };
         // The island's nature as it is now (the simulation runs ahead of its last save), where this room has any.
         if (NatureConfigured || envelope["nature"] is JsonObject { Count: > 0 }) extensions["x_play_nature"] = NatureBlock.Pack(Nature);
+        // The island's clock (M6), where it has one.
+        if (ClockRecord != null) extensions["x_clock"] = ClockRecord.DeepClone();
         // Whose island save this is and how it plays (M3: the save's team block).
         if (XTeam() is { } whose) extensions["x_team"] = whose;
         return new JsonObject
@@ -222,6 +231,7 @@ public partial class CommandHost
             if (!Untouched(sightAllowed: false)) return Refused("Only a room with no play yet is rebuilt from room state.");
             if (Normalized(given) is not { } state) return Refused("That is not room state.");
             if (RoomStateProblem(state) is { } problem) return Refused("That room state cannot be rebuilt: " + problem + ".");
+            ClockRecord = (state["extensions"]?["x_clock"] as JsonObject)?.DeepClone() as JsonObject;
             var envelope = EnvelopeOf(state);
             return Adopt(envelope, envelope["instances"]!.AsArray().Select(i => i!["id"]!.GetValue<string>()).ToList(), Array.Empty<string>(),
                 "The room was rebuilt from its state.", closeOpenTasks: false);
