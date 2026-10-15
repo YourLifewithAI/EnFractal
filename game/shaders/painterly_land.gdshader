@@ -155,6 +155,9 @@ varying vec4 intro_room;
 varying float haze_v;
 // A number of the copy's own (0 to 1, from its origin), so each tree of a wood turns in its own time and to its own colour.
 varying float season_tree;
+// Broad noise over a grove (1.4 m), so the land's merged meshes, which share one origin, still turn and flower grove by grove. It
+// varies slowly, so the vertices carry it and no leaf pixel pays for it; 0.5 where no leaf turns or flowers.
+varying float season_grove;
 
 float hash12(vec2 p) {
 	vec3 p3 = fract(vec3(p.xyx) * 0.1031);
@@ -291,14 +294,12 @@ vec3 season_wet(vec3 color) {
 // A leaf's colour through the year, by its plant's habit. A broadleaf's is fresh in spring, some trees in blossom, gold to rust in
 // autumn tree by tree, pale in winter under a dusting of snow; a conifer's turns a touch darker in winter and takes the snow too;
 // grass and herbs go fresh, then to straw, and frost. habit is the instance's (season_habit), tree its copy's own number
-// (season_tree); cell and dab are the leaf dab's (its cell, how much of it is paint), clump the canopy's clumps, up how much it
-// faces the sky, d how much of a dab the pixel resolves: far away a dab's random choices give way to their average, so nothing
-// sparkles.
-vec3 season_foliage(vec3 color, float habit_id, float tree, vec3 pw, vec3 cell, float dab, float clump, float up, float d) {
+// (season_tree), broad its grove's (season_grove: the land's merged meshes share one origin); cell and dab are the leaf dab's (its
+// cell, how much of it is paint), clump the canopy's clumps, up how much it faces the sky, d how much of a dab the pixel resolves:
+// far away a dab's random choices give way to their average, so nothing sparkles.
+vec3 season_foliage(vec3 color, float habit_id, float tree, float broad, vec3 cell, float dab, float clump, float up, float d) {
 	int habit = int(habit_id + 0.5);
 	vec3 ratio = vec3(1.0);
-	// Each copy has its own number (its origin's); the land's merged meshes share one, so broad noise tells their groves apart.
-	float broad = habit == 0 && (season_leaf.y > 0.0 || season_leaf.w > 0.0) ? noise_r(pw / 1.4 + vec3(7.1, 3.3, 5.9)).x : 0.5;
 	if (habit == 1) {
 		ratio += season_tone.y * (season_evergreen - 1.0);
 	} else if (habit == 2) {
@@ -382,6 +383,8 @@ void vertex() {
 	obj_normal = NORMAL;
 	baked_color = COLOR.rgb;
 	season_tree = hash12(MODEL_MATRIX[3].xz * 0.37 + vec2(0.71, 0.13));
+	season_grove = kind == K_FOLIAGE && (season_leaf.y > 0.0 || season_leaf.w > 0.0)
+		? noise_r((VERTEX + fract(vec3(paint_seed) * vec3(0.1731, 0.0577, 0.1113)) * 37.0) / 1.4 + vec3(7.1, 3.3, 5.9)).x : 0.5;
 }
 
 void fragment() {
@@ -571,7 +574,7 @@ void fragment() {
 		warm_bias = (clump.x - 0.5) * 1.0 * d_leaf + up * 0.35;
 		cavity = max(cavity, (1.0 - dab) * 0.2 * d_leaf);
 		bump += (vec3(hash13(cell + 2.2), hash13(cell + 6.6), hash13(cell + 9.9)) - 0.5) * 0.8 * d_leaf;
-		color = season_foliage(color, season_habit, season_tree, pw, cell, dab, clump.x, up, d_leaf);
+		color = season_foliage(color, season_habit, season_tree, season_grove, cell, dab, clump.x, up, d_leaf);
 	} else if (kind == K_BARK) {
 		// Bark: grain and furrows running up the trunk.
 		vec4 furrow = stroke_noise(pw, vec3(0.0, 1.0, 0.0), 9.0, s);
