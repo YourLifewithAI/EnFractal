@@ -67,6 +67,11 @@ public partial class CommandHost
     private static readonly HashSet<string> FlammableMaterials = new(StringComparer.Ordinal) { "wood", "bark", "foliage", "fabric", "paper", "plastic", "leaf" };
 
     public NatureState Nature { get; private set; } = new();
+    /// <summary>
+    /// A new island's wallet under its rules (the review's finding 2, decision 26): the pack's traits.wallet.start, today's
+    /// materials for a pack without one. Nature as it begins holds it, and the room counts as untouched while it still does.
+    /// </summary>
+    public IReadOnlyDictionary<string, int> StartWallet => NatureState.FreshWallet(Rules?.Traits?.Wallet);
     public NatureWeather NatureWeather => Nature.Weather;
     public string NatureNotice { get; private set; } = "";
     /// <summary>Whether this room runs its nature (RoomWorld turns it on); the saved block is loaded and kept either way.</summary>
@@ -118,6 +123,9 @@ public partial class CommandHost
         LoadNature();
     }
 
+    /// <summary>Nature as a new island begins: nothing on the ground, the wallet the island's start.</summary>
+    private NatureState NewNature() => new() { Wallet = NatureState.FreshWallet(Rules?.Traits?.Wallet) };
+
     /// <summary>
     /// Nature from the authority's save (already judged by CheckNature when the save loaded): the scene follows it. A
     /// sidecar nature.json from earlier test builds is never read. Without a loaded save, nature waits with a notice.
@@ -132,17 +140,17 @@ public partial class CommandHost
         _natureClockMoved = false;
         if (Authority == null || !Authority.Call(KernelNames.IsReady).AsBool())
         {
-            Nature = new NatureState();
+            Nature = NewNature();
             _natureUnavailable = true;
             NatureNotice = "The room's saved state is not loaded, so its nature waits for it.";
             ApplyNatureObjects();
             return;
         }
         var saved = KernelJson.ToJson(Authority.Call(KernelNames.Nature)) as JsonObject;
-        if (saved == null || saved.Count == 0) Nature = new NatureState();
+        if (saved == null || saved.Count == 0) Nature = NewNature();
         else if (NatureBlock.Problem(saved, Revision, Room) is { } problem)
         {
-            Nature = new NatureState();
+            Nature = NewNature();
             _natureUnavailable = true;
             NatureNotice = "The saved nature is invalid (" + problem + "); it is kept as it was.";
             ApplyNatureObjects();
@@ -386,18 +394,17 @@ public partial class CommandHost
         if (mustAsk && approvedBy == null)
             return Hold(root, principal, action, fingerprint, "nature.cast", FireHoldReason(companion, asked.Count > 0, keyed),
                 asked.ToDictionary(t => t.Id, t => EntityRevision(t.Id), StringComparer.Ordinal), bindRevision: true, sparesOnDeny: asked.Count > 0 && !keyed);
-        // The guard at commit (CommandHostEnergy): after the preview, the hold and every check; charged once the revision is saved.
-        var price = GuardEnergy(ability.Capability, principal);
         var candidate = Nature.Copy();
         // The player's own Fire while the Gubble's burns: the Gubble's goes out as the player's is lit (one fire at a time).
-        if (!companion && candidate.Fire is { Principal: CompanionPrincipal })
-        {
-            _companionFireSeenS = Nature.WeatherS;
-            candidate.PutOutFire();
-        }
+        var puttingOut = !companion && candidate.Fire is { Principal: CompanionPrincipal };
+        if (puttingOut) candidate.PutOutFire();
         var step = candidate.BeginUndo("Fire", Revision + 1, principal, Mode);
         var lit = candidate.Ignite(cast.Center, cast.Radius, cast.Duration, cast.Intensity, Revision + 1, creations, Sample, step, principal, approvedBy ?? principal);
         if (lit == 0) throw new Refusal("invalid_args", "Nothing can take hold at the center of that area.", "$.args.center_m");
+        // The guard at commit (CommandHostEnergy): after the preview, the hold and every check, the fire taking hold among them (an
+        // empty pool is never the reason given for a fire that could not start anyway); charged once the revision is saved.
+        var price = GuardEnergy(ability.Capability, principal);
+        if (puttingOut) _companionFireSeenS = Nature.WeatherS;
         _naturePreviews.Remove(previewId);
         data.Remove("cells");
         data.Remove("cells_truncated");

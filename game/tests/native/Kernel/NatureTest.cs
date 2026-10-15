@@ -86,7 +86,9 @@ public partial class NatureTest : Node3D
     /// A fresh test room, its avatars at their spawns and a host saving to savePath, with the shipped rules and nature on.
     /// The host's own processing is off: each check advances the simulation itself, so nothing happens between checks.
     /// </summary>
-    private async Task NewWorld(string savePath, bool challenge = false, RoomData? roomOverride = null)
+    /// <param name="beforeRules">Runs as the host exists, before its rules load (a launch's vitals store: RoomWorld's order).</param>
+    /// <param name="afterRules">Runs once the rules loaded, before nature and before any frame (a launch's knacks and set-mode).</param>
+    private async Task NewWorld(string savePath, bool challenge = false, RoomData? roomOverride = null, Action? beforeRules = null, Action? afterRules = null)
     {
         await FreeWorld();
         var room = roomOverride ?? _room;
@@ -106,7 +108,9 @@ public partial class NatureTest : Node3D
         _host.SetProcess(false);
         _host.SetPhysicsProcess(false);
         if (challenge) _host.ConfigurePlayerVitals(new ChallengeVitals());
+        beforeRules?.Invoke();
         _host.LoadRules(RoomWorld.DefaultRulesId, ShippedRules.Version);
+        afterRules?.Invoke();
         _host.ConfigureNature();
         _host.NatureSampleForTests = Soil;
         // The player's own "Let the Gubble use fire" (on by default), whatever a profile on this machine says.

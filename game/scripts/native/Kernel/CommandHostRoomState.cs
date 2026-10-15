@@ -211,7 +211,7 @@ public partial class CommandHost
     private bool Untouched(bool sightAllowed) =>
         Authority.Call(KernelNames.IsReady).AsBool() && !Godot.FileAccess.FileExists(SavePath) && Revision == 0 && Authority.Call(KernelNames.ReceiptCount).AsInt32() == 0 &&
         _transient.Count == 0 && _jobs.Count == 0 && _runningGoals.Count == 0 && _held.Count == 0 && _approvals.Count == 0 &&
-        _openTasks.Count == 0 && _history.Count == 0 && _notes.Count == 0 && Nature.Untouched(trailAllowed: sightAllowed) &&
+        _openTasks.Count == 0 && _history.Count == 0 && _notes.Count == 0 && Nature.Untouched(trailAllowed: sightAllowed, StartWallet) &&
         (sightAllowed || (TeamMemory().Entries.Count == 0 && _levels.Values.All(l => l.Count == 0)));
 
     // ---- rebuild from room state (P6) ----
@@ -764,7 +764,7 @@ public partial class CommandHost
     /// </summary>
     private JsonObject MigratedNature(JsonObject? old, IReadOnlyCollection<string> kept, int revision)
     {
-        var here = Nature.Untouched(trailAllowed: true) ? Nature : new NatureState();
+        var here = Nature.Untouched(trailAllowed: true, StartWallet) ? Nature : new NatureState();
         if (old == null || old.Count == 0)
             return here.Cells.Count == 0 ? new JsonObject() : NatureBlock.Pack(new NatureState { WeatherS = here.WeatherS, Cells = here.Cells.ToDictionary(p => p.Key, p => p.Value.Copy(), StringComparer.Ordinal) });
         var earlier = NatureBlock.Unpack(old);

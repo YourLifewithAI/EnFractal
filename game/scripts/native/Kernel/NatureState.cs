@@ -281,17 +281,23 @@ public sealed class NatureState
     /// </summary>
     public HashSet<string> FractalsPicked { get; set; } = new(StringComparer.Ordinal);
 
+    /// <summary>Today's wallet, for a pack without traits.wallet (or none loaded): 20 wood, 10 stone, 10 copper and 20 leaf.</summary>
     public static Dictionary<string, int> FreshWallet() => new(StringComparer.Ordinal) { ["wood"] = 20, ["stone"] = 10, ["copper"] = 10, ["leaf"] = 20 };
+
+    /// <summary>A new island's wallet: the rules pack's traits.wallet.start (storybook_wild v5's is empty, decision 26), else today's.</summary>
+    public static Dictionary<string, int> FreshWallet(WalletRules? start) => start is not { } pack ? FreshWallet()
+        : new(StringComparer.Ordinal) { ["wood"] = pack.Wood, ["stone"] = pack.Stone, ["copper"] = pack.Copper, ["leaf"] = pack.Leaf };
     public static string Key(int x, int z) => $"{x}:{z}";
     public static (int X, int Z) Grid(Vector3 at) => ((int)Math.Floor(at.X / CellM), (int)Math.Floor(at.Z / CellM));
 
     /// <summary>
-    /// Nothing has happened to this nature yet, the weather clock aside. trailAllowed lets the flower trail's own flowers
-    /// count as nothing, as sightings do: the trail plants as the Gubble walks, with no command.
+    /// Nothing has happened to this nature yet, the weather clock aside: its wallet is still the island's start (the pack's,
+    /// FreshWallet). trailAllowed lets the flower trail's own flowers count as nothing, as sightings do: the trail plants as the
+    /// Gubble walks, with no command.
     /// </summary>
-    public bool Untouched(bool trailAllowed) =>
+    public bool Untouched(bool trailAllowed, IReadOnlyDictionary<string, int> startWallet) =>
         Objects.Count == 0 && Fire == null && Undo.Count == 0 && UndoneAt < 0 && ChangedAt == 0 && TrailEnabled && TrailPrincipal == "player" && FractalsPicked.Count == 0 &&
-        TrailRulesSha256.Length == 0 && Wallet.Count == FreshWallet().Count && FreshWallet().All(p => Wallet.GetValueOrDefault(p.Key, -1) == p.Value) &&
+        TrailRulesSha256.Length == 0 && Wallet.Count == startWallet.Count && startWallet.All(p => Wallet.GetValueOrDefault(p.Key, -1) == p.Value) &&
         (trailAllowed || Cells.Count == 0);
 
     public NatureState Copy() => new()

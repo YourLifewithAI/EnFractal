@@ -26,8 +26,15 @@ public partial class NatureTest
     {
         public PlayerModesProfile Saved { get; private set; } = profile;
         public int Saves { get; private set; }
+        /// <summary>Every save refused, as a full disk would (the vitals store's PlayerVitalsException).</summary>
+        public bool FailSave { get; set; }
         public PlayerModesProfile Load() => Saved;
-        public void Save(PlayerModesProfile next) { Saved = next; Saves++; }
+        public void Save(PlayerModesProfile next)
+        {
+            if (FailSave) throw new PlayerVitalsException("The test store cannot save.");
+            Saved = next;
+            Saves++;
+        }
     }
 
     private sealed class EnergyGlow(GlowProgress progress) : IGlowProgressStore
@@ -47,6 +54,7 @@ public partial class NatureTest
         await TestVitalsTimeAway();
         await TestFractals();
         await TestGather();
+        await TestVitalsFixRound();
     }
 
     /// <summary>A world under v5 with a body of our choosing in a mode (and difficulty).</summary>
@@ -380,12 +388,15 @@ public partial class NatureTest
               CommandHost.GatherMaterial(room.Objects.First(o => o.Id == "obj:book")) == null && CommandHost.GatherMaterial(room.Objects.First(o => o.Id == "obj:box")) == null,
             "a log (bark) gathers as wood and a stone as stone; a book or a cardboard box is no loose log or stone");
         var before = Send(Query("player.status", new JsonObject()), Player)["data"]?["wallet"];
+        // The pack's starting wallet (decision 26: v5's is empty).
+        var wood = _host.Rules!.Traits!.Wallet!.Wood;
+        var stone = _host.Rules.Traits.Wallet.Stone;
         var companion = Send(Command(NextId("gather"), "item.gather", new JsonObject { ["target"] = "obj:log" }), Companion);
         var nothing = Send(Command(NextId("gather"), "item.gather", new JsonObject { ["target"] = "obj:log" }), Player);
         Check(Code(companion) == "permission_denied" && companion["error"]?["field_path"]?.GetValue<string>() == "$.op" &&
               Code(nothing) == "request_invalid" && nothing["error"]?["field_path"]?.GetValue<string>() == "$.args.target" &&
-              before?["wood"]?.GetValue<int>() == 20 && before["stone"]?.GetValue<int>() == 10,
-            "the companion is refused gathering outright, and the player holding nothing is told to pick it up first; the wallet starts as today: " + Canonical(before));
+              before?["wood"]?.GetValue<int>() == wood && before["stone"]?.GetValue<int>() == stone,
+            "the companion is refused gathering outright, and the player holding nothing is told to pick it up first; the wallet starts as the pack says: " + Canonical(before));
         var grab = Send(Command(NextId("grab"), "entity.grab", new JsonObject { ["target"] = "obj:log", ["actor"] = CommandHost.PlayerAvatar }), Player);
         var other = Send(Command(NextId("gather"), "item.gather", new JsonObject { ["target"] = "obj:stone" }), Player);
         Check(Ok(grab) && _host.HeldBy(CommandHost.PlayerAvatar) == "obj:log" && Code(other) == "request_invalid",
@@ -400,14 +411,14 @@ public partial class NatureTest
         Check(Ok(gathered) && gathered["transient"]?.GetValue<bool>() == false && gathered["revision"]?.GetValue<int>() == revision + 1 && gathered["data"] == null &&
               gathered["affected"]?.AsArray().Select(a => a!.GetValue<string>()).SequenceEqual(new[] { "obj:log" }) == true,
             "the log is gathered: one durable room revision, the log in affected, no data: " + Canonical(gathered));
-        Check(status?["wallet"]?["wood"]?.GetValue<int>() == 20 + CommandHost.GatherUnits && status["wallet"]?["stone"]?.GetValue<int>() == 10 &&
+        Check(status?["wallet"]?["wood"]?.GetValue<int>() == wood + CommandHost.GatherUnits && status["wallet"]?["stone"]?.GetValue<int>() == stone &&
               _host.HeldBy(CommandHost.PlayerAvatar) == null && entities?.All(e => e?["id"]?.GetValue<string>() != "obj:log") == true &&
               _host.Nature.Objects["obj:log"] is { Gathered: true, BurnedDown: true },
             "the wallet holds one more wood on player.status, the player's hands are empty and the log has left the island: " + Canonical(status?["wallet"]));
         var replay = Send(gather, Player);
         var fact = Send(Query("journal.read", new JsonObject { ["kind"] = "gathered" }), Player)["data"]?["entries"]?.AsArray().LastOrDefault();
-        Check(replay["replayed"]?.GetValue<bool>() == true && _host.Nature.Wallet["wood"] == 20 + CommandHost.GatherUnits &&
-              fact?["line"]?.GetValue<string>() == $"You gathered \"Log\": {20 + CommandHost.GatherUnits} wood in the wallet." && fact["quantity"]?["count"]?.GetValue<int>() == 21,
+        Check(replay["replayed"]?.GetValue<bool>() == true && _host.Nature.Wallet["wood"] == wood + CommandHost.GatherUnits &&
+              fact?["line"]?.GetValue<string>() == $"You gathered \"Log\": {wood + CommandHost.GatherUnits} wood in the wallet." && fact["quantity"]?["count"]?.GetValue<int>() == wood + CommandHost.GatherUnits,
             "a retry replays and counts nothing twice; the journal keeps a gathered fact: " + Canonical(fact));
         var state = _host.ExportRoomState();
         var removed = state?["entities"]?["obj:log"];
@@ -422,7 +433,7 @@ public partial class NatureTest
         var picked = Send(pickup, Player);
         var reloaded = Send(Query("player.status", new JsonObject()), Player)["data"]?["wallet"];
         Check(_host.Authority.Call("is_ready").AsBool() && again["replayed"]?.GetValue<bool>() == true && picked["replayed"]?.GetValue<bool>() == true &&
-              reloaded?["wood"]?.GetValue<int>() == 21 && _host.Nature.Objects["obj:log"].Gathered && !_host.Fractals.Any(f => f.Id == "fractal:near01") &&
+              reloaded?["wood"]?.GetValue<int>() == wood + CommandHost.GatherUnits && _host.Nature.Objects["obj:log"].Gathered && !_host.Fractals.Any(f => f.Id == "fractal:near01") &&
               Send(Query("entities.list", new JsonObject()), Player)["data"]?["items"]?.AsArray().All(e => e?["id"]?.GetValue<string>() != "obj:log") == true,
             "after a save and reload the log is still gone, the wallet still holds it, the Fractal is still picked up, and both receipts replay");
     }
