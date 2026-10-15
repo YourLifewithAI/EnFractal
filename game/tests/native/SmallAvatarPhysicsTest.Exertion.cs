@@ -14,8 +14,8 @@ namespace EnFractal.Tests;
 
 /// <summary>
 /// The body's side of the stamina ledger (docs/runs/RUN-2-MECHANICS.md, packet M5; Seams/StaminaLedger.cs): what it reports each
-/// tick, in what order, and what it does with the gate: the grip fails on a climb, deep water carries it to shore, land is slower
-/// until the bar refills. The ledger is the fixture's own arithmetic (contracts/examples/ledger/stamina_ledger.json), proved against
+/// tick, in what order, and what it does with the gate: the grip fails on a climb, deep water fades back to the shore it went in
+/// from, the run is locked until the first bar refills. The ledger is the fixture's own arithmetic (contracts/examples/ledger/stamina_ledger.json), proved against
 /// the fixture's ten cases first, so the body meets exactly the contract the kernel meets.
 /// </summary>
 public partial class SmallAvatarPhysicsTest
@@ -90,6 +90,8 @@ public partial class SmallAvatarPhysicsTest
         await TestEmptyBarStopsTheRun();
         await TestEmptyBarDropsAClimber();
         await TestEmptyBarInDeepWater();
+        await TestShoreReturnGoesWhereItWentIn();
+        await TestShoreReturnToTheSeasBeach();
     }
 
     private static string LedgerFixturePath => ProjectSettings.GlobalizePath("res://") + "../contracts/examples/ledger/stamina_ledger.json";
@@ -373,37 +375,140 @@ public partial class SmallAvatarPhysicsTest
         await Frames(2);
     }
 
-    /// <summary>In deep water an empty bar carries the swimmer to shore, never to a bank it cannot climb; a diver is not held under.</summary>
-    private async Task TestEmptyBarInDeepWater()
+    // ---- Out of stamina in deep water: the scene fades and the body is back on the shore where it went in (decision 33) ----
+
+    private const float PondSurface = -0.02f;
+    private const float PondBed = -0.2f;
+
+    /// <summary>
+    /// TestSwimming's pond, 18 cm deep at its deepest with its water 2 cm under the rim: a shelving 20 degree shore on the west and,
+    /// width metres east of it, a vertical bank, or with eastRamp a second shelving shore. Returns its parts (to free) and the west
+    /// shore's ramp and land.
+    /// </summary>
+    private (List<Node3D> Parts, StaticBody3D WestRamp, StaticBody3D WestLand) BuildPond(Vector3 b, float width, bool eastRamp)
     {
-        var b = new Vector3(800, 0, 1100);
-        const float surface = -0.02f;
-        const float bed = -0.2f;
-        // The swimming fixture's pond (TestSwimming): a shelving shore on the west, a vertical bank on the east, 18 cm deep.
+        var westLand = Solid(b + new Vector3(-1.0f, -0.125f, 0), new BoxShape3D { Size = new Vector3(2.0f, 0.25f, 3.0f) });
+        var westRamp = Solid(b, Prism(0.5f, new Vector2(0, 0), new Vector2(0, PondBed), new Vector2(0.55f, PondBed)));
         var parts = new List<Node3D>
         {
-            Solid(b + new Vector3(-1.0f, -0.125f, 0), new BoxShape3D { Size = new Vector3(2.0f, 0.25f, 3.0f) }),
-            Solid(b + new Vector3(2.2f, -0.125f, 0), new BoxShape3D { Size = new Vector3(2.0f, 0.25f, 3.0f) }),
-            Solid(b + new Vector3(0.6f, -0.125f, -1.0f), new BoxShape3D { Size = new Vector3(1.2f, 0.25f, 1.0f) }),
-            Solid(b + new Vector3(0.6f, -0.125f, 1.0f), new BoxShape3D { Size = new Vector3(1.2f, 0.25f, 1.0f) }),
-            Solid(b + new Vector3(0.6f, -0.225f, 0), new BoxShape3D { Size = new Vector3(1.2f, 0.05f, 1.0f) }),
-            Solid(b, Prism(0.5f, new Vector2(0, 0), new Vector2(0, bed), new Vector2(0.55f, bed))),
+            westLand, westRamp,
+            Solid(b + new Vector3(width + 1.0f, -0.125f, 0), new BoxShape3D { Size = new Vector3(2.0f, 0.25f, 3.0f) }),
+            Solid(b + new Vector3(width * 0.5f, -0.125f, -1.0f), new BoxShape3D { Size = new Vector3(width, 0.25f, 1.0f) }),
+            Solid(b + new Vector3(width * 0.5f, -0.125f, 1.0f), new BoxShape3D { Size = new Vector3(width, 0.25f, 1.0f) }),
+            Solid(b + new Vector3(width * 0.5f, -0.225f, 0), new BoxShape3D { Size = new Vector3(width, 0.05f, 1.0f) }),
         };
+        if (eastRamp) parts.Add(Solid(b + new Vector3(width, 0, 0), Prism(0.5f, new Vector2(0, 0), new Vector2(0, PondBed), new Vector2(-0.55f, PondBed))));
         var sheet = new SurfaceTool();
         sheet.Begin(Mesh.PrimitiveType.Triangles);
-        foreach (var corner in new[] { new Vector2(0, -0.5f), new Vector2(1.2f, -0.5f), new Vector2(1.2f, 0.5f), new Vector2(0, -0.5f), new Vector2(1.2f, 0.5f), new Vector2(0, 0.5f) })
-            sheet.AddVertex(new Vector3(corner.X, surface, corner.Y));
+        foreach (var corner in new[] { new Vector2(0, -0.5f), new Vector2(width, -0.5f), new Vector2(width, 0.5f), new Vector2(0, -0.5f), new Vector2(width, 0.5f), new Vector2(0, 0.5f) })
+            sheet.AddVertex(new Vector3(corner.X, PondSurface, corner.Y));
         var water = RoomWater.CreateCollider(new[] { ((Shape3D)sheet.Commit().CreateTrimeshShape(), Transform3D.Identity) });
         water.Position = b;
         AddChild(water);
         parts.Add(water);
-        var body = new SmallPlayerController { Name = "ShoreBody", ReadKeyboard = false, Position = b + new Vector3(-0.5f, 0.003f, 0) };
+        return (parts, westRamp, westLand);
+    }
+
+    private async Task FreeAll(IEnumerable<Node3D> parts)
+    {
+        foreach (var part in parts)
+            if (GodotObject.IsInstanceValid(part)) part.QueueFree();
+        await Frames(2);
+    }
+
+    /// <summary>
+    /// Walk east from where the body stands until it swims at least toX metres into the pond; the last place it stood on dry ground
+    /// on the way (the body's own rule: its feet a few millimetres above the water).
+    /// </summary>
+    private async Task<Vector3> WalkIntoThePond(SmallPlayerController body, Vector3 b, float toX)
+    {
+        var lastDry = body.GlobalPosition;
+        body.SetControlInput(new Vector2(0, 1));
+        for (var i = 0; i < 1500 && !(body.IsSwimming && body.GlobalPosition.X - b.X >= toX); i++)
+        {
+            await Frames(1);
+            if (body.IsOnFloor() && !body.IsSwimming && (!body.Water.Wet || body.Water.Under(body.GlobalPosition) <= -SmallPlayerController.ShoreEntryClearM)) lastDry = body.GlobalPosition;
+        }
+        body.SetControlInput(Vector2.Zero);
+        return lastDry;
+    }
+
+    /// <summary>One shore return, frame by frame: when the fade began, how dark and how long, how far the swimmer moved on the way, and where it was put.</summary>
+    private sealed class ShoreTrip
+    {
+        public int FadeBeganAfter = -1;
+        public int FadeFrames;
+        public float Darkest;
+        public float Drift;
+        public float Deepest;
+        public Vector3? Arrival;
+        public double DeepSecondsAfter, SprintSecondsAfter, DiveSecondsAfter;
+        /// <summary>The longest wall-clock time between two frames of the trip: the arrival frame holds the search for a shore.</summary>
+        public double WorstFrameMs;
+        public Vector3 At => Arrival ?? new Vector3(float.NaN, float.NaN, float.NaN);
+    }
+
+    /// <summary>
+    /// Run the bar empty under a swimmer and watch the fade until it has ended. onFade runs once, on the first frame of the fade (the
+    /// body has seen the gate by then, as it does in play, where the bar runs empty in the body's own tick).
+    /// </summary>
+    private async Task<ShoreTrip> WatchShoreReturn(SmallPlayerController body, ScriptedLedger ledger, Action? onFade = null, int maxFrames = 300)
+    {
+        var trip = new ShoreTrip();
+        Vector3? movedFrom = null;
+        void Arrived(SmallPlayerController who) => trip.Arrival = who.GlobalPosition;
+        body.WentHome += Arrived;
+        var (deep, sprint, dive) = (ledger.DeepTotal, ledger.SprintTotal, ledger.DiveTotal);
+        ledger.GateValue = new StaminaGate(true, true);
+        var last = Time.GetTicksUsec();
+        for (var frame = 0; frame < maxFrames; frame++)
+        {
+            await Frames(1);
+            var now = Time.GetTicksUsec();
+            trip.WorstFrameMs = Math.Max(trip.WorstFrameMs, (now - last) / 1000.0);
+            last = now;
+            if (body.GoingHome)
+            {
+                if (trip.FadeBeganAfter < 0)
+                {
+                    trip.FadeBeganAfter = frame;
+                    onFade?.Invoke();
+                }
+                trip.FadeFrames++;
+                trip.Darkest = Mathf.Max(trip.Darkest, body.HomeFade);
+                movedFrom ??= body.GlobalPosition;
+                // How far the swimmer moves with the fade on, up to the moment it is put down: a drift would show here.
+                if (trip.Arrival == null) trip.Drift = Mathf.Max(trip.Drift, PlanarDistance(body.GlobalPosition, movedFrom.Value));
+            }
+            if (trip.Arrival == null) trip.Deepest = Mathf.Max(trip.Deepest, body.Water.SurfaceY - body.GlobalPosition.Y);
+            if (trip.FadeBeganAfter >= 0 && !body.GoingHome) break;
+        }
+        body.WentHome -= Arrived;
+        (trip.DeepSecondsAfter, trip.SprintSecondsAfter, trip.DiveSecondsAfter) = (ledger.DeepTotal - deep, ledger.SprintTotal - sprint, ledger.DiveTotal - dive);
+        return trip;
+    }
+
+    private static bool StandsDry(SmallPlayerController body) => body.IsOnFloor() && !body.IsSwimming && (!body.Water.Wet || body.Water.Under(body.GlobalPosition) <= 0);
+
+    /// <summary>
+    /// In deep water an empty bar fades the scene and puts the body back on the shore where it went in: standing, dry, still, unhurt, the
+    /// Gubble beside it, and no drift on the way. A diver is not held down. A body with no entry (put into the water) goes to the
+    /// nearest shore a swimmer could stand on, never up a bank.
+    /// </summary>
+    private async Task TestEmptyBarInDeepWater()
+    {
+        var b = new Vector3(800, 0, 1100);
+        var (parts, _, _) = BuildPond(b, 1.2f, eastRamp: false);
+        var east = new Vector3(0, -Mathf.Pi * 0.5f, 0);
+        var body = new SmallPlayerController { Name = "ShoreBody", ReadKeyboard = false, Position = b + new Vector3(-1.2f, 0.003f, 0), Rotation = east };
         AddChild(body);
         await Frames(5);
 
         var ledger = new ScriptedLedger();
         body.StaminaLedger = ledger;
-        var floatY = surface - body.SwimFloatDepthM;
+        var landing = 0f;
+        body.FallObserved = (speed, _) => landing = Mathf.Max(landing, speed);
+        var floatY = PondSurface - body.SwimFloatDepthM;
         void Place(Vector3 at)
         {
             body.GlobalPosition = at;
@@ -427,56 +532,183 @@ public partial class SmallAvatarPhysicsTest
         await Frames(30);
         Report(body.IsDiving && Mathf.Abs((float)ledger.DiveTotal - 0.5f) < 0.03f && ledger.DeepTotal == 0 && ledger.Breaches == 0,
             $"diving reports its seconds as under water, not as deep water ({ledger.DiveTotal:0.000} s over half a second)");
-
-        // The bar runs empty under water, the dive key still held: the diver is not held under, it drifts up and then is carried to shore.
-        ledger.GateValue = new StaminaGate(true, true);
-        var depth = body.Water.SurfaceY - body.GlobalPosition.Y;
-        var rose = false;
-        var driftsFrom = body.ShoreDriftTicks;
-        for (var i = 0; i < 900 && !(body.IsSwimming && !body.IsDiving && body.ShoreDriftTicks > driftsFrom + 30); i++)
-        {
-            await Frames(1);
-            rose |= body.Water.SurfaceY - body.GlobalPosition.Y < depth - 0.02f;
-        }
-        Report(rose && !body.IsDiving && body.ShoreDriftTicks > driftsFrom,
-            $"an empty bar under water lets the diver drift up with the dive key held ({depth:0.000} m deep to {body.Water.SurfaceY - body.GlobalPosition.Y:0.000} m) and then carries it");
-
-        // At the surface it drifts to the shelving shore, west, and wades out; it does not swim or leap, and never climbs the steep east bank.
-        Place(b + new Vector3(0.9f, floatY, 0));
         body.SetDiveInput(false, false);
-        await Frames(10);
-        var startX = body.GlobalPosition.X - b.X;
+
+        // The Gubble follows the swimmer in, floating over the water.
+        var gubble = new CompanionAvatar { Name = "ShoreGubble", Position = b + new Vector3(-1.0f, 0.01f, 0.3f) };
+        gubble.ConfigureIdentity("shore_gubble");
+        AddChild(gubble);
+        await Frames(5);
+        gubble.BindPlayer(body);
+
+        // Back on the west shore, walking in: what it remembers is the last dry ground on the way, not where it began.
+        Check(body.TryTeleportTo(b + new Vector3(-1.2f, 0.003f, 0)) && body.ShoreEntry == null, "put down on the west shore, the body has not yet walked in from anywhere");
+        body.Rotation = east;
+        await Frames(5);
+        Check(body.ShoreEntry is { } stood && PlanarDistance(stood, b + new Vector3(-1.2f, 0, 0)) < 0.01f, "standing there, it remembers where it stands");
+        gubble.Follow();
+        var lastDry = await WalkIntoThePond(body, b, 0.9f);
+        var entry = body.ShoreEntry;
+        var edgeX = lastDry.X - b.X;
+        Report(entry is { } e && PlanarDistance(e, lastDry) < 0.02f && edgeX > 0.0f && edgeX < 0.1f,
+            $"what it remembers is the last dry ground on the way in, at the water's edge ({edgeX:0.000} m into the pond), not the wading shallows or where it began ({(entry is { } r ? r.X - b.X : float.NaN):0.000} m)");
+        await Frames(40);
+        Check(body.IsSwimming && !body.IsDiving && body.GlobalPosition.X - b.X >= 0.88f, "the swimmer floats at the surface of the deep end, most of a metre from where it went in");
+
+        // The bar runs empty, the push forward and the jump key still held: the scene fades, the controls are held, nothing drifts.
+        landing = 0;
         var grabs = body.Grabs;
         var jumps = body.JumpsStarted;
-        body.SetControlInput(new Vector2(0, 1), jump: true);
-        var frame = 0;
-        for (; frame < 1500 && !(!body.IsSwimming && body.IsOnFloor()); frame++) await Frames(1);
-        var shore = body.GlobalPosition - b;
+        var trips = body.HomeTrips;
+        var trip = await WatchShoreReturn(body, ledger, onFade: () => body.SetControlInput(new Vector2(0, 1), jump: true));
         body.SetControlInput(Vector2.Zero);
-        Report(frame < 1500 && shore.X < 0.3f && shore.X > 0.0f && body.Grabs == grabs && body.JumpsStarted == jumps && body.ShoreHeading.X < -0.5f,
-            $"an empty swimmer in deep water drifts to the shelving shore ({startX:0.00} m to {shore.X:0.00} m in {frame / 60f:0.0} s, heading {body.ShoreHeading.X:0.00}, past the input pushing forward and jumping)");
+        var arrival = trip.At;
+        var dryNow = StandsDry(body);
+        var inlandFacing = (-body.GlobalBasis.Z).Dot(Vector3.Left);
+        Report(trip.FadeBeganAfter >= 0 && trip.FadeBeganAfter <= 3 && trip.Darkest > 0.95f && Mathf.Abs(trip.FadeFrames - 72) <= 3,
+            $"an empty bar in deep water fades the scene at once: dark {trip.Darkest:0.00}, begun after {trip.FadeBeganAfter} frames, {trip.FadeFrames / 60f:0.00} s in all (0.6 s out, 0.6 s in)");
+        Report(trip.Drift < 0.03f && body.Grabs == grabs && body.JumpsStarted == jumps && trip.DeepSecondsAfter < 3 * Tick + 1e-4 && trip.SprintSecondsAfter == 0 && trip.DiveSecondsAfter == 0,
+            $"the controls are held and nothing drifts ({trip.Drift * 100:0.0} cm moved with the fade on, pushing forward and jumping; {trip.DeepSecondsAfter:0.000} s more of deep water reported)");
+        Report(PlanarDistance(arrival, lastDry) < 0.03f && body.ShoreReturns == 1 && body.LastShoreReturn == "entry" && body.LastHome == "shore" && body.HomeTrips == trips,
+            $"the body is put down where it went in ({PlanarDistance(arrival, lastDry) * 100:0.0} cm from the last dry ground, {(arrival.X - b.X):0.000} m into the pond; return: {body.LastShoreReturn}, trips home {body.HomeTrips - trips})");
+        await Frames(30);
+        Report(dryNow && StandsDry(body) && body.Velocity.Length() < 0.05f && body.LandingCost(landing, false) == 0 && inlandFacing > 0.9f && body.ShoreReturns == 1,
+            $"standing, dry, still and unhurt, facing away from the water (landing {landing * 1000:0.0} mm/s costs {body.LandingCost(landing, false):0} health; facing {inlandFacing:0.00}; returns {body.ShoreReturns})");
+        Report(body.Gate.Empty && body.Gate.NoRun && trip.Arrival != null && PlanarDistance(body.GlobalPosition, arrival) < 0.03f,
+            "the bar's own rules are the ledger's: on the shore the gate still reads empty and no run, and the body stays put without a second trip");
+        Report(gubble.WentHomeWithPlayer == 1 && PlanarDistance(gubble.GlobalPosition, body.GlobalPosition) < 0.6f,
+            $"the Gubble came too, to {PlanarDistance(gubble.GlobalPosition, body.GlobalPosition):0.00} m from the player ({gubble.WentHomeWithPlayer} time)");
+        gubble.Stop();
 
-        // Nearest the steep bank, still west: a vertical bank is not shore.
-        Place(b + new Vector3(1.12f, floatY, 0.1f));
-        await Frames(10);
-        var east = body.GlobalPosition;
-        await Frames(120);
-        Check(body.GlobalPosition.X < east.X - 0.05f && body.Grabs == grabs && body.ShoreHeading.X < -0.5f,
-            $"beside the vertical bank the swimmer is carried away from it, not up it ({east.X - b.X:0.00} m to {body.GlobalPosition.X - b.X:0.00} m)");
+        // Under water, the dive key held: a diver is not held down, and is taken back to where it went in just the same.
+        ledger.GateValue = StaminaGate.Free;
+        landing = 0;
+        Place(b + new Vector3(0.9f, floatY, 0));
+        body.SetDiveInput(true, false);
+        for (var i = 0; i < 300 && !body.IsDiving; i++) await Frames(1);
+        await Frames(20);
+        var diving = body.IsDiving;
+        var depth = body.Water.SurfaceY - body.GlobalPosition.Y;
+        trips = body.HomeTrips;
+        trip = await WatchShoreReturn(body, ledger);
+        body.SetDiveInput(false, false);
+        arrival = trip.At;
+        await Frames(30);
+        Report(diving && trip.Deepest < depth + 0.01f && trip.FadeBeganAfter <= 3 && PlanarDistance(arrival, lastDry) < 0.03f && body.ShoreReturns == 2 && body.LastShoreReturn == "entry" && StandsDry(body) && !body.IsDiving && body.HomeTrips == trips,
+            $"an empty bar under water, the dive key held, does not hold the diver down ({depth:0.000} m deep to {trip.Deepest:0.000} m at most) and takes it back to the same shore ({PlanarDistance(arrival, lastDry) * 100:0.0} cm), standing dry");
 
-        // Once ashore at the gate's pace, the bar refilling frees it: the same body swims again.
+        // Put into the water (a teleport), it has no entry: the nearest shore a swimmer could stand on, dry ground inland of it.
+        ledger.GateValue = StaminaGate.Free;
+        Check(body.TryTeleportTo(b + new Vector3(0.9f, 0, 0)), "the body is put down in the deep end");
+        await Frames(40);
+        Check(body.IsSwimming && body.ShoreEntry == null, "swimming, it has no shore to go back to");
+        trips = body.HomeTrips;
+        trip = await WatchShoreReturn(body, ledger);
+        arrival = trip.At;
+        await Frames(30);
+        Report(body.LastShoreReturn == "nearest" && body.ShoreReturns == 3 && arrival.X - b.X > -0.05f && arrival.X - b.X < 0.12f && StandsDry(body) && body.HomeTrips == trips,
+            $"with no entry it is put on the nearest shore, the shelving one, on dry ground ({arrival.X - b.X:0.000} m into the pond; return: {body.LastShoreReturn})");
+
+        // Beside the vertical bank, still west: a bank is no shore, so never up it.
+        ledger.GateValue = StaminaGate.Free;
+        Check(body.TryTeleportTo(b + new Vector3(1.12f, 0, 0.1f)), "the body is put down beside the steep east bank");
+        await Frames(40);
+        grabs = body.Grabs;
+        Check(body.IsSwimming && body.ShoreEntry == null, "swimming beside the bank, with no shore to go back to");
+        trip = await WatchShoreReturn(body, ledger);
+        arrival = trip.At;
+        await Frames(30);
+        Report(body.LastShoreReturn == "nearest" && arrival.X - b.X < 0.12f && body.Grabs == grabs && StandsDry(body),
+            $"beside the vertical bank the swimmer is taken to the shelving shore, not up the bank ({arrival.X - b.X:0.000} m into the pond, grabs {body.Grabs - grabs})");
+
+        // The bar back, the same body swims where it likes.
         ledger.GateValue = StaminaGate.Free;
         Place(b + new Vector3(0.9f, floatY, 0));
         await Frames(30);
         var anchored = body.GlobalPosition;
+        var returns = body.ShoreReturns;
         body.SetControlInput(new Vector2(0, 1));
         await Frames(60);
         body.SetControlInput(Vector2.Zero);
-        Check(PlanarDistance(body.GlobalPosition, anchored) > 0.1f || body.IsClimbing, "with the bar back the swimmer swims where it likes again");
+        Check(PlanarDistance(body.GlobalPosition, anchored) > 0.1f && body.ShoreReturns == returns, "with the bar back the swimmer swims where it likes again, and no one takes it home");
+
+        gubble.QueueFree();
+        body.StaminaLedger = null;
+        body.FallObserved = null;
+        body.QueueFree();
+        await FreeAll(parts);
+    }
+
+    /// <summary>
+    /// A pond with a shelving shore at each end: it went in from the west and runs dry 10 cm off the east shore, and it is taken back to
+    /// the west, where it went in, not to the nearer one. When that ground is gone it is taken to the nearer one.
+    /// </summary>
+    private async Task TestShoreReturnGoesWhereItWentIn()
+    {
+        var b = new Vector3(800, 0, 1200);
+        var (parts, westRamp, westLand) = BuildPond(b, 1.6f, eastRamp: true);
+        var body = new SmallPlayerController { Name = "TwoShoreBody", ReadKeyboard = false, Position = b + new Vector3(-1.2f, 0.003f, 0), Rotation = new Vector3(0, -Mathf.Pi * 0.5f, 0) };
+        AddChild(body);
+        await Frames(5);
+        var ledger = new ScriptedLedger();
+        body.StaminaLedger = ledger;
+
+        var lastDry = await WalkIntoThePond(body, b, 1.25f);
+        await Frames(30);
+        var swimmer = body.GlobalPosition;
+        var entry = body.ShoreEntry;
+        Check(body.IsSwimming && entry is { } e && PlanarDistance(e, lastDry) < 0.02f && swimmer.X - b.X > 1.2f,
+            $"it went in from the west and swims 35 cm from the east shore ({swimmer.X - b.X:0.00} m into a 1.6 m pond)");
+        var trip = await WatchShoreReturn(body, ledger);
+        var arrival = trip.At;
+        await Frames(30);
+        Report(body.LastShoreReturn == "entry" && PlanarDistance(arrival, lastDry) < 0.03f && arrival.X - b.X < 0.12f && StandsDry(body),
+            $"close to the east shore, an empty swimmer is taken back to the west one where it went in ({arrival.X - b.X:0.000} m), not to the nearer one (1.2 m off against 0.1 m)");
+
+        // Walk in again, and the ground it went in from is taken away: the nearer shore, then, on its dry ground.
+        ledger.GateValue = StaminaGate.Free;
+        await Frames(5);
+        body.Rotation = new Vector3(0, -Mathf.Pi * 0.5f, 0);
+        lastDry = await WalkIntoThePond(body, b, 1.25f);
+        await Frames(30);
+        Check(body.IsSwimming && body.ShoreEntry is { } again && PlanarDistance(again, lastDry) < 0.02f, "it walked in from the west again");
+        await FreeAll(new Node3D[] { westRamp, westLand });
+        trip = await WatchShoreReturn(body, ledger);
+        arrival = trip.At;
+        await Frames(30);
+        Report(body.LastShoreReturn == "nearest" && arrival.X - b.X > 1.45f && StandsDry(body),
+            $"when the ground it went in from is gone it is taken to the nearest shore, on dry ground ({arrival.X - b.X:0.000} m into the pond; return: {body.LastShoreReturn})");
 
         body.StaminaLedger = null;
         body.QueueFree();
-        foreach (var part in parts) part.QueueFree();
-        await Frames(2);
+        await FreeAll(parts);
+    }
+
+    /// <summary>With no shore within 12 m and no entry, the sea's nearest beach.</summary>
+    private async Task TestShoreReturnToTheSeasBeach()
+    {
+        var c = new Vector3(800, 0, 1300);
+        const float surface = -0.02f;
+        var island = Solid(c + new Vector3(0, -0.05f, 0), new BoxShape3D { Size = new Vector3(1.2f, 0.1f, 1.2f) });
+        Vector2[] Square(float half) => new[] { new Vector2(c.X - half, c.Z - half), new Vector2(c.X + half, c.Z - half), new Vector2(c.X + half, c.Z + half), new Vector2(c.X - half, c.Z + half) };
+        var beach = new RoomSea.Beach("far_beach", c + new Vector3(0, 0.001f, 0.3f), 0, c + new Vector3(0, surface, 0.7f));
+        var sea = new RoomSea(surface, Square(0.5f), Square(1.2f), Square(2.0f), new[] { beach });
+        var body = new SmallPlayerController { Name = "OpenSeaBody", ReadKeyboard = false, Position = c + new Vector3(14.0f, surface - 0.06f, 0) };
+        AddChild(body);
+        body.SetSea(sea);
+        await Frames(40);
+        var ledger = new ScriptedLedger();
+        body.StaminaLedger = ledger;
+        Check(body.IsSwimming && body.ShoreEntry == null && sea.Beaches.Count == 1, "a swimmer out in the open sea, 14 m from the island, never having stood anywhere");
+        var trip = await WatchShoreReturn(body, ledger);
+        var arrival = trip.At;
+        await Frames(30);
+        Report(body.LastShoreReturn == "beach" && body.LastHome == "shore" && PlanarDistance(arrival, beach.WashAshoreM) < 0.15f && StandsDry(body) && body.HomeTrips == 0,
+            $"with no entry and no shore within 12 m it is put on the sea's nearest beach, standing dry ({PlanarDistance(arrival, beach.WashAshoreM):0.000} m from it; return: {body.LastShoreReturn}); the frame that held the whole search (1152 places) took {trip.WorstFrameMs:0.0} ms");
+        Check(trip.WorstFrameMs < 250, $"the search for a shore, once and in the dark, is no hitch to speak of ({trip.WorstFrameMs:0.0} ms the longest frame)");
+
+        body.StaminaLedger = null;
+        body.QueueFree();
+        await FreeAll(new Node3D[] { island });
     }
 }

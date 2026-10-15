@@ -271,15 +271,15 @@ public partial class SmallPlayerController : CharacterBody3D
     public event System.Action<SmallPlayerController, Vector3>? Wrapped;
     /// <summary>The fade out on the way home, then the fade back in.</summary>
     public const float HomeFadeS = 0.6f;
-    /// <summary>Trips home so far (B, the far net).</summary>
+    /// <summary>Trips home so far (B, the far net); the shore returns of an empty bar are ShoreReturns.</summary>
     public int HomeTrips { get; private set; }
     /// <summary>Where the body last went home to: "jetty", a beach's id, or "spawn" ("" before any).</summary>
     public string LastHome { get; private set; } = "";
-    /// <summary>True from B until the fade back in ends: the body takes no input meanwhile.</summary>
+    /// <summary>True from B (or an empty bar in deep water: ShoreReturns) until the fade back in ends: the body takes no input meanwhile.</summary>
     public bool GoingHome => _homeTime >= 0;
-    /// <summary>How dark the fade home is now: 0 to 1 and back (the HUD draws it).</summary>
+    /// <summary>How dark the fade home is now: 0 to 1 and back (the HUD draws it). The same fade takes a swimmer who ran out of stamina back to the shore.</summary>
     public float HomeFade => _homeTime < 0 ? 0 : _homeTime < HomeFadeS ? _homeTime / HomeFadeS : Mathf.Clamp(2 - _homeTime / HomeFadeS, 0, 1);
-    /// <summary>Raised when the body has been put down at home (the Gubble comes too).</summary>
+    /// <summary>Raised when the body has been put down at home, or back on the shore after an empty bar in deep water (LastHome says which: "shore"); the Gubble comes too.</summary>
     public event System.Action<SmallPlayerController>? WentHome;
     /// <summary>Where B goes, for the HUD: the jetty, else the beach, else the start.</summary>
     public string HomeName => Sea?.JettyData != null ? "the jetty" : Sea != null && Sea.Beaches.Count > 0 ? "the beach" : "the start";
@@ -866,6 +866,8 @@ public partial class SmallPlayerController : CharacterBody3D
         _jumpBuffer = 0;
         LastSafePosition = position;
         HasSafePosition = true;
+        // Put down somewhere else, the body has not walked in from anywhere: it stands again before it has a shore to go back to.
+        ShoreEntry = null;
         return true;
     }
 
@@ -1026,6 +1028,8 @@ public partial class SmallPlayerController : CharacterBody3D
         _ownVelocity = Vector3.Zero;
         _creationPushed = Vector3.Zero;
         SampleWater(dt);
+        // Where the body stands now, with the water read at the very same place (so it is dry there by the water's own account).
+        RememberShoreEntry();
         _wasDiving = IsDiving;
         IsDiving = false;
         // What the bar pays for beyond a climb (the ledger): which way the body moved this tick.
@@ -1094,6 +1098,8 @@ public partial class SmallPlayerController : CharacterBody3D
             Recover();
         }
         ObserveBodyVitals(dt, TakeExertion(dt, moved, onFoot, swam, sprint, control));
+        // Out of stamina in deep water (the ledger's gate): the scene fades and the body is back on the shore where it went in.
+        if (_swimming && _gate.Empty) BeginShoreReturn();
         TakeBodyState(dt, moved, onFloor, wasSwimming, sprint);
         UpdateVisual(dt);
         _bodyVisual?.BodyTicked(LastBodyState, dt);
@@ -1231,6 +1237,7 @@ public partial class SmallPlayerController : CharacterBody3D
     {
         _homeTime = 0;
         _homeArrived = false;
+        _shoreTrip = false;
         _jumpBuffer = 0;
     }
 
@@ -1241,9 +1248,14 @@ public partial class SmallPlayerController : CharacterBody3D
         if (!_homeArrived && _homeTime >= HomeFadeS)
         {
             _homeArrived = true;
-            ArriveHome();
+            if (_shoreTrip) ArriveAtShore();
+            else ArriveHome();
         }
-        if (_homeTime >= 2 * HomeFadeS) _homeTime = -1;
+        if (_homeTime >= 2 * HomeFadeS)
+        {
+            _homeTime = -1;
+            _shoreTrip = false;
+        }
     }
 
     /// <summary>
@@ -1262,18 +1274,21 @@ public partial class SmallPlayerController : CharacterBody3D
             if (inland == Vector3.Zero) inland = new Basis(Vector3.Up, Mathf.DegToRad(jetty.YawDeg)) * Vector3.Back;
             landed = LandAt(jetty.RootM, inland, "jetty");
         }
-        if (!landed && Sea?.NearestBeach(here) is { } beach)
-            landed = LandAt(beach.WashAshoreM, new Basis(Vector3.Up, Mathf.DegToRad(beach.YawDeg)) * Vector3.Forward, beach.Id);
-        if (!landed && TryTeleportTo(_spawnPoint))
-        {
-            landed = true;
-            LastHome = "spawn";
-        }
+        if (!landed && LandAtBeachOrStart(here) != "") landed = true;
         if (!landed) Recover();
         Velocity = Vector3.Zero;
         ClearCreationMotion();
         HomeTrips++;
         WentHome?.Invoke(this);
+    }
+
+    /// <summary>The nearest beach, else the spawn: "beach", "start", or "" when neither has room (LastHome says which).</summary>
+    private string LandAtBeachOrStart(Vector2 here)
+    {
+        if (Sea?.NearestBeach(here) is { } beach && LandAt(beach.WashAshoreM, new Basis(Vector3.Up, Mathf.DegToRad(beach.YawDeg)) * Vector3.Forward, beach.Id)) return "beach";
+        if (!TryTeleportTo(_spawnPoint)) return "";
+        LastHome = "spawn";
+        return "start";
     }
 
     /// <summary>How far under a home's spot (the jetty's deck, a beach's sand) its landing may be found.</summary>
@@ -1288,16 +1303,9 @@ public partial class SmallPlayerController : CharacterBody3D
     {
         bool Near(Vector3 at) => Sea == null || new Vector2(at.X, at.Z).DistanceTo(Sea.MiddleM) <= FarNetM * 0.5f;
         if (!spot.IsFinite() || !Near(spot)) return false;
-        var space = GetWorld3D().DirectSpaceState;
-        bool Dry(Vector3 feet)
-        {
-            var water = RoomWater.At(space, feet, BodyHeightM, 0.005f, GetRid());
-            if (!water.Wet && Sea != null) water = Sea.OpenWater(space, feet, BodyHeightM, 0.005f, GetRid());
-            return !water.Wet || water.Under(feet) <= 0;
-        }
         var side = inland.Cross(Vector3.Up);
         foreach (var offset in new[] { Vector3.Zero, inland * 0.06f, side * 0.06f, -side * 0.06f, inland * 0.12f, side * 0.12f, -side * 0.12f, inland * 0.2f })
-            if (Near(spot + offset) && FindSupportedPosition(spot + offset, out var feet) && feet.Y >= spot.Y - HomeDropM && Dry(feet) && TryTeleportTo(feet))
+            if (Near(spot + offset) && FindSupportedPosition(spot + offset, out var feet) && feet.Y >= spot.Y - HomeDropM && DryAt(feet) && TryTeleportTo(feet))
             {
                 Rotation = new Vector3(0, Mathf.Atan2(-inland.X, -inland.Z), 0);
                 LastHome = name;
@@ -1535,8 +1543,8 @@ public partial class SmallPlayerController : CharacterBody3D
     /// </summary>
     private void Swim(float dt, Vector3 wish, bool sprint, Vector2 control, bool diveDown, bool diveUp)
     {
-        // An empty bar (the ledger's gate): a diver is not held down and swims no further than up, and a swimmer at the surface
-        // is carried to shore (ShoreDrift) instead of swimming or leaping out; nothing refills in the water.
+        // An empty bar (the ledger's gate): a diver is not held down and a swimmer does not swim or leap out. The tick the bar ran
+        // empty the fade to the shore began (BeginShoreReturn), so the controls are already held; nothing refills in the water.
         var spent = _gate.Empty;
         // Only a dive takes the body under: a fall or a plunge is still caught at the surface (CatchInWater).
         if ((diveDown && !spent) || (_wasDiving && GlobalPosition.Y < Water.SurfaceY - SwimFloatDepthM - DiveStartM))
@@ -1562,7 +1570,7 @@ public partial class SmallPlayerController : CharacterBody3D
             EndSwim();
         }
         else _jumpBuffer = Mathf.Max(0, _jumpBuffer - dt);
-        var desired = spent ? ShoreDrift(feet) : wish * SwimPaceMps(sprint);
+        var desired = spent ? Vector3.Zero : wish * SwimPaceMps(sprint);
         var horizontal = WithinBounds(new Vector3(Velocity.X, 0, Velocity.Z).MoveToward(desired, SwimAccelerationMps2 * dt), dt);
         var total = WithCreation(new Vector3(horizontal.X, vertical, horizontal.Z), dt);
         if (_swimming) total.Y = CatchInWater(total.Y, dt);

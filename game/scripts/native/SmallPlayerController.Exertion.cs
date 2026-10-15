@@ -7,8 +7,8 @@ namespace EnFractal.Native;
 /// <summary>
 /// The body's side of the mechanics round (docs/runs/RUN-2-MECHANICS.md, packet M5): the knacks that move its own numbers, what it
 /// reports to the kernel's stamina ledger each tick (running, deep water, diving) and what it obeys from the ledger's gate (an empty
-/// bar: the grip fails, deep water carries it to shore, no running until the first bar refills). Everything here is the controller's and
-/// none of it touches the collision capsule, the size, the eye height or the reach.
+/// bar: the grip fails, deep water fades back to the shore it went in from, no running until the first bar refills). Everything here
+/// is the controller's and none of it touches the collision capsule, the size, the eye height or the reach.
 /// </summary>
 public partial class SmallPlayerController
 {
@@ -83,77 +83,169 @@ public partial class SmallPlayerController
     /// <summary>The gate after the tick's report and VitalsTick (the ledger's); free with no ledger.</summary>
     private void TakeGate() => _gate = _staminaLedger?.Gate ?? StaminaGate.Free;
 
-    // ---- Out of stamina in deep water: carried to shore ----
+    // ---- Out of stamina in deep water: the scene fades and the body is back on the shore where it went in (the founder, 15 October,
+    // decision 33: a slow drift home is annoyingly long). The fade is the way home's (B): the same veil, the same hold on the controls,
+    // and the Gubble comes too. No hurt, and the bar's own rules are untouched: it refills on land, and the run stays locked until
+    // the first bar is full again. ----
 
     /// <summary>
-    /// How fast an empty swimmer is carried to shore, m/s: slower than the plain swim (0.19), faster than the diver's drift up (0.03).
-    /// Not in the design, which says only "drifts to shore": a number for the founder to tune by feel.
+    /// Where the body last stood on dry, standable ground (not in the water, not on a climb, not floating): the shore it went in from.
+    /// Null until it has stood somewhere, and again after a teleport (a spawn, a recovery, a trip home) until it next stands, so a body
+    /// put into the water has no entry to go back to.
     /// </summary>
-    [Export] public float ShoreDriftMps { get; set; } = 0.10f;
+    public Vector3? ShoreEntry { get; private set; }
+    /// <summary>Shore returns made so far (an empty bar in deep water); the trips home by B and the far net are HomeTrips.</summary>
+    public int ShoreReturns { get; private set; }
     /// <summary>
-    /// How the shore is looked for: one ring of sight round the swimmer per tick, nearest first (a ring every 4 cm to 1.2 m, every
-    /// 10 cm to 3 m, every 40 cm to 12.8 m), so no tick pays for more than the sixteen places on a ring. The first ring that holds a
-    /// shore sets the heading, and the search starts again from the swimmer's side as it moves.
+    /// How the last shore return was placed: "entry" (where it went in), "nearest" (the nearest shore a swimmer could stand on,
+    /// the entry being unknown or gone), "beach" (the sea's nearest beach), "start" (the spawn) or "recovered" (its last safe
+    /// footing); "" before any.
+    /// </summary>
+    public string LastShoreReturn { get; private set; } = "";
+    /// <summary>Where the swimmer was when the last shore return took it, the moment the fade was at its darkest.</summary>
+    public Vector3 LastShoreReturnFrom { get; private set; }
+    private bool _shoreTrip;
+
+    /// <summary>
+    /// How the nearest shore is looked for: widening rings of sight round the swimmer, nearest first (a ring every 4 cm to 1.2 m,
+    /// every 10 cm to 3 m, every 40 cm to 12.6 m), sixteen places on each. The first ring that holds a shore is the nearest.
     /// </summary>
     public static float ShoreRingM(int ring) => ring < 30 ? 0.04f * (ring + 1) : ring < 48 ? 1.2f + 0.1f * (ring - 29) : 3.0f + 0.4f * (ring - 47);
     private const int ShoreRings = 72;
     private const int ShoreDirections = 16;
-
-    /// <summary>The way to shore now (a unit vector across the ground), or zero when none is known yet.</summary>
-    public Vector3 ShoreHeading { get; private set; }
-    /// <summary>Ticks spent carried to shore.</summary>
-    public int ShoreDriftTicks { get; private set; }
-    private int _shoreRing;
-    private ulong _shoreTick;
+    /// <summary>
+    /// A shore of shallows is walked on inland for dry ground this far, in steps of ShoreInlandStepM; the ground may rise ShoreInlandRiseM
+    /// from one step to the next (a slope, not a bank: a standable slope rises no more than a step is long).
+    /// </summary>
+    private const float ShoreInlandM = 2.0f;
+    private const float ShoreInlandStepM = 0.04f;
+    private const float ShoreInlandRiseM = 0.05f;
 
     /// <summary>
-    /// The velocity of an empty swimmer at the surface: toward the nearest shore at ShoreDriftMps, across the water and nothing else.
-    /// Shore is a place the swimmer can stand without climbing: water shallower than a swimmer floats in, or dry ground no higher than
-    /// the water's rim (a steep bank is no shore, since the grip fails). Where none is in sight, the sea's nearest beach.
+    /// The ground a shore return goes back to lies at least this far above the water (a few millimetres, so that standing there
+    /// again is dry whichever way the water's edge is read, and the body is put down on the very spot it left).
     /// </summary>
-    private Vector3 ShoreDrift(Vector3 feet)
+    public const float ShoreEntryClearM = 0.006f;
+
+    /// <summary>
+    /// Called once a tick, right after the water is read at the body's place: the spot a swimmer will be taken back to is the last
+    /// one it stood on, dry.
+    /// </summary>
+    private void RememberShoreEntry()
     {
-        // A drift that did not go on from the last tick is a new one: look again from the start.
-        if (_bodyTick > _shoreTick + 1)
-        {
-            ShoreHeading = Vector3.Zero;
-            _shoreRing = 0;
-        }
-        _shoreTick = _bodyTick;
-        ShoreDriftTicks++;
-        LookForShore(feet);
-        return ShoreHeading * ShoreDriftMps;
+        if (Floats || _swimming || _climbing || GoingHome || !IsOnFloor()) return;
+        if (Water.Wet && Water.Under(GlobalPosition) > -ShoreEntryClearM) return;
+        ShoreEntry = GlobalPosition;
     }
 
-    private void LookForShore(Vector3 feet)
+    /// <summary>
+    /// The gate says empty while the body swims in deep water (at the surface or under it): the way home's fade begins, to the shore
+    /// instead of the jetty. Refused while a fade is already on its way (B, the far net, or this).
+    /// </summary>
+    private void BeginShoreReturn()
+    {
+        if (GoingHome) return;
+        BeginHome();
+        _shoreTrip = true;
+        LastShoreReturnFrom = GlobalPosition;
+    }
+
+    /// <summary>
+    /// The shore return at the fade's darkest: where the body went in if that ground is still there and dry (LandAt), else the
+    /// nearest shore a swimmer could stand on (dry ground when some lies inland of it), else the sea's nearest beach, else the
+    /// start, else the last safe footing. Standing, facing inland, its velocity cleared; the Gubble comes too.
+    /// </summary>
+    private void ArriveAtShore()
+    {
+        var here = GlobalPosition;
+        LastShoreReturnFrom = here;
+        LastHome = "";
+        var how = "";
+        if (ShoreEntry is { } entry)
+        {
+            // Facing the way it came from the water: away from the sea, as a trip home faces inland.
+            var inland = Flat(entry - here);
+            if (inland == Vector3.Zero) inland = Flat(-GlobalBasis.Z);
+            if (LandAt(entry, inland, "shore")) how = "entry";
+        }
+        if (how == "" && FindNearestShore(here, out var spot, out var heading) && StandAtShore(spot, heading))
+        {
+            LastHome = "shore";
+            how = "nearest";
+        }
+        if (how == "") how = LandAtBeachOrStart(new Vector2(here.X, here.Z));
+        if (how == "")
+        {
+            Recover();
+            how = "recovered";
+        }
+        // The HUD's words for a return to the water's edge; the start and a recovery keep theirs.
+        if (how == "beach") LastHome = "shore";
+        LastShoreReturn = how;
+        Velocity = Vector3.Zero;
+        ClearCreationMotion();
+        ShoreReturns++;
+        WentHome?.Invoke(this);
+    }
+
+    /// <summary>
+    /// The nearest place a swimmer could stand without climbing, in widening rings of sight round it (StandableShore), and the
+    /// heading from the swimmer to it. False when none lies within the last ring.
+    /// </summary>
+    private bool FindNearestShore(Vector3 feet, out Vector3 spot, out Vector3 heading)
     {
         var space = GetWorld3D().DirectSpaceState;
-        var radius = ShoreRingM(_shoreRing);
-        Vector3? best = null;
-        var bestAlignment = -2f;
-        for (var step = 0; step < ShoreDirections; step++)
+        for (var ring = 0; ring < ShoreRings; ring++)
         {
-            var angle = Mathf.Tau * step / ShoreDirections;
-            var heading = new Vector3(Mathf.Cos(angle), 0, Mathf.Sin(angle));
-            if (!StandableShore(space, feet + heading * radius)) continue;
-            // Among the places of a ring, the heading it already had: a swimmer between two shores does not dither.
-            var alignment = ShoreHeading == Vector3.Zero ? 0 : heading.Dot(ShoreHeading);
-            if (alignment > bestAlignment) (best, bestAlignment) = (heading, alignment);
+            var radius = ShoreRingM(ring);
+            for (var step = 0; step < ShoreDirections; step++)
+            {
+                var angle = Mathf.Tau * step / ShoreDirections;
+                heading = new Vector3(Mathf.Cos(angle), 0, Mathf.Sin(angle));
+                spot = feet + heading * radius;
+                if (StandableShore(space, spot)) return true;
+            }
         }
-        if (best is { } found)
+        (spot, heading) = (feet, Vector3.Zero);
+        return false;
+    }
+
+    /// <summary>
+    /// Stand at a shore the search found: the first dry ground on the way inland from it (the heading goes on from the swimmer past the
+    /// shore, within ShoreInlandM and up no bank), else where the shallows are standable. Facing inland.
+    /// </summary>
+    private bool StandAtShore(Vector3 spot, Vector3 heading)
+    {
+        // The ground is looked for from above the water: the swimmer floats lower than a bank it is brought to.
+        var top = (Water.Wet ? Water.SurfaceY : spot.Y) + BodyHeightM * 0.6f;
+        Vector3? shallows = null;
+        Vector3? previous = null;
+        for (var step = 0; step * ShoreInlandStepM <= ShoreInlandM; step++)
         {
-            ShoreHeading = found;
-            _shoreRing = 0;
-            return;
+            var at = spot + heading * (step * ShoreInlandStepM);
+            if (!FindSupportedPosition(new Vector3(at.X, top, at.Z), out var feet)) continue;
+            if (previous is { } last && feet.Y > last.Y + ShoreInlandRiseM) break;
+            previous = feet;
+            if (DryAt(feet)) return TeleportFacing(feet, heading);
+            shallows ??= feet;
         }
-        if (++_shoreRing < ShoreRings) return;
-        // Nothing in sight: the sea's own beach, or the way to the island's middle; otherwise the swimmer holds its place.
-        _shoreRing = 0;
-        if (ShoreHeading != Vector3.Zero || Sea == null) return;
-        var here = new Vector2(feet.X, feet.Z);
-        var toward = Sea.NearestBeach(here) is { } beach ? new Vector2(beach.WashAshoreM.X, beach.WashAshoreM.Z) : Sea.MiddleM;
-        var way = toward - here;
-        if (way.LengthSquared() > 1e-6f) ShoreHeading = new Vector3(way.X, 0, way.Y).Normalized();
+        return shallows is { } wade && TeleportFacing(wade, heading);
+    }
+
+    private bool TeleportFacing(Vector3 feet, Vector3 inland)
+    {
+        if (!TryTeleportTo(feet)) return false;
+        if (inland != Vector3.Zero) Rotation = new Vector3(0, Mathf.Atan2(-inland.X, -inland.Z), 0);
+        return true;
+    }
+
+    /// <summary>Whether a body with its feet here would stand above the water (or in none).</summary>
+    private bool DryAt(Vector3 feet)
+    {
+        var space = GetWorld3D().DirectSpaceState;
+        var water = RoomWater.At(space, feet, BodyHeightM, 0.005f, GetRid());
+        if (!water.Wet && Sea != null) water = Sea.OpenWater(space, feet, BodyHeightM, 0.005f, GetRid());
+        return !water.Wet || water.Under(feet) <= 0;
     }
 
     /// <summary>Whether a swimmer carried here would find its feet and could leave the water without climbing.</summary>
