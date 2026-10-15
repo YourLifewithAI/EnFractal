@@ -1,6 +1,6 @@
 shader_type spatial;
 // Procedural grass (a prototype, branch run2/look-grass-proto; Look/GrassLook.cs builds the tufts). Each blade is a thin tapered strip:
-// UV.y is how far up it (0 root, 1 tip), UV2.x its own number. It is lit as the ground it grows from, so a meadow of blades reads as
+// UV.y is how far up it (0 root, 1 tip), UV2.x its own number, UV2.y its height (m). It is lit as the ground it grows from, so a meadow of blades reads as
 // one soft surface instead of a field of faces; it runs from a dark cool root to a light warm tip; light comes through it from
 // behind; it sways in the wind; and it takes the land's season from LandSeason's globals as the grass copies do (straw in autumn,
 // frost in winter, fresher in spring). COLOR is the copy's own tint (the copies view's instance colour). Every look number is a
@@ -26,7 +26,8 @@ uniform float patch_amount : hint_range(0.0, 1.0) = 0.22;
 uniform float ground_normal : hint_range(0.0, 1.0) = 0.85;
 uniform float backlight : hint_range(0.0, 1.0) = 0.45;
 uniform vec3 wind_axis = vec3(0.7071, 0.0, 0.7071);
-uniform float wind_m = 0.006;
+// How far a blade's tip sways in the wind, as a share of its own height.
+uniform float wind_share = 0.22;
 uniform float wind_speed = 1.3;
 uniform float gust_m = 1.6;
 
@@ -63,7 +64,7 @@ void vertex() {
 	// The wind: a slow swell over the meadow and a quicker flutter of each blade, bending it more the higher up it is.
 	float swell = sin(TIME * wind_speed + dot(origin.xz, wind_axis.xz) / gust_m) * 0.6 + value2(origin.xz / (gust_m * 2.0) + TIME * 0.15) * 0.4;
 	float flutter = sin(TIME * wind_speed * 3.1 + blade * 6.2831853) * 0.25;
-	VERTEX += wind_axis * (swell + flutter) * wind_m * along * along;
+	VERTEX += wind_axis * (swell + flutter) * wind_share * UV2.y * along * along;
 	// Lit as the ground it grows from.
 	NORMAL = normalize(mix(NORMAL, vec3(0.0, 1.0, 0.0), ground_normal));
 }
@@ -74,7 +75,7 @@ void fragment() {
 	vec3 color = mix(root_color, middle_color, smoothstep(0.0, tip_start, along));
 	color = mix(color, tip_color, smoothstep(tip_start, 1.0, along));
 	// The copy's tint, a blade's own small shift, and broad patches of yellow-green and blue-green across the meadow.
-	color *= COLOR.rgb * (0.92 + 0.16 * blade);
+	color *= COLOR.rgb * (0.95 + 0.1 * blade);
 	float meadow_patch = value2(at_xz / patch_m) - 0.5;
 	color *= vec3(1.0) + patch_amount * meadow_patch * vec3(0.9, 0.15, -1.2);
 	// The season, as grass takes it: fresh in spring, toward straw in autumn and winter, frost on what faces the sky.

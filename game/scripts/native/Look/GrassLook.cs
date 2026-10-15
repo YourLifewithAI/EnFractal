@@ -23,37 +23,40 @@ public static class GrassLook
     public static class Tuning
     {
         /// <summary>Blades in a tuft, by the band's mesh: the finest first (the copies' near band, to 8 m), the lightest last (to 40 m).</summary>
-        public static readonly int[] Blades = { 36, 18, 10, 7 };
-        /// <summary>Rows along a blade, by the band's mesh: 3 rows and a tip make 5 triangles; 1 row and a tip, one.</summary>
-        public static readonly int[] Rows = { 3, 2, 2, 1 };
-        /// <summary>How far from the tuft's centre a blade grows (m): the kit's tuft is 14 cm across.</summary>
-        public const float RootRadiusM = 0.07f;
-        /// <summary>A blade's height (m), from the shortest to the tallest: a little over the kit's 3 cm, a meadow for a 10 cm body.</summary>
-        public const float MinHeightM = 0.022f, MaxHeightM = 0.052f;
+        public static readonly int[] Blades = { 128, 48, 20, 10 };
+        /// <summary>Rows along a blade, by the band's mesh: 2 rows and a tip make 3 triangles; 1 row and a tip, one.</summary>
+        public static readonly int[] Rows = { 2, 2, 1, 1 };
+        /// <summary>How far from the tuft's centre a blade grows (m): wider than the kit's 14 cm tuft, so neighbouring tufts overlap into a carpet.</summary>
+        public const float RootRadiusM = 0.1f;
+        /// <summary>
+        /// A blade's height (m), from the shortest to the tallest: knee-high on the 10 cm body, a meadow like Breath of the Wild's (the
+        /// founder, 15 October). The copies scale it by about 1.1 (from 0.85 to 1.5), so most blades stand 1 to 2 cm.
+        /// </summary>
+        public const float MinHeightM = 0.009f, MaxHeightM = 0.016f;
         /// <summary>A blade's width at its root (m).</summary>
-        public const float MinWidthM = 0.0028f, MaxWidthM = 0.0052f;
+        public const float MinWidthM = 0.0024f, MaxWidthM = 0.0042f;
         /// <summary>How far a blade's tip leans, as a share of its height; and how much the lean points away from the tuft's centre.</summary>
-        public const float MinLean = 0.15f, MaxLean = 0.6f, Outward = 0.65f;
+        public const float MinLean = 0.2f, MaxLean = 0.7f, Outward = 0.6f;
 
         /// <summary>The blade's colour from its root (in the tuft's shade) to its tip in the light (linear albedo).</summary>
-        public static readonly Color Root = new(0.13f, 0.28f, 0.075f);
-        public static readonly Color Middle = new(0.25f, 0.48f, 0.115f);
-        public static readonly Color Tip = new(0.56f, 0.72f, 0.25f);
+        public static readonly Color Root = new(0.2f, 0.38f, 0.1f);
+        public static readonly Color Middle = new(0.31f, 0.54f, 0.14f);
+        public static readonly Color Tip = new(0.62f, 0.76f, 0.32f);
         /// <summary>How dark a blade's root stays in the tuft's own shade (ambient occlusion: 1 none).</summary>
-        public const float RootShade = 0.8f;
+        public const float RootShade = 0.9f;
         /// <summary>The meadow floor's colour as it reads under the light (linear): far blades fade toward it, from FadeStartM to FadeEndM.</summary>
-        public static readonly Color Ground = new(0.24f, 0.46f, 0.11f);
-        public const float FadeStartM = 3f, FadeEndM = 18f, FadeAmount = 0.75f;
+        public static readonly Color Ground = new(0.28f, 0.5f, 0.13f);
+        public const float FadeStartM = 2f, FadeEndM = 12f, FadeAmount = 0.7f;
         /// <summary>Where along the blade the tip's colour starts.</summary>
         public const float TipStart = 0.5f;
         /// <summary>Broad patches across the meadow (m across), and how far they push the colour toward yellow-green or blue-green.</summary>
-        public const float PatchM = 2.2f, PatchAmount = 0.22f;
+        public const float PatchM = 2.2f, PatchAmount = 0.18f;
         /// <summary>How much a blade is lit as the ground it grows from (1) rather than as its own flat face (0).</summary>
-        public const float GroundNormal = 0.85f;
+        public const float GroundNormal = 0.95f;
         /// <summary>Light through the blades from behind, as a share of their colour.</summary>
-        public const float Backlight = 0.45f;
-        /// <summary>The wind: how far the tip of a 5 cm blade sways (m), how fast, over how long a gust (m).</summary>
-        public const float WindM = 0.006f, WindSpeed = 1.3f, GustM = 1.6f;
+        public const float Backlight = 0.5f;
+        /// <summary>The wind: how far a blade's tip sways, as a share of its height; how fast; over how long a gust (m).</summary>
+        public const float WindShare = 0.22f, WindSpeed = 1.3f, GustM = 1.6f;
     }
 
     public const string ShaderPath = "res://shaders/grass_blades.gdshader";
@@ -167,7 +170,7 @@ public static class GrassLook
         material.SetShaderParameter("ground_normal", Tuning.GroundNormal);
         material.SetShaderParameter("backlight", Tuning.Backlight);
         material.SetShaderParameter("wind_axis", new Vector3(0.7071f, 0f, 0.7071f));
-        material.SetShaderParameter("wind_m", Tuning.WindM);
+        material.SetShaderParameter("wind_share", Tuning.WindShare);
         material.SetShaderParameter("wind_speed", Tuning.WindSpeed);
         material.SetShaderParameter("gust_m", Tuning.GustM);
         return _material = material;
