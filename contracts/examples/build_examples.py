@@ -1005,6 +1005,7 @@ def build_teams(out: Path, at: str) -> None:
         "team_trust_as_words": {**team, "trust": {"count": 0, "words": "The player trusts me completely"}},
         "team_rank_kept_at_one": {**team, "knacks": {**team["knacks"], "earned": {"high_hop": 1}}},
         "team_named_for_a_device": {**team, "team_id": "nul"},
+        "team_rank_set_aside_for_a_slotted_knack": {**team, "knacks": {**team["knacks"], "earned": {team["knacks"]["chosen"][0]["knack"]: 2}}},
         "vitals_past_thirty_hearts": {**vitals, "vitals": {**vitals["vitals"], "max_health": 721}},
         "vitals_above_their_maximum": {**vitals, "vitals": {**vitals["vitals"], "health": 130}},
         "vitals_fractals_never_found": {**vitals, "vitals": {**vitals["vitals"], "fractals": {"found": 2, "unspent": 3, "hearts": 0, "bands": 0}}},

@@ -228,7 +228,6 @@ public sealed class LocalPlayerVitalsStore : IPlayerVitalsStore
     public const int Version = 2;
     public const int MaxBytes = 64 * 1024;
     public const string LocalTeamId = "local";
-    private static readonly Regex TeamIdPattern = new(@"\A[a-z][a-z0-9_-]{0,63}\z", RegexOptions.Compiled);
     private static readonly Regex UtcPattern = new(@"\A[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,6})?Z\z", RegexOptions.Compiled);
     private readonly string _root;
     private readonly string? _legacyPath;
@@ -251,7 +250,7 @@ public sealed class LocalPlayerVitalsStore : IPlayerVitalsStore
         {
             _root = team;
             _legacyPath = null;
-            _teamId = TeamIdPattern.IsMatch(Path.GetFileName(team)) ? Path.GetFileName(team) : LocalTeamId;
+            _teamId = Saves.TeamLayout.ValidTeamId(Path.GetFileName(team)) ? Path.GetFileName(team) : LocalTeamId;
         }
         else
         {
@@ -371,7 +370,7 @@ public sealed class LocalPlayerVitalsStore : IPlayerVitalsStore
     /// <summary>One mode's document, version 2, as it is written: compact JSON and a final newline.</summary>
     public static byte[] SerializeMode(string teamId, string mode, DateTime writtenUtc, PlayerVitals vitals)
     {
-        if (!TeamIdPattern.IsMatch(teamId) || !PlayerModesProfile.ValidMode(mode)) throw new PlayerVitalsException("Player traits name an invalid team or mode.");
+        if (!Saves.TeamLayout.ValidTeamId(teamId) || !PlayerModesProfile.ValidMode(mode)) throw new PlayerVitalsException("Player traits name an invalid team or mode.");
         var fractals = new Dictionary<string, object>
         {
             ["found"] = vitals.Fractals.Found, ["unspent"] = vitals.Fractals.Unspent, ["hearts"] = vitals.Fractals.Hearts, ["bands"] = vitals.Fractals.Bands,
@@ -407,7 +406,7 @@ public sealed class LocalPlayerVitalsStore : IPlayerVitalsStore
             var team = root.GetProperty("team_id").GetString() ?? "";
             var mode = root.GetProperty("mode").GetString() ?? "";
             var at = root.GetProperty("written_utc").GetString() ?? "";
-            if (!TeamIdPattern.IsMatch(team) || !PlayerModesProfile.ValidMode(mode) || !UtcPattern.IsMatch(at) ||
+            if (!Saves.TeamLayout.ValidTeamId(team) || !PlayerModesProfile.ValidMode(mode) || !UtcPattern.IsMatch(at) ||
                 !DateTime.TryParse(at, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var written))
                 throw new PlayerVitalsException("Player traits name an invalid team, mode or time.");
             var value = root.GetProperty("vitals");

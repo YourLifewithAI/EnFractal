@@ -1738,6 +1738,7 @@ TEAM_FAILURES = {
     "team_trust_as_words": "('words' was unexpected)",
     "team_rank_kept_at_one": "$.knacks.earned.high_hop: 1 is less than the minimum of 2",
     "team_named_for_a_device": "$.team_id: 'nul' does not match",
+    "team_rank_set_aside_for_a_slotted_knack": "knacks.earned keeps a rank for",
     "vitals_past_thirty_hearts": "721 is greater than the maximum of 720",
     "vitals_above_their_maximum": "health 130 is above max_health 120",
     "vitals_fractals_never_found": "3 Fractals in hand but only 2 found",
