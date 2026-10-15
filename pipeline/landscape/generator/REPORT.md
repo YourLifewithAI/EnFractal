@@ -55,8 +55,8 @@ most 3.7 m (bands up to 7, not 8): a change to the geology, not made here.
 | by where they rest | steps 8, corners 5, ladders 7, shortcuts 2, summit 1, high 1 | steps 8, corners 5, ladders 7, shortcuts 2, **stair 2, summit 1, high 3** |
 | the summit | a corridor through the couch, 6 ledges, bands 1 to 5, 7.62 m, its top reached from band 5 | the same corridor and **a stair of 3 ledges (bands 6, 7, 8)** on the couch's crest, 15.96 m above its foot; the top ledge needs band 8 and is reached from band 8 (one knack 7, the pair 6); `x_summit` centre (-13.42, 17.03, -30.92), radius 1.5 m (the top bench is 1.6 by 2.0 m), `top_band` 8 |
 | benches and routes | 23 in 13, 22 proved | 26 in 14, 25 proved (the one not as built is as before: the corridor's fifth ledge, which the couch's seat terrace offers a way round) |
-| the strict walk's reach | 832 m2 | 805 m2 on the written package (820 m2 on the feet alone and 879 with the climbs the generator's rule knows, as the packet counts them) |
-| generation | stage lines: 63.1 s to the Fractals, 160.6 s to their reach, 204.1 s written | the Fractals' two stages cost 3.1 and 3.3 s (against 3.2 and 2.8), nothing else moved: the same |
+| the strict walk's reach | 832 m2 (21 %) | 829 m2 (21 %) on the written package (845 m2 on the feet alone, 906 with the climbs the generator's rule knows, as the packet counts them): the follow-up leaves the walk's reach as it was |
+| generation (back to back on a quiet machine) | 267.8 s (stage lines: 60.7 s to the Fractals, 143.8 s to their reach, 179.6 s written) | 275.7 s and 278.6 s (two runs; 60.8 s, 151.0 s, 186.2 s): 8 to 11 s more, 3 to 4 percent, about 4.6 minutes. The Fractals' stages cost 3.1 and 3.0 s (against 3.1 and 2.4); the rest is the planting round the stair. The runner's fixture build: 283.6 s generated, 36.6 s exported |
 | checks | `overall` true | `overall` true (water, grounded, walk, footprints, sea, Fractals; the climb principle is reported beside it, as before) |
 
 **Where the 13 out-of-reach Fractals rest.** The gated ones lie where a gate can be proved, on ground the strict walk stands on: the two
@@ -73,9 +73,9 @@ Measured with `coverage.py` on the written 10x garage (the walkable floor's dry 
 
 | walk from the player's spawn | m2 | share |
 |---|---|---|
-| **strict** (20 degrees, 2 cm steps, dry, an 11 cm lane clear of every trunk and stone): what every claim is proved on | 805 | 20 % |
+| **strict** (20 degrees, 2 cm steps, dry, an 11 cm lane clear of every trunk and stone): what every claim is proved on | 829 | 21 % |
 | strict, no planting | 1,102 | 28 % |
-| the body's limits: 45 degrees, 4 cm steps, the planting in the way | 1,922 | 48 % |
+| the body's limits: 45 degrees, 4 cm steps, the planting in the way | 1,929 | 48 % |
 | the body's limits, no planting, no water in the way | 2,607 | 65 % |
 | the body's walk and its climbs (every face over 45 degrees a bar of the band climbs), the base bar | 2,758 | 69 % (2,622 of it from band 1; the strongest pair 2,850) |
 
@@ -90,14 +90,14 @@ gives the hamlet's site up when it cannot). The island's real shape does the res
    the generator's climb rule does not see it either (it grabs faces over 55 degrees), though the game's body does: `SmallPlayerController.Climbable`
    is any face steeper than the 45 degrees it stands on, so this scarp is a band-1 climb in the game and no climb to the generator. It is why the
    walked region is the north, bounded by the straight line at z = -3 m from the west coast to the middle (and by the next scarp at z = 6 m east of it).
-2. **The planting** costs 27 percent of what is left (1,102 to 805 m2): it keeps lanes only to the goals it knows (the hamlet, the shore, each
+2. **The planting** costs 25 percent of what is left (1,102 to 829 m2): it keeps lanes only to the goals it knows (the hamlet, the shore, each
    flight's foot), and the south is thicket (16 to 290 m2 pockets when the strict walk is flooded from a seed there).
 3. The body's slope limit (45 against 20 degrees) is the rest: with it and the planting the body walks 48 percent, without the planting 65.
 
 **A fix is not small, and the Fractals do not wait on it:** the first-run fifteen are proved on the strict walk and lie where it stands, the gated
 ones can only be proved on ground it stands on, and the lift places and the summit's stair do not depend on it. **Proposals, with the numbers:**
 - *Count the 45 to 55 degree faces as climbs in the generator's reach* (`reach.ClimbReach(face_deg=45)`, built and measured here, not switched on):
-  the base bar then reaches 2,622 m2 on band 1 (66 percent) and 2,758 with every band's climbs (69), against 805 (20). It would let the flights, the
+  the base bar then reaches 2,622 m2 on band 1 (66 percent) and 2,758 with every band's climbs (69), against 829 (21). It would let the flights, the
   first-run Fractals and the leads spread over the whole island, each proved from where it stands. The cost is a second model of the body in the
   generator (the strict one stays for the principle checks) and tens of seconds of generation (33 s for the flood and 5 s for the climbs in the
   measurement above, cold); a scarp whose toe eases in over more than the 5 cm the foot rule reads is also missed and needs teaching.
@@ -115,6 +115,14 @@ ones can only be proved on ground it stands on, and the lift places and the summ
   shelf's crest and the table's top (5.59 m) and lose the bin's.
 - The walk's coverage: which proposal, if any.
 - The `contracts/examples` invalid case `rules_fractal_budget_upside_down` now breaks both bounds (`budget_min` 30 above `budget_max` 25): with a ceiling of 30 its old mutation, `budget_min` 30, is valid. One line of `build_examples.py` beyond the grant's `fractals` entry.
+
+```
+python -B -m pipeline.landscape.generator.generate --room pipeline/landscape/corpus/rooms/garage_nominal --world-scale 10 --tutorial --reach-report <report.md> --out <pkg>
+python -B -m pipeline.landscape.generator.checks --package <pkg> --room pipeline/landscape/corpus/rooms/garage_nominal --world-scale 10
+python -B -m pipeline.landscape.generator.coverage --package <pkg> --room pipeline/landscape/corpus/rooms/garage_nominal --world-scale 10
+python -B -m unittest pipeline.landscape.generator.tests.test_fractals -v     # alone: it shares the 1x garage with test_generator, whose teardown removes it
+python -B -S -m unittest pipeline.landscape.export.tests.test_fractals -v
+```
 
 ## Fractals and the ladder of gates (the first build: Run 2 mechanics round, packet M4, 15 October morning; the follow-up above supersedes the garage's counts and the summit's)
 
