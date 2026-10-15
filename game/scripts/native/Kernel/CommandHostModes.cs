@@ -20,7 +20,11 @@ public readonly record struct PlayerHarm(float Before, float After, bool Recover
 /// </summary>
 public partial class CommandHost
 {
-    public static string DefaultPlayerVitalsPath { get; set; } = LocalPlayerVitalsStore.DefaultUserPath;
+    /// <summary>
+    /// The vitals store's place (M3): a team's &lt;team&gt;/modes/&lt;mode&gt;/vitals.json names the team folder, whose every mode has its
+    /// document. The default team's until the boot (Saves/TeamBoot.cs) points it at the team it plays; fixtures redirect it first.
+    /// </summary>
+    public static string DefaultPlayerVitalsPath { get; set; } = Saves.TeamLayout.UserVitalsPath(Saves.TeamLayout.DefaultTeamId, "creative");
     public string Mode => _playerModes.Mode;
     public PlayerVitals Vitals => _playerModes.Current;
     public string VitalsNotice { get; private set; } = "";

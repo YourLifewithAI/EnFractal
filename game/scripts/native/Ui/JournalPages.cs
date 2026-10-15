@@ -146,7 +146,7 @@ public static class JournalPages
     {
         var limit = host.EffectiveEffectLimit("glow");
         yield return Text(limit > 0 ? $"Glow can hold {limit} {(limit == 1 ? "light" : "lights")} at a time." : "Glow is not available on this island.");
-        yield return Faint($"What we learned in {ModeWords(host.Mode)} mode; each mode keeps its own.");
+        yield return Faint("What we learned together; it comes with us into every mode.");
         var progress = host.GlowProgress;
         if (progress.Discoveries.Count == 0) yield return Text($"Your Glow {MeterWords.Name(host, "expertise").ToLowerInvariant()} will appear here.");
         foreach (var (id, title, words) in GlowDiscoveries)

@@ -1,0 +1,524 @@
+using Godot;
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
+using System.Linq;
+using System.Text;
+using System.Text.Json.Nodes;
+using System.Threading.Tasks;
+using EnFractal.Native;
+using EnFractal.Native.Kernel;
+using EnFractal.Native.Saves;
+
+namespace EnFractal.Tests;
+
+/// <summary>
+/// Teams and save paths (docs/runs/RUN-2-MECHANICS.md, packet M3; docs/game/MECHANICS.md sections 2, 3, 7 and 12): the team folder
+/// and its layout, the team file, the expertise store's version 3 and the union of the per-mode Glow records, the migration of the
+/// saves from before teams (write, verify, and remove the old files only on a later launch; nothing overwritten; nothing removed that
+/// changed or whose copy does not read), and the game's boot: --team=, --mode= and --difficulty= honoured, the mode fixed once the
+/// room is up (world.set_mode refused, Live refused), the island save's team block keeping its difficulty, and the player's knack.set
+/// (an open slot, a knack the pack offers, only at the camp) reaching the body through the team file.
+/// Headless, --fixed-fps 60. Run: res://tests/native_team_saves.tscn. Its files go under user://tests/team_saves (the runner's user
+/// folder). "-- --migrate-copy=&lt;folder&gt;" instead runs one launch's migration on a copy of a user folder and reports it.
+/// </summary>
+public partial class TeamSavesTest : Node3D
+{
+    private const string Root = "user://tests/team_saves";
+    private int _checks;
+    private int _failures;
+
+    public override async void _Ready()
+    {
+        try
+        {
+            if (OS.GetCmdlineUserArgs().FirstOrDefault(a => a.StartsWith("--migrate-copy=", StringComparison.Ordinal)) is { } copy)
+            {
+                MigrateCopy(copy["--migrate-copy=".Length..]);
+                GetTree().Quit(_failures == 0 ? 0 : 1);
+                return;
+            }
+            var root = ProjectSettings.GlobalizePath(Root);
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+            TestLayout();
+            TestTeamFile();
+            TestExpertiseStore();
+            TestMigration();
+            TestMigrationKeepsWhatItShould();
+            await TestTheGameBoot();
+            await TestAFixtureBootIsAsBefore();
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GD.Print($"NATIVE_TEAM_SAVES: {_checks - _failures}/{_checks} checks passed; the team folder and its layout (two teams never share a file), the team file, the expertise store's version 3 and the union of the per-mode Glow records, the migration (written and verified, the old files removed only on a later launch, never one that changed or whose copy does not read, never over a team's own file), the boot's team, mode and difficulty, world.set_mode and Live refused once the room is up, the save keeping its difficulty, and knack.set at the camp reaching the body; not the menu");
+            GetTree().Quit(_failures == 0 ? 0 : 1);
+        }
+        catch (Exception error)
+        {
+            GD.Print("FAIL the suite threw: " + error);
+            GetTree().Quit(1);
+        }
+    }
+
+    private void Check(bool condition, string label)
+    {
+        _checks++;
+        if (condition) return;
+        _failures++;
+        GD.Print("FAIL " + label);
+    }
+
+    private Task Frames(int count)
+    {
+        var source = new TaskCompletionSource();
+        var remaining = count;
+        void Step()
+        {
+            if (--remaining > 0) return;
+            GetTree().PhysicsFrame -= Step;
+            source.SetResult();
+        }
+        GetTree().PhysicsFrame += Step;
+        return source.Task;
+    }
+
+    private static string Folder(string name)
+    {
+        var path = ProjectSettings.GlobalizePath($"{Root}/{name}");
+        if (Directory.Exists(path)) Directory.Delete(path, recursive: true);
+        Directory.CreateDirectory(path);
+        return path;
+    }
+
+    private static void Write(string path, string text)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllBytes(path, new UTF8Encoding(false).GetBytes(text));
+    }
+
+    private static Dictionary<string, string> Hashes(string root) =>
+        Directory.Exists(root) ? Directory.GetFiles(root, "*", SearchOption.AllDirectories).ToDictionary(f => f, f => SaveMigration.Sha256(File.ReadAllBytes(f))) : new();
+
+    // ---- the layout: one folder a team, never another's ----
+
+    private void TestLayout()
+    {
+        var layout = new TeamLayout(Folder("layout"));
+        Check(layout.Relative(layout.TeamFile("mira")) == "teams/mira/team.json" && layout.Relative(layout.ExpertiseFile("mira")) == "teams/mira/expertise.json" &&
+              layout.Relative(layout.VitalsFile("mira", "challenge")) == "teams/mira/modes/challenge/vitals.json" &&
+              layout.Relative(layout.IslandSave("mira", "creative", "landscape_garage_nominal", "2ef6bc0eb7a1e5d4")) == "teams/mira/modes/creative/islands/landscape_garage_nominal/2ef6bc0eb7a1e5d4/inventions.json",
+            "the layout is the contract's: team.json, expertise.json, modes/<mode>/vitals.json, modes/<mode>/islands/<room>/<manifest prefix>/inventions.json");
+        Check(TeamLayout.UserVitalsPath("mira", "creative") == "user://teams/mira/modes/creative/vitals.json" && TeamLayout.UserExpertisePath("mira") == "user://teams/mira/expertise.json" &&
+              TeamLayout.UserIslandsRoot("mira", "challenge") == "user://teams/mira/modes/challenge/islands", "and in Godot's spelling for the host's statics");
+        // Two teams never share a file: every path of one is under its own folder and none is the other's.
+        var paths = new Func<string, IEnumerable<string>>(team => new[] { layout.TeamFile(team), layout.ExpertiseFile(team) }
+            .Concat(TeamLayout.Modes.SelectMany(m => new[] { layout.VitalsFile(team, m), layout.IslandSave(team, m, "garage", "0123456789abcdef") })));
+        var a = paths("mira").ToList();
+        var b = paths("theo").ToList();
+        Check(a.All(p => p.StartsWith(layout.TeamFolder("mira") + Path.DirectorySeparatorChar, StringComparison.Ordinal)) &&
+              b.All(p => p.StartsWith(layout.TeamFolder("theo") + Path.DirectorySeparatorChar, StringComparison.Ordinal)) && !a.Intersect(b).Any() &&
+              !layout.TeamFolder("mira").StartsWith(layout.TeamFolder("theo"), StringComparison.Ordinal), "two teams never share a file: each one's files are under its own folder");
+        Check(new TeamLayout(layout.Root + "/").Root == layout.Root && new TeamLayout(layout.Root + "/").TeamFile("mira") == layout.TeamFile("mira"),
+            "a user folder named with a final separator (user:// globalized) is the same folder");
+        Check(!TeamLayout.ValidTeamId("Mira") && !TeamLayout.ValidTeamId("../x") && !TeamLayout.ValidTeamId("") && TeamLayout.ValidTeamId("boot_probe"),
+            "a team id is a lowercase token, never a path");
+        var refused = 0;
+        foreach (var bad in new[] { "../local", "a/b", "" }) try { layout.TeamFolder(bad); } catch (ArgumentException) { refused++; }
+        Check(refused == 3, "a path is never made from a team id that is not one");
+    }
+
+    // ---- the team file ----
+
+    private void TestTeamFile()
+    {
+        var made = new DateTime(2026, 10, 14, 18, 0, 0, DateTimeKind.Utc);
+        var team = TeamFile.Create("example_team", made, "Mira", "stickbear", "Wisp", "#65b9b0");
+        var bytes = team.Serialize();
+        var back = TeamFile.Parse(bytes);
+        Check(back == team with { Knacks = back.Knacks } && back.Knacks.Count == 0 && back.SlotsOpen == 1 && back.Trust == 0 && bytes[^1] == '\n' && !bytes.Contains((byte)'\r'),
+            "a new team: one slot open, no knack, Trust at base (a field, unused yet); it reads back as written, LF-terminated");
+        var text = Encoding.UTF8.GetString(bytes);
+        Check(text.StartsWith("{\"schema\":\"enfractal.team\",\"version\":1,\"team_id\":\"example_team\"", StringComparison.Ordinal) && text.Contains("\"trust\":{\"count\":0}", StringComparison.Ordinal),
+            "the team file is enfractal.team version 1 with its Trust: " + text.Trim());
+        var refused = new[]
+        {
+            text.Replace("\"version\":1", "\"version\":2", StringComparison.Ordinal),
+            text.Replace("\"schema\":", "\"let_my_ai_see\":true,\"schema\":", StringComparison.Ordinal),
+            text.Replace("\"slots_open\":1", "\"slots_open\":4", StringComparison.Ordinal),
+            text.Replace("\"Mira\"", "\"Mi\\u200bra\"", StringComparison.Ordinal),
+            text.Replace("\"team_id\":\"example_team\"", "\"team_id\":\"../x\"", StringComparison.Ordinal),
+            text.Replace("\"count\":0", "\"count\":0,\"count\":5", StringComparison.Ordinal),
+        }.Count(t => Refuses(() => TeamFile.Parse(Encoding.UTF8.GetBytes(t))));
+        Check(refused == 6, $"the team file is read strictly: another version, a field it does not have (a machine switch among them), a fourth slot, a hidden character, a path for an id, a duplicate key ({refused}/6 refused)");
+        var pack = IslandRules.Parse(File.ReadAllBytes(ProjectSettings.GlobalizePath(IslandRules.PathFor(RoomWorld.DefaultRulesId, RoomWorld.DefaultRulesVersion))));
+        var table = pack.Knacks;
+        var quick = team.WithKnack(1, "quick_feet", table);
+        Check(quick.Knacks.Single() == new ChosenKnack(1, "quick_feet", 1) && ReferenceEquals(quick.WithKnack(1, "quick_feet", table), quick),
+            "a knack chosen starts at rank 1; the same knack in the same slot changes nothing");
+        var ranked = quick with { Knacks = new[] { new ChosenKnack(1, "quick_feet", 3) } };
+        Check(ranked.WithKnack(1, "quick_feet", table).Knacks.Single().Rank == 3 && ranked.WithKnack(1, "high_hop", table).Knacks.Single() == new ChosenKnack(1, "high_hop", 1),
+            "a rank is earned, never set: the knack kept keeps it, a new one starts at 1");
+        Check(Refuses(() => team.WithKnack(2, "high_hop", table)) && Refuses(() => team.WithKnack(1, "handy", table)) && Refuses(() => team.WithKnack(1, "reach", table)) &&
+              Refuses(() => team.WithKnack(1, "quick_feet", null)) && Refuses(() => (quick with { SlotsOpen = 2 }).WithKnack(2, "quick_feet", table)),
+            "knack.set's rules: only an open slot, only a knack the pack offers (Handy waits for Build), never one knack in two slots");
+        var miraPath = Path.Combine(Folder("team_file"), "teams", "mira", "team.json");
+        var store = new TeamStore(miraPath, "mira");
+        Check(store.Load() == null && !store.Exists, "a team with no file loads none and writes nothing");
+        var mira = TeamFile.Create("mira", made, "Mira", "prototype", "the Gubble", "#75965c");
+        store.Save(mira);
+        var other = new TeamStore(miraPath, "mira");
+        Check(other.Load()!.Serialize().SequenceEqual(mira.Serialize()), "the team file is written and read back whole");
+        store.Save(mira.WithKnack(1, "cat_feet", table));
+        Check(Refuses(() => other.Save(mira.WithKnack(1, "big_bar", table))) && store.Load()!.Knacks.Single().Knack == "cat_feet",
+            "a store that read an older team file never overwrites a newer one (another session)");
+        Check(Refuses(() => new TeamStore(miraPath, "theo").Load()), "a team file filed under another team's name is refused, never adopted");
+    }
+
+    private static bool Refuses(Action action)
+    {
+        try { action(); return false; }
+        catch (TeamFileException) { return true; }
+        catch (GlowProgressException) { return true; }
+        catch (PlayerVitalsException) { return true; }
+    }
+
+    // ---- the expertise store: version 3, the union ----
+
+    private static GlowProgress CreativeGlow => GlowProgress.Restore(18, new[] { "lantern", "torch", "bioluminesce", "constellation" }, new[] { "bioluminesce_water" }, "plain", 0.35, false);
+    private static GlowProgress ChallengeGlow => GlowProgress.Restore(12, new[] { "lantern", "skylight" }, new[] { "lantern_self" }, "ember", 0.8, true);
+    private const string CreativeGlowV2 = "{\"schema\":\"enfractal.glow_progress\",\"version\":2,\"successful_casts\":18,\"discoveries\":[\"lantern\",\"torch\",\"bioluminesce\",\"constellation\"],\"delivered_hints\":[\"bioluminesce_water\"],\"touch\":\"plain\",\"sound_volume\":0.35,\"muted\":false}\n";
+    private const string ChallengeGlowV2 = "{\"schema\":\"enfractal.glow_progress\",\"version\":2,\"successful_casts\":12,\"discoveries\":[\"lantern\",\"skylight\"],\"delivered_hints\":[\"lantern_self\"],\"touch\":\"ember\",\"sound_volume\":0.8,\"muted\":true}\n";
+
+    private void TestExpertiseStore()
+    {
+        var union = GlowProgress.Union(new[] { CreativeGlow, ChallengeGlow });
+        Check(union.SuccessfulCasts == 30 && union.Discoveries.SequenceEqual(new[] { "lantern", "torch", "bioluminesce", "constellation", "skylight" }) &&
+              union.DeliveredHints.SequenceEqual(new[] { "lantern_self", "bioluminesce_water" }) && union.SelectedTouch == "plain" && union.SoundVolume == 0.35 && !union.SoundMuted,
+            $"the per-mode Glow records merge as their union: every expertise and hint from any mode, the uses summed, Creative's touch and sound ({union.SuccessfulCasts} uses, {string.Join(",", union.Discoveries)})");
+        Check(union.ActiveLightAllowance == 5 && GlowProgress.Union(new[] { ChallengeGlow }).Same(ChallengeGlow) && GlowProgress.Union(new[] { GlowProgress.Fresh, GlowProgress.Fresh }).Same(GlowProgress.Fresh),
+            "the union of Creative's four and Challenge's Skylight is all five (five lights); one record is itself; nothing is nothing");
+        Check(Refuses(() => GlowProgress.Union(Array.Empty<GlowProgress>())), "a union of nothing is refused");
+
+        var folder = Folder("expertise");
+        var path = Path.Combine(folder, "teams", "mira", "expertise.json");
+        var store = new LocalGlowProgressStore(path);
+        Check(store.TeamId == "mira" && new LocalGlowProgressStore(Path.Combine(folder, "progress.json")).TeamId == "local", "the store's team is its folder's (a test's own path: local)");
+        store.Load();
+        store.Save(union);
+        var text = File.ReadAllText(path);
+        var document = LocalGlowProgressStore.ParseDocument(File.ReadAllBytes(path));
+        Check(document.Version == 3 && document.TeamId == "mira" && document.Progress.Same(union) &&
+              text.StartsWith("{\"schema\":\"enfractal.glow_progress\",\"version\":3,\"team_id\":\"mira\",\"abilities\":{\"glow\":{\"successful_casts\":30,", StringComparison.Ordinal),
+            "the store writes version 3, keyed by ability, naming its team: " + text.Trim());
+        Check(LocalGlowProgressStore.ParseDocument(Encoding.UTF8.GetBytes(CreativeGlowV2)) is { Version: 2, TeamId: null } v2 && v2.Progress.Same(CreativeGlow),
+            "version 2 (one file per mode) is still read, for the migration");
+        var bloom = text.Replace("\"abilities\":{", "\"abilities\":{\"bloom\":{\"successful_casts\":1,\"discoveries\":[],\"delivered_hints\":[]},", StringComparison.Ordinal);
+        Check(Refuses(() => LocalGlowProgressStore.Parse(Encoding.UTF8.GetBytes(bloom))) && Refuses(() => LocalGlowProgressStore.Parse(Encoding.UTF8.GetBytes(text.Replace("\"team_id\":\"mira\"", "\"team_id\":\"Mira\"", StringComparison.Ordinal)))),
+            "an ability this game does not learn yet (a newer save's) and a malformed team are refused whole, so a write never drops them");
+    }
+
+    // ---- the migration ----
+
+    private static readonly DateTime Earlier = new(2026, 10, 14, 19, 30, 0, 123, DateTimeKind.Utc);
+    private static readonly DateTime Now = new(2026, 10, 15, 9, 0, 0, DateTimeKind.Utc);
+
+    private static PlayerVitals ChallengeBody => PlayerVitals.Of(85, 120, 0.55f, 0.8f, new[] { new string('a', 64) }, 1, new PlayerFractals(13, 3, 1, 1), 6);
+
+    /// <summary>A user folder as it was before teams: Glow's two per-mode records, a version 2 vitals document, a version 1 file, three room saves, the machine's settings.</summary>
+    private static TeamLayout LegacyFolder(string name)
+    {
+        var layout = new TeamLayout(Folder(name));
+        Write(layout.LegacyGlow("creative"), CreativeGlowV2);
+        Write(layout.LegacyGlow("challenge"), ChallengeGlowV2);
+        Directory.CreateDirectory(Path.GetDirectoryName(layout.LegacyVitalsV2("challenge"))!);
+        File.WriteAllBytes(layout.LegacyVitalsV2("challenge"), LocalPlayerVitalsStore.SerializeMode("local", "challenge", Earlier, ChallengeBody));
+        Write(layout.LegacyVitalsV1, "{\"schema\":\"enfractal.player_modes\",\"version\":1,\"mode\":\"creative\",\"modes\":{" +
+            "\"creative\":{\"health\":100,\"stamina\":0.3,\"challenges\":[],\"recoveries\":0}," +
+            "\"challenge\":{\"health\":40,\"stamina\":0.45,\"challenges\":[],\"recoveries\":2}," +
+            "\"live\":{\"health\":100,\"stamina\":0.45,\"challenges\":[],\"recoveries\":0}}}\n");
+        Write(Path.Combine(layout.LegacyRooms, "old_room", "0123456789abcdef", "inventions.json"), "{\"schema\":\"enfractal.creation-world\",\"version\":6,\"revision\":4}\n");
+        Write(Path.Combine(layout.LegacyRooms, "old_room", "fedcba9876543210", "inventions.json"), "{\"schema\":\"enfractal.creation-world\",\"version\":6,\"revision\":9}\n");
+        Write(Path.Combine(layout.LegacyRooms, "other_room", "1111111111111111", "inventions.json"), "{\"schema\":\"enfractal.creation-world\",\"version\":5,\"revision\":1}\n");
+        Write(Path.Combine(layout.LegacyRooms, "Not A Room", "1111111111111111", "inventions.json"), "{}\n");
+        Write(layout.MachineSettingsFile, "[profile]\n\nversion=1\ncompanion_color=4\ncompanion_name=\"Wisp\"\nai_eyes=false\n");
+        return layout;
+    }
+
+    private void TestMigration()
+    {
+        var layout = LegacyFolder("migration");
+        var before = Hashes(layout.Root);
+        var first = SaveMigration.Run(layout, Now);
+        GD.Print("TEAM_SAVES_MIGRATION first launch: " + first.Line());
+        Check(first.Phase == "moved" && first.Found.Count == 7 && first.Written.Count == 6 && first.Verified == 6 && first.Kept.Count == 0 && first.Milliseconds < 2000,
+            $"the first launch finds the seven old files, writes and verifies six new ones (one expertise store, two vitals documents, three island saves): {first.Line()}");
+        var after = Hashes(layout.Root);
+        Check(before.All(p => after.TryGetValue(p.Key, out var h) && h == p.Value), "and leaves every old file as it was, byte for byte (kept until the next launch)");
+        var expertise = LocalGlowProgressStore.ParseDocument(File.ReadAllBytes(layout.ExpertiseFile("local")));
+        Check(expertise.TeamId == "local" && expertise.Progress.Same(GlowProgress.Union(new[] { CreativeGlow, ChallengeGlow })),
+            "Glow's per-mode records are one expertise store for the team: their union");
+        var challenge = LocalPlayerVitalsStore.ParseMode(File.ReadAllBytes(layout.VitalsFile("local", "challenge")));
+        var creative = LocalPlayerVitalsStore.ParseMode(File.ReadAllBytes(layout.VitalsFile("local", "creative")));
+        Check(challenge.TeamId == "local" && challenge.WrittenUtc == Earlier && challenge.Vitals.Same(ChallengeBody),
+            "a version 2 vitals document moves as it was (its time too), naming its team");
+        Check(creative.Vitals.Stamina == 0.3f && creative.Vitals.Pips == PlayerVitals.ContractMaxPips && creative.WrittenUtc == Earlier - TimeSpan.FromSeconds(1) &&
+              !File.Exists(layout.VitalsFile("local", "live")),
+            "a version 1 mode played (Creative) becomes its document with a full pool (version 1 had none), written before the newest; one never played (Live) stays fresh; one a version 2 document holds (Challenge) is that document's");
+        Check(first.IslandMode == "challenge" && File.ReadAllText(layout.IslandSave("local", "challenge", "old_room", "0123456789abcdef")).Contains("\"revision\":4", StringComparison.Ordinal) &&
+              File.ReadAllBytes(layout.IslandSave("local", "challenge", "other_room", "1111111111111111")).SequenceEqual(File.ReadAllBytes(Path.Combine(layout.LegacyRooms, "other_room", "1111111111111111", "inventions.json"))) &&
+              !Directory.Exists(Path.Combine(layout.IslandsRoot("local", "challenge"), "Not A Room")),
+            "each room save, every manifest's, becomes the island save of the mode being played (the vitals written last: Challenge), byte for byte; a folder that is no room id is left alone");
+        Check(new LocalPlayerVitalsStore(layout.VitalsFile("local", "creative")).Load().Mode == "challenge", "and the team's vitals say Challenge was played last, so the next boot opens the same island saves");
+        Check(File.Exists(layout.MigrationLedger) && File.ReadAllText(layout.MigrationLedger).Contains("\"removed_utc\"", StringComparison.Ordinal) == false, "a ledger records what moved; nothing is removed yet");
+
+        // Before the next launch: an older build writes one old file, and one copy is spoiled.
+        var changed = Path.Combine(layout.LegacyRooms, "other_room", "1111111111111111", "inventions.json");
+        Write(changed, "{\"schema\":\"enfractal.creation-world\",\"version\":6,\"revision\":2}\n");
+        File.WriteAllText(layout.IslandSave("local", "challenge", "old_room", "fedcba9876543210"), "not json");
+        // The game's user folder comes with a final separator (user:// globalized): the same folder.
+        var second = SaveMigration.Run(new TeamLayout(layout.Root + Path.DirectorySeparatorChar), Now + TimeSpan.FromHours(1));
+        GD.Print("TEAM_SAVES_MIGRATION next launch: " + second.Line() + " | kept: " + string.Join("; ", second.Kept));
+        Check(second.Phase == "removed" && second.Removed.Count == 5 && second.Kept.Count == 2,
+            $"the next launch removes the five old files whose copies read: {second.Line()}");
+        Check(!File.Exists(layout.LegacyGlow("creative")) && !File.Exists(layout.LegacyGlow("challenge")) && !File.Exists(layout.LegacyVitalsV1) &&
+              !File.Exists(layout.LegacyVitalsV2("challenge")) && !File.Exists(Path.Combine(layout.LegacyRooms, "old_room", "0123456789abcdef", "inventions.json")),
+            "the Glow records, both vitals files and the room save with a good copy are gone");
+        Check(File.Exists(changed) && File.ReadAllText(changed).Contains("\"revision\":2", StringComparison.Ordinal) &&
+              File.Exists(Path.Combine(layout.LegacyRooms, "old_room", "fedcba9876543210", "inventions.json")),
+            "an old file written since the move (an older build) is kept, and so is one whose copy no longer reads (verified before removing)");
+        Check(!Directory.Exists(Path.Combine(layout.LegacyRooms, "old_room", "0123456789abcdef")) && !Directory.Exists(Path.Combine(layout.LegacyProgression, "modes")) &&
+              File.Exists(layout.MachineSettingsFile) && File.ReadAllText(layout.MachineSettingsFile).Contains("ai_eyes=false", StringComparison.Ordinal),
+            "the folders the move emptied go; the machine's settings (\"Let my AI see\" among them) stay where they were, untouched");
+        var third = SaveMigration.Run(layout, Now + TimeSpan.FromHours(2));
+        Check(third.Phase == "done" && third.Removed.Count == 0 && File.Exists(changed), "a launch after that does nothing: the ledger is finished");
+    }
+
+    private void TestMigrationKeepsWhatItShould()
+    {
+        // The team already has its own expertise store: the old records stay, and the team's file is not overwritten.
+        var layout = LegacyFolder("occupied");
+        Write(layout.ExpertiseFile("local"), Encoding.UTF8.GetString(LocalGlowProgressStore.Serialize(GlowProgress.Fresh.AfterCast(true), "local")));
+        var mine = File.ReadAllBytes(layout.ExpertiseFile("local"));
+        var report = SaveMigration.Run(layout, Now);
+        Check(File.ReadAllBytes(layout.ExpertiseFile("local")).SequenceEqual(mine) && report.Kept.Count(k => k.Contains("the team already has", StringComparison.Ordinal)) == 2 &&
+              report.Written.Count == 5, "a team's own file is never overwritten: the old Glow records stay where they are, the rest moves");
+        SaveMigration.Run(layout, Now + TimeSpan.FromHours(1));
+        Check(File.Exists(layout.LegacyGlow("creative")) && File.Exists(layout.LegacyGlow("challenge")), "and they are never removed");
+
+        // One Glow record does not read: nothing of Glow moves (the union needs all), the rest does.
+        layout = LegacyFolder("unreadable");
+        Write(layout.LegacyGlow("challenge"), "{\"schema\":\"enfractal.glow_progress\",\"version\":9}");
+        report = SaveMigration.Run(layout, Now);
+        Check(!File.Exists(layout.ExpertiseFile("local")) && report.Kept.Count == 2 && File.Exists(layout.VitalsFile("local", "challenge")),
+            "a Glow record that does not read keeps every Glow record where it is (a partial union would lose expertise); the vitals and islands still move");
+        SaveMigration.Run(layout, Now + TimeSpan.FromHours(1));
+        Check(File.Exists(layout.LegacyGlow("creative")) && File.Exists(layout.LegacyGlow("challenge")), "and none is ever removed");
+
+        // Nothing from before teams: nothing to do, no ledger.
+        var empty = new TeamLayout(Folder("empty"));
+        report = SaveMigration.Run(empty, Now);
+        Check(report.Phase == "none" && !File.Exists(empty.MigrationLedger) && report.Milliseconds < 2000, "a user folder with nothing from before teams writes nothing");
+    }
+
+    // ---- the game's boot ----
+
+    private RoomWorld? _world;
+
+    private async Task<CommandHost?> Boot(string root, params string[] arguments)
+    {
+        TeamBoot.ForceGameBoot = true;
+        TeamBoot.UserRootOverride = $"{Root}/{Path.GetFileName(root)}";
+        TeamBoot.ArgumentsOverride = arguments;
+        TeamBoot.Clock = () => DateTime.UtcNow;
+        RoomHud.ProfilePath = Path.Combine(root, "single_player", "room", "avatar_profile_v1.cfg");
+        CommandHost.DefaultWishSaveRoot = Path.Combine(root, "wishes");
+        _world = GD.Load<PackedScene>("res://scenes/room.tscn").Instantiate<RoomWorld>();
+        AddChild(_world);
+        for (var booting = System.Diagnostics.Stopwatch.StartNew(); booting.Elapsed.TotalSeconds < 60 && !_world.WorldReady && _world.LoadError.Length == 0;) await Frames(1);
+        Check(_world.WorldReady, "the room boots: " + _world.LoadError);
+        return _world.WorldReady ? CommandHost.Of(_world) : null;
+    }
+
+    private async Task Unboot()
+    {
+        _world?.QueueFree();
+        _world = null;
+        await Frames(3);
+        TeamBoot.ForceGameBoot = false;
+        TeamBoot.ArgumentsOverride = null;
+    }
+
+    private static (bool Ok, string Code, string Path, string Message, string Allowed) Answer(JsonObject result) =>
+        (result["ok"]?.GetValue<bool>() == true, result["error"]?["code"]?.GetValue<string>() ?? "", result["error"]?["field_path"]?.GetValue<string>() ?? "",
+         result["error"]?["message"]?.GetValue<string>() ?? "", result["error"]?["allowed"]?.ToJsonString() ?? "");
+
+    private static JsonObject Companion(CommandHost host, string op, JsonObject args) => host.HandleObject(new JsonObject
+    {
+        ["schema"] = "enfractal.command", ["version"] = 1, ["action_id"] = "team-" + Guid.NewGuid().ToString("N")[..12], ["room_id"] = host.Room.RoomId, ["op"] = op, ["args"] = args,
+    }.ToJsonString(), CommandHost.CompanionPrincipal);
+
+    private async Task TestTheGameBoot()
+    {
+        var previous = (CommandHost.SaveRoot, CommandHost.DefaultGlowProgressPath, CommandHost.DefaultPlayerVitalsPath, CommandHost.DefaultWishSaveRoot, RoomHud.ProfilePath);
+        var layout = LegacyFolder("boot");
+        try
+        {
+            // The first launch: a named team in Challenge at Gentle; the saves from before teams go to the default team, never this one.
+            var host = await Boot(layout.Root, "--team=boot_team", "--mode=challenge", "--difficulty=gentle");
+            if (host == null) return;
+            Check(host.ModeFixed && host.Mode == "challenge" && host.Difficulty == "gentle" && host.SaveTeamIdentity == new SaveTeam("boot_team", "challenge", "gentle"),
+                $"the boot honours --team=, --mode= and --difficulty=: {host.SaveTeamIdentity}, mode {host.Mode}, difficulty {host.Difficulty}");
+            static string Os(string godot) => Path.GetFullPath(ProjectSettings.GlobalizePath(godot));
+            Check(Os(CommandHost.DefaultPlayerVitalsPath) == layout.VitalsFile("boot_team", "challenge") && Os(CommandHost.DefaultGlowProgressPath) == layout.ExpertiseFile("boot_team") &&
+                  Os(CommandHost.SaveRoot) == layout.IslandsRoot("boot_team", "challenge") && Os(host.SavePath).StartsWith(layout.IslandsRoot("boot_team", "challenge"), StringComparison.Ordinal) &&
+                  CommandHost.SaveRoot.StartsWith("user://", StringComparison.Ordinal),
+                "the host's stores are in the team's folder, the island save under its mode: " + layout.Relative(Os(host.SavePath)));
+            var team = new TeamStore(layout.TeamFile("boot_team"), "boot_team").Load();
+            Check(team != null && team.GubbleName == "the Gubble" && team.GubbleColour == "#75965c" && team.Costume == "prototype" && team.DisplayName == "Player" && team.Knacks.Count == 0,
+                "a new team's file is made, seeded from the machine's settings (the Gubble's name and colour; the prototype figure)");
+            Check(File.Exists(layout.ExpertiseFile("local")) && !File.Exists(layout.ExpertiseFile("boot_team")) && File.Exists(layout.LegacyGlow("creative")),
+                "the saves from before teams moved into the default team, not into the team booted, and the old files are still there");
+
+            // Once the room is up the mode is the save's: set-mode is refused, Live first, the companion before anything.
+            var again = Answer(host.PlayerMode("creative"));
+            Check(!again.Ok && again.Code == "unsupported_capability" && again.Path == "$.op" && again.Message == CommandHost.ModeAtMenu && host.Mode == "challenge",
+                $"world.set_mode once the room is up is refused at $.op, \"{again.Message}\", and the mode stays");
+            var live = Answer(host.PlayerMode("live"));
+            Check(!live.Ok && live.Code == "unsupported_capability" && live.Path == "$.args.mode" && live.Message == CommandHost.LiveNotYet && live.Allowed == "[\"creative\",\"challenge\"]",
+                $"Live is refused at $.args.mode, allowed creative and challenge: {live.Message} {live.Allowed}");
+            var asked = Answer(Companion(host, "world.set_mode", new JsonObject { ["mode"] = "creative" }));
+            Check(!asked.Ok && asked.Code == "permission_denied", "the companion is refused before anything: the mode is the player's");
+
+            // knack.set: at the camp (the spawn), an open slot, a knack the pack offers.
+            var player = _world!.Player;
+            var path = layout.TeamFile("boot_team");
+            var preview = Answer(host.PlayerSetKnack(1, "quick_feet", preview: true));
+            Check(preview.Ok && TeamFile.Parse(File.ReadAllBytes(path)).Knacks.Count == 0 && host.Knacks.Count == 0, "a knack's preview changes nothing");
+            var set = host.PlayerSetKnack(1, "quick_feet");
+            Check(Answer(set).Ok && set["transient"]?.GetValue<bool>() == true && set["data"] == null && TeamFile.Parse(File.ReadAllBytes(path)).Knacks.Single() == new ChosenKnack(1, "quick_feet", 1) &&
+                  host.Knacks.Count == 1 && host.Knacks["quick_feet"] == 1 && Mathf.IsEqualApprox(player.Knacks.WalkRunFactor, 1.1f),
+                $"at the camp the player's knack.set goes into the team file at rank 1 and reaches the body (walk x{player.Knacks.WalkRunFactor:0.00})");
+            var slot = Answer(host.PlayerSetKnack(2, "high_hop"));
+            var handy = Answer(host.PlayerSetKnack(1, "handy"));
+            var unknown = Answer(host.PlayerSetKnack(1, "reach"));
+            Check(slot is { Ok: false, Code: "invalid_args", Path: "$.args.slot" } && handy is { Ok: false, Code: "invalid_args", Path: "$.args.knack" } && unknown is { Ok: false, Code: "invalid_args", Path: "$.args.knack" },
+                "a slot not open yet, a knack whose verb does not exist yet (Handy) and no knack at all are refused");
+            var bytes = File.ReadAllBytes(path);
+            var spawn = _world.Room.SpawnFor("player").PositionM;
+            player.GlobalPosition = spawn + new Vector3(CommandHost.CampRadiusM + 0.3f, 0, 0);
+            var away = Answer(host.PlayerSetKnack(1, "high_hop"));
+            Check(!away.Ok && away.Code == "not_ready" && away.Message == CommandHost.KnackAtCamp && File.ReadAllBytes(path).SequenceEqual(bytes) && host.Knacks.ContainsKey("quick_feet"),
+                $"away from the camp a knack is not changed: \"{away.Message}\", the team file untouched");
+            player.GlobalPosition = spawn + new Vector3(0.1f, 0, 0);
+            Check(Answer(host.PlayerSetKnack(1, "high_hop")).Ok && TeamFile.Parse(File.ReadAllBytes(path)).Knacks.Single() == new ChosenKnack(1, "high_hop", 1) &&
+                  host.Knacks.Count == 1 && host.Knacks["high_hop"] == 1 && Mathf.IsEqualApprox(player.Knacks.HopFactor, 1.1f) && player.Knacks.WalkRunFactor == 1f,
+                "back at the camp the swap is free: High hop replaces Quick feet in slot 1");
+            var companion = Answer(Companion(host, "knack.set", new JsonObject { ["slot"] = 1, ["knack"] = "big_bar" }));
+            Check(!companion.Ok && companion.Code == "permission_denied" && TeamFile.Parse(File.ReadAllBytes(path)).Knacks.Single().Knack == "high_hop",
+                "the companion never sets a knack");
+            var savePath = ProjectSettings.GlobalizePath(host.SavePath);
+            await Unboot();
+            var saved = JsonNode.Parse(File.ReadAllText(savePath))!["team"]!.AsObject();
+            Check(saved["team_id"]?.GetValue<string>() == "boot_team" && saved["mode"]?.GetValue<string>() == "challenge" && saved["difficulty"]?.GetValue<string>() == "gentle",
+                "the island save's team block keeps whose save it is, its mode and its difficulty");
+
+            // The next launch: the save keeps its difficulty whatever the boot asks; the team file's knacks come back; the old files go.
+            host = await Boot(layout.Root, "--team=boot_team", "--mode=challenge", "--difficulty=brave");
+            if (host == null) return;
+            Check(host.Difficulty == "gentle" && host.SaveTeamIdentity?.Difficulty == "gentle" && host.TeamNotice.Contains("Gentle", StringComparison.Ordinal),
+                $"a save keeps the difficulty it was made with: --difficulty=brave plays Gentle and says so (\"{host.TeamNotice}\")");
+            Check(host.Knacks.Count == 1 && host.Knacks["high_hop"] == 1 && Mathf.IsEqualApprox(_world!.Player.Knacks.HopFactor, 1.1f), "the team file's knack reaches the body at the boot");
+            Check(!File.Exists(layout.LegacyGlow("creative")) && !File.Exists(layout.LegacyVitalsV1) && File.Exists(layout.ExpertiseFile("local")),
+                "and the old files are removed on this later launch, their copies kept");
+            await Unboot();
+
+            // A launch with no mode plays the one this team played last; --knack= overrides the team file's for this play only.
+            host = await Boot(layout.Root, "--team=boot_team", "--knack=cat_feet:2");
+            if (host == null) return;
+            Check(host.Mode == "challenge" && host.Difficulty == "gentle" && host.Knacks.Count == 1 && host.Knacks["cat_feet"] == 2 &&
+                  TeamFile.Parse(File.ReadAllBytes(path)).Knacks.Single().Knack == "high_hop",
+                "with no --mode the team plays the mode it played last; --knack= is a test's override, never written to the team file");
+            await Unboot();
+
+            // Live is refused at the boot: the team plays the mode it played last instead, and says why.
+            host = await Boot(layout.Root, "--team=other_team", "--mode=live");
+            if (host == null) return;
+            Check(host.Mode == "creative" && host.ModeFixed && host.SaveTeamIdentity == new SaveTeam("other_team", "creative", null) && File.Exists(layout.TeamFile("other_team")) &&
+                  !File.ReadAllText(layout.TeamFile("other_team")).Contains("high_hop", StringComparison.Ordinal),
+                "--mode=live is refused at the boot (another team, its own file, Creative)");
+            await Unboot();
+        }
+        finally
+        {
+            await Unboot();
+            TeamBoot.UserRootOverride = null;
+            (CommandHost.SaveRoot, CommandHost.DefaultGlowProgressPath, CommandHost.DefaultPlayerVitalsPath, CommandHost.DefaultWishSaveRoot, RoomHud.ProfilePath) = previous;
+        }
+    }
+
+    /// <summary>A test's own RoomWorld is a fixture: its store paths stay as it set them, and modes change as before teams.</summary>
+    private async Task TestAFixtureBootIsAsBefore()
+    {
+        var previous = (CommandHost.SaveRoot, CommandHost.DefaultGlowProgressPath, CommandHost.DefaultPlayerVitalsPath, CommandHost.DefaultWishSaveRoot, RoomHud.ProfilePath);
+        var root = Folder("fixture");
+        try
+        {
+            var set = (Path.Combine(root, "saves"), Path.Combine(root, "glow.json"), Path.Combine(root, "vitals.json"));
+            (CommandHost.SaveRoot, CommandHost.DefaultGlowProgressPath, CommandHost.DefaultPlayerVitalsPath) = set;
+            RoomHud.ProfilePath = Path.Combine(root, "profile.cfg");
+            CommandHost.DefaultWishSaveRoot = Path.Combine(root, "wishes");
+            TeamBoot.UserRootOverride = $"{Root}/fixture";
+            _world = GD.Load<PackedScene>("res://scenes/room.tscn").Instantiate<RoomWorld>();
+            AddChild(_world);
+            for (var booting = System.Diagnostics.Stopwatch.StartNew(); booting.Elapsed.TotalSeconds < 60 && !_world.WorldReady && _world.LoadError.Length == 0;) await Frames(1);
+            var host = CommandHost.Of(_world);
+            Check(host != null && (CommandHost.SaveRoot, CommandHost.DefaultGlowProgressPath, CommandHost.DefaultPlayerVitalsPath) == set && !host.ModeFixed && host.SaveTeamIdentity == null &&
+                  !Directory.Exists(Path.Combine(root, "teams")), "a test's RoomWorld keeps the store paths it set and makes no team");
+            Check(host != null && Answer(host.PlayerMode("challenge")).Ok && host.Mode == "challenge" && Answer(host.PlayerMode("live")).Ok,
+                "and its modes change as before (the per-mode vitals stay testable)");
+            var knack = host == null ? default : Answer(host.PlayerSetKnack(1, "quick_feet"));
+            Check(!knack.Ok && knack.Code == "not_ready", "with no team, knack.set waits for one");
+        }
+        finally
+        {
+            await Unboot();
+            TeamBoot.UserRootOverride = null;
+            (CommandHost.SaveRoot, CommandHost.DefaultGlowProgressPath, CommandHost.DefaultPlayerVitalsPath, CommandHost.DefaultWishSaveRoot, RoomHud.ProfilePath) = previous;
+        }
+    }
+
+    // ---- one launch's migration on a copy of a user folder ----
+
+    private void MigrateCopy(string folder)
+    {
+        var layout = new TeamLayout(Path.GetFullPath(folder));
+        var before = Hashes(layout.Root);
+        var report = SaveMigration.Run(layout, DateTime.UtcNow);
+        GD.Print("TEAM_SAVES_COPY " + report.Line());
+        foreach (var line in report.Found) GD.Print("TEAM_SAVES_COPY found " + line);
+        foreach (var line in report.Written) GD.Print("TEAM_SAVES_COPY written " + line);
+        foreach (var line in report.Removed) GD.Print("TEAM_SAVES_COPY removed " + line);
+        foreach (var line in report.Kept) GD.Print("TEAM_SAVES_COPY kept " + line);
+        var teams = layout.TeamsRoot;
+        if (Directory.Exists(teams))
+            foreach (var team in Directory.GetDirectories(teams))
+            {
+                var files = Directory.GetFiles(team, "*", SearchOption.AllDirectories);
+                var islands = files.Where(f => f.Contains(Path.DirectorySeparatorChar + "islands" + Path.DirectorySeparatorChar, StringComparison.Ordinal)).Sum(f => new FileInfo(f).Length);
+                var rest = files.Sum(f => new FileInfo(f).Length) - islands;
+                GD.Print(Inv($"TEAM_SAVES_COPY team {Path.GetFileName(team)}: {rest} bytes without the island saves, {islands} bytes of island saves, {files.Length} files"));
+            }
+        var after = Hashes(layout.Root);
+        // Every file that was there is as it was (or removed by a later launch), the migration's own ledger aside.
+        var changed = before.Where(p => p.Key != layout.MigrationLedger && after.TryGetValue(p.Key, out var h) && h != p.Value).Select(p => layout.Relative(p.Key)).ToList();
+        Check(changed.Count == 0, "no file that was there changed: " + string.Join(", ", changed));
+        if (report.Phase == "moved")
+        {
+            Check(report.Kept.Count == 0 && report.Verified == report.Written.Count, "every copy verified");
+            Check(before.Keys.All(after.ContainsKey), "and every old file is still there");
+        }
+        GD.Print($"TEAM_SAVES_COPY: {_checks - _failures}/{_checks} checks passed");
+    }
+
+    private static string Inv(FormattableString text) => text.ToString(CultureInfo.InvariantCulture);
+}
