@@ -371,7 +371,12 @@ public partial class TerrainCollision : Node3D
         }
         if (_fire is { } fire) _pins.Add(fire);
         foreach (var body in _bodyNodes)
-            if (body is SmallPlayerController avatar && avatar.LastSafePosition.IsFinite()) _pins.Add((avatar.LastSafePosition, PinM));
+        {
+            if (body is not SmallPlayerController avatar) continue;
+            if (avatar.LastSafePosition.IsFinite()) _pins.Add((avatar.LastSafePosition, PinM));
+            // The shore a swimmer went in from stays solid however far it swims (an empty bar fades it back there).
+            if (avatar.ShoreEntry is { } entry && entry.IsFinite()) _pins.Add((entry, PinM));
+        }
     }
 
     private (Vector3, float)? _fire;

@@ -280,6 +280,7 @@ public partial class RoomHud : CanvasLayer
         Player.WentHome += body => _noticeText = body.LastHome switch
         {
             "jetty" => "Home: back at the jetty.",
+            "shore" => "Out of breath: you are back on the shore.",
             "spawn" => "Home: back where you started.",
             "" => "There was no room at home; you are back where you last stood.",
             _ => "Home: back on the beach.",
