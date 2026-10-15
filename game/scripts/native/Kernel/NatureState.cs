@@ -269,6 +269,11 @@ public sealed class NatureState
     /// <summary>The latest room.undo: the room revision it committed at, and the revision whose state it restored (-1, -1 for none).</summary>
     public int UndoneAt { get; set; } = -1;
     public int UndoneTo { get; set; } = -1;
+    /// <summary>
+    /// The Fractals the player picked up on this island (item.pickup, CommandHostFractals): gone from the island save, never
+    /// an edit of the manifest. Not part of any undo step: a pickup is never taken back.
+    /// </summary>
+    public HashSet<string> FractalsPicked { get; set; } = new(StringComparer.Ordinal);
 
     public static Dictionary<string, int> FreshWallet() => new(StringComparer.Ordinal) { ["wood"] = 20, ["stone"] = 10, ["copper"] = 10, ["leaf"] = 20 };
     public static string Key(int x, int z) => $"{x}:{z}";
@@ -279,7 +284,7 @@ public sealed class NatureState
     /// count as nothing, as sightings do: the trail plants as the Gubble walks, with no command.
     /// </summary>
     public bool Untouched(bool trailAllowed) =>
-        Objects.Count == 0 && Fire == null && Undo.Count == 0 && UndoneAt < 0 && ChangedAt == 0 && TrailEnabled && TrailPrincipal == "player" &&
+        Objects.Count == 0 && Fire == null && Undo.Count == 0 && UndoneAt < 0 && ChangedAt == 0 && TrailEnabled && TrailPrincipal == "player" && FractalsPicked.Count == 0 &&
         TrailRulesSha256.Length == 0 && Wallet.Count == FreshWallet().Count && FreshWallet().All(p => Wallet.GetValueOrDefault(p.Key, -1) == p.Value) &&
         (trailAllowed || Cells.Count == 0);
 
@@ -289,7 +294,7 @@ public sealed class NatureState
         Cells = Cells.ToDictionary(p => p.Key, p => p.Value.Copy(), StringComparer.Ordinal),
         Objects = Objects.ToDictionary(p => p.Key, p => p.Value.Copy(), StringComparer.Ordinal),
         Wallet = new(Wallet, StringComparer.Ordinal), Fire = Fire?.Copy(), Undo = Undo.Select(s => s.Copy()).ToList(),
-        UndoneAt = UndoneAt, UndoneTo = UndoneTo,
+        UndoneAt = UndoneAt, UndoneTo = UndoneTo, FractalsPicked = new(FractalsPicked, StringComparer.Ordinal),
     };
 
     /// <summary>The weather now: a function of the saved clock, so a reload resumes the same weather (with no offline catch-up).</summary>

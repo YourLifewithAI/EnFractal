@@ -322,7 +322,11 @@ public partial class CommandHost
         data.Remove("cells");
         data.Remove("cells_truncated");
         data["started_cells"] = eligible.Where(TeamSeesCellFor(principal)).Count(c => candidate.Cells.TryGetValue(c.Key, out var cell) && cell.LifeS > 0);
-        return CommitNature(candidate, "nature.cast", principal, action, fingerprint, approvedBy, Array.Empty<string>(), data, undo: false);
+        // The guard at commit (CommandHostEnergy): the price by principal, charged once the revision is saved.
+        var price = GuardEnergy(ability.Capability, principal);
+        var result = CommitNature(candidate, "nature.cast", principal, action, fingerprint, approvedBy, Array.Empty<string>(), data, undo: false);
+        ChargeEnergy(price);
+        return result;
     }
 
     /// <summary>
@@ -382,6 +386,8 @@ public partial class CommandHost
         if (mustAsk && approvedBy == null)
             return Hold(root, principal, action, fingerprint, "nature.cast", FireHoldReason(companion, asked.Count > 0, keyed),
                 asked.ToDictionary(t => t.Id, t => EntityRevision(t.Id), StringComparer.Ordinal), bindRevision: true, sparesOnDeny: asked.Count > 0 && !keyed);
+        // The guard at commit (CommandHostEnergy): after the preview, the hold and every check; charged once the revision is saved.
+        var price = GuardEnergy(ability.Capability, principal);
         var candidate = Nature.Copy();
         // The player's own Fire while the Gubble's burns: the Gubble's goes out as the player's is lit (one fire at a time).
         if (!companion && candidate.Fire is { Principal: CompanionPrincipal })
@@ -397,7 +403,9 @@ public partial class CommandHost
         data.Remove("cells_truncated");
         data.Remove("affected_ids");
         data["started_cells"] = eligible.Where(TeamSeesCellFor(principal)).Count(c => candidate.Cells.TryGetValue(c.Key, out var cell) && cell.BurningS > 0);
-        return CommitNature(candidate, "nature.cast", principal, action, fingerprint, approvedBy, burnable.Where(t => knows(t.Id)).Select(t => t.Id), data, undo: false);
+        var committed = CommitNature(candidate, "nature.cast", principal, action, fingerprint, approvedBy, burnable.Where(t => knows(t.Id)).Select(t => t.Id), data, undo: false);
+        ChargeEnergy(price);
+        return committed;
     }
 
     /// <summary>
@@ -779,7 +787,7 @@ public partial class CommandHost
         {
             var at = Player.GlobalPosition;
             var source = Nature.Fire ?? fire;
-            if (ApplyPlayerDamage(NatureLaws.PlayerBurnDamage, PlayerDamageSource.Fire) is { } harm && source != null) NoteFireHarm(source, harm, at);
+            if (BurnPlayer(NatureLaws.StepS) is { } harm && source != null) NoteFireHarm(source, harm, at);
         }
         SeeCompanionFire();
         if (LookHook != null) LookHook.Wind = new Vector2(NatureWeather.WindMps.X, NatureWeather.WindMps.Z);

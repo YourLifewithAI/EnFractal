@@ -52,6 +52,7 @@ public partial class NatureTest : Node3D
             await TestPersistence();
             await TestScene();
             await TestConsequences();
+            await TestEnergy();
             await FreeWorld();
             OS.RemoveLogger(_errors);
             Check(_errors.Count == 0, $"no script or engine error while the suite ran ({_errors.Count}; first: {_errors.First})");
@@ -85,20 +86,21 @@ public partial class NatureTest : Node3D
     /// A fresh test room, its avatars at their spawns and a host saving to savePath, with the shipped rules and nature on.
     /// The host's own processing is off: each check advances the simulation itself, so nothing happens between checks.
     /// </summary>
-    private async Task NewWorld(string savePath, bool challenge = false)
+    private async Task NewWorld(string savePath, bool challenge = false, RoomData? roomOverride = null)
     {
         await FreeWorld();
+        var room = roomOverride ?? _room;
         _world = new Node3D { Name = "World" };
         AddChild(_world);
-        _world.AddChild(RoomBuilder.Build(_room));
+        _world.AddChild(RoomBuilder.Build(room));
         await Frames(2);
-        _player = new SmallPlayerController { Name = "Player", ReadKeyboard = false, Position = _room.SpawnFor("player").PositionM + Vector3.Up * 0.008f };
+        _player = new SmallPlayerController { Name = "Player", ReadKeyboard = false, Position = room.SpawnFor("player").PositionM + Vector3.Up * 0.008f };
         _world.AddChild(_player);
-        _companion = new CompanionAvatar { Name = "Companion", Position = _room.SpawnFor("companion", _room.SpawnFor("player")).PositionM + Vector3.Up * 0.008f };
+        _companion = new CompanionAvatar { Name = "Companion", Position = room.SpawnFor("companion", room.SpawnFor("player")).PositionM + Vector3.Up * 0.008f };
         _world.AddChild(_companion);
         _companion.BindPlayer(_player);
         _companion.Stay();
-        _host = CommandHost.Create(_world, _room, _player, _companion, null, savePath);
+        _host = CommandHost.Create(_world, room, _player, _companion, null, savePath);
         _host.Clock = () => _now;
         _host.TeamSightIntervalS = 0;
         _host.SetProcess(false);

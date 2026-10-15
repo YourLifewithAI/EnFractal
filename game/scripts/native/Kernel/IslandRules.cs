@@ -47,7 +47,7 @@ public sealed class IslandAbility
 /// min at most default at most max, each default radius and duration at most its maximum, the pack at its own path),
 /// with the display-text rules on every text field. Any problem refuses the whole pack.
 /// </summary>
-public sealed class IslandRules
+public sealed partial class IslandRules
 {
     public const string SchemaId = "enfractal.island_rules";
     /// <summary>A pack is small (at most 32 abilities); anything larger is refused before it is parsed.</summary>
@@ -57,7 +57,8 @@ public sealed class IslandRules
     private static readonly Regex ParamName = new(@"\A[a-z][a-z0-9_]{0,31}\z", RegexOptions.Compiled);
     private static readonly Regex ExtensionKey = new(@"\Ax_[a-z0-9_]{1,63}\z", RegexOptions.Compiled);
     private static readonly string[] ReservedParams = { "principal", "action_id", "approval", "approval_id", "approved", "owner", "owner_id", "room_id", "actor", "grant", "role" };
-    private static readonly string[] TopFields = { "schema", "version", "rules_id", "rules_version", "display_name", "description", "status", "magic_word", "abilities", "extensions" };
+    // The mechanics round's six blocks (traits, cost, modes, names, knacks, fractals) are read by IslandRulesMechanics.cs.
+    private static readonly string[] TopFields = { "schema", "version", "rules_id", "rules_version", "display_name", "description", "status", "magic_word", "abilities", "extensions", "traits", "cost", "modes", "names", "knacks", "fractals" };
     private static readonly string[] TopRequired = { "schema", "version", "rules_id", "rules_version", "display_name", "status", "magic_word", "abilities" };
     private static readonly string[] AbilityFields =
     {
@@ -151,10 +152,12 @@ public sealed class IslandRules
             Expect(abilities.Select(a => a.Category).Distinct().Count() == abilities.Count, "Categories are unique within a pack.");
             if (expectedId != null) Expect(rulesId == expectedId, "The pack's rules_id is not the one its path names.");
             if (expectedVersion != null) Expect(rulesVersion == expectedVersion, "The pack's rules_version is not the one its path names.");
+            var mechanics = ParseMechanics(root, abilities);
             return new IslandRules
             {
                 RulesId = rulesId, RulesVersion = rulesVersion, DisplayName = displayName, Description = description, Status = status, MagicWord = magicWord,
                 Sha256 = CanonicalJson.Sha256Hex(bytes), Abilities = abilities,
+                Traits = mechanics.Traits, Cost = mechanics.Cost, Modes = mechanics.Modes, Names = mechanics.Names, Knacks = mechanics.Knacks, Fractals = mechanics.Fractals,
             };
         }
     }

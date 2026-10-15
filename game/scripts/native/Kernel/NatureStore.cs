@@ -96,6 +96,9 @@ public static class NatureBlock
             };
         }
         if (state.UndoneAt >= 0) block["undone"] = new JsonObject { ["at"] = state.UndoneAt, ["state_of"] = state.UndoneTo };
+        // The Fractals picked up on this island (item.pickup), sorted; absent while none is (every earlier block reads as none).
+        if (state.FractalsPicked.Count > 0)
+            block["fractals"] = new JsonArray(state.FractalsPicked.OrderBy(id => id, StringComparer.Ordinal).Select(id => (JsonNode?)id).ToArray());
         var resting = state.Cells.Values.Where(c => c.RestS > 0).OrderBy(c => c.X).ThenBy(c => c.Z).ToList();
         if (resting.Count > 0)
         {
@@ -227,6 +230,8 @@ public static class NatureBlock
             state.UndoneAt = Int(undone["at"]);
             state.UndoneTo = Int(undone["state_of"]);
         }
+        if (block["fractals"] is JsonArray picked)
+            foreach (var id in picked) state.FractalsPicked.Add(id!.GetValue<string>());
         if (block["rest"]?.GetValue<string>() is { } rest)
         {
             var bytes = Convert.FromBase64String(rest);
@@ -318,7 +323,8 @@ public static class NatureBlock
     {
         if (Normalized(node) is not { } block) return "not an object";
         var required = new[] { "format", "cell_m", "weather_s", "changed_at", "trail", "names", "cells", "objects", "wallet", "undo" };
-        if (block.Any(p => !required.Contains(p.Key) && p.Key is not ("fire" or "undone" or "rest")) || required.Any(k => !block.ContainsKey(k))) return "its fields";
+        if (block.Any(p => !required.Contains(p.Key) && p.Key is not ("fire" or "undone" or "rest" or "fractals")) || required.Any(k => !block.ContainsKey(k))) return "its fields";
+        if (block["fractals"] is { } fractals && FractalsProblem(fractals)) return "its Fractals picked up";
         if (!Whole(block["format"], Format) || block["format"]!.GetValue<double>() != Format) return "its format";
         if (!Number(block["cell_m"], 1) || (float)block["cell_m"]!.GetValue<double>() != NatureState.CellM) return "its cell size";
         if (!Number(block["weather_s"], MaxWeatherS) || block["weather_s"]!.GetValue<double>() < 0) return "its weather clock";
@@ -484,6 +490,22 @@ public static class NatureBlock
         node is not JsonObject trail || trail.Count != 3 || trail["enabled"]?.GetValueKind() is not (JsonValueKind.True or JsonValueKind.False) ||
         trail["by"]?.GetValueKind() != JsonValueKind.String || trail["by"]!.GetValue<string>() is not ("player" or "companion") ||
         trail["rules_sha256"]?.GetValueKind() != JsonValueKind.String || trail["rules_sha256"]!.GetValue<string>() is var rules && rules.Length != 0 && !Hex64.IsMatch(rules);
+
+    private static readonly Regex FractalIdPattern = new(@"\Afractal:[a-z0-9]{1,32}\z", RegexOptions.Compiled);
+
+    /// <summary>The Fractals picked up: 1 to 1000 ids of one spelling, sorted and each once.</summary>
+    private static bool FractalsProblem(JsonNode node)
+    {
+        if (node is not JsonArray ids || ids.Count is < 1 or > CommandHost.MaxFractals) return true;
+        string? previous = null;
+        foreach (var id in ids)
+        {
+            if (id?.GetValueKind() != JsonValueKind.String || id.GetValue<string>() is not { } text || !FractalIdPattern.IsMatch(text)) return true;
+            if (previous != null && string.CompareOrdinal(previous, text) >= 0) return true;
+            previous = text;
+        }
+        return false;
+    }
 
     private static bool WalletProblem(JsonNode? node) =>
         node is not JsonObject wallet || wallet.Count > NatureState.MaxWalletKinds || wallet.Any(p => !MaterialToken.IsMatch(p.Key) || !Whole(p.Value, NatureState.MaxWalletUnits));

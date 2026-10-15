@@ -268,6 +268,7 @@ public partial class CommandHost : Node
         Runtime.Set(KernelNames.NatureCheck, new Callable(this, MethodName.CheckNature));
         AddChild(Runtime);
         Authority = Runtime.Get(KernelNames.Authority).AsGodotObject();
+        FractalPickupsKept = AuthorityKeepsPickups();
         // The team's journal and map come back with the room; tasks an earlier session left open are closed (their jobs did not survive it).
         // A room with no save of its own offers the newest earlier save of the same room, until the player answers.
         if (Authority.Call(KernelNames.IsReady).AsBool() && !Godot.FileAccess.FileExists(SavePath) && Revision == 0) _migrationOffer = NewestOtherSave();
@@ -522,6 +523,9 @@ public partial class CommandHost : Node
         var code = result["error"]?["code"]?.GetValue<string>();
         Finish(approval, code == "receipt_limit"
             ? new Refusal("receipt_limit", "The receipt ledger is full; nothing was changed. A room.checkpoint compacts it; then ask again with a new action_id.")
+            // The pool could not pay its principal's price when the click committed it: that, with the balance and the price.
+            : code == "energy_exhausted" && result["error"]?["balance"]?.GetValue<int>() is { } balance && result["error"]?["price"]?.GetValue<int>() is { } price
+                ? new Refusal("energy_exhausted", EnergyExhaustedMessage, "$.args.capability", retryable: true) { Balance = balance, Price = price }
             : new Refusal("approval_mismatch", "The change can no longer be made as approved; nothing was changed. To ask again, use a new action_id."));
         return (JsonObject)approval.Result!.DeepClone();
     }
@@ -641,6 +645,7 @@ public partial class CommandHost : Node
                 "entity.place" => PlaceObject(args, principal, actionId, meta, preview),
                 "entity.push" => PushObject(args, principal, actionId, meta, preview),
                 "journal.note" => Note(args, principal, actionId, meta, preview),
+                "item.pickup" => PickUpFractal(args, principal, actionId, fingerprint, preview),
                 _ => throw new Refusal("unsupported_capability", "This operation is not available yet.", "$.op"),
             };
             ObserveWishCommand(root, result, principal);
@@ -1045,8 +1050,15 @@ public partial class CommandHost : Node
         if (meta["approved_by"].AsString().Length > 0) result["approved_by"] = meta["approved_by"].AsString();
         if (meta["op"].AsString() == "room.checkpoint") result["data"] = new JsonObject { ["checkpoint_revision"] = receipt["revision"].AsInt32() };
         if (meta["op"].AsString() == "journal.note" && receipt.ContainsKey("entry_id")) result["data"] = new JsonObject { ["entry_id"] = receipt["entry_id"].AsString() };
-        // A nature change's receipt keeps the data its first answer had (as the requester was allowed to see it).
-        if (receipt.ContainsKey("data")) result["data"] = Normalized(KernelJson.ToJson(receipt["data"]));
+        // A nature change's receipt keeps the data its first answer had (as the requester was allowed to see it). A pickup is
+        // kept by the same authority path: its receipt's data names the Fractal (the authority's own entity ids have no
+        // fractal: namespace), which the result carries in affected, with no data (contracts: item.pickup).
+        if (meta["op"].AsString() == "item.pickup")
+        {
+            if (receipt.ContainsKey("data") && receipt["data"].AsGodotDictionary() is { } kept && kept.TryGetValue("fractal", out var fractal) && fractal.AsString() is { Length: > 0 } id)
+                result["affected"] = new JsonArray(id);
+        }
+        else if (receipt.ContainsKey("data")) result["data"] = Normalized(KernelJson.ToJson(receipt["data"]));
         return result;
     }
 
@@ -1368,6 +1380,8 @@ public partial class CommandHost : Node
         foreach (var creation in view.Creations)
             list.Add((creation.Id, Summary(creation.Id, "creation", creation.Name, "creation", null, creation.Origin, creation.Box, Array.Empty<string>(), false,
                 view.Locked.Contains(creation.Id), creation.AiCreated ? "ai_created" : "player_created", creation.Revision)));
+        // The Fractals still on the island (the manifest's x_fractals, less those picked up).
+        AddFractals(list);
         AddAvatar(list, PlayerAvatar, Player, "Player");
         AddAvatar(list, CompanionAvatarId, Companion, Companion?.CompanionName ?? "Companion");
         // Sorted by id (ids are unique, so the order is the one a stable sort gives).
@@ -2248,6 +2262,9 @@ public partial class CommandHost : Node
         public bool Retryable { get; } = retryable;
         public JsonNode? Actual { get; } = actual;
         public JsonNode? Allowed { get; } = allowed;
+        /// <summary>energy_exhausted only (contracts: error.balance and error.price): the pips in the pool and what this command costs this principal.</summary>
+        public int? Balance { get; init; }
+        public int? Price { get; init; }
     }
 
     private void CheckEnvelope(JsonElement root, bool command, bool stop)
@@ -2649,7 +2666,9 @@ public partial class CommandHost : Node
 
     private string? Unsupported(string op, JsonElement args, string principal) => op switch
     {
-        // The mechanics round's stubs (M0), each until its packet lands: the contract is fixed, nothing is built.
+        // The mechanics round's stubs (M0), each until its packet lands: the contract is fixed, nothing is built. The player's
+        // pickup of a Fractal is hosted (CommandHostFractals) once the room's authority keeps its durable receipt.
+        "item.pickup" when FractalPickupsKept => null,
         "item.pickup" or "knack.set" or "receipt.mark" or "trust.reset" => MechanicsNotYet,
         "world.set_mode" when args.TryGetProperty("difficulty", out _) => DifficultyNotYet,
         "nature.cast" when Str(args, "capability") is "bubble_carry" or "bubble_boat" or "bubble_lift" => BubblesNotYet,
@@ -2734,6 +2753,11 @@ public partial class CommandHost : Node
         if (refusal.Path != null) error["field_path"] = KernelJson.DisplayText(refusal.Path, 200);
         if (refusal.Allowed != null) error["allowed"] = refusal.Allowed.DeepClone();
         if (refusal.Actual != null) error["actual"] = refusal.Actual.DeepClone();
+        if (refusal.Balance is { } balance && refusal.Price is { } price)
+        {
+            error["balance"] = balance;
+            error["price"] = price;
+        }
         result["error"] = error;
         return result;
     }

@@ -100,6 +100,7 @@ public partial class CommandHostTest : Node3D
             await TestReloadAtTheReceiptBound();
             await TestGlow();
             await TestPlayerModes();
+            TestEnergyAndVitals();
             await TestWishes();
             await TestEyes();
             OS.RemoveLogger(_errors);

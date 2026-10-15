@@ -67,6 +67,8 @@ public partial class CommandHost
         _glowProgressUnavailable = false;
         GlowProgressNotice = "";
         if (LookHook != null && IsInstanceValid(LookHook)) LookHook.SetGlowAudio((float)GlowProgress.SoundVolume, GlowProgress.SoundMuted);
+        // The pool's maximum follows the expertise learned.
+        ResolveVitalsRules();
     }
 
     /// <summary>Trusted boot/test wiring only. No command or companion query can supply a profile.</summary>
@@ -80,6 +82,7 @@ public partial class CommandHost
             GlowProgress = loaded;
             _glowProgressUnavailable = false;
             GlowProgressNotice = "";
+            ResolveVitalsRules();
         }
         catch (GlowProgressException)
         {
@@ -122,8 +125,13 @@ public partial class CommandHost
             GlowProgressNotice = "The Glow journal could not be saved. This change was cancelled; your earlier progress is safe. Try again once saving is available.";
             throw new Refusal("not_ready", GlowProgressNotice, retryable: true);
         }
+        var learned = candidate.Discoveries.Count > GlowProgress.Discoveries.Count;
         GlowProgress = candidate;
         GlowProgressNotice = "";
+        if (!learned) return;
+        // A new expertise is a reward: its pace line, and the pool's maximum may rise with it (a pace line of its own).
+        NotePace("expertise", candidate.Discoveries.Count);
+        ResolveVitalsRules(pace: true);
     }
 
     public JsonObject PlayerGlowTouch(string touch) => PlayerCommand("glow.configure", new JsonObject { ["touch"] = touch });

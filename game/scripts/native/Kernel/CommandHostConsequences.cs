@@ -128,7 +128,8 @@ public partial class CommandHost
         WriteConsequence(fire, harm, at);
     }
 
-    private static double Health(float value) => Math.Round(Math.Clamp(value, 0, PlayerVitals.MaximumHealth), 1);
+    /// <summary>A notice's health, within the contract's bound (consequence_notice: 720, 30 hearts with Big heart).</summary>
+    private static double Health(float value) => Math.Round(Math.Clamp(value, 0, PlayerVitals.ContractMaxHealth), 1);
 
     /// <summary>
     /// The Gubble caught up with the player (CompanionAvatar.CatchUpM, packet S8 of the 10x world): it did not travel there, so its
