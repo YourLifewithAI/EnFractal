@@ -2,9 +2,15 @@
 # -Style v2 plays the default style's v2 (or -Style <preset_id>/v<N>) instead of the room's pinned look; -Room <id> picks the room,
 # -Room landscape the garage island from the shared fixture cache, and -Room landscape10 the same island at the 10x world's scale. -Profile <name> keeps this play's saves, settings and
 # companion session under .cache/profiles/<name> instead of your own user folders, so a playtest can be repeated or reset.
-param([string]$Style, [string]$Room, [string]$Profile)
+# -Team <team id>, -Mode creative|challenge|live and -Difficulty gentle|standard|brave (with -Mode challenge) pass the team, the
+# mode and the difficulty to the game as --team=, --mode= and --difficulty= (the mechanics round, contracts/README.md "Teams and the
+# save layout"). The teams packet (M3) makes the boot honour them and refuse Live; until then the game ignores them.
+param([string]$Style, [string]$Room, [string]$Profile, [string]$Team, [string]$Mode, [string]$Difficulty)
 $ErrorActionPreference = 'Stop'
 if ($Profile -and $Profile -notmatch '^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$') { throw '-Profile takes a short name of letters, digits, - and _.' }
+if ($Team -and $Team -cnotmatch '^[a-z][a-z0-9_-]{0,63}$') { throw '-Team takes a team id: lowercase letters, digits, - and _, starting with a letter.' }
+if ($Mode -and $Mode -cnotin @('creative', 'challenge', 'live')) { throw '-Mode is creative, challenge or live.' }
+if ($Difficulty -and ($Difficulty -cnotin @('gentle', 'standard', 'brave') -or $Mode -cne 'challenge')) { throw '-Difficulty is gentle, standard or brave, with -Mode challenge.' }
 . (Join-Path $PSScriptRoot 'tools/native-toolchain.ps1')
 $nativeToolchain = Get-EnfractalNativeToolchain
 if ($Room -eq 'landscape' -or $Room -eq 'landscape10') {
@@ -19,6 +25,9 @@ $env:PATH = $env:DOTNET_ROOT + [System.IO.Path]::PathSeparator + $env:PATH
 $userArgs = @()
 if ($Style) { $userArgs += "--style=$Style" }
 if ($Room) { $userArgs += "--room=$Room" }
+if ($Team) { $userArgs += "--team=$Team" }
+if ($Mode) { $userArgs += "--mode=$Mode" }
+if ($Difficulty) { $userArgs += "--difficulty=$Difficulty" }
 if ($userArgs) { $userArgs = @('--') + $userArgs }
 $priorRoaming = $env:APPDATA
 $priorLocal = $env:LOCALAPPDATA

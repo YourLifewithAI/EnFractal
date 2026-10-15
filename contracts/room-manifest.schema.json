@@ -181,7 +181,17 @@
       }
     },
     "extensions": {
-      "$ref": "common.schema.json#/$defs/extensions"
+      "description": "Experiments (common.schema.json), and two keys the mechanics round (M0, 14 October 2026) types: x_fractals, the Fractals the island places, and x_island_tutorial. The landscape exporter writes both from the generator's package (M4); readers that do not know them ignore them, as every extension.",
+      "$ref": "common.schema.json#/$defs/extensions",
+      "properties": {
+        "x_fractals": {
+          "$ref": "#/$defs/x_fractals"
+        },
+        "x_island_tutorial": {
+          "description": "True for an island the opening menu lists first as a tutorial (none is locked). Absent: false.",
+          "type": "boolean"
+        }
+      }
     }
   },
   "$defs": {
@@ -1072,6 +1082,94 @@
               }
             }
           }
+        }
+      }
+    },
+    "x_fractals": {
+      "description": "The Fractals the island places (docs/game/MECHANICS.md section 6): real small things at the island's scale, at crests the body can reach by climb, from the island's budget (the rules pack's fractals block, which also says how they are spent). Part of the pinned baseline: a Fractal picked up is room state (the island save), never an edit here, so adding them changes the room's fingerprint and the fixture rebuilds itself.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "typed",
+        "items"
+      ],
+      "properties": {
+        "typed": {
+          "description": "Whether each Fractal carries its kind (the rules pack's typed flag, off by default: untyped).",
+          "type": "boolean"
+        },
+        "items": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {
+            "$ref": "#/$defs/x_fractal"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "typed": {
+                "const": true
+              }
+            },
+            "required": [
+              "typed"
+            ]
+          },
+          "then": {
+            "properties": {
+              "items": {
+                "items": {
+                  "required": [
+                    "kind"
+                  ]
+                }
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "items": {
+                "items": {
+                  "properties": {
+                    "kind": false
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "x_fractal": {
+      "description": "One Fractal: its id (the entity the player's item.pickup names) and where it rests, its pivot at its bottom centre in room metres.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "position_m"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "common.schema.json#/$defs/fractal_id"
+        },
+        "position_m": {
+          "$ref": "common.schema.json#/$defs/vec3"
+        },
+        "kind": {
+          "description": "Typed Fractals only: a heart or the next stamina band.",
+          "enum": [
+            "heart",
+            "band"
+          ]
+        },
+        "reach_band": {
+          "description": "Optional: the lowest stamina band (1, the starting bar) from which the generator's walk reaches it, for the reach report; absent when not measured.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20
         }
       }
     }

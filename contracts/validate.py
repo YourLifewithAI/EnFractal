@@ -47,7 +47,12 @@ SCHEMA_FILES = {
     "enfractal.result": "game-command.schema.json",
     "enfractal.room_state": "room-state.schema.json",
     "enfractal.island_rules": "island-rules.schema.json",
+    # A team's folder (the mechanics round): the team file, the vitals store (version 2) and the expertise store (version 3).
+    "enfractal.team": "team.schema.json",
+    "enfractal.player_modes": "team.schema.json",
+    "enfractal.glow_progress": "team.schema.json",
 }
+TEAM_DOCUMENTS = ("enfractal.team", "enfractal.player_modes", "enfractal.glow_progress")
 MESSAGE_LIMITS = {"enfractal.command": 65536, "enfractal.query": 65536, "enfractal.result": 262144}
 CREATION_SOURCE_LIMIT = 32768
 QUAT_TOLERANCE = 1e-3
@@ -579,6 +584,16 @@ def check_room(room_dir: Path, check_style_pins: bool = False, manifest_name: st
         if not _quat_ok(view["camera"]["transform"]["rotation"]):
             problems.append(f"{label}: reference view {view['id']} rotation is not a unit quaternion")
 
+    fractals = room.get("extensions", {}).get("x_fractals")
+    if fractals is not None:
+        # The mechanics round (M0): each Fractal listed once, inside the island.
+        fractal_ids = [item["id"] for item in fractals["items"]]
+        for name in sorted({i for i in fractal_ids if fractal_ids.count(i) > 1}):
+            problems.append(f"{label}: x_fractals lists {name} more than once")
+        for item in fractals["items"]:
+            if not _inside(item["position_m"], bounds):
+                problems.append(f"{label}: x_fractals {item['id']} is outside the room bounds")
+
     listed = {entry["path"] for entry in room["files"]}
     if "plant_copies" in room:
         problems += check_plant_copies(room, room_dir, listed, referenced, label)
@@ -950,11 +965,114 @@ def rules_path(rules_id: str, version: int, rules_dir: Path = RULES_DIR) -> Path
     return rules_dir / rules_id / f"v{version}.json"
 
 
+# The mechanics round (M0, 14 October 2026). The Bubbles expertise, priced in a pack's cost block and cast with
+# nature.cast, each needs an ability of the pack carried out by its primitive.
+EXPERTISE_ABILITIES = {"bubble_carry": "particles.float", "bubble_boat": "particles.float", "bubble_lift": "particles.float"}
+# The command contract's bounds on the player's body (game-command.schema.json $defs/data/player.status): 30 hearts of
+# 20 health with Big heart at full rank, and ten bands to 4.0 m with Big bar at full rank.
+MAX_HEALTH = 720
+MAX_STAMINA_M = 4.8
+# Knacks (MECHANICS section 7): at most a fifth at full rank, always upside. These numbers fall to be better; every
+# other factor rises; the safe drop is in metres.
+KNACK_LOWERS = frozenset({"breath", "build_time"})
+KNACK_IN_METRES = frozenset({"safe_drop"})
+KNACK_MOST = 0.2
+
+
+def _check_mechanics(pack: dict, label: str) -> list[str]:
+    """The mechanics blocks against each other and the command contract: prices name the pack's abilities and halve to
+    whole pips, the most health and stamina the pack allows fit player.status's bounds, the mode rows are unique, knacks
+    stay within a fifth and upside, names name the pack's knacks, and the Fractal budget is ordered."""
+    problems = []
+    capabilities = {ability["capability"] for ability in pack["abilities"]}
+    primitives = {ability["primitive"] for ability in pack["abilities"]}
+    for name, price in pack.get("cost", {}).get("prices", {}).items():
+        if name in EXPERTISE_ABILITIES:
+            if EXPERTISE_ABILITIES[name] not in primitives:
+                problems.append(f"{label}: cost prices {name}, a Bubbles expertise, but the pack grants no {EXPERTISE_ABILITIES[name]} ability")
+        elif name not in capabilities:
+            problems.append(f"{label}: cost prices {name!r}, which is no ability of this pack")
+        own = price["ordered"] * price["own_idea_factor"]
+        if abs(own - round(own)) > 1e-9:
+            problems.append(f"{label}: cost of {name}: ordered {price['ordered']} times own_idea_factor {price['own_idea_factor']} is not a whole number of pips")
+    table = pack.get("knacks", {}).get("table", [])
+
+    def best(moves: str) -> float:
+        return max((rank for knack in table if knack["moves"] == moves for rank in knack["ranks"]), default=1.0)
+
+    traits = pack.get("traits", {})
+    hearts = traits.get("hearts")
+    if hearts is not None:
+        if hearts["start_hearts"] > hearts["cap_hearts"]:
+            problems.append(f"{label}: traits.hearts start_hearts {hearts['start_hearts']} is above cap_hearts {hearts['cap_hearts']}")
+        most = hearts["cap_hearts"] * 4 * hearts["health_per_quarter"] * best("health_per_quarter")
+        if most > MAX_HEALTH + 1e-9:
+            problems.append(f"{label}: the most health this pack allows ({most:g}: cap_hearts x 4 x health_per_quarter x the best health_per_quarter knack) is above player.status's {MAX_HEALTH}")
+    stamina = traits.get("stamina")
+    if stamina is not None:
+        most = (stamina["start_m"] + stamina["band_m"] * (stamina["bands"] - 1)) * best("stamina_per_bar")
+        if most > MAX_STAMINA_M + 1e-9:
+            problems.append(f"{label}: the most stamina this pack allows ({most:g} m: the top band x the best stamina_per_bar knack) is above player.status's {MAX_STAMINA_M} m")
+    pips = traits.get("pips")
+    if pips is not None:
+        if pips["start"] > pips["ceiling"]:
+            problems.append(f"{label}: traits.pips start {pips['start']} is above its ceiling {pips['ceiling']}")
+        if pips["refill_near_every_s"] > pips["refill_far_every_s"]:
+            problems.append(f"{label}: traits.pips refills slower near the player ({pips['refill_near_every_s']} s) than apart ({pips['refill_far_every_s']} s)")
+    rows = pack.get("modes", {}).get("rows", [])
+    keys = [(row["mode"], row.get("difficulty"), row.get("variant")) for row in rows]
+    for key in sorted({k for k in keys if keys.count(k) > 1}, key=str):
+        problems.append(f"{label}: modes has the row {'/'.join(part for part in key if part)} more than once")
+    if rows and sum(1 for row in rows if row["mode"] == "creative") != 1:
+        problems.append(f"{label}: modes needs exactly one creative row")
+    if rows and not any(row["mode"] == "challenge" for row in rows):
+        problems.append(f"{label}: modes needs a challenge row")
+    knacks = [knack["knack"] for knack in table]
+    for name in sorted({k for k in knacks if knacks.count(k) > 1}):
+        problems.append(f"{label}: knack {name!r} appears more than once")
+    slots = [slot["slot"] for slot in pack.get("knacks", {}).get("slots", [])]
+    if slots and sorted(slots) != list(range(1, len(slots) + 1)):
+        problems.append(f"{label}: knacks.slots number the slots 1 to {len(slots)}, each once")
+    for slot in pack.get("knacks", {}).get("slots", []):
+        if slot["slot"] == 1 and slot["opens"] != "creation":
+            problems.append(f"{label}: knack slot 1 opens at creation")
+    for knack in table:
+        where = f"{label}: knack {knack['knack']}"
+        ranks = knack["ranks"]
+        if (knack["unit"] == "m") != (knack["moves"] in KNACK_IN_METRES):
+            problems.append(f"{where} moves {knack['moves']}, which is in {'metres' if knack['moves'] in KNACK_IN_METRES else 'a factor'}")
+            continue
+        if knack["unit"] == "m":
+            if any(later <= earlier for earlier, later in zip(ranks, ranks[1:])):
+                problems.append(f"{where}: its ranks must rise")
+            continue
+        lowers = knack["moves"] in KNACK_LOWERS
+        for rank in ranks:
+            if abs(rank - 1) > KNACK_MOST + 1e-9:
+                problems.append(f"{where}: rank {rank:g} moves its number by more than a fifth")
+            if (rank >= 1) if lowers else (rank <= 1):
+                problems.append(f"{where}: rank {rank:g} is not upside ({knack['moves']} must {'fall' if lowers else 'rise'})")
+        steps = [abs(rank - 1) for rank in ranks]
+        if any(later <= earlier for earlier, later in zip(steps, steps[1:])):
+            problems.append(f"{where}: each rank must move its number further than the one before")
+    named = pack.get("names", {}).get("knacks", {})
+    for name in sorted(set(named) - set(knacks)):
+        problems.append(f"{label}: names.knacks names {name!r}, which is no knack of this pack")
+    fractals = pack.get("fractals")
+    if fractals is not None:
+        if fractals["budget_min"] > fractals["budget_max"]:
+            problems.append(f"{label}: fractals budget_min {fractals['budget_min']} is above budget_max {fractals['budget_max']}")
+        if fractals.get("reachable_first_run", 0) > fractals["budget_max"]:
+            problems.append(f"{label}: fractals reachable_first_run {fractals['reachable_first_run']} is above budget_max {fractals['budget_max']}")
+    return problems
+
+
 def check_rules(pack: dict, label: str, path: Path | None = None) -> list[str]:
     """What the island rules schema cannot express. The schema holds each primitive's outer limits; this checks
     that a pack is consistent inside them: one ability per capability and per category, each default inside its
-    range, and each default radius and duration at most its maximum. Text rules ran with the schema."""
-    problems = []
+    range, and each default radius and duration at most its maximum; and the mechanics blocks against each other
+    (_check_mechanics). Text rules ran with the schema."""
+    problems = _check_mechanics(pack, label)
     capabilities = [ability["capability"] for ability in pack["abilities"]]
     for name in sorted({c for c in capabilities if capabilities.count(c) > 1}):
         problems.append(f"{label}: capability {name!r} appears more than once; capabilities are unique within a pack")
@@ -1104,6 +1222,34 @@ def _check_discovered(discovered: dict, store: int, label: str, manifest_objects
     return problems
 
 
+def check_team_document(document: dict, label: str) -> list[str]:
+    """What the team schema cannot express: knack slots open and unique, the body inside its own maxima, and Fractals in
+    hand no more than were found."""
+    problems = []
+    if document["schema"] == "enfractal.team":
+        knacks = document["knacks"]
+        slots = [entry["slot"] for entry in knacks["chosen"]]
+        if len(slots) != len(set(slots)):
+            problems.append(f"{label}: knacks.chosen fills a slot twice")
+        if any(slot > knacks["slots_open"] for slot in slots):
+            problems.append(f"{label}: knacks.chosen fills a slot past slots_open {knacks['slots_open']}")
+        names = [entry["knack"] for entry in knacks["chosen"]]
+        if len(names) != len(set(names)):
+            problems.append(f"{label}: knacks.chosen picks one knack twice")
+    elif document["schema"] == "enfractal.player_modes":
+        vitals = document["vitals"]
+        if vitals["health"] > vitals["max_health"]:
+            problems.append(f"{label}: health {vitals['health']} is above max_health {vitals['max_health']}")
+        if vitals["stamina"] > vitals["max_stamina"] + 1e-6:
+            problems.append(f"{label}: stamina {vitals['stamina']} is above max_stamina {vitals['max_stamina']}")
+        fractals = vitals["fractals"]
+        if fractals["unspent"] > fractals["found"]:
+            problems.append(f"{label}: {fractals['unspent']} Fractals in hand but only {fractals['found']} found")
+        if "typed" in fractals and fractals["typed"]["heart"] + fractals["typed"]["band"] != fractals["unspent"]:
+            problems.append(f"{label}: typed Fractals in hand ({fractals['typed']['heart']} heart, {fractals['typed']['band']} band) are not the {fractals['unspent']} unspent")
+    return problems
+
+
 def check_message(document: dict, label: str) -> list[str]:
     """Rules a schema cannot express for results: the journal newest first with one id per entry, and map.find
     answers nearest first."""
@@ -1154,6 +1300,8 @@ def check_document(path: Path, check_style_pins: bool = False) -> list[str]:
         return check_rules(document, label, path)
     if kind == "enfractal.room_state":
         return check_state(document, label, check_style_pins=check_style_pins)
+    if kind in TEAM_DOCUMENTS:
+        return check_team_document(document, label)
     return check_message(document, label)
 
 

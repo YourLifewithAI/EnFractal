@@ -108,7 +108,8 @@ run native_island_loading "checks passed" --headless --path "$P" --fixed-fps 60 
 run native_look_preset "checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_look_preset.tscn -- --landscape="$LR"
 if grep -q "checks were skipped" "$LOG/native_look_preset.out"; then echo "FAIL native_look_preset skipped its real-garage checks"; grep "checks were skipped" "$LOG/native_look_preset.out"; failed=1; fi
 run native_look_characters "NATIVE_LOOK_CHARACTERS: [0-9]+/[0-9]+ checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_look_characters.tscn
-run room_boot "ROOM_WORLD_QUIT" --headless --path "$P" --fixed-fps 60 res://scenes/room.tscn -- --quit-after-ready=240
+# The boot carries a team, a mode and a difficulty as run-room.ps1 passes them: ignored until M3 honours them.
+run room_boot "ROOM_WORLD_QUIT" --headless --path "$P" --fixed-fps 60 res://scenes/room.tscn -- --quit-after-ready=240 --team=boot_probe --mode=challenge --difficulty=gentle
 # The landscape as the player opens it: installed in the user folder and booted by id through the main scene (which reads --room),
 # quitting by --quit-after-ready (a smoke boot of 13 October never quit: it ran an assembly built before the option existed).
 UR="$XDG_DATA_HOME/godot/app_userdata/EnFractal/rooms/landscape_garage_nominal"

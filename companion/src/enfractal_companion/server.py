@@ -39,8 +39,8 @@ from .canonical import CanonicalJsonError
 from .contract import (COMMAND_SCHEMA, CONTRACT_VERSION, PACKAGE_DIR, QUERY_SCHEMA, Contracts, ToolSpec, dumps_compact,
                        find_forbidden_key, is_authority_key, value_problems)
 from .link import LinkClient, LinkError, SessionInfo, default_session_path
-from .refusals import (HostError, base_result, effect_args_error, failure, forbidden_key_error, map_schema_errors,
-                       value_error)
+from .refusals import (FRACTAL_REFUSAL, HostError, base_result, effect_args_error, failure, forbidden_key_error,
+                       map_schema_errors, names_a_fractal, value_error)
 
 log = logging.getLogger("enfractal.companion")
 
@@ -265,6 +265,9 @@ class Adapter:
             if spec.op == "effect.start":
                 error = effect_args_error(error)  # the host's codes for effect.start's arguments
             return skeleton, self._refusal(message, error)
+        if spec.kind == "command" and names_a_fractal(message):
+            # A Fractal is the player's to pick up (the mechanics round): the game refuses it too, in the same words.
+            return skeleton, self._refusal(message, HostError("permission_denied", FRACTAL_REFUSAL, field_path="$.args.target"))
         for problem in self.contracts.size_problems(message):  # creation sources
             return skeleton, self._refusal(message, HostError("budget_exceeded", "The creation is larger than the size limit."))
         return message, None

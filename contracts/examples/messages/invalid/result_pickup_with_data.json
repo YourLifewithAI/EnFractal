@@ -1,0 +1,20 @@
+{
+  "schema": "enfractal.result",
+  "version": 1,
+  "ok": true,
+  "op": "item.pickup",
+  "action_id": "pickup-0001",
+  "principal": "player:local",
+  "room_id": "garage_example",
+  "revision": 5,
+  "replayed": false,
+  "preview": false,
+  "at_utc": "2026-10-06T00:05:00Z",
+  "transient": false,
+  "affected": [
+    "fractal:k3x9q2"
+  ],
+  "data": {
+    "unspent": 4
+  }
+}

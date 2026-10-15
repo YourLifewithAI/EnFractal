@@ -90,8 +90,8 @@ from .contract import (
     is_authority_key,
     value_problems,
 )
-from .refusals import (HostError, base_result, effect_args_error, failure, forbidden_key_error, map_schema_errors,
-                       nature_args_error, value_error)
+from .refusals import (FRACTAL_REFUSAL, HostError, base_result, effect_args_error, failure, forbidden_key_error,  # noqa: F401
+                       map_schema_errors, names_a_fractal, nature_args_error, value_error)
 
 log = logging.getLogger("enfractal.mock_host")
 
@@ -108,6 +108,13 @@ UNDO_ONLY_NATURE = ("The latest change is not one the island can undo yet: only 
                     "can be undone.")
 # Outside Creative there is no undo at all (the founder, 13 October): the kernel's Unsupported, before any revision check.
 UNDO_NOT_IN_THIS_MODE = "There is no undo in Challenge or Live: what happens there stays."
+# The mechanics round (M0): its player-only ops, and the kernel's words for what is not built yet (CommandHost.Unsupported:
+# MechanicsNotYet, DifficultyNotYet, BubblesNotYet) and for a Fractal the companion may not gather (FractalRefusal).
+MECHANICS_PLAYER_OPS = frozenset({"item.pickup", "knack.set", "receipt.mark", "trust.reset"})
+BUBBLES_EXPERTISE = frozenset({"bubble_carry", "bubble_boat", "bubble_lift"})
+MECHANICS_NOT_YET = "This operation is not available yet."
+DIFFICULTY_NOT_YET = "Difficulties are chosen at the opening menu, which is not built yet."
+BUBBLES_NOT_YET = "The Bubble's carry, boat and lift are not available yet."
 TRANSIENT_OPS = frozenset({"entity.grab", "creation.activate", "goal.set", "goal.stop", "effect.start", "effect.stop",
                            "world.set_physics", "world.set_mode", "glow.configure", "effect.adjust"})
 # Durable, but they change no world state, so they do not move the room revision.
@@ -403,9 +410,21 @@ class IslandRules:
     rules_version: int
     abilities: tuple[Ability, ...]
     sha256: str
+    # The pack's cost block (the mechanics round): each ability's ordered price and own-idea factor, in whole pips, read
+    # from the same pack JSON the kernel loads. Empty when the pack has none: nothing is charged, today's behaviour.
+    prices: tuple[tuple[str, int, float], ...] = ()
 
     def ability(self, capability: str | None) -> Ability | None:
         return next((a for a in self.abilities if a.capability == capability), None)
+
+    def price(self, capability: str, principal: str) -> int:
+        """What casting `capability` costs `principal` outside Creative, in whole pips. The price follows the principal
+        alone: the player's order pays the ordered price, every command on the Gubble's connection the own-idea price.
+        An ability the pack does not price costs nothing. The mock reads prices; it charges nothing yet (M1, M8)."""
+        for name, ordered, factor in self.prices:
+            if name == capability:
+                return ordered if principal.startswith("player:") else round(ordered * factor)
+        return 0
 
 
 class RulesError(ValueError):
@@ -440,7 +459,9 @@ def parse_rules(contracts: Contracts, pack: Any, raw: bytes | None = None, path:
         duration_default_s=float(a["duration_default_s"]), duration_max_s=float(a["duration_max_s"]),
         max_active=int(a["max_active"])) for a in pack["abilities"])
     body = raw if raw is not None else contracts.canonical_bytes(pack)
-    return IslandRules(pack["rules_id"], int(pack["rules_version"]), abilities, hashlib.sha256(body).hexdigest())
+    prices = tuple((name, int(price["ordered"]), float(price["own_idea_factor"]))
+                   for name, price in sorted(pack.get("cost", {}).get("prices", {}).items()))
+    return IslandRules(pack["rules_id"], int(pack["rules_version"]), abilities, hashlib.sha256(body).hexdigest(), prices)
 
 
 def load_rules(contracts: Contracts, path: Path) -> IslandRules:
@@ -1007,6 +1028,10 @@ class MockHost(JournalMixin):
             raise forbidden_key_error(hit, "authority" if is_authority_key(str(hit[-1])) else "key_format")
         if op in self.contracts.player_only_ops and not principal.startswith("player:"):
             raise HostError("permission_denied", "Only the player can do that, directly in the game.", field_path="$.op")
+        if is_command and not principal.startswith("player:") and names_a_fractal(message):
+            # The Gubble may find a Fractal and go to it, never gather it: refused by the id's namespace before anything is
+            # looked up, so the answer is the same whether or not it exists (the kernel's NamesAFractal).
+            raise HostError("permission_denied", FRACTAL_REFUSAL, field_path="$.args.target")
         if is_command:
             self._view = self._view_for(principal, for_command=True)
             return self._command(principal, message)
@@ -1204,6 +1229,12 @@ class MockHost(JournalMixin):
 
     def _check_unsupported(self, message: dict) -> None:
         """What the kernel refuses before it looks at revisions (CommandHost.Unsupported), where the mock follows it."""
+        if message["op"] in MECHANICS_PLAYER_OPS:
+            raise HostError("unsupported_capability", MECHANICS_NOT_YET, field_path="$.op")
+        if message["op"] == "world.set_mode" and "difficulty" in message["args"]:
+            raise HostError("unsupported_capability", DIFFICULTY_NOT_YET, field_path="$.op")
+        if message["op"] == "nature.cast" and message["args"].get("capability") in BUBBLES_EXPERTISE:
+            raise HostError("unsupported_capability", BUBBLES_NOT_YET, field_path="$.op")
         if message["op"] == "room.undo" and self.mode != "creative":
             raise HostError("unsupported_capability", UNDO_NOT_IN_THIS_MODE, field_path="$.op")
 
@@ -2224,6 +2255,12 @@ class MockHost(JournalMixin):
             self.compacted.popitem(last=False)
         # What the kernel host answers (and replays from the durable receipt): the revision, nothing else.
         return {"data": {"checkpoint_revision": self.revision}}
+
+    def _op_item_pickup(self, principal, message, apply, new_revision):
+        """A Fractal's pickup, the player's alone: refused before it reaches here (_check_unsupported) until M1 and M4."""
+        raise HostError("unsupported_capability", MECHANICS_NOT_YET, field_path="$.op")
+
+    _op_knack_set = _op_receipt_mark = _op_trust_reset = _op_item_pickup
 
     def _op_world_set_physics(self, principal, message, apply, new_revision):
         # Player-only: a companion is refused before any handler runs. Not saved in room state, so transient.

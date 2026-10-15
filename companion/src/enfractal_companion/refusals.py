@@ -50,6 +50,22 @@ _KEYWORD_MESSAGES = {
 }
 
 
+# A Fractal is the player's to pick up (the mechanics round, M0): a companion's grab, place, push or fetch of one is refused by
+# the id's namespace before anything is looked up, at the adapter and the host, in the kernel's words (CommandHost.FractalRefusal).
+FRACTAL_REFUSAL = "Only the player can pick up a Fractal."
+
+
+def names_a_fractal(message: Any) -> bool:
+    """Whether a command would have its actor carry, place, push or fetch a Fractal (the kernel's NamesAFractal)."""
+    if not isinstance(message, dict):
+        return False
+    op, args = message.get("op"), message.get("args")
+    if not isinstance(args, dict) or not isinstance(args.get("target"), str):
+        return False
+    gathers = op in ("entity.grab", "entity.place", "entity.push") or (op == "goal.set" and args.get("goal") == "fetch")
+    return gathers and args["target"].startswith("fractal:")
+
+
 def map_schema_errors(errors) -> HostError:
     """Turn jsonschema errors into one contract error. Messages are templates: no requester text is echoed."""
 

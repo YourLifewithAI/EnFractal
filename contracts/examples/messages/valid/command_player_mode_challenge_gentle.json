@@ -1,0 +1,12 @@
+{
+  "schema": "enfractal.command",
+  "version": 1,
+  "action_id": "mode-0002",
+  "room_id": "garage_example",
+  "op": "world.set_mode",
+  "args": {
+    "mode": "challenge",
+    "difficulty": "gentle"
+  },
+  "note": "Player-only: the opening menu, at boot."
+}

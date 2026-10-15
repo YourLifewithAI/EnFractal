@@ -15,19 +15,29 @@
       "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
     },
     "entity_id": {
-      "description": "Namespaced entity identity. shell: room shell part; obj: captured or authored object instance; creation: compiled creation instance; avatar: player or companion body; effect: running effect; edit: legacy world_state entity; plant: one copy of a plant, tree or stone in the room manifest's plant_copies (see plant_id), the one form with a single spelling per copy.",
+      "description": "Namespaced entity identity. shell: room shell part; obj: captured or authored object instance; creation: compiled creation instance; avatar: player or companion body; effect: running effect; edit: legacy world_state entity; plant: one copy of a plant, tree or stone in the room manifest's plant_copies (see plant_id), the one form with a single spelling per copy. fractal: one Fractal the island's manifest places (extensions.x_fractals, see fractal_id): picked up by the player alone (item.pickup), never carried, placed, pushed or fetched by a companion.",
       "type": "string",
-      "pattern": "^((shell|obj|creation|avatar|effect|edit):[A-Za-z0-9_-]{1,64}|plant:[a-z][a-z0-9_]{0,31}-(0|[1-9][0-9]{0,7}))$"
+      "pattern": "^((shell|obj|creation|avatar|effect|edit):[A-Za-z0-9_-]{1,64}|plant:[a-z][a-z0-9_]{0,31}-(0|[1-9][0-9]{0,7})|fractal:[a-z0-9]{1,32})$"
     },
     "plant_id": {
       "description": "One copy in the room manifest's plant_copies: 'plant:', its set's name (no hyphen), '-' and its zero-based row in that set's table, in decimal without leading zeros (plant:broadleaf-0, plant:grass-1207). Stable for the room: the rows are pinned by the manifest's hash and saves are pinned to it. Fire, seeds, replanting and the companion's perception address single copies by it.",
       "type": "string",
       "pattern": "^plant:[a-z][a-z0-9_]{0,31}-(0|[1-9][0-9]{0,7})$"
     },
+    "fractal_id": {
+      "description": "One Fractal in the room manifest's extensions.x_fractals: 'fractal:' and 1 to 32 lowercase letters and digits, one spelling. The exporter derives it from the Fractal's place, never a count, so an id says nothing about how many the island holds or which was found first. A Fractal is picked up by the player alone (item.pickup); a companion's entity.grab, entity.place, entity.push or fetch naming one is refused permission_denied, the same answer whether or not it exists.",
+      "type": "string",
+      "pattern": "^fractal:[a-z0-9]{1,32}$"
+    },
     "principal_id": {
       "description": "Who issued an action. Assigned by the trusted adapter, never accepted from a request body.",
       "type": "string",
       "pattern": "^(player|companion|guest|guest_companion|system):[a-z0-9_-]{1,32}$"
+    },
+    "team_id": {
+      "description": "One team (a person and their Gubble, contracts/team.schema.json): a lowercase token that names its folder (user://teams/<team_id>/). Chosen by the menu when the team is made, never shown: the profile's display_name is what people see.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]{0,63}$"
     },
     "sha256": {
       "type": "string",

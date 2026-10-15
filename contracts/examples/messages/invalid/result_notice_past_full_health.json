@@ -24,7 +24,7 @@
     {
       "kind": "fire_hurt_player",
       "fire_revision": 7,
-      "health_before": 120,
+      "health_before": 721,
       "health_after": 64.0,
       "recovered": false,
       "at_utc": "2026-10-06T00:04:50Z"

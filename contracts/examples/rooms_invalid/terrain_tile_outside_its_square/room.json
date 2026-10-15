@@ -227,5 +227,39 @@
       "sha256": "c88bfbd9174984c0c81e4f6030c5a1b3b536061e281191d4cadeaa1dcc066548",
       "bytes": 820
     }
-  ]
+  ],
+  "extensions": {
+    "x_fractals": {
+      "typed": false,
+      "items": [
+        {
+          "id": "fractal:k3x9q2",
+          "position_m": [
+            2.0,
+            0.0,
+            -9.0
+          ],
+          "reach_band": 1
+        },
+        {
+          "id": "fractal:p7m2c5",
+          "position_m": [
+            -5.0,
+            0.94,
+            -9.0
+          ],
+          "reach_band": 2
+        },
+        {
+          "id": "fractal:w4n8t6",
+          "position_m": [
+            10.0,
+            0.0,
+            -4.0
+          ]
+        }
+      ]
+    },
+    "x_island_tutorial": true
+  }
 }

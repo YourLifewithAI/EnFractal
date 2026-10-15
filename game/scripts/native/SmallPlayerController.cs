@@ -322,6 +322,11 @@ public partial class SmallPlayerController : CharacterBody3D
     /// <summary>Trusted body observation: downward speed in m/s just before landing, and whether deep water caught it.</summary>
     public System.Action<float, bool>? FallObserved { get; set; }
     public System.Action<Vector3, Vector3>? ClimbCompleted { get; set; }
+    /// <summary>
+    /// The ledger seam (the mechanics round, game/scripts/native/Seams/StaminaLedger.cs): the kernel binds it (M1), and the body
+    /// reports its sprint, deep-water and dive seconds to it once a tick and obeys its gate (M5). Unbound, as today: nothing gated.
+    /// </summary>
+    public Seams.IStaminaLedger? StaminaLedger { get; set; }
     private float _vitalsLandingSpeedMps;
     /// <summary>The last on-foot tick's descent before the water caught it (m/s): a deep-water landing's speed.</summary>
     private float _airDescentMps;

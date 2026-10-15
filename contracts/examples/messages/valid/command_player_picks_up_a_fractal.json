@@ -1,0 +1,11 @@
+{
+  "schema": "enfractal.command",
+  "version": 1,
+  "action_id": "pickup-0001",
+  "room_id": "garage_example",
+  "op": "item.pickup",
+  "args": {
+    "target": "fractal:k3x9q2"
+  },
+  "note": "Player-only: the companion's adapter never lists the op."
+}

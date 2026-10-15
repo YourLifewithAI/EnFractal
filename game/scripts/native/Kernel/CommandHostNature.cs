@@ -209,7 +209,7 @@ public partial class CommandHost
     {
         var allowed = op switch
         {
-            "nature.cast" => new[] { "capability", "center_m", "radius_m", "duration_s", "preview_id" },
+            "nature.cast" => new[] { "capability", "center_m", "radius_m", "duration_s", "preview_id", "target" },
             "nature.trail" => new[] { "enabled" },
             "nature.repair" => new[] { "target" },
             _ => Array.Empty<string>(),
@@ -228,7 +228,14 @@ public partial class CommandHost
             if (!args.TryGetProperty(name, out _)) throw new Refusal("request_invalid", $"This operation needs '{name}'.", "$.args." + name);
         if (op == "nature.cast")
         {
-            if (Str(args, "capability") is not ("bloom" or "fire")) throw new Refusal("request_invalid", "capability is bloom or fire.", "$.args.capability");
+            if (Str(args, "capability") is not ("bloom" or "fire" or "bubble_carry" or "bubble_boat" or "bubble_lift"))
+                throw new Refusal("request_invalid", "capability is bloom or fire.", "$.args.capability");
+            // The targets rule (the mechanics round): only the Bubbles carry and lift envelop an avatar. Until M9 they are
+            // refused as not available yet (Unsupported), the preview-first rule with them.
+            if (args.TryGetProperty("target", out var envelops) && Str(args, "capability") is not ("bubble_carry" or "bubble_lift"))
+                throw new Refusal("request_invalid", "Only the Bubble's carry and lift name a target.", "$.args.capability");
+            if (envelops.ValueKind != JsonValueKind.Undefined && (envelops.ValueKind != JsonValueKind.String || !AvatarId.IsMatch(envelops.GetString()!)))
+                throw new Refusal("request_invalid", "A Bubble's target is an avatar.", "$.args.target");
             CheckVector(args.GetProperty("center_m"), "$.args.center_m");
             // The contract's outer bounds; the island's narrower ones are the rules pack's (invalid_args when exceeded).
             foreach (var (name, max) in new[] { ("radius_m", NatureBlock.MaxFireRadiusM), ("duration_s", 600f) })

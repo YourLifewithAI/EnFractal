@@ -340,8 +340,16 @@
       }
     },
     "extensions": {
-      "description": "Experiments (common.schema.json). The kernel host writes its own blocks here under x_play_: among them x_play_nature, the island's nature (the ground's cells, what fire did to each object and creation, the team's wallet, the trail, the weather clock and the latest nature changes' undo steps), checked whole before anything is restored. Other readers ignore them.",
-      "$ref": "common.schema.json#/$defs/extensions"
+      "description": "Experiments (common.schema.json). The kernel host writes its own blocks here under x_play_: among them x_play_nature, the island's nature (the ground's cells, what fire did to each object and creation, the team's wallet, the trail, the weather clock and the latest nature changes' undo steps), checked whole before anything is restored. Other readers ignore them. Since the mechanics round two keys are typed here: x_clock, the island's clock, and x_team, whose save this is and how it plays (written by the teams packet, M3, and the clock's, M6).",
+      "$ref": "common.schema.json#/$defs/extensions",
+      "properties": {
+        "x_clock": {
+          "$ref": "#/$defs/x_clock"
+        },
+        "x_team": {
+          "$ref": "#/$defs/x_team"
+        }
+      }
     }
   },
   "$defs": {
@@ -683,6 +691,111 @@
           "type": "boolean"
         }
       }
+    },
+    "x_clock": {
+      "description": "The island's clock (docs/game/MECHANICS.md section 9): in the room state's open extension, which a save may change, never in the pinned manifest, whose every change starts a fresh save. The sun, the sky and the weather read the time through one WorldTime(utcNow, clock) (M6). Absent, or day_scale 1 with no phase: the machine's own clock, today's behaviour. Live will use four game days a real day.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "zone_id",
+        "day_scale",
+        "seasons_per_year",
+        "phase_h",
+        "hemisphere"
+      ],
+      "properties": {
+        "zone_id": {
+          "description": "The world owner's time zone, an IANA id (Etc/UTC, Europe/Paris): the time of day, daylight saving and the calendar follow it, and the day rolls over at dawn. A zone, never a place.",
+          "type": "string",
+          "maxLength": 64,
+          "pattern": "^[A-Za-z][A-Za-z0-9_+-]{0,31}(/[A-Za-z0-9_+-]{1,31}){0,2}$"
+        },
+        "day_scale": {
+          "description": "Game days per real day, a divisor of 24 so that nothing drifts: 1 is the real clock (the default, no change until Live); Live's 4 makes a day 6 real hours, with midnight at 00:00, 06:00, 12:00 and 18:00 world-local.",
+          "enum": [
+            1,
+            2,
+            3,
+            4,
+            6,
+            8,
+            12,
+            24
+          ]
+        },
+        "seasons_per_year": {
+          "description": "Seasons follow the real calendar (4: about 91 real days each).",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 12
+        },
+        "phase_h": {
+          "description": "An offset in game hours, so an evening-only child still meets night (0: none).",
+          "type": "number",
+          "minimum": -12,
+          "maximum": 12
+        },
+        "hemisphere": {
+          "description": "Which half of the year is summer.",
+          "enum": [
+            "north",
+            "south"
+          ]
+        }
+      }
+    },
+    "x_team": {
+      "description": "Whose island save this is and how it plays (the mechanics round; written by the teams packet, M3): the team (contracts/team.schema.json), the mode and, in Challenge, its difficulty, chosen at the opening menu and fixed for the save, which never changes its mode (decided: switching modes means switching saves). Absent: today's single player, in the mode the player's profile holds.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "team_id",
+        "mode"
+      ],
+      "properties": {
+        "team_id": {
+          "$ref": "common.schema.json#/$defs/team_id"
+        },
+        "mode": {
+          "enum": [
+            "creative",
+            "challenge",
+            "live"
+          ]
+        },
+        "difficulty": {
+          "description": "Challenge only, and required there.",
+          "enum": [
+            "gentle",
+            "standard",
+            "brave"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "challenge"
+              }
+            },
+            "required": [
+              "mode"
+            ]
+          },
+          "then": {
+            "required": [
+              "difficulty"
+            ]
+          },
+          "else": {
+            "properties": {
+              "difficulty": false
+            }
+          }
+        }
+      ]
     }
   }
 }

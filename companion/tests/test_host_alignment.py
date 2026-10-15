@@ -209,6 +209,59 @@ class AlignmentScenarios:
                     else:
                         self.assertEqual(answer, ("unavailable", "$.op"))
 
+    # ----- The mechanics round (M0): the contract's stubs and its boundary, alike on both hosts -----
+
+    async def test_the_mechanics_rounds_boundary_holds_alike(self):
+        """The companion never reaches the player's new ops, never carries, places, pushes or fetches a Fractal (the same
+        answer whether or not it exists, before anything is looked up), may go to one, and casts the Bubbles expertise only
+        under the targets rule: a Bubble on an avatar is previewed first, only the carry and the lift name a target, and the
+        target is an avatar. The Bubbles and the set-mode's difficulty are not built yet (M9, M3)."""
+        await self.companion_home()
+        spot = IN_THE_OPEN
+        carry = {"capability": "bubble_carry", "center_m": spot, "radius_m": 0.08, "duration_s": 20, "target": "avatar:player"}
+
+        async def sent(op, args, **options):
+            return refusal(await self.ask(command(op, args, self.next_id("m0"), **options)))
+
+        outcome = {
+            "pick up a Fractal": await sent("item.pickup", {"target": "fractal:k3x9q2"}),
+            "set a knack": await sent("knack.set", {"slot": 1, "knack": "quick_feet"}),
+            "mark a receipt": await sent("receipt.mark", {"action_id": "bloom-0002", "mark": "yes"}),
+            "reset Trust": await sent("trust.reset", {}),
+            "choose a difficulty": await sent("world.set_mode", {"mode": "challenge", "difficulty": "gentle"}),
+            "grab a Fractal": await sent("entity.grab", {"target": "fractal:k3x9q2", "actor": GUBBLE}),
+            "grab a Fractal nobody placed": await sent("entity.grab", {"target": "fractal:zz9", "actor": GUBBLE}),
+            "fetch a Fractal": await sent("goal.set", {"actor": GUBBLE, "goal": "fetch", "target": "fractal:k3x9q2"}),
+            "place a Fractal": await sent("entity.place", {"target": "fractal:k3x9q2", "placement": {"position_m": spot}}),
+            "push a Fractal": await sent("entity.push", {"target": "fractal:k3x9q2", "distance_m": 0.2, "actor": GUBBLE}),
+            "go to a Fractal": await sent("goal.set", {"actor": GUBBLE, "goal": "go_to", "target": "fractal:k3x9q2"}),
+            "a carry on the player, previewed": await sent("nature.cast", carry, preview=True),
+            "a carry on the player, unpreviewed": await sent("nature.cast", carry),
+            "a boat at a point": await sent("nature.cast", {"capability": "bubble_boat", "center_m": spot, "radius_m": 0.1,
+                                                            "duration_s": 20}, preview=True),
+            "Bloom on the player": await sent("nature.cast", {"capability": "bloom", "center_m": spot, "radius_m": 0.25,
+                                                              "duration_s": 30, "target": "avatar:player"}, preview=True),
+            "a carry of a thing": await sent("nature.cast", {**carry, "target": "obj:box"}, preview=True),
+        }
+        self.assertEqual(outcome, {
+            "pick up a Fractal": ("permission_denied", "$.op"),
+            "set a knack": ("permission_denied", "$.op"),
+            "mark a receipt": ("permission_denied", "$.op"),
+            "reset Trust": ("permission_denied", "$.op"),
+            "choose a difficulty": ("permission_denied", "$.op"),
+            "grab a Fractal": ("permission_denied", "$.args.target"),
+            "grab a Fractal nobody placed": ("permission_denied", "$.args.target"),
+            "fetch a Fractal": ("permission_denied", "$.args.target"),
+            "place a Fractal": ("permission_denied", "$.args.target"),
+            "push a Fractal": ("permission_denied", "$.args.target"),
+            "go to a Fractal": ("target_not_found", "$.args.target"),
+            "a carry on the player, previewed": ("unsupported_capability", "$.op"),
+            "a carry on the player, unpreviewed": ("request_invalid", "$"),
+            "a boat at a point": ("unsupported_capability", "$.op"),
+            "Bloom on the player": ("request_invalid", "$.args.capability"),
+            "a carry of a thing": ("request_invalid", "$.args.target"),
+        })
+
     # ----- The Gubble's eyes (view.look): the same refusals on both hosts; a picture wherever the host can draw -----
 
     # Whether this host draws pictures: the mock always (a placeholder), the kernel host only with a renderer (never headless).

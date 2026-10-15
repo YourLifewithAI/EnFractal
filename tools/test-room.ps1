@@ -74,8 +74,10 @@ $sheetMotion = Invoke-EnfractalNativeProcess -Toolchain $toolchain -FilePath $to
     -Arguments @('--headless', '--path', $toolchain.ProjectPath, '--fixed-fps', '60', 'res://tests/native/Look/character_sheet_capture.tscn', '--', '--motion-only=true', "--assets=$((Join-Path $toolchain.RepositoryPath 'assets/characters') -replace '\\', '/')") -TimeoutSeconds 180
 if ($sheetMotion.Stderr -or $sheetMotion.Stdout -notmatch 'CHARACTER_SHEET_MOTION: (\d+)/\1 tiles show their motion') { throw "$($sheetMotion.Stdout)`n$($sheetMotion.Stderr)" }
 Write-Output (($sheetMotion.Stdout.Trim().Split("`n") | Where-Object { $_ -match '^CHARACTER_SHEET_MOTION:' }) -join "`n")
+# The boot carries a team, a mode and a difficulty as run-room.ps1 passes them (the mechanics round): ignored until the teams
+# packet (M3) honours them, and never a reason not to boot.
 $room = Invoke-EnfractalNativeProcess -Toolchain $toolchain -FilePath $toolchain.EnginePath `
-    -Arguments @('--headless', '--path', $toolchain.ProjectPath, '--fixed-fps', '60', 'res://scenes/room.tscn', '--', '--quit-after-ready=240') -TimeoutSeconds 60
+    -Arguments @('--headless', '--path', $toolchain.ProjectPath, '--fixed-fps', '60', 'res://scenes/room.tscn', '--', '--quit-after-ready=240', '--team=boot_probe', '--mode=challenge', '--difficulty=gentle') -TimeoutSeconds 60
 if ($room.Stderr -or $room.Stdout -notmatch 'ROOM_WORLD_READY' -or $room.Stdout -notmatch 'ROOM_WORLD_QUIT') { throw "Placeholder room failed to load:`n$($room.Stdout)`n$($room.Stderr)" }
 Write-Output $room.Stdout.Trim()
 # The landscape as the player opens it: installed in the (runner's) user folder and booted by id through the main scene, which

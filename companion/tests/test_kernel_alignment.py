@@ -272,8 +272,8 @@ class NatureMatchesTheKernel(unittest.TestCase):
         defs = json.loads((REPO / "contracts" / "game-command.schema.json").read_bytes())["$defs"]
         cast = defs["args"]["nature.cast"]["properties"]
         check = _method(_text(NATURE), "private static void CheckNatureArgs(")
-        self.assertIn('is not ("bloom" or "fire")', check)
-        self.assertEqual(cast["capability"]["enum"], ["bloom", "fire"])
+        self.assertIn('is not ("bloom" or "fire" or "bubble_carry" or "bubble_boat" or "bubble_lift")', check)
+        self.assertEqual(cast["capability"]["enum"], ["bloom", "fire", "bubble_carry", "bubble_boat", "bubble_lift"])
         self.assertIn('("radius_m", NatureBlock.MaxFireRadiusM), ("duration_s", 600f)', check)
         radius = float(_match(KERNEL / "Kernel" / "NatureStore.cs", r"\bconst float MaxFireRadiusM = ([0-9.]+)f;"))
         self.assertEqual((cast["radius_m"]["maximum"], cast["duration_s"]["maximum"]), (radius, 600))
@@ -308,7 +308,63 @@ class NatureMatchesTheKernel(unittest.TestCase):
         self.assertIn('throw new Refusal("unsupported_capability", unsupported, "$.op")', execute)
         command = inspect.getsource(mock_host.MockHost._command)
         self.assertLess(command.index("self._check_unsupported(message)"), command.index("self._check_revisions(principal, message)"))
-        self.assertEqual(re.findall(r'HostError\("(\w+)"', inspect.getsource(mock_host.MockHost._check_unsupported)), ["unsupported_capability"])
+        # The mechanics round's stubs (M0) refuse there too, with the same code (MechanicsMatchTheKernel holds their words).
+        self.assertEqual(set(re.findall(r'HostError\("(\w+)"', inspect.getsource(mock_host.MockHost._check_unsupported))), {"unsupported_capability"})
+
+
+@unittest.skipUnless(COMMAND_HOST.is_file(), "the kernel host is not in this checkout")
+class MechanicsMatchTheKernel(unittest.TestCase):
+    """The mechanics round's contract (M0): the stubs both hosts answer until their packets land, in the kernel's words, and
+    the Fractal the companion may never gather, refused by its id's namespace in both."""
+
+    def test_the_stubs_and_the_fractal_refusal_are_the_kernels_word_for_word(self):
+        from enfractal_companion import mock_host
+        for mock, kernel in (("MECHANICS_NOT_YET", "MechanicsNotYet"), ("DIFFICULTY_NOT_YET", "DifficultyNotYet"),
+                             ("BUBBLES_NOT_YET", "BubblesNotYet"), ("FRACTAL_REFUSAL", "FractalRefusal")):
+            with self.subTest(words=mock):
+                self.assertEqual(getattr(mock_host, mock), _cs_string(COMMAND_HOST, kernel))
+        self.assertEqual(mock_host.MECHANICS_PLAYER_OPS, set(re.findall(r'"([a-z_.]+)"', _match(COMMAND_HOST, r"MechanicsPlayerOps = new\(\) \{([^}]*)\};"))))
+        source = _text(COMMAND_HOST)
+        self.assertIn('(op is "entity.grab" or "entity.place" or "entity.push" || (op == "goal.set" && Str(args, "goal") == "fetch"))', source)
+        self.assertIn('target.StartsWith("fractal:", StringComparison.Ordinal)', source)
+        execute = _method(source, "private JsonObject Execute(")
+        # The Fractal refusal comes after the player-only check and before anything looks the target up.
+        self.assertLess(execute.index("PlayerOnlyOps.Contains(op)"), execute.index("NamesAFractal(op, args)"))
+        self.assertLess(execute.index("NamesAFractal(op, args)"), execute.index("CheckPerceived(op, args, principal)"))
+
+    def test_the_mock_reads_its_prices_from_the_pack_the_kernel_will_read(self):
+        """The cost block is one JSON both hosts read (the kernel from M1): the mock prices from it and nothing else."""
+        import json
+        from enfractal_companion.mock_host import load_rules, rules_path
+        from support import contracts
+        v5 = load_rules(contracts(), rules_path(rules_version=5))
+        pack = json.loads(rules_path(rules_version=5).read_bytes())
+        for name, price in pack["cost"]["prices"].items():
+            with self.subTest(ability=name):
+                self.assertEqual(v5.price(name, "player:local"), price["ordered"])
+                self.assertEqual(v5.price(name, "companion:local"), round(price["ordered"] * price["own_idea_factor"]))
+        self.assertEqual({n: (v5.price(n, "player:local"), v5.price(n, "companion:local")) for n in pack["cost"]["prices"]},
+                         {"glow": (2, 1), "bubbles": (2, 1), "fireworks": (2, 1), "bloom": (4, 2), "fire": (6, 3),
+                          "bubble_carry": (4, 2), "bubble_lift": (6, 3)})
+        self.assertEqual(v5.price("bubble_boat", "companion:local"), 0, "a price the pack does not set costs nothing")
+        today = load_rules(contracts(), rules_path())
+        self.assertEqual({a.capability: today.price(a.capability, "companion:local") for a in today.abilities},
+                         {"glow": 0, "bubbles": 0, "fireworks": 0, "bloom": 0, "fire": 0}, "v4 has no cost block: nothing is charged")
+
+    def test_a_price_moved_in_the_pack_moves_the_mocks(self):
+        import json
+        import tempfile
+        from pathlib import Path
+        from enfractal_companion.mock_host import load_rules, rules_path
+        from support import contracts
+        pack = json.loads(rules_path(rules_version=5).read_bytes())
+        pack["cost"]["prices"]["bloom"]["ordered"] = 8
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "storybook_wild" / "v5.json"
+            path.parent.mkdir()
+            path.write_bytes((json.dumps(pack, indent=2) + "\n").encode("utf-8"))
+            moved = load_rules(contracts(), path)
+        self.assertEqual((moved.price("bloom", "player:local"), moved.price("bloom", "companion:local")), (8, 4))
 
 
 EYES = KERNEL / "Kernel" / "CommandHostEyes.cs"

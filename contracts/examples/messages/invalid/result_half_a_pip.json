@@ -1,0 +1,36 @@
+{
+  "schema": "enfractal.result",
+  "version": 1,
+  "ok": true,
+  "op": "player.status",
+  "query_id": "q-0040",
+  "principal": "companion:local",
+  "room_id": "garage_example",
+  "revision": 5,
+  "replayed": false,
+  "preview": false,
+  "data": {
+    "mode": "challenge",
+    "health": 85.0,
+    "max_health": 120,
+    "stamina": 0.55,
+    "max_stamina": 0.8,
+    "completed_climbs": 3,
+    "recoveries": 1,
+    "consequences": true,
+    "energy": {
+      "pips": 2.5,
+      "max_pips": 8,
+      "shadow": false
+    },
+    "hearts": {
+      "quarters": 17,
+      "max_quarters": 24
+    },
+    "bar": {
+      "bands": 2,
+      "slowed": false
+    }
+  },
+  "at_utc": "2026-10-06T00:05:00Z"
+}

@@ -1,0 +1,20 @@
+{
+  "schema": "enfractal.glow_progress",
+  "version": 3,
+  "team_id": "example_team",
+  "abilities": {
+    "glow": {
+      "successful_casts": 14,
+      "discoveries": [
+        "lantern",
+        "torch"
+      ],
+      "delivered_hints": [
+        "lantern_self"
+      ]
+    }
+  },
+  "touch": "ember",
+  "sound_volume": 0.35,
+  "muted": false
+}

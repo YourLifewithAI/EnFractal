@@ -102,8 +102,10 @@ public partial class CommandHost : Node
     // \A and \z, never ^ and $: in .NET, $ also matches before a final newline (Lane P review).
     private static readonly Regex ActionId = new(@"\A[A-Za-z0-9][A-Za-z0-9_-]{0,63}\z", RegexOptions.Compiled);
     private static readonly Regex Token = new(@"\A[a-z][a-z0-9_-]{0,63}\z", RegexOptions.Compiled);
-    // A plant copy (plant:<set>-<row>, the 10x world) has one spelling: its row in decimal without leading zeros.
-    private static readonly Regex EntityId = new(@"\A((shell|obj|creation|avatar|effect|edit):[A-Za-z0-9_-]{1,64}|plant:[a-z][a-z0-9_]{0,31}-(0|[1-9][0-9]{0,7}))\z", RegexOptions.Compiled);
+    // A plant copy (plant:<set>-<row>, the 10x world) has one spelling: its row in decimal without leading zeros. A Fractal
+    // (fractal:<id>, the mechanics round) is the player's to pick up (item.pickup).
+    private static readonly Regex EntityId = new(@"\A((shell|obj|creation|avatar|effect|edit):[A-Za-z0-9_-]{1,64}|plant:[a-z][a-z0-9_]{0,31}-(0|[1-9][0-9]{0,7})|fractal:[a-z0-9]{1,32})\z", RegexOptions.Compiled);
+    private static readonly Regex FractalId = new(@"\Afractal:[a-z0-9]{1,32}\z", RegexOptions.Compiled);
     private static readonly Regex AvatarId = new(@"\Aavatar:[A-Za-z0-9_-]{1,64}\z", RegexOptions.Compiled);
     private static readonly Regex CreationId = new(@"\Acreation:[A-Za-z0-9_-]{1,64}\z", RegexOptions.Compiled);
     private static readonly Regex EffectId = new(@"\Aeffect:[A-Za-z0-9_-]{1,64}\z", RegexOptions.Compiled);
@@ -118,6 +120,9 @@ public partial class CommandHost : Node
         "creation.place", "creation.revise", "creation.activate", "protect.lock", "protect.unlock",
         "goal.set", "goal.stop", "effect.start", "effect.stop", "effect.adjust", "glow.configure", "style.set", "room.checkpoint", "room.undo", "world.set_physics", "world.set_mode", "journal.note",
         "nature.cast", "nature.trail", "nature.repair", "wish.submit", "wish.stop",
+        // The mechanics round (M0): player-only, and refused to the player as not available yet until their packets land
+        // (Unsupported: item.pickup with M1 and M4, knack.set with M3, receipt.mark and trust.reset with M8).
+        "item.pickup", "knack.set", "receipt.mark", "trust.reset",
     };
     private static readonly HashSet<string> QueryOps = new()
     {
@@ -134,7 +139,15 @@ public partial class CommandHost : Node
     /// </summary>
     private static readonly HashSet<string> TransientOps = new() { "goal.set", "goal.stop", "effect.start", "effect.stop", "effect.adjust", "glow.configure", "entity.grab", "creation.activate", "world.set_physics", "world.set_mode", "wish.stop" };
     /// <summary>contracts $defs/player_only_ops: refused from a companion with permission_denied, never held.</summary>
-    private static readonly HashSet<string> PlayerOnlyOps = new() { "protect.unlock", "world.set_physics", "world.set_mode", "glow.configure", "wish.submit", "wish.stop" };
+    private static readonly HashSet<string> PlayerOnlyOps = new() { "protect.unlock", "world.set_physics", "world.set_mode", "glow.configure", "wish.submit", "wish.stop", "item.pickup", "knack.set", "receipt.mark", "trust.reset" };
+    /// <summary>The mechanics round's player-only ops (contracts/README.md "Player-only operations"): the player's own, with no tool.</summary>
+    private static readonly HashSet<string> MechanicsPlayerOps = new() { "item.pickup", "knack.set", "receipt.mark", "trust.reset" };
+    /// <summary>The Gubble may find a Fractal and go to it, never gather it: the same refusal whether or not the Fractal exists.</summary>
+    public const string FractalRefusal = "Only the player can pick up a Fractal.";
+    /// <summary>The mechanics round's stubs' words (unsupported_capability at $.op), the mock host's too.</summary>
+    public const string MechanicsNotYet = "This operation is not available yet.";
+    public const string DifficultyNotYet = "Difficulties are chosen at the opening menu, which is not built yet.";
+    public const string BubblesNotYet = "The Bubble's carry, boat and lift are not available yet.";
     private static readonly HashSet<string> StopOps = new() { "goal.stop", "effect.stop", "wish.stop" };
     /// <summary>Goals that only move or turn the companion: they may aim at something it remembers but cannot see now, re-checked on arrival.</summary>
     private static readonly HashSet<string> RememberedTargetGoals = new() { "go_to", "look_at", "point_at", "come", "fetch" };
@@ -585,8 +598,13 @@ public partial class CommandHost : Node
             CheckWishCommandBudget(root, principal);
             // Player-only ops are refused outright from the companion, never held for a click.
             if (PlayerOnlyOps.Contains(op) && principal != PlayerPrincipal)
-                throw new Refusal("permission_denied", op == "protect.unlock"
-                    ? "Only the player can unlock, directly in the game." : "Only the player can choose this setting or submit wishes, directly in the game.", "$.op");
+                throw new Refusal("permission_denied", op == "protect.unlock" ? "Only the player can unlock, directly in the game."
+                    : MechanicsPlayerOps.Contains(op) ? "Only the player can do that, directly in the game."
+                    : "Only the player can choose this setting or submit wishes, directly in the game.", "$.op");
+            // A Fractal is never carried, placed, pushed or fetched by the companion: refused by the id's namespace before
+            // anything is looked up, so the answer is the same whether or not it exists (contracts: common fractal_id).
+            if (principal != PlayerPrincipal && NamesAFractal(op, args))
+                throw new Refusal("permission_denied", FractalRefusal, "$.args.target");
             var unsupported = Unsupported(op, args, principal);
             if (unsupported != null) throw new Refusal("unsupported_capability", unsupported, "$.op");
             if (!StopOps.Contains(op)) CheckExpectations(root, op, args, principal);
@@ -2278,6 +2296,11 @@ public partial class CommandHost : Node
         // contracts/README.md "Revisions for a live room": room.undo names the room revision it undoes from.
         if (op == "room.undo" && !root.TryGetProperty("expected_revision", out _))
             throw new Refusal("request_invalid", "room.undo must name the room revision it undoes from (expected_revision).", "$");
+        // The targets rule (the mechanics round): a nature.cast that names an avatar to envelop is its preview, or names the
+        // preview_id of the caster's own preview of exactly that cast. The ghost preview the player sees is the consent.
+        if (op == "nature.cast" && root.GetProperty("args") is { ValueKind: JsonValueKind.Object } cast && cast.TryGetProperty("target", out _) &&
+            !(root.TryGetProperty("preview", out var asked) && asked.ValueKind == JsonValueKind.True) && !cast.TryGetProperty("preview_id", out _))
+            throw new Refusal("request_invalid", "A Bubble cast on an avatar is previewed first and names its preview_id.", "$");
     }
 
     /// <summary>
@@ -2360,7 +2383,11 @@ public partial class CommandHost : Node
             "room.checkpoint" => new[] { "label" },
             "room.undo" => new[] { "to_revision" },
             "world.set_physics" => new[] { "preset" },
-            "world.set_mode" => new[] { "mode" },
+            "world.set_mode" => new[] { "mode", "difficulty" },
+            "item.pickup" => new[] { "target" },
+            "knack.set" => new[] { "slot", "knack" },
+            "receipt.mark" => new[] { "action_id", "mark" },
+            "trust.reset" => Array.Empty<string>(),
             "wish.submit" => new[] { "text", "aim_id" },
             "wish.stop" => Array.Empty<string>(),
             "journal.note" => new[] { "text" },
@@ -2385,6 +2412,9 @@ public partial class CommandHost : Node
             "room.undo" => new[] { "to_revision" },
             "world.set_physics" => new[] { "preset" },
             "world.set_mode" => new[] { "mode" },
+            "item.pickup" => new[] { "target" },
+            "knack.set" => new[] { "slot", "knack" },
+            "receipt.mark" => new[] { "action_id", "mark" },
             "wish.submit" => new[] { "text" },
             "journal.note" => new[] { "text" },
             _ => Array.Empty<string>(),
@@ -2393,6 +2423,19 @@ public partial class CommandHost : Node
             if (!args.TryGetProperty(name, out _)) throw new Refusal("request_invalid", $"This operation needs '{name}'.", "$.args." + name);
         if (op == "world.set_mode" && (args.GetProperty("mode").ValueKind != JsonValueKind.String || !PlayerModesProfile.ValidMode(Str(args, "mode") ?? "")))
             throw new Refusal("request_invalid", "Choose creative, challenge or live.", "$.args.mode");
+        if (op == "world.set_mode" && args.TryGetProperty("difficulty", out _) &&
+            (Str(args, "difficulty") is not ("gentle" or "standard" or "brave") || Str(args, "mode") != "challenge"))
+            throw new Refusal("request_invalid", "A difficulty is gentle, standard or brave, and only for challenge.", "$.args.difficulty");
+        if (op == "item.pickup" && (Str(args, "target") is not { } fractal || !FractalId.IsMatch(fractal)))
+            throw new Refusal("request_invalid", "item.pickup names a Fractal.", "$.args.target");
+        if (op == "knack.set" && (args.GetProperty("slot") is var slot && (slot.ValueKind != JsonValueKind.Number || !IsIntegerLiteral(slot) || slot.GetDouble() is < 1 or > 3)))
+            throw new Refusal("request_invalid", "slot is 1, 2 or 3.", "$.args.slot");
+        if (op == "knack.set" && (Str(args, "knack") is not { } knack || !Token.IsMatch(knack)))
+            throw new Refusal("request_invalid", "knack names a knack.", "$.args.knack");
+        if (op == "receipt.mark" && (Str(args, "action_id") is not { } marked || !ActionId.IsMatch(marked)))
+            throw new Refusal("request_invalid", "action_id names a receipt of the Gubble's.", "$.args.action_id");
+        if (op == "receipt.mark" && Str(args, "mark") is not ("yes" or "not_that"))
+            throw new Refusal("request_invalid", "A mark is yes or not_that.", "$.args.mark");
         if (op == "wish.submit")
         {
             var text = Str(args, "text");
@@ -2599,8 +2642,17 @@ public partial class CommandHost : Node
         }
     }
 
+    /// <summary>Whether a command would have its actor carry, place, push or fetch a Fractal (by the id's namespace alone).</summary>
+    private static bool NamesAFractal(string op, JsonElement args) =>
+        (op is "entity.grab" or "entity.place" or "entity.push" || (op == "goal.set" && Str(args, "goal") == "fetch")) &&
+        Str(args, "target") is { } target && target.StartsWith("fractal:", StringComparison.Ordinal);
+
     private string? Unsupported(string op, JsonElement args, string principal) => op switch
     {
+        // The mechanics round's stubs (M0), each until its packet lands: the contract is fixed, nothing is built.
+        "item.pickup" or "knack.set" or "receipt.mark" or "trust.reset" => MechanicsNotYet,
+        "world.set_mode" when args.TryGetProperty("difficulty", out _) => DifficultyNotYet,
+        "nature.cast" when Str(args, "capability") is "bubble_carry" or "bubble_boat" or "bubble_lift" => BubblesNotYet,
         "entity.set_part" => "Moving parts of objects (a lid, a door) is not available yet.",
         "entity.transform" => "Transforming objects arrives with the first magic (Run 3).",
         "style.set" => "Restyling the room from a command arrives with the look runtime.",
