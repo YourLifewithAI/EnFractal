@@ -95,6 +95,8 @@ echo "== native fixtures and room boot"
 run native_contract_probe "Native release probe passed" --headless --path "$P" res://scenes/native_contract_probe.tscn
 run native_small_avatar "checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_small_avatar.tscn
 run native_characters "NATIVE_CHARACTERS: [0-9]+/[0-9]+ checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_characters.tscn -- --skip-budget
+run native_body_knacks "NATIVE_BODY_KNACKS: [0-9]+/[0-9]+ checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_body_knacks.tscn
+run native_body_knacks_boot "NATIVE_BODY_KNACKS_BOOT: [0-9]+/[0-9]+ checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_body_knacks.tscn -- --boot-room --knack=quick_feet:3 --knack=cat_feet:2
 run native_character_gaits "NATIVE_CHARACTER_GAITS: [0-9]+/[0-9]+ checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_character_gaits.tscn -- --skip-budget
 run native_character_contact "NATIVE_CHARACTER_CONTACT: [0-9]+/[0-9]+ checks passed" --headless --path "$P" --fixed-fps 60 res://tests/native_character_contact.tscn
 # 40 seeded tumbles per character and ground (the Windows runner takes all 200, about 4 minutes) to fit run()'s 180 s.

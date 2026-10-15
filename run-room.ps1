@@ -5,12 +5,17 @@
 # -Team <team id>, -Mode creative|challenge|live and -Difficulty gentle|standard|brave (with -Mode challenge) pass the team, the
 # mode and the difficulty to the game as --team=, --mode= and --difficulty= (the mechanics round, contracts/README.md "Teams and the
 # save layout"). The teams packet (M3) makes the boot honour them and refuse Live; until then the game ignores them.
-param([string]$Style, [string]$Room, [string]$Profile, [string]$Team, [string]$Mode, [string]$Difficulty)
+# -Knack quick_feet:3 (or -Knack quick_feet:3,cat_feet:2, up to three; the rank 1 to 3, 1 when left off) passes the team's knacks to the game as
+# --knack= until the team file (M3) holds them: the body takes the pack's rank for each, none by default (the mechanics round, M5).
+param([string]$Style, [string]$Room, [string]$Profile, [string]$Team, [string]$Mode, [string]$Difficulty, [string[]]$Knack)
 $ErrorActionPreference = 'Stop'
 if ($Profile -and $Profile -notmatch '^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$') { throw '-Profile takes a short name of letters, digits, - and _.' }
 if ($Team -and $Team -cnotmatch '^[a-z][a-z0-9_-]{0,63}$') { throw '-Team takes a team id: lowercase letters, digits, - and _, starting with a letter.' }
 if ($Mode -and $Mode -cnotin @('creative', 'challenge', 'live')) { throw '-Mode is creative, challenge or live.' }
 if ($Difficulty -and ($Difficulty -cnotin @('gentle', 'standard', 'brave') -or $Mode -cne 'challenge')) { throw '-Difficulty is gentle, standard or brave, with -Mode challenge.' }
+$knackArgs = @($Knack | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+if ($knackArgs.Count -gt 3) { throw '-Knack takes up to three knacks, one for each slot.' }
+foreach ($knackArg in $knackArgs) { if ($knackArg -cnotmatch '^[a-z][a-z0-9_-]{0,63}(:[1-3])?$') { throw "-Knack takes a knack id and a rank, like quick_feet:3 (rank 1 to 3, 1 when left off): '$knackArg'." } }
 . (Join-Path $PSScriptRoot 'tools/native-toolchain.ps1')
 $nativeToolchain = Get-EnfractalNativeToolchain
 if ($Room -eq 'landscape' -or $Room -eq 'landscape10') {
@@ -28,6 +33,7 @@ if ($Room) { $userArgs += "--room=$Room" }
 if ($Team) { $userArgs += "--team=$Team" }
 if ($Mode) { $userArgs += "--mode=$Mode" }
 if ($Difficulty) { $userArgs += "--difficulty=$Difficulty" }
+foreach ($knackArg in $knackArgs) { $userArgs += "--knack=$knackArg" }
 if ($userArgs) { $userArgs = @('--') + $userArgs }
 $priorRoaming = $env:APPDATA
 $priorLocal = $env:LOCALAPPDATA

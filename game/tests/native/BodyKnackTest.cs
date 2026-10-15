@@ -47,6 +47,14 @@ public partial class BodyKnackTest : Node3D
     {
         try
         {
+            // "-- --boot-room --knack=quick_feet:3 ...": the real game's boot only, headless (the runners run this second).
+            if (OS.GetCmdlineUserArgs().Contains("--boot-room"))
+            {
+                await TestBootReachesTheBody();
+                GD.Print($"NATIVE_BODY_KNACKS_BOOT: {_checks - _failures}/{_checks} checks passed; a real headless boot of the room with --knack= arguments: the host holds the ranks, the pack's table resolves them, the body wears them and walks at their pace; not the feel");
+                GetTree().Quit(_failures == 0 ? 0 : 1);
+                return;
+            }
             _library = CharacterLibrary.Load(CharacterLibrary.ShippedRoot);
             var path = ProjectSettings.GlobalizePath(IslandRules.PathFor("storybook_wild", 5));
             _pack = IslandRules.Parse(File.ReadAllBytes(path));
@@ -667,6 +675,71 @@ public partial class BodyKnackTest : Node3D
         var plain = new BodyKnacks();
         Check(Math.Abs(plain.SafeLandingSpeedMps - PlayerVitals.SafeLandingSpeedMps) < 1e-6f && TumbleTiers.TumbleHealth == 25 && TumbleTiers.KnockoutHealth == 100 && TumbleTiers.StumbleHealth == 0,
             "the three thresholds are the vitals' health points: past the safe drop, 25 and 100");
+    }
+
+    // ---- the real boot ----
+
+    /// <summary>
+    /// The game as it boots (res://scenes/room.tscn, headless): RoomWorld hands the command line's --knack= arguments to the host
+    /// (CommandHost.UseKnacks), the host resolves them against the island's pack and hands the result to the body. The run must name a
+    /// knack, so it cannot pass by having nothing to check.
+    /// </summary>
+    private async Task TestBootReachesTheBody()
+    {
+        var args = OS.GetCmdlineUserArgs();
+        var ranks = BodyKnacks.FromArguments(args);
+        Check(ranks.Count > 0, "the boot run names a knack (--knack=quick_feet:3): " + string.Join(" ", args));
+        // This run's own saves, whoever launches it; the runner also points the user folder into the worktree's cache.
+        var previousVitals = CommandHost.DefaultPlayerVitalsPath;
+        var previousGlow = CommandHost.DefaultGlowProgressPath;
+        var previousWishes = CommandHost.DefaultWishSaveRoot;
+        var previousSaves = CommandHost.SaveRoot;
+        CommandHost.SaveRoot = "user://tests/body_knacks/saves";
+        CommandHost.DefaultPlayerVitalsPath = "user://tests/body_knacks/profile/player_vitals_v1.json";
+        CommandHost.DefaultGlowProgressPath = "user://tests/body_knacks/profile/glow_progress_v1.json";
+        CommandHost.DefaultWishSaveRoot = "user://tests/body_knacks/saves/wishes";
+        try
+        {
+            var world = GD.Load<PackedScene>("res://scenes/room.tscn").Instantiate<RoomWorld>();
+            AddChild(world);
+            for (var booting = System.Diagnostics.Stopwatch.StartNew(); booting.Elapsed.TotalSeconds < 60 && !world.WorldReady && world.LoadError.Length == 0;) await Frames(1);
+            Check(world.WorldReady, "the room boots: " + world.LoadError);
+            if (world.WorldReady)
+            {
+                var host = CommandHost.Of(world) ?? throw new InvalidOperationException("the room has no command host");
+                var body = world.Player;
+                var table = host.Rules?.Knacks;
+                Check(table != null && table.Table.Count == 11, "the default pack carries the knacks table the boot's ranks are read against");
+                Check(host.Knacks.Count == ranks.Count && ranks.All(kv => host.Knacks.TryGetValue(kv.Key, out var held) && held == kv.Value),
+                    "the host holds the ranks the command line named: " + string.Join(", ", host.Knacks.Select(kv => $"{kv.Key}:{kv.Value}")));
+                var expected = BodyKnacks.FromPack(table, ranks);
+                Check(!expected.IsNone && body.Knacks == expected, $"the body wears them: walk x{body.Knacks.WalkRunFactor:0.00}, hop x{body.Knacks.HopFactor:0.00}, swim x{body.Knacks.SwimFactor:0.00}, safe drop {body.Knacks.SafeDropM:0.00} m");
+                if (ranks.TryGetValue("quick_feet", out var quick) && table?.Knack("quick_feet") is { } row)
+                {
+                    var factor = (float)row.Ranks[Math.Min(quick, row.Ranks.Count) - 1];
+                    await Frames(10);
+                    Report(Mathf.IsEqualApprox(body.WalkSpeedNowMps, 0.32f * factor) && Mathf.IsEqualApprox(body.RunSpeedNowMps, 0.96f * factor) &&
+                           Mathf.IsEqualApprox(body.LastBodyState.WalkSpeedMps, body.WalkSpeedNowMps) && Mathf.IsEqualApprox(body.LastBodyState.RunSpeedMps, body.RunSpeedNowMps),
+                        Inv($"the booted body walks at {body.WalkSpeedNowMps:0.000} m/s and runs at {body.RunSpeedNowMps:0.000} (the base 0.320 and 0.960 times {factor}), and its state tells the gaits so"));
+                }
+                Check(world.Companion.Knacks.IsNone && world.Companion.WalkSpeedNowMps == world.Companion.WalkSpeedMps, "the Gubble wears none");
+                // The same path at run time: the team's ranks change, the body follows; none again is today's body.
+                host.UseKnacks(new Dictionary<string, int>());
+                Check(body.Knacks.IsNone && body.WalkSpeedNowMps == body.WalkSpeedMps, "with no ranks the body is today's");
+                host.UseKnacks(ranks);
+                Check(body.Knacks == expected, "and with the ranks again, it wears them again");
+                body.Knacks = BodyKnacks.None;
+            }
+            world.QueueFree();
+            await Frames(3);
+        }
+        finally
+        {
+            CommandHost.SaveRoot = previousSaves;
+            CommandHost.DefaultPlayerVitalsPath = previousVitals;
+            CommandHost.DefaultGlowProgressPath = previousGlow;
+            CommandHost.DefaultWishSaveRoot = previousWishes;
+        }
     }
 
     // ---- the companion has no knacks ----
