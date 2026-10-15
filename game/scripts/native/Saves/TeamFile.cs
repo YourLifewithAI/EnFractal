@@ -30,6 +30,10 @@ public sealed record TeamFile
     public const int MaxBytes = 16 * 1024;
     public const int MaxNameLength = 40;
     public const int TrustBound = 1_000_000;
+    /// <summary>At most this many knacks keep a rank set aside (knacks.earned): a rules pack's table has at most 32.</summary>
+    public const int MaxEarned = 32;
+    /// <summary>No rank set aside: a team file without knacks.earned (every file before the review's finding 2) reads as this.</summary>
+    public static readonly IReadOnlyDictionary<string, int> NoneEarned = new System.Collections.ObjectModel.ReadOnlyDictionary<string, int>(new Dictionary<string, int>());
     /// <summary>The costume of the prototype figure (no drawn character worn): the HUD's empty choice, a token here.</summary>
     public const string PrototypeCostume = "prototype";
     private static readonly Regex Token = new(@"\A[a-z][a-z0-9_-]{0,63}\z", RegexOptions.Compiled);
@@ -42,6 +46,12 @@ public sealed record TeamFile
     public string Costume { get; init; } = PrototypeCostume;
     public int SlotsOpen { get; init; } = 1;
     public IReadOnlyList<ChosenKnack> Knacks { get; init; } = Array.Empty<ChosenKnack>();
+    /// <summary>
+    /// The ranks earned by knacks in no slot now, above 1, by knack id in ordinal order (knacks.earned, optional): a knack swapped
+    /// out keeps its rank here, and set back into a slot returns at it, so a free swap never costs an earned rank (the review's
+    /// finding 2). A knack in a slot keeps its rank in Knacks, never here.
+    /// </summary>
+    public IReadOnlyDictionary<string, int> Earned { get; init; } = NoneEarned;
     public string GubbleName { get; init; } = CompanionAvatar.DefaultName;
     public string GubbleColour { get; init; } = "#65b9b0";
     public int Trust { get; init; }
@@ -65,17 +75,28 @@ public sealed record TeamFile
     /// <summary>
     /// The team with <paramref name="knack"/> in <paramref name="slot"/> (knack.set's rules, and the menu's): the slot must be open,
     /// the knack one the island's pack offers (its table, available), and in no other slot. A knack already in this slot keeps its
-    /// rank; one newly chosen starts at rank 1 (ranks are earned, never set). Throws TeamFileException with the reason.
+    /// rank. The knack the slot held is set aside at the rank it earned (Earned, above 1); the one set in returns at the rank it
+    /// earned before, or 1 if it never ranked up (ranks are earned, never set; a swap is free and costs none). Throws
+    /// TeamFileException with the reason.
     /// </summary>
     public TeamFile WithKnack(int slot, string knack, KnacksRules? table)
     {
         if (slot < 1 || slot > SlotsOpen) throw new TeamFileException(SlotsOpen == 1 ? "Only the first knack slot is open; the others open at the summits." : $"Slots 1 to {SlotsOpen} are open; the next opens at a summit.");
         if (table == null || table.Knack(knack) is not { Available: true }) throw new TeamFileException("This island has no knack by that name to choose.");
         if (Knacks.FirstOrDefault(k => k.Knack == knack) is { } held && held.Slot != slot) throw new TeamFileException($"That knack is already in slot {held.Slot}.");
-        if (Knacks.FirstOrDefault(k => k.Slot == slot) is { } same && same.Knack == knack) return this;
-        var chosen = Knacks.Where(k => k.Slot != slot).Append(new ChosenKnack(slot, knack, 1)).OrderBy(k => k.Slot).ToArray();
-        return (this with { Knacks = chosen }).Checked();
+        var leaving = Knacks.FirstOrDefault(k => k.Slot == slot);
+        if (leaving != null && leaving.Knack == knack) return this;
+        var earned = new SortedDictionary<string, int>(StringComparer.Ordinal);
+        foreach (var (id, rank) in Earned) earned[id] = rank;
+        if (leaving != null && leaving.Rank > 1) earned[leaving.Knack] = leaving.Rank;
+        var returning = earned.Remove(knack, out var kept) ? kept : 1;
+        var chosen = Knacks.Where(k => k.Slot != slot).Append(new ChosenKnack(slot, knack, returning)).OrderBy(k => k.Slot).ToArray();
+        return (this with { Knacks = chosen, Earned = Frozen(earned) }).Checked();
     }
+
+    /// <summary>Ranks set aside as the record keeps them: in ordinal order, the shared empty one when there are none.</summary>
+    private static IReadOnlyDictionary<string, int> Frozen(SortedDictionary<string, int> earned) =>
+        earned.Count == 0 ? NoneEarned : new System.Collections.ObjectModel.ReadOnlyDictionary<string, int>(earned);
 
     /// <summary>The record checked against the schema and validate.py's rules; throws TeamFileException if anything is out of bounds.</summary>
     public TeamFile Checked()
@@ -90,6 +111,10 @@ public sealed record TeamFile
         if (Knacks.Any(k => k == null || k.Slot < 1 || k.Slot > SlotsOpen || k.Rank is < 1 or > 3 || k.Knack == null || !Token.IsMatch(k.Knack)) ||
             Knacks.Select(k => k.Slot).Distinct().Count() != Knacks.Count || Knacks.Select(k => k.Knack).Distinct(StringComparer.Ordinal).Count() != Knacks.Count)
             throw new TeamFileException("The team file has invalid knacks.");
+        // Ranks set aside: a knack id, rank 2 or 3 (rank 1 is every knack's start, never kept), never a knack in a slot.
+        if (Earned == null || Earned.Count > MaxEarned ||
+            Earned.Any(p => p.Key == null || !Token.IsMatch(p.Key) || p.Value is < 2 or > 3 || Knacks.Any(k => string.Equals(k.Knack, p.Key, StringComparison.Ordinal))))
+            throw new TeamFileException("The team file has invalid knack ranks.");
         if (Trust is < -TrustBound or > TrustBound) throw new TeamFileException("The team file has an invalid Trust count.");
         return this;
     }
@@ -97,15 +122,22 @@ public sealed record TeamFile
     /// <summary>A display name: one to forty code points of untrusted single-line text with nothing hidden (common.schema.json display_text).</summary>
     private static bool Name(string? text) => text != null && text.Length > 0 && KernelText.CodePoints(text).Length is >= 1 and <= MaxNameLength && !KernelText.HasHidden(text);
 
-    /// <summary>The file as written: compact JSON in the schema's order, UTF-8 without a BOM, one final LF.</summary>
+    /// <summary>
+    /// The file as written: compact JSON in the schema's order, UTF-8 without a BOM, one final LF. knacks.earned only when a rank
+    /// is set aside, so a team without one writes the same bytes as before it existed.
+    /// </summary>
     public byte[] Serialize()
     {
         Checked();
+        var chosen = Knacks.Select(k => new { slot = k.Slot, knack = k.Knack, rank = k.Rank }).ToArray();
+        object knacks = Earned.Count == 0
+            ? new { slots_open = SlotsOpen, chosen }
+            : new { slots_open = SlotsOpen, chosen, earned = new SortedDictionary<string, int>(Earned.ToDictionary(p => p.Key, p => p.Value), StringComparer.Ordinal) };
         var document = new
         {
             schema = SchemaId, version = Version, team_id = TeamId, created_utc = CreatedUtc,
             profile = new { display_name = DisplayName, costume = Costume },
-            knacks = new { slots_open = SlotsOpen, chosen = Knacks.Select(k => new { slot = k.Slot, knack = k.Knack, rank = k.Rank }).ToArray() },
+            knacks,
             gubble = new { name = GubbleName, colour = GubbleColour },
             trust = new { count = Trust },
         };
@@ -130,7 +162,10 @@ public sealed record TeamFile
             var profile = root.GetProperty("profile");
             Fields(profile, "display_name", "costume");
             var knacks = root.GetProperty("knacks");
-            Fields(knacks, "slots_open", "chosen");
+            // knacks.earned is optional (the review's finding 2): a team file from before it reads as it is.
+            var hasEarned = knacks.ValueKind == JsonValueKind.Object && knacks.TryGetProperty("earned", out _);
+            if (hasEarned) Fields(knacks, "slots_open", "chosen", "earned");
+            else Fields(knacks, "slots_open", "chosen");
             var chosen = knacks.GetProperty("chosen");
             if (chosen.ValueKind != JsonValueKind.Array || chosen.GetArrayLength() > 3) throw new TeamFileException("The team file has invalid knacks.");
             var list = new List<ChosenKnack>();
@@ -138,6 +173,18 @@ public sealed record TeamFile
             {
                 Fields(entry, "slot", "knack", "rank");
                 list.Add(new ChosenKnack(Whole(entry.GetProperty("slot")), Text(entry, "knack"), Whole(entry.GetProperty("rank"))));
+            }
+            var earned = NoneEarned;
+            if (hasEarned)
+            {
+                var kept = knacks.GetProperty("earned");
+                if (kept.ValueKind != JsonValueKind.Object) throw new TeamFileException("The team file has invalid knack ranks.");
+                var ranks = new SortedDictionary<string, int>(StringComparer.Ordinal);
+                foreach (var entry in kept.EnumerateObject())
+                {
+                    if (ranks.Count >= MaxEarned || !ranks.TryAdd(entry.Name, Whole(entry.Value))) throw new TeamFileException("The team file has invalid knack ranks.");
+                }
+                earned = Frozen(ranks);
             }
             var gubble = root.GetProperty("gubble");
             Fields(gubble, "name", "colour");
@@ -147,7 +194,7 @@ public sealed record TeamFile
             {
                 TeamId = Text(root, "team_id"), CreatedUtc = Text(root, "created_utc"),
                 DisplayName = Text(profile, "display_name"), Costume = Text(profile, "costume"),
-                SlotsOpen = Whole(knacks.GetProperty("slots_open")), Knacks = list,
+                SlotsOpen = Whole(knacks.GetProperty("slots_open")), Knacks = list, Earned = earned,
                 GubbleName = Text(gubble, "name"), GubbleColour = Text(gubble, "colour"), Trust = Whole(trust.GetProperty("count"), allowNegative: true),
             }.Checked();
         }

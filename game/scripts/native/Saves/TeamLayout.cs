@@ -25,6 +25,11 @@ public sealed class TeamLayout
     public const string DefaultTeamId = "local";
     public static readonly IReadOnlyList<string> Modes = Array.AsReadOnly(new[] { "creative", "challenge", "live" });
     private static readonly Regex TeamIdPattern = new(@"\A[a-z][a-z0-9_-]{0,63}\z", RegexOptions.Compiled);
+    /// <summary>
+    /// The names Windows keeps for its devices, in any case: a folder so named cannot be made (teams\nul), so no team is named so
+    /// (the review's finding 3; contracts common.schema.json team_id refuses them too). COM0 and LPT0 are on Microsoft's list as well.
+    /// </summary>
+    private static readonly Regex DeviceName = new(@"\A(con|prn|aux|nul|com[0-9]|lpt[0-9])\z", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
     private static readonly Regex RoomIdPattern = new(@"\A[a-z][a-z0-9_-]{0,63}\z", RegexOptions.Compiled);
     private static readonly Regex PrefixPattern = new(@"\A[0-9a-f]{16}\z", RegexOptions.Compiled);
 
@@ -38,8 +43,8 @@ public sealed class TeamLayout
         Root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
     }
 
-    /// <summary>A team id (contracts common.schema.json team_id): a lowercase token naming its folder.</summary>
-    public static bool ValidTeamId(string? id) => id != null && TeamIdPattern.IsMatch(id);
+    /// <summary>A team id (contracts common.schema.json team_id): a lowercase token naming its folder, never a Windows device's name.</summary>
+    public static bool ValidTeamId(string? id) => id != null && TeamIdPattern.IsMatch(id) && !DeviceName.IsMatch(id);
     public static bool ValidMode(string? mode) => mode is "creative" or "challenge" or "live";
     public static bool ValidRoomId(string? id) => id != null && RoomIdPattern.IsMatch(id);
     public static bool ValidManifestPrefix(string? prefix) => prefix != null && PrefixPattern.IsMatch(prefix);

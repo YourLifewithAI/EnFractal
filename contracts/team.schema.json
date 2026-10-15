@@ -161,6 +161,19 @@
                   }
                 }
               }
+            },
+            "earned": {
+              "description": "The ranks earned by knacks in no slot now, above rank 1, by knack id: a knack swapped out keeps its rank here, and set back into a slot returns at it, so a free swap never costs an earned rank. Optional: absent, every knack out of a slot is at rank 1 (a team file from before it reads as it is). A knack in a slot keeps its rank in chosen, never here.",
+              "type": "object",
+              "maxProperties": 32,
+              "propertyNames": {
+                "$ref": "common.schema.json#/$defs/token"
+              },
+              "additionalProperties": {
+                "type": "integer",
+                "minimum": 2,
+                "maximum": 3
+              }
             }
           }
         },

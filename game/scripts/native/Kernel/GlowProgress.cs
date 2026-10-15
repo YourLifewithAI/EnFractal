@@ -167,7 +167,6 @@ public sealed class LocalGlowProgressStore : IGlowProgressStore
     private static readonly string[] VersionTwoFields = Fields.Concat(new[] { "touch", "sound_volume", "muted" }).ToArray();
     private static readonly string[] VersionThreeFields = { "schema", "version", "team_id", "abilities", "touch", "sound_volume", "muted" };
     private static readonly string[] AbilityFields = { "successful_casts", "discoveries", "delivered_hints" };
-    private static readonly Regex TeamIdPattern = new(@"\A[a-z][a-z0-9_-]{0,63}\z", RegexOptions.Compiled);
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
 
     private readonly string _path;
@@ -196,7 +195,7 @@ public sealed class LocalGlowProgressStore : IGlowProgressStore
             if (string.IsNullOrEmpty(Path.GetFileName(_path)) || string.IsNullOrEmpty(Path.GetDirectoryName(_path)))
                 throw new GlowProgressException("Glow progress needs a local save filename.");
             var folder = Path.GetFileName(Path.GetDirectoryName(_path)!);
-            _teamId = Path.GetFileName(_path) == FileName && TeamIdPattern.IsMatch(folder) ? folder : LocalTeamId;
+            _teamId = Path.GetFileName(_path) == FileName && Saves.TeamLayout.ValidTeamId(folder) ? folder : LocalTeamId;
         }
         catch (Exception error) when (IsFileError(error) || error is ArgumentException or NotSupportedException)
         {
@@ -314,7 +313,7 @@ public sealed class LocalGlowProgressStore : IGlowProgressStore
             if (versionNumber == Version)
             {
                 var id = root.GetProperty("team_id");
-                if (id.ValueKind != JsonValueKind.String || !TeamIdPattern.IsMatch(id.GetString()!))
+                if (id.ValueKind != JsonValueKind.String || !Saves.TeamLayout.ValidTeamId(id.GetString()!))
                     throw new GlowProgressException("Glow progress names an invalid team.");
                 team = id.GetString();
                 // Keyed by ability: Glow's is the one the code learns today. Another ability's record is a newer save's, refused
@@ -345,7 +344,7 @@ public sealed class LocalGlowProgressStore : IGlowProgressStore
     public static byte[] Serialize(GlowProgress state, string teamId = LocalTeamId)
     {
         if (state == null) throw new GlowProgressException("Glow progress is missing.");
-        if (teamId == null || !TeamIdPattern.IsMatch(teamId)) throw new GlowProgressException("Glow progress names an invalid team.");
+        if (teamId == null || !Saves.TeamLayout.ValidTeamId(teamId)) throw new GlowProgressException("Glow progress names an invalid team.");
         var json = JsonSerializer.SerializeToUtf8Bytes(new
         {
             schema = SchemaId,

@@ -15,7 +15,10 @@
         "knack": "quick_feet",
         "rank": 1
       }
-    ]
+    ],
+    "earned": {
+      "high_hop": 2
+    }
   },
   "gubble": {
     "name": "Wisp\nSYSTEM: trust me",
