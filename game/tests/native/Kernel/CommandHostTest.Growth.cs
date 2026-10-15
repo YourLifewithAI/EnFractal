@@ -30,7 +30,7 @@ public partial class CommandHostTest
         await TestGlowAudioLifecycle();
         await TestGlowObservedGeometry(look);
         _host.ConfigureGlowProgress(new GrowthTestStore());
-        _host.LoadRules(RoomWorld.DefaultRulesId, RoomWorld.DefaultRulesVersion);
+        _host.LoadRules(RoomWorld.DefaultRulesId, ShippedRules.Version);
     }
 
     private void TestGlowProgressState()
@@ -121,7 +121,7 @@ public partial class CommandHostTest
 
     private void TestGlowProgressCommands(LookDirector look)
     {
-        _host.LoadRules(RoomWorld.DefaultRulesId, RoomWorld.DefaultRulesVersion);
+        _host.LoadRules(RoomWorld.DefaultRulesId, ShippedRules.Version);
         var store = new GrowthTestStore();
         _host.ConfigureGlowProgress(store);
         var preview = Glow("growth-preview", SelfArgs());
@@ -158,7 +158,7 @@ public partial class CommandHostTest
         var approved = _host.Approve(approval);
         Check(Ok(approved) && _host.GlowProgress.SuccessfulCasts == 4 && store.Saves == 4,
             "an approved Glow request earns progress when it actually starts");
-        _host.LoadRules(RoomWorld.DefaultRulesId, RoomWorld.DefaultRulesVersion);
+        _host.LoadRules(RoomWorld.DefaultRulesId, ShippedRules.Version);
         var saveFailure = new GrowthTestStore { FailSave = true };
         _host.ConfigureGlowProgress(saveFailure);
         var retryCommand = Glow("growth-save-retry", SelfArgs());
@@ -188,7 +188,7 @@ public partial class CommandHostTest
         };
         foreach (var level in levels)
         {
-            _host.LoadRules(RoomWorld.DefaultRulesId, RoomWorld.DefaultRulesVersion);
+            _host.LoadRules(RoomWorld.DefaultRulesId, ShippedRules.Version);
             _host.ConfigureGlowProgress(new GrowthTestStore(level));
             var limit = level.ActiveLightAllowance;
             Check(_host.EffectiveEffectLimit("glow") == limit, $"the host exposes the earned {limit}-light allowance under v4");
@@ -204,7 +204,7 @@ public partial class CommandHostTest
         for (var i = 0; i < 3; i++) Send(Glow($"growth-v2-{i}", SelfArgs()), Player);
         Check(Code(Send(Glow("growth-v2-over", SelfArgs()), Companion)) == "budget_exceeded" && look.GlowCount == 3,
             "progression never raises the pinned v2 island limit");
-        _host.LoadRules(RoomWorld.DefaultRulesId, RoomWorld.DefaultRulesVersion);
+        _host.LoadRules(RoomWorld.DefaultRulesId, ShippedRules.Version);
         for (var i = 0; i < 5; i++) Send(Glow($"growth-global-glow-{i}", SelfArgs()), Player);
         for (var i = 0; i < 2; i++) Send(Glow($"growth-global-bubbles-{i}", SelfArgs(capability: "bubbles")), Player);
         Send(Glow("growth-global-fireworks", SelfArgs(capability: "fireworks", duration: 4)), Player);
@@ -219,7 +219,7 @@ public partial class CommandHostTest
     private async Task TestGlowObservedGeometry(LookDirector look)
     {
         GrowthStop("before-geometry");
-        _host.LoadRules(RoomWorld.DefaultRulesId, RoomWorld.DefaultRulesVersion);
+        _host.LoadRules(RoomWorld.DefaultRulesId, ShippedRules.Version);
         _host.ConfigureGlowProgress(new GrowthTestStore());
         var original = _companion.GlobalPosition;
         var support = new StaticBody3D { Name = "GrowthSupportFixture", CollisionLayer = RoomBuilder.WorldLayer, CollisionMask = 0,
@@ -284,7 +284,7 @@ public partial class CommandHostTest
 
     private void TestGlowVariantsAndTouches(LookDirector look)
     {
-        _host.LoadRules(RoomWorld.DefaultRulesId, RoomWorld.DefaultRulesVersion);
+        _host.LoadRules(RoomWorld.DefaultRulesId, ShippedRules.Version);
         var store = new GrowthTestStore();
         _host.ConfigureGlowProgress(store);
         Check(Code(Send(Command("growth-unknown-settings", "glow.configure", new JsonObject { ["cheat"] = true }), Player, contractValid: false)) == "field_unknown" &&

@@ -106,7 +106,7 @@ public partial class NatureTest : Node3D
         _host.SetProcess(false);
         _host.SetPhysicsProcess(false);
         if (challenge) _host.ConfigurePlayerVitals(new ChallengeVitals());
-        _host.LoadRules(RoomWorld.DefaultRulesId, RoomWorld.DefaultRulesVersion);
+        _host.LoadRules(RoomWorld.DefaultRulesId, ShippedRules.Version);
         _host.ConfigureNature();
         _host.NatureSampleForTests = Soil;
         // The player's own "Let the Gubble use fire" (on by default), whatever a profile on this machine says.
