@@ -1,0 +1,215 @@
+# Run 2: the look's open round: Fractals, the seasons on the land, the hamlet's charm (planned 15 October)
+
+**Read with** [AGENTS.md](../../AGENTS.md), [RUN-2-STATUS.md](RUN-2-STATUS.md), [ORCHESTRATION.md](ORCHESTRATION.md), [OWNERSHIP.md](OWNERSHIP.md), the look bible [docs/look/LOOK-BIBLE.md](../look/LOOK-BIBLE.md) and its pages [EFFECTS.md](../look/EFFECTS.md), [GLOW.md](../look/GLOW.md) and [CHARACTERS.md](../look/CHARACTERS.md), the mechanics design [docs/game/MECHANICS.md](../game/MECHANICS.md) (sections 6 and 10) and its build plan [RUN-2-MECHANICS.md](RUN-2-MECHANICS.md) (section 5, what Wave 2 owns). **Status: planned 15 October 2026 on the first Windows machine while DiamondAge runs Wave 2 of the mechanics round; a proposal for the founder; nothing built.** The founder asked for Opus to build it; the briefs are in section 8 and the integrator's handoff in section 9.
+
+This page is the build plan for three pieces of the look that no other round owns, chosen because the mechanics round leaves every Look-owned path untouched (the Bubble's material, packet M9, is the one exception, and this round stays away from it). It turns each piece into a packet an Opus agent builds in its own worktree, says which files it may edit, what the founder judges at the end, and what the founder decides before it starts.
+
+## 1. What this round builds
+
+- **L9, the look of a Fractal.** The found things that grow the body, the game's namesake, have no look at all. The kernel reads them from the manifest (`Kernel/CommandHostFractals.cs`, packet M1) and defines a 4 cm box "the look draws within"; the generator places them at crests (M4); the kernel offers the HUD a reach check for a pickup hint; nothing in `Look/**`, `Room/**` or `Ui/**` draws one. The second evening of the mechanics round asks whether a child finds the first five without a hint, which needs a thing that catches the eye from a band away. This packet draws the Fractals that remain on the island, lets each be seen from afar, and marks the moment one is picked up.
+- **L10, the seasons on the land.** The clock packet (M6) lets an island's year pass in play (`x_clock`'s `day_scale`), and the look already has four seasons: a colour grade, the sun's strength and shadow edge, the sky's cloud. But the leaves, the meadow and the ground stay in summer all year. This packet gives the island's broadleaf trees their autumn and spring, the meadow its straw and frost, and winter a dusting of snow, driven by the same season the grade follows.
+- **L11, the hamlet's charm.** The bible's L5 ("the life details of a lived-in place": laundry, bunting, planters, fences, benches, streetlights, chimney smoke, a swing that implies someone off screen, and fairy lights) has a reserved `charm` block in the preset and nothing built. The generator now places a hamlet on every island (cottages, a tower, fences, crates, lanterns, a woodpile, a drying line, a footbridge). This packet hangs the charm on it: smoke from the chimneys, warm windows at dusk, bunting and laundry in the wind, lantern glow and fairy lights at night.
+
+Nothing here changes a rule, a command, a save or an entity. All three packets are scenery in the sense the fish set (LOOK-BIBLE.md, "Living scenery"): drawn from the room's data and the host's read-only state, deterministic from the room, never saved, never in the kernel's sight or map, colliding with nothing.
+
+## 2. How the work is split
+
+- **No two packets touch the same file.** Ownership follows [OWNERSHIP.md](OWNERSHIP.md): everything below is Track L's except where a change request is named. The files each packet owns are in section 3; the shared seams and how they are kept apart are in section 4.
+- **Routing.** [ORCHESTRATION.md](ORCHESTRATION.md) starts look passes on Sonnet; the founder chose **Opus 5.5** for this round (15 October), and the routing log records each run so a Sonnet A/B on the next look round has a baseline. One fresh Opus reviewer after all three merge (section 6).
+- **Machine.** All three need the GPU for their captures, and DiamondAge is taken by Wave 2 (M7 and M9), so this round runs on the first Windows machine (an RTX 2070 SUPER, the budget's card). **At most two builders at a time**, and the GPU courtesy rule of AGENTS.md: no capture while a window titled `EnFractal*` is open.
+- **Each packet:** a worktree `C:\dev\EnFractal-run2\<packet>` (junctions `.cache\dotnet` and `.cache\godot` into the integrator's cache, made with the PowerShell tool), a branch `run2/<packet>` cut from the tip of `origin/run2/integration` at launch, lean testing (targeted while iterating, the full runners once at the end), mutation checks at most five, failing-before evidence for anything called a bug, captures within the budget of ORCHESTRATION.md "GPU captures", and a report of about 250 words with the final pass and fail lines, the decisions for the founder, the change requests and the commit hashes.
+- **The numbers stay in code this round.** Each packet keeps its tuning in one static class of constants (the precedent: `OpenLandLight` in `LandscapeLook.cs`, and the effects' numbers in EFFECTS.md, "code constants for this round; a later preset version carries them"), and its report lists the preset block it wants. The integrator folds the three blocks into the preset with the generated schema in one contract commit after the founder has judged (section 9). This is what keeps three packets out of `game/styles/storybook_painterly/v2.json` at once.
+- **Seams are the host's read-only state.** L9 reads `CommandHost.Fractals` and listens to `NatureChanged`; L10 reads the look's `Moment`; L11 reads `RoomData` and the look's `LampsOn`. None of them writes anything the kernel keeps.
+
+## 3. The packets
+
+| ID | What | Owns | Model, machine | Needs |
+|---|---|---|---|---|
+| **L9** The look of a Fractal | The form (chosen by the founder from a rendered sheet of three), one MultiMesh for every Fractal still on the island, a glint that reads from a band away and at night, a slow life (a turn and a bob inside the kernel's box), the pickup moment, the synthetic fixture and the 10x island checks, the frame cost measured | `game/scripts/native/Look/Fractals/**` (new), `game/shaders/fractal*.gdshader` (new), `game/tests/native/Look/LookPresetTest.Fractals.cs` (new), `tools/look/island_cameras.json` (two cameras added), `docs/look/FRACTALS.md` (new) | **Opus 5.5**, GPU | M1 and M4 (merged) |
+| **L10** The seasons on the land | A season state from the clock's cross-fade (four weights on the moment), the broadleaf foliage turning (spring fresh and flecked, autumn gold to rust, winter pale), conifers green all year, the meadow's straw and frost, a snow dusting on upward faces in winter, the room's trees shifting gently, pinned readings unchanged at the review moment, four-season captures | `game/shaders/painterly_land.gdshader`, `game/shaders/painterly_foliage.gdshader`, `game/scripts/native/Look/SeasonLook.cs` (new), `game/scripts/native/Look/LookClock.cs` (the weights on `LookMoment`), one call in `LookDirector.cs`'s `ApplyMoment`, `game/scripts/painterly_assets.gd` (the room trees' uniforms), `game/tests/native/Look/LookPresetTest.Seasons.cs` (new), `docs/look/SEASONS.md` (new) | **Opus 5.5**, GPU | M6 (merged) |
+| **L11** The hamlet's charm | The hamlet's things found in the room's objects, and on them: chimney smoke, warm windows and lantern glow when the lamps are on, bunting and laundry that sway with the meadow's wind, fairy lights along the fences at night, planters under the windows and a bench by the door; one MultiMesh a kind, deterministic from the room, inside the frame budget; `--look-charm=off` to pin it away for a capture | `game/scripts/native/Look/Charm/**` (new), `game/shaders/charm_*.gdshader` (new), `tools/look/landscape_cameras.json` (a hamlet camera added), `game/tests/native/Look/LookPresetTest.Charm.cs` (new), `docs/look/CHARM.md` (new) | **Opus 5.5**, GPU | nothing; after L9 merges (section 5) |
+
+**Change requests every packet writes, never applies** (the integrator's files, or a file another packet holds): the attach lines in `RoomWorld.cs` beside `NatureLook` (L9 and L11; M7 holds that file's boot lines under a grant, these lines go elsewhere in it); the one call each adds to `LookPresetTest.cs`'s check list (L9, L10, L11: three packets, one file, so the integrator adds the three calls at merge); the pointer each adds to `LOOK-BIBLE.md` (one line each, the integrator adds them); new global shader parameters in `game/project.godot`'s `[shader_globals]` if L10 needs them there (section 4); the preset blocks (section 9).
+
+### L9, the look of a Fractal
+
+**What the design says.** MECHANICS.md section 6: "Fractals are real small things at 10x scale, placed by the generator from the island's budget at crests the body can reach by climb, just above the band the team holds"; "finding is about where, never scarcity, about the delight of exploring and the challenge of working out ways to reach them"; the next ledge "is always in view of a player one band short"; the Gubble "may find Fractals and mark them on the minimap" and its eye line writes a lead in the journal (both Ui and Kernel work, not this packet). A Fractal "has no kind until five are spent at a camp"; typed Fractals stay behind a pack flag. About 25 on the garage island, about fifteen reachable from the start.
+
+**What the code gives.** `CommandHost.AllFractals` (every Fractal the manifest places, in id order), `Fractals` (those not picked up in this save), `FractalsInReach()`, `FractalBox(fractal)` (a box 4 cm wide and 4 cm tall from the bottom centre, `FractalHalfWidthM` 0.02 and `FractalHeightM` 0.04), `MaxFractals` 1000, `FractalsNotice` (why an island whose manifest names some has none), and the `NatureChanged` event, which a pickup raises (it commits through the nature block, `Nature.FractalsPicked`). The look reads these and nothing else: never the manifest (the kernel validated it, fail-closed). Draw distances for small things are in `Look/DrawDistances.cs` (small plants to 40 m, stones to 80 m, full detail to 8 m); the view distances come from the island's own data (`ViewDistances.cs`). The light budget is the sun's, the windows' and the lamps' (`budgets.max_shadowed_lights` 3); the glow's wisps take any spare slot. The effects cap (8, `EffectLook.MaxEffects`) belongs to magic and `LookDirector.Effects.cs` is M9's file this wave, so the pickup moment is the Fractal look's own small MultiMesh, never an effect.
+
+**The design.**
+
+- **First the sheet, then the build.** Before any tuning, the agent renders **three candidate forms** on the 10x island at the review clock and at dusk, each in the real look at the Fractal's size, as one sheet (`fractal_forms.png`, three rows, two columns) and hands it to the founder with the rows labelled by a coin flip. The three (the agent may replace one with a better idea, stated in the report):
+  1. **A held fractal**: a small crystal of self-similar facets (a tetrahedron that grows three smaller ones on each face, two or three steps, the game's own name made literal), pale gold-white, a facet that catches the sun.
+  2. **A seed**: a curled form, a fern's crosier or a nautilus spiral (the fractal of a living thing), in the felt of the characters (`character_felt.gdshader`, `MaterialLibrary`'s felt), with a faint inner light.
+  3. **A star**: no body, a point of light with a soft halo and rays, the wisp's heart (GLOW.md) made small and cool, hovering a centimetre over its spot.
+  While the founder decides, the agent builds everything that does not depend on the form: the data binding, the MultiMesh, the glint, the pickup moment, the tests. The founder's pick names the form; the other two stay in the report as the record.
+- **Every Fractal still on the island is drawn**, one MultiMesh (under 200 triangles a form, the fish's budget), its instance count the size of `Fractals`, rebuilt on `NatureChanged` and on the look's own refresh (as `NatureLook` does). A Fractal rests on its `PositionM` (the bottom centre the generator placed on the ground) and stays inside `FractalBox`, so what the player reaches for is what they see.
+- **A glint that reads from a band away.** Above each form a camera-facing quad (one MultiMesh of quads, the effects' pattern: CPU-updated, one draw), additive, in the form's colour, that twinkles on a slow period of its own (phase from the Fractal's id, so no two blink together) and is drawn at every distance the island's view reaches, where the form itself fades with the small-plant distance. At night it is emission the bloom catches (the wisp's 2.5×), and it **casts no light** (recommended: the budget's slots are the wisps'; a Fractal that lit the ground would read as magic).
+- **A slow life.** The form turns once in about 12 s and bobs ±5 mm over 3 s, inside the box; a floating star bobs like a wisp (±1.2 cm over 3.2 s). Deterministic for the same ticks, which the test uses.
+- **The pickup moment.** When `Fractals` loses an id, that Fractal's form and glint go out over 0.25 s and a handful of sparks rise from its spot over 0.6 s (the Fractal look's own quads, never `StartGlow` or the effects). No words, no sound (the game has no audio path; a chime belongs with the founder's "touches").
+- **The colour** is one family for every Fractal, pale gold-white with a cool rainbow glint, never the Gubble's aura colour, so a Fractal is never mistaken for a glow. A typed Fractal (behind the pack flag) may take a hue later; this packet reads `Kind` and ignores it.
+- **Creative and Challenge** are the same drawing; which Fractals remain is the save's, read from `Fractals`.
+- **Every view and any hour**, as the glow: on the world layer, never hidden by a view.
+- **Preset block proposed** in the report: `x_look_fractals` (the colour, the glint's size and period, the bob, the pickup's timings, the far distance), kept in `FractalLook.Tuning` this round.
+
+**Tests** (`LookPresetTest.Fractals.cs`, a partial of the existing look suite, run by `tools/test-room.ps1` as `native_look_preset.tscn`): a synthetic fixture room with an `x_fractals` block (`LookFixtureRooms.cs` builds synthetic rooms; the contract's `island_example` shows the block) draws exactly as many forms and glints as `Fractals` holds; a pickup through the host (`PlayerPickUp` with the player placed within reach) removes one on `NatureChanged` and starts the moment; every shader uniform the look sets is declared and every declared uniform is set (the water test's pattern); the form stays inside `FractalBox` through its life; the glint is visible at the island's far distance; the instance count never exceeds `MaxFractals`; the 10x island, when the fixture cache holds it (`--landscape=` names it), draws its 24 or so; the island frame probe (`native_look_island_probe.tscn`) measures the cost on the 10x island, and the report states it (target: under 0.1 ms a frame, nothing allocated in steady state).
+
+**Captures:** two cameras added to `tools/look/island_cameras.json`, `fractal_near` (a Fractal at reach, the player beside it) and `fractal_far` (the same Fractal from a band below, 10 to 20 m off, where the glint must read); the sheet of three forms; then one `before` and one `after` set on the 10x island (`capture-look.ps1 -Room landscape10 -Cameras tools/look/island_cameras.json`, `-Only` the two cameras and `spawn`, `-NoLightChecks`), at the review clock and at `--look-clock=21:00`.
+
+**Acceptance:** the look suite and both runners green; the sheet delivered and the founder's pick built; the frame cost stated; the report names the preset block and the two `RoomWorld.cs` lines.
+
+**Decisions for the founder (recommended defaults):**
+1. **The form:** from the sheet, blind. The agent's recommendation is written in the report before the founder's verdict and not said in chat (the lesson of 8 October).
+2. **Does a Fractal light its surroundings at night?** Recommended: no; a self-lit glint only.
+3. **Does it move?** Recommended: the slow turn and small bob above; a floating star bobs like a wisp.
+4. **The colour:** recommended one family, gold-white with a rainbow glint, never the aura colour.
+5. **The pickup moment:** recommended the sparks above, no words, sound later.
+
+### L10, the seasons on the land
+
+**What the look has.** The preset's `seasons.grades` (saturation, warmth and a tint per season) and `x_look_seasons.looks` (the sun's energy and shadow edge, the sky's saturation, brightness and cloud per season), held around `centre_days` [15, 105, 196, 288] for `hold` 0.3 of the way and cross-faded between (LOOK-BIBLE.md, "Time and season"); `LookClock.At` gives the moment its `Season`, `SeasonSaturation`, `SeasonWarmth` and `SeasonTint`; `LookDirector.ApplyMoment` (re-read every 10 s) puts them into the sun, the sky and the grade. Review captures pin **17:00 on 15 April** (spring); `--look-date=YYYY-MM-DD` pins any day; an island's own clock (`WorldTime`, M6) runs the year at `day_scale`. The island's land is one shader (`painterly_land.gdshader`) with a `kind` per harness role (`LandKind.Meadow`, `Foliage`, `Bark`, `Soil`, `Rock`, `Snow`...) and a `glaze` the roles use to cool the meadow against the summer grade; materials are cached per role and colour in `MaterialLibrary.ForLandscape`, so a per-material update would have to walk the cache and a **global shader parameter** is the clean path (the intro already sets globals through `RenderingServer.GlobalShaderParameterSet`; the names are declared in `game/project.godot`'s `[shader_globals]`, the integrator's file). The room's painterly trees (`painterly_foliage.gdshader` through `painterly_assets.gd`) are a live oak and an Ashe juniper, both evergreen in Texas. The kit's `broadleaf` and `conifer` are the island's trees; `species` is on each plant set.
+
+**The design.**
+
+- **A season state.** `SeasonLook` takes the moment and gives four weights that sum to one (the clock's own cross-fade, exposed on `LookMoment` as the weights the grade already uses), and from them the foliage's tint and saturation, the meadow's tint, the blossom and the snow amounts. Set once per `ApplyMoment` as globals (or per material if the engine insists; then say so).
+- **Broadleaf foliage** (`LandKind.Foliage` on a `broadleaf` set, and any foliage not on a conifer): **spring** fresh yellow-green with pale flecks of blossom on gentle ground; **summer** as today; **autumn** a ramp from gold to rust that varies by instance (the plant copies' tint and the mark noise, so a wood turns tree by tree, not all at once); **winter** pale, cold and thin in colour, with a dusting of snow on the upward-facing dabs. **Conifers stay green** all year, a touch darker in winter. The marks themselves do not change; the colour moves along a season ramp the way the harness's three-colour ramp works, never away from it.
+- **The meadow and the ground:** autumn straw in the grass tips, winter frost (a pale cool lift, strongest on upward faces and in the hollows at dawn), spring the greenest; `soil` and `worn_path` a little darker and wetter in autumn and spring; `rock` and `cliff` take the snow dusting on their tops in winter with the `snow` role's colour.
+- **No leaf drop this round.** A bare tree needs geometry the kit does not have (its broadleaf is ellipsoids of leaf); winter is pale leaves and snow. If the founder wants bare trees, that is a kit change in the generator (Lane C) for a later round.
+- **The room's trees** shift gently: the live oak's leaf card loses a little saturation in winter and gains it in spring; the juniper does not change. The founder's reference is a Texas garage, and an evergreen that turned red would be wrong.
+- **Nothing in the light changes.** The season's foliage is albedo; the sun, the sky and the grade stay what they are, so the look suite's 14,592 pinned readings and its light checks at every minute of four days do not move.
+- **Preset block proposed:** `x_look_seasons.looks.<season>.land` (foliage tint and saturation, meadow tint, blossom, snow, frost), kept in `SeasonLook.Tuning` this round.
+
+**Tests** (`LookPresetTest.Seasons.cs`): at the four centre days the weights are one-hot and the globals match the season's numbers; between them they sum to one and move monotonically; at 15 April (the review moment) the result equals the spring numbers held; the uniforms are declared and set; a frame on the test room at the four centre days differs from today's only in the trees' pixels (a pixel metric over a masked region, the water test's approach), and the sky, the sun and the floor read the same; the clock pins (`--look-date`) drive it; the island's `WorldTime` drives it the same way.
+
+**Captures:** `land_eye_spawn` and `land_wide` on the 10x island at the four centre days (`--look-date=2026-01-15`, `-04-15`, `-07-15`, `-10-15`), `-Only` those two, `-NoLightChecks`: four launches, eight pictures, as one sheet `seasons.png`; the test room's `window_view` at winter and spring for the live oak (two more). No `before` set is needed: today's is the summer column.
+
+**Acceptance:** the look suite's pinned readings unchanged; both runners green; the sheet; the frame cost unchanged (a global read in a shader already running).
+
+**Decisions for the founder (recommended defaults):**
+1. **How strong?** Recommended: unmistakable autumn and spring, a gentle winter; the family should notice the season without being told.
+2. **Winter:** pale leaves with a snow dusting (recommended), or bare trees (a later kit change).
+3. **Conifers** stay green (recommended).
+4. **The room's Texas trees** shift gently (recommended) or not at all.
+5. **Should an island's clock run fast by default** so a family sees the seasons pass? Not a look decision: it is `x_clock`'s `day_scale` (M6, MECHANICS.md section 9); noted here because this packet is what makes it visible.
+
+### L11, the hamlet's charm
+
+**What the code gives.** The generator's hamlet: `cottage`, `tower`, `fence`, `crate`, `lantern` from the harness kit (`pipeline/landscape/harness/kit.py`: a cottage is a `timber` box with a `roof`, a `wood` door on its local -Z face, a `stone_masonry` chimney at the back right, two `cloth` windows beside the door and corner posts; a lantern is a `cloth` box between two `metal` plates), and the generator's own `woodpile`, `drying_line` and `footbridge`. The exporter classes them as landmarks and writes them to the manifest's `objects`, each with an `id`, an `asset`, a `display_name` and a transform (position and a yaw quaternion); the game reads them as `RoomData.Objects` (`ObjectInstance`: `Id`, `Asset`, `PositionM`, `Rotation`, `Scale`, `DisplayName`). **The agent verifies on the fixture island how the ids and display names carry the prototype token before relying on it.** The meadow's wind axis is `LandscapeLook.Roles["meadow"]`'s stroke axis; the lamps' switch is `LookDirector.LampsOn` (on below `switch_on_below_daylight`, pinned by `--look-lamps`); the preset's `charm` block (`enabled` false, a `seed`, room `kinds`, `density`) is reserved and unread. The fish (`Look/Fauna`) are the pattern: placed deterministically from the room id, one MultiMesh, no entity, no collider, no save.
+
+**The design.**
+
+- **Finding the hamlet.** `CharmLook.Survey(RoomData)` lists the cottages, towers, fences, lanterns and the drying line with their transforms and the door side (the kit's local -Z, turned by the object's yaw). Deterministic from the room id and the charm seed, so the same island always wears the same charm.
+- **The kinds, first set:**
+  - **Chimney smoke:** a soft stream of puffs rising from each chimney and leaning with the wind, thin by day and thicker once the lamps are on; one MultiMesh of camera-facing quads a room, the bubbles' pattern (EFFECTS.md), CPU-updated, under 20 quads a chimney.
+  - **Warm windows:** the cottages' `cloth` window boxes glow a warm lamp colour when `LampsOn` (an emissive quad over each window face, no light).
+  - **Lantern glow:** the kit's lantern gets the same, a soft emissive halo at night (no light; the budget's slots are the sun's, the windows' and the wisps').
+  - **Bunting:** a catenary of small triangular flags in the palette's accents from a cottage's eave to the nearest tree or post, swaying with the meadow's wind (a vertex-shader sway, `charm_cloth.gdshader`).
+  - **Laundry:** rectangles of cloth on the generator's drying line, the same sway.
+  - **Fairy lights:** emissive dots along the fence tops at night, a slow twinkle, no light cast.
+  - **Second set, if time allows:** planters under the windows (the kit's `flower_clump` colours), a bench by the door, a swing from a near tree.
+- **Where it stops.** Nothing is placed on the player's spawn, on a route the generator graded (the paths), in the water or inside another object's box. Nothing collides, nothing is an entity, nothing is in the kernel's sight or the journal's map.
+- **Day and night:** the smoke, bunting and laundry are always there; the warm windows, lantern glow and fairy lights follow `LampsOn`.
+- **The pin:** `--look-charm=off` after `--` (and `ENFRACTAL_LOOK_CHARM`) draws none of it, for a capture that compares; on by default in open land, off in rooms (a room's charm is the bible's indoor list, not this packet).
+- **Budget:** one MultiMesh a kind, every kind under 0.3 ms together on the 10x island at 1080p, measured by the island frame probe; nothing allocated in steady state.
+- **Preset block proposed:** the `charm` block's `kinds` extended with the hamlet kinds and a `hamlet` density; kept in `CharmLook.Tuning` this round, `charm.enabled` left false in v2 until the founder's verdict.
+
+**Tests** (`LookPresetTest.Charm.cs`): a synthetic room with two cottages, a fence and a drying line (`LookFixtureRooms.cs`) gets smoke at each chimney, a window glow per window, bunting between the right points, laundry on the line, lights on the fence; the same room gives the same charm on every run (the fish's determinism check); nothing lands on the spawn, a path, the water or inside another object; `LampsOn` switches the night kinds; the pin removes it all; every uniform declared and set; the 10x island, when the fixture holds it, gets charm on its hamlet and the probe's cost is stated.
+
+**Captures:** a `land_hamlet` camera added to `tools/look/landscape_cameras.json` (the hamlet from the path, the door side, at the 10 cm eye's height plus a little); one `before` (the pin off) and one `after` at the review clock and at `--look-clock=21:00` with the lamps on; the smoke and the bunting need motion to judge, so the agent also records the ten-second clip the capture harness can take, or states that it cannot.
+
+**Acceptance:** the look suite and both runners green; the frame cost stated; the before and after pictures; the report names the preset block and the `RoomWorld.cs` lines.
+
+**Decisions for the founder (recommended defaults):**
+1. **Which kinds first?** Recommended: smoke, warm windows, lantern glow, bunting, laundry, fairy lights; planters, a bench and a swing second.
+2. **Do lanterns and fairy lights cast light?** Recommended: no, emissive only.
+3. **Smoke always, or only with the lamps?** Recommended: always, thicker at dusk.
+4. **The real garage island** gets the same charm on its hamlet through the same code; nothing to install.
+
+## 4. The seams, and how the packets stay apart
+
+- **`RoomWorld.cs`** (the composition root, the integrator's; M7 holds its boot lines under a grant): L9 and L11 each attach one node beside `NatureLook` (lines 186 to 188 today: construct, `AddChild`, `Configure`). Each writes its two lines as a change request; the integrator applies both at merge.
+- **`LookPresetTest.cs`** (the suite's check list): three packets add one call each. Each packet puts its checks in its own partial file and names the call in its report; the integrator adds the three calls. Until then an agent runs its partial through a local call it does not commit.
+- **`LookDirector.cs`:** only L10 edits it (one call in `ApplyMoment`). L9 and L11 read `Look.Moment` and `Look.LampsOn` from outside. `LookDirector.Effects.cs`, `MaterialLibrary.cs` and `bubble.gdshader` are **off limits to every packet**: M9 (the Bubble) may be editing them on DiamondAge.
+- **`painterly_land.gdshader`:** only L10 edits it. L9 and L11 bring their own shaders.
+- **`game/project.godot`:** if L10's globals must be declared there, the lines are a change request (a named-line grant to the integrator's file, this round only).
+- **The preset and the schema:** untouched this round (section 2); the three proposed blocks land in one contract commit afterwards.
+- **`LOOK-BIBLE.md`:** each packet writes its own page under `docs/look/` and proposes a one-line pointer; the integrator adds the three lines.
+- **The fixture island:** every worktree shares one fixture cache under the integrator's checkout (`tools/landscape-fixture.ps1`); the 10x island is built by `tools/test-room.ps1 -Scale` (a few minutes) and reviewed by `capture-look.ps1 -Room landscape10`. Fractals exist at 10x only (M4 kept the 1x corpus byte-identical), so L9's island checks use the 10x fixture.
+
+## 5. Order
+
+1. **L9 and L10 side by side** (their files are disjoint). L9 opens with the sheet of three forms; the founder's pick can arrive while L9 builds what does not depend on it.
+2. **L11 after L9 merges**, alone with the GPU for its captures (it is the largest and the most visual).
+3. **The integrator's merge** of each: scope, test lines, one spot check; the change requests applied; both runners and the look suite once per merge; the routing log's row.
+4. **One fresh Opus review** over the three once merged (section 6), then its fix round to each author.
+5. **The contract commit:** the three preset blocks and the schema (`tools/look/make_look_schema.py --write`), the look test's check that the shipped preset leaves no number to a code default, and the numbers moved out of the three `Tuning` classes.
+6. **The founder's verdict** from the sheets (section 7).
+
+## 6. Review
+
+One fresh Opus reviewer, read-only, in its own worktree, over the three merged packets: scope kept (no kernel, no entities, no saves, no collision); determinism (the same room, the same charm, the same Fractal phases); the budgets (one MultiMesh a kind, the probe's numbers, no steady-state allocation); the lifetimes (every GPU object freed on the render thread, the lesson in `LookPostEffect.cs`); the view rules (every view, every hour); the pinned readings unchanged. Failing-before evidence for every major; the fix round to each packet's author.
+
+## 7. What the founder judges
+
+- **L9:** the sheet of three forms (blind), then the `fractal_near` and `fractal_far` pictures by day and at night. *Does it read as the thing the game is named after? Can you see one from a band below? Would a child want to pick it up?*
+- **L10:** `seasons.png`, four columns. *Is autumn unmistakable, spring fresh, winter gentle? Do the conifers and the room's oak look right staying green?*
+- **L11:** the hamlet before and after, by day and at night, and the motion clip. *Does the hamlet feel lived in? Is the smoke too much? Are the fairy lights welcome at night, or is the night too busy?*
+
+## 8. The briefs
+
+Each is launched as one agent with this prompt, with `<packet>` filled in. The agent reads AGENTS.md first; everything else is here.
+
+### L9
+
+> You are the Look lane's agent for packet **L9, the look of a Fractal**, in `docs/runs/RUN-2-LOOK.md` (read it whole, then `AGENTS.md`, `docs/runs/OWNERSHIP.md`, `docs/look/LOOK-BIBLE.md`, `docs/look/GLOW.md`, `docs/look/EFFECTS.md`, and `docs/game/MECHANICS.md` section 6). Your worktree is `C:\dev\EnFractal-run2\look-fractals` on branch `run2/look-fractals`; never build, run or write in `C:\dev\EnFractal` or another worktree; your scratch folder is `C:\dev\EnFractal-run2\look-fractals\.cache\scratch`. You own only the files the plan lists for L9; every other change is a diff in your report.
+>
+> Build in this order. (1) The sheet of three forms, rendered on the 10x island (`tools/test-room.ps1 -Scale` builds it; `tools/look/capture-look.ps1 -Room landscape10`) at the review clock and at `--look-clock=21:00`: three rows labelled 1, 2, 3 by a coin flip you record only in your report, never in chat. Hand the sheet back at once: write it to your scratch folder and give its absolute path in a short interim report; the integrator sends it to the founder. (2) The binding: `CommandHost.Fractals`, `NatureChanged`, `FractalBox`; one MultiMesh for the forms, one for the glints; the slow life; the pickup moment; the tests in `LookPresetTest.Fractals.cs` on a synthetic fixture room. (3) The founder's pick as the form; the far and near cameras; the `before` and `after` captures; the island frame probe's cost. Every number in one `FractalLook.Tuning` class, and your report names the `x_look_fractals` block you want. Use `LookDirector.StartGlow` and the effects for nothing; `LookDirector.Effects.cs`, `MaterialLibrary.cs` and `bubble.gdshader` are another packet's this wave: read them, never edit them.
+>
+> Rules: GPU courtesy (no capture while a window titled `EnFractal*` is open; check first); `DOTNET_ROOT` to your worktree's `.cache\dotnet` before launching Godot yourself; targeted tests while iterating, both runners once at the end; at most five mutation checks; failing-before evidence for anything you call a bug; captures within the plan's budget (state launches and images). Look at every picture you make before you hand it over.
+>
+> Report in about 250 words: what changed, the final pass and fail lines, the frame cost, the decisions for the founder (the plan's five), the change requests (the two `RoomWorld.cs` lines, the `LookPresetTest.cs` call, the bible's pointer), the commit hashes.
+
+### L10
+
+> You are the Look lane's agent for packet **L10, the seasons on the land**, in `docs/runs/RUN-2-LOOK.md` (read it whole, then `AGENTS.md`, `docs/runs/OWNERSHIP.md`, `docs/look/LOOK-BIBLE.md` "Time and season" and "The landscape's roles", and `game/styles/storybook_painterly/v2.json`'s `seasons` and `x_look_seasons`). Your worktree is `C:\dev\EnFractal-run2\look-seasons` on branch `run2/look-seasons`; never build, run or write in `C:\dev\EnFractal` or another worktree; your scratch folder is `C:\dev\EnFractal-run2\look-seasons\.cache\scratch`. You own only the files the plan lists for L10; every other change is a diff in your report.
+>
+> Build: `SeasonLook` from the moment's four weights (expose them on `LookMoment`); the globals (or per-material parameters if the engine insists; say which and why); the broadleaf ramp (spring, summer as today, autumn gold to rust varying by instance, winter pale with a snow dusting on upward faces), conifers green, the meadow's straw and frost, the ground's and rock's winter; the room's live oak shifting gently and the juniper not at all; the tests in `LookPresetTest.Seasons.cs`, including the proof that the light's pinned readings do not move; the four-season sheet from the 10x island (`--look-date` at the four centre days, two cameras, `-NoLightChecks`) and the room's `window_view` in winter and spring. Every number in one `SeasonLook.Tuning` class, and your report names the preset fields you want. `LookDirector.Effects.cs`, `MaterialLibrary.cs` and `bubble.gdshader` are another packet's this wave: read them, never edit them; `painterly_land.gdshader` is yours.
+>
+> Rules: as L9's (GPU courtesy, `DOTNET_ROOT`, lean testing, five mutation checks, failing-before evidence, the capture budget; look at every picture you make).
+>
+> Report in about 250 words: what changed, the final pass and fail lines, the pinned readings' result, the decisions for the founder (the plan's four), the change requests (`LookPresetTest.cs`'s call, the bible's pointer, `project.godot`'s globals if needed), the commit hashes.
+
+### L11
+
+> You are the Look lane's agent for packet **L11, the hamlet's charm**, in `docs/runs/RUN-2-LOOK.md` (read it whole, then `AGENTS.md`, `docs/runs/OWNERSHIP.md`, `docs/look/LOOK-BIBLE.md` "Living scenery" and "Later: not built now", `docs/look/EFFECTS.md`, and `pipeline/landscape/harness/kit.py` for the hamlet's shapes). Your worktree is `C:\dev\EnFractal-run2\look-charm` on branch `run2/look-charm`; never build, run or write in `C:\dev\EnFractal` or another worktree; your scratch folder is `C:\dev\EnFractal-run2\look-charm\.cache\scratch`. You own only the files the plan lists for L11; every other change is a diff in your report.
+>
+> Build: the survey of the hamlet from `RoomData.Objects` (verify on the fixture island how ids and display names carry the prototype token before you rely on it); the first set of kinds (smoke, warm windows, lantern glow, bunting, laundry, fairy lights), each one MultiMesh, deterministic from the room id and the seed, swaying with the meadow's wind axis, following `LookDirector.LampsOn` at night, never on the spawn, a path, the water or inside another object; the `--look-charm=off` pin; the second set if time allows; the tests in `LookPresetTest.Charm.cs` on a synthetic hamlet; the `land_hamlet` camera; `before` (pinned off) and `after` by day and at 21:00 with the lamps on, and a motion clip if the harness can take one; the island frame probe's cost (every kind together under 0.3 ms). Every number in one `CharmLook.Tuning` class, and your report names the `charm` fields you want; leave `charm.enabled` false in the preset. The effects' cap and `LookDirector.Effects.cs`, `MaterialLibrary.cs` and `bubble.gdshader` are another packet's: read them, never edit them.
+>
+> Rules: as L9's (GPU courtesy, `DOTNET_ROOT`, lean testing, five mutation checks, failing-before evidence, the capture budget; look at every picture you make).
+>
+> Report in about 250 words: what changed, the final pass and fail lines, the frame cost, the decisions for the founder (the plan's four), the change requests (the two `RoomWorld.cs` lines, `LookPresetTest.cs`'s call, the bible's pointer), the commit hashes.
+
+## 9. For the integrator: the handoff
+
+**Before launching.**
+1. Fetch and fast-forward; cut each branch from the tip of `origin/run2/integration` the day it launches (Wave 2 may have merged by then; nothing in this round conflicts with it except the two `RoomWorld.cs` lines, which are a change request anyway).
+2. Worktrees: `git worktree add -b run2/look-fractals C:\dev\EnFractal-run2\look-fractals origin/run2/integration` (and `look-seasons`, `look-charm`); then the two junctions in each, **made with the PowerShell tool** (`New-Item -ItemType Junction -Path <worktree>\.cache\dotnet -Target C:\dev\EnFractal\.cache\dotnet`, the same for `godot`), never through `powershell.exe -Command` from Bash (the 13 October lesson: the escaped variable vanished and made `.cache` itself a junction). Remove a junction with `[System.IO.Directory]::Delete(path, $false)`.
+3. The fixture cache: the first `tools/test-room.ps1 -Scale` builds the 10x island (a few minutes); run it once from one worktree before two agents want it, or let the lock serialise them.
+4. The founder's answers to the decisions above are not needed to launch: every one has a recommended default the packet builds; the founder's picks are judged on the sheets.
+
+**At each merge.**
+- Scope, the test lines, one spot check (the lifetimes: every GPU object freed on the render thread, as `LookPostEffect.cs` records).
+- Apply the change requests: the `RoomWorld.cs` attach lines beside `NatureLook`; the call in `LookPresetTest.cs`; the bible's pointer; `project.godot` globals if L10 asks.
+- Both runners (`run-engine-tests.ps1`, `tools/test-room.ps1`) and the look suite once per merge; the island probe's numbers in the status page.
+- A row in ORCHESTRATION.md's routing log (model, tokens, minutes, the pass lines, what it found).
+
+**After all three.** The review (section 6) and its fix round; the contract commit (section 5, step 5): the three blocks in `v2.json` (still a draft, editable in place), `tools/look/make_look_schema.py --write`, the examples, the look test's "no number left to a default" check, and the three `Tuning` classes emptied into the preset; then the verdict sheets to the founder (section 7), sent as files with their absolute paths (links to repo files do not open reliably in the desktop app).
+
+**Status page and ownership.** Add this round to RUN-2-STATUS.md's "The next session" (an item pointing here) when that page is next edited on DiamondAge, not before, to keep the two machines' edits apart. OWNERSHIP.md needs no new rows: `game/scripts/native/Look/**`, `game/shaders/**`, `tools/look/**`, `docs/look/**` and `game/tests/native/Look/**` already belong to Track L; the new subfolders are Track L's under "new directories under an owned path are yours".
+
+## 10. Tools the agents have, and what would help
+
+- **Already here, and enough for this round:** the capture harness (`tools/look/capture-look.ps1`: fixed cameras, the clock and date pins, timings per camera, probes) with the GPU on this machine; the island frame probe; the headless look suite with its pixel metrics; and the agent's own eyes: every PNG it captures it can look at, and it should, before handing it over (the bible's rule is evidence over claims, and the founder judges; an agent that never looks at its capture ships a black orb, as the glow did once). Blender 5.2.2 is installed at the pinned path for a modelled form, but the fish set the precedent this round follows: build the form in code (`FishMesh.cs`), deterministic and without an asset pipeline; a Blender study is for the founder's pick if it needs one.
+- **Not needed this round:** no Godot or Blender MCP server is in the claude.ai connector registry (checked 15 October); community ones exist as local servers, but the harness already closes the loop that an editor connection would, and the project's rule is scripts and recipes, never a live editor session.
+- **Would help later, and costs something:** an image generator for alpha-cutout cards (leaf clusters, petals, bunting cloth, a snowflake sprite). The painterly textures in `assets/art_sources/painterly/textures/generation-prompts.json` were made that way. The Adobe connector attached to the founder's account has Firefly's generative fill and expand, selection by prompt, background removal and vectorising; a generative fill over a blank canvas is a texture card by another name. It is an action on the founder's Adobe account and may spend generative credits, so it follows AGENTS.md's "no spending without approval": an agent asks before using it and records the cost in its report. Adobe Stock through the same connector is licensed and paid: not for this project's hand-made style.
