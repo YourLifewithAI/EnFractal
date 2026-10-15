@@ -114,7 +114,7 @@ public partial class LookPresetTest
         Check(SeasonOrder.All(s => looks[s] is { Fresh: >= 0f and <= 1f, Turn: >= 0f and <= 1f, Pale: >= 0f and <= 1f, Blossom: >= 0f and <= 1f, Snow: >= 0f and <= 1f, Straw: >= 0f and <= 1f,
             Frost: >= 0f and <= 1f, Wet: >= 0f and < 0.5f, MeadowGreen: >= 0f and <= 1f, EvergreenDark: >= 0f and <= 1f, RoomOakSaturation: > 0.5f and < 1.5f })
             && LandSeason.Tuning.TurnStagger + LandSeason.Tuning.TurnSpan <= 1f && LandSeason.Tuning.TurnSpan > 0f
-            && LandSeason.Tuning.BlossomTrees is > 0f and < 1f && LandSeason.Tuning.BlossomDabs is > 0f and <= 1f,
+            && LandSeason.Tuning.BlossomTrees > 0f && LandSeason.Tuning.BlossomTrees < 1f && LandSeason.Tuning.BlossomDabs > 0f && LandSeason.Tuning.BlossomDabs <= 1f,
             "every season's number is an amount from 0 to 1 (soil darkens by less than half, the oak's saturation stays near its own), every tree has turned when autumn's turn is whole, and some of the broadleaves flower");
 
         // The frost's hour: all of it at night and at dawn, melting through the morning, its daytime share in the afternoon, back by dusk.
