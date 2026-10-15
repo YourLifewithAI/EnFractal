@@ -129,13 +129,14 @@ public partial class CompanionAvatar : SmallPlayerController
     public const float SteeringProbeM = 0.06f;
 
     /// <summary>
-    /// Body speeds. The run must outpace the player's 0.96 m/s run so follow can close a gap while the player runs:
-    /// 1.20 m/s is 1.25× (the 0.24 m body ran at 1.65 m/s). Accelerations keep the player's 0.16 s ramp to full run.
+    /// Body speeds. The run must outpace the player's 0.96 m/s run, and Quick feet at full rank (1.152 m/s), so follow can close a gap
+    /// while the player runs: 1.40 m/s is 1.46× the plain run and 1.22× the quickest (the founder, 15 October: about 1.4; the 0.24 m
+    /// body ran at 1.65 m/s). Accelerations keep the player's 0.16 s ramp to full run (1.40 / 0.16 = 8.75 m/s²).
     /// Step, floor snap and jump are the player's (the 0.24 m body stepped 4 cm and snapped 2.5 cm).
     /// </summary>
     public const float CompanionWalkMps = 0.32f;
-    public const float CompanionRunMps = 1.20f;
-    public const float CompanionGroundAccelerationMps2 = 7.5f;
+    public const float CompanionRunMps = 1.40f;
+    public const float CompanionGroundAccelerationMps2 = 8.75f;
     public const float CompanionAirAccelerationMps2 = 2.5f;
 
     /// <summary>Whether follow is moving the body (false while it rests inside its band).</summary>

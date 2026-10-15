@@ -60,7 +60,9 @@ public partial class SmallAvatarPhysicsTest : Node3D
             Check(Mathf.IsEqualApprox(_companion.StepHeightM, _player.StepHeightM) && Mathf.IsEqualApprox(_companion.FloorSnapM, _player.FloorSnapM) &&
                 Mathf.IsEqualApprox(_companion.JumpApexM, _player.JumpApexM) && Mathf.IsEqualApprox(_companion.MaxJumpApexM, _player.MaxJumpApexM) && Mathf.IsEqualApprox(_companion.FloorSnapLength, _player.FloorSnapLength),
                 "the companion steps, snaps and jumps like the player");
-            Check(_companion.RunSpeedMps >= 1.2f * _player.RunSpeedMps, $"the companion's run outpaces the player's so follow can catch up ({_companion.RunSpeedMps:0.00} against {_player.RunSpeedMps:0.00} m/s)");
+            Check(_companion.RunSpeedMps >= 1.2f * _player.RunSpeedMps * 1.2f, $"the companion's run outpaces the player's, Quick feet at full rank included, so follow can catch up ({_companion.RunSpeedMps:0.00} against {_player.RunSpeedMps:0.00} m/s, {_player.RunSpeedMps * 1.2f:0.000} with the knack)");
+            Check(Mathf.IsEqualApprox(_companion.RunSpeedMps, 1.4f) && Mathf.IsEqualApprox(_companion.RunSpeedMps / _companion.GroundAccelerationMps2, 0.16f, 0.002f) && Mathf.IsEqualApprox(_player.RunSpeedMps / _player.GroundAccelerationMps2, 0.16f, 0.002f),
+                $"the Gubble runs at about 1.4 m/s and, like the player, reaches a full run in 0.16 s ({_companion.RunSpeedMps:0.00} m/s over {_companion.GroundAccelerationMps2:0.00} m/s², the player's {_player.RunSpeedMps / _player.GroundAccelerationMps2:0.000} s)");
             var visualFits = true;
             foreach (var child in _companion.GetNode<Node3D>("OriginalPrototypeBody").GetChildren())
             {
@@ -715,6 +717,30 @@ public partial class SmallAvatarPhysicsTest : Node3D
         // It starts 0.83 m behind: the gap must never grow past that, and it ends in its band beside the player.
         Report(maximumGap < 0.9f && runningGap < CompanionAvatar.FollowFarM,
             $"companion catches up during sustained player running instead of falling farther behind (max gap={maximumGap:0.00}, final gap={runningGap:0.00})");
+        _companion.Stop();
+
+        // Quick feet at full rank run at 1.152 m/s (a fifth over the plain run): the Gubble, at 1.4, still closes the gap at 0.25 m/s
+        // (against 0.05 m/s when its run was 1.2), so the 0.83 m it starts behind is gone within the five seconds.
+        Check(_player.TryTeleportTo(new Vector3(-4, 0.003f, 3.2f)) &&
+            _companion.TryTeleportTo(new Vector3(-4.8f, 0.01f, 3.42f)), "the Quick feet follow fixture admits both bodies");
+        await Frames(5);
+        _player.Knacks = new BodyKnacks { WalkRunFactor = 1.2f };
+        _player.Rotation = new Vector3(0, -Mathf.Pi * 0.5f, 0);
+        _companion.Follow();
+        _player.SetControlInput(new Vector2(0, 1), sprint: true);
+        var quickMaximum = 0.0f;
+        var quickSpeed = 0.0f;
+        for (var i = 0; i < 300; i++)
+        {
+            await Frames(1);
+            quickMaximum = Mathf.Max(quickMaximum, PlanarDistance(_player.Position, _companion.Position));
+            quickSpeed = Mathf.Max(quickSpeed, new Vector2(_player.Velocity.X, _player.Velocity.Z).Length());
+        }
+        var quickGap = PlanarDistance(_player.Position, _companion.Position);
+        _player.SetControlInput(Vector2.Zero);
+        _player.Knacks = BodyKnacks.None;
+        Report(quickSpeed > 1.14f && quickMaximum < 1.0f && quickGap < CompanionAvatar.FollowFarM,
+            $"companion keeps up with Quick feet at full rank ({quickSpeed:0.000} m/s): the gap never passed {quickMaximum:0.00} m and ends at {quickGap:0.00} m, inside its band");
         _companion.Stop();
     }
 

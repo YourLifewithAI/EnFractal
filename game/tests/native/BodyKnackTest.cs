@@ -760,7 +760,8 @@ public partial class BodyKnackTest : Node3D
         // The margin the follow has to close a gap on a player with the strongest Quick feet: the Gubble's run against the player's best.
         var best = BodyKnacks.FromPack(_table, new Dictionary<string, int> { ["quick_feet"] = 3 });
         var player = 0.96f * best.WalkRunFactor;
-        Report(CompanionAvatar.CompanionRunMps > player, Inv($"the Gubble's run ({CompanionAvatar.CompanionRunMps:0.000} m/s) still outpaces the player's with Quick feet at full rank ({player:0.000} m/s), by {(CompanionAvatar.CompanionRunMps / player - 1) * 100:0.0} percent: follow can close a gap, slowly"));
+        Report(Mathf.IsEqualApprox(CompanionAvatar.CompanionRunMps, 1.4f) && CompanionAvatar.CompanionRunMps / player > 1.2f,
+            Inv($"the Gubble's run ({CompanionAvatar.CompanionRunMps:0.000} m/s) outpaces the player's with Quick feet at full rank ({player:0.000} m/s) by {(CompanionAvatar.CompanionRunMps / player - 1) * 100:0.0} percent, {CompanionAvatar.CompanionRunMps - player:0.000} m/s: follow closes a gap in a second or two"));
         gubble.QueueFree();
         await Frames(2);
     }
