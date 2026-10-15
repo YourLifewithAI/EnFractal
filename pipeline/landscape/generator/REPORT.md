@@ -62,8 +62,8 @@ untouched.
 
 **The planting salt.** The layout the packet's changes drew tripped the game's navigation bake (the rare trunk-hole layout of "Navigation
 edge errors" below: three bakes with 2, 4 and 2 edge errors, so `tools/test-room.ps1 -Scale` threw on stderr though its 10 checks passed).
-A magnified room now draws its planting with `WORLD_PLANT_SALT` (1) unless `--plant-salt` says otherwise (`--plant-salt 0`: none); salts 1
-to 4 all exported, and salt 1 was the first the scale suite passed under (10 of 10, no warnings). 1x is untouched.
+A magnified room now draws its planting with `WORLD_PLANT_SALT` (1) unless `--plant-salt` says otherwise (`--plant-salt 0`: none); salt 1, the
+first tried, passes the scale suite (10 of 10, no warnings), also from a clean fixture cache. 1x is untouched.
 
 **Other rooms at 10x.** Where the exact walk from the spawn reaches little the packet places little: `near_empty_nominal` at 10x reaches 47
 m2 (the hamlet's) and gets no flights and no Fractals (the notes in its report say why); a room with no hamlet is walked once for the siting
