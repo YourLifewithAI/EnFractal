@@ -9,6 +9,10 @@ the generator's exact walk reaches it. Nothing descriptive is copied, and nothin
 
 `x_island_tutorial` is the generator's `x_generator.tutorial` flag: true for an island the opening menu lists first
 (none is locked); absent otherwise.
+
+`x_summit` is the generator's `x_generator.summit` (the second contract round, 15 October): the top of the island's one
+summit, `center_m` on its ground, `radius_m` covering that top, the landmark's id and the band its highest ledge needs
+(the contract's `x_summit`; `contracts/validate.py` checks the centre lies inside the island). Four fields, nothing else.
 """
 import re
 
@@ -19,6 +23,8 @@ MAX_FRACTALS = 1000   # the manifest schema's ceiling
 BOUND_M = 1000
 KINDS = ('heart', 'band')
 FRACTAL_ID = re.compile(r'fractal:[a-z0-9]{1,32}')
+TOKEN = re.compile(r'[a-z][a-z0-9_-]{0,63}')    # the contract's token
+SUMMIT_RADIUS_MAX_M = 50                        # the contract's bound
 
 
 def fractals_data(gen):
@@ -44,6 +50,25 @@ def fractals_data(gen):
             row['reach_band'] = number(item['reach_band'], 1, 20)
         items.append(row)
     return {'typed': typed, 'items': sorted(items, key=lambda r: r['id'])}
+
+
+def summit_data(gen):
+    """The manifest's `x_summit` record from the package's x_generator, or None for a package without a summit."""
+    summit = gen.get('summit') if isinstance(gen, dict) else None
+    if summit is None:
+        return None
+    require(isinstance(summit, dict), 'invalid summit record')
+    row = {'center_m': vector(summit['center_m'], 3, -BOUND_M, BOUND_M)}
+    radius = number(summit['radius_m'], 0, SUMMIT_RADIUS_MAX_M)
+    require(radius > 0, 'a summit has a width')
+    row['radius_m'] = radius
+    if 'landmark' in summit:
+        require(isinstance(summit['landmark'], str) and TOKEN.fullmatch(summit['landmark']) is not None, 'invalid summit landmark')
+        row['landmark'] = summit['landmark']
+    if 'top_band' in summit:
+        require(type(summit['top_band']) is int, 'invalid summit band')
+        row['top_band'] = number(summit['top_band'], 1, 20)
+    return dict(sorted(row.items()))
 
 
 def tutorial_flag(gen):

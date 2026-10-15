@@ -1,6 +1,112 @@
 # The garage as land: the landscape generator (C5)
 
-## Fractals and the ladder of gates (Run 2 mechanics round, packet M4, 15 October)
+## The follow-up: the summit waits, the Fractals spread, why the strict walk reaches a fifth (Run 2, packet M4's follow-up, 15 October)
+
+The founder's answers of 15 October (`docs/game/MECHANICS.md` decisions 22, 27, 35 and 36), built at world scale 10 only: the 1x
+corpus is byte-identical (the garage, `near_empty_nominal` and `kitchen_scan_17` compared file by file against the generator before
+this follow-up), and the 10x fixture rebuilds itself on the next runner.
+
+| File | What changed |
+|---|---|
+| `gates.py` | `own_band(budget_max)`: the highest band the island's own Fractals can open (every one spent on a band, `PER_BAND` = 5 a band, from band 1: 7 on a ceiling of 30). `stair_bands(last_band, own)`: the bands to add above a corridor so its top needs more |
+| `sites.py` | `plan_summit(own_band=)` and `plan_tower`: the stair built above the corridor's platform; `summit_radius` |
+| `routes.py` | a flight can be a `stair` (marked in the package's route row); `Route.tower` |
+| `fractals.py` | the budget (25 to 30, 15 first run, `per_band` 5); the stair's Fractals; `lift_places` (several places only the Gubble's lift or a built ladder reach, spread over the island) in place of the one `high_unreached`; the counts (`first_run`, `out_of_reach`, `by_why`), the shortfall notes and the walk's coverage in the block; `summit_record` |
+| `generate.py` | the package's `x_generator.summit` (`center_m`, `radius_m`, `landmark`, `top_band`) |
+| `checks.py` | `fractal_checks` proves the summit record on the written package; `stair_rects` and `footprint_checks(stairs=)` read a landmark's footprint without the stair built over it |
+| `climb.py`, `reach.py` | `face_deg` (default 55, unchanged): the steepness of a face the climber grabs; the body's own is 45 (`SmallPlayerController.Climbable` is any face past what it stands on) |
+| `coverage.py` | new: `python -B -m pipeline.landscape.generator.coverage --package <pkg> --room <room> --world-scale 10` measures the same island with the strict walk and with the body's own limits |
+| `../export/fractals.py`, `exporter.py` | `x_generator.summit` to the manifest's `x_summit` (four fields, bounded, nothing else); `contracts/validate.py` already checks it lies inside the island |
+
+**The summit waits for a return visit.** The rule, in the generator and for any island: the corridor's top must need more than the bands
+the island's own Fractals can open. A corridor is cut into the tallest landmark in reach as before (its lower ledges are unchanged: on the
+garage the couch, bands 1 to 5 and a remainder ledge). Where its top ledge needs no more than `own_band`, a stair of ledges one band more
+each (the gates: 2.38, 2.78 and 3.18 m for bands 6, 7 and 8) is built above its platform on the landmark's top, across the corridor's
+axis, on ground within 0.5 m over and 2.5 m under the platform and clear of everything but the landmark's own protected ground (the
+flatter of the two sides). Every ledge is a bench 1.2 by 1.4 m (the top 1.6 m) the exact walk stands on, each proved: the stair's ledges
+are reached from bands 6, 7 and 8, a knack at full rank from 5, 6 and 7. A landmark with no room for a stair keeps its corridor, and the
+notes and the report say the summit is within what the island's Fractals open.
+
+**Why a stair and not a longer corridor.** No landmark on the garage hosts a cut corridor to bands 7 and 8. A ladder to band 8 climbs 14.24 m
+(every gate from band 1) and runs about 21 m. The tall landmarks, the shelf (20.2 m) and the easel (16.5 m), lie in the unreached south: the
+shelf is a crag whose face is 3 m deep (the flight would stand 10 m or more up from the plain, where a corridor may stand 2.5 m), the easel a
+spire with no top to stand 1.6 by 1.4 m on. The couch (8.3 m) and the table (7.2 m) are the only landforms the corridor search cuts into, to
+7.6 m (band 5). So the stair stands on the couch's crest. **Its price:** the room's reading rule (every object's footprint reads in the land,
+its top within a third of its height of the box's) lost the couch under a stair 8.7 m over its box, so the rule is read without the 1.4 by 7.6 m
+under the stair (`checks.stair_rects`); the rest of the couch reads. An alternative the rule allows is raising the couch's own landform by at
+most 3.7 m (bands up to 7, not 8): a change to the geology, not made here.
+
+| The 10x garage, nominal, seed 20261008, `--tutorial` | before | after |
+|---|---|---|
+| Fractals (budget) | 24 (20 to 25) | **28** (25 to 30) |
+| within a first-run body's reach (band 1, no knack) | 15 | **15** |
+| out of reach yet | 9 | **13** |
+| by the lowest band that reaches them | 1: 15, 2: 3, 3: 3, 4: 1, 5: 1, none: 1 | 1: 15, 2: 3, 3: 3, 4: 1, 6: 1, 7: 1, 8: 1, **none: 3** |
+| by where they rest | steps 8, corners 5, ladders 7, shortcuts 2, summit 1, high 1 | steps 8, corners 5, ladders 7, shortcuts 2, **stair 2, summit 1, high 3** |
+| the summit | a corridor through the couch, 6 ledges, bands 1 to 5, 7.62 m, its top reached from band 5 | the same corridor and **a stair of 3 ledges (bands 6, 7, 8)** on the couch's crest, 15.96 m above its foot; the top ledge needs band 8 and is reached from band 8 (one knack 7, the pair 6); `x_summit` centre (-13.42, 17.03, -30.92), radius 1.3 m, `top_band` 8 |
+| benches and routes | 23 in 13, 22 proved | 26 in 14, 25 proved (the one not as built is as before: the corridor's fifth ledge, which the couch's seat terrace offers a way round) |
+| the strict walk's reach | 832 m2 | 805 m2 on the written package (820 m2 on the feet alone and 879 with the climbs the generator's rule knows, as the packet counts them) |
+| generation | stage lines: 63.1 s to the Fractals, 160.6 s to their reach, 204.1 s written | the Fractals' two stages cost 3.1 and 3.3 s (against 3.2 and 2.8), nothing else moved: the same |
+| checks | `overall` true | `overall` true (water, grounded, walk, footprints, sea, Fractals; the climb principle is reported beside it, as before) |
+
+**Where the 13 out-of-reach Fractals rest.** The gated ones lie where a gate can be proved, on ground the strict walk stands on: the two
+ladders (5 above band 1), the two knack shortcuts, the stair and the summit (the north and north-west, the walked fifth). The three lift places
+are spread over the island: the **shelf's crest** (26.1, 20.9, 29.6), 20.9 m up in the south-east, the **table's top** (-12.9, 8.0, 11.6) in the
+west of the middle and the **bin's top** (25.6, 5.6, 11.1) on the east. Each is a plateau cliffs close in all round whose rim stands 4.5 m or
+more over the ground at its foot (`rim_drop`: more than the top band's 4.0 m bar, so no base body climbs it at any band), ground the body stands
+on, nothing planted in its lane, no band reaches it, 6 m or more from every other Fractal. A first-run player cannot reach any of the 13: they
+need a higher band, a ladder, the Gubble's Bubble lift or Build. Ids are still the hash of the place, never a count.
+
+### Why the strict walk reaches a fifth of the island
+
+Measured with `coverage.py` on the written 10x garage (the walkable floor's dry land is 3,990 m2):
+
+| walk from the player's spawn | m2 | share |
+|---|---|---|
+| **strict** (20 degrees, 2 cm steps, dry, an 11 cm lane clear of every trunk and stone): what every claim is proved on | 805 | 20 % |
+| strict, no planting | 1,102 | 28 % |
+| the body's limits: 45 degrees, 4 cm steps, the planting in the way | 1,922 | 48 % |
+| the body's limits, no planting, no water in the way | 2,607 | 65 % |
+| the body's walk and its climbs (every face over 45 degrees a bar of the band climbs), the base bar | 2,758 | 69 % (2,622 of it from band 1; the strongest pair 2,850) |
+
+**It is not a bug in the walk, and not in the grading.** The walk is exact (the game's body at 11 cm, 2 cm and 20 degrees, every edge sampled each
+centimetre) and the grading does what it is asked to: it joins the hamlet's crate and three doors, the beaches and the jetty to the spawn (and
+gives the hamlet's site up when it cannot). The island's real shape does the rest:
+
+1. **Straight scarps at the edges of the landforms' skirts.** The geology (`land.uplift`, made on today's 3 cm grid and magnified to 10x with its
+   heights) leaves a skirt round each object landform that ends at the edge of its territory: a 2 to 3 cm step at 1x, a 0.3 to 0.5 m scarp at 10x
+   along 20 to 30 m. At x = -15 m the north terrace (1.08 m) falls 0.47 m between z = -3.4 and -2.8 m (faces of 48 to 53 degrees over the lower
+   0.3 m) to a channel at 0.61 m and a terrace at 0.75 m; climbing back up from the terrace is 0.33 m. The strict walk stops at it (20 degrees), and
+   the generator's climb rule does not see it either (it grabs faces over 55 degrees), though the game's body does: `SmallPlayerController.Climbable`
+   is any face steeper than the 45 degrees it stands on, so this scarp is a band-1 climb in the game and no climb to the generator. It is why the
+   walked region is the north, bounded by the straight line at z = -3 m from the west coast to the middle (and by the next scarp at z = 6 m east of it).
+2. **The planting** costs 27 percent of what is left (1,102 to 805 m2): it keeps lanes only to the goals it knows (the hamlet, the shore, each
+   flight's foot), and the south is thicket (16 to 290 m2 pockets when the strict walk is flooded from a seed there).
+3. The body's slope limit (45 against 20 degrees) is the rest: with it and the planting the body walks 48 percent, without the planting 65.
+
+**A fix is not small, and the Fractals do not wait on it:** the first-run fifteen are proved on the strict walk and lie where it stands, the gated
+ones can only be proved on ground it stands on, and the lift places and the summit's stair do not depend on it. **Proposals, with the numbers:**
+- *Count the 45 to 55 degree faces as climbs in the generator's reach* (`reach.ClimbReach(face_deg=45)`, built and measured here, not switched on):
+  the base bar then reaches 2,622 m2 on band 1 (66 percent) and 2,758 with every band's climbs (69), against 805 (20). It would let the flights, the
+  first-run Fractals and the leads spread over the whole island, each proved from where it stands. The cost is a second model of the body in the
+  generator (the strict one stays for the principle checks) and tens of seconds of generation (33 s for the flood and 5 s for the climbs in the
+  measurement above, cold); a scarp whose toe eases in over more than the 5 cm the foot rule reads is also missed and needs teaching.
+- *Soften the skirts' edges at 10x* (a 12 degree ramp over 2 to 4 m where a territory ends, so the strict walk crosses): a change to the geology of a
+  magnified room, the 1x corpus untouched; the strict walk's bound without the planting is 28 percent, so it needs the planting to keep lanes to more goals
+  to approach the 48 the body's own slope limit gives.
+- *Neither*: the body reaches most of the island already; the generator proves the part it can, as today.
+
+**Decisions and numbers for the founder (this follow-up):**
+- **The summit's stair** on the couch (above), the footprint rule read without it, and the alternative of raising the couch by 3.7 m (bands to 7).
+- **`budget_max` 30 is a placeholder** and sets what the summit must beat: `own_band` is 7, the summit's top band 8. At 25 the island opens 6 and the
+  stair would be two ledges (6 and 7); `per_band` 5 is the rate.
+- **Lift places** need a rim of 4.5 m or more: Big bar at full rank on band 10 climbs 4.8 m, so the bin's top (rim 4.57 m) is the one place a body with
+  that knack and the top band reaches alone (the Bubble lift reaches it without a knack, as it does every Fractal here). A rim of 5 m would leave the
+  shelf's crest and the table's top (5.59 m) and lose the bin's.
+- The walk's coverage: which proposal, if any.
+- The `contracts/examples` invalid case `rules_fractal_budget_upside_down` now breaks both bounds (`budget_min` 30 above `budget_max` 25): with a ceiling of 30 its old mutation, `budget_min` 30, is valid. One line of `build_examples.py` beyond the grant's `fractals` entry.
+
+## Fractals and the ladder of gates (the first build: Run 2 mechanics round, packet M4, 15 October morning; the follow-up above supersedes the garage's counts and the summit's)
 
 The mechanics design (`docs/game/MECHANICS.md` sections 6 and 7) needs the land to be a ladder: the stamina bar grows in ten bands of
 0.4 m, a climb costs the metres it rises, and Fractals sit on ledges that need a band. Built here, at world scale 10 only (nothing
@@ -80,8 +186,8 @@ which walks 45 degrees, crosses the ditch.
 - The gates' reading above (ascending ladders), against "every ledge-to-ledge rise is one band".
 - The arithmetic limit: a knack opens a gate early from band 6, the strongest pair from band 4. Options: accept it; make the high ranks +10 percent; or let a knack move only the first bar.
 - No swim shortcut (the deep-water and dive drains are unset in `v5`) and no hop shortcut (a hop of 6.5 cm is under the 2.5 cm ground's resolution to size, and the design gives no rule for a hop against a pull-over).
-- The summit's top band is 5, not the top bands: the tallest landmarks (the shelf, the easel) lie in the unreached south, so a team that finds all 24 Fractals (four spends) can climb the corridor without the Gubble.
-- The summit's place is in the package (`summit.top_m`) but the manifest has no field for it, and "past the tutorial" needs one.
+- (Answered 15 October, see the follow-up above.) The summit's top band is 5, not the top bands: the tallest landmarks (the shelf, the easel) lie in the unreached south, so a team that finds all 24 Fractals (four spends) can climb the corridor without the Gubble. Now the summit needs band 8, beyond the 7 that 30 Fractals open.
+- (Answered 15 October.) The summit's place is in the package (`summit.top_m`) but the manifest has no field for it, and "past the tutorial" needs one. Now `x_summit`.
 - Numbers the docs do not give, each a constant: gate slack 0.02 m, riser 66 degrees, bench 1.2 by 1.4 m, 8 steps, a ladder of 4 and one of 3, the corner spacing 6 m, a step placed about 12 m from the player's arrival (the nearest Fractal is 8 m away).
 
 ```

@@ -70,7 +70,7 @@ def _uphill(grid, h, x, z, e=.004):
     return None if g < 1e-9 else (gx/g, gz/g)
 
 
-def climb_from(grid, h, x, z, dx, dz, foot_y, beside=None, reach=REACH_M, max_rise=None):
+def climb_from(grid, h, x, z, dx, dz, foot_y, beside=None, reach=REACH_M, max_rise=None, face_deg=FACE_DEG):
     """Climb from a foot: toward the face along (dx, dz), then straight up its
     fall line while it is steep (as a climber does), then on over the top in
     the last direction. Returns None (no face here, or a face taller than a
@@ -79,7 +79,8 @@ def climb_from(grid, h, x, z, dx, dz, foot_y, beside=None, reach=REACH_M, max_ri
     of within 10 cm is a bump on the way up, not the top. `beside(x, z, y)`
     says whether a standable patch lies beside a crest (a climber pulls over
     sideways onto it). `reach` is how far along a heading a climb is followed (the rule's 0.6 m;
-    the mechanics round follows a tall face as far as `max_rise`, the tallest rise a bar climbs, and gives up past it)."""
+    the mechanics round follows a tall face as far as `max_rise`, the tallest rise a bar climbs, and gives up past it).
+    `face_deg` is the steepness of a face a climber grabs (the rule's 55 degrees; the body's own is 45, `reach.ClimbReach`)."""
     started = False
     crest, crest_at = -math.inf, None
     flat = 0
@@ -92,7 +93,7 @@ def climb_from(grid, h, x, z, dx, dz, foot_y, beside=None, reach=REACH_M, max_ri
             return None
         y, s = here
         if not started:
-            if s > FACE_DEG:
+            if s > face_deg:
                 started = True
             elif r > .06+1e-9:
                 return None

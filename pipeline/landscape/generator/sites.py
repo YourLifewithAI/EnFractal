@@ -10,11 +10,14 @@ inside the ground the exact walk reaches from the spawn: its first riser's foot 
 
 The summit's corridor is a flight cut through a landmark's cliff to its top: it may run through the landform's
 protected ground (the one exception), but not through anything else, and its last bench, a platform, lies on high
-ground.
+ground. A landmark rarely stands tall enough for the corridor to need more than the island's own Fractals open (the
+garage's tallest are 20 m crags a corridor cannot be cut into, and its couch is 7.6 m): where it does not, the ladder goes
+on above the platform as a stair built on the landmark's top (`plan_tower`), one band more a ledge, so the summit is
+reached only by a return visit with more capability, a Bubble lift or a built ladder (decided 15 October).
 """
 import math
 
-from . import routes as R
+from . import gates, routes as R
 
 MARGIN_M = .8         # clear, flat ground round a freestanding flight
 SPACING_M = 1.5       # between two flights (beyond their margins)
@@ -29,6 +32,10 @@ SUMMIT_PLATFORM_M = 1.6  # the last bench, on the high ground
 SUMMIT_CLEAR_M = 1.   # a summit corridor's clear ground beyond its sides
 SUMMIT_BELOW_M = 1.5  # the summit's platform is this close to its landmark's highest ground, at most
 WALL_SHARE = .8       # the corridor is walled in (its sides stand over its floor) along this share of its cut
+TOWER_UP_M = .5       # the old ground under a built stair stands at most this over its foot (the corridor's platform) ...
+TOWER_DOWN_M = 2.5    # ... and at most this under it: the stair stands on the landmark's top, not over its edge
+SUMMIT_BODY_M = .2    # the summit counts a body's disc beyond the top bench's corners (x_summit radius)
+SUMMIT_RADIUS_STEP_M = .05   # ... rounded up to this
 
 
 class Land:
@@ -245,7 +252,7 @@ def _in_object(g, q, obj):
     return rr_dist(lx, lz, obj['sx']/2, obj['sz']/2, .06*10) <= 1.5
 
 
-def plan_summit(land, siting, obj, rises_for, stats=None):
+def plan_summit(land, siting, obj, rises_for, stats=None, own_band=None):
     """A corridor through landmark `obj`'s cliff to its top, or None.
 
     For each axis and each place for the platform (the last bench, 3 m long, on high ground) every half metre across
@@ -254,7 +261,12 @@ def plan_summit(land, siting, obj, rises_for, stats=None):
     top band); its start is where that ladder's length puts it, found by trying again with the ground there. A
     candidate stands only if the whole flight and a metre round it are clear of everything but the landmark's own
     protected ground, its start is reached by the walk, the ground in front of its first riser is flat, and it stands
-    up from the old land by at most SUMMIT_FILL_M. The best is the one that stands up least and cuts least."""
+    up from the old land by at most SUMMIT_FILL_M. The best is the one that stands up least and cuts least.
+
+    `own_band`, the highest band the island's own Fractals open (`gates.own_band`): the summit must need more. A corridor
+    whose top ledge needs no more is given a stair built on the landmark's top (`plan_tower`, set as `route.tower`),
+    the best candidate that has room for one; where none has, the best corridor is returned as it stands (its top is
+    within what the island's own Fractals open)."""
     g, h = land.grid, land.h
     nx, nz = g.nx, g.nz
     cell = g.cell
@@ -265,7 +277,7 @@ def plan_summit(land, siting, obj, rises_for, stats=None):
     ri, rj = _object_cells(land, obj)
     # The landmark's own highest ground: the platform lies within SUMMIT_BELOW_M of it.
     top = max([h[j*nx+i] for j in rj for i in ri if _in_object(g, j*nx+i, obj)] or [-math.inf])
-    best = None
+    cands = []
     for di, dj in R.AXES:
         li, lj = -dj, di
         for je in range(rj.start, rj.stop, STRIDE):
@@ -353,9 +365,78 @@ def plan_summit(land, siting, obj, rises_for, stats=None):
                     continue
                 _n(stats, 'candidates')
                 score = 10*fill+vol*cell*cell/4.-3*(z_p-z0)
-                if best is None or score < best[0]:
-                    best = (score, route)
+                cands.append((score, len(cands), route))
+    if not cands:
+        return None
+    cands.sort(key=lambda c: c[:2])    # the best first; of equal scores, the first found (as it always was)
+    if own_band is None:
+        return cands[0][2]
+    for _, _, route in cands:
+        bands = gates.stair_bands(max(l.band for l in route.ledges), own_band)
+        if not bands:
+            return route    # its top ledge needs more than the island's own Fractals open as it stands
+        tower = plan_tower(land, siting, route, bands, obj, stats)
+        if tower is not None:
+            route.tower = tower
+            return route
+    return cands[0][2]
+
+
+def plan_tower(land, siting, corridor, bands, obj, stats=None):
+    """The stair built on a landmark's top above its corridor's platform, or None: a second flight (`bands`, one ledge
+    each, the last bench a platform like the corridor's) that starts at the platform's side and runs across the
+    corridor's axis over the landmark's top. It stands on ground within TOWER_UP_M over the platform's level and
+    TOWER_DOWN_M under it (so its sides are cliffs, never a way up round it), clear of everything but the landmark's own
+    protected ground. The flatter side of the two is taken."""
+    g, h = land.grid, land.h
+    nx, nz = g.nx, g.nz
+    cell = g.cell
+    pad = int(round(SUMMIT_CLEAR_M/cell))
+    gap = int(round(SPACING_M/cell))
+    plat = corridor.ledges[-1].bench_cells
+    z_p = corridor.levels[-1]
+    s_c = corridor.length-plat//2     # the platform's middle, along the corridor
+    ledges = R.make_ledges([(gates.gate_rise(b), b) for b in bands], cell, last_bench_m=SUMMIT_PLATFORM_M)
+    best = None
+    for sign in (1, -1):
+        di, dj = sign*corridor.li, sign*corridor.lj
+        i0 = corridor.i0+corridor.di*s_c+di*corridor.half
+        j0 = corridor.j0+corridor.dj*s_c+dj*corridor.half
+        tower = R.Route('summit', i0, j0, di, dj, z_p, ledges, ident='summit_top')
+        tower.stair = True
+        box = flight_box(tower, pad)
+        if box[0] < 1 or box[2] < 1 or box[1] > nx-2 or box[3] > nz-2 or siting.hard.count(*box):
+            _n(stats, 'stair: hard ground in the way')
+            continue
+        if any(not boxes_apart(box, t, gap) for t in siting.taken):
+            _n(stats, 'stair: too near another flight')
+            continue
+        ground, clear = [], True
+        for q, s, m in tower.cells(nx):
+            ground.append(h[q])
+            if land.protect[q] and not _in_object(g, q, obj):
+                clear = False
+                break
+        if not clear:
+            _n(stats, 'stair: other protected ground')
+            continue
+        if max(ground) > z_p+TOWER_UP_M or min(ground) < z_p-TOWER_DOWN_M:
+            _n(stats, 'stair: not on the landmark\'s top')
+            continue
+        relief = max(ground)-min(ground)
+        if best is None or relief < best[0]:
+            best = (relief, tower)
+    if best is not None:
+        _n(stats, 'stairs')
     return None if best is None else best[1]
+
+
+def summit_radius(route, cell):
+    """x_summit's radius: from the middle of the summit's top bench to its farthest corner and a body's disc beyond, up to
+    the next SUMMIT_RADIUS_STEP_M (the player has reached the summit when their feet are within it)."""
+    top = route.ledges[-1]
+    reach = math.hypot(top.bench_cells*cell/2., route.half*cell)+SUMMIT_BODY_M
+    return round(math.ceil(reach/SUMMIT_RADIUS_STEP_M-1e-9)*SUMMIT_RADIUS_STEP_M, 4)
 
 
 def _walled(land, route):
