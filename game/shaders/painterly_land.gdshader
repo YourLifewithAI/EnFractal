@@ -150,13 +150,16 @@ instance uniform float season_habit = 0.0;
 // across the island, over the area x0, z0, 1 / width, 1 / depth), which the meadow floor draws too, so the floor between the blades
 // and the meadow far away read as the grass's own top. Canopy: x the share that is bare, y the share that is dry, z how soft their
 // edges are, w on (0 leaves the meadow as it was). Shape: z how dry the driest patches are (x, y are the blades'). Floor: x how far the
-// floor goes toward the canopy's top where grass stands, y how far the low herbs' leaves blend into it. Top, dry and bare are the
-// canopy's colours (linear).
+// floor goes toward the grass's layers where grass stands, y how far the low herbs' leaves blend into the canopy, z and w the grass's
+// distance (m: the blades shrink away between them; the floor goes from the thatch under the blades to the canopy's top). Top, dry and
+// bare are the canopy's colours; under and thatch the thatch's deep green and straw (linear).
 global uniform vec4 grass_canopy;
 global uniform vec4 grass_shape;
 global uniform vec4 grass_floor;
 global uniform vec4 grass_canopy_area;
 global uniform sampler2D grass_canopy_map;
+global uniform vec3 grass_under;
+global uniform vec3 grass_thatch;
 global uniform vec3 grass_top;
 global uniform vec3 grass_dry;
 global uniform vec3 grass_bare;
@@ -465,15 +468,25 @@ void fragment() {
 		tone += dab * 0.55 * detail(s * 1.6, footprint);
 		warm_bias = (blotch.x - 0.5) * 1.2 * d_patch + (wash.x - 0.5) * 0.8 * d_wash;
 		if (grass_canopy.w > 0.5) {
-			// The grass's canopy on the floor: toward the canopy's top where the grass stands (a touch lighter where it stands taller),
-			// warmer where it is dry, the worn path's warm earth where it is gone. Only the grass changes, never the soil it blends to.
+			// The grass's layers on the floor where the grass stands. Near, the thatch under the blades: a deep green in its hollows,
+			// lighter strokes of fallen blades combed by the wind, straw where the grass is dry or short, lighter and darker in broad
+			// washes, so the gaps between the blades read as deeper grass. Far, past the grass's distance where no blade is drawn, the
+			// canopy's top as the grass is seen from above: warmer where it is dry, a touch lighter where it stands taller. Where the grass
+			// is gone, the worn path's warm earth. Only the grass changes, never the soil it blends to.
 			float g = smoothstep(0.1, 0.4, (color.g - color.r) / max(max(color.r, max(color.g, color.b)), 1e-3));
 			vec3 canopy = textureLod(grass_canopy_map, clamp((p.xz - grass_canopy_area.xy) * grass_canopy_area.zw, 0.0, 1.0), 0.0).rgb;
 			float stands = smoothstep(grass_canopy.x - grass_canopy.z, grass_canopy.x + grass_canopy.z, canopy.g);
 			float dry = grass_shape.z * smoothstep(1.0 - grass_canopy.y - grass_canopy.z, 1.0 - grass_canopy.y + 2.0 * grass_canopy.z, canopy.b);
 			float tall = canopy.r;
-			vec3 top = mix(grass_top, grass_dry, dry) * mix(0.94, 1.05, tall);
-			color = mix(color, top, g * stands * grass_floor.x);
+			vec3 top = mix(grass_top, grass_dry, dry) * mix(0.94, 1.05, tall) * mix(0.92, 1.08, blotch.x);
+			float d_clump = detail(s * 1.6, footprint);
+			float clump = (1.0 - smoothstep(0.12, 0.55, tuft.x)) * (0.6 + 0.4 * tuft.z);
+			vec3 under = mix(grass_under, grass_top * 0.8, clamp(clump * 0.75 * d_clump + 0.22 * (1.0 - d_clump) + (blotch.x - 0.5) * 0.3, 0.0, 1.0));
+			float thatch = smoothstep(0.55, 0.85, bristle.x) * mix(0.35, 1.0, clamp(dry + 0.4 * (1.0 - tall), 0.0, 1.0));
+			under = mix(under, grass_thatch, mix(0.3 * thatch, thatch, d_bristle));
+			under *= mix(0.85, 1.12, wash.x);
+			float far = smoothstep(grass_floor.z, grass_floor.w, length(VERTEX));
+			color = mix(color, mix(under, top, far), g * stands * grass_floor.x);
 			color = mix(color, grass_bare * (0.88 + 0.24 * blotch.x), g * (1.0 - stands));
 		}
 		if (season_ground.x > 0.0 || season_ground.y > 0.0 || season_tone.x > 0.0) {

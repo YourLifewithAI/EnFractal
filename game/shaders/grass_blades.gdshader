@@ -13,7 +13,12 @@ uniform vec3 middle_color : source_color = vec3(0.31, 0.54, 0.14);
 uniform vec3 tip_color : source_color = vec3(0.62, 0.76, 0.32);
 uniform float tip_start : hint_range(0.0, 1.0) = 0.5;
 // How dark a blade's root stays in the tuft's own shade (1 none).
-uniform float root_shade : hint_range(0.0, 1.0) = 0.9;
+uniform float root_shade : hint_range(0.0, 1.0) = 0.72;
+// Light and colour clump by clump: each tuft lighter or darker by up to this share; short grass toward the sun tint, tall toward the
+// lush one (multipliers, by the canopy's height).
+uniform float tuft_shade : hint_range(0.0, 1.0) = 0.26;
+uniform vec3 sun_tint = vec3(1.07, 1.02, 0.86);
+uniform vec3 lush_tint = vec3(0.9, 0.97, 1.1);
 // With distance a blade fades toward the canopy's top (the colour the meadow floor draws there), so far grass is a soft mass on it.
 uniform float fade_start_m = 2.0;
 uniform float fade_end_m = 12.0;
@@ -27,7 +32,7 @@ uniform vec4 pastel = vec4(0.82, 0.94, 0.03, 0.3);
 uniform float patch_m = 1.4;
 uniform float patch_amount : hint_range(0.0, 1.0) = 0.1;
 // How much a blade is lit as the ground it grows from (1) rather than as its own flat face (0).
-uniform float ground_normal : hint_range(0.0, 1.0) = 0.95;
+uniform float ground_normal : hint_range(0.0, 1.0) = 0.65;
 uniform float backlight : hint_range(0.0, 1.0) = 0.5;
 uniform vec3 wind_axis = vec3(0.7071, 0.0, 0.7071);
 // How far a blade's tip sways in the wind, as a share of its own height.
@@ -56,6 +61,8 @@ global uniform vec3 season_frost;
 varying float along;
 varying float blade;
 varying float dryness;
+varying float tallness;
+varying float tuft_number;
 varying vec2 at_xz;
 
 float hash12(vec2 p) {
@@ -84,8 +91,11 @@ void vertex() {
 	at_xz = xz;
 	float grow = 1.0;
 	dryness = 0.0;
+	tallness = 0.5;
+	tuft_number = hash12(MODEL_MATRIX[3].xz * 1.37 + vec2(0.29, 0.61));
 	if (grass_canopy.w > 0.5) {
 		vec3 canopy = canopy_at(xz);
+		tallness = canopy.r;
 		float tall = mix(grass_shape.x, grass_shape.y, canopy.r);
 		float density = smoothstep(grass_canopy.x - grass_canopy.z, grass_canopy.x + grass_canopy.z, canopy.g);
 		// A blade lives where the canopy's density is above its own number, and shortens as it nears that edge: the grass thins and
@@ -114,8 +124,10 @@ void fragment() {
 	if (dot(NORMAL, (VIEW_MATRIX * vec4(0.0, 1.0, 0.0, 0.0)).xyz) < 0.0) NORMAL = -NORMAL;
 	vec3 color = mix(root_color, middle_color, smoothstep(0.0, tip_start, along));
 	color = mix(color, tip_color, smoothstep(tip_start, 1.0, along));
-	// The copy's tint, a blade's own small shift, and small patches of yellow-green and blue-green.
-	color *= COLOR.rgb * (0.95 + 0.1 * blade);
+	// The copy's tint, a blade's own small shift, each clump lighter or darker, short grass sunnier and tall grass lusher, and small
+	// patches of yellow-green and blue-green.
+	color *= COLOR.rgb * (0.95 + 0.1 * blade) * (1.0 - tuft_shade * 0.5 + tuft_shade * tuft_number);
+	color *= mix(sun_tint, lush_tint, tallness);
 	float meadow_patch = value2(at_xz / patch_m) - 0.5;
 	color *= vec3(1.0) + patch_amount * meadow_patch * vec3(0.9, 0.15, -1.2);
 	// The season, as grass takes it: fresh in spring, toward straw in autumn and winter.

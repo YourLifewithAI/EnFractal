@@ -60,8 +60,15 @@ public static class GrassLook
         /// <summary>The canopy map's cell (m): about Outerra's 30 cm on the 10x island; at most CanopyCells along a side.</summary>
         public const float CanopyCellM = 0.25f;
         public const int CanopyCells = 1024;
-        /// <summary>How far the meadow floor goes toward the canopy's top where the grass stands (the floor between the blades, and the meadow far away).</summary>
-        public const float FloorCanopy = 0.4f;
+        /// <summary>
+        /// How far the meadow floor goes toward the grass's own layers where the grass stands: near, the thatch under the blades (a
+        /// deep green in the hollows, lighter strokes of fallen blades, straw), so the gaps between blades read as deeper grass rather
+        /// than a flat green; far, past the grass's distance, the canopy's top, as the grass is seen from above.
+        /// </summary>
+        public const float FloorCanopy = 0.85f;
+        /// <summary>The thatch under the blades: its deep green (in the hollows) and its straw (dead grass), linear albedo.</summary>
+        public static readonly Color Under = new(0.07f, 0.145f, 0.04f);
+        public static readonly Color Thatch = new(0.34f, 0.29f, 0.13f);
         /// <summary>How far the low herbs' leaves (daisies, buttercups, ferns: the land shader's grass habit) blend into the canopy's top, so they sit in the meadow rather than dot it.</summary>
         public const float HerbsToCanopy = 0.5f;
 
@@ -74,7 +81,13 @@ public static class GrassLook
         public static readonly Color Dry = new(0.56f, 0.58f, 0.22f);
         public static readonly Color Bare = new(0.42f, 0.33f, 0.21f);
         /// <summary>How dark a blade's root stays in the tuft's own shade (ambient occlusion: 1 none).</summary>
-        public const float RootShade = 0.9f;
+        public const float RootShade = 0.72f;
+        /// <summary>
+        /// Light and colour that vary clump by clump (after Malmquist's grass): each tuft a little lighter or darker (by up to this
+        /// share), short grass warmer and sunnier, tall grass lusher and bluer (multipliers by the canopy's height).
+        /// </summary>
+        public const float TuftShade = 0.26f;
+        public static readonly Vector3 SunTint = new(1.07f, 1.02f, 0.86f), LushTint = new(0.9f, 0.97f, 1.1f);
         /// <summary>Far blades fade toward the canopy's top, from FadeStartM to FadeEndM.</summary>
         public const float FadeStartM = 1.5f, FadeEndM = 8f, FadeAmount = 0.75f;
         /// <summary>The grass's distance, as Outerra's: blades shrink away from ShrinkStartM to ShrinkEndM, and beyond it the meadow floor alone carries the canopy.</summary>
@@ -89,7 +102,7 @@ public static class GrassLook
         /// <summary>Small patches of yellow-green and blue-green within the canopy (m across), and how far they push the colour.</summary>
         public const float PatchM = 1.4f, PatchAmount = 0.1f;
         /// <summary>How much a blade is lit as the ground it grows from (1) rather than as its own flat face (0).</summary>
-        public const float GroundNormal = 0.95f;
+        public const float GroundNormal = 0.65f;
         /// <summary>Light through the blades from behind, as a share of their colour.</summary>
         public const float Backlight = 0.5f;
         /// <summary>The wind: how far a blade's tip sways, as a share of its height; how fast; over how long a gust (m).</summary>
@@ -109,6 +122,8 @@ public static class GrassLook
         ("grass_bare", RenderingServer.GlobalShaderParameterType.Vec3),
         ("grass_canopy_area", RenderingServer.GlobalShaderParameterType.Vec4),
         ("grass_canopy_map", RenderingServer.GlobalShaderParameterType.Sampler2D),
+        ("grass_under", RenderingServer.GlobalShaderParameterType.Vec3),
+        ("grass_thatch", RenderingServer.GlobalShaderParameterType.Vec3),
     };
 
     private static ShaderMaterial? _material;
@@ -143,12 +158,14 @@ public static class GrassLook
         // On only once an island's canopy is baked (a room without grass, or the kit's tufts, leaves the meadow floor as it was).
         RenderingServer.GlobalShaderParameterSet(Names[0], new Vector4(Tuning.BareShare, Tuning.DryShare, Tuning.EdgeSoftness, On && _canopyMap != null ? 1f : 0f));
         RenderingServer.GlobalShaderParameterSet(Names[1], new Vector4(Tuning.ShortestShare, Tuning.TallestShare, Tuning.Driest, 0f));
-        RenderingServer.GlobalShaderParameterSet(Names[2], new Vector4(Tuning.FloorCanopy, Tuning.HerbsToCanopy, 0f, 0f));
+        RenderingServer.GlobalShaderParameterSet(Names[2], new Vector4(Tuning.FloorCanopy, Tuning.HerbsToCanopy, Tuning.ShrinkStartM, Tuning.ShrinkEndM));
         RenderingServer.GlobalShaderParameterSet(Names[3], new Vector3(Tuning.Top.R, Tuning.Top.G, Tuning.Top.B));
         RenderingServer.GlobalShaderParameterSet(Names[4], new Vector3(Tuning.Dry.R, Tuning.Dry.G, Tuning.Dry.B));
         RenderingServer.GlobalShaderParameterSet(Names[5], new Vector3(Tuning.Bare.R, Tuning.Bare.G, Tuning.Bare.B));
         RenderingServer.GlobalShaderParameterSet(Names[6], _canopyArea);
         RenderingServer.GlobalShaderParameterSet(Names[7], (_canopyMap ?? EmptyMap()).GetRid());
+        RenderingServer.GlobalShaderParameterSet(Names[8], new Vector3(Tuning.Under.R, Tuning.Under.G, Tuning.Under.B));
+        RenderingServer.GlobalShaderParameterSet(Names[9], new Vector3(Tuning.Thatch.R, Tuning.Thatch.G, Tuning.Thatch.B));
     }
 
     private static void Register()
@@ -311,6 +328,9 @@ public static class GrassLook
         material.SetShaderParameter("tip_color", Tuning.Tip);
         material.SetShaderParameter("tip_start", Tuning.TipStart);
         material.SetShaderParameter("root_shade", Tuning.RootShade);
+        material.SetShaderParameter("tuft_shade", Tuning.TuftShade);
+        material.SetShaderParameter("sun_tint", Tuning.SunTint);
+        material.SetShaderParameter("lush_tint", Tuning.LushTint);
         material.SetShaderParameter("fade_start_m", Tuning.FadeStartM);
         material.SetShaderParameter("fade_end_m", Tuning.FadeEndM);
         material.SetShaderParameter("fade_amount", Tuning.FadeAmount);
