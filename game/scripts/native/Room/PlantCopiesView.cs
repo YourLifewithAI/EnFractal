@@ -112,7 +112,8 @@ public partial class PlantCopiesView : Node3D
             node.SetMeta("species", set.Species);
             node.SetMeta("plant_kind", set.Kind.ToString().ToLowerInvariant());
             view.AddChild(node);
-            var meshes = set.MeshPaths.Select(path => CopyMesh(room, path, set.Name)).ToArray();
+            // Prototype (run2/look-grass-proto): the grass's tufts built in code (GrassLook), the kit's back with --look-grass=kit.
+            var meshes = GrassLook.Draws(set) ? GrassLook.TuftMeshes(set.MeshPaths.Count) : set.MeshPaths.Select(path => CopyMesh(room, path, set.Name)).ToArray();
             return new SetView { Set = set, Node = node, Meshes = meshes, Bands = DrawDistances.CopyBands(set.Kind, TypicalHeightM(set), meshes.Length) };
         }).ToArray();
         var draws = new List<TileDraw>();
@@ -382,6 +383,8 @@ public partial class PlantCopiesView : Node3D
         {
             draw.Multimesh = new MultiMesh { TransformFormat = MultiMesh.TransformFormatEnum.Transform3D, UseColors = true };
             draw.Instance = new MultiMeshInstance3D { Name = DrawnName, Multimesh = draw.Multimesh, GIMode = GeometryInstance3D.GIModeEnum.Disabled };
+            // Which way the set's leaves go through the year (the land's seasons, LandSeason): a conifer's stay green, grass goes to straw.
+            draw.Instance.SetInstanceShaderParameter(LandSeason.HabitParameter, (float)LandSeason.HabitFor(set.FuelClass));
             TileNodeFor(draw.Set, draw.Tile).AddChild(draw.Instance);
         }
         var multimesh = draw.Multimesh!;
@@ -401,7 +404,8 @@ public partial class PlantCopiesView : Node3D
         // camera (the Gubble's eyes) sees what is held rather than a hole.
         instance.VisibilityRangeEnd = view.Bands[^1].EndM;
         instance.VisibilityRangeEndMargin = DrawDistances.CopyMarginM;
-        instance.CastShadow = drawn.CastsShadow ? GeometryInstance3D.ShadowCastingSetting.On : GeometryInstance3D.ShadowCastingSetting.Off;
+        // Prototype (run2/look-grass-proto): procedural blades cast no shadow of their own (4 mm blades only alias in the sun's map).
+        instance.CastShadow = drawn.CastsShadow && !GrassLook.Draws(set) ? GeometryInstance3D.ShadowCastingSetting.On : GeometryInstance3D.ShadowCastingSetting.Off;
         instance.SetMeta("band", band);
         instance.Visible = true;
         draw.Band = band;
