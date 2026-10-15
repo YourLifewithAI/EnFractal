@@ -96,6 +96,7 @@
         "wish.submit",
         "wish.stop",
         "item.pickup",
+        "item.gather",
         "knack.set",
         "receipt.mark",
         "trust.reset"
@@ -550,6 +551,18 @@
             "properties": {
               "args": {
                 "$ref": "#/$defs/args/item.pickup"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "$ref": "#/$defs/is_op/item.gather"
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "#/$defs/args/item.gather"
               }
             }
           }
@@ -1850,6 +1863,7 @@
               "op": {
                 "enum": [
                   "item.pickup",
+                  "item.gather",
                   "knack.set",
                   "receipt.mark",
                   "trust.reset"
@@ -2677,6 +2691,16 @@
         "properties": {
           "op": {
             "const": "item.pickup"
+          }
+        },
+        "required": [
+          "op"
+        ]
+      },
+      "item.gather": {
+        "properties": {
+          "op": {
+            "const": "item.gather"
           }
         },
         "required": [
@@ -3683,7 +3707,7 @@
         }
       },
       "item.pickup": {
-        "description": "Pick up a Fractal within the player's reach: it leaves the island into the team's count for this mode (spent five at a time at a camp for a heart or the next stamina band). Player-only: the Gubble may find a Fractal and mark it on the minimap, never gather it. Durable (the Fractal is gone from this island save); no data, the Fractal is in affected. The torch round's items share the pickup rule (\"anyone\" for torches, \"player\" for Fractals). Until the Fractals are hosted (M1, M4) the hosts answer the player unsupported_capability.",
+        "description": "Pick up a Fractal within the player's reach: it leaves the island into the team's count for this mode (spent five at a time at a camp for a heart or the next stamina band). Player-only: the Gubble may find a Fractal and mark it on the minimap, never gather it. Durable (the Fractal is gone from this island save); no data, the Fractal is in affected. The torch round's items share the pickup rule (\"anyone\" for torches, \"player\" for Fractals). The kernel host picks one up (M1); the mock host, which places no Fractals, answers the player unsupported_capability.",
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -3692,6 +3716,19 @@
         "properties": {
           "target": {
             "$ref": "common.schema.json#/$defs/fractal_id"
+          }
+        }
+      },
+      "item.gather": {
+        "description": "Gather the loose log or stone the player is holding (an obj: it picked up with entity.grab) into the team's wallet: a log is wood, a stone is stone, by what the object is made of (its asset's material roles: bark or wood, or stone; a movable thing that is no container). It leaves the island as one durable room revision (room state keeps it as a removed entity, as fire's leaves a burnt one) and the wallet's count shows on player.status (wallet). Player-only: refused permission_denied to a companion before anything is looked up. Holding nothing, or holding something that is not a loose log or stone, is request_invalid at $.args.target. No data: the object is in affected.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "target"
+        ],
+        "properties": {
+          "target": {
+            "$ref": "#/$defs/object_id"
           }
         }
       },
@@ -4135,7 +4172,7 @@
         }
       },
       "player.status": {
-        "description": "The player's mode and body: health, stamina and what climbing has earned. consequences is false in Creative. Since the mechanics round the host may add the connection energy (energy), the hearts in quarters (hearts) and the bar's bands (bar); the maximum health and stamina are fields of the vitals, up to 30 hearts with Big heart (720) and the top band with Big bar (4.8 m).",
+        "description": "The player's mode and body: health, stamina and what climbing has earned. consequences is false in Creative. Since the mechanics round the host may add the connection energy (energy), the hearts in quarters (hearts) and the bar's bands (bar); the maximum health and stamina are fields of the vitals, up to 30 hearts with Big heart (720) and the top band with Big bar (4.8 m); and the team's wallet (wallet), the materials gathered and spent on repairs, as nature.describe counts them.",
         "type": "object",
         "additionalProperties": false,
         "properties": {
@@ -4242,6 +4279,18 @@
               "slowed": {
                 "type": "boolean"
               }
+            }
+          },
+          "wallet": {
+            "description": "The team's materials (one wallet for the player and the Gubble, kept with the island save): what item.gather put in and repairs took out.",
+            "type": "object",
+            "propertyNames": {
+              "$ref": "#/$defs/creation_material"
+            },
+            "additionalProperties": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100000
             }
           }
         },
@@ -4945,7 +4994,7 @@
       }
     },
     "player_only_ops": {
-      "description": "Ops a companion principal can never perform. The companion adapter must not expose them and the host refuses them from companion principals (permission_denied), never holding them for a click. Unlocking is always a direct player action, and so are the player's own settings (the world's physics, the game mode, Glow's touch and sound), the player's wishes (submitting, stopping and reading them), and since the mechanics round picking up a Fractal (item.pickup), choosing a knack (knack.set), marking a receipt yes or not that (receipt.mark) and resetting Trust (trust.reset).",
+      "description": "Ops a companion principal can never perform. The companion adapter must not expose them and the host refuses them from companion principals (permission_denied), never holding them for a click. Unlocking is always a direct player action, and so are the player's own settings (the world's physics, the game mode, Glow's touch and sound), the player's wishes (submitting, stopping and reading them), and since the mechanics round picking up a Fractal (item.pickup), gathering a held loose log or stone into the wallet (item.gather), choosing a knack (knack.set), marking a receipt yes or not that (receipt.mark) and resetting Trust (trust.reset).",
       "enum": [
         "protect.unlock",
         "world.set_physics",
@@ -4955,6 +5004,7 @@
         "wish.stop",
         "wishes.read",
         "item.pickup",
+        "item.gather",
         "knack.set",
         "receipt.mark",
         "trust.reset"
@@ -5306,6 +5356,11 @@
       "description": "A creation's entity id.",
       "type": "string",
       "pattern": "^creation:[A-Za-z0-9_-]{1,64}$"
+    },
+    "object_id": {
+      "description": "A room object's entity id (a captured or authored object of the manifest).",
+      "type": "string",
+      "pattern": "^obj:[A-Za-z0-9_-]{1,64}$"
     },
     "consequence_notice": {
       "description": "What one of the Gubble's actions did to the player, in a fixed form and no one's words: today, one fire that hurt the player. It rides once on the companion's next result, of any kind, until read.",

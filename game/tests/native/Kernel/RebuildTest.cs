@@ -397,7 +397,7 @@ public partial class RebuildTest : Node3D
     private void NatureOn(bool challenge)
     {
         if (challenge) _host.ConfigurePlayerVitals(new ChallengeVitals());
-        _host.LoadRules(RoomWorld.DefaultRulesId, RoomWorld.DefaultRulesVersion);
+        _host.LoadRules(RoomWorld.DefaultRulesId, ShippedRules.Version);
         _host.ConfigureNature();
     }
 
@@ -412,6 +412,8 @@ public partial class RebuildTest : Node3D
     private bool Burn(Vector3 center, double radius, double duration, int steps)
     {
         var args = new JsonObject { ["capability"] = "fire", ["center_m"] = new JsonArray(center.X, center.Y, center.Z), ["radius_m"] = radius, ["duration_s"] = duration };
+        // A pack with connection energy charges each Fire: the player rests first, so the pool is full (nothing else here moves).
+        _player.VitalsTick?.Invoke(120f, true);
         var preview = Command(NextId("fire-preview"), "nature.cast", (JsonObject)args.DeepClone());
         preview["preview"] = true;
         var previewed = Send(preview, Player);

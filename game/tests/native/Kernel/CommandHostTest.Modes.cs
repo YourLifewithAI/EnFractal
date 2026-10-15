@@ -91,45 +91,105 @@ public partial class CommandHostTest
             PlayerVitals.FallDamage(defaultLandingSpeed, true) == 0,
             "a 1.5 m low-gravity fall, slow glider descent and deep-water landing cause no injury");
         Check(new[] { float.NaN, float.PositiveInfinity, float.NegativeInfinity, -1f }.All(speed => PlayerVitals.FallDamage(speed, false) == 0) &&
-            PlayerVitals.FallDamage(float.MaxValue, false) == PlayerVitals.MaximumHealth,
-            "invalid landing speeds cause no injury and finite extreme speeds clamp damage to maximum health");
+            PlayerVitals.FallDamage(float.MaxValue, false) == PlayerVitals.ContractMaxHealth,
+            "invalid landing speeds cause no injury and finite extreme speeds clamp damage to the contract's most health (absolute: a fall still knocks out 30 hearts)");
         Check(PlayerVitals.FallDamage(0.2f, false) == 0 && PlayerVitals.FallDamage(3, false) > 0 &&
             fresh.Damage(200).Health == 0 && fresh.Damage(200).Recovered().Health == 50 && fresh.Damage(200).Recovered().Recoveries == 1,
             "slow landings are safe; fast impacts injure, and recovery leaves half health with a counted return");
-        var path = ProjectSettings.GlobalizePath($"{TestRoot}/modes/{Guid.NewGuid():N}/player.json");
+        TestVitalsStoreVersionTwo(earned);
+    }
+
+    /// <summary>
+    /// The vitals store, version 2 (contracts/team.schema.json $defs/vitals_store): one document per mode under the store's root
+    /// (a version 1 file's folder today, the team folder once the teams packet sets the path), written only for the modes the
+    /// host stamped, strict on reading; version 1 read for a mode with no document yet and never written or removed; another
+    /// session's change and a bad save kept, never overwritten.
+    /// </summary>
+    private void TestVitalsStoreVersionTwo(PlayerVitals earned)
+    {
+        var folder = ProjectSettings.GlobalizePath($"{TestRoot}/modes/{Guid.NewGuid():N}");
+        var path = folder + "/player_modes_v1.json";
         var store = new LocalPlayerVitalsStore(path);
-        Check(store.Load().Mode == "creative" && !File.Exists(path), "a missing mode profile starts Creative without creating a save");
-        var profile = PlayerModesProfile.Fresh.Select("challenge").WithCurrent(earned.Damage(20));
+        Check(store.Load().Mode == "creative" && !Directory.Exists(folder), "a missing mode profile starts Creative without creating a save");
+        var at = new DateTime(2026, 10, 14, 19, 30, 0, DateTimeKind.Utc);
+        var profile = PlayerModesProfile.Fresh.Select("challenge").WithCurrent(earned.Damage(20)).Stamped(at);
         store.Save(profile);
-        var saved = File.ReadAllBytes(path);
+        var file = store.ModePath("challenge");
+        var saved = File.ReadAllBytes(file);
         var restored = new LocalPlayerVitalsStore(path).Load();
-        Check(restored.Mode == "challenge" && restored.Current.Health == 80 && restored.Current.CompletedClimbs == 1 &&
+        Check(file.Replace('\\', '/').EndsWith("/modes/challenge/vitals.json", StringComparison.Ordinal) && !File.Exists(store.ModePath("live")) && !File.Exists(store.ModePath("creative")) &&
+            restored.Mode == "challenge" && restored.Current.Health == 80 && restored.Current.CompletedClimbs == 1 && restored.Written("challenge") == at &&
             restored.For("live").CompletedClimbs == 0 && restored.For("live").Health == 100 && saved[0] == (byte)'{' && saved[^1] == (byte)'\n',
-            "health, energy and earned traits survive reload and stay separate between Challenge and Live");
+            "health, energy and earned traits survive reload in the mode's own document, stamped, and stay separate between Challenge and Live");
         var text = Encoding.UTF8.GetString(saved);
+        Check(text.Contains("\"schema\":\"enfractal.player_modes\",\"version\":2,\"team_id\":\"local\",\"mode\":\"challenge\",\"written_utc\":\"2026-10-14T19:30:00.000Z\"", StringComparison.Ordinal) &&
+            text.Contains("\"fractals\":{\"found\":0,\"unspent\":0,\"hearts\":0,\"bands\":0},\"pips\":0", StringComparison.Ordinal),
+            "the document is the contract's: schema, version 2, team, mode, the time it was written, and the vitals with their Fractals and pool: " + text);
         var bad = new[]
         {
-            "{", text.Replace("\"version\":1", "\"version\":99", StringComparison.Ordinal),
+            "{", text.Replace("\"version\":2", "\"version\":99", StringComparison.Ordinal),
+            text.Replace("\"version\":2", "\"version\":1", StringComparison.Ordinal),
             text.Replace("\"health\":80", "\"health\":101", StringComparison.Ordinal),
             text.Replace("\"recoveries\":0", "\"recoveries\":-1", StringComparison.Ordinal),
             text.Replace("\"mode\":\"challenge\"", "\"mode\":\"unknown\"", StringComparison.Ordinal),
             text.Replace("\"schema\":", "\"extra\":true,\"schema\":", StringComparison.Ordinal),
+            text.Replace("\"pips\":0", "\"pips\":41", StringComparison.Ordinal),
+            text.Replace("\"pips\":0", "\"pips\":1.5", StringComparison.Ordinal),
+            text.Replace("\"unspent\":0", "\"unspent\":1", StringComparison.Ordinal),
+            text.Replace("\"hearts\":0", "\"hearts\":30", StringComparison.Ordinal),
+            text.Replace("\"team_id\":\"local\"", "\"team_id\":\"Local\"", StringComparison.Ordinal),
+            text.Replace("\"written_utc\":\"2026-10-14T19:30:00.000Z\"", "\"written_utc\":\"yesterday\"", StringComparison.Ordinal),
         };
-        Check(bad.All(value => VitalsRefused(() => LocalPlayerVitalsStore.Parse(Encoding.UTF8.GetBytes(value)))) &&
-            VitalsRefused(() => LocalPlayerVitalsStore.Parse(new byte[] { 0xff })) &&
+        Check(bad.All(value => VitalsRefused(() => LocalPlayerVitalsStore.ParseMode(Encoding.UTF8.GetBytes(value)))) &&
+            VitalsRefused(() => LocalPlayerVitalsStore.ParseMode(new byte[] { 0xff })) &&
             VitalsRefused(() => PlayerVitals.Restore(100, 8, Array.Empty<string>(), 0)),
-            "mode profiles reject malformed or newer saves, excessive vitals, unknown modes, unknown fields and invalid UTF-8");
+            "mode documents reject malformed, older and newer saves, excessive vitals, unknown modes, unknown fields, a pool past 40 or in fractions, Fractals in hand never found, 31 hearts, a bad team or time and invalid UTF-8");
+        // The contract's own examples: its vitals store reads, and each invalid vitals document is refused.
+        var examples = ProjectSettings.GlobalizePath("res://") + "../contracts/examples/";
+        var example = LocalPlayerVitalsStore.ParseMode(File.ReadAllBytes(examples + "teams/example_team/modes/challenge/vitals.json"));
+        var invalid = Directory.GetFiles(examples + "teams_invalid", "vitals_*.json").OrderBy(f => f, StringComparer.Ordinal).ToArray();
+        Check(example is { TeamId: "example_team", Mode: "challenge", Vitals: { Health: 85, MaxHealth: 120, Pips: 6, Fractals: { Found: 13, Unspent: 3, Hearts: 1, Bands: 1 } } } &&
+            invalid.Length == 4 && invalid.All(f => VitalsRefused(() => LocalPlayerVitalsStore.ParseMode(File.ReadAllBytes(f)))),
+            $"the contract's vitals store example reads, and its {invalid.Length} invalid vitals documents are refused");
         var second = new LocalPlayerVitalsStore(path);
         second.Load();
-        store.Save(profile.WithCurrent(earned.Damage(21)));
-        var latest = File.ReadAllBytes(path);
-        Check(VitalsRefused(() => second.Save(profile)) && File.ReadAllBytes(path).SequenceEqual(latest),
+        store.Save(profile.WithCurrent(earned.Damage(21)).Stamped(at.AddSeconds(1)));
+        var latest = File.ReadAllBytes(file);
+        Check(VitalsRefused(() => second.Save(profile.Stamped(at.AddSeconds(2)))) && File.ReadAllBytes(file).SequenceEqual(latest),
             "another mode session cannot silently overwrite newly saved traits");
-        File.WriteAllText(path, "{\"version\":99}", new UTF8Encoding(false));
+        File.WriteAllText(file, "{\"version\":99}", new UTF8Encoding(false));
         var corrupt = new LocalPlayerVitalsStore(path);
-        var invalidBytes = File.ReadAllBytes(path);
-        Check(VitalsRefused(() => corrupt.Load()) && VitalsRefused(() => corrupt.Save(PlayerModesProfile.Fresh)) &&
-            File.ReadAllBytes(path).SequenceEqual(invalidBytes), "a bad mode save is preserved instead of silently resetting physical progress");
+        var invalidBytes = File.ReadAllBytes(file);
+        Check(VitalsRefused(() => corrupt.Load()) && VitalsRefused(() => corrupt.Save(PlayerModesProfile.Fresh.Stamped(at))) &&
+            File.ReadAllBytes(file).SequenceEqual(invalidBytes), "a bad mode save is preserved instead of silently resetting physical progress");
+        // Version 1 (the three modes in one file) is read for the modes without a document, and kept as it was.
+        var legacyFolder = ProjectSettings.GlobalizePath($"{TestRoot}/modes/{Guid.NewGuid():N}");
+        Directory.CreateDirectory(legacyFolder);
+        var legacyPath = legacyFolder + "/player_modes_v1.json";
+        var climb = new string('b', 64);
+        var legacyText = "{\"schema\":\"enfractal.player_modes\",\"version\":1,\"mode\":\"live\",\"modes\":{" +
+            "\"creative\":{\"health\":100,\"stamina\":0.45,\"challenges\":[],\"recoveries\":0}," +
+            $"\"challenge\":{{\"health\":73.5,\"stamina\":0.3,\"challenges\":[\"{climb}\"],\"recoveries\":2}}," +
+            "\"live\":{\"health\":40,\"stamina\":0.1,\"challenges\":[],\"recoveries\":1}}}\n";
+        File.WriteAllText(legacyPath, legacyText, new UTF8Encoding(false));
+        var legacyStore = new LocalPlayerVitalsStore(legacyPath);
+        var migrated = legacyStore.Load();
+        Check(migrated.Mode == "live" && migrated.Current.Health == 40 && migrated.Current.Pips == PlayerVitals.UnsetPool && migrated.Written("live") == null &&
+            migrated.For("challenge") is { Health: 73.5f, CompletedClimbs: 1, Recoveries: 2 } && Math.Abs(migrated.For("challenge").MaxStamina - 0.55f) < 1e-6,
+            "a version 1 save reads as it was: its mode, each mode's body, an unset pool and no time written");
+        legacyStore.Save(migrated.Stamped(at));
+        var reread = new LocalPlayerVitalsStore(legacyPath).Load();
+        Check(File.Exists(legacyStore.ModePath("live")) && !File.Exists(legacyStore.ModePath("challenge")) && File.ReadAllText(legacyPath) == legacyText &&
+            reread.Mode == "live" && reread.For("challenge").Health == 73.5f && reread.Current.Health == 40 && reread.Written("live") == at,
+            "saving writes the played mode's version 2 document only; the other modes still read from version 1, which is never written or removed");
+        // The teams packet's layout: <team>/modes/<mode>/vitals.json names the team folder as the root and the team.
+        var teamPath = ProjectSettings.GlobalizePath($"{TestRoot}/modes/{Guid.NewGuid():N}/teams/mira_team/modes/challenge/vitals.json");
+        var team = new LocalPlayerVitalsStore(teamPath);
+        team.Load();
+        team.Save(PlayerModesProfile.Fresh.Select("challenge").Stamped(at));
+        Check(File.Exists(teamPath) && File.ReadAllText(teamPath).Contains("\"team_id\":\"mira_team\"", StringComparison.Ordinal) &&
+            team.ModePath("live").Replace('\\', '/').EndsWith("/teams/mira_team/modes/live/vitals.json", StringComparison.Ordinal),
+            "in a team's folder the store writes <team>/modes/<mode>/vitals.json with the team's id (the contract's save layout)");
     }
 
     private void TestModeCommands()
@@ -287,7 +347,8 @@ public partial class CommandHostTest
         public int Saves { get; private set; }
         public bool FailSave { get; set; }
         public bool FailLoad { get; set; }
-        private PlayerModesProfile _state = PlayerModesProfile.Fresh;
+        private PlayerModesProfile _state;
+        public ModeTestStore(PlayerModesProfile? profile = null) => _state = profile ?? PlayerModesProfile.Fresh;
         public PlayerModesProfile Load() => FailLoad ? throw new PlayerVitalsException("The test profile cannot load.") : _state;
         public void Save(PlayerModesProfile profile)
         {

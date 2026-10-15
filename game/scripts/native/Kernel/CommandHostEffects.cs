@@ -87,6 +87,8 @@ public partial class CommandHost
         Rules = rules;
         RulesNotice = rules == null ? (notice.Length > 0 ? notice : "This island has no rules, so the Gubble has no abilities.") : "";
         if (rules == null) GD.Print("COMMAND_HOST " + RulesNotice);
+        // The body and the pool play by the pack's traits, cost and modes blocks (today's numbers without them).
+        ResolveVitalsRules();
     }
 
     /// <summary>
@@ -323,6 +325,8 @@ public partial class CommandHost
             previewed["data"] = EffectData(plan, null, null);
             return previewed;
         }
+        // The guard at commit (CommandHostEnergy): the price by principal, after every other check; charged once it starts.
+        var price = GuardEnergy(plan.Ability.Capability, principal);
         // 'effect:' and 26 lowercase base32 characters (130 random bits): opaque, like job ids, never a counter.
         var id = "effect:" + System.Security.Cryptography.RandomNumberGenerator.GetString("abcdefghijklmnopqrstuvwxyz234567", 26);
         var intensity = plan.Params.TryGetValue("intensity", out var level) ? level : 1.0;
@@ -361,6 +365,7 @@ public partial class CommandHost
             DrawGlowConnections();
         }
         if (plan.Ability.Capability == "glow") look?.PlayGlowSound(id);
+        ChargeEnergy(price);
         return Transient("effect.start", principal, actionId, fingerprint, new JsonArray(id), EffectData(plan, id, expires), created: new JsonArray(id), approvedBy: approvedBy);
     }
 

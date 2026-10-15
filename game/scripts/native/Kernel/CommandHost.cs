@@ -106,6 +106,7 @@ public partial class CommandHost : Node
     // (fractal:<id>, the mechanics round) is the player's to pick up (item.pickup).
     private static readonly Regex EntityId = new(@"\A((shell|obj|creation|avatar|effect|edit):[A-Za-z0-9_-]{1,64}|plant:[a-z][a-z0-9_]{0,31}-(0|[1-9][0-9]{0,7})|fractal:[a-z0-9]{1,32})\z", RegexOptions.Compiled);
     private static readonly Regex FractalId = new(@"\Afractal:[a-z0-9]{1,32}\z", RegexOptions.Compiled);
+    private static readonly Regex ObjectIdPattern = new(@"\Aobj:[A-Za-z0-9_-]{1,64}\z", RegexOptions.Compiled);
     private static readonly Regex AvatarId = new(@"\Aavatar:[A-Za-z0-9_-]{1,64}\z", RegexOptions.Compiled);
     private static readonly Regex CreationId = new(@"\Acreation:[A-Za-z0-9_-]{1,64}\z", RegexOptions.Compiled);
     private static readonly Regex EffectId = new(@"\Aeffect:[A-Za-z0-9_-]{1,64}\z", RegexOptions.Compiled);
@@ -120,9 +121,10 @@ public partial class CommandHost : Node
         "creation.place", "creation.revise", "creation.activate", "protect.lock", "protect.unlock",
         "goal.set", "goal.stop", "effect.start", "effect.stop", "effect.adjust", "glow.configure", "style.set", "room.checkpoint", "room.undo", "world.set_physics", "world.set_mode", "journal.note",
         "nature.cast", "nature.trail", "nature.repair", "wish.submit", "wish.stop",
-        // The mechanics round (M0): player-only, and refused to the player as not available yet until their packets land
-        // (Unsupported: item.pickup with M1 and M4, knack.set with M3, receipt.mark and trust.reset with M8).
-        "item.pickup", "knack.set", "receipt.mark", "trust.reset",
+        // The mechanics round (M0): player-only. The player's item.pickup of a Fractal and item.gather of a held log or stone
+        // are hosted (M1); the others answer as not available yet until their packets land (Unsupported: knack.set with M3,
+        // receipt.mark and trust.reset with M8).
+        "item.pickup", "item.gather", "knack.set", "receipt.mark", "trust.reset",
     };
     private static readonly HashSet<string> QueryOps = new()
     {
@@ -139,9 +141,9 @@ public partial class CommandHost : Node
     /// </summary>
     private static readonly HashSet<string> TransientOps = new() { "goal.set", "goal.stop", "effect.start", "effect.stop", "effect.adjust", "glow.configure", "entity.grab", "creation.activate", "world.set_physics", "world.set_mode", "wish.stop" };
     /// <summary>contracts $defs/player_only_ops: refused from a companion with permission_denied, never held.</summary>
-    private static readonly HashSet<string> PlayerOnlyOps = new() { "protect.unlock", "world.set_physics", "world.set_mode", "glow.configure", "wish.submit", "wish.stop", "item.pickup", "knack.set", "receipt.mark", "trust.reset" };
+    private static readonly HashSet<string> PlayerOnlyOps = new() { "protect.unlock", "world.set_physics", "world.set_mode", "glow.configure", "wish.submit", "wish.stop", "item.pickup", "item.gather", "knack.set", "receipt.mark", "trust.reset" };
     /// <summary>The mechanics round's player-only ops (contracts/README.md "Player-only operations"): the player's own, with no tool.</summary>
-    private static readonly HashSet<string> MechanicsPlayerOps = new() { "item.pickup", "knack.set", "receipt.mark", "trust.reset" };
+    private static readonly HashSet<string> MechanicsPlayerOps = new() { "item.pickup", "item.gather", "knack.set", "receipt.mark", "trust.reset" };
     /// <summary>The Gubble may find a Fractal and go to it, never gather it: the same refusal whether or not the Fractal exists.</summary>
     public const string FractalRefusal = "Only the player can pick up a Fractal.";
     /// <summary>The mechanics round's stubs' words (unsupported_capability at $.op), the mock host's too.</summary>
@@ -522,6 +524,9 @@ public partial class CommandHost : Node
         var code = result["error"]?["code"]?.GetValue<string>();
         Finish(approval, code == "receipt_limit"
             ? new Refusal("receipt_limit", "The receipt ledger is full; nothing was changed. A room.checkpoint compacts it; then ask again with a new action_id.")
+            // The pool could not pay its principal's price when the click committed it: that, with the balance and the price.
+            : code == "energy_exhausted" && result["error"]?["balance"]?.GetValue<int>() is { } balance && result["error"]?["price"]?.GetValue<int>() is { } price
+                ? new Refusal("energy_exhausted", EnergyExhaustedMessage, "$.args.capability", retryable: true) { Balance = balance, Price = price }
             : new Refusal("approval_mismatch", "The change can no longer be made as approved; nothing was changed. To ask again, use a new action_id."));
         return (JsonObject)approval.Result!.DeepClone();
     }
@@ -641,6 +646,8 @@ public partial class CommandHost : Node
                 "entity.place" => PlaceObject(args, principal, actionId, meta, preview),
                 "entity.push" => PushObject(args, principal, actionId, meta, preview),
                 "journal.note" => Note(args, principal, actionId, meta, preview),
+                "item.pickup" => PickUpFractal(args, principal, actionId, fingerprint, preview),
+                "item.gather" => GatherHeld(args, principal, actionId, fingerprint, preview),
                 _ => throw new Refusal("unsupported_capability", "This operation is not available yet.", "$.op"),
             };
             ObserveWishCommand(root, result, principal);
@@ -1045,8 +1052,17 @@ public partial class CommandHost : Node
         if (meta["approved_by"].AsString().Length > 0) result["approved_by"] = meta["approved_by"].AsString();
         if (meta["op"].AsString() == "room.checkpoint") result["data"] = new JsonObject { ["checkpoint_revision"] = receipt["revision"].AsInt32() };
         if (meta["op"].AsString() == "journal.note" && receipt.ContainsKey("entry_id")) result["data"] = new JsonObject { ["entry_id"] = receipt["entry_id"].AsString() };
-        // A nature change's receipt keeps the data its first answer had (as the requester was allowed to see it).
-        if (receipt.ContainsKey("data")) result["data"] = Normalized(KernelJson.ToJson(receipt["data"]));
+        // A nature change's receipt keeps the data its first answer had (as the requester was allowed to see it). A pickup is
+        // kept by the same authority path: its receipt's data names the Fractal (the authority's own entity ids have no
+        // fractal: namespace), which the result carries in affected, with no data (contracts: item.pickup).
+        if (meta["op"].AsString() == "item.pickup")
+        {
+            if (receipt.ContainsKey("data") && receipt["data"].AsGodotDictionary() is { } kept && kept.TryGetValue("fractal", out var fractal) && fractal.AsString() is { Length: > 0 } id)
+                result["affected"] = new JsonArray(id);
+        }
+        // A gather is kept the same way, with nothing in its data: the object is in affected (contracts: item.gather).
+        else if (meta["op"].AsString() == "item.gather") { }
+        else if (receipt.ContainsKey("data")) result["data"] = Normalized(KernelJson.ToJson(receipt["data"]));
         return result;
     }
 
@@ -1368,6 +1384,8 @@ public partial class CommandHost : Node
         foreach (var creation in view.Creations)
             list.Add((creation.Id, Summary(creation.Id, "creation", creation.Name, "creation", null, creation.Origin, creation.Box, Array.Empty<string>(), false,
                 view.Locked.Contains(creation.Id), creation.AiCreated ? "ai_created" : "player_created", creation.Revision)));
+        // The Fractals still on the island (the manifest's x_fractals, less those picked up).
+        AddFractals(list);
         AddAvatar(list, PlayerAvatar, Player, "Player");
         AddAvatar(list, CompanionAvatarId, Companion, Companion?.CompanionName ?? "Companion");
         // Sorted by id (ids are unique, so the order is the one a stable sort gives).
@@ -2248,6 +2266,9 @@ public partial class CommandHost : Node
         public bool Retryable { get; } = retryable;
         public JsonNode? Actual { get; } = actual;
         public JsonNode? Allowed { get; } = allowed;
+        /// <summary>energy_exhausted only (contracts: error.balance and error.price): the pips in the pool and what this command costs this principal.</summary>
+        public int? Balance { get; init; }
+        public int? Price { get; init; }
     }
 
     private void CheckEnvelope(JsonElement root, bool command, bool stop)
@@ -2384,7 +2405,7 @@ public partial class CommandHost : Node
             "room.undo" => new[] { "to_revision" },
             "world.set_physics" => new[] { "preset" },
             "world.set_mode" => new[] { "mode", "difficulty" },
-            "item.pickup" => new[] { "target" },
+            "item.pickup" or "item.gather" => new[] { "target" },
             "knack.set" => new[] { "slot", "knack" },
             "receipt.mark" => new[] { "action_id", "mark" },
             "trust.reset" => Array.Empty<string>(),
@@ -2412,7 +2433,7 @@ public partial class CommandHost : Node
             "room.undo" => new[] { "to_revision" },
             "world.set_physics" => new[] { "preset" },
             "world.set_mode" => new[] { "mode" },
-            "item.pickup" => new[] { "target" },
+            "item.pickup" or "item.gather" => new[] { "target" },
             "knack.set" => new[] { "slot", "knack" },
             "receipt.mark" => new[] { "action_id", "mark" },
             "wish.submit" => new[] { "text" },
@@ -2428,6 +2449,8 @@ public partial class CommandHost : Node
             throw new Refusal("request_invalid", "A difficulty is gentle, standard or brave, and only for challenge.", "$.args.difficulty");
         if (op == "item.pickup" && (Str(args, "target") is not { } fractal || !FractalId.IsMatch(fractal)))
             throw new Refusal("request_invalid", "item.pickup names a Fractal.", "$.args.target");
+        if (op == "item.gather" && (Str(args, "target") is not { } gathered || !ObjectIdPattern.IsMatch(gathered)))
+            throw new Refusal("request_invalid", "item.gather names the room object the player is holding.", "$.args.target");
         if (op == "knack.set" && (args.GetProperty("slot") is var slot && (slot.ValueKind != JsonValueKind.Number || !IsIntegerLiteral(slot) || slot.GetDouble() is < 1 or > 3)))
             throw new Refusal("request_invalid", "slot is 1, 2 or 3.", "$.args.slot");
         if (op == "knack.set" && (Str(args, "knack") is not { } knack || !Token.IsMatch(knack)))
@@ -2649,8 +2672,9 @@ public partial class CommandHost : Node
 
     private string? Unsupported(string op, JsonElement args, string principal) => op switch
     {
-        // The mechanics round's stubs (M0), each until its packet lands: the contract is fixed, nothing is built.
-        "item.pickup" or "knack.set" or "receipt.mark" or "trust.reset" => MechanicsNotYet,
+        // The mechanics round's stubs (M0), each until its packet lands: the contract is fixed, nothing is built. The player's
+        // pickup of a Fractal (CommandHostFractals) and gathering (CommandHostGather) are hosted since M1.
+        "knack.set" or "receipt.mark" or "trust.reset" => MechanicsNotYet,
         "world.set_mode" when args.TryGetProperty("difficulty", out _) => DifficultyNotYet,
         "nature.cast" when Str(args, "capability") is "bubble_carry" or "bubble_boat" or "bubble_lift" => BubblesNotYet,
         "entity.set_part" => "Moving parts of objects (a lid, a door) is not available yet.",
@@ -2734,6 +2758,11 @@ public partial class CommandHost : Node
         if (refusal.Path != null) error["field_path"] = KernelJson.DisplayText(refusal.Path, 200);
         if (refusal.Allowed != null) error["allowed"] = refusal.Allowed.DeepClone();
         if (refusal.Actual != null) error["actual"] = refusal.Actual.DeepClone();
+        if (refusal.Balance is { } balance && refusal.Price is { } price)
+        {
+            error["balance"] = balance;
+            error["price"] = price;
+        }
         result["error"] = error;
         return result;
     }

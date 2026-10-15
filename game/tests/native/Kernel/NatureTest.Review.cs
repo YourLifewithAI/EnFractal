@@ -87,7 +87,7 @@ public partial class NatureTest
         Check(Code(bloom) == "permission_denied" && Code(preview) == "permission_denied" && Code(trail) == "permission_denied" && _host.Nature.Cells.Count == 0,
             "a visitor Gubble can neither Bloom, preview Fire nor change the trail: " + Code(bloom) + ", " + Code(preview) + ", " + Code(trail));
         _host.Authority.Call("set_role", Player, Companion, "editor");
-        var pack = JsonNode.Parse(Godot.FileAccess.GetFileAsString(IslandRules.PathFor(RoomWorld.DefaultRulesId, RoomWorld.DefaultRulesVersion)))!.AsObject();
+        var pack = JsonNode.Parse(Godot.FileAccess.GetFileAsString(IslandRules.PathFor(RoomWorld.DefaultRulesId, ShippedRules.Version)))!.AsObject();
         pack["abilities"]!.AsArray().First(a => a!["capability"]!.GetValue<string>() == "bloom")!["tier"] = "keyed_yes";
         _host.UseRules(IslandRules.Parse(CanonicalJson.Bytes(pack)));
         var held = Send(Command(NextId("keyed-bloom"), "nature.cast", Cast("bloom", NearGubble, 0.2, 120)), Companion);
@@ -97,7 +97,7 @@ public partial class NatureTest
         Check(Code(held) == "approval_required" && !Ok(approved) && _host.Nature.Cells.Count == 0,
             "a held Bloom asked as an editor commits nothing when the player approves it after the Gubble became a visitor");
         _host.Authority.Call("set_role", Player, Companion, "editor");
-        _host.LoadRules(RoomWorld.DefaultRulesId, RoomWorld.DefaultRulesVersion);
+        _host.LoadRules(RoomWorld.DefaultRulesId, ShippedRules.Version);
         Send(Command(NextId("gubble-trail-off"), "nature.trail", new JsonObject { ["enabled"] = false }), Companion);
         var on = Send(Command(NextId("gubble-trail-on"), "nature.trail", new JsonObject { ["enabled"] = true }), Companion);
         _host.Authority.Call("set_role", Player, Companion, "visitor");

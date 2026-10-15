@@ -12,14 +12,14 @@ namespace EnFractal.Tests.Kernel;
 
 /// <summary>
 /// Glow, the Gubble's first ability (docs/runs/RUN-2-GLOW.md section 2): the island's rules pack the game ships
-/// (RoomWorld.DefaultRulesVersion, storybook_wild v4 with Bloom and Fire beside the effects), loaded fail-closed;
+/// (RoomWorld.DefaultRulesVersion, storybook_wild v4 or v5: the same abilities, Bloom and Fire beside the effects; ShippedRules), loaded fail-closed;
 /// capabilities.list from it; effect.start for glow on the Gubble (self) and at a spot (point), with its bounds, who may
 /// cast it, its targets, the caps, preview, replay and expiry; effect.stop by id and all; PlayerEffect for the HUD; the
 /// look hook (a real LookDirector shows each glow drawn and released) and the aura colour.
 /// </summary>
 public partial class CommandHostTest
 {
-    private static readonly string ShippedPack = IslandRules.PathFor(RoomWorld.DefaultRulesId, RoomWorld.DefaultRulesVersion);
+    private static readonly string ShippedPack = IslandRules.PathFor(RoomWorld.DefaultRulesId, ShippedRules.Version);
 
     private async Task TestGlow()
     {
@@ -28,7 +28,7 @@ public partial class CommandHostTest
         _player.TryTeleportTo(_room.SpawnFor("player").PositionM + Vector3.Up * 0.008f);
         await Frames(3);
         TestNoRules();
-        _host.LoadRules(RoomWorld.DefaultRulesId, RoomWorld.DefaultRulesVersion);
+        _host.LoadRules(RoomWorld.DefaultRulesId, ShippedRules.Version);
         Check(_host.Rules?.RulesId == "storybook_wild" && _host.RulesNotice.Length == 0, "the host loads the shipped rules pack");
         TestCapabilitiesFromRules();
         TestGlowWithNoLook();
@@ -75,16 +75,16 @@ public partial class CommandHostTest
 
     private void TestRulesLoader()
     {
-        var shipped = IslandRules.Load(RoomWorld.DefaultRulesId, RoomWorld.DefaultRulesVersion);
+        var shipped = IslandRules.Load(RoomWorld.DefaultRulesId, ShippedRules.Version);
         var glow = shipped.Ability("glow");
         var bubbles = shipped.Ability("bubbles");
         var fireworks = shipped.Ability("fireworks");
         var bloom = shipped.Ability("bloom");
         var fire = shipped.Ability("fire");
-        Check(shipped.RulesVersion == 4 && bubbles is { Category: "float", Primitive: "particles.float", ReachM: 2.0, AreaRadiusDefaultM: 0.5, AreaRadiusMaxM: 1.0, DurationDefaultS: 20, DurationMaxS: 60, MaxActive: 2 } &&
+        Check(shipped.RulesVersion == ShippedRules.Version && shipped.RulesVersion >= 4 && bubbles is { Category: "float", Primitive: "particles.float", ReachM: 2.0, AreaRadiusDefaultM: 0.5, AreaRadiusMaxM: 1.0, DurationDefaultS: 20, DurationMaxS: 60, MaxActive: 2 } &&
               fireworks is { Category: "burst", Primitive: "particles.burst", ReachM: 4.0, AreaRadiusDefaultM: 1.0, AreaRadiusMaxM: 2.0, DurationDefaultS: 4, DurationMaxS: 6, MaxActive: 3 } &&
               fireworks.Params["intensity"] == new AbilityParam(0.3, 1.0, 0.8) && bubbles.Params["intensity"] == new AbilityParam(0.2, 1.0, 0.6),
-            "the game reads storybook_wild v4: Bubbles (particles.float) and Fireworks (particles.burst) with their bounds, beside Glow");
+            "the game reads storybook_wild v4 or later: Bubbles (particles.float) and Fireworks (particles.burst) with their bounds, beside Glow");
         Check(bloom is { Category: "growth", Primitive: "growth.seed", Tier: "auto_undo", ReachM: 2.0, AreaRadiusDefaultM: 0.25, AreaRadiusMaxM: 0.6, DurationDefaultS: 180, DurationMaxS: 600, MaxActive: 1 } &&
               fire is { Category: "fire", Primitive: "element.ignite", Tier: "preview_commit", ReachM: 2.0, AreaRadiusDefaultM: 1.5, AreaRadiusMaxM: 1.5, DurationDefaultS: 30, DurationMaxS: 60, MaxActive: 1 } &&
               bloom.Params["intensity"] == new AbilityParam(0.2, 1.0, 0.6) && fire.Params["intensity"] == new AbilityParam(0.2, 1.0, 0.6) &&
@@ -112,7 +112,7 @@ public partial class CommandHostTest
             ("a capability that is not a token", Variant("\"capability\": \"glow\"", "\"capability\": \"Glow!\"")),
             ("a reserved param name", Variant("\"params\": { \"intensity\"", "\"params\": { \"owner\": { \"min\": 0, \"max\": 1, \"default\": 0 }, \"intensity\"")),
             ("a hidden character in a display name", Variant("\"display_name\": \"Glow\"", "\"display_name\": \"Gl\\u200bow\"")),
-            ("a bidirectional override in the description", Variant("weather-driven Fire.", "weather-driven \\u202eFire.")),
+            ("a bidirectional override in the description", Variant("\"description\": \"Storybook nature magic", "\"description\": \"Storybook \\u202enature magic")),
             ("an empty magic word", Variant("\"magic_word\": \"magic\"", "\"magic_word\": \"\"")),
             ("an extension key without x_", Variant("\"extensions\": {}", "\"extensions\": { \"look\": 1 }")),
             ("a duplicate key", Variant("\"reach_m\": 2.0,", "\"reach_m\": 2.0, \"reach_m\": 4.0,")),
@@ -140,8 +140,8 @@ public partial class CommandHostTest
             ("a repeated category", Variant("\"abilities\": [", "\"abilities\": [" + GlowAbility("shine", "light") + ",")),
         };
         foreach (var (label, pack) in limitCases) Check(Refused(pack), "the rules loader refuses " + label);
-        Check(Refused(Encoding.UTF8.GetBytes(PackText()), "storybook_tame", 4) && Refused(Encoding.UTF8.GetBytes(PackText()), "storybook_wild", 1) &&
-            !Refused(Encoding.UTF8.GetBytes(PackText()), "storybook_wild", 4), "a pack must name the id and version its path names");
+        Check(Refused(Encoding.UTF8.GetBytes(PackText()), "storybook_tame", ShippedRules.Version) && Refused(Encoding.UTF8.GetBytes(PackText()), "storybook_wild", 1) &&
+            !Refused(Encoding.UTF8.GetBytes(PackText()), "storybook_wild", ShippedRules.Version), "a pack must name the id and version its path names");
         Check(!Refused(Variant("\"duration_default_s\": 300", "\"duration_default_s\": 600")) && !Refused(Variant("\"display_name\": \"Glow\"", "\"display_name\": \"Glow ✨\"")),
             "a default at its maximum and an emoji in a name are fine");
         var missing = false;
@@ -228,7 +228,7 @@ public partial class CommandHostTest
         Check(Code(Send(Glow("glow-r10", SelfArgs()), Companion)) == "invalid_args", "an ability without self cannot be cast on the Gubble");
         _host.UseRules(Rules(Variant("\"targets\": [\"self\", \"point\"]", "\"targets\": [\"self\"]")));
         Check(Code(Send(Glow("glow-r11", PointArgs(InTheOpen)), Companion)) == "invalid_args", "an ability without point cannot be cast at a spot");
-        _host.LoadRules(RoomWorld.DefaultRulesId, RoomWorld.DefaultRulesVersion);
+        _host.LoadRules(RoomWorld.DefaultRulesId, ShippedRules.Version);
         // Targets: the companion's own avatar only, from anyone.
         var rug = SelfArgs();
         rug["targets"] = new JsonArray("obj:rug");
@@ -271,7 +271,7 @@ public partial class CommandHostTest
         _host.UseRules(Rules(Variant("\"cast_by\": [\"player\", \"companion\"]", "\"cast_by\": [\"companion\"]")));
         Check(Code(Send(Glow("glow-c3", SelfArgs()), Player)) == "permission_denied" && _host.ActiveEffectIds.Count == 0, "cast_by without the player: the player's is permission_denied (and new rules ended the old glow)");
         Check(Ok(Send(Glow("glow-c4", SelfArgs()), Companion)), "and the companion's is cast");
-        _host.LoadRules(RoomWorld.DefaultRulesId, RoomWorld.DefaultRulesVersion);
+        _host.LoadRules(RoomWorld.DefaultRulesId, ShippedRules.Version);
     }
 
     private async Task TestGlowLifecycle(LookDirector look)
@@ -388,7 +388,7 @@ public partial class CommandHostTest
             "the player's click starts it, under the companion with approved_by");
         Check(Code(Send(Glow("glow-t2", SelfArgs(new JsonObject { ["intensity"] = 1.4 })), Companion)) == "invalid_args", "a held ability is checked before it is held");
         Check(Ok(Send(Glow("glow-t3", PointArgs(InTheOpen)), Player)), "the player's own keyed_yes glow runs at once");
-        _host.LoadRules(RoomWorld.DefaultRulesId, RoomWorld.DefaultRulesVersion);
+        _host.LoadRules(RoomWorld.DefaultRulesId, ShippedRules.Version);
         Check(_host.ActiveEffectIds.Count == 0, "new rules end the glows started under the old");
     }
 
@@ -399,7 +399,7 @@ public partial class CommandHostTest
         host.Clock = () => _now;
         await Frames(2);
         host.LookHook = look;
-        host.LoadRules(RoomWorld.DefaultRulesId, RoomWorld.DefaultRulesVersion);
+        host.LoadRules(RoomWorld.DefaultRulesId, ShippedRules.Version);
         var started = host.PlayerEffect("glow");
         Check(Ok(started) && look.GlowCount == 1, "a second host lights a glow: " + Code(started));
         host.QueueFree();

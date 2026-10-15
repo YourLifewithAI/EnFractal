@@ -1072,11 +1072,16 @@ def mechanics_round(at: str) -> dict:
         "error": {"code": code, "message": message, "field_path": path, "retryable": False, **extra}}
     status = {"mode": "challenge", "health": 85.0, "max_health": 120, "stamina": 0.55, "max_stamina": 0.8, "completed_climbs": 3,
               "recoveries": 1, "consequences": True, "energy": {"pips": 6, "max_pips": 8, "shadow": False},
-              "hearts": {"quarters": 17, "max_quarters": 24}, "bar": {"bands": 2, "slowed": False}}
+              "hearts": {"quarters": 17, "max_quarters": 24}, "bar": {"bands": 2, "slowed": False},
+              "wallet": {"copper": 10, "leaf": 20, "stone": 10, "wood": 21}}
     return {
         "command_player_picks_up_a_fractal": command("item.pickup", "pickup-0001", {"target": FRACTAL},
                                                      note="Player-only: the companion's adapter never lists the op."),
         "result_player_picks_up_a_fractal": result("item.pickup", "pickup-0001", "player:local", 5, at, transient=False, affected=[FRACTAL]),
+        # Gathering (decision 26): the loose log the player holds goes into the team's wallet (wood) and leaves the island.
+        "command_player_gathers_a_log": command("item.gather", "gather-0001", {"target": "obj:loose_log"},
+                                                note="Player-only: the log the player picked up with entity.grab."),
+        "result_player_gathers_a_log": result("item.gather", "gather-0001", "player:local", 6, at, transient=False, affected=["obj:loose_log"]),
         "command_player_chooses_a_knack": command("knack.set", "knack-0001", {"slot": 1, "knack": "quick_feet"}, note="Player-only."),
         "result_player_chooses_a_knack": result("knack.set", "knack-0001", "player:local", 5, at, transient=True),
         "command_player_marks_a_receipt": command("receipt.mark", "mark-0001", {"action_id": "bloom-0002", "mark": "yes"}, note="Player-only."),
@@ -1122,6 +1127,8 @@ def mechanics_round_refused(at: str) -> dict:
     carry = valid["command_bubble_carry"]
     return {
         "command_pickup_of_an_object": command("item.pickup", "pickup-0009", {"target": "obj:bean_bag"}),
+        "command_gather_of_a_creation": command("item.gather", "gather-0009", {"target": "creation:00000001"}),
+        "result_gather_with_data": {**valid["result_player_gathers_a_log"], "data": {"wood": 21}},
         "command_knack_in_a_fourth_slot": command("knack.set", "knack-0009", {"slot": 4, "knack": "quick_feet"}),
         "command_receipt_marked_maybe": command("receipt.mark", "mark-0009", {"action_id": "bloom-0002", "mark": "maybe"}),
         "command_trust_reset_to_a_number": command("trust.reset", "trust-0009", {"count": 30}),

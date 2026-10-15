@@ -133,12 +133,12 @@ public partial class NatureTest
             Check(Code(Send(Command(NextId("malformed"), op, args, expectedRevision: op == "room.undo" ? _host.Revision : null), Player, contractValid: false)) == expected, $"{label} is {expected}");
         Check(Code(Send(Command(NextId("unnamed-undo"), "room.undo", new JsonObject { ["to_revision"] = 0 }), Player, contractValid: false)) == "request_invalid",
             "an undo that does not name the room revision it undoes from is request_invalid");
-        var pack = JsonNode.Parse(Godot.FileAccess.GetFileAsString(IslandRules.PathFor(RoomWorld.DefaultRulesId, RoomWorld.DefaultRulesVersion)))!.AsObject();
+        var pack = JsonNode.Parse(Godot.FileAccess.GetFileAsString(IslandRules.PathFor(RoomWorld.DefaultRulesId, ShippedRules.Version)))!.AsObject();
         pack["abilities"]!.AsArray().First(a => a!["capability"]!.GetValue<string>() == "bloom")!["area_radius_max_m"] = 0.3;
         _host.UseRules(IslandRules.Parse(CanonicalJson.Bytes(pack)));
         var wide = Send(Command(NextId("wide-bloom"), "nature.cast", Cast("bloom", NearGubble, 0.4, 10)), Player);
         Check(Code(wide) == "invalid_args" && wide["error"]?["allowed"]?.GetValue<double>() == 0.3, "a radius past the pack's own limit is refused with the pack's limit");
-        _host.LoadRules(RoomWorld.DefaultRulesId, RoomWorld.DefaultRulesVersion);
+        _host.LoadRules(RoomWorld.DefaultRulesId, ShippedRules.Version);
         var preview = Send(Command(NextId("id-preview"), "nature.cast", Cast("fire", NearGubble, 0.2, 10), preview: true), Player);
         Check(System.Text.RegularExpressions.Regex.IsMatch(preview["data"]?["preview_id"]?.GetValue<string>() ?? "", @"\A[a-f0-9]{32}\z"), "a preview id is 32 hex characters (128 random bits)");
         Check(new[] { "nature.cast", "nature.trail", "nature.repair", "room.undo" }.All(op => !CommandHost.IsTransientOp(op)) &&

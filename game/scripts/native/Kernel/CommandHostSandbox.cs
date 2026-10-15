@@ -54,6 +54,9 @@ public partial class CommandHost
         var (actor, body) = SandboxActor(args, principal);
         RequireChange(principal);
         var target = Str(args, "target")!;
+        // The player's own grab of a Fractal (the companion's is refused before, NamesAFractal): picked up, never carried.
+        if (target.StartsWith("fractal:", StringComparison.Ordinal) && Fractals.Any(f => f.Id == target))
+            throw new Refusal("invalid_args", "A Fractal is picked up, not carried: use item.pickup.", "$.args.target");
         var item = CheckGrab(actor, body, target);
         if (preview) return Previewed("entity.grab", principal, actionId, target);
         // Grabbing what this avatar already holds changes nothing and answers as a grab.

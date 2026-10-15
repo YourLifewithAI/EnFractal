@@ -96,6 +96,9 @@ public static class NatureBlock
             };
         }
         if (state.UndoneAt >= 0) block["undone"] = new JsonObject { ["at"] = state.UndoneAt, ["state_of"] = state.UndoneTo };
+        // The Fractals picked up on this island (item.pickup), sorted; absent while none is (every earlier block reads as none).
+        if (state.FractalsPicked.Count > 0)
+            block["fractals"] = new JsonArray(state.FractalsPicked.OrderBy(id => id, StringComparer.Ordinal).Select(id => (JsonNode?)id).ToArray());
         var resting = state.Cells.Values.Where(c => c.RestS > 0).OrderBy(c => c.X).ThenBy(c => c.Z).ToList();
         if (resting.Count > 0)
         {
@@ -130,6 +133,8 @@ public static class NatureBlock
             }
             else if (item.PositionM is { } at && item.Rotation is { } turn)
                 saved["pose"] = new JsonObject { ["position_m"] = KernelJson.Vector(at), ["rotation"] = new JsonArray(KernelJson.Num(turn.X), KernelJson.Num(turn.Y), KernelJson.Num(turn.Z), KernelJson.Num(turn.W)) };
+            // Gathered into the wallet (item.gather), not burnt: gone all the same.
+            if (!item.Creation && item.Gathered) saved["gathered"] = true;
             map[item.Id] = saved;
         }
         return map;
@@ -227,6 +232,8 @@ public static class NatureBlock
             state.UndoneAt = Int(undone["at"]);
             state.UndoneTo = Int(undone["state_of"]);
         }
+        if (block["fractals"] is JsonArray picked)
+            foreach (var id in picked) state.FractalsPicked.Add(id!.GetValue<string>());
         if (block["rest"]?.GetValue<string>() is { } rest)
         {
             var bytes = Convert.FromBase64String(rest);
@@ -284,6 +291,7 @@ public static class NatureBlock
                 var turn = pose["rotation"]!.AsArray().Select(v => Float(v)).ToArray();
                 item.Rotation = new Quaternion(turn[0], turn[1], turn[2], turn[3]);
             }
+            item.Gathered = !item.Creation && saved["gathered"]?.GetValueKind() == JsonValueKind.True;
             objects[id] = item;
         }
         return objects;
@@ -318,7 +326,8 @@ public static class NatureBlock
     {
         if (Normalized(node) is not { } block) return "not an object";
         var required = new[] { "format", "cell_m", "weather_s", "changed_at", "trail", "names", "cells", "objects", "wallet", "undo" };
-        if (block.Any(p => !required.Contains(p.Key) && p.Key is not ("fire" or "undone" or "rest")) || required.Any(k => !block.ContainsKey(k))) return "its fields";
+        if (block.Any(p => !required.Contains(p.Key) && p.Key is not ("fire" or "undone" or "rest" or "fractals")) || required.Any(k => !block.ContainsKey(k))) return "its fields";
+        if (block["fractals"] is { } fractals && FractalsProblem(fractals)) return "its Fractals picked up";
         if (!Whole(block["format"], Format) || block["format"]!.GetValue<double>() != Format) return "its format";
         if (!Number(block["cell_m"], 1) || (float)block["cell_m"]!.GetValue<double>() != NatureState.CellM) return "its cell size";
         if (!Number(block["weather_s"], MaxWeatherS) || block["weather_s"]!.GetValue<double>() < 0) return "its weather clock";
@@ -430,7 +439,10 @@ public static class NatureBlock
         }
         if (!ObjectId.IsMatch(id) || (room != null && room.Objects.All(o => o.Id != id))) return "an object not in this room";
         var burnedDown = item["burn"]!.GetValue<double>() >= 1;
-        if (item.Count != (burnedDown ? 2 : 1)) return "a stock object's fields";
+        // A gathered object (item.gather) is gone as a burnt one is, and says so: "gathered" is true, and only on one gone.
+        var gathered = item.ContainsKey("gathered");
+        if (gathered && (!burnedDown || item["gathered"]?.GetValueKind() != JsonValueKind.True)) return "a gathered object's mark";
+        if (item.Count != (burnedDown ? 2 : 1) + (gathered ? 1 : 0)) return "a stock object's fields";
         if (!burnedDown) return null;
         if (item["pose"] is not JsonObject pose || pose.Count != 2 || !Vec3(pose["position_m"]) || pose["rotation"] is not JsonArray q || q.Count != 4 || q.Any(v => !Number(v, 1)) ||
             Math.Abs(Math.Sqrt(q.Sum(v => v!.GetValue<double>() * v.GetValue<double>())) - 1) > 1e-3) return "a burned object's pose";
@@ -484,6 +496,22 @@ public static class NatureBlock
         node is not JsonObject trail || trail.Count != 3 || trail["enabled"]?.GetValueKind() is not (JsonValueKind.True or JsonValueKind.False) ||
         trail["by"]?.GetValueKind() != JsonValueKind.String || trail["by"]!.GetValue<string>() is not ("player" or "companion") ||
         trail["rules_sha256"]?.GetValueKind() != JsonValueKind.String || trail["rules_sha256"]!.GetValue<string>() is var rules && rules.Length != 0 && !Hex64.IsMatch(rules);
+
+    private static readonly Regex FractalIdPattern = new(@"\Afractal:[a-z0-9]{1,32}\z", RegexOptions.Compiled);
+
+    /// <summary>The Fractals picked up: 1 to 1000 ids of one spelling, sorted and each once.</summary>
+    private static bool FractalsProblem(JsonNode node)
+    {
+        if (node is not JsonArray ids || ids.Count is < 1 or > CommandHost.MaxFractals) return true;
+        string? previous = null;
+        foreach (var id in ids)
+        {
+            if (id?.GetValueKind() != JsonValueKind.String || id.GetValue<string>() is not { } text || !FractalIdPattern.IsMatch(text)) return true;
+            if (previous != null && string.CompareOrdinal(previous, text) >= 0) return true;
+            previous = text;
+        }
+        return false;
+    }
 
     private static bool WalletProblem(JsonNode? node) =>
         node is not JsonObject wallet || wallet.Count > NatureState.MaxWalletKinds || wallet.Any(p => !MaterialToken.IsMatch(p.Key) || !Whole(p.Value, NatureState.MaxWalletUnits));

@@ -171,10 +171,12 @@ public partial class CommandHost
     private static readonly HashSet<string> DurableOps = new()
     {
         "creation.place", "creation.revise", "entity.remove", "protect.lock", "protect.unlock", "room.checkpoint", "entity.release", "entity.place", "entity.push", "journal.note",
-        "nature.cast", "nature.trail", "nature.repair", "room.undo",
+        "nature.cast", "nature.trail", "nature.repair", "room.undo", "item.pickup", "item.gather",
     };
     /// <summary>The durable ops whose receipts keep the data their first answer had (the authority's NATURE_OPS).</summary>
     private static readonly HashSet<string> NatureOps = new() { "nature.cast", "nature.trail", "nature.repair", "room.undo" };
+    /// <summary>The authority keeps a pickup's receipt by the nature path, with empty data: the contract's result carries none.</summary>
+    private static bool KeptWithData(string op) => NatureOps.Contains(op) || op is "item.pickup" or "item.gather";
 
     /// <summary>One canonical angle: a yaw in (-180, 180], so a half-turn either way is the same bytes everywhere.</summary>
     private static double CanonicalYaw(double yaw)
@@ -347,6 +349,10 @@ public partial class CommandHost
             : op == "journal.note" ? result["data"] is not JsonObject { Count: 1 } n || StrOf(n["entry_id"]) is not { } entry || !EntryIdPattern.IsMatch(entry)
             : NatureOps.Contains(op) ? NatureDataProblem(op, result["data"])
             : result["data"] != null) return "its data";
+        if (op == "item.pickup" && (result["affected"] is not JsonArray { Count: 1 } picked || StrOf(picked[0]) is not { } fractal || !FractalId.IsMatch(fractal)))
+            return "a pickup that names no Fractal";
+        if (op == "item.gather" && (result["affected"] is not JsonArray { Count: 1 } gathered || StrOf(gathered[0]) is not { } thing || !ObjectIdPattern.IsMatch(thing)))
+            return "a gather that names no object";
         return null;
     }
 
@@ -464,6 +470,14 @@ public partial class CommandHost
             };
             if (op == "journal.note") receipt["entry_id"] = result["data"]!["entry_id"]!.GetValue<string>();
             if (NatureOps.Contains(op)) receipt["data"] = result["data"]!.DeepClone();
+            if (op == "item.pickup")
+            {
+                // As the host committed it (CommandHostFractals): the Fractal in the receipt's data, nothing the authority checks as an entity.
+                receipt["data"] = new JsonObject { ["fractal"] = result["affected"]![0]!.GetValue<string>() };
+                receipt["affected"] = new JsonArray();
+            }
+            // A gather's receipt names its object in affected, with empty data (CommandHostGather).
+            if (op == "item.gather") receipt["data"] = new JsonObject();
             receipts[key] = new JsonObject
             {
                 ["principal"] = result["principal"]!.GetValue<string>(), ["action_id"] = result["action_id"]!.GetValue<string>(), ["fingerprint"] = node["fingerprint"]!.GetValue<string>(),
@@ -628,12 +642,12 @@ public partial class CommandHost
             if (entry["meta"] is not JsonObject meta || meta.Count != 3 || StrOf(meta["op"]) is not { } op || !MetaOp.IsMatch(op) || StrOf(meta["at_utc"]) is not { } at ||
                 (at.Length > 0 && !RealTime(meta["at_utc"])) || StrOf(meta["approved_by"]) is not { } approved || (approved.Length > 0 && (approved != PlayerPrincipal || principal == PlayerPrincipal)))
                 return "a receipt's record";
-            var keys = op == "journal.note" || NatureOps.Contains(op) ? 8 : 7;
+            var keys = op == "journal.note" || KeptWithData(op) ? 8 : 7;
             if (entry["receipt"] is not JsonObject receipt || receipt.Count != keys || receipt["ok"]?.GetValueKind() != JsonValueKind.True || receipt["replayed"]?.GetValueKind() != JsonValueKind.False ||
                 StrOf(receipt["instance_id"]) is not { } instanceId || (instanceId.Length > 0 && !instanceId.StartsWith("creation:", StringComparison.Ordinal)) ||
                 !Whole(receipt["revision"], revision) || !Whole(receipt["permission_revision"], int.MaxValue) || !EntityIds(receipt["affected"]) || !EntityIds(receipt["created"]) ||
                 (op == "journal.note" && (StrOf(receipt["entry_id"]) is not { } entryId || !EntryIdPattern.IsMatch(entryId))) ||
-                (NatureOps.Contains(op) && receipt["data"] is not JsonObject { Count: <= 32 }))
+                (KeptWithData(op) && receipt["data"] is not JsonObject { Count: <= 32 }))
                 return "a receipt that did not succeed as recorded";
         }
         if (version >= 3)

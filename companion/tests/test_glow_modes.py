@@ -128,8 +128,12 @@ class GlowAndModes(unittest.TestCase):
         self.assertEqual(self.host.glow_progress.touch, "plain")
         self.assertEqual(self.host.active_effect_ids(), [])
         status = self.host.handle(COMPANION, query("player.status", {}))["data"]
-        self.assertEqual(status, {"mode": "challenge", "health": 100, "max_health": 100, "stamina": 0.45,
-                                  "max_stamina": 0.45, "completed_climbs": 0, "recoveries": 0, "consequences": True})
+        # A new body is the pack's (100 health either way; the first band 0.45 m today, 0.4 m with v5's traits, which add
+        # the pool, the hearts and the bar: test_mechanics_boundary).
+        bar = self.host.rules.stamina_start_m if self.host.rules.stamina_start_m is not None else 0.45
+        self.assertEqual({k: v for k, v in status.items() if k not in ("energy", "hearts", "bar")},
+                         {"mode": "challenge", "health": 100, "max_health": 100, "stamina": bar,
+                          "max_stamina": bar, "completed_climbs": 0, "recoveries": 0, "consequences": True})
         # Trusted saved-state fixture: wire messages cannot set these values.
         self.host._vitals_profiles["challenge"]["health"] = 80
         self.assertTrue(self.send("world.set_mode", {"mode": "live"})["ok"])

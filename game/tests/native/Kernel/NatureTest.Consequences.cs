@@ -52,7 +52,8 @@ public partial class NatureTest
             "the Gubble's next result carries the fixed-format notice: what happened, health before and after, which fire: " + Canonical(status["notices"]));
         var again = Send(Query("player.status", new JsonObject()), Companion);
         Check(Ok(again) && again["notices"] == null && Send(Query("player.status", new JsonObject()), Player)["notices"] == null, "a notice is delivered once, and only to the Gubble");
-        Steps(1);
+        // One step today (6 health a step); two under a pack in quarters (a quarter a second, NatureTest.Energy).
+        Steps(2);
         var next = Send(Command(NextId("look"), "goal.set", new JsonObject { ["actor"] = CommandHost.CompanionAvatarId, ["goal"] = "stay" }), Companion);
         Check(next["notices"]?[0]?["health_before"]?.GetValue<double>() == after, "more harm from the same fire after it was read is a new notice, on any result: " + Canonical(next["notices"]));
         var journal = Send(Query("journal.read", new JsonObject { ["kind"] = "consequence" }), Companion);
@@ -113,9 +114,11 @@ public partial class NatureTest
     private async Task TestRecoveryGrace()
     {
         await NewWorld(SavePath("grace"), challenge: true);
-        _host.ApplyPlayerDamage(PlayerVitals.MaximumHealth - NatureLaws.PlayerBurnDamage, PlayerDamageSource.Fall);
+        // Leave the player one burn from a knockout: today's 6 health a step, or one quarter when the pack counts hearts in quarters.
+        var oneBurn = _host.BodyRules.InQuarters ? (float)_host.BodyRules.HealthPerQuarter : NatureLaws.PlayerBurnDamage;
+        _host.ApplyPlayerDamage(_host.Vitals.MaxHealth - oneBurn, PlayerDamageSource.Fall);
         var lit = Fire(Companion, PlayerSpot(), 0.3, 20, out _);
-        Steps(1);
+        Steps(2);
         var at = _player.GlobalPosition;
         bool BurningNear() => _host.Nature.Cells.Values.Any(c => c.BurningS > 0 && new Vector2(c.Position.X - at.X, c.Position.Z - at.Z).Length() <= NatureLaws.RecoverySafeM);
         Check(Ok(lit) && _host.Vitals.Recoveries == 1 && _host.Vitals.Health == PlayerVitals.MaximumHealth / 2 && !BurningNear(),
