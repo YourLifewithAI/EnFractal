@@ -24,7 +24,8 @@ The crystal and the seed carry a faint inner light (`InnerLight`, 0.12 of their 
 
 Above each body a camera-facing quad of light (one MultiMesh, written on the CPU each frame, one draw), added to what is behind it: a heart, a halo and rays, cool white with a rainbow on the rays, never the Gubble's warm glow colour.
 
-- **It reads from a band away:** 2 cm across up close, and never under 9 pixels on screen however far (its size grows with distance in the shader), so it is drawn at every distance the island is seen. Its body fades out at the small plants' 40 m, dithered; the glint goes on to the far plane.
+- **It reads from a band away:** 2 cm across up close, and never under 12 pixels on screen however far (its size grows with distance in the shader), so it is drawn at every distance the island is seen. As it grows its heart softens to fill it and its rays thicken, so a far glint is a small bright sparkle and not one pixel, and it rises by half of what it grew, so it stands on top of its Fractal clear of the grass round it (from a band below, a Fractal on a ledge sits behind the ledge's grass at a grazing angle). Its body fades out at the small plants' 40 m, dithered; the glint goes on to the far plane. In the F2 view the distance is in the depth of field's blur, which spreads the glint into a soft bright disc; it still reads.
+- **A pitfall, fixed (15 October):** the pixel rule divides by the projection's `[1][1]`, which the engine makes negative when it flips Y for a render target (the capture harness's SubViewport). Taken as it came, the glint never grew: one pixel at 3 m and nothing at 14 in the first captures. The shader takes its size, and the look suite pins that.
 - **It twinkles** on its own slow period (2.6 to 4.2 s, from its id, so no two blink together), never below 0.45 of its brightness, peaking briefly; its rays turn once in 20 s.
 - **Up close it steps back:** within 35 cm of the eye it dims to 0.3, so the body in reach reads rather than a flare.
 - **At night** its brightness (2.5, the wisp heart's) is over 1, so the bloom catches it. **It casts no light** (recommended): the light budget's spare slots are the wisps'.
@@ -42,13 +43,15 @@ When `Fractals` loses an id (read on the next tick after `NatureChanged`), that 
 
 Three MultiMeshes, one draw each, under 200 triangles a body; the sparks' pool is written only while a pickup moment lasts. Measured headless (the debug build the suites use):
 
-- **The 10x garage's 24 Fractals: 11.5 µs a frame on the CPU, nothing allocated** over 600 frames (the plan's target: under 0.1 ms). The look suite holds it under 100 µs and to zero bytes.
-- **A thousand (the kernel's most): about 0.38 ms a frame, nothing allocated**; the suite holds it under 0.6 ms.
+- **The 10x garage's 24 Fractals: 12 µs a frame on the CPU, nothing allocated** over 600 frames (the plan's target: under 0.1 ms). The look suite holds it under 100 µs and to zero bytes.
+- **A thousand (the kernel's most): about 0.4 ms a frame, nothing allocated**; the suite holds it under 0.6 ms.
 - The island frame probe (`native_look_island_probe.tscn`, the 10x garage) cannot resolve it: switching the node off moves the frame by less than its noise (the process step 0.55 against 0.61 ms, other nodes swinging as much), and the allocations a frame do not change.
 
 ## The cameras
 
-`tools/look/island_cameras.json` has two fixed cameras for the 10x garage alone (its Fractals exist at 10x only): **`fractal_near`**, the Fractal nearest the spawn (`fractal:de2175ec95e1`, one band above it) seen from a body length away with the player beside it, and **`fractal_far`**, the same Fractal from 12 m off and 0.26 m below in the HUD's F2 view. From most spots a full band below, the crest it rests on hides it; this one has a clear line over the land. Capture with `capture-look.ps1 -Room landscape10 -Cameras tools/look/island_cameras.json -Only fractal_near,fractal_far,spawn -NoLightChecks`.
+`tools/look/island_cameras.json` has two fixed cameras for the 10x garage alone (its Fractals exist at 10x only), both at **`fractal:c90007134ecf`**, the island's most open Fractal (band 1, on a low stone ledge): **`fractal_near`** sees it from a body length away with the player beside it, and **`fractal_far`** from where the player stands 14 m off and a band (0.38 m) below, as the F2 view zoomed out with the wheel (1.2 m behind the player, 0.55 m up, focus on the player as in play). Capture with `capture-look.ps1 -Room landscape10 -Cameras tools/look/island_cameras.json -Only fractal_near,fractal_far,spawn -NoLightChecks`.
+
+**How the spots were found, and what it says about finding Fractals.** The Fractal nearest the spawn sits on a stone ledge ringed by trees: from no spot 10 to 20 m off is it in view at the 10 cm eye. The spots were chosen with a line-of-sight model built from the export (a conservative height envelope of every shell mesh, the room's objects, and every copy taller than 6 cm as a cylinder), which reproduced every diagnostic picture. Run over all 24 Fractals, 12 have no spot 10 to 16 m off and 0.15 to 0.8 m below from which the land, the trees and the shrubs leave a line to them; the most open has 70. M4's promise that "the next ledge is always in view of a player one band short" holds for the land, but at the 10 cm eye the copies hide a 4 cm Fractal well before the land does: the glint is what can carry it, where any line is left.
 
 ## What needs the founder's eye
 
