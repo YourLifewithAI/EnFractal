@@ -382,6 +382,8 @@ public partial class PlantCopiesView : Node3D
         {
             draw.Multimesh = new MultiMesh { TransformFormat = MultiMesh.TransformFormatEnum.Transform3D, UseColors = true };
             draw.Instance = new MultiMeshInstance3D { Name = DrawnName, Multimesh = draw.Multimesh, GIMode = GeometryInstance3D.GIModeEnum.Disabled };
+            // Which way the set's leaves go through the year (the land's seasons, LandSeason): a conifer's stay green, grass goes to straw.
+            draw.Instance.SetInstanceShaderParameter(LandSeason.HabitParameter, (float)LandSeason.HabitFor(set.FuelClass));
             TileNodeFor(draw.Set, draw.Tile).AddChild(draw.Instance);
         }
         var multimesh = draw.Multimesh!;
