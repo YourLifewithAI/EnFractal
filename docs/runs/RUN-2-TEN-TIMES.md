@@ -1,5 +1,7 @@
 # Run 2: the 10x world
 
+Squared with [docs/game/MECHANICS.md](../game/MECHANICS.md) on 14 October 2026: where this page and that design differ, the design wins.
+
 **Decided by the founder, 13 October 2026,** after walking the experiment: "I MUCH prefer the island at this scale. Let's switch to this scale from here on out." The room is magnified ten times into the island around today's 10 cm body. The body, the Gubble, trees, cottages, the jetty, plants, stones, paths, water depths and the step, climb and swim limits keep their size. One world unit is still one metre.
 
 This page is the plan. The tenth session's handoff in [RUN-2-STATUS.md](RUN-2-STATUS.md) says which packets have started.
@@ -76,3 +78,4 @@ The founder saw the Gubble stuck high in the sky saying "can't get there". From 
 - The shadow cost of 350,000 copies.
 - Machine load from 9-minute fixtures and corpus sweeps in many worktrees, until S3 and S10 land.
 - Crossing 60 m takes about 3 minutes at a walk, and the Gubble's fetches take minutes: play distances need the founder's eye.
+- Running will drain the bar once the mechanics round lands ([MECHANICS](../game/MECHANICS.md) decision 7, the founder's answer: in Challenge and Live, with speed halved when the bar is empty; at the design's provisional cost a full starting bar lasts about 40 s of running, one pack value, packets M1 and M5). The 80 s run across and S8's play distances (the catch-up at 25 m, long trips walked) are judged again in the playtest once that cost is set.

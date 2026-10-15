@@ -1,5 +1,7 @@
 # Who owns which files
 
+Squared with [docs/game/MECHANICS.md](../game/MECHANICS.md) on 14 October 2026: where this page and that design differ, the design wins.
+
 Every run is built by parallel agent lanes. A lane **edits only the paths it owns** and may read anything. Shared files belong to the integrator, who merges lanes, keeps contracts and consumers in step, and runs the full suite. This map is what keeps four lanes from editing the same file at once. When a path is not listed, it belongs to the integrator.
 
 ## Integrator (shared files)
@@ -64,7 +66,7 @@ Every run is built by parallel agent lanes. A lane **edits only the paths it own
 | `pipeline/recipes/**` (parametric Blender recipes for stand-ins, their runner and tests; from Run 2, brief 10) | The integrator owns it and Codex briefs build it. Lane C reads and runs the recipes for C5 and requests changes |
 | `pipeline/landscape/**` (the room-to-landscape conversion: its synthetic room corpus from brief 14, the shared render harness from brief 16) | The integrator owns it and Codex briefs build it, except the parts below |
 | `pipeline/landscape/generator/**` (C5, the landscape generator, continued from the A/B winner `gen_b`), and the harness's rendering side (`harness/worker.py`, `harness/views.py`, `harness/render.py`, its README and reference renders; not the package format: `package.py`, `glb.py`, `common.py`) | Lane C (from the fourth Run 2 session, 8 October, as the revised Run 2 plan assigns it) |
-| `pipeline/landscape/export/**` (a landscape package to a game room directory) | Codex brief 18 |
+| `pipeline/landscape/export/**` (a landscape package to a game room directory) | Codex brief 18. The mechanics round (M4 in [RUN-2-MECHANICS.md](RUN-2-MECHANICS.md)) needs a bounded whitelist here for the shard, route and tutorial fields (`x_shards`, `x_island_tutorial`), and the generator lane cannot write the manifest: the lane reports the diff and the integrator applies it (Codex, which built this folder, is retired) |
 | `docs/ROOM-TO-LANDSCAPE.md` | Integrator-owned design; Codex drafts it in brief 13 |
 | `pipeline/characters/**` (drawing-to-character converters; the shared turntable `turntable.py`, which every converter's output is judged through) | The integrator owns it. In brief 20's blind A/B each contender owns one folder (`conv_a/`, `conv_b/`) until the verdict |
 
