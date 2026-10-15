@@ -1,0 +1,26 @@
+using System.Text.Json.Nodes;
+using Godot;
+
+namespace EnFractal.Native;
+
+/// <summary>
+/// The gather key (decision 26 of docs/game/MECHANICS.md; the mechanics round's packet M1 built the command): the key sends the
+/// player's item.gather for the loose log or stone the hands hold, through the host's one command path like every other key,
+/// never by editing the room. The host decides (a held log or stone only) and answers; the notice says what it answered and then
+/// what the wallet holds now.
+/// </summary>
+public partial class RoomHud
+{
+    /// <summary>E (the input map's item_gather): gather what the hands hold into the wallet.</summary>
+    public void Gather()
+    {
+        if (Host is not { } host) { _noticeText = "The command host is not attached; the gather key is off."; return; }
+        var result = host.PlayerGather();
+        _noticeText = GatherWords(result, host);
+    }
+
+    private static string GatherWords(JsonObject result, Kernel.CommandHost host) =>
+        result["ok"]?.GetValue<bool>() == true
+            ? "Gathered. In your wallet: " + MaterialWords(host.Nature.Wallet)
+            : result["error"]?["message"]?.GetValue<string>() ?? "That could not be gathered.";
+}

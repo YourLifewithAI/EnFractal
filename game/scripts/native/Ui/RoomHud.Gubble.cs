@@ -96,12 +96,13 @@ public partial class RoomHud
         slot is < 0 or >= 5 ? null : Host?.Rules?.Abilities.Where(a => a.Category == GubbleMagic.SlotCategories[slot]).OrderBy(a => a.Capability, StringComparer.Ordinal).FirstOrDefault();
 
     /// <summary>
-    /// The help's line for the ability keys, from the island's pack: the slots it has, cast where you point, and the keys of the
-    /// slots it lacks, still to come ("1 Glow, 3 Bubbles, 4 Fireworks where you point ... · 2/5 magic still to come").
+    /// The help's line for the ability keys, from the island's pack: the slots it has, each with what it costs you in pips ("needs 4"
+    /// while the pool is short), cast where you point, and the keys of the slots it lacks, still to come ("1 Glow ●●, 3 Bubbles ●●,
+    /// 4 Fireworks ●● where you point ... · 2/5 magic still to come").
     /// </summary>
     private string MagicKeysLine()
     {
-        var known = Enumerable.Range(0, Act.GubbleSlots.Length).Where(i => SlotAbility(i) != null).Select(i => $"{K(Act.GubbleSlots[i])} {SlotName(i)}").ToArray();
+        var known = Enumerable.Range(0, Act.GubbleSlots.Length).Where(i => SlotAbility(i) != null).Select(i => $"{K(Act.GubbleSlots[i])} {SlotName(i)}{SlotPriceSuffix(i)}").ToArray();
         var later = Enumerable.Range(0, Act.GubbleSlots.Length).Where(i => SlotAbility(i) == null).Select(i => K(Act.GubbleSlots[i])).ToArray();
         var parts = new System.Collections.Generic.List<string>();
         if (known.Length > 0) parts.Add($"{string.Join(", ", known)} where you point (it comes closer first if it must; at the sky, on itself)");
@@ -234,6 +235,8 @@ public partial class RoomHud
             _askAge = 0;
             AskPreview = DecideAsk(AimNow());
             var words = GubbleMagic.AskWords(AskPreview.Rule, Companion.CurrentIntent == "follow", SlotName(0));
+            // A tap that lights a spot spends Glow's price: the reticle says so (dots, or "needs N").
+            if (words.Length > 0 && AskPreview.Rule == GubbleMagic.AskRule.Glow) words += SlotPriceSuffix(0);
             _askTag.Text = words.Length == 0 ? "" : $"{K(Act.GubbleAsk)}: {words}";
         }
         _askTag.Visible = _askTag.Text.Length > 0;
@@ -260,6 +263,8 @@ public partial class RoomHud
                 GubbleMagic.WedgeKind.Fetch when GubbleHolds => $"{GubbleMagic.PutDownIcon}\n{GubbleMagic.PutDownName}",
                 _ => $"{wedge.Icon}\n{wedge.Name}",
             });
+        // What each ability costs the player: the ordered price in dots, or "needs N" while the pool is short of it.
+        _wheel.SetPrices(WheelPrice);
         _wheel.Begin(AimScreenPoint());
     }
 
@@ -438,6 +443,8 @@ public partial class RoomHud
     {
         if (result["ok"]!.GetValue<bool>()) { _cue.Done(wiggle); return true; }
         var reason = result["error"]?["message"]?.GetValue<string>();
+        // An empty pool: the pips blink, and the host's words ("The Gubble needs a moment.") are the Gubble's head-shake.
+        if (result["error"]?["code"]?.GetValue<string>() == "energy_exhausted") _pips.Flash();
         _cue.Refuse(reason);
         if (reason != null) _noticeText = reason;
         return false;

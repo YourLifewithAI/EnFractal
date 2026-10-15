@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using EnFractal.Native.Characters.Gaits;
 using EnFractal.Native.Look;
+using EnFractal.Native.Ui;
 
 namespace EnFractal.Native;
 
@@ -221,6 +222,7 @@ public partial class RoomHud : CanvasLayer
     public override void _Ready()
     {
         Name = "RoomHud";
+        PlayerControls.EnsureDefaults();
         // Place the rendered camera before LookDirector computes its focus depth.
         ProcessPriority = -1;
         BuildCameras();
@@ -248,6 +250,8 @@ public partial class RoomHud : CanvasLayer
         AddChild(top);
         var column = new VBoxContainer(); top.AddChild(column);
         column.AddChild(new Label { Text = RoomTitle });
+        // The hearts and the bar, drawn (RoomHud.Meters.cs).
+        BuildMeters(column);
         _state = new Label { Name = "State" }; column.AddChild(_state);
         _clock = new Label { Visible = false }; column.AddChild(_clock);
         // The Gubble's orders as buttons too: the same commands as the keys, the wheel and the smart ask (RoomHud.Gubble.cs).
@@ -259,11 +263,13 @@ public partial class RoomHud : CanvasLayer
         AddKeyButton(actions, () => $"{K(Act.GubbleRecall)} Come", Recall, 26);
         AddKeyButton(actions, () => $"{K(Act.GubbleStop)} Stop", StopGubble, 26);
         AddKeyButton(actions, () => $"{K(Act.GubbleSlot1)} {SlotName(0)}", () => CastSlot(0, AimNow()), 26);
+        BuildSlotPrice(actions);
         AddButton(actions, "Customize", ToggleCustomization, 26);
         // The hand keys send the same sandbox commands the companion uses (CommandHost.PlayerHands, PlayerPush).
         var hands = new HBoxContainer { Name = "HandActions" }; column.AddChild(hands);
         AddKeyButton(hands, () => $"{K(Act.Hands)} Pick up / put down", Hands, 26);
         AddKeyButton(hands, () => $"{K(Act.Push)} Push", Push, 26);
+        AddKeyButton(hands, () => $"{K(Act.ItemGather)} Gather", Gather, 26);
         _focusTag = new Label { Name = "FocusTag", Visible = false, MouseFilter = Control.MouseFilterEnum.Ignore, Theme = compactTheme };
         AddChild(_focusTag);
         _washVeil = new ColorRect { Name = "HomeVeil", Color = new Color(0.06f, 0.13f, 0.18f, 0), MouseFilter = Control.MouseFilterEnum.Ignore };
@@ -291,7 +297,7 @@ public partial class RoomHud : CanvasLayer
         AddKeyLine(_keyHelp, () => $"Climb: keep walking into a steep face, {K(Act.MoveForward)} up, {K(Act.MoveBack)} down, {K(Act.MoveLeft)}/{K(Act.MoveRight)} across, {K(Act.Jump)} lets go · Swim: deep water floats you, {K(Act.Jump)} leaps · Dive: hold {K(Act.MoveDive)}, {K(Act.Jump)} rises, {K(Act.MoveForward)} swims the way you look, let go to drift up");
         AddKeyLine(_keyHelp, () => $"{K(Act.ViewEye)} first person · {K(Act.ViewShoulder)} third person: {PlayerControls.ZoomLabel()} zooms out to look around, and zoomed out {PlayerControls.DragLabel()} orbits and {PlayerControls.MoveLabel()} follows the view");
         AddKeyLine(_keyHelp, () => $"{K(Act.ViewObserve)} observe (a very tight tilt-shift view, best zoomed out) · {K(Act.HudCustomize)} customize · {K(Act.Journal)} journal ({K(Act.MouseRelease)} closes either)");
-        AddKeyLine(_keyHelp, () => $"{K(Act.Hands)} pick up what you face · {K(Act.Hands)} again sets it down in front of you, or on top of what you face (the box, the book) · {K(Act.Push)} push what you face 10 cm");
+        AddKeyLine(_keyHelp, () => $"{K(Act.Hands)} pick up what you face · {K(Act.Hands)} again sets it down in front of you, or on top of what you face (the box, the book) · {K(Act.Push)} push what you face 10 cm · {K(Act.ItemGather)} gather a log or stone you hold into your wallet");
         // The Gubble's keys, under its name (the Glow playtest: the player should see whose magic this is).
         AddKeyLine(_keyHelp, () => $"{Companion.NameTag}, your companion:", "GubbleHeading");
         AddKeyLine(_keyHelp, () => $"{K(Act.GubbleAsk)} asks for what fits where you point (wait or follow, fetch or put down, light the dark, go and look); hold it for the wheel · {K(Act.GubbleRecall)} come, then follow · {K(Act.GubbleStop)} stop · {K(Act.GubbleEyes)} look through its eyes", "GubbleKeys");
@@ -317,11 +323,13 @@ public partial class RoomHud : CanvasLayer
         options.AddChild(settings);
         BuildEyesSetting(settings);
         BuildIntroSetting(settings);
+        BuildNumbersSetting(settings);
         AddButton(options, "Save appearance and return", () => { SavePreferences(); ToggleCustomization(); });
         BuildGubbleControls(compactTheme);
         BuildMagicPanel(actions, column, theme);
         // The journal last: the book opens over everything else on screen (RoomHud.Journal.cs). Then the eye icon above its dock,
         // whose view through the Gubble's eyes covers the whole screen, the book's dock too (RoomHud.GubbleView.cs).
+        BuildMinimap();
         BuildJournal();
         BuildGubbleView(compactTheme);
         ApplyAura();
@@ -358,17 +366,17 @@ public partial class RoomHud : CanvasLayer
     /// <summary>
     /// Every frame: the key texts again only when something they are made from changed (S12: some twenty strings rebuilt and handed
     /// to the engine sixty times a second). They are made from the keys' names (PlayerControls.MapVersion), whether the help is open,
-    /// the Gubble's name, the way home and the island's abilities.
+    /// the Gubble's name, the way home, the island's abilities and which of them the pool can pay (PoolHint).
     /// </summary>
     private void RefreshKeyTextIfChanged()
     {
         if (KeyTextInputs() != _keyTextsAsOf) RefreshKeyText();
     }
 
-    private (int Map, bool Help, string Name, string Home, object? Rules) KeyTextInputs() =>
-        (PlayerControls.MapVersion, _keyHelp.Visible, Companion.CompanionName, Player.HomeName, Host?.Rules);
+    private (int Map, bool Help, string Name, string Home, object? Rules, int Pool) KeyTextInputs() =>
+        (PlayerControls.MapVersion, _keyHelp.Visible, Companion.CompanionName, Player.HomeName, Host?.Rules, PoolHint());
 
-    private (int Map, bool Help, string Name, string Home, object? Rules)? _keyTextsAsOf;
+    private (int Map, bool Help, string Name, string Home, object? Rules, int Pool)? _keyTextsAsOf;
 
     private static void AddButton(Node parent, string text, System.Action action, int minimumHeight = 38)
     {
@@ -603,6 +611,11 @@ public partial class RoomHud : CanvasLayer
         UpdateFocus(delta);
         UpdateAskTag(delta);
         UpdateChains();
+        MeterCost.CloseFrame();
+        var meterStart = MeterCost.Begin();
+        UpdateMeters(delta);
+        UpdateMinimap(delta);
+        MeterCost.End(meterStart);
         UpdateDusk(delta);
         _washVeil.Color = new Color(_washVeil.Color, Player.HomeFade);
         RefreshKeyTextIfChanged();
@@ -796,6 +809,7 @@ public partial class RoomHud : CanvasLayer
             // Hand keys: pick up, put down and push, as commands from the player.
             else if (PlayerControls.Hit(press, Act.Hands)) Hands();
             else if (PlayerControls.Hit(press, Act.Push)) Push();
+            else if (PlayerControls.Hit(press, Act.ItemGather)) Gather();
             // The look drag arms on the press; a click that never moves does nothing.
             else if (PlayerControls.Hit(press, Act.LookDrag))
             {

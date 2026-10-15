@@ -23,15 +23,14 @@ public partial class JournalMap : Control
     /// it): a level is a surface the 10 cm body could stand on beside them (CompanionAvatar.LevelGapM), whatever the room's size.
     /// </summary>
     public const float OwnLevelM = CompanionAvatar.LevelGapM;
-    private readonly List<(Rect2 Area, float Height)> _land = new();
-    private readonly List<(Rect2 Area, string Name)> _objects = new();
+    private readonly DiscoveredMapData _data = new();
     private Vector2 _player;
     private Vector2 _companion;
     private float _height;
     private RoomData? _siteOf;
     private RoomSite? _site;
-    public int KnownObjectCount => _objects.Count;
-    public int DiscoveredSpanCount => _land.Count;
+    public int KnownObjectCount => _data.Objects.Count;
+    public int DiscoveredSpanCount => _data.Land.Count;
     /// <summary>Whether the map shows a compass: only for a room whose manifest declares its site.</summary>
     public bool ShowsCompass => _site is { Declared: true };
     /// <summary>Where north lies on the page, as a unit vector (+Y down); zero without a compass.</summary>
@@ -57,40 +56,7 @@ public partial class JournalMap : Control
     /// <summary>Read the team's discovered map and the avatars' places from the host.</summary>
     public void UpdateFrom(CommandHost host)
     {
-        _land.Clear();
-        _objects.Clear();
-        var data = host.ExportDiscovered();
-        var cell = (float)data["cell_m"]!.GetValue<double>();
-        foreach (var level in data["levels"]!.AsArray().OfType<JsonObject>())
-        {
-            var x = (float)level["min_xz_m"]![0]!.GetValue<double>();
-            var z = (float)level["min_xz_m"]![1]!.GetValue<double>();
-            var columns = level["columns"]!.GetValue<int>();
-            var rows = level["rows"]!.GetValue<int>();
-            var height = (float)level["height_m"]!.GetValue<double>();
-            var bits = Convert.FromBase64String(level["cells"]!.GetValue<string>());
-            bool Seen(int c, int r)
-            {
-                var index = r * columns + c;
-                return (bits[index >> 3] & (1 << (index & 7))) != 0;
-            }
-            // Each row's runs of discovered cells become one strip.
-            for (var r = 0; r < rows; r++)
-                for (var c = 0; c < columns; c++)
-                {
-                    if (!Seen(c, r)) continue;
-                    var start = c;
-                    while (c + 1 < columns && Seen(c + 1, r)) c++;
-                    _land.Add((new Rect2(x + start * cell, z + r * cell, (c - start + 1) * cell, cell), height));
-                }
-        }
-        foreach (var known in data["entities"]!.AsObject())
-        {
-            var entity = known.Value!["entity"]!;
-            var low = Read(entity["bounds_m"]!["min_m"]!);
-            var high = Read(entity["bounds_m"]!["max_m"]!);
-            _objects.Add((new Rect2(low.X, low.Z, high.X - low.X, high.Z - low.Z), entity["display_name"]!.GetValue<string>()));
-        }
+        _data.Read(host.ExportDiscovered());
         var avatars = host.Entities().Where(e => e["kind"]!.GetValue<string>() == "avatar").ToDictionary(e => e["id"]!.GetValue<string>(), e => Read(e["position_m"]!));
         var player = avatars.TryGetValue(CommandHost.PlayerAvatar, out var at) ? at : Vector3.Zero;
         var companion = avatars.TryGetValue(CommandHost.CompanionAvatarId, out var beside) ? beside : player;
@@ -106,21 +72,21 @@ public partial class JournalMap : Control
         QueueRedraw();
     }
 
-    private static Vector3 Read(JsonNode node) => new((float)node[0]!.GetValue<double>(), (float)node[1]!.GetValue<double>(), (float)node[2]!.GetValue<double>());
+    private static Vector3 Read(JsonNode node) => DiscoveredMapData.Point(node);
 
     public override void _Draw()
     {
         var box = new Rect2(_player - Vector2.One * 0.2f, Vector2.One * 0.4f).Expand(_companion);
-        foreach (var land in _land) box = box.Merge(land.Area);
-        foreach (var thing in _objects) box = box.Merge(thing.Area);
+        foreach (var land in _data.Land) box = box.Merge(land.Area);
+        foreach (var thing in _data.Objects) box = box.Merge(thing.Area);
         box = box.Grow(0.15f);
         var scale = MathF.Min((Size.X - 30) / box.Size.X, (Size.Y - 40) / box.Size.Y);
         var margin = (Size - box.Size * scale) * 0.5f;
         Vector2 At(Vector2 p) => margin + (p - box.Position) * scale;
         DrawRect(new Rect2(Vector2.Zero, Size), new Color(0.55f, 0.40f, 0.18f, 0.10f), false, 1);
-        foreach (var land in _land)
+        foreach (var land in _data.Land)
             DrawRect(new Rect2(At(land.Area.Position), land.Area.Size * scale), new Color(0.35f, 0.42f, 0.26f, MathF.Abs(land.Height - _height) < OwnLevelM ? 0.45f : 0.16f));
-        foreach (var thing in _objects)
+        foreach (var thing in _data.Objects)
             DrawRect(new Rect2(At(thing.Area.Position), thing.Area.Size * scale), new Color(0.4f, 0.28f, 0.15f, 0.65f), false, 1.2f);
         var ink = new Color("694533");
         DrawCircle(At(_player), 5, ink);

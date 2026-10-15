@@ -21,16 +21,29 @@ public partial class PlayHudTest
         await Frames(1);
         Check(_hud.MagicPanelOpen && !_world.Player.InputEnabled && !GetTree().Paused,
             "the Magic panel holds local movement while the island and connected AI continue");
-        var mode = (OptionButton)_hud.FindChild("ModeChoice", true, false)!;
-        mode.Select(1); mode.EmitSignal(OptionButton.SignalName.ItemSelected, 1L);
+        // The in-play mode dropdown is gone (the mechanics round, decision 21: switching modes means switching saves, chosen at the
+        // menu): the page names this save's mode and nothing on it changes it. The host still takes the command until the teams packet.
+        Check(_hud.FindChild("ModeChoice", true, false) == null && _hud.FindChildren("*", "OptionButton", true, false).OfType<OptionButton>().All(b => b.Name != "ModeChoice"),
+            "the Island page has no mode dropdown any more");
+        var modeName = (Label)_hud.FindChild("ModeName", true, false)!;
+        await Frames(12);
+        Check(modeName.Text == "Creative", "the page names the save's mode instead: " + modeName.Text);
+        host.PlayerMode("challenge");
         await Frames(12);
         var line = (Label)_hud.FindChild("IslandVitalsLine", true, false)!;
-        Check(host.Mode == "challenge" && line.Text.Contains("Stamina 100%", StringComparison.Ordinal) && !line.Text.Contains("0/0", StringComparison.Ordinal),
-            "the mode picker uses the host and the small starting stamina reads as a full percentage");
+        Check(host.Mode == "challenge" && modeName.Text == "Challenge · Standard" && line.Text.StartsWith("Challenge · ", StringComparison.Ordinal) && !line.Text.Contains("Health", StringComparison.Ordinal),
+            "in Challenge the page names the mode and its difficulty, and the status line carries no numbers until the setting asks for them: " + line.Text);
+        _hud.SetMeterNumbers(true);
+        await Frames(12);
+        Check(line.Text.Contains("Stamina 100%", StringComparison.Ordinal) && !line.Text.Contains("0/0", StringComparison.Ordinal),
+            "with the numbers option on, the small starting stamina reads as a full percentage: " + line.Text);
+        _hud.SetMeterNumbers(false);
         var undoButton = (Button)_hud.FindChild("NatureUndoButton", true, false)!;
+        await Frames(12);
         Check(!undoButton.Visible, "in Challenge there is no undo control (undo is Creative's alone)");
-        mode.Select(0); mode.EmitSignal(OptionButton.SignalName.ItemSelected, 0L);
-        Check(host.Mode == "creative" && undoButton.Visible, "the same picker returns to Creative mode through the host, and its undo control");
+        host.PlayerMode("creative");
+        await Frames(12);
+        Check(host.Mode == "creative" && undoButton.Visible && modeName.Text == "Creative", "back in Creative through the host, its undo control and the page's name for the mode return");
         var fireSetting = (CheckButton)_hud.FindChild("GubbleFireSetting", true, false)!;
         Check(fireSetting.ButtonPressed && host.GubbleFireAllowed && fireSetting.Text == "Let the Gubble use fire", "the Magic panel has \"Let the Gubble use fire\", on by default");
         fireSetting.EmitSignal(BaseButton.SignalName.Toggled, false);

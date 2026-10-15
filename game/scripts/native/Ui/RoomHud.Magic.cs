@@ -139,6 +139,8 @@ public partial class RoomHud
                 "target_busy" => result["error"]?["message"]?.GetValue<string>() ?? "Let the current action finish first.",
                 "not_ready" => "The journal or connection is not ready. Your earlier progress is safe.",
                 "unsupported_capability" => "That magic is not available here yet.",
+                // The pool is short of the price (the host's own words), and the pips blink.
+                "energy_exhausted" => FlashPips(Kernel.CommandHost.EnergyExhaustedMessage),
                 "invalid_args" => "That magic does not fit this spot, or the materials needed are missing.",
                 _ => "That did not work here. Try another spot or check the current limits.",
             };
@@ -165,10 +167,18 @@ public partial class RoomHud
         if (_magicMessage != null) _magicMessage.Text = _magicMessageText;
         if (Host is not { } host) return;
         var weather = WeatherWords(host.NatureWeather.Pattern);
-        _islandVitalsLine.Text = host.Mode == "creative" ? $"Creative · {weather}" :
+        // The meters are drawn: this line carries their numbers only when the player's setting asks for them.
+        _islandVitalsLine.Text = host.Mode == "creative" || !MeterNumbers ? $"{ModeWords(host.Mode)} · {weather}" :
             $"{ModeWords(host.Mode)} · Health {host.Vitals.Health:0}/{host.Vitals.MaxHealth:0} · Stamina {StaminaPercent(host.Vitals.Stamina, host.Vitals.MaxStamina):0}% · {weather}";
         if (!MagicPanelOpen) return;
         RefreshNaturePage(); RefreshGlowPage(); RefreshWishPage();
+    }
+
+    /// <summary>An empty pool refused a cast: the pips blink; the words are the host's.</summary>
+    private string FlashPips(string words)
+    {
+        _pips.Flash();
+        return words;
     }
 
     private static string ModeWords(string mode) => mode switch { "challenge" => "Challenge", "live" => "Live", _ => "Creative" };
