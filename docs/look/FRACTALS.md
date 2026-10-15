@@ -40,7 +40,11 @@ When `Fractals` loses an id (read on the next tick after `NatureChanged`), that 
 
 ## Cost
 
-Three MultiMeshes, one draw each, under 200 triangles a body. The CPU writes each pool's buffer once a frame (no allocation in steady state); the look suite measures a thousand Fractals. See the report of L9 for the 10x island's probe and capture numbers.
+Three MultiMeshes, one draw each, under 200 triangles a body; the sparks' pool is written only while a pickup moment lasts. Measured headless (the debug build the suites use):
+
+- **The 10x garage's 24 Fractals: 11.5 µs a frame on the CPU, nothing allocated** over 600 frames (the plan's target: under 0.1 ms). The look suite holds it under 100 µs and to zero bytes.
+- **A thousand (the kernel's most): about 0.38 ms a frame, nothing allocated**; the suite holds it under 0.6 ms.
+- The island frame probe (`native_look_island_probe.tscn`, the 10x garage) cannot resolve it: switching the node off moves the frame by less than its noise (the process step 0.55 against 0.61 ms, other nodes swinging as much), and the allocations a frame do not change.
 
 ## The cameras
 

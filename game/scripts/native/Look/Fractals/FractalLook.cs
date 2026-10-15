@@ -52,11 +52,13 @@ public partial class FractalLook : Node3D
         // ---------- the glint ----------
 
         /// <summary>The glint stands this far above the body's middle (it rides the bob), GlintSizeM wide up close, never under GlintMinPixels on screen.</summary>
-        public const float GlintLiftM = 0.008f, GlintSizeM = 0.02f, GlintMinPixels = 9f;
+        public const float GlintLiftM = 0.008f, GlintSizeM = 0.02f, GlintMinPixels = 12f;
         /// <summary>How bright it is (over 1: the bloom catches it at night, as the wisp's heart at 2.5).</summary>
         public const float GlintEnergy = 2.5f;
         /// <summary>The heart's and rays' shape: how tight the heart, how much halo, how thin and how strong the rays, how much rainbow on them.</summary>
         public const float GlintHeartSharpness = 26f, GlintHalo = 0.3f, GlintRaySharpness = 34f, GlintRays = 0.8f, GlintRainbow = 0.55f;
+        /// <summary>A far glint (its quad grown to its pixels) softens its heart and thickens its rays no further than these, so it shows as a few bright pixels.</summary>
+        public const float GlintFarHeartSharpness = 4f, GlintFarRaySharpness = 8f;
         /// <summary>Within GlintNearM of the eye it dims to GlintNearDim: the body in reach reads, not a flare. It is pulled GlintTowardCameraM toward the eye.</summary>
         public const float GlintNearM = 0.35f, GlintNearDim = 0.3f, GlintTowardCameraM = 0.03f;
         /// <summary>
@@ -98,7 +100,8 @@ public partial class FractalLook : Node3D
     };
     public static readonly string[] GlintParameterNames =
     {
-        "glint_color", "energy", "size_m", "min_pixels", "heart_sharpness", "halo", "ray_sharpness", "rays", "rainbow", "near_m", "near_dim", "toward_camera_m",
+        "glint_color", "energy", "size_m", "min_pixels", "heart_sharpness", "halo", "ray_sharpness", "rays", "rainbow", "far_heart_sharpness", "far_ray_sharpness",
+        "near_m", "near_dim", "toward_camera_m",
         "fog_on", "fog_begin_m", "fog_end_m", "fog_density", "fog_curve",
     };
 
@@ -515,6 +518,8 @@ public partial class FractalLook : Node3D
         material.SetShaderParameter("ray_sharpness", Tuning.GlintRaySharpness);
         material.SetShaderParameter("rays", star ? Tuning.StarRays : Tuning.GlintRays);
         material.SetShaderParameter("rainbow", Tuning.GlintRainbow);
+        material.SetShaderParameter("far_heart_sharpness", Tuning.GlintFarHeartSharpness);
+        material.SetShaderParameter("far_ray_sharpness", Tuning.GlintFarRaySharpness);
         material.SetShaderParameter("near_m", Tuning.GlintNearM);
         material.SetShaderParameter("near_dim", star ? 1f : Tuning.GlintNearDim);
         material.SetShaderParameter("toward_camera_m", star ? 0f : Tuning.GlintTowardCameraM);

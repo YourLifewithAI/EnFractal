@@ -20,7 +20,8 @@ namespace EnFractal.Tests.Look;
 /// draws exactly one body and one glint for each still on the island, and a pickup through the host takes one away on NatureChanged
 /// and starts the moment (it goes out, sparks rise and are gone); the glint keeps its pixels at the island's far plane and fades with
 /// its haze; a thousand Fractals (the kernel's most) are drawn within budget and nothing is allocated in steady state; and on the 10x
-/// garage, when the fixture names it, every Fractal of the island is drawn and the look suite's two Fractal cameras stand by one.
+/// garage, when the fixture names it, every Fractal of the island is drawn, within its frame budget, and the look suite's two Fractal
+/// cameras look at one.
 /// </summary>
 public partial class LookPresetTest
 {
@@ -58,6 +59,11 @@ public partial class LookPresetTest
         Check(Regex.IsMatch(glint, @"render_mode[^;]*\bblend_add\b") && Regex.IsMatch(glint, @"render_mode[^;]*\bunshaded\b") && Regex.IsMatch(glint, @"render_mode[^;]*\bfog_disabled\b")
               && glint.Contains("fog_density", StringComparison.Ordinal) && glint.Contains("min_pixels", StringComparison.Ordinal),
             "the glint is light added to what is behind it, never smaller than its pixels, and hidden by the look's own haze (the engine's fog would add its colour to the quad)");
+        // The 15 October capture: in a render target the engine flips the projection's Y, so its [1][1] is negative; a glint sized by
+        // it never grew and was a pixel at 3 m and nothing at 14. And a far glint must rise clear of the grass round its Fractal.
+        Check(Regex.IsMatch(glint, @"abs\(\s*PROJECTION_MATRIX\[1\]\[1\]\s*\)") && !Regex.IsMatch(glint, @"[^(]PROJECTION_MATRIX\[1\]\[1\]\s*\*")
+              && Regex.IsMatch(glint, @"VIEW_MATRIX\s*\*\s*vec4\(0\.0,\s*1\.0,\s*0\.0,\s*0\.0\)") && glint.Contains("grown - 1.0", StringComparison.Ordinal),
+            "the glint's pixel rule takes the projection's size, never its sign (a render target flips it), and a far glint rises by half of what it grew, clear of the grass");
         Check(FractalMesh.Triangles(FractalForm.Crystal) == 144 && FractalMesh.Triangles(FractalForm.Seed) is > 100 and < 200 && FractalMesh.Triangles(FractalForm.Star) == 0,
             $"the bodies are under the fish's 200 triangles: the crystal {FractalMesh.Triangles(FractalForm.Crystal)} (the Koch tetrahedron's second step), the seed {FractalMesh.Triangles(FractalForm.Seed)}, the star none (it is light)");
         var forms = Enum.GetValues<FractalForm>();
@@ -307,11 +313,22 @@ public partial class LookPresetTest
         var inBox = Enumerable.Range(0, fractals.Count).All(i => CommandHost.FractalBox(host.AllFractals[i]).Grow(1e-5f).HasPoint(fractals.Instance(fractals.Bodies!, i).Transform.Origin));
         Check(host.FractalsNotice.Length == 0 && host.AllFractals.Count is >= 20 and <= 40 && fractals.Count == host.AllFractals.Count && inBox,
             $"the 10x garage's {host.AllFractals.Count} Fractals are every one drawn, each in its own box ({fractals.Summary})");
+        // Its cost a frame on the island (the CPU's; the GPU's is in the captures): the life, the glints and the buffers written.
+        for (var i = 0; i < 60; i++) fractals.Advance(1f / 60f);
+        var clock = Stopwatch.StartNew();
+        var allocated = GC.GetAllocatedBytesForCurrentThread();
+        const int ticks = 600;
+        for (var i = 0; i < ticks; i++) fractals.Advance(1f / 60f);
+        var perTick = clock.Elapsed.TotalMilliseconds * 1000.0 / ticks;
+        allocated = GC.GetAllocatedBytesForCurrentThread() - allocated;
+        GD.Print($"LOOK_INFO: the Fractal look on the 10x garage ({fractals.Count} Fractals): {perTick:0.0} us a frame headless, {allocated} bytes allocated over {ticks} frames");
+        Check(perTick < 100.0 && allocated == 0, $"on the 10x garage it costs {perTick:0.0} us a frame on the CPU (the plan's target: under 0.1 ms) and allocates nothing in steady state ({allocated} bytes)");
         var cameras = System.Text.Json.JsonDocument.Parse(System.IO.File.ReadAllBytes(ProjectSettings.GlobalizePath("res://") + "../tools/look/island_cameras.json"));
-        var near = cameras.RootElement.GetProperty("cameras").EnumerateArray().FirstOrDefault(c => c.TryGetProperty("id", out var id) && id.GetString() == "fractal_near");
-        var focus = near.ValueKind == System.Text.Json.JsonValueKind.Object ? new Vector3(near.GetProperty("focus_m")[0].GetSingle(), near.GetProperty("focus_m")[1].GetSingle(), near.GetProperty("focus_m")[2].GetSingle()) : Vector3.Inf;
-        var nearest = host.AllFractals.MinBy(f => f.PositionM.DistanceTo(land.SpawnFor("player").PositionM))!;
-        Check(CommandHost.FractalBox(nearest).Grow(0.01f).HasPoint(focus), $"the look suite's fractal_near camera looks at the Fractal nearest the spawn ({nearest.Id})");
+        Vector3 Point(System.Text.Json.JsonElement e, string key) => new(e.GetProperty(key)[0].GetSingle(), e.GetProperty(key)[1].GetSingle(), e.GetProperty(key)[2].GetSingle());
+        var fixedCameras = cameras.RootElement.GetProperty("cameras").EnumerateArray().Where(c => c.TryGetProperty("id", out var id) && id.GetString()!.StartsWith("fractal_", StringComparison.Ordinal)).ToArray();
+        var looked = fixedCameras.Select(c => host.AllFractals.FirstOrDefault(f => CommandHost.FractalBox(f).Grow(0.01f).HasPoint(Point(c, "look_at_m")))).ToArray();
+        Check(fixedCameras.Length == 2 && looked.All(f => f != null) && looked[0] == looked[1],
+            $"the look suite's fractal_near and fractal_far cameras look at one Fractal of the island ({looked.FirstOrDefault()?.Id})");
         cameras.Dispose();
         holder.QueueFree();
         await Frames(2);
