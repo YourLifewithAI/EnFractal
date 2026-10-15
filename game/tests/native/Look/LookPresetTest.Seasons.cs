@@ -113,8 +113,9 @@ public partial class LookPresetTest
             $"between summer and autumn (day {day}) the land is the two seasons' numbers in the weights' measure (turn {blended.Leaf.Y:0.00})");
         Check(SeasonOrder.All(s => looks[s] is { Fresh: >= 0f and <= 1f, Turn: >= 0f and <= 1f, Pale: >= 0f and <= 1f, Blossom: >= 0f and <= 1f, Snow: >= 0f and <= 1f, Straw: >= 0f and <= 1f,
             Frost: >= 0f and <= 1f, Wet: >= 0f and < 0.5f, MeadowGreen: >= 0f and <= 1f, EvergreenDark: >= 0f and <= 1f, RoomOakSaturation: > 0.5f and < 1.5f })
-            && LandSeason.Tuning.TurnStagger + LandSeason.Tuning.TurnSpan <= 1f && LandSeason.Tuning.TurnSpan > 0f,
-            "every season's number is an amount from 0 to 1 (soil darkens by less than half, the oak's saturation stays near its own), and every tree has turned when autumn's turn is whole");
+            && LandSeason.Tuning.TurnStagger + LandSeason.Tuning.TurnSpan <= 1f && LandSeason.Tuning.TurnSpan > 0f
+            && LandSeason.Tuning.BlossomTrees is > 0f and < 1f && LandSeason.Tuning.BlossomDabs is > 0f and <= 1f,
+            "every season's number is an amount from 0 to 1 (soil darkens by less than half, the oak's saturation stays near its own), every tree has turned when autumn's turn is whole, and some of the broadleaves flower");
 
         // The frost's hour: all of it at night and at dawn, melting through the morning, its daytime share in the afternoon, back by dusk.
         float F(float elevation, float bearing) => LandSeason.FrostTime(elevation, bearing);
@@ -210,7 +211,8 @@ public partial class LookPresetTest
         Check(values["season_leaf"].AsVector4() == state.Leaf && values["season_ground"].AsVector4() == state.Ground && values["season_tone"].AsVector4() == state.Tone
             && values["season_gold"].AsVector3() == LandSeason.Ratio(LandSeason.Tuning.Gold, LandSeason.Tuning.FoliageReference)
             && values["season_meadow_straw"].AsVector3() == LandSeason.Ratio(LandSeason.Tuning.MeadowStraw, LandSeason.Tuning.MeadowReference)
-            && values["season_snow"].AsVector3() == LandSeason.Tuning.SnowColor && LandSeason.Applied == state,
+            && values["season_snow"].AsVector3() == LandSeason.Tuning.SnowColor && values["season_bloom"].AsVector4() == new Vector4(LandSeason.Tuning.BlossomTrees, LandSeason.Tuning.BlossomDabs, 0f, 0f)
+            && LandSeason.Applied == state,
             "the globals carry the state, the season colours over their summer, the snow as it is");
         Check(LandSeason.RegisteredHere == !LandSeason.Globals.All(g => ProjectSettings.HasSetting("shader_globals/" + g.Name)),
             $"the globals are registered at run time, project.godot untouched (registered here: {LandSeason.RegisteredHere})");
@@ -238,12 +240,12 @@ public partial class LookPresetTest
         Check(oak.GetShaderParameter("season_saturation").AsSingle() == 1f, "in summer the oak is as painted");
     }
 
-    /// <summary>Which way each plant set's leaves go: conifers evergreen, grass to straw, every other plant like a broadleaf.</summary>
+    /// <summary>Which way each plant set's leaves go: conifers evergreen, grass and herbs to straw, broadleaves and shrubs turn.</summary>
     private void CheckSeasonHabits()
     {
-        Check(LandSeason.HabitFor("conifer") == LandSeason.Habit.Evergreen && LandSeason.HabitFor("grass") == LandSeason.Habit.Grass
-            && new[] { "broadleaf", "shrub", "herb", "none", "" }.All(f => LandSeason.HabitFor(f) == LandSeason.Habit.Deciduous),
-            "a conifer is evergreen, grass goes to straw, and every other plant (broadleaf, shrub, herb) turns like a broadleaf");
+        Check(LandSeason.HabitFor("conifer") == LandSeason.Habit.Evergreen && LandSeason.HabitFor("grass") == LandSeason.Habit.Grass && LandSeason.HabitFor("herb") == LandSeason.Habit.Grass
+            && new[] { "broadleaf", "shrub", "none", "" }.All(f => LandSeason.HabitFor(f) == LandSeason.Habit.Deciduous),
+            "a conifer is evergreen, grass and the low herbs go to straw, and a broadleaf, a shrub or anything else turns");
         Check((int)LandSeason.Habit.Deciduous == 0, "a broadleaf's habit is the shader's default, so foliage nobody marks turns");
     }
 

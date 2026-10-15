@@ -117,8 +117,8 @@ instance uniform float intro_part = 0.0;
 // The seasons on the land (L10, Look/LandSeason.cs, docs/look/SEASONS.md): Godot global shader parameters the look registers at run
 // time and sets once per moment from the season's cross-fade. All zero (summer, or before the look's first moment) the land draws
 // exactly as it was drawn. Every change is albedo along a season ramp; the light never reads them.
-// Leaves: x toward the spring colour, y the autumn turn (each tree at its own pace), z toward the winter pale, w the share of a
-// broadleaf's upward dabs flecked with blossom.
+// Leaves: x toward the spring colour, y the autumn turn (each tree at its own pace), z toward the winter pale, w how far into
+// blossom the broadleaves are.
 global uniform vec4 season_leaf;
 // Ground: x the meadow's tips and the grass toward straw, y frost (on what faces the sky, most in the hollows; it carries the hour:
 // all of it at dawn), z how much darker and wetter soil and paths are, w the share of upward faces under a dusting of snow.
@@ -126,6 +126,8 @@ global uniform vec4 season_ground;
 // x the meadow fresher (spring), y a conifer toward its winter colour, z how far apart the trees of a wood start to turn, w how
 // long one tree takes.
 global uniform vec4 season_tone;
+// Blossom: x the share of broadleaves in flower (each tree by its own number), y the share of a flowering tree's dabs that blossom.
+global uniform vec4 season_bloom;
 // The season's colours, each over the summer colour it replaces, channel by channel: leaves and grass over the foliage role's own
 // colour, the meadow's over the meadow's.
 global uniform vec3 season_fresh;
@@ -141,7 +143,7 @@ global uniform vec3 season_blossom;
 global uniform vec3 season_snow;
 global uniform vec3 season_frost;
 // Which way this plant's leaves go through the year (LandSeason.Habit): 0 a broadleaf's (the default, and any foliage not known
-// otherwise), 1 a conifer's, 2 grass's. The plant copies' view sets it on each set's tiles from the set's fuel class.
+// otherwise), 1 a conifer's, 2 grass's (and a herb's). The plant copies' view sets it on each set's tiles from the set's fuel class.
 instance uniform float season_habit = 0.0;
 
 varying vec3 obj_pos;
@@ -286,15 +288,17 @@ vec3 season_wet(vec3 color) {
 	return mix(vec3(grey), color, 1.0 + season_ground.z) * (1.0 - season_ground.z);
 }
 
-// A leaf's colour through the year, by its plant's habit. A broadleaf's is fresh in spring with flecks of blossom, gold to rust in
+// A leaf's colour through the year, by its plant's habit. A broadleaf's is fresh in spring, some trees in blossom, gold to rust in
 // autumn tree by tree, pale in winter under a dusting of snow; a conifer's turns a touch darker in winter and takes the snow too;
-// grass goes fresh, then to straw, and frosts. habit is the instance's (season_habit), tree its copy's own number (season_tree);
-// cell, local and dab are the leaf dab's (its cell, where in it, how much of it is paint), clump the canopy's clumps, up how much
-// it faces the sky, d how much of a dab the pixel resolves: far away a dab's random choices give way to their average, so nothing
+// grass and herbs go fresh, then to straw, and frost. habit is the instance's (season_habit), tree its copy's own number
+// (season_tree); cell and dab are the leaf dab's (its cell, how much of it is paint), clump the canopy's clumps, up how much it
+// faces the sky, d how much of a dab the pixel resolves: far away a dab's random choices give way to their average, so nothing
 // sparkles.
-vec3 season_foliage(vec3 color, float habit_id, float tree, vec3 pw, vec3 cell, vec3 local, float dab, float clump, float up, float d) {
+vec3 season_foliage(vec3 color, float habit_id, float tree, vec3 pw, vec3 cell, float dab, float clump, float up, float d) {
 	int habit = int(habit_id + 0.5);
 	vec3 ratio = vec3(1.0);
+	// Each copy has its own number (its origin's); the land's merged meshes share one, so broad noise tells their groves apart.
+	float broad = habit == 0 && (season_leaf.y > 0.0 || season_leaf.w > 0.0) ? noise_r(pw / 1.4 + vec3(7.1, 3.3, 5.9)).x : 0.5;
 	if (habit == 1) {
 		ratio += season_tone.y * (season_evergreen - 1.0);
 	} else if (habit == 2) {
@@ -302,9 +306,8 @@ vec3 season_foliage(vec3 color, float habit_id, float tree, vec3 pw, vec3 cell, 
 	} else {
 		ratio += season_leaf.x * (season_fresh - 1.0) + season_leaf.z * (season_pale - 1.0);
 		if (season_leaf.y > 0.0) {
-			// Autumn, tree by tree: each copy (its origin's number) and each grove (broad noise, for the land's merged meshes) starts to
-			// turn at its own moment and settles on its own colour between gold and rust; the clumps move it a little within a tree.
-			float broad = noise_r(pw / 1.4 + vec3(7.1, 3.3, 5.9)).x;
+			// Autumn, tree by tree: each tree starts to turn at its own moment and settles on its own colour between gold and rust; the
+			// clumps move it a little within the tree.
 			float start = fract(tree * 7.13 + broad * 0.6) * season_tone.z;
 			float turned = smoothstep(start, start + max(season_tone.w, 1e-3), season_leaf.y);
 			float phase = clamp(tree * tree * 0.8 + (broad - 0.5) * 0.6 + (clump - 0.5) * 0.35 * d + 0.1, 0.0, 1.0);
@@ -313,10 +316,11 @@ vec3 season_foliage(vec3 color, float habit_id, float tree, vec3 pw, vec3 cell, 
 	}
 	color *= max(ratio, vec3(0.0));
 	if (habit == 0 && season_leaf.w > 0.0) {
-		// Blossom: a pale fleck in a share of the dabs that face up or out.
-		vec3 at = vec3(hash13(cell + 2.9), hash13(cell + 6.1), hash13(cell + 8.7)) - 0.5;
-		float fleck = (1.0 - smoothstep(0.09, 0.17, length(local - at * 0.5))) * step(hash13(cell + 4.4), season_leaf.w);
-		color = mix(color, season_blossom, mix(season_leaf.w * 0.08, fleck, d) * smoothstep(-0.2, 0.3, up));
+		// Blossom: a share of the broadleaves in flower, a share of their dabs that face up or out pale with it.
+		float in_flower = step(fract(tree * 3.91 + broad * 0.8 + 0.27), season_bloom.x);
+		float share = season_bloom.y * season_leaf.w * in_flower;
+		float covered = mix(share * 0.7, step(hash13(cell + 4.4), share) * (0.4 + 0.6 * dab), d);
+		color = mix(color, season_blossom, covered * smoothstep(-0.2, 0.3, up));
 	}
 	if (habit != 2 && season_ground.w > 0.0) {
 		// Snow on the dabs that face the sky.
@@ -447,7 +451,7 @@ void fragment() {
 			float straw_patch = clamp(0.75 + (blotch.x - 0.5) * 1.2, 0.0, 1.0);
 			color *= vec3(1.0) + season_ground.x * green * mix(0.55, 1.0, tip) * straw_patch * (season_meadow_straw - 1.0)
 				+ season_tone.x * green * (season_meadow_fresh - 1.0);
-			color = mix(color, season_frost, season_ground.y * smoothstep(0.45, 0.95, up) * mix(0.6, 1.0 - tip, d_tuft));
+			color = mix(color, season_frost, season_ground.y * smoothstep(0.45, 0.95, up) * mix(0.8, 1.0 - 0.4 * tip, d_tuft));
 		}
 		// A few small bright flecks: seed heads and tiny flowers, only on gentle ground (and none under frost).
 		vec2 fcell = floor(plw / (s * 2.2));
@@ -567,7 +571,7 @@ void fragment() {
 		warm_bias = (clump.x - 0.5) * 1.0 * d_leaf + up * 0.35;
 		cavity = max(cavity, (1.0 - dab) * 0.2 * d_leaf);
 		bump += (vec3(hash13(cell + 2.2), hash13(cell + 6.6), hash13(cell + 9.9)) - 0.5) * 0.8 * d_leaf;
-		color = season_foliage(color, season_habit, season_tree, pw, cell, local, dab, clump.x, up, d_leaf);
+		color = season_foliage(color, season_habit, season_tree, pw, cell, dab, clump.x, up, d_leaf);
 	} else if (kind == K_BARK) {
 		// Bark: grain and furrows running up the trunk.
 		vec4 furrow = stroke_noise(pw, vec3(0.0, 1.0, 0.0), 9.0, s);
