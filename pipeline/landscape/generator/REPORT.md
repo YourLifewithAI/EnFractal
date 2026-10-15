@@ -40,7 +40,7 @@ above band 5 with ranks of +20 percent (a decision for the founder, below).
 | Knack shortcuts | over band 1: a 0.44 m ledge, base body from band 2, one knack at full rank from band 1; over band 2: 0.88 m, base body from band 3, one knack from band 2 |
 | The summit | a corridor of 6 ledges (bands 1 to 5, the last a 1.72 m rise) cut through the couch's south cliff, seat and crest to 7.62 m above its foot; its top is reached from band 5 (one knack: 4, the strongest pair: 3) |
 | The one bench not as built | the summit's fifth ledge (built as band 5) is reached from band 4: the couch's own seat terrace beside the corridor offers a way round it; reported, not a fault (`fractal_checks` allows it for a summit only) |
-| Ways the land itself offers | one: a 0.29 m step at the north-east coast |
+| Ways the land itself offers | none under salt 1 (a 0.29 m step at the north-east coast appears under another planting draw) |
 | Added to generation | the stage lines say what the run spent: siting and building 3.5 s (`fractals`), the reach and the placing 3.1 s (`fractal reach`): about 7 s, on a machine other lanes were loading (the whole run took 369 s against 286 s before the packet on a quiet one, so the stage lines are the evidence) |
 | Checks | `overall` true with the Fractal check in it; exported and validated against the room manifest schema; the 1x corpus byte-identical (garage, near_empty, kitchen scan 17) |
 
@@ -59,6 +59,16 @@ a goal of the planting walk, so a tree on the way to it is taken out like one on
 stand 12 cm over the highest ground under it): two trees stood at the foot of a 0.6 m bank, in a layout that differs from the baseline's by
 luck (the planting is one random stream). At world scale 10 the planting now keeps a tree off such a wall (`generate.tree_crown`); 1x is
 untouched.
+
+**The planting salt.** The layout the packet's changes drew tripped the game's navigation bake (the rare trunk-hole layout of "Navigation
+edge errors" below: three bakes with 2, 4 and 2 edge errors, so `tools/test-room.ps1 -Scale` threw on stderr though its 10 checks passed).
+A magnified room now draws its planting with `WORLD_PLANT_SALT` (1) unless `--plant-salt` says otherwise (`--plant-salt 0`: none); salts 1
+to 4 all exported, and salt 1 was the first the scale suite passed under (10 of 10, no warnings). 1x is untouched.
+
+**Other rooms at 10x.** Where the exact walk from the spawn reaches little the packet places little: `near_empty_nominal` at 10x reaches 47
+m2 (the hamlet's) and gets no flights and no Fractals (the notes in its report say why); a room with no hamlet is walked once for the siting
+(a fallback flood of the graded land). `kitchen_nominal` at 10x stops with an empty `road_pts` in the hamlet's yards, before and after this
+packet.
 
 **What the walk does not model, so every claim is a lower bound for the body and every gate claim is made against the same walker:**
 slopes between 20 and 55 degrees (the body walks 45), shallow water (the body wades), drops, a hop onto a ledge under 6.5 cm, a tree's

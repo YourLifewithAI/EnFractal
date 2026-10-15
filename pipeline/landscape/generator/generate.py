@@ -629,6 +629,20 @@ def _generate(room_dir, out_dir, setup, seed, return_state, cell, detail, skip, 
     # before the 2.5 cm ground is worked, from places the exact walk reaches (1x: nothing changes).
     fx_on = W != 1 if fractals is None else fractals
     fx_plan = None
+    if fx_on and near is None:
+        # No hamlet was graded to (the walk's flood was not made): one exact flood of the land as it stands.
+        from .checks import Terrain as _T0, Walker as _W0
+        cmesh = {w['name']: [dict(role='still_water', positions=w['positions'], triangles=w['triangles'])]
+                 for w in water['meshes']}
+        cmesh['sea'] = [dict(role='still_water', positions=sea_pos, triangles=sea_tris)]
+        cmesh['land'] = [dict(role='meadow', positions=[[grid.xs[q % nx], h[q], grid.zs[q//nx]] for q in range(grid.n)],
+                              triangles=[list(t) for t in grid.triangles() if inside_tri(grid, inside, t)])]
+        if jetty is not None:
+            cmesh['jetty'] = Sea.jetty_mesh(grid, h, jetty)
+        cprobe = dict(terrain=[{'mesh': 'land'}]+([{'mesh': 'jetty'}] if jetty is not None else []), scenery=[],
+                      water=[{'mesh': w['name'], 'kind': w['kind']} for w in water['meshes']]+[{'mesh': 'sea', 'kind': 'still'}],
+                      scatter=[], objects=[], x_generator=look, prototypes={'footbridge': {'size_m': list(BRIDGE)}})
+        near = _W0(cprobe, cmesh, _T0(cprobe, cmesh), room).reach((px, pz))
     if fx_on and near is not None:
         land_fx = Sites.Land(grid, h, inside, wet, sea, [coast['s'][q] > coast['c'][q] for q in range(grid.n)], protect,
                              pads, hold, paths, blocked, slope_field(grid, h),
@@ -642,8 +656,6 @@ def _generate(room_dir, out_dir, setup, seed, return_state, cell, detail, skip, 
         print('LANDSCAPE_FRACTALS_PLAN routes %d summit %s notes %s' % (
             len(fx_plan.routes), fx_plan.summit is not None, fx_plan.notes), flush=True)
         _tick('fractals')
-    elif fx_on:
-        print('LANDSCAPE_FRACTALS_PLAN none: the graded land was not walked (no hamlet)', flush=True)
     # What you climb, you can stand on top of: rock too thin to stand on (a
     # needle, a knife edge, the sliver where the coast cut a landform's
     # corner) weathers down to a ledge a body stands on (Lane P's climbs on
