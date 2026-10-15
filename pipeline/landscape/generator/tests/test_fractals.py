@@ -143,6 +143,30 @@ class Island(unittest.TestCase):
                     for d in steps)
         self.assertLess(first, 20.)
 
+    def test_the_written_package_proves_the_same_and_a_wrong_claim_fails(self):
+        """checks.fractal_checks reads the package back (no knowledge of how it was built) and holds every bench and every
+        Fractal to the band it says."""
+        import copy
+        doc, meshes, room = written(self.land.grid, self.land.h, self.half)
+        room['spawns'] = [dict(id='player_start', role='player', position_m=[0., 1., 0.])]
+        doc['x_generator']['fractals'] = self.block
+        terrain = checks.Terrain(doc, meshes)
+        ok, rows = checks.fractal_checks(doc, meshes, terrain, room)
+        self.assertTrue(ok, rows)
+        self.assertEqual(rows['placed'], len(self.block['items']))
+        self.assertEqual(rows['failing'], 0)
+        # a Fractal that says the wrong band, a bench built as the wrong band
+        for what in ('item', 'bench'):
+            wrong = copy.deepcopy(self.block)
+            if what == 'item':
+                wrong['items'][0]['reach_band'] = 7
+            else:
+                wrong['routes'][0]['ledges'][-1]['band'] += 2
+            doc['x_generator']['fractals'] = wrong
+            ok, rows = checks.fractal_checks(doc, meshes, checks.Terrain(doc, meshes), room)
+            self.assertFalse(ok, what)
+            self.assertEqual(rows['failing'], 1, what)
+
     def test_a_gate_built_too_low_is_found_out(self):
         """The exact walk's proof is not taken on trust: a ladder whose second ledge is only a shortcut's rise higher than
         a body of band 1 climbs reports the band that truly reaches it, not the band it was built as."""

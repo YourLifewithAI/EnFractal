@@ -41,8 +41,8 @@ above band 5 with ranks of +20 percent (a decision for the founder, below).
 | The summit | a corridor of 6 ledges (bands 1 to 5, the last a 1.72 m rise) cut through the couch's south cliff, seat and crest to 7.62 m above its foot; its top is reached from band 5 (one knack: 4, the strongest pair: 3) |
 | The one bench not as built | the summit's fifth ledge (built as band 5) is reached from band 4: the couch's own seat terrace beside the corridor offers a way round it; reported, not a fault (`fractal_checks` allows it for a summit only) |
 | Ways the land itself offers | one: a 0.29 m step at the north-east coast |
-| Added to generation | the stage lines say what the run spent: siting and building 5.1 s (`fractals`), the reach and the placing 3.7 s (`fractal reach`), on a machine other lanes were loading (the whole run took 430 s against 286 s before the packet, so the stage lines are the evidence: about 9 s) |
-| Checks | `overall` true with the Fractal check in it; the 1x corpus byte-identical (garage, near_empty, kitchen scan 17) |
+| Added to generation | the stage lines say what the run spent: siting and building 3.5 s (`fractals`), the reach and the placing 3.1 s (`fractal reach`): about 7 s, on a machine other lanes were loading (the whole run took 369 s against 286 s before the packet on a quiet one, so the stage lines are the evidence) |
+| Checks | `overall` true with the Fractal check in it; exported and validated against the room manifest schema; the 1x corpus byte-identical (garage, near_empty, kitchen scan 17) |
 
 **What a Fractal is.** An entry of `x_generator.fractals.items`: `fractal:` and the first 12 hex digits of a hash of where it rests
 (centimetres, x then z), never a count, so an id says nothing about how many the island holds or which was placed first; the list is in
@@ -54,6 +54,11 @@ id order. `reach_band` is what the exact walk measured, not what was built. Unty
 cm ground is worked, so nothing a walk was proved on changes. A flight inside a detail block keeps the base's surface there
 (`Plan.hold`, the way the ways the body walks do). The planting leaves each flight and 0.5 m round it bare, and each flight's foot is
 a goal of the planting walk, so a tree on the way to it is taken out like one on the way to a door.
+
+**Trees and walls.** The first fixture build with flights failed the exporter's tree fit (`export/trees.py`: a tree's climbing crown must
+stand 12 cm over the highest ground under it): two trees stood at the foot of a 0.6 m bank, in a layout that differs from the baseline's by
+luck (the planting is one random stream). At world scale 10 the planting now keeps a tree off such a wall (`generate.tree_crown`); 1x is
+untouched.
 
 **What the walk does not model, so every claim is a lower bound for the body and every gate claim is made against the same walker:**
 slopes between 20 and 55 degrees (the body walks 45), shallow water (the body wades), drops, a hop onto a ledge under 6.5 cm, a tree's

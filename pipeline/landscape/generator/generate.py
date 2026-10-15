@@ -38,6 +38,10 @@ SETUP_PATH = REPO/'pipeline'/'landscape'/'harness'/'ab-setup.json'
 # crate, the site is given up for the next one; if none of HAMLET_SITES sites is reached, the first stands.
 HAMLET_SITES = 6
 RAMP_PASSES = 6    # ways graded (each proved by a new walk) before a site is given up
+# The planting is one random stream, and the game's navigation bake trips on about one layout in five (a rare layout of trunk
+# holes it cannot triangulate: see REPORT.md, "Navigation edge errors"). A magnified room draws its planting with this salt
+# unless one is asked for (`plant_salt=0`: none), the one the 10x nominal garage with its Fractals boots clean under. 1x: none.
+WORLD_PLANT_SALT = 1
 PAD_HOLD_M = .07   # the pad's flattened margin: nothing is cut or filled there by a way graded later
 
 
@@ -120,17 +124,19 @@ def grounding(grid, h, objects, base):
     return rows
 
 
-def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=None, detail=None, plant_salt=0,
+def generate(room_dir, out_dir, setup=None, seed=SEED, return_state=False, cell=None, detail=None, plant_salt=None,
              fractals=None, typed_fractals=False, tutorial=False):
     """The package of a room. On a magnified room a hamlet no graded road reaches (the exact walk from the player's
     spawn finds no way to the crate or a door) is given up and the land generated again with the next site.
-    `plant_salt` (0: none) draws the planting again, on the same land: the plants, trees and stones are a free
+    `plant_salt` (None: `WORLD_PLANT_SALT` on a magnified room, none at 1x; 0: none) draws the planting again, on the same land: the plants, trees and stones are a free
     choice, and the game's navigation bake meets a rare layout of trunk holes it cannot triangulate (see REPORT.md).
     `fractals` (None: on a magnified room, off at today's scale, where nothing changes) places the island's Fractals and
     builds the ladder of gates they sit on (fractals.py); `typed_fractals` gives each its kind (the rules pack's flag,
     off by default); `tutorial` marks the island as one the menu lists first."""
     if fractals and world.W == 1:
         raise ValueError('Fractals are things at world scale 10: the 1x corpus stays byte-identical')
+    if plant_salt is None:
+        plant_salt = WORLD_PLANT_SALT if world.W != 1 else 0
     skip, accept = [], None
     while True:
         try:
@@ -1421,7 +1427,8 @@ def main():
     parser.add_argument('--cell', type=float, default=None,
                         help='base grid cell (m); default %g, or %g on a magnified room' % (CELL, CELL_W))
     parser.add_argument('--no-detail', action='store_true', help='a magnified room without its 2.5 cm detail')
-    parser.add_argument('--plant-salt', type=int, default=0, help='draw the planting again on the same land (0: as always)')
+    parser.add_argument('--plant-salt', type=int, default=None,
+                        help='draw the planting again on the same land (default: %d on a magnified room, none at 1x; 0: none)' % WORLD_PLANT_SALT)
     # The mechanics round (fractals.py): on a magnified room the Fractals and the ladder of gates are built unless refused.
     parser.add_argument('--no-fractals', action='store_true', help='a magnified room without its Fractals and gates')
     parser.add_argument('--typed-fractals', action='store_true', help='each Fractal carries its kind (the rules pack flag)')
