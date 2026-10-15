@@ -145,11 +145,45 @@ Some of these abilities will eventually be able to interact, such as constellati
 
 The host marks a discovery only after its condition is met. Repeated successful use can lead to hints, provisionally after ten casts; experimentation can reach the discoveries sooner. Both routes are valid. Two distinct discoveries unlock a fourth Glow light; five unlock a fifth. These counts and conditions are proposed tuning values, not a settled progression curve. Repetition may advance use milestones and hints, but cannot award the same discovery twice. The proposed first five discoveries are Lantern, Torch, Bioluminesce, basic Constellation and Skylight; none requires the fifth light. Glowing Bubbles waits for its bubble support. The host records completed discoveries, while the companion's journal presents and comments on them through the age-appropriate content path. There is no separate XP award for token spend, payment or idle following.
 
-**Expertise and pips (14 October).** Every discovery counts as one expertise toward the Gubble's pips ([MECHANICS.md](../game/MECHANICS.md) section 5): the pool that pays for its abilities outside Creative starts at 8, and its cap rises one pip per five expertise learned by either of the pair, to a ceiling of 40 in data. **Only Glow has discoveries today** (the five above), so the cap can reach only 9. Bloom, Bubbles and Fire have no tracks yet; five conditions for each, written on this page first and then built (packet M11), would lift it to 12. The Bubbles track would include Bubble carry, Bubble Boat and Bubble lift (see "The Gubble's first abilities").
+**Expertise and pips (14 October).** Every discovery counts as one expertise toward the Gubble's pips ([MECHANICS.md](../game/MECHANICS.md) section 5): the pool that pays for its abilities outside Creative starts at 8, and its cap rises one pip per five expertise learned by either of the pair, to a ceiling of 40 in data. **Only Glow has discoveries in the code so far** (the five above), so the cap reaches 9. The lists for Bubbles, Fire and Grow (Bloom's successor, decision 52) are below, under "Expertise for Bubbles, Fire and Grow"; with them the cap reaches 12.
 
 The player can ignore the pictures and simply play. A small wiggle and “Sweet! Glow up! We've got an extra light!” acknowledges an unlock. No interruption or compulsory lesson. The journal shows what changed and what remains possible here. Anything not yet unlocked might have a field of unreadable text that hints there are more unlocks but doesn't give away the exact trigger for an as yet unlocked discovery. Extra capacity does not place lights automatically or silently increase their reach, size, brightness or duration.
 
 Manual direction and future wishes earn exactly the same discoveries for the same successful outcomes if the conditions are met. A multi-action wish cannot earn a discovery twice. Automatic triggers, idle following, and restored effects don't trigger discoveries. However, a Gubble's unasked actions may earn discoveries (this already matters: from the baseline mechanics on, a cast on the Gubble's own initiative is its own idea, priced at half, and earns the same discoveries under the same conditions). However, the triggers shouldn't be made obvious to the AI companion, either. The game verifies player direction, AI companion actions, and results; the AI cannot award progress or declare a lesson complete.
+
+### Expertise for Bubbles, Fire and Grow (M11, written 15 October)
+
+**The rules every list shares, as Glow's.** The host verifies each condition itself, at a committed cast or from the simulation's own state; previews, refused or held commands, restored effects, idle following and anything the AI says earn nothing. Either of the pair earns them, the Gubble's own idea included, once per team, kept in the team's expertise store under the ability's id (the store's `abilities` map: `glow`, `bubbles`, `fire`, and `grow` once Grow is built) and shared by every mode. A fire that hurt the player or scorched a creation earns no Fire expertise. **Hints** follow Glow's: at a team's 10th, 20th, 30th, 40th and 50th successful cast of that ability, the hint of the first expertise in the list's order not yet learned; a hint points, never names the trigger; a list's unlearned entries show as smudged text in the journal. Each new expertise writes its pace line and the Gubble's wiggle line. **The pips' maximum** is 8 plus one per five expertise across every ability (ceiling 40 in the pack): Glow's five reach 9, Bubbles' and Fire's ten more 11, Grow's five 12. Every number below is provisional.
+
+**Bubbles** (`bubbles`), in hint order:
+
+1. `bubble_trail`, **Bubble trail**: a Bubbles cast that follows the Gubble (the stream from its body). Hint: the Gubble's bubbles seem to want to stay close to it.
+2. `pond_bubbles`, **Pond bubbles**: a Bubbles cast at a point on water (the water test Glow's Bioluminesce uses); those bubbles skim and bob on the surface instead of rising (a small change to their look, built with the list). Hint: bubbles might behave differently somewhere wet.
+3. `bubble_carry`, **Bubble carry**: the first carry that set the player down safely, by the player's pop, its timer or its deflate (packet M9).
+4. `bubble_boat`, **Bubble boat**: the first time the player steps into a Bubble boat (M9).
+5. `bubble_lift`, **Bubble lift**: the first lift that rose the player (M9).
+
+Carry, boat and lift can be cast before they are learned: their price (4, 4 and 6 ordered; 2, 2 and 3 as the Gubble's own idea) is their only gate, and the first one that works teaches it. *Glowing bubbles* stays a Glow variant, outside Glow's first five.
+
+**Fire** (`fire`), never rewarding harm, in hint order:
+
+1. `campfire`, **Campfire**: a fire that went out by itself having burnt at most 12 ground cells, with nothing scorched or burnt down and no one hurt.
+2. `firebreak`, **Firebreak**: a fire whose spread was stopped at least once by wet ground (moisture at the spread limit or above, 0.7 today).
+3. `rain_out`, **Rain-out**: a fire that went out while it rained (the weather's rain, `Rain01` 0.65 or more).
+4. `with_the_wind`, **With the wind**: a fire that caught at least 6 cells downwind while the wind blew at 0.2 m/s or more.
+5. `night_fire`, **Night fire**: a fire lit after dark (the sun at or below 6 degrees under the horizon, the day phase the Gubble's eyes already use); its light carries across the land (if the fire's look has no light yet, it gets one, inside the light budget).
+
+1 to 4 are earned when the fire ends, 5 when it is lit, by whichever of the pair lit it.
+
+**Grow** (`grow`; built after the Grow packet, decision 52), in hint order; each is a committed Grow cast unless said:
+
+1. `tall_plant`, **Tall plant**: one plant grown to Grow's full size (its cap).
+2. `thicket`, **Thicket**: three plants at full size within 1 m of one another (the constellation's idea).
+3. `green_ash`, **Green ash**: Grow cast on burnt ground; the ash greens at once instead of over minutes.
+4. `rain_garden`, **Rain garden**: Grow cast while it rains; the plants grow twice as much.
+5. `waterside`, **Waterside**: Grow cast within 0.3 m of water; plants by water grow fuller.
+
+**Grow's unlocks** follow its count, as Glow's lights do: two Grow expertise open growing without seeds (flowers and grass on bare soil, what Bloom painted); three open plants across gaps; five open crops that grow faster. The last two wait for their behaviours, since a discovery that promises a behaviour waits until it works.
 
 ### Choose a touch
 
@@ -207,7 +241,7 @@ The kids' wishes (9 October): a trail of flowers wherever the Gubble walks, fire
 | | Ability | Engine primitive | Through the land's laws | Tier | First version |
 |---|---|---|---|---|---|
 | 1 | **Glow** | `light.emit` | A real light source (light comes only from real sources). It lights what it reaches and casts shadows. In the dark it reveals glow-moss and shy things | T0 auto, stop ends it | The Gubble glows; it lights a spot; it follows as a lantern; later it lights the hamlet's lanterns |
-| 2 | **Bloom** | `growth.seed` on the ground layer | Flowers only on soil: thick where sun and water are, sparse on dry crests, none on rock, water or sand | The trail is T0 and transient; painting a patch is T1 (auto with undo) | The trail behind the Gubble, blooming and fading after a few seconds (Divinity's "surface on path" is exactly this); **on by default, and the player can turn it off (decided)**. Paint a patch by dragging |
+| 2 | **Bloom** (becomes **Grow**, decision 52 of MECHANICS.md: a cast that makes the plants in its circle bigger; the trail is removed) | `growth.seed` on the ground layer | Flowers only on soil: thick where sun and water are, sparse on dry crests, none on rock, water or sand | The trail is T0 and transient; painting a patch is T1 (auto with undo) | The trail behind the Gubble, blooming and fading after a few seconds (Divinity's "surface on path" is exactly this); **on by default, and the player can turn it off (decided)**. Paint a patch by dragging |
 | 3 | **Bubbles** | `particles.float` (cloud layer) | They blow in the direction you're facing, drift with the wind and pop on touch | T0 | A stream of bubbles. Later a big bubble that lifts a stone, or carries the a player across a pond or helps them reach high places: physics, not a script. The baseline design ([MECHANICS.md](../game/MECHANICS.md) section 5) names these as Bubbles expertise: **Bubble carry** (a bubble cast on the player that carries them for a timed duration; the ghost preview shows first, the player pops it at any moment with the dive key or X, and a bubble that pops in the air deflates into a slow drift down), **Bubble Boat** (cast on shallow water: a bubble with collision that floats; the player walks in and out and leaves with the dive key, and the Gubble may nudge and direct it, empty or occupied) and **Bubble lift** (a carry that rises, anywhere **[Open B]**). The player marks each result on its receipt |
 | 4 | **Fireworks** | `particles.burst` plus `light.emit` | They light the land for a moment; best at night.    | T0 | A burst where you point.        |
 | 5 | **Build** | `kit.assemble` (a ghost draft) | Snaps to flat ground, always enterable, sized for 10 cm figures (BUILDING.md) | The draft changes nothing; the player confirms the build | A bridge or ladder, then a cottage |
