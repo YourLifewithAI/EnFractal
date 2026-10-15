@@ -1,6 +1,6 @@
 shader_type spatial;
-// Stones in the grass (a prototype, branch run2/look-grass-proto; Look/GrassLook.cs builds them as a second surface of every tuft): a
-// small faceted stone per tuft, half sunk, most folded away. A stone shows where its own number is under the share, several
+// Stones in the grass (a prototype, branch run2/look-grass-proto; Look/GrassLook.cs builds them as a second surface of the parts
+// tufts, one tuft in GrassLook.Tuning.PartsEvery): a couple of small faceted stones per parts tuft, half sunk, most folded away. A stone shows where its own number is under the share, several
 // times more often near a bare patch and in it (the canopy's standing field, GrassLook's globals), so stones gather where the grass
 // thins, as in Malmquist's meadow (80.lv 2021). CUSTOM0: its centre's x and z in the tuft, its radius, its number. UV: its face's tone,
 // how far up it is (0 its foot, 1 its top). Painted as the land's stone: lighter faces up, a foot that takes the ground's colour, frost
@@ -13,7 +13,7 @@ uniform vec3 stone_dark : source_color = vec3(0.3, 0.31, 0.3);
 uniform vec3 stone_foot : source_color = vec3(0.12, 0.2, 0.07);
 // x the share of tufts' stones that show, y how many times more often near a bare patch, z and w their distance (m: they shrink away
 // between them).
-uniform vec4 stone_parts = vec4(0.024, 5.0, 10.0, 18.0);
+uniform vec4 stone_parts = vec4(0.05, 5.0, 10.0, 18.0);
 uniform vec4 pastel = vec4(0.82, 0.94, 0.03, 0.3);
 // How far a stone rises from the copy's origin (m, the tuft's frame): the island seats its copies a little under the meadow.
 uniform float root_lift = 0.0042;

@@ -20,11 +20,11 @@ namespace EnFractal.Native.Look;
 /// grass's own top, and a bare patch is bare near and far.</item>
 /// <item>Folded blades: each blade of a tuft is a V, two short blades from one root, which doubles how dense short grass looks.</item>
 /// <item>The lighter bands keep fewer blades but wider ones, so the grass still covers the ground with distance.</item>
-/// <item>Every tuft carries more than turf (after Malmquist's grass, 80.lv 2021): a clump of tall grass with seed heads, a rosette
-/// weed, a few flowers and a couple of small stones. Which it shows is chosen per tuft, by its own numbers and the canopy's fourth
-/// field (tall grass where it rises, flowers in a band of it, never both, as Malmquist subtracts his masks; rosettes in short grass;
-/// stones more often near a bare patch); the rest fold into a point and draw nothing. Stones are their own surface
-/// (grass_stones.gdshader).</item>
+/// <item>One tuft in Tuning.PartsEvery also carries more than turf (after Malmquist's grass, 80.lv 2021): a clump of tall grass with
+/// seed heads, a rosette weed, a few flowers and a couple of small stones, drawn as their own sparse copies (PartsMeshes; the copies
+/// view fills them from every PartsEvery-th row). Which it shows is chosen per tuft, by its own numbers and the canopy's fourth field
+/// (tall grass where it rises, flowers where it is low, as Malmquist subtracts his masks; rosettes in short grass; stones more often
+/// near a bare patch); the rest fold into a point and draw nothing. Stones are their own surface (grass_stones.gdshader).</item>
 /// </list>
 /// grass_blades.gdshader lights a blade as the ground it grows from, colours it from root to tip in the land's own greens, bends it in
 /// the wind and takes the season (LandSeason's globals). --look-grass=kit after "--" (or ENFRACTAL_LOOK_GRASS=kit) brings back the kit's
@@ -61,28 +61,37 @@ public static class GrassLook
         public const float RootLiftM = 0.0042f;
 
         /// <summary>
-        /// The tuft's other parts, by the band's mesh (finest first): tall blades and seed stalks in its tall clump, rosette leaves,
-        /// flowers, stones. Every tuft carries them and most fold them away, so they are kept lean: they cost a frame more vertices than
-        /// they show (the meadow at the 10 cm eye, about 27,000 tufts at full detail: 11 ms of GPU before them).
+        /// One tuft in this many carries the other parts, drawn as their own sparse copies with their own shader (grass_parts.gdshader),
+        /// so the turf's blades do none of the parts' work: every tuft carrying them, most folding them away, had cost the meadow at the
+        /// 10 cm eye (about 27,000 tufts at full detail) 4.4 ms of GPU over its 11 ms of turf.
         /// </summary>
-        public static readonly int[] TallBlades = { 9, 7, 6, 6 }, SeedStalks = { 3, 3, 2, 2 }, RosetteLeaves = { 5, 5, 0, 0 }, Flowers = { 3, 3, 2, 2 }, Stones = { 1, 1, 1, 1 };
+        public const int PartsEvery = 3;
+        /// <summary>How far the parts' copies are drawn (m to a tile's middle): past it every part has shrunk away (PartsShrinkEndM) even at a tile's near edge.</summary>
+        public const float PartsDrawM = 27f;
+        /// <summary>A parts tuft's parts, by the band's mesh (finest first): tall blades and seed stalks in its tall clump, rosette leaves, flowers, stones.</summary>
+        public static readonly int[] TallBlades = { 9, 7, 6, 6 }, SeedStalks = { 3, 3, 2, 2 }, RosetteLeaves = { 6, 5, 0, 0 }, Flowers = { 4, 4, 3, 3 }, Stones = { 2, 2, 1, 1 };
+        /// <summary>How far from a parts tuft's centre its flowers and stones stand (m): wider than a tuft, as its neighbours carry none.</summary>
+        public const float PartsRadiusM = 0.15f;
         /// <summary>Tall grass: its blades' height (m: to the 10 cm body's waist and chest), its seed stalks' height, how far apart the clump grows (m).</summary>
         public const float TallMinM = 0.04f, TallMaxM = 0.07f, SeedMinM = 0.06f, SeedMaxM = 0.09f, ClumpRadiusM = 0.035f;
         /// <summary>
-        /// The canopy's fourth field (m across), which sets the odds of the tuft's other parts rather than drawing their edges, so even the
-        /// metre of meadow before the 10 cm eye has a few of them, and whole stretches are richer or plainer. The island has about 110
-        /// tufts a square metre, so the odds are small: tall grass grows in up to
-        /// TallTufts of the tufts, from none where the field's rank is TallFrom to the most where it is TallFull; each of a tuft's
-        /// flowers blooms in up to FlowerTufts of them, the most where the rank is below FlowersThin and none above FlowersGone (more in
-        /// spring, few in autumn, none in winter), so flowers and tall grass mostly keep apart.
+        /// The canopy's fourth field (m across), which sets the odds of a parts tuft's parts rather than drawing their edges, so whole
+        /// stretches are richer or plainer. The island has about 110 tufts a square metre, so about 36 parts tufts: tall grass grows in up
+        /// to TallTufts of them, the most where the field's rank is TallFull and fewest below TallFrom; each of a parts tuft's flowers
+        /// blooms in up to FlowerTufts of them, the most where the rank is below FlowersThin and fewest above FlowersGone (more in spring,
+        /// few in autumn, none in winter), so flowers and tall grass mostly keep apart. Everywhere keeps PartsBase of the most, so the
+        /// metre of meadow before the 10 cm eye (all of the picture below its middle) always has some of both.
         /// </summary>
-        public const float PartsM = 2.6f, TallFrom = 0.35f, TallFull = 0.9f, TallTufts = 0.2f, FlowersThin = 0.3f, FlowersGone = 0.8f, FlowerTufts = 0.22f;
-        /// <summary>Rosette weeds: in up to this share of the tufts, where the grass is short; their leaves' length (m).</summary>
-        public const float RosetteShare = 0.06f, RosetteMinM = 0.022f, RosetteMaxM = 0.036f;
-        /// <summary>Flowers: their stalks' height and their heads' radius (m: a head 1.2 to 1.5 cm across, so it reads from the 10 cm eye).</summary>
-        public const float FlowerMinM = 0.026f, FlowerMaxM = 0.048f, FlowerHeadM = 0.0068f;
-        /// <summary>Stones: their radius (m), the share of tufts with one, and how many times more often near a bare patch.</summary>
-        public const float StoneMinM = 0.014f, StoneMaxM = 0.04f, StoneShare = 0.024f, StoneBareBoost = 5f;
+        public const float PartsM = 2.6f, TallFrom = 0.3f, TallFull = 0.85f, TallTufts = 0.45f, FlowersThin = 0.35f, FlowersGone = 0.85f, FlowerTufts = 0.4f, PartsBase = 0.25f;
+        /// <summary>Rosette weeds: in up to this share of the parts tufts, where the grass is short; their leaves' length (m).</summary>
+        public const float RosetteShare = 0.12f, RosetteMinM = 0.017f, RosetteMaxM = 0.027f;
+        /// <summary>
+        /// Flowers: their stalks' height (above the turf), their heads' radius (m: a head 1.2 to 1.5 cm across, so it reads from the 10 cm
+        /// eye) and how far a head turns from the sky toward its stalk's lean (radians).
+        /// </summary>
+        public const float FlowerMinM = 0.03f, FlowerMaxM = 0.052f, FlowerHeadM = 0.0068f, FlowerTiltMin = 0.6f, FlowerTiltMax = 1.15f;
+        /// <summary>Stones: their radius (m), the share of a parts tuft's stones that show, and how many times more often near a bare patch.</summary>
+        public const float StoneMinM = 0.014f, StoneMaxM = 0.042f, StoneShare = 0.05f, StoneBareBoost = 5f;
         /// <summary>How far tall grass and flowers are drawn (they shrink away from the first to the second, m), and stones.</summary>
         public const float PartsShrinkStartM = 9f, PartsShrinkEndM = 20f, StoneShrinkStartM = 10f, StoneShrinkEndM = 18f;
 
@@ -126,7 +135,7 @@ public static class GrassLook
         public const float TuftShade = 0.26f;
         public static readonly Vector3 SunTint = new(1.07f, 1.02f, 0.86f), LushTint = new(0.9f, 0.97f, 1.1f);
         /// <summary>Colours of the tuft's other parts (linear albedo): tall grass's pale tips, seed heads, a rosette's leaf from its heart to its tip.</summary>
-        public static readonly Color TallTip = new(0.55f, 0.6f, 0.3f), Seed = new(0.55f, 0.47f, 0.3f), RosetteDark = new(0.1f, 0.22f, 0.09f), RosetteLight = new(0.26f, 0.44f, 0.17f);
+        public static readonly Color TallTip = new(0.55f, 0.6f, 0.3f), Seed = new(0.55f, 0.47f, 0.3f), RosetteDark = new(0.14f, 0.28f, 0.12f), RosetteLight = new(0.3f, 0.5f, 0.2f);
         /// <summary>Flowers' petals (yellow, white and pink, in patches across the meadow, as Tiny Glade's) and their hearts (linear albedo).</summary>
         public static readonly Color Flower = new(0.95f, 0.72f, 0.08f), FlowerWhite = new(0.9f, 0.88f, 0.8f), FlowerPink = new(0.85f, 0.5f, 0.62f), FlowerHeart = new(0.92f, 0.55f, 0.06f);
         /// <summary>Stones in the grass (linear albedo): their light and dark faces (the harness palette's stone), and their foot in the thatch.</summary>
@@ -153,6 +162,7 @@ public static class GrassLook
     }
 
     public const string ShaderPath = "res://shaders/grass_blades.gdshader";
+    public const string PartsShaderPath = "res://shaders/grass_parts.gdshader";
     public const string StoneShaderPath = "res://shaders/grass_stones.gdshader";
 
     /// <summary>The canopy's global shader parameters, read by the blades and by the meadow floor (painterly_land.gdshader), in declaration order.</summary>
@@ -170,8 +180,8 @@ public static class GrassLook
         ("grass_thatch", RenderingServer.GlobalShaderParameterType.Vec3),
     };
 
-    private static ShaderMaterial? _material, _stoneMaterial;
-    private static readonly Dictionary<int, Mesh> Meshes = new();
+    private static ShaderMaterial? _material, _partsMaterial, _stoneMaterial;
+    private static readonly Dictionary<(int Level, bool Parts), Mesh> Meshes = new();
     private static readonly StringName[] Names = Globals.Select(g => new StringName(g.Name)).ToArray();
     private static bool _registered;
     private static ImageTexture? _canopyMap, _emptyMap;
@@ -283,14 +293,19 @@ public static class GrassLook
         ApplyGlobals();
     }
 
-    /// <summary>The tuft for each of a set's meshes (finest first), as many as the set has, so its bands stay as they were.</summary>
-    public static Mesh[] TuftMeshes(int count)
+    /// <summary>The tuft (turf alone) for each of a set's meshes (finest first), as many as the set has, so its bands stay as they were.</summary>
+    public static Mesh[] TuftMeshes(int count) => BandMeshes(count, parts: false);
+
+    /// <summary>The parts tuft (its tall grass, rosette, flowers and stones, no turf) for each of a set's meshes, drawn for one row in Tuning.PartsEvery.</summary>
+    public static Mesh[] PartsMeshes(int count) => BandMeshes(count, parts: true);
+
+    private static Mesh[] BandMeshes(int count, bool parts)
     {
         var meshes = new Mesh[count];
         for (var i = 0; i < count; i++)
         {
             var level = Math.Min(i == count - 1 ? Tuning.Pairs.Length - 1 : i, Tuning.Pairs.Length - 1);
-            if (!Meshes.TryGetValue(level, out var mesh)) Meshes[level] = mesh = Tuft(level);
+            if (!Meshes.TryGetValue((level, parts), out var mesh)) Meshes[(level, parts)] = mesh = Tuft(level, parts);
             meshes[i] = mesh;
         }
         return meshes;
@@ -300,13 +315,13 @@ public static class GrassLook
     public enum Part { Turf = 0, Tall = 1, Seed = 2, Rosette = 3, Flower = 4, Stone = 6 }
 
     /// <summary>
-    /// One tuft for a band (level 0 the finest), two surfaces: its grass (turf as folded blades; a clump of tall blades and seed stalks
-    /// with their heads; a rosette's leaves; flowers on stalks) and its stones. Every vertex carries UV (across, how far up: 0 root, 1
-    /// tip), UV2 (its part's number, its height), CUSTOM0 (its part's root x and z in the tuft, its height or size, its number) and
-    /// CUSTOM1 (its kind, 1 on a head), so the shaders can read the canopy at the root, choose the part per tuft and grow or fold it
-    /// about its root. A fixed seed: every tuft is the same and every run too.
+    /// One tuft for a band (level 0 the finest): its turf as folded blades, or (parts) two surfaces, its other parts (a clump of tall
+    /// blades and seed stalks with their heads; a rosette's leaves; flowers on stalks) and its stones. Every vertex carries UV (across,
+    /// how far up: 0 root, 1 tip), UV2 (its part's number, its height), CUSTOM0 (its part's root x and z in the tuft, its height or
+    /// size, its number) and CUSTOM1 (its kind, 1 on a head), so the shaders can read the canopy at the root, choose the part per tuft
+    /// and grow or fold it about its root. A fixed seed: every tuft is the same and every run too.
     /// </summary>
-    public static Mesh Tuft(int level)
+    public static Mesh Tuft(int level, bool parts = false)
     {
         var mesh = new ArrayMesh();
         var random = new Random(1501);
@@ -316,14 +331,14 @@ public static class GrassLook
         var tool = new SurfaceTool();
         tool.Begin(Mesh.PrimitiveType.Triangles);
         tool.SetCustomFormat(0, SurfaceTool.CustomFormat.RgbaFloat);
-        tool.SetCustomFormat(1, SurfaceTool.CustomFormat.RgbaFloat);
+        if (parts) tool.SetCustomFormat(1, SurfaceTool.CustomFormat.RgbaFloat);
         var index = 0;
         void Vertex(Vector3 at, Vector2 uv, Vector3 normal, Vector3 root, float size, float number, Part kind, bool head)
         {
             tool.SetUV(uv);
             tool.SetUV2(new Vector2(number, size));
             tool.SetCustom(0, new Color(root.X, root.Z, size, number));
-            tool.SetCustom(1, new Color((float)kind, head ? 1f : 0f, 0f, 0f));
+            if (parts) tool.SetCustom(1, new Color((float)kind, head ? 1f : 0f, 0f, 0f));
             tool.SetNormal(normal);
             tool.SetColor(Colors.White);
             tool.AddVertex(at);
@@ -367,140 +382,171 @@ public static class GrassLook
             index += 4;
         }
 
-        // Turf: folded blades, a V each.
-        var pairs = Tuning.Pairs[level];
-        var rows = Tuning.Rows[level];
-        for (var b = 0; b < pairs; b++)
+        if (!parts)
         {
-            // Spread the roots evenly over the tuft (a sunflower spiral), each nudged a little.
-            var r = Tuning.RootRadiusM * Mathf.Sqrt((b + 0.5f) / pairs) * Next(0.8f, 1.05f);
-            var a = b * 2.39996f + Next(-0.3f, 0.3f);
-            var root = new Vector3(r * Mathf.Cos(a), 0f, r * Mathf.Sin(a));
-            var outward = r > 1e-4f ? new Vector3(root.X, 0f, root.Z).Normalized() : Vector3.Right;
-            var free = Vector3.Right.Rotated(Vector3.Up, Next(0f, Mathf.Tau));
-            var lean = (outward * Tuning.Outward + free * (1f - Tuning.Outward)).Normalized();
-            var height = Next(Tuning.MinHeightM, Tuning.MaxHeightM);
-            var width = Next(Tuning.MinWidthM, Tuning.MaxWidthM) * Tuning.WidthScale[level];
-            var number = Next(0f, 1f);
-            foreach (var turn in new[] { -Tuning.FoldAngle, Tuning.FoldAngle })
+            // Turf: folded blades, a V each.
+            var pairs = Tuning.Pairs[level];
+            var rows = Tuning.Rows[level];
+            for (var b = 0; b < pairs; b++)
             {
-                var halfHeight = height * Next(0.8f, 1f);
-                Strip(root, lean.Rotated(Vector3.Up, turn + Next(-0.2f, 0.2f)).Normalized(), halfHeight, width, halfHeight * Next(Tuning.MinLean, Tuning.MaxLean), rows, number, Part.Turf, Next(-0.4f, 0.4f));
-            }
-        }
-
-        // A clump of tall grass and its seed stalks, each stalk carrying a head of two crossed diamonds.
-        var clump = Spot(Tuning.RootRadiusM * 0.6f);
-        var tallRows = level == 0 ? 2 : 1;
-        for (var b = 0; b < Tuning.TallBlades[level]; b++)
-        {
-            var root = clump + Spot(Tuning.ClumpRadiusM);
-            var lean = (root - clump + Spot(0.01f)).Normalized();
-            if (!lean.IsFinite() || lean.LengthSquared() < 0.5f) lean = Vector3.Right.Rotated(Vector3.Up, Next(0f, Mathf.Tau));
-            var height = Next(Tuning.TallMinM, Tuning.TallMaxM);
-            Strip(root, lean, height, Next(0.0025f, 0.004f) * Tuning.WidthScale[level], height * Next(0.15f, 0.45f), tallRows, Next(0f, 1f), Part.Tall, Next(-0.4f, 0.4f));
-        }
-        for (var b = 0; b < Tuning.SeedStalks[level]; b++)
-        {
-            var root = clump + Spot(Tuning.ClumpRadiusM * 0.5f);
-            var lean = Vector3.Right.Rotated(Vector3.Up, Next(0f, Mathf.Tau));
-            var height = Next(Tuning.SeedMinM, Tuning.SeedMaxM);
-            var reach = height * Next(0.1f, 0.3f);
-            var number = Next(0f, 1f);
-            Strip(root, lean, height, 0.0011f * Tuning.WidthScale[level], reach, tallRows, number, Part.Seed, 0f);
-            var tip = root + Vector3.Up * height * 0.88f + lean * reach;
-            var headLength = Next(0.008f, 0.013f);
-            var up = (Vector3.Up + lean * 0.35f).Normalized();
-            Diamond(tip, up, lean.Cross(Vector3.Up).Normalized(), headLength, 0.0026f, root, height, number, Part.Seed, true, 0f);
-            Diamond(tip, up, lean, headLength, 0.0026f, root, height, number, Part.Seed, true, 0f);
-        }
-
-        // A rosette weed: broad leaves lying almost flat from its heart.
-        if (Tuning.RosetteLeaves[level] > 0)
-        {
-            // Near the tuft's centre, where the tuft sits on the ground, so a slope never buries its flat leaves.
-            var heart = Spot(Tuning.RootRadiusM * 0.25f);
-            var length = Next(Tuning.RosetteMinM, Tuning.RosetteMaxM);
-            var leaves = Tuning.RosetteLeaves[level];
-            var start = Next(0f, Mathf.Tau);
-            for (var l = 0; l < leaves; l++)
-            {
-                var along = Vector3.Right.Rotated(Vector3.Up, start + l * Mathf.Tau / leaves + Next(-0.25f, 0.25f));
-                Diamond(heart + Vector3.Up * 0.002f, along, along.Cross(Vector3.Up).Normalized(), length * Next(0.75f, 1.05f), length * 0.45f, heart, length, Next(0f, 1f), Part.Rosette, false, length * Next(0.4f, 0.65f));
-            }
-        }
-
-        // Flowers: a stalk and a head (a small upturned fan of petals).
-        for (var f = 0; f < Tuning.Flowers[level]; f++)
-        {
-            var root = Spot(Tuning.RootRadiusM * 0.85f);
-            var lean = Vector3.Right.Rotated(Vector3.Up, Next(0f, Mathf.Tau));
-            var height = Next(Tuning.FlowerMinM, Tuning.FlowerMaxM);
-            var reach = height * Next(0.05f, 0.2f);
-            var number = Next(0f, 1f);
-            Strip(root, lean, height, 0.0012f * Tuning.WidthScale[level], reach, 1, number, Part.Flower, 0f);
-            var centre = root + Vector3.Up * height * 0.88f + lean * reach;
-            // A star of petals, cupped a little: its rim runs out to a petal's tip and back in to the notch between two.
-            var petals = level == 0 ? 6 : 5;
-            var radius = Tuning.FlowerHeadM * Next(0.85f, 1.15f);
-            var turn = Next(0f, Mathf.Tau);
-            var first = index;
-            var rimCount = petals * 2;
-            // A head's UV.x runs from its heart (0) to its petals' tips (1).
-            Vertex(centre + Vector3.Up * 0.0008f, new Vector2(0f, 1f), Vector3.Up, root, height, number, Part.Flower, true);
-            for (var k = 0; k < rimCount; k++)
-            {
-                var tipOut = k % 2 == 0;
-                var reachOut = tipOut ? 1f : 0.42f;
-                var rim = Vector3.Right.Rotated(Vector3.Up, turn + k * Mathf.Tau / rimCount) * radius * reachOut;
-                Vertex(centre + rim + Vector3.Up * radius * (tipOut ? 0.4f : 0.15f), new Vector2(reachOut, 1f), (Vector3.Up * 2f - rim.Normalized()).Normalized(), root, height, number, Part.Flower, true);
-            }
-            for (var k = 0; k < rimCount; k++) { tool.AddIndex(first); tool.AddIndex(first + 1 + (k + 1) % rimCount); tool.AddIndex(first + 1 + k); }
-            index += rimCount + 1;
-        }
-        tool.SetMaterial(Material());
-        tool.Commit(mesh);
-
-        // Stones: faceted (an octahedron, its corners pulled about), squashed, half sunk, each its own surface's part (grass_stones.gdshader).
-        var stones = new SurfaceTool();
-        stones.Begin(Mesh.PrimitiveType.Triangles);
-        stones.SetCustomFormat(0, SurfaceTool.CustomFormat.RgbaFloat);
-        var (corners, faces) = Octahedron();
-        for (var n = 0; n < Tuning.Stones[level]; n++)
-        {
-            var centre = Spot(Tuning.RootRadiusM * 0.5f);
-            var radius = Next(Tuning.StoneMinM, Tuning.StoneMaxM);
-            var squash = Next(0.55f, 0.85f);
-            var yaw = Next(0f, Mathf.Tau);
-            var number = Next(0f, 1f);
-            var jitter = corners.Select(_ => Next(0.78f, 1.12f)).ToArray();
-            Vector3 Corner(int c)
-            {
-                var v = corners[c] * jitter[c];
-                v = new Vector3(v.X * radius, v.Y * radius * squash, v.Z * radius * Next(0.85f, 1f)).Rotated(Vector3.Up, yaw);
-                return centre + v + Vector3.Down * radius * squash * 0.25f;
-            }
-            var placed = Enumerable.Range(0, corners.Length).Select(Corner).ToArray();
-            var top = placed.Max(v => v.Y);
-            var bottom = placed.Min(v => v.Y);
-            foreach (var face in faces)
-            {
-                var (p0, p1, p2) = (placed[face.A], placed[face.B], placed[face.C]);
-                var normal = (p1 - p0).Cross(p2 - p0).Normalized();
-                if (normal.Dot((p0 + p1 + p2) / 3f - centre) < 0f) { (p1, p2) = (p2, p1); normal = -normal; }
-                var tone = Next(0f, 1f);
-                foreach (var v in new[] { p0, p2, p1 })
+                // Spread the roots evenly over the tuft (a sunflower spiral), each nudged a little.
+                var r = Tuning.RootRadiusM * Mathf.Sqrt((b + 0.5f) / pairs) * Next(0.8f, 1.05f);
+                var a = b * 2.39996f + Next(-0.3f, 0.3f);
+                var root = new Vector3(r * Mathf.Cos(a), 0f, r * Mathf.Sin(a));
+                var outward = r > 1e-4f ? new Vector3(root.X, 0f, root.Z).Normalized() : Vector3.Right;
+                var free = Vector3.Right.Rotated(Vector3.Up, Next(0f, Mathf.Tau));
+                var lean = (outward * Tuning.Outward + free * (1f - Tuning.Outward)).Normalized();
+                var height = Next(Tuning.MinHeightM, Tuning.MaxHeightM);
+                var width = Next(Tuning.MinWidthM, Tuning.MaxWidthM) * Tuning.WidthScale[level];
+                var number = Next(0f, 1f);
+                foreach (var turn in new[] { -Tuning.FoldAngle, Tuning.FoldAngle })
                 {
-                    stones.SetUV(new Vector2(tone, (v.Y - bottom) / Math.Max(top - bottom, 1e-5f)));
-                    stones.SetCustom(0, new Color(centre.X, centre.Z, radius, number));
-                    stones.SetNormal(normal);
-                    stones.AddVertex(v);
+                    var halfHeight = height * Next(0.8f, 1f);
+                    Strip(root, lean.Rotated(Vector3.Up, turn + Next(-0.2f, 0.2f)).Normalized(), halfHeight, width, halfHeight * Next(Tuning.MinLean, Tuning.MaxLean), rows, number, Part.Turf, Next(-0.4f, 0.4f));
                 }
             }
         }
-        stones.SetMaterial(StoneMaterial());
-        stones.Commit(mesh);
+
+        if (parts)
+        {
+            // A clump of tall grass and its seed stalks, each stalk carrying a head of two crossed diamonds.
+            var clump = Spot(Tuning.RootRadiusM * 0.6f);
+            var tallRows = level == 0 ? 2 : 1;
+            for (var b = 0; b < Tuning.TallBlades[level]; b++)
+            {
+                var root = clump + Spot(Tuning.ClumpRadiusM);
+                var lean = (root - clump + Spot(0.01f)).Normalized();
+                if (!lean.IsFinite() || lean.LengthSquared() < 0.5f) lean = Vector3.Right.Rotated(Vector3.Up, Next(0f, Mathf.Tau));
+                var height = Next(Tuning.TallMinM, Tuning.TallMaxM);
+                Strip(root, lean, height, Next(0.0025f, 0.004f) * Tuning.WidthScale[level], height * Next(0.15f, 0.45f), tallRows, Next(0f, 1f), Part.Tall, Next(-0.4f, 0.4f));
+            }
+            for (var b = 0; b < Tuning.SeedStalks[level]; b++)
+            {
+                var root = clump + Spot(Tuning.ClumpRadiusM * 0.5f);
+                var lean = Vector3.Right.Rotated(Vector3.Up, Next(0f, Mathf.Tau));
+                var height = Next(Tuning.SeedMinM, Tuning.SeedMaxM);
+                var reach = height * Next(0.1f, 0.3f);
+                var number = Next(0f, 1f);
+                Strip(root, lean, height, 0.0011f * Tuning.WidthScale[level], reach, tallRows, number, Part.Seed, 0f);
+                var tip = root + Vector3.Up * height * 0.88f + lean * reach;
+                var headLength = Next(0.008f, 0.013f);
+                var up = (Vector3.Up + lean * 0.35f).Normalized();
+                Diamond(tip, up, lean.Cross(Vector3.Up).Normalized(), headLength, 0.0026f, root, height, number, Part.Seed, true, 0f);
+                Diamond(tip, up, lean, headLength, 0.0026f, root, height, number, Part.Seed, true, 0f);
+            }
+
+            // A rosette weed: broad leaves lying almost flat from its heart.
+            if (Tuning.RosetteLeaves[level] > 0)
+            {
+                // Near the tuft's centre, where the tuft sits on the ground, so a slope never buries its flat leaves.
+                var heart = Spot(Tuning.RootRadiusM * 0.25f);
+                var length = Next(Tuning.RosetteMinM, Tuning.RosetteMaxM);
+                var leaves = Tuning.RosetteLeaves[level];
+                var start = Next(0f, Mathf.Tau);
+                for (var l = 0; l < leaves; l++)
+                {
+                    var along = Vector3.Right.Rotated(Vector3.Up, start + l * Mathf.Tau / leaves + Next(-0.25f, 0.25f));
+                    Diamond(heart + Vector3.Up * 0.002f, along, along.Cross(Vector3.Up).Normalized(), length * Next(0.75f, 1.05f), length * 0.45f, heart, length, Next(0f, 1f), Part.Rosette, false, length * Next(0.25f, 0.45f));
+                }
+            }
+
+            // Flowers: a stalk and a head (a star of petals), the head turned toward its lean by FlowerTilt: a head facing the sky is a
+            // sliver among the blades from the 10 cm eye, one turned to the side shows its face.
+            for (var f = 0; f < Tuning.Flowers[level]; f++)
+            {
+                var root = Spot(Tuning.PartsRadiusM);
+                var lean = Vector3.Right.Rotated(Vector3.Up, Next(0f, Mathf.Tau));
+                var height = Next(Tuning.FlowerMinM, Tuning.FlowerMaxM);
+                var reach = height * Next(0.05f, 0.2f);
+                var number = Next(0f, 1f);
+                Strip(root, lean, height, 0.0012f * Tuning.WidthScale[level], reach, 1, number, Part.Flower, 0f);
+                var centre = root + Vector3.Up * height * 0.88f + lean * reach;
+                var tiltAxis = lean.Cross(Vector3.Up).Normalized();
+                var tilt = -Next(Tuning.FlowerTiltMin, Tuning.FlowerTiltMax);
+                Vector3 Face(Vector3 v) => v.Rotated(tiltAxis, tilt);
+                // A star of petals, cupped a little: its rim runs out to a petal's tip and back in to the notch between two.
+                var petals = level == 0 ? 6 : 5;
+                var radius = Tuning.FlowerHeadM * Next(0.85f, 1.15f);
+                var turn = Next(0f, Mathf.Tau);
+                var first = index;
+                var rimCount = petals * 2;
+                // A head's UV.x runs from its heart (0) to its petals' tips (1).
+                Vertex(centre + Face(Vector3.Up * 0.0008f), new Vector2(0f, 1f), Face(Vector3.Up), root, height, number, Part.Flower, true);
+                for (var k = 0; k < rimCount; k++)
+                {
+                    var tipOut = k % 2 == 0;
+                    var reachOut = tipOut ? 1f : 0.42f;
+                    var rim = Vector3.Right.Rotated(Vector3.Up, turn + k * Mathf.Tau / rimCount) * radius * reachOut;
+                    Vertex(centre + Face(rim + Vector3.Up * radius * (tipOut ? 0.4f : 0.15f)), new Vector2(reachOut, 1f), Face((Vector3.Up * 2f - rim.Normalized()).Normalized()), root, height, number, Part.Flower, true);
+                }
+                for (var k = 0; k < rimCount; k++) { tool.AddIndex(first); tool.AddIndex(first + 1 + (k + 1) % rimCount); tool.AddIndex(first + 1 + k); }
+                index += rimCount + 1;
+            }
+        }
+        tool.SetMaterial(parts ? PartsMaterial() : Material());
+        tool.Commit(mesh);
+
+        if (parts)
+        {
+            // Stones: faceted (an icosahedron near, an octahedron far, their corners pulled about), squashed, half sunk, each its own
+        // surface's part (grass_stones.gdshader).
+            var stones = new SurfaceTool();
+            stones.Begin(Mesh.PrimitiveType.Triangles);
+            stones.SetCustomFormat(0, SurfaceTool.CustomFormat.RgbaFloat);
+            var (corners, faces) = level == 0 ? Icosahedron() : Octahedron();
+            for (var n = 0; n < Tuning.Stones[level]; n++)
+            {
+                var centre = Spot(Tuning.PartsRadiusM * 0.8f);
+                var radius = Next(Tuning.StoneMinM, Tuning.StoneMaxM);
+                var squash = Next(0.55f, 0.85f);
+                var yaw = Next(0f, Mathf.Tau);
+                var number = Next(0f, 1f);
+                var jitter = corners.Select(_ => Next(0.78f, 1.12f)).ToArray();
+                Vector3 Corner(int c)
+                {
+                    var v = corners[c] * jitter[c];
+                    v = new Vector3(v.X * radius, v.Y * radius * squash, v.Z * radius * Next(0.85f, 1f)).Rotated(Vector3.Up, yaw);
+                    return centre + v + Vector3.Down * radius * squash * 0.15f;
+                }
+                var placed = Enumerable.Range(0, corners.Length).Select(Corner).ToArray();
+                var top = placed.Max(v => v.Y);
+                var bottom = placed.Min(v => v.Y);
+                foreach (var face in faces)
+                {
+                    var (p0, p1, p2) = (placed[face.A], placed[face.B], placed[face.C]);
+                    var normal = (p1 - p0).Cross(p2 - p0).Normalized();
+                    if (normal.Dot((p0 + p1 + p2) / 3f - centre) < 0f) { (p1, p2) = (p2, p1); normal = -normal; }
+                    var tone = Next(0f, 1f);
+                    foreach (var v in new[] { p0, p2, p1 })
+                    {
+                        stones.SetUV(new Vector2(tone, (v.Y - bottom) / Math.Max(top - bottom, 1e-5f)));
+                        stones.SetCustom(0, new Color(centre.X, centre.Z, radius, number));
+                        stones.SetNormal(normal);
+                        stones.AddVertex(v);
+                    }
+                }
+            }
+            stones.SetMaterial(StoneMaterial());
+            stones.Commit(mesh);
+        }
         return mesh;
+    }
+
+    private static (Vector3[] Corners, (int A, int B, int C)[] Faces) Icosahedron()
+    {
+        var t = (1f + Mathf.Sqrt(5f)) / 2f;
+        var corners = new[]
+        {
+            new Vector3(-1, t, 0), new Vector3(1, t, 0), new Vector3(-1, -t, 0), new Vector3(1, -t, 0),
+            new Vector3(0, -1, t), new Vector3(0, 1, t), new Vector3(0, -1, -t), new Vector3(0, 1, -t),
+            new Vector3(t, 0, -1), new Vector3(t, 0, 1), new Vector3(-t, 0, -1), new Vector3(-t, 0, 1),
+        }.Select(v => v.Normalized()).ToArray();
+        var faces = new[]
+        {
+            (0, 11, 5), (0, 5, 1), (0, 1, 7), (0, 7, 10), (0, 10, 11), (1, 5, 9), (5, 11, 4), (11, 10, 2), (10, 7, 6), (7, 1, 8),
+            (3, 9, 4), (3, 4, 2), (3, 2, 6), (3, 6, 8), (3, 8, 9), (4, 9, 5), (2, 4, 11), (6, 2, 10), (8, 6, 7), (9, 8, 1),
+        };
+        return (corners, faces);
     }
 
     private static (Vector3[] Corners, (int A, int B, int C)[] Faces) Octahedron()
@@ -524,11 +570,15 @@ public static class GrassLook
         return _stoneMaterial = material;
     }
 
-    /// <summary>The blades' material, one for every tuft.</summary>
-    public static ShaderMaterial Material()
+    /// <summary>The turf's material, one for every tuft.</summary>
+    public static ShaderMaterial Material() => _material ??= Blades(ShaderPath, "procedural grass", parts: false);
+
+    /// <summary>The parts tufts' material (tall grass, rosettes, flowers), one for every parts tuft.</summary>
+    public static ShaderMaterial PartsMaterial() => _partsMaterial ??= Blades(PartsShaderPath, "procedural grass parts", parts: true);
+
+    private static ShaderMaterial Blades(string shader, string name, bool parts)
     {
-        if (_material != null) return _material;
-        var material = new ShaderMaterial { Shader = GD.Load<Shader>(ShaderPath), ResourceName = "procedural grass" };
+        var material = new ShaderMaterial { Shader = GD.Load<Shader>(shader), ResourceName = name };
         material.SetShaderParameter("root_color", Tuning.Root);
         material.SetShaderParameter("middle_color", Tuning.Middle);
         material.SetShaderParameter("tip_color", Tuning.Tip);
@@ -538,18 +588,21 @@ public static class GrassLook
         material.SetShaderParameter("tuft_shade", Tuning.TuftShade);
         material.SetShaderParameter("sun_tint", Tuning.SunTint);
         material.SetShaderParameter("lush_tint", Tuning.LushTint);
-        material.SetShaderParameter("tall_tip_color", Tuning.TallTip);
-        material.SetShaderParameter("seed_color", Tuning.Seed);
-        material.SetShaderParameter("rosette_dark", Tuning.RosetteDark);
-        material.SetShaderParameter("rosette_light", Tuning.RosetteLight);
-        material.SetShaderParameter("flower_color", Tuning.Flower);
-        material.SetShaderParameter("flower_white", Tuning.FlowerWhite);
-        material.SetShaderParameter("flower_pink", Tuning.FlowerPink);
-        material.SetShaderParameter("flower_heart", Tuning.FlowerHeart);
-        material.SetShaderParameter("tall_parts", new Vector3(Tuning.TallFrom, Tuning.TallFull, Tuning.TallTufts));
-        material.SetShaderParameter("flower_parts", new Vector3(Tuning.FlowersThin, Tuning.FlowersGone, Tuning.FlowerTufts));
-        material.SetShaderParameter("rosette_share", Tuning.RosetteShare);
-        material.SetShaderParameter("parts_reach", new Vector2(Tuning.PartsShrinkStartM, Tuning.PartsShrinkEndM));
+        if (parts)
+        {
+            material.SetShaderParameter("tall_tip_color", Tuning.TallTip);
+            material.SetShaderParameter("seed_color", Tuning.Seed);
+            material.SetShaderParameter("rosette_dark", Tuning.RosetteDark);
+            material.SetShaderParameter("rosette_light", Tuning.RosetteLight);
+            material.SetShaderParameter("flower_color", Tuning.Flower);
+            material.SetShaderParameter("flower_white", Tuning.FlowerWhite);
+            material.SetShaderParameter("flower_pink", Tuning.FlowerPink);
+            material.SetShaderParameter("flower_heart", Tuning.FlowerHeart);
+            material.SetShaderParameter("tall_parts", new Vector4(Tuning.TallFrom, Tuning.TallFull, Tuning.TallTufts, Tuning.PartsBase));
+            material.SetShaderParameter("flower_parts", new Vector4(Tuning.FlowersThin, Tuning.FlowersGone, Tuning.FlowerTufts, Tuning.PartsBase));
+            material.SetShaderParameter("rosette_share", Tuning.RosetteShare);
+            material.SetShaderParameter("parts_reach", new Vector2(Tuning.PartsShrinkStartM, Tuning.PartsShrinkEndM));
+        }
         material.SetShaderParameter("fade_start_m", Tuning.FadeStartM);
         material.SetShaderParameter("fade_end_m", Tuning.FadeEndM);
         material.SetShaderParameter("fade_amount", Tuning.FadeAmount);
@@ -564,6 +617,6 @@ public static class GrassLook
         material.SetShaderParameter("wind_share", Tuning.WindShare);
         material.SetShaderParameter("wind_speed", Tuning.WindSpeed);
         material.SetShaderParameter("gust_m", Tuning.GustM);
-        return _material = material;
+        return material;
     }
 }
