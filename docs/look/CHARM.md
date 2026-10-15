@@ -37,10 +37,11 @@ The exporter (`pipeline/landscape/export/exporter.py`) writes each kit thing wit
 | **Washing** | a line between two cottages | always | always | towels, shirts, socks and sheets in washed-out colours, swaying |
 | **Fairy lights** | fence tops and the bunting's string | not drawn | warm bulbs, a few coloured, twinkling | quads facing the eye, never under 3 pixels, added light |
 
-- **Strings.** The hamlet's buildings (cottages and towers) within 1.1 m of each other, nearest eave corner to nearest eave corner, as a minimum spanning forest: each building strung to its nearest neighbours, never a loop. A cottage no other building reaches strings to its nearest tree's trunk. The strings sag a twelfth of their span. The first string (in an order from the room and the seed) carries bunting, the next washing, and so on. On both garages: bunting between one pair, washing between another.
+- **Strings.** The hamlet's buildings (cottages and towers) within 1.1 m of each other, nearest eave corner to nearest eave corner, as a minimum spanning forest: each building strung to its nearest neighbours, never a loop. A cottage no other building reaches strings to its nearest tree's trunk. The strings sag 8% of their span in the middle. The first string (in an order from the room and the seed) carries bunting, the next washing, and so on. On both garages: bunting between one pair, washing between another.
 - **The sway.** Each flag's and garment's free edge leans along the meadow's wind axis on a gust of its own, a flutter runs across it, and the whole string swings in its middle as one. It is all in the vertex shader (no CPU), so it never stops and costs nothing on the CPU.
 - **The night.** The windows, the lantern's glow and the fairy lights fade in over 2 s when `LookDirector.LampsOn` comes on and out when it goes off. By day they are not drawn at all. The smoke is always there, thicker once the lamps are on.
-- **No light cast** (recommended): every glow is added light that lights nothing. The light budget's slots are the sun's, the windows' and the wisps'.
+- **No light cast** (recommended): every glow of the charm's is added light that lights nothing. The light budget's slots are the sun's, the windows' and the wisps'.
+- **But an exported lantern already lights its hamlet.** The exporter writes a `lamp` light hint at every lantern (up to 31), and the look makes each one a room lamp: a real omni light whose range is the island's diagonal, switched by `LampsOn`, and an emissive sphere 3.5 cm across at the hint, which is the lantern's foot. On the 1x garage that lamp lights the whole hamlet at night. The charm's halo sits on the lantern's cloth beside it. Whether a lantern should keep its real light is the founder's call (decision 2 below); the charm changes nothing in the room lamps.
 - **The haze.** The added light mirrors the look's depth fog, as the Fractals' glint does: the engine's own fog over added light would add its colour. The smoke and the cloth take the engine's fog as the land does.
 
 ## Where it stops
@@ -56,20 +57,27 @@ The exporter (`pipeline/landscape/export/exporter.py`) writes each kit thing wit
 
 ## Cost
 
-Six MultiMeshes at most, one draw each, no shadows. The cloth is 11 triangles a flag and 26 a garment (string included). Only the smoke is written on the CPU.
+Six MultiMeshes at most, one draw each, no shadows. The cloth is 7 triangles a flag and 26 a garment, string included (the fish have 200). Only the smoke is written on the CPU.
 
 - **CPU, measured headless** (the debug build the suites use), 600 frames: **24 µs a frame** on the 10x garage (48 puffs) and on the synthetic hamlet, **nothing allocated**. The look suite holds it under 0.3 ms and to zero bytes.
-- **Planning, once**, on the first physics frame: about 50 ms on the 10x garage, most of it building the hamlet's tile of the land's collision for the rays (it would be built anyway once the player walks there). The plan itself is a few milliseconds.
-- **GPU:** measured in the captures (the before and after pairs).
+- **Planning, once**, on the first physics frame, while the room is still loading: about 45 ms on the 10x garage, nearly all of it the first load of the charm's three shaders. The plan itself is a few milliseconds: the survey, the trees within reach (4 ms), and 34 rays down to the ground under the two strings (1.5 ms), each spanning only the hamlet's own heights. Where the land's collision is not built yet round the hamlet, its tile is built for the rays (none on the garage islands: the spawn's tiles already reach it).
+- **GPU:** not resolvable. The before and after pairs (300 frames each, a quiet card) measured 4.07 to 3.66 ms (`hamlet`, 09:00), 6.66 to 6.14 (`hamlet_front`, 09:00), 4.24 to 4.04 and 6.85 to 6.37 (21:00): the after is no slower, within the runs' own spread (a repeat of the same after camera moved 0.4 ms).
 
 ## The captures
 
-`-Room landscape10` with the island cameras' derived `hamlet` (its backs) and a fixed view from the shallows south of the hamlet (`hamlet_front`, its doors and windows; a scratch camera, not committed), at 09:00 (the landscape's own setup) and at 21:00 with the lamps on; `before` with the charm pinned off. See the report for the sheet.
+On the 10x garage (`-Room landscape10`, `-NoLightChecks`), each set at 09:00 (the landscape's own setup) and at 21:00 with the lamps on, `before` with the charm pinned off (`ENFRACTAL_LOOK_CHARM=off`):
+- the island cameras' derived `hamlet` (`tools/look/island_cameras.json`), which stands on the island's side and sees the cottages' backs;
+- `hamlet_front`, a fixed scratch camera in the shallows south of the hamlet, which sees their doors and windows (the warm windows show only from there);
+- `charm_close`, the two strings from 0.6 m (after only).
+
+On the 1x garage, `after` at 21:00 only: its lantern beside the first door, which the 10x hamlet does not have.
+
+**The motion clip.** The harness takes stills only, so the clip is the harness itself recorded by Godot's Movie Maker (`--write-movie`, 60 frames a second of game time whatever the recording's speed), from 0.9 m north of the 10x hamlet at 09:00: ten seconds of its measured frames, every third, as a GIF (640×360, 20 fps). The flags and the washing sway in it and the smoke drifts.
 
 ## What needs the founder's eye
 
 1. **Which kinds first?** Built: smoke, warm windows, lantern glow, bunting, washing, fairy lights. Planters, a bench and a swing are not built.
-2. **Do lanterns and fairy lights cast light?** Recommended and built: no, emissive only.
+2. **Do lanterns and fairy lights cast light?** Recommended and built: the charm's glows are emissive only. An exported lantern, though, already casts real light through the look's room lamps (its light hint, above): keep that lamp, or have the exporter stop writing lantern hints so a lantern only glows?
 3. **Smoke always, or only with the lamps?** Recommended and built: always, thicker once the lamps are on.
 4. **The real garage island** gets the same charm on its hamlet through the same code; nothing to install.
 

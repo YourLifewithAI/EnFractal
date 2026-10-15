@@ -89,6 +89,8 @@ public partial class CharmLook : Node3D
         public const float SagFraction = 0.08f;
         /// <summary>A tree holds a string at this fraction of its trunk's height (or lower, at the eave's).</summary>
         public const float TreeAnchorHeight = 0.8f;
+        /// <summary>The rays that find the ground under the strings start RayAboveM over the hamlet's highest roof and end RayBelowM under its lowest footing.</summary>
+        public const float RayAboveM = 0.5f, RayBelowM = 1.5f;
         /// <summary>Where a string may hang: never within SpawnClearM of a spawn; its lowest cloth HeadroomM over the ground; AnchorInsetM into its own anchors only at its ends.</summary>
         public const float SpawnClearM = 0.35f, HeadroomM = 0.12f, AnchorInsetM = 0.01f;
         /// <summary>The string itself: half its thickness, its colour, and the length of a bare piece of it (it bends between pieces).</summary>
@@ -232,16 +234,22 @@ public partial class CharmLook : Node3D
         foreach (var thing in Survey!.Things.Where(t => t.Kind is HamletKind.Cottage or HamletKind.Tower))
             tiles += TerrainCollision.EnsureAround(this, thing.PositionM, Tuning.SpanMaxM + 1f, holdS: 0.5);
         _groundNote = tiles > 0 ? $" (and {tiles} tiles of the land's collision built for its rays in {clock.Elapsed.TotalMilliseconds:0} ms)" : "";
-        PlanNow(RayGround(GetWorld3D().DirectSpaceState, _room));
+        // The rays span only the hamlet's own heights (from a little over its roofs to well under its footings), never the room's
+        // whole height (27 m on the 10x island), so they meet the ground under the strings and not every crown and cap above it.
+        var hamlet = Survey.Things;
+        var top = hamlet.Count > 0 ? hamlet.Max(t => t.PositionM.Y + t.SizeM.Y) + Tuning.RayAboveM : _room.Bounds.End.Y;
+        var bottom = hamlet.Count > 0 ? hamlet.Min(t => t.PositionM.Y) - Tuning.RayBelowM : _room.Bounds.Position.Y;
+        PlanNow(RayGround(GetWorld3D().DirectSpaceState, _room, top, bottom));
         SetPhysicsProcess(false);
     }
 
-    /// <summary>The ground's height under a point: the first drawn shell surface a ray down meets on the world layer (past things, trunks and tree caps).</summary>
-    public static Func<Vector2, float?> RayGround(PhysicsDirectSpaceState3D space, RoomData room)
+    /// <summary>
+    /// The ground's height under a point: the first drawn shell surface a ray down from top to bottom meets on the world layer (past
+    /// things, trunks and tree caps); null when it meets none there.
+    /// </summary>
+    public static Func<Vector2, float?> RayGround(PhysicsDirectSpaceState3D space, RoomData room, float top, float bottom)
     {
         var ground = room.Shell.Where(p => p.Drawn && p.Role is not ("wall" or "ceiling")).Select(p => p.Id).ToHashSet(StringComparer.Ordinal);
-        var top = room.Bounds.End.Y + 1f;
-        var bottom = room.Bounds.Position.Y - 1f;
         return point =>
         {
             var exclude = new Godot.Collections.Array<Rid>();
