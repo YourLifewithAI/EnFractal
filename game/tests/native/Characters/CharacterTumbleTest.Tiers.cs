@@ -18,8 +18,9 @@ public partial class CharacterTumbleTest
 
     private void TestTierTable()
     {
-        Check(TumbleTiers.TumbleHealth == 25 && TumbleTiers.KnockoutHealth == PlayerVitals.MaximumHealth && TumbleTiers.KnockoutHealth == 100,
-            "the tiers are two numbers in one place: 25 and 100 health");
+        Check(TumbleTiers.StumbleHealth == 0 && TumbleTiers.TumbleHealth == 25 && TumbleTiers.TumbleHealth == PlayerVitals.MaximumHealth / 4 && TumbleTiers.KnockoutHealth == PlayerVitals.MaximumHealth &&
+              TumbleTiers.KnockoutHealth == 100 && EnFractal.Native.Characters.Contact.ContactLayer.TumbleFromHealth == TumbleTiers.TumbleHealth,
+            "the tiers are three numbers in one place, health points read from the vitals: past the safe drop, 25 and 100 (the contact layer's is the same number)");
         Check(Mathf.IsEqualApprox(TumbleTiers.Seconds(TumbleTier.Tumble), 1.2f) && Mathf.IsEqualApprox(TumbleTiers.Seconds(TumbleTier.Knockout), 2.0f) &&
               TumbleTiers.Seconds(TumbleTier.Stumble) == 0 && TumbleTiers.Seconds(TumbleTier.None) == 0,
             "a tumble lasts about 1.2 s, a knockout's about 2 s; below the tumble tier the contact layer answers");

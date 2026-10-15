@@ -54,6 +54,9 @@ public partial class CharacterGaitsTest : Node3D
             TestCpu();
             await TestSpringsInTree();
             await TestController();
+            TestPaceReads();
+            TestPaceOnEveryGait();
+            await TestPaceOnARealBody();
             await TestMotionBudget();
             await TestComposition();
             GD.Print("GAITS_HASHES: " + string.Join(" ", _hashes));

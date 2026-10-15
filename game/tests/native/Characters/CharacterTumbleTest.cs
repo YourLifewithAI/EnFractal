@@ -46,6 +46,7 @@ public partial class CharacterTumbleTest : Node3D
                     TestTierTable();
                     await TestInstall();
                     await TestTiersOnRealFalls();
+                    await TestCatFeetTiers();
                     await TestDeepWaterAndGlide();
                     await TestFloatingNeverTumbles();
                     await TestControl();
