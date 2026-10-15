@@ -294,6 +294,10 @@ public partial class NatureTest
         Check(listed?.Count == 2 && summary?["kind"]?.GetValue<string>() == "fractal" && summary["movable"]?.GetValue<bool>() == false &&
               summary["provenance_kind"]?.GetValue<string>() == "procedural" && summary["display_name"]?.GetValue<string>() == "Fractal",
             "Fractals are entities of kind fractal: listed, small, not movable, placed by the generator: " + Canonical(summary));
+        var seen = Send(Query("observe", new JsonObject { ["actor"] = CommandHost.CompanionAvatarId }), Companion)["data"]?["visible"]?.AsArray()
+            .FirstOrDefault(e => e?["id"]?.GetValue<string>() == near);
+        Check(seen?["kind"]?.GetValue<string>() == "fractal" && seen["seen"]?.GetValue<string>() == "now",
+            "the Gubble sees a Fractal in its line of sight, kind fractal (it may find one, go to it and look at it): " + Canonical(seen));
         var grab = Send(Command(NextId("grab"), "entity.grab", new JsonObject { ["target"] = near, ["actor"] = CommandHost.CompanionAvatarId }), Companion);
         var mine = Send(Command(NextId("grab"), "entity.grab", new JsonObject { ["target"] = near, ["actor"] = CommandHost.PlayerAvatar }), Player);
         Check(Code(grab) == "permission_denied" && Code(mine) == "invalid_args" && mine["error"]?["message"]?.GetValue<string>().Contains("item.pickup", StringComparison.Ordinal) == true,
