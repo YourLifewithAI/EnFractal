@@ -8,6 +8,9 @@ uniform vec3 paint_mid : source_color = vec3(0.39, 0.48, 0.25);
 uniform float contrast : hint_range(0.0, 1.0) = 0.42;
 uniform float wind_clock = 0.0;
 uniform float wind_strength = 0.0;
+// The season (L10, Look/LandSeason.cs through painterly_assets.gd): the leaf card's saturation, 1 as painted. The live oak loses a
+// little in winter and gains a little in spring; the juniper keeps 1 all year.
+uniform float season_saturation : hint_range(0.0, 2.0) = 1.0;
 varying vec3 leaf_data;
 
 void vertex() {
@@ -30,6 +33,7 @@ void fragment() {
 	vec3 color = mix(paint_mid, paint.rgb, contrast);
 	color = mix(color, color * vec3(1.02, 1.04, 0.91) + vec3(0.04, 0.06, 0.025), color_lift);
 	color *= leaf_tint * mix(0.94, 1.035, leaf_data.b);
+	color = mix(vec3(dot(color, vec3(0.2126, 0.7152, 0.0722))), color, season_saturation);
 	ALBEDO = color * mix(0.70, 1.0, leaf_data.r);
 	BACKLIGHT = color * 0.18;
 	ROUGHNESS = 1.0;

@@ -558,6 +558,8 @@ public partial class LookDirector : Node3D
             + (_clockSource.Length > 0 ? " (" + _clockSource + ")" : "")
             + (realClock && Preset.Tuning.Sun.RealClockDaylightSaving && world is not { DayScale: > 1 } ? "; read as standard time" : "");
         Moment = LookClock.At(Preset, hour, day, _moonYaw);
+        // The season on the land (leaves, meadow, ground): albedo only, through the land shader's globals; nothing below reads it.
+        LandSeason.Apply(Moment);
         Key.LightColor = Moment.KeyColor;
         // On open land the whole ground stands in the sun, where indoors only a patch of floor does: the sun that is bright enough
         // for that patch would blow out every lit surface, so the open land's sun is a fraction of it (OpenLandLight.SunStrength).
