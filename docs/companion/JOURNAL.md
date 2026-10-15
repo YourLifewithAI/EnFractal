@@ -143,7 +143,7 @@ A **follow** or **come** shows only as the current state in "Working on" ("follo
   - it turns with the player's view, with north marked on the ring;
   - it shows the companion even out of the player's sight, because they are a team;
   - it is wanted from the first minute, before the overview camera, which opens at the summit ([MECHANICS.md](../game/MECHANICS.md) section 6, decision 12; packet M2), and it is drawn from the same discovered map the journal's map page reads (`JournalMap.cs`), so it shows nothing neither avatar has seen;
-  - shards appear on it as pins only once either avatar's eyes have seen them, and the Gubble's leads (a shard it has seen that the player cannot yet reach) are marks on it; the Gubble finds and marks, and never gathers.
+  - Fractals appear on it as pins only once either avatar's eyes have seen them, and the Gubble's leads (a Fractal it has seen that the player cannot yet reach) are marks on it; the Gubble finds and marks, and never gathers.
 - **Journal open:** the notepad takes one side of the screen and the expanded map the other. The pages are "Working on", "Built", "Log", and in resource modes "Resources".
 - **What the map draws:**
   - shell outlines, object footprints and built things;
