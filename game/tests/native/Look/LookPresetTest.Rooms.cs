@@ -426,10 +426,11 @@ public partial class LookPresetTest
         OS.UnsetEnvironment("ENFRACTAL_LOOK_CLOCK");
         OS.UnsetEnvironment("ENFRACTAL_LOOK_DATE");
         var real = new DateTime(2026, 4, 15, 5, 40, 0);
-        var saved = LookClock.Clock;
+        var saved = LookClock.UtcClock;
         try
         {
-            LookClock.Clock = () => real;
+            // The look's one read of the machine's clock is a UTC instant; `real` is the same moment as this machine's own wall clock reads it.
+            LookClock.UtcClock = () => TimeZoneInfo.ConvertTimeToUtc(real, TimeZoneInfo.Local);
             var expected = LookClock.StandardClock(real, TimeZoneInfo.Local, preset.Tuning.Sun.RealClockDaylightSaving);
             Check(preset.FollowClock && preset.FollowCalendar && Mathf.Abs(expected.Hour - preset.DefaultHour) > 3f, "the shipped preset follows the real clock and calendar (and the test's moment is far from its default hour)");
             var (holder, look) = NewDirector(preset, room, "RealClockHolder");
@@ -458,7 +459,7 @@ public partial class LookPresetTest
         }
         finally
         {
-            LookClock.Clock = saved;
+            LookClock.UtcClock = saved;
             if (savedClock.Length > 0) OS.SetEnvironment("ENFRACTAL_LOOK_CLOCK", savedClock);
             if (savedDate.Length > 0) OS.SetEnvironment("ENFRACTAL_LOOK_DATE", savedDate);
         }

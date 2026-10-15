@@ -224,11 +224,40 @@ public static class LookClock
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
 
-    /// <summary>Where "now" comes from: the machine's clock. Tests replace it to prove the look follows real time, and put it back.</summary>
-    public static Func<DateTime> Clock { get; set; } = () => DateTime.Now;
+    /// <summary>
+    /// Where "now" comes from: the machine's clock, as a UTC instant, read nowhere else in the look. Tests replace it to prove the
+    /// look follows real time, and put it back. WorldTime takes the instant it is given and never calls this.
+    /// </summary>
+    public static Func<DateTime> UtcClock { get; set; } = () => DateTime.UtcNow;
 
-    /// <summary>The real clock now, read as the preset asks: local standard time when it removes daylight saving.</summary>
-    public static (float Hour, int DayOfYear) Now(StylePreset preset) => StandardClock(Clock(), TimeZoneInfo.Local, preset.Tuning.Sun.RealClockDaylightSaving);
+    /// <summary>The real clock now, read as the preset asks: local standard time when it removes daylight saving. The machine's own clock, today's look.</summary>
+    public static (float Hour, int DayOfYear) Now(StylePreset preset) => Now(preset, null);
+
+    /// <summary>
+    /// The world's hour and day now. With no clock record, or one with day_scale 1 and no phase, this is the machine's clock exactly
+    /// as it has always been read; otherwise it is the island's clock (WorldTime), whose day is the one the sun and the seasons read.
+    /// </summary>
+    public static (float Hour, int DayOfYear) Now(StylePreset preset, WorldClock? clock)
+    {
+        var moment = WorldTime.At(UtcClock(), clock, BasisFor(preset, WorldTime.DefaultDawnH));
+        return (moment.Hour, moment.SeasonDay);
+    }
+
+    /// <summary>
+    /// The whole reading of the world's clock now, with the game day rolling over at the sun's own dawn on the day it is (the sunrise of
+    /// the solar model, in world hours), so a game day is dawn to dawn.
+    /// </summary>
+    public static WorldMoment WorldNow(StylePreset preset, WorldClock? clock)
+    {
+        var utc = UtcClock();
+        var first = WorldTime.At(utc, clock, BasisFor(preset, WorldTime.DefaultDawnH));
+        var (sunrise, _) = SunTimes(preset.Tuning.Sun, first.SeasonDay);
+        return WorldTime.At(utc, clock, BasisFor(preset, sunrise));
+    }
+
+    /// <summary>What reading the clock needs from the room and the preset: the machine's zone, the preset's standard-time rule, the room's hemisphere.</summary>
+    public static WorldBasis BasisFor(StylePreset preset, float dawnH) =>
+        new(TimeZoneInfo.Local, preset.Tuning.Sun.RealClockDaylightSaving, preset.Hemisphere, dawnH);
 
     /// <summary>
     /// A local clock reading as the solar model wants it: with removeDaylightSaving, an hour (the zone's saving) earlier
@@ -236,9 +265,7 @@ public static class LookClock
     /// </summary>
     public static (float Hour, int DayOfYear) StandardClock(DateTime local, TimeZoneInfo zone, bool removeDaylightSaving)
     {
-        var reading = DateTime.SpecifyKind(local, DateTimeKind.Unspecified);
-        if (removeDaylightSaving && zone.IsDaylightSavingTime(reading))
-            reading -= zone.GetUtcOffset(reading) - zone.BaseUtcOffset;
+        var reading = WorldTime.StandardTime(local, zone, removeDaylightSaving);
         return ((float)reading.TimeOfDay.TotalHours, reading.DayOfYear);
     }
 
