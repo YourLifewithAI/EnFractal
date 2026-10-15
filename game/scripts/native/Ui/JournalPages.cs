@@ -38,7 +38,7 @@ public static class JournalPages
     public static readonly string[] Sections = { Discoveries, Abilities, Character, Map, Notes };
     private static readonly string[] SectionWords =
     {
-        "Magic, places and things we have found", "Magic and the ways we move", "Your character sheet",
+        "Magic, places and things we have found", "Magic and the ways we move", "Your character sheet, and Fractals to spend",
         "The world we know together", "Thoughts and things worth keeping",
     };
     /// <summary>Entries on one leaf of a long page (Places & things, memories).</summary>
