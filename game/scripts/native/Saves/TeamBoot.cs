@@ -130,7 +130,7 @@ public sealed class TeamBoot
             if (KnackOverride.Count > 0) host.UseKnacks(KnackOverride);
             var result = host.BootMode(TeamId, Mode, Difficulty);
             var who = host.SaveTeamIdentity;
-            GD.Print($"TEAM_BOOT {(result["ok"]?.GetValue<bool>() == true ? "playing" : "refused")} {who?.Mode}{(who?.Difficulty is { } d ? " " + d : "")}, knacks {(host.Knacks.Count == 0 ? "none" : string.Join(",", host.Knacks.Select(k => $"{k.Key}:{k.Value}")))}" +
+            GD.Print($"TEAM_BOOT {(result["ok"]?.GetValue<bool>() == true ? "playing" : host.IslandHeld ? "held" : "refused")} {who?.Mode}{(who?.Difficulty is { } d ? " " + d : "")}, knacks {(host.Knacks.Count == 0 ? "none" : string.Join(",", host.Knacks.Select(k => $"{k.Key}:{k.Value}")))}" +
                 (host.TeamNotice.Length > 0 ? "; " + host.TeamNotice : ""));
         }
         else host.UseKnacks(KnackOverride);

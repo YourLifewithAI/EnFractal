@@ -35,9 +35,9 @@
       "pattern": "^(player|companion|guest|guest_companion|system):[a-z0-9_-]{1,32}$"
     },
     "team_id": {
-      "description": "One team (a person and their Gubble, contracts/team.schema.json): a lowercase token that names its folder (user://teams/<team_id>/). Chosen by the menu when the team is made, never shown: the profile's display_name is what people see.",
+      "description": "One team (a person and their Gubble, contracts/team.schema.json): a lowercase token that names its folder (user://teams/<team_id>/), never a name Windows keeps for a device (con, prn, aux, nul, com0 to com9, lpt0 to lpt9, in any case), whose folder cannot be made there. Chosen by the menu when the team is made, never shown: the profile's display_name is what people see.",
       "type": "string",
-      "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+      "pattern": "^(?!(?:con|prn|aux|nul|com[0-9]|lpt[0-9])$)[a-z][a-z0-9_-]{0,63}$"
     },
     "sha256": {
       "type": "string",
