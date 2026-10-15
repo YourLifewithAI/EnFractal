@@ -611,7 +611,8 @@ public partial class CommandHost
     /// <summary>What is wrong with an earlier save's document (null when nothing is), before anything of it is used.</summary>
     private string? OldSaveProblem(JsonObject old)
     {
-        if (!Whole(old["version"]) || old["version"]!.GetValue<double>() is not (2 or 3 or 4 or 5 or 6)) return "its version";
+        // Version 7 (M3) is version 6 with whose save it is in the team block (checked by TeamProblem below).
+        if (!Whole(old["version"]) || old["version"]!.GetValue<double>() is not (2 or 3 or 4 or 5 or 6 or 7)) return "its version";
         var version = (int)old["version"]!.GetValue<double>();
         var expected = new List<string> { "schema", "version", "compiler_version", "style_version", "room_pin", "revision", "permission_revision", "next_id", "roles", "consent", "instances", "receipts", "locks", "entity_revisions" };
         if (version >= 3) expected.AddRange(new[] { "compacted", "checkpoints" });
@@ -720,14 +721,15 @@ public partial class CommandHost
         while (checkpoints.Count > 16) checkpoints.RemoveAt(0);
         var oldTeam = old["team"] as JsonObject;
         var current = ExportTeam(_notes);
-        var team = new JsonObject
+        // Whose save it is (M3) is this one's: the team and mode the island save is filed under.
+        var team = WithSaveTeam(new JsonObject
         {
             ["journal"] = oldTeam?["journal"]?.DeepClone() ?? new JsonObject { ["open_tasks"] = new JsonArray(), ["history"] = new JsonArray(), ["notes"] = new JsonArray() },
             // What the avatars have discovered of this room while the offer stood belongs to this room: it is kept.
             ["discovered"] = current["discovered"]!.DeepClone(),
             ["task_goals"] = oldTeam?["task_goals"]?.DeepClone() ?? new JsonObject(),
             ["avatars"] = current["avatars"]!.DeepClone(),
-        };
+        });
         var envelope = new JsonObject
         {
             ["schema"] = "enfractal.creation-world", ["version"] = 6, ["compiler_version"] = 1, ["style_version"] = "painterly_v1",
