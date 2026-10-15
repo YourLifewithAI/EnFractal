@@ -188,6 +188,8 @@ public partial class RoomWorld : Node3D
             natureLook.Configure(commandHost, Built);
             // The Fractals still on the island, drawn with their glints (Run 2, L9: docs/look/FRACTALS.md).
             AddChild(global::EnFractal.Native.Look.Fractals.FractalLook.Create(commandHost, Look));
+            // The hamlet's charm: smoke, warm windows, bunting, washing, lantern glow and fairy lights (Run 2, L11: docs/look/CHARM.md).
+            AddChild(global::EnFractal.Native.Look.Charm.CharmLook.Create(Room, Built, Look));
             // The player's AI: the companion link in front of the command host (A2).
             CompanionBridge.Attach(this);
             Navigation.RoomNavigation.Attach(this);

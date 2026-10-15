@@ -208,7 +208,9 @@ The founder (8 October): "Can there be fish in the water?", answered as living s
 - **Rules.** Placement is deterministic from the room's id and its water; the motion runs freely (and is deterministic for the same steps, which the tests use). Fish are not entities: not saved, not in the kernel, sight or map, and they collide with nothing.
 - **Under the water.** When a camera dips below a pond's surface, a full-screen veil clouds the water with distance (two thirds hidden at 22 cm) and stops at the surface, so the underside stays clear; above water its vertex stage draws nothing.
 
-**Fractals** (Run 2, L9): the found things that grow the body, drawn where the generator placed them as a small star of light that turns and bobs inside the kernel's box, with a glint that reads from a band away and at night; it lights nothing, and its pickup sends up a few sparks. See [FRACTALS.md](FRACTALS.md).
+**Fractals** (Run 2, L9): the found things that grow the body, drawn where the generator placed them as a small star of light that bobs inside the kernel's box, with a glint that reads from a band away; at night each casts a small unshadowed pool of light on the ground around it (the founder: "a fun way for players to find it"; at most 32 lit, those nearest the player), and its pickup sends up a few sparks. See [FRACTALS.md](FRACTALS.md).
+
+**The hamlet's charm** (Run 2, L11): the life details of a lived-in place hung on the generator's hamlet: smoke from the chimneys (thicker once the lamps are on), warm windows and a lantern's glow at night, bunting and washing on strings between the cottages swaying in the meadow's wind, and fairy lights at night; it lights nothing, collides with nothing and is never saved. See [CHARM.md](CHARM.md).
 
 ## Budgets
 
