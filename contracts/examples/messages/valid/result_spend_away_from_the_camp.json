@@ -13,6 +13,6 @@
   "error": {
     "code": "not_ready",
     "retryable": true,
-    "message": "Fractals are spent at the camp: go back to the spawn and try again."
+    "message": "Fractals are spent at the camp: go back to where you started and try again."
   }
 }

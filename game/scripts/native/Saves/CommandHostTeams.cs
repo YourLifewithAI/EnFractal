@@ -33,7 +33,7 @@ public partial class CommandHost
     /// a body's height of it). Provisional: the design names no distance; half a metre is five body heights, a small camp's clearing.
     /// </summary>
     public const float CampRadiusM = 0.5f;
-    public const string KnackAtCamp = "A knack is changed at the camp: go back to the spawn and try again.";
+    public const string KnackAtCamp = "A knack is changed at the camp: go back to where you started and try again.";
 
     /// <summary>True once the game's boot fixed this room's mode (BootMode): world.set_mode is refused from then on.</summary>
     public bool ModeFixed { get; private set; }

@@ -1100,7 +1100,7 @@ def mechanics_round(at: str) -> dict:
                                                             note="Player-only, at the camp: five Fractals open the next band."),
         "result_spend_away_from_the_camp": {**result("fractal.spend", "spend-0003", "player:local", 5, at), "ok": False,
                                             "error": {"code": "not_ready", "retryable": True,
-                                                      "message": "Fractals are spent at the camp: go back to the spawn and try again."}},
+                                                      "message": "Fractals are spent at the camp: go back to where you started and try again."}},
         "command_player_mode_challenge_gentle": command("world.set_mode", "mode-0002", {"mode": "challenge", "difficulty": "gentle"},
                                                         note="Player-only: the opening menu, at boot."),
         # Once the room is up the mode is the save's (M3), and Live is refused until it exists.
