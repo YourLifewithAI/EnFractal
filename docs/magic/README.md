@@ -1,6 +1,8 @@
 # The Gubble's magic: abilities, island rules and wishes
 
-**Status:** a design draft begun on 9 October 2026, updated with the founder's edits and decisions on 11 October. The playable implementation on `codex/gubble-growth-runtime` now includes the five Glow discoveries, expressive touches, Bloom and its trail, weather-driven Fire, mode-specific stamina/health and the player-started wish runner. See [the playtest checklist](PLAYTEST.md) for controls, provisional balance and the exact implementation limits. This draft comes from the founder's notes, the kids' first wishes and five research reports in [research/](research/). Decisions the founder has made are marked **(decided)**; everything else is a proposal.
+Squared with [docs/game/MECHANICS.md](../game/MECHANICS.md) on 14 October 2026: where this page and that design differ, the design wins.
+
+**Status:** a design draft begun on 9 October 2026, updated with the founder's edits and decisions on 11 October. The playable implementation, begun on `codex/gubble-growth-runtime` and now merged into `run2/integration` (`6e41bc7`), includes the five Glow discoveries, expressive touches, Bloom and its trail, weather-driven Fire, mode-specific stamina/health and a player-started wish runner that has since been shelved (13 October: wishes and speech go to the AI already playing, parked as `run2/wishes-live`; the runner stays in the tree, dormant). See [the playtest checklist](PLAYTEST.md) for controls, provisional balance and the exact implementation limits. The baseline mechanics (hearts, the bar, pips, knacks, modes and growth) now live in [docs/game/MECHANICS.md](../game/MECHANICS.md), and their build plan is [RUN-2-MECHANICS.md](../runs/RUN-2-MECHANICS.md). The founder's word for this page's *discoveries* is *expertise* (`GlowProgress.Discoveries` in the code); this page keeps "discoveries", and the screen and the journal say expertise through the design's `names` block. This draft comes from the founder's notes, the kids' first wishes and five research reports in [research/](research/). Decisions the founder has made are marked **(decided)**; everything else is a proposal.
 
 **The founder's decisions (9 October, evening):**
 - **Fire is ability six,** built right after Bloom.
@@ -76,7 +78,7 @@ The player directs the Gubble without words (a tap, a wheel, the number keys) or
 | Climbing and stamina | Stamina does not limit a climb | Climbing uses stamina. The starting player has enough to climb a tree, not a whole mountain; increasing capacity makes greater climbs possible |
 | Health and injury | Falls, fire and attacks carry no injury penalty | A high fall, being caught in fire or being attacked by a critter can hurt the player |
 | Competing players | No injury penalty | Competing players can hurt one another under the mode's combat rules; this belongs to later multiplayer work |
-| Magic and resources | No ability costs, as already decided | Costs and available resources depend on the island and mode; physical touches obey its damage and interaction rules |
+| Magic and resources | No ability costs, as already decided: the pips are a shadow pool that drains and refills but never refuses, with the prices shown | Costs and available resources depend on the island and mode; abilities cost pips from the team's pool, refilling ×1.5 / ×1 / ×0.75 in Gentle / Standard / Brave, and Live (solo preview) is Challenge Standard for now (MECHANICS sections 5 and 8); physical touches obey its damage and interaction rules |
 | Undo | Nature changes can be undone (room.undo) | No undo at all, for the player or the Gubble, building edits included |
 | The Gubble's actions | Cannot hurt the player | Hurt the player as anyone's would; the Gubble's AI hears of it and learns (see "Fire") |
 
@@ -86,7 +88,7 @@ The player directs the Gubble without words (a tap, a wheel, the number keys) or
 
 This makes progression affect how the land can be explored. A visible mountain may be beyond the starting player's stamina even though its geometry is climbable. The player must judge the route against their current capacity. The Gubble's magic can help only through abilities the island and mode actually support.
 
-**Still to design:** the detailed rules for Challenge and other modes, stamina use and recovery, challenge rewards and trait increments, damage amounts and healing. *Built for now:* at zero health the player recovers at the spawn with half health and stamina. Traits grow through challenges across islands within a mode, as described below; their numerical progression still needs design. The player body's stamina and health follow a different progression track from the Gubble's magic.
+**Designed since, as provisional values ([docs/game/MECHANICS.md](../game/MECHANICS.md) sections 4 to 6):** hearts of 20 health drawn in quarters, 5 at the start and at most 30, the maximum a field; the stamina bar in ten bands from 0.4 to 4.0 m, five found shards to a band; healing a quarter every 2.5 s after 10 s without harm, on safe ground; fire one quarter a second; recovery at camp with half. **Still to design:** the detailed rules for Challenge and other modes beyond those, damage from combat and critters (their verbs do not exist yet), and rewards beyond shards. *Built for now (today's code):* at zero health the player recovers at the spawn (the camp, until the founder places camps) with half health and stamina; stamina starts at 0.45 m and grows 0.10 m for each new climb of at least 25 cm, to 3 m; health is 100 and fire costs about 12 a second. Traits grow through found shards across islands within a mode, as described below. The player body's stamina and health follow a different progression track from the Gubble's magic (expertise and pips).
 
 The shared engine enforces the selected rules for both manual play and AI-directed actions. Its authority checks, locks and performance limits remain in force in every mode; those protections do not make the player immune to gameplay injury. Multiplayer remains later work.
 
@@ -126,6 +128,8 @@ The baseline capability of each ability should be useful and enjoyable from the 
 
 In Challenge mode, physical progression opens up the player's ability to explore more places, thus unlocking more of the world around them. These we will call traits. Traits carry on throughout a given mode. For example, the player's initial stamina trait should be enough to climb a tree. They will need to unlock more stamina by completing challenges on various islands. Thus, with time and by exploring multiple islands and by completing various challenges, greater climbs become possible as the stamina trait increases above baseline.
 
+**In the baseline design (14 October, [MECHANICS.md](../game/MECHANICS.md) sections 4 to 7):** the traits are hearts and the stamina bar, kept per mode and per team. A stamina band opens with five found stamina shards and a heart with five found heart shards; shards are found and verified by the game, never granted by a quest or by the AI. Knacks, picked at creation, move one rate by at most 20 percent. The Gubble's own track is expertise (this page's discoveries) and pips, shared across modes.
+
 Learning an extra Glow point will improve the Gubble's magic but this is independent of how the player's stamina trait grows. These two fundamental capabilities follow different tracks. Each ability or character trait, be they baseline traits such as health and stamina or abilities like Glow or Fire, will have rules dependent on the mode being played. This way we set the progression rules. The discovery milestones below are for a proposed magic trial.
 
 **Proposed trial:** Glow has multiple ways to gain new abilities. The system should be designed in a way that rewards experimentation. If certain conditions are met, these are called discoveries. They show up as little pictures and entries in the companion's journal page:
@@ -134,16 +138,18 @@ Learning an extra Glow point will improve the Gubble's magic but this is indepen
 - Torch: explicitly casting Glow onto a tree, onto a building, or on top of a hill or a mountain creates a brighter Glow point that illuminates the landscape to a greater distance.
 - Bioluminesce: Explicitly cast Glow into water. The orb of Glow goes away and a large portion of the water illuminates instead, highlighting any waves that might wash ashore.
 - Constellation: placing Glow points close together allows tendrils of light to connect them. Connect the three baseline Glow points to make a basic constellation. The full version, with movable points and editable connections, unlocks after five Glow points are available. **Proposed dependency:** the basic constellation counts as a discovery toward the fifth light; its full version is a later enhancement, avoiding a circular unlock requirement.
-- Glowing Bubbles: Once bubbles are designed to stay in place long enough, the glow magic will be able to illuminate the bubbles and move with the bubble. The Gubble will eventually be able to direct where the bubbles go.
+- Glowing Bubbles: Once bubbles are designed to stay in place long enough, the glow magic will be able to illuminate the bubbles and move with the bubble. The Gubble will eventually be able to direct where the bubbles go. *Today:* `glowing_bubbles` already exists as a Glow variant in the host (`CommandHostEffects.cs`), though it is not yet a discovery.
 - Skylight: if you try casting a Glow point into the sky, it shoots high up and takes on the appearance of a bright star. It casts little light, with a faint increase in nighttime illumination attributable to that source.
 
 Some of these abilities will eventually be able to interact, such as constellation and skylight or constellation and bioluminesce and constellation and bubble. Each interaction will be unique and requires experimentation to unlock these abilities.
 
 The host marks a discovery only after its condition is met. Repeated successful use can lead to hints, provisionally after ten casts; experimentation can reach the discoveries sooner. Both routes are valid. Two distinct discoveries unlock a fourth Glow light; five unlock a fifth. These counts and conditions are proposed tuning values, not a settled progression curve. Repetition may advance use milestones and hints, but cannot award the same discovery twice. The proposed first five discoveries are Lantern, Torch, Bioluminesce, basic Constellation and Skylight; none requires the fifth light. Glowing Bubbles waits for its bubble support. The host records completed discoveries, while the companion's journal presents and comments on them through the age-appropriate content path. There is no separate XP award for token spend, payment or idle following.
 
+**Expertise and pips (14 October).** Every discovery counts as one expertise toward the Gubble's pips ([MECHANICS.md](../game/MECHANICS.md) section 5): the pool that pays for its abilities outside Creative starts at 8, and its cap rises one pip per five expertise learned by either of the pair, to a ceiling of 40 in data. **Only Glow has discoveries today** (the five above), so the cap can reach only 9. Bloom, Bubbles and Fire have no tracks yet; five conditions for each, written on this page first and then built (packet M11), would lift it to 12. The Bubbles track would include Bubble carry, Bubble Boat and Bubble lift (see "The Gubble's first abilities").
+
 The player can ignore the pictures and simply play. A small wiggle and “Sweet! Glow up! We've got an extra light!” acknowledges an unlock. No interruption or compulsory lesson. The journal shows what changed and what remains possible here. Anything not yet unlocked might have a field of unreadable text that hints there are more unlocks but doesn't give away the exact trigger for an as yet unlocked discovery. Extra capacity does not place lights automatically or silently increase their reach, size, brightness or duration.
 
-Manual direction and future wishes earn exactly the same discoveries for the same successful outcomes if the conditions are met. A multi-action wish cannot earn a discovery twice. Automatic triggers, idle following, and restored effects don't trigger discoveries. However, a Gubble's unasked actions may earn discoveries (which will only matter later on once independent AI agents are hooked into the game and permitted to experiment by their human stewards). However, the triggers shouldn't be made obvious to the AI companion, either. The game verifies player direction, AI companion actions, and results; the AI cannot award progress or declare a lesson complete.
+Manual direction and future wishes earn exactly the same discoveries for the same successful outcomes if the conditions are met. A multi-action wish cannot earn a discovery twice. Automatic triggers, idle following, and restored effects don't trigger discoveries. However, a Gubble's unasked actions may earn discoveries (this already matters: from the baseline mechanics on, a cast on the Gubble's own initiative is its own idea, priced at half, and earns the same discoveries under the same conditions). However, the triggers shouldn't be made obvious to the AI companion, either. The game verifies player direction, AI companion actions, and results; the AI cannot award progress or declare a lesson complete.
 
 ### Choose a touch
 
@@ -162,9 +168,9 @@ Touches remain inside rendering and effect budgets; “cosmetic” does not mean
 
 ### Learned together, allowed here
 
-The integrated `storybook_wild` v2 pack currently permits **three Glows**, with 2 m reach and at most 1.5 m radius; Bubbles permit two active effects and Fireworks three. All effects together remain bounded by the engine's eight-active-effects room cap. **Three → four → five lights requires a future island pack allowing at least five**, with a learned starting allowance of three beneath it. This proposal does not change v2. Five lights would still leave only three room-effect slots for everything else.
+The loaded `storybook_wild` pack is v4 (`RoomWorld.DefaultRulesVersion`; its status is draft) and permits **five Glows**, with 2 m reach and at most 1.5 m radius; Bubbles permit two active effects, Fireworks three, Bloom one and Fire one. All effects together remain bounded by the engine's eight-active-effects room cap. **Three → four → five lights** is the learned allowance beneath the pack's five; the future island pack allowing at least five now exists. (This paragraph first described v2, which allowed three.) Five lights still leave only three room-effect slots for everything else.
 
-Learned progress belongs to this player and Gubble together. When travel exists, they remember it across islands, but each island and mode exposes only the abilities and touches it supports, narrowed by its limits and the remaining shared budget. “We learned five; this island allows three” explains the difference. A new theme does not automatically translate an unfamiliar ability into an equivalent one. Whether and how Creative unlocks carry into Challenge progression remains to be decided before progress is shared across modes.
+Learned progress belongs to this player and Gubble together. When travel exists, they remember it across islands, but each island and mode exposes only the abilities and touches it supports, narrowed by its limits and the remaining shared budget. “We learned five; this island allows three” explains the difference. A new theme does not automatically translate an unfamiliar ability into an equivalent one. **Decided, 14 October ([MECHANICS.md](../game/MECHANICS.md), decision 2):** expertise travels across modes; hearts, the bar, the pips pool and shards are per mode. Today the Glow record is kept once per mode, and the teams packet (M3) merges those into one expertise store per team. A copy of a Creative island into Challenge carries the builds, the planted and burnt ground, the journal and the map, and strips undo (decision 13).
 
 Save completed discoveries, use milestones, delivered hints, unlocked steps and chosen touches together with normal progress; resume them without recounting casts or replaying celebrations. Undoing a cast need not erase learning, but repeating or reloading it cannot award the same discovery again. Missing progress in an older save starts at today's usable baseline. This needs a persistence design before implementation, not an AI journal inference or elaborate anti-cheat system.
 
@@ -173,7 +179,7 @@ Save completed discoveries, use milestones, delivered hints, unlocked steps and 
 Build the Glow trial first: discovery conditions, both capacity upgrades (three to four to five), journal feedback and save/resume. Begin with that shared progression foundation, then implement the five discovery behaviours above and the full constellation enhancement. A discovery that promises a new behaviour must wait until that behaviour works. Add one freely selectable particle look only when its rendering support exists; defer sound, physical touches and other ability tracks until the trial is shown to work.
 
 1. **How growth is earned:** recommend the one-time discoveries triggered by the conditions mentioned above or through repeated use of the glow ability; The alternative is player-selected challenges which show up in the journal. The companion could leave hints in the journal that don't tell the player what to do exactly, but hint at how certain conditions might be met. Tune pacing by playing before adding more milestones.
-2. **Creative mode:** costs and injury/stamina penalties are disabled by decision. Recommend separately making all locally supported growth and expressive touches available immediately, with an optional progression setting for the trial. This availability is a new proposal, not an existing decision; Challenge mode will have its own progression rules.
+2. **Creative mode:** costs and injury/stamina penalties are disabled by decision. *Withdrawn, 14 October:* the proposal to make all growth available at once in Creative. Creative earns expertise under the same conditions as every mode, and the expertise travels ([MECHANICS.md](../game/MECHANICS.md) sections 2 and 8); the expressive touches may stay freely swappable. Challenge mode has its own progression rules there (found shards, bands, hearts).
 3. **Touch scope:** recommend expression only first, freely swappable; introduce physical combinations as explicit powers later, once their primitives and protections exist.
 
 ## The ground layer
@@ -202,7 +208,7 @@ The kids' wishes (9 October): a trail of flowers wherever the Gubble walks, fire
 |---|---|---|---|---|---|
 | 1 | **Glow** | `light.emit` | A real light source (light comes only from real sources). It lights what it reaches and casts shadows. In the dark it reveals glow-moss and shy things | T0 auto, stop ends it | The Gubble glows; it lights a spot; it follows as a lantern; later it lights the hamlet's lanterns |
 | 2 | **Bloom** | `growth.seed` on the ground layer | Flowers only on soil: thick where sun and water are, sparse on dry crests, none on rock, water or sand | The trail is T0 and transient; painting a patch is T1 (auto with undo) | The trail behind the Gubble, blooming and fading after a few seconds (Divinity's "surface on path" is exactly this); **on by default, and the player can turn it off (decided)**. Paint a patch by dragging |
-| 3 | **Bubbles** | `particles.float` (cloud layer) | They blow in the direction you're facing, drift with the wind and pop on touch | T0 | A stream of bubbles. Later a big bubble that lifts a stone, or carries the a player across a pond or helps them reach high places: physics, not a script |
+| 3 | **Bubbles** | `particles.float` (cloud layer) | They blow in the direction you're facing, drift with the wind and pop on touch | T0 | A stream of bubbles. Later a big bubble that lifts a stone, or carries the a player across a pond or helps them reach high places: physics, not a script. The baseline design ([MECHANICS.md](../game/MECHANICS.md) section 5) names these as Bubbles expertise: **Bubble carry** (a bubble cast on the player that carries them for a timed duration; the ghost preview shows first, the player pops it at any moment with the dive key or X, and a bubble that pops in the air deflates into a slow drift down), **Bubble Boat** (cast on shallow water: a bubble with collision that floats; the player walks in and out and leaves with the dive key, and the Gubble may nudge and direct it, empty or occupied) and **Bubble lift** (a carry that rises, anywhere **[Open B]**). The player marks each result on its receipt |
 | 4 | **Fireworks** | `particles.burst` plus `light.emit` | They light the land for a moment; best at night.    | T0 | A burst where you point.        |
 | 5 | **Build** | `kit.assemble` (a ghost draft) | Snaps to flat ground, always enterable, sized for 10 cm figures (BUILDING.md) | The draft changes nothing; the player confirms the build | A bridge or ladder, then a cottage |
 | 6 | **Fire (decided: right after Bloom)** | `element.ignite` on the ground layer | Needs air and fuel; spreads with dryness and wind; water stops it; burns to ash that regrows green | T2: previews its predicted burn first. In Creative only, one ask before it burns an unlocked build (13 October) | After Bloom (see "Fire" below) |
@@ -211,7 +217,7 @@ The kids' wishes (9 October): a trail of flowers wherever the Gubble walks, fire
 
 *Effects* (Glow, Bubbles, Fireworks, the trail):
 - capped in radius, duration and count by the primitive's outer limits and the island's narrower ones;
-- light or cosmetic only, never collision (until they reach a certain level, in which case they affect other objects/players);
+- light or cosmetic only, never collision (until they reach a certain level, in which case they affect other objects/players); Bubble Boat, a Bubbles expertise, is the first such case, a bubble with collision on shallow water that the player enters and leaves (the dive key leaves);
 - an active-effect allowance per room that expands as a trait earned by the player, within the engine's hard performance ceiling;
 - stop ends them.
 
@@ -241,14 +247,14 @@ The kids want fire that really catches trees and buildings. It is the best test 
 - **Consequences are feedback (decided, 13 October).** The founder: "Let things like fire or other actions that might hurt a player, hurt the player. This becomes feedback for the AI and there should be a learning mechanism of sorts that helps the AI make better choices later on." This replaces the morning's rule that held the Gubble's fire for the player's yes when it would reach the player. *Built:*
   - **Guardrails (provisional numbers in `NatureLaws`):** the player's own setting "Let the Gubble use fire" (in the Magic panel, saved in the player's profile, on unless the player turns it off; the Gubble can never change it, and its Fire is refused with permission_denied while it is off); one fire of the Gubble's own at a time; a 20 s wait after its fire goes out (rate_limited, with the seconds left). The player is never slowed by them: the player's own Fire puts the Gubble's out and is lit. The player's Stop (X) puts every fire the Gubble lit out at once, whatever any budget says. After an injury recovery fire cannot hurt the player for 5 s, and the recovery point is never inside a burning area: the ground around it is put out and stays out for the grace.
   - **Feedback the AI can see:** the Fire preview lists the avatars inside its area, as far as the caster perceives them (an avatar the Gubble cannot see is never named). When the Gubble's fire hurts the player, the Gubble's next result, of any kind, carries a fixed-format notice: what happened, which fire, the player's health before and after, and whether they had to recover. No prose from anyone. It is delivered once; until then any query returns it.
-  - **Learning across sessions:** the journal is the AI's memory. The host writes one fact per fire that hurt the player, in the game's own words ("The Gubble's fire burned you near "the jetty"."), naming only places the team knows, kept when routine entries are trimmed. journal.read with kind "consequence" reads these lessons back, and the Gubble is told to read them when it starts (a change to its MCP instructions, with the contract change for the new kind and the notices).
+  - **Learning across sessions:** the journal is the AI's memory. The host writes one fact per fire that hurt the player, in the game's own words ("The Gubble's fire burned you near "the jetty"."), naming only places the team knows, kept when routine entries are trimmed. journal.read with kind "consequence" reads these lessons back, and the Gubble is told to read them when it starts (a change to its MCP instructions, with the contract change for the new kind and the notices). *Planned (packet M8 of [RUN-2-MECHANICS.md](../runs/RUN-2-MECHANICS.md)):* consequence facts extend to a player's build that the Gubble's fire burnt (today only a hurt to the player writes one), and Trust, a stat the game computes from these facts and from the player's marks and never one the AI writes, reads them.
 - **Caps:** at most 200 burning cells, the pack's radius (1.5 m today) and lifetime (60 s at most), and one fire on the island at a time (the player's and the Gubble's budgets sit on top). *Not built yet:* a visible fizzle to smoke when a cap is reached.
 - **Time away (decided, 13 October).** Fire never rests: burning cells keep simulating wherever they are (they are few and bounded), and so does the ground inside a fire's circle. Everything else (flower lifetimes, regrowth, moisture) rests farther than 12 m from both avatars and catches up when one comes back, replaying the weather it missed in the simulation's own steps, so the result is the same as having simulated it, spread over a few frames (at most 8,192 cell steps a step; a whole weather cycle that changes nothing is skipped). The missed time is saved with the room. Time the game was closed is not caught up.
 - **Locks are fireproof,** with a visible shimmer. "Spreads" and "destroys" are separate flags (the GriefPrevention plugin's model). *Not built yet:* the shimmer, and the separate flags (the rule table above stands in for them).
 - **One fire groups its world changes into one undo step.** Every cell and object it burns is recorded under the action that lit it, and in Creative room.undo takes the fire back with the room revision before it (in Challenge and Live there is no undo). The preview shows the fire's circle, the ground that could catch, the things it would reach and the avatars inside it; it does not predict which cells will burn (no random generator is seeded from the room's revision: the spread is the fixed gate above). Undo never gives back health.
 - **A fire budget per principal,** so the Gubble cannot light fires over and over. *Built:* see the guardrails above; each fire still needs a fresh preview.
 - **Near the player's creations:** in Creative the one ask above; in Challenge and Live none. A locked build is never at risk.
-- **Who may cast (decided, 11 October):** direct player commands and connected AI both use Fire from its first version. Both go through the same host rules, costs and protected-target checks; AI intent never supplies the required player confirmation.
+- **Who may cast (decided, 11 October):** direct player commands and connected AI both use Fire from its first version. Both go through the same host rules and protected-target checks, and since 14 October the price follows the principal: Fire costs 6 pips when the player orders it and 3 as the Gubble's own idea; AI intent never supplies the required player confirmation.
 - **Still open:** the repair interaction, damage and recovery rates, the guardrails' numbers, and how undo treats burns in Creative (the founder is deciding). The fire's spread by fuel and wind, and the island-object outcomes, are the coming fire rebuild. The burn outcome by mode, consequences as feedback, undo only in Creative and weather support are decided.
 
 ## Triggers: small laws the player and the Gubble make
@@ -323,7 +329,7 @@ Every key stays remappable.
 **The smart ask** (the first match wins; the reticle shows its icon before the press):
 1. Aimed at a draft or a countdown: adjust it or stop it.
 2. Aimed at the Gubble: switch between stay and follow.
-3. Aimed at a carryable thing: fetch it.
+3. Aimed at a carryable thing: fetch it (not a shard: a shard's pickup is the player's alone, so the Gubble may find shards and mark them as leads on the minimap, never gather them; [MECHANICS.md](../game/MECHANICS.md) section 6).
 4. The target is dark and Glow is learned: light it.
 5. Otherwise: go and look there.
 
@@ -365,6 +371,8 @@ None of this is built yet: not the draft in the host, the kit (Lane L's art), th
 
 From research 5.
 
+**Shelved, 13 October (decided):** wishes and speech go to the AI already playing (parked as `run2/wishes-live`), and the grown-ups' test mode for the AI's own words sits behind a password or other check on the Wishes page. The runner described below stays in the tree, dormant. Everything in this section is the design as it stood before the shelving, kept for when wishes return.
+
 **What doesn't work.** No MCP feature reliably wakes the player's model when the game has a wish:
 - **Sampling** is deprecated in the current specification (2026-07-28), and few clients support it.
 - **Notifications** don't start a model turn.
@@ -404,7 +412,7 @@ Wish box ──the player's words──▶ Game host (wish queue) ◀── runn
    - The companion's role is unchanged.
 4. **Contract additions:**
    - `wish.wait` and `wish.update` (runner role only);
-   - `companion.say` (the Gubble's words: a caption over its head, journalled as the AI's; child-facing content uses the curated presentation path below);
+   - `companion.say` (the Gubble's words: a caption over its head, journalled as the AI's; child-facing content uses the curated presentation path below). *Unbuilt:* the AI's own spoken words wait for this op, behind a grown-ups' password;
    - a `role` in the link's hello frame.
 5. **`capabilities.list` from the island's rules and learned abilities,** so the AI knows what it can do here, what it can't, and why not. It exposes supported actions and effective limits, not undiscovered trigger recipes.
 6. **The runner** (`companion/`):
@@ -413,7 +421,7 @@ Wish box ──the player's words──▶ Game host (wish queue) ◀── runn
    - a check that the harness has only the game's tools before the wish is sent;
    - caps on time, turns and spend;
    - stop.
-7. **Each command the AI sends while executing a wish is tied to that wish by the host's own records,** never by an id the model supplies, for per-wish budgets and the provenance rule. Future autonomous experiments need their own host-verified permission context, as allowed by the player's settings; they do not pretend to be player wishes.
+7. **Each command the AI sends while executing a wish is tied to that wish by the host's own records,** never by an id the model supplies, for per-wish budgets and the provenance rule. Future autonomous experiments need their own host-verified permission context, as allowed by the player's settings; they do not pretend to be player wishes. The same records decide the price ([MECHANICS.md](../game/MECHANICS.md) section 5): every Gubble command sent while a wish runs is charged as the player's order, whatever its action id or tag, because a companion-written tag could be left off to pay less.
 8. **Tests:**
    - a sign saying "make a wish" never makes one;
    - a wish never approves a held command;
@@ -436,6 +444,7 @@ Wish box ──the player's words──▶ Game host (wish queue) ◀── runn
 - **Proposed presentation:** approved lines and templates with constrained, game-verified fields. Arbitrary AI output and world text are not inserted into those templates. The host's facts can still say what happened; sanitizing text alone does not make its content age-appropriate.
 - Any later proposal for generated prose must retain the same age-appropriateness requirement. A grown-up switch would not waive it.
 - **The wish's text goes to the selected AI provider.** Setup must explain this and use an eligible provider/account route; content curation and account eligibility are separate requirements.
+- **Where this stands (13 October).** `companion.say` is unbuilt. The AI's own words are a grown-ups' test mode on the Wishes page behind a password or other check, and children get curated lines ([RUN-2-STATUS.md](../runs/RUN-2-STATUS.md), the eleventh session's decisions), pending the founder's confirmation. One path for the AI's words exists today: the `journal.note` command, whose notes appear on the journal page marked as the companion's own and untrusted ([JOURNAL.md](../companion/JOURNAL.md)); how they are presented to children is not decided **[Open]**.
 
 **A wish benchmark:** the kids' five wishes, scripted. Each AI client is scored on the ability it picks, its parameters, its receipts against its claims, and how it handles a refusal. This is the acceptance test, as the house conversation was for building (research 2).
 
@@ -472,7 +481,7 @@ Wish box ──the player's words──▶ Game host (wish queue) ◀── runn
 
 ## Costs
 
-**(Decided)** No ability costs in Creative mode. In Challenge, cooperative and competitive modes, costs differ by island: summoning a dragon costs a lot; building a spaceship and shooting blasters have their own costs. The mode distinction also governs physical consequences: climbing consumes stamina and hazards can damage health, as described in "Modes: what the island asks of the player". Stamina and health are player state; the shared magic wallet below does not make either a communal resource.
+**(Decided)** No ability costs in Creative mode. In Challenge, cooperative and competitive modes, costs differ by island: summoning a dragon costs a lot; building a spaceship and shooting blasters have their own costs. The mode distinction also governs physical consequences: climbing consumes stamina and hazards can damage health, as described in "Modes: what the island asks of the player". Stamina and health are player state; the shared pip pool below does not make either a communal resource.
 
 How one engine checks every island's costs (research 3):
 - **The meter kinds belong to the engine; the island names them:**
@@ -481,11 +490,11 @@ How one engine checks every island's costs (research 3):
   - a bond with one creature (a dragon's trust gates riding; it isn't spent);
   - a cooldown;
   - a consequence (magic that breaks the island's laws costs extra, after Mage's paradox).
-- **The price is charged on what the action did,** measured by the engine (water added, earth moved, a creature's tier, things created), not on the command. The island sets the rates.
-- **One command pays a base fee plus a rate.** A price that rises with use applies only to a running total over a time window. Still, ten small wishes may still cost less than one big one depending on the scale of the wish or the ability.
-- **The player and the Gubble share one wallet,** so routing work through the AI saves nothing.
-- **Undo refunds no more than what was paid,** only within its window, and takes back what was made.
-- **Creative mode turns ability costs and injury/stamina penalties off,** while the engine's performance caps still hold.
+- **The baseline price is flat and whole (decided 14 October; [MECHANICS.md](../game/MECHANICS.md) section 5):** a price in whole pips per ability from an optional `cost` in the island's pack (an ordered price, always even, and an own-idea factor of 0.5), charged once at commit; previews, stops and refused commands are free. The player's order pays in full and the Gubble's own idea pays half, decided by the game from the connection a command arrived on, never from anything inside it: Glow costs 2 pips ordered and 1 as its own idea, Fire 6 and 3.
+- **One pool per team per mode,** for the player and the Gubble together, so there is no second purse to shift a bill into. One pip returns every 5 s while the Gubble is within 2 m of the player, one every 15 s apart; at camp the pool wakes half full; the cap starts at 8 and rises one pip per five expertise, to a ceiling of 40 in data. An empty pool refuses with `energy_exhausted`, carrying the balance and the price.
+- **Measured-by-effect pricing and running totals** (a price charged on what the action did, a base fee plus a rate, a price that rises with use over a time window) are later options per island, not the baseline.
+- **Undo** exists only in Creative, where nothing is charged, so the earlier rule that undo refunds no more than was paid is dropped.
+- **Creative mode turns ability costs and injury/stamina penalties off** (the pips become a shadow pool that drains and refills but never refuses, with the prices shown), while the engine's performance caps still hold.
 
 ## Wilder islands (later)
 
@@ -523,7 +532,7 @@ New with magic:
    - The right button's smart ask and the first wheel wedge, with the new key defaults.
    - The dusk moment.
    - The acknowledgement, from the receipt.
-2. **The wish path.**
+2. **The wish path** (shelved 13 October: parked as `run2/wishes-live`, the runner dormant in the tree).
    - The wish box, the queue, the link roles, `companion.say`.
    - The runner, with Claude Code and Codex templates first.
    - The wish ledger's local record.
@@ -548,4 +557,4 @@ Answered on 11 October:
 5. **Children's content:** curated first; all Gubble content they receive must be appropriate for an eleven-year-old.
 6. **Bindings:** try the proposed defaults in playtesting.
 
-Remaining work: balance the discovery and trait progression; specify stamina, damage, repair and recovery; decide mode-specific undo and transfers between modes; and verify the exact provider/authentication route, distribution terms and child-account eligibility before implementing each wish-runner adapter.
+Remaining work after the baseline mechanics ([MECHANICS.md](../game/MECHANICS.md); its numbers are provisional and tuned by playing): the repair interaction; which abilities get expertise tracks beyond Glow (Bloom, Bubbles and Fire: packet M11); camps as placeable things; the Bubble's body rules (Bubble Boat's and the carry's collision: packet M9); and, if the wish runner returns, the exact provider/authentication route, distribution terms and child-account eligibility before implementing each adapter. Stamina, damage, recovery, mode-specific undo and transfers between modes are specified there (decisions 2, 3, 10 and 13 of 14 October).

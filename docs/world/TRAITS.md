@@ -1,15 +1,19 @@
 # Traits: what bodies, land, plants and animals are like
 
+Squared with [docs/game/MECHANICS.md](../game/MECHANICS.md) on 14 October 2026: where this page and that design differ, the design wins.
+
 **Status: a first draft for the founder to react to (13 October 2026).** A conversation starter, not a specification; every number is a provisional value to tune by playing. The founder, 7 October: "I want this to be the basis and the inspiration, but it doesn't need to be exact." So traits are principles ("water runs downhill", "tall mountains often have snow") with room for invention, and no island needs every feature.
 
 **Written for the 10× island** (decided by the founder, 13 October). The room is magnified ten times; the body, the Gubble, trees, cottages, plants, stones and water depths keep today's size. The garage island is about 67 × 77 m: 80 seconds to run across, 4 minutes to walk. Its tallest crag rises about 22 m, over 200 body heights: to a person, a 370 m mountain.
 
 Sources: [research/01-natural-history.md](research/01-natural-history.md) and [research/02-traits-in-games.md](research/02-traits-in-games.md).
 
+The player's and the Gubble's numbers (hearts, the bar, pips, knacks, growth) are now held, as provisional values with the founder's answers of 14 October, in [docs/game/MECHANICS.md](../game/MECHANICS.md) (its section 11); where this draft and that document differ, MECHANICS wins. The tables below label what the code holds today and what the design changes.
+
 ## In short
 
 1. **A trait is a principle with a starting value,** kept as data. The mode adjusts it, growth raises it, and the AI acts within it but never writes it.
-2. **The body is shared; the look is the player's own.** The Gubble is a ghost: no stamina, no injury, and unseen by animals.
+2. **The body is shared; the look is the player's own.** A knack picked at creation moves one number by at most 20 percent, never geometry. The Gubble is a ghost: no stamina, no injury, and unseen by animals; its abilities draw on the team's pips.
 3. **The ground decides what stands on it.** Rock holds anything, soil what is levelled, sand needs posts. Mountains are climbed ledge to ledge.
 4. **Plants follow light, water, soil and height.** Fire eats them and ash feeds them. Grass returns by itself; trees return when someone plants them.
 5. **Foxes, owls and rabbits live where there is food and cover.** In Challenge and Live, the night holds real danger, and every danger has an answer the player can see.
@@ -30,9 +34,9 @@ Sources: [research/01-natural-history.md](research/01-natural-history.md) and [r
 | **The bodies** | The player's and the Gubble's size, movement and vitals | The body profile, the controller's tuning, `PlayerVitals` per mode |
 | **The living state** | The ground's moisture, fuel, growth and ash; the animal homes | The nature field (5 cm cells) is built; the homes are new |
 
-**How a value is set.** The island gives the base; the mode turns consequences off (Creative) or on (Challenge, Live); growth raises it on its own track. The engine's limits always hold and a lock beats everything, as in the magic design.
+**How a value is set.** The island gives the base; the mode turns consequences off (Creative) or on (Challenge, Live), scaled by the Challenge difficulty (Gentle halves every hurt and removes none, Brave adds half: MECHANICS section 8); growth raises it on its own track. The engine's limits always hold and a lock beats everything, as in the magic design.
 
-**The AI acts within the traits.** The Gubble plants, lights, carries, builds and warns. It never edits a trait, spawns an animal or calms one. It learns traits as the player does: from what shows and from the journal. In Challenge and Live, where there is no undo, its mistakes cost the player. Previews, a keyed "yes" near the player's builds, and the journal as its memory are the guardrails. That is how consequences teach it.
+**The AI acts within the traits.** The Gubble plants, lights, carries, builds and warns. It never edits a trait, spawns an animal or calms one. It learns traits as the player does: from what shows and from the journal. In Challenge and Live, where there is no undo, its mistakes cost the player. Previews, the fire guardrails, the journal's consequence facts and, later, Trust are the guardrails; the keyed "yes" before a build burns exists only in Creative. That is how consequences teach it.
 
 **Two habits from the magic design:**
 - **Show the hidden inputs:** wet ground looks darker, and a rabbit thumps before the warren empties.
@@ -40,24 +44,26 @@ Sources: [research/01-natural-history.md](research/01-natural-history.md) and [r
 
 ## 2. Player characters and Gubbles
 
-### The player (today's values; all provisional)
+### The player (today's values, with the design's; all provisional)
 
 | Trait | Principle | Starting value |
 |---|---|---|
-| Size | A person in a miniature world | 10 cm tall, 2 cm wide, eyes at 8.7 cm, reach 15 cm |
-| Moving | Brisk, because the island is big | Walk 0.32 m/s, run 0.96 m/s, a hop of two-thirds the body's height, a 2 cm step |
-| Climbing | Any face too steep to stand on can be climbed, slowly and on purpose | 0.12 m/s. Free in Creative; uses stamina in Challenge and Live |
-| Stamina | Enough for a tree at first; mountains come with growth | Counted in metres of climbing: 0.45 m to start, up to 3 m. Refills on any standable ground |
-| Swimming | Calmer than walking; you can always get out | 60% of walking speed at the surface; diving is possible |
-| Health | Falls, fire and animals hurt, in Challenge and Live only | 100. A 30 cm drop is safe; 1.5 m nearly knocks you out. Fire close by costs about 12 a second. At zero you wake at the spawn with half health and stamina, keeping traits and creations |
+| Size | A person in a miniature world | 10 cm tall, 2 cm radius (4 cm across), eyes at 8.7 cm, reach 15 cm |
+| Moving | Brisk, because the island is big | Walk 0.32 m/s, run 0.96 m/s, a hop of two-thirds the body's height, a 2 cm step. **Design:** running drains the bar in Challenge and Live (the cost is a pack value, about 40 s of running from a full starting bar); the Quick feet knack lifts walk and run by up to 20% (M1, M5) |
+| Climbing | Any face too steep to stand on can be climbed, slowly and on purpose | 0.12 m/s. Free in Creative; uses stamina in Challenge and Live. **Design:** the Steady climber knack gives up to 20% more height for the same bar (M5) |
+| Stamina | Enough for a tree at first; mountains come with growth | Counted in metres of climbing: 0.45 m to start, up to 3 m; today's code adds 0.10 m for each new climb of at least 25 cm. Refills on any standable ground. **Design:** 0.40 m to start, ten bands of 0.40 m over two bars to 4.0 m, each opened by five found stamina shards (M1 and M4; the per-climb reward retires, open point L). An empty bar drops you from the face, and speed is halved until it refills to a quarter (M5) |
+| Swimming | Calmer than walking; you can always get out | 60% of walking speed at the surface; diving is possible. **Design:** deep water and time under water drain the bar; out of stamina in deep water you drift to shore, out of breath you float up (built); Strong swimmer and Long breath are knacks (M1, M5) |
+| Health | Falls, fire and animals hurt, in Challenge and Live only | 100. A 30 cm drop is safe; 1.5 m nearly knocks you out. Fire close by costs about 12 a second. At zero you wake at the spawn with half health and stamina, keeping traits and creations. **Design:** 5 hearts of 20 (100), drawn in quarters, with +1 heart per five found heart shards to a cap of 30 hearts (600; 720 with the Big heart knack); every hurt lands on a whole quarter (M1). A 30 cm drop is safe (the Cat feet knack raises it to 0.45, 0.60 or 0.75 m); fire costs one quarter a second, 20 s to burn five hearts (M1); an owl bites for two quarters and a fox for three. At zero hearts you wake at camp (the spawn today) with half your hearts and half the bar, the pips half full, keeping traits and creations. **[Open K: fall damage absolute, the recommendation, so more hearts survive bigger falls, or scaled to the maximum; the 1.5 m sentence above stays today's until K is answered]** |
 | Carrying | One thing in your hands | Up to 0.5 kg |
 | Senses | Line of sight, one shared map | Darkness limits sight. **New:** sounds as cues (a thump, a hoot), with a shown direction for players who cannot hear |
 
-**Mountains on the 10× island.** The 22 m crag is seven times the largest stamina, and three minutes of climbing. So a big mountain is climbed ledge to ledge, and each standable ledge is a rest. **Proposal:** on mountains the generator offers as climbs, ledges come at least every 2 to 3 m. Scenic peaks may stay out of reach. Falls become the main danger, so section 3 adds soft landings.
+Everything above that is not marked **Design** is today's value. The design changes the Moving, Climbing, Stamina, Swimming and Health rows, in the packets M1, M4 and M5 of [RUN-2-MECHANICS.md](../runs/RUN-2-MECHANICS.md); nothing in it is built yet. The Size row is a correction found in passing, not a design change: the capsule's radius is 2 cm.
 
-**Growth** is the player's own track, per mode, apart from the Gubble's magic. Today only stamina grows: 0.10 m for each new climb of at least 25 cm. *A Short Hike* gates heights the same way, with golden feathers. **Proposal:** stamina stays the main path, perhaps with swimming endurance later. Health and speed stay fixed, so a returning player never feels slower.
+**Mountains on the 10× island.** The 22 m crag is seven times today's largest stamina (3 m), about five and a half times the design's largest bar (4.0 m), and three minutes of climbing. So a big mountain is climbed ledge to ledge, and each standable ledge is a rest. **Design (MECHANICS section 6, packet M4):** on the climbs the generator offers as routes, each ledge-to-ledge rise is one band, 0.4 m for the first band, and each ledge is a bench the walker can stand on, so the next ledge is always in view of a player one band short (this replaces this draft's first proposal of ledges every 2 to 3 m). One landmark per island is routed to its summit (the summit flag), or its summit stays the Gubble's and the route ends on a shoulder **[Open N]**. Scenic peaks may stay out of reach. Falls become the main danger, so section 3 adds soft landings.
 
-**Drawn characters.** Every player makes their own (decided), on one shared collision body (decided earlier). **These can vary:** shape, colours, hats and props that don't collide, see-through parts, bounce, sounds and glow colour. **These stay shared:** size, eye height, reach, speeds, stamina and health. Then every island fits every character, and no child's drawing is weaker than another's (decision 4).
+**Growth** is the player's own track, per mode, apart from the Gubble's expertise. Five found stamina shards open the next stamina band and five found heart shards add a heart; growth is counted, never a currency (MECHANICS section 6). Shards are found and verified by the game, never granted by a quest or by the AI, and in the recommended default a found shard has no kind until the player chooses at a camp whether five become a heart or the next band **[Open C]**. Today only stamina grows: 0.10 m for each new climb of at least 25 cm, a reward that retires when the bands land (M1 and M4; **[Open L]**). *A Short Hike* gates heights the same way, with golden feathers. Speed moves only through a knack. Growth only adds, so a returning player never feels slower.
+
+**Drawn characters.** Every player makes their own (decided), on one shared collision body (decided earlier). **These can vary:** shape, colours, hats and props that don't collide, see-through parts, bounce, sounds and glow colour. **These stay shared:** the collision capsule, size, eye height and reach, and the base numbers: the base speeds, the base hop, the bar's base size and the five starting hearts. A knack, picked at creation, moves one of those numbers by at most 20 percent at full rank, all upside (the table is in MECHANICS section 7; Cat feet, which raises the safe drop height from 0.30 m to 0.75 m, is the founder's one exception to the 20 percent). The generator keeps this fair with two kinds of gate: a band gate no knack opens early, and a knack shortcut sized so that one knack at full rank opens it and the base body does not, with nothing reachable only with a knack **[Open E]**. Then every island fits every character, and no child's drawing is weaker than another's (decision 4).
 
 ### The Gubble, a ghost
 
@@ -67,9 +73,10 @@ Sources: [research/01-natural-history.md](research/01-natural-history.md) and [r
 | Moving | Never climbs, swims or gets stuck | Walks when a route reaches; otherwise floats straight there, over water and up cliffs. It can scout a 22 m summit long before the player can climb it |
 | Stamina, health | A ghost neither tires nor is hurt | Proposed: neither, in any mode. Its mistakes cost the player instead |
 | Seen by | Its player only | Animals never react to it. Later: other Gubbles see it; other players only with permission |
-| Light | Carries a torch in the family's drawing | Glow; Torch is a Glow discovery |
-| Carrying | Fetches for the player | 2 kg today, four times the player's limit. **Proposal:** in Challenge and Live, only what the player could carry |
-| Growth | Abilities grow by discovery | Its own track (the magic design) |
+| Light | Brings light; a torch it holds is an item | Glow; Torch is a Glow discovery (an expertise). No torch in its drawing since the torch round: the torch is a prop today and, once built, a carried item the Torch expertise makes ([RUN-2-TORCH.md](../runs/RUN-2-TORCH.md)) |
+| Carrying | Fetches for the player | 2 kg today, four times the player's limit. **Proposal:** in Challenge and Live, only what the player could carry. MECHANICS lists 2 kg for the Gubble, today's value, and does not take up the proposal; open with the founder |
+| Growth | Abilities grow by discovery | Expertise (the magic design's discoveries), which travels across modes; one pip of energy per five expertise; Trust later |
+| Energy | The pair draws on one purse, and the price follows who directed the ability | Pips, one pool per team per mode: full price on the player's order, half on its own idea; previews and stops are free; in Creative a shadow pool that never refuses (MECHANICS section 5; not built, M1) |
 
 **To settle (decision 5):** animals ignore the Gubble, but perhaps not what it does: its light is real light, and a log it carries drifts through the air.
 
@@ -93,7 +100,7 @@ The generator already gives every patch of ground one of these roles, choosing s
 | **Ash** | As beneath | As beneath | As beneath | — | Already burnt | Regrows greener | Fades as plants return |
 | **Worn path** | Firm | Yes | Gentle | No | Never | Nothing | Stays where feet keep it |
 
-**Soft landings,** because falls hurt and the island is tall: deep water catches any fall (built). **Proposed:** snow, reeds, a shrub's crown and thick moss halve the landing speed, so a child learns to aim for the snowbank.
+**Soft landings,** because falls hurt and the island is tall: deep water catches any fall (built). **Proposed:** snow, reeds, a shrub's crown and thick moss halve the landing speed, so a child learns to aim for the snowbank. These stack with the Cat feet knack, which raises the safe drop height: the ground halves the landing speed, the knack raises the height that is safe.
 
 ### Building
 
@@ -178,7 +185,7 @@ Sizes below assume storybook sizes (decision 1).
 
 ### Alive without punishing a child
 
-- **Danger has a rhythm.** Day is safe; dusk is when the Gubble teaches light; night in the open is the risk, in Challenge and Live. Time follows the real clock, so evening play meets the owls.
+- **Danger has a rhythm.** Day is safe; dusk is when the Gubble teaches light; night in the open is the risk, in Challenge and Live. Time follows the real clock today, so evening play meets the owls. Live is designed on an island clock record (MECHANICS section 9: four in-game days to a real day, seasons on the real calendar, a phase offset so an evening-only child still meets night), shaped now as data with no change in behaviour (decision 15, packet M6) and built later.
 - **Every danger is announced and has a visible answer:** light, cover, stillness, a climb or water. Nothing hurts in Creative, nothing ambushes by day, and nothing is unsuited to an eleven-year-old.
 
 ## 6. How it fits together
@@ -195,6 +202,8 @@ Sizes below assume storybook sizes (decision 1).
 
 **Answered by the founder, 13 October 2026 (evening):** 1: C, storybook size, as one pack number with a key that cycles A, B and C; 2 to 6: as recommended. The same evening the founder asked for chosen physical traits at character creation (faster walking or running, stamina efficiency, one more heart, swimming, breath, jumping, building, crops, hitting); how that squares with decision 4's shared body is worked out in [docs/game/MECHANICS.md](../game/MECHANICS.md).
 
+**Squared with the mechanics design, 14 October 2026:** the chosen physical traits became knacks, which move numbers by at most 20 percent and never geometry (MECHANICS section 7, decision 9); stamina grows by shards, not climbs (decision 8; the per-climb reward's retirement is open point L); fire is one quarter a second (decision 10); running drains the bar (decision 7, the founder's answer).
+
 1. **How big are the animals?** Trees (about 0.3 to 0.9 m) and cottages (about 0.4 m) are sized as if the 10 cm player were a person.
    - **A, true to the miniature** (as a real animal is to a person, about ÷17): a rabbit 2.5 cm long, a fox knee-high, an owl smaller than the player. Natural and harmless, but tiny across a 70 m island, with no believable night danger.
    - **B, real-life size** (a 40 cm rabbit beside the 10 cm figure): a rabbit four times the player's height, a fox as tall as many of the trees, an owl with 1 m wings. Awe: walking into a warren, riding a rabbit, hiding from giants. But the ecology breaks (an owl can't roost in a tree shorter than itself), the danger overwhelms a child, and on the 10× island they no longer even match the room (there, a rabbit would be 4 m long).
@@ -202,7 +211,7 @@ Sizes below assume storybook sizes (decision 1).
    - **Recommended: C,** as one number in the pack, so that one playtest evening can try all three.
 2. **How dangerous are animals in Challenge and Live?** Recommended: only at dusk and night, always announced, 10 to 15 health, always escapable. With no animal danger at all, the game is calmer, but the night loses its tension.
 3. **What does the food web show?** Recommended: chases are visible and catches happen out of sight. With no hunting at all, it is gentler, but the foxes lose their purpose.
-4. **Drawn characters: one shared body, or small differences** (for example, longer legs that jump higher but climb slower)? Recommended: shared for now. Differences are more expressive, but harder to balance, and they invite comparing children's drawings.
+4. **Drawn characters: one shared body, or small differences** (for example, longer legs that jump higher but climb slower)? Recommended: shared for now. Differences are more expressive, but harder to balance, and they invite comparing children's drawings. *Amended 14 October:* the body and its base numbers stay shared; a knack, picked at creation, may raise one number by up to a fifth, never the capsule, size, eye height or reach (MECHANICS section 7).
 5. **Do animals react to what the Gubble does?** Recommended: yes to its light, its fire and what it carries; never to the Gubble itself. The alternative is simpler, but then the Gubble's fire would scare nothing.
 6. **What keeps living while the player is away?** Recommended: growth, regrowth, seasons and animal numbers, capped at a few real days. A fire left burning runs until the next rain in the weather cycle, and the journal tells the story. Pausing fire while away avoids a shock on return, but makes the world feel less alive.
 
