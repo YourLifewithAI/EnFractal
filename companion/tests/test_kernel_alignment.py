@@ -206,7 +206,12 @@ class GlowMatchesTheKernel(unittest.TestCase):
         self.assertEqual(sorted(in_kernel), ["element.ignite", "growth.seed", "light.emit", "particles.burst", "particles.float"])
         start_look = _method(_text(EFFECTS), "private bool StartLook(")
         self.assertEqual(sorted(re.findall(r'"([a-z]+\.[a-z]+)" => look\.Start\w+\(', start_look)),
-                         ["light.emit", "particles.burst", "particles.float"])
+                         ["light.emit", "particles.burst"])
+        # Bubbles (particles.float) is no effect the look starts since the founder's redesign: it is the one bubble, routed to
+        # the Bubble before the look is asked (Kernel/Bubble/CommandHostBubble.cs BubbleEffectStart), the stream of small bubbles gone.
+        start = _method(_text(EFFECTS), "private JsonObject EffectStart(")
+        self.assertIn('if (plan.Ability.Primitive == "particles.float") return BubbleEffectStart(', start)
+        self.assertLess(start.index("BubbleEffectStart("), start.index("StartLook("))
         # Persistent terrain primitives use their own authority path, never a cosmetic effect receipt.
         plan = _method(_text(EFFECTS), "private EffectPlan PlanEffect(")
         self.assertIn('capability is "bloom" or "fire"', plan)
@@ -351,15 +356,26 @@ class MechanicsMatchTheKernel(unittest.TestCase):
             with self.subTest(numbers=kernel):
                 self.assertEqual(mock, tuple(law(name) for name in kernel))
         for mock, kernel in (("BUBBLE_GHOST_LEAD_S", "GhostLeadS"), ("BUBBLE_GHOST_LIFETIME_S", "GhostLifetimeS"),
-                             ("BUBBLE_POP_RESPECT_S", "PopRespectS"), ("BUBBLE_ENVELOP_REACH_M", "EnvelopReachM"),
+                             ("BUBBLE_ENVELOP_REACH_M", "EnvelopReachM"), ("BUBBLE_CARRY_RADIUS_DEFAULT_M", "CarryRadiusDefaultM"),
                              ("BUBBLE_STEP_IN_CLEARANCE_M", "StepInClearanceM"), ("BUBBLE_MAX", "MaxBubbles"),
-                             ("BUBBLE_MAX_GHOSTS", "MaxGhosts")):
+                             ("BUBBLE_MAX_GHOSTS", "MaxGhosts"), ("BUBBLE_LIFT_ABOVE_DRIFT_M", "LiftAboveDriftM")):
             with self.subTest(number=kernel):
                 self.assertEqual(getattr(mock_host, mock), law(kernel))
-        bubble = _text(KERNEL / "Kernel" / "Bubble" / "CommandHostBubble.cs")
-        for words in ("BUBBLE_GHOST_LEAD", "BUBBLE_POP_RESPECT", "BUBBLE_PREVIEW_AGAIN", "BUBBLE_ON_THE_PLAYER", "BUBBLE_NO_WATER"):
+        # One bubble at a time and no pause after a pop (decision 59): the pause's number and words are gone from both hosts.
+        self.assertEqual(mock_host.BUBBLE_MAX, 1)
+        self.assertFalse(hasattr(mock_host, "BUBBLE_POP_RESPECT_S") or hasattr(mock_host, "BUBBLE_POP_RESPECT"))
+        self.assertNotIn("PopRespectS", _text(laws))
+        bubble = (_text(KERNEL / "Kernel" / "Bubble" / "CommandHostBubble.cs") + _text(KERNEL / "Kernel" / "Bubble" / "CommandHostBubbleLead.cs")
+                  + _text(COMMAND_HOST)).replace('" +\n            "', "")
+        for words in ("BUBBLE_GHOST_LEAD", "BUBBLE_PREVIEW_AGAIN", "BUBBLE_ON_THE_PLAYER", "BUBBLE_NO_WATER", "BUBBLE_GHOST_FIRST",
+                      "BUBBLE_AT_A_SPOT", "BUBBLE_LIFT_IS_A_LEAD", "LEAD_POPPED", "LEAD_BLOCKED"):
             with self.subTest(words=words):
-                self.assertIn('"' + getattr(mock_host, words) + '"', bubble.replace('" +\n            "', ""))
+                self.assertIn('"' + getattr(mock_host, words) + '"', bubble)
+        # The lead's argument rule, the adapter's and the mock's words the kernel's CheckArgs (request_invalid at its paths).
+        from enfractal_companion import refusals
+        for words in (refusals.LEAD_NAMES_A_BUBBLE, refusals.LEAD_NAMES_A_SPOT):
+            with self.subTest(words=words):
+                self.assertIn('"' + words + '"', _text(COMMAND_HOST))
         # Both hosts: a committed bubble is transient (the kernel's own receipt, never the durable nature path), its cast routed
         # before nature's RequireNature, and its pops in goal.stop and effect.stop.
         nature = _method(_text(KERNEL / "Kernel" / "CommandHostNature.cs"), "private JsonObject NatureCommand(")

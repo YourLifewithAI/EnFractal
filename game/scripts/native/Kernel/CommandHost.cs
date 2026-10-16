@@ -847,6 +847,8 @@ public partial class CommandHost : Node
         }
         if (actor != CompanionAvatarId || Companion == null) throw new Refusal("target_not_found", "There is no such actor in this room.", "$.args.actor");
         var goal = Str(args, "goal")!;
+        // The Gubble leading a bubble to a spot: its target is a bubble, never an entity (Kernel/Bubble/CommandHostBubbleLead).
+        if (goal == "lead") return LeadGoal(args, principal, actionId, fingerprint, preview);
         var data = new JsonObject { ["actor"] = actor, ["goal"] = goal };
         string? target = null;
         Aabb aim = default;
@@ -922,8 +924,11 @@ public partial class CommandHost : Node
         if (preview) return Previewed("goal.stop", principal, actionId);
         var whose = actor == null ? (principal == PlayerPrincipal ? "" : principal) : actor == CompanionAvatarId ? CompanionPrincipal : PlayerPrincipal;
         var affected = new JsonArray();
+        string? led = null;
         if (whose != PlayerPrincipal && Companion != null)
         {
+            // The bubble it leads pops with its stop (decision 60), as the player's own pop when it is the player's X (Kernel/Bubble).
+            led = PopLedBubble(principal == PlayerPrincipal);
             CancelGoal(CompanionAvatarId);
             Companion.Stop();
             affected.Add(CompanionAvatarId);
@@ -937,6 +942,11 @@ public partial class CommandHost : Node
                 stopped++;
             }
         // Its bubbles pop too, the player's X whoever cast them (Kernel/Bubble): a body in one deflates.
+        if (led != null)
+        {
+            affected.Add(led);
+            stopped++;
+        }
         if (whose != PlayerPrincipal)
             foreach (var popped in PopBubbles(principal, "all"))
             {
@@ -1757,6 +1767,8 @@ public partial class CommandHost : Node
         {
             if (Perceives(principal, id)) continue;
             if (path == "$.args.target" && goal != null && RememberedTargetGoals.Contains(goal) && Recall(principal, id) != null) continue;
+            // A lead's bubble is no entity: LeadGoal checks it is one the team sees now (Kernel/Bubble/CommandHostBubbleLead).
+            if (path == "$.args.target" && goal == "lead") continue;
             throw new Refusal("target_not_found", "That is not in this room.", path);
         }
     }
@@ -2068,6 +2080,8 @@ public partial class CommandHost : Node
     {
         if (!_runningGoals.Remove(actor, out var job)) return;
         job.State = "cancelled";
+        // A lead's end pops the bubble it led (decision 60; Kernel/Bubble/CommandHostBubbleLead).
+        LeadCancelled(job);
         TaskEnded(job);
         WishGoalEnded(job);
         GoalFinished?.Invoke(actor, job.Id, job.State);
@@ -2551,8 +2565,13 @@ public partial class CommandHost : Node
         if (op == "goal.set")
         {
             var goal = args.GetProperty("goal");
-            if (goal.ValueKind != JsonValueKind.String || goal.GetString() is not ("follow" or "stay" or "come" or "look_at" or "point_at" or "go_to" or "fetch" or "wander"))
+            if (goal.ValueKind != JsonValueKind.String || goal.GetString() is not ("follow" or "stay" or "come" or "look_at" or "point_at" or "go_to" or "fetch" or "wander" or "lead"))
                 throw new Refusal("request_invalid", "That goal does not exist.", "$.args.goal");
+            // lead (decision 57, Kernel/Bubble/CommandHostBubbleLead): a bubble (its effect: id, never an avatar) to a spot.
+            if (goal.GetString() == "lead" && (!args.TryGetProperty("target", out var led) || led.ValueKind != JsonValueKind.String || !EffectId.IsMatch(led.GetString()!)))
+                throw new Refusal("request_invalid", "A lead names the bubble it leads (its effect: id).", "$.args.target");
+            if (goal.GetString() == "lead" && !args.TryGetProperty("position_m", out _))
+                throw new Refusal("request_invalid", "A lead names the spot it leads the bubble to.", "$.args.position_m");
             if (goal.GetString() is "look_at" or "point_at" or "go_to" && !args.TryGetProperty("target", out _) && !args.TryGetProperty("position_m", out _))
                 throw new Refusal("request_invalid", "This goal needs a target or a position.", "$.args");
             if (goal.GetString() == "fetch" && !args.TryGetProperty("target", out _))

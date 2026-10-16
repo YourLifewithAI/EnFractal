@@ -334,15 +334,15 @@ class BubblesAndFireworks(GlowCase):
 
     def test_cast_by_withholds_each_ability_on_its_own(self):
         self.host.use_rules(ability_variant("bubbles", cast_by=["player"]))
-        self.assertRefused(self.send(cast("bubbles", "c-1")), "permission_denied", "$.args.capability")
+        self.assertRefused(self.send(cast("bubbles", "c-1", at=IN_THE_OPEN)), "permission_denied", "$.args.capability")
         self.assertTrue(self.send(cast("fireworks", "c-2"))["ok"], "the others are still the companion's")
-        self.assertTrue(self.player(cast("bubbles", "p-1"))["ok"], "the player still casts it, through the Gubble")
+        self.assertTrue(self.player(cast("bubbles", "p-1", at=IN_THE_OPEN))["ok"], "the player still casts it, through the Gubble")
         self.host.use_rules(ability_variant("fireworks", cast_by=["player"]))
-        self.assertEqual(self.host.active_effect_ids(), [], "new rules end what the old ones started")
+        self.assertEqual((self.host.active_effect_ids(), list(self.host.bubbles)), ([], []), "new rules end what the old ones started")
         self.assertRefused(self.send(cast("fireworks", "c-3", at=IN_THE_OPEN)), "permission_denied", "$.args.capability")
-        self.assertTrue(self.send(cast("bubbles", "c-4"))["ok"])
+        self.assertTrue(self.send(cast("bubbles", "c-4", at=IN_THE_OPEN))["ok"])
         self.host.use_rules(ability_variant("bubbles", cast_by=["companion"]))
-        self.assertRefused(self.player(cast("bubbles", "p-2")), "permission_denied", "$.args.capability")
+        self.assertRefused(self.player(cast("bubbles", "p-2", at=IN_THE_OPEN)), "permission_denied", "$.args.capability")
 
     def test_an_ability_without_self_or_without_point(self):
         self.host.use_rules(ability_variant("fireworks", targets=["point"]))
@@ -350,17 +350,24 @@ class BubblesAndFireworks(GlowCase):
         self.assertRefused(refused, "invalid_args", "$.args.targets")
         self.assertEqual(refused["error"]["allowed"], ["point"])
         self.assertTrue(self.send(cast("fireworks", "c-2", at=IN_THE_OPEN))["ok"])
+        # The Bubble is cast at a spot (decision 55): a pack without point leaves it nowhere to land, and never on the Gubble.
         self.host.use_rules(ability_variant("bubbles", targets=["self"]))
         self.assertRefused(self.send(cast("bubbles", "c-3", at=IN_THE_OPEN)), "invalid_args", "$.args.targets")
-        self.assertTrue(self.send(cast("bubbles", "c-4"))["ok"])
+        self.assertRefused(self.send(cast("bubbles", "c-4")), "invalid_args", "$.args.targets")
 
     def test_the_player_casts_them_on_the_gubble_or_a_spot_and_nothing_else(self):
+        # The Bubble only at a spot, where the place decides (here a bubble to walk into); never on the Gubble itself.
+        on_gubble = self.player(cast("bubbles", "p-bubbles-1"))
+        at_spot = self.player(cast("bubbles", "p-bubbles-2", at=IN_THE_OPEN))
+        self.assertRefused(on_gubble, "invalid_args", "$.args.targets")
+        self.assertEqual((at_spot["principal"], at_spot["data"]["target"], at_spot["data"]["kind"]), (PLAYER, "point", "walk_in"))
         for kind in ("bubbles", "fireworks"):
             with self.subTest(kind):
-                on_gubble = self.player(cast(kind, f"p-{kind}-1"))
-                at_spot = self.player(cast(kind, f"p-{kind}-2", at=IN_THE_OPEN))
-                self.assertEqual((on_gubble["data"]["target"], at_spot["data"]["target"]), ("self", "point"))
-                self.assertEqual(on_gubble["principal"], PLAYER)
+                if kind == "fireworks":
+                    on_gubble = self.player(cast(kind, f"p-{kind}-1"))
+                    at_spot = self.player(cast(kind, f"p-{kind}-2", at=IN_THE_OPEN))
+                    self.assertEqual((on_gubble["data"]["target"], at_spot["data"]["target"]), ("self", "point"))
+                    self.assertEqual(on_gubble["principal"], PLAYER)
                 for targets in (["avatar:player"], ["obj:rug"], [GUBBLE, "obj:rug"]):
                     self.assertRefused(self.player(cast(kind, f"p-{kind}-{targets[-1][-3:]}-{len(targets)}", targets=targets)),
                                        "invalid_args", "$.args.targets")
@@ -376,7 +383,7 @@ class BubblesAndFireworks(GlowCase):
                     self.assertEqual((refused["ok"], refused["error"]["code"], refused["error"]["field_path"]),
                                      (False, "permission_denied", "$.args.targets"), refused)
         self.assertEqual(host.active_effect_ids(), [])
-        theirs = host.handle("companion:other", cast("bubbles", "o-1", targets=["avatar:other"]))["created"][0]
+        theirs = host.handle("companion:other", cast("fireworks", "o-1", targets=["avatar:other"]))["created"][0]
         mine = host.handle(COMPANION, cast("fireworks", "c-1"))["created"][0]
         stops = [host.handle(COMPANION, command("effect.stop", {"effect": which}, f"s-{i}")) for i, which in enumerate((theirs, "all"))]
         self.assertEqual([s["data"]["effects_stopped"] for s in stops], [0, 1])
@@ -386,25 +393,30 @@ class BubblesAndFireworks(GlowCase):
             self.assertEqual(contract_problems(result), [], result)
 
     def test_each_ability_has_its_own_cap_and_the_room_caps_them_all(self):
-        # Starting Glow allowance (3), pack caps (2 streams, 3 fireworks) fill the room's 8 across both principals.
-        for i, (kind, who) in enumerate([("glow", self.player), ("glow", self.send), ("glow", self.send),
-                                         ("bubbles", self.player), ("bubbles", self.send),
+        # Starting Glow allowance (3), the one Bubble and the pack's 3 fireworks, across both principals.
+        for i, (kind, who) in enumerate([("glow", self.player), ("glow", self.send), ("glow", self.send), ("bubbles", self.player),
                                          ("fireworks", self.send), ("fireworks", self.player), ("fireworks", self.send)]):
-            self.assertTrue(who(cast(kind, f"fill-{i}"))["ok"], (kind, i))
-        for kind, cap in (("glow", 3), ("bubbles", 2), ("fireworks", 3)):
+            self.assertTrue(who(cast(kind, f"fill-{i}", at=IN_THE_OPEN if kind == "bubbles" else None))["ok"], (kind, i))
+        for kind, cap in (("glow", 3), ("fireworks", 3)):
             with self.subTest(kind):
                 for who in (self.send, self.player):
                     refused = who(cast(kind, f"over-{kind}-{who.__name__}"))
                     self.assertRefused(refused, "budget_exceeded", "$.args.capability")
                     self.assertEqual((refused["error"]["allowed"], refused["error"]["actual"]), (cap, cap),
                                      "an ability's own cap answers first")
+        # The Bubble is one at a time: a recast replaces it rather than being refused (decision 59).
+        first = list(self.host.bubbles)
+        self.assertTrue(self.send(cast("bubbles", "over-bubbles", at=IN_THE_OPEN))["ok"])
+        self.assertEqual(len(self.host.bubbles), 1)
+        self.assertNotEqual(list(self.host.bubbles), first)
         self.player(command("effect.stop", {"effect": "all"}, "p-stop"))
         self.host.policy = dataclasses.replace(self.host.policy, max_active_effects=4)
-        for i, kind in enumerate(("bubbles", "fireworks", "fireworks", "bubbles")):
-            self.assertTrue(self.send(cast(kind, f"room-{i}", at=IN_THE_OPEN if i % 2 else None))["ok"])
+        for i, kind in enumerate(("bubbles", "fireworks", "fireworks", "bubbles", "fireworks")):
+            self.assertTrue(self.send(cast(kind, f"room-{i}", at=IN_THE_OPEN if kind == "bubbles" or i % 2 else None))["ok"], (kind, i))
         capped = self.send(glow("room-glow"))
         self.assertRefused(capped, "budget_exceeded", "$.args.capability")
-        self.assertEqual((capped["error"]["allowed"], capped["error"]["actual"]), (4, 4), "then the room's cap, whatever the kind")
+        self.assertEqual((capped["error"]["allowed"], capped["error"]["actual"]), (4, 4),
+                         "then the room's cap, whatever the kind, the bubble counted at an effect's start")
 
     def test_fireworks_reach_four_metres_and_bubbles_two(self):
         self.host.move_avatar(GUBBLE, [1.8, 0.0, 1.3])
@@ -421,8 +433,8 @@ class BubblesAndFireworks(GlowCase):
 
     def test_a_companions_stop_ends_its_own_of_every_kind_and_none_is_an_entity(self):
         before = (self.host.revision, copy.deepcopy(self.host._snapshot()))
-        players = [self.player(cast(kind, f"p-{kind}", at=IN_THE_OPEN))["created"][0] for kind in ("bubbles", "fireworks")]
-        mine = [self.send(cast(kind, f"c-{kind}"))["created"][0] for kind in ("bubbles", "fireworks")]
+        players = [self.player(cast("fireworks", "p-fireworks", at=IN_THE_OPEN))["created"][0]]
+        mine = [self.send(cast("bubbles", "c-bubbles", at=IN_THE_OPEN))["created"][0], self.send(cast("fireworks", "c-fireworks"))["created"][0]]
         listed = json.dumps([self.send(query("entities.list", {}, "q-1")), self.send(query("observe", {"actor": GUBBLE}, "q-2")),
                              self.send(query("map.find", {"name": "bubbles"}, "q-3"))])
         for effect_id in players + mine:
@@ -431,6 +443,7 @@ class BubblesAndFireworks(GlowCase):
         ended = self.send(command("goal.stop", {}, "s-1"))
         self.assertEqual(set(mine) & set(ended["affected"]), set(mine))
         self.assertEqual(self.host.active_effect_ids(), players, "the player's outlast the companion's stop")
+        self.assertEqual(list(self.host.bubbles), [], "and the companion's bubble pops with it")
         self.assertEqual((self.host.revision, self.host._snapshot()), before, "effects change no saved state")
 
 
@@ -458,23 +471,25 @@ class BubblesAndFireworksThroughMcp(unittest.IsolatedAsyncioTestCase):
             listed = await h.call("capabilities_list", {})
             self.assertEqual([(i["capability"], i["category"]) for i in listed["data"]["items"]],
                              [("bloom", "growth"), ("bubbles", "float"), ("fire", "fire"), ("fireworks", "burst"), ("glow", "light")])
+            # The Bubble only at a spot (the place decides: here a bubble to walk into), never on the companion itself.
+            on_itself = await h.call("effect_start", self.args("bubbles", "bubbles-1", params={}))
+            self.assertRefused(on_itself, "invalid_args", "$.args.targets")
             started = {}
-            for kind in ("bubbles", "fireworks"):
-                started[kind, "self"] = await h.call("effect_start", self.args(kind, f"{kind}-1", params={}))
-                started[kind, "point"] = await h.call("effect_start", self.args(kind, f"{kind}-2", at=IN_THE_OPEN))
+            started["bubbles", "point"] = await h.call("effect_start", self.args("bubbles", "bubbles-2", at=IN_THE_OPEN))
+            started["fireworks", "self"] = await h.call("effect_start", self.args("fireworks", "fireworks-1", params={}))
+            started["fireworks", "point"] = await h.call("effect_start", self.args("fireworks", "fireworks-2", at=IN_THE_OPEN))
             started["fireworks", "far"] = await h.call("effect_start", self.args("fireworks", "fireworks-3", at=FAR_IN_SIGHT))
             self.assertEqual({key: (r["ok"], r["data"]["capability"], r["data"]["target"]) for key, r in started.items()}, {
-                ("bubbles", "self"): (True, "bubbles", "self"), ("bubbles", "point"): (True, "bubbles", "point"),
-                ("fireworks", "self"): (True, "fireworks", "self"), ("fireworks", "point"): (True, "fireworks", "point"),
-                ("fireworks", "far"): (True, "fireworks", "point")})
-            self.assertEqual((started["bubbles", "self"]["data"]["params"], started["fireworks", "self"]["data"]["params"]),
-                             ({"intensity": 0.6}, {"intensity": 0.8}), "the island's defaults")
+                ("bubbles", "point"): (True, "bubbles", "point"), ("fireworks", "self"): (True, "fireworks", "self"),
+                ("fireworks", "point"): (True, "fireworks", "point"), ("fireworks", "far"): (True, "fireworks", "point")})
+            self.assertEqual((started["bubbles", "point"]["data"]["kind"], started["fireworks", "self"]["data"]["params"]),
+                             ("walk_in", {"intensity": 0.8}), "a bubble to walk into; the island's defaults")
             ids = [r["created"][0] for r in started.values()]
             stop = await h.call("effect_stop", {"effect": ids[1]})
             self.assertEqual((stop["affected"], stop["data"]["effects_stopped"]), ([ids[1]], 1))
             ended = await h.call("goal_stop", {})
             self.assertEqual(set(ids) - {ids[1]}, set(ended["affected"]) & set(ids))
-            self.assertEqual(h.host.active_effect_ids(), [])
+            self.assertEqual((h.host.active_effect_ids(), list(h.host.bubbles)), ([], []))
 
     async def test_the_boundary_holds_through_tool_calls(self):
         async with self.harness() as h:
@@ -485,22 +500,22 @@ class BubblesAndFireworksThroughMcp(unittest.IsolatedAsyncioTestCase):
                 "fireworks on a thing": (self.args("fireworks", "t-2", targets=["obj:rug"]), ("permission_denied", "$.args.targets")),
                 "fireworks on the player's bubbles": (self.args("fireworks", "t-3", targets=[players]),
                                                       ("target_not_found", "$.args.targets")),
-                "bubbles too thick": (self.args("bubbles", "b-1", params={"intensity": 1.5}),
+                "bubbles too thick": (self.args("bubbles", "b-1", params={"intensity": 1.5}, at=IN_THE_OPEN),
                                       ("invalid_args", "$.args.params.intensity")),
                 "fireworks too long": (self.args("fireworks", "b-2", duration=8), ("invalid_args", "$.args.duration_s")),
-                "bubbles too wide": (self.args("bubbles", "b-3", radius=1.2), ("invalid_args", "$.args.area.radius_m")),
+                "bubbles too wide": (self.args("bubbles", "b-3", radius=1.2, at=IN_THE_OPEN), ("invalid_args", "$.args.area.radius_m")),
+                "bubbles on the companion itself": (self.args("bubbles", "b-6"), ("invalid_args", "$.args.targets")),
                 "bubbles too far": (self.args("bubbles", "b-4", at=FAR_IN_SIGHT), ("out_of_bounds", "$.args.area.center_m")),
                 "fireworks unseen": (self.args("fireworks", "b-5", at=BEHIND_BOX), ("target_not_found", "$.args.area.center_m")),
             }
             for label, (arguments, (code, field_path)) in refusals.items():
                 with self.subTest(label):
                     self.assertRefused(await h.call("effect_start", arguments), code, field_path)
-            self.assertEqual(h.host.active_effect_ids(), [players], "no refusal started anything")
-            # The player's stream counts toward Bubbles' 2: the companion gets one more.
-            self.assertTrue((await h.call("effect_start", self.args("bubbles", "m-1")))["ok"])
-            capped = await h.call("effect_start", self.args("bubbles", "m-2"))
-            self.assertRefused(capped, "budget_exceeded", "$.args.capability")
-            self.assertEqual((capped["error"]["allowed"], capped["error"]["actual"]), (2, 2))
+            self.assertEqual((h.host.active_effect_ids(), list(h.host.bubbles)), ([], [players]), "no refusal started anything")
+            # One bubble at a time: the companion's replaces the player's (decision 59), which pops.
+            mine = await h.call("effect_start", self.args("bubbles", "m-1", at=[IN_THE_OPEN[0] - 0.2, 0.0, IN_THE_OPEN[2]]))
+            self.assertTrue(mine["ok"], mine)
+            self.assertEqual(list(h.host.bubbles), [mine["created"][0]])
             # What cast_by withholds is refused through the tools too.
             h.host.use_rules(ability_variant("fireworks", cast_by=["player"]))
             self.assertRefused(await h.call("effect_start", self.args("fireworks", "w-1")), "permission_denied",

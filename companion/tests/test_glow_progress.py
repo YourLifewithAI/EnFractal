@@ -39,7 +39,7 @@ class GlowProgressBoundary(unittest.TestCase):
         self.assertTrue(self.send(glow("preview", preview=True))["ok"])
         refused = self.send(glow("far", at=OUT_OF_REACH))
         self.assertEqual(refused["error"]["code"], "out_of_bounds")
-        self.assertTrue(self.send(cast("bubbles", "bubbles"))["ok"])
+        self.assertTrue(self.send(cast("bubbles", "bubbles", at=IN_THE_OPEN))["ok"])
         self.assertEqual(self.state(), (0, frozenset(), 3))
 
         self.assertTrue(self.send(glow("point", at=IN_THE_OPEN))["ok"])
@@ -97,8 +97,9 @@ class GlowProgressBoundary(unittest.TestCase):
         self.assertEqual(self.send(glow("legacy-over"))["error"]["allowed"], 3)
 
         self.host.load_rules(rules_path())
-        for index, kind in enumerate(["glow"] * 4 + ["bubbles"] * 2 + ["fireworks"] * 2):
-            self.assertTrue(self.send(cast(kind, f"engine-{index}"))["ok"])
+        # Four lights, the one Bubble (one at a time) and three fireworks fill the engine's eight, the bubble counted.
+        for index, kind in enumerate(["glow"] * 4 + ["bubbles"] + ["fireworks"] * 3):
+            self.assertTrue(self.send(cast(kind, f"engine-{index}", at=IN_THE_OPEN if kind == "bubbles" else None))["ok"], (index, kind))
         refused = self.send(glow("engine-over"))
         self.assertEqual((refused["error"]["allowed"], refused["error"]["actual"]), (8, 8))
 

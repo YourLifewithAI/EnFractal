@@ -8,38 +8,53 @@ using EnFractal.Native.Room;
 namespace EnFractal.Native.Kernel;
 
 /// <summary>
-/// The Bubble that carries the player (docs/game/MECHANICS.md section 5; decisions 14, 31, 42 and 43): the Bubbles expertise
-/// bubble_carry, bubble_boat and bubble_lift, cast with nature.cast and never by an op that moves a body.
+/// The Bubble (docs/game/MECHANICS.md section 5; decisions 14, 31, 42, 43 and the founder's redesign, 55 to 60): one player-sized
+/// bubble cast at a spot, like Glow, and the place decides what it does. Never an op that moves a body.
+/// - The cast: effect.start of the island's Bubbles (particles.float), the place deciding (BubbleEffectStart): on the player a carry
+///   round them, on water a boat, anywhere else a bubble that holds the player only when they walk into it. nature.cast still names
+///   an expertise outright (bubble_carry on the player or at a point, bubble_boat on water); bubble_lift is no cast any more: Lift is
+///   leading a bubble to a higher spot (CommandHostBubbleLead). The cosmetic stream of small bubbles is gone.
 /// - A bubble is a world object with collision (its motion is swept against the world the bodies stand on) and transient: it
-///   lives for the session like an effect, has an effect: id (effect.stop names it; goal.stop of the Gubble pops it), and nothing
-///   about it is saved. Its receipt is transient too, and the host writes into it as the bubble lives: carried once it holds the
-///   player, ended (popped_by_player, timed_out or popped) once it is gone, so the player can mark it later (M8).
-/// - Consent: a carry or a lift on the player's avatar is previewed first (the ghost the player sees) and names that preview; the
-///   Gubble's commits at least BubbleLaws.GhostLeadS after it. A bubble cast at a point never forms round the player: it holds them
-///   only once they step in. A boat holds them once they step aboard, and an empty boat never slides under them.
-/// - The exit: the dive key (the body) or X (the player's goal.stop) pops it at any moment, whoever cast it; leaving a boat by the
-///   dive key or by walking off its rim. Then the Gubble's carries on the player wait BubbleLaws.PopRespectS. Nothing the companion
-///   sends can hold a player in.
+///   lives for the session like an effect, has an effect: id (effect.stop names it; goal.stop of the Gubble pops it; goal.set lead
+///   leads it), and nothing about it is saved. Its receipt is transient too, and the host writes into it as the bubble lives:
+///   carried once it holds the player, ended (popped_by_player, timed_out or popped) once it is gone, so the player can mark it (M8).
+/// - One at a time (decision 59): a recast pops the one already there, and there is no pause after a pop. Bubbles count toward the
+///   room's effect cap, at a bubble's cast and at any effect's start (PlanEffect).
+/// - Consent: a carry on the player's avatar is previewed first (the ghost the player sees); a Gubble's commits at least
+///   BubbleLaws.GhostLeadS after it. A bubble at a point never forms round the player: it holds them only once they walk in. A boat
+///   holds them once they step aboard, and an empty bubble or boat never moves under or onto them.
+/// - The exit: the dive key (the body) or X (the player's goal.stop) pops it at any moment, whoever cast it and whoever leads it;
+///   leaving a boat by the dive key or by walking off its rim. Nothing the companion sends can hold a player in.
 /// - The deflate: a bubble that pops in the air, by the player, its timer or anything else, lets the body down slowly (the body's
 ///   ride, SmallPlayerController.Bubble.cs), so a carry never ends in a fall, and Lift rises anywhere.
-/// - Steering: the Gubble carries out every ability, so it leads every bubble like a balloon on a string (BubbleLaws.LeashM): the
-///   companion steers a bubble by moving its own avatar (goal.set), and the bubble moves the player only while it holds them.
-/// - The price: the pack's cost for each expertise by principal, through the guard at commit (CommandHostEnergy); a preview, a pop
-///   and a refusal cost nothing. No expertise gate: every island whose pack has Bubbles (particles.float) casts all three.
+/// - Moving: a bubble moves only while the Gubble leads it (goal.set lead, decision 57), like a balloon on a string; it moves the
+///   player only while it holds them. A bubble that holds the player rises to its hover and over rising ground.
+/// - The price: the pack's cost for what the place made of it, by principal, through the guard at commit (CommandHostEnergy): a
+///   bubble to walk into is the Bubbles price, a carry on the player bubble_carry's, a boat bubble_boat's; a lift is bubble_lift's,
+///   charged when it starts to rise. A preview, a pop and a refusal cost nothing. No expertise gate.
 /// - Every number is BubbleLaws'.
 /// </summary>
 public partial class CommandHost
 {
-    /// <summary>The Bubbles expertise, cast with nature.cast (IslandRulesMechanics.BubblesExpertise).</summary>
+    /// <summary>The Bubbles expertise nature.cast names (the contract's enum; bubble_lift is refused as a cast since decision 58).</summary>
     public static bool IsBubbleCapability(string? capability) => capability is "bubble_carry" or "bubble_boat" or "bubble_lift";
 
-    /// <summary>The bubbles in the room now, oldest first.</summary>
+    /// <summary>The words of a refused bubble_lift cast (the mock host's too).</summary>
+    public const string LiftIsALead = "Lift is leading a bubble to a higher spot: cast the Bubble, then lead it there (goal.set lead).";
+    /// <summary>The words of a Gubble's carry on the player cast before the player could see its ghost (the mock host's too).</summary>
+    public const string GhostLeadWords = "The player is still seeing the bubble's ghost; cast it again in a moment.";
+    /// <summary>A cast on the player whose ghost is not showing (the mock host's too).</summary>
+    public const string PreviewAgainWords = "Preview this bubble again before casting: the place, the player or the time has changed.";
+    /// <summary>effect.start's Bubble on the player by the Gubble with no ghost of exactly this cast showing (the mock host's too).</summary>
+    public const string GhostFirstWords = "A bubble on the player is previewed first: preview this cast so the player sees its ghost, then cast it again.";
+    /// <summary>The Bubble cast on the Gubble itself (the mock host's too).</summary>
+    public const string BubbleAtASpotWords = "The Bubble is cast at a spot: on the player, on water or on the ground beside them. Name no targets.";
+
+    /// <summary>The bubbles in the room now (at most one, BubbleLaws.MaxBubbles), oldest first.</summary>
     private readonly List<Bubble> _bubbles = new();
-    /// <summary>A ghost preview of a carry or a lift on the player: whose, for exactly which cast, when made, until when.</summary>
+    /// <summary>A ghost preview of a carry on the player: whose, for exactly which cast, when made, until when.</summary>
     private sealed record BubbleGhost(string Principal, string Signature, Vector3 Center, float Radius, DateTime Made, DateTime Expires);
     private readonly Dictionary<string, BubbleGhost> _bubbleGhosts = new(StringComparer.Ordinal);
-    /// <summary>When the player last left a bubble by the dive key or X, or turned a ghost away: the Gubble's carries on them wait.</summary>
-    private DateTime _playerLeftBubbleAt = DateTime.MinValue;
     /// <summary>A carry that held the player ended: the carry is learned once the body is down (OnBubbleLearned).</summary>
     private bool _carrySetDownPending;
     private Func<SmallPlayerController.BubbleHold?>? _priorBubbleHold;
@@ -52,15 +67,15 @@ public partial class CommandHost
     private const string IdAlphabet = "abcdefghijklmnopqrstuvwxyz234567";
 
     /// <summary>
-    /// The expertise seam (the integrator implements it against M11's store at merge): a carry ended with the player set down
-    /// safely, the player first stepped into a boat, a lift has risen the player. Unimplemented, its calls compile away.
+    /// The expertise seam (wired to M11's store, CommandHostExpertise): a carry ended with the player set down safely, the Bubble was
+    /// cast on water, a lift floated the player up to its spot. Unimplemented, its calls compile away.
     /// </summary>
     partial void OnBubbleLearned(string capability);
 
     /// <summary>Test seam: hears each OnBubbleLearned moment.</summary>
     internal Action<string>? BubbleLearnedForTests { get; set; }
 
-    /// <summary>The bubbles now (tests, the HUD): id, capability, centre, whether it holds the player.</summary>
+    /// <summary>The bubbles now (tests): id, capability, centre, whether it holds the player.</summary>
     public IReadOnlyList<(string Id, string Capability, Vector3 Center, bool Holding)> ActiveBubbles
     {
         get
@@ -77,7 +92,7 @@ public partial class CommandHost
     /// <summary>Whether a bubble holds the player now.</summary>
     public bool PlayerInBubble => HoldsPlayer() != null;
 
-    // ---- what the player's controls send (no key orders a carry yet: the founder's wheel decides; tests use these) ----
+    // ---- what the player's controls send (the HUD's Bubbles key is PlayerEffect("bubbles", spot); tests use these too) ----
 
     public JsonObject PlayerBubblePreview(string capability, Vector3 center, string? target = null, float? radius = null, float? duration = null) =>
         PlayerCommand("nature.cast", BubbleCastArgs(capability, center, target, radius, duration), preview: true);
@@ -99,15 +114,12 @@ public partial class CommandHost
 
     private static JsonObject BubbleCastArgs(string capability, Vector3 center, string? target, float? radius, float? duration)
     {
-        var kind = Bubble.KindOf(capability);
+        var boat = capability == "bubble_boat";
         var args = new JsonObject
         {
             ["capability"] = capability, ["center_m"] = KernelJson.Vector(center),
-            ["radius_m"] = KernelJson.Num(radius ?? (kind == BubbleKind.Boat ? BubbleLaws.BoatRadiusDefaultM : BubbleLaws.CarryRadiusDefaultM)),
-            ["duration_s"] = KernelJson.Num(duration ?? kind switch
-            {
-                BubbleKind.Boat => BubbleLaws.BoatDurationDefaultS, BubbleKind.Lift => BubbleLaws.LiftDurationDefaultS, _ => BubbleLaws.CarryDurationDefaultS,
-            }),
+            ["radius_m"] = KernelJson.Num(radius ?? (boat ? BubbleLaws.BoatRadiusDefaultM : BubbleLaws.CarryRadiusDefaultM)),
+            ["duration_s"] = KernelJson.Num(duration ?? (boat ? BubbleLaws.BoatDurationDefaultS : BubbleLaws.CarryDurationDefaultS)),
         };
         if (target != null) args["target"] = target;
         return args;
@@ -115,13 +127,92 @@ public partial class CommandHost
 
     // ---- the cast ----
 
-    /// <summary>The island's Bubbles (its particles.float ability), whose caster, reach and bounds every expertise uses.</summary>
+    /// <summary>The island's Bubbles (its particles.float ability), whose caster, reach and bounds every bubble uses.</summary>
     private IslandAbility? BubblesAbility()
     {
         if (Rules == null) return null;
         foreach (var ability in Rules.Abilities)
             if (ability.Primitive == "particles.float") return ability;
         return null;
+    }
+
+    /// <summary>The price a bubble pays, by what the place made of it: a bubble to walk into is the plain Bubble.</summary>
+    private string BubblePriceKey(BubbleKind kind, string? target) =>
+        kind == BubbleKind.Boat ? "bubble_boat" : target != null ? "bubble_carry" : BubblesAbility()?.Capability ?? "bubbles";
+
+    /// <summary>
+    /// effect.start of the island's Bubbles, checked by PlanEffect (the rules, the caster, a spot and no targets, the bounds, the
+    /// Gubble's reach, the team's sight, the room's cap with the bubble it replaces): one player-sized bubble at the spot, the place
+    /// deciding what it is (decision 56). Previewed (a carry on the player shows its ghost) or committed, its receipt transient.
+    /// </summary>
+    private JsonObject BubbleEffectStart(EffectPlan plan, string principal, string actionId, string fingerprint, bool preview, string? approvedBy)
+    {
+        var spot = plan.Centre;
+        if (Player == null || !IsInstanceValid(Player) || !Player.IsInsideTree()) throw new Refusal("not_ready", "The player's body is not in the room yet.", retryable: true);
+        var (kind, target, radius, surface) = PlaceTheBubble(spot, "$.args.area.center_m");
+        var duration = (float)plan.DurationS;
+        var signature = BubbleSignature("effect.start:" + plan.Ability.Capability, spot, radius, duration, target);
+        var data = new JsonObject
+        {
+            ["capability"] = plan.Ability.Capability, ["category"] = plan.Ability.Category, ["target"] = "point", ["kind"] = KindWord(kind, target),
+            ["params"] = new JsonObject(), ["area"] = new JsonObject { ["center_m"] = KernelJson.Vector(spot), ["radius_m"] = KernelJson.Num(radius) },
+            ["duration_s"] = plan.DurationS,
+        };
+        if (preview)
+        {
+            // The ghost the player sees round them is the consent for a carry on them.
+            if (target != null) ShowGhost(principal, signature, Player.GlobalPosition + Vector3.Up * (Player.BodyHeightM * 0.5f), radius);
+            var previewed = Previewed("effect.start", principal, actionId);
+            previewed["data"] = data;
+            return previewed;
+        }
+        // A carry on the player: the Gubble's waits for its ghost (the player's own key, or the player's click on a held cast, is
+        // the consent itself). effect.start names no preview: the ghost of exactly this cast by this caster, still showing.
+        string? ghostToken = null;
+        if (target != null)
+        {
+            ghostToken = GhostFor(principal, signature);
+            if (principal != PlayerPrincipal && approvedBy == null)
+            {
+                if (ghostToken == null) throw new Refusal("revision_conflict", GhostFirstWords, "$.args.area.center_m", retryable: true);
+                if (Clock() - _bubbleGhosts[ghostToken].Made < TimeSpan.FromSeconds(BubbleLaws.GhostLeadS))
+                    throw new Refusal("not_ready", GhostLeadWords, "$.args.area.center_m", retryable: true);
+            }
+        }
+        // The guard at commit (CommandHostEnergy): the price of what the place made, by principal, after every check.
+        var price = GuardEnergy(BubblePriceKey(kind, target), principal);
+        if (ghostToken != null) DropGhost(ghostToken);
+        var bubble = FormBubble(kind == BubbleKind.Boat ? "bubble_boat" : "bubble_carry", kind, "effect.start", principal, actionId, fingerprint, target, spot, radius,
+            duration, surface);
+        ChargeEnergy(price);
+        data["effect"] = bubble.Id;
+        data["bubble"] = bubble.Id;
+        data["expires_utc"] = KernelJson.Utc(bubble.Expires);
+        data["carried"] = bubble.Carried;
+        var result = Transient("effect.start", principal, actionId, fingerprint, bubble.Target != null ? new JsonArray(bubble.Id, bubble.Target) : new JsonArray(bubble.Id), data,
+            created: new JsonArray(bubble.Id), approvedBy: approvedBy);
+        if (kind == BubbleKind.Boat) Learned("bubble_boat");
+        return result;
+    }
+
+    private static string KindWord(BubbleKind kind, string? target) => kind == BubbleKind.Boat ? "boat" : target != null ? "carry" : "walk_in";
+
+    /// <summary>
+    /// Where the Bubble lands decides what it is (decision 56): a spot on the player (their feet within the bubble's radius and
+    /// BubbleLaws.EnvelopReachM) is a carry round them; water is a boat, beside them, never under them; anywhere else a bubble that
+    /// waits for them to walk in, which by then is clear of them.
+    /// </summary>
+    private (BubbleKind Kind, string? Target, float Radius, float? Surface) PlaceTheBubble(Vector3 spot, string path)
+    {
+        var feet = Player!.GlobalPosition;
+        if (feet.DistanceTo(spot) <= BubbleLaws.CarryRadiusDefaultM + BubbleLaws.EnvelopReachM) return (BubbleKind.Carry, PlayerAvatar, BubbleLaws.CarryRadiusDefaultM, null);
+        if (WaterForBoat(spot) is { } surface)
+        {
+            if (LevelGap(feet, spot) <= BubbleLaws.BoatRadiusDefaultM + BubbleLaws.StepInClearanceM)
+                throw new Refusal("invalid_args", "The player stands there: cast the boat beside them, and they step aboard.", path);
+            return (BubbleKind.Boat, null, BubbleLaws.BoatRadiusDefaultM, surface);
+        }
+        return (BubbleKind.Carry, null, BubbleLaws.CarryRadiusDefaultM, null);
     }
 
     /// <summary>
@@ -134,7 +225,9 @@ public partial class CommandHost
         var action = Str(root, "action_id")!;
         var preview = root.TryGetProperty("preview", out var asked) && asked.ValueKind == JsonValueKind.True;
         var capability = Str(args, "capability")!;
-        var kind = Bubble.KindOf(capability);
+        // Lift is no cast since the redesign (decision 58): leading a bubble to a higher spot floats it up there.
+        if (capability == "bubble_lift") throw new Refusal("unsupported_capability", LiftIsALead, "$.args.capability");
+        var kind = capability == "bubble_boat" ? BubbleKind.Boat : BubbleKind.Carry;
         var target = Str(args, "target");
         var ability = BubblesAbility() ?? throw new Refusal("unsupported_capability", "This island does not grant Bubbles.", "$.args.capability");
         if (!ability.CastBy.Contains(principal == PlayerPrincipal ? "player" : "companion"))
@@ -168,20 +261,15 @@ public partial class CommandHost
         }
         else if (kind == BubbleKind.Boat)
         {
-            surface = ShallowWaterAt(center) ?? throw new Refusal("invalid_args", "A Bubble boat is cast on shallow water.", "$.args.center_m");
+            surface = WaterForBoat(center) ?? throw new Refusal("invalid_args", "A Bubble boat is cast on water.", "$.args.center_m");
             if (LevelGap(feet, center) <= radius + BubbleLaws.StepInClearanceM)
                 throw new Refusal("invalid_args", "The player stands there: cast the boat beside them, and they step aboard.", "$.args.center_m");
         }
-        // A bubble at a point never forms round the player: stepping in is their consent, so it waits beside them.
+        // A bubble at a point never forms round the player: walking in is their consent, so it waits beside them.
         else if (feet.DistanceTo(center) <= radius + BubbleLaws.StepInClearanceM)
             throw new Refusal("invalid_args", "The player stands there: cast the carry on the player (it is previewed first), or beside them so they can step in.", "$.args.center_m");
-        if (target != null && HoldsPlayer() != null) throw new Refusal("target_busy", "The player is already in a bubble.", "$.args.target", retryable: true);
-        // The player just said no (the dive key, X, or a ghost turned away): the Gubble does not offer again at once.
-        if (target != null && principal != PlayerPrincipal && Clock() - _playerLeftBubbleAt < TimeSpan.FromSeconds(BubbleLaws.PopRespectS))
-            throw new Refusal("not_ready", "The player just left a bubble; offer another in a moment.", "$.args.target", retryable: true);
-        if (_bubbles.Count >= BubbleLaws.MaxBubbles)
-            throw new Refusal("budget_exceeded", "Pop a bubble before casting another.", "$.args.capability", retryable: true, allowed: JsonValue.Create(BubbleLaws.MaxBubbles));
-        if (_effects.Count + _bubbles.Count >= EffectLimit)
+        // One bubble at a time: this one replaces the one there, so only the effects count toward the room's cap.
+        if (_effects.Count >= EffectLimit)
             throw new Refusal("budget_exceeded", "As many effects are running as the room allows; stop one first.", "$.args.capability", retryable: true, allowed: JsonValue.Create(EffectLimit));
         var keyed = principal != PlayerPrincipal && ability.Tier == "keyed_yes";
         var signature = BubbleSignature(capability, center, radius, duration, target);
@@ -202,17 +290,19 @@ public partial class CommandHost
         if ((previewId != null || target != null) && approvedBy == null)
         {
             if (previewId == null || !_bubbleGhosts.TryGetValue(previewId, out var ghost) || ghost.Principal != principal || ghost.Signature != signature || ghost.Expires <= Clock())
-                throw new Refusal("revision_conflict", "Preview this bubble again before casting: the place, the player or the time has changed.", "$.args.preview_id", retryable: true);
+                throw new Refusal("revision_conflict", PreviewAgainWords, "$.args.preview_id", retryable: true);
             if (principal != PlayerPrincipal && Clock() - ghost.Made < TimeSpan.FromSeconds(BubbleLaws.GhostLeadS))
-                throw new Refusal("not_ready", "The player is still seeing the bubble's ghost; cast it again in a moment.", "$.args.preview_id", retryable: true);
+                throw new Refusal("not_ready", GhostLeadWords, "$.args.preview_id", retryable: true);
         }
         if (keyed && approvedBy == null) return Hold(root, principal, action, fingerprint, "nature.cast", "The Gubble asks to blow a bubble.", new());
         // The guard at commit (CommandHostEnergy): the price by principal, after every check; charged once the bubble exists.
-        var price = GuardEnergy(capability, principal);
+        var price = GuardEnergy(BubblePriceKey(kind, target), principal);
         if (previewId != null) DropGhost(previewId);
-        var bubble = FormBubble(capability, kind, principal, action, fingerprint, target, center, radius, duration, surface);
+        var bubble = FormBubble(capability, kind, "nature.cast", principal, action, fingerprint, target, center, radius, duration, surface);
         ChargeEnergy(price);
-        return BubbleReceipt(bubble, center, duration, keyed, approvedBy);
+        var result = BubbleReceipt(bubble, center, duration, keyed, approvedBy);
+        if (kind == BubbleKind.Boat) Learned("bubble_boat");
+        return result;
     }
 
     /// <summary>The exact cast a ghost stands for: the place (as the contract writes it), the size, the time and the avatar.</summary>
@@ -223,10 +313,14 @@ public partial class CommandHost
             ["target"] = target ?? "",
         }));
 
-    /// <summary>A new bubble: round the player (a cast on them), on the water (a boat), or resting at its point waiting for the step-in.</summary>
-    private Bubble FormBubble(string capability, BubbleKind kind, string principal, string action, string fingerprint, string? target, Vector3 center, float radius,
-        float duration, float? surface)
+    /// <summary>
+    /// A new bubble: round the player (a carry on them), on the water (a boat), or resting at its point waiting for the walk-in. One at
+    /// a time: whatever bubble was there pops first (decision 59), its body deflating if it held the player.
+    /// </summary>
+    private Bubble FormBubble(string capability, BubbleKind kind, string op, string principal, string action, string fingerprint, string? target, Vector3 center,
+        float radius, float duration, float? surface)
     {
+        for (var i = _bubbles.Count - 1; i >= 0; i--) EndBubble(_bubbles[i], BubbleEnd.Popped);
         var body = Player!;
         var sweep = SweepRadius(body);
         var at = kind == BubbleKind.Boat ? new Vector3(center.X, surface!.Value + BubbleLaws.BoatDeckAboveWaterM, center.Z)
@@ -236,7 +330,7 @@ public partial class CommandHost
         {
             // 'effect:' and 26 lowercase base32 characters (130 random bits): opaque, never a counter.
             Id = "effect:" + System.Security.Cryptography.RandomNumberGenerator.GetString(IdAlphabet, 26),
-            Capability = capability, Kind = kind, Principal = principal, ActionId = action, Fingerprint = fingerprint, Target = target, Radius = radius,
+            Capability = capability, Kind = kind, Op = op, Principal = principal, ActionId = action, Fingerprint = fingerprint, Target = target, Radius = radius,
             Expires = Clock() + TimeSpan.FromSeconds(duration), Rules = Rules, Center = at, BaseY = at.Y,
             Holding = target != null, Carried = target != null,
         };
@@ -247,8 +341,8 @@ public partial class CommandHost
     }
 
     /// <summary>
-    /// A committed cast's receipt: transient (nothing is saved), its data the bubble's id, the cast, when its time runs out and whether
-    /// it has carried the player. Kept like every transient receipt, and written into as the bubble lives (UpdateBubbleReceipt).
+    /// A committed nature.cast's receipt: transient (nothing is saved), its data the bubble's id, the cast, when its time runs out and
+    /// whether it has carried the player. Kept like every transient receipt, and written into as the bubble lives (UpdateBubbleReceipt).
     /// </summary>
     private JsonObject BubbleReceipt(Bubble bubble, Vector3 center, float duration, bool keyed, string? approvedBy)
     {
@@ -278,9 +372,12 @@ public partial class CommandHost
     }
 
     /// <summary>What happened to a bubble since its cast, written into its receipt (a replay and receipt.lookup answer it so).</summary>
-    private void UpdateBubbleReceipt(Bubble bubble, string field, JsonNode value)
+    private void UpdateBubbleReceipt(Bubble bubble, string field, JsonNode value) => UpdateTransient(bubble.Principal, bubble.ActionId, bubble.Fingerprint, field, value);
+
+    /// <summary>A field written into a kept transient receipt's data, if it is still kept and still that command's.</summary>
+    private void UpdateTransient(string principal, string actionId, string fingerprint, string field, JsonNode value)
     {
-        if (_transient.TryGetValue(bubble.Principal + "|" + bubble.ActionId, out var kept) && kept.Fingerprint == bubble.Fingerprint && kept.Result["data"] is JsonObject data)
+        if (_transient.TryGetValue(principal + "|" + actionId, out var kept) && kept.Fingerprint == fingerprint && kept.Result["data"] is JsonObject data)
             data[field] = value;
     }
 
@@ -300,6 +397,15 @@ public partial class CommandHost
         _bubbleGhosts[token] = new BubbleGhost(principal, signature, center, radius, Clock(), Clock() + TimeSpan.FromSeconds(BubbleLaws.GhostLifetimeS));
         if (LookHook != null && IsInstanceValid(LookHook)) LookHook.ShowBubble("ghost:" + token, center, radius, boat: false, ghost: true);
         return token;
+    }
+
+    /// <summary>The oldest ghost this caster showed for exactly this cast that still shows, or null.</summary>
+    private string? GhostFor(string principal, string signature)
+    {
+        PruneGhosts(Clock());
+        foreach (var (token, ghost) in _bubbleGhosts)
+            if (ghost.Principal == principal && ghost.Signature == signature) return token;
+        return null;
     }
 
     private void DropGhost(string token)
@@ -344,16 +450,12 @@ public partial class CommandHost
 
     /// <summary>
     /// The body left the bubble that held it (SmallPlayerController.BubbleLeft): by the dive key or a trip home (byKey), which pops a
-    /// carry or a lift as the player's own pop and steps off a boat; or by walking off a boat's rim, which leaves the boat floating.
-    /// Either way the body deflates if it is in the air.
+    /// carry as the player's own pop, even mid-lead, and steps off a boat; or by walking off a boat's rim, which leaves the boat
+    /// floating. Either way the body deflates if it is in the air. The dive key also turns away any ghost round them.
     /// </summary>
     private void PlayerLeftBubble(bool byKey)
     {
-        if (byKey)
-        {
-            _playerLeftBubbleAt = Clock();
-            DropPlayerGhosts();
-        }
+        if (byKey) DropPlayerGhosts();
         var held = HoldsPlayer();
         if (held == null) return;
         if (held.Kind == BubbleKind.Boat)
@@ -374,10 +476,9 @@ public partial class CommandHost
     {
         var popped = new List<string>();
         var player = principal == PlayerPrincipal;
-        var turnedAway = false;
         if (which == "all")
         {
-            if (player) turnedAway = DropPlayerGhosts();
+            if (player) DropPlayerGhosts();
             else DropGhostsOf(principal);
         }
         for (var i = _bubbles.Count - 1; i >= 0; i--)
@@ -387,18 +488,21 @@ public partial class CommandHost
             popped.Add(bubble.Id);
             EndBubble(bubble, player ? BubbleEnd.PoppedByPlayer : BubbleEnd.Popped);
         }
-        if (player && (turnedAway || popped.Count > 0)) _playerLeftBubbleAt = Clock();
         popped.Reverse();
         return popped;
     }
 
-    /// <summary>A bubble ends: its receipt says how, the look lets it go, and a body it held deflates (the body sees no hold).</summary>
+    /// <summary>
+    /// A bubble ends: its receipt says how, a lead taking it somewhere ends with it (it popped before it got there), the look lets it
+    /// go, and a body it held deflates (the body sees no hold).
+    /// </summary>
     private void EndBubble(Bubble bubble, BubbleEnd end)
     {
         if (!_bubbles.Remove(bubble)) return;
         if (bubble.Kind == BubbleKind.Carry && bubble.Holding) _carrySetDownPending = true;
         bubble.Holding = false;
         UpdateBubbleReceipt(bubble, "ended", Bubble.EndWord(end));
+        if (bubble.Lead is { } lead) EndLead(bubble, lead, Bubble.EndWord(end), new Refusal("target_not_found", LeadPoppedWords, "$.args.target"));
         if (LookHook != null && IsInstanceValid(LookHook)) LookHook.HideBubble(bubble.Id);
     }
 
@@ -454,8 +558,8 @@ public partial class CommandHost
     // ---- the tick ----
 
     /// <summary>
-    /// The bubbles' tick, from _PhysicsProcess (tests call it): time runs out (the host's clock), the step-in and the step aboard,
-    /// the rise and the hover, the drift after the Gubble swept against the world, and a body that left its bubble.
+    /// The bubbles' tick, from _PhysicsProcess (tests call it): time runs out (the host's clock), the walk-in and the step aboard, the
+    /// hover, and the lead (its drift, its lift, its arrival) swept against the world, and a body that left its bubble.
     /// </summary>
     public void AdvanceBubbles(double delta)
     {
@@ -466,7 +570,7 @@ public partial class CommandHost
         PruneGhosts(now);
         var body = Player != null && IsInstanceValid(Player) && Player.IsInsideTree() ? Player : null;
         // The dive key held while a ghost shows turns the offer away.
-        if (body != null && body.BubblePopKeyHeld && DropPlayerGhosts()) _playerLeftBubbleAt = now;
+        if (body != null && body.BubblePopKeyHeld) DropPlayerGhosts();
         if (_carrySetDownPending && body != null && body.Ride == SmallPlayerController.BubbleRide.None && (body.IsOnFloor() || body.IsSwimming))
         {
             _carrySetDownPending = false;
@@ -496,33 +600,56 @@ public partial class CommandHost
                 return;
             }
         }
-        else
+        // Waiting at its point (or led, empty): it holds the player once they walk in, never moving onto them.
+        else if (!bubble.Carried && middle.DistanceTo(bubble.Center) <= bubble.Radius * 0.8f && HoldsPlayer() == null &&
+                 body.Ride is not (SmallPlayerController.BubbleRide.Enveloped or SmallPlayerController.BubbleRide.Aboard))
         {
-            // Waiting at its point: it holds the player once they step in, and never moves toward them.
-            bubble.Velocity = Vector3.Zero;
-            if (bubble.Carried || middle.DistanceTo(bubble.Center) > bubble.Radius * 0.8f || HoldsPlayer() != null ||
-                body.Ride is SmallPlayerController.BubbleRide.Enveloped or SmallPlayerController.BubbleRide.Aboard) return;
             bubble.Holding = bubble.Carried = true;
             bubble.BaseY = bubble.Center.Y;
             UpdateBubbleReceipt(bubble, "carried", true);
         }
-        // Holding: up to its height (a carry's hover, a lift's rise, and over rising ground), then after the Gubble.
+        var lead = LiveLead(bubble);
+        // A bubble moves only while the Gubble leads it; one that holds the player still rises to its hover and over rising ground.
+        if (!bubble.Holding && lead == null)
+        {
+            bubble.Velocity = Vector3.Zero;
+            return;
+        }
         var sweep = SweepRadius(body);
-        var lift = bubble.Kind == BubbleKind.Lift;
-        var targetY = bubble.BaseY + (lift ? BubbleLaws.LiftRiseM : BubbleLaws.CarryHoverM);
-        if (GroundBelow(bubble.Center, BubbleLaws.LiftRiseM + 1f) is { } ground) targetY = Math.Max(targetY, ground + sweep + (lift ? 0 : BubbleLaws.CarryHoverM));
-        var rate = (lift ? BubbleLaws.LiftRiseMps : BubbleLaws.CarryRiseMps) * dt;
-        var level = Leash(bubble.Center, BubbleLaws.CarrySpeedMps * dt);
-        var motion = new Vector3(level.X, Mathf.Clamp(targetY - bubble.Center.Y, -rate, rate), level.Y);
-        var moved = bubble.Center + motion * SweepFraction(bubble.Center, motion, sweep);
+        var hover = bubble.Holding ? BubbleLaws.CarryHoverM : 0f;
+        var targetY = bubble.BaseY + hover;
+        if (GroundBelow(bubble.Center, BubbleLaws.LiftRiseM + 1f) is { } ground) targetY = Math.Max(targetY, ground + sweep + hover);
+        var rate = BubbleLaws.CarryRiseMps * dt;
+        var level = Vector2.Zero;
+        var held = false;
+        if (lead != null)
+        {
+            (level, held) = LeadStep(bubble, lead, BubbleLaws.CarrySpeedMps * dt);
+            if (lead.Lift && !lead.Rising && !StartLift(bubble, lead)) return;
+            if (lead.Rising)
+            {
+                targetY = Math.Max(targetY, lead.RiseToY);
+                rate = BubbleLaws.LiftRiseMps * dt;
+            }
+            // Empty, it never moves onto the player: it stops short of them (walking in stays their own consent).
+            if (!bubble.Holding && level != Vector2.Zero)
+            {
+                var next = bubble.Center + new Vector3(level.X, 0, level.Y);
+                var clear = bubble.Radius + BubbleLaws.StepInClearanceM + body.BodyRadiusM;
+                if (middle.DistanceTo(next) <= clear && middle.DistanceTo(next) < middle.DistanceTo(bubble.Center)) level = Vector2.Zero;
+            }
+        }
+        // Up or down first, then along: a face in the way stops the drift, never the rise that clears it.
+        var rise = new Vector3(0, Mathf.Clamp(targetY - bubble.Center.Y, -rate, rate), 0);
+        var risen = bubble.Center + rise * SweepFraction(bubble.Center, rise, sweep);
+        var along = new Vector3(level.X, 0, level.Y);
+        var moved = risen + along * SweepFraction(risen, along, sweep);
         bubble.Velocity = (moved - bubble.Center) / dt;
+        var wanted = level.Length();
+        var went = LevelGap(moved, bubble.Center);
         bubble.Center = moved;
         if (LookHook != null && IsInstanceValid(LookHook)) LookHook.MoveBubble(bubble.Id, moved);
-        if (lift && !bubble.Risen && bubble.Center.Y >= bubble.BaseY + BubbleLaws.LiftRiseM - 0.01f)
-        {
-            bubble.Risen = true;
-            Learned("bubble_lift");
-        }
+        if (lead != null) AfterLeadStep(bubble, lead, dt, wanted, went, held, Math.Abs(targetY - moved.Y) <= BubbleLaws.LeadArriveRiseM);
     }
 
     private void StepBoat(Bubble bubble, SmallPlayerController body, float dt)
@@ -550,41 +677,37 @@ public partial class CommandHost
             {
                 bubble.Carried = true;
                 UpdateBubbleReceipt(bubble, "carried", true);
-                Learned("bubble_boat");
             }
         }
-        // It floats on the water and drifts after the Gubble wherever the water goes; empty, it never slides under the player.
-        var step = Leash(bubble.Center, BubbleLaws.BoatSpeedMps * dt);
+        // It floats on the water; it moves only while the Gubble leads it, wherever the water goes; empty, it never slides under the player.
         bubble.Velocity = Vector3.Zero;
-        if (step == Vector2.Zero) return;
+        var lead = LiveLead(bubble);
+        if (lead == null) return;
+        var (step, held) = LeadStep(bubble, lead, BubbleLaws.BoatSpeedMps * dt);
+        var wanted = step.Length();
+        var went = 0f;
         var next = bubble.Center + new Vector3(step.X, 0, step.Y);
-        if (!bubble.Holding && LevelGap(feet, next) <= bubble.Radius + BubbleLaws.StepInClearanceM + body.BodyRadiusM) return;
-        if (FloatingWaterAt(next) is not { } surface) return;
-        // Its rim meets the shore, rocks and walls: a small sphere just over the deck, swept.
-        var motion = new Vector3(step.X, 0, step.Y);
-        var rim = new Vector3(0, BubbleLaws.BoardAboveDeckM, 0);
-        var moved = bubble.Center + motion * SweepFraction(bubble.Center + rim, motion, BubbleLaws.BoardAboveDeckM * 0.8f);
-        moved.Y = surface + BubbleLaws.BoatDeckAboveWaterM;
-        bubble.Velocity = (moved - bubble.Center) / dt;
-        bubble.Center = moved;
-        if (LookHook != null && IsInstanceValid(LookHook)) LookHook.MoveBubble(bubble.Id, moved);
-    }
-
-    /// <summary>The level step toward the Gubble that leads the bubble (none while it is within the leash, or when no Gubble is here).</summary>
-    private Vector2 Leash(Vector3 from, float most)
-    {
-        if (Companion == null || !IsInstanceValid(Companion)) return Vector2.Zero;
-        var to = new Vector2(Companion.GlobalPosition.X - from.X, Companion.GlobalPosition.Z - from.Z);
-        var distance = to.Length();
-        if (distance <= BubbleLaws.LeashM || !float.IsFinite(distance)) return Vector2.Zero;
-        return to / distance * Math.Min(most, distance - BubbleLaws.LeashM);
+        if (step != Vector2.Zero && (bubble.Holding || LevelGap(feet, next) > bubble.Radius + BubbleLaws.StepInClearanceM + body.BodyRadiusM) &&
+            FloatingWaterAt(next) is { } surface)
+        {
+            // Its rim meets the shore, rocks and walls: a small sphere just over the deck, swept.
+            var motion = new Vector3(step.X, 0, step.Y);
+            var rim = new Vector3(0, BubbleLaws.BoardAboveDeckM, 0);
+            var moved = bubble.Center + motion * SweepFraction(bubble.Center + rim, motion, BubbleLaws.BoardAboveDeckM * 0.8f);
+            moved.Y = surface + BubbleLaws.BoatDeckAboveWaterM;
+            bubble.Velocity = (moved - bubble.Center) / dt;
+            went = LevelGap(moved, bubble.Center);
+            bubble.Center = moved;
+            if (LookHook != null && IsInstanceValid(LookHook)) LookHook.MoveBubble(bubble.Id, moved);
+        }
+        AfterLeadStep(bubble, lead, dt, wanted, went, held, settled: true);
     }
 
     private static float LevelGap(Vector3 a, Vector3 b) => new Vector2(a.X - b.X, a.Z - b.Z).Length();
 
     // ---- the world: collision and water ----
 
-    /// <summary>A carry's swept shape: the sphere round the body, so the bubble goes wherever the body fits.</summary>
+    /// <summary>A bubble's swept shape: the sphere round the body, so the bubble goes wherever the body fits.</summary>
     private static float SweepRadius(SmallPlayerController body) => body.BodyHeightM * 0.5f + 0.005f;
 
     /// <summary>The avatars are inside or beside their bubbles: the sweep passes through them.</summary>
@@ -636,11 +759,11 @@ public partial class CommandHost
         return water;
     }
 
-    /// <summary>Shallow water at a cast's point (its surface within 10 cm of it), where a boat is cast: the surface, or null.</summary>
-    private float? ShallowWaterAt(Vector3 point)
+    /// <summary>Water at a cast's spot (its surface within BubbleLaws.BoatCastSurfaceM of it), where the Bubble is a boat: the surface, or null.</summary>
+    private float? WaterForBoat(Vector3 point)
     {
-        var water = WaterColumn(point, 0.1f, 0.1f);
-        return water.Wet && water.DepthM >= BubbleLaws.BoatCastMinDepthM && water.DepthM <= BubbleLaws.BoatCastMaxDepthM ? water.SurfaceY : null;
+        var water = WaterColumn(point, BubbleLaws.BoatCastSurfaceM, BubbleLaws.BoatCastSurfaceM);
+        return water.Wet && water.DepthM >= BubbleLaws.BoatCastMinDepthM && Math.Abs(water.SurfaceY - point.Y) <= BubbleLaws.BoatCastSurfaceM ? water.SurfaceY : null;
     }
 
     /// <summary>Water a boat floats on at a place (near the deck it has now): the surface, or null.</summary>

@@ -757,15 +757,20 @@ public partial class PlayHudTest : Node
                   host.TransientReceiptCount(CommandHost.PlayerPrincipal) == receipts && host.ActiveEffectIds.Count == 0,
                 $"{OS.GetKeycodeString(key)}: a slot this island has no ability for shrugs \"not yet\" and sends nothing");
         }
-        // 3 and 4: Bubbles and Fireworks (storybook_wild v2), through Glow's cast path: on the Gubble at nothing, else where you point.
+        // 3 and 4: Bubbles and Fireworks, through Glow's cast path. Since the Bubble's redesign (decisions 55 to 60, Kernel/Bubble) the
+        // Bubble is one bubble at a spot, the place deciding, and none on the Gubble itself: aimed at nothing the host refuses it (the
+        // HUD's right-click flow is the Sonnet pass's); aimed at the floor it is the one bubble there, no stream the look blows.
         _hud.AimRayForTests = Air();
         _hud._UnhandledInput(Press(Key.Key3));
-        var bubbles = host.ActiveEffectIds.LastOrDefault();
-        Check(bubbles != null && look.KindOf(bubbles) == LookDirector.EffectKind.Bubbles && _hud.Cue.Icon == GubbleMagic.SlotIcons[2] && _hud.Cue.State == "done" &&
-              companion.LastGesture == CompanionAvatar.Gesture.CastSelf && companion.LastCastCategory == "float",
-            "3 aimed at nothing: Bubbles from the Gubble itself, its bubble showing their icon, the Gubble lifting as they rise");
+        Check(host.ActiveBubbles.Count == 0 && host.ActiveEffectIds.Count == 0 && _hud.Cue.State == "refused",
+            "3 aimed at nothing: no Bubble on the Gubble itself any more; the host refuses it and the Gubble shakes its head: " + _hud.Cue.Reason);
         var spot = FloorNearGubble(0.4f);
         _hud.AimRayForTests = Down(spot);
+        _hud._UnhandledInput(Press(Key.Key3));
+        var bubbles = host.ActiveBubble?.Id;
+        Check(bubbles != null && host.ActiveEffectIds.Count == 0 && look.KindOf(bubbles) != LookDirector.EffectKind.Bubbles && _hud.Cue.Icon == GubbleMagic.SlotIcons[2] &&
+              _hud.Cue.State == "done" && companion.LastCastCategory == "float",
+            "3 aimed at the floor: the one Bubble there, no stream of small bubbles: " + host.ActiveBubble);
         _hud._UnhandledInput(Press(Key.Key4));
         var fireworks = host.ActiveEffectIds.LastOrDefault();
         Check(fireworks != null && fireworks != bubbles && look.KindOf(fireworks) == LookDirector.EffectKind.Fireworks && _hud.Cue.Icon == GubbleMagic.SlotIcons[3] && _hud.Cue.State == "done" &&
@@ -774,7 +779,7 @@ public partial class PlayHudTest : Node
         Check(CompanionAvatar.CastSeconds("float") > CompanionAvatar.CastSeconds("light") && CompanionAvatar.CastSeconds("burst") < CompanionAvatar.CastSeconds("light"),
             "the gesture blows longer for Bubbles and tosses quicker for Fireworks");
         _hud._UnhandledInput(Press(Key.X));
-        Check(host.ActiveEffectIds.Count == 0 && look.EffectCount == 0, "X ends the bubbles and the fireworks with the Gubble's goal");
+        Check(host.ActiveEffectIds.Count == 0 && host.ActiveBubbles.Count == 0 && look.EffectCount == 0, "X pops the bubble and ends the fireworks with the Gubble's goal");
         _hud.AimRayForTests = Air();
         _hud._UnhandledInput(Press(Key.Q));
         Check(companion.CurrentIntent == "come", "Q calls the Gubble (come)");
