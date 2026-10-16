@@ -153,27 +153,26 @@ Manual direction and future wishes earn exactly the same discoveries for the sam
 
 ### Expertise for Bubbles, Fire and Grow (M11, written 15 October)
 
-**The rules every list shares, as Glow's.** The host verifies each condition itself, at a committed cast or from the simulation's own state; previews, refused or held commands, restored effects, idle following and anything the AI says earn nothing. Either of the pair earns them, the Gubble's own idea included, once per team, kept in the team's expertise store under the ability's id (the store's `abilities` map: `glow`, `bubbles`, `fire`, and `grow` once Grow is built) and shared by every mode. A fire that hurt the player or scorched a creation earns no Fire expertise. **Hints** follow Glow's: at a team's 10th, 20th, 30th, 40th and 50th successful cast of that ability, the hint of the first expertise in the list's order not yet learned; a hint points, never names the trigger; a list's unlearned entries show as smudged text in the journal. Each new expertise writes its pace line and the Gubble's wiggle line. **The pips' maximum** is 8 plus one per five expertise across every ability (ceiling 40 in the pack): Glow's five reach 9, Bubbles' and Fire's ten more 11, Grow's five 12. Every number below is provisional.
+**The rules every list shares, as Glow's.** The host verifies each condition itself, at a committed cast or from the simulation's own state; previews, refused or held commands, restored effects, idle following and anything the AI says earn nothing. Either of the pair earns them, the Gubble's own idea included, once per team, kept in the team's expertise store under the ability's id (the store's `abilities` map: `glow`, `bubbles`, `fire`, and `grow` once Grow is built) and shared by every mode. A fire that hurt the player or scorched a creation earns no Fire expertise. The integrator's first lists for Bubbles and Fire (15 October) were replaced the same evening by the founder's, below. **Hints** follow Glow's: at a team's 10th, 20th, 30th, 40th and 50th successful cast of that ability, the hint of the first expertise in the list's order not yet learned; a hint points, never names the trigger; a list's unlearned entries show as smudged text in the journal. Each new expertise writes its pace line and the Gubble's wiggle line. **The pips' maximum** is 8 plus one per five expertise across every ability (ceiling 40 in the pack): Glow's five reach 9; with full lists for Bubbles, Fire and Grow, 12. Every number below is provisional.
 
-**Bubbles** (`bubbles`), in hint order:
+**Bubbles** (`bubbles`; the founder's redesign of the evening of 15 October, MECHANICS.md decisions 55 to 60): one player-sized bubble cast at a spot, like Glow, and where it lands decides what it does. The list so far:
 
-1. `bubble_trail`, **Bubble trail**: a Bubbles cast that follows the Gubble (the stream from its body). Hint: the Gubble's bubbles seem to want to stay close to it.
-2. `pond_bubbles`, **Pond bubbles**: a Bubbles cast at a point on water (the water test Glow's Bioluminesce uses); those bubbles skim and bob on the surface instead of rising (a small change to their look, built with the list). Hint: bubbles might behave differently somewhere wet.
-3. `bubble_carry`, **Bubble carry**: the first carry that set the player down safely, by the player's pop, its timer or its deflate (packet M9).
-4. `bubble_boat`, **Bubble boat**: the first time the player steps into a Bubble boat (M9).
-5. `bubble_lift`, **Bubble lift**: the first lift that rose the player (M9).
+1. `bubble_carry`, **Bubble carry**: the Bubble cast on the player (the ghost first); learned by the first carry that sets the player down safely, by the player's pop, its timer or its deflate.
+2. `bubble_boat`, **Bubble boat**: the Bubble cast on water becomes a boat; learned by casting it there (the first boat the player steps into).
+3. `bubble_lift`, **Bubble lift**: a bubble led to a higher spot floats up there; learned the first time that works.
+4. and 5. Not chosen yet (candidates: a bubble led all the way to the marked spot without popping; Glow cast on a bubble).
 
-Carry, boat and lift can be cast before they are learned: their price (4, 4 and 6 ordered; 2, 2 and 3 as the Gubble's own idea) is their only gate, and the first one that works teaches it. *Glowing bubbles* stays a Glow variant, outside Glow's first five.
+None is locked: the price (4, 4 and 6 ordered; 2, 2 and 3 as the Gubble's own idea) is the only gate, and the first one that works teaches it. One Bubble is active at a time; a recast pops the one there.
 
-**Fire** (`fire`), never rewarding harm, in hint order:
+**Fire** (`fire`; the founder's design of the evening of 15 October, MECHANICS.md decisions 61 to 63), never rewarding harm:
 
-1. `campfire`, **Campfire**: a fire that went out by itself having burnt at most 12 ground cells, with nothing scorched or burnt down and no one hurt.
-2. `firebreak`, **Firebreak**: a fire whose spread was stopped at least once by wet ground (moisture at the spread limit or above, 0.7 today).
-3. `rain_out`, **Rain-out**: a fire that went out while it rained (the weather's rain, `Rain01` 0.65 or more).
-4. `with_the_wind`, **With the wind**: a fire that caught at least 6 cells downwind while the wind blew at 0.2 m/s or more.
-5. `night_fire`, **Night fire**: a fire lit after dark (the sun at or below 6 degrees under the horizon, the day phase the Gubble's eyes already use); its light carries across the land (if the fire's look has no light yet, it gets one, inside the light budget).
+1. `first_fire`, **Fire**: the Gubble learns Fire when the player first rests at the island's starting campfire; until then it has no Fire.
+2. `campfire`, **Campfire**: the first firepit the Gubble lights with Fire, which becomes a campfire, a campsite the player can choose to return to (hearts refill faster there).
+3. `fireline`, **Fireline**: Fire cast several times along one line; afterwards Fireline is cast by dragging a line.
+4. `snuff`, **Snuff**: rain falls on a fire the Gubble started, or the Bubble is cast on a fire.
+5. `will_o_wisp`, **Will-o'-wisp**: Fire cast on water; a ghostly flame hovers over the water, a lantern at night and a floating flame by day.
 
-1 to 4 are earned when the fire ends, 5 when it is lit, by whichever of the pair lit it.
+Each needs its behaviour built first (the island's firepits from the generator, resting, the fire line's drag, snuffing, the wisp), so the Fire packet builds the list with them.
 
 **Grow** (`grow`; built after the Grow packet, decision 52), in hint order; each is a committed Grow cast unless said:
 

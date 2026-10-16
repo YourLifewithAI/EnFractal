@@ -253,6 +253,18 @@ Multiplayer is a later phase and out of scope for the engine work now.
 53. The journal pulses when five Fractals are in hand (a spend is possible at the camp).
 54. While an island is held (the boot could not set its mode), the journal's nature page says the island is paused instead of describing Creative.
 
+**Decided by the founder after M9 was built (the evening of 15 October)** (the Bubble and Fire):
+
+55. The Bubble is one player-sized bubble cast at a spot, like Glow; no stream of small bubbles. A bubble cast at a spot holds the player only when they walk into it.
+56. Where it lands decides what it does, as Glow's variants: on the player, a carry (the ghost first; the Gubble then carries them a short way like a balloon on a string); on water, a boat, learned by casting the Bubble on water; at a spot, a bubble to walk into.
+57. Steering is the smart ask: right-click a bubble to select it (it highlights like a thing that can be carried), then right-click a spot; the Gubble leads the bubble there, and it may pop before it arrives.
+58. Lift: leading a bubble to a higher spot (a ledge, a rock top) floats it up there; the first time that works teaches Lift; its price (6, or 3 as the Gubble's idea) is charged when it starts to rise. The 1.2 m rise stays, to test.
+59. No pause after the player pops out: the Gubble may cast the Bubble again, but only one Bubble is active at a time for now, and a recast pops the one already there.
+60. A pop is part of the play: how far a bubble can carry is something the pair learns. The Gubble's own stop pops the bubble it leads, and the player drifts down gently where it popped, which may be short of the goal; the player's mark on the receipt teaches the AI.
+61. Fire begins at the camp: the Gubble learns Fire when the player first rests at the island's starting campfire, so every island has a starting point with a campfire. Then it can cast a basic Fire that catches things alight.
+62. Firepits are scattered evenly over the island and double as campsites: a firepit the Gubble has lit with Fire becomes a campfire the player can choose to return to. Campfires and campsites refill hearts faster.
+63. Fire's five expertise for now: learning Fire itself at the starting campfire; **Campfire**, the first firepit lit; **Fireline**, Fire cast several times along one line (afterwards Fireline is cast by dragging a line); **Snuff**, rain falling on a fire the Gubble started, or the Bubble cast on a fire; **Will-o'-wisp**, Fire cast on water (a ghostly flame hovering over the water, a lantern at night and a floating flame by day; later fish or squid rise toward it to be collected, decorative for now). Fire grows in strength and with other abilities later.
+
 **Still open for the founder** (with the recommendation this document carries; the letter is the one the build plan uses):
 
 - F. **Competitive balance** (the brief's two options): a sealed profile with knowledge as the only carry-over is the recommendation (section 9). Live is later, so no packet waits on it.
