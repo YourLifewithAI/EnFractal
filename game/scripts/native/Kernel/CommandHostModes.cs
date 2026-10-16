@@ -286,7 +286,8 @@ public partial class CommandHost
             // In quarters the heal lands whole: one quarter every heal_quarter_every_s.
             if (heal && _vitalsRules.InQuarters)
             {
-                _healS += seconds;
+                // At a camp (the starting one or any lit campfire) hearts refill faster (decision 62; CampLaws.CampHeartsFactor).
+                _healS += seconds * CampHeartsFactorNow();
                 while (_healS >= _vitalsRules.HealQuarterEveryS && vitals.Health < vitals.MaxHealth)
                 {
                     _healS -= _vitalsRules.HealQuarterEveryS;

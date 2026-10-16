@@ -191,11 +191,15 @@ public partial class RoomWorld : Node3D
             // appearance profile the HUD read first. A fixture's room has no team file and keeps the profile's, as before.
             if (team.GameBoot && commandHost.Team is { } teamFile) hud.UseTeam(teamFile);
             commandHost.ConfigureNature();
+            // Fire's camp (decision 49): the two bodies where this mode's island save last saw them, else at the starting campfire.
+            commandHost.PlaceAtStartSpot();
             // The island's clock record once the save is read (M6): none, the machine's clock, as before.
             Look.SetWorldClockFrom(commandHost.ClockRecord);
             var natureLook = new NatureLook { Name = "NatureLook" };
             AddChild(natureLook);
             natureLook.Configure(commandHost, Built);
+            // The campfires: the starting one and the firepits, unlit or lit (Fire's camp).
+            AddChild(global::EnFractal.Native.Look.CampfireLook.Create(commandHost));
             // The Fractals still on the island, drawn with their glints (Run 2, L9: docs/look/FRACTALS.md).
             AddChild(global::EnFractal.Native.Look.Fractals.FractalLook.Create(commandHost, Look));
             // The hamlet's charm: smoke, warm windows, bunting, washing, lantern glow and fairy lights (Run 2, L11: docs/look/CHARM.md).
